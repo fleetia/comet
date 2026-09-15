@@ -92,7 +92,44 @@ it("shows foreground generation while automatic conversation is paused", () => {
       }}
     />,
   );
-  expect(screen.getByRole("status").textContent).toBe("말을 고르는 중…");
+  expect(screen.getByRole("status").textContent).toBe("답변 준비 중...");
+  expect(screen.getByRole("status").querySelector('[aria-hidden="true"]')?.textContent).toBe("...");
+});
+
+it("shows waiting dots until dialogue arrives and clears them when generation stops", () => {
+  const snapshot = { ...PREVIEW_SNAPSHOT, panel: null, playback: null };
+  const { rerender } = render(
+    <Balloon snapshot={{ ...snapshot, runtime: { ...snapshot.runtime, phase: "loading" } }} />,
+  );
+  expect(screen.getByText("답변 준비 중")).toBeTruthy();
+  rerender(
+    <Balloon snapshot={{ ...snapshot, runtime: { ...snapshot.runtime, phase: "generating" } }} />,
+  );
+  expect(screen.getByText("답변 준비 중")).toBeTruthy();
+  rerender(
+    <Balloon
+      snapshot={{
+        ...snapshot,
+        runtime: { ...snapshot.runtime, phase: "generating" },
+        playback: {
+          id: "reply",
+          persona: "a",
+          expression: "기쁨",
+          text: "안녕!",
+          source: "llm",
+          endsAt: 100,
+          lineIndex: 0,
+          lineCount: 1,
+        },
+      }}
+    />,
+  );
+  expect(screen.getByText("안녕!")).toBeTruthy();
+  expect(screen.queryByText("답변 준비 중")).toBeNull();
+  for (const phase of ["idle", "error"] as const) {
+    rerender(<Balloon snapshot={{ ...snapshot, runtime: { ...snapshot.runtime, phase } }} />);
+    expect(screen.queryByText("답변 준비 중")).toBeNull();
+  }
 });
 
 it("keeps resting bodies free of old dialogue and changes only the active actor expression", () => {

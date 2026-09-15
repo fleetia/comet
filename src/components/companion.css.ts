@@ -1,4 +1,4 @@
-import { style, styleVariants } from "@vanilla-extract/css";
+import { keyframes, style, styleVariants } from "@vanilla-extract/css";
 
 export const body = style({
   width: "100%",
@@ -89,6 +89,38 @@ export const speech = style({
   overflowY: "auto",
   flex: 1,
   minHeight: 0,
+});
+const waitingPulse = keyframes({
+  "0%, 80%, 100%": { opacity: 0.3 },
+  "40%": { opacity: 1 },
+});
+export const waitingDots = style({
+  display: "inline-flex",
+  justifyContent: "space-between",
+  width: "1.2em",
+});
+export const waitingDot = style({
+  width: "0.3em",
+  textAlign: "center",
+  opacity: 0.3,
+  animation: `${waitingPulse} 1.2s ease-in-out infinite`,
+  selectors: {
+    "&:nth-child(2)": { animationDelay: "0.16s" },
+    "&:nth-child(3)": { animationDelay: "0.32s" },
+  },
+  "@media": {
+    "(prefers-reduced-motion: reduce)": { animation: "none", opacity: 1 },
+  },
+});
+export const waitingLabel = style({
+  position: "absolute",
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: "hidden",
+  clipPath: "inset(50%)",
+  whiteSpace: "nowrap",
 });
 export const footer = style({
   padding: "6px 14px 10px",

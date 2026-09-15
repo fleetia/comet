@@ -6,6 +6,20 @@ import * as ui from "../styles.css";
 import { characterName } from "./characterIdentity";
 
 type Props = { snapshot: Snapshot; preview?: boolean; dispatch?: Dispatch };
+
+function WaitingDots(): JSX.Element {
+  return (
+    <>
+      <span className={s.waitingLabel}>답변 준비 중</span>
+      <span className={s.waitingDots} aria-hidden="true">
+        <span className={s.waitingDot}>.</span>
+        <span className={s.waitingDot}>.</span>
+        <span className={s.waitingDot}>.</span>
+      </span>
+    </>
+  );
+}
+
 export function shouldSubmit(
   event: Pick<KeyboardEvent<HTMLTextAreaElement>, "key" | "shiftKey" | "nativeEvent">,
   composing: boolean,
@@ -237,7 +251,7 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
           />
           <div className={s.row}>
             <span className={ui.quiet} role="status">
-              {responding ? "말을 고르는 중…" : ""}
+              {responding && <WaitingDots />}
             </span>
             <button
               className={ui.primary}
@@ -286,11 +300,9 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
         </>
       )}
       {!mode && (
-        <>
-          <div className={s.speech} aria-live="polite">
-            {snapshot.playback?.text ?? (responding ? "잠깐, 말을 고르고 있어…" : "")}
-          </div>
-        </>
+        <div className={s.speech} aria-live="polite">
+          {snapshot.playback?.text ?? (responding ? <WaitingDots /> : "")}
+        </div>
       )}
       {(visibleError || canRetry || responding) && (
         <div className={s.notice}>

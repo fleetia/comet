@@ -395,6 +395,123 @@ fn start_turn(
     });
 }
 
+fn turn_prompt(
+    db: &Connection,
+    targets: &[String],
+    message_id: &str,
+) -> Result<Vec<ChatMessage>, String> {
+    let memories = store::memories(db)?;
+    let relationships = store::relationships(db)?;
+    match targets {
+        [a, b] if a == "a" && b == "b" => {
+            let histories = [
+                store::context_messages_for(db, 24, "a")?,
+                store::context_messages_for(db, 24, "b")?,
+            ];
+            let latest_user = histories[0]
+                .iter()
+                .find(|message| {
+                    message.id == message_id
+                        && message.role == "user"
+                        && message.status == "complete"
+                        && message.persona.as_deref() == Some("both")
+                        && histories[1].iter().any(|other| other.id == message.id)
+                })
+                .ok_or("대화의 근거가 변경되었어요. 새 메시지로 말해 주세요.")?;
+            Ok(domain::pair_prompt_messages(
+                &[
+                    characters::active_character(db, "a")?.definition,
+                    characters::active_character(db, "b")?.definition,
+                ],
+                &histories,
+                &memories,
+                &relationships,
+                latest_user,
+            ))
+        }
+        [persona] if persona == "a" || persona == "b" => {
+            let mut messages = store::context_messages_for(db, 24, persona)?;
+            let is_pair_reply = messages.iter().any(|message| {
+                message.id == message_id
+                    && message.role == "user"
+                    && message.status == "complete"
+                    && message.persona.as_deref() == Some("both")
+            });
+            if is_pair_reply {
+                let other = if persona == "a" { "b" } else { "a" };
+                let previous = store::context_messages_for(db, 100, other)?;
+                if let Some(reply) = previous.into_iter().find(|message| {
+                    message.id == reply_id(message_id, other)
+                        && message.role == "assistant"
+                        && message.status == "complete"
+                }) {
+                    if !messages.iter().any(|message| message.id == reply.id) {
+                        messages.push(reply);
+                    }
+                }
+            }
+            let score = relationships
+                .iter()
+                .find(|relationship| relationship.persona == *persona)
+                .map_or(20, |relationship| relationship.score);
+            Ok(domain::prompt_messages(
+                persona,
+                &characters::active_character(db, persona)?.definition,
+                &messages,
+                &memories,
+                &Relationship {
+                    persona: persona.clone(),
+                    score,
+                },
+            ))
+        }
+        _ => Err("대화 상대를 선택해 주세요.".into()),
+    }
+}
+
+async fn generate_turn(
+    state: &AppState,
+    targets: &[String],
+    message_id: &str,
+    cancel: Arc<AtomicBool>,
+) -> Result<(Vec<SceneLine>, i64), String> {
+    let (settings, prompt, revision) = {
+        let db = lock(&state.db)?;
+        (
+            store::settings(&db)?,
+            turn_prompt(&db, targets, message_id)?,
+            store::revision(&db)?,
+        )
+    };
+    let paired = targets.len() == 2;
+    let value = inference::generate(
+        &state.inference,
+        &settings,
+        &prompt,
+        if paired {
+            domain::pair_reply_schema()
+        } else {
+            domain::reply_schema()
+        },
+        if paired { 512 } else { 256 },
+        cancel,
+    )
+    .await?;
+    let lines = if paired {
+        domain::parse_pair_reply(value)?
+    } else {
+        let line = domain::parse_reply(value)?;
+        if targets
+            .first()
+            .is_none_or(|persona| line.persona != *persona)
+        {
+            return Err("대화의 화자를 확인하지 못했어요. 다시 시도해 주세요.".into());
+        }
+        vec![line]
+    };
+    Ok((lines, revision))
+}
+
 async fn run_turn(
     app: &tauri::AppHandle,
     state: &AppState,
@@ -403,69 +520,26 @@ async fn run_turn(
     epoch: u64,
     cancel: Arc<AtomicBool>,
 ) -> Result<(), String> {
-    for (index, persona) in targets.iter().enumerate() {
-        if !is_current(state, epoch, &cancel) {
-            return Ok(());
-        }
-        let (settings, mut messages, memories, score, revision, character) = {
-            let db = lock(&state.db)?;
-            (
-                store::settings(&db)?,
-                store::context_messages_for(&db, 24, persona)?,
-                store::memories(&db)?,
-                store::relationships(&db)?
-                    .iter()
-                    .find(|r| r.persona == *persona)
-                    .map_or(20, |r| r.score),
-                store::revision(&db)?,
-                characters::active_character(&db, persona)?,
-            )
-        };
-        if index > 0 {
-            let db = lock(&state.db)?;
-            let history = store::messages(&db, 100)?;
-            for previous in &targets[..index] {
-                if let Some(reply) = history
-                    .iter()
-                    .find(|message| message.id == reply_id(message_id, previous))
-                {
-                    if !messages.iter().any(|message| message.id == reply.id) {
-                        messages.push(reply.clone());
-                    }
-                }
-            }
-        }
-        let prompt = domain::prompt_messages(
-            persona,
-            &character.definition,
-            &messages,
-            &memories,
-            &Relationship {
-                persona: persona.into(),
-                score,
-            },
-        );
-        phase(app, state, epoch, "generating", Some(persona.into()), None);
-        let value = inference::generate(
-            &state.inference,
-            &settings,
-            &prompt,
-            domain::reply_schema(),
-            256,
-            cancel.clone(),
-        )
-        .await?;
-        let line = domain::parse_reply(value)?;
-        if line.persona != *persona {
-            return Err("대화의 화자를 확인하지 못했어요. 다시 시도해 주세요.".into());
-        }
+    if !is_current(state, epoch, &cancel) {
+        return Ok(());
+    }
+    phase(
+        app,
+        state,
+        epoch,
+        "generating",
+        targets.first().cloned(),
+        None,
+    );
+    let (lines, revision) = generate_turn(state, targets, message_id, cancel.clone()).await?;
+    for (index, line) in lines.iter().enumerate() {
         if !present_line(
             state,
-            &line,
+            line,
             "llm",
-            &reply_id(message_id, persona),
+            &reply_id(message_id, &line.persona),
             index,
-            targets.len(),
+            lines.len(),
             revision,
             epoch,
             &cancel,
@@ -2152,6 +2226,186 @@ mod lifecycle_tests {
         assert!(should_cancel_for_pause(true, true));
         assert!(is_current(&state, current.0, &current.1));
     }
+    #[tokio::test]
+    async fn pair_generation_uses_one_request_and_partial_retry_only_generates_the_missing_reply() {
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let calls = Arc::new(AtomicU64::new(0));
+        let observed = calls.clone();
+        let server = tokio::spawn(async move {
+            let replies = [
+                serde_json::json!({"lines":[
+                    {"persona":"a","expression":"기쁨","text":"차를 마시며 쉬어 보자."},
+                    {"persona":"b","expression":"장난","text":"그 차는 내가 고를게."}
+                ]}),
+                serde_json::json!({"persona":"b","expression":"평온","text":"따뜻한 차로 준비할게."}),
+                serde_json::json!({"lines":[
+                    {"persona":"a","expression":"기쁨","text":"검증 전에는 표시하지 마."}
+                ]}),
+            ];
+            for (index, reply) in replies.into_iter().enumerate() {
+                let (mut socket, _) =
+                    tokio::time::timeout(Duration::from_secs(5), listener.accept())
+                        .await
+                        .unwrap()
+                        .unwrap();
+                let mut request = Vec::new();
+                let body = loop {
+                    let mut chunk = [0; 4096];
+                    let read = socket.read(&mut chunk).await.unwrap();
+                    assert!(read > 0);
+                    request.extend_from_slice(&chunk[..read]);
+                    if let Some(end) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n") {
+                        let headers = String::from_utf8_lossy(&request[..end]);
+                        let length: usize = headers
+                            .lines()
+                            .find_map(|line| {
+                                let (name, value) = line.split_once(':')?;
+                                name.eq_ignore_ascii_case("content-length")
+                                    .then(|| value.trim().parse().unwrap())
+                            })
+                            .unwrap();
+                        if request.len() >= end + 4 + length {
+                            break serde_json::from_slice::<serde_json::Value>(
+                                &request[end + 4..end + 4 + length],
+                            )
+                            .unwrap();
+                        }
+                    }
+                };
+                observed.fetch_add(1, Ordering::SeqCst);
+                let schema = &body["response_format"]["json_schema"]["schema"];
+                if index == 1 {
+                    assert!(schema["properties"].get("lines").is_none());
+                    assert!(body["messages"].as_array().unwrap().iter().any(|message| {
+                        message["content"]
+                            .as_str()
+                            .unwrap()
+                            .contains("차를 마시며 쉬어 보자.")
+                    }));
+                } else {
+                    assert_eq!(schema["properties"]["lines"]["minItems"], 2);
+                    assert_eq!(schema["properties"]["lines"]["maxItems"], 2);
+                }
+                let body =
+                    serde_json::json!({"choices":[{"message":{"content":reply.to_string()}}]})
+                        .to_string();
+                socket.write_all(format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                ).as_bytes()).await.unwrap();
+            }
+        });
+        let state = state();
+        let user = Message {
+            id: "pair-user".into(),
+            role: "user".into(),
+            persona: Some("both".into()),
+            content: "오늘은 차를 마시고 싶어. 둘이 골라 줘.".into(),
+            expression: None,
+            created_at: 1,
+            status: "complete".into(),
+        };
+        {
+            let db = lock(&state.db).unwrap();
+            store::save_settings(
+                &db,
+                &Settings {
+                    mode: "api".into(),
+                    base_url: format!("http://{address}/v1"),
+                    api_model: "test".into(),
+                    api_token_parameter: "max_tokens".into(),
+                    ..Settings::default()
+                },
+            )
+            .unwrap();
+            store::insert_message(&db, &user).unwrap();
+        }
+        let targets = vec!["a".into(), "b".into()];
+        let original = interrupt(&state, false).unwrap();
+        let (lines, revision) = generate_turn(&state, &targets, &user.id, original.1.clone())
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(
+            store::messages(&lock(&state.db).unwrap(), 100)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(present_line(
+            &state,
+            &lines[0],
+            "llm",
+            &reply_id(&user.id, "a"),
+            0,
+            2,
+            revision,
+            original.0,
+            &original.1
+        )
+        .unwrap());
+        let retry = interrupt(&state, false).unwrap();
+        assert!(!present_line(
+            &state,
+            &lines[1],
+            "llm",
+            &reply_id(&user.id, "b"),
+            1,
+            2,
+            revision,
+            original.0,
+            &original.1
+        )
+        .unwrap());
+        let missing = remaining_retry("both", "both", &["a".into()]).unwrap();
+        let (retried, revision) = generate_turn(&state, &missing, &user.id, retry.1.clone())
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(retried.len(), 1);
+        assert_eq!(retried[0].persona, "b");
+        assert!(present_line(
+            &state,
+            &retried[0],
+            "llm",
+            &reply_id(&user.id, "b"),
+            0,
+            1,
+            revision,
+            retry.0,
+            &retry.1
+        )
+        .unwrap());
+        let history = store::messages(&lock(&state.db).unwrap(), 100).unwrap();
+        assert_eq!(history.len(), 3);
+        assert_eq!(history[1].content, lines[0].text);
+        assert_eq!(history[2].content, retried[0].text);
+        let invalid_user = Message {
+            id: "invalid-pair".into(),
+            ..user
+        };
+        store::insert_message(&lock(&state.db).unwrap(), &invalid_user).unwrap();
+        assert!(
+            generate_turn(&state, &targets, &invalid_user.id, retry.1.clone())
+                .await
+                .is_err()
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+        assert_eq!(
+            store::messages(&lock(&state.db).unwrap(), 100)
+                .unwrap()
+                .len(),
+            4
+        );
+        server.await.unwrap();
+    }
+
     #[test]
     fn retry_only_requests_missing_original_recipients() {
         assert_eq!(
@@ -2231,5 +2485,102 @@ mod lifecycle_tests {
             120.0
         );
         assert!(lock(&state.positions).unwrap().is_empty());
+    }
+    #[test]
+    fn pair_prompt_rejects_questions_removed_from_active_contexts() {
+        for reason in ["swapped", "edited", "deleted"] {
+            let db = store::open(std::path::Path::new(":memory:")).unwrap();
+            let user = Message {
+                id: "pair-question".into(),
+                role: "user".into(),
+                persona: Some("both".into()),
+                content: "나는 산책을 좋아해".into(),
+                expression: None,
+                created_at: 1_800_000_000_000,
+                status: "complete".into(),
+            };
+            store::insert_message(&db, &user).unwrap();
+            let targets = vec!["a".into(), "b".into()];
+            assert!(turn_prompt(&db, &targets, &user.id).is_ok());
+            if reason == "swapped" {
+                let new_character = characters::clone_character(&db, "builtin-a").unwrap();
+                characters::assign(&db, "a", &new_character.id).unwrap();
+                assert!(store::context_messages_for(&db, 24, "a")
+                    .unwrap()
+                    .is_empty());
+                assert_eq!(store::context_messages_for(&db, 24, "b").unwrap().len(), 1);
+            } else {
+                store::analyze_apply(
+                    &db,
+                    &serde_json::json!({
+                        "revision": store::revision(&db).unwrap(),
+                        "memories": [{"kind":"user_fact", "certain":true,
+                            "sourceMessageId":user.id, "evidence":user.content, "supersedesId":""}],
+                        "events":[]
+                    }),
+                )
+                .unwrap();
+                let memory = store::memories(&db).unwrap().remove(0);
+                if reason == "edited" {
+                    store::edit_memory(&db, &memory.id, "나는 독서를 좋아해").unwrap();
+                } else {
+                    store::delete_memory(&db, &memory.id).unwrap();
+                }
+            }
+            assert!(turn_prompt(&db, &targets, &user.id).is_err(), "{reason}");
+            assert_eq!(store::messages(&db, 24).unwrap()[0].content, user.content);
+        }
+    }
+
+    #[test]
+    fn partial_retry_references_only_current_characters_completed_same_turn_reply() {
+        for scenario in ["complete", "incomplete", "other-turn", "swapped"] {
+            let db = store::open(std::path::Path::new(":memory:")).unwrap();
+            let user = Message {
+                id: "partial-question".into(),
+                role: "user".into(),
+                persona: Some("both".into()),
+                content: "둘 다 한마디씩 해 줘".into(),
+                expression: None,
+                created_at: 1_800_000_000_000,
+                status: "complete".into(),
+            };
+            store::insert_message(&db, &user).unwrap();
+            let reply = Message {
+                id: reply_id(
+                    if scenario == "other-turn" {
+                        "earlier-question"
+                    } else {
+                        &user.id
+                    },
+                    "a",
+                ),
+                role: "assistant".into(),
+                persona: Some("a".into()),
+                content: "SAME_TURN_A_REFERENCE".into(),
+                expression: Some("평온".into()),
+                created_at: user.created_at + 1,
+                status: if scenario == "incomplete" {
+                    "pending"
+                } else {
+                    "complete"
+                }
+                .into(),
+            };
+            store::insert_message(&db, &reply).unwrap();
+            if scenario == "swapped" {
+                let new_character = characters::clone_character(&db, "builtin-a").unwrap();
+                characters::assign(&db, "a", &new_character.id).unwrap();
+            }
+            let prompt = turn_prompt(&db, &["b".into()], &user.id).unwrap();
+            assert_eq!(
+                prompt
+                    .iter()
+                    .any(|message| message.content.contains("SAME_TURN_A_REFERENCE")),
+                scenario == "complete",
+                "{scenario}"
+            );
+            assert_eq!(store::messages(&db, 24).unwrap().len(), 2);
+        }
     }
 }
