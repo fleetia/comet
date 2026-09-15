@@ -129,6 +129,74 @@ it("previews a pack before install and keeps assignment an explicit separate act
   );
 });
 
+it("preserves all pack preview content, initial disclosure states, and verbatim dialogue", async () => {
+  const previewPack: CharacterPack = {
+    ...pack,
+    characters: [...pack.characters, PREVIEW_SNAPSHOT.characters.installed[1].definition],
+    pairScenes: [
+      [
+        { persona: "a", expression: "호기심", text: "  어디로 갈까?\n천천히.  " },
+        { persona: "b", expression: "평온", text: "  여기 있자.  " },
+      ],
+    ],
+    wordbook: [
+      {
+        id: "ef3c2a1e-aab4-4de5-bf05-03e2c2a6bbad",
+        title: "잠깐 인사",
+        keywords: ["안녕", "반가워"],
+        enabled: true,
+        useForIdle: false,
+        lines: [{ persona: "a", expression: "기쁨", text: "  왔구나.\n반가워.  " }],
+      },
+    ],
+  };
+  vi.mocked(command).mockResolvedValue(previewPack);
+  render(<CharacterSharing snapshot={snapshot} selectedId="local-third" disabled={false} />);
+  fireEvent.click(screen.getByRole("button", { name: "공유 파일 가져오기" }));
+  const preview = within(await screen.findByLabelText("가져오기 미리보기"));
+  expect(preview.getByText(`제작자: ${pack.author} · 형식 버전 1`)).toBeTruthy();
+  expect(preview.getByText(`배포 조건: ${pack.license}`)).toBeTruthy();
+  for (const character of previewPack.characters) {
+    const details = preview
+      .getByText(`${character.name} · 버전 ${character.version}`)
+      .closest("details");
+    expect(details).toHaveProperty("open", true);
+    if (!details) {
+      throw new Error("Character disclosure is missing");
+    }
+    const content = within(details);
+    expect(content.getByText(character.description)).toBeTruthy();
+    expect(content.getByText(`성격과 말투: ${character.personality}`)).toBeTruthy();
+    expect(
+      content.getByText(
+        "평온 [평온] · 기쁨 [기쁨] · 호기심 [호기심] · 생각중 [생각중] · 걱정 [걱정] · 장난 [장난]",
+      ),
+    ).toBeTruthy();
+    for (const line of [...character.greeting, ...character.idleLines]) {
+      expect(
+        content.getByText(
+          (_, element) =>
+            element?.tagName === "P" && element.textContent === `[${line.expression}] ${line.text}`,
+        ),
+      ).toBeTruthy();
+    }
+  }
+  expect(preview.getByText("조합 대사 1개 · 키워드 대사 1개").closest("details")).toHaveProperty(
+    "open",
+    false,
+  );
+  for (const text of [
+    "A [호기심]   어디로 갈까?\n천천히.  ",
+    "B [평온]   여기 있자.  ",
+    "A [기쁨]   왔구나.\n반가워.  ",
+  ]) {
+    expect(
+      preview.getByText((_, element) => element?.tagName === "P" && element.textContent === text),
+    ).toBeTruthy();
+  }
+  expect(preview.getByText("잠깐 인사 · 안녕, 반가워")).toBeTruthy();
+});
+
 it("exports the current pair without private wordbook selection and treats dialog cancellation quietly", async () => {
   vi.mocked(command).mockResolvedValue(null);
   render(<CharacterSharing snapshot={snapshot} selectedId="local-third" disabled={false} />);

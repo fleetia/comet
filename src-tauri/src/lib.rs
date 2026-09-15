@@ -1609,6 +1609,86 @@ mod lifecycle_tests {
         }
     }
     #[test]
+    fn inactive_character_installs_preserve_playback_but_active_definition_edits_cancel_it() {
+        let state = state();
+        let (epoch, cancel) = {
+            let _action = lock(&state.action).unwrap();
+            interrupt(&state, false).unwrap()
+        };
+        let (revision, definition) = {
+            let db = lock(&state.db).unwrap();
+            (
+                store::revision(&db).unwrap(),
+                characters::active_character(&db, "a").unwrap().definition,
+            )
+        };
+        let line = SceneLine {
+            persona: "a".into(),
+            expression: "평온".into(),
+            text: "아직 하고 있는 이야기야.".into(),
+        };
+        assert!(present_line(
+            &state,
+            &line,
+            "script",
+            "continuing-line",
+            0,
+            1,
+            revision,
+            epoch,
+            &cancel
+        )
+        .unwrap());
+        let before_playback = serde_json::to_value(lock(&state.playback).unwrap().clone()).unwrap();
+        let pack = characters::parse_pack(include_str!(
+            "../../examples/character-packs/sol-and-dal.comet-character.json"
+        ))
+        .unwrap();
+        character_commands::mutate(&state, |db| characters::create(db, &definition)).unwrap();
+        assert_eq!(state.epoch.load(Ordering::SeqCst), epoch);
+        assert!(!cancel.load(Ordering::SeqCst));
+        assert_eq!(
+            store::revision(&lock(&state.db).unwrap()).unwrap(),
+            revision
+        );
+        assert_eq!(
+            serde_json::to_value(lock(&state.playback).unwrap().clone()).unwrap(),
+            before_playback
+        );
+        character_commands::mutate(&state, |db| characters::import_pack(db, &pack)).unwrap();
+        assert_eq!(state.epoch.load(Ordering::SeqCst), epoch);
+        assert!(!cancel.load(Ordering::SeqCst));
+        assert_eq!(
+            store::revision(&lock(&state.db).unwrap()).unwrap(),
+            revision
+        );
+        assert_eq!(
+            serde_json::to_value(lock(&state.playback).unwrap().clone()).unwrap(),
+            before_playback
+        );
+        let mut edited = definition;
+        edited.name = "편집한 A".into();
+        character_commands::mutate(&state, |db| characters::save(db, "builtin-a", &edited))
+            .unwrap();
+        assert!(state.epoch.load(Ordering::SeqCst) > epoch);
+        assert!(cancel.load(Ordering::SeqCst));
+        assert!(store::revision(&lock(&state.db).unwrap()).unwrap() > revision);
+        assert!(lock(&state.playback).unwrap().is_none());
+        assert!(!present_line(
+            &state,
+            &line,
+            "script",
+            "stale-line",
+            0,
+            1,
+            revision,
+            epoch,
+            &cancel
+        )
+        .unwrap());
+    }
+
+    #[test]
     fn character_change_cancels_old_playback_and_retry_preserving_the_transcript() {
         let state = state();
         let old = {
