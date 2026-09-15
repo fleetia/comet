@@ -1,0 +1,221 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { CompanionBox } from "../components/CompanionBox";
+import { Balloon } from "../components/Balloon";
+import { PREVIEW_SNAPSHOT, command } from "../hooks/useSnapshot";
+
+vi.mock("../hooks/useSnapshot", async (load) => ({
+  ...(await load<typeof import("../hooks/useSnapshot")>()),
+  command: vi.fn(),
+  isDesktop: () => false,
+}));
+afterEach(cleanup);
+beforeEach(() => {
+  vi.mocked(command).mockReset();
+});
+function compose(): HTMLTextAreaElement {
+  render(<Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "a", mode: "input" } }} />);
+  const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+  fireEvent.change(input, { target: { value: "안녕하세요" } });
+  return input;
+}
+describe("message composer", () => {
+  it("does not send on Korean IME confirmation; sends after composition ends", async () => {
+    vi.mocked(command).mockResolvedValue(undefined);
+    const input = compose();
+    fireEvent.compositionStart(input);
+    fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+    expect(command).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(input);
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+    expect(command).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(input.value).toBe(""));
+    expect(command).toHaveBeenCalledWith("send_message", {
+      content: "안녕하세요",
+      target: "a",
+      clientMessageId: expect.any(String),
+    });
+  });
+  it("keeps draft after failed send and prevents duplicate submissions while pending", async () => {
+    let rejectRequest: (error: Error) => void = () => {};
+    vi.mocked(command).mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          rejectRequest = reject;
+        }),
+    );
+    const input = compose();
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(command).toHaveBeenCalledTimes(1);
+    rejectRequest(new Error("연결에 실패했어요"));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "연결에 실패했어요");
+    expect(input.value).toBe("안녕하세요");
+  });
+});
+
+it("retries the latest user turn with its original both target after generation fails", async () => {
+  vi.mocked(command).mockResolvedValue(undefined);
+  render(
+    <Balloon
+      snapshot={{
+        ...PREVIEW_SNAPSHOT,
+        runtime: { ...PREVIEW_SNAPSHOT.runtime, phase: "error", error: "연결이 끊겼어요" },
+        messages: [
+          {
+            id: "user-turn",
+            role: "user",
+            persona: "both",
+            content: "안녕",
+            expression: null,
+            createdAt: 1,
+            status: "complete",
+          },
+        ],
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByText("다시 이야기하기"));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("retry_turn", { messageId: "user-turn", target: "both" }),
+  );
+});
+
+it("shows foreground generation while automatic conversation is paused", () => {
+  render(
+    <Balloon
+      snapshot={{
+        ...PREVIEW_SNAPSHOT,
+        panel: { persona: "a", mode: "input" },
+        runtime: { ...PREVIEW_SNAPSHOT.runtime, phase: "generating", persona: "a", paused: true },
+      }}
+    />,
+  );
+  expect(screen.getByRole("status").textContent).toBe("말을 고르는 중…");
+});
+
+it("keeps resting bodies free of old dialogue and changes only the active actor expression", () => {
+  const snapshot = {
+    ...PREVIEW_SNAPSHOT,
+    messages: [
+      {
+        id: "old",
+        role: "assistant",
+        persona: "b",
+        content: "오래된 대사",
+        expression: "장난",
+        createdAt: 1,
+        status: "complete",
+      },
+    ],
+  };
+  const { rerender } = render(<CompanionBox persona="b" snapshot={snapshot} />);
+  expect(screen.getByText("[평온]")).toBeTruthy();
+  expect(screen.queryByText("오래된 대사")).toBeNull();
+  expect(screen.queryByText(/친밀도/)).toBeNull();
+  rerender(
+    <CompanionBox
+      persona="b"
+      snapshot={{
+        ...snapshot,
+        playback: {
+          id: "now",
+          persona: "a",
+          expression: "기쁨",
+          text: "지금 대사",
+          source: "script",
+          endsAt: 100,
+          lineIndex: 0,
+          lineCount: 2,
+        },
+      }}
+    />,
+  );
+  expect(screen.getByText("[평온]")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button"));
+  expect(command).toHaveBeenCalledWith("open_panel", { persona: "b", mode: "menu" });
+});
+
+it("prioritizes the input panel over playback and keeps shared history chronological", () => {
+  const snapshot = {
+    ...PREVIEW_SNAPSHOT,
+    playback: {
+      id: "talk",
+      persona: "a" as const,
+      expression: "기쁨",
+      text: "자동 대사",
+      source: "script" as const,
+      endsAt: 100,
+      lineIndex: 0,
+      lineCount: 2,
+    },
+    panel: { persona: "b" as const, mode: "input" as const },
+  };
+  const { rerender } = render(<Balloon snapshot={snapshot} />);
+  expect(screen.queryByText("자동 대사")).toBeNull();
+  expect(screen.getByRole("textbox")).toBeTruthy();
+  rerender(
+    <Balloon
+      snapshot={{
+        ...snapshot,
+        panel: { persona: "b", mode: "history" },
+        messages: [
+          {
+            id: "second",
+            role: "assistant",
+            persona: "b",
+            content: "나중",
+            expression: null,
+            createdAt: 2,
+            status: "complete",
+          },
+          {
+            id: "first",
+            role: "assistant",
+            persona: "a",
+            content: "먼저",
+            expression: null,
+            createdAt: 1,
+            status: "complete",
+          },
+        ],
+      }}
+    />,
+  );
+  expect(
+    screen.getByText("먼저").compareDocumentPosition(screen.getByText("나중")) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(screen.queryByText("자동 대사")).toBeNull();
+});
+
+it("switches from panel to current playback preserving wordbook whitespace and dismisses only the active view", async () => {
+  vi.mocked(command).mockResolvedValue(undefined);
+  const playback = {
+    id: "wordbook-line",
+    persona: "b" as const,
+    expression: "평온",
+    text: "  첫 줄\n\n둘째 줄  ",
+    source: "wordbook" as const,
+    endsAt: 100,
+    lineIndex: 1,
+    lineCount: 3,
+  };
+  const { rerender } = render(
+    <Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "a", mode: "menu" }, playback }} />,
+  );
+  expect(screen.queryByLabelText("말풍선")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "패널 닫기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("close_panel", undefined));
+  rerender(<Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: null, playback }} />);
+  expect(screen.getByLabelText("말풍선").querySelector('[aria-live="polite"]')?.textContent).toBe(
+    playback.text,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "이야기 닫기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("skip_talk", undefined));
+  rerender(<Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: null, playback: null }} />);
+  expect(screen.getByLabelText("말풍선").querySelector('[aria-live="polite"]')?.textContent).toBe(
+    "",
+  );
+});

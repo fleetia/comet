@@ -1,0 +1,14 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+*.tsbuildinfo
+.DS_Store
+test-results/
+src-tauri/gen/
+
+# Docusaurus wiki
+wiki/.docusaurus/
+wiki/build/
+wiki/.cache-loader/
