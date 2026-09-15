@@ -7,13 +7,13 @@ type Result<T> = std::result::Result<T, String>;
 pub const MAX_PACK_BYTES: usize = 1_048_576;
 const EXPRESSIONS: [&str; 6] = ["평온", "기쁨", "호기심", "생각중", "걱정", "장난"];
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CharacterLine {
     pub expression: String,
     pub text: String,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CharacterDefinition {
     pub source_id: String,
@@ -25,7 +25,7 @@ pub struct CharacterDefinition {
     pub greeting: Vec<CharacterLine>,
     pub idle_lines: Vec<CharacterLine>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InstalledCharacter {
     pub id: String,

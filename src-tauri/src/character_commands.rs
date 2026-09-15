@@ -27,17 +27,15 @@ fn mutate_inner<T>(
     let tx = db
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
-    let before = serde_json::to_value([
+    let before = [
         characters::active_character(&tx, "a")?,
         characters::active_character(&tx, "b")?,
-    ])
-    .map_err(|error| error.to_string())?;
+    ];
     let result = change(&tx)?;
-    let after = serde_json::to_value([
+    let after = [
         characters::active_character(&tx, "a")?,
         characters::active_character(&tx, "b")?,
-    ])
-    .map_err(|error| error.to_string())?;
+    ];
     let changed = dialogue_changed || before != after;
     if changed {
         store::bump_revision(&tx)?;
