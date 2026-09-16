@@ -38,6 +38,7 @@ Comet은 나니카·우카가카처럼 바탕화면에 머물며 먼저 말을 �
 | 실패·중복·재시작은 어떻게 처리하는가 | [위젯 수명과 실행 규칙](widgets/lifecycle.md) |
 | 외부 개발자는 무엇을 준비하는가 | [위젯 작성 안내](widgets/authoring.md) |
 | 어디부터 개발하는가 | [구조와 책임](development/architecture.md), [개발 순서와 인수 기준](development/roadmap.md) |
+| 캐릭터를 1명이나 3명 이상 두려면 | [캐릭터 수 1~N 설계안](development/multi-character-plan.md) (미구현) |
 | 이 문서와 위키를 어떻게 수정하는가 | [위키 운영](development/wiki.md) |
 
 ## 유지할 제품 경계

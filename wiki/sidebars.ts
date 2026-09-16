@@ -25,7 +25,14 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: '개발',
-      items: ['development/architecture', 'development/talk-reference', 'development/talk-coverage', 'development/roadmap', 'development/wiki'],
+      items: [
+        'development/architecture',
+        'development/talk-reference',
+        'development/talk-coverage',
+        'development/roadmap',
+        'development/multi-character-plan',
+        'development/wiki',
+      ],
     },
     {
       type: 'category',
