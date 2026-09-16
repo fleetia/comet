@@ -1,0 +1,55 @@
+format: 1
+
+scene: fishing.idle
+on: idle
+when: fishing.ready and fishing.phase == "idle"
+cooldown: 30m
+---
+A[호기심]: 낚싯줄이 아직 물 밖이야. 한번 던져 볼까?
+B[평온]: 여기 물은 화면 밖으로 안 새겠지.
+===
+
+scene: fishing.waiting
+on: idle
+when: fishing.ready and fishing.phase == "waiting"
+cooldown: 30m
+---
+A[호기심]: 줄을 던졌으니 조금 기다려 보자.
+B[평온]: 물고기 쪽 차례네.
+===
+
+scene: fishing.bite
+on: idle
+when: fishing.ready and fishing.phase == "bite"
+cooldown: 30m
+---
+A[기쁨]: 찌가 움직여! 지금 줄을 거둘 수 있대.
+B[평온]: 버튼은 거기 있어.
+===
+
+scene: fishing.bite-event
+on: fishing.bite
+when: fishing.ready and event.kind == "fishing.bite"
+cooldown: 30m
+---
+A[기쁨]: 입질이 왔어. 줄을 거두려면 지금이래.
+B[평온]: 아직 화면을 보고 있다면 한 번 눌러 봐.
+===
+
+scene: fishing.missed
+on: fishing.missed
+when: fishing.ready and event.kind == "fishing.missed"
+cooldown: 30m
+---
+A[호기심]: 이번엔 빈 줄을 거뒀어.
+B[평온]: 물속은 잠깐 구경했네. 다시 던질지는 나중에 골라도 돼.
+===
+
+scene: fishing.caught
+on: item-acquired
+when: fishing.ready and event.widget == "fishing" and event.itemName != null
+cooldown: 30m
+---
+A[기쁨]: 이번 줄 끝에는 「${event.itemName}」가 있었어!
+B[평온]: 뭘 건졌는지 확인했으니 잠깐 구경하자.
+===

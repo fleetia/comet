@@ -10,6 +10,8 @@ mod models;
 mod store;
 #[path = "../src/types.rs"]
 mod types;
+#[path = "../src/widgets/mod.rs"]
+mod widgets;
 #[path = "../src/wordbook.rs"]
 mod wordbook;
 

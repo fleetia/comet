@@ -32,7 +32,7 @@ const SECOND: WordbookEntry = {
 };
 it("saves reordered lines verbatim and parses ordinary keyword separators", async () => {
   render(<WordbookPanel entries={[FIRST]} />);
-  fireEvent.change(screen.getByLabelText("키워드"), {
+  fireEvent.change(screen.getByRole("textbox", { name: "키워드" }), {
     target: { value: "안녕, 반가워\n안녕\n어서 와" },
   });
   fireEvent.click(screen.getByRole("button", { name: "2번 대사 위로" }));
@@ -70,8 +70,10 @@ it("creates an enabled entry with idle off and deletes only the selected entry",
   fireEvent.click(screen.getByRole("button", { name: "새 항목 만들기" }));
   expect(screen.getByLabelText("이 항목 사용")).toHaveProperty("checked", true);
   expect(screen.getByLabelText("자동 잡담에도 사용")).toHaveProperty("checked", false);
-  fireEvent.change(screen.getByLabelText("제목"), { target: { value: "간식" } });
-  fireEvent.change(screen.getByLabelText("키워드"), { target: { value: "배고파" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "제목" }), { target: { value: "간식" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "키워드" }), {
+    target: { value: "배고파" },
+  });
   fireEvent.change(screen.getByLabelText("대사 1"), { target: { value: "  간식 먹자!  " } });
   fireEvent.click(screen.getByRole("button", { name: "단어장 저장" }));
   await waitFor(() =>
@@ -88,6 +90,11 @@ it("creates an enabled entry with idle off and deletes only the selected entry",
   await screen.findByText("단어장에 저장했어요.");
   fireEvent.click(screen.getByRole("button", { name: "작별" }));
   fireEvent.click(screen.getByRole("button", { name: "항목 삭제" }));
+  expect(command).not.toHaveBeenCalledWith("delete_wordbook_entry", { id: "second" });
+  fireEvent.click(screen.getByRole("button", { name: "삭제 취소" }));
+  expect(screen.getByRole("button", { name: "작별" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "항목 삭제" }));
+  fireEvent.click(screen.getByRole("button", { name: "항목 삭제 확인" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("delete_wordbook_entry", { id: "second" }),
   );

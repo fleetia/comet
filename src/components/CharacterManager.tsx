@@ -1,10 +1,12 @@
 import { useRef, useState, type JSX } from "react";
-import { command, errorText } from "../hooks/useSnapshot";
+import { Button, Select, Tabs, TabList, Tab, TabPanel } from "@fleetia/lagrange";
+import { command, errorText, isDesktop } from "../hooks/useSnapshot";
 import type { CharacterDefinition, InstalledCharacter, Snapshot } from "../types";
 import { CharacterEditor, EXPRESSIONS } from "./CharacterEditor";
 import { CharacterDialogueEditor } from "./CharacterDialogueEditor";
 import { CharacterSharing } from "./CharacterSharing";
-import * as ui from "../styles.css";
+import { WindowHeader } from "./WindowHeader";
+import * as ui from "../lagrange.css";
 import * as s from "./characters.css";
 
 type Props = { snapshot: Snapshot };
@@ -30,6 +32,7 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
   const [sharingPending, setSharingPending] = useState(false);
   const [dialogueDirty, setDialogueDirty] = useState(false);
   const [dialogueVersion, setDialogueVersion] = useState(0);
+  const [tab, setTab] = useState("basics");
   const [scope, setScope] = useState<"single" | "pair">("single");
   const [removeId, setRemoveId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +60,7 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
   }
   function select(id: string): void {
     setSelectedId(id);
+    setTab("basics");
     setError(null);
     setNotice(null);
     setRemoveId(null);
@@ -79,20 +83,31 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
   const dialogueIds = scope === "pair" ? active : [selectedId];
   return (
     <main className={s.page}>
-      <header className={s.header}>
+      <WindowHeader
+        className={s.header}
+        label="캐릭터 관리 닫기"
+        actions={
+          <Button
+            variant="secondary"
+            onClick={() => {
+              if (!isDesktop()) {
+                window.location.assign("?view=settings");
+                return;
+              }
+              void run(() => command("open_settings"));
+            }}
+            disabled={busy}
+          >
+            설정
+          </Button>
+        }
+      >
         <div>
           <p className={ui.eyebrow}>COMET / CHARACTERS</p>
           <h1 className={ui.settingsTitle}>캐릭터 관리</h1>
           <p className={ui.quiet}>바탕화면의 작은 두 자리에 함께 지낼 친구를 골라요.</p>
         </div>
-        <button
-          className={ui.button}
-          onClick={() => void run(() => command("open_settings"))}
-          disabled={busy}
-        >
-          대화 설정
-        </button>
-      </header>
+      </WindowHeader>
       {(error || notice) && (
         <p className={error ? ui.error : ui.success} role={error ? "alert" : "status"}>
           {error || notice}
@@ -103,8 +118,8 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
           A: {installed.find((character) => character.id === active[0])?.definition.name} · B:{" "}
           {installed.find((character) => character.id === active[1])?.definition.name}
         </span>
-        <button
-          className={ui.button}
+        <Button
+          variant="secondary"
           disabled={busy}
           onClick={() =>
             void run(async () => {
@@ -114,12 +129,13 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
           }
         >
           둘의 자리 바꾸기
-        </button>
+        </Button>
       </div>
       <div className={s.layout}>
         <aside className={s.list} aria-label="설치된 캐릭터">
           {installed.map((character) => (
-            <button
+            <Button
+              variant="quiet"
               className={s.item}
               key={character.id}
               aria-pressed={selectedId === character.id}
@@ -135,20 +151,21 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                     ? "B에서 함께 지내는 중"
                     : `버전 ${character.definition.version}`}
               </span>
-            </button>
+            </Button>
           ))}
           {drafts[NEW_ID] && (
-            <button
+            <Button
+              variant="quiet"
               className={s.item}
               aria-pressed={selectedId === NEW_ID}
               disabled={busy}
               onClick={() => select(NEW_ID)}
             >
               새 캐릭터 · 미저장
-            </button>
+            </Button>
           )}
-          <button
-            className={ui.button}
+          <Button
+            variant="secondary"
             disabled={busy}
             onClick={() => {
               setDrafts((values) => ({ ...values, [NEW_ID]: values[NEW_ID] ?? newDefinition() }));
@@ -156,7 +173,7 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
             }}
           >
             새 캐릭터 만들기
-          </button>
+          </Button>
           {dialogueDirty && (
             <p className={ui.quiet}>대사 수정을 저장하거나 취소한 뒤 대상을 바꿔 주세요.</p>
           )}
@@ -169,8 +186,8 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                   <h2 className={s.subheading}>{selected.definition.name}</h2>
                   <div className={ui.row}>
                     {(["a", "b"] as const).map((persona, index) => (
-                      <button
-                        className={ui.button}
+                      <Button
+                        variant="secondary"
                         key={persona}
                         disabled={busy || dirty || active.includes(selectedId)}
                         onClick={() =>
@@ -185,10 +202,10 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                         {active[index] === selectedId
                           ? `${persona.toUpperCase()}에 적용 중`
                           : `${persona.toUpperCase()}에 적용`}
-                      </button>
+                      </Button>
                     ))}
-                    <button
-                      className={ui.button}
+                    <Button
+                      variant="secondary"
                       disabled={busy || dirty}
                       onClick={() =>
                         void run(async () => {
@@ -201,12 +218,12 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                       }
                     >
                       복사본 만들기
-                    </button>
+                    </Button>
                   </div>
                   {active.includes(selectedId) && (
                     <p className={ui.quiet}>
-                      같은 친구를 두 자리에 동시에 둘 수 없어요. 둘 다 쓰려면 복사본을 만들어
-                      주세요.
+                      자리를 옮기려면 위의 ‘둘의 자리 바꾸기’를 사용해 주세요. 같은 친구를 두 자리에
+                      함께 두려면 복사본을 만들어 주세요.
                     </p>
                   )}
                   {dirty && (
@@ -214,74 +231,40 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                   )}
                 </section>
               )}
-              <CharacterEditor
-                definition={definition}
-                onChange={(value) => setDrafts((values) => ({ ...values, [selectedId]: value }))}
-                onSave={() => void save()}
-                pending={operationPending}
-                dirty={dirty}
-              />
-              {dirty && (
-                <button
-                  className={ui.button}
-                  disabled={operationPending}
-                  onClick={() => {
-                    setDrafts((values) => {
-                      const next = { ...values };
-                      delete next[selectedId];
-                      return next;
-                    });
-                    if (selectedId === NEW_ID) select(installed[0]?.id ?? NEW_ID);
-                  }}
-                >
-                  캐릭터 수정 취소
-                </button>
-              )}
-              {selected && (
-                <>
-                  <section className={s.section}>
-                    <div className={ui.row}>
-                      <label>
-                        등록 대사 대상{" "}
-                        <select
-                          className={ui.input}
-                          value={scope}
-                          disabled={busy}
-                          onChange={(event) =>
-                            setScope(event.target.value === "pair" ? "pair" : "single")
-                          }
-                        >
-                          <option value="single">선택한 캐릭터 하나</option>
-                          <option value="pair">현재 A/B 둘의 조합</option>
-                        </select>
-                      </label>
-                      {dialogueDirty && (
-                        <button
-                          className={ui.button}
-                          disabled={operationPending}
-                          onClick={() => {
-                            setDialogueVersion((value) => value + 1);
-                            setDialogueDirty(false);
-                          }}
-                        >
-                          대사 수정 취소
-                        </button>
-                      )}
-                    </div>
-                    <CharacterDialogueEditor
-                      key={`${dialogueIds.join(":")}:${dialogueVersion}`}
-                      ids={dialogueIds}
-                      onDirtyChange={setDialogueDirty}
-                      onPendingChange={setDialoguePending}
-                    />
-                  </section>
-                  <CharacterSharing
-                    snapshot={snapshot}
-                    selectedId={selectedId}
-                    onPendingChange={setSharingPending}
-                    disabled={busy || dirty}
+              <Tabs value={tab} onValueChange={setTab} className={s.workspace}>
+                <TabList aria-label="캐릭터 작업">
+                  <Tab value="basics">기본 정보</Tab>
+                  <Tab value="dialogue" disabled={!selected}>
+                    등록 대사
+                  </Tab>
+                  <Tab value="sharing" disabled={!selected}>
+                    공유
+                  </Tab>
+                </TabList>
+                {!selected && (
+                  <p className={ui.quiet}>캐릭터를 저장하면 등록 대사와 공유를 사용할 수 있어요.</p>
+                )}
+                <TabPanel value="basics">
+                  <p className={s.tabIntro}>이름·성격·표정과 인사·개별 자동 수다를 편집해요.</p>
+                  <CharacterEditor
+                    definition={definition}
+                    onChange={(value) =>
+                      setDrafts((values) => ({ ...values, [selectedId]: value }))
+                    }
+                    onSave={() => void save()}
+                    onCancel={() => {
+                      setDrafts((values) => {
+                        const next = { ...values };
+                        delete next[selectedId];
+                        return next;
+                      });
+                      if (selectedId === NEW_ID) select(installed[0]?.id ?? NEW_ID);
+                    }}
+                    pending={operationPending}
+                    dirty={dirty}
                   />
-                  {!selectedId.startsWith("builtin-") && (
+
+                  {selected && !selectedId.startsWith("builtin-") && (
                     <section className={s.section}>
                       {removeId === selectedId ? (
                         <>
@@ -290,8 +273,8 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                             대화 기록과 관계는 보존해요.
                           </p>
                           <div className={ui.row}>
-                            <button
-                              className={ui.button}
+                            <Button
+                              variant="secondary"
                               disabled={busy}
                               onClick={() =>
                                 void run(async () => {
@@ -305,29 +288,80 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                               }
                             >
                               목록에서 제거 확인
-                            </button>
-                            <button
-                              className={ui.button}
+                            </Button>
+                            <Button
+                              variant="secondary"
                               disabled={busy}
                               onClick={() => setRemoveId(null)}
                             >
                               취소
-                            </button>
+                            </Button>
                           </div>
                         </>
                       ) : (
-                        <button
-                          className={ui.button}
+                        <Button
+                          variant="secondary"
                           disabled={busy || dirty}
                           onClick={() => setRemoveId(selectedId)}
                         >
                           목록에서 제거
-                        </button>
+                        </Button>
                       )}
                     </section>
                   )}
-                </>
-              )}
+                </TabPanel>
+                {selected && (
+                  <>
+                    <TabPanel value="dialogue">
+                      <p className={s.tabIntro}>
+                        키워드에 반응하는 대사를 등록해요. 대상을 현재 둘로 바꾸면 둘의 장면도
+                        편집할 수 있어요. 인사와 개별 자동 수다는 기본 정보에서 바꿔요.
+                      </p>
+                      <div className={ui.row}>
+                        <label>
+                          등록 대사 대상{" "}
+                          <Select
+                            value={scope}
+                            disabled={busy}
+                            onChange={(event) =>
+                              setScope(event.target.value === "pair" ? "pair" : "single")
+                            }
+                          >
+                            <option value="single">선택한 캐릭터 하나</option>
+                            <option value="pair">현재 A/B 둘의 조합</option>
+                          </Select>
+                        </label>
+                        {dialogueDirty && (
+                          <Button
+                            variant="secondary"
+                            disabled={operationPending}
+                            onClick={() => {
+                              setDialogueVersion((value) => value + 1);
+                              setDialogueDirty(false);
+                            }}
+                          >
+                            대사 수정 취소
+                          </Button>
+                        )}
+                      </div>
+                      <CharacterDialogueEditor
+                        key={`${dialogueIds.join(":")}:${dialogueVersion}`}
+                        ids={dialogueIds}
+                        onDirtyChange={setDialogueDirty}
+                        onPendingChange={setDialoguePending}
+                      />
+                    </TabPanel>
+                    <TabPanel value="sharing">
+                      <CharacterSharing
+                        snapshot={snapshot}
+                        selectedId={selectedId}
+                        onPendingChange={setSharingPending}
+                        disabled={busy || dirty}
+                      />
+                    </TabPanel>
+                  </>
+                )}
+              </Tabs>
             </>
           ) : (
             <p className={ui.quiet} role="status">

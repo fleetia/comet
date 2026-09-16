@@ -44,7 +44,7 @@ export type WordbookEntry = {
 };
 export type Playback = SceneLine & {
   id: string;
-  source: "script" | "llm" | "wordbook";
+  source: "script" | "llm" | "wordbook" | "widget" | "talk";
   endsAt: number;
   lineIndex: number;
   lineCount: number;

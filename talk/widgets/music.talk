@@ -1,0 +1,82 @@
+format: 1
+
+scene: music.stopped
+on: idle
+when: music.ready and music.running == false
+cooldown: 30m
+---
+A[호기심]: 음악 앱은 지금 쉬고 있네.
+B[평온]: 우리도 반주 없이 있어 보자.
+===
+
+scene: music.paused
+on: idle
+when: music.ready and music.running == true and music.playing == false
+cooldown: 30m
+---
+A[호기심]: 음악이 잠깐 멈춰 있어.
+B[평온]: 다음 소리가 언제 나올지는 재생 버튼이 알겠지.
+===
+
+scene: music.playing
+on: idle
+when: music.ready and music.playing == true and music.title != null
+cooldown: 30m
+---
+A[호기심]: 지금 「${music.title}」가 재생 중이래.
+B[평온]: 곡 이름만 살짝 읽을게. 소리는 가리지 말자.
+===
+
+scene: music.offline
+on: idle
+when: not music.ready and music.status == "offline"
+cooldown: 30m
+---
+A[호기심]: 음악 연결이 지금 닿지 않는대.
+B[평온]: 새 정보가 오기 전에는 조금 기다리자.
+===
+
+scene: music.unsupported
+on: idle
+when: not music.ready and music.status == "unsupported"
+cooldown: 30m
+---
+A[호기심]: 이 환경에서는 음악 정보를 가져올 수 없대.
+B[평온]: 그 정보 없이도 여기 같이 있으면 되지.
+===
+
+scene: music.error
+on: idle
+when: not music.ready and music.status == "error"
+cooldown: 30m
+---
+A[호기심]: 음악 정보를 확인하다가 문제가 생겼어.
+B[평온]: 필요하면 연결 화면에서 이유를 보자.
+===
+
+scene: music.stale
+on: idle
+when: not music.ready and music.status == "stale"
+cooldown: 30m
+---
+A[호기심]: 음악 정보가 지금 기준으로는 오래됐대.
+B[평온]: 다시 확인되기 전까지는 그대로 믿지 말자.
+===
+
+scene: music.permission-needed
+on: idle
+when: not music.ready and music.status == "permission-needed"
+cooldown: 30m
+---
+A[호기심]: 음악 정보를 읽으려면 연결 준비가 필요하대.
+B[평온]: 그 기능이 필요해지면 설정을 열어 보면 돼.
+===
+
+scene: music.syncing
+on: idle
+when: not music.ready and music.status == "syncing"
+cooldown: 30m
+---
+A[호기심]: 음악 정보를 처음 받아오는 중이야.
+B[평온]: 아직 도착하지 않은 칸은 비워 두자.
+===

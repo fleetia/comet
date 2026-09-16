@@ -1,0 +1,19 @@
+format: 1
+
+scene: pair.quiet-focus
+on: idle
+when: timer.ready and music.ready and timer.state == "running" and timer.mode == "focus" and music.playing == true
+cooldown: 30m
+---
+A[호기심]: 나도 음악에 맞춰 조용히 있을 수 있어.
+B[평온]: 그건 방금부터 연습하면 돼.
+===
+
+scene: pair.little-shelf
+on: idle
+when: plant.ready and collection.ready and plant.stage == 3 and collection.decorationCount > 0
+cooldown: 30m
+---
+A[호기심]: 화분 옆에 내 자리도 하나 있으면 좋겠어.
+B[평온]: 이미 서 있잖아. 장식인 척만 하지 마.
+===

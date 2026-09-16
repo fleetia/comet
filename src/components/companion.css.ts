@@ -1,13 +1,22 @@
 import { keyframes, style, styleVariants } from "@vanilla-extract/css";
+import { semanticVars as vars } from "@fleetia/lagrange/theme";
 
+export const bodyFrame = style({ position: "relative", width: "100%", height: "100dvh" });
+export const bodyClose = style({
+  position: "absolute",
+  top: 3,
+  right: 3,
+  fontSize: 20,
+  lineHeight: 1,
+});
 export const body = style({
   width: "100%",
-  height: "100dvh",
+  height: "100%",
   minHeight: 60,
-  padding: "12px 8px",
-  border: "1px solid #d4d9cf",
-  borderRadius: 9,
-  background: "#fbfaf3",
+  padding: "24px 8px 10px",
+  border: `${vars.border.width.hairline} solid ${vars.color.border.strong}`,
+  borderRadius: vars.shape.radius.subtle,
+  background: vars.color.surface.raised,
   display: "flex",
   flexDirection: "column",
   alignItems: "center",
@@ -16,12 +25,17 @@ export const body = style({
   userSelect: "none",
   cursor: "grab",
   touchAction: "none",
+  color: vars.color.content.primary,
+  ":focus-visible": {
+    outline: `${vars.border.width.hairline} solid ${vars.color.interaction.focus}`,
+    outlineOffset: -4,
+  },
   selectors: { "&:active": { cursor: "grabbing" } },
 });
-export const bodyPreview = style({ width: 112, height: 88, boxShadow: "0 6px 20px #3448340c" });
+export const bodyPreview = style({ width: 112, height: 88 });
 export const tone = styleVariants({
-  a: { borderTop: "3px solid #d4a074" },
-  b: { borderTop: "3px solid #96ac93" },
+  a: { borderTop: `3px solid ${vars.color.content.accent}` },
+  b: { borderTop: `3px solid ${vars.color.status.positive}` },
 });
 export const bodyName = style({
   fontSize: 11,
@@ -31,7 +45,7 @@ export const bodyName = style({
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
   letterSpacing: "0.01em",
-  color: "#707769",
+  color: vars.color.content.secondary,
 });
 export const face = style({
   fontSize: 17,
@@ -47,9 +61,9 @@ export const balloon = style({
   height: "auto",
   minHeight: 110,
   maxHeight: 520,
-  background: "#fffef8",
-  border: "1px solid #d8ddce",
-  borderRadius: 9,
+  background: vars.color.surface.raised,
+  border: `${vars.border.width.hairline} solid ${vars.color.border.strong}`,
+  borderRadius: vars.shape.radius.subtle,
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
@@ -57,7 +71,6 @@ export const balloon = style({
 export const balloonPreview = style({
   width: 320,
   maxWidth: "100%",
-  boxShadow: "0 9px 28px #3b4c3a0c",
 });
 export const balloonHeader = style({
   display: "flex",
@@ -65,18 +78,9 @@ export const balloonHeader = style({
   justifyContent: "space-between",
   padding: "7px 12px",
   fontSize: 11,
-  color: "#6f7867",
+  color: vars.color.content.secondary,
   flexShrink: 0,
-  borderBottom: "1px solid #ecefe4",
-});
-export const close = style({
-  border: 0,
-  background: "transparent",
-  width: 28,
-  height: 26,
-  fontSize: 17,
-  borderRadius: 4,
-  ":hover": { background: "#eeeee3" },
+  borderBottom: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
 });
 export const speech = style({
   maxHeight: 400,
@@ -125,27 +129,26 @@ export const waitingLabel = style({
 export const footer = style({
   padding: "6px 14px 10px",
   fontSize: 10,
-  color: "#8b9182",
+  color: vars.color.content.secondary,
   display: "flex",
   justifyContent: "space-between",
   flexShrink: 0,
 });
 export const menu = style({
-  padding: "5px 8px",
+  padding: `${vars.space.xs} ${vars.space.sm}`,
   display: "flex",
   flexDirection: "column",
-  gap: 1,
+  gap: vars.space.xs,
   flex: 1,
   overflowY: "auto",
 });
+export const menuGroup = style({ display: "flex", flexDirection: "column" });
 export const menuItem = style({
-  border: 0,
-  borderRadius: 4,
-  background: "transparent",
-  padding: "8px 11px",
+  width: "100%",
+  justifyContent: "flex-start",
   textAlign: "left",
-  fontSize: 12,
-  ":hover": { background: "#f0f3e8" },
+  flexShrink: 0,
+  minHeight: vars.dimension.control,
 });
 export const form = style({
   maxHeight: 290,
@@ -157,17 +160,8 @@ export const form = style({
   minHeight: 0,
   overflowY: "auto",
 });
-export const input = style({
-  width: "100%",
-  border: "1px solid #d7dece",
-  borderRadius: 5,
-  background: "#fffefb",
-  padding: 9,
-  minHeight: 68,
-  resize: "none",
-  lineHeight: 1.5,
-  color: "#30342f",
-});
+export const recipient = style({ width: "auto", maxWidth: 120 });
+export const input = style({ minHeight: 68 });
 export const row = style({
   display: "flex",
   gap: 9,
@@ -192,17 +186,17 @@ export const historyName = style({
   display: "block",
   fontSize: 10,
   fontWeight: 600,
-  color: "#85917c",
+  color: vars.color.content.secondary,
   marginBottom: 2,
 });
 export const notice = style({ padding: "0 12px 8px", flexShrink: 0 });
 export const error = style({
   padding: "8px 10px",
-  background: "#fff1e9",
-  color: "#934c35",
+  background: vars.color.status.criticalSurface,
+  color: vars.color.status.critical,
   fontSize: 11,
   lineHeight: 1.6,
-  borderRadius: 4,
+  borderRadius: vars.shape.radius.subtle,
   maxHeight: 65,
   overflowY: "auto",
   overflowWrap: "anywhere",
@@ -227,7 +221,7 @@ export const stage = style({
   alignItems: "center",
   justifyContent: "flex-end",
   padding: "24px 0 32px",
-  borderBottom: "1px solid #dce2d5",
+  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
   marginBottom: 20,
 });
 export const stageBalloon = style({
@@ -249,6 +243,6 @@ export const resting = style({
   height: 260,
   display: "flex",
   alignItems: "center",
-  color: "#919987",
+  color: vars.color.content.secondary,
   fontSize: 12,
 });

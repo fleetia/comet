@@ -1,6 +1,6 @@
 import type { JSX } from "react";
 import type { CharacterPack } from "../types";
-import * as ui from "../styles.css";
+import * as ui from "../lagrange.css";
 import * as s from "./characters.css";
 
 type Props = { pack: CharacterPack };
@@ -17,7 +17,7 @@ export function CharacterPackPreview({ pack }: Props): JSX.Element {
       </p>
       {pack.characters.map((character, index) => (
         <details key={`${character.sourceId}:${index}`} open>
-          <summary>
+          <summary className={s.disclosureSummary}>
             {character.name} · 버전 {character.version}
           </summary>
           <div className={s.preview}>
@@ -44,7 +44,7 @@ export function CharacterPackPreview({ pack }: Props): JSX.Element {
         </details>
       ))}
       <details>
-        <summary>
+        <summary className={s.disclosureSummary}>
           조합 대사 {pack.pairScenes.length}개 · 키워드 대사 {pack.wordbook.length}개
         </summary>
         <div className={s.preview}>

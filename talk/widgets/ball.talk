@@ -1,0 +1,28 @@
+format: 1
+
+scene: ball.still
+on: idle
+when: ball.ready and ball.moving == false
+cooldown: 30m
+---
+A[호기심]: 공이 가만히 있어. 어디로 굴릴까?
+B[평온]: 꼭 굴리지 않아도 돼. 지금 자리를 좋아할 수도 있지.
+===
+
+scene: ball.moving
+on: idle
+when: ball.ready and ball.moving == true
+cooldown: 30m
+---
+A[호기심]: 공이 간다. 이번엔 어느 벽에 닿을까?
+B[평온]: 우선 우리 발밑만 보자.
+===
+
+scene: ball.stopped
+on: ball.stopped
+when: ball.ready and event.kind == "ball.stopped"
+cooldown: 30m
+---
+A[호기심]: 멈췄어. 공도 자리를 골랐네.
+B[평온]: 이번 자리는 여기인가 봐.
+===

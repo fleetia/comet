@@ -2,16 +2,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CompanionBox } from "../components/CompanionBox";
 import { Balloon } from "../components/Balloon";
-import { PREVIEW_SNAPSHOT, command } from "../hooks/useSnapshot";
+import { PREVIEW_SNAPSHOT, command, isDesktop } from "../hooks/useSnapshot";
 
 vi.mock("../hooks/useSnapshot", async (load) => ({
   ...(await load<typeof import("../hooks/useSnapshot")>()),
   command: vi.fn(),
-  isDesktop: () => false,
+  isDesktop: vi.fn(() => false),
 }));
 afterEach(cleanup);
 beforeEach(() => {
   vi.mocked(command).mockReset();
+  vi.mocked(isDesktop).mockReturnValue(false);
+});
+
+it("hides the characters from the internal X without opening their menu", async () => {
+  vi.mocked(isDesktop).mockReturnValue(true);
+  vi.mocked(command).mockResolvedValue(undefined);
+  render(<CompanionBox persona="a" snapshot={PREVIEW_SNAPSHOT} />);
+  fireEvent.click(screen.getByRole("button", { name: "캐릭터 숨기기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("hide_boxes"));
+  expect(command).toHaveBeenCalledTimes(1);
 });
 function compose(): HTMLTextAreaElement {
   render(<Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "a", mode: "input" } }} />);
@@ -170,7 +180,7 @@ it("keeps resting bodies free of old dialogue and changes only the active actor 
     />,
   );
   expect(screen.getByText("[평온]")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button"));
+  fireEvent.click(screen.getByRole("button", { name: /메뉴 열기/ }));
   expect(command).toHaveBeenCalledWith("open_panel", { persona: "b", mode: "menu" });
 });
 
@@ -255,4 +265,33 @@ it("switches from panel to current playback preserving wordbook whitespace and d
   expect(screen.getByLabelText("말풍선").querySelector('[aria-live="polite"]')?.textContent).toBe(
     "",
   );
+});
+
+it("routes grouped menu actions and retains an input draft through a menu round trip", async () => {
+  vi.mocked(command).mockResolvedValue(undefined);
+  const snapshot = {
+    ...PREVIEW_SNAPSHOT,
+    panel: { persona: "b" as const, mode: "input" as const },
+  };
+  const { rerender } = render(<Balloon snapshot={snapshot} />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "  아직 쓰던 말\n다음 줄" } });
+  fireEvent.click(screen.getByRole("button", { name: "메뉴로" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenLastCalledWith("open_panel", { persona: "b", mode: "menu" }),
+  );
+  rerender(<Balloon snapshot={{ ...snapshot, panel: { persona: "b", mode: "menu" } }} />);
+  for (const group of ["대화", "관리", "자동 잡담과 표시"]) {
+    expect(screen.getByLabelText(group)).toBeTruthy();
+  }
+  for (const [label, name, args] of [
+    ["캐릭터 관리", "open_characters", undefined],
+    ["설정", "open_settings", undefined],
+    ["자동 잡담 잠시 쉬기", "set_paused", { paused: true }],
+    ["말 걸기", "open_panel", { persona: "b", mode: "input" }],
+  ] as const) {
+    fireEvent.click(screen.getByRole("button", { name: label }));
+    await waitFor(() => expect(command).toHaveBeenLastCalledWith(name, args));
+  }
+  rerender(<Balloon snapshot={snapshot} />);
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "  아직 쓰던 말\n다음 줄");
 });

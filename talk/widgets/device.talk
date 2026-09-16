@@ -1,0 +1,127 @@
+format: 1
+
+scene: device.no-battery
+on: idle
+when: device.ready and device.hasBattery == false
+cooldown: 30m
+---
+A[호기심]: 배터리는 따로 감지되지 않았어.
+B[평온]: 그러면 잔량 이야기는 건너뛰자.
+===
+
+scene: device.low
+on: idle
+when: device.ready and device.hasBattery == true and device.percent != null and device.percent <= 20 and device.powerState == "discharging"
+cooldown: 30m
+---
+A[걱정]: 배터리가 ${device.percent}%고 충전 중은 아니래.
+B[평온]: 계속 쓸 거라면 전원을 연결해도 좋겠어.
+===
+
+scene: device.charging
+on: idle
+when: device.ready and device.hasBattery == true and device.powerState == "charging"
+cooldown: 30m
+---
+A[호기심]: 배터리가 충전 중이래.
+B[평온]: 조용히 차고 있네. 우리는 선을 건드리지 말자.
+===
+
+scene: device.enough
+on: idle
+when: device.ready and device.hasBattery == true and device.percent > 20 and device.powerState == "discharging"
+cooldown: 30m
+---
+A[호기심]: 배터리 잔량은 ${device.percent}%로 보여.
+B[평온]: 숫자는 확인했으니 하던 화면으로 돌아가도 돼.
+===
+
+scene: device.charged
+on: idle
+when: device.ready and device.hasBattery == true and device.powerState == "charged"
+cooldown: 30m
+---
+A[호기심]: 배터리가 다 충전된 상태로 보여.
+B[평온]: 잔량 확인은 이쯤 하면 되겠네.
+===
+
+scene: device.unknown
+on: idle
+when: device.ready and device.hasBattery == true and device.powerState == "unknown"
+cooldown: 30m
+---
+A[호기심]: 배터리는 있지만 충전 상태는 확인이 안 돼.
+B[평온]: 모르는 부분은 모르는 채로 두자. 시스템 표시를 보면 되겠네.
+===
+
+scene: device.offline
+on: idle
+when: not device.ready and device.status == "offline"
+cooldown: 30m
+---
+A[호기심]: 기기 연결이 지금 닿지 않는대.
+B[평온]: 새 정보가 오기 전에는 조금 기다리자.
+===
+
+scene: device.unsupported
+on: idle
+when: not device.ready and device.status == "unsupported"
+cooldown: 30m
+---
+A[호기심]: 이 환경에서는 기기 정보를 가져올 수 없대.
+B[평온]: 그 정보 없이도 여기 같이 있으면 되지.
+===
+
+scene: device.error
+on: idle
+when: not device.ready and device.status == "error"
+cooldown: 30m
+---
+A[호기심]: 기기 정보를 확인하다가 문제가 생겼어.
+B[평온]: 필요하면 연결 화면에서 이유를 보자.
+===
+
+scene: device.stale
+on: idle
+when: not device.ready and device.status == "stale"
+cooldown: 30m
+---
+A[호기심]: 기기 정보가 지금 기준으로는 오래됐대.
+B[평온]: 다시 확인되기 전까지는 그대로 믿지 말자.
+===
+
+scene: device.permission-needed
+on: idle
+when: not device.ready and device.status == "permission-needed"
+cooldown: 30m
+---
+A[호기심]: 기기 정보를 읽으려면 연결 준비가 필요하대.
+B[평온]: 그 기능이 필요해지면 설정을 열어 보면 돼.
+===
+
+scene: device.woke
+on: device-woke
+when: device.woke == true and event.kind == "device-woke"
+cooldown: 30m
+---
+A[호기심]: 화면이 다시 깨어났네. 나도 여기 있어.
+B[평온]: 이어서 볼지 잠깐 쉴지는 천천히 골라.
+===
+
+scene: device.syncing
+on: idle
+when: not device.ready and device.status == "syncing"
+cooldown: 30m
+---
+A[호기심]: 기기 상태 정보를 처음 받아오는 중이야.
+B[평온]: 아직 도착하지 않은 칸은 비워 두자.
+===
+
+scene: device.not-charging
+on: idle
+when: device.ready and device.hasBattery == true and device.powerState == "not-charging"
+cooldown: 30m
+---
+A[호기심]: 전원 상태가 지금 충전하지 않는 중이라고 나와.
+B[평온]: 원인은 이 표시만으로 알 수 없겠네. 필요하면 시스템에서 확인하자.
+===

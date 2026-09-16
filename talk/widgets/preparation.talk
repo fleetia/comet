@@ -1,0 +1,37 @@
+format: 1
+
+scene: preparation.empty
+on: idle
+when: preparation.ready and preparation.count == 0
+cooldown: 30m
+---
+A[호기심]: 준비 봉투는 아직 없네.
+B[평온]: 챙길 게 생기면 그때 하나 만들자.
+===
+
+scene: preparation.unchecked
+on: idle
+when: preparation.ready and preparation.count > 0 and preparation.uncheckedCount > 0
+cooldown: 30m
+---
+A[호기심]: 봉투 안에 아직 표시하지 않은 게 ${preparation.uncheckedCount}개 있어.
+B[평온]: 실제로 챙겼는지는 한 번 보고 체크하자.
+===
+
+scene: preparation.checked
+on: idle
+when: preparation.ready and preparation.checkCount > 0 and preparation.uncheckedCount == 0
+cooldown: 30m
+---
+A[호기심]: 봉투의 체크가 다 채워졌어.
+B[평온]: 표시는 준비됐네. 실제 가방도 한번 봐 줘.
+===
+
+scene: preparation.no-checks
+on: idle
+when: preparation.ready and preparation.count > 0 and preparation.checkCount == 0
+cooldown: 30m
+---
+A[호기심]: 봉투는 있는데 확인할 항목은 아직 없네.
+B[평온]: 안에 적어 둘 게 생기면 그때 넣자.
+===

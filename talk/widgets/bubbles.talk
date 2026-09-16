@@ -1,0 +1,28 @@
+format: 1
+
+scene: bubbles.empty
+on: idle
+when: bubbles.ready and bubbles.count == 0
+cooldown: 30m
+---
+A[호기심]: 비눗방울이 다 사라졌어. 화면이 다시 잘 보인다.
+B[평온]: 또 만들 수도 있고. 잠깐 맑게 둬도 좋고.
+===
+
+scene: bubbles.floating
+on: idle
+when: bubbles.ready and bubbles.count > 0
+cooldown: 30m
+---
+A[호기심]: 비눗방울 ${bubbles.count}개가 떠 있어. 큰 것부터 볼까?
+B[평온]: 작은 건 뒤로 숨었네.
+===
+
+scene: bubbles.streak
+on: bubbles.streak
+when: bubbles.ready and event.kind == "bubbles.streak" and bubbles.streak > 0
+cooldown: 30m
+---
+A[호기심]: 비눗방울을 ${bubbles.streak}번 이어서 눌렀대.
+B[평온]: 마지막 하나까지 봤어. 잠깐 손을 쉬어도 좋고.
+===

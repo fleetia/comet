@@ -1,0 +1,82 @@
+format: 1
+
+scene: guessing.idle
+on: idle
+when: guessing.ready and guessing.playing == false and guessing.attempts == 0
+cooldown: 30m
+---
+A[호기심]: 맞히기 놀이가 기다리고 있어. 컵이든 숫자든 하나 골라 볼까?
+B[평온]: 원할 때 시작하자. 정답은 미리 들여다보지 말고.
+===
+
+scene: guessing.cups
+on: idle
+when: guessing.ready and guessing.playing == true and guessing.mode == "cups"
+cooldown: 30m
+---
+A[호기심]: 컵 중에 하나라지? 나는 왼쪽이 자꾸 눈에 들어와.
+B[평온]: 그건 단서가 아니라 네 취향 같아.
+===
+
+scene: guessing.number
+on: idle
+when: guessing.ready and guessing.playing == true and guessing.mode == "number"
+cooldown: 30m
+---
+A[호기심]: 숫자를 맞히는 중이네. 힌트가 나오면 범위를 좁혀 보자.
+B[평온]: 한 번에 알아맞힐 필요는 없지.
+===
+
+scene: guessing.correct
+on: guessing.attempt
+when: guessing.ready and event.outcome == "correct"
+cooldown: 30m
+---
+A[호기심]: 맞았대! 숨겨 둔 답하고 만났어.
+B[평온]: 좋네. 정답 공개까지 잘 봤어.
+===
+
+scene: guessing.exhausted
+on: guessing.attempt
+when: guessing.ready and event.outcome == "exhausted"
+cooldown: 30m
+---
+A[호기심]: 이번 판의 기회는 다 썼네.
+B[평온]: 여기까지 해도 괜찮아. 새 판은 원할 때.
+===
+
+scene: guessing.empty
+on: guessing.attempt
+when: guessing.ready and event.outcome == "empty"
+cooldown: 30m
+---
+A[호기심]: 그 컵은 비어 있었어.
+B[평온]: 직접 열어 보기 전엔 알 수 없지.
+===
+
+scene: guessing.higher
+on: guessing.attempt
+when: guessing.ready and event.outcome == "higher"
+cooldown: 30m
+---
+A[호기심]: 힌트가 더 높은 숫자래.
+B[평온]: 방금 숫자보다 위에서 찾아보자.
+===
+
+scene: guessing.lower
+on: guessing.attempt
+when: guessing.ready and event.outcome == "lower"
+cooldown: 30m
+---
+A[호기심]: 더 낮은 숫자라는 힌트가 나왔어.
+B[평온]: 그럼 아래쪽으로 범위를 좁히자.
+===
+
+scene: guessing.between-rounds
+on: idle
+when: guessing.ready and guessing.playing == false and guessing.attempts > 0
+cooldown: 30m
+---
+A[호기심]: 이번 맞히기 판은 끝났어. 컵도 잠깐 그대로 있네.
+B[평온]: 다음 판은 새로 시작할 때 생길 거야.
+===

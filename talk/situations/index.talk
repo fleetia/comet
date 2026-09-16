@@ -1,0 +1,19 @@
+format: 1
+
+scene: situation.quiet-focus
+on: idle
+when: timer.ready and music.ready and timer.state == "running" and timer.mode == "focus" and music.playing == true
+cooldown: 30m
+---
+A[호기심]: 타이머도 가고 음악도 나와. 내 말은 여기까지만 할까?
+B[평온]: 응. 다음 박자는 음악한테 주자.
+===
+
+scene: situation.little-shelf
+on: idle
+when: plant.ready and collection.ready and plant.stage == 3 and collection.decorationCount > 0
+cooldown: 30m
+---
+A[호기심]: 다 자란 화분 옆에 장식도 놓였네. 작은 선반 같아.
+B[평온]: 새로 뭘 더 놓지 않아도 볼 게 있네.
+===

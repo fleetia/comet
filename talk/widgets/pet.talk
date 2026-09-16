@@ -1,0 +1,28 @@
+format: 1
+
+scene: pet.resting
+on: idle
+when: pet.ready and pet.moving == false
+cooldown: 30m
+---
+A[호기심]: 펫이 그 자리에 앉아 있네. 나도 옆에 서 있을까?
+B[평온]: 길만 막지 않으면 되겠지.
+===
+
+scene: pet.moving
+on: idle
+when: pet.ready and pet.moving == true
+cooldown: 30m
+---
+A[호기심]: 펫이 먹이 쪽으로 가고 있어. 걸음이 작다.
+B[평온]: 기다려 주자. 거리는 자기 다리로 재는 거니까.
+===
+
+scene: pet.arrived
+on: pet.arrived
+when: pet.ready and event.kind == "pet.arrived"
+cooldown: 30m
+---
+A[기쁨]: 먹이 있는 데까지 도착했어.
+B[평온]: 마지막 몇 걸음도 다 걸었네.
+===

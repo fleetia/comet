@@ -1,8 +1,9 @@
 import { useRef, useState, type JSX } from "react";
+import { Button, Checkbox, Select } from "@fleetia/lagrange";
 import { command, errorText } from "../hooks/useSnapshot";
 import type { CharacterPack, InstalledCharacter, Snapshot } from "../types";
 import { CharacterPackPreview } from "./CharacterPackPreview";
-import * as ui from "../styles.css";
+import * as ui from "../lagrange.css";
 import * as s from "./characters.css";
 
 type Props = {
@@ -53,14 +54,10 @@ export function CharacterSharing({
       <fieldset className={s.fieldset} disabled={pending || disabled}>
         <label className={ui.field}>
           내보낼 대상
-          <select
-            className={ui.input}
-            value={scope}
-            onChange={(event) => setScope(event.target.value)}
-          >
+          <Select value={scope} onChange={(event) => setScope(event.target.value)}>
             <option value="selected">선택한 캐릭터 하나</option>
             <option value="pair">현재 A/B 둘의 조합</option>
-          </select>
+          </Select>
         </label>
         <p className={ui.quiet}>
           {ids
@@ -73,7 +70,9 @@ export function CharacterSharing({
           · 저장된 내용으로 내보내요.
         </p>
         <details className={s.section}>
-          <summary>개인 단어장 선택해서 포함하기 ({wordbookIds.length}개)</summary>
+          <summary className={s.disclosureSummary}>
+            개인 단어장 선택해서 포함하기 ({wordbookIds.length}개)
+          </summary>
           <p className={ui.quiet}>
             기본으로 제외해요. 단일 캐릭터를 내보낼 때는 그 캐릭터만 말하는 항목을 선택해 주세요.
           </p>
@@ -82,20 +81,19 @@ export function CharacterSharing({
           ) : (
             snapshot.wordbook.map((entry) => (
               <div className={s.line} key={entry.id}>
-                <label className={ui.row}>
-                  <input
-                    type="checkbox"
-                    checked={wordbookIds.includes(entry.id)}
-                    onChange={(event) =>
-                      setWordbookIds((values) =>
-                        event.target.checked
-                          ? [...values, entry.id]
-                          : values.filter((id) => id !== entry.id),
-                      )
-                    }
-                  />
+                <Checkbox
+                  disabled={pending || disabled}
+                  checked={wordbookIds.includes(entry.id)}
+                  onChange={(event) =>
+                    setWordbookIds((values) =>
+                      event.target.checked
+                        ? [...values, entry.id]
+                        : values.filter((id) => id !== entry.id),
+                    )
+                  }
+                >
                   {entry.title}
-                </label>
+                </Checkbox>
                 <p className={ui.quiet}>{entry.keywords.join(", ")}</p>
                 <div className={s.preview}>
                   {entry.lines.map((line, index) => (
@@ -109,8 +107,8 @@ export function CharacterSharing({
           )}
         </details>
         <div className={ui.row}>
-          <button
-            className={ui.button}
+          <Button
+            variant="secondary"
             disabled={!ids.length}
             onClick={() =>
               void run(async () => {
@@ -123,9 +121,9 @@ export function CharacterSharing({
             }
           >
             공유 파일 내보내기
-          </button>
-          <button
-            className={ui.button}
+          </Button>
+          <Button
+            variant="secondary"
             onClick={() =>
               void run(async () => {
                 const chosen = await command<CharacterPack | null>("choose_character_pack");
@@ -137,7 +135,7 @@ export function CharacterSharing({
             }
           >
             공유 파일 가져오기
-          </button>
+          </Button>
         </div>
         <p className={ui.quiet}>.comet-character.json · 최대 1 MiB · 온라인에 게시하지 않아요.</p>
         {pack && (
@@ -145,8 +143,8 @@ export function CharacterSharing({
             <CharacterPackPreview pack={pack} />
             {installed.length === 0 ? (
               <div className={ui.row}>
-                <button
-                  className={ui.primary}
+                <Button
+                  variant="primary"
                   onClick={() =>
                     void run(async () => {
                       const values = await command<InstalledCharacter[]>("import_character_pack", {
@@ -158,16 +156,16 @@ export function CharacterSharing({
                   }
                 >
                   내용 확인 후 설치
-                </button>
-                <button className={ui.button} onClick={() => setPack(null)}>
+                </Button>
+                <Button variant="secondary" onClick={() => setPack(null)}>
                   가져오기 취소
-                </button>
+                </Button>
               </div>
             ) : (
               <div className={ui.row}>
                 {installed.length === 2 ? (
-                  <button
-                    className={ui.primary}
+                  <Button
+                    variant="primary"
                     onClick={() =>
                       void run(async () => {
                         await command("apply_character_pair", {
@@ -178,11 +176,11 @@ export function CharacterSharing({
                     }
                   >
                     가져온 둘을 A/B에 적용
-                  </button>
+                  </Button>
                 ) : (
                   ["a", "b"].map((persona) => (
-                    <button
-                      className={ui.primary}
+                    <Button
+                      variant="primary"
                       key={persona}
                       onClick={() =>
                         void run(async () => {
@@ -192,18 +190,18 @@ export function CharacterSharing({
                       }
                     >
                       {persona.toUpperCase()}에 적용
-                    </button>
+                    </Button>
                   ))
                 )}
-                <button
-                  className={ui.button}
+                <Button
+                  variant="secondary"
                   onClick={() => {
                     setPack(null);
                     setInstalled([]);
                   }}
                 >
                   미리보기 닫기
-                </button>
+                </Button>
               </div>
             )}
           </section>

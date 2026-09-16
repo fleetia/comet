@@ -1,0 +1,37 @@
+format: 1
+
+scene: clock.no-anniversary
+on: idle
+when: clock.ready and clock.anniversaryCount == 0
+cooldown: 30m
+---
+A[호기심]: 시계는 가고 있고 기념일 칸은 비어 있어.
+B[평온]: 오늘을 꼭 이름 붙여야 하는 건 아니니까.
+===
+
+scene: clock.today
+on: idle
+when: clock.ready and clock.daysUntil == 0 and clock.title != null
+cooldown: 30m
+---
+A[기쁨]: 오늘이 「${clock.title}」래. 날짜가 딱 맞았어.
+B[평온]: 달력에 적어 둔 날이 도착했네.
+===
+
+scene: clock.upcoming
+on: idle
+when: clock.ready and clock.daysUntil > 0 and clock.title != null
+cooldown: 30m
+---
+A[호기심]: 「${clock.title}」까지 ${clock.daysUntil}일이래.
+B[평온]: 조금씩 가까워지고 있네.
+===
+
+scene: clock.past
+on: idle
+when: clock.ready and clock.daysUntil < 0 and clock.title != null
+cooldown: 30m
+---
+A[호기심]: 「${clock.title}」의 날짜는 지났네.
+B[평온]: 지나간 날도 여기에는 남겨 둘 수 있지.
+===

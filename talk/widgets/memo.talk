@@ -1,0 +1,19 @@
+format: 1
+
+scene: memo.empty
+on: idle
+when: memo.ready and memo.count == 0
+cooldown: 30m
+---
+A[호기심]: 메모에 아직 아무것도 안 적혀 있어.
+B[평온]: 떠오른 말이 있으면 잡아 두자. 없으면 그대로 두고.
+===
+
+scene: memo.written
+on: idle
+when: memo.ready and memo.count > 0
+cooldown: 30m
+---
+A[호기심]: 메모가 ${memo.count}장 있어. 작은 종이 더미 같네.
+B[평온]: 내용은 필요할 때 펼쳐 보자.
+===

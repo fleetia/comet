@@ -1,0 +1,19 @@
+format: 1
+
+scene: jar.empty
+on: idle
+when: jar.ready and jar.count == 0
+cooldown: 30m
+---
+A[호기심]: 완료 병 안이 훤히 보여.
+B[평온]: 처음엔 빈 병이지. 흔들어도 조용하네.
+===
+
+scene: jar.filled
+on: idle
+when: jar.ready and jar.count > 0
+cooldown: 30m
+---
+A[호기심]: 완료 병에 ${jar.count}개가 모였어. 하나씩 들어왔겠지?
+B[평온]: 응. 한꺼번에 생긴 무늬는 아니네.
+===

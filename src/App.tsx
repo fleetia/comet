@@ -1,27 +1,46 @@
 import type { JSX } from "react";
+import { Button } from "@fleetia/lagrange";
 import { CharacterManager } from "./components/CharacterManager";
 import { CompanionBox } from "./components/CompanionBox";
 import { Balloon } from "./components/Balloon";
 import { DesktopPreview } from "./components/DesktopPreview";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { isDesktop, useSnapshot } from "./hooks/useSnapshot";
-import * as s from "./styles.css";
+import { WidgetManager } from "./widgets/WidgetManager";
+import { WidgetTool } from "./widgets/WidgetTool";
+import { WindowHeader } from "./components/WindowHeader";
+import { command, isDesktop, useSnapshot } from "./hooks/useSnapshot";
+import * as s from "./lagrange.css";
 
 export function App(): JSX.Element {
   const { snapshot, error, reload } = useSnapshot();
   const query = new URLSearchParams(window.location.search);
+  const view = query.get("view");
+  if (query.get("view") === "widgets") return <WidgetManager />;
+  if (query.get("view") === "widget") return <WidgetTool id={query.get("id") ?? ""} />;
   if (!snapshot) {
     return (
       <main className={s.loading}>
+        <div className={s.loadingHeader}>
+          <WindowHeader
+            label="창 닫기"
+            onClose={
+              view === "settings" || view === "characters"
+                ? undefined
+                : () => command(view === "balloon" ? "skip_talk" : "hide_boxes")
+            }
+          >
+            <span className={s.eyebrow}>COMET</span>
+          </WindowHeader>
+        </div>
         <p role="status">{error ? "준비하지 못했어요." : "…"}</p>
         {error && (
           <>
             <p className={s.error} role="alert">
               {error}
             </p>
-            <button className={s.button} onClick={reload}>
+            <Button variant="secondary" onClick={reload}>
               다시 시도
-            </button>
+            </Button>
           </>
         )}
       </main>

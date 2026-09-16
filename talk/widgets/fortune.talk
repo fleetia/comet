@@ -1,0 +1,28 @@
+format: 1
+
+scene: fortune.fresh
+on: idle
+when: fortune.ready and fortune.draws == 0
+cooldown: 30m
+---
+A[호기심]: 장난 운세 종이가 아직 접혀 있어.
+B[평온]: 미래를 아는 종이는 아니고. 뽑기 놀이야.
+===
+
+scene: fortune.drawn
+on: idle
+when: fortune.ready and fortune.draws > 0
+cooldown: 30m
+---
+A[호기심]: 장난 운세를 ${fortune.draws}번 펼쳐 봤네.
+B[평온]: 마음에 드는 문장만 가볍게 가져가.
+===
+
+scene: fortune.draw
+on: fortune.draw
+when: fortune.ready and event.kind == "fortune.draw" and fortune.text != null
+cooldown: 30m
+---
+A[호기심]: 종이에 이렇게 적혔어. 「${fortune.text}」
+B[평온]: 가상 장난 운세니까 웃고 넘겨도 돼.
+===

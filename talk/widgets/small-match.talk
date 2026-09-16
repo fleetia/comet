@@ -1,0 +1,82 @@
+format: 1
+
+scene: match.new
+on: idle
+when: match.ready and match.rounds == 0
+cooldown: 30m
+---
+A[장난]: 작은 대결은 아직 시작 전이야. 내가 먼저 긴장해도 되나?
+B[평온]: 주사위도 아직 안 굴렸는데.
+===
+
+scene: match.played
+on: idle
+when: match.ready and match.rounds > 0
+cooldown: 30m
+---
+A[호기심]: 대결 기록이 ${match.rounds}번 쌓였어.
+B[평온]: 다음 판은 원할 때. 점수판은 도망 안 가.
+===
+
+scene: match.winner-a
+on: small-match.result
+when: match.ready and event.outcome == "winner-a"
+cooldown: 30m
+---
+A[호기심]: 이번엔 내가 이겼대! 잠깐만 좋아할게.
+B[평온]: 응. 잠깐은 충분히 좋아해도 돼.
+===
+
+scene: match.winner-b
+on: small-match.result
+when: match.ready and event.outcome == "winner-b"
+cooldown: 30m
+---
+A[호기심]: 이번 판은 네가 이겼네. 결과를 두 번 읽었어.
+B[평온]: 두 번 읽어도 한 판이야.
+===
+
+scene: match.draw
+on: small-match.result
+when: match.ready and event.outcome == "draw"
+cooldown: 30m
+---
+A[호기심]: 같아! 서로 같은 걸 골랐나 봐.
+B[평온]: 이런 판도 있어야지.
+===
+
+scene: match.winner-user
+on: small-match.result
+when: match.ready and event.outcome == "winner-user"
+cooldown: 30m
+---
+A[호기심]: 이번엔 사용자 쪽 승리래. 축하해!
+B[평온]: 결과가 깔끔하네.
+===
+
+scene: match.winner-character
+on: small-match.result
+when: match.ready and event.outcome == "winner-character"
+cooldown: 30m
+---
+A[호기심]: 이번 판은 캐릭터 쪽이 이겼대.
+B[평온]: 다음 판 결과는 아직 모르지.
+===
+
+scene: match.correct
+on: small-match.result
+when: match.ready and event.outcome == "correct"
+cooldown: 30m
+---
+A[호기심]: 선택이 맞았대. 결과를 열어 보니 딱 맞았어.
+B[평온]: 맞힌 건 이번 선택. 다음은 새로 보자.
+===
+
+scene: match.miss
+on: small-match.result
+when: match.ready and event.outcome == "miss"
+cooldown: 30m
+---
+A[호기심]: 이번 선택은 빗나갔네.
+B[평온]: 가볍게 한 판이었어. 여기서 멈춰도 되고.
+===

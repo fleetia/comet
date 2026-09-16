@@ -1,0 +1,28 @@
+format: 1
+
+scene: plane.ready
+on: idle
+when: plane.ready and plane.flying == false
+cooldown: 30m
+---
+A[호기심]: 종이비행기가 착륙해 있어. 다음엔 살짝 기울여 볼까?
+B[평온]: 접힌 종이치고는 할 일이 많네.
+===
+
+scene: plane.flying
+on: idle
+when: plane.ready and plane.flying == true
+cooldown: 30m
+---
+A[기쁨]: 날아간다! 끝까지 눈으로 따라갈게.
+B[평온]: 눈부터 먼저 도착하지는 말고.
+===
+
+scene: plane.landed
+on: paper-plane.landed
+when: plane.ready and event.kind == "paper-plane.landed" and plane.distance != null
+cooldown: 30m
+---
+A[호기심]: 이번에는 ${plane.distance}만큼 날았대.
+B[평온]: 착륙했으니 다음 비행은 원할 때 하자.
+===

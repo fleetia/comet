@@ -5,28 +5,34 @@ description: 현재 Tauri 앱의 코드 소유권과 생활 도구·외부 위�
 
 # 구조와 책임
 
-0.2 기반과 0.3.0용 캐릭터 기능 소스의 구조, 앞으로 추가할 도구 연결 경계를 설명한다. 파일 경로는 프로젝트 루트를 기준으로 한다. 아래의 도구 호스트와 SDK 경계는 설계이며 아직 해당 모듈이 구현된 상태가 아니다.
+기존 대화·캐릭터 기능과 공식 위젯 22개의 구조, 후속 외부 SDK의 책임 경계를 설명한다. 파일 경로는 프로젝트 루트를 기준으로 한다. 공식 도구 호스트는 구현했으며 외부 SDK와 Cargo workspace는 후속 설계다. 검증 범위는 [상태표](../status.md)를 따른다.
 
 ## 현재 코드의 책임
 
 | 위치 | 책임 |
 | --- | --- |
 | `src/App.tsx`, `src/components/` | 본체·말풍선·입력과 보조 화면 |
+| `src/main.tsx`, `src/lagrange.css.ts`, `src/desktop.css.ts` | 모든 화면에 적용하는 공통 테마·reset·글꼴 역할, 공용 폼 스타일과 보조 화면 레이아웃. 위젯별 배치는 `src/widgets/widgets.css.ts`와 `src/widgets/tools.css.ts`가 담당한다. |
 | `src/hooks/useSnapshot.ts`, `src/types.ts` | Rust 상태 수신·이벤트 구독과 화면용 타입 |
 | `src-tauri/src/lib.rs` | Tauri 명령, 앱 상태, 작업 직렬화·취소, 자동 장면 준비 |
 | `src-tauri/src/desktop.rs`, `playback.rs` | 네이티브 창 배치와 재생 관련 규칙 |
 | `src-tauri/src/store.rs` | SQLite 대화·기억·설정, 당시 캐릭터 정체성과 로컬 ID별 관계 저장 |
 | `src-tauri/src/characters.rs` | 로컬 캐릭터·조합 대사·공유 JSON 검증과 데이터 변환 |
 | `src-tauri/src/character_commands.rs`, `character_files.rs` | 캐릭터 변경의 직렬화·트랜잭션·취소, 네이티브 파일 선택과 검증 후 저장 |
+| `src-tauri/src/talk/` | `.talk` 파서·조건 평가·공개 상태 projection·재로딩·재언급 간격. 앱과 CLI가 같은 평가기 사용 |
+| `src-tauri/src/talk_host.rs` | 실제 사건·상태 대본을 기존 재생기로 연결하고 프로그램·캐릭터·원본 revision을 재검사 |
+| `talk/`, `src-tauri/examples/talk.rs` | 기본 대본·fixture와 검사·변수 조회·읽기 전용 DB 시뮬레이션 CLI |
 | `src-tauri/src/wordbook.rs` | 단어장 저장·초기 예제·정확한 키워드 매칭 |
 | `src-tauri/src/domain.rs` | 모델 출력과 기억 분석 결과의 검증 |
 | `src-tauri/src/inference.rs` | 앱 소유 추론 프로세스·외부 API·자격 증명 |
 | `src-tauri/src/models.rs`, `resources.rs` | 고정 모델 다운로드와 로컬 준비 시점의 부하 판단 |
 | `scripts/prepare-sidecar.mjs` | 운영체제별 llama.cpp 실행기 준비 |
 
-Rust가 저장 상태를 관리하고 프론트엔드가 상태와 재생 이벤트를 표시한다. 문서 작성 시 소스에서 확인한 영구 저장 범위에는 아직 투두·캘린더·외부 위젯이 없다.
+Rust가 저장 상태를 관리하고 프론트엔드가 상태와 재생 이벤트를 표시한다. 공식 도구의 상태·일정 캐시·사건은 `src-tauri/src/widgets/storage.rs`의 SQLite 저장을 사용하고, 화면은 `src/widgets/`, 명령·연결 작업은 `widget_commands.rs`·`widget_connections.rs`가 담당한다. 공개 외부 위젯 실행기는 제공하지 않는다.
 
 캐릭터 데이터 이전은 원문 메시지 JSON과 기존 친밀도 표를 보존하며 별도 정체성·친밀도 표를 사용한다. 캐릭터 변경은 기존 작업 취소와 준비 대사 무효화를 동반한다. 공유 파일은 정의·대사만 구성하며 개인 단어장은 명시적으로 선택한 항목만 포함한다. 상세 규격은 [캐릭터 교체와 공유](../product/characters.md)를 따른다. 실제 흐름과 데이터 보존 검증은 [0.3.0 검증 기록](../VALIDATION-0.3.0.md)을 따른다.
+
+`.talk`는 위젯 상태를 [공개 변수](talk-reference.md)로 정규화한 뒤 대본을 평가하고 `SceneLine` 배열을 기존 재생 경로에 전달한다. 자동 `.talk` 차례와 기존 일반 수다 차례를 번갈아 사용하며, 실제 사건은 기존 사건 대기열을 통과한다. 파서·평가기·CLI는 위젯 쓰기 명령이나 외부 코드를 실행하지 않는다. 대본 편집 UI와 외부 Widget SDK는 이 경로에 포함되지 않는다.
 
 ## 확장 후 책임 경계
 
@@ -37,7 +43,7 @@ Rust가 저장 상태를 관리하고 프론트엔드가 상태와 재생 이벤
 | 캘린더 연결 | 외부 일정 조회·캐시·변경 확인, 시간대와 반복 회차 해석 | 조회 실패를 빈 일정으로 바꾸기 |
 | 도구 호스트 | 위젯 식별·권한·예약·요청·결과·수명 관리 | 외부 위젯이 앱 명령 전체를 호출하도록 허용 |
 | 위젯 | 자기 상태·사건·허용 동작·선택적인 화면 제공 | 다른 위젯의 저장소나 자격 증명 직접 접근 |
-| 대화 조정 | 단어장 연결·발화 순서·최신성 확인·준비 장면 취소 | 대사가 실제 데이터 변경을 대신함 |
+| 대화 조정 | 단어장 원문 매칭·`.talk` 조건 선택·발화 순서·최신성 확인·준비 장면 취소 | 대사가 실제 데이터 변경을 대신함 |
 | LLM | 제공된 근거 안에서 선택적인 새 대사 생성 | 상태의 원본, 실행 성공 판정, 호감도 점수 결정 |
 | 화면 | 사용자 입력·버튼과 필요한 정보 표시 | 화면이 닫혀도 모든 위젯을 상주 실행 |
 

@@ -1,0 +1,136 @@
+format: 1
+
+scene: weather.freezing
+on: idle
+when: weather.ready and weather.temperature != null and weather.temperature <= 0
+cooldown: 30m
+---
+A[걱정]: 날씨 관측에는 ${weather.temperature}도라고 나와.
+B[평온]: 밖에 나간다면 겉옷부터 생각해 보자.
+===
+
+scene: weather.mild
+on: idle
+when: weather.ready and weather.temperature > 0 and weather.temperature < 28 and weather.code <= 3
+cooldown: 30m
+---
+A[호기심]: 관측 기온은 ${weather.temperature}도야.
+B[평온]: 창밖 느낌도 한번 같이 보자.
+===
+
+scene: weather.hot
+on: idle
+when: weather.ready and weather.temperature >= 28 and weather.code <= 3
+cooldown: 30m
+---
+A[호기심]: 관측 기온이 ${weather.temperature}도네. 숫자만 봐도 좀 뜨겁다.
+B[평온]: 우리는 화면 안이지만 밖에 나갈 땐 물을 챙겨도 좋겠네.
+===
+
+scene: weather.unconfigured
+on: idle
+when: weather.status == "permission-needed"
+cooldown: 30m
+---
+A[호기심]: 날씨 정보를 보려면 연결 준비가 필요한가 봐.
+B[평온]: 지금 설정하지 않아도 돼. 필요해지면 열어 보자.
+===
+
+scene: weather.stale
+on: idle
+when: weather.status == "stale"
+cooldown: 30m
+---
+A[호기심]: 날씨에 남아 있는 정보는 지금 기준으로 오래됐대.
+B[평온]: 새로 확인되기 전에는 그걸로 단정하지 말자.
+===
+
+scene: weather.fog
+on: idle
+when: weather.ready and weather.temperature > 0 and (weather.code == 45 or weather.code == 48)
+cooldown: 30m
+---
+A[호기심]: 안개 관측이 있네. 멀리 있는 건 흐려 보일 수도 있겠다.
+B[평온]: 나갈 일이 있으면 실제 시야도 확인하자.
+===
+
+scene: weather.rain
+on: idle
+when: weather.ready and weather.temperature > 0 and (weather.code >= 50 and weather.code <= 67)
+cooldown: 30m
+---
+A[호기심]: 비 쪽 관측이 들어왔어. 창밖에도 빗방울이 보여?
+B[평온]: 외출할 땐 우산이 필요한지 한 번 더 보자.
+===
+
+scene: weather.snow
+on: idle
+when: weather.ready and weather.temperature > 0 and (weather.code >= 71 and weather.code <= 77)
+cooldown: 30m
+---
+A[호기심]: 눈 관측이 있어. 화면 밖 풍경은 어떨까?
+B[평온]: 나간다면 발밑부터 천천히 보자.
+===
+
+scene: weather.showers
+on: idle
+when: weather.ready and weather.temperature > 0 and (weather.code >= 80 and weather.code <= 86)
+cooldown: 30m
+---
+A[호기심]: 소나기나 눈 소나기 쪽 관측이야. 잠깐씩 달라질 수도 있겠네.
+B[평온]: 밖에 나가기 직전 예보를 다시 봐도 좋겠다.
+===
+
+scene: weather.storm
+on: idle
+when: weather.ready and weather.temperature > 0 and (weather.code >= 95)
+cooldown: 30m
+---
+A[호기심]: 뇌우 관측이 들어왔어.
+B[평온]: 밖에 있다면 현지 안내와 실제 날씨를 확인해 줘.
+===
+
+scene: weather.offline
+on: idle
+when: not weather.ready and weather.status == "offline"
+cooldown: 30m
+---
+A[호기심]: 날씨 연결이 지금 닿지 않는대.
+B[평온]: 새 정보가 오기 전에는 조금 기다리자.
+===
+
+scene: weather.unsupported
+on: idle
+when: not weather.ready and weather.status == "unsupported"
+cooldown: 30m
+---
+A[호기심]: 이 환경에서는 날씨 정보를 가져올 수 없대.
+B[평온]: 그 정보 없이도 여기 같이 있으면 되지.
+===
+
+scene: weather.error
+on: idle
+when: not weather.ready and weather.status == "error"
+cooldown: 30m
+---
+A[호기심]: 날씨 정보를 확인하다가 문제가 생겼어.
+B[평온]: 필요하면 연결 화면에서 이유를 보자.
+===
+
+scene: weather.syncing
+on: idle
+when: not weather.ready and weather.status == "syncing"
+cooldown: 30m
+---
+A[호기심]: 날씨 정보를 처음 받아오는 중이야.
+B[평온]: 아직 도착하지 않은 칸은 비워 두자.
+===
+
+scene: weather.unclassified
+on: idle
+when: weather.ready and weather.temperature > 0 and weather.code != null and not (weather.code <= 3 or weather.code == 45 or weather.code == 48 or (weather.code >= 50 and weather.code <= 67) or (weather.code >= 71 and weather.code <= 77) or (weather.code >= 80 and weather.code <= 86) or weather.code >= 95)
+cooldown: 30m
+---
+A[호기심]: 기온은 ${weather.temperature}도인데 날씨 분류는 낯선 값이 왔어.
+B[평온]: 그 부분은 예보 화면에서 확인하자.
+===

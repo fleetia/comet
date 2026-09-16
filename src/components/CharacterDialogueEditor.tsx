@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type JSX } from "react";
+import { Button, Select, TextArea } from "@fleetia/lagrange";
 import { command, errorText } from "../hooks/useSnapshot";
 import type { CharacterDialogue, SceneLine, WordbookEntry } from "../types";
 import { WordbookPanel } from "./WordbookPanel";
 import { EXPRESSIONS } from "./CharacterEditor";
-import * as ui from "../styles.css";
+import * as ui from "../lagrange.css";
 import * as s from "./characters.css";
 
 type Props = {
@@ -86,23 +87,18 @@ export function CharacterDialogueEditor({
             <p role="alert" className={ui.error}>
               {error}
             </p>
-            <button className={ui.button} onClick={() => setRevision((value) => value + 1)}>
+            <Button variant="secondary" onClick={() => setRevision((value) => value + 1)}>
               다시 불러오기
-            </button>
+            </Button>
           </>
         )}
       </section>
     );
   return (
-    <section className={s.section}>
-      <h2 className={s.subheading}>
-        {ids.length === 1 ? "이 캐릭터의 키워드 대사" : "현재 둘의 등록 대사"}
-      </h2>
-      <p className={ui.quiet}>
-        개인 단어장과 별도로 저장해요. 개인 단어장을 먼저 찾은 뒤 이 대사를 사용해요. 수정 중에는
-        대상을 바꿀 수 없어요.
-      </p>
+    <div>
       <WordbookPanel
+        title={ids.length === 1 ? "이 캐릭터의 키워드 대사" : "현재 둘의 키워드 대사"}
+        description="개인 단어장과 별도로 저장해요. 개인 단어장을 먼저 찾은 뒤 이 대사를 사용해요. 수정 중에는 대상을 바꿀 수 없어요."
         entries={dialogue.wordbook}
         singleCharacter={ids.length === 1}
         saveEntry={saveEntry}
@@ -117,22 +113,21 @@ export function CharacterDialogueEditor({
               <div className={s.line} key={sceneIndex}>
                 <div className={ui.row}>
                   <strong>장면 {sceneIndex + 1}</strong>
-                  <button
+                  <Button
                     type="button"
-                    className={ui.button}
+                    variant="secondary"
                     onClick={() => {
                       setScenes(scenes.filter((_, i) => i !== sceneIndex));
                       setDirty(true);
                     }}
                   >
                     장면 {sceneIndex + 1} 삭제
-                  </button>
+                  </Button>
                 </div>
                 {lines.map((line, index) => (
                   <div className={s.line} key={index}>
                     <div className={ui.row}>
-                      <select
-                        className={ui.input}
+                      <Select
                         style={{ width: 70 }}
                         aria-label={`장면 ${sceneIndex + 1} 대사 ${index + 1} 화자`}
                         value={line.persona}
@@ -149,9 +144,8 @@ export function CharacterDialogueEditor({
                       >
                         <option value="a">A</option>
                         <option value="b">B</option>
-                      </select>
-                      <select
-                        className={ui.input}
+                      </Select>
+                      <Select
                         style={{ width: 100 }}
                         aria-label={`장면 ${sceneIndex + 1} 대사 ${index + 1} 표정`}
                         value={line.expression}
@@ -167,9 +161,9 @@ export function CharacterDialogueEditor({
                         {EXPRESSIONS.map((expression) => (
                           <option key={expression}>{expression}</option>
                         ))}
-                      </select>
-                      <button
-                        className={ui.button}
+                      </Select>
+                      <Button
+                        variant="secondary"
                         disabled={index === 0}
                         aria-label={`장면 ${sceneIndex + 1} 대사 ${index + 1} 위로`}
                         onClick={() => {
@@ -179,9 +173,9 @@ export function CharacterDialogueEditor({
                         }}
                       >
                         ↑
-                      </button>
-                      <button
-                        className={ui.button}
+                      </Button>
+                      <Button
+                        variant="secondary"
                         disabled={lines.length === 1}
                         aria-label={`장면 ${sceneIndex + 1} 대사 ${index + 1} 삭제`}
                         onClick={() =>
@@ -192,9 +186,9 @@ export function CharacterDialogueEditor({
                         }
                       >
                         삭제
-                      </button>
+                      </Button>
                     </div>
-                    <textarea
+                    <TextArea
                       className={s.textarea}
                       aria-label={`장면 ${sceneIndex + 1} 대사 ${index + 1}`}
                       maxLength={500}
@@ -210,8 +204,8 @@ export function CharacterDialogueEditor({
                     />
                   </div>
                 ))}
-                <button
-                  className={ui.button}
+                <Button
+                  variant="secondary"
                   disabled={lines.length >= 8}
                   onClick={() =>
                     changeScene(sceneIndex, [
@@ -225,12 +219,12 @@ export function CharacterDialogueEditor({
                   }
                 >
                   장면 {sceneIndex + 1} 대사 추가
-                </button>
+                </Button>
               </div>
             ))}
             <div className={ui.row}>
-              <button
-                className={ui.button}
+              <Button
+                variant="secondary"
                 disabled={scenes.length >= 64}
                 onClick={() => {
                   setScenes([...scenes, [{ persona: "a", expression: "평온", text: "" }]]);
@@ -238,9 +232,9 @@ export function CharacterDialogueEditor({
                 }}
               >
                 장면 추가
-              </button>
-              <button
-                className={ui.primary}
+              </Button>
+              <Button
+                variant="primary"
                 disabled={!dirty || scenes.some((lines) => lines.some((line) => !line.text.trim()))}
                 onClick={() => {
                   setError(null);
@@ -250,17 +244,17 @@ export function CharacterDialogueEditor({
                 }}
               >
                 둘의 수다 저장
-              </button>
+              </Button>
               {dirty && (
-                <button
-                  className={ui.button}
+                <Button
+                  variant="secondary"
                   onClick={() => {
                     setScenes(dialogue.pairScenes);
                     setDirty(false);
                   }}
                 >
                   수다 수정 취소
-                </button>
+                </Button>
               )}
             </div>
           </fieldset>
@@ -271,6 +265,6 @@ export function CharacterDialogueEditor({
           {error}
         </p>
       )}
-    </section>
+    </div>
   );
 }

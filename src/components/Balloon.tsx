@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
+import { Button, IconButton, Rule, Select, TextArea } from "@fleetia/lagrange";
 import type { Dispatch, Persona, Snapshot } from "../types";
 import { command, errorText, isDesktop } from "../hooks/useSnapshot";
 import * as s from "./companion.css";
-import * as ui from "../styles.css";
+import * as ui from "../lagrange.css";
 import { characterName } from "./characterIdentity";
 
 type Props = { snapshot: Snapshot; preview?: boolean; dispatch?: Dispatch };
@@ -152,48 +153,92 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
       aria-label={mode ? labels[mode] : "말풍선"}
     >
       <header className={s.balloonHeader}>
+        {(mode === "input" || mode === "history") && (
+          <Button
+            variant="quiet"
+            size="compact"
+            onClick={() => void perform("open_panel", { persona, mode: "menu" })}
+          >
+            메뉴로
+          </Button>
+        )}
         <span>{mode ? labels[mode] : name}</span>
-        <button
-          className={s.close}
-          aria-label={snapshot.panel ? "패널 닫기" : "이야기 닫기"}
+        <IconButton
+          size="compact"
+          variant="quiet"
+          label={snapshot.panel ? "패널 닫기" : "이야기 닫기"}
           onClick={() => void perform(closeCommand)}
         >
           ×
-        </button>
+        </IconButton>
       </header>
       {mode === "menu" && (
         <>
           <nav className={s.menu} aria-label="캐릭터 메뉴">
-            <button
-              className={s.menuItem}
-              onClick={() => void perform("open_panel", { persona, mode: "input" })}
-            >
-              말 걸기
-            </button>
-            <button className={s.menuItem} onClick={() => void perform("talk_now")}>
-              둘이 이야기해 봐
-            </button>
-            <button
-              className={s.menuItem}
-              onClick={() => void perform("open_panel", { persona, mode: "history" })}
-            >
-              지난 대화
-            </button>
-            <button className={s.menuItem} onClick={() => void perform("open_characters")}>
-              캐릭터 관리
-            </button>
-            <button className={s.menuItem} onClick={() => void perform("open_settings")}>
-              설정
-            </button>
-            <button
-              className={s.menuItem}
-              onClick={() => void perform("set_paused", { paused: !snapshot.runtime.paused })}
-            >
-              {snapshot.runtime.paused ? "자동 잡담 다시 시작" : "자동 잡담 잠시 쉬기"}
-            </button>
-            <button className={s.menuItem} onClick={() => void perform("hide_boxes")}>
-              숨기기
-            </button>
+            <div className={s.menuGroup} role="group" aria-label="대화">
+              <Button
+                variant="quiet"
+                className={s.menuItem}
+                onClick={() => void perform("open_panel", { persona, mode: "input" })}
+              >
+                말 걸기
+              </Button>
+              <Button
+                variant="quiet"
+                className={s.menuItem}
+                onClick={() => void perform("talk_now")}
+              >
+                둘이 이야기해 봐
+              </Button>
+              <Button
+                variant="quiet"
+                className={s.menuItem}
+                onClick={() => void perform("open_panel", { persona, mode: "history" })}
+              >
+                지난 대화
+              </Button>
+            </div>
+            <Rule variant="weak" />
+            <div className={s.menuGroup} role="group" aria-label="관리">
+              <Button
+                variant="quiet"
+                className={s.menuItem}
+                onClick={() => void perform("open_characters")}
+              >
+                캐릭터 관리
+              </Button>
+              <Button
+                variant="quiet"
+                className={s.menuItem}
+                onClick={() => void perform("open_widgets")}
+              >
+                위젯 관리
+              </Button>
+              <Button
+                variant="quiet"
+                className={s.menuItem}
+                onClick={() => void perform("open_settings")}
+              >
+                설정
+              </Button>
+            </div>
+            <Rule variant="weak" />
+            <div className={s.menuGroup} role="group" aria-label="자동 잡담과 표시">
+              <Button
+                variant="quiet"
+                className={s.menuItem}
+                onClick={() => void perform("set_paused", { paused: !snapshot.runtime.paused })}
+              >
+                {snapshot.runtime.paused ? "자동 잡담 다시 시작" : "자동 잡담 잠시 쉬기"}
+              </Button>
+              <Button
+                variant="quiet"
+                className={s.menuItem}
+                onClick={() => void perform("hide_boxes")}
+              >
+                숨기기
+              </Button>
+            </div>
           </nav>
           <div className={s.footer}>
             <span>
@@ -202,6 +247,7 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
                 ?.score ?? 20}
               /100
             </span>
+            {snapshot.runtime.paused && <span>자동 잡담 쉬는 중</span>}
           </div>
         </>
       )}
@@ -216,18 +262,19 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
           <div className={s.row}>
             <label className={ui.quiet}>
               받는 친구{" "}
-              <select
-                className={ui.select}
+              <Select
+                className={s.recipient}
                 value={target}
                 onChange={(event) => setTarget(event.target.value as Persona | "both")}
               >
                 <option value={persona}>{name}</option>
                 <option value="both">둘 모두</option>
-              </select>
+              </Select>
             </label>
             <span className={ui.quiet}>Shift + Enter 줄바꿈</span>
           </div>
-          <textarea
+          <TextArea
+            resize="none"
             ref={inputRef}
             className={s.input}
             aria-label={`${name}에게 할 말`}
@@ -253,13 +300,9 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
             <span className={ui.quiet} role="status">
               {responding && <WaitingDots />}
             </span>
-            <button
-              className={ui.primary}
-              type="submit"
-              disabled={!input.trim() || responding || pending}
-            >
+            <Button type="submit" disabled={!input.trim() || responding || pending}>
               {pending ? "전송 중" : "보내기"}
-            </button>
+            </Button>
           </div>
         </form>
       )}
@@ -313,8 +356,8 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
           )}
           <div className={s.row}>
             {canRetry && (
-              <button
-                className={ui.button}
+              <Button
+                variant="secondary"
                 disabled={pending || responding}
                 onClick={() =>
                   void perform("retry_turn", {
@@ -324,12 +367,16 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
                 }
               >
                 다시 이야기하기
-              </button>
+              </Button>
             )}
             {responding && (
-              <button className={ui.select} onClick={() => void perform("cancel_generation")}>
+              <Button
+                variant="quiet"
+                size="compact"
+                onClick={() => void perform("cancel_generation")}
+              >
                 생성 멈추기
-              </button>
+              </Button>
             )}
           </div>
         </div>

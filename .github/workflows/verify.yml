@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: verify-${{ github.workflow }}-${{ github.ref }}
@@ -36,12 +37,16 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+          registry-url: https://npm.pkg.github.com
+          scope: '@fleetia'
       - name: Check native host architecture
         env:
           EXPECTED_ARCH: ${{ matrix.arch }}
         run: node -e "if (process.arch !== process.env.EXPECTED_ARCH) throw new Error('Unsupported runner architecture ' + process.arch)"
       - uses: dtolnay/rust-toolchain@stable
       - run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: pnpm check
       - run: pnpm test
       - run: pnpm build

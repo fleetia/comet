@@ -201,6 +201,8 @@ pub(crate) fn open_characters(app: tauri::AppHandle) -> Result<(), String> {
     .title("Comet · 캐릭터 관리")
     .inner_size(920.0, 760.0)
     .min_inner_size(640.0, 480.0)
+    .decorations(false)
+    .maximizable(false)
     .build()
     .map_err(|error| error.to_string())?;
     Ok(())

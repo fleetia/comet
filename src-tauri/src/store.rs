@@ -18,10 +18,12 @@ CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY,content TEXT NOT NULL,so
 CREATE UNIQUE INDEX IF NOT EXISTS memory_evidence ON memories(source,content);
 CREATE TABLE IF NOT EXISTS scenes(id TEXT PRIMARY KEY,revision INTEGER NOT NULL,data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS affinity(source TEXT NOT NULL,persona TEXT NOT NULL,day TEXT NOT NULL,delta INTEGER NOT NULL,fingerprint TEXT NOT NULL,PRIMARY KEY(source,persona));
+CREATE TABLE IF NOT EXISTS talk_history(scene_key TEXT PRIMARY KEY,shown_at INTEGER NOT NULL);
 INSERT OR IGNORE INTO kv VALUES('revision','0');").map_err(err)?;
     crate::wordbook::initialize(&conn)?;
     crate::characters::initialize(&conn)?;
     initialize_identities(&conn)?;
+    crate::widgets::storage::initialize(&conn)?;
     Ok(conn)
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -178,6 +180,13 @@ fn context_for_character(
     .collect()
 }
 pub fn insert_message(conn: &Connection, message: &Message) -> Result<()> {
+    insert_message_with_talk(conn, message, None)
+}
+pub fn insert_message_with_talk(
+    conn: &Connection,
+    message: &Message,
+    scene_key: Option<&str>,
+) -> Result<()> {
     let tx = conn.unchecked_transaction().map_err(err)?;
     let changed = tx
         .execute(
@@ -206,6 +215,12 @@ pub fn insert_message(conn: &Connection, message: &Message) -> Result<()> {
         }
         if message.role == "user" {
             bump_revision(&tx)?;
+        }
+        if let Some(key) = scene_key {
+            tx.execute(
+                "INSERT INTO talk_history(scene_key,shown_at) VALUES(?1,?2) ON CONFLICT(scene_key) DO UPDATE SET shown_at=excluded.shown_at",
+                params![key, message.created_at],
+            ).map_err(err)?;
         }
     }
     tx.commit().map_err(err)

@@ -24,6 +24,7 @@ const READY_4B: Snapshot = {
 
 it("downloads and saves draft 9B while the saved 4B model remains ready", async () => {
   render(<SettingsPanel snapshot={READY_4B} />);
+  fireEvent.click(screen.getByRole("tab", { name: "대화 모델" }));
   expect(screen.getByLabelText("로컬 모델")).toHaveProperty("value", "qwen3.5-4b");
   expect(screen.getByRole("button", { name: "모델 준비 완료" })).toHaveProperty("disabled", true);
   fireEvent.change(screen.getByLabelText("로컬 모델"), { target: { value: "qwen3.5-9b" } });
@@ -46,6 +47,7 @@ it("downloads and saves draft 9B while the saved 4B model remains ready", async 
 
 it("does not reuse another model's progress or error and locks selection during its active transfer", () => {
   const { rerender } = render(<SettingsPanel snapshot={READY_4B} />);
+  fireEvent.click(screen.getByRole("tab", { name: "대화 모델" }));
   fireEvent.change(screen.getByLabelText("로컬 모델"), { target: { value: "qwen3.5-9b" } });
   rerender(
     <SettingsPanel
@@ -107,6 +109,7 @@ it("shows the selected model's verification and resumes only its own partial dow
     },
   };
   const { rerender } = render(<SettingsPanel snapshot={verifying} />);
+  fireEvent.click(screen.getByRole("tab", { name: "대화 모델" }));
   expect(screen.getByLabelText("로컬 모델")).toHaveProperty("disabled", true);
   expect(screen.getByRole("progressbar")).toHaveProperty("value", 100);
   expect(screen.getByRole("button", { name: "모델 파일 확인 중" })).toHaveProperty(
@@ -151,4 +154,117 @@ it("shows the selected model's verification and resumes only its own partial dow
   expect(screen.queryByRole("progressbar")).toBeNull();
   expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.getByRole("button", { name: "모델 준비 완료" })).toHaveProperty("disabled", true);
+});
+
+it("saves API credentials and idle settings, then clears the key input", async () => {
+  render(<SettingsPanel snapshot={READY_4B} />);
+  fireEvent.click(screen.getByRole("tab", { name: "대화 모델" }));
+  fireEvent.click(screen.getByRole("button", { name: /외부 API로/ }));
+  fireEvent.change(screen.getByLabelText("API 주소"), {
+    target: { value: "https://api.example.com/v1" },
+  });
+  fireEvent.change(screen.getByLabelText("모델 이름"), { target: { value: "example-model" } });
+  fireEvent.change(screen.getByLabelText(/^API 키/), { target: { value: " test-key " } });
+  fireEvent.click(screen.getByRole("tab", { name: "기본 동작" }));
+  fireEvent.click(screen.getByLabelText("API로 새 잡담 만들기"));
+  fireEvent.change(screen.getByLabelText(/이야기 간격/), { target: { value: "0" } });
+  expect(screen.getByRole("button", { name: "설정 저장" })).toHaveProperty("disabled", true);
+  fireEvent.change(screen.getByLabelText(/이야기 간격/), { target: { value: "12" } });
+  fireEvent.click(screen.getByRole("button", { name: "설정 저장" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("save_settings", {
+      settings: {
+        ...READY_4B.settings,
+        mode: "api",
+        baseUrl: "https://api.example.com/v1",
+        apiModel: "example-model",
+        apiIdleEnabled: !READY_4B.settings.apiIdleEnabled,
+        idleMinutes: 12,
+      },
+      apiKey: "test-key",
+    }),
+  );
+  fireEvent.click(screen.getByRole("tab", { name: "대화 모델" }));
+  await waitFor(() => expect(screen.getByLabelText(/^API 키/)).toHaveProperty("value", ""));
+});
+
+it("keeps API drafts across tabs and snapshots and locks them until saving finishes", async () => {
+  let finish: () => void = () => {};
+  vi.mocked(command).mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const { rerender } = render(<SettingsPanel snapshot={READY_4B} />);
+  expect(screen.getByRole("button", { name: "설정 저장" })).toHaveProperty("disabled", true);
+  fireEvent.click(screen.getByRole("tab", { name: "대화 모델" }));
+  fireEvent.click(screen.getByRole("button", { name: /외부 API로/ }));
+  fireEvent.change(screen.getByLabelText("API 주소"), {
+    target: { value: "https://draft.example/v1" },
+  });
+  fireEvent.change(screen.getByLabelText(/^API 키/), { target: { value: " draft-key " } });
+  fireEvent.click(screen.getByRole("tab", { name: "기본 동작" }));
+  rerender(<SettingsPanel snapshot={{ ...READY_4B, settings: { ...READY_4B.settings } }} />);
+  fireEvent.click(screen.getByRole("tab", { name: "대화 모델" }));
+  expect(screen.getByLabelText("API 주소")).toHaveProperty("value", "https://draft.example/v1");
+  expect(screen.getByLabelText(/^API 키/)).toHaveProperty("value", " draft-key ");
+  fireEvent.click(screen.getByRole("button", { name: "설정 저장" }));
+  expect(screen.getByLabelText("API 주소").matches(":disabled")).toBe(true);
+  expect(screen.getByLabelText(/^API 키/).matches(":disabled")).toBe(true);
+  expect(screen.getByRole("button", { name: /이 기기에서/ }).matches(":disabled")).toBe(true);
+  expect(command).toHaveBeenCalledWith("save_settings", {
+    settings: { ...READY_4B.settings, mode: "api", baseUrl: "https://draft.example/v1" },
+    apiKey: "draft-key",
+  });
+  finish();
+  await waitFor(() => expect(screen.getByLabelText(/^API 키/)).toHaveProperty("value", ""));
+});
+
+it("preserves personal wordbook whitespace while visiting other settings sections", () => {
+  const entries = [
+    {
+      id: "draft",
+      title: "인사",
+      keywords: ["안녕"],
+      enabled: true,
+      useForIdle: false,
+      lines: [{ persona: "a" as const, expression: "평온", text: "안녕" }],
+    },
+  ];
+  const snapshot = { ...READY_4B, wordbook: entries };
+  const { rerender } = render(<SettingsPanel snapshot={snapshot} />);
+  fireEvent.click(screen.getByRole("tab", { name: "개인 단어장" }));
+  fireEvent.change(screen.getByLabelText("대사 1"), {
+    target: { value: "  쓰던 말\n\n다음 줄  " },
+  });
+  fireEvent.click(screen.getByRole("tab", { name: "기억" }));
+  expect(screen.queryByRole("button", { name: "단어장 저장" })).toBeNull();
+  rerender(<SettingsPanel snapshot={{ ...snapshot, wordbook: [...entries] }} />);
+  fireEvent.click(screen.getByRole("tab", { name: "개인 단어장" }));
+  expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "  쓰던 말\n\n다음 줄  ");
+});
+
+it("disables autonomous subsettings without clearing their saved choices", () => {
+  render(
+    <SettingsPanel
+      snapshot={{
+        ...READY_4B,
+        settings: { ...READY_4B.settings, localIdleEnabled: true, apiIdleEnabled: true },
+      }}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText(/이야기 간격/), { target: { value: "0" } });
+  expect(screen.getByRole("button", { name: "설정 저장" })).toHaveProperty("disabled", true);
+  fireEvent.click(screen.getByLabelText("바탕화면에서 먼저 이야기하기"));
+  expect(screen.getByLabelText(/이야기 간격/).matches(":disabled")).toBe(false);
+  fireEvent.change(screen.getByLabelText(/이야기 간격/), { target: { value: "12" } });
+  expect(screen.getByRole("button", { name: "설정 저장" })).toHaveProperty("disabled", false);
+  for (const label of ["로컬 모델로 새 잡담 만들기", "API로 새 잡담 만들기"]) {
+    expect(screen.getByLabelText(label).matches(":disabled")).toBe(true);
+    expect(screen.getByLabelText(label)).toHaveProperty("checked", true);
+  }
+  fireEvent.click(screen.getByLabelText("바탕화면에서 먼저 이야기하기"));
+  expect(screen.getByLabelText("API로 새 잡담 만들기")).toHaveProperty("disabled", false);
+  expect(screen.getByLabelText("API로 새 잡담 만들기")).toHaveProperty("checked", true);
 });

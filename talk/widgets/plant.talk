@@ -1,0 +1,37 @@
+format: 1
+
+scene: plant.dry
+on: idle
+when: plant.ready and plant.stage < 3 and plant.water == 0
+cooldown: 30m
+---
+A[호기심]: 화분에 남은 물이 없대. 원하면 조금 줄까?
+B[평온]: 급한 숙제는 아니야. 보고 싶을 때 돌보자.
+===
+
+scene: plant.watered
+on: idle
+when: plant.ready and plant.stage < 3 and plant.water > 0
+cooldown: 30m
+---
+A[호기심]: 화분에 물이 남아 있어. 잎이 바뀌는지 기다려 보자.
+B[평온]: 옆에서 쳐다본다고 빨라지진 않겠지만.
+===
+
+scene: plant.grown
+on: idle
+when: plant.ready and plant.stage == 3
+cooldown: 30m
+---
+A[기쁨]: 화분이 마지막 성장 모습까지 왔어.
+B[평온]: 이제 이 모양을 오래 봐도 되겠네.
+===
+
+scene: plant.growth
+on: plant.growth
+when: plant.ready and event.kind == "plant.growth"
+cooldown: 30m
+---
+A[기쁨]: 방금 화분 모습이 바뀌었어. 가까이 봐 봐.
+B[평온]: 작은 화면에서도 차이가 보이네.
+===

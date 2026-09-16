@@ -1,0 +1,82 @@
+format: 1
+
+scene: calendar.empty
+on: idle
+when: calendar.ready and calendar.eventCount == 0
+cooldown: 30m
+---
+A[호기심]: 달력에 표시할 일정이 없네.
+B[평온]: 이 달력 밖의 약속까지 아는 건 아니니까. 빈칸만 보고 있자.
+===
+
+scene: calendar.timed
+on: idle
+when: calendar.ready and calendar.eventCount > 0 and calendar.nextAllDay == false and calendar.nextTitle != null
+cooldown: 30m
+---
+A[호기심]: 다음 일정에 「${calendar.nextTitle}」라고 적혀 있어.
+B[평온]: 시간이 궁금하면 달력에서 확인하자.
+===
+
+scene: calendar.all-day
+on: idle
+when: calendar.ready and calendar.eventCount > 0 and calendar.nextAllDay == true and calendar.nextTitle != null
+cooldown: 30m
+---
+A[호기심]: 「${calendar.nextTitle}」는 하루 칸을 통째로 쓰네.
+B[평온]: 종일 일정이래. 꽤 넓은 자리네.
+===
+
+scene: calendar.reminder
+on: calendar-reminder
+when: calendar.ready and event.kind == "calendar-reminder"
+cooldown: 30m
+---
+A[호기심]: 달력에서 알림이 왔어. 지금 한번 볼까?
+B[평온]: 급하게 대답하지 않아도 돼. 일정 내용부터 보자.
+===
+
+scene: calendar.no-next
+on: idle
+when: calendar.ready and calendar.eventCount > 0 and calendar.nextTitle == null
+cooldown: 30m
+---
+A[호기심]: 불러온 일정은 있지만 다음 일정 제목은 보이지 않아.
+B[평온]: 지난 기록만 있을 수도 있어. 달력에서 확인하자.
+===
+
+scene: calendar.unconfigured
+on: idle
+when: calendar.status == "permission-needed"
+cooldown: 30m
+---
+A[호기심]: 달력 정보를 보려면 연결 준비가 필요한가 봐.
+B[평온]: 지금 설정하지 않아도 돼. 필요해지면 열어 보자.
+===
+
+scene: calendar.stale
+on: idle
+when: calendar.status == "stale"
+cooldown: 30m
+---
+A[호기심]: 달력에 남아 있는 정보는 지금 기준으로 오래됐대.
+B[평온]: 새로 확인되기 전에는 그걸로 단정하지 말자.
+===
+
+scene: calendar.unavailable
+on: idle
+when: not calendar.ready and calendar.status != "stale" and calendar.status != "permission-needed" and calendar.status != "syncing"
+cooldown: 30m
+---
+A[걱정]: 달력의 새 정보를 확인하지 못했대.
+B[평온]: 빈 일정으로 생각하지 말자. 필요하면 연결 상태를 보자.
+===
+
+scene: calendar.syncing
+on: idle
+when: not calendar.ready and calendar.status == "syncing"
+cooldown: 30m
+---
+A[호기심]: 일정 정보를 처음 받아오는 중이야.
+B[평온]: 아직 도착하지 않은 칸은 비워 두자.
+===

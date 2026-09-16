@@ -2,13 +2,19 @@ mod character_commands;
 mod character_files;
 mod characters;
 mod desktop;
+mod device_wake;
 mod domain;
 mod inference;
 mod models;
 mod playback;
 mod resources;
 mod store;
+pub mod talk;
+mod talk_host;
 mod types;
+mod widget_commands;
+mod widget_connections;
+mod widgets;
 mod wordbook;
 
 use character_commands::*;
@@ -24,6 +30,8 @@ use std::{
 };
 use tauri::{Emitter, Manager, WindowEvent};
 use types::*;
+use widget_commands::*;
+use widget_connections::*;
 
 struct AppState {
     db: Mutex<Connection>,
@@ -36,6 +44,13 @@ struct AppState {
     download_cancel: Mutex<Option<Arc<AtomicBool>>>,
     gate: tokio::sync::Mutex<()>,
     epoch: AtomicU64,
+    widget_epoch: AtomicU64,
+    widget_playback: Mutex<Option<widgets::WidgetEvent>>,
+    talk: Mutex<talk::runtime::ActiveProgram>,
+    talk_playback: Mutex<Option<talk_host::PreparedTalk>>,
+    talk_turn: AtomicBool,
+    widget_jobs: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    widget_clocks: Mutex<std::collections::BTreeMap<String, i64>>,
     last_input: AtomicI64,
     last_foreground: AtomicI64,
     last_scene: AtomicI64,
@@ -66,6 +81,9 @@ fn lock<T>(value: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>, String> {
 
 fn open_session(path: &std::path::Path) -> Result<Connection, String> {
     let db = store::open(path)?;
+    if let Some(directory) = path.parent() {
+        widgets::storage::verify_packages(&db, directory)?;
+    }
     db.execute("DELETE FROM scenes", [])
         .map_err(|error| error.to_string())?;
     Ok(db)
@@ -121,6 +139,9 @@ fn set_phase_if_current(
     if state.epoch.load(Ordering::SeqCst) != epoch {
         return Ok(false);
     }
+    if matches!(value, "idle" | "error") {
+        *lock(&state.talk_playback)? = None;
+    }
     let mut status = lock(&state.runtime)?;
     status.phase = value.into();
     status.persona = persona;
@@ -139,6 +160,8 @@ fn interrupt(state: &AppState, automatic: bool) -> Result<(u64, Arc<AtomicBool>)
     *active = Some(cancel.clone());
     let epoch = state.epoch.fetch_add(1, Ordering::SeqCst) + 1;
     *lock(&state.playback)? = None;
+    *lock(&state.widget_playback)? = None;
+    *lock(&state.talk_playback)? = None;
     Ok((epoch, cancel))
 }
 
@@ -569,7 +592,20 @@ fn present_line(
     if !is_current(state, epoch, cancel) || store::revision(&db)? != revision {
         return Ok(false);
     }
-    store::insert_message(
+    if source == "widget" && !widget_commands::widget_event_current(state, &db)? {
+        return Ok(false);
+    }
+    if source == "talk" && !talk_host::current(state, &db)? {
+        return Ok(false);
+    }
+    let scene_key = if source == "talk" && line_index == 0 {
+        lock(&state.talk_playback)?
+            .as_ref()
+            .map(|prepared| prepared.selection.key.clone())
+    } else {
+        None
+    };
+    store::insert_message_with_talk(
         &db,
         &Message {
             id: id.into(),
@@ -580,6 +616,7 @@ fn present_line(
             created_at: chrono::Utc::now().timestamp_millis(),
             status: "complete".into(),
         },
+        scene_key.as_deref(),
     )?;
     *lock(&state.playback)? = Some(Playback {
         id: id.into(),
@@ -767,6 +804,14 @@ fn resize_balloon(
 
 fn next_scene(state: &AppState) -> Result<(Vec<SceneLine>, &'static str), String> {
     let db = lock(&state.db)?;
+    *lock(&state.talk_playback)? = None;
+    if state.idle_sequence.load(Ordering::SeqCst) > 0
+        && state.talk_turn.fetch_xor(true, Ordering::SeqCst)
+    {
+        if let Some(lines) = talk_host::prepare(state, &db, None)? {
+            return Ok((lines, "talk"));
+        }
+    }
     let sequence = state.idle_sequence.fetch_add(1, Ordering::SeqCst);
     if sequence == 0 {
         return Ok((character_script(&db, 0)?, "script"));
@@ -1034,6 +1079,8 @@ fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
     .title("Nanika Box · 설정")
     .inner_size(760.0, 760.0)
     .min_inner_size(560.0, 480.0)
+    .decorations(false)
+    .maximizable(false)
     .build()
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -1086,24 +1133,30 @@ fn set_paused(
     state: tauri::State<'_, Arc<AppState>>,
     paused: bool,
 ) -> Result<(), String> {
-    let token = {
-        let _action = lock(&state.action)?;
-        lock(&state.runtime)?.paused = paused;
-        if !paused {
-            schedule_idle(&state, store::settings(&*lock(&state.db)?)?.idle_minutes);
-        }
-        if should_cancel_for_pause(paused, state.automatic.load(Ordering::SeqCst)) {
-            Some(interrupt(&state, false)?)
-        } else {
-            None
-        }
-    };
+    let token = apply_pause(&state, paused)?;
     if let Some((epoch, _)) = token {
         phase(&app, &state, epoch, "idle", None, None);
     } else {
         publish(&app, &state);
     }
     Ok(())
+}
+
+fn apply_pause(state: &AppState, paused: bool) -> Result<Option<(u64, Arc<AtomicBool>)>, String> {
+    let _action = lock(&state.action)?;
+    lock(&state.runtime)?.paused = paused;
+    widgets::storage::discard_pending(&*lock(&state.db)?)?;
+    if !paused {
+        schedule_idle(state, store::settings(&*lock(&state.db)?)?.idle_minutes);
+    }
+    let has_talk = lock(&state.talk_playback)?.is_some();
+    if should_cancel_for_pause(paused, state.automatic.load(Ordering::SeqCst))
+        || (paused && has_talk)
+    {
+        Ok(Some(interrupt(state, false)?))
+    } else {
+        Ok(None)
+    }
 }
 
 #[tauri::command]
@@ -1161,10 +1214,23 @@ fn create_tray(app: &tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let characters = MenuItem::with_id(app, "characters", "캐릭터 관리", true, None::<&str>)
         .map_err(|e| e.to_string())?;
+    let widgets = MenuItem::with_id(app, "widgets", "위젯 관리", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
     let quit = MenuItem::with_id(app, "quit", "완전 종료", true, None::<&str>)
         .map_err(|e| e.to_string())?;
-    let menu = Menu::with_items(app, &[&show, &hide, &pause, &characters, &settings, &quit])
-        .map_err(|e| e.to_string())?;
+    let menu = Menu::with_items(
+        app,
+        &[
+            &show,
+            &hide,
+            &pause,
+            &characters,
+            &widgets,
+            &settings,
+            &quit,
+        ],
+    )
+    .map_err(|e| e.to_string())?;
     let icon = app
         .default_window_icon()
         .cloned()
@@ -1181,6 +1247,9 @@ fn create_tray(app: &tauri::AppHandle) -> Result<(), String> {
                 }
                 "characters" => {
                     let _ = open_characters(app.clone());
+                }
+                "widgets" => {
+                    let _ = open_widgets(app.clone());
                 }
                 "pause" => {
                     let paused = lock(&state.runtime).map(|s| !s.paused).unwrap_or(true);
@@ -1218,6 +1287,7 @@ pub fn run() {
             let app_data = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data)?;
             let (sidecar, runtime) = resource_paths(app.handle()).map_err(std::io::Error::other)?;
+            let talk = talk_host::initialize(&app_data);
             let state = Arc::new(AppState {
                 db: Mutex::new(
                     open_session(&app_data.join("nanika.sqlite")).map_err(std::io::Error::other)?,
@@ -1231,6 +1301,13 @@ pub fn run() {
                 download_cancel: Mutex::new(None),
                 gate: tokio::sync::Mutex::new(()),
                 epoch: AtomicU64::new(0),
+                widget_epoch: AtomicU64::new(0),
+                widget_playback: Mutex::new(None),
+                talk: Mutex::new(talk),
+                talk_playback: Mutex::new(None),
+                talk_turn: AtomicBool::new(true),
+                widget_jobs: Mutex::new(HashMap::new()),
+                widget_clocks: Mutex::new(std::collections::BTreeMap::new()),
                 last_input: AtomicI64::new(now()),
                 last_foreground: AtomicI64::new(now()),
                 last_scene: AtomicI64::new(now()),
@@ -1246,7 +1323,17 @@ pub fn run() {
             app.manage(state.clone());
             desktop::create_boxes(app.handle(), &state).map_err(std::io::Error::other)?;
             create_tray(app.handle()).map_err(std::io::Error::other)?;
+            if let Err(error) = device_wake::install(app.handle()) {
+                eprintln!("기기 복귀 알림 연결 실패: {error}");
+            }
+            if !widgets::storage::snapshot(&*lock(&state.db).map_err(std::io::Error::other)?)
+                .map_err(std::io::Error::other)?
+                .onboarding_done
+            {
+                open_widgets(app.handle().clone()).map_err(std::io::Error::other)?;
+            }
             let handle = app.handle().clone();
+            talk_host::watch(handle.clone(), state.clone());
             tauri::async_runtime::spawn(background_loop(handle, state));
             Ok(())
         })
@@ -1294,6 +1381,25 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
+            get_widgets,
+            install_widgets,
+            finish_widget_onboarding,
+            set_widget_enabled,
+            remove_widget,
+            execute_widget,
+            get_widget_journal,
+            open_widgets,
+            close_widgets,
+            open_widget,
+            close_widget,
+            connect_calendar_ics,
+            connect_calendar_google,
+            refresh_calendar,
+            disconnect_calendar,
+            configure_connection_widget,
+            refresh_connection_widget,
+            search_weather_regions,
+            open_widget_link,
             open_characters,
             create_character,
             save_character,
@@ -1333,6 +1439,7 @@ pub fn run() {
         .expect("failed to build Nanika Box")
         .run(|app, event| match event {
             tauri::RunEvent::ExitRequested { api, .. } => {
+                device_wake::shutdown(app);
                 if let Some(state) = app.try_state::<Arc<AppState>>() {
                     let _ = prepare_exit(&state);
                     let state = state.inner().clone();
@@ -1341,12 +1448,18 @@ pub fn run() {
                     tauri::async_runtime::spawn(async move {
                         let _gate = state.gate.lock().await;
                         inference::stop_local(&state.inference).await;
-                        app.cleanup_before_exit();
-                        std::process::exit(0);
+                        let exit_app = app.clone();
+                        if let Err(error) = app.run_on_main_thread(move || {
+                            exit_app.cleanup_before_exit();
+                            std::process::exit(0);
+                        }) {
+                            eprintln!("Failed to finish shutdown on the main thread: {error}");
+                        }
                     });
                 }
             }
             tauri::RunEvent::Exit => {
+                device_wake::shutdown(app);
                 if let Some(state) = app.try_state::<Arc<AppState>>() {
                     let _ = prepare_exit(&state);
                     // Native macOS termination can skip ExitRequested. Finish before returning to Cocoa.
@@ -1367,6 +1480,7 @@ fn prepare_exit(state: &AppState) -> Result<(), String> {
     if let Some(cancel) = lock(&state.download_cancel)?.as_ref() {
         cancel.store(true, Ordering::SeqCst);
     }
+    cancel_widget_jobs(state, None)?;
     flush_positions(state, true)
 }
 
@@ -1378,10 +1492,15 @@ async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>) {
             break;
         }
         let _ = flush_positions(&state, false);
+        let _ = advance_widgets(&app, &state);
+        start_due_widget_refreshes(&app, &state);
         let Ok(status) = lock(&state.runtime).map(|runtime| runtime.clone()) else {
             continue;
         };
         if !["idle", "error"].contains(&status.phase.as_str()) {
+            continue;
+        }
+        if play_widget_reaction(&app, &state).unwrap_or(false) {
             continue;
         }
         let Ok(_guard) = state.gate.try_lock() else {
@@ -1669,6 +1788,13 @@ mod lifecycle_tests {
             download_cancel: Mutex::new(None),
             gate: tokio::sync::Mutex::new(()),
             epoch: AtomicU64::new(0),
+            widget_epoch: AtomicU64::new(0),
+            widget_playback: Mutex::new(None),
+            talk: Mutex::new(talk::runtime::ActiveProgram::default()),
+            talk_playback: Mutex::new(None),
+            talk_turn: AtomicBool::new(true),
+            widget_jobs: Mutex::new(HashMap::new()),
+            widget_clocks: Mutex::new(std::collections::BTreeMap::new()),
             last_input: AtomicI64::new(0),
             last_foreground: AtomicI64::new(0),
             last_scene: AtomicI64::new(0),
@@ -1682,6 +1808,363 @@ mod lifecycle_tests {
             positions: Mutex::new(HashMap::new()),
         }
     }
+    #[test]
+    fn talk_turns_leave_general_sequence_and_prepared_history_untouched() {
+        let state = state();
+        let program = talk::validate_source(
+            std::path::Path::new("index.talk"),
+            "format: 1\nscene: example\non: idle\ncooldown: 1h\n---\nA: 하나\nB: 둘\n===",
+            &talk::context::registry(),
+        )
+        .unwrap();
+        lock(&state.talk).unwrap().apply(Ok(program));
+        assert_eq!(next_scene(&state).unwrap().1, "script");
+        assert_eq!(next_scene(&state).unwrap().1, "talk");
+        assert_eq!(state.idle_sequence.load(Ordering::SeqCst), 1);
+        assert!(talk::runtime::history(&lock(&state.db).unwrap())
+            .unwrap()
+            .is_empty());
+        assert_eq!(next_scene(&state).unwrap().1, "script");
+        assert_eq!(state.idle_sequence.load(Ordering::SeqCst), 2);
+        assert_eq!(next_scene(&state).unwrap().1, "talk");
+        let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
+        let line = lock(&state.talk_playback)
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .selection
+            .lines[0]
+            .clone();
+        assert!(present_line(
+            &state,
+            &line,
+            "talk",
+            "shown",
+            0,
+            2,
+            revision,
+            0,
+            &AtomicBool::new(false)
+        )
+        .unwrap());
+        assert_eq!(next_scene(&state).unwrap().1, "script");
+        assert_eq!(next_scene(&state).unwrap().1, "script");
+        assert_eq!(state.idle_sequence.load(Ordering::SeqCst), 4);
+    }
+
+    #[test]
+    fn talk_remaining_lines_stop_after_each_dependency_and_host_invalidation() {
+        for cause in [
+            "todo",
+            "memo",
+            "disable",
+            "input",
+            "pause",
+            "manual-pause",
+            "auto-off",
+            "reload",
+            "swap",
+            "hide",
+        ] {
+            let state = state();
+            let directory = tempfile::tempdir().unwrap();
+            let program = talk::validate_source(std::path::Path::new("index.talk"),
+                "format: 1\nscene: joint\non: idle\nwhen: todo.ready and memo.ready\n---\nA: 할 일 ${todo.openCount}개\nB: 메모 ${memo.count}개\n===", &talk::context::registry()).unwrap();
+            lock(&state.talk).unwrap().apply(Ok(program));
+            let (token, lines, revision) = {
+                let _action = lock(&state.action).unwrap();
+                let db = lock(&state.db).unwrap();
+                widgets::storage::install(&db, directory.path(), &["todo".into(), "memo".into()])
+                    .unwrap();
+                let token = interrupt(&state, cause != "manual-pause").unwrap();
+                let lines = talk_host::prepare(&state, &db, None).unwrap().unwrap();
+                assert!(talk::runtime::history(&db).unwrap().is_empty());
+                (token, lines, store::revision(&db).unwrap())
+            };
+            assert!(present_line(
+                &state, &lines[0], "talk", "first", 0, 2, revision, token.0, &token.1
+            )
+            .unwrap());
+            match cause {
+                "todo" | "memo" | "disable" => {
+                    let db = lock(&state.db).unwrap();
+                    let instance = widgets::storage::instances(&db)
+                        .unwrap()
+                        .into_iter()
+                        .find(|instance| {
+                            instance.kind == if cause == "disable" { "memo" } else { cause }
+                        })
+                        .unwrap();
+                    if cause == "disable" {
+                        widgets::storage::set_enabled(&db, &instance.id, false).unwrap();
+                    } else {
+                        let mut changed = instance.data;
+                        changed["items"] = serde_json::json!([{"id":"added","title":"추가","text":"메모","completedAt":null}]);
+                        widgets::storage::commit_data(
+                            &db,
+                            &instance.id,
+                            instance.revision,
+                            changed,
+                            vec![],
+                            chrono::Utc::now().timestamp_millis(),
+                        )
+                        .unwrap();
+                    }
+                }
+                "pause" | "manual-pause" => {
+                    apply_pause(&state, true).unwrap();
+                }
+                "auto-off" => {
+                    let mut settings = store::settings(&lock(&state.db).unwrap()).unwrap();
+                    settings.autonomous_enabled = false;
+                    apply_settings(&state, &settings).unwrap();
+                }
+                "reload" => {
+                    lock(&state.talk).unwrap().apply(talk::validate_source(
+                        std::path::Path::new("index.talk"),
+                        "format: 1\n",
+                        &talk::context::registry(),
+                    ));
+                }
+                "swap" => {
+                    character_commands::mutate(&state, |db| {
+                        characters::apply_pair(db, ["builtin-b".into(), "builtin-a".into()])
+                    })
+                    .unwrap();
+                }
+                _ => {
+                    let _action = lock(&state.action).unwrap();
+                    interrupt(&state, false).unwrap();
+                }
+            }
+            assert!(
+                !present_line(
+                    &state, &lines[1], "talk", "second", 1, 2, revision, token.0, &token.1
+                )
+                .unwrap(),
+                "{cause}"
+            );
+            assert_eq!(
+                store::messages(&lock(&state.db).unwrap(), 10)
+                    .unwrap()
+                    .len(),
+                1,
+                "{cause}"
+            );
+            assert_eq!(
+                talk::runtime::history(&lock(&state.db).unwrap())
+                    .unwrap()
+                    .len(),
+                1,
+                "{cause}"
+            );
+        }
+    }
+
+    #[test]
+    fn talk_history_and_shown_message_commit_together_and_survive_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.sqlite");
+        let message = Message {
+            id: "first".into(),
+            role: "assistant".into(),
+            persona: Some("a".into()),
+            content: "원문\n 그대로".into(),
+            expression: Some("평온".into()),
+            created_at: 1000,
+            status: "complete".into(),
+        };
+        {
+            let db = store::open(&path).unwrap();
+            store::insert_message_with_talk(&db, &message, Some("scene-key")).unwrap();
+            let duplicate = Message {
+                created_at: 2000,
+                ..message.clone()
+            };
+            store::insert_message_with_talk(&db, &duplicate, Some("scene-key")).unwrap();
+            assert_eq!(talk::runtime::history(&db).unwrap()["scene-key"], 1000);
+            db.execute_batch("CREATE TRIGGER fail_talk BEFORE INSERT ON talk_history BEGIN SELECT RAISE(ABORT,'test failure'); END;").unwrap();
+            let failed = Message {
+                id: "failed".into(),
+                ..message.clone()
+            };
+            assert!(store::insert_message_with_talk(&db, &failed, Some("other")).is_err());
+            assert_eq!(store::messages(&db, 10).unwrap().len(), 1);
+        }
+        let reopened = open_session(&path).unwrap();
+        assert_eq!(
+            talk::runtime::history(&reopened).unwrap()["scene-key"],
+            1000
+        );
+        assert_eq!(
+            store::messages(&reopened, 10).unwrap()[0].content,
+            message.content
+        );
+    }
+
+    #[test]
+    fn brief_idle_pause_discards_widget_queue_before_a_scheduler_tick() {
+        let state = state();
+        let directory = tempfile::tempdir().unwrap();
+        {
+            let db = lock(&state.db).unwrap();
+            widgets::storage::install(&db, directory.path(), &["small-match".into()]).unwrap();
+            let instance = widgets::storage::instances(&db).unwrap().remove(0);
+            widgets::storage::commit_data(
+                &db,
+                &instance.id,
+                instance.revision,
+                instance.data,
+                vec![widgets::EventDraft {
+                    kind: "small-match.result".into(),
+                    text: "주사위 결과".into(),
+                    payload: serde_json::json!({}),
+                }],
+                chrono::Utc::now().timestamp_millis(),
+            )
+            .unwrap();
+        }
+        assert!(!state.automatic.load(Ordering::SeqCst));
+        assert!(apply_pause(&state, true).unwrap().is_none());
+        {
+            let db = lock(&state.db).unwrap();
+            assert!(
+                widgets::storage::take_reaction(&db, chrono::Utc::now().timestamp_millis())
+                    .unwrap()
+                    .is_none()
+            );
+            let instance = widgets::storage::instances(&db).unwrap().remove(0);
+            widgets::storage::commit_data(
+                &db,
+                &instance.id,
+                instance.revision,
+                instance.data,
+                vec![widgets::EventDraft {
+                    kind: "small-match.result".into(),
+                    text: "일시정지 중 발생한 결과".into(),
+                    payload: serde_json::json!({}),
+                }],
+                chrono::Utc::now().timestamp_millis(),
+            )
+            .unwrap();
+        }
+        assert!(apply_pause(&state, false).unwrap().is_none());
+        assert!(widgets::storage::take_reaction(
+            &lock(&state.db).unwrap(),
+            chrono::Utc::now().timestamp_millis()
+        )
+        .unwrap()
+        .is_none());
+    }
+
+    #[test]
+    fn widget_lines_stop_after_source_change_or_user_cancellation() {
+        for cause in ["source-change", "disable", "input", "pause", "auto-off"] {
+            let state = state();
+            let directory = tempfile::tempdir().unwrap();
+            let (instance, revision, event) = {
+                let db = lock(&state.db).unwrap();
+                widgets::storage::install(&db, directory.path(), &["small-match".into()]).unwrap();
+                let instance = widgets::storage::instances(&db).unwrap().remove(0);
+                widgets::storage::commit_data(
+                    &db,
+                    &instance.id,
+                    instance.revision,
+                    instance.data.clone(),
+                    vec![widgets::EventDraft {
+                        kind: "small-match.result".into(),
+                        text: "주사위 결과".into(),
+                        payload: serde_json::json!({}),
+                    }],
+                    chrono::Utc::now().timestamp_millis(),
+                )
+                .unwrap();
+                let event =
+                    widgets::storage::take_reaction(&db, chrono::Utc::now().timestamp_millis())
+                        .unwrap()
+                        .unwrap();
+                (
+                    widgets::storage::get(&db, &instance.id).unwrap(),
+                    store::revision(&db).unwrap(),
+                    event,
+                )
+            };
+            let (epoch, cancel) = {
+                let _guard = lock(&state.action).unwrap();
+                let token = interrupt(&state, true).unwrap();
+                *lock(&state.widget_playback).unwrap() = Some(event);
+                token
+            };
+            let line = SceneLine {
+                persona: "a".into(),
+                expression: "normal".into(),
+                text: "이미 표시한 결과".into(),
+            };
+            assert!(present_line(
+                &state,
+                &line,
+                "widget",
+                "widget-first",
+                0,
+                2,
+                revision,
+                epoch,
+                &cancel
+            )
+            .unwrap());
+            match cause {
+                "source-change" => {
+                    let db = lock(&state.db).unwrap();
+                    let mut data = instance.data.clone();
+                    data["rounds"] = serde_json::json!(2);
+                    widgets::storage::commit_data(
+                        &db,
+                        &instance.id,
+                        instance.revision,
+                        data,
+                        vec![],
+                        chrono::Utc::now().timestamp_millis(),
+                    )
+                    .unwrap();
+                }
+                "disable" => {
+                    widgets::storage::set_enabled(&lock(&state.db).unwrap(), &instance.id, false)
+                        .unwrap()
+                }
+                "pause" => {
+                    apply_pause(&state, true).unwrap();
+                }
+                "auto-off" => {
+                    let mut settings = store::settings(&lock(&state.db).unwrap()).unwrap();
+                    settings.autonomous_enabled = false;
+                    apply_settings(&state, &settings).unwrap();
+                }
+                _ => {
+                    let _guard = lock(&state.action).unwrap();
+                    interrupt(&state, false).unwrap();
+                }
+            }
+            assert!(
+                !present_line(
+                    &state,
+                    &line,
+                    "widget",
+                    "widget-stale",
+                    1,
+                    2,
+                    revision,
+                    epoch,
+                    &cancel
+                )
+                .unwrap(),
+                "{cause}"
+            );
+            let history = store::messages(&lock(&state.db).unwrap(), 10).unwrap();
+            assert_eq!(history.len(), 1, "{cause}");
+            assert_eq!(history[0].id, "widget-first");
+        }
+    }
+
     #[test]
     fn inactive_character_installs_preserve_playback_but_active_definition_edits_cancel_it() {
         let state = state();

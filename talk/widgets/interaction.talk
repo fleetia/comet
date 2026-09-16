@@ -1,0 +1,62 @@
+format: 1
+
+scene: interaction.snacks
+on: idle
+when: interaction.ready and interaction.snacks > 0
+cooldown: 30m
+---
+A[호기심]: 간식이 ${interaction.snacks}개 남아 있대. 하나씩 세어 봤어.
+B[평온]: 세다가 먹지는 않았지?
+A[기쁨]: 아직은 숫자만 봤어.
+===
+
+scene: interaction.empty
+on: idle
+when: interaction.ready and interaction.snacks == 0
+cooldown: 30m
+---
+A[호기심]: 간식 바구니가 비었어. 바닥까지 보이네.
+B[평온]: 바구니도 잠깐 쉬자.
+===
+
+scene: interaction.stroke
+on: interaction.touch
+when: interaction.ready and event.action == "stroke" and (event.character == "A" or event.character == "B")
+cooldown: 30m
+---
+@if event.character == "A"
+A[호기심]: 쓰다듬어 줬네. 머리 위가 잠깐 간질거렸어.
+B[평온]: 가만히 있길래 못 느낀 줄 알았지.
+@else
+B[평온]: 머리를 쓰다듬어 줬네. 고마워.
+A[호기심]: 움직이지 않아도 느끼고 있었구나.
+@endif
+===
+
+scene: interaction.poke
+on: interaction.touch
+when: interaction.ready and event.action == "poke" and (event.character == "A" or event.character == "B")
+cooldown: 30m
+---
+@if event.character == "A"
+A[호기심]: 앗. 방금 콕 했지? 보고 있었어.
+B[평온]: 반응은 꽤 빨랐네.
+@else
+B[평온]: 응. 방금 콕 찌른 건 느꼈어.
+A[호기심]: 이번엔 네가 먼저 봤네.
+@endif
+===
+
+scene: interaction.snack
+on: interaction.touch
+when: interaction.ready and event.action == "snack" and (event.character == "A" or event.character == "B")
+cooldown: 30m
+---
+@if event.character == "A"
+A[호기심]: 간식 받았어. 이건 천천히 먹어야겠다.
+B[평온]: 말하는 사이에 없어지지만 않으면 돼.
+@else
+B[평온]: 간식 받았어. 잘 먹을게.
+A[호기심]: 바삭한 소리는 상상으로 들을게.
+@endif
+===

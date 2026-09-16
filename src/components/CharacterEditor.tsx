@@ -1,6 +1,7 @@
 import type { JSX } from "react";
+import { Button, Rule, Select, TextArea, TextField } from "@fleetia/lagrange";
 import type { CharacterDefinition, CharacterLine } from "../types";
-import * as ui from "../styles.css";
+import * as ui from "../lagrange.css";
 import * as s from "./characters.css";
 
 export const EXPRESSIONS = ["평온", "기쁨", "호기심", "생각중", "걱정", "장난"];
@@ -9,6 +10,7 @@ type Props = {
   definition: CharacterDefinition;
   onChange: (definition: CharacterDefinition) => void;
   onSave: () => void;
+  onCancel?: () => void;
   pending: boolean;
   dirty: boolean;
 };
@@ -31,8 +33,7 @@ function Lines({
           <div className={ui.row}>
             <label>
               {index + 1}번 표정{" "}
-              <select
-                className={ui.input}
+              <Select
                 aria-label={`${title} ${index + 1} 표정`}
                 value={line.expression}
                 onChange={(event) =>
@@ -46,10 +47,10 @@ function Lines({
                 {EXPRESSIONS.map((expression) => (
                   <option key={expression}>{expression}</option>
                 ))}
-              </select>
+              </Select>
             </label>
-            <button
-              className={ui.button}
+            <Button
+              variant="secondary"
               type="button"
               disabled={index === 0}
               aria-label={`${title} ${index + 1} 위로`}
@@ -60,18 +61,18 @@ function Lines({
               }}
             >
               ↑
-            </button>
-            <button
-              className={ui.button}
+            </Button>
+            <Button
+              variant="secondary"
               type="button"
               disabled={lines.length <= 1}
               aria-label={`${title} ${index + 1} 삭제`}
               onClick={() => onChange(lines.filter((_, i) => i !== index))}
             >
               삭제
-            </button>
+            </Button>
           </div>
-          <textarea
+          <TextArea
             className={s.textarea}
             aria-label={`${title} ${index + 1} 대사`}
             rows={2}
@@ -88,14 +89,14 @@ function Lines({
           />
         </div>
       ))}
-      <button
-        className={ui.button}
+      <Button
+        variant="secondary"
         type="button"
         disabled={lines.length >= limit}
         onClick={() => onChange([...lines, { expression: "평온", text: "" }])}
       >
         {title} 대사 추가
-      </button>
+      </Button>
     </section>
   );
 }
@@ -103,6 +104,7 @@ export function CharacterEditor({
   definition,
   onChange,
   onSave,
+  onCancel,
   pending,
   dirty,
 }: Props): JSX.Element {
@@ -126,8 +128,7 @@ export function CharacterEditor({
       <fieldset className={s.fieldset} disabled={pending}>
         <label className={ui.field}>
           이름
-          <input
-            className={ui.input}
+          <TextField
             required
             maxLength={40}
             value={definition.name}
@@ -136,7 +137,7 @@ export function CharacterEditor({
         </label>
         <label className={ui.field}>
           소개
-          <textarea
+          <TextArea
             className={s.textarea}
             rows={2}
             maxLength={500}
@@ -146,7 +147,7 @@ export function CharacterEditor({
         </label>
         <label className={ui.field}>
           성격과 말투
-          <textarea
+          <TextArea
             className={s.textarea}
             rows={4}
             aria-label="성격과 말투"
@@ -164,8 +165,7 @@ export function CharacterEditor({
             {EXPRESSIONS.map((key) => (
               <label className={ui.field} key={key}>
                 {key}
-                <input
-                  className={ui.input}
+                <TextField
                   required
                   maxLength={40}
                   value={definition.expressions[key] ?? ""}
@@ -191,12 +191,20 @@ export function CharacterEditor({
         />
         <p className={ui.quiet}>대사의 공백과 줄바꿈을 그대로 저장해요.</p>
         <div className={s.saveBar}>
-          <button className={ui.primary} type="submit" disabled={!valid || !dirty}>
-            {pending ? "저장 중…" : "캐릭터 저장"}
-          </button>
-          <span className={ui.quiet}>
-            {dirty ? "저장하지 않은 수정이 있어요." : `저장된 버전 ${definition.version}`}
-          </span>
+          <Rule variant="structural" />
+          <div className={s.saveActions}>
+            <Button variant="primary" type="submit" disabled={!valid || !dirty}>
+              {pending ? "저장 중…" : "캐릭터 저장"}
+            </Button>
+            {dirty && onCancel && (
+              <Button type="button" variant="secondary" onClick={onCancel}>
+                캐릭터 수정 취소
+              </Button>
+            )}
+            <span className={ui.quiet} role="status">
+              {dirty ? "저장하지 않은 수정이 있어요." : `저장된 버전 ${definition.version}`}
+            </span>
+          </div>
         </div>
       </fieldset>
     </form>

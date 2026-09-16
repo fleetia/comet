@@ -2,7 +2,7 @@
 
 바탕화면에 머무는 A와 B가 먼저 인사하고, 짧게 수다를 떨고, 다시 조용해지는 나니카·우카가카형 데스크톱 앱입니다. 내장 대사와 사용자가 등록한 단어장이 기본 대화를 맡고, 선택적으로 로컬 LLM이나 외부 API를 연결합니다.
 
-프로젝트 이름은 **Comet**이며 실행 앱 이름은 Nanika Box, 패키지는 `nanika-box`, 데이터 식별자는 `space.starlight.nanika-box`를 유지합니다. 캐릭터 관리·공유는 0.3.0에 구현되었으며 macOS 패키지와 네이티브 사용 흐름을 검증했습니다. 전체 사양의 입구는 [Comet 사양 안내](docs/index.md), 구현과 개발 예정 범위는 [상태표](docs/status.md)에서 확인합니다. 기존 0.2 기준과 검증 기록은 보존하며, 내장 투두·캘린더·외부 위젯은 개발 예정입니다. 이 README는 현재 앱의 실행과 설정을 안내합니다.
+프로젝트 이름은 **Comet**이며 실행 앱 이름은 Nanika Box, 패키지는 `nanika-box`, 데이터 식별자는 `space.starlight.nanika-box`를 유지합니다. 캐릭터 관리·공유는 0.3.0에 구현되었으며 macOS 패키지와 네이티브 사용 흐름을 검증했습니다. 전체 사양의 입구는 [Comet 사양 안내](docs/index.md), 구현과 개발 예정 범위는 [상태표](docs/status.md)에서 확인합니다. 기존 0.2 기준과 검증 기록은 보존합니다. 공식 위젯 22개와 선택 설치 관리의 소스를 구현했으며, 새 검증과 제한은 [위젯 검증 기록](docs/VALIDATION-WIDGETS.md)에 구분합니다. 외부 Widget SDK·임의 코드 실행·원격 배포는 후속입니다. 이 README는 현재 앱의 실행과 설정을 안내합니다.
 
 ## 사양 문서와 Docusaurus 위키
 
@@ -49,6 +49,21 @@ Command Line Tools 자체가 없다면 `xcode-select --install`로 설치한 뒤
 
 사용자가 먼저 입력하지 않아도 실행 약 5초 후 내장 인사를 시작하고, 기본 2분 간격에 ±20% 변동을 둔 잡담을 이어 가는 것이 제품 기준입니다. 모델이나 API가 없어도 내장 대사가 동작합니다. `autonomousEnabled`는 자동 생성과 재생 전체를 제어하며 기본값은 켜짐입니다. 일시정지·숨김·상위 자동 설정 끄기는 자동 재생도 멈춥니다. 사용자 입력은 진행 중인 자동 장면보다 우선합니다.
 
+### 파일로 편집하는 `.talk` 대본
+
+앱 데이터 폴더의 `talk/index.talk`에서 시작하는 대본을 편집하면, 공식 위젯의 실제 상태와 사건을 이용해 A/B의 수다를 만들 수 있습니다. `import`로 파일을 나누고 조건·표정·변수 보간을 지정합니다. 모델이나 API는 필요하지 않습니다. 첫 인사 뒤에는 위젯 상태 대본과 기존 일반 수다 차례를 번갈아 사용하며, 상태 대본 후보가 없으면 일반 수다로 이어집니다. 위젯 사건은 기존 사건 대기열을 사용합니다.
+
+최초 실행에 기본 대본을 한 번 설치합니다. 수정한 파일을 다시 읽고, 오류가 나면 마지막 정상 대본을 유지합니다. 삭제한 파일은 재시작해도 복원하지 않습니다. 문법·파일 위치·재로딩 규칙은 [대본 작성](docs/product/talk.md), 명령과 변수는 [CLI·변수 참고](docs/development/talk-reference.md)를 따릅니다.
+
+저장소 루트에서 Rust 환경을 준비한 뒤 실행합니다.
+
+```sh
+pnpm talk check talk/index.talk
+pnpm talk variables
+```
+
+[대본 범위](docs/development/talk-coverage.md)와 [이번 검증 기록](docs/VALIDATION-TALK.md)은 자동 테스트, 실제 macOS 실행, 미검증 외부 환경을 구분합니다. 시각적 대본 편집 UI와 SSP/Yarn 파일 호환은 제공하지 않습니다.
+
 ### 단어장
 
 설정의 단어장에서 제목, 쉼표·줄바꿈으로 구분한 키워드, A/B의 대사와 표정을 등록합니다. 항목마다 활성화와 `자동 잡담에도 사용` 여부를 선택합니다. 자동 잡담 허용은 기본으로 꺼져 있습니다.
@@ -65,7 +80,15 @@ Command Line Tools 자체가 없다면 `xcode-select --install`로 설치한 뒤
 
 내보내기는 저장된 선택 캐릭터 또는 현재 둘을 UTF-8 `*.comet-character.json` 파일로 만듭니다. 개인 단어장은 기본 제외되며 선택한 항목만 추가합니다. 실제 대화·기억·친밀도·API 키는 포함하지 않습니다. 새 캐릭터의 친밀도는 20이고, 이전 캐릭터로 돌아오면 관계를 복원합니다. 이름을 바꿔도 과거 기록의 화자 이름은 보존합니다.
 
-현재는 텍스트 캐릭터팩이며 이미지·ZIP 패키지·원격 마켓·자동 업데이트·SSP 호환·위젯 사건 반응은 제공하지 않습니다. 실제 규격과 제한은 [캐릭터 교체와 공유](docs/product/characters.md)를 참고하세요. 위젯 22개와 설치 관리·Rust workspace는 여전히 미구현입니다.
+현재는 텍스트 캐릭터팩이며 이미지·ZIP 캐릭터팩·원격 마켓·자동 업데이트·SSP 호환은 제공하지 않습니다. `.talk`의 위젯 사건 대본은 별도 파일이며 캐릭터팩 JSON에 포함하거나 가져오기로 설치하지 않습니다. 실제 규격과 제한은 [캐릭터 교체와 공유](docs/product/characters.md)를 참고하세요. 공식 위젯 22개와 설치 관리는 별도로 구현했습니다. 공개 Widget SDK·Rust workspace는 도입하지 않았습니다.
+
+## 공식 위젯 사용하기
+
+본체 메뉴의 `위젯 관리`에서 원하는 도구만 선택하고 설치합니다. 처음에 모두 건너뛴 뒤 나중에 추가해도 됩니다. `꺼내기`로 개별 화면을 열고, 끄기·제거는 관리 화면에서 수행합니다. 제거 시 사용자 데이터 보존이 기본이며, 데이터 삭제는 별도 선택입니다.
+
+22개 목록은 [공식 카탈로그](docs/widgets/catalog.md)를 따릅니다. 할 일·반복·루틴·장보기, 집중 타이머·준비 봉투·시계·메모와 작은 놀이를 모델 없이 사용합니다. 캘린더는 ICS/webcal 구독 또는 사용자가 설정한 Google Desktop OAuth 클라이언트의 읽기 권한으로 연결합니다. 날씨는 직접 고른 지역을 조회하고, 음악은 macOS Music·Spotify의 현재 곡 정보만 읽습니다. Google 실제 계정 인증과 Windows 실행은 아직 검증하지 않았습니다.
+
+설치는 동봉 manifest 등록입니다. 기능은 공용 호스트에 컴파일되어 있으며 표시하는 설치 바이트 수는 manifest 크기입니다. 제거가 앱 실행 파일을 줄이거나 외부 코드를 제거하는 것은 아닙니다. 일정 알림은 기본 꺼짐입니다. 읽기 연결·갱신 간격·지원하지 않는 ICS 형식·반복 정책은 [할 일과 캘린더](docs/product/planning.md)를 확인하세요.
 
 ## 대화 방식
 
@@ -109,7 +132,7 @@ API 모드에서는 대화와 필요한 기억이 선택한 제공자에게 전�
 | macOS | `~/Library/Application Support/space.starlight.nanika-box/` |
 | Windows | `%APPDATA%/space.starlight.nanika-box/` |
 
-`nanika.sqlite`에는 대화, 기억, 관계 점수, 단어장, 설정과 창 위치를 저장하고 `models/`에는 모델과 다운로드 임시 파일을 둡니다. 백업할 때는 앱을 종료한 뒤 데이터 폴더를 복사하세요. API 키는 별도의 운영체제 자격 증명 저장소에 있으므로 데이터 폴더 백업에 포함되지 않습니다.
+`nanika.sqlite`에는 대화, 기억, 관계 점수, 단어장, 설정, 창 위치와 위젯 상태·명령 중복 방지 기록·선택한 사건 일지를 저장하고 `models/`에는 모델과 다운로드 임시 파일을 둡니다. 백업할 때는 앱을 종료한 뒤 데이터 폴더를 복사하세요. API 키는 별도의 운영체제 자격 증명 저장소에 있으므로 데이터 폴더 백업에 포함되지 않습니다.
 
 | 위치 | 책임 |
 | --- | --- |
@@ -120,6 +143,7 @@ API 모드에서는 대화와 필요한 기억이 선택한 제공자에게 전�
 | [wordbook.rs](src-tauri/src/wordbook.rs) | 단어장 저장·초기 예제·키워드 매칭 |
 | [inference.rs](src-tauri/src/inference.rs) | 로컬 프로세스 소유권, API 통신, 자격 증명 |
 | [characters.rs](src-tauri/src/characters.rs), [character_commands.rs](src-tauri/src/character_commands.rs), [character_files.rs](src-tauri/src/character_files.rs) | 캐릭터 정체성·대사·팩 검증, 교체·파일 공유 |
+| [src/widgets](src/widgets/), [widgets](src-tauri/src/widgets/), [widget_connections.rs](src-tauri/src/widget_connections.rs) | 공식 도구 화면·상태 전이·설치와 데이터 보존·읽기 연결·취소 및 최신 revision 검사 |
 | [models.rs](src-tauri/src/models.rs) | 고정 모델 다운로드·이어받기·검증 |
 | [prepare-sidecar.mjs](scripts/prepare-sidecar.mjs) | 운영체제별 고정 sidecar 준비 |
 

@@ -214,11 +214,43 @@ it("exports the current pair without private wordbook selection and treats dialo
   expect(screen.queryByLabelText("가져오기 미리보기")).toBeNull();
 });
 
+it("exports only the personal wordbook entries explicitly selected for sharing", async () => {
+  const entries = ["공유할 인사", "개인 대사"].map((title, index) => ({
+    id: `personal-${index}`,
+    title,
+    keywords: [title],
+    enabled: true,
+    useForIdle: false,
+    lines: [{ persona: "a" as const, expression: "평온", text: `  ${title}\n원문  ` }],
+  }));
+  vi.mocked(command).mockResolvedValue(null);
+  render(
+    <CharacterSharing
+      snapshot={{ ...snapshot, wordbook: entries }}
+      selectedId="local-third"
+      disabled={false}
+    />,
+  );
+  fireEvent.click(screen.getByText("개인 단어장 선택해서 포함하기 (0개)"));
+  expect(screen.getByLabelText("공유할 인사")).toHaveProperty("checked", false);
+  expect(screen.getByLabelText("개인 대사")).toHaveProperty("checked", false);
+  fireEvent.click(screen.getByLabelText("공유할 인사"));
+  fireEvent.click(screen.getByRole("button", { name: "공유 파일 내보내기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("save_character_pack", {
+      ids: ["local-third"],
+      wordbookIds: ["personal-0"],
+    }),
+  );
+});
+
 it("saves one character keyword lines verbatim without assigning the other slot or touching personal wordbook", async () => {
   render(<CharacterDialogueEditor ids={["local-third"]} onDirtyChange={() => {}} />);
-  await screen.findByLabelText("키워드");
-  fireEvent.change(screen.getByLabelText("제목"), { target: { value: "인사" } });
-  fireEvent.change(screen.getByLabelText("키워드"), { target: { value: "안녕, 반가워" } });
+  await screen.findByRole("textbox", { name: "키워드" });
+  fireEvent.change(screen.getByRole("textbox", { name: "제목" }), { target: { value: "인사" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "키워드" }), {
+    target: { value: "안녕, 반가워" },
+  });
   fireEvent.change(screen.getByLabelText("대사 1"), { target: { value: "  왔구나.\n반가워.  " } });
   fireEvent.click(screen.getByRole("button", { name: "대사 추가" }));
   expect(screen.getByLabelText("2번 화자")).toHaveProperty("value", "a");
@@ -350,4 +382,27 @@ it("rejects invalid import without installation or changing the selected export 
   expect(screen.queryByLabelText("가져오기 미리보기")).toBeNull();
   expect(screen.getByLabelText("내보낼 대상")).toHaveProperty("value", "selected");
   expect(vi.mocked(command).mock.calls).toEqual([["choose_character_pack"]]);
+});
+
+it("keeps character and dialogue drafts across tabs while locking dialogue target changes", async () => {
+  render(<CharacterManager snapshot={snapshot} />);
+  fireEvent.change(screen.getByLabelText("이름"), { target: { value: "쓰던 이름" } });
+  fireEvent.click(screen.getByRole("tab", { name: "등록 대사" }));
+  fireEvent.change(await screen.findByRole("textbox", { name: "키워드" }), {
+    target: { value: "반가워" },
+  });
+  fireEvent.change(screen.getByLabelText("대사 1"), { target: { value: "  쓰던 인사\n반가워  " } });
+  fireEvent.click(screen.getByRole("tab", { name: "기본 정보" }));
+  expect(screen.getByLabelText("이름")).toHaveProperty("value", "쓰던 이름");
+  expect(
+    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^B/ }),
+  ).toHaveProperty("disabled", true);
+  fireEvent.click(screen.getByRole("tab", { name: "공유" }));
+  fireEvent.click(screen.getByRole("tab", { name: "등록 대사" }));
+  expect(screen.getByLabelText("등록 대사 대상")).toHaveProperty("disabled", true);
+  expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "  쓰던 인사\n반가워  ");
+  fireEvent.click(screen.getByRole("button", { name: "대사 수정 취소" }));
+  await waitFor(() =>
+    expect(screen.getByLabelText("등록 대사 대상")).toHaveProperty("disabled", false),
+  );
 });

@@ -8,7 +8,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: '제품',
       collapsed: false,
-      items: ['product/desktop', 'product/characters', 'product/conversation', 'product/toys', 'product/planning'],
+      items: ['product/desktop', 'product/characters', 'product/conversation', 'product/talk', 'product/toys', 'product/planning'],
     },
     {
       type: 'category',
@@ -25,12 +25,12 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: '개발',
-      items: ['development/architecture', 'development/roadmap', 'development/wiki'],
+      items: ['development/architecture', 'development/talk-reference', 'development/talk-coverage', 'development/roadmap', 'development/wiki'],
     },
     {
       type: 'category',
       label: '기준 사양과 검증 기록',
-      items: ['PRODUCT', 'VALIDATION-0.2.0', 'VALIDATION-0.3.0'],
+      items: ['PRODUCT', 'VALIDATION-0.2.0', 'VALIDATION-0.3.0', 'VALIDATION-WIDGETS', 'VALIDATION-TALK'],
     },
   ],
 };

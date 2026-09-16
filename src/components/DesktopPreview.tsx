@@ -1,10 +1,11 @@
 import { useEffect, useState, type JSX } from "react";
+import { Button } from "@fleetia/lagrange";
 import { CompanionBox } from "./CompanionBox";
 import { Balloon } from "./Balloon";
 import { SettingsPanel } from "./SettingsPanel";
 import type { Persona, SceneLine, Snapshot } from "../types";
 import * as s from "./companion.css";
-import * as ui from "../styles.css";
+import * as ui from "../lagrange.css";
 
 const DEMO: SceneLine[] = [
   { persona: "a", expression: "호기심", text: "아무 말 안 해도, 여기 있어도 되지?" },
@@ -64,6 +65,9 @@ export function DesktopPreview({ initial }: { initial: Snapshot }): JSX.Element 
         setSettingsOpen(true);
         setState((previous) => ({ ...previous, panel: null }));
         return;
+      case "open_characters":
+        window.location.assign("?view=characters");
+        return;
       case "set_paused":
         setState((previous) => ({
           ...previous,
@@ -108,11 +112,11 @@ export function DesktopPreview({ initial }: { initial: Snapshot }): JSX.Element 
         )}
       </div>
       <div className={s.demoControls}>
-        <button className={ui.button} onClick={() => void dispatch("talk_now")}>
+        <Button variant="secondary" onClick={() => void dispatch("talk_now")}>
           둘의 대화 예시 보기
-        </button>
-        <button
-          className={ui.button}
+        </Button>
+        <Button
+          variant="secondary"
           onClick={() => {
             setState((previous) => ({
               ...previous,
@@ -122,10 +126,10 @@ export function DesktopPreview({ initial }: { initial: Snapshot }): JSX.Element 
           }}
         >
           메뉴 열어 보기
-        </button>
-        <button className={ui.select} onClick={() => setSettingsOpen(!settingsOpen)}>
+        </Button>
+        <Button variant="quiet" onClick={() => setSettingsOpen(!settingsOpen)}>
           {settingsOpen ? "설정 접기" : "설정 살펴보기"}
-        </button>
+        </Button>
       </div>
       <p className={ui.quiet}>
         화면 동작 미리보기 · 대사는 미리 정해진 예시예요.
