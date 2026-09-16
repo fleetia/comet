@@ -91,6 +91,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn bundled_example_packs_pass_validation() {
+        let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/character-packs");
+        let sol = read_pack(&examples.join("sol-and-dal.comet-character.json")).unwrap();
+        assert_eq!(sol.characters.len(), 2);
+        assert!(sol.sprites.is_empty());
+        let byul = read_pack(&examples.join("byulkkori.comet-character.json")).unwrap();
+        assert_eq!(byul.characters[0].name, "별꼬리");
+        assert!(byul.characters[0].face_icon);
+        assert_eq!(byul.characters[0].expressions.len(), 9);
+        assert_eq!(byul.sprites.len(), 9);
+        assert!(byul.sprites.iter().all(|s| s.mime == "image/svg+xml"));
+    }
+
+    #[test]
     fn file_roundtrip_is_validated_and_failed_save_preserves_destination() {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();

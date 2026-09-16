@@ -4,7 +4,14 @@ import type { Dispatch, Persona, Snapshot } from "../types";
 import { command, errorText, isDesktop } from "../hooks/useSnapshot";
 import * as s from "./companion.css";
 import * as ui from "../lagrange.css";
-import { characterName } from "./characterIdentity";
+import {
+  activeCharacter,
+  BALLOON_SPRITE,
+  characterName,
+  spriteSource,
+  spriteUrl,
+} from "./characterIdentity";
+import { skinStyle, useImageSlice } from "../hooks/useImageSlice";
 
 type Props = { snapshot: Snapshot; preview?: boolean; dispatch?: Dispatch };
 
@@ -40,6 +47,18 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
     (snapshot.runtime.persona === "b" ? "b" : "a");
   const mode = snapshot.panel?.mode;
   const name = characterName(snapshot, persona);
+  const character = activeCharacter(snapshot, persona);
+  const speakerLabel =
+    snapshot.playback && spriteSource(character, snapshot.playback.expression) ? "" : name;
+  const skin = spriteUrl(character, BALLOON_SPRITE);
+  const slice = useImageSlice(skin);
+  const skinned = skin && slice ? skinStyle(skin, slice) : undefined;
+  const transparent = Boolean(skinned) && !preview;
+  useEffect(() => {
+    if (!transparent) return;
+    document.documentElement.classList.add(s.transparentDocument);
+    return () => document.documentElement.classList.remove(s.transparentDocument);
+  }, [transparent]);
   const [input, setInput] = useState("");
   const [target, setTarget] = useState<Persona | "both">(persona);
   const [pending, setPending] = useState(false);
@@ -149,7 +168,8 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
   return (
     <section
       ref={balloonRef}
-      className={`${s.balloon} ${preview ? s.balloonPreview : ""}`}
+      className={`${s.balloon} ${preview ? s.balloonPreview : ""} ${skinned ? s.balloonSkinned : ""}`}
+      style={skinned}
       aria-label={mode ? labels[mode] : "말풍선"}
     >
       <header className={s.balloonHeader}>
@@ -162,7 +182,7 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
             메뉴로
           </Button>
         )}
-        <span>{mode ? labels[mode] : name}</span>
+        <span>{mode ? labels[mode] : speakerLabel}</span>
         <IconButton
           size="compact"
           variant="quiet"

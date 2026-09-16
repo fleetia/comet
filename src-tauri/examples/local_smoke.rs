@@ -1,3 +1,5 @@
+#[path = "../src/character_sprites.rs"]
+mod character_sprites;
 #[path = "../src/characters.rs"]
 mod characters;
 #[path = "../src/domain.rs"]

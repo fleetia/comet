@@ -1,5 +1,6 @@
 mod character_commands;
 mod character_files;
+mod character_sprites;
 mod characters;
 mod desktop;
 mod device_wake;
@@ -112,6 +113,7 @@ fn snapshot(state: &AppState) -> Result<Snapshot, String> {
 
 fn publish(app: &tauri::AppHandle, state: &AppState) {
     if let Ok(data) = snapshot(state) {
+        desktop::sync_boxes(app, &data);
         desktop::sync_balloon(app, &data);
         let _ = app.emit("app-state", data);
     }
@@ -1107,7 +1109,7 @@ async fn hide_boxes(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    for id in ["a", "b"] {
+    for id in ["a", "b"].iter().chain(&desktop::FACE_LABELS) {
         if let Some(window) = app.get_webview_window(id) {
             window.hide().map_err(|e| e.to_string())?;
         }
@@ -1278,6 +1280,7 @@ fn create_tray(app: &tauri::AppHandle) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .register_uri_scheme_protocol(SPRITE_SCHEME, serve_sprite)
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(state) = app.try_state::<Arc<AppState>>() {
                 show_boxes(app, &state);
@@ -1346,7 +1349,8 @@ pub fn run() {
                 }
                 return;
             }
-            if !["a", "b"].contains(&window.label()) {
+            let face = desktop::FACE_LABELS.contains(&window.label());
+            if !face && !["a", "b"].contains(&window.label()) {
                 return;
             }
             let state = window.state::<Arc<AppState>>();
@@ -1364,9 +1368,15 @@ pub fn run() {
                             ),
                         );
                     }
-                    if let Ok(data) = snapshot(&state) {
-                        desktop::sync_balloon(window.app_handle(), &data);
+                    if !face {
+                        if let Ok(data) = snapshot(&state) {
+                            desktop::sync_balloon(window.app_handle(), &data);
+                        }
                     }
+                }
+                WindowEvent::CloseRequested { api, .. } if face => {
+                    api.prevent_close();
+                    let _ = window.hide();
                 }
                 WindowEvent::CloseRequested { api, .. } => {
                     api.prevent_close();
@@ -1413,6 +1423,8 @@ pub fn run() {
             choose_character_pack,
             import_character_pack,
             save_character_pack,
+            choose_character_sprite,
+            remove_character_sprite,
             open_panel,
             close_panel,
             skip_talk,

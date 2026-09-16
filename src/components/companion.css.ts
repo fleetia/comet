@@ -1,4 +1,4 @@
-import { keyframes, style, styleVariants } from "@vanilla-extract/css";
+import { globalStyle, keyframes, style, styleVariants } from "@vanilla-extract/css";
 import { semanticVars as vars } from "@fleetia/lagrange/theme";
 
 export const bodyFrame = style({ position: "relative", width: "100%", height: "100dvh" });
@@ -56,6 +56,46 @@ export const face = style({
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
 });
+export const sprite = style({
+  flexShrink: 0,
+  objectFit: "contain",
+  imageRendering: "pixelated",
+  pointerEvents: "none",
+  userSelect: "none",
+});
+export const spriteBody = style({
+  padding: 4,
+  gap: 0,
+  border: 0,
+  borderRadius: 0,
+  background: "transparent",
+});
+export const faceFrame = style({
+  width: "100%",
+  height: "100dvh",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+});
+export const faceTag = style({
+  border: 0,
+  background: "transparent",
+  padding: "2px 6px",
+  fontSize: 16,
+  fontWeight: 500,
+  letterSpacing: "-0.045em",
+  whiteSpace: "nowrap",
+  color: vars.color.content.primary,
+  userSelect: "none",
+  cursor: "grab",
+  touchAction: "none",
+  selectors: { "&:active": { cursor: "grabbing" } },
+});
+export const transparentDocument = style({});
+globalStyle(
+  `${transparentDocument}, ${transparentDocument} body, ${transparentDocument} #root, ${transparentDocument} #root > *`,
+  { background: "transparent" },
+);
 export const balloon = style({
   width: "100%",
   height: "auto",
@@ -68,6 +108,7 @@ export const balloon = style({
   flexDirection: "column",
   overflow: "hidden",
 });
+export const balloonSkinned = style({ imageRendering: "pixelated" });
 export const balloonPreview = style({
   width: 320,
   maxWidth: "100%",

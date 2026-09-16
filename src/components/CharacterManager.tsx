@@ -19,6 +19,8 @@ function newDefinition(): CharacterDefinition {
     description: "",
     personality: "",
     expressions: Object.fromEntries(EXPRESSIONS.map((value) => [value, value])),
+    faceIcon: false,
+    spriteSize: 64,
     greeting: [{ expression: "평온", text: "안녕. 만나서 반가워." }],
     idleLines: [{ expression: "평온", text: "잠깐 쉬어 갈까?" }],
   };
@@ -81,6 +83,15 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
     });
   }
   const dialogueIds = scope === "pair" ? active : [selectedId];
+  const dialogueExpressions = [
+    ...new Set(
+      dialogueIds.flatMap((id) =>
+        Object.keys(
+          installed.find((character) => character.id === id)?.definition.expressions ?? {},
+        ),
+      ),
+    ),
+  ];
   return (
     <main className={s.page}>
       <WindowHeader
@@ -248,8 +259,23 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                   <p className={s.tabIntro}>이름·성격·표정과 인사·개별 자동 수다를 편집해요.</p>
                   <CharacterEditor
                     definition={definition}
+                    character={selected}
                     onChange={(value) =>
                       setDrafts((values) => ({ ...values, [selectedId]: value }))
+                    }
+                    onSprite={(expression, remove) =>
+                      void run(async () => {
+                        if (remove) {
+                          await command("remove_character_sprite", { id: selectedId, expression });
+                          setNotice(`${expression} 표정 이미지를 제거했어요.`);
+                          return;
+                        }
+                        const chosen = await command<boolean>("choose_character_sprite", {
+                          id: selectedId,
+                          expression,
+                        });
+                        if (chosen) setNotice(`${expression} 표정 이미지를 저장했어요.`);
+                      })
                     }
                     onSave={() => void save()}
                     onCancel={() => {
@@ -347,6 +373,7 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                       <CharacterDialogueEditor
                         key={`${dialogueIds.join(":")}:${dialogueVersion}`}
                         ids={dialogueIds}
+                        expressions={dialogueExpressions}
                         onDirtyChange={setDialogueDirty}
                         onPendingChange={setDialoguePending}
                       />

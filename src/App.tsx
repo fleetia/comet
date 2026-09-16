@@ -2,6 +2,7 @@ import type { JSX } from "react";
 import { Button } from "@fleetia/lagrange";
 import { CharacterManager } from "./components/CharacterManager";
 import { CompanionBox } from "./components/CompanionBox";
+import { FaceTag } from "./components/FaceTag";
 import { Balloon } from "./components/Balloon";
 import { DesktopPreview } from "./components/DesktopPreview";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -52,6 +53,10 @@ export function App(): JSX.Element {
   }
   if (query.get("view") === "balloon") {
     return <Balloon snapshot={snapshot} />;
+  }
+  const face = query.get("face");
+  if (face === "a" || face === "b") {
+    return <FaceTag persona={face} snapshot={snapshot} />;
   }
   const persona = query.get("persona");
   if (persona === "a" || persona === "b") {

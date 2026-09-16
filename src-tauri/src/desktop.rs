@@ -1,5 +1,11 @@
-use crate::{store, types::Snapshot, AppState};
+use crate::{characters::InstalledCharacter, store, types::Snapshot, AppState};
+use std::sync::Arc;
 use tauri::{AppHandle, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewWindow};
+
+const BODY_SIZE: (f64, f64) = (112.0, 88.0);
+const SPRITE_PADDING: f64 = 8.0;
+const FACE_SIZE: (f64, f64) = (120.0, 36.0);
+pub(crate) const FACE_LABELS: [&str; 2] = ["face-a", "face-b"];
 
 #[derive(Clone, Copy, Debug)]
 struct Rect {
@@ -53,10 +59,12 @@ pub(crate) fn create_boxes(app: &AppHandle, state: &AppState) -> Result<(), Stri
             tauri::WebviewUrl::App(format!("index.html?persona={id}").into()),
         )
         .title(format!("Nanika Box · {}", id.to_uppercase()))
-        .inner_size(112.0, 88.0)
-        .min_inner_size(112.0, 88.0)
+        .inner_size(BODY_SIZE.0, BODY_SIZE.1)
+        .min_inner_size(32.0, 32.0)
         .resizable(false)
         .decorations(false)
+        .transparent(true)
+        .shadow(false)
         .maximizable(false)
         .always_on_top(true)
         .skip_taskbar(true)
@@ -106,6 +114,127 @@ pub(crate) fn create_boxes(app: &AppHandle, state: &AppState) -> Result<(), Stri
     Ok(())
 }
 
+fn active_character<'a>(snapshot: &'a Snapshot, persona: &str) -> Option<&'a InstalledCharacter> {
+    let id = &snapshot.characters.active[usize::from(persona == "b")];
+    snapshot
+        .characters
+        .installed
+        .iter()
+        .find(|character| &character.id == id)
+}
+
+fn has_body_sprite(character: &InstalledCharacter) -> bool {
+    character
+        .sprites
+        .keys()
+        .any(|key| key != crate::characters::BALLOON_SPRITE)
+}
+
+fn body_size(character: Option<&InstalledCharacter>) -> (f64, f64) {
+    match character {
+        Some(character) if has_body_sprite(character) => {
+            let side = f64::from(character.definition.sprite_size) + SPRITE_PADDING;
+            (side, side)
+        }
+        _ => BODY_SIZE,
+    }
+}
+
+fn face_wanted(snapshot: &Snapshot, character: Option<&InstalledCharacter>) -> bool {
+    !snapshot.runtime.hidden
+        && character
+            .is_some_and(|character| has_body_sprite(character) && character.definition.face_icon)
+}
+
+fn set_logical_size(window: &WebviewWindow, (width, height): (f64, f64)) -> Result<(), String> {
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let target = PhysicalSize::new(
+        (width * scale).round() as u32,
+        (height * scale).round() as u32,
+    );
+    if window.inner_size().map_err(|e| e.to_string())? != target {
+        window.set_size(target).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn create_face(app: &AppHandle, persona: &str) -> Result<(), String> {
+    let label = format!("face-{persona}");
+    let body = app
+        .get_webview_window(persona)
+        .ok_or("캐릭터 창이 없습니다.")?;
+    let window = tauri::WebviewWindowBuilder::new(
+        app,
+        &label,
+        tauri::WebviewUrl::App(format!("index.html?face={persona}").into()),
+    )
+    .title(format!("Nanika Box · {} 표정", persona.to_uppercase()))
+    .inner_size(FACE_SIZE.0, FACE_SIZE.1)
+    .resizable(false)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .maximizable(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focused(false)
+    .visible(false)
+    .build()
+    .map_err(|e| e.to_string())?;
+    let state = app.state::<Arc<AppState>>();
+    let saved = store::window_position(&*super::lock(&state.db)?, &label)?;
+    let monitor = body
+        .current_monitor()
+        .map_err(|e| e.to_string())?
+        .or(body.primary_monitor().map_err(|e| e.to_string())?)
+        .ok_or("화면 영역을 확인할 수 없습니다.")?;
+    let scale = monitor.scale_factor();
+    let area = work_area(&monitor);
+    let (width, height) = (FACE_SIZE.0 * scale, FACE_SIZE.1 * scale);
+    let (x, y) = match saved.filter(|p| p.x.is_finite() && p.y.is_finite()) {
+        Some(saved) => clamp_position(saved.x, saved.y, width, height, area),
+        None => {
+            let position = body.outer_position().map_err(|e| e.to_string())?;
+            let size = body.outer_size().map_err(|e| e.to_string())?;
+            clamp_position(
+                position.x as f64 + size.width as f64 + 4.0 * scale,
+                position.y as f64 + (size.height as f64 - height) / 2.0,
+                width,
+                height,
+                area,
+            )
+        }
+    };
+    window
+        .set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32))
+        .map_err(|e| e.to_string())?;
+    window.show().map_err(|e| e.to_string())
+}
+
+// Keeps each body window sized to its sprite and shows the detached expression tag only when the
+// active character asks for one.
+pub(crate) fn sync_boxes(app: &AppHandle, snapshot: &Snapshot) {
+    for persona in ["a", "b"] {
+        let character = active_character(snapshot, persona);
+        if let Some(window) = app.get_webview_window(persona) {
+            let _ = set_logical_size(&window, body_size(character));
+        }
+        let wanted = face_wanted(snapshot, character);
+        match (app.get_webview_window(&format!("face-{persona}")), wanted) {
+            (Some(window), true) => {
+                let _ = window.show();
+            }
+            (Some(window), false) => {
+                let _ = window.hide();
+            }
+            (None, true) => {
+                let _ = create_face(app, persona);
+            }
+            (None, false) => {}
+        }
+    }
+}
+
 fn owner(snapshot: &Snapshot) -> Option<&str> {
     if snapshot.runtime.hidden {
         return None;
@@ -142,6 +271,8 @@ fn get_balloon(app: &AppHandle) -> Result<WebviewWindow, String> {
     .title("Nanika Box · 말풍선")
     .inner_size(320.0, 180.0)
     .decorations(false)
+    .transparent(true)
+    .shadow(false)
     .maximizable(false)
     .always_on_top(true)
     .focused(false)

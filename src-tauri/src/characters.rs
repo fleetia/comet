@@ -1,11 +1,21 @@
+use crate::character_sprites::{self as sprites, SpriteInfo};
 use crate::types::{SceneLine, WordbookEntry};
+use base64::Engine;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 type Result<T> = std::result::Result<T, String>;
-pub const MAX_PACK_BYTES: usize = 1_048_576;
-const EXPRESSIONS: [&str; 6] = ["평온", "기쁨", "호기심", "생각중", "걱정", "장난"];
+pub const MAX_PACK_BYTES: usize = 32 * 1_048_576;
+pub const DEFAULT_EXPRESSION: &str = "평온";
+pub const DEFAULT_SPRITE_SIZE: u32 = 64;
+// Reserved sprite key for the balloon skin; expression names may not start with '$'.
+pub const BALLOON_SPRITE: &str = "$balloon";
+pub const SPRITE_SIZE_RANGE: std::ops::RangeInclusive<u32> = 32..=512;
+fn default_sprite_size() -> u32 {
+    DEFAULT_SPRITE_SIZE
+}
+const BASE_EXPRESSIONS: [&str; 6] = ["평온", "기쁨", "호기심", "생각중", "걱정", "장난"];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -22,6 +32,10 @@ pub struct CharacterDefinition {
     pub description: String,
     pub personality: String,
     pub expressions: BTreeMap<String, String>,
+    #[serde(default)]
+    pub face_icon: bool,
+    #[serde(default = "default_sprite_size")]
+    pub sprite_size: u32,
     pub greeting: Vec<CharacterLine>,
     pub idle_lines: Vec<CharacterLine>,
 }
@@ -31,6 +45,16 @@ pub struct InstalledCharacter {
     pub id: String,
     pub pack_id: Option<String>,
     pub definition: CharacterDefinition,
+    #[serde(default)]
+    pub sprites: BTreeMap<String, SpriteInfo>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PackSprite {
+    pub source_id: String,
+    pub expression: String,
+    pub mime: String,
+    pub data: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -50,6 +74,8 @@ pub struct CharacterPack {
     pub pair_scenes: Vec<Vec<SceneLine>>,
     #[serde(default)]
     pub wordbook: Vec<WordbookEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sprites: Vec<PackSprite>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -62,9 +88,15 @@ pub struct CharacterDialogue {
 fn bounded(value: &str, max: usize, required: bool) -> bool {
     (!required || !value.trim().is_empty()) && value.chars().count() <= max
 }
+fn valid_expression_key(key: &str) -> bool {
+    bounded(key, 20, true) && key.trim() == key && !key.starts_with('$')
+}
+pub(crate) fn sprite_slot_allowed(definition: &CharacterDefinition, key: &str) -> bool {
+    key == BALLOON_SPRITE || definition.expressions.contains_key(key)
+}
 fn validate_line(expression: &str, text: &str) -> Result<()> {
-    if !EXPRESSIONS.contains(&expression) || !bounded(text, 500, true) {
-        return Err("표정 또는 대사가 올바르지 않습니다. 대사는 1~500자여야 합니다.".into());
+    if !valid_expression_key(expression) || !bounded(text, 500, true) {
+        return Err("표정 또는 대사가 올바르지 않습니다. 표정은 1~20자, 대사는 1~500자여야 합니다.".into());
     }
     Ok(())
 }
@@ -74,13 +106,13 @@ fn validate_definition(definition: &CharacterDefinition) -> Result<()> {
         || !bounded(&definition.name, 40, true)
         || !bounded(&definition.description, 500, false)
         || !bounded(&definition.personality, 500, false)
-        || definition.expressions.len() != 6
-        || EXPRESSIONS.iter().any(|key| {
-            !definition
-                .expressions
-                .get(*key)
-                .is_some_and(|v| bounded(v, 40, true))
-        })
+        || !(1..=24).contains(&definition.expressions.len())
+        || !definition.expressions.contains_key(DEFAULT_EXPRESSION)
+        || !SPRITE_SIZE_RANGE.contains(&definition.sprite_size)
+        || definition
+            .expressions
+            .iter()
+            .any(|(key, value)| !valid_expression_key(key) || !bounded(value, 40, true))
         || !(1..=8).contains(&definition.greeting.len())
         || !(1..=32).contains(&definition.idle_lines.len())
     {
@@ -146,10 +178,36 @@ fn validate_pack(pack: &CharacterPack) -> Result<()> {
             return Err("팩 단어장 ID가 중복됩니다.".into());
         }
     }
+    let mut seen_sprites = HashSet::new();
+    for sprite in &pack.sprites {
+        let owner = pack
+            .characters
+            .iter()
+            .find(|definition| definition.source_id == sprite.source_id)
+            .ok_or("팩에 없는 캐릭터의 표정 이미지입니다.")?;
+        if !sprite_slot_allowed(owner, &sprite.expression) {
+            return Err("캐릭터에 없는 표정의 이미지입니다.".into());
+        }
+        if !seen_sprites.insert((&sprite.source_id, &sprite.expression)) {
+            return Err("같은 표정의 이미지가 중복됩니다.".into());
+        }
+        let bytes = decode_sprite(sprite)?;
+        if sprites::validate(&bytes)? != sprite.mime {
+            return Err("표정 이미지의 형식과 내용이 다릅니다.".into());
+        }
+    }
     if serde_json::to_vec(pack).map_err(|e| e.to_string())?.len() > MAX_PACK_BYTES {
-        return Err("캐릭터팩은 1 MiB 이하여야 합니다.".into());
+        return Err("캐릭터팩은 32 MiB 이하여야 합니다.".into());
     }
     Ok(())
+}
+fn decode_sprite(sprite: &PackSprite) -> Result<Vec<u8>> {
+    if sprite.data.len() > sprites::MAX_SPRITE_BYTES * 4 / 3 + 4 {
+        return Err("표정 이미지는 2 MiB 이하여야 합니다.".into());
+    }
+    base64::engine::general_purpose::STANDARD
+        .decode(sprite.data.as_bytes())
+        .map_err(|_| "표정 이미지 데이터를 읽을 수 없습니다.".into())
 }
 fn strict_scene(value: &serde_json::Value) -> Result<()> {
     let fields = value.as_object().ok_or("대사 형식이 올바르지 않습니다.")?;
@@ -164,7 +222,7 @@ fn strict_scene(value: &serde_json::Value) -> Result<()> {
 }
 pub fn parse_pack(json: &str) -> Result<CharacterPack> {
     if json.len() > MAX_PACK_BYTES {
-        return Err("캐릭터팩은 1 MiB 이하여야 합니다.".into());
+        return Err("캐릭터팩은 32 MiB 이하여야 합니다.".into());
     }
     let value: serde_json::Value =
         serde_json::from_str(json).map_err(|_| "캐릭터팩 JSON을 읽을 수 없습니다.")?;
@@ -229,11 +287,13 @@ fn builtin(slot: &str) -> CharacterDefinition {
             "차분하고 간결하며 가끔 부드러운 농담을 한다."
         }
         .into(),
-        expressions: EXPRESSIONS
+        expressions: BASE_EXPRESSIONS
             .iter()
             .zip(["(・_・)", "(^‿^)", "(・o・)", "(－_－)", "(・・;)", "(¬‿¬)"])
             .map(|(k, v)| (k.to_string(), v.into()))
             .collect(),
+        face_icon: false,
+        sprite_size: DEFAULT_SPRITE_SIZE,
         greeting: vec![CharacterLine {
             expression: "기쁨".into(),
             text: if a {
@@ -257,6 +317,7 @@ fn builtin(slot: &str) -> CharacterDefinition {
 pub fn initialize(conn: &Connection) -> Result<()> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     tx.execute_batch("CREATE TABLE IF NOT EXISTS characters(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,pack_id TEXT,data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS character_slots(slot TEXT PRIMARY KEY CHECK(slot IN ('a','b')),character_id TEXT NOT NULL UNIQUE); CREATE TABLE IF NOT EXISTS character_packs(id TEXT PRIMARY KEY,data TEXT NOT NULL,members TEXT NOT NULL); CREATE TABLE IF NOT EXISTS character_dialogues(members TEXT PRIMARY KEY,data TEXT NOT NULL);").map_err(|e| e.to_string())?;
+    sprites::initialize(&tx)?;
     for slot in ["a", "b"] {
         tx.execute(
             "INSERT OR IGNORE INTO characters(id,pack_id,data) VALUES(?1,NULL,?2)",
@@ -288,7 +349,21 @@ fn get(conn: &Connection, id: &str) -> Result<InstalledCharacter> {
         id: id.into(),
         pack_id,
         definition: serde_json::from_str(&data).map_err(|e| e.to_string())?,
+        sprites: sprites::list(conn, id)?,
     })
+}
+pub fn set_sprite(conn: &Connection, id: &str, expression: &str, bytes: &[u8]) -> Result<()> {
+    if !sprite_slot_allowed(&get(conn, id)?.definition, expression) {
+        return Err("먼저 캐릭터에 그 표정을 추가하고 저장해 주세요.".into());
+    }
+    sprites::put(conn, id, expression, bytes)
+}
+pub fn remove_sprite(conn: &Connection, id: &str, expression: &str) -> Result<()> {
+    get(conn, id)?;
+    sprites::remove(conn, id, expression)
+}
+pub fn sprite(conn: &Connection, id: &str, expression: &str) -> Result<Option<sprites::Sprite>> {
+    sprites::get(conn, id, expression)
 }
 fn active_ids(conn: &Connection) -> Result<[String; 2]> {
     let a = conn
@@ -363,15 +438,19 @@ pub fn save(conn: &Connection, id: &str, definition: &CharacterDefinition) -> Re
         .version
         .checked_add(1)
         .ok_or("캐릭터 버전 한도를 초과했습니다.")?;
-    conn.execute(
-        "UPDATE characters SET data=?1 WHERE id=?2",
-        params![
-            serde_json::to_string(&edited).map_err(|e| e.to_string())?,
-            id
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
+    with_transaction(conn, |tx| {
+        tx.execute(
+            "UPDATE characters SET data=?1 WHERE id=?2",
+            params![
+                serde_json::to_string(&edited).map_err(|e| e.to_string())?,
+                id
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+        let mut kept: BTreeSet<String> = edited.expressions.keys().cloned().collect();
+        kept.insert(BALLOON_SPRITE.into());
+        sprites::retain(tx, id, &kept)
+    })
 }
 pub fn create(conn: &Connection, definition: &CharacterDefinition) -> Result<InstalledCharacter> {
     validate_definition(definition)?;
@@ -390,6 +469,9 @@ pub fn clone_character(conn: &Connection, id: &str) -> Result<InstalledCharacter
     with_transaction(conn, |tx| {
         let original = get(tx, id)?;
         let mut pack = export_pack(tx, &[id.to_string()], &[])?;
+        for sprite in &mut pack.sprites {
+            sprite.source_id = original.definition.source_id.clone();
+        }
         pack.characters[0] = original.definition;
         import_pack(tx, &pack)?
             .into_iter()
@@ -418,6 +500,7 @@ pub fn remove(conn: &Connection, id: &str) -> Result<()> {
         write_pair(tx, &ids)?;
         tx.execute("DELETE FROM characters WHERE id=?", [id])
             .map_err(|e| e.to_string())?;
+        sprites::remove_all(tx, id)?;
         if let Some(pack_id) = character.pack_id {
             tx.execute("DELETE FROM character_packs WHERE id=?1 AND NOT EXISTS(SELECT 1 FROM characters WHERE pack_id=?1)", [pack_id]).map_err(|e| e.to_string())?;
         }
@@ -433,11 +516,16 @@ pub fn import_pack(conn: &Connection, pack: &CharacterPack) -> Result<Vec<Instal
             .iter()
             .map(|_| uuid::Uuid::new_v4().to_string())
             .collect();
+        // Sprites live in their own table; the stored pack record keeps only text content.
+        let record = CharacterPack {
+            sprites: Vec::new(),
+            ..pack.clone()
+        };
         tx.execute(
             "INSERT INTO character_packs(id,data,members) VALUES(?1,?2,?3)",
             params![
                 pack_id,
-                serde_json::to_string(pack).map_err(|e| e.to_string())?,
+                serde_json::to_string(&record).map_err(|e| e.to_string())?,
                 serde_json::to_string(&ids).map_err(|e| e.to_string())?
             ],
         )
@@ -452,6 +540,13 @@ pub fn import_pack(conn: &Connection, pack: &CharacterPack) -> Result<Vec<Instal
                 ],
             )
             .map_err(|e| e.to_string())?;
+            for sprite in pack
+                .sprites
+                .iter()
+                .filter(|sprite| sprite.source_id == definition.source_id)
+            {
+                sprites::put(tx, id, &sprite.expression, &decode_sprite(sprite)?)?;
+            }
         }
         let installed = ids.iter().map(|id| get(tx, id)).collect::<Result<_>>()?;
         Ok(installed)
@@ -704,10 +799,21 @@ pub fn export_pack(
         characters: installed.iter().map(|c| c.definition.clone()).collect(),
         pair_scenes: Vec::new(),
         wordbook: Vec::new(),
+        sprites: Vec::new(),
     };
     // Source identity is package-local; copies may legitimately share the original source ID.
     for (index, definition) in pack.characters.iter_mut().enumerate() {
         definition.source_id = format!("character-{}", index + 1);
+    }
+    for (definition, character) in pack.characters.iter().zip(&installed) {
+        for (expression, sprite) in sprites::all(conn, &character.id)? {
+            pack.sprites.push(PackSprite {
+                source_id: definition.source_id.clone(),
+                expression,
+                mime: sprite.mime,
+                data: base64::engine::general_purpose::STANDARD.encode(sprite.data),
+            });
+        }
     }
     let mut seen = HashSet::new();
     for character in &installed {
@@ -781,7 +887,97 @@ mod tests {
                 enabled: true,
                 use_for_idle: false,
             }],
+            sprites: Vec::new(),
         }
+    }
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\n-body";
+    #[test]
+    fn expressions_are_dynamic_but_keep_the_default_key() {
+        let conn = database();
+        let mut definition = builtin("a");
+        definition
+            .expressions
+            .insert("슬픔".into(), "(；_；)".into());
+        definition.expressions.remove("장난");
+        definition.greeting[0].expression = "화남".into();
+        let created = create(&conn, &definition).unwrap();
+        assert_eq!(created.definition.expressions.len(), 6);
+        assert_eq!(created.definition.greeting[0].expression, "화남");
+        let mut invalid = definition.clone();
+        invalid.expressions.remove(DEFAULT_EXPRESSION);
+        assert!(create(&conn, &invalid).is_err());
+        invalid = definition.clone();
+        invalid.expressions.insert(" 공백 ".into(), "x".into());
+        assert!(create(&conn, &invalid).is_err());
+        invalid = definition.clone();
+        for index in 0..30 {
+            invalid.expressions.insert(format!("표정{index}"), "x".into());
+        }
+        assert!(create(&conn, &invalid).is_err());
+        invalid = definition.clone();
+        invalid.sprite_size = 16;
+        assert!(create(&conn, &invalid).is_err());
+        invalid = definition.clone();
+        invalid.expressions.insert("$balloon".into(), "x".into());
+        assert!(create(&conn, &invalid).is_err());
+        let legacy: CharacterDefinition = serde_json::from_str(
+            &serde_json::to_string(&builtin("b"))
+                .unwrap()
+                .replace(",\"spriteSize\":64", "")
+                .replace(",\"faceIcon\":false", ""),
+        )
+        .unwrap();
+        assert_eq!(legacy.sprite_size, DEFAULT_SPRITE_SIZE);
+        assert!(!legacy.face_icon);
+    }
+    #[test]
+    fn sprites_follow_save_clone_export_import_and_removal() {
+        let conn = database();
+        let created = clone_character(&conn, "builtin-a").unwrap();
+        assert!(set_sprite(&conn, &created.id, "슬픔", PNG).is_err());
+        set_sprite(&conn, &created.id, "기쁨", PNG).unwrap();
+        set_sprite(&conn, &created.id, "장난", b"<svg xmlns='http://www.w3.org/2000/svg'/>").unwrap();
+        assert!(set_sprite(&conn, &created.id, "평온", b"nope").is_err());
+        let listed = get(&conn, &created.id).unwrap().sprites;
+        assert_eq!(listed["기쁨"].mime, "image/png");
+        assert_eq!(listed["장난"].mime, "image/svg+xml");
+        set_sprite(&conn, &created.id, BALLOON_SPRITE, b"GIF89a-skin").unwrap();
+        let mut edited = created.definition.clone();
+        edited.expressions.remove("장난");
+        save(&conn, &created.id, &edited).unwrap();
+        let after = get(&conn, &created.id).unwrap().sprites;
+        assert_eq!(after.keys().collect::<Vec<_>>(), [BALLOON_SPRITE, "기쁨"]);
+        let copy = clone_character(&conn, &created.id).unwrap();
+        assert_eq!(copy.sprites["기쁨"].mime, "image/png");
+        assert_eq!(copy.sprites[BALLOON_SPRITE].mime, "image/gif");
+        assert_eq!(copy.definition.source_id, created.definition.source_id);
+        remove_sprite(&conn, &created.id, BALLOON_SPRITE).unwrap();
+        let exported = export_pack(&conn, &[created.id.clone()], &[]).unwrap();
+        assert_eq!(exported.sprites.len(), 1);
+        assert_eq!(exported.sprites[0].source_id, "character-1");
+        let json = serde_json::to_string(&exported).unwrap();
+        let imported = import_pack(&conn, &parse_pack(&json).unwrap()).unwrap();
+        assert_eq!(
+            sprite(&conn, &imported[0].id, "기쁨").unwrap().unwrap().data,
+            PNG
+        );
+        let stored = pack_record(&conn, imported[0].pack_id.as_ref().unwrap())
+            .unwrap()
+            .0;
+        assert!(stored.sprites.is_empty());
+        remove_sprite(&conn, &created.id, "기쁨").unwrap();
+        assert!(get(&conn, &created.id).unwrap().sprites.is_empty());
+        remove(&conn, &imported[0].id).unwrap();
+        assert!(sprite(&conn, &imported[0].id, "기쁨").unwrap().is_none());
+        let mut tampered = exported.clone();
+        tampered.sprites[0].mime = "image/gif".into();
+        assert!(validate_pack(&tampered).is_err());
+        tampered = exported.clone();
+        tampered.sprites[0].expression = "없는표정".into();
+        assert!(validate_pack(&tampered).is_err());
+        tampered = exported;
+        tampered.sprites.push(tampered.sprites[0].clone());
+        assert!(validate_pack(&tampered).is_err());
     }
     #[test]
     fn mutations_participate_in_outer_transaction_rollback() {

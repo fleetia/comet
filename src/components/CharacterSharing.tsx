@@ -48,8 +48,8 @@ export function CharacterSharing({
     <section className={s.section} aria-label="캐릭터 공유">
       <h2 className={s.subheading}>캐릭터 공유</h2>
       <p className={s.notice}>
-        이름·성격·표정·등록 대사만 공유해요. 대화 기록·기억·친밀도·API 키·모델 파일은 포함하지
-        않아요. 직접 적은 소개나 대사에 개인정보가 없는지도 확인해 주세요.
+        이름·성격·표정과 표정 이미지·등록 대사만 공유해요. 대화 기록·기억·친밀도·API 키·모델 파일은
+        포함하지 않아요. 직접 적은 소개나 대사에 개인정보가 없는지도 확인해 주세요.
       </p>
       <fieldset className={s.fieldset} disabled={pending || disabled}>
         <label className={ui.field}>
@@ -137,7 +137,7 @@ export function CharacterSharing({
             공유 파일 가져오기
           </Button>
         </div>
-        <p className={ui.quiet}>.comet-character.json · 최대 1 MiB · 온라인에 게시하지 않아요.</p>
+        <p className={ui.quiet}>.comet-character.json · 최대 32 MiB · 온라인에 게시하지 않아요.</p>
         {pack && (
           <section className={s.section} aria-label="가져오기 미리보기">
             <CharacterPackPreview pack={pack} />

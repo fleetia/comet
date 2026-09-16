@@ -2,6 +2,7 @@ import type { JSX } from "react";
 import type { CharacterPack } from "../types";
 import * as ui from "../lagrange.css";
 import * as s from "./characters.css";
+import { BALLOON_SPRITE } from "./characterIdentity";
 
 type Props = { pack: CharacterPack };
 
@@ -27,6 +28,23 @@ export function CharacterPackPreview({ pack }: Props): JSX.Element {
               {Object.entries(character.expressions)
                 .map(([key, value]) => `${key} [${value}]`)
                 .join(" · ")}
+            </p>
+            <p>
+              표정 이미지{" "}
+              {
+                (pack.sprites ?? []).filter(
+                  (sprite) =>
+                    sprite.sourceId === character.sourceId && sprite.expression !== BALLOON_SPRITE,
+                ).length
+              }
+              개
+              {(pack.sprites ?? []).some(
+                (sprite) =>
+                  sprite.sourceId === character.sourceId && sprite.expression === BALLOON_SPRITE,
+              )
+                ? " · 말풍선 이미지 포함"
+                : ""}
+              {character.faceIcon ? " · 이미지 옆 텍스트 표정 표시" : ""}
             </p>
             <strong>인사</strong>
             {character.greeting.map((line, i) => (

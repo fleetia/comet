@@ -533,11 +533,14 @@ impl Reader<'_> {
                             vec![location.error("EXPRESSION", "표정은 [표정]으로 작성해 주세요.")]
                         })?
                 };
-                if !["평온", "기쁨", "호기심", "생각중", "걱정", "장난"].contains(&expression)
+                if expression.trim().is_empty()
+                    || expression.trim() != expression
+                    || expression.chars().count() > 20
                 {
-                    return Err(vec![
-                        location.error("EXPRESSION", format!("허용되지 않는 표정: {expression}"))
-                    ]);
+                    return Err(vec![location.error(
+                        "EXPRESSION",
+                        format!("표정 이름은 앞뒤 공백 없이 1~20자여야 해요: [{expression}]"),
+                    )]);
                 }
                 self.at += 1;
                 let text = text.strip_prefix(' ').unwrap_or(text);

@@ -9,11 +9,13 @@ import * as s from "./characters.css";
 
 type Props = {
   ids: string[];
+  expressions?: string[];
   onDirtyChange: (dirty: boolean) => void;
   onPendingChange?: (pending: boolean) => void;
 };
 export function CharacterDialogueEditor({
   ids,
+  expressions = EXPRESSIONS,
   onDirtyChange,
   onPendingChange,
 }: Props): JSX.Element {
@@ -158,7 +160,7 @@ export function CharacterDialogueEditor({
                           )
                         }
                       >
-                        {EXPRESSIONS.map((expression) => (
+                        {[...new Set([...expressions, line.expression])].map((expression) => (
                           <option key={expression}>{expression}</option>
                         ))}
                       </Select>

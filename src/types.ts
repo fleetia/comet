@@ -7,16 +7,21 @@ export type CharacterDefinition = {
   description: string;
   personality: string;
   expressions: Record<string, string>;
+  faceIcon: boolean;
+  spriteSize: number;
   greeting: CharacterLine[];
   idleLines: CharacterLine[];
 };
+export type SpriteInfo = { mime: string; updatedAt: number };
 export type InstalledCharacter = {
   id: string;
   packId: string | null;
   definition: CharacterDefinition;
+  sprites: Record<string, SpriteInfo>;
 };
 export type CharacterCollection = { installed: InstalledCharacter[]; active: [string, string] };
 export type CharacterDialogue = { pairScenes: SceneLine[][]; wordbook: WordbookEntry[] };
+export type PackSprite = { sourceId: string; expression: string; mime: string; data: string };
 export type CharacterPack = {
   formatVersion: 1;
   name: string;
@@ -25,6 +30,7 @@ export type CharacterPack = {
   characters: CharacterDefinition[];
   pairScenes: SceneLine[][];
   wordbook: WordbookEntry[];
+  sprites?: PackSprite[];
 };
 export type MessageIdentity = {
   messageId: string;
