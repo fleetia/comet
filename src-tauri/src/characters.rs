@@ -12,6 +12,7 @@ pub const DEFAULT_SPRITE_SIZE: u32 = 64;
 // Reserved sprite key for the balloon skin; expression names may not start with '$'.
 pub const BALLOON_SPRITE: &str = "$balloon";
 pub const SPRITE_SIZE_RANGE: std::ops::RangeInclusive<u32> = 32..=512;
+pub const MAX_ROSTER: usize = 8;
 fn default_sprite_size() -> u32 {
     DEFAULT_SPRITE_SIZE
 }
@@ -60,7 +61,7 @@ pub struct PackSprite {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CharacterCollection {
     pub installed: Vec<InstalledCharacter>,
-    pub active: [String; 2],
+    pub active: Vec<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -316,7 +317,7 @@ fn builtin(slot: &str) -> CharacterDefinition {
 }
 pub fn initialize(conn: &Connection) -> Result<()> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS characters(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,pack_id TEXT,data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS character_slots(slot TEXT PRIMARY KEY CHECK(slot IN ('a','b')),character_id TEXT NOT NULL UNIQUE); CREATE TABLE IF NOT EXISTS character_packs(id TEXT PRIMARY KEY,data TEXT NOT NULL,members TEXT NOT NULL); CREATE TABLE IF NOT EXISTS character_dialogues(members TEXT PRIMARY KEY,data TEXT NOT NULL);").map_err(|e| e.to_string())?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS characters(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,pack_id TEXT,data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS character_roster(position INTEGER PRIMARY KEY,character_id TEXT NOT NULL UNIQUE); CREATE TABLE IF NOT EXISTS character_packs(id TEXT PRIMARY KEY,data TEXT NOT NULL,members TEXT NOT NULL); CREATE TABLE IF NOT EXISTS character_dialogues(members TEXT PRIMARY KEY,data TEXT NOT NULL);").map_err(|e| e.to_string())?;
     sprites::initialize(&tx)?;
     for slot in ["a", "b"] {
         tx.execute(
@@ -327,13 +328,39 @@ pub fn initialize(conn: &Connection) -> Result<()> {
             ],
         )
         .map_err(|e| e.to_string())?;
-        tx.execute(
-            "INSERT OR IGNORE INTO character_slots(slot,character_id) VALUES(?1,?2)",
-            params![slot, format!("builtin-{slot}")],
+    }
+    migrate_slots(&tx)?;
+    tx.commit().map_err(|e| e.to_string())
+}
+// One-time move from the fixed a/b slot table to the ordered roster; the slot table is not read afterwards.
+fn migrate_slots(conn: &Connection) -> Result<()> {
+    if !active_ids(conn)?.is_empty() {
+        return Ok(());
+    }
+    let has_slots: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='character_slots')",
+            [],
+            |r| r.get(0),
         )
         .map_err(|e| e.to_string())?;
+    let mut ids = Vec::new();
+    if has_slots {
+        let mut statement = conn
+            .prepare("SELECT s.character_id FROM character_slots s JOIN characters c ON c.id=s.character_id ORDER BY s.slot")
+            .map_err(|e| e.to_string())?;
+        ids = statement
+            .query_map([], |r| r.get::<_, String>(0))
+            .map_err(|e| e.to_string())?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        conn.execute_batch("DROP TABLE character_slots")
+            .map_err(|e| e.to_string())?;
     }
-    tx.commit().map_err(|e| e.to_string())
+    if ids.is_empty() {
+        ids = vec!["builtin-a".into(), "builtin-b".into()];
+    }
+    write_roster(conn, &ids)
 }
 fn get(conn: &Connection, id: &str) -> Result<InstalledCharacter> {
     let row: Option<(Option<String>, String)> = conn
@@ -365,22 +392,16 @@ pub fn remove_sprite(conn: &Connection, id: &str, expression: &str) -> Result<()
 pub fn sprite(conn: &Connection, id: &str, expression: &str) -> Result<Option<sprites::Sprite>> {
     sprites::get(conn, id, expression)
 }
-fn active_ids(conn: &Connection) -> Result<[String; 2]> {
-    let a = conn
-        .query_row(
-            "SELECT character_id FROM character_slots WHERE slot='a'",
-            [],
-            |r| r.get(0),
-        )
+fn active_ids(conn: &Connection) -> Result<Vec<String>> {
+    let mut statement = conn
+        .prepare("SELECT character_id FROM character_roster ORDER BY position")
         .map_err(|e| e.to_string())?;
-    let b = conn
-        .query_row(
-            "SELECT character_id FROM character_slots WHERE slot='b'",
-            [],
-            |r| r.get(0),
-        )
+    let ids = statement
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
-    Ok([a, b])
+    Ok(ids)
 }
 pub fn collection(conn: &Connection) -> Result<CharacterCollection> {
     let mut statement = conn
@@ -397,36 +418,49 @@ pub fn collection(conn: &Connection) -> Result<CharacterCollection> {
     })
 }
 pub fn active_character(conn: &Connection, slot: &str) -> Result<InstalledCharacter> {
-    get(conn, &active_ids(conn)?[slot_index(slot)?])
+    let ids = active_ids(conn)?;
+    let id = ids
+        .get(slot_index(slot)?)
+        .ok_or("그 자리에는 지금 캐릭터가 없습니다.")?;
+    get(conn, id)
 }
-fn write_pair(conn: &Connection, ids: &[String; 2]) -> Result<()> {
-    conn.execute("DELETE FROM character_slots", [])
+fn write_roster(conn: &Connection, ids: &[String]) -> Result<()> {
+    conn.execute("DELETE FROM character_roster", [])
         .map_err(|e| e.to_string())?;
-    for (slot, id) in ["a", "b"].iter().zip(ids) {
+    for (position, id) in ids.iter().enumerate() {
         conn.execute(
-            "INSERT INTO character_slots(slot,character_id) VALUES(?1,?2)",
-            params![slot, id],
+            "INSERT INTO character_roster(position,character_id) VALUES(?1,?2)",
+            params![position as i64, id],
         )
         .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
-pub fn apply_pair(conn: &Connection, ids: [String; 2]) -> Result<()> {
-    if ids[0] == ids[1] {
-        return Err("같은 로컬 캐릭터를 두 자리에 적용할 수 없습니다.".into());
+pub fn apply_roster(conn: &Connection, ids: Vec<String>) -> Result<()> {
+    let distinct: HashSet<&String> = ids.iter().collect();
+    if !(1..=MAX_ROSTER).contains(&ids.len()) || distinct.len() != ids.len() {
+        return Err(format!("서로 다른 캐릭터 1~{MAX_ROSTER}명을 골라 주세요."));
     }
     with_transaction(conn, |tx| {
         for id in &ids {
             get(tx, id)?;
         }
-        write_pair(tx, &ids)?;
-        Ok(())
+        write_roster(tx, &ids)
     })
+}
+pub fn apply_pair(conn: &Connection, ids: [String; 2]) -> Result<()> {
+    if ids[0] == ids[1] {
+        return Err("같은 로컬 캐릭터를 두 자리에 적용할 수 없습니다.".into());
+    }
+    apply_roster(conn, ids.to_vec())
 }
 pub fn assign(conn: &Connection, slot: &str, id: &str) -> Result<()> {
     let mut ids = active_ids(conn)?;
-    ids[slot_index(slot)?] = id.into();
-    apply_pair(conn, ids)
+    match ids.get_mut(slot_index(slot)?) {
+        Some(current) => *current = id.into(),
+        None => ids.push(id.into()),
+    }
+    apply_roster(conn, ids)
 }
 pub fn save(conn: &Connection, id: &str, definition: &CharacterDefinition) -> Result<()> {
     validate_definition(definition)?;
@@ -486,18 +520,20 @@ pub fn remove(conn: &Connection, id: &str) -> Result<()> {
     with_transaction(conn, |tx| {
         let character = get(tx, id)?;
         let mut ids = active_ids(tx)?;
-        for index in 0..2 {
-            if ids[index] == id {
-                let preferred = ["builtin-a", "builtin-b"][index];
-                ids[index] = if ids[1 - index] == preferred {
-                    ["builtin-b", "builtin-a"][index]
-                } else {
-                    preferred
+        if let Some(index) = ids.iter().position(|active| active == id) {
+            let preferred = if index == 1 {
+                ["builtin-b", "builtin-a"]
+            } else {
+                ["builtin-a", "builtin-b"]
+            };
+            match preferred.iter().find(|candidate| !ids.iter().any(|active| active == *candidate)) {
+                Some(candidate) => ids[index] = (*candidate).into(),
+                None => {
+                    ids.remove(index);
                 }
-                .into();
             }
+            write_roster(tx, &ids)?;
         }
-        write_pair(tx, &ids)?;
         tx.execute("DELETE FROM characters WHERE id=?", [id])
             .map_err(|e| e.to_string())?;
         sprites::remove_all(tx, id)?;
@@ -1090,6 +1126,53 @@ mod tests {
             "old"
         );
         assert!(remove(&conn, "builtin-a").is_err());
+    }
+    #[test]
+    fn legacy_slot_table_migrates_once_into_the_roster() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE characters(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,pack_id TEXT,data TEXT NOT NULL); CREATE TABLE character_slots(slot TEXT PRIMARY KEY,character_id TEXT NOT NULL UNIQUE); INSERT INTO character_slots VALUES('a','builtin-b'),('b','builtin-a');").unwrap();
+        for slot in ["a", "b"] {
+            conn.execute(
+                "INSERT INTO characters(id,pack_id,data) VALUES(?1,NULL,?2)",
+                params![
+                    format!("builtin-{slot}"),
+                    serde_json::to_string(&builtin(slot)).unwrap()
+                ],
+            )
+            .unwrap();
+        }
+        initialize(&conn).unwrap();
+        assert_eq!(active_ids(&conn).unwrap(), ["builtin-b", "builtin-a"]);
+        let has_slots: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='character_slots')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(!has_slots);
+        apply_roster(&conn, vec!["builtin-a".into()]).unwrap();
+        initialize(&conn).unwrap();
+        assert_eq!(active_ids(&conn).unwrap(), ["builtin-a"]);
+    }
+    #[test]
+    fn single_member_roster_leaves_slot_b_empty_and_appends_on_assign() {
+        let conn = database();
+        apply_roster(&conn, vec!["builtin-b".into()]).unwrap();
+        assert_eq!(collection(&conn).unwrap().active, ["builtin-b"]);
+        assert_eq!(active_character(&conn, "a").unwrap().id, "builtin-b");
+        assert!(active_character(&conn, "b").is_err());
+        assert_eq!(idle_scene(&conn, 0).unwrap().len(), 1);
+        assign(&conn, "b", "builtin-a").unwrap();
+        assert_eq!(active_ids(&conn).unwrap(), ["builtin-b", "builtin-a"]);
+        assert!(apply_roster(&conn, Vec::new()).is_err());
+        assert!(apply_roster(&conn, vec!["builtin-a".into(), "builtin-a".into()]).is_err());
+        let many: Vec<String> = (0..=MAX_ROSTER)
+            .map(|_| clone_character(&conn, "builtin-a").unwrap().id)
+            .collect();
+        assert!(apply_roster(&conn, many.clone()).is_err());
+        apply_roster(&conn, many[..MAX_ROSTER].to_vec()).unwrap();
+        assert_eq!(active_ids(&conn).unwrap().len(), MAX_ROSTER);
     }
     #[test]
     fn fallback_avoids_builtin_already_in_other_slot() {

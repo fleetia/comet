@@ -162,8 +162,8 @@ fn run(arguments: &[String]) -> Result<Value, String> {
         Some("characters") => {
             let options = options(&arguments[1..], &["--db"])?;
             let db = readonly(options.get("--db").ok_or(USAGE)?)?;
-            let mut statement = db.prepare("SELECT c.id,json_extract(c.data,'$.name'),s.slot FROM characters c LEFT JOIN character_slots s ON s.character_id=c.id ORDER BY c.seq").map_err(|error| error.to_string())?;
-            let rows = statement.query_map([], |row| Ok(json!({"id":row.get::<_,String>(0)?,"name":row.get::<_,String>(1)?,"slot":row.get::<_,Option<String>>(2)?}))).map_err(|error| error.to_string())?;
+            let mut statement = db.prepare("SELECT c.id,json_extract(c.data,'$.name'),r.position FROM characters c LEFT JOIN character_roster r ON r.character_id=c.id ORDER BY c.seq").map_err(|error| error.to_string())?;
+            let rows = statement.query_map([], |row| Ok(json!({"id":row.get::<_,String>(0)?,"name":row.get::<_,String>(1)?,"position":row.get::<_,Option<i64>>(2)?}))).map_err(|error| error.to_string())?;
             let result = rows
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|error| error.to_string())?;

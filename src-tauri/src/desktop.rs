@@ -115,7 +115,7 @@ pub(crate) fn create_boxes(app: &AppHandle, state: &AppState) -> Result<(), Stri
 }
 
 fn active_character<'a>(snapshot: &'a Snapshot, persona: &str) -> Option<&'a InstalledCharacter> {
-    let id = &snapshot.characters.active[usize::from(persona == "b")];
+    let id = snapshot.characters.active.get(usize::from(persona == "b"))?;
     snapshot
         .characters
         .installed

@@ -19,7 +19,7 @@ export type InstalledCharacter = {
   definition: CharacterDefinition;
   sprites: Record<string, SpriteInfo>;
 };
-export type CharacterCollection = { installed: InstalledCharacter[]; active: [string, string] };
+export type CharacterCollection = { installed: InstalledCharacter[]; active: string[] };
 export type CharacterDialogue = { pairScenes: SceneLine[][]; wordbook: WordbookEntry[] };
 export type PackSprite = { sourceId: string; expression: string; mime: string; data: string };
 export type CharacterPack = {
