@@ -335,13 +335,14 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                     dirty={dirty}
                   />
 
-                  {selected && !selectedId.startsWith("builtin-") && (
+                  {selected && (
                     <section className={s.section}>
                       {removeId === selectedId ? (
                         <>
                           <p className={ui.quiet}>
                             이 캐릭터를 목록에서 제거해요. 함께 지내던 친구면 바탕화면에서도
-                            빠지고, 대화 기록과 관계는 보존해요.
+                            빠지고, 대화 기록과 관계는 보존해요. 마지막 친구를 제거하면 기본 친구
+                            A가 새로 들어와요.
                           </p>
                           <div className={ui.row}>
                             <Button

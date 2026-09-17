@@ -319,18 +319,32 @@ pub fn initialize(conn: &Connection) -> Result<()> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     tx.execute_batch("CREATE TABLE IF NOT EXISTS characters(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,pack_id TEXT,data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS character_roster(position INTEGER PRIMARY KEY,character_id TEXT NOT NULL UNIQUE); CREATE TABLE IF NOT EXISTS character_packs(id TEXT PRIMARY KEY,data TEXT NOT NULL,members TEXT NOT NULL); CREATE TABLE IF NOT EXISTS character_dialogues(members TEXT PRIMARY KEY,data TEXT NOT NULL);").map_err(|e| e.to_string())?;
     sprites::initialize(&tx)?;
-    for slot in ["a", "b"] {
-        tx.execute(
-            "INSERT OR IGNORE INTO characters(id,pack_id,data) VALUES(?1,NULL,?2)",
-            params![
-                format!("builtin-{slot}"),
-                serde_json::to_string(&builtin(slot)).map_err(|e| e.to_string())?
-            ],
-        )
+    let installed: i64 = tx
+        .query_row("SELECT COUNT(*) FROM characters", [], |r| r.get(0))
         .map_err(|e| e.to_string())?;
-    }
     migrate_slots(&tx)?;
+    if active_ids(&tx)?.is_empty() {
+        // A fresh database starts with both builtins; a database whose roster emptied gets A back.
+        let slots: &[&str] = if installed == 0 { &["a", "b"] } else { &["a"] };
+        let ids = slots
+            .iter()
+            .map(|slot| restore_builtin(&tx, slot))
+            .collect::<Result<Vec<_>>>()?;
+        write_roster(&tx, &ids)?;
+    }
     tx.commit().map_err(|e| e.to_string())
+}
+fn restore_builtin(conn: &Connection, slot: &str) -> Result<String> {
+    let id = format!("builtin-{slot}");
+    conn.execute(
+        "INSERT OR IGNORE INTO characters(id,pack_id,data) VALUES(?1,NULL,?2)",
+        params![
+            id,
+            serde_json::to_string(&builtin(slot)).map_err(|e| e.to_string())?
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(id)
 }
 // One-time move from the fixed a/b slot table to the ordered roster; the slot table is not read afterwards.
 fn migrate_slots(conn: &Connection) -> Result<()> {
@@ -356,9 +370,6 @@ fn migrate_slots(conn: &Connection) -> Result<()> {
             .map_err(|e| e.to_string())?;
         conn.execute_batch("DROP TABLE character_slots")
             .map_err(|e| e.to_string())?;
-    }
-    if ids.is_empty() {
-        ids = vec!["builtin-a".into(), "builtin-b".into()];
     }
     write_roster(conn, &ids)
 }
@@ -519,22 +530,23 @@ pub fn clone_character(conn: &Connection, id: &str) -> Result<InstalledCharacter
     })
 }
 pub fn remove(conn: &Connection, id: &str) -> Result<()> {
-    if ["builtin-a", "builtin-b"].contains(&id) {
-        return Err("기본 캐릭터는 제거할 수 없습니다.".into());
-    }
     with_transaction(conn, |tx| {
         let character = get(tx, id)?;
         let mut ids = active_ids(tx)?;
+        let mut changed = false;
         if let Some(index) = ids.iter().position(|active| active == id) {
             ids.remove(index);
-            if ids.is_empty() {
-                ids.push("builtin-a".into());
-            }
-            write_roster(tx, &ids)?;
+            changed = true;
         }
         tx.execute("DELETE FROM characters WHERE id=?", [id])
             .map_err(|e| e.to_string())?;
         sprites::remove_all(tx, id)?;
+        if ids.is_empty() {
+            ids.push(restore_builtin(tx, "a")?);
+        }
+        if changed {
+            write_roster(tx, &ids)?;
+        }
         if let Some(pack_id) = character.pack_id {
             tx.execute("DELETE FROM character_packs WHERE id=?1 AND NOT EXISTS(SELECT 1 FROM characters WHERE pack_id=?1)", [pack_id]).map_err(|e| e.to_string())?;
         }
@@ -1123,7 +1135,16 @@ mod tests {
                 .unwrap(),
             "old"
         );
-        assert!(remove(&conn, "builtin-a").is_err());
+        remove(&conn, "builtin-b").unwrap();
+        initialize(&conn).unwrap();
+        assert_eq!(collection(&conn).unwrap().installed.len(), 1);
+        let mut edited = builtin("a");
+        edited.name = "바뀐 A".into();
+        save(&conn, "builtin-a", &edited).unwrap();
+        remove(&conn, "builtin-a").unwrap();
+        assert_eq!(active_ids(&conn).unwrap(), ["builtin-a"]);
+        assert_eq!(active_character(&conn, "a").unwrap().definition.name, "A");
+        assert_eq!(collection(&conn).unwrap().installed.len(), 1);
     }
     #[test]
     fn legacy_slot_table_migrates_once_into_the_roster() {
