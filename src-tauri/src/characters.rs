@@ -392,7 +392,7 @@ pub fn remove_sprite(conn: &Connection, id: &str, expression: &str) -> Result<()
 pub fn sprite(conn: &Connection, id: &str, expression: &str) -> Result<Option<sprites::Sprite>> {
     sprites::get(conn, id, expression)
 }
-fn active_ids(conn: &Connection) -> Result<Vec<String>> {
+pub fn active_ids(conn: &Connection) -> Result<Vec<String>> {
     let mut statement = conn
         .prepare("SELECT character_id FROM character_roster ORDER BY position")
         .map_err(|e| e.to_string())?;
@@ -416,6 +416,9 @@ pub fn collection(conn: &Connection) -> Result<CharacterCollection> {
         installed: ids.iter().map(|id| get(conn, id)).collect::<Result<_>>()?,
         active: active_ids(conn)?,
     })
+}
+pub fn active_members(conn: &Connection) -> Result<Vec<InstalledCharacter>> {
+    active_ids(conn)?.iter().map(|id| get(conn, id)).collect()
 }
 pub fn active_character(conn: &Connection, slot: &str) -> Result<InstalledCharacter> {
     let ids = active_ids(conn)?;
@@ -448,12 +451,14 @@ pub fn apply_roster(conn: &Connection, ids: Vec<String>) -> Result<()> {
         write_roster(tx, &ids)
     })
 }
+#[cfg(test)]
 pub fn apply_pair(conn: &Connection, ids: [String; 2]) -> Result<()> {
     if ids[0] == ids[1] {
         return Err("같은 로컬 캐릭터를 두 자리에 적용할 수 없습니다.".into());
     }
     apply_roster(conn, ids.to_vec())
 }
+#[cfg(test)]
 pub fn assign(conn: &Connection, slot: &str, id: &str) -> Result<()> {
     let mut ids = active_ids(conn)?;
     match ids.get_mut(slot_index(slot)?) {
@@ -521,16 +526,9 @@ pub fn remove(conn: &Connection, id: &str) -> Result<()> {
         let character = get(tx, id)?;
         let mut ids = active_ids(tx)?;
         if let Some(index) = ids.iter().position(|active| active == id) {
-            let preferred = if index == 1 {
-                ["builtin-b", "builtin-a"]
-            } else {
-                ["builtin-a", "builtin-b"]
-            };
-            match preferred.iter().find(|candidate| !ids.iter().any(|active| active == *candidate)) {
-                Some(candidate) => ids[index] = (*candidate).into(),
-                None => {
-                    ids.remove(index);
-                }
+            ids.remove(index);
+            if ids.is_empty() {
+                ids.push("builtin-a".into());
             }
             write_roster(tx, &ids)?;
         }
@@ -1117,7 +1115,7 @@ mod tests {
         initialize(&conn).unwrap();
         assert_eq!(active_character(&conn, "b").unwrap().id, id);
         remove(&conn, &id).unwrap();
-        assert_eq!(active_ids(&conn).unwrap(), ["builtin-a", "builtin-b"]);
+        assert_eq!(active_ids(&conn).unwrap(), ["builtin-a"]);
         initialize(&conn).unwrap();
         assert_eq!(collection(&conn).unwrap().installed.len(), 2);
         assert_eq!(
@@ -1175,14 +1173,19 @@ mod tests {
         assert_eq!(active_ids(&conn).unwrap().len(), MAX_ROSTER);
     }
     #[test]
-    fn fallback_avoids_builtin_already_in_other_slot() {
+    fn removing_members_keeps_order_and_restores_builtin_a_when_empty() {
         let conn = database();
         let created = clone_character(&conn, "builtin-a").unwrap();
-        apply_pair(&conn, [created.id.clone(), "builtin-a".into()]).unwrap();
+        apply_roster(&conn, vec![created.id.clone(), "builtin-b".into(), "builtin-a".into()])
+            .unwrap();
         remove(&conn, &created.id).unwrap();
         assert_eq!(active_ids(&conn).unwrap(), ["builtin-b", "builtin-a"]);
         assert!(apply_pair(&conn, ["builtin-a".into(), "missing".into()]).is_err());
         assert_eq!(active_ids(&conn).unwrap(), ["builtin-b", "builtin-a"]);
+        let alone = clone_character(&conn, "builtin-b").unwrap();
+        apply_roster(&conn, vec![alone.id.clone()]).unwrap();
+        remove(&conn, &alone.id).unwrap();
+        assert_eq!(active_ids(&conn).unwrap(), ["builtin-a"]);
     }
     #[test]
     fn export_single_b_remaps_selected_personal_lines_and_excludes_private_data() {

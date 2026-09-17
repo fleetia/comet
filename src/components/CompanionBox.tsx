@@ -2,27 +2,28 @@ import { useEffect, useState, type JSX } from "react";
 import { IconButton } from "@fleetia/lagrange";
 import { command, errorText, isDesktop } from "../hooks/useSnapshot";
 import { useWindowDrag } from "../hooks/useWindowDrag";
-import type { Dispatch, Persona, Snapshot } from "../types";
+import type { Dispatch, Snapshot } from "../types";
 import * as s from "./companion.css";
 import {
-  activeCharacter,
-  characterName,
+  characterById,
   currentExpression,
   expressionLabel,
+  personaOf,
   spriteSource,
 } from "./characterIdentity";
 
-type Props = { persona: Persona; snapshot: Snapshot; preview?: boolean; dispatch?: Dispatch };
+type Props = { id: string; snapshot: Snapshot; preview?: boolean; dispatch?: Dispatch };
 export function CompanionBox({
-  persona,
+  id,
   snapshot,
   preview = false,
   dispatch = command,
 }: Props): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const drag = useWindowDrag(!preview, setError);
-  const character = activeCharacter(snapshot, persona);
-  const name = characterName(snapshot, persona);
+  const character = characterById(snapshot, id);
+  const persona = personaOf(snapshot, id);
+  const name = character?.definition.name ?? persona?.toUpperCase() ?? "친구";
   const expressionKey = currentExpression(snapshot, persona);
   const expression = expressionLabel(character, expressionKey);
   const sprite = spriteSource(character, expressionKey);
@@ -34,6 +35,7 @@ export function CompanionBox({
     return () => document.documentElement.classList.remove(s.transparentDocument);
   }, [transparent]);
   async function open(mode: "menu" | "input"): Promise<void> {
+    if (!persona) return;
     setError(null);
     try {
       await dispatch("open_panel", { persona, mode });
@@ -44,9 +46,14 @@ export function CompanionBox({
   return (
     <div className={`${s.bodyFrame} ${preview ? s.bodyPreview : ""}`}>
       <button
-        className={sprite ? `${s.body} ${s.spriteBody}` : `${s.body} ${s.tone[persona]}`}
-        aria-label={`${name} 메뉴 열기`}
-        title={error ?? "클릭: 메뉴 · 두 번 클릭: 말 걸기 · 끌기: 이동"}
+        className={sprite ? `${s.body} ${s.spriteBody}` : `${s.body} ${s.tone[persona ?? "a"]}`}
+        aria-label={persona ? `${name} 메뉴 열기` : name}
+        title={
+          error ??
+          (persona
+            ? "클릭: 메뉴 · 두 번 클릭: 말 걸기 · 끌기: 이동"
+            : "끌기: 이동 · 이 친구의 대화는 준비 중이에요")
+        }
         onPointerDown={drag.onPointerDown}
         onPointerMove={drag.onPointerMove}
         onClick={() => {

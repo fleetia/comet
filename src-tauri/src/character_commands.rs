@@ -135,15 +135,9 @@ fn mutate_inner<T>(
     let tx = db
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
-    let before = [
-        characters::active_character(&tx, "a")?,
-        characters::active_character(&tx, "b")?,
-    ];
+    let before = characters::active_members(&tx)?;
     let result = change(&tx)?;
-    let after = [
-        characters::active_character(&tx, "a")?,
-        characters::active_character(&tx, "b")?,
-    ];
+    let after = characters::active_members(&tx)?;
     let changed = dialogue_changed || before != after;
     if changed {
         store::bump_revision(&tx)?;
@@ -195,23 +189,12 @@ pub(crate) fn clone_character(
     Ok(character)
 }
 #[tauri::command]
-pub(crate) fn assign_character(
+pub(crate) fn apply_character_roster(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
-    persona: String,
-    id: String,
+    ids: Vec<String>,
 ) -> Result<(), String> {
-    mutate(&state, |db| characters::assign(db, &persona, &id))?;
-    publish(&app, &state);
-    Ok(())
-}
-#[tauri::command]
-pub(crate) fn apply_character_pair(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, Arc<AppState>>,
-    ids: [String; 2],
-) -> Result<(), String> {
-    mutate(&state, |db| characters::apply_pair(db, ids))?;
+    mutate(&state, |db| characters::apply_roster(db, ids))?;
     publish(&app, &state);
     Ok(())
 }

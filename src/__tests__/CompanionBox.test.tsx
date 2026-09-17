@@ -18,7 +18,7 @@ beforeEach(() => {
 it("hides the characters from the internal X without opening their menu", async () => {
   vi.mocked(isDesktop).mockReturnValue(true);
   vi.mocked(command).mockResolvedValue(undefined);
-  render(<CompanionBox persona="a" snapshot={PREVIEW_SNAPSHOT} />);
+  render(<CompanionBox id="builtin-a" snapshot={PREVIEW_SNAPSHOT} />);
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 숨기기" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("hide_boxes"));
   expect(command).toHaveBeenCalledTimes(1);
@@ -157,13 +157,13 @@ it("keeps resting bodies free of old dialogue and changes only the active actor 
       },
     ],
   };
-  const { rerender } = render(<CompanionBox persona="b" snapshot={snapshot} />);
+  const { rerender } = render(<CompanionBox id="builtin-b" snapshot={snapshot} />);
   expect(screen.getByText("[평온]")).toBeTruthy();
   expect(screen.queryByText("오래된 대사")).toBeNull();
   expect(screen.queryByText(/친밀도/)).toBeNull();
   rerender(
     <CompanionBox
-      persona="b"
+      id="builtin-b"
       snapshot={{
         ...snapshot,
         playback: {

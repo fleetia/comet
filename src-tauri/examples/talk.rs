@@ -17,7 +17,7 @@ struct Input {
     values: BTreeMap<String, Value>,
     #[serde(default)]
     available: BTreeSet<String>,
-    active: [String; 2],
+    active: Vec<String>,
     #[serde(default = "idle")]
     trigger: String,
     #[serde(default)]
@@ -133,8 +133,13 @@ fn fixture(
     if !registry.events.contains(&input.trigger) {
         return Err(format!("Unknown trigger: {}", input.trigger));
     }
-    if input.active.iter().any(|id| id.trim().is_empty()) || input.active[0] == input.active[1] {
-        return Err("active must contain two distinct nonempty character IDs".into());
+    let distinct = input.active.iter().collect::<BTreeSet<_>>();
+    if input.active.is_empty()
+        || input.active.len() > 8
+        || distinct.len() != input.active.len()
+        || input.active.iter().any(|id| id.trim().is_empty())
+    {
+        return Err("active must contain 1 to 8 distinct nonempty character IDs".into());
     }
     Ok((
         EvalContext {

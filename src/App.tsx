@@ -55,15 +55,15 @@ export function App(): JSX.Element {
     return <Balloon snapshot={snapshot} />;
   }
   const face = query.get("face");
-  if (face === "a" || face === "b") {
-    return <FaceTag persona={face} snapshot={snapshot} />;
+  if (face) {
+    return <FaceTag id={face} snapshot={snapshot} />;
   }
-  const persona = query.get("persona");
-  if (persona === "a" || persona === "b") {
-    return <CompanionBox persona={persona} snapshot={snapshot} />;
+  const body = query.get("body");
+  if (body) {
+    return <CompanionBox id={body} snapshot={snapshot} />;
   }
   if (isDesktop()) {
-    return <CompanionBox persona="a" snapshot={snapshot} />;
+    return <CompanionBox id={snapshot.characters.active[0]} snapshot={snapshot} />;
   }
   return <DesktopPreview initial={snapshot} />;
 }

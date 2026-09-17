@@ -9,7 +9,7 @@ use std::{
 pub(crate) struct PreparedTalk {
     pub selection: talk::Selection,
     generation: u64,
-    active: [String; 2],
+    active: Vec<String>,
     revisions: BTreeMap<String, i64>,
     program: Arc<talk::Program>,
     text_values: BTreeMap<String, serde_json::Value>,
@@ -38,6 +38,11 @@ pub(crate) fn prepare(
     else {
         return Ok(None);
     };
+    // Bundled scripts assume two speakers; until cast declarations land, a lone character skips
+    // scenes that give the second seat a line.
+    if context.active.len() < 2 && selection.lines.iter().any(|line| line.persona != "a") {
+        return Ok(None);
+    }
     let mut dependencies = selection.dependencies.clone();
     if let Some(event) = event {
         dependencies.insert(event.widget_kind.clone());

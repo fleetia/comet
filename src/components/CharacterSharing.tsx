@@ -26,7 +26,9 @@ export function CharacterSharing({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const lock = useRef(false);
-  const ids = scope === "pair" ? snapshot.characters.active : selectedId ? [selectedId] : [];
+  const { active } = snapshot.characters;
+  const ids = scope === "pair" && active.length === 2 ? active : selectedId ? [selectedId] : [];
+  const joining = installed.map((character) => character.id).filter((id) => !active.includes(id));
   async function run(action: () => Promise<void>): Promise<void> {
     if (lock.current || disabled) return;
     lock.current = true;
@@ -56,7 +58,9 @@ export function CharacterSharing({
           내보낼 대상
           <Select value={scope} onChange={(event) => setScope(event.target.value)}>
             <option value="selected">선택한 캐릭터 하나</option>
-            <option value="pair">현재 A/B 둘의 조합</option>
+            <option value="pair" disabled={active.length !== 2}>
+              함께 지내는 둘의 조합
+            </option>
           </Select>
         </label>
         <p className={ui.quiet}>
@@ -151,7 +155,7 @@ export function CharacterSharing({
                         pack,
                       });
                       setInstalled(values);
-                      setNotice("목록에 설치했어요. 사용할 자리를 선택해 주세요.");
+                      setNotice("목록에 설치했어요. 함께 지낼지 선택해 주세요.");
                     })
                   }
                 >
@@ -163,36 +167,18 @@ export function CharacterSharing({
               </div>
             ) : (
               <div className={ui.row}>
-                {installed.length === 2 ? (
-                  <Button
-                    variant="primary"
-                    onClick={() =>
-                      void run(async () => {
-                        await command("apply_character_pair", {
-                          ids: installed.map((character) => character.id),
-                        });
-                        setNotice("가져온 둘을 A/B에 적용했어요.");
-                      })
-                    }
-                  >
-                    가져온 둘을 A/B에 적용
-                  </Button>
-                ) : (
-                  ["a", "b"].map((persona) => (
-                    <Button
-                      variant="primary"
-                      key={persona}
-                      onClick={() =>
-                        void run(async () => {
-                          await command("assign_character", { persona, id: installed[0].id });
-                          setNotice(`${persona.toUpperCase()}에 적용했어요.`);
-                        })
-                      }
-                    >
-                      {persona.toUpperCase()}에 적용
-                    </Button>
-                  ))
-                )}
+                <Button
+                  variant="primary"
+                  disabled={joining.length === 0 || active.length + joining.length > 8}
+                  onClick={() =>
+                    void run(async () => {
+                      await command("apply_character_roster", { ids: [...active, ...joining] });
+                      setNotice("가져온 친구가 함께 지내기 시작했어요.");
+                    })
+                  }
+                >
+                  가져온 친구와 함께 지내기
+                </Button>
                 <Button
                   variant="secondary"
                   onClick={() => {

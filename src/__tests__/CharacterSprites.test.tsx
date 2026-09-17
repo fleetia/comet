@@ -64,34 +64,34 @@ function bodyImage(): HTMLImageElement | null {
 
 it("shows the sprite for the spoken expression and falls back to the default sprite", () => {
   const { rerender } = render(
-    <CompanionBox persona="a" snapshot={{ ...snapshot, playback: playing("기쁨") }} />,
+    <CompanionBox id="byul" snapshot={{ ...snapshot, playback: playing("기쁨") }} />,
   );
   expect(bodyImage()?.getAttribute("src")).toBe(
     "sprite://localhost/byul?expression=%EA%B8%B0%EC%81%A8&v=20",
   );
   expect(screen.queryByText(/^\[/)).toBeNull();
-  rerender(<CompanionBox persona="a" snapshot={{ ...snapshot, playback: playing("슬픔") }} />);
+  rerender(<CompanionBox id="byul" snapshot={{ ...snapshot, playback: playing("슬픔") }} />);
   expect(bodyImage()?.getAttribute("src")).toContain("expression=%ED%8F%89%EC%98%A8&v=10");
-  rerender(<CompanionBox persona="a" snapshot={{ ...snapshot, playback: playing("화남") }} />);
+  rerender(<CompanionBox id="byul" snapshot={{ ...snapshot, playback: playing("화남") }} />);
   expect(bodyImage()?.getAttribute("src")).toContain("expression=%ED%8F%89%EC%98%A8");
-  rerender(<CompanionBox persona="a" snapshot={snapshot} />);
+  rerender(<CompanionBox id="byul" snapshot={snapshot} />);
   expect(bodyImage()?.getAttribute("alt")).toBe("별꼬리 기본");
 });
 
 it("keeps the text face for characters without sprites and outside the desktop app", () => {
   const { rerender } = render(
-    <CompanionBox persona="b" snapshot={{ ...snapshot, playback: playing("화남", "b") }} />,
+    <CompanionBox id="builtin-b" snapshot={{ ...snapshot, playback: playing("화남", "b") }} />,
   );
   expect(screen.getByRole("button", { name: "B 메뉴 열기" }).querySelector("img")).toBeNull();
   expect(screen.getByText("[평온]")).toBeTruthy();
   vi.mocked(isDesktop).mockReturnValue(false);
-  rerender(<CompanionBox persona="a" snapshot={{ ...snapshot, playback: playing("기쁨") }} />);
+  rerender(<CompanionBox id="byul" snapshot={{ ...snapshot, playback: playing("기쁨") }} />);
   expect(bodyImage()).toBeNull();
   expect(screen.getByText("[기쁨]")).toBeTruthy();
 });
 
 it("sizes the sprite from the character, drops the box controls, and clears the transparent root on unmount", () => {
-  render(<CompanionBox persona="a" snapshot={{ ...snapshot, playback: playing("기쁨") }} />);
+  render(<CompanionBox id="byul" snapshot={{ ...snapshot, playback: playing("기쁨") }} />);
   expect(bodyImage()?.style.width).toBe("128px");
   expect(screen.queryByText("기쁨")).toBeNull();
   expect(screen.queryByRole("button", { name: "캐릭터 숨기기" })).toBeNull();
@@ -103,12 +103,12 @@ it("sizes the sprite from the character, drops the box controls, and clears the 
 it("shows the detached expression tag with the same fallback rules and opens the menu on click", async () => {
   vi.mocked(command).mockResolvedValue(undefined);
   const { rerender } = render(
-    <FaceTag persona="a" snapshot={{ ...snapshot, playback: playing("기쁨") }} />,
+    <FaceTag id="byul" snapshot={{ ...snapshot, playback: playing("기쁨") }} />,
   );
   expect(screen.getByRole("button", { name: "별꼬리 표정" }).textContent).toBe("기쁨");
-  rerender(<FaceTag persona="a" snapshot={{ ...snapshot, playback: playing("화남") }} />);
+  rerender(<FaceTag id="byul" snapshot={{ ...snapshot, playback: playing("화남") }} />);
   expect(screen.getByRole("button", { name: "별꼬리 표정" }).textContent).toBe("기본");
-  rerender(<FaceTag persona="a" snapshot={{ ...snapshot, playback: playing("기쁨", "b") }} />);
+  rerender(<FaceTag id="byul" snapshot={{ ...snapshot, playback: playing("기쁨", "b") }} />);
   expect(screen.getByRole("button", { name: "별꼬리 표정" }).textContent).toBe("기본");
   fireEvent.click(screen.getByRole("button", { name: "별꼬리 표정" }));
   await waitFor(() =>

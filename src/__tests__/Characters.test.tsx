@@ -76,30 +76,64 @@ it("keeps per-character drafts and exact dialogue through failed saves and snaps
   });
 });
 
-it("applies the selected inactive character once and never applies an unsaved draft", async () => {
+it("adds the selected resting character to the roster once and never applies an unsaved draft", async () => {
   render(<CharacterManager snapshot={snapshot} />);
   fireEvent.click(
     within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^모래/ }),
   );
   await screen.findByText("이 캐릭터의 키워드 대사");
   fireEvent.change(screen.getByLabelText("이름"), { target: { value: "수정 중" } });
-  expect(screen.getByRole("button", { name: "A에 적용" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "함께 지내기" })).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 수정 취소" }));
   let finish: () => void = () => {};
   vi.mocked(command).mockImplementation((name) =>
-    name === "assign_character"
+    name === "apply_character_roster"
       ? new Promise<void>((resolve) => {
           finish = resolve;
         })
       : Promise.resolve({ pairScenes: [], wordbook: [] }),
   );
-  fireEvent.click(screen.getByRole("button", { name: "B에 적용" }));
-  fireEvent.click(screen.getByRole("button", { name: "B에 적용" }));
-  expect(vi.mocked(command).mock.calls.filter(([name]) => name === "assign_character")).toEqual([
-    ["assign_character", { persona: "b", id: "local-third" }],
-  ]);
+  fireEvent.click(screen.getByRole("button", { name: "함께 지내기" }));
+  fireEvent.click(screen.getByRole("button", { name: "함께 지내기" }));
+  expect(
+    vi.mocked(command).mock.calls.filter(([name]) => name === "apply_character_roster"),
+  ).toEqual([["apply_character_roster", { ids: ["builtin-a", "builtin-b", "local-third"] }]]);
   finish();
-  await screen.findByText(/B에 적용했어요/);
+  await screen.findByText(/함께 지내기 시작했어요/);
+});
+
+it("reorders and releases roster members and keeps the last one on the desktop", async () => {
+  vi.mocked(command).mockResolvedValue(undefined);
+  const trio: Snapshot = {
+    ...snapshot,
+    characters: { ...snapshot.characters, active: ["builtin-a", "builtin-b", "local-third"] },
+  };
+  const { rerender } = render(<CharacterManager snapshot={trio} />);
+  expect(screen.getByText("함께 지내는 친구 3명: A · B · 모래")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "앞으로" })).toHaveProperty("disabled", true);
+  fireEvent.click(screen.getByRole("button", { name: "뒤로" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("apply_character_roster", {
+      ids: ["builtin-b", "builtin-a", "local-third"],
+    }),
+  );
+  fireEvent.click(
+    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^모래/ }),
+  );
+  expect(screen.getByText(/세 번째부터는 바탕화면에 보이지만/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "내보내기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenLastCalledWith("apply_character_roster", {
+      ids: ["builtin-a", "builtin-b"],
+    }),
+  );
+  rerender(
+    <CharacterManager
+      snapshot={{ ...snapshot, characters: { ...snapshot.characters, active: ["local-third"] } }}
+    />,
+  );
+  expect(screen.getByRole("button", { name: "내보내기" })).toHaveProperty("disabled", true);
+  expect(screen.getByText(/마지막 친구는 내보낼 수 없어요/)).toBeTruthy();
 });
 
 it("previews a pack before install and keeps assignment an explicit separate action", async () => {
@@ -120,12 +154,16 @@ it("previews a pack before install and keeps assignment an explicit separate act
     ),
   ).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "내용 확인 후 설치" }));
-  await screen.findByRole("button", { name: "A에 적용" });
+  await screen.findByRole("button", { name: "가져온 친구와 함께 지내기" });
   expect(command).toHaveBeenCalledWith("import_character_pack", { pack });
-  expect(vi.mocked(command).mock.calls.some(([name]) => name === "assign_character")).toBe(false);
-  fireEvent.click(screen.getByRole("button", { name: "A에 적용" }));
+  expect(vi.mocked(command).mock.calls.some(([name]) => name === "apply_character_roster")).toBe(
+    false,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "가져온 친구와 함께 지내기" }));
   await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("assign_character", { persona: "a", id: "local-third" }),
+    expect(command).toHaveBeenCalledWith("apply_character_roster", {
+      ids: ["builtin-a", "builtin-b", "local-third"],
+    }),
   );
 });
 
@@ -305,7 +343,7 @@ it("renders installed names and custom expressions while keeping historical spea
       lineCount: 1,
     },
   };
-  const { rerender } = render(<CompanionBox persona="a" snapshot={custom} />);
+  const { rerender } = render(<CompanionBox id="local-third" snapshot={custom} />);
   expect(screen.getByRole("button", { name: "모래 메뉴 열기" })).toBeTruthy();
   expect(screen.getByText("[활짝]")).toBeTruthy();
   rerender(

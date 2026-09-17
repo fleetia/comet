@@ -41,7 +41,7 @@ fn context() -> EvalContext {
             ("weather.temperature".into(), json!(3)),
             ("todo.title".into(), json!("산책")),
         ]),
-        active: ["first".into(), "second".into()],
+        active: vec!["first".into(), "second".into()],
         available: BTreeSet::from(["weather".into(), "todo".into()]),
         now_ms: 100_000,
         seed: 1,

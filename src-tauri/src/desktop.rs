@@ -1,11 +1,30 @@
-use crate::{characters::InstalledCharacter, store, types::Snapshot, AppState};
+use crate::{
+    characters::InstalledCharacter,
+    store,
+    types::{Snapshot, WindowPosition},
+    AppState,
+};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewWindow};
 
 const BODY_SIZE: (f64, f64) = (112.0, 88.0);
 const SPRITE_PADDING: f64 = 8.0;
 const FACE_SIZE: (f64, f64) = (120.0, 36.0);
-pub(crate) const FACE_LABELS: [&str; 2] = ["face-a", "face-b"];
+const BODY_PREFIX: &str = "body-";
+const FACE_PREFIX: &str = "face-";
+
+pub(crate) fn is_body(label: &str) -> bool {
+    label.starts_with(BODY_PREFIX)
+}
+pub(crate) fn is_face(label: &str) -> bool {
+    label.starts_with(FACE_PREFIX)
+}
+fn body_label(id: &str) -> String {
+    format!("{BODY_PREFIX}{id}")
+}
+fn face_label(id: &str) -> String {
+    format!("{FACE_PREFIX}{id}")
+}
 
 #[derive(Clone, Copy, Debug)]
 struct Rect {
@@ -51,76 +70,114 @@ fn balloon_rect(body: Rect, area: Rect, scale: f64, height: f64) -> Rect {
     }
 }
 
-pub(crate) fn create_boxes(app: &AppHandle, state: &AppState) -> Result<(), String> {
-    for (index, id) in ["a", "b"].iter().enumerate() {
-        let window = tauri::WebviewWindowBuilder::new(
-            app,
-            *id,
-            tauri::WebviewUrl::App(format!("index.html?persona={id}").into()),
-        )
-        .title(format!("Nanika Box · {}", id.to_uppercase()))
-        .inner_size(BODY_SIZE.0, BODY_SIZE.1)
-        .min_inner_size(32.0, 32.0)
-        .resizable(false)
-        .decorations(false)
-        .transparent(true)
-        .shadow(false)
-        .maximizable(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .focused(false)
-        .visible(false)
-        .build()
-        .map_err(|e| e.to_string())?;
-        let monitors = window.available_monitors().map_err(|e| e.to_string())?;
-        let saved = store::window_position(&*super::lock(&state.db)?, id)?;
-        let saved_monitor = saved
-            .as_ref()
-            .filter(|p| p.x.is_finite() && p.y.is_finite())
-            .and_then(|p| {
-                monitors.iter().find(|monitor| {
-                    let position = monitor.position();
-                    let size = monitor.size();
-                    p.x >= position.x as f64
-                        && p.y >= position.y as f64
-                        && p.x < position.x as f64 + size.width as f64
-                        && p.y < position.y as f64 + size.height as f64
-                })
-            });
-        let primary = window.primary_monitor().map_err(|e| e.to_string())?;
-        if let Some(monitor) = saved_monitor.or(primary.as_ref()).or(monitors.first()) {
-            let scale = monitor.scale_factor();
-            let area = work_area(monitor);
-            let width = 112.0 * scale;
-            let height = 88.0 * scale;
-            let (x, y) = if saved_monitor.is_some() {
-                let saved = saved.as_ref().ok_or("창 위치를 읽지 못했습니다.")?;
-                clamp_position(saved.x, saved.y, width, height, area)
-            } else {
-                clamp_position(
-                    area.x + area.width - width - (24.0 + 180.0 * (1 - index) as f64) * scale,
-                    area.y + area.height - height - 12.0 * scale,
-                    width,
-                    height,
-                    area,
-                )
-            };
-            window
-                .set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32))
-                .map_err(|e| e.to_string())?;
-        }
+// Positions saved before the roster existed live under the old a/b labels.
+fn saved_body_position(
+    state: &AppState,
+    index: usize,
+    label: &str,
+) -> Result<Option<WindowPosition>, String> {
+    let db = super::lock(&state.db)?;
+    if let Some(position) = store::window_position(&db, label)? {
+        return Ok(Some(position));
+    }
+    match ["a", "b"].get(index) {
+        Some(legacy) => store::window_position(&db, legacy),
+        None => Ok(None),
+    }
+}
+
+struct BodySpec<'a> {
+    index: usize,
+    total: usize,
+    id: &'a str,
+    title: &'a str,
+    size: (f64, f64),
+    visible: bool,
+}
+
+fn create_body(app: &AppHandle, state: &AppState, spec: BodySpec) -> Result<(), String> {
+    let BodySpec {
+        index,
+        total,
+        id,
+        title,
+        size,
+        visible,
+    } = spec;
+    let label = body_label(id);
+    let window = tauri::WebviewWindowBuilder::new(
+        app,
+        &label,
+        tauri::WebviewUrl::App(format!("index.html?body={id}").into()),
+    )
+    .title(format!("Nanika Box · {title}"))
+    .inner_size(size.0, size.1)
+    .min_inner_size(32.0, 32.0)
+    .resizable(false)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .maximizable(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focused(false)
+    .visible(false)
+    .build()
+    .map_err(|e| e.to_string())?;
+    let monitors = window.available_monitors().map_err(|e| e.to_string())?;
+    let saved = saved_body_position(state, index, &label)?;
+    let saved_monitor = saved
+        .as_ref()
+        .filter(|p| p.x.is_finite() && p.y.is_finite())
+        .and_then(|p| {
+            monitors.iter().find(|monitor| {
+                let position = monitor.position();
+                let size = monitor.size();
+                p.x >= position.x as f64
+                    && p.y >= position.y as f64
+                    && p.x < position.x as f64 + size.width as f64
+                    && p.y < position.y as f64 + size.height as f64
+            })
+        });
+    let primary = window.primary_monitor().map_err(|e| e.to_string())?;
+    if let Some(monitor) = saved_monitor.or(primary.as_ref()).or(monitors.first()) {
+        let scale = monitor.scale_factor();
+        let area = work_area(monitor);
+        let width = size.0 * scale;
+        let height = size.1 * scale;
+        let (x, y) = if saved_monitor.is_some() {
+            let saved = saved.as_ref().ok_or("창 위치를 읽지 못했습니다.")?;
+            clamp_position(saved.x, saved.y, width, height, area)
+        } else {
+            let offset = 24.0 + 180.0 * total.saturating_sub(index + 1) as f64;
+            clamp_position(
+                area.x + area.width - width - offset * scale,
+                area.y + area.height - height - 12.0 * scale,
+                width,
+                height,
+                area,
+            )
+        };
+        window
+            .set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32))
+            .map_err(|e| e.to_string())?;
+    }
+    if visible {
         window.show().map_err(|e| e.to_string())?;
     }
     Ok(())
 }
 
-fn active_character<'a>(snapshot: &'a Snapshot, persona: &str) -> Option<&'a InstalledCharacter> {
-    let id = snapshot.characters.active.get(usize::from(persona == "b"))?;
+pub(crate) fn create_boxes(app: &AppHandle, state: &AppState) -> Result<(), String> {
+    reconcile(app, state, &super::snapshot(state)?)
+}
+
+fn character_by_id<'a>(snapshot: &'a Snapshot, id: &str) -> Option<&'a InstalledCharacter> {
     snapshot
         .characters
         .installed
         .iter()
-        .find(|character| &character.id == id)
+        .find(|character| character.id == id)
 }
 
 fn has_body_sprite(character: &InstalledCharacter) -> bool {
@@ -158,17 +215,17 @@ fn set_logical_size(window: &WebviewWindow, (width, height): (f64, f64)) -> Resu
     Ok(())
 }
 
-fn create_face(app: &AppHandle, persona: &str) -> Result<(), String> {
-    let label = format!("face-{persona}");
+fn create_face(app: &AppHandle, id: &str, title: &str) -> Result<(), String> {
+    let label = face_label(id);
     let body = app
-        .get_webview_window(persona)
+        .get_webview_window(&body_label(id))
         .ok_or("캐릭터 창이 없습니다.")?;
     let window = tauri::WebviewWindowBuilder::new(
         app,
         &label,
-        tauri::WebviewUrl::App(format!("index.html?face={persona}").into()),
+        tauri::WebviewUrl::App(format!("index.html?face={id}").into()),
     )
-    .title(format!("Nanika Box · {} 표정", persona.to_uppercase()))
+    .title(format!("Nanika Box · {title} 표정"))
     .inner_size(FACE_SIZE.0, FACE_SIZE.1)
     .resizable(false)
     .decorations(false)
@@ -211,16 +268,33 @@ fn create_face(app: &AppHandle, persona: &str) -> Result<(), String> {
     window.show().map_err(|e| e.to_string())
 }
 
-// Keeps each body window sized to its sprite and shows the detached expression tag only when the
-// active character asks for one.
-pub(crate) fn sync_boxes(app: &AppHandle, snapshot: &Snapshot) {
-    for persona in ["a", "b"] {
-        let character = active_character(snapshot, persona);
-        if let Some(window) = app.get_webview_window(persona) {
-            let _ = set_logical_size(&window, body_size(character));
+// One body window per roster member, sized to its sprite, with the detached expression tag only
+// when the character asks for one. Windows of characters that left the roster are destroyed.
+fn reconcile(app: &AppHandle, state: &AppState, snapshot: &Snapshot) -> Result<(), String> {
+    let roster = &snapshot.characters.active;
+    for (index, id) in roster.iter().enumerate() {
+        let character = character_by_id(snapshot, id);
+        let title = character.map_or(id.as_str(), |character| character.definition.name.as_str());
+        let size = body_size(character);
+        match app.get_webview_window(&body_label(id)) {
+            Some(window) => set_logical_size(&window, size)?,
+            None => create_body(
+                app,
+                state,
+                BodySpec {
+                    index,
+                    total: roster.len(),
+                    id,
+                    title,
+                    size,
+                    visible: !snapshot.runtime.hidden,
+                },
+            )?,
         }
-        let wanted = face_wanted(snapshot, character);
-        match (app.get_webview_window(&format!("face-{persona}")), wanted) {
+        match (
+            app.get_webview_window(&face_label(id)),
+            face_wanted(snapshot, character),
+        ) {
             (Some(window), true) => {
                 let _ = window.show();
             }
@@ -228,11 +302,24 @@ pub(crate) fn sync_boxes(app: &AppHandle, snapshot: &Snapshot) {
                 let _ = window.hide();
             }
             (None, true) => {
-                let _ = create_face(app, persona);
+                let _ = create_face(app, id, title);
             }
             (None, false) => {}
         }
     }
+    for (label, window) in app.webview_windows() {
+        let id = label
+            .strip_prefix(BODY_PREFIX)
+            .or_else(|| label.strip_prefix(FACE_PREFIX));
+        if id.is_some_and(|id| !roster.iter().any(|active| active == id)) {
+            let _ = window.destroy();
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn sync_boxes(app: &AppHandle, state: &AppState, snapshot: &Snapshot) {
+    let _ = reconcile(app, state, snapshot);
 }
 
 fn owner(snapshot: &Snapshot) -> Option<&str> {
@@ -256,7 +343,12 @@ fn owner(snapshot: &Snapshot) -> Option<&str> {
                 None
             }
         })
-        .filter(|persona| ["a", "b"].contains(persona))
+        .and_then(|persona| match persona {
+            "a" => snapshot.characters.active.first(),
+            "b" => snapshot.characters.active.get(1),
+            _ => None,
+        })
+        .map(String::as_str)
 }
 
 fn get_balloon(app: &AppHandle) -> Result<WebviewWindow, String> {
@@ -286,11 +378,11 @@ fn get_balloon(app: &AppHandle) -> Result<WebviewWindow, String> {
 fn position_balloon(
     app: &AppHandle,
     window: &WebviewWindow,
-    persona: &str,
+    id: &str,
     height: f64,
 ) -> Result<(), String> {
     let body = app
-        .get_webview_window(persona)
+        .get_webview_window(&body_label(id))
         .ok_or("캐릭터 창이 없습니다.")?;
     let monitor = body
         .current_monitor()
@@ -325,7 +417,7 @@ fn position_balloon(
 }
 
 pub(crate) fn sync_balloon(app: &AppHandle, snapshot: &Snapshot) {
-    let Some(persona) = owner(snapshot) else {
+    let Some(id) = owner(snapshot) else {
         if let Some(window) = app.get_webview_window("balloon") {
             let _ = window.hide();
         }
@@ -340,7 +432,7 @@ pub(crate) fn sync_balloon(app: &AppHandle, snapshot: &Snapshot) {
         .zip(window.scale_factor().ok())
         .map(|(size, scale)| size.height as f64 / scale)
         .unwrap_or(180.0);
-    if position_balloon(app, &window, persona, height).is_ok() {
+    if position_balloon(app, &window, id, height).is_ok() {
         let _ = window.show();
     }
 }
@@ -353,11 +445,11 @@ pub(crate) fn resize_balloon(
     if !height.is_finite() {
         return Err("말풍선 높이가 올바르지 않습니다.".into());
     }
-    let Some(persona) = owner(snapshot) else {
+    let Some(id) = owner(snapshot) else {
         return Ok(());
     };
     if let Some(window) = app.get_webview_window("balloon") {
-        position_balloon(app, &window, persona, height)?;
+        position_balloon(app, &window, id, height)?;
     }
     Ok(())
 }

@@ -39,7 +39,7 @@ pub struct Registry {
 #[derive(Clone, Debug)]
 pub struct EvalContext {
     pub values: BTreeMap<String, Value>,
-    pub active: [String; 2],
+    pub active: Vec<String>,
     pub available: BTreeSet<String>,
     pub now_ms: i64,
     pub seed: u64,

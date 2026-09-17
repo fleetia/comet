@@ -208,7 +208,7 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
                 className={s.menuItem}
                 onClick={() => void perform("talk_now")}
               >
-                둘이 이야기해 봐
+                {snapshot.characters.active.length > 1 ? "둘이 이야기해 봐" : "혼잣말 들어 보기"}
               </Button>
               <Button
                 variant="quiet"
@@ -288,7 +288,7 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
                 onChange={(event) => setTarget(event.target.value as Persona | "both")}
               >
                 <option value={persona}>{name}</option>
-                <option value="both">둘 모두</option>
+                {snapshot.characters.active.length > 1 && <option value="both">모두에게</option>}
               </Select>
             </label>
             <span className={ui.quiet}>Shift + Enter 줄바꿈</span>

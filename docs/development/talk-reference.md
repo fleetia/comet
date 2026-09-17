@@ -40,7 +40,7 @@ src-tauri/target/debug/examples/talk simulate talk/index.talk --input '{"active"
 
 | 필드 | 타입 | 기본값·규칙 |
 | --- | --- | --- |
-| `active` | string 2개 배열 | 필수. 현재 A/B 순서의 서로 다른 비어 있지 않은 로컬 ID |
+| `active` | string 1~8개 배열 | 필수. 바탕화면 목록 순서의 서로 다른 비어 있지 않은 로컬 ID. 기본 대본은 앞 두 명(A/B)만 화자로 쓴다 |
 | `available` | string 배열 | 기본 `[]`. 설치·활성·필수 의존성 검사를 통과한 실제 위젯 kind. `timer` 대신 `focus-timer` 사용 |
 | `values` | 변수 이름 → 값 map | 기본 `{}`. 이름은 `timer.state` 같은 평탄한 key. 미등록 변수와 잘못된 타입은 오류 |
 | `trigger` | string | 기본 `idle`. 아래 사건 목록의 값만 허용 |

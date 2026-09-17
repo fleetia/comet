@@ -113,7 +113,7 @@ fn snapshot(state: &AppState) -> Result<Snapshot, String> {
 
 fn publish(app: &tauri::AppHandle, state: &AppState) {
     if let Ok(data) = snapshot(state) {
-        desktop::sync_boxes(app, &data);
+        desktop::sync_boxes(app, state, &data);
         desktop::sync_balloon(app, &data);
         let _ = app.emit("app-state", data);
     }
@@ -841,24 +841,28 @@ fn next_scene(state: &AppState) -> Result<(Vec<SceneLine>, &'static str), String
 }
 
 fn character_script(db: &Connection, sequence: u64) -> Result<Vec<SceneLine>, String> {
-    let a = characters::active_character(db, "a")?;
-    let b = characters::active_character(db, "b")?;
-    let dialogue = characters::dialogue(db, &[a.id.clone(), b.id.clone()])?;
-    if a.id == "builtin-a"
-        && b.id == "builtin-b"
-        && a.definition.version == 1
-        && b.definition.version == 1
-        && dialogue.pair_scenes.is_empty()
-        && !dialogue
-            .wordbook
-            .iter()
-            .any(|entry| entry.enabled && entry.use_for_idle)
-    {
-        return Ok(playback::builtin_scene(sequence));
+    let members = characters::active_members(db)?;
+    let ids: Vec<String> = members.iter().map(|member| member.id.clone()).collect();
+    if let [a, b] = members.as_slice() {
+        let dialogue = characters::dialogue(db, &ids)?;
+        if a.id == "builtin-a"
+            && b.id == "builtin-b"
+            && a.definition.version == 1
+            && b.definition.version == 1
+            && dialogue.pair_scenes.is_empty()
+            && !dialogue
+                .wordbook
+                .iter()
+                .any(|entry| entry.enabled && entry.use_for_idle)
+        {
+            return Ok(playback::builtin_scene(sequence));
+        }
     }
     if sequence == 0 {
-        let mut greeting = characters::greeting(db, "a")?;
-        greeting.extend(characters::greeting(db, "b")?);
+        let mut greeting = Vec::new();
+        for slot in ["a", "b"].iter().take(members.len()) {
+            greeting.extend(characters::greeting(db, slot)?);
+        }
         return Ok(greeting);
     }
     characters::idle_scene(db, sequence as usize)
@@ -1092,8 +1096,8 @@ fn show_boxes(app: &tauri::AppHandle, state: &AppState) {
     if state.stopping.load(Ordering::SeqCst) {
         return;
     }
-    for id in ["a", "b"] {
-        if let Some(window) = app.get_webview_window(id) {
+    for (label, window) in app.webview_windows() {
+        if desktop::is_body(&label) {
             let _ = window.show();
         }
     }
@@ -1109,8 +1113,8 @@ async fn hide_boxes(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    for id in ["a", "b"].iter().chain(&desktop::FACE_LABELS) {
-        if let Some(window) = app.get_webview_window(id) {
+    for (label, window) in app.webview_windows() {
+        if desktop::is_body(&label) || desktop::is_face(&label) {
             window.hide().map_err(|e| e.to_string())?;
         }
     }
@@ -1349,8 +1353,8 @@ pub fn run() {
                 }
                 return;
             }
-            let face = desktop::FACE_LABELS.contains(&window.label());
-            if !face && !["a", "b"].contains(&window.label()) {
+            let face = desktop::is_face(window.label());
+            if !face && !desktop::is_body(window.label()) {
                 return;
             }
             let state = window.state::<Arc<AppState>>();
@@ -1416,8 +1420,7 @@ pub fn run() {
             get_character_dialogue,
             save_character_dialogue,
             clone_character,
-            assign_character,
-            apply_character_pair,
+            apply_character_roster,
             remove_character,
             preview_character_pack,
             choose_character_pack,
@@ -1576,10 +1579,10 @@ async fn run_background(
             store::relationships(&db)?,
             store::revision(&db)?,
             store::prepared_scenes(&db)?,
-            [
-                characters::active_character(&db, "a")?.definition,
-                characters::active_character(&db, "b")?.definition,
-            ],
+            characters::active_members(&db)?
+                .into_iter()
+                .map(|member| member.definition)
+                .collect::<Vec<_>>(),
         )
     };
     if settings.autonomous_enabled && now() >= state.next_idle.load(Ordering::SeqCst) {
@@ -1658,6 +1661,10 @@ async fn run_background(
     if !ready {
         return Ok(());
     }
+    // Automatic LLM scenes are still written for two speakers; other roster sizes wait for stage 3.
+    let [first, second] = characters.as_slice() else {
+        return Ok(());
+    };
     state.last_preparation.store(now(), Ordering::SeqCst);
     if settings.mode == "local" && !resources::background_allowed() {
         return Ok(());
@@ -1672,7 +1679,11 @@ async fn run_background(
     let result = background_generate(
         state,
         &settings,
-        &domain::scene_prompt(&memories, &relationships, &characters),
+        &domain::scene_prompt(
+            &memories,
+            &relationships,
+            &[first.clone(), second.clone()],
+        ),
         domain::scene_schema(),
         512,
         cancel.clone(),
