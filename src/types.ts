@@ -57,18 +57,30 @@ export type Playback = SceneLine & {
 };
 export type PanelState = { persona: Persona; mode: "menu" | "input" | "history" };
 export type Dispatch = (name: string, args?: Record<string, unknown>) => Promise<void>;
-export type LocalModel = "qwen3.5-4b" | "qwen3.5-9b";
+export type LocalModel =
+  | "qwen3.5-4b"
+  | "qwen3.5-9b"
+  | "qwen3.8-2b-distill"
+  | "qwen3.8-4b-distill"
+  | "qwen3.8-9b-distill"
+  | "gemma-4-e4b"
+  | "gemma-4-12b"
+  | "ministral-3-8b"
+  | "custom";
 export type LocalModelStatus = {
   id: LocalModel;
   name: string;
+  description: string;
   size: number;
   ready: boolean;
   downloadedBytes: number;
 };
+export type LocalModelTest = { reply: string; elapsedMs: number };
 export type Settings = {
   mode: "local" | "api";
   autonomousEnabled: boolean;
   localModel: LocalModel;
+  localModelPath: string;
   baseUrl: string;
   apiModel: string;
   apiTokenParameter: "max_tokens" | "max_completion_tokens";

@@ -98,14 +98,22 @@ ZIP 캐릭터팩·스킨·원격 마켓·자동 업데이트·SSP 호환은 제�
 
 설정에서 `이 기기에서` → `로컬 모델`을 선택하고 `모델 내려받기`를 누른 뒤 `설정 저장`을 누릅니다. 기본값은 **Qwen3.5-4B**이며 기존 설정도 4B로 유지됩니다. 다운로드는 중단·이어받기를 지원하며, 전체 크기와 SHA-256 검증 후에만 모델을 준비 완료로 표시합니다.
 
-두 모델 모두 **Q4_K_M GGUF** 형식입니다.
+목록의 모델은 모두 **Q4_K_M GGUF** 형식입니다.
 
 | 모델 | 다운로드 용량 | 선택 기준 |
 | --- | --- | --- |
 | Qwen3.5-4B (기본) | 2.74 GB | 메모리와 응답 속도를 우선할 때 |
 | Qwen3.5-9B | 5.68 GB | 더 많은 메모리와 응답 시간을 감수하고 대화 품질을 비교할 때 |
+| Qwen3.8-2B-Distill | 1.31 GB | 가장 가벼운 실험용. 2B가 어디까지 되는지 확인할 때 |
+| Qwen3.8-4B-Distill | 2.78 GB | 상시 구동 후보 |
+| Qwen3.8-9B-Distill | 5.78 GB | 같은 계열의 품질 상한 |
+| Gemma 4 E4B | 4.98 GB | Qwen이 아닌 4B급 비교용 |
+| Gemma 4 12B | 7.12 GB | 고품질 비교용. 메모리를 가장 많이 사용 |
+| Ministral 3 8B | 5.20 GB | Mistral 계열 비교용 |
 
-다운로드·이어받기·검증 상태는 모델별로 보관합니다. 모델 선택은 `설정 저장`을 누르면 적용되고, 진행 중인 생성과 이전 모델로 준비한 대사를 취소한 뒤 다음 대화부터 선택한 모델을 실행합니다. 대화 기록·기억·친밀도는 유지됩니다. 두 모델을 모두 내려받아도 한 번에 하나만 실행합니다.
+`직접 지정한 GGUF 파일`을 선택하면 이 기기에 있는 임의의 GGUF 파일을 절대 경로로 연결할 수 있습니다. 이 파일은 내려받기·해시 검증 대상이 아니며, 실행 가능 여부는 고정한 llama.cpp 릴리스의 아키텍처 지원에 따릅니다. `테스트하기`는 저장하지 않은 선택도 포함해 선택한 모델을 불러와 짧은 인사에 답하게 하고 걸린 시간과 답을 보여 줍니다. 테스트한 모델이 저장된 모델과 다르면 테스트 후 프로세스를 종료합니다.
+
+다운로드·이어받기·검증 상태는 모델별로 보관합니다. 모델 선택은 `설정 저장`을 누르면 적용되고, 진행 중인 생성과 이전 모델로 준비한 대사를 취소한 뒤 다음 대화부터 선택한 모델을 실행합니다. 대화 기록·기억·친밀도는 유지됩니다. 여러 모델을 내려받아도 한 번에 하나만 실행합니다.
 
 모델 리비전·URL·크기·해시는 [models.rs](src-tauri/src/models.rs)가 기준입니다. 변경 가능한 최신 URL을 사용하지 않습니다. 모델은 설치 패키지에 포함되지 않습니다.
 
@@ -192,5 +200,7 @@ cargo run --manifest-path src-tauri/Cargo.toml --example behavior_smoke -- /abso
 ## 모델과 sidecar 라이선스
 
 Qwen3.5-4B와 9B GGUF 모델은 Apache-2.0 라이선스를 따릅니다. 변환 모델은 Unsloth의 [4B](https://huggingface.co/unsloth/Qwen3.5-4B-GGUF)·[9B](https://huggingface.co/unsloth/Qwen3.5-9B-GGUF), 원본 정보와 라이선스는 Qwen의 [4B](https://huggingface.co/Qwen/Qwen3.5-4B)·[9B](https://huggingface.co/Qwen/Qwen3.5-9B) 저장소에서 확인할 수 있습니다.
+
+비교용으로 추가한 모델의 GGUF 저장소는 Qwen3.8 Distill [2B](https://huggingface.co/empero-ai/Qwen3.8-2B-Distill-GGUF)·[4B](https://huggingface.co/empero-ai/Qwen3.8-4B-Distill-GGUF)·[9B](https://huggingface.co/empero-ai/Qwen3.8-9B-Distill-GGUF), Gemma 4 [E4B](https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF)·[12B](https://huggingface.co/unsloth/gemma-4-12b-it-GGUF), [Ministral 3 8B](https://huggingface.co/unsloth/Ministral-3-8B-Instruct-2512-GGUF)입니다. 각 저장소는 2026-09-17 기준 Apache-2.0으로 표기되어 있으며, 재배포 전에는 원본 모델 저장소의 라이선스를 다시 확인해야 합니다. 직접 지정한 GGUF 파일의 라이선스는 사용자가 확인합니다.
 
 함께 사용하는 llama.cpp는 [MIT 라이선스](https://github.com/ggml-org/llama.cpp/blob/master/LICENSE)이며, sidecar 릴리스는 준비 스크립트에 고정되어 있습니다. 실행 파일이나 모델을 재배포할 때는 해당 릴리스의 라이선스와 고지를 함께 유지해야 합니다. 모델 revision 또는 sidecar release를 변경하면 해시, 의존 라이브러리, 라이선스 고지와 양쪽 운영체제 검증을 함께 갱신하세요.

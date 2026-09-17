@@ -95,7 +95,7 @@ fn snapshot(state: &AppState) -> Result<Snapshot, String> {
     let settings = store::settings(&db)?;
     Ok(Snapshot {
         has_api_key: inference::has_api_key(&settings),
-        model_ready: models::model_ready(&state.app_data, settings.local_model),
+        model_ready: models::selected_ready(&state.app_data, &settings),
         local_models: models::model_statuses(&state.app_data),
         settings,
         messages: store::messages(&db, 100)?,
@@ -198,8 +198,8 @@ fn route_message(
         return Ok(Some(lines));
     }
     let settings = store::settings(db)?;
-    if settings.mode == "local" && !models::model_ready(&state.app_data, settings.local_model) {
-        return Err("설정에서 모델을 먼저 다운로드해 주세요.".into());
+    if settings.mode == "local" && !models::selected_ready(&state.app_data, &settings) {
+        return Err(inference::not_ready_message(&settings));
     }
     if settings.mode == "api"
         && (settings.api_model.trim().is_empty() || !inference::has_api_key(&settings))
@@ -941,6 +941,12 @@ async fn save_settings(
             return Err("API 모델명을 입력해 주세요.".into());
         }
     }
+    if settings.mode == "local"
+        && settings.local_model == LocalModel::Custom
+        && !models::selected_ready(&state.app_data, &settings)
+    {
+        return Err("GGUF 모델 파일의 절대 경로를 확인해 주세요.".into());
+    }
     if let Some(key) = api_key {
         if !key.trim().is_empty() {
             inference::set_api_key(&settings, key.trim())?;
@@ -977,6 +983,56 @@ fn apply_settings(state: &AppState, settings: &Settings) -> Result<(u64, Arc<Ato
 #[tauri::command]
 async fn test_connection(settings: Settings, api_key: Option<String>) -> Result<String, String> {
     inference::test_connection(&settings, api_key).await
+}
+
+#[tauri::command]
+async fn test_local_model(
+    state: tauri::State<'_, Arc<AppState>>,
+    settings: Settings,
+) -> Result<LocalModelTest, String> {
+    if state.stopping.load(Ordering::SeqCst) {
+        return Err("앱을 종료하고 있어요.".into());
+    }
+    if lock(&state.download_cancel)?.is_some() {
+        return Err("모델 다운로드가 끝난 뒤에 테스트할 수 있어요.".into());
+    }
+    let _gate = state.gate.lock().await;
+    let result = tokio::time::timeout(
+        Duration::from_secs(120),
+        inference::test_local(
+            &state.inference,
+            &settings,
+            Arc::new(AtomicBool::new(false)),
+        ),
+    )
+    .await
+    .unwrap_or_else(|_| Err("모델 테스트 시간이 초과되었어요. 더 작은 모델을 시도해 보세요.".into()));
+    let saved = store::settings(&*lock(&state.db)?)?;
+    if result.is_err()
+        || models::selected_path(&state.app_data, &saved)
+            != models::selected_path(&state.app_data, &settings)
+    {
+        inference::stop_local(&state.inference).await;
+    }
+    result
+}
+
+#[tauri::command]
+async fn pick_model_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (send, receive) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("GGUF 모델 파일 선택")
+        .add_filter("GGUF 모델", &["gguf"])
+        .pick_file(move |path| {
+            let _ = send.send(path);
+        });
+    let Some(path) = receive.await.map_err(|_| "파일 선택이 중단됐어요.")? else {
+        return Ok(None);
+    };
+    let path = path.into_path().map_err(|error| error.to_string())?;
+    Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
@@ -1441,6 +1497,8 @@ pub fn run() {
             save_settings,
             clear_api_key,
             test_connection,
+            test_local_model,
+            pick_model_file,
             download_model,
             cancel_download,
             edit_memory,
@@ -1611,7 +1669,7 @@ async fn run_background(
     }
     if !pending.is_empty() {
         let ready = if settings.mode == "local" {
-            inference::is_local_running(&state.inference, settings.local_model).await
+            inference::is_local_running(&state.inference, &settings).await
         } else {
             inference::has_api_key(&settings) && !settings.api_model.is_empty()
         };
@@ -1654,7 +1712,7 @@ async fn run_background(
         return Ok(());
     }
     let ready = if settings.mode == "local" {
-        models::model_ready(&state.app_data, settings.local_model)
+        models::selected_ready(&state.app_data, &settings)
     } else {
         !settings.api_model.is_empty() && inference::has_api_key(&settings)
     };
