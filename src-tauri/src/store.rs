@@ -151,8 +151,9 @@ fn context_for_character(
     limit: usize,
     character: Option<&str>,
 ) -> Result<Vec<Message>> {
-    let a = crate::characters::active_character(conn, "a")?.id;
-    let b = crate::characters::active_character(conn, "b")?.id;
+    let ids = crate::characters::active_ids(conn)?;
+    let a = ids.first().cloned().ok_or("바탕화면에 캐릭터가 없습니다.")?;
+    let b = ids.get(1).cloned();
     let mut stmt = conn.prepare("SELECT data FROM (
         SELECT seq,data FROM messages AS message
         WHERE EXISTS (SELECT 1 FROM message_characters i WHERE i.message_id=message.id AND i.character_id IN (?2,?3) AND (?4 IS NULL OR i.character_id=?4))
@@ -260,19 +261,19 @@ pub fn delete_memory(conn: &Connection, id: &str) -> Result<()> {
     tx.commit().map_err(err)
 }
 pub fn relationships(conn: &Connection) -> Result<Vec<Relationship>> {
-    ["a", "b"]
+    crate::characters::active_ids(conn)?
         .iter()
-        .map(|p| {
-            let character = crate::characters::active_character(conn, p)?;
+        .zip(["a", "b"])
+        .map(|(id, persona)| {
             let sum: i32 = conn
                 .query_row(
                     "SELECT COALESCE(SUM(delta),0) FROM character_affinity WHERE character_id=?",
-                    [&character.id],
+                    [id],
                     |r| r.get(0),
                 )
                 .map_err(err)?;
             Ok(Relationship {
-                persona: (*p).into(),
+                persona: persona.into(),
                 score: (20 + sum).clamp(0, 100),
             })
         })
@@ -496,6 +497,23 @@ mod tests {
             &json!({"revision":revision(conn).unwrap(),"memories":facts,"events":events}),
         )
         .unwrap();
+    }
+    #[test]
+    fn single_member_roster_reads_context_and_relationships_for_the_first_seat() {
+        let conn = open(Path::new(":memory:")).unwrap();
+        crate::characters::apply_roster(&conn, vec!["builtin-b".into()]).unwrap();
+        insert_message(&conn, &message("hello", "user", "안녕")).unwrap();
+        insert_message(&conn, &message("reply", "assistant", "반가워")).unwrap();
+        assert_eq!(relationships(&conn).unwrap().len(), 1);
+        assert_eq!(relationships(&conn).unwrap()[0].persona, "a");
+        let context = context_messages_for(&conn, 10, "a").unwrap();
+        assert_eq!(context.len(), 2);
+        assert!(context.iter().all(|m| m.persona.as_deref() == Some("a")));
+        assert!(context_messages_for(&conn, 10, "b").is_err());
+        let mut to_b = message("to-b", "user", "거기?");
+        to_b.persona = Some("b".into());
+        assert!(insert_message(&conn, &to_b).is_err());
+        assert_eq!(messages(&conn, 10).unwrap().len(), 2);
     }
     #[test]
     fn swaps_restore_relationships_and_late_analysis_uses_original_target() {

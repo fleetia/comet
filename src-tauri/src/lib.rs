@@ -2343,6 +2343,21 @@ mod lifecycle_tests {
     }
 
     #[test]
+    fn single_member_roster_keeps_snapshot_and_scripts_working() {
+        let state = state();
+        character_commands::mutate(&state, |db| {
+            characters::apply_roster(db, vec!["builtin-b".into()])
+        })
+        .unwrap();
+        let data = snapshot(&state).unwrap();
+        assert_eq!(data.characters.active, ["builtin-b"]);
+        assert_eq!(data.relationships.len(), 1);
+        let (lines, source) = next_scene(&state).unwrap();
+        assert_eq!(source, "script");
+        assert!(!lines.is_empty());
+        assert!(lines.iter().all(|line| line.persona == "a"));
+    }
+    #[test]
     fn character_change_rolls_back_if_prepared_scene_invalidation_fails() {
         let state = state();
         let id = characters::clone_character(&lock(&state.db).unwrap(), "builtin-a")
