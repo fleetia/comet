@@ -55,7 +55,7 @@ jobs:
           if gh release view "$RELEASE_TAG" --json isDraft > release.json; then
             python3 -c 'import json; assert json.load(open("release.json"))["isDraft"], "Published releases cannot be overwritten"'
           else
-            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Nanika Box $RELEASE_TAG" --notes 'macOS Apple Silicon and Windows x64. Updates are signed with the app updater key. The macOS app currently uses ad-hoc signing and is not notarized; the Windows installer is not Authenticode signed.'
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Comet $RELEASE_TAG" --generate-notes
           fi
           RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .id")
           test -n "$RELEASE_ID"
@@ -73,7 +73,7 @@ jobs:
         include:
           - runner: macos-14
             arch: arm64
-            bundle: app
+            bundle: app,dmg
           - runner: windows-latest
             arch: x64
             bundle: nsis
@@ -122,9 +122,13 @@ jobs:
           uploadUpdaterSignatures: true
           updaterJsonPreferNsis: true
           args: --bundles ${{ matrix.bundle }} --config .release-tauri.json
-      - name: Verify macOS bundle
+      - name: Verify macOS bundles
         if: runner.os == 'macOS'
-        run: codesign --verify --deep --strict 'src-tauri/target/release/bundle/macos/Nanika Box.app'
+        run: |
+          codesign --verify --deep --strict 'src-tauri/target/release/bundle/macos/Nanika Box.app'
+          for installer in src-tauri/target/release/bundle/dmg/*.dmg; do
+            hdiutil verify "$installer"
+          done
 
   publish:
     needs: [prepare, build]
@@ -139,14 +143,20 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           gh release download "$RELEASE_TAG" --pattern latest.json --dir release
-          gh release view "$RELEASE_TAG" --json assets > assets.json
+          gh release view "$RELEASE_TAG" --json assets,body > release.json
           python3 - <<'PY'
           import json, os
           from urllib.parse import unquote, urlparse
           from pathlib import Path
           manifest = json.loads(Path('release/latest.json').read_text())
           assert manifest['version'].lstrip('v') == os.environ['RELEASE_TAG'].lstrip('v')
-          assets = {asset['name']: asset for asset in json.loads(Path('assets.json').read_text())['assets']}
+          release = json.loads(Path('release.json').read_text())
+          assets = {asset['name']: asset for asset in release['assets']}
+          downloads = []
+          for platform, extension in [('macOS 14+ · Apple Silicon', '.dmg'), ('Windows · x64', '.exe')]:
+              installers = [asset for name, asset in assets.items() if name.endswith(extension)]
+              assert len(installers) == 1 and installers[0]['size'] > 0, f'Missing or ambiguous installer: {extension}'
+              downloads.append(f"| {platform} | [{extension[1:].upper()} 다운로드]({installers[0]['url']}) |")
           for candidates in [('darwin-aarch64-app', 'darwin-aarch64'), ('windows-x86_64-nsis', 'windows-x86_64')]:
               target = next((manifest['platforms'][key] for key in candidates if key in manifest['platforms']), None)
               assert target and target['signature'].strip(), f'Missing signed target: {candidates}'
@@ -156,5 +166,14 @@ jobs:
               name = unquote(url.path).rsplit('/', 1)[-1]
               assert name in assets and assets[name]['size'] > 0, f'Missing asset: {name}'
               assert name + '.sig' in assets, f'Missing signature asset: {name}'
+          notes = '\n'.join([
+              '## 다운로드', '', '| 운영체제 | 설치 파일 |', '| --- | --- |', *downloads, '',
+              'macOS는 DMG를 열고 Nanika Box를 Applications 폴더로 옮겨 실행하세요. Windows는 EXE 설치 파일을 실행하세요.', '',
+              '앱 updater 서명은 적용됩니다. macOS notarization과 Windows Authenticode 서명은 아직 제공하지 않습니다.', '',
+              (release.get('body') or '').strip(), '',
+          ])
+          Path('release-notes.md').write_text(notes, encoding='utf-8')
           PY
-          gh release edit "$RELEASE_TAG" --draft=false --latest
+          gh release edit "$RELEASE_TAG" --notes-file release-notes.md --draft=false --latest
+          printf '[GitHub Release](https://github.com/%s/releases/tag/%s)\n\n' "$GH_REPO" "$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
+          cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
