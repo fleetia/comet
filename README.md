@@ -6,7 +6,9 @@
 
 ## 다운로드와 앱 업데이트
 
-설치 파일은 [GitHub Releases](https://github.com/fleetia/comet/releases)에서 제공합니다. 2026-09-19 기준 첫 signed updater 릴리스는 준비 중이며, 릴리스가 없다면 아래 소스 실행 절차를 이용합니다. 지원 대상은 macOS Apple Silicon과 Windows x64입니다.
+공식 설치 파일은 [GitHub Releases](https://github.com/fleetia/comet/releases)에서 제공합니다. 2026-09-19 기준 첫 signed updater 릴리스는 준비 중입니다. 검증용 설치 파일은 [Verify desktop Actions](https://github.com/fleetia/comet/actions/workflows/verify.yml)의 성공한 실행에서 **Artifacts**를 내려받아 사용합니다. macOS Apple Silicon용 `.dmg`는 `nanika-box-arm64-macOS`, Windows x64용 `.exe`는 `nanika-box-x64-Windows`에 포함됩니다. Actions 산출물 다운로드에는 GitHub 로그인이 필요합니다. 직접 빌드하려면 아래 소스 실행 절차를 이용하세요.
+
+Release 본문에는 운영체제별 설치 파일 다운로드 링크와 설치 안내, GitHub가 생성한 변경 노트를 함께 제공합니다. 변경 노트에는 포함된 pull request와 버전 간 비교 링크가 표시됩니다.
 
 업데이트용 공개키가 포함된 앱은 시작할 때와 하루에 한 번 새 버전을 확인합니다. 설정의 `앱 업데이트`에서 직접 확인할 수도 있으며, `설치하고 다시 시작`을 선택한 경우에만 내려받고 서명을 검증한 뒤 설치합니다. 최초 updater 탑재 버전은 수동 설치해야 합니다. OS 코드 서명과 실제 업데이트 검증 상태는 [릴리스 안내](docs/development/releases.md)를 확인하세요.
 
@@ -195,7 +197,7 @@ pnpm build:desktop
 
 `pnpm build`는 프론트엔드만 빌드합니다. `pnpm build:desktop`은 sidecar를 준비하고 Tauri 설치물을 `src-tauri/target/release/bundle/`에 생성합니다. macOS 설정은 로컬 실행용 ad-hoc 서명이며 notarization된 배포본은 아닙니다. 이 구성은 Team ID가 없는 sidecar와 dylib를 함께 실행하기 위해 hardened runtime을 끕니다. 외부 배포용으로 전환할 때는 모든 실행 파일과 dylib를 같은 Developer ID로 서명하고 hardened runtime·notarization을 다시 검증해야 합니다.
 
-[verify.yml](.github/workflows/verify.yml)은 macOS arm64와 Windows x64에서 UI 검사·테스트, Rust 테스트, 네이티브 패키징을 실행하도록 구성되어 있습니다. macOS는 `app`, Windows는 `nsis` bundle을 검사합니다. `macos-14`가 arm64이고 `windows-latest`가 x64라는 [GitHub 공식 runner 표](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job)를 기준으로 하며, 실행 시 Node의 실제 아키텍처도 검사합니다.
+[verify.yml](.github/workflows/verify.yml)은 push·pull request와 Actions의 **Run workflow**에서 macOS arm64·Windows x64의 UI 검사·테스트, Rust 테스트, 네이티브 패키징을 실행합니다. macOS는 `app,dmg`, Windows는 `nsis` bundle을 만들며 `.dmg`·`.exe`와 기존 macOS 앱 ZIP을 artifact로 올립니다. macOS 앱 서명과 DMG 무결성도 검사합니다. `macos-14`가 arm64이고 `windows-latest`가 x64라는 [GitHub 공식 runner 표](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job)를 기준으로 하며, 실행 시 Node의 실제 아키텍처도 검사합니다.
 
 ### 검증 범위
 
