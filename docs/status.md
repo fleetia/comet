@@ -13,13 +13,17 @@ description: 공식 위젯과 보조 화면의 소스 구현, 실제 검증 범�
 
 2026-09-19 기준 소스 구현과 릴리스 인수는 구분한다. 1~8명 ID 기반 대화, JSON v2 패키지와 v1 호환, 기본 A/B 동봉 콘텐츠, 출처 정보 영속 편집, 독립 데스크톱 물체, 장난 FSM, 트레이 직접 호출, 숨김 상태 보존, 서명된 앱 업데이트 경로를 통합했다. 기존 생성 대사의 30분 회상 변경도 원문 기록과 분리해 보존한다. 장난 설정 해제·전체 화면 진입·정리 시 자동 놀이의 대기·재생 중 반응을 취소하며 수동 놀이·타이머·저장된 일지는 유지한다. 자동 말풍선과 표정은 macOS `orderFront`, Windows `SW_SHOWNOACTIVATE`로 표시하고 명시적인 입력창 호출만 포커스를 요청한다.
 
-업데이트 서명 공개키와 CI secret을 설정했으며 두 OS 산출물을 준비하는 workflow를 추가했다. 최초 공개 릴리스와 이전 버전에서 새 버전으로의 설치는 아직 인수하지 않았다. Apple notarization과 Windows Authenticode 서명은 제공하지 않으며 updater 서명과 구별한다.
+업데이트 서명 공개키와 CI secret을 설정했으며 두 OS 산출물을 준비하는 workflow를 추가했다. 최초 공개 릴리스와 공식 GitHub 채널을 통한 이전 버전에서 새 버전으로의 설치는 아직 인수하지 않았다. Apple notarization과 Windows Authenticode 서명은 제공하지 않으며 updater 서명과 구별한다.
 
 자동 검사는 Rust 라이브러리 214개와 프론트엔드 16개 파일 103개 테스트, 예제 컴파일, Clippy(`--lib --bins -- -D warnings`), doc-test, TypeScript·정적 검사·프론트엔드 빌드, 위키 타입 검사·빌드를 통과했다.
+
+[GitHub Actions](https://github.com/fleetia/comet/actions/runs/35436357154)에서 macOS arm64·Windows x64의 테스트, native bundle 빌드와 artifact 업로드를 확인했다. 이 결과는 Windows 실기 실행이나 설치 검증을 대신하지 않는다.
 
 macOS 별도 QA 앱을 빌드하고 `codesign --verify --deep --strict`를 통과했다. 캐릭터를 숨긴 상태에서 메모를 열고 저장했으며 재시작 후 숨김 값과 설치한 위젯 여섯 개의 보존을 DB에서 확인했다. 최신 native 공 꺼내기는 위젯 관리 화면의 포커스를 바꾸지 않았고, actor ID를 포함한 정지 결과 한 건을 기록했다. 설정에서 장난감 정리와 업데이트 정보 없음 상태, 입력창 포커스와 메뉴 복귀도 확인했다. 별꼬리 v2 파일의 미리보기·설치 후 활성 A/B가 유지됐으며 관리 화면에서 빈 제작자·출처 URL을 저장하고 DB의 빈 문자열을 확인했다. 외부 앱의 입력 포커스, 클릭 통과·드래그·창 충돌, 다중 모니터, 숨김 재시작 후 트레이 직접 호출, Windows 실기 및 두 OS 업데이트 검증은 아직 인수하지 않았다. 전체 완료는 이 실기 조건을 충족한 뒤 판단한다.
 
 별도 macOS 업데이트 QA 앱은 전용 서명 키와 loopback 서버로 0.4.0→0.4.1 설치를 확인했다. 연결 실패·다운로드 404·변조된 파일의 서명 실패에서 기존 0.4.0 실행 파일의 hash가 유지됐다. 정상 파일은 설치 후 이전 프로세스가 종료되고 새 버전에서 업데이트 확인이 다시 실행됐으며, 재실행 화면의 최신 버전 표시와 설치된 앱의 서명을 확인했다. 기존 캐릭터 3개·팩 1개·표정 이미지 9개·단어장 2개·위젯 6개·메시지 31개·놀이 결과 11개의 영속 내용을 비교했다. 공·비행기·펫은 사양대로 정지 시각과 revision만 갱신됐다. 이 fixture에는 기억과 ID별 친밀도 데이터가 없고 추론 프로세스도 실행하지 않았으므로 해당 실기 보존·정리를 증명하지 않는다. 공식 GitHub 배포 채널과 Windows 설치 검증은 별도로 남는다.
+
+같은 QA 앱에서 1명 활성 구성의 독백 메뉴와 개인 입력 대상, 8명 활성 구성과 9번째 활성화 차단을 확인했다. 8번째 캐릭터의 실제 얼굴에서 연 입력창은 해당 캐릭터 ID를 따르고 `모두에게` 선택도 동작했다. 이 관찰은 관리 UI와 개별 창·입력 대상 연결에 한정되며 여덟 창을 동시에 확인하거나 LLM 대화를 생성한 결과는 아니다.
 
 Figma에는 기존 Lagrange 프레임과 글꼴을 유지해 [장난 설정](https://www.figma.com/design/vKl8h9uoXUUljJ5yEAcNpr?node-id=142-578)의 네 장난감 Checkbox·정리 버튼, [업데이트](https://www.figma.com/design/vKl8h9uoXUUljJ5yEAcNpr?node-id=142-642)의 확인·설치 버튼, [1~8명 대화](https://www.figma.com/design/vKl8h9uoXUUljJ5yEAcNpr?node-id=142-765)의 Select와 순차 생성·질문 대기 안내, [출처 저장](https://www.figma.com/design/vKl8h9uoXUUljJ5yEAcNpr?node-id=142-774)의 빈 원작자·출처 URL TextField와 저장 버튼을 반영하고 시각 검증했다. 기존 컴포넌트의 정적 상태를 반영한 범위이며 전체 앱 화면 복제나 작동하는 프로토타입을 뜻하지 않는다.
 

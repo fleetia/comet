@@ -300,7 +300,7 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
             resize="none"
             ref={inputRef}
             className={s.input}
-            aria-label={`${name}에게 할 말`}
+            aria-label={target === "all" ? "모두에게 할 말" : `${name}에게 할 말`}
             value={input}
             rows={3}
             maxLength={2000}
