@@ -21,7 +21,9 @@ description: 공식 위젯과 보조 화면의 소스 구현, 실제 검증 범�
 
 설치 파일 workflow 후속 변경은 macOS `.dmg`를 기존 앱 ZIP·Windows NSIS `.exe`와 함께 Actions artifact에 포함한다. [후속 Actions 실행](https://github.com/fleetia/comet/actions/runs/35439148164)에서 두 OS 검사·빌드·업로드가 성공했다. macOS는 앱 서명과 DMG 무결성 검사를 통과했으며, 내려받은 DMG에 0.4.0 arm64 앱과 Applications 바로가기가 포함된 것을 확인했다. Windows 설치 파일 생성은 실기 설치·실행 검증과 구별한다.
 
-태그 기반 Release에도 DMG를 올리고 파일 누락과 무결성 오류를 검사한다. Release 본문과 Actions 실행 요약에는 실제 DMG·EXE 다운로드 링크, 설치 안내와 GitHub 자동 변경 노트를 함께 제공한다. 본문 생성과 누락 파일 차단을 로컬 fixture로 검증했으며 실제 Release 공개는 아직 실행하지 않았다.
+태그 기반 Release에도 DMG를 올리고 파일 누락과 무결성 오류를 검사한다. Release 본문과 Actions 실행 요약에는 실제 DMG·EXE 다운로드 링크, 설치 안내와 변경 노트를 함께 제공한다. 본문 생성과 누락 파일 차단을 로컬 fixture로 검증했으며 실제 Release 공개는 아직 실행하지 않았다.
+
+Changesets 후속 구현은 변경셋의 main 병합 후 버전 PR을 만들고, 버전 PR 병합 후 서명된 데스크톱 Release workflow를 직접 호출한다. package.json·Tauri·Cargo manifest·lock의 버전을 동기화하고 해당 CHANGELOG 항목을 업데이트 노트로 사용한다. 초기 상태·이미 공개한 버전은 발행을 건너뛰며 기존 태그를 다른 커밋으로 옮기지 않는다. 자동 PR 생성의 실제 실행 결과는 별도로 확인한다.
 
 macOS 별도 QA 앱을 빌드하고 `codesign --verify --deep --strict`를 통과했다. 캐릭터를 숨긴 상태에서 메모를 열고 저장했으며 재시작 후 숨김 값과 설치한 위젯 여섯 개의 보존을 DB에서 확인했다. 최신 native 공 꺼내기는 위젯 관리 화면의 포커스를 바꾸지 않았고, actor ID를 포함한 정지 결과 한 건을 기록했다. 설정에서 장난감 정리와 업데이트 정보 없음 상태, 입력창 포커스와 메뉴 복귀도 확인했다. 별꼬리 v2 파일의 미리보기·설치 후 활성 A/B가 유지됐으며 관리 화면에서 빈 제작자·출처 URL을 저장하고 DB의 빈 문자열을 확인했다. 외부 앱의 입력 포커스, 클릭 통과·드래그·창 충돌, 다중 모니터, 숨김 재시작 후 트레이 직접 호출, Windows 실기와 공식 배포 채널을 통한 두 OS 업데이트 검증은 아직 인수하지 않았다. 전체 완료는 이 실기 조건을 충족한 뒤 판단한다.
 

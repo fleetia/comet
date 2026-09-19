@@ -1,6 +1,17 @@
 name: Release desktop
 
 on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Existing immutable version tag to build
+        required: true
+        type: string
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: true
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
   push:
     tags: ['v*']
   workflow_dispatch:
@@ -36,6 +47,7 @@ jobs:
           UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
           UPDATER_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
+          python3 scripts/release.py check
           python3 - <<'PY'
           import json, os, tomllib
           from pathlib import Path
@@ -52,10 +64,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
+          python3 scripts/release.py notes > changeset-notes.md
           if gh release view "$RELEASE_TAG" --json isDraft > release.json; then
             python3 -c 'import json; assert json.load(open("release.json"))["isDraft"], "Published releases cannot be overwritten"'
           else
-            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Comet $RELEASE_TAG" --generate-notes
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Comet $RELEASE_TAG" --notes-file changeset-notes.md
           fi
           RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .id")
           test -n "$RELEASE_ID"

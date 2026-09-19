@@ -4,6 +4,7 @@ src-tauri/target/
 src-tauri/binaries/*
 !src-tauri/binaries/.gitkeep
 *.tsbuildinfo
+__pycache__/
 .DS_Store
 test-results/
 src-tauri/gen/
