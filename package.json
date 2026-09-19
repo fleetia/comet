@@ -8,7 +8,7 @@
     "changeset": "changeset",
     "version:release": "changeset version && python3 scripts/release.py sync && python3 scripts/release.py check",
     "release:check": "python3 scripts/release.py check",
-    "test:release": "vitest run --config vitest.release.config.ts && python3 -m unittest discover -s scripts -p 'test_release.py'",
+    "test:release": "vitest run --config vitest.release.config.ts && python3 -m unittest discover -s scripts -p 'test_*.py'",
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "test": "vitest run",
