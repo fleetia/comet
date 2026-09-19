@@ -81,12 +81,9 @@ pub(crate) fn refresh(app: &tauri::AppHandle) {
 
 pub(crate) fn create(app: &tauri::AppHandle) -> Result<(), String> {
     let menu = menu(app)?;
-    let icon = app
-        .default_window_icon()
-        .cloned()
-        .ok_or("앱 아이콘을 읽지 못했어요.")?;
     tauri::tray::TrayIconBuilder::with_id("comet")
-        .icon(icon)
+        .icon(tauri::include_image!("icons/tray.png"))
+        .icon_as_template(true)
         .tooltip("Comet")
         .menu(&menu)
         .on_menu_event(|app, event| {
