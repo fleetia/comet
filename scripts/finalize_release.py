@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import re
 import sys
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 
 def require(condition: bool, message: str) -> None:
@@ -12,7 +12,7 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
-def public_url(asset: dict, prefix: str) -> str:
+def public_url(asset: dict, prefix: str, source_prefix: str) -> str:
     url = asset['url']
     require(isinstance(url, str), 'Invalid asset URL.')
     parsed = urlparse(url)
@@ -21,10 +21,10 @@ def public_url(asset: dict, prefix: str) -> str:
         parsed.scheme == 'https' and parsed.netloc == 'github.com'
         and not parsed.query and not parsed.fragment
         and '/' not in name and '\\' not in name
-        and unquote(parsed.path) == prefix + name,
+        and unquote(parsed.path) in (prefix + name, source_prefix + name),
         'Asset must belong to this repository and release tag.',
     )
-    return url
+    return f'https://github.com{prefix}{quote(name, safe="")}'
 
 
 def nonempty(asset: dict) -> bool:
@@ -40,6 +40,22 @@ def finalize() -> None:
     manifest = json.loads(path.read_text(encoding='utf-8'))
     release = json.loads(Path('release.json').read_text(encoding='utf-8'))
     require(isinstance(manifest, dict) and isinstance(release, dict), 'Invalid release input.')
+    require(release.get('tagName') == tag, 'Release tag does not match requested tag.')
+    release_url = release.get('url')
+    require(isinstance(release_url, str), 'Missing release URL.')
+    parsed_release = urlparse(release_url)
+    release_prefix = f'/{repo}/releases/tag/'
+    source_tag = parsed_release.path.removeprefix(release_prefix)
+    require(
+        parsed_release.scheme == 'https' and parsed_release.netloc == 'github.com'
+        and not parsed_release.query and not parsed_release.fragment
+        and parsed_release.path.startswith(release_prefix)
+        and (source_tag == tag or (
+            release.get('isDraft') is True
+            and re.fullmatch(r'untagged-[0-9a-f]+', source_tag) is not None
+        )),
+        'Release URL must belong to this repository and release tag.',
+    )
     version = manifest['version']
     require(isinstance(version, str) and version.removeprefix('v') == tag[1:], 'Version does not match release tag.')
     body = release.get('body')
@@ -53,11 +69,13 @@ def finalize() -> None:
         require(asset['name'] not in assets, 'Duplicate asset names.')
         assets[asset['name']] = asset
     prefix = f'/{repo}/releases/download/{tag}/'
+    source_prefix = f'/{repo}/releases/download/{source_tag}/'
+    public_urls = {name: public_url(asset, prefix, source_prefix) for name, asset in assets.items()}
     downloads = []
     for platform, extension in [('macOS 14+ · Apple Silicon', '.dmg'), ('Windows · x64', '.exe')]:
         installers = [asset for name, asset in assets.items() if name.endswith(extension)]
         require(len(installers) == 1 and nonempty(installers[0]), 'Missing, empty or ambiguous installer.')
-        url = public_url(installers[0], prefix)
+        url = public_urls[installers[0]['name']]
         downloads.append(f'| {platform} | [{extension[1:].upper()} 다운로드]({url}) |')
     platforms = manifest['platforms']
     require(isinstance(platforms, dict), 'Invalid updater targets.')
@@ -68,13 +86,13 @@ def finalize() -> None:
         require(isinstance(target.get('signature'), str) and bool(target['signature'].strip()), 'Missing target signature.')
         url = target.get('url')
         require(isinstance(url, str) and bool(url), 'Missing updater URL.')
-        matches = [asset for asset in assets.values() if url == asset.get('url') or url == asset.get('apiUrl')]
+        matches = [asset for name, asset in assets.items()
+                   if url in (asset.get('url'), asset.get('apiUrl'), public_urls[name])]
         require(len(matches) == 1 and nonempty(matches[0]), 'Updater URL must match one nonempty release asset.')
         asset = matches[0]
         signature = assets.get(asset['name'] + '.sig')
         require(signature is not None and nonempty(signature), 'Missing or empty signature asset.')
-        public_url(signature, prefix)
-        target['url'] = public_url(asset, prefix)
+        target['url'] = public_urls[asset['name']]
     manifest['notes'] = body
     notes = '\n'.join([
         '## 다운로드', '', '| 운영체제 | 설치 파일 |', '| --- | --- |', *downloads, '',

@@ -18,7 +18,7 @@
 
 ## 다운로드와 앱 업데이트
 
-공식 설치 파일은 [GitHub Releases](https://github.com/fleetia/comet/releases)에서 제공합니다. 2026-09-19 기준 첫 signed updater 릴리스는 준비 중입니다. 검증용 설치 파일은 [Verify desktop Actions](https://github.com/fleetia/comet/actions/workflows/verify.yml)의 성공한 실행에서 **Artifacts**를 내려받아 사용합니다. macOS Apple Silicon용 `.dmg`는 `comet-arm64-macOS`, Windows x64용 `.exe`는 `comet-x64-Windows`에 포함됩니다. Actions 산출물 다운로드에는 GitHub 로그인이 필요합니다. 직접 빌드하려면 아래 소스 실행 절차를 이용하세요.
+공식 설치 파일은 [최신 GitHub Release](https://github.com/fleetia/comet/releases/latest)의 다운로드 표에서 로그인 없이 받을 수 있습니다. macOS 14 이상 Apple Silicon은 `.dmg`, Windows x64는 `.exe`를 선택하세요. 2026-09-19에 첫 signed updater 릴리스 [v0.5.0](https://github.com/fleetia/comet/releases/tag/v0.5.0)을 공개했습니다. 개발 중 검증용 설치 파일은 [Verify desktop Actions](https://github.com/fleetia/comet/actions/workflows/verify.yml)의 성공한 실행에서 **Artifacts**로 제공하며 GitHub 로그인이 필요합니다. 직접 빌드하려면 아래 소스 실행 절차를 이용하세요.
 
 Release 본문에는 운영체제별 설치 파일 다운로드 링크와 설치 안내, Changesets로 작성한 업데이트 노트를 함께 제공합니다. 변경 시 `pnpm changeset`으로 기록하면 버전 갱신 PR이 자동으로 열리고, 이를 병합하면 두 OS 설치 파일을 빌드·검증한 뒤 공개합니다. 작성 방법과 실패 재시도는 [릴리스 안내](docs/development/releases.md#버전-배포)를 따릅니다.
 

@@ -13,7 +13,7 @@ on:
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
         required: false
   push:
-    tags: ['v*']
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
@@ -67,7 +67,7 @@ jobs:
           node-version: 24
           cache: pnpm
           registry-url: https://npm.pkg.github.com
-          scope: '@fleetia'
+          scope: "@fleetia"
       - run: pnpm install --frozen-lockfile
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -122,11 +122,11 @@ jobs:
           node-version: 24
           cache: pnpm
           registry-url: https://npm.pkg.github.com
-          scope: '@fleetia'
+          scope: "@fleetia"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: 'src-tauri -> target'
+          workspaces: "src-tauri -> target"
           shared-key: desktop-${{ matrix.runner }}-${{ matrix.arch }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check native host architecture
@@ -191,7 +191,7 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           gh release download "$RELEASE_TAG" --pattern latest.json --dir release
-          gh release view "$RELEASE_TAG" --json assets,body > release.json
+          gh release view "$RELEASE_TAG" --json assets,body,tagName,isDraft,url > release.json
           python3 scripts/finalize_release.py
           gh release upload "$RELEASE_TAG" release/latest.json --clobber
           gh release edit "$RELEASE_TAG" --notes-file release-notes.md --draft=false --latest

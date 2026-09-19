@@ -24,7 +24,21 @@ def fixture() -> tuple[dict, dict]:
                         (('windows-x86_64', 'windows-x86_64-nsis'), 1)]:
         for key in keys:
             platforms[key] = dict(url=assets[index]['apiUrl'], signature='signed-content')
-    return dict(version='0.4.1', notes='', platforms=platforms), dict(assets=assets, body='### Patch Changes\n\n- 서명 업데이트 개선')
+    return dict(version='0.4.1', notes='', platforms=platforms), dict(
+        assets=assets, body='### Patch Changes\n\n- 서명 업데이트 개선', tagName=TAG,
+        isDraft=True, url=f'https://github.com/{REPO}/releases/tag/{TAG}',
+    )
+
+
+def draft_fixture() -> tuple[dict, dict]:
+    manifest, release = fixture()
+    draft_tag = 'untagged-ff70dc35ff169ea52ee2'
+    release['url'] = release['url'].replace(TAG, draft_tag)
+    for asset in release['assets']:
+        asset['url'] = asset['url'].replace(TAG, draft_tag)
+    manifest['platforms']['darwin-aarch64']['url'] = release['assets'][3]['url']
+    manifest['platforms']['windows-x86_64']['url'] = PREFIX + 'Comet.exe'
+    return manifest, release
 
 
 def run(root: Path) -> subprocess.CompletedProcess[str]:
@@ -73,6 +87,24 @@ def test_public_urls_remain_compatible() -> None:
         assert json.loads(path.read_text())['platforms'] == manifest['platforms']
 
 
+def test_draft_urls_use_the_verified_tag_for_downloads_and_updates() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        manifest, release = draft_fixture()
+        path = write_fixture(root, manifest, release)
+        result = run(root)
+        assert result.returncode == 0, result.stderr
+        actual = json.loads(path.read_text())
+        for key, target in actual['platforms'].items():
+            name = 'Comet.app.tar.gz' if key.startswith('darwin') else 'Comet.exe'
+            assert target == dict(url=PREFIX + name, signature='signed-content')
+        notes = (root / 'release-notes.md').read_text()
+        assert PREFIX + 'Comet.dmg' in notes and PREFIX + 'Comet.exe' in notes
+        assert 'untagged-' not in notes
+        assert run(root).returncode == 0
+        assert json.loads(path.read_text()) == actual
+
+
 def test_invalid_input_never_changes_manifest_or_notes() -> None:
     original, release = fixture()
     cases = []
@@ -83,6 +115,19 @@ def test_invalid_input_never_changes_manifest_or_notes() -> None:
     bad_release = copy.deepcopy(release)
     bad_release['assets'][1]['url'] = PREFIX.replace(TAG, 'v0.4.0') + 'Comet.exe'
     cases.append((original, bad_release))
+    for change in ['wrong-tag', 'wrong-repository', 'published-draft-url', 'different-draft-asset']:
+        manifest, bad_release = draft_fixture()
+        if change == 'wrong-tag':
+            bad_release['tagName'] = 'v0.4.0'
+        elif change == 'wrong-repository':
+            bad_release['url'] = bad_release['url'].replace(REPO, 'other/repository')
+        elif change == 'published-draft-url':
+            bad_release['isDraft'] = False
+        else:
+            bad_release['assets'][0]['url'] = bad_release['assets'][0]['url'].replace(
+                'untagged-ff70dc35ff169ea52ee2', 'untagged-abcdef',
+            )
+        cases.append((manifest, bad_release))
     manifest = copy.deepcopy(original)
     del manifest['platforms']['windows-x86_64']
     del manifest['platforms']['windows-x86_64-nsis']
@@ -124,6 +169,7 @@ def load_tests(loader: unittest.TestLoader, tests: unittest.TestSuite, pattern: 
     return unittest.TestSuite(unittest.FunctionTestCase(test) for test in [
         test_all_api_aliases_become_public_and_notes_are_preserved,
         test_public_urls_remain_compatible,
+        test_draft_urls_use_the_verified_tag_for_downloads_and_updates,
         test_invalid_input_never_changes_manifest_or_notes,
     ])
 

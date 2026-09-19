@@ -23,7 +23,7 @@ Windows CI에서 Git의 CRLF 변환이 암호화 파일 헤더를 바꾸는 문�
 
 2026-09-19 기준 소스 구현과 릴리스 인수는 구분한다. 1~8명 ID 기반 대화, JSON v2 패키지와 v1 호환, 기본 캐릭터 동봉 콘텐츠, 출처 정보 영속 편집, 독립 데스크톱 물체, 장난 FSM, 트레이 직접 호출, 숨김 상태 보존, 서명된 앱 업데이트 경로를 통합했다. 기존 생성 대사의 30분 회상 변경도 원문 기록과 분리해 보존한다. 장난 설정 해제·전체 화면 진입·정리 시 자동 놀이의 대기·재생 중 반응을 취소하며 수동 놀이·타이머·저장된 일지는 유지한다. 자동 말풍선과 표정은 macOS `orderFront`, Windows `SW_SHOWNOACTIVATE`로 표시하고 명시적인 입력창 호출만 포커스를 요청한다.
 
-업데이트 서명 공개키와 CI secret을 설정했으며 두 OS 산출물을 준비하는 workflow를 추가했다. 최초 공개 릴리스와 공식 GitHub 채널을 통한 이전 버전에서 새 버전으로의 설치는 아직 인수하지 않았다. Apple notarization과 Windows Authenticode 서명은 제공하지 않으며 updater 서명과 구별한다.
+업데이트 서명 공개키와 CI secret을 설정했으며 두 OS 산출물을 준비하는 workflow를 추가했다. 2026-09-19에 최초 공개 릴리스 v0.5.0을 게시했다. 공식 GitHub 채널을 통한 이전 버전에서 새 버전으로의 설치는 아직 인수하지 않았다. Apple notarization과 Windows Authenticode 서명은 제공하지 않으며 updater 서명과 구별한다.
 
 자동 검사는 Rust 라이브러리 214개와 프론트엔드 16개 파일 103개 테스트, 예제 컴파일, Clippy(`--lib --bins -- -D warnings`), doc-test, TypeScript·정적 검사·프론트엔드 빌드, 위키 타입 검사·빌드를 통과했다.
 
@@ -31,9 +31,9 @@ Windows CI에서 Git의 CRLF 변환이 암호화 파일 헤더를 바꾸는 문�
 
 설치 파일 workflow 후속 변경은 macOS `.dmg`를 기존 앱 ZIP·Windows NSIS `.exe`와 함께 Actions artifact에 포함한다. [후속 Actions 실행](https://github.com/fleetia/comet/actions/runs/35439148164)에서 두 OS 검사·빌드·업로드가 성공했다. macOS는 앱 서명과 DMG 무결성 검사를 통과했으며, 내려받은 DMG에 0.4.0 arm64 앱과 Applications 바로가기가 포함된 것을 확인했다. Windows 설치 파일 생성은 실기 설치·실행 검증과 구별한다.
 
-태그 기반 Release에도 DMG를 올리고 파일 누락과 무결성 오류를 검사한다. Release 본문과 Actions 실행 요약에는 실제 DMG·EXE 다운로드 링크, 설치 안내와 변경 노트를 함께 제공한다. 본문 생성과 누락 파일 차단을 로컬 fixture로 검증했으며 실제 Release 공개는 아직 실행하지 않았다.
+태그 기반 Release에도 DMG를 올리고 파일 누락과 무결성 오류를 검사한다. Release 본문과 Actions 실행 요약에는 실제 DMG·EXE 다운로드 링크, 설치 안내와 변경 노트를 함께 제공한다. [v0.5.0 빌드](https://github.com/fleetia/comet/actions/runs/35445568168)는 두 OS 검사·패키징·업로드와 macOS 서명·DMG 무결성 검사를 통과했으나 draft 임시 URL을 거부해 publish job이 실패했다. 해당 draft의 저장소·태그·URL을 대조하는 수정 스크립트로 실제 업로드 파일을 검증하고 manifest와 본문을 생성한 뒤 [v0.5.0](https://github.com/fleetia/comet/releases/tag/v0.5.0)을 수동 공개했다. 두 설치파일의 비로그인 HTTP 200과 공개 manifest의 정식 태그 주소를 확인했다. 배포 자동화 테스트 14개를 통과했으며, 수정 workflow 자체의 원격 실행 성공이나 실제 설치·업데이트 인수로 해석하지 않는다.
 
-Changesets 후속 구현은 변경셋의 main 병합 후 버전 PR을 만들고, 버전 PR 병합 후 서명된 데스크톱 Release workflow를 직접 호출한다. package.json·Tauri·Cargo manifest·lock의 버전을 동기화하고 해당 CHANGELOG 항목을 Release와 앱 updater의 업데이트 노트로 사용한다. 초기 상태·이미 공개한 버전은 발행을 건너뛰며 기존 태그를 다른 커밋으로 옮기지 않는다. 모든 updater 플랫폼 URL을 같은 Release의 공개 다운로드 주소로 정규화한 manifest를 업로드한 뒤 공개한다. 동기화·노트·태그·manifest 검사는 통과했으며 실제 signed Release 공개·설치 인수는 별도로 남는다.
+Changesets 후속 구현은 변경셋의 main 병합 후 버전 PR을 만들고, 버전 PR 병합 후 서명된 데스크톱 Release workflow를 직접 호출한다. package.json·Tauri·Cargo manifest·lock의 버전을 동기화하고 해당 CHANGELOG 항목을 Release와 앱 updater의 업데이트 노트로 사용한다. 초기 상태·이미 공개한 버전은 발행을 건너뛰며 기존 태그를 다른 커밋으로 옮기지 않는다. 모든 updater 플랫폼 URL을 같은 Release의 공개 다운로드 주소로 정규화한 manifest를 업로드한 뒤 공개한다. 동기화·노트·태그·manifest 검사는 통과했으며 실제 설치·업데이트 인수는 별도로 남는다.
 
 CI 최적화는 branch push·PR의 중복 실행과 문서 변경의 native 빌드를 줄이고, 공통 프론트엔드 검사를 Ubuntu로 옮긴다. main에서 저장한 Rust 의존성·고정 sidecar 캐시를 Verify와 Release가 공유한다. PR에서는 두 OS의 Rust 테스트까지 수행하고, main·수동 실행·Release에서 패키징과 서명/무결성 검사도 수행한다. 실행 조건과 캐시 무효화 기준은 [릴리스 문서](development/releases.md#ci-실행과-캐시)를 따른다. 설정 변경만으로 빌드 시간 단축률이나 Release 설치 인수를 선언하지 않는다.
 
