@@ -15,6 +15,8 @@ description: 공식 위젯과 보조 화면의 소스 구현, 실제 검증 범�
 
 이번 통합 소스에서 Rust 라이브러리 253개와 대본 CLI 2개, 프런트엔드 18개 파일 109개, 배포 자동화 JavaScript 5개·Python 8개 테스트가 통과했다. 전체 Rust target 컴파일·strict Clippy, TypeScript·oxlint·Vite 빌드, 위키 타입 검사·빌드와 Changesets 검사도 통과했다. source pair·cast와 스토리가 세 번째 자리의 캐릭터 및 자리 변경 후 같은 정체성을 따르는 회귀를 포함한다.
 
+Windows CI에서 Git의 CRLF 변환이 암호화 파일 헤더를 바꾸는 문제가 확인되어 `.gitattributes`에서 `.talk`·`.enc`의 원본 바이트를 보존한다. `core.autocrlf=true`에서도 동봉 파일 28개의 checkout 바이트가 저장소 원본과 동일한 것을 확인했다.
+
 이번 통합에서는 실제 데스크톱 조작·Windows 실기·LLM 의미 품질을 다시 검증하지 않았다. 이전 버전의 테스트 수·패키징·실행 결과를 이번 결과로 간주하지 않는다.
 
 ## 0.4 통합 작업본의 기존 검증
