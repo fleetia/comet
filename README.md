@@ -8,7 +8,7 @@
 
 공식 설치 파일은 [GitHub Releases](https://github.com/fleetia/comet/releases)에서 제공합니다. 2026-09-19 기준 첫 signed updater 릴리스는 준비 중입니다. 검증용 설치 파일은 [Verify desktop Actions](https://github.com/fleetia/comet/actions/workflows/verify.yml)의 성공한 실행에서 **Artifacts**를 내려받아 사용합니다. macOS Apple Silicon용 `.dmg`는 `nanika-box-arm64-macOS`, Windows x64용 `.exe`는 `nanika-box-x64-Windows`에 포함됩니다. Actions 산출물 다운로드에는 GitHub 로그인이 필요합니다. 직접 빌드하려면 아래 소스 실행 절차를 이용하세요.
 
-Release 본문에는 운영체제별 설치 파일 다운로드 링크와 설치 안내, GitHub가 생성한 변경 노트를 함께 제공합니다. 변경 노트에는 포함된 pull request와 버전 간 비교 링크가 표시됩니다.
+Release 본문에는 운영체제별 설치 파일 다운로드 링크와 설치 안내, Changesets로 작성한 업데이트 노트를 함께 제공합니다. 변경 시 `pnpm changeset`으로 기록하면 버전 갱신 PR이 자동으로 열리고, 이를 병합하면 두 OS 설치 파일을 빌드·검증한 뒤 공개합니다. 작성 방법과 실패 재시도는 [릴리스 안내](docs/development/releases.md#버전-배포)를 따릅니다.
 
 업데이트용 공개키가 포함된 앱은 시작할 때와 하루에 한 번 새 버전을 확인합니다. 설정의 `앱 업데이트`에서 직접 확인할 수도 있으며, `설치하고 다시 시작`을 선택한 경우에만 내려받고 서명을 검증한 뒤 설치합니다. 최초 updater 탑재 버전은 수동 설치해야 합니다. OS 코드 서명과 실제 업데이트 검증 상태는 [릴리스 안내](docs/development/releases.md)를 확인하세요.
 
