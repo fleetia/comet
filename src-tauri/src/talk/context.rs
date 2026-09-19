@@ -69,7 +69,7 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         ("environment", "weatherTemperature") => "날씨 연결의 최신 관측 기온(섭씨)",
         ("environment", "weatherCode") => "날씨 연결의 최신 WMO weatherCode 숫자",
         ("environment", "weatherName") => "날씨 연결의 관측 대상 지역 이름",
-        ("character.nadir", "present") => "현재 A/B 중 sourceId가 nadir인 캐릭터가 있는지 여부",
+        ("character.nadir", "present") => "활성 캐릭터 중 sourceId가 nadir인 캐릭터가 있는지 여부",
         (_, "sourceId") if prefix.starts_with("character.") => "현재 자리에 설치된 캐릭터의 원본 sourceId. 표시 이름·로컬 ID와 구분",
         (_, "affinity") if prefix.starts_with("character.") => "해당 캐릭터의 현재 친밀도 점수",
 
@@ -214,7 +214,7 @@ pub fn registry() -> Registry {
         add("environment", field, ValueType::Number, true, None);
     }
     add("environment", "weatherName", ValueType::String, true, None);
-    for persona in ["a", "b"] {
+    for persona in crate::characters::SLOTS {
         add(
             &format!("character.{persona}"),
             "sourceId",
@@ -577,17 +577,14 @@ pub fn build(
             values.insert(format!("event.{field}"), value);
         }
     }
-    let characters = [
-        crate::characters::active_character(db, "a")?,
-        crate::characters::active_character(db, "b")?,
-    ];
+    let characters = crate::characters::active_members(db)?;
     let relationships = crate::store::relationships(db)?;
     values.insert("dialogue.variant".into(), json!(seed % 5));
     values.insert("character.nadir.present".into(), json!(false));
-    for (persona, character) in ["a", "b"].into_iter().zip(&characters) {
+    for (persona, character) in crate::characters::SLOTS.into_iter().zip(&characters) {
         let score = relationships
             .iter()
-            .find(|item| item.persona == persona)
+            .find(|item| item.persona == character.id)
             .map_or(20, |item| item.score);
         values.insert(
             format!("character.{persona}.sourceId"),
@@ -599,10 +596,9 @@ pub fn build(
             values.insert("character.nadir.affinity".into(), json!(score));
         }
     }
-    let active = characters.map(|character| character.id);
     Ok(EvalContext {
         values,
-        active,
+        active: crate::characters::active_ids(db)?,
         available,
         now_ms,
         seed,

@@ -1,12 +1,14 @@
+use super::unavailable;
 use super::{interrupt, is_current, lock, phase, publish, schedule_idle, AppState};
 use crate::{inference, models, store, types::*, wordbook};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use std::time::Duration;
 
 #[tauri::command]
-pub(super) fn save_wordbook_entry(
+pub(crate) fn save_wordbook_entry(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     entry: WordbookEntry,
@@ -20,7 +22,7 @@ pub(super) fn save_wordbook_entry(
 }
 
 #[tauri::command]
-pub(super) fn delete_wordbook_entry(
+pub(crate) fn delete_wordbook_entry(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
@@ -34,7 +36,7 @@ pub(super) fn delete_wordbook_entry(
 }
 
 #[tauri::command]
-pub(super) async fn save_settings(
+pub(crate) async fn save_settings(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     settings: Settings,
@@ -59,6 +61,12 @@ pub(super) async fn save_settings(
             return Err("API 모델명을 입력해 주세요.".into());
         }
     }
+    if settings.mode == "local"
+        && settings.local_model == LocalModel::Custom
+        && !models::selected_ready(&state.app_data, &settings)
+    {
+        return Err("GGUF 모델 파일의 절대 경로를 확인해 주세요.".into());
+    }
     if let Some(key) = api_key {
         if !key.trim().is_empty() {
             inference::set_api_key(&settings, key.trim())?;
@@ -74,7 +82,7 @@ pub(super) async fn save_settings(
     Ok(())
 }
 
-pub(super) fn apply_settings(
+pub(crate) fn apply_settings(
     state: &AppState,
     settings: &Settings,
 ) -> Result<(u64, Arc<AtomicBool>), String> {
@@ -96,7 +104,7 @@ pub(super) fn apply_settings(
 }
 
 #[tauri::command]
-pub(super) async fn test_connection(
+pub(crate) async fn test_connection(
     settings: Settings,
     api_key: Option<String>,
 ) -> Result<String, String> {
@@ -104,7 +112,7 @@ pub(super) async fn test_connection(
 }
 
 #[tauri::command]
-pub(super) fn download_model(
+pub(crate) fn download_model(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     model: LocalModel,
@@ -130,12 +138,12 @@ pub(super) fn download_model(
     Ok(())
 }
 
-pub(super) fn begin_download(
+pub(crate) fn begin_download(
     state: &AppState,
     model: LocalModel,
 ) -> Result<Arc<AtomicBool>, String> {
     let _action = lock(&state.action)?;
-    if state.stopping.load(Ordering::SeqCst) {
+    if unavailable(state) {
         return Err("앱을 종료하고 있어요.".into());
     }
     let mut active = lock(&state.download_cancel)?;
@@ -159,7 +167,7 @@ pub(super) fn begin_download(
 }
 
 #[tauri::command]
-pub(super) fn cancel_download(state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
+pub(crate) fn cancel_download(state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
     if let Some(cancel) = lock(&state.download_cancel)?.as_ref() {
         cancel.store(true, Ordering::SeqCst);
     }
@@ -167,7 +175,7 @@ pub(super) fn cancel_download(state: tauri::State<'_, Arc<AppState>>) -> Result<
 }
 
 #[tauri::command]
-pub(super) fn edit_memory(
+pub(crate) fn edit_memory(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
@@ -182,7 +190,7 @@ pub(super) fn edit_memory(
     Ok(())
 }
 #[tauri::command]
-pub(super) fn delete_memory(
+pub(crate) fn delete_memory(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
@@ -197,7 +205,7 @@ pub(super) fn delete_memory(
 }
 
 #[tauri::command]
-pub(super) fn clear_api_key(
+pub(crate) fn clear_api_key(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
@@ -209,4 +217,59 @@ pub(super) fn clear_api_key(
     };
     phase(&app, &state, epoch, "idle", None, None);
     Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn test_local_model(
+    state: tauri::State<'_, Arc<AppState>>,
+    settings: Settings,
+) -> Result<LocalModelTest, String> {
+    if unavailable(&state) {
+        return Err("앱을 종료하고 있어요.".into());
+    }
+    if lock(&state.download_cancel)?.is_some() {
+        return Err("모델 다운로드가 끝난 뒤에 테스트할 수 있어요.".into());
+    }
+    let _gate = state.gate.lock().await;
+    if unavailable(&state) {
+        return Err("앱을 종료하고 있어요.".into());
+    }
+    let result = tokio::time::timeout(
+        Duration::from_secs(120),
+        inference::test_local(
+            &state.inference,
+            &settings,
+            Arc::new(AtomicBool::new(false)),
+        ),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        Err("모델 테스트 시간이 초과되었어요. 더 작은 모델을 시도해 보세요.".into())
+    });
+    let saved = store::settings(&*lock(&state.db)?)?;
+    if result.is_err()
+        || models::selected_path(&state.app_data, &saved)
+            != models::selected_path(&state.app_data, &settings)
+    {
+        inference::stop_local(&state.inference).await;
+    }
+    result
+}
+
+#[tauri::command]
+pub(crate) async fn pick_model_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (send, receive) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("GGUF 모델 파일 선택")
+        .add_filter("GGUF 모델", &["gguf"])
+        .pick_file(move |path| {
+            let _ = send.send(path);
+        });
+    let Some(path) = receive.await.map_err(|_| "파일 선택이 중단됐어요.")? else {
+        return Ok(None);
+    };
+    let path = path.into_path().map_err(|error| error.to_string())?;
+    Ok(Some(path.to_string_lossy().into_owned()))
 }

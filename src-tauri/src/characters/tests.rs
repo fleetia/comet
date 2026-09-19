@@ -1,4 +1,5 @@
 use super::*;
+const PNG: &[u8] = b"\x89PNG\r\n\x1a\n-body";
 fn database() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
     initialize(&conn).unwrap();
@@ -9,6 +10,7 @@ fn pack() -> CharacterPack {
         format_version: 1,
         name: "두 친구".into(),
         author: "제작자".into(),
+        source_url: String::new(),
         license: "수정·공유 가능".into(),
         characters: vec![builtin("a"), builtin("b")],
         pair_scenes: vec![vec![
@@ -35,6 +37,7 @@ fn pack() -> CharacterPack {
             enabled: true,
             use_for_idle: false,
         }],
+        sprites: Vec::new(),
     }
 }
 #[test]
@@ -265,49 +268,12 @@ fn edit_preserves_identity_and_increments_host_version() {
     assert_eq!(active_character(&conn, "b").unwrap().id, "builtin-b");
 }
 #[test]
-fn reopen_removal_and_fallback_preserve_unrelated_data() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("test.db");
-    let id;
-    {
-        let conn = Connection::open(&path).unwrap();
-        initialize(&conn).unwrap();
-        conn.execute_batch("CREATE TABLE history(text TEXT); INSERT INTO history VALUES('old');")
-            .unwrap();
-        id = clone_character(&conn, "builtin-b").unwrap().id;
-        assign(&conn, "b", &id).unwrap();
-    }
-    let conn = Connection::open(&path).unwrap();
-    initialize(&conn).unwrap();
-    assert_eq!(active_character(&conn, "b").unwrap().id, id);
-    remove(&conn, &id).unwrap();
-    assert_eq!(active_ids(&conn).unwrap(), ["builtin-a", "builtin-b"]);
-    initialize(&conn).unwrap();
-    assert_eq!(collection(&conn).unwrap().installed.len(), 2);
-    assert_eq!(
-        conn.query_row("SELECT text FROM history", [], |r| r.get::<_, String>(0))
-            .unwrap(),
-        "old"
-    );
-    assert!(remove(&conn, "builtin-a").is_err());
-}
-#[test]
-fn fallback_avoids_builtin_already_in_other_slot() {
-    let conn = database();
-    let created = clone_character(&conn, "builtin-a").unwrap();
-    apply_pair(&conn, [created.id.clone(), "builtin-a".into()]).unwrap();
-    remove(&conn, &created.id).unwrap();
-    assert_eq!(active_ids(&conn).unwrap(), ["builtin-b", "builtin-a"]);
-    assert!(apply_pair(&conn, ["builtin-a".into(), "missing".into()]).is_err());
-    assert_eq!(active_ids(&conn).unwrap(), ["builtin-b", "builtin-a"]);
-}
-#[test]
 fn canonical_export_roundtrip_preserves_talk_scope_and_story_activation() {
     let conn = crate::store::open(std::path::Path::new(":memory:")).unwrap();
     let exported = export_pack(&conn, &["builtin-a".into(), "builtin-b".into()], &[]).unwrap();
     assert_eq!(exported.characters[0].source_id, "nadir");
     assert_eq!(exported.characters[1].source_id, "star-tail");
-    let parsed = parse_pack(&serde_json::to_string(&exported).unwrap()).unwrap();
+    let parsed = parse_pack(&pack_json(&exported).unwrap()).unwrap();
     let imported = import_pack(&conn, &parsed).unwrap();
     apply_pair(&conn, [imported[1].id.clone(), imported[0].id.clone()]).unwrap();
     let context = crate::talk::context::build(&conn, None, 0, 0).unwrap();
@@ -348,7 +314,7 @@ fn export_single_b_remaps_selected_personal_lines_and_excludes_private_data() {
     assert_eq!(exported.wordbook[0].lines[0].persona, "a");
     assert_eq!(exported.wordbook[0].lines[0].text, entry.lines[0].text);
     assert!(export_pack(&conn, &["builtin-a".into()], &[entry]).is_err());
-    let text = serde_json::to_string(&exported).unwrap();
+    let text = pack_json(&exported).unwrap();
     assert!(!text.contains("never-export"));
     let imported = import_pack(&conn, &parse_pack(&text).unwrap()).unwrap();
     assert_eq!(imported[0].definition.name, "별꼬리");
@@ -372,7 +338,7 @@ fn malformed_unknown_nested_fields_and_oversize_are_rejected() {
         assert!(parse_pack(&value.to_string()).is_err(), "{path}");
     }
     let mut invalid = pack();
-    invalid.format_version = 2;
+    invalid.format_version = 3;
     assert!(validate_pack(&invalid).is_err());
     invalid = pack();
     invalid.characters.truncate(1);
@@ -543,4 +509,321 @@ fn keyword_ties_follow_install_order_not_slot_order() {
         keyword_scene(&conn, "hello").unwrap().unwrap()[0].text,
         "  안녕\n반가워  "
     );
+}
+
+#[test]
+fn expressions_are_dynamic_but_keep_the_default_key() {
+    let conn = database();
+    let mut definition = builtin("a");
+    definition
+        .expressions
+        .insert("슬픔".into(), "(；_；)".into());
+    definition.expressions.remove("장난");
+    definition.greeting[0].expression = "화남".into();
+    let created = create(&conn, &definition).unwrap();
+    assert_eq!(created.definition.expressions.len(), 6);
+    assert_eq!(created.definition.greeting[0].expression, "화남");
+    let mut invalid = definition.clone();
+    invalid.expressions.remove(DEFAULT_EXPRESSION);
+    assert!(create(&conn, &invalid).is_err());
+    invalid = definition.clone();
+    invalid.expressions.insert(" 공백 ".into(), "x".into());
+    assert!(create(&conn, &invalid).is_err());
+    invalid = definition.clone();
+    for index in 0..30 {
+        invalid
+            .expressions
+            .insert(format!("표정{index}"), "x".into());
+    }
+    assert!(create(&conn, &invalid).is_err());
+    invalid = definition.clone();
+    invalid.sprite_size = 16;
+    assert!(create(&conn, &invalid).is_err());
+    invalid = definition.clone();
+    invalid.expressions.insert("$balloon".into(), "x".into());
+    assert!(create(&conn, &invalid).is_err());
+    let legacy: CharacterDefinition = serde_json::from_str(
+        &serde_json::to_string(&builtin("b"))
+            .unwrap()
+            .replace(",\"spriteSize\":64", "")
+            .replace(",\"faceIcon\":false", ""),
+    )
+    .unwrap();
+    assert_eq!(legacy.sprite_size, DEFAULT_SPRITE_SIZE);
+    assert!(!legacy.face_icon);
+}
+
+#[test]
+fn sprites_follow_save_clone_export_import_and_removal() {
+    let conn = database();
+    let created = clone_character(&conn, "builtin-a").unwrap();
+    assert!(set_sprite(&conn, &created.id, "슬픔", PNG).is_err());
+    set_sprite(&conn, &created.id, "기쁨", PNG).unwrap();
+    set_sprite(
+        &conn,
+        &created.id,
+        "장난",
+        b"<svg xmlns='http://www.w3.org/2000/svg'/>",
+    )
+    .unwrap();
+    assert!(set_sprite(&conn, &created.id, "평온", b"nope").is_err());
+    let listed = get(&conn, &created.id).unwrap().sprites;
+    assert_eq!(listed["기쁨"].mime, "image/png");
+    assert_eq!(listed["장난"].mime, "image/svg+xml");
+    set_sprite(&conn, &created.id, BALLOON_SPRITE, b"GIF89a-skin").unwrap();
+    let mut edited = created.definition.clone();
+    edited.expressions.remove("장난");
+    save(&conn, &created.id, &edited).unwrap();
+    let after = get(&conn, &created.id).unwrap().sprites;
+    assert_eq!(after.keys().collect::<Vec<_>>(), [BALLOON_SPRITE, "기쁨"]);
+    let copy = clone_character(&conn, &created.id).unwrap();
+    assert_eq!(copy.sprites["기쁨"].mime, "image/png");
+    assert_eq!(copy.sprites[BALLOON_SPRITE].mime, "image/gif");
+    assert_eq!(copy.definition.source_id, created.definition.source_id);
+    remove_sprite(&conn, &created.id, BALLOON_SPRITE).unwrap();
+    let exported = export_pack(&conn, std::slice::from_ref(&created.id), &[]).unwrap();
+    assert_eq!(exported.sprites.len(), 1);
+    assert_eq!(exported.sprites[0].source_id, created.definition.source_id);
+    let json = serde_json::to_string(&exported).unwrap();
+    let imported = import_pack(&conn, &parse_pack(&json).unwrap()).unwrap();
+    assert_eq!(
+        sprite(&conn, &imported[0].id, "기쁨")
+            .unwrap()
+            .unwrap()
+            .data,
+        PNG
+    );
+    let stored = pack_record(&conn, imported[0].pack_id.as_ref().unwrap())
+        .unwrap()
+        .0;
+    assert!(stored.sprites.is_empty());
+    remove_sprite(&conn, &created.id, "기쁨").unwrap();
+    assert!(get(&conn, &created.id).unwrap().sprites.is_empty());
+    remove(&conn, &imported[0].id).unwrap();
+    assert!(sprite(&conn, &imported[0].id, "기쁨").unwrap().is_none());
+    let mut tampered = exported.clone();
+    tampered.sprites[0].mime = "image/gif".into();
+    assert!(validate_pack(&tampered).is_err());
+    tampered = exported.clone();
+    tampered.sprites[0].expression = "없는표정".into();
+    assert!(validate_pack(&tampered).is_err());
+    tampered = exported;
+    tampered.sprites.push(tampered.sprites[0].clone());
+    assert!(validate_pack(&tampered).is_err());
+}
+
+#[test]
+fn reopen_and_last_member_protection_preserve_unrelated_data() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.db");
+    let id;
+    {
+        let conn = Connection::open(&path).unwrap();
+        initialize(&conn).unwrap();
+        conn.execute_batch("CREATE TABLE history(text TEXT); INSERT INTO history VALUES('old');")
+            .unwrap();
+        id = clone_character(&conn, "builtin-b").unwrap().id;
+        assign(&conn, "b", &id).unwrap();
+    }
+    let conn = Connection::open(&path).unwrap();
+    initialize(&conn).unwrap();
+    assert_eq!(active_character(&conn, "b").unwrap().id, id);
+    remove(&conn, &id).unwrap();
+    assert_eq!(active_ids(&conn).unwrap(), ["builtin-a"]);
+    initialize(&conn).unwrap();
+    assert_eq!(collection(&conn).unwrap().installed.len(), 2);
+    assert_eq!(
+        conn.query_row("SELECT text FROM history", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "old"
+    );
+    remove(&conn, "builtin-b").unwrap();
+    initialize(&conn).unwrap();
+    assert_eq!(collection(&conn).unwrap().installed.len(), 1);
+    let mut edited = builtin("a");
+    edited.name = "바뀐 A".into();
+    save(&conn, "builtin-a", &edited).unwrap();
+    assert!(remove(&conn, "builtin-a").is_err());
+    initialize(&conn).unwrap();
+    assert_eq!(active_ids(&conn).unwrap(), ["builtin-a"]);
+    assert_eq!(
+        active_character(&conn, "a").unwrap().definition.name,
+        "바뀐 A"
+    );
+    assert_eq!(collection(&conn).unwrap().installed.len(), 1);
+}
+
+#[test]
+fn legacy_slot_table_migrates_once_into_the_roster() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch("CREATE TABLE characters(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,pack_id TEXT,data TEXT NOT NULL); CREATE TABLE character_slots(slot TEXT PRIMARY KEY,character_id TEXT NOT NULL UNIQUE); INSERT INTO character_slots VALUES('a','builtin-b'),('b','builtin-a');").unwrap();
+    for slot in ["a", "b"] {
+        conn.execute(
+            "INSERT INTO characters(id,pack_id,data) VALUES(?1,NULL,?2)",
+            params![
+                format!("builtin-{slot}"),
+                serde_json::to_string(&builtin(slot)).unwrap()
+            ],
+        )
+        .unwrap();
+    }
+    initialize(&conn).unwrap();
+    assert_eq!(active_ids(&conn).unwrap(), ["builtin-b", "builtin-a"]);
+    let has_slots: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='character_slots')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(!has_slots);
+    apply_roster(&conn, vec!["builtin-a".into()]).unwrap();
+    initialize(&conn).unwrap();
+    assert_eq!(active_ids(&conn).unwrap(), ["builtin-a"]);
+}
+
+#[test]
+fn single_member_roster_leaves_slot_b_empty_and_appends_on_assign() {
+    let conn = database();
+    apply_roster(&conn, vec!["builtin-b".into()]).unwrap();
+    assert_eq!(collection(&conn).unwrap().active, ["builtin-b"]);
+    assert_eq!(active_character(&conn, "a").unwrap().id, "builtin-b");
+    assert!(active_character(&conn, "b").is_err());
+    assert_eq!(idle_scene(&conn, 0).unwrap().len(), 1);
+    assign(&conn, "b", "builtin-a").unwrap();
+    assert_eq!(active_ids(&conn).unwrap(), ["builtin-b", "builtin-a"]);
+    assert!(apply_roster(&conn, Vec::new()).is_err());
+    assert!(apply_roster(&conn, vec!["builtin-a".into(), "builtin-a".into()]).is_err());
+    let many: Vec<String> = (0..=MAX_ROSTER)
+        .map(|_| clone_character(&conn, "builtin-a").unwrap().id)
+        .collect();
+    assert!(apply_roster(&conn, many.clone()).is_err());
+    apply_roster(&conn, many[..MAX_ROSTER].to_vec()).unwrap();
+    assert_eq!(active_ids(&conn).unwrap().len(), MAX_ROSTER);
+}
+
+#[test]
+fn removing_members_keeps_order_and_protects_the_last_identity() {
+    let conn = database();
+    let created = clone_character(&conn, "builtin-a").unwrap();
+    apply_roster(
+        &conn,
+        vec![created.id.clone(), "builtin-b".into(), "builtin-a".into()],
+    )
+    .unwrap();
+    remove(&conn, &created.id).unwrap();
+    assert_eq!(active_ids(&conn).unwrap(), ["builtin-b", "builtin-a"]);
+    assert!(apply_pair(&conn, ["builtin-a".into(), "missing".into()]).is_err());
+    assert_eq!(active_ids(&conn).unwrap(), ["builtin-b", "builtin-a"]);
+    let alone = clone_character(&conn, "builtin-b").unwrap();
+    apply_roster(&conn, vec![alone.id.clone()]).unwrap();
+    assert!(remove(&conn, &alone.id).is_err());
+    assert_eq!(active_ids(&conn).unwrap(), [alone.id]);
+}
+
+#[test]
+fn attribution_reopens_and_exports_without_private_data() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("attribution.db");
+    let (id, pack_id) = {
+        let conn = Connection::open(&path).unwrap();
+        initialize(&conn).unwrap();
+        let character = import_pack(&conn, &pack()).unwrap().remove(0);
+        let pack_id = character.pack_id.unwrap();
+        save_pack_attribution(
+            &conn,
+            &pack_id,
+            &PackAttribution {
+                author: "원작자".into(),
+                source_url: "https://example.com/author".into(),
+            },
+        )
+        .unwrap();
+        (character.id, pack_id)
+    };
+    let conn = Connection::open(&path).unwrap();
+    initialize(&conn).unwrap();
+    let saved = pack_attribution(&conn, &pack_id).unwrap();
+    assert_eq!(saved.author, "원작자");
+    let exported = export_pack(&conn, &[id], &[]).unwrap();
+    assert_eq!(exported.author, saved.author);
+    assert_eq!(exported.source_url, saved.source_url);
+    let json = pack_json(&exported).unwrap();
+    assert!(!json.contains("messages"));
+    assert!(!json.contains("affinity"));
+    assert!(save_pack_attribution(
+        &conn,
+        &pack_id,
+        &PackAttribution {
+            author: String::new(),
+            source_url: "javascript:bad".into()
+        }
+    )
+    .is_err());
+    assert_eq!(
+        pack_attribution(&conn, &pack_id).unwrap().author,
+        saved.author
+    );
+}
+
+#[test]
+fn v2_eight_member_pack_uses_source_ids_and_survives_definition_reordering() {
+    let conn = database();
+    let mut definition = builtin("a");
+    definition.source_id = "custom-character".into();
+    let original = create(&conn, &definition).unwrap();
+    let ids: Vec<String> = (0..8)
+        .map(|_| clone_character(&conn, &original.id).unwrap().id)
+        .collect();
+    apply_roster(&conn, ids.clone()).unwrap();
+    let authored = CharacterDialogue {
+        pair_scenes: vec![vec![
+            SceneLine {
+                persona: "h".into(),
+                expression: "평온".into(),
+                text: "  마지막 친구\n원문  ".into(),
+            },
+            SceneLine {
+                persona: "c".into(),
+                expression: "기쁨".into(),
+                text: "셋째".into(),
+            },
+        ]],
+        wordbook: vec![],
+    };
+    save_dialogue(&conn, &ids, &authored).unwrap();
+    let exported = export_pack(&conn, &ids, &[]).unwrap();
+    let json = pack_json(&exported).unwrap();
+    assert!(!ids.iter().any(|id| json.contains(id)));
+    let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(value["pairScenes"][0][0]["speaker"], "character-8");
+    assert!(value["pairScenes"][0][0].get("persona").is_none());
+    value["characters"].as_array_mut().unwrap().reverse();
+    let pack = parse_pack(&value.to_string()).unwrap();
+    let imported = import_pack(&conn, &pack).unwrap();
+    let imported_ids: Vec<_> = imported.iter().map(|c| c.id.clone()).collect();
+    apply_roster(&conn, imported_ids).unwrap();
+    let scene = idle_scene(&conn, 0).unwrap();
+    assert_eq!(scene[0].persona, "a");
+    assert_eq!(scene[0].text, "  마지막 친구\n원문  ");
+    assert_eq!(
+        resolve_lines(&conn, &scene).unwrap()[0].persona,
+        imported[0].id
+    );
+    value["pairScenes"][0][0]["speaker"] = serde_json::json!("missing");
+    assert!(parse_pack(&value.to_string()).is_err());
+}
+
+#[test]
+fn removed_builtins_are_not_reseeded_and_final_member_cannot_be_deleted() {
+    let conn = database();
+    let friend = clone_character(&conn, "builtin-a").unwrap();
+    apply_roster(&conn, vec![friend.id.clone()]).unwrap();
+    remove(&conn, "builtin-a").unwrap();
+    remove(&conn, "builtin-b").unwrap();
+    initialize(&conn).unwrap();
+    assert_eq!(collection(&conn).unwrap().installed.len(), 1);
+    assert!(remove(&conn, &friend.id).is_err());
+    initialize(&conn).unwrap();
+    assert_eq!(active_ids(&conn).unwrap(), [friend.id]);
 }

@@ -56,7 +56,7 @@ fn begin(
     prepare: impl FnOnce(&WidgetInstance) -> Result<Option<Value>, String>,
 ) -> Result<Job, String> {
     let _action = lock(&state.action)?;
-    if state.stopping.load(Ordering::SeqCst) {
+    if crate::unavailable(state) {
         return Err("앱을 종료하고 있습니다.".into());
     }
     let db = lock(&state.db)?;
@@ -74,7 +74,7 @@ fn begin(
     Ok(Job { instance, cancel })
 }
 fn is_current(state: &AppState, job: &Job, instance: &WidgetInstance) -> Result<bool, String> {
-    Ok(!state.stopping.load(Ordering::SeqCst)
+    Ok(!crate::unavailable(state)
         && !job.cancel.load(Ordering::SeqCst)
         && instance.installed
         && instance.enabled
@@ -597,7 +597,7 @@ pub(crate) fn open_widget_link(
     open_browser(&url)
 }
 pub(crate) fn start_due_widget_refreshes(app: &AppHandle, state: &Arc<AppState>) {
-    if state.stopping.load(Ordering::SeqCst) {
+    if crate::unavailable(state) {
         return;
     }
     let instances = match lock(&state.db).and_then(|db| storage::instances(&db)) {

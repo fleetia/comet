@@ -35,6 +35,9 @@ pub(crate) fn save_talk_file(
     expected_revision: String,
 ) -> Result<talk::editor::EditorDocument, String> {
     let _action = lock(&state.action)?;
+    if crate::app::unavailable(&state) {
+        return Err("앱을 정리하고 있어요.".into());
+    }
     if path == story_editor::PATH {
         let document = story_editor::save(&state.app_data, &source, &expected_revision)?;
         *lock(&state.story_catalog)? = story_editor::validate(&document.source)?;

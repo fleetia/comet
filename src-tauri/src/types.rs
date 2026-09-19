@@ -7,6 +7,20 @@ pub enum LocalModel {
     Qwen35_4B,
     #[serde(rename = "qwen3.5-9b")]
     Qwen35_9B,
+    #[serde(rename = "qwen3.8-2b-distill")]
+    Qwen38_2B,
+    #[serde(rename = "qwen3.8-4b-distill")]
+    Qwen38_4B,
+    #[serde(rename = "qwen3.8-9b-distill")]
+    Qwen38_9B,
+    #[serde(rename = "gemma-4-e4b")]
+    Gemma4E4B,
+    #[serde(rename = "gemma-4-12b")]
+    Gemma4_12B,
+    #[serde(rename = "ministral-3-8b")]
+    Ministral3_8B,
+    #[serde(rename = "custom")]
+    Custom,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -14,9 +28,17 @@ pub enum LocalModel {
 pub struct LocalModelStatus {
     pub id: LocalModel,
     pub name: String,
+    pub description: String,
     pub size: u64,
     pub ready: bool,
     pub downloaded_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalModelTest {
+    pub reply: String,
+    pub elapsed_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +47,8 @@ pub struct Settings {
     pub mode: String,
     #[serde(default)]
     pub local_model: LocalModel,
+    #[serde(default)]
+    pub local_model_path: String,
     pub base_url: String,
     pub api_model: String,
     pub api_token_parameter: String,
@@ -44,6 +68,7 @@ impl Default for Settings {
         Self {
             mode: "local".into(),
             local_model: LocalModel::default(),
+            local_model_path: String::new(),
             base_url: "https://api.openai.com/v1".into(),
             api_model: String::new(),
             api_token_parameter: "max_completion_tokens".into(),
@@ -206,10 +231,12 @@ mod tests {
     fn legacy_settings_default_to_four_b_and_selection_survives_reopen() {
         let mut legacy = serde_json::to_value(Settings::default()).unwrap();
         legacy.as_object_mut().unwrap().remove("localModel");
+        legacy.as_object_mut().unwrap().remove("localModelPath");
         legacy.as_object_mut().unwrap().remove("autonomousEnabled");
         legacy["idleMinutes"] = serde_json::json!(5);
         let settings: Settings = serde_json::from_value(legacy).unwrap();
         assert_eq!(settings.local_model, LocalModel::Qwen35_4B);
+        assert_eq!(settings.local_model_path, "");
         assert!(settings.autonomous_enabled);
         assert_eq!(settings.idle_minutes, 5);
         assert_eq!(Settings::default().idle_minutes, 2);

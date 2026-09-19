@@ -1,4 +1,6 @@
-// Source modules stay private in the app; these smokes intentionally use only part of them.
+#[allow(dead_code, unused_imports)]
+#[path = "../src/character_sprites.rs"]
+mod character_sprites;
 #[allow(dead_code, unused_imports)]
 #[path = "../src/characters.rs"]
 mod characters;
@@ -135,7 +137,7 @@ async fn main() -> Result<(), String> {
     inference::stop_local(&runtime).await;
     println!(
         "local_running_after_stop={}",
-        inference::is_local_running(&runtime, types::LocalModel::default()).await
+        inference::is_local_running(&runtime, &settings).await
     );
     Ok(())
 }

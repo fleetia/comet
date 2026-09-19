@@ -156,6 +156,48 @@ it("shows the selected model's verification and resumes only its own partial dow
   expect(screen.getByRole("button", { name: "모델 준비 완료" })).toHaveProperty("disabled", true);
 });
 
+it("tests the drafted local model and reports its reply without saving", async () => {
+  vi.mocked(command).mockResolvedValue({ reply: "안녕, 나는 코멧이야.", elapsedMs: 2345 });
+  render(<SettingsPanel snapshot={READY_4B} />);
+  fireEvent.click(screen.getByRole("tab", { name: "대화 모델" }));
+  expect(screen.getByRole("button", { name: "테스트하기" })).toHaveProperty("disabled", false);
+  fireEvent.change(screen.getByLabelText("로컬 모델"), { target: { value: "gemma-4-e4b" } });
+  expect(screen.getByText("Gemma 4 E4B Q4_K_M · 다운로드 4.98 GB")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "테스트하기" })).toHaveProperty("disabled", true);
+  fireEvent.change(screen.getByLabelText("로컬 모델"), { target: { value: "qwen3.5-4b" } });
+  fireEvent.click(screen.getByRole("button", { name: "테스트하기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("test_local_model", { settings: READY_4B.settings }),
+  );
+  await waitFor(() => expect(screen.getByText("2.3초 · 안녕, 나는 코멧이야.")).toBeTruthy());
+  expect(command).not.toHaveBeenCalledWith("save_settings", expect.anything());
+});
+
+it("lets a custom GGUF path replace the download flow and is tested with the draft path", async () => {
+  vi.mocked(command).mockResolvedValue({ reply: "응", elapsedMs: 900 });
+  render(<SettingsPanel snapshot={READY_4B} />);
+  fireEvent.click(screen.getByRole("tab", { name: "대화 모델" }));
+  fireEvent.change(screen.getByLabelText("로컬 모델"), { target: { value: "custom" } });
+  expect(screen.queryByRole("button", { name: /모델 내려받기|모델 준비 완료/ })).toBeNull();
+  expect(screen.getByRole("button", { name: "테스트하기" })).toHaveProperty("disabled", true);
+  fireEvent.change(screen.getByLabelText(/GGUF 파일 경로/), {
+    target: { value: "/models/mine.gguf" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "테스트하기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("test_local_model", {
+      settings: { ...READY_4B.settings, localModel: "custom", localModelPath: "/models/mine.gguf" },
+    }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "설정 저장" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("save_settings", {
+      settings: { ...READY_4B.settings, localModel: "custom", localModelPath: "/models/mine.gguf" },
+      apiKey: null,
+    }),
+  );
+});
+
 it("saves API credentials and idle settings, then clears the key input", async () => {
   render(<SettingsPanel snapshot={READY_4B} />);
   fireEvent.click(screen.getByRole("tab", { name: "대화 모델" }));

@@ -26,6 +26,9 @@ description: 현재 Tauri 앱의 코드 소유권과 생활 도구·외부 위�
 | `src-tauri/src/app/settings.rs` | 설정·모델·단어장·기억 관련 앱 명령 |
 | `src-tauri/src/app/windows.rs` | 패널·말풍선·본체 표시/숨김·일시정지·종료 명령 |
 | `src-tauri/src/desktop.rs`, `playback.rs` | 네이티브 창 배치와 재생 관련 규칙 |
+| `src-tauri/src/desktop_geometry.rs`, `desktop_menu.rs`, `character_sprites.rs` | 다중 캐릭터 창 배치, 트레이 메뉴, 표정 이미지 저장과 내부 이미지 주소 |
+| `src-tauri/src/behavior.rs`, `desktop_toys.rs`, `desktop_toys_macos.rs` | 자동 장난 상태·취소와 데스크톱 물체의 실행·창 경계 관측 |
+| `src-tauri/src/updater.rs` | 업데이트 확인·서명 검증·설치, 설치 전 작업 중단과 앱 소유 프로세스 정리 |
 | `src-tauri/src/store.rs`, `store/` | `store.rs`는 DB 초기화·설정·창 위치·revision·준비 장면과 기존 함수 진입점을 유지한다. `messages.rs`는 원문·당시 캐릭터 정체성·생성 대사 회상과 삽입 transaction, `memory.rs`는 기억 편집·분석 적용·캐릭터별 관계를 담당한다. |
 | `src-tauri/src/characters.rs`, `characters/` | `characters.rs`는 타입·설치·활성 자리·기본 정의 이전·팩 입출력과 기존 함수 진입점을 유지한다. `validation.rs`는 정의·대사·팩 JSON 검증, `dialogue.rs`는 소유 대사·자리 변환·인사·수다·키워드 선택을 담당한다. |
 | `src-tauri/src/character_commands.rs`, `character_files.rs` | 캐릭터 변경의 직렬화·트랜잭션·취소, 네이티브 파일 선택과 검증 후 저장 |
@@ -38,6 +41,7 @@ description: 현재 Tauri 앱의 코드 소유권과 생활 도구·외부 위�
 | `src-tauri/src/inference.rs` | 앱 소유 추론 프로세스·외부 API·자격 증명 |
 | `src-tauri/src/models.rs`, `resources.rs` | 고정 모델 다운로드와 로컬 준비 시점의 부하 판단 |
 | `scripts/prepare-sidecar.mjs` | 운영체제별 llama.cpp 실행기 준비 |
+| `.changeset/`, `scripts/release.py`, `scripts/finalize_release.py` | 변경 노트와 앱 버전 동기화, 배포 파일·updater manifest 검증 |
 
 2026-09-19 모듈 분리는 제품 동작·Tauri 명령 이름·저장 schema를 바꾸지 않는다. 앱 실행 조정은 `app/`, 저장과 캐릭터 내부 책임은 각각 `store/`·`characters/`로 나눈다. 기존 `store.rs`·`characters.rs` 경로와 함수 진입점을 유지하여 smoke 예제와 대본 CLI도 같은 도메인 구현을 사용한다. 기존 회귀 테스트는 `app/tests.rs`·`store/tests.rs`·`characters/tests.rs`에서 해당 내부 경계를 확인한다.
 

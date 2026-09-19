@@ -1,4 +1,5 @@
 use super::scene::{present_line, start_scene, wait_for_line};
+use super::unavailable;
 use super::{interrupt, is_current, lock, now, phase, publish, schedule_idle, AppState};
 use crate::{characters, domain, inference, models, store, story, types::*, wordbook};
 use rusqlite::Connection;
@@ -7,7 +8,8 @@ use std::sync::{
     Arc,
 };
 
-pub(super) fn validate_target(target: &str) -> Result<Vec<&str>, String> {
+#[cfg(test)]
+pub(crate) fn validate_target(target: &str) -> Result<Vec<&str>, String> {
     match target {
         "a" => Ok(vec!["a"]),
         "b" => Ok(vec!["b"]),
@@ -16,21 +18,24 @@ pub(super) fn validate_target(target: &str) -> Result<Vec<&str>, String> {
     }
 }
 
-pub(super) fn route_message(
+pub(crate) fn route_message(
     state: &AppState,
     db: &Connection,
     content: &str,
 ) -> Result<Option<Vec<SceneLine>>, String> {
-    let entries = wordbook::entries(db)?;
+    let entries: Vec<_> = wordbook::entries(db)?
+        .into_iter()
+        .filter(|entry| characters::resolve_lines(db, &entry.lines).is_ok())
+        .collect();
     if let Some(entry) = wordbook::match_entry(&entries, content) {
-        return Ok(Some(entry.lines.clone()));
+        return Ok(Some(characters::resolve_lines(db, &entry.lines)?));
     }
     if let Some(lines) = characters::keyword_scene(db, content)? {
-        return Ok(Some(lines));
+        return Ok(Some(characters::resolve_lines(db, &lines)?));
     }
     let settings = store::settings(db)?;
-    if settings.mode == "local" && !models::model_ready(&state.app_data, settings.local_model) {
-        return Err("설정에서 모델을 먼저 다운로드해 주세요.".into());
+    if settings.mode == "local" && !models::selected_ready(&state.app_data, &settings) {
+        return Err(inference::not_ready_message(&settings));
     }
     if settings.mode == "api"
         && (settings.api_model.trim().is_empty() || !inference::has_api_key(&settings))
@@ -41,27 +46,27 @@ pub(super) fn route_message(
 }
 
 #[tauri::command]
-pub(super) async fn send_message(
+pub(crate) async fn send_message(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     content: String,
     target: String,
     client_message_id: String,
 ) -> Result<(), String> {
-    validate_target(&target)?;
     let content = content.trim();
     if content.is_empty() || content.chars().count() > 2000 {
         return Err("대화는 1~2,000자로 입력해 주세요.".into());
     }
     uuid::Uuid::parse_str(&client_message_id)
         .map_err(|_| "메시지 식별자가 올바르지 않아요.".to_string())?;
-    let (token, registered) = {
+    let (token, registered, targets) = {
         let _action = lock(&state.action)?;
-        if state.stopping.load(Ordering::SeqCst) {
+        if unavailable(&state) {
             return Err("앱을 종료하고 있어요.".into());
         }
         let db = lock(&state.db)?;
         let settings = store::settings(&db)?;
+        let targets = resolve_targets(&db, &target)?;
         let exists: bool = db
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM messages WHERE id=?1)",
@@ -89,7 +94,7 @@ pub(super) async fn send_message(
         *lock(&state.panel)? = None;
         state.last_input.store(now(), Ordering::SeqCst);
         schedule_idle(&state, settings.idle_minutes);
-        (token, registered)
+        (token, registered, targets)
     };
     if let Some(lines) = registered {
         start_scene(
@@ -105,10 +110,7 @@ pub(super) async fn send_message(
     start_turn(
         app,
         state.inner().clone(),
-        validate_target(&target)?
-            .into_iter()
-            .map(str::to_string)
-            .collect(),
+        targets,
         client_message_id,
         token,
     );
@@ -116,7 +118,7 @@ pub(super) async fn send_message(
 }
 
 #[tauri::command]
-pub(super) fn retry_turn(
+pub(crate) fn retry_turn(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     message_id: String,
@@ -124,7 +126,7 @@ pub(super) fn retry_turn(
 ) -> Result<(), String> {
     let (targets, token, registered) = {
         let _action = lock(&state.action)?;
-        if state.stopping.load(Ordering::SeqCst) {
+        if unavailable(&state) {
             return Err("앱을 종료하고 있어요.".into());
         }
         let db = lock(&state.db)?;
@@ -139,17 +141,23 @@ pub(super) fn retry_turn(
         }
         ensure_retry_characters(&db, &message_id, &target)?;
         let registered = route_message(&state, &db, &latest.content)?;
-        let completed = validate_target(latest.persona.as_deref().unwrap_or(""))?
+        let original = store::message_targets(&db, &message_id)?;
+        let requested = if target == "all" {
+            original.clone()
+        } else {
+            resolve_targets(&db, &target)?
+        };
+        let targets = requested
             .into_iter()
-            .filter(|persona| {
-                history
+            .filter(|id| {
+                !history
                     .iter()
-                    .any(|m| m.id == reply_id(&message_id, persona) && m.status == "complete")
+                    .any(|m| m.id == reply_id(&message_id, id) && m.status == "complete")
             })
-            .map(str::to_string)
             .collect::<Vec<_>>();
-        let targets =
-            remaining_retry(latest.persona.as_deref().unwrap_or(""), &target, &completed)?;
+        if targets.iter().any(|id| !original.contains(id)) {
+            return Err("원래 대화 상대에게만 다시 요청할 수 있어요.".into());
+        }
         if targets.is_empty() && registered.is_none() {
             return Ok(());
         }
@@ -175,28 +183,36 @@ pub(super) fn retry_turn(
     Ok(())
 }
 
-pub(super) fn reply_id(message_id: &str, persona: &str) -> String {
+pub(crate) fn reply_id(message_id: &str, persona: &str) -> String {
     format!("reply:{message_id}:{persona}")
 }
-pub(super) fn ensure_retry_characters(
+pub(crate) fn ensure_retry_characters(
     db: &Connection,
     message_id: &str,
     target: &str,
 ) -> Result<(), String> {
     let identities = store::message_identities(db, 100)?;
-    for persona in validate_target(target)? {
-        let current = characters::active_character(db, persona)?;
-        if !identities.iter().any(|identity| {
-            identity.message_id == message_id
-                && identity.persona == persona
-                && identity.character_id == current.id
-        }) {
+    let targets = if target == "all" {
+        store::message_targets(db, message_id)?
+    } else {
+        resolve_targets(db, target)?
+    };
+    let active = characters::active_ids(db)?;
+    for id in targets {
+        if !active.contains(&id) {
+            return Err("대화 상대가 바뀌었어요. 새 메시지로 말해 주세요.".into());
+        }
+        if !identities
+            .iter()
+            .any(|identity| identity.message_id == message_id && identity.character_id == id)
+        {
             return Err("대화 상대가 바뀌었어요. 현재 캐릭터에게 새 메시지로 말해 주세요.".into());
         }
     }
     Ok(())
 }
-pub(super) fn remaining_retry(
+#[cfg(test)]
+pub(crate) fn remaining_retry(
     original: &str,
     requested: &str,
     completed: &[String],
@@ -216,7 +232,7 @@ pub(super) fn remaining_retry(
         .collect())
 }
 
-pub(super) fn start_turn(
+pub(crate) fn start_turn(
     app: tauri::AppHandle,
     state: Arc<AppState>,
     targets: Vec<String>,
@@ -256,7 +272,7 @@ pub(super) fn start_turn(
     });
 }
 
-pub(super) fn turn_prompt(
+pub(crate) fn turn_prompt(
     db: &Connection,
     targets: &[String],
     message_id: &str,
@@ -264,61 +280,65 @@ pub(super) fn turn_prompt(
     let memories = store::memories(db)?;
     let relationships = store::relationships(db)?;
     match targets {
-        [a, b] if a == "a" && b == "b" => {
+        [a, b] => {
             let histories = [
-                story::prompt_history(db, "a", store::context_messages_for(db, 24, "a")?)?,
-                story::prompt_history(db, "b", store::context_messages_for(db, 24, "b")?)?,
+                story::prompt_history(db, a, store::context_messages_for(db, 24, a)?)?,
+                story::prompt_history(db, b, store::context_messages_for(db, 24, b)?)?,
             ];
-            let latest_user = histories[0]
+            let latest = histories[0]
                 .iter()
-                .find(|message| {
-                    message.id == message_id
-                        && message.role == "user"
-                        && message.status == "complete"
-                        && message.persona.as_deref() == Some("both")
-                        && histories[1].iter().any(|other| other.id == message.id)
+                .find(|m| {
+                    m.id == message_id
+                        && m.role == "user"
+                        && histories[1].iter().any(|other| other.id == m.id)
                 })
                 .ok_or("대화의 근거가 변경되었어요. 새 메시지로 말해 주세요.")?;
-            Ok(domain::pair_prompt_messages(
-                &[
-                    story::profile(db, characters::active_character(db, "a")?)?,
-                    story::profile(db, characters::active_character(db, "b")?)?,
-                ],
-                &histories,
-                &memories,
-                &relationships,
-                latest_user,
-            ))
+            let mut members = [
+                characters::active_character(db, a)?,
+                characters::active_character(db, b)?,
+            ];
+            for member in &mut members {
+                member.definition = story::profile(db, member.clone())?;
+            }
+            if a == "a" && b == "b" {
+                Ok(domain::pair_prompt_messages(
+                    &[members[0].definition.clone(), members[1].definition.clone()],
+                    &histories,
+                    &memories,
+                    &relationships,
+                    latest,
+                ))
+            } else {
+                Ok(domain::roster_pair_prompt(
+                    &members,
+                    &histories,
+                    &memories,
+                    &relationships,
+                    latest,
+                ))
+            }
         }
-        [persona] if persona == "a" || persona == "b" => {
+        [persona] => {
+            let member = characters::active_character(db, persona)?;
             let mut messages = store::context_messages_for(db, 24, persona)?;
-            let is_pair_reply = messages.iter().any(|message| {
-                message.id == message_id
-                    && message.role == "user"
-                    && message.status == "complete"
-                    && message.persona.as_deref() == Some("both")
-            });
-            if is_pair_reply {
-                let other = if persona == "a" { "b" } else { "a" };
-                let previous = store::context_messages_for(db, 100, other)?;
-                if let Some(reply) = previous.into_iter().find(|message| {
-                    message.id == reply_id(message_id, other)
-                        && message.role == "assistant"
-                        && message.status == "complete"
-                }) {
-                    if !messages.iter().any(|message| message.id == reply.id) {
-                        messages.push(reply);
-                    }
+            // Earlier replies in this same turn are reference data, never the user's words.
+            for reply in store::context_messages(db, 100)?.into_iter().filter(|m| {
+                m.role == "assistant"
+                    && m.id.starts_with(&format!("reply:{message_id}:"))
+                    && m.status == "complete"
+            }) {
+                if !messages.iter().any(|m| m.id == reply.id) {
+                    messages.push(reply);
                 }
             }
             let messages = story::prompt_history(db, persona, messages)?;
             let score = relationships
                 .iter()
-                .find(|relationship| relationship.persona == *persona)
-                .map_or(20, |relationship| relationship.score);
+                .find(|r| r.persona == member.id)
+                .map_or(20, |r| r.score);
             Ok(domain::prompt_messages(
                 persona,
-                &story::profile(db, characters::active_character(db, persona)?)?,
+                &story::profile(db, member.clone())?,
                 &messages,
                 &memories,
                 &Relationship {
@@ -331,7 +351,7 @@ pub(super) fn turn_prompt(
     }
 }
 
-pub(super) async fn generate_turn(
+pub(crate) async fn generate_turn(
     state: &AppState,
     targets: &[String],
     message_id: &str,
@@ -351,16 +371,16 @@ pub(super) async fn generate_turn(
         &settings,
         &prompt,
         if paired {
-            domain::pair_reply_schema()
+            domain::scene_schema_for(targets, 2, 2)
         } else {
-            domain::reply_schema()
+            domain::reply_schema_for(targets)
         },
         if paired { 512 } else { 256 },
         cancel,
     )
     .await?;
     let lines = if paired {
-        domain::parse_pair_reply(value)?
+        domain::parse_lines_for(value, targets, 2, 2, true)?
     } else {
         let line = domain::parse_reply(value)?;
         if targets
@@ -374,7 +394,7 @@ pub(super) async fn generate_turn(
     Ok((lines, revision))
 }
 
-pub(super) async fn run_turn(
+pub(crate) async fn run_turn(
     app: &tauri::AppHandle,
     state: &AppState,
     targets: &[String],
@@ -393,24 +413,50 @@ pub(super) async fn run_turn(
         targets.first().cloned(),
         None,
     );
-    let (lines, revision) = generate_turn(state, targets, message_id, cancel.clone()).await?;
-    for (index, line) in lines.iter().enumerate() {
-        if !present_line(
-            state,
-            line,
-            "llm",
-            &reply_id(message_id, &line.persona),
-            index,
-            lines.len(),
-            revision,
-            epoch,
-            &cancel,
-            true,
-        )? {
+    let groups: Vec<Vec<String>> = if targets.len() <= 2 {
+        vec![targets.to_vec()]
+    } else {
+        targets.iter().map(|id| vec![id.clone()]).collect()
+    };
+    let mut shown = 0;
+    for group in groups {
+        if !is_current(state, epoch, &cancel) {
             return Ok(());
         }
-        publish(app, state);
-        wait_for_line(app, state, epoch, cancel.clone(), &line.text).await?;
+        let (lines, revision) = generate_turn(state, &group, message_id, cancel.clone()).await?;
+        for line in &lines {
+            if !present_line(
+                state,
+                line,
+                "llm",
+                &reply_id(message_id, &line.persona),
+                shown,
+                targets.len(),
+                revision,
+                epoch,
+                &cancel,
+                true,
+            )? {
+                return Ok(());
+            }
+            shown += 1;
+            publish(app, state);
+            wait_for_line(app, state, epoch, cancel.clone(), &line.text).await?;
+        }
     }
+
     Ok(())
+}
+
+pub(crate) fn resolve_targets(db: &Connection, target: &str) -> Result<Vec<String>, String> {
+    if target == "all" {
+        return characters::active_ids(db);
+    }
+    if target == "both" {
+        return ["a", "b"]
+            .iter()
+            .map(|slot| characters::active_character(db, slot).map(|c| c.id))
+            .collect();
+    }
+    Ok(vec![characters::active_character(db, target)?.id])
 }

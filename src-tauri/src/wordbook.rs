@@ -70,7 +70,7 @@ fn validate(entry: &WordbookEntry) -> Result<()> {
         return Err("대사는 1~8줄 등록해 주세요.".into());
     }
     if entry.lines.iter().any(|line| {
-        !["a", "b"].contains(&line.persona.as_str())
+        crate::characters::slot_index(&line.persona).is_err()
             || !allowed_expression(&line.expression)
             || line.text.trim().is_empty()
             || line.text.chars().count() > 300
@@ -282,7 +282,7 @@ mod tests {
             assert!(save(&conn, &invalid).is_err());
         }
         invalid = valid.clone();
-        invalid.lines[0].persona = "c".into();
+        invalid.lines[0].persona = "i".into();
         assert!(save(&conn, &invalid).is_err());
         invalid = valid.clone();
         invalid.lines[0].expression = "unknown".into();

@@ -10,7 +10,7 @@ pub fn read_pack(path: &Path) -> Result<CharacterPack, String> {
     let file = File::open(path).map_err(|error| error.to_string())?;
     let metadata = file.metadata().map_err(|error| error.to_string())?;
     if !metadata.is_file() || metadata.len() > MAX_PACK_BYTES as u64 {
-        return Err("1 MiB 이하의 캐릭터팩 파일을 선택해 주세요.".into());
+        return Err("32 MiB 이하의 캐릭터팩 파일을 선택해 주세요.".into());
     }
     let mut json = String::new();
     file.take(MAX_PACK_BYTES as u64 + 1)
@@ -91,12 +91,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn bundled_example_packs_pass_validation() {
+        let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/character-packs");
+        let pair = read_pack(&examples.join("nadir-and-star-tail.comet-character.json")).unwrap();
+        assert_eq!(pair.characters.len(), 2);
+        assert!(pair.sprites.is_empty());
+        let byul = read_pack(&examples.join("byulkkori.comet-character.json")).unwrap();
+        assert_eq!(byul.characters[0].name, "별꼬리");
+        assert!(byul.characters[0].face_icon);
+        assert_eq!(byul.characters[0].expressions.len(), 9);
+        assert_eq!(byul.sprites.len(), 9);
+        assert!(byul.sprites.iter().all(|s| s.mime == "image/svg+xml"));
+    }
+
+    #[test]
     fn file_roundtrip_is_validated_and_failed_save_preserves_destination() {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         characters::initialize(&conn).unwrap();
         let pack = characters::export_pack(&conn, &["builtin-a".into()], &[]).unwrap();
-        let json = serde_json::to_string_pretty(&pack).unwrap();
+        let json = characters::pack_json(&pack).unwrap();
         let path = dir.path().join("shared.comet-character.json");
         write_pack(&path, &json).unwrap();
         assert_eq!(

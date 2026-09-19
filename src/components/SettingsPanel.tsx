@@ -1,4 +1,5 @@
-import { useState, type JSX } from "react";
+import { useEffect, useState, type JSX } from "react";
+import { listen } from "@tauri-apps/api/event";
 import {
   Button,
   Checkbox,
@@ -11,6 +12,9 @@ import {
   TextField,
 } from "@fleetia/lagrange";
 import type { Snapshot } from "../types";
+import { errorText, isDesktop } from "../hooks/useSnapshot";
+import { DesktopPreferences } from "./DesktopPreferences";
+import { UpdatePanel } from "./UpdatePanel";
 import { useSettingsDraft } from "../hooks/useSettingsDraft";
 import { MemorySettings } from "./MemorySettings";
 import { ModelSettings } from "./ModelSettings";
@@ -21,7 +25,29 @@ import * as d from "../desktop.css";
 
 type Props = { snapshot: Snapshot; preview?: boolean };
 export function SettingsPanel({ snapshot, preview = false }: Props): JSX.Element {
-  const [section, setSection] = useState("general");
+  const [navigationError, setNavigationError] = useState<string | null>(null);
+  const [section, setSection] = useState(
+    new URLSearchParams(window.location.search).get("section") === "updates"
+      ? "updates"
+      : "general",
+  );
+  useEffect(() => {
+    if (!isDesktop()) return;
+    let disposed = false;
+    let cleanup: (() => void) | undefined;
+    void listen("open-updates", () => setSection("updates"))
+      .then((unlisten) => {
+        if (disposed) unlisten();
+        else cleanup = unlisten;
+      })
+      .catch((cause: unknown) => {
+        if (!disposed) setNavigationError(errorText(cause));
+      });
+    return () => {
+      disposed = true;
+      cleanup?.();
+    };
+  }, []);
   const draft = useSettingsDraft(snapshot.settings);
   const { settings, pending, error, notice, hasChanges, validInterval, change, run, reset } = draft;
   const isSettingsSection = section === "general" || section === "model";
@@ -35,12 +61,16 @@ export function SettingsPanel({ snapshot, preview = false }: Props): JSX.Element
           <p className={s.quiet}>함께 지내는 방식과 나만의 대사를 정해요.</p>
         </div>
       </WindowHeader>
+      {navigationError && (
+        <p className={s.error} role="alert">{navigationError}</p>
+      )}
       <Tabs value={section} onValueChange={setSection} className={d.tabs}>
         <TabList aria-label="설정 항목" className={d.tabList}>
           <Tab value="general">기본 동작</Tab>
           <Tab value="model">대화 모델</Tab>
           <Tab value="wordbook">개인 단어장</Tab>
           <Tab value="memory">기억</Tab>
+          <Tab value="updates">업데이트</Tab>
         </TabList>
         <TabPanel value="general" className={d.tabPanel}>
           <p className={d.info}>
@@ -111,7 +141,9 @@ export function SettingsPanel({ snapshot, preview = false }: Props): JSX.Element
           )}
           <details className={d.disclosure}>
             <summary className={d.disclosureSummary}>표시와 종료</summary>
-            <p className={s.quiet}>상자를 숨겨도 메뉴 막대에서 다시 열 수 있어요.</p>
+            <p className={s.quiet}>
+              캐릭터를 숨겨도 위젯을 사용할 수 있어요. 메뉴 막대나 알림 영역에서 각각 다시 열 수 있어요.
+            </p>
             <div className={s.row}>
               <Button
                 variant="secondary"
@@ -125,6 +157,10 @@ export function SettingsPanel({ snapshot, preview = false }: Props): JSX.Element
               </Button>
             </div>
           </details>
+          <DesktopPreferences hidden={snapshot.runtime.hidden} />
+        </TabPanel>
+        <TabPanel value="updates" className={d.tabPanel}>
+          <UpdatePanel />
         </TabPanel>
         <TabPanel value="model" className={d.tabPanel}>
           <ModelSettings snapshot={snapshot} draft={draft} />

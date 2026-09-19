@@ -110,8 +110,9 @@ export function DesktopPreview({ initial }: { initial: Snapshot }): JSX.Element 
         )}
         {!state.runtime.hidden && (
           <div className={s.actors}>
-            <CompanionBox persona="a" snapshot={snapshot} dispatch={dispatch} preview />
-            <CompanionBox persona="b" snapshot={snapshot} dispatch={dispatch} preview />
+            {snapshot.characters.active.map((id) => (
+              <CompanionBox key={id} id={id} snapshot={snapshot} dispatch={dispatch} preview />
+            ))}
           </div>
         )}
       </div>

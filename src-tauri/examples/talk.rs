@@ -17,7 +17,7 @@ struct Input {
     values: BTreeMap<String, Value>,
     #[serde(default)]
     available: BTreeSet<String>,
-    active: [String; 2],
+    active: Vec<String>,
     #[serde(default = "idle")]
     trigger: String,
     #[serde(default)]
@@ -139,8 +139,13 @@ fn fixture(
     if !registry.events.contains(&input.trigger) {
         return Err(format!("Unknown trigger: {}", input.trigger));
     }
-    if input.active.iter().any(|id| id.trim().is_empty()) || input.active[0] == input.active[1] {
-        return Err("active must contain two distinct nonempty character IDs".into());
+    let distinct = input.active.iter().collect::<BTreeSet<_>>();
+    if input.active.is_empty()
+        || input.active.len() > 8
+        || distinct.len() != input.active.len()
+        || input.active.iter().any(|id| id.trim().is_empty())
+    {
+        return Err("active must contain 1 to 8 distinct nonempty character IDs".into());
     }
     Ok((
         EvalContext {
@@ -195,8 +200,8 @@ fn run(arguments: &[String]) -> Result<Value, String> {
         Some("characters") => {
             let options = options(&arguments[1..], &["--db"])?;
             let db = readonly(options.get("--db").ok_or(USAGE)?)?;
-            let mut statement = db.prepare("SELECT c.id,json_extract(c.data,'$.name'),s.slot FROM characters c LEFT JOIN character_slots s ON s.character_id=c.id ORDER BY c.seq").map_err(|error| error.to_string())?;
-            let rows = statement.query_map([], |row| Ok(json!({"id":row.get::<_,String>(0)?,"name":row.get::<_,String>(1)?,"slot":row.get::<_,Option<String>>(2)?}))).map_err(|error| error.to_string())?;
+            let mut statement = db.prepare("SELECT c.id,json_extract(c.data,'$.name'),r.position FROM characters c LEFT JOIN character_roster r ON r.character_id=c.id ORDER BY c.seq").map_err(|error| error.to_string())?;
+            let rows = statement.query_map([], |row| Ok(json!({"id":row.get::<_,String>(0)?,"name":row.get::<_,String>(1)?,"position":row.get::<_,Option<i64>>(2)?}))).map_err(|error| error.to_string())?;
             let result = rows
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|error| error.to_string())?;

@@ -112,7 +112,7 @@ pub fn prepare_from_catalog(
     }
     let score = crate::store::relationships(db)?
         .into_iter()
-        .find(|r| r.persona == persona)
+        .find(|r| r.persona == character.id)
         .map(|r| r.score)
         .unwrap_or(20);
     let chapter = disclosure_level(db, &character.id, score)?;
@@ -233,8 +233,7 @@ pub fn prompt_history(
     if !matches!(target.definition.source_id.as_str(), "nadir" | "star-tail") {
         return Ok(messages);
     }
-    for slot in ["a", "b"] {
-        let character = crate::characters::active_character(db, slot)?;
+    for character in crate::characters::active_members(db)? {
         if character.definition.source_id != "nadir" {
             continue;
         }
@@ -439,5 +438,49 @@ mod tests {
         assert_ne!(next.scene.id, request.scene.id);
         assert_eq!(next.character_id, request.character_id);
         assert_eq!(crate::store::relationships(&db).unwrap()[1].score, 25);
+    }
+    #[test]
+    fn canonical_story_and_history_follow_nadir_beyond_the_first_two_slots() {
+        let db = database(std::path::Path::new(":memory:"));
+        let mut definition = crate::characters::active_character(&db, "b")
+            .unwrap()
+            .definition;
+        definition.source_id = "custom".into();
+        let custom = crate::characters::create(&db, &definition).unwrap();
+        crate::characters::apply_roster(
+            &db,
+            vec![custom.id, "builtin-b".into(), "builtin-a".into()],
+        )
+        .unwrap();
+        for seed in 0..5 {
+            let request = prepare(&db, "c", 7, seed).unwrap().unwrap();
+            assert_eq!(request.character_id, "builtin-a");
+            answer(&db, &request, "listen", 7).unwrap();
+        }
+        assert_eq!(
+            prepare(&db, "builtin-a", 7, 0)
+                .unwrap()
+                .unwrap()
+                .scene
+                .chapter,
+            1
+        );
+        let messages = vec![crate::types::Message {
+            id: "private".into(),
+            role: "assistant".into(),
+            persona: Some("builtin-a".into()),
+            content: "earlier private story".into(),
+            expression: None,
+            created_at: 0,
+            status: "complete".into(),
+        }];
+        assert!(prompt_history(&db, "builtin-b", messages.clone())
+            .unwrap()
+            .is_empty());
+        crate::characters::apply_roster(&db, vec!["builtin-a".into()]).unwrap();
+        assert!(prompt_history(&db, "builtin-a", messages)
+            .unwrap()
+            .is_empty());
+        assert_eq!(prepare(&db, "a", 7, 0).unwrap().unwrap().scene.chapter, 1);
     }
 }

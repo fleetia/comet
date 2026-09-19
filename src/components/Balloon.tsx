@@ -5,8 +5,15 @@ import { command, errorText } from "../hooks/useSnapshot";
 import { useBalloonSizing } from "../hooks/useBalloonSizing";
 import * as s from "./companion.css";
 import * as ui from "../lagrange.css";
-import { characterName } from "./characterIdentity";
 import { StoryChoices } from "./StoryChoices";
+import {
+  activeCharacter,
+  BALLOON_SPRITE,
+  characterName,
+  spriteSource,
+  spriteUrl,
+} from "./characterIdentity";
+import { skinStyle, useImageSlice } from "../hooks/useImageSlice";
 
 type Props = { snapshot: Snapshot; preview?: boolean; dispatch?: Dispatch };
 
@@ -36,15 +43,30 @@ export function shouldSubmit(
   );
 }
 export function Balloon({ snapshot, preview = false, dispatch = command }: Props): JSX.Element {
-  const persona: Persona =
+  const speaker: Persona =
     snapshot.panel?.persona ??
     snapshot.story?.persona ??
     snapshot.playback?.persona ??
-    (snapshot.runtime.persona === "b" ? "b" : "a");
+    snapshot.runtime.persona ??
+    snapshot.characters.active[0] ??
+    "a";
+  const persona = activeCharacter(snapshot, speaker)?.id ?? speaker;
   const mode = snapshot.panel?.mode;
   const name = characterName(snapshot, persona);
+  const character = activeCharacter(snapshot, persona);
+  const speakerLabel =
+    snapshot.playback && spriteSource(character, snapshot.playback.expression) ? "" : name;
+  const skin = spriteUrl(character, BALLOON_SPRITE);
+  const slice = useImageSlice(skin);
+  const skinned = skin && slice ? skinStyle(skin, slice) : undefined;
+  const transparent = Boolean(skinned) && !preview;
+  useEffect(() => {
+    if (!transparent) return;
+    document.documentElement.classList.add(s.transparentDocument);
+    return () => document.documentElement.classList.remove(s.transparentDocument);
+  }, [transparent]);
   const [input, setInput] = useState("");
-  const [target, setTarget] = useState<Persona | "both">(persona);
+  const [target, setTarget] = useState<Persona | "all">(persona);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const composing = useRef(false);
@@ -110,7 +132,8 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
   return (
     <section
       ref={balloonRef}
-      className={`${s.balloon} ${preview ? s.balloonPreview : ""}`}
+      className={`${s.balloon} ${preview ? s.balloonPreview : ""} ${skinned ? s.balloonSkinned : ""}`}
+      style={skinned}
       aria-label={mode ? labels[mode] : "말풍선"}
     >
       <header className={s.balloonHeader}>
@@ -123,7 +146,7 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
             메뉴로
           </Button>
         )}
-        <span>{mode ? labels[mode] : name}</span>
+        <span>{mode ? labels[mode] : speakerLabel}</span>
         <IconButton
           size="compact"
           variant="quiet"
@@ -149,7 +172,7 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
                 className={s.menuItem}
                 onClick={() => void perform("talk_now")}
               >
-                둘이 이야기해 봐
+                {snapshot.characters.active.length > 1 ? "함께 이야기해 봐" : "혼잣말 들어 보기"}
               </Button>
               <Button
                 variant="quiet"
@@ -226,10 +249,10 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
               <Select
                 className={s.recipient}
                 value={target}
-                onChange={(event) => setTarget(event.target.value as Persona | "both")}
+                onChange={(event) => setTarget(event.target.value as Persona | "all")}
               >
                 <option value={persona}>{name}</option>
-                <option value="both">둘 모두</option>
+                {snapshot.characters.active.length > 1 && <option value="all">모두에게</option>}
               </Select>
             </label>
             <span className={ui.quiet}>Shift + Enter 줄바꿈</span>
@@ -238,7 +261,7 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
             resize="none"
             ref={inputRef}
             className={s.input}
-            aria-label={`${name}에게 할 말`}
+            aria-label={target === "all" ? "모두에게 할 말" : `${name}에게 할 말`}
             value={input}
             rows={3}
             maxLength={2000}
@@ -294,10 +317,7 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
           <div className={s.footer}>
             {snapshot.relationships.map((relationship) => (
               <span key={relationship.persona}>
-                {relationship.persona === "a" || relationship.persona === "b"
-                  ? characterName(snapshot, relationship.persona)
-                  : relationship.persona}{" "}
-                친밀도 {relationship.score}/100
+                {characterName(snapshot, relationship.persona)} 친밀도 {relationship.score}/100
               </span>
             ))}
           </div>

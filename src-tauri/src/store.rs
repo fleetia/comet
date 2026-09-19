@@ -8,10 +8,11 @@ pub use memory::{
     set_last_analysis_id,
 };
 #[cfg(test)]
-pub use messages::{context_messages, insert_message_with_talk};
+pub use messages::insert_message_with_talk;
 pub use messages::{
-    context_messages_for, expire_generated_recall, insert_message, insert_message_with_source,
-    message_identities, messages, resume_conversation, MessageIdentity,
+    context_messages, context_messages_for, expire_generated_recall, insert_message,
+    insert_message_with_source, message_identities, message_targets, messages, resume_conversation,
+    MessageIdentity,
 };
 use messages::{initialize_identities, initialize_message_context};
 

@@ -38,19 +38,18 @@ pub fn delete_memory(conn: &Connection, id: &str) -> Result<()> {
     tx.commit().map_err(err)
 }
 pub fn relationships(conn: &Connection) -> Result<Vec<Relationship>> {
-    ["a", "b"]
+    crate::characters::active_ids(conn)?
         .iter()
-        .map(|p| {
-            let character = crate::characters::active_character(conn, p)?;
+        .map(|id| {
             let sum: i32 = conn
                 .query_row(
                     "SELECT COALESCE(SUM(delta),0) FROM character_affinity WHERE character_id=?",
-                    [&character.id],
+                    [id],
                     |r| r.get(0),
                 )
                 .map_err(err)?;
             Ok(Relationship {
-                persona: (*p).into(),
+                persona: id.clone(),
                 score: (20 + sum).clamp(0, 100),
             })
         })
@@ -153,16 +152,14 @@ pub fn analyze_apply(conn: &Connection, value: &Value) -> Result<()> {
     if let Some(items) = value.get("events").and_then(Value::as_array) {
         for item in items.iter().take(24) {
             let persona = field(item, "persona");
-            if !["a", "b"].contains(&persona)
-                || item.get("certain").and_then(Value::as_bool) != Some(true)
-            {
+            if item.get("certain").and_then(Value::as_bool) != Some(true) {
                 continue;
             }
             let Some(source) = evidence(&tx, item)? else {
                 continue;
             };
             if source.persona.as_deref() != Some(persona)
-                && source.persona.as_deref() != Some("both")
+                && !matches!(source.persona.as_deref(), Some("both" | "all"))
             {
                 continue;
             }

@@ -1,7 +1,7 @@
 use super::validation::{validate_scene, validate_wordbook};
 use super::{
     active_character, active_ids, builtin, factory_pack, get, pack_record, slot_index,
-    CharacterDialogue, CharacterPack, Result, MAX_PACK_BYTES,
+    CharacterDialogue, CharacterPack, Result, MAX_PACK_BYTES, MAX_ROSTER, SLOTS,
 };
 use crate::types::SceneLine;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -18,7 +18,7 @@ pub(super) fn remap(
             let source = members.get(slot_index(&line.persona).ok()?)?;
             let index = targets.iter().position(|id| id == source)?;
             Some(SceneLine {
-                persona: ["a", "b"][index].into(),
+                persona: SLOTS[index].into(),
                 expression: line.expression.clone(),
                 text: line.text.clone(),
             })
@@ -68,8 +68,10 @@ pub fn greeting(conn: &Connection, slot: &str) -> Result<Vec<SceneLine>> {
         .collect())
 }
 fn canonical_members(ids: &[String]) -> Result<(Vec<String>, String)> {
-    if !(1..=2).contains(&ids.len()) || ids.len() == 2 && ids[0] == ids[1] {
-        return Err("서로 다른 캐릭터 1~2명을 선택해 주세요.".into());
+    if !(1..=MAX_ROSTER).contains(&ids.len())
+        || ids.iter().collect::<HashSet<_>>().len() != ids.len()
+    {
+        return Err("서로 다른 캐릭터 1~8명을 선택해 주세요.".into());
     }
     let mut canonical = ids.to_vec();
     canonical.sort();
@@ -138,7 +140,7 @@ pub fn dialogue(conn: &Connection, ids: &[String]) -> Result<CharacterDialogue> 
     }
     let mut result = CharacterDialogue::default();
     let mut overridden = HashSet::new();
-    if ids.len() == 2 {
+    if ids.len() > 1 {
         for id in ids {
             if let Some(single) = local_dialogue(conn, std::slice::from_ref(id))? {
                 let mut mapped = mapped_dialogue(single, std::slice::from_ref(id), ids)?;
@@ -180,7 +182,7 @@ pub fn dialogue(conn: &Connection, ids: &[String]) -> Result<CharacterDialogue> 
             &members,
             ids,
         )?;
-        if ids.len() == 2 {
+        if ids.len() > 1 {
             scope_wordbook_ids(&mut mapped, &members)?;
         }
         result.pair_scenes.extend(mapped.pair_scenes);
@@ -229,7 +231,7 @@ pub fn idle_scene(conn: &Connection, index: usize) -> Result<Vec<SceneLine>> {
         return Ok(scenes[index % scenes.len()].clone());
     }
     let mut lines = Vec::new();
-    for (slot, id) in ["a", "b"].iter().zip(&ids) {
+    for (slot, id) in SLOTS.iter().zip(&ids) {
         let definition = get(conn, id)?.definition;
         let line = &definition.idle_lines[index % definition.idle_lines.len()];
         lines.push(SceneLine {

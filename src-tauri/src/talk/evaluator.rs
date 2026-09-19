@@ -87,13 +87,15 @@ fn rank(key: &str, seed: u64) -> u64 {
 }
 fn member_slot(context: &EvalContext, member: &str) -> Option<usize> {
     if let Some(source) = member.strip_prefix("source:") {
-        ["a", "b"].iter().position(|persona| {
-            context
-                .values
-                .get(&format!("character.{persona}.sourceId"))
-                .and_then(Value::as_str)
-                == Some(source)
-        })
+        crate::characters::SLOTS[..context.active.len()]
+            .iter()
+            .position(|persona| {
+                context
+                    .values
+                    .get(&format!("character.{persona}.sourceId"))
+                    .and_then(Value::as_str)
+                    == Some(source)
+            })
     } else {
         context.active.iter().position(|id| id == member)
     }
@@ -108,8 +110,14 @@ fn eligible(
         return Err("trigger_mismatch".into());
     }
     if let Some(pair) = &scene.pair {
-        let slots = pair.each_ref().map(|id| member_slot(context, id));
-        if slots.iter().any(Option::is_none) || slots[0] == slots[1] {
+        let slots: Vec<_> = pair.iter().map(|id| member_slot(context, id)).collect();
+        if slots.iter().any(Option::is_none)
+            || slots
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                != slots.len()
+        {
             return Err("pair_mismatch".into());
         }
     }
@@ -200,12 +208,18 @@ fn render(
                     return Err("빈 대사는 재생할 수 없어요.".into());
                 }
                 let mapped = if let Some(pair) = &scene.pair {
-                    member_slot(context, &pair[*speaker]).ok_or("활성 캐릭터가 바뀌었어요.")?
+                    pair.get(*speaker)
+                        .and_then(|member| member_slot(context, member))
+                        .ok_or("활성 캐릭터가 바뀌었어요.")?
                 } else {
                     *speaker
                 };
                 lines.push(SceneLine {
-                    persona: if mapped == 0 { "a" } else { "b" }.into(),
+                    persona: crate::characters::SLOTS
+                        .get(mapped)
+                        .filter(|_| context.active.get(mapped).is_some())
+                        .ok_or("활성 캐릭터가 없는 화자입니다.")?
+                        .to_string(),
                     expression: expression.clone(),
                     text,
                 });

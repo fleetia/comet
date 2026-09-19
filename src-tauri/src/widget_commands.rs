@@ -13,6 +13,7 @@ pub(crate) fn publish_widgets(app: &tauri::AppHandle, state: &AppState) {
             let _ = app.emit("widgets-state", snapshot);
         }
     }
+    crate::desktop_menu::refresh(app);
 }
 
 fn current_events(state: &AppState, db: &rusqlite::Connection) -> Result<(), String> {
@@ -29,7 +30,7 @@ fn change<T>(
     action: impl FnOnce(&rusqlite::Connection) -> Result<T, String>,
 ) -> Result<T, String> {
     let _guard = lock(&state.action)?;
-    if state.stopping.load(Ordering::SeqCst) {
+    if crate::unavailable(state) {
         return Err("앱을 종료하고 있어요.".into());
     }
     let db = lock(&state.db)?;
@@ -80,6 +81,7 @@ pub(crate) fn set_widget_enabled(
         Ok(())
     })?;
     if !enabled {
+        crate::desktop_toys::remove_widget(&app, &id);
         cancel_widget_scene(&app, &state)?;
         if let Some(window) = app.get_webview_window(&format!("widget-{id}")) {
             window.close().map_err(|error| error.to_string())?;
@@ -101,6 +103,7 @@ pub(crate) fn remove_widget(
         cancel_widget_jobs(&state, Some(&id))
     })?;
     cancel_widget_scene(&app, &state)?;
+    crate::desktop_toys::remove_widget(&app, &id);
     if let Some(window) = app.get_webview_window(&format!("widget-{id}")) {
         window.close().map_err(|error| error.to_string())?;
     }
@@ -168,11 +171,36 @@ pub(crate) fn widget_event_current(
 }
 
 #[tauri::command]
-pub(crate) fn execute_widget(
+pub(crate) async fn execute_widget(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     request: WidgetRequest,
 ) -> Result<(), String> {
+    if matches!(request.action.as_str(), "desktop-open" | "desktop-clear") {
+        return change(&state, |db| {
+            let instance = storage::get(db, &request.instance_id)?;
+            if !instance.installed
+                || !instance.enabled
+                || instance.revision != request.expected_revision
+                || !crate::behavior::TOYS.contains(&instance.kind.as_str())
+            {
+                return Err("장난감 상태가 바뀌었어요. 다시 열어 주세요.".into());
+            }
+            if request.action == "desktop-clear" {
+                crate::desktop_toys::remove_widget(&app, &instance.id);
+            } else {
+                crate::desktop_toys::open(
+                    &app,
+                    &instance.id,
+                    &instance.kind,
+                    None,
+                    instance.revision,
+                    false,
+                )?;
+            }
+            Ok(())
+        });
+    }
     change(&state, |db| {
         storage::execute(
             db,
@@ -233,16 +261,36 @@ pub(crate) fn close_widgets(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub(crate) fn open_widget(
+pub(crate) async fn open_widget(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
 ) -> Result<(), String> {
+    if crate::unavailable(&state) {
+        return Err("앱을 정리하고 있어요.".into());
+    }
     let instance = storage::get(&*lock(&state.db)?, &id)?;
     if !instance.installed || !instance.enabled {
         return Err("위젯을 설치하고 켜 주세요.".into());
     }
     uuid::Uuid::parse_str(&id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
+    if crate::behavior::TOYS.contains(&instance.kind.as_str()) {
+        return change(&state, |db| {
+            let current = storage::get(db, &id)?;
+            if !current.installed || !current.enabled {
+                return Err("장난감을 설치하고 켜 주세요.".into());
+            }
+            crate::desktop_toys::open(
+                &app,
+                &current.id,
+                &current.kind,
+                None,
+                current.revision,
+                false,
+            )?;
+            Ok(())
+        });
+    }
     let label = format!("widget-{id}");
     if let Some(window) = app.get_webview_window(&label) {
         window.show().map_err(|error| error.to_string())?;
@@ -300,6 +348,9 @@ pub(crate) fn play_widget_reaction(
 ) -> Result<bool, String> {
     let pending = {
         let _action = lock(&state.action)?;
+        if crate::unavailable(state) {
+            return Ok(false);
+        }
         let status = lock(&state.runtime)?.clone();
         let db = lock(&state.db)?;
         current_events(state, &db)?;

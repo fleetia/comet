@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { Settings } from "../types";
+import type { LocalModelTest, Settings } from "../types";
 import { command, errorText } from "./useSnapshot";
 
 export type SettingsDraft = {
@@ -47,6 +47,20 @@ export function useSettingsDraft(savedSettings: Settings): SettingsDraft {
         args = { settings, apiKey: apiKey.trim() || null };
       } else if (name === "download_model") {
         args = { model: settings.localModel };
+      } else if (name === "test_local_model") {
+        args = { settings };
+      }
+      if (name === "pick_model_file") {
+        const picked = await command<string | null>(name);
+        if (picked) {
+          change("localModelPath", picked);
+        }
+        return;
+      }
+      if (name === "test_local_model") {
+        const result = await command<LocalModelTest>(name, args);
+        setNotice(`${(result.elapsedMs / 1000).toFixed(1)}초 · ${result.reply}`);
+        return;
       }
       await command(name, args);
       if (name === "save_settings") {

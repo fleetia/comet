@@ -2,8 +2,10 @@ import type { JSX } from "react";
 import { Button } from "@fleetia/lagrange";
 import { CharacterManager } from "./components/CharacterManager";
 import { CompanionBox } from "./components/CompanionBox";
+import { FaceTag } from "./components/FaceTag";
 import { Balloon } from "./components/Balloon";
 import { DesktopPreview } from "./components/DesktopPreview";
+import { DesktopToy } from "./components/DesktopToy";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { WidgetManager } from "./widgets/WidgetManager";
 import { WidgetTool } from "./widgets/WidgetTool";
@@ -15,6 +17,7 @@ export function App(): JSX.Element {
   const { snapshot, error, reload } = useSnapshot();
   const query = new URLSearchParams(window.location.search);
   const view = query.get("view");
+  if (view === "desktop-toy") return <DesktopToy id={query.get("id") ?? ""} />;
   if (query.get("view") === "widgets") return <WidgetManager />;
   if (query.get("view") === "widget") return <WidgetTool id={query.get("id") ?? ""} />;
   if (!snapshot) {
@@ -53,12 +56,16 @@ export function App(): JSX.Element {
   if (query.get("view") === "balloon") {
     return <Balloon snapshot={snapshot} />;
   }
-  const persona = query.get("persona");
-  if (persona === "a" || persona === "b") {
-    return <CompanionBox persona={persona} snapshot={snapshot} />;
+  const face = query.get("face");
+  if (face) {
+    return <FaceTag id={face} snapshot={snapshot} />;
+  }
+  const body = query.get("body");
+  if (body) {
+    return <CompanionBox id={body} snapshot={snapshot} />;
   }
   if (isDesktop()) {
-    return <CompanionBox persona="a" snapshot={snapshot} />;
+    return <CompanionBox id={snapshot.characters.active[0]} snapshot={snapshot} />;
   }
   return <DesktopPreview initial={snapshot} />;
 }

@@ -1,5 +1,5 @@
 import { FormField, Button, Select, TextField } from "@fleetia/lagrange";
-import { useRef, useState, type PointerEvent, type ReactElement } from "react";
+import { useState, type PointerEvent, type ReactElement } from "react";
 import type { WidgetView } from "./types";
 import { number, record, rows, text, type ToolAction } from "./toolData";
 import * as s from "./tools.css";
@@ -14,67 +14,22 @@ function point(event: PointerEvent<HTMLElement>): { x: number; y: number } {
   };
 }
 export function MotionTool({ widget, act }: Props): ReactElement {
-  const data = record(widget.data);
-  const start = useRef<{ x: number; y: number } | null>(null);
-  const plane = widget.kind === "paper-plane";
   return (
     <>
       <p className={c.quiet}>
-        안에서 누르고 원하는 방향으로 끌어 놓으세요. 키보드로도 날릴 수 있어요.
+        바탕화면에 꺼낸 뒤 직접 잡아 끌어 놓으세요. 화면 가장자리와 다른 창의 보이는 외곽에
+        부딪혀요.
       </p>
-      <div
-        className={s.area}
-        aria-label={plane ? "종이비행기 비행 공간" : "공 놀이 공간"}
-        onPointerDown={(event) => {
-          start.current = point(event);
-          event.currentTarget.setPointerCapture(event.pointerId);
-        }}
-        onPointerCancel={() => {
-          start.current = null;
-        }}
-        onPointerUp={(event) => {
-          const from = start.current;
-          start.current = null;
-          if (!from) {
-            return;
-          }
-          const to = point(event);
-          const vx = Math.max(-100, Math.min(100, (to.x - from.x) * 2));
-          const vy = Math.max(-100, Math.min(100, (to.y - from.y) * 2));
-          if (Math.hypot(vx, vy) >= 1) {
-            void act(plane ? "launch" : "throw", { ...from, vx, vy });
-          }
-        }}
-      >
-        <span
-          className={s.token}
-          style={{
-            left: `${number(data.x)}%`,
-            top: `${number(data.y)}%`,
-            transition: data.moving || data.flying ? undefined : "none",
-          }}
-        >
-          {plane ? "✈" : "●"}
-        </span>
-      </div>
+      {widget.kind === "bubbles" && <p className={c.quiet}>비눗방울을 누르면 터져요.</p>}
       <div className={s.row}>
-        <Button
-          variant="primary"
-          onClick={() => void act(plane ? "launch" : "throw", { x: 20, y: 60, vx: 40, vy: -25 })}
-        >
-          {plane ? "오른쪽으로 날리기" : "오른쪽으로 던지기"}
+        <Button variant="primary" onClick={() => void act("desktop-open")}>
+          바탕화면에 꺼내기
         </Button>
-        {!plane && (
-          <Button variant="secondary" onClick={() => void act("stop")}>
-            멈추기
-          </Button>
-        )}
+        <Button variant="secondary" onClick={() => void act("desktop-clear")}>
+          정리하기
+        </Button>
       </div>
-      <p role="status" className={c.quiet}>
-        {plane
-          ? `비행 거리 ${number(data.distance).toFixed(1)} · 최고 ${number(data.best).toFixed(1)}`
-          : `튕긴 횟수 ${number(data.bounces)} · ${data.moving ? "움직이는 중" : "멈춤"}`}
-      </p>
+      <p className={c.quiet}>꺼낸 장난감은 우클릭으로도 정리할 수 있어요.</p>
     </>
   );
 }
@@ -87,6 +42,8 @@ export function ToyTool({ widget, act }: Props): ReactElement {
   switch (widget.kind) {
     case "ball":
     case "paper-plane":
+    case "bubbles":
+    case "pet":
       return <MotionTool widget={widget} act={act} />;
     case "interaction":
       return (
@@ -118,37 +75,6 @@ export function ToyTool({ widget, act }: Props): ReactElement {
             간식 채우기
           </Button>
           <p className={c.quiet}>함께한 손길 {number(d.touches)}번</p>
-        </>
-      );
-    case "bubbles":
-      return (
-        <>
-          <div className={s.area}>
-            {rows(d.bubbles).map((bubble) => (
-              <button
-                key={number(bubble.id)}
-                className={s.bubble}
-                style={{ left: `${number(bubble.x)}%`, top: `${number(bubble.y)}%` }}
-                aria-label={`비눗방울 ${number(bubble.id)} 터뜨리기`}
-                onClick={() => void act("pop", { id: number(bubble.id) })}
-              />
-            ))}
-          </div>
-          <p role="status">
-            연속 {number(d.streak)}개 · 최고 {number(d.best)}개
-          </p>
-          <div className={s.row}>
-            <Button
-              variant="primary"
-              disabled={rows(d.bubbles).length >= 30}
-              onClick={() => void act("make")}
-            >
-              방울 만들기
-            </Button>
-            <Button variant="secondary" onClick={() => void act("reset")}>
-              새로 시작
-            </Button>
-          </div>
         </>
       );
     case "small-match":
@@ -293,32 +219,6 @@ export function ToyTool({ widget, act }: Props): ReactElement {
           >
             물 주기
           </Button>
-        </>
-      );
-    case "pet":
-      return (
-        <>
-          <p className={c.quiet}>먹이를 놓을 곳을 눌러 주세요.</p>
-          <div className={s.area} onPointerUp={(event) => void act("feed", point(event))}>
-            <span className={s.token} style={{ left: `${number(d.x)}%`, top: `${number(d.y)}%` }}>
-              🐌
-            </span>
-            {d.food && (
-              <span
-                className={s.token}
-                style={{
-                  left: `${number(record(d.food).x)}%`,
-                  top: `${number(record(d.food).y)}%`,
-                }}
-              >
-                🥬
-              </span>
-            )}
-          </div>
-          <Button variant="secondary" onClick={() => void act("feed", { x: 80, y: 50 })}>
-            오른쪽에 먹이 놓기
-          </Button>
-          <p role="status">먹이에 도착한 횟수 {number(d.arrivals)}</p>
         </>
       );
     case "collection":

@@ -1,11 +1,13 @@
 use super::interrupt;
-use super::windows::{hide_boxes, open_settings, quit_app, set_paused, show_boxes, skip_talk};
+use super::windows::{hide_boxes, show_boxes, skip_talk};
 use super::{
     background::background_loop, conversation, lock, now, open_session, settings, snapshot,
     windows, AppState,
 };
+use super::{publish, schedule_idle, unavailable};
+use crate::{behavior, desktop_menu, desktop_toys, updater};
 use crate::{
-    character_commands::{self, open_characters},
+    character_commands::{self, serve_sprite, SPRITE_SCHEME},
     desktop, device_wake, inference, store, story, story_editor, story_host, talk_editor_commands,
     talk_host,
     types::*,
@@ -23,7 +25,7 @@ use std::{
 };
 use tauri::{Manager, WindowEvent};
 
-pub(super) fn resource_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
+pub(crate) fn resource_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
     if cfg!(debug_assertions) {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries");
         let target = if cfg!(target_os = "macos") {
@@ -56,79 +58,11 @@ pub(super) fn resource_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf
     ))
 }
 
-pub(super) fn create_tray(app: &tauri::AppHandle) -> Result<(), String> {
-    use tauri::menu::{Menu, MenuItem};
-    let show = MenuItem::with_id(app, "show", "박스 표시", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-    let hide = MenuItem::with_id(app, "hide", "박스 숨김", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-    let pause = MenuItem::with_id(app, "pause", "자동 잡담 정지 / 재개", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-    let settings = MenuItem::with_id(app, "settings", "설정", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-    let characters = MenuItem::with_id(app, "characters", "캐릭터 관리", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-    let widgets = MenuItem::with_id(app, "widgets", "위젯 관리", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-    let quit = MenuItem::with_id(app, "quit", "완전 종료", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-    let menu = Menu::with_items(
-        app,
-        &[
-            &show,
-            &hide,
-            &pause,
-            &characters,
-            &widgets,
-            &settings,
-            &quit,
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-    tauri::tray::TrayIconBuilder::new()
-        .icon(tauri::include_image!("icons/tray.png"))
-        .icon_as_template(true)
-        .menu(&menu)
-        .on_menu_event(|app, event| {
-            let state = app.state::<Arc<AppState>>();
-            match event.id.as_ref() {
-                "show" => show_boxes(app, &state),
-                "settings" => {
-                    let _ = open_settings(app.clone());
-                }
-                "characters" => {
-                    let _ = open_characters(app.clone());
-                }
-                "widgets" => {
-                    let _ = open_widgets(app.clone());
-                }
-                "pause" => {
-                    let paused = lock(&state.runtime).map(|s| !s.paused).unwrap_or(true);
-                    let _ = set_paused(app.clone(), state, paused);
-                }
-                "hide" | "quit" => {
-                    let app = app.clone();
-                    let is_quit = event.id.as_ref() == "quit";
-                    tauri::async_runtime::spawn(async move {
-                        let state = app.state::<Arc<AppState>>();
-                        if is_quit {
-                            let _ = quit_app(app.clone(), state).await;
-                        } else {
-                            let _ = hide_boxes(app.clone(), state).await;
-                        }
-                    });
-                }
-                _ => {}
-            }
-        })
-        .build(app)
-        .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .register_uri_scheme_protocol(SPRITE_SCHEME, serve_sprite)
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(state) = app.try_state::<Arc<AppState>>() {
                 show_boxes(app, &state);
@@ -178,11 +112,19 @@ pub fn run() {
                 action: Mutex::new(()),
                 automatic: AtomicBool::new(false),
                 stopping: AtomicBool::new(false),
+                update_installing: AtomicBool::new(false),
+                behavior: Mutex::new(behavior::Machine::default()),
                 positions: Mutex::new(HashMap::new()),
             });
             app.manage(state.clone());
+            app.manage(desktop_toys::Runtime::default());
+            app.manage(updater::UpdateState::default());
+            lock(&state.runtime).map_err(std::io::Error::other)?.hidden =
+                !behavior::preferences(&*lock(&state.db).map_err(std::io::Error::other)?)
+                    .map_err(std::io::Error::other)?
+                    .characters_visible;
             desktop::create_boxes(app.handle(), &state).map_err(std::io::Error::other)?;
-            create_tray(app.handle()).map_err(std::io::Error::other)?;
+            desktop_menu::create(app.handle()).map_err(std::io::Error::other)?;
             if let Err(error) = device_wake::install(app.handle()) {
                 eprintln!("기기 복귀 알림 연결 실패: {error}");
             }
@@ -195,6 +137,8 @@ pub fn run() {
             let handle = app.handle().clone();
             talk_host::watch(handle.clone(), state.clone());
             tauri::async_runtime::spawn(story_host::run_clock(handle.clone(), state.clone()));
+            desktop_toys::start(handle.clone());
+            updater::start(handle.clone());
             tauri::async_runtime::spawn(background_loop(handle, state));
             Ok(())
         })
@@ -207,7 +151,8 @@ pub fn run() {
                 }
                 return;
             }
-            if !["a", "b"].contains(&window.label()) {
+            let face = desktop::is_face(window.label());
+            if !face && !desktop::is_body(window.label()) {
                 return;
             }
             let state = window.state::<Arc<AppState>>();
@@ -225,8 +170,16 @@ pub fn run() {
                             ),
                         );
                     }
-                    if let Ok(data) = snapshot(&state) {
-                        desktop::sync_balloon(window.app_handle(), &data);
+                    if !face {
+                        if let Ok(data) = snapshot(&state) {
+                            desktop::sync_balloon(window.app_handle(), &data);
+                        }
+                    }
+                }
+                WindowEvent::CloseRequested { api, .. } if face => {
+                    api.prevent_close();
+                    if let Some(view) = window.app_handle().get_webview_window(window.label()) {
+                        let _ = desktop::hide_ambient(&view);
                     }
                 }
                 WindowEvent::CloseRequested { api, .. } => {
@@ -242,11 +195,13 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             super::get_snapshot,
-            story_host::choose_story,
-            story_host::defer_story,
-            talk_editor_commands::list_talk_files,
-            talk_editor_commands::read_talk_file,
-            talk_editor_commands::save_talk_file,
+            behavior::get_desktop_preferences,
+            behavior::set_desktop_preferences,
+            behavior::clear_desktop_toys,
+            desktop_toys::desktop_toy_action,
+            updater::get_update_status,
+            updater::check_app_update,
+            updater::install_app_update,
             widget_commands::get_widgets,
             widget_commands::install_widgets,
             widget_commands::finish_widget_onboarding,
@@ -272,13 +227,16 @@ pub fn run() {
             character_commands::get_character_dialogue,
             character_commands::save_character_dialogue,
             character_commands::clone_character,
-            character_commands::assign_character,
-            character_commands::apply_character_pair,
+            character_commands::apply_character_roster,
             character_commands::remove_character,
             character_commands::preview_character_pack,
             character_commands::choose_character_pack,
             character_commands::import_character_pack,
             character_commands::save_character_pack,
+            character_commands::get_character_pack_attribution,
+            character_commands::save_character_pack_attribution,
+            character_commands::choose_character_sprite,
+            character_commands::remove_character_sprite,
             windows::open_panel,
             windows::close_panel,
             windows::skip_talk,
@@ -292,6 +250,8 @@ pub fn run() {
             settings::save_settings,
             settings::clear_api_key,
             settings::test_connection,
+            settings::test_local_model,
+            settings::pick_model_file,
             settings::download_model,
             settings::cancel_download,
             settings::edit_memory,
@@ -299,12 +259,21 @@ pub fn run() {
             windows::open_settings,
             windows::hide_boxes,
             windows::set_paused,
-            windows::quit_app
+            windows::quit_app,
+            story_host::choose_story,
+            story_host::defer_story,
+            talk_editor_commands::list_talk_files,
+            talk_editor_commands::read_talk_file,
+            talk_editor_commands::save_talk_file,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build comet")
         .run(|app, event| match event {
-            tauri::RunEvent::ExitRequested { api, .. } => {
+            tauri::RunEvent::ExitRequested { api, code, .. } => {
+                if code == Some(tauri::RESTART_EXIT_CODE) {
+                    return;
+                }
+                desktop_toys::clear(app);
                 device_wake::shutdown(app);
                 if let Some(state) = app.try_state::<Arc<AppState>>() {
                     let _ = prepare_exit(&state);
@@ -336,7 +305,7 @@ pub fn run() {
         });
 }
 
-pub(super) fn prepare_exit(state: &AppState) -> Result<(), String> {
+pub(crate) fn prepare_exit(state: &AppState) -> Result<(), String> {
     {
         let _action = lock(&state.action)?;
         state.stopping.store(true, Ordering::SeqCst);
@@ -350,7 +319,7 @@ pub(super) fn prepare_exit(state: &AppState) -> Result<(), String> {
     flush_positions(state, true)
 }
 
-pub(super) fn flush_positions(state: &AppState, all: bool) -> Result<(), String> {
+pub(crate) fn flush_positions(state: &AppState, all: bool) -> Result<(), String> {
     let mut positions = lock(&state.positions)?;
     let due = positions
         .iter()
@@ -362,5 +331,43 @@ pub(super) fn flush_positions(state: &AppState, all: bool) -> Result<(), String>
         store::set_window_position(&db, &id, &pos)?;
         positions.remove(&id);
     }
+    Ok(())
+}
+
+pub(crate) async fn prepare_update_install(app: &tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<Arc<AppState>>();
+    {
+        let _action = lock(&state.action)?;
+        if unavailable(&state) {
+            return Err("앱을 정리하고 있어요.".into());
+        }
+        state.update_installing.store(true, Ordering::SeqCst);
+        interrupt(&state, false)?;
+        *lock(&state.panel)? = None;
+        lock(&state.runtime)?.phase = "idle".into();
+        if let Some(cancel) = lock(&state.download_cancel)?.as_ref() {
+            cancel.store(true, Ordering::SeqCst);
+        }
+        cancel_widget_jobs(&state, None)?;
+    }
+    desktop_toys::clear(app);
+    flush_positions(&state, true)?;
+    publish(app, &state);
+    let _gate = state.gate.lock().await;
+    inference::stop_local(&state.inference).await;
+    lock(&state.db)?
+        .execute_batch("PRAGMA wal_checkpoint(FULL);")
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+pub(crate) fn restore_update_install(app: &tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<Arc<AppState>>();
+    {
+        let _action = lock(&state.action)?;
+        state.update_installing.store(false, Ordering::SeqCst);
+        schedule_idle(&state, store::settings(&*lock(&state.db)?)?.idle_minutes);
+    }
+    publish(app, &state);
     Ok(())
 }

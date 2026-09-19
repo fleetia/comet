@@ -41,6 +41,8 @@ pub(crate) fn state() -> AppState {
         action: Mutex::new(()),
         automatic: AtomicBool::new(false),
         stopping: AtomicBool::new(false),
+        update_installing: AtomicBool::new(false),
+        behavior: Mutex::new(behavior::Machine::default()),
         positions: Mutex::new(HashMap::new()),
     }
 }
@@ -754,7 +756,8 @@ fn shared_character_pack_uses_authored_keyword_order_after_personal_entries() {
     let lines = route_message(&state, &db, "별사탕").unwrap().unwrap();
     assert_eq!(
         serde_json::to_value(lines).unwrap(),
-        serde_json::to_value(&pack.wordbook[0].lines).unwrap()
+        serde_json::to_value(characters::resolve_lines(&db, &pack.wordbook[0].lines).unwrap())
+            .unwrap()
     );
     let greeting = character_script(&db, 0).unwrap();
     assert!(pack.characters[0]
@@ -817,7 +820,7 @@ fn keyword_route_works_without_a_model_and_preserves_authored_lines() {
         .unwrap();
     assert_eq!(
         serde_json::to_value(lines).unwrap(),
-        serde_json::to_value(&entry.lines).unwrap()
+        serde_json::to_value(characters::resolve_lines(&db, &entry.lines).unwrap()).unwrap()
     );
     assert!(route_message(&state, &db, "새로운 주제로 이야기해 줘").is_err());
     store::save_settings(
@@ -1480,4 +1483,20 @@ fn partial_retry_references_only_current_characters_completed_same_turn_reply() 
         );
         assert_eq!(store::messages(&db, 24).unwrap().len(), 2);
     }
+}
+
+#[test]
+fn single_member_roster_keeps_snapshot_and_scripts_working() {
+    let state = state();
+    character_commands::mutate(&state, |db| {
+        characters::apply_roster(db, vec!["builtin-b".into()])
+    })
+    .unwrap();
+    let data = snapshot(&state).unwrap();
+    assert_eq!(data.characters.active, ["builtin-b"]);
+    assert_eq!(data.relationships.len(), 1);
+    let (lines, source) = next_scene(&state).unwrap();
+    assert_eq!(source, "script");
+    assert!(!lines.is_empty());
+    assert!(lines.iter().all(|line| line.persona == "a"));
 }

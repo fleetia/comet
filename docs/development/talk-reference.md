@@ -27,7 +27,7 @@ src-tauri/target/debug/examples/talk variables
 | `talk simulate ENTRY --input JSON_OR_FILE` | 명시한 관측값과 이력으로 후보·탈락 이유·선택된 대사 계산 |
 | `talk simulate ENTRY --db PATH` | 기존 앱 SQLite를 읽기 전용으로 열어 `idle` 시뮬레이션 |
 | `talk simulate ENTRY --db PATH --event JSON_OR_FILE` | 입력한 사건을 현재 DB 상태와 함께 시뮬레이션 |
-| `talk characters --db PATH` | 설치된 캐릭터의 로컬 `id`, 표시 `name`, 활성 `slot` 조회 |
+| `talk characters --db PATH` | 설치된 캐릭터의 로컬 `id`, 표시 `name`, 활성 목록 순서 `position`(0부터, 비활성은 null) 조회 |
 
 `simulate`에는 `--input` 또는 `--db` 중 정확히 하나를 지정한다. `--seed N`, `--now MILLISECONDS`를 추가할 수 있다. 옵션은 값과 한 쌍으로 쓰며 중복·미등록 옵션은 오류다. 성공 결과는 표준 출력의 JSON, 오류는 표준 오류와 종료 코드 `1`이다. 후보가 없어서 `selected`가 `null`인 것은 정상적인 시뮬레이션 결과다.
 
@@ -43,7 +43,7 @@ src-tauri/target/debug/examples/talk simulate talk/index.talk --input '{"active"
 
 | 필드 | 타입 | 기본값·규칙 |
 | --- | --- | --- |
-| `active` | string 2개 배열 | 필수. 현재 A/B 순서의 서로 다른 비어 있지 않은 로컬 ID |
+| `active` | string 1~8개 배열 | 필수. 바탕화면 목록 순서의 서로 다른 비어 있지 않은 로컬 ID. 기본 대본은 앞 두 명(A/B)만 화자로 쓴다 |
 | `available` | string 배열 | 기본 `[]`. 설치·활성·필수 의존성 검사를 통과한 실제 위젯 kind. `timer` 대신 `focus-timer` 사용 |
 | `values` | 변수 이름 → 값 map | 기본 `{}`. 이름은 `timer.state` 같은 평탄한 key. 미등록 변수와 잘못된 타입은 오류 |
 | `trigger` | string | 기본 `idle`. 아래 사건 목록의 값만 허용 |
@@ -122,7 +122,7 @@ B[평온]: 시계는 ${clock.hour}시를 가리키고 있어.
 A: 표정을 생략하면 평온이야.
 ```
 
-화자는 대문자 `A` 또는 `B`다. 표정은 `평온`, `기쁨`, `호기심`, `생각중`, `걱정`, `장난` 중 하나다. `normal`은 일부 기존 위젯 내장 문구에서 사용하는 값이며 `.talk`의 표정 별칭이 아니다.
+화자는 대문자 `A` 또는 `B`다. 표정은 앞뒤 공백 없는 1~20자 이름이며 기본 6개는 `평온`, `기쁨`, `호기심`, `생각중`, `걱정`, `장난`이다. 캐릭터에 없는 표정은 재생 시 기본 표정(`평온`)으로 표시한다. `normal`은 일부 기존 위젯 내장 문구에서 사용하는 값이며 `.talk`의 표정 별칭이 아니다.
 
 콜론 다음의 선택적인 공백 한 개를 구분자로 제거하고 나머지 본문은 유지한다. 텍스트의 `${변수}`는 string·number·boolean을 문자열로 바꾼다. `null`은 빈 문자열이나 숫자 `0`으로 바꾸지 않으며, 해당 장면을 재생 불가로 판단한다. 치환 위치에는 변수 이름만 넣을 수 있고 계산식이나 함수는 허용하지 않는다.
 
@@ -230,7 +230,7 @@ A[평온]: 오늘 기온을 한번 확인했어.
 | `character.b.affinity` | `number` | 예 | 없음 | 해당 캐릭터의 현재 친밀도 점수. 해당 캐릭터가 없으면 null. |
 | `character.b.sourceId` | `string` | 예 | 없음 | 현재 자리에 설치된 캐릭터의 원본 sourceId. 표시 이름·로컬 ID와 구분. 해당 캐릭터가 없으면 null. |
 | `character.nadir.affinity` | `number` | 예 | 없음 | 해당 캐릭터의 현재 친밀도 점수. 해당 캐릭터가 없으면 null. |
-| `character.nadir.present` | `boolean` | 아니요 | 없음 | 현재 A/B 중 sourceId가 nadir인 캐릭터가 있는지 여부 |
+| `character.nadir.present` | `boolean` | 아니요 | 없음 | 활성 캐릭터 중 sourceId가 nadir인 캐릭터가 있는지 여부 |
 
 ### dialogue · 장면 변주
 

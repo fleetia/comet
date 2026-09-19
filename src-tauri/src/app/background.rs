@@ -1,6 +1,8 @@
 use super::lifecycle::flush_positions;
 use super::scene::{next_scene, run_scene};
+use super::unavailable;
 use super::{interrupt, is_current, lock, now, phase, schedule_idle, AppState};
+use crate::behavior;
 use crate::{
     characters, domain, inference, models, resources, store, story,
     types::*,
@@ -16,7 +18,7 @@ use std::{
     time::Duration,
 };
 
-pub(super) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>) {
+pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>) {
     let mut interval = tokio::time::interval(Duration::from_millis(500));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
@@ -24,6 +26,10 @@ pub(super) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         if state.stopping.load(Ordering::SeqCst) {
             break;
         }
+        if state.update_installing.load(Ordering::SeqCst) {
+            continue;
+        }
+        let _ = behavior::tick(&app, &state);
         let _ = flush_positions(&state, false);
         let _ = advance_widgets(&app, &state);
         start_due_widget_refreshes(&app, &state);
@@ -31,6 +37,17 @@ pub(super) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
             continue;
         };
         if !["idle", "error"].contains(&status.phase.as_str()) {
+            continue;
+        }
+        if lock(&state.behavior)
+            .map(|machine| {
+                matches!(
+                    machine.phase,
+                    behavior::Phase::Playing | behavior::Phase::Suspended
+                )
+            })
+            .unwrap_or(true)
+        {
             continue;
         }
         if play_widget_reaction(&app, &state).unwrap_or(false) {
@@ -55,24 +72,18 @@ pub(super) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
     }
 }
 
-pub(super) fn expire_idle_recall(state: &AppState, at: i64) -> Result<bool, String> {
+pub(crate) fn expire_idle_recall(state: &AppState, at: i64) -> Result<bool, String> {
     let _action = lock(&state.action)?;
-    if state.stopping.load(Ordering::SeqCst)
-        || !["idle", "error"].contains(&lock(&state.runtime)?.phase.as_str())
-    {
+    if unavailable(state) || !["idle", "error"].contains(&lock(&state.runtime)?.phase.as_str()) {
         return Ok(false);
     }
     store::expire_generated_recall(&*lock(&state.db)?, at)
 }
 
-pub(super) fn begin_background(state: &AppState) -> Result<Option<(u64, Arc<AtomicBool>)>, String> {
+pub(crate) fn begin_background(state: &AppState) -> Result<Option<(u64, Arc<AtomicBool>)>, String> {
     let _action = lock(&state.action)?;
     let status = lock(&state.runtime)?.clone();
-    if state.stopping.load(Ordering::SeqCst)
-        || status.hidden
-        || status.paused
-        || lock(&state.panel)?.is_some()
-    {
+    if unavailable(state) || status.hidden || status.paused || lock(&state.panel)?.is_some() {
         return Ok(None);
     }
     let settings = store::settings(&*lock(&state.db)?)?;
@@ -90,7 +101,7 @@ pub(super) fn begin_background(state: &AppState) -> Result<Option<(u64, Arc<Atom
     Ok(Some(interrupt(state, true)?))
 }
 
-pub(super) async fn run_background(
+pub(crate) async fn run_background(
     app: &tauri::AppHandle,
     state: &AppState,
     epoch: u64,
@@ -108,10 +119,13 @@ pub(super) async fn run_background(
             store::relationships(&db)?,
             store::revision(&db)?,
             store::prepared_scenes(&db)?,
-            [
-                story::profile(&db, characters::active_character(&db, "a")?)?,
-                story::profile(&db, characters::active_character(&db, "b")?)?,
-            ],
+            characters::active_members(&db)?
+                .into_iter()
+                .map(|mut member| {
+                    member.definition = story::profile(&db, member.clone())?;
+                    Ok(member)
+                })
+                .collect::<Result<Vec<_>, String>>()?,
         )
     };
     if settings.autonomous_enabled && now() >= state.next_idle.load(Ordering::SeqCst) {
@@ -141,17 +155,26 @@ pub(super) async fn run_background(
     }
     if !pending.is_empty() {
         let ready = if settings.mode == "local" {
-            inference::is_local_running(&state.inference, settings.local_model).await
+            inference::is_local_running(&state.inference, &settings).await
         } else {
             inference::has_api_key(&settings) && !settings.api_model.is_empty()
         };
         if ready && now() - state.last_preparation.load(Ordering::SeqCst) >= 15 {
             state.last_preparation.store(now(), Ordering::SeqCst);
             phase(app, state, epoch, "analyzing", None, None);
+            let mut prompt = domain::analysis_prompt(&pending, &memories, revision);
+            let targets = {
+                let db = lock(&state.db)?;
+                pending.iter().map(|message| Ok(serde_json::json!({"messageId":message.id,"targets":store::message_targets(&db,&message.id)?}))).collect::<Result<Vec<_>,String>>()?
+            };
+            prompt.push(ChatMessage {
+                role: "user".into(),
+                content: serde_json::json!({"recordedTargets":targets}).to_string(),
+            });
             let result = background_generate(
                 state,
                 &settings,
-                &domain::analysis_prompt(&pending, &memories, revision),
+                &prompt,
                 domain::analysis_schema(),
                 768,
                 cancel.clone(),
@@ -184,13 +207,18 @@ pub(super) async fn run_background(
         return Ok(());
     }
     let ready = if settings.mode == "local" {
-        models::model_ready(&state.app_data, settings.local_model)
+        models::selected_ready(&state.app_data, &settings)
     } else {
         !settings.api_model.is_empty() && inference::has_api_key(&settings)
     };
     if !ready {
         return Ok(());
     }
+    let targets: Vec<String> = characters.iter().map(|member| member.id.clone()).collect();
+    if targets.is_empty() {
+        return Ok(());
+    }
+    let question = targets.len() == 1 && state.idle_sequence.load(Ordering::SeqCst) % 2 == 1;
     state.last_preparation.store(now(), Ordering::SeqCst);
     if settings.mode == "local" && !resources::background_allowed() {
         return Ok(());
@@ -205,13 +233,23 @@ pub(super) async fn run_background(
     let result = background_generate(
         state,
         &settings,
-        &domain::scene_prompt(&memories, &relationships, &characters),
-        domain::scene_schema(),
+        &domain::roster_scene_prompt(&characters, &memories, &relationships, question),
+        domain::scene_schema_for(
+            &targets,
+            if targets.len() == 1 { 1 } else { 2 },
+            if targets.len() == 1 { 1 } else { 4 },
+        ),
         512,
         cancel.clone(),
     )
     .await?;
-    let lines = domain::parse_scene(result)?;
+    let lines = domain::parse_lines_for(
+        result,
+        &targets,
+        if targets.len() == 1 { 1 } else { 2 },
+        if targets.len() == 1 { 1 } else { 4 },
+        false,
+    )?;
     let _action = lock(&state.action)?;
     let db = lock(&state.db)?;
     if !is_current(state, epoch, &cancel) || store::revision(&db)? != revision {
@@ -220,7 +258,11 @@ pub(super) async fn run_background(
     store::add_scene(
         &db,
         &PreparedScene {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: format!(
+                "{}{}",
+                if question { "question:" } else { "" },
+                uuid::Uuid::new_v4()
+            ),
             revision,
             lines,
         },
@@ -228,7 +270,7 @@ pub(super) async fn run_background(
     Ok(())
 }
 
-pub(super) async fn background_generate(
+pub(crate) async fn background_generate(
     state: &AppState,
     settings: &Settings,
     prompt: &[ChatMessage],
@@ -264,7 +306,7 @@ pub(super) async fn background_generate(
     }
 }
 
-pub(super) fn reserve_api_idle(db: &Connection, at: i64) -> Result<bool, String> {
+pub(crate) fn reserve_api_idle(db: &Connection, at: i64) -> Result<bool, String> {
     let tx = db.unchecked_transaction().map_err(|e| e.to_string())?;
     let raw: Option<String> = tx
         .query_row("SELECT value FROM kv WHERE key='api_idle_times'", [], |r| {

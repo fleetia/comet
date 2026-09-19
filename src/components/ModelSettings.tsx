@@ -12,13 +12,18 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
   const activeDownload = snapshot.runtime.download;
   const downloading =
     activeDownload !== null && ["downloading", "verifying"].includes(activeDownload.status);
+  const customModel = settings.localModel === "custom";
   const selectedModel = snapshot.localModels.find((model) => model.id === settings.localModel);
   const download = activeDownload?.model === settings.localModel ? activeDownload : null;
   const received = download?.received ?? selectedModel?.downloadedBytes ?? 0;
   const total = download?.total || selectedModel?.size || 0;
   const percent = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : null;
-  const showProgress = download !== null || (!selectedModel?.ready && received > 0);
+  const showProgress =
+    !customModel && (download !== null || (!selectedModel?.ready && received > 0));
   const downloadingModel = snapshot.localModels.find((model) => model.id === activeDownload?.model);
+  const canTestLocal = customModel
+    ? settings.localModelPath.trim().length > 0
+    : selectedModel?.ready === true;
   let downloadLabel = received > 0 ? "이어받기" : "모델 내려받기";
   if (selectedModel?.ready) {
     downloadLabel = "모델 준비 완료";
@@ -63,17 +68,42 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
               >
                 {snapshot.localModels.map((model) => (
                   <option key={model.id} value={model.id}>
-                    {model.name} ·{" "}
-                    {model.id === "qwen3.5-4b" ? "기본 · 가벼운 모델" : "메모리를 더 사용하는 모델"}
+                    {model.name} · {model.description}
                   </option>
                 ))}
+                <option value="custom">직접 지정한 GGUF 파일</option>
               </Select>
             </FormField>
-            <p className={d.data}>
-              {selectedModel?.name} Q4_K_M · 다운로드{" "}
-              {((selectedModel?.size ?? 0) / 1_000_000_000).toFixed(2)} GB
-            </p>
-            {settings.localModel !== snapshot.settings.localModel && (
+            {customModel ? (
+              <FormField
+                className={s.field}
+                label="GGUF 파일 경로"
+                description="이 기기에 있는 GGUF 파일의 절대 경로예요. 앱이 관리하는 llama-server로 실행해요."
+              >
+                <div className={s.row}>
+                  <TextField
+                    spellCheck={false}
+                    value={settings.localModelPath}
+                    onChange={(event) => change("localModelPath", event.target.value)}
+                    placeholder="/path/to/model.gguf"
+                  />
+                  <Button
+                    variant="secondary"
+                    disabled={!!pending}
+                    onClick={() => void run("pick_model_file")}
+                  >
+                    파일 선택
+                  </Button>
+                </div>
+              </FormField>
+            ) : (
+              <p className={d.data}>
+                {selectedModel?.name} Q4_K_M · 다운로드{" "}
+                {((selectedModel?.size ?? 0) / 1_000_000_000).toFixed(2)} GB
+              </p>
+            )}
+            {(settings.localModel !== snapshot.settings.localModel ||
+              settings.localModelPath !== snapshot.settings.localModelPath) && (
               <p className={s.quiet}>선택한 모델로 대화하려면 아래에서 설정을 저장해 주세요.</p>
             )}
             <p className={s.quiet}>
@@ -81,13 +111,15 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
               사용할 수 있어요. 모델을 불러올 때는 잠깐 기다릴 수 있어요.
             </p>
             <div className={s.row}>
-              <Button
-                variant="primary"
-                disabled={!!pending || downloading || !selectedModel || selectedModel.ready}
-                onClick={() => void run("download_model")}
-              >
-                {downloadLabel}
-              </Button>
+              {!customModel && (
+                <Button
+                  variant="primary"
+                  disabled={!!pending || downloading || !selectedModel || selectedModel.ready}
+                  onClick={() => void run("download_model")}
+                >
+                  {downloadLabel}
+                </Button>
+              )}
               {downloading && (
                 <Button
                   variant="secondary"
@@ -97,11 +129,22 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
                   다운로드 중단
                 </Button>
               )}
+              <Button
+                variant="secondary"
+                disabled={!!pending || downloading || !canTestLocal}
+                onClick={() => void run("test_local_model")}
+              >
+                {pending === "test_local_model" ? "테스트 중…" : "테스트하기"}
+              </Button>
             </div>
+            <p className={s.quiet}>
+              테스트는 선택한 모델을 불러와 짧은 인사에 답하게 하고, 걸린 시간과 답을 아래에
+              보여 줘요. 저장하지 않은 선택도 테스트할 수 있어요.
+            </p>
             {downloading && !download && (
               <p className={s.quiet}>
-                {downloadingModel?.name} 파일을 준비하고 있어요. 완료하거나 중단한 뒤 다른 모델을
-                내려받을 수 있어요.
+                {downloadingModel?.name} 파일을 준비하고 있어요. 완료하거나 중단한 뒤 다른
+                모델을 내려받을 수 있어요.
               </p>
             )}
             {download?.error && (
@@ -186,7 +229,10 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
                 <Select
                   value={settings.apiTokenParameter}
                   onChange={(event) =>
-                    change("apiTokenParameter", event.target.value as Settings["apiTokenParameter"])
+                    change(
+                      "apiTokenParameter",
+                      event.target.value as Settings["apiTokenParameter"],
+                    )
                   }
                 >
                   <option value="max_tokens">max_tokens</option>

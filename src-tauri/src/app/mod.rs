@@ -8,8 +8,8 @@ pub(crate) mod tests;
 pub(crate) mod windows;
 
 use crate::{
-    characters, desktop, inference, models, playback, store, story, talk, talk_host, types::*,
-    widgets, wordbook,
+    behavior, characters, desktop, inference, models, playback, store, story, talk, talk_host,
+    types::*, widgets, wordbook,
 };
 use rusqlite::Connection;
 use std::{
@@ -54,6 +54,8 @@ pub(crate) struct AppState {
     pub(crate) action: Mutex<()>,
     pub(crate) automatic: AtomicBool,
     pub(crate) stopping: AtomicBool,
+    pub(crate) update_installing: AtomicBool,
+    pub(crate) behavior: Mutex<behavior::Machine>,
     pub(crate) positions: Mutex<HashMap<String, (WindowPosition, Instant)>>,
 }
 
@@ -72,7 +74,7 @@ pub(crate) fn lock<T>(value: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>, 
         .map_err(|_| "앱 상태를 읽지 못했어요. 앱을 다시 시작해 주세요.".into())
 }
 
-pub(super) fn open_session(path: &std::path::Path) -> Result<Connection, String> {
+pub(crate) fn open_session(path: &std::path::Path) -> Result<Connection, String> {
     let db = store::open(path)?;
     story::initialize(&db)?;
     if let Some(directory) = path.parent() {
@@ -89,7 +91,7 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
     let settings = store::settings(&db)?;
     Ok(Snapshot {
         has_api_key: inference::has_api_key(&settings),
-        model_ready: models::model_ready(&state.app_data, settings.local_model),
+        model_ready: models::selected_ready(&state.app_data, &settings),
         local_models: models::model_statuses(&state.app_data),
         settings,
         messages: store::messages(&db, 100)?,
@@ -108,6 +110,7 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
 
 pub(crate) fn publish(app: &tauri::AppHandle, state: &AppState) {
     if let Ok(data) = snapshot(state) {
+        desktop::sync_boxes(app, state, &data);
         desktop::sync_balloon(app, &data);
         let _ = app.emit("app-state", data);
     }
@@ -124,7 +127,7 @@ pub(crate) fn phase(
         publish(app, state);
     }
 }
-pub(super) fn set_phase_if_current(
+pub(crate) fn set_phase_if_current(
     state: &AppState,
     epoch: u64,
     value: &str,
@@ -165,11 +168,15 @@ pub(crate) fn interrupt(
     Ok((epoch, cancel))
 }
 
-pub(super) fn is_current(state: &AppState, epoch: u64, cancel: &AtomicBool) -> bool {
+pub(crate) fn is_current(state: &AppState, epoch: u64, cancel: &AtomicBool) -> bool {
     state.epoch.load(Ordering::SeqCst) == epoch && !cancel.load(Ordering::SeqCst)
 }
 
 #[tauri::command]
-pub(super) fn get_snapshot(state: tauri::State<'_, Arc<AppState>>) -> Result<Snapshot, String> {
+pub(crate) fn get_snapshot(state: tauri::State<'_, Arc<AppState>>) -> Result<Snapshot, String> {
     snapshot(&state)
+}
+
+pub(crate) fn unavailable(state: &AppState) -> bool {
+    state.stopping.load(Ordering::SeqCst) || state.update_installing.load(Ordering::SeqCst)
 }

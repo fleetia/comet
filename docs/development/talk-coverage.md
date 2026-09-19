@@ -49,7 +49,7 @@ print(json.dumps(next(case for case in cases if case["id"] == id), ensure_ascii=
 PYCASE
 ```
 
-각 입력에는 `values`의 평탄한 공개 변수, 발생 계기인 `trigger`, 사용할 수 있는 위젯 종류 `available`, A/B 슬롯의 캐릭터 ID `active`, 기대 장면 `expectedScene`이 들어 있다. 일부 상황에는 같은 우선순위 후보 사이의 선택을 재현하는 `seed`도 있다. `expectedScene: null`은 장면을 선택하지 않아야 한다는 뜻이다.
+각 입력에는 `values`의 평탄한 공개 변수, 발생 계기인 `trigger`, 사용할 수 있는 위젯 종류 `available`, 바탕화면 목록 순서의 캐릭터 ID `active`(앞 두 명이 A/B), 기대 장면 `expectedScene`이 들어 있다. 일부 상황에는 같은 우선순위 후보 사이의 선택을 재현하는 `seed`도 있다. `expectedScene: null`은 장면을 선택하지 않아야 한다는 뜻이다.
 
 fixture 테스트는 registry의 모든 변수를 `null`로 시작하되 `*.ready`는 `false`, `*.status`는 `not-installed`로 초기화한 뒤 `values`를 덮어쓴다. `now_ms`는 1,000,000이며 생략한 `seed`는 0이다. 양성 사례는 다른 장면의 표시 이력을 채워 목표 장면의 도달 가능성을 확인한다. 이력은 `idle` 후보를 cooldown으로 억제하고 cooldown이 0인 사건 후보 사이에서는 최근 표시 순위에 영향을 준다. 선택 없음 사례는 빈 이력으로 평가하며, 불완전 context 사례를 제외하면 source identity를 제공해 조합 불일치가 상태 검사를 가리지 않게 한다. 전체 후보가 동시에 열린 상황의 우선순위를 증명하는 표는 아니다.
 

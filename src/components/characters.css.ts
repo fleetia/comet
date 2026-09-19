@@ -79,6 +79,36 @@ export const expressions = style({
   gap: semanticVars.space.md,
   "@media": { "(max-width: 500px)": { gridTemplateColumns: "repeat(2,minmax(0,1fr))" } },
 });
+export const expressionCard = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: semanticVars.space.xs,
+  minWidth: 0,
+});
+export const spriteFrame = style({
+  width: 64,
+  height: 64,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border: `1px dashed ${semanticVars.color.border.subtle}`,
+  background: semanticVars.color.surface.muted,
+  fontSize: semanticVars.typography.size.caption,
+  color: semanticVars.color.content.secondary,
+  textAlign: "center",
+  overflow: "hidden",
+});
+export const spriteImage = style({
+  width: 64,
+  height: 64,
+  objectFit: "contain",
+  imageRendering: "pixelated",
+});
+export const spriteActions = style({
+  display: "flex",
+  flexWrap: "wrap",
+  gap: semanticVars.space.xxs,
+});
 export const line = style({ paddingBottom: 12 });
 export const workspace = style({
   minWidth: 0,

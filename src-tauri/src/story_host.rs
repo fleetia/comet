@@ -18,7 +18,7 @@ pub fn advance(state: &AppState, at: Instant) -> Result<bool, String> {
         return Ok(false);
     }
     let status = lock(&state.runtime)?.clone();
-    if state.stopping.load(Ordering::SeqCst)
+    if crate::app::unavailable(state)
         || status.hidden
         || status.paused
         || !matches!(status.phase.as_str(), "idle" | "error")
@@ -35,13 +35,14 @@ pub fn advance(state: &AppState, at: Instant) -> Result<bool, String> {
         *lock(&state.story_catalog)? = catalog;
     }
     let seed = uuid::Uuid::new_v4().as_u128() as u64;
-    for persona in if seed % 2 == 0 {
-        ["a", "b"]
-    } else {
-        ["b", "a"]
-    } {
+    let mut personas = crate::characters::active_ids(&db)?;
+    if !personas.is_empty() {
+        let offset = seed as usize % personas.len();
+        personas.rotate_left(offset);
+    }
+    for persona in personas {
         if let Some(mut request) =
-            story::prepare_from_catalog(&db, persona, 0, seed, &lock(&state.story_catalog)?)?
+            story::prepare_from_catalog(&db, &persona, 0, seed, &lock(&state.story_catalog)?)?
         {
             let (epoch, _) = crate::app::interrupt(state, true)?;
             request.epoch = epoch;
@@ -49,7 +50,7 @@ pub fn advance(state: &AppState, at: Instant) -> Result<bool, String> {
             lock(&state.story_clock)?.elapsed = Duration::ZERO;
             let mut runtime = lock(&state.runtime)?;
             runtime.phase = "story".into();
-            runtime.persona = Some(persona.into());
+            runtime.persona = Some(persona);
             runtime.error = None;
             return Ok(true);
         }
@@ -76,7 +77,7 @@ pub fn choose_story(
         let db = lock(&state.db)?;
         if status.hidden
             || status.paused
-            || state.stopping.load(Ordering::SeqCst)
+            || crate::app::unavailable(&state)
             || !crate::store::settings(&db)?.autonomous_enabled
         {
             return Err("지금은 이야기가 쉬고 있어요.".into());

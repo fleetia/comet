@@ -1,26 +1,41 @@
-import { useRef, useState, type JSX } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useEffect, useState, type JSX } from "react";
 import { IconButton } from "@fleetia/lagrange";
 import { command, errorText, isDesktop } from "../hooks/useSnapshot";
-import type { Dispatch, Persona, Snapshot } from "../types";
+import { useWindowDrag } from "../hooks/useWindowDrag";
+import type { Dispatch, Snapshot } from "../types";
 import * as s from "./companion.css";
-import { activeCharacter, characterName } from "./characterIdentity";
+import {
+  characterById,
+  currentExpression,
+  expressionLabel,
+  personaOf,
+  spriteSource,
+} from "./characterIdentity";
 
-type Props = { persona: Persona; snapshot: Snapshot; preview?: boolean; dispatch?: Dispatch };
+type Props = { id: string; snapshot: Snapshot; preview?: boolean; dispatch?: Dispatch };
 export function CompanionBox({
-  persona,
+  id,
   snapshot,
   preview = false,
   dispatch = command,
 }: Props): JSX.Element {
-  const pointer = useRef<{ x: number; y: number; dragged: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const character = activeCharacter(snapshot, persona);
-  const name = characterName(snapshot, persona);
-  const expressionKey =
-    snapshot.playback?.persona === persona ? snapshot.playback.expression : "평온";
-  const expression = character?.definition.expressions[expressionKey] ?? expressionKey;
+  const drag = useWindowDrag(!preview, setError);
+  const character = characterById(snapshot, id);
+  const persona = personaOf(snapshot, id);
+  const name = character?.definition.name ?? persona?.toUpperCase() ?? "친구";
+  const expressionKey = currentExpression(snapshot, persona);
+  const expression = expressionLabel(character, expressionKey);
+  const sprite = spriteSource(character, expressionKey);
+  const size = character?.definition.spriteSize ?? 64;
+  const transparent = Boolean(sprite) && !preview;
+  useEffect(() => {
+    if (!transparent) return;
+    document.documentElement.classList.add(s.transparentDocument);
+    return () => document.documentElement.classList.remove(s.transparentDocument);
+  }, [transparent]);
   async function open(mode: "menu" | "input"): Promise<void> {
+    if (!persona) return;
     setError(null);
     try {
       await dispatch("open_panel", { persona, mode });
@@ -31,39 +46,28 @@ export function CompanionBox({
   return (
     <div className={`${s.bodyFrame} ${preview ? s.bodyPreview : ""}`}>
       <button
-        className={`${s.body} ${s.tone[persona]}`}
-        aria-label={`${name} 메뉴 열기`}
-        title={error ?? "클릭: 메뉴 · 두 번 클릭: 말 걸기 · 끌기: 이동"}
-        onPointerDown={(event) => {
-          if (event.button === 0) {
-            pointer.current = { x: event.clientX, y: event.clientY, dragged: false };
-          }
-        }}
-        onPointerMove={(event) => {
-          const start = pointer.current;
-          if (
-            !start ||
-            start.dragged ||
-            event.buttons !== 1 ||
-            Math.hypot(event.clientX - start.x, event.clientY - start.y) < 6
-          ) {
-            return;
-          }
-          start.dragged = true;
-          if (isDesktop() && !preview) {
-            void getCurrentWindow()
-              .startDragging()
-              .catch((cause: unknown) => setError(errorText(cause)));
-          }
-        }}
+        className={
+          sprite
+            ? `${s.body} ${s.spriteBody}`
+            : `${s.body} ${s.tone[snapshot.characters.active.indexOf(id) % 2 === 1 ? "b" : "a"]}`
+        }
+        aria-label={persona ? `${name} 메뉴 열기` : name}
+        title={
+          error ??
+          (persona
+            ? "클릭: 메뉴 · 두 번 클릭: 말 걸기 · 끌기: 이동"
+            : "끌기: 이동 · 이 친구의 대화는 준비 중이에요")
+        }
+        onPointerDown={drag.onPointerDown}
+        onPointerMove={drag.onPointerMove}
         onClick={() => {
-          if (pointer.current?.dragged) {
+          if (drag.dragged()) {
             return;
           }
           void open("menu");
         }}
         onDoubleClick={() => {
-          if (!pointer.current?.dragged) {
+          if (!drag.dragged()) {
             void open("input");
           }
         }}
@@ -72,29 +76,43 @@ export function CompanionBox({
           void open("menu");
         }}
         onKeyDown={(event) => {
-          pointer.current = null;
+          drag.reset();
           if ((event.shiftKey && event.key === "F10") || event.key === "ContextMenu") {
             event.preventDefault();
             void open("menu");
           }
         }}
       >
-        <span className={s.bodyName}>{name}</span>
-        <span className={s.face}>[{expression}]</span>
+        {sprite ? (
+          <img
+            className={s.sprite}
+            style={{ width: size, height: size }}
+            src={sprite}
+            alt={`${name} ${expression}`}
+            draggable={false}
+          />
+        ) : (
+          <>
+            <span className={s.bodyName}>{name}</span>
+            <span className={s.face}>[{expression}]</span>
+          </>
+        )}
       </button>
-      <IconButton
-        className={s.bodyClose}
-        variant="quiet"
-        size="compact"
-        label="캐릭터 숨기기"
-        disabled={!isDesktop() || preview}
-        onClick={() => {
-          setError(null);
-          void dispatch("hide_boxes").catch((cause: unknown) => setError(errorText(cause)));
-        }}
-      >
-        ×
-      </IconButton>
+      {!sprite && (
+        <IconButton
+          className={s.bodyClose}
+          variant="quiet"
+          size="compact"
+          label="캐릭터 숨기기"
+          disabled={!isDesktop() || preview}
+          onClick={() => {
+            setError(null);
+            void dispatch("hide_boxes").catch((cause: unknown) => setError(errorText(cause)));
+          }}
+        >
+          ×
+        </IconButton>
+      )}
     </div>
   );
 }

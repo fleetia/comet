@@ -122,7 +122,7 @@ mod tests {
         id: String,
         values: BTreeMap<String, Value>,
         available: BTreeSet<String>,
-        active: [String; 2],
+        active: Vec<String>,
         trigger: String,
         expected_scene: Option<String>,
         #[serde(default)]

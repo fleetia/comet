@@ -257,7 +257,9 @@ fn historical_identity_survives_rename_reinsert_and_slot_move() {
     crate::characters::apply_pair(&conn, ["builtin-b".into(), "builtin-a".into()]).unwrap();
     let context = context_messages_for(&conn, 10, "b").unwrap();
     assert_eq!(context.len(), 2);
-    assert!(context.iter().all(|m| m.persona.as_deref() == Some("b")));
+    assert!(context
+        .iter()
+        .all(|m| m.persona.as_deref() == Some("builtin-a")));
     assert_eq!(
         messages(&conn, 10).unwrap()[0].persona.as_deref(),
         Some("a")

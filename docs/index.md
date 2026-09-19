@@ -31,7 +31,9 @@ comet은 나니카·우카가카처럼 바탕화면에 머물며 먼저 말을 �
 | --- | --- |
 | 어떤 앱을 만드는가 | [바탕화면 경험](product/desktop.md), [대화·단어장·친밀도](product/conversation.md) |
 | 위젯 상태로 대본을 작성하는가 | [`.talk` 작성](product/talk.md), [CLI·변수](development/talk-reference.md), [기본 대본 범위](development/talk-coverage.md) |
-| 캐릭터를 바꾸고 공유하는가 | [캐릭터팩·개별 교체·둘의 조합·내보내기](product/characters.md) |
+| 캐릭터를 바꾸고 공유하는가 | [캐릭터팩·1~8명 조합·내보내기](product/characters.md) |
+| 캐릭터팩을 내려받으려면 | [캐릭터팩 갤러리](product/character-gallery.md) |
+| 앱을 배포하고 업데이트하려면 | [앱 릴리스와 업데이트](development/releases.md) |
 | 어떤 도구를 만드는가 | [토이 목록](product/toys.md), [내장 투두와 캘린더](product/planning.md) |
 | 무엇을 선택해서 설치하는가 | [전체 위젯 카탈로그](widgets/catalog.md), [선택 설치·추가·제거](widgets/installation.md) |
 | 위젯은 어떻게 참여하는가 | [외부 위젯 개요](widgets/overview.md), [연결 계약](widgets/contract.md) |
@@ -39,6 +41,7 @@ comet은 나니카·우카가카처럼 바탕화면에 머물며 먼저 말을 �
 | 외부 개발자는 무엇을 준비하는가 | [위젯 작성 안내](widgets/authoring.md) |
 | 코드를 어디에서 바꾸고 무엇을 보존하는가 | [구조와 책임](development/architecture.md) |
 | 다음 개발과 검증은 무엇인가 | [개발 순서와 인수 기준](development/roadmap.md), [구현 상태](status.md) |
+| 캐릭터를 1명이나 3명 이상 두려면 | [캐릭터 관리](product/characters.md), [당시 설계안](development/multi-character-plan.md) |
 | 이 문서와 위키를 어떻게 수정하는가 | [위키 운영](development/wiki.md) |
 
 ## 유지할 제품 경계

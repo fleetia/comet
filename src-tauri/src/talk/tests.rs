@@ -41,7 +41,7 @@ fn context() -> EvalContext {
             ("weather.temperature".into(), json!(3)),
             ("todo.title".into(), json!("산책")),
         ]),
-        active: ["first".into(), "second".into()],
+        active: vec!["first".into(), "second".into()],
         available: BTreeSet::from(["weather".into(), "todo".into()]),
         now_ms: 100_000,
         seed: 1,
@@ -70,6 +70,8 @@ fn source_scoped_pair_follows_imported_character_identity_when_slots_swap() {
             format_version: 1,
             name: "identity test".into(),
             author: "test".into(),
+            source_url: String::new(),
+            sprites: Vec::new(),
             license: "CC0".into(),
             characters: vec![nadir, companion],
             pair_scenes: vec![],
@@ -90,11 +92,24 @@ fn source_scoped_pair_follows_imported_character_identity_when_slots_swap() {
     )
     .unwrap();
     let program = load(&entry, &super::context::registry()).unwrap();
+    let mut definition = imported[0].definition.clone();
+    definition.source_id = "unrelated".into();
+    let custom = crate::characters::create(&db, &definition).unwrap();
     for (ids, expected) in [
-        ([imported[0].id.clone(), imported[1].id.clone()], ["a", "b"]),
-        ([imported[1].id.clone(), imported[0].id.clone()], ["b", "a"]),
+        (
+            vec![imported[0].id.clone(), imported[1].id.clone()],
+            ["a", "b"],
+        ),
+        (
+            vec![imported[1].id.clone(), imported[0].id.clone()],
+            ["b", "a"],
+        ),
+        (
+            vec![custom.id, imported[1].id.clone(), imported[0].id.clone()],
+            ["c", "b"],
+        ),
     ] {
-        crate::characters::apply_pair(&db, ids).unwrap();
+        crate::characters::apply_roster(&db, ids).unwrap();
         let context = super::context::build(&db, None, 1000, 9).unwrap();
         let selected = simulate(&program, &context, &History::new())
             .selected
@@ -186,7 +201,7 @@ fn validation_reports_unknown_fields_variables_events_and_bad_types() {
             4,
         ),
         (
-            "format: 1\nscene: bad\non: idle\n---\nC: 안녕\n===",
+            "format: 1\nscene: bad\non: idle\n---\nI: 안녕\n===",
             "SPEAKER",
             5,
         ),
@@ -565,4 +580,49 @@ fn source_scoped_pack_follows_imported_identity_and_swapped_slots() {
     assert!(simulate(&program, &input, &History::new())
         .selected
         .is_none());
+}
+
+#[test]
+fn cast_aliases_follow_all_three_identities_and_reject_out_of_cast_speakers() {
+    let directory = tempdir().unwrap();
+    let entry = directory.path().join("index.talk");
+    fs::write(
+        &entry,
+        "format: 1\nimport \"cast.talk\" for cast(\"first\", \"second\", \"third\")\n",
+    )
+    .unwrap();
+    fs::write(
+        directory.path().join("cast.talk"),
+        "format: 1\nscene: three\non: idle\n---\nC:  셋째 원문  \nA: 첫째\n===",
+    )
+    .unwrap();
+    let program = load(&entry, &registry()).unwrap();
+    let mut current = context();
+    current.active = vec!["third".into(), "second".into(), "first".into()];
+    let selected = render_scene(&program, &program.scenes[0].key, &current).unwrap();
+    assert_eq!(selected.lines[0].persona, "a");
+    assert_eq!(selected.lines[0].text, " 셋째 원문  ");
+    assert_eq!(selected.lines[1].persona, "c");
+    fs::write(
+        &entry,
+        "format: 1\nimport \"cast.talk\" for cast(\"source:first\", \"source:second\", \"source:third\")\n",
+    ).unwrap();
+    for (slot, source) in [("a", "third"), ("b", "second"), ("c", "first")] {
+        current
+            .values
+            .insert(format!("character.{slot}.sourceId"), json!(source));
+    }
+    let source_program = load(&entry, &registry()).unwrap();
+    let selected = render_scene(&source_program, &source_program.scenes[0].key, &current).unwrap();
+    assert_eq!(selected.lines[0].persona, "a");
+    assert_eq!(selected.lines[1].persona, "c");
+    fs::write(
+        directory.path().join("cast.talk"),
+        "format: 1\nscene: invalid\non: idle\n---\nD: 없음\n===",
+    )
+    .unwrap();
+    assert!(load(&entry, &registry())
+        .unwrap_err()
+        .iter()
+        .any(|d| d.code == "SPEAKER"));
 }

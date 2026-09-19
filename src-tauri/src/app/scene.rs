@@ -10,7 +10,7 @@ use std::{
 };
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn present_line(
+pub(crate) fn present_line(
     state: &AppState,
     line: &SceneLine,
     source: &str,
@@ -27,6 +27,8 @@ pub(super) fn present_line(
     if !is_current(state, epoch, cancel) || store::revision(&db)? != revision {
         return Ok(false);
     }
+    let resolved = characters::resolve_lines(&db, std::slice::from_ref(line))?;
+    let line = &resolved[0];
     if source == "widget" && !widget_commands::widget_event_current(state, &db)? {
         return Ok(false);
     }
@@ -72,7 +74,7 @@ pub(super) fn present_line(
     Ok(true)
 }
 
-pub(super) async fn wait_for_line(
+pub(crate) async fn wait_for_line(
     app: &tauri::AppHandle,
     state: &AppState,
     epoch: u64,
@@ -83,13 +85,33 @@ pub(super) async fn wait_for_line(
         _ = models::cancelled(cancel.clone()) => return Ok(()),
         _ = tokio::time::sleep(Duration::from_millis(playback::reading_millis(text) as u64)) => {}
     }
+    let question = lock(&state.playback)?
+        .as_ref()
+        .is_some_and(|line| line.source == "question");
+    if question {
+        {
+            let _action = lock(&state.action)?;
+            if !is_current(state, epoch, &cancel) {
+                return Ok(());
+            }
+            if let Some(line) = lock(&state.playback)?.as_mut() {
+                line.ends_at = chrono::Utc::now().timestamp_millis() + 30_000;
+            }
+            lock(&state.runtime)?.phase = "waiting".into();
+        }
+        publish(app, state);
+        tokio::select! {
+            _ = models::cancelled(cancel.clone()) => return Ok(()),
+            _ = tokio::time::sleep(Duration::from_secs(30)) => {}
+        }
+    }
     if clear_line_if_current(state, epoch, &cancel)? {
         publish(app, state);
     }
     Ok(())
 }
 
-pub(super) fn clear_line_if_current(
+pub(crate) fn clear_line_if_current(
     state: &AppState,
     epoch: u64,
     cancel: &AtomicBool,
@@ -103,7 +125,7 @@ pub(super) fn clear_line_if_current(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn run_scene(
+pub(crate) async fn run_scene(
     app: &tauri::AppHandle,
     state: &AppState,
     lines: &[SceneLine],
@@ -177,7 +199,7 @@ pub(crate) fn start_scene(
     });
 }
 
-pub(super) fn next_scene(state: &AppState) -> Result<(Vec<SceneLine>, &'static str), String> {
+pub(crate) fn next_scene(state: &AppState) -> Result<(Vec<SceneLine>, &'static str), String> {
     let db = lock(&state.db)?;
     *lock(&state.talk_playback)? = None;
     if state.idle_sequence.load(Ordering::SeqCst) > 0
@@ -193,7 +215,11 @@ pub(super) fn next_scene(state: &AppState) -> Result<(Vec<SceneLine>, &'static s
     }
     let registered: Vec<_> = wordbook::entries(&db)?
         .into_iter()
-        .filter(|entry| entry.enabled && entry.use_for_idle)
+        .filter(|entry| {
+            entry.enabled
+                && entry.use_for_idle
+                && characters::resolve_lines(&db, &entry.lines).is_ok()
+        })
         .collect();
     let scenes = store::prepared_scenes(&db)?;
     let source = playback::idle_source(sequence, !registered.is_empty(), !scenes.is_empty());
@@ -207,16 +233,26 @@ pub(super) fn next_scene(state: &AppState) -> Result<(Vec<SceneLine>, &'static s
         "llm" => {
             let scene = &scenes[0];
             store::delete_scene(&db, &scene.id)?;
-            Ok((scene.lines.clone(), source))
+            Ok((
+                scene.lines.clone(),
+                if scene.id.starts_with("question:") {
+                    "question"
+                } else {
+                    source
+                },
+            ))
         }
         _ => Ok((character_script(&db, sequence)?, "script")),
     }
 }
 
-pub(super) fn character_script(db: &Connection, sequence: u64) -> Result<Vec<SceneLine>, String> {
+pub(crate) fn character_script(db: &Connection, sequence: u64) -> Result<Vec<SceneLine>, String> {
+    let members = characters::active_members(db)?;
     if sequence == 0 {
-        let mut greeting = characters::greeting(db, "a")?;
-        greeting.extend(characters::greeting(db, "b")?);
+        let mut greeting = Vec::new();
+        for slot in characters::SLOTS.iter().take(members.len()) {
+            greeting.extend(characters::greeting(db, slot)?);
+        }
         return Ok(greeting);
     }
     characters::idle_scene(db, sequence as usize)

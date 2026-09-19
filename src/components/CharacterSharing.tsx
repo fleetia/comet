@@ -1,5 +1,5 @@
-import { useRef, useState, type JSX } from "react";
-import { Button, Checkbox, Select } from "@fleetia/lagrange";
+import { useEffect, useRef, useState, type JSX } from "react";
+import { Button, Checkbox, Select, TextField } from "@fleetia/lagrange";
 import { command, errorText } from "../hooks/useSnapshot";
 import type { CharacterPack, InstalledCharacter, Snapshot } from "../types";
 import { CharacterPackPreview } from "./CharacterPackPreview";
@@ -19,6 +19,8 @@ export function CharacterSharing({
   onPendingChange,
 }: Props): JSX.Element {
   const [scope, setScope] = useState("selected");
+  const [author, setAuthor] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
   const [wordbookIds, setWordbookIds] = useState<string[]>([]);
   const [pack, setPack] = useState<CharacterPack | null>(null);
   const [installed, setInstalled] = useState<InstalledCharacter[]>([]);
@@ -26,7 +28,34 @@ export function CharacterSharing({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const lock = useRef(false);
-  const ids = scope === "pair" ? snapshot.characters.active : selectedId ? [selectedId] : [];
+  const { active } = snapshot.characters;
+  const packId = snapshot.characters.installed.find((item) => item.id === selectedId)?.packId;
+  const [attributionLoaded, setAttributionLoaded] = useState(false);
+  useEffect(() => {
+    let current = true;
+    setAuthor("");
+    setSourceUrl("");
+    setAttributionLoaded(false);
+    if (packId) {
+      void command<{ author: string; sourceUrl: string }>("get_character_pack_attribution", {
+        packId,
+      })
+        .then((value) => {
+          if (!current) return;
+          setAuthor(value.author);
+          setSourceUrl(value.sourceUrl);
+          setAttributionLoaded(true);
+        })
+        .catch((cause: unknown) => {
+          if (current) setError(errorText(cause));
+        });
+    }
+    return () => {
+      current = false;
+    };
+  }, [packId]);
+  const ids = scope === "pair" && active.length > 1 ? active : selectedId ? [selectedId] : [];
+  const joining = installed.map((character) => character.id).filter((id) => !active.includes(id));
   async function run(action: () => Promise<void>): Promise<void> {
     if (lock.current || disabled) return;
     lock.current = true;
@@ -48,15 +77,58 @@ export function CharacterSharing({
     <section className={s.section} aria-label="캐릭터 공유">
       <h2 className={s.subheading}>캐릭터 공유</h2>
       <p className={s.notice}>
-        이름·성격·표정·등록 대사만 공유해요. 대화 기록·기억·친밀도·API 키·모델 파일은 포함하지
-        않아요. 직접 적은 소개나 대사에 개인정보가 없는지도 확인해 주세요.
+        이름·성격·표정과 표정 이미지·등록 대사만 공유해요. 대화 기록·기억·친밀도·API 키·모델 파일은
+        포함하지 않아요. 직접 적은 소개나 대사에 개인정보가 없는지도 확인해 주세요.
       </p>
       <fieldset className={s.fieldset} disabled={pending || disabled}>
+        {packId && (
+          <>
+            <p className={ui.quiet}>
+              선택한 캐릭터의 원본 패키지 출처예요. 같은 패키지의 모든 캐릭터에 적용돼요.
+            </p>
+            <label className={ui.field}>
+              제작자
+              <TextField
+                disabled={!attributionLoaded}
+                value={author}
+                maxLength={120}
+                onChange={(event) => setAuthor(event.target.value)}
+              />
+            </label>
+            <label className={ui.field}>
+              출처 URL
+              <TextField
+                disabled={!attributionLoaded}
+                value={sourceUrl}
+                maxLength={2048}
+                onChange={(event) => setSourceUrl(event.target.value)}
+                placeholder="https://…"
+              />
+            </label>
+            <Button
+              variant="secondary"
+              disabled={!attributionLoaded}
+              onClick={() =>
+                void run(async () => {
+                  await command("save_character_pack_attribution", {
+                    packId,
+                    value: { author, sourceUrl },
+                  });
+                  setNotice("패키지 출처를 저장했어요.");
+                })
+              }
+            >
+              출처 저장
+            </Button>
+          </>
+        )}
         <label className={ui.field}>
           내보낼 대상
           <Select value={scope} onChange={(event) => setScope(event.target.value)}>
             <option value="selected">선택한 캐릭터 하나</option>
-            <option value="pair">현재 A/B 둘의 조합</option>
+            <option value="pair" disabled={active.length < 2}>
+              함께 지내는 친구들의 조합
+            </option>
           </Select>
         </label>
         <p className={ui.quiet}>
@@ -137,7 +209,7 @@ export function CharacterSharing({
             공유 파일 가져오기
           </Button>
         </div>
-        <p className={ui.quiet}>.comet-character.json · 최대 1 MiB · 온라인에 게시하지 않아요.</p>
+        <p className={ui.quiet}>.comet-character.json · 최대 32 MiB · 온라인에 게시하지 않아요.</p>
         {pack && (
           <section className={s.section} aria-label="가져오기 미리보기">
             <CharacterPackPreview pack={pack} />
@@ -151,7 +223,7 @@ export function CharacterSharing({
                         pack,
                       });
                       setInstalled(values);
-                      setNotice("목록에 설치했어요. 사용할 자리를 선택해 주세요.");
+                      setNotice("목록에 설치했어요. 함께 지낼지 선택해 주세요.");
                     })
                   }
                 >
@@ -163,36 +235,18 @@ export function CharacterSharing({
               </div>
             ) : (
               <div className={ui.row}>
-                {installed.length === 2 ? (
-                  <Button
-                    variant="primary"
-                    onClick={() =>
-                      void run(async () => {
-                        await command("apply_character_pair", {
-                          ids: installed.map((character) => character.id),
-                        });
-                        setNotice("가져온 둘을 A/B에 적용했어요.");
-                      })
-                    }
-                  >
-                    가져온 둘을 A/B에 적용
-                  </Button>
-                ) : (
-                  ["a", "b"].map((persona) => (
-                    <Button
-                      variant="primary"
-                      key={persona}
-                      onClick={() =>
-                        void run(async () => {
-                          await command("assign_character", { persona, id: installed[0].id });
-                          setNotice(`${persona.toUpperCase()}에 적용했어요.`);
-                        })
-                      }
-                    >
-                      {persona.toUpperCase()}에 적용
-                    </Button>
-                  ))
-                )}
+                <Button
+                  variant="primary"
+                  disabled={joining.length === 0 || active.length + joining.length > 8}
+                  onClick={() =>
+                    void run(async () => {
+                      await command("apply_character_roster", { ids: [...active, ...joining] });
+                      setNotice("가져온 친구가 함께 지내기 시작했어요.");
+                    })
+                  }
+                >
+                  가져온 친구와 함께 지내기
+                </Button>
                 <Button
                   variant="secondary"
                   onClick={() => {
