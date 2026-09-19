@@ -5,6 +5,20 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    paths:
+      - '.changeset/**'
+      - '.github/workflows/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'src-tauri/Cargo.toml'
+      - 'src-tauri/Cargo.lock'
+      - 'src-tauri/tauri.conf.json'
+      - 'CHANGELOG.md'
+      - 'scripts/release.py'
+      - 'scripts/finalize_release.py'
+      - 'scripts/prepare-release*'
+      - 'scripts/test_*.py'
+      - 'vitest.release.config.ts'
   workflow_dispatch:
 
 permissions:
@@ -13,7 +27,7 @@ permissions:
 
 concurrency:
   group: changesets-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:

@@ -34,6 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      packages: read
     outputs:
       release_id: ${{ steps.release.outputs.release_id }}
       tag: ${{ steps.release.outputs.tag }}
@@ -58,6 +59,20 @@ jobs:
           assert os.environ['UPDATER_PUBLIC_KEY'].strip(), 'Set TAURI_UPDATER_PUBLIC_KEY repository variable'
           assert os.environ['UPDATER_PRIVATE_KEY'].strip(), 'Set TAURI_SIGNING_PRIVATE_KEY repository secret'
           PY
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://npm.pkg.github.com
+          scope: '@fleetia'
+      - run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: pnpm check
+      - run: pnpm test
       - name: Create or reuse draft release
         id: release
         env:
@@ -106,6 +121,11 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: '@fleetia'
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'src-tauri -> target'
+          shared-key: desktop-${{ matrix.runner }}-${{ matrix.arch }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check native host architecture
         env:
           EXPECTED_ARCH: ${{ matrix.arch }}
@@ -113,9 +133,18 @@ jobs:
       - run: pnpm install --frozen-lockfile
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - run: pnpm check
-      - run: pnpm test
+      - uses: actions/cache/restore@v4
+        id: sidecar-cache
+        with:
+          path: src-tauri/binaries
+          key: sidecar-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/prepare-sidecar.mjs') }}
       - run: pnpm prepare:sidecar
+        if: steps.sidecar-cache.outputs.cache-hit != 'true'
+      - uses: actions/cache/save@v4
+        if: steps.sidecar-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        with:
+          path: src-tauri/binaries
+          key: ${{ steps.sidecar-cache.outputs.cache-primary-key }}
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
       - name: Configure signed updater artifacts
         env:
