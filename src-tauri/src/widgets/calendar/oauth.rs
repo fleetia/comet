@@ -156,9 +156,9 @@ pub async fn finish_google(pending: GooglePending) -> Result<Connected, Calendar
         .map_err(|_| invalid("인증 응답 읽기 시간이 끝났습니다."))??;
     let code = callback_code(&request, &pending.state);
     let message = if code.is_ok() {
-        "Google login received. You may return to Comet."
+        "Google login received. You may return to comet."
     } else {
-        "Google login failed. Please return to Comet and retry."
+        "Google login failed. Please return to comet and retry."
     };
     let response=format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\nContent-Security-Policy: default-src 'none'\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{message}",message.len());
     let _ = tokio::time::timeout(

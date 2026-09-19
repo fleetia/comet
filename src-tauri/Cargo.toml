@@ -1,13 +1,13 @@
 [package]
-name = "nanika-box"
-version = "0.4.0"
+name = "comet"
+version = "0.5.0"
 description = "Two quiet desktop companions"
 license = "AGPL-3.0-only"
 edition = "2021"
 rust-version = "1.85"
 
 [lib]
-name = "nanika_box"
+name = "comet_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -26,6 +26,7 @@ chrono = { version = "0.4", features = ["serde"] }
 icalendar = "0.17"
 rrule = "0.14"
 base64 = "0.22"
+aes-gcm = "0.10.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 tokio = { version = "1", features = ["full"] }
 futures-util = "0.3"

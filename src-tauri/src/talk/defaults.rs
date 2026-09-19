@@ -179,7 +179,49 @@ mod tests {
         }
         let mut failures = Vec::new();
         for case in cases {
-            let simulation = simulate(&program, &input(&case), &History::new());
+            let context = input(&case);
+            let history = if case.expected_scene.is_some() {
+                program
+                    .scenes
+                    .iter()
+                    .filter(|scene| Some(&scene.id) != case.expected_scene.as_ref())
+                    .map(|scene| (scene.key.clone(), context.now_ms))
+                    .collect()
+            } else {
+                History::new()
+            };
+            let simulation = simulate(&program, &context, &history);
+            if case.expected_scene.is_none() && case.id != "negative.incomplete-context" {
+                assert!(
+                    simulation
+                        .candidates
+                        .iter()
+                        .all(|candidate| candidate.reason != "cooldown"
+                            && candidate.reason != "pair_mismatch"),
+                    "{} did not exercise state guards",
+                    case.id
+                );
+            }
+            let guard = match case.id.as_str() {
+                "negative.disabled-todo" => Some(("todo.open", "dependency_unavailable")),
+                "negative.null-weather" => Some(("weather.freezing", "condition_false")),
+                "negative.event-mismatch" => Some(("guessing.correct", "trigger_mismatch")),
+                "negative.unknown-result" => Some(("match.winner-a", "condition_false")),
+                "negative.incomplete-context" => Some(("time.morning", "pair_mismatch")),
+                _ => None,
+            };
+            if let Some((scene_id, reason)) = guard {
+                assert!(
+                    simulation
+                        .candidates
+                        .iter()
+                        .any(|candidate| candidate.scene_id == scene_id
+                            && !candidate.eligible
+                            && candidate.reason == reason),
+                    "{} did not enforce {reason}",
+                    case.id
+                );
+            }
             let actual = simulation
                 .selected
                 .as_ref()
@@ -217,45 +259,123 @@ mod tests {
         for (path, source) in FILES {
             assert_eq!(
                 program.sources.get(&root.join(path)).map(String::as_str),
-                Some(*source),
+                Some(
+                    crate::talk::encryption::decode(source.as_bytes())
+                        .unwrap()
+                        .as_str()
+                ),
                 "{path}"
             );
         }
     }
 
     #[test]
-    fn pair_dialogue_maps_to_character_identity_and_falls_back_on_cooldown() {
+    fn pair_dialogue_follows_source_identity_after_swap_and_respects_cooldown() {
         let program = program();
-        let cases = fixtures();
-        let case = cases
-            .iter()
+        let case = fixtures()
+            .into_iter()
             .find(|case| case.id == "pair.quiet-focus")
             .unwrap();
-        let mut context = input(case);
-        let chosen = simulate(&program, &context, &History::new())
-            .selected
+        let mut context = input(&case);
+        let scene = program
+            .scenes
+            .iter()
+            .find(|scene| scene.id == case.id)
             .unwrap();
-        assert_eq!(chosen.scene_id, "pair.quiet-focus");
+        let chosen = crate::talk::render_scene(&program, &scene.key, &context).unwrap();
         assert_eq!(chosen.lines[0].persona, "a");
         context.active.swap(0, 1);
-        let reversed = simulate(&program, &context, &History::new())
-            .selected
-            .unwrap();
-        assert_eq!(reversed.scene_id, chosen.scene_id);
+        context
+            .values
+            .insert("character.a.sourceId".into(), json!("star-tail"));
+        context
+            .values
+            .insert("character.b.sourceId".into(), json!("nadir"));
+        let reversed = crate::talk::render_scene(&program, &scene.key, &context).unwrap();
         assert_eq!(reversed.lines[0].persona, "b");
         assert_eq!(reversed.lines[0].text, chosen.lines[0].text);
         let history = History::from([(chosen.key.clone(), context.now_ms)]);
-        let fallback = simulate(&program, &context, &history).selected.unwrap();
-        assert_ne!(fallback.scene_id, chosen.scene_id);
-        assert!(!fallback.scene_id.starts_with("pair."));
-        context.now_ms += chosen.cooldown_ms;
-        assert_eq!(
-            simulate(&program, &context, &history)
-                .selected
-                .unwrap()
-                .scene_id,
-            chosen.scene_id
-        );
+        let simulation = simulate(&program, &context, &history);
+        assert!(simulation
+            .candidates
+            .iter()
+            .any(|candidate| candidate.key == chosen.key && candidate.reason == "cooldown"));
+    }
+
+    #[test]
+    fn every_condition_and_touch_affinity_branch_has_five_distinct_variations() {
+        let program = program();
+        for case in fixtures()
+            .into_iter()
+            .filter(|case| case.expected_scene.is_some())
+        {
+            let mut context = input(&case);
+            let scene = program
+                .scenes
+                .iter()
+                .find(|scene| Some(&scene.id) == case.expected_scene.as_ref())
+                .unwrap();
+            for affinity in [20, 50, 80] {
+                context
+                    .values
+                    .insert("character.nadir.affinity".into(), json!(affinity));
+                let mut variants = BTreeSet::new();
+                for variant in 0..5 {
+                    context.seed = variant;
+                    context
+                        .values
+                        .insert("dialogue.variant".into(), json!(variant));
+                    let selected = crate::talk::render_scene(&program, &scene.key, &context)
+                        .unwrap_or_else(|| panic!("{} variant {variant}", case.id));
+                    variants.insert(serde_json::to_string(&selected.lines).unwrap());
+                }
+                assert_eq!(variants.len(), 5, "{} affinity {affinity}", case.id);
+            }
+        }
+    }
+
+    #[test]
+    fn repeated_touch_events_keep_five_variants_despite_recent_playback() {
+        let program = program();
+        for scene in &program.scenes {
+            assert_eq!(
+                scene.cooldown_ms,
+                if scene.trigger == "idle" {
+                    30 * 60 * 1000
+                } else {
+                    0
+                },
+                "{}",
+                scene.id
+            );
+        }
+        for case in fixtures()
+            .into_iter()
+            .filter(|case| case.trigger == "interaction.touch")
+        {
+            let mut context = input(&case);
+            let scene = program
+                .scenes
+                .iter()
+                .find(|scene| Some(&scene.id) == case.expected_scene.as_ref())
+                .unwrap();
+            let mut history = History::from([(scene.key.clone(), context.now_ms)]);
+            let mut variants = BTreeSet::new();
+            for seed in 0..5 {
+                context.now_ms += 1;
+                context.seed = seed;
+                context
+                    .values
+                    .insert("dialogue.variant".into(), json!(seed));
+                let selected = simulate(&program, &context, &history)
+                    .selected
+                    .unwrap_or_else(|| panic!("{} repeat {seed} was suppressed", case.id));
+                assert_eq!(selected.scene_id, scene.id);
+                variants.insert(serde_json::to_string(&selected.lines).unwrap());
+                history.insert(selected.key, context.now_ms);
+            }
+            assert_eq!(variants.len(), 5, "{}", case.id);
+        }
     }
 
     #[test]
@@ -571,6 +691,35 @@ mod pipeline_tests {
                 now += 6_000;
             }
         }
+    }
+
+    #[test]
+    fn touch_voice_follows_nadir_after_slot_swap() {
+        let (db, _directory) = database(&["interaction"]);
+        crate::characters::apply_pair(&db, ["builtin-b".into(), "builtin-a".into()]).unwrap();
+        let program = program();
+        act(
+            &db,
+            "interaction",
+            "poke",
+            json!({"character":"B"}),
+            1_000,
+            0,
+        );
+        let (_, selected) = reaction(&db, &program, 1_000, "interaction.poke");
+        assert_eq!(selected.lines[0].persona, "b");
+        assert!(selected.lines[0].text.contains("부르면"));
+        act(
+            &db,
+            "interaction",
+            "poke",
+            json!({"character":"A"}),
+            7_000,
+            0,
+        );
+        let (_, selected) = reaction(&db, &program, 7_000, "interaction.poke");
+        assert_eq!(selected.lines[0].persona, "a");
+        assert!(selected.lines[0].text.contains("눈으로 콕"));
     }
 
     #[test]

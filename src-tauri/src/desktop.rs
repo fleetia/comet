@@ -38,16 +38,16 @@ fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
         window.run_on_main_thread(move || {
             let state = app.state::<Arc<AppState>>();
             // Never wait on locks from the UI thread: the next publish retries a skipped display.
-            let (Ok(db), Ok(runtime), Ok(panel), Ok(playback)) = (
+            let (Ok(db), Ok(runtime), Ok(panel), Ok(playback), Ok(story)) = (
                 state.db.try_lock(), state.runtime.try_lock(),
-                state.panel.try_lock(), state.playback.try_lock(),
+                state.panel.try_lock(), state.playback.try_lock(), state.story.try_lock(),
             ) else { return; };
             if state.epoch.load(Ordering::SeqCst) != epoch || runtime.hidden || super::unavailable(&state) {
                 return;
             }
             let Ok(characters) = crate::characters::collection(&db) else { return; };
             let wanted = if label == "balloon" {
-                owner_id(&runtime, panel.as_ref(), playback.as_ref(), &characters.active).is_some()
+                owner_id(&runtime, panel.as_ref(), story.as_ref(), playback.as_ref(), &characters.active).is_some()
             } else if let Some(id) = label.strip_prefix(BODY_PREFIX) {
                 characters.active.iter().any(|active| active == id)
             } else if let Some(id) = label.strip_prefix(FACE_PREFIX) {
@@ -55,7 +55,7 @@ fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
                     && characters.installed.iter().any(|character| character.id == id && has_body_sprite(character) && character.definition.face_icon)
             } else { false };
             if !wanted { return; }
-            drop((db, runtime, panel, playback));
+            drop((db, runtime, panel, playback, story));
             if state.epoch.load(Ordering::SeqCst) != epoch { return; }
             let Some(window) = app.get_webview_window(&label) else { return; };
             #[cfg(target_os = "macos")]
@@ -194,7 +194,7 @@ fn create_body(app: &AppHandle, state: &AppState, spec: BodySpec) -> Result<(), 
         &label,
         tauri::WebviewUrl::App(format!("index.html?body={id}").into()),
     )
-    .title(format!("Nanika Box · {title}"))
+    .title(format!("comet · {title}"))
     .inner_size(size.0, size.1)
     .min_inner_size(32.0, 32.0)
     .resizable(false)
@@ -309,7 +309,7 @@ fn create_face(app: &AppHandle, id: &str, title: &str) -> Result<(), String> {
         &label,
         tauri::WebviewUrl::App(format!("index.html?face={id}").into()),
     )
-    .title(format!("Nanika Box · {title} 표정"))
+    .title(format!("comet · {title} 표정"))
     .inner_size(FACE_SIZE.0, FACE_SIZE.1)
     .resizable(false)
     .decorations(false)
@@ -415,6 +415,7 @@ fn owner(snapshot: &Snapshot) -> Option<&str> {
     owner_id(
         &snapshot.runtime,
         snapshot.panel.as_ref(),
+        snapshot.story.as_ref(),
         snapshot.playback.as_ref(),
         &snapshot.characters.active,
     )
@@ -423,6 +424,7 @@ fn owner(snapshot: &Snapshot) -> Option<&str> {
 fn owner_id<'a>(
     runtime: &crate::types::RuntimeStatus,
     panel: Option<&crate::types::PanelState>,
+    story: Option<&crate::story::Request>,
     playback: Option<&crate::types::Playback>,
     active: &'a [String],
 ) -> Option<&'a str> {
@@ -431,6 +433,7 @@ fn owner_id<'a>(
     }
     panel
         .map(|panel| panel.persona.as_str())
+        .or_else(|| story.map(|story| story.persona.as_str()))
         .or_else(|| playback.map(|playback| playback.persona.as_str()))
         .or_else(|| {
             if ["loading", "generating", "error"].contains(&runtime.phase.as_str()) {
@@ -456,7 +459,7 @@ fn get_balloon(app: &AppHandle) -> Result<WebviewWindow, String> {
         "balloon",
         tauri::WebviewUrl::App("index.html?view=balloon".into()),
     )
-    .title("Nanika Box · 말풍선")
+    .title("comet · 말풍선")
     .inner_size(320.0, 180.0)
     .decorations(false)
     .transparent(true)
@@ -555,6 +558,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn pending_story_owns_native_balloon_and_interruption_removes_it() {
+        let state = crate::app::tests::state();
+        let request = crate::story::prepare(&crate::app::lock(&state.db).unwrap(), "a", 0, 0)
+            .unwrap()
+            .unwrap();
+        *crate::app::lock(&state.story).unwrap() = Some(request);
+        crate::app::lock(&state.runtime).unwrap().phase = "story".into();
+        assert!(crate::app::lock(&state.playback).unwrap().is_none());
+        assert_eq!(
+            owner(&crate::app::snapshot(&state).unwrap()),
+            Some("builtin-a")
+        );
+        crate::app::lock(&state.runtime).unwrap().hidden = true;
+        assert_eq!(owner(&crate::app::snapshot(&state).unwrap()), None);
+        crate::app::lock(&state.runtime).unwrap().hidden = false;
+        crate::app::interrupt(&state, false).unwrap();
+        assert_eq!(owner(&crate::app::snapshot(&state).unwrap()), None);
+    }
+
+    #[test]
     fn ambient_balloon_visibility_uses_current_owner_and_hidden_state() {
         let mut runtime = crate::types::RuntimeStatus::default();
         let panel = crate::types::PanelState {
@@ -563,14 +586,17 @@ mod tests {
         };
         let roster = vec!["first".into(), "second".into()];
         assert_eq!(
-            owner_id(&runtime, Some(&panel), None, &roster),
+            owner_id(&runtime, Some(&panel), None, None, &roster),
             Some("second")
         );
         runtime.hidden = true;
-        assert_eq!(owner_id(&runtime, Some(&panel), None, &roster), None);
+        assert_eq!(owner_id(&runtime, Some(&panel), None, None, &roster), None);
         runtime.hidden = false;
-        assert_eq!(owner_id(&runtime, None, None, &roster), None);
-        assert_eq!(owner_id(&runtime, Some(&panel), None, &roster[..1]), None);
+        assert_eq!(owner_id(&runtime, None, None, None, &roster), None);
+        assert_eq!(
+            owner_id(&runtime, Some(&panel), None, None, &roster[..1]),
+            None
+        );
     }
 
     #[test]

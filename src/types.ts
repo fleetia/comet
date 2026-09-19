@@ -52,10 +52,17 @@ export type WordbookEntry = {
 };
 export type Playback = SceneLine & {
   id: string;
-  source: "script" | "llm" | "wordbook" | "widget" | "talk" | "question";
+  source: "script" | "llm" | "wordbook" | "widget" | "talk" | "story" | "question";
   endsAt: number;
   lineIndex: number;
   lineCount: number;
+};
+export type StoryRequest = {
+  id: string;
+  persona: Persona;
+  title: string;
+  prompt: string;
+  choices: { id: string; label: string }[];
 };
 export type PanelState = { persona: Persona; mode: "menu" | "input" | "history" };
 export type Dispatch = (name: string, args?: Record<string, unknown>) => Promise<void>;
@@ -120,6 +127,7 @@ export type Snapshot = {
   messageIdentities: MessageIdentity[];
   settings: Settings;
   playback: Playback | null;
+  story: StoryRequest | null;
   panel: PanelState | null;
   wordbook: WordbookEntry[];
   messages: Message[];

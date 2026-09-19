@@ -32,7 +32,7 @@ export function App(): JSX.Element {
                 : () => command(view === "balloon" ? "skip_talk" : "hide_boxes")
             }
           >
-            <span className={s.eyebrow}>COMET</span>
+            <span className={s.eyebrow}>comet</span>
           </WindowHeader>
         </div>
         <p role="status">{error ? "준비하지 못했어요." : "…"}</p>

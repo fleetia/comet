@@ -1,47 +1,19 @@
 import type { LocalModel, Snapshot } from "./types";
+import CHARACTER_PACK from "../examples/character-packs/nadir-and-star-tail.comet-character.json";
 
 export const PREVIEW_SNAPSHOT: Snapshot = {
   characters: {
-    installed: [
-      {
-        id: "builtin-a",
-        packId: null,
-        definition: {
-          sourceId: "comet.a",
-          version: 1,
-          name: "A",
-          description: "호기심이 많은 바탕화면 친구",
-          personality: "호기심이 많고 다정하며 먼저 말을 건넨다.",
-          expressions: { 평온: "평온", 기쁨: "기쁨", 호기심: "호기심", 생각중: "생각중", 걱정: "걱정", 장난: "장난" },
-          faceIcon: false,
-          spriteSize: 64,
-          greeting: [{ expression: "기쁨", text: "안녕. 오늘도 여기서 같이 지내자." }],
-          idleLines: [{ expression: "호기심", text: "잠깐 쉬어 갈까?" }],
-        },
-        sprites: {},
-      },
-      {
-        id: "builtin-b",
-        packId: null,
-        definition: {
-          sourceId: "comet.b",
-          version: 1,
-          name: "B",
-          description: "차분한 바탕화면 친구",
-          personality: "차분하고 간결하며 가끔 부드러운 농담을 한다.",
-          expressions: { 평온: "평온", 기쁨: "기쁨", 호기심: "호기심", 생각중: "생각중", 걱정: "걱정", 장난: "장난" },
-          faceIcon: false,
-          spriteSize: 64,
-          greeting: [{ expression: "평온", text: "계속 대답해 주지는 않아도 돼." }],
-          idleLines: [{ expression: "평온", text: "좋아. 잠깐이면 충분하지." }],
-        },
-        sprites: {},
-      },
-    ],
+    installed: CHARACTER_PACK.characters.map((definition, index) => ({
+      id: index === 0 ? "builtin-a" : "builtin-b",
+      packId: null,
+      definition: { ...definition, faceIcon: false, spriteSize: 64 },
+      sprites: {},
+    })),
     active: ["builtin-a", "builtin-b"],
   },
   messageIdentities: [],
   playback: null,
+  story: null,
   panel: null,
   wordbook: [],
   settings: {

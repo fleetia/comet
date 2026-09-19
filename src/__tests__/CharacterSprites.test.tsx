@@ -82,8 +82,8 @@ it("keeps the text face for characters without sprites and outside the desktop a
   const { rerender } = render(
     <CompanionBox id="builtin-b" snapshot={{ ...snapshot, playback: playing("화남", "b") }} />,
   );
-  expect(screen.getByRole("button", { name: "B 메뉴 열기" }).querySelector("img")).toBeNull();
-  expect(screen.getByText("[평온]")).toBeTruthy();
+  expect(screen.getByRole("button", { name: `${PREVIEW_SNAPSHOT.characters.installed[1].definition.name} 메뉴 열기` }).querySelector("img")).toBeNull();
+  expect(screen.getByText(`[${PREVIEW_SNAPSHOT.characters.installed[1].definition.expressions.평온}]`)).toBeTruthy();
   vi.mocked(isDesktop).mockReturnValue(false);
   rerender(<CompanionBox id="byul" snapshot={{ ...snapshot, playback: playing("기쁨") }} />);
   expect(bodyImage()).toBeNull();
@@ -164,7 +164,7 @@ it("drops the speaker name from the balloon while a sprite is showing", () => {
   const { rerender } = render(<Balloon snapshot={{ ...snapshot, playback: playing("기쁨") }} />);
   expect(screen.queryByText("별꼬리")).toBeNull();
   rerender(<Balloon snapshot={{ ...snapshot, playback: playing("평온", "b") }} />);
-  expect(screen.getByText("B")).toBeTruthy();
+  expect(screen.getByText(PREVIEW_SNAPSHOT.characters.installed[1].definition.name)).toBeTruthy();
   rerender(
     <Balloon
       snapshot={{ ...snapshot, playback: playing("기쁨"), panel: { persona: "a", mode: "menu" } }}

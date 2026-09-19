@@ -85,6 +85,21 @@ fn rank(key: &str, seed: u64) -> u64 {
     value ^= value >> 27;
     value.wrapping_mul(0x94d049bb133111eb) ^ (value >> 31)
 }
+fn member_slot(context: &EvalContext, member: &str) -> Option<usize> {
+    if let Some(source) = member.strip_prefix("source:") {
+        crate::characters::SLOTS[..context.active.len()]
+            .iter()
+            .position(|persona| {
+                context
+                    .values
+                    .get(&format!("character.{persona}.sourceId"))
+                    .and_then(Value::as_str)
+                    == Some(source)
+            })
+    } else {
+        context.active.iter().position(|id| id == member)
+    }
+}
 fn eligible(
     scene: &Scene,
     context: &EvalContext,
@@ -95,7 +110,14 @@ fn eligible(
         return Err("trigger_mismatch".into());
     }
     if let Some(pair) = &scene.pair {
-        if !pair.iter().all(|id| context.active.contains(id)) {
+        let slots: Vec<_> = pair.iter().map(|id| member_slot(context, id)).collect();
+        if slots.iter().any(Option::is_none)
+            || slots
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                != slots.len()
+        {
             return Err("pair_mismatch".into());
         }
     }
@@ -186,13 +208,8 @@ fn render(
                     return Err("빈 대사는 재생할 수 없어요.".into());
                 }
                 let mapped = if let Some(pair) = &scene.pair {
-                    context
-                        .active
-                        .iter()
-                        .position(|id| {
-                            pair.get(*speaker)
-                                .is_some_and(|speaker_id| id == speaker_id)
-                        })
+                    pair.get(*speaker)
+                        .and_then(|member| member_slot(context, member))
                         .ok_or("활성 캐릭터가 바뀌었어요.")?
                 } else {
                     *speaker

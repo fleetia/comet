@@ -1,6 +1,17 @@
 name: Release desktop
 
 on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Existing immutable version tag to build
+        required: true
+        type: string
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: true
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
   push:
     tags: ['v*']
   workflow_dispatch:
@@ -23,6 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      packages: read
     outputs:
       release_id: ${{ steps.release.outputs.release_id }}
       tag: ${{ steps.release.outputs.tag }}
@@ -36,6 +48,7 @@ jobs:
           UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
           UPDATER_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
+          python3 scripts/release.py check
           python3 - <<'PY'
           import json, os, tomllib
           from pathlib import Path
@@ -46,16 +59,31 @@ jobs:
           assert os.environ['UPDATER_PUBLIC_KEY'].strip(), 'Set TAURI_UPDATER_PUBLIC_KEY repository variable'
           assert os.environ['UPDATER_PRIVATE_KEY'].strip(), 'Set TAURI_SIGNING_PRIVATE_KEY repository secret'
           PY
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://npm.pkg.github.com
+          scope: '@fleetia'
+      - run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: pnpm check
+      - run: pnpm test
       - name: Create or reuse draft release
         id: release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
+          python3 scripts/release.py notes > changeset-notes.md
           if gh release view "$RELEASE_TAG" --json isDraft > release.json; then
             python3 -c 'import json; assert json.load(open("release.json"))["isDraft"], "Published releases cannot be overwritten"'
           else
-            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Comet $RELEASE_TAG" --generate-notes
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Comet $RELEASE_TAG" --notes-file changeset-notes.md
           fi
           RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .id")
           test -n "$RELEASE_ID"
@@ -93,6 +121,11 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: '@fleetia'
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'src-tauri -> target'
+          shared-key: desktop-${{ matrix.runner }}-${{ matrix.arch }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check native host architecture
         env:
           EXPECTED_ARCH: ${{ matrix.arch }}
@@ -100,9 +133,18 @@ jobs:
       - run: pnpm install --frozen-lockfile
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - run: pnpm check
-      - run: pnpm test
+      - uses: actions/cache/restore@v4
+        id: sidecar-cache
+        with:
+          path: src-tauri/binaries
+          key: sidecar-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/prepare-sidecar.mjs') }}
       - run: pnpm prepare:sidecar
+        if: steps.sidecar-cache.outputs.cache-hit != 'true'
+      - uses: actions/cache/save@v4
+        if: steps.sidecar-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        with:
+          path: src-tauri/binaries
+          key: ${{ steps.sidecar-cache.outputs.cache-primary-key }}
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
       - name: Configure signed updater artifacts
         env:
@@ -125,7 +167,7 @@ jobs:
       - name: Verify macOS bundles
         if: runner.os == 'macOS'
         run: |
-          codesign --verify --deep --strict 'src-tauri/target/release/bundle/macos/Nanika Box.app'
+          codesign --verify --deep --strict 'src-tauri/target/release/bundle/macos/comet.app'
           for installer in src-tauri/target/release/bundle/dmg/*.dmg; do
             hdiutil verify "$installer"
           done
@@ -136,6 +178,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
       - name: Validate both update targets and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -144,36 +189,8 @@ jobs:
         run: |
           gh release download "$RELEASE_TAG" --pattern latest.json --dir release
           gh release view "$RELEASE_TAG" --json assets,body > release.json
-          python3 - <<'PY'
-          import json, os
-          from urllib.parse import unquote, urlparse
-          from pathlib import Path
-          manifest = json.loads(Path('release/latest.json').read_text())
-          assert manifest['version'].lstrip('v') == os.environ['RELEASE_TAG'].lstrip('v')
-          release = json.loads(Path('release.json').read_text())
-          assets = {asset['name']: asset for asset in release['assets']}
-          downloads = []
-          for platform, extension in [('macOS 14+ · Apple Silicon', '.dmg'), ('Windows · x64', '.exe')]:
-              installers = [asset for name, asset in assets.items() if name.endswith(extension)]
-              assert len(installers) == 1 and installers[0]['size'] > 0, f'Missing or ambiguous installer: {extension}'
-              downloads.append(f"| {platform} | [{extension[1:].upper()} 다운로드]({installers[0]['url']}) |")
-          for candidates in [('darwin-aarch64-app', 'darwin-aarch64'), ('windows-x86_64-nsis', 'windows-x86_64')]:
-              target = next((manifest['platforms'][key] for key in candidates if key in manifest['platforms']), None)
-              assert target and target['signature'].strip(), f'Missing signed target: {candidates}'
-              url = urlparse(target['url'])
-              prefix = f"/{os.environ['GH_REPO']}/releases/download/{os.environ['RELEASE_TAG']}/"
-              assert url.scheme == 'https' and url.netloc == 'github.com' and unquote(url.path).startswith(prefix), 'Asset must point to this release'
-              name = unquote(url.path).rsplit('/', 1)[-1]
-              assert name in assets and assets[name]['size'] > 0, f'Missing asset: {name}'
-              assert name + '.sig' in assets, f'Missing signature asset: {name}'
-          notes = '\n'.join([
-              '## 다운로드', '', '| 운영체제 | 설치 파일 |', '| --- | --- |', *downloads, '',
-              'macOS는 DMG를 열고 Nanika Box를 Applications 폴더로 옮겨 실행하세요. Windows는 EXE 설치 파일을 실행하세요.', '',
-              '앱 updater 서명은 적용됩니다. macOS notarization과 Windows Authenticode 서명은 아직 제공하지 않습니다.', '',
-              (release.get('body') or '').strip(), '',
-          ])
-          Path('release-notes.md').write_text(notes, encoding='utf-8')
-          PY
+          python3 scripts/finalize_release.py
+          gh release upload "$RELEASE_TAG" release/latest.json --clobber
           gh release edit "$RELEASE_TAG" --notes-file release-notes.md --draft=false --latest
           printf '[GitHub Release](https://github.com/%s/releases/tag/%s)\n\n' "$GH_REPO" "$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
           cat release-notes.md >> "$GITHUB_STEP_SUMMARY"

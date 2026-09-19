@@ -6,6 +6,7 @@ import { CharacterEditor, EXPRESSIONS } from "./CharacterEditor";
 import { CharacterDialogueEditor } from "./CharacterDialogueEditor";
 import { CharacterSharing } from "./CharacterSharing";
 import { WindowHeader } from "./WindowHeader";
+import { TalkEditor } from "./TalkEditor";
 import * as ui from "../lagrange.css";
 import * as s from "./characters.css";
 
@@ -39,6 +40,8 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
   const [pending, setPending] = useState(false);
   const [dialoguePending, setDialoguePending] = useState(false);
   const [sharingPending, setSharingPending] = useState(false);
+  const [talkPending, setTalkPending] = useState(false);
+  const [talkDirty, setTalkDirty] = useState(false);
   const [dialogueDirty, setDialogueDirty] = useState(false);
   const [dialogueVersion, setDialogueVersion] = useState(0);
   const [tab, setTab] = useState("basics");
@@ -50,8 +53,8 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
   const selected = installed.find((character) => character.id === selectedId);
   const definition = drafts[selectedId] ?? selected?.definition;
   const dirty = Boolean(drafts[selectedId]);
-  const operationPending = pending || dialoguePending || sharingPending;
-  const busy = operationPending || dialogueDirty;
+  const operationPending = pending || dialoguePending || sharingPending || talkPending;
+  const busy = operationPending || dialogueDirty || talkDirty;
   async function run(action: () => Promise<void>): Promise<void> {
     if (lock.current) return;
     lock.current = true;
@@ -127,7 +130,7 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
         }
       >
         <div>
-          <p className={ui.eyebrow}>COMET / CHARACTERS</p>
+          <p className={ui.eyebrow}>comet / CHARACTERS</p>
           <h1 className={ui.settingsTitle}>캐릭터 관리</h1>
           <p className={ui.quiet}>바탕화면에서 함께 지낼 친구를 고르고 순서를 정해요.</p>
         </div>
@@ -285,7 +288,13 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                   )}
                 </section>
               )}
-              <Tabs value={tab} onValueChange={setTab} className={s.workspace}>
+              <Tabs
+                value={tab}
+                onValueChange={(value) => {
+                  if (!talkDirty && !talkPending) setTab(value);
+                }}
+                className={s.workspace}
+              >
                 <TabList aria-label="캐릭터 작업">
                   <Tab value="basics">기본 정보</Tab>
                   <Tab value="dialogue" disabled={!selected}>
@@ -294,10 +303,16 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                   <Tab value="sharing" disabled={!selected}>
                     공유
                   </Tab>
+                  <Tab value="talk">대본 에디터</Tab>
                 </TabList>
                 {!selected && (
                   <p className={ui.quiet}>캐릭터를 저장하면 등록 대사와 공유를 사용할 수 있어요.</p>
                 )}
+                <TabPanel value="talk">
+                  {tab === "talk" && (
+                    <TalkEditor onDirtyChange={setTalkDirty} onPendingChange={setTalkPending} />
+                  )}
+                </TabPanel>
                 <TabPanel value="basics">
                   <p className={s.tabIntro}>이름·성격·표정과 인사·개별 자동 수다를 편집해요.</p>
                   <CharacterEditor

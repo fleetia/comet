@@ -62,14 +62,14 @@ B[평온]: 하던 일을 어디까지 했는지는 네가 제일 잘 알지. 잠
 ```text
 format: 1
 
-import "./widgets/index.talk"
-import "./situations/index.talk"
-import "./pairs/default.talk" for pair("builtin-a", "builtin-b")
+import "./widgets/index.talk" for pair("source:nadir", "source:star-tail")
+import "./situations/index.talk" for pair("source:nadir", "source:star-tail")
+import "./pairs/default.talk" for pair("source:nadir", "source:star-tail")
 # 별도의 세 친구 대본이 있다면:
 # import "./casts/three.talk" for cast("first-local-id", "second-local-id", "third-local-id")
 ```
 
-조합은 표시 이름 대신 설치된 캐릭터의 로컬 ID로 식별한다. ID를 확인하는 명령은 [CLI 참조](../development/talk-reference.md#cli-명령)에 있다. 조합 범위는 그 파일의 하위 import에도 이어진다.
+조합은 표시 이름 대신 설치된 캐릭터의 로컬 ID 또는 `source:` 뒤의 정본 `sourceId`로 식별한다. 기본팩은 가져오기·복사·자리 교환 뒤에도 같은 정본 대사를 사용하도록 `source:nadir`·`source:star-tail`을 쓴다. ID를 확인하는 명령은 [CLI 참조](../development/talk-reference.md#cli-명령)에 있다. 조합 범위는 그 파일의 하위 import에도 이어진다.
 
 `cast`는 서로 다른 로컬 ID 1~8개를 순서대로 받는다. `pair`는 두 ID를 받는 기존 구문으로 계속 지원한다. 조합 파일의 A~H는 선언한 ID의 순서이며, 바탕화면 순서를 바꿔도 같은 캐릭터를 따른다. 공통 파일의 A~H는 현재 자리 1~8이다. 선언한 cast에 없는 화자는 문법 검사에서 거절하고, 현재 활성 목록에 필요한 화자나 cast 구성원이 없으면 장면 전체를 제외한다. 없는 화자의 줄을 지우거나 다른 캐릭터에게 넘기지 않는다.
 
@@ -94,9 +94,9 @@ import "./pairs/default.talk" for pair("builtin-a", "builtin-b")
 
 ### 실제 사건에 반응하기
 
-위젯 사건은 기존 호스트 대기열에서 하나를 선택한 뒤 `.talk`에 전달한다. 같은 사건에 맞는 대본이 없거나 모두 재생 불가이면 위젯의 기존 내장 사건 문구를 사용한다. `.talk`가 별도의 사건 대기열을 만들지는 않는다.
+위젯 사건은 기존 호스트 대기열에서 하나를 선택한 뒤 `.talk`에 전달한다. 나디르·별꼬리 조합은 같은 사건에 맞는 대본이 없거나 모두 재생 불가이면 발화를 생략한다. 원시 사건 문구를 캐릭터의 대사로 사용하지 않으며 사건 자체와 위젯 상태는 유지한다. 다른 캐릭터 조합은 기존 내장 사건 문구 fallback을 유지한다. `.talk`가 별도의 사건 대기열을 만들지는 않는다.
 
-사용자 입력, 시각이 중요한 알림, 위젯 사건, 일반 수다의 우선순위와 대기열 정리 기준은 [위젯 생명주기](../widgets/lifecycle.md#발화-대기열과-오래된-생성-결과)를 따른다. 타이머 종료·캘린더 알림이 먼저 선택되고, 선택 후 나머지 대기 사건을 비우는 정책도 유지한다. cooldown 때문에 대본이 제외됐다고 원래 알림까지 묵음으로 만들지 않는다.
+사용자 입력, 시각이 중요한 알림, 위젯 사건, 일반 수다의 우선순위와 대기열 정리 기준은 [위젯 생명주기](../widgets/lifecycle.md#발화-대기열과-오래된-생성-결과)를 따른다. 타이머 종료·캘린더 알림이 먼저 선택되고, 선택 후 나머지 대기 사건을 비우는 정책도 유지한다. 기본팩의 발화 생략 조건은 시각이 중요한 사건에도 적용된다. 동봉 대본은 실제 사건에 반응하는 31개 장면의 cooldown을 0초로 두어 연속 행동에도 새 변주를 선택한다. 자동 수다 113개 장면은 30분 간격을 유지하며 사건 중복·과다 입력 제어는 호스트 대기열이 담당한다.
 
 ## 저장과 재로딩
 
@@ -135,4 +135,23 @@ import "./pairs/default.talk" for pair("builtin-a", "builtin-b")
 
 [대본 검증 범위](../development/talk-coverage.md)에서 기본 위젯·상태·사건별 대본과 고정 입력을 연결한다. 문법 검증, 상태 시뮬레이션, 실제 데스크톱 결과는 [대본 검증 기록](../VALIDATION-TALK.md)에서 구분한다. 파일이 문법 검사를 통과했다는 사실만으로 모든 외부 연결이나 플랫폼에서 실행을 검증했다고 보지는 않는다.
 
-편집기는 후속 작업이다. parser는 원문 파일을 그대로 보관하고 장면·문장의 source span을 제공하므로 향후 편집기가 주석과 수정 위치를 유지하며 같은 검사기를 사용할 수 있다. 이 문서의 선택·재로딩·중단 계약을 바꿀 때는 해당 코드와 테스트, 이 문서, `docs/status.md`를 함께 갱신한다.
+캐릭터 관리의 대본 에디터에서 파일을 복호화해 편집하고 검사 후 암호화 저장한다. parser는 원문과 장면·문장의 source span을 유지해 오류의 파일·줄·열을 표시한다. 이 문서의 선택·재로딩·중단 계약을 바꿀 때는 해당 코드와 테스트, 이 문서, `docs/status.md`를 함께 갱신한다.
+
+## 암호화 저장과 에디터
+
+2026-09-19부터 동봉 `.talk`와 앱 데이터 폴더의 `.talk`는 `NANIKA-TALK-AES256GCM-V1` envelope를 사용한다. AES-256-GCM과 매 저장의 무작위 nonce로 암호화·인증하며 손상되거나 인증되지 않은 암호문은 활성화하지 않는다. key는 앱과 함께 제공되므로 파일의 직접 열람을 막는 포장 방식이며 사용자 자신이나 역공학을 막는 DRM은 아니다. 실제 대화 기록·기억은 이 파일 암호화의 대상이 아니다.
+
+기존 평문은 호환 입력으로 읽을 수 있으며 유효한 bundle을 초기화할 때 암호화한다. 구 factory 원문 SHA256과 일치하는 파일만 새 기본 대사로 한 번 교체한다. 수정한 원문과 삭제한 파일은 보존한다. 후보 전체의 import graph를 검사한 뒤 교체하며 잘못된 대본이 섞여 있으면 기존 파일을 유지한다.
+
+에디터는 `.talk` 폴더 안의 상대 경로만 편집하며 symlink·상위 경로·폴더 밖 import를 거부한다. 전체 대본 검증 후 atomic 저장한다. 문법 오류의 파일·줄·열을 표시하고 초안을 유지한다. 다른 편집자가 먼저 저장한 내용은 revision 검사로 보호한다. 파일 재로딩의 last-good·취소 규칙은 그대로 적용한다.
+
+개발용 CLI도 같은 읽기·검사·저장을 사용한다. `read`는 `path`·`source`·`revision`이 있는 JSON을 출력한다. `source`를 파일로 추출하면 평문이므로 배포 전에 `save` 또는 `seal`로 암호화한다.
+
+```sh
+pnpm talk read talk/index.talk index.talk
+pnpm talk seal talk/index.talk
+```
+
+`read`·`save`의 정확한 인수는 [CLI 참고](../development/talk-reference.md)를 따른다.
+
+선택지 스토리도 같은 에디터의 `story/nadir.story.enc`에서 JSON으로 편집할 수 있다. 각 공개 단계에 5개 이상, 전체 15~256개 장면을 두며 장면마다 2~4개 선택지와 -5~5의 점수 변동을 작성한다. 동봉 대사는 +5/-3이다. 저장 시 형식·ID 중복·문자 길이를 검사하고 진행 중인 선택지를 취소한다. 잘못되거나 삭제된 파일은 마지막 정상 catalog를 유지하며 재시작에서는 동봉 catalog로 돌아간다. 삭제한 편집 파일을 자동 복원하지 않는다. 비밀의 단계 배치와 캐릭터 말투는 작성자의 책임이며 JSON 검사는 의미를 판정하지 않는다.

@@ -53,6 +53,94 @@ fn parse(source: &str) -> Program {
 }
 
 #[test]
+fn source_scoped_pair_follows_imported_character_identity_when_slots_swap() {
+    let db = crate::store::open(Path::new(":memory:")).unwrap();
+    let mut nadir = crate::characters::active_character(&db, "a")
+        .unwrap()
+        .definition;
+    nadir.source_id = "nadir".into();
+    nadir.name = "다른 표시 이름".into();
+    let mut companion = crate::characters::active_character(&db, "b")
+        .unwrap()
+        .definition;
+    companion.source_id = "star-tail".into();
+    let imported = crate::characters::import_pack(
+        &db,
+        &crate::characters::CharacterPack {
+            format_version: 1,
+            name: "identity test".into(),
+            author: "test".into(),
+            source_url: String::new(),
+            sprites: Vec::new(),
+            license: "CC0".into(),
+            characters: vec![nadir, companion],
+            pair_scenes: vec![],
+            wordbook: vec![],
+        },
+    )
+    .unwrap();
+    let directory = tempdir().unwrap();
+    let entry = directory.path().join("index.talk");
+    fs::write(
+        &entry,
+        "format: 1\nimport \"pair.talk\" for pair(\"source:nadir\", \"source:star-tail\")\n",
+    )
+    .unwrap();
+    fs::write(
+        directory.path().join("pair.talk"),
+        "scene: identity\non: idle\n---\nA: 나디르 대사\nB: 별꼬리 대사\n===\n",
+    )
+    .unwrap();
+    let program = load(&entry, &super::context::registry()).unwrap();
+    let mut definition = imported[0].definition.clone();
+    definition.source_id = "unrelated".into();
+    let custom = crate::characters::create(&db, &definition).unwrap();
+    for (ids, expected) in [
+        (
+            vec![imported[0].id.clone(), imported[1].id.clone()],
+            ["a", "b"],
+        ),
+        (
+            vec![imported[1].id.clone(), imported[0].id.clone()],
+            ["b", "a"],
+        ),
+        (
+            vec![custom.id, imported[1].id.clone(), imported[0].id.clone()],
+            ["c", "b"],
+        ),
+    ] {
+        crate::characters::apply_roster(&db, ids).unwrap();
+        let context = super::context::build(&db, None, 1000, 9).unwrap();
+        let selected = simulate(&program, &context, &History::new())
+            .selected
+            .unwrap();
+        assert_eq!(selected.lines[0].text, "나디르 대사");
+        assert_eq!(selected.lines[0].persona, expected[0]);
+        assert_eq!(selected.lines[1].persona, expected[1]);
+    }
+    crate::characters::apply_pair(&db, ["builtin-a".into(), imported[1].id.clone()]).unwrap();
+    let mut context = super::context::build(&db, None, 1000, 9).unwrap();
+    context
+        .values
+        .insert("character.a.sourceId".into(), json!("unrelated"));
+    assert!(simulate(&program, &context, &History::new())
+        .selected
+        .is_none());
+}
+
+#[test]
+fn core_time_and_unknown_weather_scenes_run_without_widget_dependencies() {
+    let db = crate::store::open(Path::new(":memory:")).unwrap();
+    let context = super::context::build(&db, None, 1000, 2).unwrap();
+    let program = validate_source(Path::new("core.talk"), "format: 1\nscene: core\non: idle\nwhen: environment.hour != null and not environment.weatherReady\n---\nA: 시간은 ${environment.hour}시. 날씨는 아직 몰라.\n===\n", &super::context::registry()).unwrap();
+    let selection = simulate(&program, &context, &History::new())
+        .selected
+        .unwrap();
+    assert!(selection.dependencies.is_empty());
+    assert!(selection.lines[0].text.ends_with("날씨는 아직 몰라."));
+}
+
+#[test]
 fn nested_conditions_interpolation_and_multiline_preserve_authored_text() {
     let source = "# comment retained\nformat: 1\nscene: cold\non: idle\nwhen: weather.ready and (weather.temperature != null and weather.temperature < 5)\n---\n@if todo.title != null\nA[걱정]: \"\"\"\n  ${todo.title} 가기 전에\n\n 겉옷 챙겨.  \n\"\"\"\n@if not weather.temperature >= 5\nB[장난]: \\${literal} \\\\ 끝\n@else\nB: 사용하지 않는 대사\n@endif\n@else\nA: 제목 없음\n@endif\n===\n";
     let program = parse(source);
@@ -461,6 +549,40 @@ fn text_snapshot_survives_elapsed_time_while_live_conditions_and_nullability_are
 }
 
 #[test]
+fn source_scoped_pack_follows_imported_identity_and_swapped_slots() {
+    let directory = tempdir().unwrap();
+    fs::write(
+        directory.path().join("index.talk"),
+        "format: 1\nimport \"pair.talk\" for pair(\"source:nadir\", \"source:star-tail\")",
+    )
+    .unwrap();
+    fs::write(
+        directory.path().join("pair.talk"),
+        "scene: hello\non: idle\n---\nA: 나디르\nB: 별꼬리\n===",
+    )
+    .unwrap();
+    let program = load(&directory.path().join("index.talk"), &context::registry()).unwrap();
+    let mut input = context();
+    input
+        .values
+        .insert("character.a.sourceId".into(), json!("star-tail"));
+    input
+        .values
+        .insert("character.b.sourceId".into(), json!("nadir"));
+    let result = simulate(&program, &input, &History::new())
+        .selected
+        .unwrap();
+    assert_eq!(result.lines[0].persona, "b");
+    assert_eq!(result.lines[1].persona, "a");
+    input
+        .values
+        .insert("character.a.sourceId".into(), json!("unrelated"));
+    assert!(simulate(&program, &input, &History::new())
+        .selected
+        .is_none());
+}
+
+#[test]
 fn cast_aliases_follow_all_three_identities_and_reject_out_of_cast_speakers() {
     let directory = tempdir().unwrap();
     let entry = directory.path().join("index.talk");
@@ -480,6 +602,19 @@ fn cast_aliases_follow_all_three_identities_and_reject_out_of_cast_speakers() {
     let selected = render_scene(&program, &program.scenes[0].key, &current).unwrap();
     assert_eq!(selected.lines[0].persona, "a");
     assert_eq!(selected.lines[0].text, " 셋째 원문  ");
+    assert_eq!(selected.lines[1].persona, "c");
+    fs::write(
+        &entry,
+        "format: 1\nimport \"cast.talk\" for cast(\"source:first\", \"source:second\", \"source:third\")\n",
+    ).unwrap();
+    for (slot, source) in [("a", "third"), ("b", "second"), ("c", "first")] {
+        current
+            .values
+            .insert(format!("character.{slot}.sourceId"), json!(source));
+    }
+    let source_program = load(&entry, &registry()).unwrap();
+    let selected = render_scene(&source_program, &source_program.scenes[0].key, &current).unwrap();
+    assert_eq!(selected.lines[0].persona, "a");
     assert_eq!(selected.lines[1].persona, "c");
     fs::write(
         directory.path().join("cast.talk"),

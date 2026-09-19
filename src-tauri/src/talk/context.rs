@@ -63,6 +63,16 @@ const FIELDS: &[(&str, &str, &str, &str, &str)] = &[
 
 fn description(prefix: &str, field: &str, nullable: bool) -> String {
     let text = match (prefix, field) {
+        ("dialogue", "variant") => "한 대본 재생 동안 고정되는 0~4 변형 번호",
+        ("environment", "weatherReady") => "설치된 날씨 연결에 2시간 이내의 유효한 관측이 있는지 여부. 미설치·비활성·실패·오래됨에는 false",
+        ("environment", "weatherStatus") => "날씨 연결 상태. not-installed·disabled·offline·stale을 관측 성공과 구분",
+        ("environment", "weatherTemperature") => "날씨 연결의 최신 관측 기온(섭씨)",
+        ("environment", "weatherCode") => "날씨 연결의 최신 WMO weatherCode 숫자",
+        ("environment", "weatherName") => "날씨 연결의 관측 대상 지역 이름",
+        ("character.nadir", "present") => "활성 캐릭터 중 sourceId가 nadir인 캐릭터가 있는지 여부",
+        (_, "sourceId") if prefix.starts_with("character.") => "현재 자리에 설치된 캐릭터의 원본 sourceId. 표시 이름·로컬 ID와 구분",
+        (_, "affinity") if prefix.starts_with("character.") => "해당 캐릭터의 현재 친밀도 점수",
+
         (_, "ready") => "설치·활성·의존성과 데이터 최신성 검사를 통과했는지 여부",
         (_, "status") => "설치 상태 또는 연결 상태. unavailable·실패·stale은 성공한 빈 값과 구분",
         (_, "openCount") => "완료하지 않은 할 일 수",
@@ -132,6 +142,12 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         ("event", "itemName") => "실제 item-acquired 사건에서 획득한 물건 이름",
         _ => "읽기 전용 위젯 관측값",
     };
+    if prefix == "environment" && field == "hour" {
+        return format!("{text}. 시계 위젯 설치와 무관하며 표현할 수 없는 시각만 null.");
+    }
+    if prefix.starts_with("character.") && nullable {
+        return format!("{text}. 해당 캐릭터가 없으면 null.");
+    }
     if nullable {
         format!("{text}. 미설치·비활성·자료 없음·오래됨에는 null(별도 명시된 독립 관측값 제외).")
     } else {
@@ -178,6 +194,50 @@ pub fn registry() -> Registry {
     ] {
         add("event", name, ValueType::String, true, None);
     }
+    add("dialogue", "variant", ValueType::Number, false, None);
+    add("environment", "hour", ValueType::Number, true, None);
+    add(
+        "environment",
+        "weatherReady",
+        ValueType::Boolean,
+        false,
+        None,
+    );
+    add(
+        "environment",
+        "weatherStatus",
+        ValueType::String,
+        false,
+        None,
+    );
+    for field in ["weatherTemperature", "weatherCode"] {
+        add("environment", field, ValueType::Number, true, None);
+    }
+    add("environment", "weatherName", ValueType::String, true, None);
+    for persona in crate::characters::SLOTS {
+        add(
+            &format!("character.{persona}"),
+            "sourceId",
+            ValueType::String,
+            true,
+            None,
+        );
+        add(
+            &format!("character.{persona}"),
+            "affinity",
+            ValueType::Number,
+            true,
+            None,
+        );
+    }
+    add(
+        "character.nadir",
+        "present",
+        ValueType::Boolean,
+        false,
+        None,
+    );
+    add("character.nadir", "affinity", ValueType::Number, true, None);
     Registry {
         variables,
         events: [
@@ -461,6 +521,22 @@ fn project(snapshot: &WidgetSnapshot, now: i64) -> (BTreeMap<String, Value>, BTr
             _ => {}
         }
     }
+    values.insert(
+        "environment.hour".into(),
+        json!(instant.map(|time| time.hour())),
+    );
+    for (target, source) in [
+        ("weatherReady", "ready"),
+        ("weatherStatus", "status"),
+        ("weatherTemperature", "temperature"),
+        ("weatherCode", "code"),
+        ("weatherName", "name"),
+    ] {
+        values.insert(
+            format!("environment.{target}"),
+            values[&format!("weather.{source}")].clone(),
+        );
+    }
     (values, available)
 }
 
@@ -501,6 +577,25 @@ pub fn build(
             values.insert(format!("event.{field}"), value);
         }
     }
+    let characters = crate::characters::active_members(db)?;
+    let relationships = crate::store::relationships(db)?;
+    values.insert("dialogue.variant".into(), json!(seed % 5));
+    values.insert("character.nadir.present".into(), json!(false));
+    for (persona, character) in crate::characters::SLOTS.into_iter().zip(&characters) {
+        let score = relationships
+            .iter()
+            .find(|item| item.persona == character.id)
+            .map_or(20, |item| item.score);
+        values.insert(
+            format!("character.{persona}.sourceId"),
+            json!(character.definition.source_id),
+        );
+        values.insert(format!("character.{persona}.affinity"), json!(score));
+        if character.definition.source_id == "nadir" {
+            values.insert("character.nadir.present".into(), json!(true));
+            values.insert("character.nadir.affinity".into(), json!(score));
+        }
+    }
     Ok(EvalContext {
         values,
         active: crate::characters::active_ids(db)?,
@@ -517,6 +612,75 @@ pub fn build(
 mod tests {
     use super::*;
     use crate::widgets::{WidgetInstance, WidgetView};
+
+    #[test]
+    fn core_context_is_typed_and_time_available_without_optional_widgets() {
+        let db = crate::store::open(std::path::Path::new(":memory:")).unwrap();
+        let now = 1_000_000;
+        let context = build(&db, None, now, 14).unwrap();
+        assert_eq!(
+            context.values["environment.hour"],
+            DateTime::from_timestamp_millis(now)
+                .unwrap()
+                .with_timezone(&Local)
+                .hour()
+        );
+        assert_eq!(context.values["environment.weatherReady"], false);
+        assert_eq!(context.values["environment.weatherStatus"], "not-installed");
+        assert_eq!(
+            context.values["environment.weatherTemperature"],
+            Value::Null
+        );
+        assert_eq!(context.values["environment.weatherCode"], Value::Null);
+        assert_eq!(context.values["dialogue.variant"], 4);
+        for variable in registry()
+            .variables
+            .values()
+            .filter(|variable| !variable.nullable)
+        {
+            let value = &context.values[&variable.name];
+            assert!(!value.is_null(), "{}", variable.name);
+            assert!(
+                match variable.kind {
+                    ValueType::Boolean => value.is_boolean(),
+                    ValueType::Number => value.is_number(),
+                    ValueType::String => value.is_string(),
+                },
+                "{}",
+                variable.name
+            );
+        }
+    }
+
+    #[test]
+    fn core_weather_never_turns_missing_stale_or_failed_observation_into_facts() {
+        let now = 10_000_000;
+        let source = json!({"status":"ready","lastSuccessAt":now,"observation":{"temperature":0,"weatherCode":3,"name":"서울","observedAt":now}});
+        let (fresh, _) = project(&snapshot("weather", source.clone()), now);
+        assert_eq!(fresh["environment.weatherReady"], true);
+        assert_eq!(fresh["environment.weatherTemperature"], 0);
+        assert_eq!(fresh["environment.weatherCode"], 3);
+        assert_eq!(fresh["environment.weatherName"], "서울");
+        for failure in ["stale", "offline", "missing", "disabled"] {
+            let mut state = snapshot("weather", source.clone());
+            match failure {
+                "stale" => state.widgets[0].instance.data["observation"]["observedAt"] = json!(0),
+                "offline" => state.widgets[0].instance.data["status"] = json!("offline"),
+                "missing" => state.widgets[0].instance.data["observation"] = Value::Null,
+                "disabled" => state.widgets[0].instance.enabled = false,
+                _ => unreachable!(),
+            }
+            let (values, _) = project(&state, now);
+            assert_eq!(values["environment.weatherReady"], false, "{failure}");
+            for name in ["weatherTemperature", "weatherCode", "weatherName"] {
+                assert_eq!(
+                    values[&format!("environment.{name}")],
+                    Value::Null,
+                    "{failure}"
+                );
+            }
+        }
+    }
 
     fn snapshot(kind: &str, data: Value) -> WidgetSnapshot {
         WidgetSnapshot {

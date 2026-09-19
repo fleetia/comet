@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "packages": [
     {
-      "id": "sol-and-dal",
-      "name": "솔과 달",
-      "description": "이미지 없이 대화와 캐릭터 교체를 확인하는 예제입니다.",
-      "author": "",
+      "id": "nadir-and-star-tail",
+      "name": "나디르와 별꼬리",
+      "description": "나디르와 별꼬리의 텍스트 표정과 기본 대화를 제공하는 캐릭터팩입니다.",
+      "author": "Comet",
       "sourceUrl": "",
-      "file": "../examples/character-packs/sol-and-dal.comet-character.json",
-      "license": "AGPL-3.0-only",
+      "file": "../examples/character-packs/nadir-and-star-tail.comet-character.json",
+      "license": "",
       "minimumAppVersion": "0.3.0",
       "formatVersion": 1
     },

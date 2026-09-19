@@ -44,6 +44,8 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
     let root = app_data.join("talk");
     let marker = app_data.join(".talk-initialized-v1");
     if marker.try_exists().map_err(|error| error.to_string())? {
+        migrate_defaults(&root);
+        migrate_encryption(&root);
         return Ok(root.join("index.talk"));
     }
     if !root.try_exists().map_err(|error| error.to_string())? {
@@ -58,7 +60,9 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
                     .create_new(true)
                     .open(&path)
                     .map_err(|error| error.to_string())?;
-                file.write_all(text.as_bytes())
+                let source = super::encryption::decode(text.as_bytes())?;
+                let encrypted = super::encryption::encode(&source)?;
+                file.write_all(&encrypted)
                     .map_err(|error| error.to_string())?;
                 file.sync_all().map_err(|error| error.to_string())?;
             }
@@ -74,7 +78,109 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(error) => return Err(error.to_string()),
     }
+    migrate_defaults(&root);
+    migrate_encryption(&root);
     Ok(root.join("index.talk"))
+}
+
+fn migrate_defaults(root: &Path) {
+    if !root.exists() {
+        return;
+    }
+    if let Err(error) = upgrade_defaults(root, defaults::FILES, super::legacy::FILE_HASHES) {
+        eprintln!(".talk default migration: {error}");
+    }
+}
+
+fn upgrade_defaults(
+    root: &Path,
+    files: &[(&str, &str)],
+    legacy: &[(&str, &str)],
+) -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+    let app_data = root.parent().ok_or("대본 경로가 잘못됐어요.")?;
+    let marker = app_data.join(".talk-nadir-v1");
+    if marker.try_exists().map_err(|error| error.to_string())? {
+        return Ok(());
+    }
+    let entry = root.join("index.talk");
+    let names = super::editor::list_files(&entry)?;
+    let mut originals = BTreeMap::new();
+    let mut replacements = BTreeMap::new();
+    let mut source_bytes = 0;
+    for name in &names {
+        let document = super::editor::read_file(&entry, name)?;
+        source_bytes += document.source.len();
+        if source_bytes > 4 * 1024 * 1024 {
+            return Err("대본 전체는 4 MiB 이하여야 해요.".into());
+        }
+        let original = super::encryption::read_bytes(&root.join(name))?;
+        if hex::encode(Sha256::digest(&original)) != document.revision {
+            return Err("기본 대본을 읽는 동안 파일이 바뀌었어요.".into());
+        }
+        originals.insert(name.clone(), original);
+        let is_legacy = legacy.iter().any(|(old_name, hash)| {
+            *old_name == name && hex::encode(Sha256::digest(document.source.as_bytes())) == *hash
+        });
+        if is_legacy {
+            if let Some((_, source)) = files.iter().find(|(new_name, _)| *new_name == name) {
+                let source = super::encryption::decode(source.as_bytes())?;
+                replacements.insert(name.clone(), super::encryption::encode(&source)?);
+            }
+        }
+    }
+    if !replacements.is_empty() {
+        let staging = app_data.join(format!(".talk-upgrade-{}", uuid::Uuid::new_v4()));
+        let staged = (|| {
+            for (name, original) in &originals {
+                let data = replacements.get(name).unwrap_or(original);
+                let path = staging.join(name);
+                fs::create_dir_all(path.parent().ok_or("대본 경로가 잘못됐어요.")?)
+                    .map_err(|error| error.to_string())?;
+                super::editor::atomic_write(
+                    &path,
+                    &super::encryption::encode(&super::encryption::decode(data)?)?,
+                )?;
+            }
+            super::load(&staging.join("index.talk"), &super::context::registry())
+                .map_err(|errors| serde_json::to_string(&errors).unwrap_or_default())?;
+            Ok::<(), String>(())
+        })();
+        let _ = fs::remove_dir_all(&staging);
+        staged?;
+        for (name, original) in &originals {
+            if super::encryption::read_bytes(&root.join(name))? != *original {
+                return Err("기본 대본을 갱신하는 동안 파일이 바뀌었어요.".into());
+            }
+        }
+        let mut applied: Vec<String> = Vec::new();
+        for (name, data) in &replacements {
+            let path = root.join(name);
+            let result = super::editor::atomic_write(&path, data);
+            if let Err(error) = result {
+                for previous in applied.iter().rev() {
+                    let path = root.join(previous);
+                    match originals.get(previous) {
+                        Some(data) => super::editor::atomic_write(&path, data)?,
+                        None => fs::remove_file(path).map_err(|error| error.to_string())?,
+                    }
+                }
+                return Err(error);
+            }
+            applied.push(name.clone());
+        }
+    }
+    super::editor::atomic_write(&marker, b"1\n")
+}
+
+fn migrate_encryption(root: &Path) {
+    let entry = root.join("index.talk");
+    if !root.exists() {
+        return;
+    }
+    if let Err(error) = super::editor::seal_bundle(&entry, &super::context::registry()) {
+        eprintln!(".talk encryption migration: {error}");
+    }
 }
 
 type FileStamp = (u64, Option<SystemTime>, Option<PathBuf>);
@@ -210,13 +316,97 @@ mod tests {
     use super::*;
 
     #[test]
+    fn factory_upgrade_replaces_only_exact_legacy_text_and_never_restores_deleted_files() {
+        use sha2::{Digest, Sha256};
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("talk");
+        fs::create_dir(&root).unwrap();
+        let entry = "format: 1\nimport \"./part.talk\"\nimport \"./custom.talk\"\n";
+        fs::write(root.join("index.talk"), entry).unwrap();
+        fs::write(root.join("part.talk"), "# factory\n").unwrap();
+        fs::write(root.join("custom.talk"), "# user edit\n").unwrap();
+        let old_hash = hex::encode(Sha256::digest(b"# factory\n"));
+        let entry_hash = hex::encode(Sha256::digest(entry.as_bytes()));
+        let legacy = [
+            ("index.talk", entry_hash.as_str()),
+            ("part.talk", old_hash.as_str()),
+            ("custom.talk", old_hash.as_str()),
+            ("deleted.talk", old_hash.as_str()),
+        ];
+        let defaults = [
+            ("index.talk", entry),
+            ("part.talk", "# new factory\n"),
+            ("custom.talk", "# replacement\n"),
+            ("deleted.talk", "# replacement\n"),
+        ];
+        upgrade_defaults(&root, &defaults, &legacy).unwrap();
+        assert_eq!(
+            super::super::editor::read_file(&root.join("index.talk"), "part.talk")
+                .unwrap()
+                .source,
+            "# new factory\n"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("custom.talk")).unwrap(),
+            "# user edit\n"
+        );
+        assert!(!root.join("deleted.talk").exists());
+        fs::write(root.join("part.talk"), "# factory\n").unwrap();
+        upgrade_defaults(&root, &defaults, &legacy).unwrap();
+        assert_eq!(
+            fs::read_to_string(root.join("part.talk")).unwrap(),
+            "# factory\n"
+        );
+    }
+
+    #[test]
+    fn invalid_factory_upgrade_leaves_every_original_untouched() {
+        use sha2::{Digest, Sha256};
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("talk");
+        fs::create_dir(&root).unwrap();
+        let source = "format: 1\n";
+        fs::write(root.join("index.talk"), source).unwrap();
+        let hash = hex::encode(Sha256::digest(source.as_bytes()));
+        assert!(upgrade_defaults(
+            &root,
+            &[("index.talk", "format: 1\nimport \"missing.talk\"\n")],
+            &[("index.talk", &hash)]
+        )
+        .is_err());
+        assert_eq!(fs::read_to_string(root.join("index.talk")).unwrap(), source);
+        assert!(!directory.path().join(".talk-nadir-v1").exists());
+    }
+
+    #[test]
+    fn damaged_encrypted_reload_keeps_last_good_program() {
+        let directory = tempfile::tempdir().unwrap();
+        let entry = directory.path().join("index.talk");
+        let source = "format: 1\n";
+        let mut data = super::super::encryption::encode(source).unwrap();
+        fs::write(&entry, &data).unwrap();
+        let mut active = ActiveProgram::default();
+        assert!(active.apply(super::super::load(&entry, &Registry::default())));
+        let last = data.len() - 5;
+        data[last] = if data[last] == b'A' { b'B' } else { b'A' };
+        fs::write(&entry, data).unwrap();
+        assert!(!active.apply(super::super::load(&entry, &Registry::default())));
+        assert_eq!(active.generation, 1);
+        assert_eq!(active.diagnostics[0].code, "DECRYPT");
+        assert!(active.program.is_some());
+    }
+
+    #[test]
     fn seed_preserves_edits_and_does_not_restore_deleted_files_or_directories() {
         let directory = tempfile::tempdir().unwrap();
         let entry = initialize_files(directory.path()).unwrap();
         assert!(entry.is_file());
         fs::write(&entry, "format: 1\n").unwrap();
         initialize_files(directory.path()).unwrap();
-        assert_eq!(fs::read_to_string(&entry).unwrap(), "format: 1\n");
+        assert_eq!(
+            super::super::encryption::decode(&fs::read(&entry).unwrap()).unwrap(),
+            "format: 1\n"
+        );
         fs::remove_dir_all(entry.parent().unwrap()).unwrap();
         initialize_files(directory.path()).unwrap();
         assert!(!entry.exists());

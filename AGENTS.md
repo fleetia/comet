@@ -1,4 +1,4 @@
-# Nanika Box 작업 지침
+# comet 작업 지침
 
 이 프로젝트의 사양 입구는 [docs/index.md](docs/index.md)다. [docs/PRODUCT.md](docs/PRODUCT.md)는 기존 0.2 기준을 보존하며, 생활 도구·외부 위젯의 확장 계약은 `docs/product/`와 `docs/widgets/`에서 관리한다. 기능·화면·대화 흐름을 변경하기 전에 해당 항목과 인수 기준을 읽고, [docs/status.md](docs/status.md)에서 구현과 계획을 구분한다. 최신 사용자 지시와 상위 지침을 우선하며, 기존 제품 결정과 충돌하는 변경은 그 차이를 분명히 설명한다.
 
