@@ -11,6 +11,13 @@ import * as s from "./characters.css";
 
 type Props = { snapshot: Snapshot };
 const NEW_ID = "new-character";
+const MAX_ROSTER = 8;
+function moved(ids: string[], from: number, to: number): string[] {
+  const next = [...ids];
+  const [id] = next.splice(from, 1);
+  next.splice(to, 0, id);
+  return next;
+}
 function newDefinition(): CharacterDefinition {
   return {
     sourceId: crypto.randomUUID(),
@@ -82,7 +89,13 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
       setNotice("캐릭터를 저장했어요.");
     });
   }
-  const dialogueIds = scope === "pair" ? active : [selectedId];
+  const position = active.indexOf(selectedId);
+  const together = position >= 0;
+  async function applyRoster(ids: string[], message: string): Promise<void> {
+    await command("apply_character_roster", { ids });
+    setNotice(message);
+  }
+  const dialogueIds = scope === "pair" && active.length > 1 ? active : [selectedId];
   const dialogueExpressions = [
     ...new Set(
       dialogueIds.flatMap((id) =>
@@ -116,7 +129,7 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
         <div>
           <p className={ui.eyebrow}>COMET / CHARACTERS</p>
           <h1 className={ui.settingsTitle}>캐릭터 관리</h1>
-          <p className={ui.quiet}>바탕화면의 작은 두 자리에 함께 지낼 친구를 골라요.</p>
+          <p className={ui.quiet}>바탕화면에서 함께 지낼 친구를 고르고 순서를 정해요.</p>
         </div>
       </WindowHeader>
       {(error || notice) && (
@@ -124,24 +137,12 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
           {error || notice}
         </p>
       )}
-      <div className={ui.row}>
-        <span className={ui.quiet}>
-          A: {installed.find((character) => character.id === active[0])?.definition.name} · B:{" "}
-          {installed.find((character) => character.id === active[1])?.definition.name}
-        </span>
-        <Button
-          variant="secondary"
-          disabled={busy}
-          onClick={() =>
-            void run(async () => {
-              await command("apply_character_pair", { ids: [active[1], active[0]] });
-              setNotice("둘의 자리를 바꿨어요.");
-            })
-          }
-        >
-          둘의 자리 바꾸기
-        </Button>
-      </div>
+      <p className={ui.quiet}>
+        함께 지내는 친구 {active.length}명:{" "}
+        {active
+          .map((id) => installed.find((character) => character.id === id)?.definition.name ?? id)
+          .join(" · ")}
+      </p>
       <div className={s.layout}>
         <aside className={s.list} aria-label="설치된 캐릭터">
           {installed.map((character) => (
@@ -156,11 +157,9 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
               {drafts[character.id]?.name || character.definition.name}
               {drafts[character.id] ? " · 미저장" : ""}
               <span className={s.small}>
-                {active[0] === character.id
-                  ? "A에서 함께 지내는 중"
-                  : active[1] === character.id
-                    ? "B에서 함께 지내는 중"
-                    : `버전 ${character.definition.version}`}
+                {active.includes(character.id)
+                  ? `${active.indexOf(character.id) + 1}번째로 함께 지내는 중`
+                  : `버전 ${character.definition.version}`}
               </span>
             </Button>
           ))}
@@ -196,25 +195,64 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                 <section aria-label="선택 캐릭터 적용">
                   <h2 className={s.subheading}>{selected.definition.name}</h2>
                   <div className={ui.row}>
-                    {(["a", "b"] as const).map((persona, index) => (
+                    {together ? (
+                      <>
+                        <Button
+                          variant="secondary"
+                          disabled={busy || position === 0}
+                          onClick={() =>
+                            void run(() =>
+                              applyRoster(
+                                moved(active, position, position - 1),
+                                "앞으로 옮겼어요.",
+                              ),
+                            )
+                          }
+                        >
+                          앞으로
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          disabled={busy || position === active.length - 1}
+                          onClick={() =>
+                            void run(() =>
+                              applyRoster(moved(active, position, position + 1), "뒤로 옮겼어요."),
+                            )
+                          }
+                        >
+                          뒤로
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          disabled={busy || active.length === 1}
+                          onClick={() =>
+                            void run(() =>
+                              applyRoster(
+                                active.filter((id) => id !== selectedId),
+                                "바탕화면에서 쉬어요. 기록과 친밀도는 보관해요.",
+                              ),
+                            )
+                          }
+                        >
+                          내보내기
+                        </Button>
+                      </>
+                    ) : (
                       <Button
                         variant="secondary"
-                        key={persona}
-                        disabled={busy || dirty || active.includes(selectedId)}
+                        disabled={busy || dirty || active.length >= MAX_ROSTER}
                         onClick={() =>
-                          void run(async () => {
-                            await command("assign_character", { persona, id: selectedId });
-                            setNotice(
-                              `${persona.toUpperCase()}에 적용했어요. 이전 친구의 기록과 친밀도는 보관해요.`,
-                            );
-                          })
+                          void run(() =>
+                            applyRoster(
+                              [...active, selectedId],
+                              "함께 지내기 시작했어요. 이전 기록과 친밀도는 보관해요.",
+                            ),
+                          )
                         }
                       >
-                        {active[index] === selectedId
-                          ? `${persona.toUpperCase()}에 적용 중`
-                          : `${persona.toUpperCase()}에 적용`}
+                        함께 지내기
                       </Button>
-                    ))}
+                    )}
                     <Button
                       variant="secondary"
                       disabled={busy || dirty}
@@ -231,11 +269,16 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                       복사본 만들기
                     </Button>
                   </div>
-                  {active.includes(selectedId) && (
+                  {together && active.length === 1 && (
                     <p className={ui.quiet}>
-                      자리를 옮기려면 위의 ‘둘의 자리 바꾸기’를 사용해 주세요. 같은 친구를 두 자리에
-                      함께 두려면 복사본을 만들어 주세요.
+                      마지막 친구는 내보낼 수 없어요. 다른 친구를 먼저 함께 지내게 해 주세요.
                     </p>
+                  )}
+                  {!together && active.length >= MAX_ROSTER && (
+                    <p className={ui.quiet}>함께 지낼 수 있는 친구는 최대 {MAX_ROSTER}명이에요.</p>
+                  )}
+                  {together && (
+                    <p className={ui.quiet}>같은 친구를 두 번 두려면 복사본을 만들어 주세요.</p>
                   )}
                   {dirty && (
                     <p className={ui.quiet}>바뀐 내용을 저장한 뒤 적용하거나 공유해 주세요.</p>
@@ -290,13 +333,14 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                     dirty={dirty}
                   />
 
-                  {selected && !selectedId.startsWith("builtin-") && (
+                  {selected && (
                     <section className={s.section}>
                       {removeId === selectedId ? (
                         <>
                           <p className={ui.quiet}>
-                            이 캐릭터를 목록에서 제거해요. 사용 중인 자리는 기본 친구로 돌아가며
-                            대화 기록과 관계는 보존해요.
+                            이 캐릭터를 목록에서 제거해요. 함께 지내던 친구면 바탕화면에서도 빠지고,
+                            대화 기록과 관계는 보존해요. 마지막 친구는 다른 친구를 먼저 함께 지내게
+                            한 뒤 제거할 수 있어요.
                           </p>
                           <div className={ui.row}>
                             <Button
@@ -327,7 +371,9 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                       ) : (
                         <Button
                           variant="secondary"
-                          disabled={busy || dirty}
+                          disabled={
+                            busy || dirty || (active.length === 1 && active[0] === selectedId)
+                          }
                           onClick={() => setRemoveId(selectedId)}
                         >
                           목록에서 제거
@@ -354,7 +400,9 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                             }
                           >
                             <option value="single">선택한 캐릭터 하나</option>
-                            <option value="pair">현재 A/B 둘의 조합</option>
+                            <option value="pair" disabled={active.length < 2}>
+                              함께 지내는 친구들의 조합
+                            </option>
                           </Select>
                         </label>
                         {dialogueDirty && (

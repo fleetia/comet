@@ -45,7 +45,7 @@ print(json.dumps(next(case for case in cases if case["id"] == id), ensure_ascii=
 PYCASE
 ```
 
-각 입력에는 `values`의 평탄한 공개 변수, 발생 계기인 `trigger`, 사용할 수 있는 위젯 종류 `available`, A/B 슬롯의 캐릭터 ID `active`, 기대 장면 `expectedScene`이 들어 있다. 일부 상황에는 같은 우선순위 후보 사이의 선택을 재현하는 `seed`도 있다. `expectedScene: null`은 장면을 선택하지 않아야 한다는 뜻이다.
+각 입력에는 `values`의 평탄한 공개 변수, 발생 계기인 `trigger`, 사용할 수 있는 위젯 종류 `available`, 바탕화면 목록 순서의 캐릭터 ID `active`(앞 두 명이 A/B), 기대 장면 `expectedScene`이 들어 있다. 일부 상황에는 같은 우선순위 후보 사이의 선택을 재현하는 `seed`도 있다. `expectedScene: null`은 장면을 선택하지 않아야 한다는 뜻이다.
 
 fixture 테스트는 registry의 모든 변수를 `null`로 시작하되 `*.ready`는 `false`, `*.status`는 `not-installed`로 초기화한 뒤 `values`를 덮어쓴다. `now_ms`는 1,000,000이며 기록은 비어 있고, 생략한 `seed`는 0이다. 공통 대사 사례는 `fixture-a`·`fixture-b`를 활성 조합으로 사용해 기본 캐릭터 전용 대사의 우선순위와 분리한다.
 

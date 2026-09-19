@@ -501,13 +501,9 @@ pub fn build(
             values.insert(format!("event.{field}"), value);
         }
     }
-    let active = [
-        crate::characters::active_character(db, "a")?.id,
-        crate::characters::active_character(db, "b")?.id,
-    ];
     Ok(EvalContext {
         values,
-        active,
+        active: crate::characters::active_ids(db)?,
         available,
         now_ms,
         seed,

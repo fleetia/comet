@@ -18,7 +18,7 @@ beforeEach(() => {
 it("hides the characters from the internal X without opening their menu", async () => {
   vi.mocked(isDesktop).mockReturnValue(true);
   vi.mocked(command).mockResolvedValue(undefined);
-  render(<CompanionBox persona="a" snapshot={PREVIEW_SNAPSHOT} />);
+  render(<CompanionBox id="builtin-a" snapshot={PREVIEW_SNAPSHOT} />);
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 숨기기" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("hide_boxes"));
   expect(command).toHaveBeenCalledTimes(1);
@@ -43,7 +43,7 @@ describe("message composer", () => {
     await waitFor(() => expect(input.value).toBe(""));
     expect(command).toHaveBeenCalledWith("send_message", {
       content: "안녕하세요",
-      target: "a",
+      target: "builtin-a",
       clientMessageId: expect.any(String),
     });
   });
@@ -157,13 +157,13 @@ it("keeps resting bodies free of old dialogue and changes only the active actor 
       },
     ],
   };
-  const { rerender } = render(<CompanionBox persona="b" snapshot={snapshot} />);
+  const { rerender } = render(<CompanionBox id="builtin-b" snapshot={snapshot} />);
   expect(screen.getByText("[평온]")).toBeTruthy();
   expect(screen.queryByText("오래된 대사")).toBeNull();
   expect(screen.queryByText(/친밀도/)).toBeNull();
   rerender(
     <CompanionBox
-      persona="b"
+      id="builtin-b"
       snapshot={{
         ...snapshot,
         playback: {
@@ -181,7 +181,7 @@ it("keeps resting bodies free of old dialogue and changes only the active actor 
   );
   expect(screen.getByText("[평온]")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: /메뉴 열기/ }));
-  expect(command).toHaveBeenCalledWith("open_panel", { persona: "b", mode: "menu" });
+  expect(command).toHaveBeenCalledWith("open_panel", { persona: "builtin-b", mode: "menu" });
 });
 
 it("prioritizes the input panel over playback and keeps shared history chronological", () => {
@@ -277,7 +277,7 @@ it("routes grouped menu actions and retains an input draft through a menu round 
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "  아직 쓰던 말\n다음 줄" } });
   fireEvent.click(screen.getByRole("button", { name: "메뉴로" }));
   await waitFor(() =>
-    expect(command).toHaveBeenLastCalledWith("open_panel", { persona: "b", mode: "menu" }),
+    expect(command).toHaveBeenLastCalledWith("open_panel", { persona: "builtin-b", mode: "menu" }),
   );
   rerender(<Balloon snapshot={{ ...snapshot, panel: { persona: "b", mode: "menu" } }} />);
   for (const group of ["대화", "관리", "자동 잡담과 표시"]) {
@@ -287,11 +287,43 @@ it("routes grouped menu actions and retains an input draft through a menu round 
     ["캐릭터 관리", "open_characters", undefined],
     ["설정", "open_settings", undefined],
     ["자동 잡담 잠시 쉬기", "set_paused", { paused: true }],
-    ["말 걸기", "open_panel", { persona: "b", mode: "input" }],
+    ["말 걸기", "open_panel", { persona: "builtin-b", mode: "input" }],
   ] as const) {
     fireEvent.click(screen.getByRole("button", { name: label }));
     await waitFor(() => expect(command).toHaveBeenLastCalledWith(name, args));
   }
   rerender(<Balloon snapshot={snapshot} />);
   expect(screen.getByRole("textbox")).toHaveProperty("value", "  아직 쓰던 말\n다음 줄");
+});
+
+it("opens the third character by identity and can address the full roster", async () => {
+  const third = {
+    ...PREVIEW_SNAPSHOT.characters.installed[0],
+    id: "third-friend",
+    definition: { ...PREVIEW_SNAPSHOT.characters.installed[0].definition, name: "셋째" },
+  };
+  const snapshot = {
+    ...PREVIEW_SNAPSHOT,
+    characters: {
+      installed: [...PREVIEW_SNAPSHOT.characters.installed, third],
+      active: [...PREVIEW_SNAPSHOT.characters.active, third.id],
+    },
+  };
+  const body = render(<CompanionBox id={third.id} snapshot={snapshot} />);
+  fireEvent.click(screen.getByRole("button", { name: "셋째 메뉴 열기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("open_panel", { persona: third.id, mode: "menu" }),
+  );
+  body.unmount();
+  render(<Balloon snapshot={{ ...snapshot, panel: { persona: third.id, mode: "input" } }} />);
+  fireEvent.change(screen.getByRole("combobox"), { target: { value: "all" } });
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "모두 안녕" } });
+  fireEvent.click(screen.getByRole("button", { name: "보내기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("send_message", {
+      content: "모두 안녕",
+      target: "all",
+      clientMessageId: expect.any(String),
+    }),
+  );
 });

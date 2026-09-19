@@ -1,6 +1,6 @@
 use crate::{
     models,
-    types::{ChatMessage, LocalModel, Settings},
+    types::{ChatMessage, LocalModel, LocalModelTest, Settings},
 };
 use futures_util::StreamExt;
 use serde_json::{json, Value};
@@ -12,7 +12,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::{
     process::{Child, Command},
@@ -20,7 +20,7 @@ use tokio::{
 };
 
 struct LocalServer {
-    model: LocalModel,
+    path: PathBuf,
     child: Child,
     url: String,
     key: String,
@@ -103,23 +103,33 @@ fn client() -> Result<reqwest::Client, String> {
         .map_err(|_| "HTTP 초기화 실패".into())
 }
 
+pub fn not_ready_message(settings: &Settings) -> String {
+    if settings.local_model == LocalModel::Custom {
+        "GGUF 모델 파일을 찾을 수 없어요. 설정에서 절대 경로를 확인해 주세요.".into()
+    } else {
+        "설정에서 로컬 모델을 먼저 다운로드해 주세요.".into()
+    }
+}
+
 async fn local_endpoint(
     inference: &Inference,
-    model: LocalModel,
+    settings: &Settings,
     cancel: Arc<AtomicBool>,
 ) -> Result<(String, String), String> {
     let mut state = inference.local.lock().await;
+    let path = models::selected_path(&inference.app_data, settings)
+        .filter(|_| models::selected_ready(&inference.app_data, settings));
     if let Some(server) = state.as_mut() {
-        if server.model == model && matches!(server.child.try_wait(), Ok(None)) {
+        if path.as_ref() == Some(&server.path) && matches!(server.child.try_wait(), Ok(None)) {
             return Ok((server.url.clone(), server.key.clone()));
         }
         let _ = server.child.kill().await;
         let _ = server.child.wait().await;
         *state = None;
     }
-    if !models::model_ready(&inference.app_data, model) {
-        return Err("설정에서 로컬 모델을 먼저 다운로드해 주세요.".into());
-    }
+    let Some(path) = path else {
+        return Err(not_ready_message(settings));
+    };
     if !inference.sidecar_path.is_file() {
         return Err("로컬 실행기가 없습니다. prepare-sidecar 후 앱을 다시 빌드해 주세요.".into());
     }
@@ -135,7 +145,7 @@ async fn local_endpoint(
     let mut command = Command::new(&inference.sidecar_path);
     command
         .args(["--model"])
-        .arg(models::model_path(&inference.app_data, model))
+        .arg(&path)
         .args([
             "--host",
             "127.0.0.1",
@@ -201,7 +211,7 @@ async fn local_endpoint(
         };
         if ready {
             *state = Some(LocalServer {
-                model,
+                path,
                 child,
                 url: url.clone(),
                 key: key.clone(),
@@ -214,12 +224,14 @@ async fn local_endpoint(
     Err("로컬 모델 준비 시간이 초과되었습니다.".into())
 }
 
-pub async fn is_local_running(inference: &Inference, model: LocalModel) -> bool {
+pub async fn is_local_running(inference: &Inference, settings: &Settings) -> bool {
     let mut state = inference.local.lock().await;
     let Some(server) = state.as_mut() else {
         return false;
     };
-    if server.model != model || !matches!(server.child.try_wait(), Ok(None)) {
+    if models::selected_path(&inference.app_data, settings).as_ref() != Some(&server.path)
+        || !matches!(server.child.try_wait(), Ok(None))
+    {
         return false;
     }
     let Ok(http) = client() else {
@@ -367,7 +379,7 @@ pub async fn generate(
     }
     let local = settings.mode == "local";
     let (url, key, configured) = if local {
-        let (url, key) = local_endpoint(inference, settings.local_model, cancel.clone()).await?;
+        let (url, key) = local_endpoint(inference, settings, cancel.clone()).await?;
         let mut configured = settings.clone();
         configured.api_model = "local".into();
         configured.api_token_parameter = "max_tokens".into();
@@ -405,6 +417,46 @@ pub async fn test_connection(settings: &Settings, key: Option<String>) -> Result
     Ok("API 연결과 JSON 응답을 확인했습니다.".into())
 }
 
+pub async fn test_local(
+    inference: &Inference,
+    settings: &Settings,
+    cancel: Arc<AtomicBool>,
+) -> Result<LocalModelTest, String> {
+    if settings.mode != "local" {
+        return Err("로컬 모델 테스트는 '이 기기에서' 방식에서만 사용할 수 있어요.".into());
+    }
+    let started = Instant::now();
+    let messages = vec![
+        ChatMessage {
+            role: "system".into(),
+            content: "너는 바탕화면에 사는 작은 캐릭터야. 반말로, 한국어 한두 문장으로만 대답해. 결과는 {\"text\": string} JSON 객체 하나로만 출력해.".into(),
+        },
+        ChatMessage {
+            role: "user".into(),
+            content: "안녕! 오늘 기분 어때? 짧게 자기소개도 해 줘.".into(),
+        },
+    ];
+    let value = generate(
+        inference,
+        settings,
+        &messages,
+        json!({"type":"object","properties":{"text":{"type":"string"}},"required":["text"],"additionalProperties":false}),
+        128,
+        cancel,
+    )
+    .await?;
+    let reply = value
+        .get("text")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .ok_or("모델이 빈 응답을 보냈어요.")?;
+    Ok(LocalModelTest {
+        reply: reply.chars().take(300).collect(),
+        elapsed_ms: started.elapsed().as_millis() as u64,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -413,38 +465,79 @@ mod tests {
     async fn reuses_only_the_requested_model_and_stops_old_process() {
         let directory = tempfile::tempdir().unwrap();
         let runtime = Inference::new(directory.path().into(), PathBuf::new(), PathBuf::new());
+        let four = Settings::default();
+        let nine = Settings {
+            local_model: LocalModel::Qwen35_9B,
+            ..Settings::default()
+        };
+        let four_path = models::model_path(directory.path(), LocalModel::Qwen35_4B).unwrap();
+        std::fs::create_dir_all(four_path.parent().unwrap()).unwrap();
+        std::fs::write(&four_path, b"stub").unwrap();
         let child = Command::new("/bin/sleep")
             .arg("30")
             .kill_on_drop(true)
             .spawn()
             .unwrap();
         *runtime.local.lock().await = Some(LocalServer {
-            model: LocalModel::Qwen35_4B,
+            path: four_path.clone(),
             child,
             url: "http://127.0.0.1:1".into(),
             key: "test".into(),
         });
-        assert!(!is_local_running(&runtime, LocalModel::Qwen35_9B).await);
-        let result = local_endpoint(
-            &runtime,
-            LocalModel::Qwen35_4B,
-            Arc::new(AtomicBool::new(false)),
-        )
-        .await
-        .unwrap();
-        assert_eq!(result.0, "http://127.0.0.1:1");
+        assert!(!is_local_running(&runtime, &nine).await);
+        // The stub file is not a verified download, so the running server is replaced instead of reused.
         let result = tokio::time::timeout(
             Duration::from_secs(2),
-            local_endpoint(
-                &runtime,
-                LocalModel::Qwen35_9B,
-                Arc::new(AtomicBool::new(false)),
-            ),
+            local_endpoint(&runtime, &four, Arc::new(AtomicBool::new(false))),
         )
         .await
         .unwrap();
         assert!(result.unwrap_err().contains("다운로드"));
         assert!(runtime.local.lock().await.is_none());
+        let custom_file = directory.path().join("mine.gguf");
+        std::fs::write(&custom_file, b"stub").unwrap();
+        let custom = Settings {
+            local_model: LocalModel::Custom,
+            local_model_path: custom_file.display().to_string(),
+            ..Settings::default()
+        };
+        let child = Command::new("/bin/sleep")
+            .arg("30")
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        *runtime.local.lock().await = Some(LocalServer {
+            path: custom_file.clone(),
+            child,
+            url: "http://127.0.0.1:2".into(),
+            key: "test".into(),
+        });
+        let result = local_endpoint(&runtime, &custom, Arc::new(AtomicBool::new(false)))
+            .await
+            .unwrap();
+        assert_eq!(result.0, "http://127.0.0.1:2");
+        let missing = Settings {
+            local_model_path: directory.path().join("gone.gguf").display().to_string(),
+            ..custom
+        };
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            local_endpoint(&runtime, &missing, Arc::new(AtomicBool::new(false))),
+        )
+        .await
+        .unwrap();
+        assert!(result.unwrap_err().contains("GGUF"));
+        assert!(runtime.local.lock().await.is_none());
+        let result = test_local(
+            &runtime,
+            &Settings {
+                mode: "api".into(),
+                ..Settings::default()
+            },
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await;
+        assert!(result.unwrap_err().contains("이 기기에서"));
     }
     #[test]
     fn endpoint_rejects_secret_urls_and_insecure_remote() {

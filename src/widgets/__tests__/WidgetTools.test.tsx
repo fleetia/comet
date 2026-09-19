@@ -146,28 +146,17 @@ it("only completes a linked todo after an explicit completion click", async () =
   fireEvent.click(screen.getByRole("button", { name: "읽기 완료하기" }));
   expect(act).toHaveBeenCalledWith("complete", { id: "task" }, todo);
 });
-it("launches from actual bounded drag coordinates and supports keyboard launch", () => {
-  vi.stubGlobal("PointerEvent", MouseEvent);
-  render(<MotionTool widget={widget("ball", { x: 50, y: 50, moving: false })} act={act} />);
-  const area = screen.getByLabelText("공 놀이 공간");
-  area.setPointerCapture = vi.fn();
-  vi.spyOn(area, "getBoundingClientRect").mockReturnValue({
-    x: 0,
-    y: 0,
-    top: 0,
-    left: 0,
-    bottom: 200,
-    right: 200,
-    width: 200,
-    height: 200,
-    toJSON: () => ({}),
-  });
-  fireEvent.pointerDown(area, { clientX: 40, clientY: 100 });
-  fireEvent.pointerUp(area, { clientX: 100, clientY: 60 });
-  expect(act).toHaveBeenCalledWith("throw", { x: 20, y: 50, vx: 60, vy: -40 });
-  fireEvent.click(screen.getByRole("button", { name: "오른쪽으로 던지기" }));
-  expect(act).toHaveBeenCalledWith("throw", { x: 20, y: 60, vx: 40, vy: -25 });
-});
+it.each(["ball", "paper-plane", "bubbles", "pet"])(
+  "opens and clears %s on the desktop without a panel playground",
+  (kind) => {
+    render(<MotionTool widget={widget(kind, {})} act={act} />);
+    expect(screen.queryByLabelText("공 놀이 공간")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "바탕화면에 꺼내기" }));
+    expect(act).toHaveBeenCalledWith("desktop-open");
+    fireEvent.click(screen.getByRole("button", { name: "정리하기" }));
+    expect(act).toHaveBeenLastCalledWith("desktop-clear");
+  },
+);
 it("uses actual fishing phases and acquired inventory limits", () => {
   const rendered = render(
     <ToyTool widget={widget("fishing", { phase: "bite", catches: 0 })} act={act} />,

@@ -1,4 +1,5 @@
-export type Persona = "a" | "b";
+export type Persona = string;
+export const CHARACTER_SLOTS = ["a", "b", "c", "d", "e", "f", "g", "h"] as const;
 export type CharacterLine = { expression: string; text: string };
 export type CharacterDefinition = {
   sourceId: string;
@@ -19,13 +20,14 @@ export type InstalledCharacter = {
   definition: CharacterDefinition;
   sprites: Record<string, SpriteInfo>;
 };
-export type CharacterCollection = { installed: InstalledCharacter[]; active: [string, string] };
+export type CharacterCollection = { installed: InstalledCharacter[]; active: string[] };
 export type CharacterDialogue = { pairScenes: SceneLine[][]; wordbook: WordbookEntry[] };
 export type PackSprite = { sourceId: string; expression: string; mime: string; data: string };
 export type CharacterPack = {
-  formatVersion: 1;
+  formatVersion: 1 | 2;
   name: string;
   author: string;
+  sourceUrl?: string;
   license: string;
   characters: CharacterDefinition[];
   pairScenes: SceneLine[][];
@@ -50,25 +52,37 @@ export type WordbookEntry = {
 };
 export type Playback = SceneLine & {
   id: string;
-  source: "script" | "llm" | "wordbook" | "widget" | "talk";
+  source: "script" | "llm" | "wordbook" | "widget" | "talk" | "question";
   endsAt: number;
   lineIndex: number;
   lineCount: number;
 };
 export type PanelState = { persona: Persona; mode: "menu" | "input" | "history" };
 export type Dispatch = (name: string, args?: Record<string, unknown>) => Promise<void>;
-export type LocalModel = "qwen3.5-4b" | "qwen3.5-9b";
+export type LocalModel =
+  | "qwen3.5-4b"
+  | "qwen3.5-9b"
+  | "qwen3.8-2b-distill"
+  | "qwen3.8-4b-distill"
+  | "qwen3.8-9b-distill"
+  | "gemma-4-e4b"
+  | "gemma-4-12b"
+  | "ministral-3-8b"
+  | "custom";
 export type LocalModelStatus = {
   id: LocalModel;
   name: string;
+  description: string;
   size: number;
   ready: boolean;
   downloadedBytes: number;
 };
+export type LocalModelTest = { reply: string; elapsedMs: number };
 export type Settings = {
   mode: "local" | "api";
   autonomousEnabled: boolean;
   localModel: LocalModel;
+  localModelPath: string;
   baseUrl: string;
   apiModel: string;
   apiTokenParameter: "max_tokens" | "max_completion_tokens";

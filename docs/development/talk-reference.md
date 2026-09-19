@@ -24,7 +24,7 @@ src-tauri/target/debug/examples/talk variables
 | `talk simulate ENTRY --input JSON_OR_FILE` | 명시한 관측값과 이력으로 후보·탈락 이유·선택된 대사 계산 |
 | `talk simulate ENTRY --db PATH` | 기존 앱 SQLite를 읽기 전용으로 열어 `idle` 시뮬레이션 |
 | `talk simulate ENTRY --db PATH --event JSON_OR_FILE` | 입력한 사건을 현재 DB 상태와 함께 시뮬레이션 |
-| `talk characters --db PATH` | 설치된 캐릭터의 로컬 `id`, 표시 `name`, 활성 `slot` 조회 |
+| `talk characters --db PATH` | 설치된 캐릭터의 로컬 `id`, 표시 `name`, 활성 목록 순서 `position`(0부터, 비활성은 null) 조회 |
 
 `simulate`에는 `--input` 또는 `--db` 중 정확히 하나를 지정한다. `--seed N`, `--now MILLISECONDS`를 추가할 수 있다. 옵션은 값과 한 쌍으로 쓰며 중복·미등록 옵션은 오류다. 성공 결과는 표준 출력의 JSON, 오류는 표준 오류와 종료 코드 `1`이다. 후보가 없어서 `selected`가 `null`인 것은 정상적인 시뮬레이션 결과다.
 
@@ -40,7 +40,7 @@ src-tauri/target/debug/examples/talk simulate talk/index.talk --input '{"active"
 
 | 필드 | 타입 | 기본값·규칙 |
 | --- | --- | --- |
-| `active` | string 2개 배열 | 필수. 현재 A/B 순서의 서로 다른 비어 있지 않은 로컬 ID |
+| `active` | string 1~8개 배열 | 필수. 바탕화면 목록 순서의 서로 다른 비어 있지 않은 로컬 ID. 기본 대본은 앞 두 명(A/B)만 화자로 쓴다 |
 | `available` | string 배열 | 기본 `[]`. 설치·활성·필수 의존성 검사를 통과한 실제 위젯 kind. `timer` 대신 `focus-timer` 사용 |
 | `values` | 변수 이름 → 값 map | 기본 `{}`. 이름은 `timer.state` 같은 평탄한 key. 미등록 변수와 잘못된 타입은 오류 |
 | `trigger` | string | 기본 `idle`. 아래 사건 목록의 값만 허용 |

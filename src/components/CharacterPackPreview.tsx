@@ -16,6 +16,7 @@ export function CharacterPackPreview({ pack }: Props): JSX.Element {
       <p className={s.preview}>
         배포 조건: {pack.license || "미지정 — 재배포 조건을 제작자에게 확인해 주세요."}
       </p>
+      {pack.sourceUrl && <p className={s.preview}>출처: {pack.sourceUrl}</p>}
       {pack.characters.map((character, index) => (
         <details key={`${character.sourceId}:${index}`} open>
           <summary className={s.disclosureSummary}>

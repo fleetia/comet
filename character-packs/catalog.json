@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "packages": [
+    {
+      "id": "sol-and-dal",
+      "name": "솔과 달",
+      "description": "이미지 없이 대화와 캐릭터 교체를 확인하는 예제입니다.",
+      "author": "",
+      "sourceUrl": "",
+      "file": "../examples/character-packs/sol-and-dal.comet-character.json",
+      "license": "AGPL-3.0-only",
+      "minimumAppVersion": "0.3.0",
+      "formatVersion": 1
+    },
+    {
+      "id": "byulkkori",
+      "name": "별꼬리",
+      "description": "표정 이미지가 포함된 공식 캐릭터팩입니다.",
+      "author": "",
+      "sourceUrl": "",
+      "file": "../examples/character-packs/byulkkori.comet-character.json",
+      "license": "LicenseRef-Comet-Official-Content",
+      "licenseFile": "../examples/character-packs/byulkkori.LICENSE.txt",
+      "minimumAppVersion": "0.4.0",
+      "formatVersion": 2,
+      "preview": "byulkkori-preview.svg"
+    }
+  ]
+}

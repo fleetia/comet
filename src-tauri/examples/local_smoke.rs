@@ -122,7 +122,7 @@ async fn main() -> Result<(), String> {
     inference::stop_local(&runtime).await;
     println!(
         "local_running_after_stop={}",
-        inference::is_local_running(&runtime, types::LocalModel::default()).await
+        inference::is_local_running(&runtime, &settings).await
     );
     Ok(())
 }

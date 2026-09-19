@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" shape-rendering="crispEdges" role="img" aria-labelledby="idle-title idle-desc">
+  <title id="idle-title">별꼬리 · 기본</title>
+  <desc id="idle-desc">편안하게 선 기본 자세와 네모난 노란 눈. 투명 배경, 단색 채움, 64×64 픽셀 격자.</desc>
+  <g id="character">
+    <g id="tail">
+      <path id="tail-cream" fill="#FFE6A6" fill-rule="evenodd" d="M49 12V16H53V12Z"/>
+      <path id="tail-lavender" fill="#B6A0EA" fill-rule="evenodd" d="M46 15V20H50V15Z"/>
+      <path id="tail-mint" fill="#77D9CA" fill-rule="evenodd" d="M43 18V19H42V20H41V22H42V23H43V25H46V23H47V22H48V20H47V19H46V18Z"/>
+    </g>
+    <path id="body" fill="#162B59" fill-rule="evenodd" d="M31 10V12H30V15H29V18H27V21H25V23H23V25H21V27H19V29H17V31H15V33H13V36H14V38H16V40H18V43H16V46H20V44H21V46H22V48H24V50H25V56H30V52H35V56H40V50H41V48H43V46H44V44H45V46H49V43H47V40H49V38H51V36H52V33H50V31H48V29H46V27H44V25H42V23H40V21H38V18H36V15H35V12H34V10Z"/>
+    <g id="eyes">
+      <path id="eye-left" fill="#FFCC33" fill-rule="evenodd" d="M25 33V39H29V33Z"/>
+      <path id="eye-right" fill="#FFCC33" fill-rule="evenodd" d="M36 33V39H40V33Z"/>
+    </g>
+  </g>
+  <g id="effects">
+  </g>
+</svg>
