@@ -100,6 +100,74 @@ fn desktop_outcomes_preserve_legacy_data_and_reject_removed_revisions() {
 }
 
 #[test]
+fn clearing_automatic_desktop_reactions_preserves_manual_timer_and_journal() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    install(&db, directory.path(), &["ball", "journal", "focus-timer"]);
+    let ball = instance(&db, "ball");
+    for automatic in [true, false] {
+        storage::record_desktop_result(
+            &db,
+            &ball.id,
+            ball.revision,
+            super::EventDraft {
+                kind: "desktop.ball.stopped".into(),
+                text: "공이 멈췄어요.".into(),
+                payload: json!({"automatic":automatic}),
+            },
+            1000,
+            true,
+        )
+        .unwrap();
+    }
+    let timer = instance(&db, "focus-timer");
+    storage::commit_data(
+        &db,
+        &timer.id,
+        timer.revision,
+        timer.data,
+        vec![super::EventDraft {
+            kind: "timer-finished".into(),
+            text: "시간이 됐어요.".into(),
+            payload: json!({}),
+        }],
+        1001,
+    )
+    .unwrap();
+    let before = storage::journal(&db, None).unwrap();
+    storage::discard_automatic_desktop_pending(&db).unwrap();
+    let pending: Vec<String> = db
+        .prepare("SELECT data FROM widget_events WHERE pending=1")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(pending.len(), 2);
+    let pending: Vec<super::WidgetEvent> = pending
+        .iter()
+        .map(|value| serde_json::from_str(value).unwrap())
+        .collect();
+    assert!(pending
+        .iter()
+        .any(|event| event.event.kind == "timer-finished"));
+    assert!(pending
+        .iter()
+        .any(|event| event.event.kind == "desktop.ball.stopped"
+            && event.event.payload["automatic"] == false));
+    assert_eq!(
+        serde_json::to_value(storage::journal(&db, None).unwrap()).unwrap(),
+        serde_json::to_value(before).unwrap()
+    );
+    let count: i64 = db
+        .query_row("SELECT COUNT(*) FROM desktop_toy_results", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(count, 2);
+}
+
+#[test]
 fn preserve_reinstall_and_delete_leave_companion_data_untouched() {
     let directory = tempfile::tempdir().unwrap();
     let db_path = directory.path().join("app.sqlite");

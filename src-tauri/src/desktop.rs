@@ -26,6 +26,90 @@ fn face_label(id: &str) -> String {
     format!("{FACE_PREFIX}{id}")
 }
 
+// Displaying ambient content must not replace the foreground application's key window.
+fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        use std::sync::atomic::Ordering;
+        let state = app.state::<Arc<AppState>>();
+        let epoch = state.epoch.load(Ordering::SeqCst);
+        let app = app.clone();
+        let label = window.label().to_string();
+        window.run_on_main_thread(move || {
+            let state = app.state::<Arc<AppState>>();
+            // Never wait on locks from the UI thread: the next publish retries a skipped display.
+            let (Ok(db), Ok(runtime), Ok(panel), Ok(playback)) = (
+                state.db.try_lock(), state.runtime.try_lock(),
+                state.panel.try_lock(), state.playback.try_lock(),
+            ) else { return; };
+            if state.epoch.load(Ordering::SeqCst) != epoch || runtime.hidden || super::unavailable(&state) {
+                return;
+            }
+            let Ok(characters) = crate::characters::collection(&db) else { return; };
+            let wanted = if label == "balloon" {
+                owner_id(&runtime, panel.as_ref(), playback.as_ref(), &characters.active).is_some()
+            } else if let Some(id) = label.strip_prefix(BODY_PREFIX) {
+                characters.active.iter().any(|active| active == id)
+            } else if let Some(id) = label.strip_prefix(FACE_PREFIX) {
+                characters.active.iter().any(|active| active == id)
+                    && characters.installed.iter().any(|character| character.id == id && has_body_sprite(character) && character.definition.face_icon)
+            } else { false };
+            if !wanted { return; }
+            drop((db, runtime, panel, playback));
+            if state.epoch.load(Ordering::SeqCst) != epoch { return; }
+            let Some(window) = app.get_webview_window(&label) else { return; };
+            #[cfg(target_os = "macos")]
+            if let Ok(pointer) = window.ns_window() {
+                unsafe {
+                    let native = &*(pointer as *mut objc2::runtime::AnyObject);
+                    let _: () = objc2::msg_send![native, orderFront: std::ptr::null::<objc2::runtime::AnyObject>()];
+                }
+            }
+            #[cfg(target_os = "windows")]
+            if let Ok(handle) = window.hwnd() {
+                unsafe {
+                    windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(
+                        handle.0 as _, windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNOACTIVATE,
+                    );
+                }
+            }
+        }).map_err(|error| error.to_string())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = app;
+        window.show().map_err(|error| error.to_string())
+    }
+}
+
+pub(crate) fn hide_ambient(window: &WebviewWindow) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        window.hide().map_err(|error| error.to_string())?;
+        let app = window.app_handle().clone();
+        let label = window.label().to_string();
+        window
+            .run_on_main_thread(move || {
+                let Some(window) = app.get_webview_window(&label) else {
+                    return;
+                };
+                if let Ok(handle) = window.hwnd() {
+                    unsafe {
+                        windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(
+                            handle.0 as _,
+                            windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE,
+                        );
+                    }
+                }
+            })
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        window.hide().map_err(|error| error.to_string())
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Rect {
     x: f64,
@@ -163,7 +247,7 @@ fn create_body(app: &AppHandle, state: &AppState, spec: BodySpec) -> Result<(), 
             .map_err(|e| e.to_string())?;
     }
     if visible {
-        window.show().map_err(|e| e.to_string())?;
+        show_passive(app, &window)?;
     }
     Ok(())
 }
@@ -265,7 +349,7 @@ fn create_face(app: &AppHandle, id: &str, title: &str) -> Result<(), String> {
     window
         .set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32))
         .map_err(|e| e.to_string())?;
-    window.show().map_err(|e| e.to_string())
+    show_passive(app, &window)
 }
 
 // One body window per roster member, sized to its sprite, with the detached expression tag only
@@ -277,7 +361,12 @@ fn reconcile(app: &AppHandle, state: &AppState, snapshot: &Snapshot) -> Result<(
         let title = character.map_or(id.as_str(), |character| character.definition.name.as_str());
         let size = body_size(character);
         match app.get_webview_window(&body_label(id)) {
-            Some(window) => set_logical_size(&window, size)?,
+            Some(window) => {
+                set_logical_size(&window, size)?;
+                if !snapshot.runtime.hidden {
+                    show_passive(app, &window)?;
+                }
+            }
             None => create_body(
                 app,
                 state,
@@ -296,10 +385,10 @@ fn reconcile(app: &AppHandle, state: &AppState, snapshot: &Snapshot) -> Result<(
             face_wanted(snapshot, character),
         ) {
             (Some(window), true) => {
-                let _ = window.show();
+                let _ = show_passive(app, &window);
             }
             (Some(window), false) => {
-                let _ = window.hide();
+                let _ = hide_ambient(&window);
             }
             (None, true) => {
                 let _ = create_face(app, id, title);
@@ -323,34 +412,37 @@ pub(crate) fn sync_boxes(app: &AppHandle, state: &AppState, snapshot: &Snapshot)
 }
 
 fn owner(snapshot: &Snapshot) -> Option<&str> {
-    if snapshot.runtime.hidden {
+    owner_id(
+        &snapshot.runtime,
+        snapshot.panel.as_ref(),
+        snapshot.playback.as_ref(),
+        &snapshot.characters.active,
+    )
+}
+
+fn owner_id<'a>(
+    runtime: &crate::types::RuntimeStatus,
+    panel: Option<&crate::types::PanelState>,
+    playback: Option<&crate::types::Playback>,
+    active: &'a [String],
+) -> Option<&'a str> {
+    if runtime.hidden {
         return None;
     }
-    snapshot
-        .panel
-        .as_ref()
+    panel
         .map(|panel| panel.persona.as_str())
+        .or_else(|| playback.map(|playback| playback.persona.as_str()))
         .or_else(|| {
-            snapshot
-                .playback
-                .as_ref()
-                .map(|playback| playback.persona.as_str())
-        })
-        .or_else(|| {
-            if ["loading", "generating", "error"].contains(&snapshot.runtime.phase.as_str()) {
-                snapshot.runtime.persona.as_deref()
+            if ["loading", "generating", "error"].contains(&runtime.phase.as_str()) {
+                runtime.persona.as_deref()
             } else {
                 None
             }
         })
         .and_then(|persona| match persona {
-            "a" => snapshot.characters.active.first(),
-            "b" => snapshot.characters.active.get(1),
-            id => snapshot
-                .characters
-                .active
-                .iter()
-                .find(|active| active.as_str() == id),
+            "a" => active.first(),
+            "b" => active.get(1),
+            id => active.iter().find(|active| active.as_str() == id),
         })
         .map(String::as_str)
 }
@@ -423,7 +515,7 @@ fn position_balloon(
 pub(crate) fn sync_balloon(app: &AppHandle, snapshot: &Snapshot) {
     let Some(id) = owner(snapshot) else {
         if let Some(window) = app.get_webview_window("balloon") {
-            let _ = window.hide();
+            let _ = hide_ambient(&window);
         }
         return;
     };
@@ -437,7 +529,7 @@ pub(crate) fn sync_balloon(app: &AppHandle, snapshot: &Snapshot) {
         .map(|(size, scale)| size.height as f64 / scale)
         .unwrap_or(180.0);
     if position_balloon(app, &window, id, height).is_ok() {
-        let _ = window.show();
+        let _ = show_passive(app, &window);
     }
 }
 
@@ -461,6 +553,25 @@ pub(crate) fn resize_balloon(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ambient_balloon_visibility_uses_current_owner_and_hidden_state() {
+        let mut runtime = crate::types::RuntimeStatus::default();
+        let panel = crate::types::PanelState {
+            persona: "b".into(),
+            mode: "input".into(),
+        };
+        let roster = vec!["first".into(), "second".into()];
+        assert_eq!(
+            owner_id(&runtime, Some(&panel), None, &roster),
+            Some("second")
+        );
+        runtime.hidden = true;
+        assert_eq!(owner_id(&runtime, Some(&panel), None, &roster), None);
+        runtime.hidden = false;
+        assert_eq!(owner_id(&runtime, None, None, &roster), None);
+        assert_eq!(owner_id(&runtime, Some(&panel), None, &roster[..1]), None);
+    }
 
     #[test]
     fn balloon_stays_in_work_area_across_scale_and_screen_edges() {

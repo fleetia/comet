@@ -85,6 +85,11 @@ impl Default for Machine {
     }
 }
 
+struct Transition {
+    end_play: bool,
+    discard_reactions: bool,
+}
+
 impl Machine {
     fn schedule(&mut self, now: i64, entropy: u64) {
         self.next_prank = now + 600 + (entropy % 601) as i64;
@@ -98,13 +103,15 @@ impl Machine {
         waiting: bool,
         epoch: u64,
         entropy: u64,
-    ) -> bool {
+    ) -> Transition {
         let stale = self
             .actor
             .as_ref()
             .is_some_and(|(_, started)| *started != epoch);
-        let end_play = self.actor.is_some()
-            && (blocked || conversation || waiting || stale || now >= self.playing_until);
+        let interrupted = blocked || conversation || waiting || stale;
+        let discard_reactions =
+            (self.actor.is_some() && interrupted) || (blocked && self.phase != Phase::Suspended);
+        let end_play = self.actor.is_some() && (interrupted || now >= self.playing_until);
         if end_play {
             self.actor = None;
             self.cooldown_until = now + 30;
@@ -126,7 +133,10 @@ impl Machine {
         if self.next_prank == 0 || blocked || conversation || waiting {
             self.schedule(now, entropy);
         }
-        end_play
+        Transition {
+            end_play,
+            discard_reactions,
+        }
     }
 
     fn begin(&mut self, actor: String, epoch: u64, now: i64) {
@@ -155,7 +165,12 @@ pub(crate) async fn set_desktop_preferences(
         if crate::unavailable(&state) {
             return Err("앱을 정리하고 있어요.".into());
         }
-        save(&*lock(&state.db)?, &preferences)?;
+        let db = lock(&state.db)?;
+        save(&db, &preferences)?;
+        widgets::storage::discard_automatic_desktop_pending(&db)?;
+        cancel_automatic_reaction(&state)?;
+        desktop_toys::clear_automatic(&app);
+        lock(&state.behavior)?.actor = None;
     }
     let hidden = lock(&state.runtime)?.hidden;
     if visible && hidden {
@@ -163,8 +178,7 @@ pub(crate) async fn set_desktop_preferences(
     } else if !visible && !hidden {
         crate::hide_boxes(app.clone(), app.state::<Arc<AppState>>()).await?;
     }
-    desktop_toys::clear_automatic(&app);
-    lock(&state.behavior)?.actor = None;
+    crate::publish(&app, &state);
     let _ = app.emit("desktop-preferences", &preferences);
     crate::desktop_menu::refresh(&app);
     Ok(())
@@ -176,6 +190,14 @@ pub(crate) fn clear_desktop_toys(app: tauri::AppHandle) {
         let Ok(_action) = lock(&state.action) else {
             return;
         };
+        let Ok(db) = lock(&state.db) else {
+            return;
+        };
+        if widgets::storage::discard_automatic_desktop_pending(&db).is_err()
+            || cancel_automatic_reaction(&state).is_err()
+        {
+            return;
+        }
         desktop_toys::clear(&app);
         if let Ok(mut machine) = lock(&state.behavior) {
             machine.actor = None;
@@ -183,7 +205,26 @@ pub(crate) fn clear_desktop_toys(app: tauri::AppHandle) {
             machine.cooldown_until = crate::now() + 30;
             machine.schedule(crate::now(), uuid::Uuid::new_v4().as_u128() as u64);
         }
+        drop(db);
+        drop(_action);
+        crate::publish(&app, &state);
     }
+}
+
+// The caller holds the action gate; unrelated conversations and pending events survive.
+fn cancel_automatic_reaction(state: &AppState) -> Result<(), String> {
+    let automatic = lock(&state.widget_playback)?.as_ref().is_some_and(|event| {
+        event.event.kind.starts_with("desktop.")
+            && event.event.payload["automatic"].as_bool() == Some(true)
+    });
+    if automatic {
+        let (epoch, _) = crate::interrupt(state, false)?;
+        state.widget_epoch.store(epoch, Ordering::SeqCst);
+        let mut runtime = lock(&state.runtime)?;
+        runtime.phase = "idle".into();
+        runtime.persona = None;
+    }
+    Ok(())
 }
 
 pub(crate) fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
@@ -210,15 +251,20 @@ pub(crate) fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(), Strin
     if !preferences.pranks_enabled && machine.actor.take().is_some() {
         desktop_toys::clear_automatic(app);
     }
-    if machine.observe(
+    let transition = machine.observe(
         timestamp,
         blocked,
         conversation,
         runtime.phase == "waiting",
         epoch,
         entropy,
-    ) {
+    );
+    if transition.end_play {
         desktop_toys::clear_automatic(app);
+    }
+    if transition.discard_reactions {
+        widgets::storage::discard_automatic_desktop_pending(&db)?;
+        cancel_automatic_reaction(state)?;
     }
     let outcomes = desktop_toys::drain_outcomes(app);
     let mut changed = false;
@@ -297,12 +343,69 @@ pub(crate) fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(), Strin
             machine.begin(actor, epoch, timestamp);
         }
     }
+    drop(machine);
+    drop(db);
+    drop(_action);
+    if transition.discard_reactions {
+        crate::publish(app, state);
+    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clearing_claimed_automatic_reaction_cancels_its_epoch_only() {
+        for kind in [
+            None,
+            Some(("desktop.ball.stopped", false)),
+            Some(("timer-finished", true)),
+            Some(("desktop.ball.stopped", true)),
+        ] {
+            let state = crate::lifecycle_tests::state();
+            let _action = lock(&state.action).unwrap();
+            let (epoch, cancel) = crate::interrupt(&state, true).unwrap();
+            let current = kind.map(|(kind, automatic)| widgets::WidgetEvent {
+                id: "event".into(),
+                instance_id: "ball".into(),
+                widget_kind: "ball".into(),
+                revision: 1,
+                created_at: 0,
+                expires_at: 30000,
+                event: widgets::EventDraft {
+                    kind: kind.into(),
+                    text: "반응".into(),
+                    payload: serde_json::json!({"automatic":automatic}),
+                },
+            });
+            *lock(&state.widget_playback).unwrap() = current;
+            *lock(&state.playback).unwrap() = Some(crate::types::Playback {
+                id: "line".into(),
+                persona: "a".into(),
+                expression: "평온".into(),
+                text: "재생중".into(),
+                source: "widget".into(),
+                ends_at: 30000,
+                line_index: 0,
+                line_count: 2,
+            });
+            lock(&state.runtime).unwrap().phase = "playing".into();
+            cancel_automatic_reaction(&state).unwrap();
+            let should_cancel = kind == Some(("desktop.ball.stopped", true));
+            assert_eq!(cancel.load(Ordering::SeqCst), should_cancel);
+            assert_eq!(lock(&state.playback).unwrap().is_none(), should_cancel);
+            if should_cancel {
+                assert!(lock(&state.widget_playback).unwrap().is_none());
+                assert_eq!(lock(&state.runtime).unwrap().phase, "idle");
+                assert_eq!(state.widget_epoch.load(Ordering::SeqCst), epoch + 1);
+            } else {
+                assert_eq!(state.epoch.load(Ordering::SeqCst), epoch);
+                assert_eq!(lock(&state.runtime).unwrap().phase, "playing");
+            }
+        }
+    }
 
     #[test]
     fn hidden_typing_stale_and_timeout_cancel_automatic_play() {
@@ -315,11 +418,36 @@ mod tests {
         ] {
             let mut machine = Machine::default();
             machine.begin("actor".into(), 1, 5);
-            assert!(machine.observe(time, blocked, conversation, waiting, epoch, 123));
+            let transition = machine.observe(time, blocked, conversation, waiting, epoch, 123);
+            assert!(transition.end_play);
+            assert_eq!(transition.discard_reactions, time < 40);
             assert_eq!(machine.phase, expected);
             assert!(machine.actor.is_none());
-            assert!(!machine.observe(time, blocked, conversation, waiting, epoch, 123));
+            let repeated = machine.observe(time, blocked, conversation, waiting, epoch, 123);
+            assert!(!repeated.end_play && !repeated.discard_reactions);
         }
+    }
+
+    #[test]
+    fn suspension_without_an_actor_cancels_claimed_reactions_once_per_entry() {
+        let mut machine = Machine::default();
+        let first = machine.observe(10, true, true, false, 1, 123);
+        assert!(!first.end_play && first.discard_reactions);
+        assert!(
+            !machine
+                .observe(11, true, false, false, 1, 123)
+                .discard_reactions
+        );
+        assert!(
+            !machine
+                .observe(12, false, false, false, 1, 123)
+                .discard_reactions
+        );
+        assert!(
+            machine
+                .observe(13, true, false, false, 1, 123)
+                .discard_reactions
+        );
     }
 
     #[test]

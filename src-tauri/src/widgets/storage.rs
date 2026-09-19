@@ -653,6 +653,12 @@ pub fn advance(db: &Connection, now: i64) -> Result<bool> {
     Ok(changed)
 }
 
+pub(crate) fn discard_automatic_desktop_pending(db: &Connection) -> Result<()> {
+    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND id IN (SELECT id FROM desktop_toy_results) AND json_extract(data,'$.payload.automatic')=1", [])
+        .map_err(err)?;
+    Ok(())
+}
+
 pub fn discard_pending(db: &Connection) -> Result<()> {
     db.execute("UPDATE widget_events SET pending=0 WHERE pending=1", [])
         .map_err(err)?;

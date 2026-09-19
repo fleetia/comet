@@ -892,6 +892,7 @@ fn open_panel(
     };
     phase(&app, &state, epoch, "idle", None, None);
     if let Some(window) = app.get_webview_window("balloon") {
+        window.show().map_err(|error| error.to_string())?;
         window.set_focus().map_err(|error| error.to_string())?;
     }
     Ok(())
@@ -1351,7 +1352,7 @@ async fn hide_boxes(
         *lock(&state.panel)? = None;
         for (label, window) in app.webview_windows() {
             if desktop::is_body(&label) || desktop::is_face(&label) {
-                window.hide().map_err(|e| e.to_string())?;
+                desktop::hide_ambient(&window)?;
             }
         }
         interrupt(&state, false)?
@@ -1554,7 +1555,9 @@ pub fn run() {
                 }
                 WindowEvent::CloseRequested { api, .. } if face => {
                     api.prevent_close();
-                    let _ = window.hide();
+                    if let Some(view) = window.app_handle().get_webview_window(window.label()) {
+                        let _ = desktop::hide_ambient(&view);
+                    }
                 }
                 WindowEvent::CloseRequested { api, .. } => {
                     api.prevent_close();
