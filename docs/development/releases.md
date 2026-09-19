@@ -24,7 +24,7 @@ Updater 서명은 Apple notarization이나 Windows Authenticode 서명을 대체
 
 ## 검증용 설치 파일 받기
 
-[Verify desktop](https://github.com/fleetia/comet/actions/workflows/verify.yml)은 push·pull request 때 실행하며, Actions 화면의 `Run workflow`에서 원하는 branch를 골라 직접 실행할 수도 있습니다. 성공한 실행의 Artifacts에서 다음 파일을 받습니다. 다운로드에는 GitHub 로그인이 필요합니다.
+[Verify desktop](https://github.com/fleetia/comet/actions/workflows/verify.yml)은 main push와 main 대상 pull request 때 실행합니다. 일반 branch push·tag push로 중복 실행하지 않으며, `docs/`·`wiki/`·`.changeset/`·루트 Markdown·LICENSE만 바뀌면 생략합니다. Actions 화면의 `Run workflow`에서는 변경 경로와 관계없이 원하는 branch를 직접 실행할 수 있습니다. 성공한 실행의 Artifacts에서 다음 파일을 받습니다. 다운로드에는 GitHub 로그인이 필요하며 검증용 artifact는 7일 보관합니다.
 
 | Artifact | 포함 파일 |
 | --- | --- |
@@ -32,6 +32,14 @@ Updater 서명은 Apple notarization이나 Windows Authenticode 서명을 대체
 | `nanika-box-x64-Windows` | Windows x64 NSIS `.exe` |
 
 macOS는 `app,dmg`, Windows는 `nsis` bundle을 생성합니다. macOS 앱 서명과 `hdiutil verify`의 DMG 무결성 검사를 통과해야 artifact를 올립니다. 이 workflow는 Release를 공개하거나 updater manifest를 게시하지 않습니다.
+
+### CI 실행과 캐시
+
+프론트엔드 검사·테스트는 Ubuntu에서 한 번 실행하고, 성공해야 두 native job을 시작합니다. Rust 테스트·앱 빌드·설치물 검사는 두 OS에서 각각 유지합니다. Tauri의 `beforeBuildCommand`가 프론트엔드를 빌드하므로 native job에서 `pnpm build`를 별도로 반복하지 않습니다. Release도 Ubuntu prepare에서 공통 검사를 마친 뒤 두 OS를 빌드합니다.
+
+pnpm store 캐시는 lockfile 기준으로 유지합니다. `Swatinem/rust-cache`는 OS·아키텍처·toolchain·Cargo manifest/lock에 맞는 registry와 컴파일된 의존성을 복원하며, Verify와 Release가 같은 키를 사용합니다. Sidecar는 OS·아키텍처·`scripts/prepare-sidecar.mjs` 전체 hash가 같은 경우만 준비된 파일을 복원합니다. 캐시가 없으면 기존 SHA-256 검증·라이선스 동봉 절차로 다시 준비합니다. Rust·sidecar 캐시는 main 실행에서만 저장하여 PR별 대형 캐시가 쌓이지 않게 합니다. PR과 태그 Release는 main 캐시를 읽으며, 서명용 secret·설정 파일과 최종 설치물은 이 캐시에 저장하지 않습니다. Rust 의존성 캐시의 키와 정리 범위는 [공식 action](https://github.com/Swatinem/rust-cache)을 따릅니다.
+
+`Version and release`의 PR 검사는 변경셋·버전·배포 스크립트·workflow 등 관련 경로가 바뀔 때 실행하고 오래된 PR 실행은 취소합니다. main에서는 모든 push를 처리해 버전 PR을 최신 상태로 유지하며, 진행 중인 배포는 취소하지 않습니다. 경로 필터로 생략되는 workflow를 필수 PR check로 등록하면 해당 check가 pending으로 남을 수 있으므로 보호 규칙을 추가할 때 실행 조건도 함께 조정합니다.
 
 ## 최초 설정
 
@@ -54,7 +62,7 @@ GitHub 저장소에는 다음 값을 등록합니다.
 1. 사용자에게 전달할 변경과 함께 루트에서 `pnpm changeset`을 실행합니다. `nanika-box`와 patch·minor·major 수준을 선택하고 한국어 업데이트 노트를 작성한 뒤 `.changeset/*.md`를 같은 PR에 포함합니다. 문서·내부 정리만 바꾸면 변경셋을 생략할 수 있습니다.
 2. main에 병합하면 `Version and release` workflow가 `changeset-release/main` 브랜치의 버전 PR을 만들거나 갱신합니다. Changesets가 `package.json`과 `CHANGELOG.md`를 갱신하고 `pnpm version:release`가 Tauri JSON·Cargo manifest·Cargo.lock의 앱 버전을 함께 맞춥니다. 직접 네 파일의 버전을 편집하지 않습니다.
 3. 버전 PR에서 버전·업데이트 노트·실기 인수 상태를 검토하고 병합합니다. main workflow는 해당 버전의 CHANGELOG 항목과 네 파일의 일치를 확인하고 `vX.Y.Z` 태그를 고정한 뒤 `Release desktop`을 직접 호출합니다. GitHub 기본 토큰이 만든 tag push가 다음 workflow를 실행하지 않는 제한을 이 직접 호출로 처리합니다. 새 토큰이나 npm publish 권한은 필요하지 않습니다.
-4. `Release desktop`은 태그를 checkout하고 해당 CHANGELOG 항목을 담은 draft release를 만듭니다. macOS·Windows 각각 frontend/Rust 검사와 sidecar 준비, signed updater build를 수행합니다. 비공개 개인키는 release build 단계에만 전달합니다.
+4. `Release desktop`은 태그를 checkout하고 Ubuntu에서 프론트엔드 검사를 통과한 뒤 해당 CHANGELOG 항목을 담은 draft release를 만듭니다. macOS·Windows 각각 Rust 검사와 sidecar 준비, signed updater build를 수행합니다. 비공개 개인키는 release build 단계에만 전달합니다.
 5. 두 build가 모두 성공해야 publish job이 실행됩니다. 수동 설치용 `.dmg`·`.exe`와 `latest.json`의 두 플랫폼, 버전, 해당 tag의 실제 artifact와 `.sig` 파일을 확인합니다. Tauri Action의 API 자산 URL은 같은 release의 공개 다운로드 URL로 정규화하고 CHANGELOG 본문을 `latest.json.notes`에도 반영한 뒤 manifest를 다시 올립니다. 실제 업로드된 설치 파일의 다운로드 링크와 OS별 설치 안내를 변경 노트 앞에 추가한 뒤 release를 공개하며, 같은 내용을 Actions 실행 요약에도 남깁니다. Windows `.exe`는 수동 설치와 updater가 함께 사용합니다. 실패하면 draft로 남깁니다. 이미 공개된 release를 덮어쓰지 않습니다.
 6. 실제 이전 설치본에서 새 버전 확인·사용자 승인·설치·재시작을 두 OS에서 확인합니다. 대화, 캐릭터, 위젯, 기억과 API 설정 보존을 함께 확인합니다.
 
