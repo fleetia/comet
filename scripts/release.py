@@ -6,7 +6,7 @@ import re
 import tomllib
 
 
-PACKAGE_NAME = "nanika-box"
+PACKAGE_NAME = "comet"
 
 
 def read_package() -> dict:

@@ -310,3 +310,61 @@ it("disables autonomous subsettings without clearing their saved choices", () =>
   expect(screen.getByLabelText("API로 새 잡담 만들기")).toHaveProperty("disabled", false);
   expect(screen.getByLabelText("API로 새 잡담 만들기")).toHaveProperty("checked", true);
 });
+
+it("keeps a failed settings draft and cancels it back to the latest snapshot", async () => {
+  vi.mocked(command).mockRejectedValueOnce(new Error("저장 실패"));
+  const { rerender } = render(<SettingsPanel snapshot={READY_4B} />);
+  fireEvent.change(screen.getByLabelText(/이야기 간격/), { target: { value: "12" } });
+  fireEvent.click(screen.getByRole("button", { name: "설정 저장" }));
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("저장 실패"));
+  expect(screen.getByLabelText(/이야기 간격/)).toHaveProperty("value", "12");
+  rerender(
+    <SettingsPanel
+      snapshot={{ ...READY_4B, settings: { ...READY_4B.settings, idleMinutes: 7 } }}
+    />,
+  );
+  expect(screen.getByLabelText(/이야기 간격/)).toHaveProperty("value", "12");
+  fireEvent.click(screen.getByRole("button", { name: "변경 취소" }));
+  expect(screen.getByLabelText(/이야기 간격/)).toHaveProperty("value", "7");
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByRole("button", { name: "설정 저장" })).toHaveProperty("disabled", true);
+});
+
+it("preserves memory drafts across tabs and failures, then saves and deletes independently", async () => {
+  const memory = {
+    id: "memory-1",
+    content: "기존 기억",
+    sourceMessageId: "message-1",
+    updatedAt: 1,
+  };
+  const snapshot = { ...READY_4B, memories: [memory] };
+  const { rerender } = render(<SettingsPanel snapshot={snapshot} />);
+  fireEvent.click(screen.getByRole("tab", { name: "기억" }));
+  fireEvent.change(screen.getByLabelText("기억 내용"), { target: { value: "  수정한 기억  " } });
+  fireEvent.click(screen.getByRole("tab", { name: "기본 동작" }));
+  fireEvent.click(screen.getByRole("tab", { name: "기억" }));
+  expect(screen.getByLabelText("기억 내용")).toHaveProperty("value", "  수정한 기억  ");
+  vi.mocked(command).mockRejectedValueOnce(new Error("기억 저장 실패"));
+  fireEvent.click(screen.getByRole("button", { name: "수정 저장" }));
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("기억 저장 실패"));
+  expect(screen.getByLabelText("기억 내용")).toHaveProperty("value", "  수정한 기억  ");
+  expect(command).toHaveBeenLastCalledWith("edit_memory", {
+    id: memory.id,
+    content: "수정한 기억",
+  });
+  fireEvent.click(screen.getByRole("button", { name: "수정 저장" }));
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  rerender(
+    <SettingsPanel snapshot={{ ...snapshot, memories: [{ ...memory, content: "수정한 기억" }] }} />,
+  );
+  expect(screen.getByLabelText("기억 내용")).toHaveProperty("value", "수정한 기억");
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "이 기억 지우기" })).toHaveProperty(
+      "disabled",
+      false,
+    ),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "이 기억 지우기" }));
+  await waitFor(() => expect(command).toHaveBeenLastCalledWith("delete_memory", { id: memory.id }));
+  await waitFor(() => expect(screen.getByLabelText("기억 내용")).toHaveProperty("disabled", false));
+});

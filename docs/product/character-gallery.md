@@ -11,12 +11,12 @@ description: 직접 내려받아 설치하는 공식 캐릭터팩과 콘텐츠�
 
 | 캐릭터 | 내용 | 호환 앱 | 파일 | 이용 조건 |
 | --- | --- | --- | --- | --- |
-| 솔과 달 | 기본 대화와 교체를 확인하는 텍스트 예제 | 0.3.0 이상 · v1 | [JSON 보기·내려받기](https://github.com/fleetia/comet/blob/main/examples/character-packs/sol-and-dal.comet-character.json) | AGPL-3.0-only |
+| 나디르와 별꼬리 | 텍스트 표정과 기본 대화를 제공하는 캐릭터팩 | 0.3.0 이상 · v1 | [JSON 보기·내려받기](https://github.com/fleetia/comet/blob/main/examples/character-packs/nadir-and-star-tail.comet-character.json) | 패키지에 별도 표기 없음 |
 | 별꼬리 | 표정 이미지가 포함된 공식 캐릭터 | 0.4.0 이상 · v2 | [JSON 보기·내려받기](https://github.com/fleetia/comet/blob/main/examples/character-packs/byulkkori.comet-character.json) | 공식 Comet 채널에서만 배포. 수정·파생 제작·downstream 재배포 금지 |
 
 GitHub 파일 화면의 **Download raw file**로 JSON 파일을 저장합니다. 별꼬리의 구체적인 범위는 [콘텐츠 이용 조건](https://github.com/fleetia/comet/blob/main/examples/character-packs/byulkkori.LICENSE.txt)을 확인하세요. 소스 코드가 공개되어 있어도 캐릭터 콘텐츠에 같은 이용 조건이 적용되지는 않습니다.
 
-작성자와 원본 출처 URL은 아직 기입하지 않았습니다. 임의의 이름이나 링크를 만들지 않으며, 확인 후 카탈로그의 `author`와 `sourceUrl`을 채웁니다. 빈 출처는 공개 도메인 표시가 아닙니다.
+작성자와 원본 출처는 각 패키지에 기재된 값을 따릅니다. 별꼬리 이미지팩의 작성자와 원본 출처 URL은 아직 기입하지 않았습니다. 임의의 이름이나 링크를 만들지 않으며, 확인 후 카탈로그의 `author`와 `sourceUrl`을 채웁니다. 빈 출처는 공개 도메인 표시가 아닙니다.
 
 ## 카탈로그 유지
 

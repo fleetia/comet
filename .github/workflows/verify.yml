@@ -108,15 +108,15 @@ jobs:
       - name: Verify and archive macOS app
         if: runner.os == 'macOS' && github.event_name != 'pull_request'
         run: |
-          codesign --verify --deep --strict 'src-tauri/target/release/bundle/macos/Nanika Box.app'
+          codesign --verify --deep --strict 'src-tauri/target/release/bundle/macos/comet.app'
           for installer in src-tauri/target/release/bundle/dmg/*.dmg; do
             hdiutil verify "$installer"
           done
-          ditto -c -k --sequesterRsrc --keepParent 'src-tauri/target/release/bundle/macos/Nanika Box.app' 'src-tauri/target/release/bundle/Nanika-Box-macOS-arm64.zip'
+          ditto -c -k --sequesterRsrc --keepParent 'src-tauri/target/release/bundle/macos/comet.app' 'src-tauri/target/release/bundle/comet-macOS-arm64.zip'
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request'
         with:
-          name: nanika-box-${{ matrix.arch }}-${{ runner.os }}
+          name: comet-${{ matrix.arch }}-${{ runner.os }}
           path: |
             src-tauri/target/release/bundle/*.zip
             src-tauri/target/release/bundle/dmg/*.dmg

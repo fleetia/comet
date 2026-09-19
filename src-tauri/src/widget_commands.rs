@@ -1,7 +1,8 @@
 use crate::{
-    interrupt, lock, now, publish, skip_talk, start_scene, store,
+    app::{interrupt, lock, now, publish, scene::start_scene, windows::skip_talk, AppState},
+    store,
+    types::SceneLine,
     widgets::{self, storage, WidgetEvent, WidgetRequest, WidgetSnapshot},
-    AppState, SceneLine,
 };
 use std::sync::{atomic::Ordering, Arc};
 use tauri::{Emitter, Manager};
@@ -241,7 +242,7 @@ pub(crate) fn open_widgets(app: tauri::AppHandle) -> Result<(), String> {
         "widgets",
         tauri::WebviewUrl::App("index.html?view=widgets".into()),
     )
-    .title("Comet · 위젯 관리")
+    .title("comet · 위젯 관리")
     .inner_size(880.0, 760.0)
     .min_inner_size(560.0, 480.0)
     .decorations(false)
@@ -301,7 +302,7 @@ pub(crate) async fn open_widget(
         tauri::WebviewUrl::App(format!("index.html?view=widget&id={id}").into()),
     )
     .title(format!(
-        "Comet · {}",
+        "comet · {}",
         widgets::manifest(&instance.kind)?.name
     ))
     .inner_size(360.0, 480.0)
@@ -372,14 +373,13 @@ pub(crate) fn play_widget_reaction(
             state.last_input.store(now(), Ordering::SeqCst);
             let (lines, source) = match crate::talk_host::prepare(state, &db, Some(&event))? {
                 Some(lines) => (lines, "talk"),
-                None => (
-                    vec![SceneLine {
-                        persona: "a".into(),
-                        expression: "normal".into(),
-                        text: event.event.text.clone(),
-                    }],
-                    "widget",
-                ),
+                None => match fallback_reaction(&db, &event)? {
+                    Some(lines) => (lines, "widget"),
+                    None => {
+                        *lock(&state.widget_playback)? = None;
+                        return Ok(false);
+                    }
+                },
             };
             Some((event.id, token, lines, source))
         } else {
@@ -398,4 +398,62 @@ pub(crate) fn play_widget_reaction(
         Some(event_id),
     );
     Ok(true)
+}
+
+fn fallback_reaction(
+    db: &rusqlite::Connection,
+    event: &WidgetEvent,
+) -> Result<Option<Vec<SceneLine>>, String> {
+    let a = crate::characters::active_character(db, "a")?;
+    let b = crate::characters::active_character(db, "b")?;
+    let sources = [
+        a.definition.source_id.as_str(),
+        b.definition.source_id.as_str(),
+    ];
+    if sources.contains(&"nadir") && sources.contains(&"star-tail") {
+        return Ok(None);
+    }
+    Ok(Some(vec![SceneLine {
+        persona: "a".into(),
+        expression: "평온".into(),
+        text: event.event.text.clone(),
+    }]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn factory_pair_never_speaks_raw_widget_notifications_but_custom_characters_keep_fallback() {
+        let db = store::open(std::path::Path::new(":memory:")).unwrap();
+        let event = WidgetEvent {
+            id: "test-event".into(),
+            instance_id: "timer".into(),
+            widget_kind: "focus-timer".into(),
+            revision: 0,
+            created_at: 0,
+            expires_at: 10_000,
+            event: widgets::EventDraft {
+                kind: "timer-finished".into(),
+                text: "원본 위젯 알림".into(),
+                payload: serde_json::json!({}),
+            },
+        };
+        assert!(fallback_reaction(&db, &event).unwrap().is_none());
+        crate::characters::apply_pair(&db, ["builtin-b".into(), "builtin-a".into()]).unwrap();
+        assert!(fallback_reaction(&db, &event).unwrap().is_none());
+        let character = crate::characters::active_character(&db, "a").unwrap();
+        let mut definition = character.definition;
+        definition.source_id = "custom".into();
+        db.execute(
+            "UPDATE characters SET data=?1 WHERE id=?2",
+            rusqlite::params![serde_json::to_string(&definition).unwrap(), character.id],
+        )
+        .unwrap();
+        let lines = fallback_reaction(&db, &event).unwrap().unwrap();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].persona, "a");
+        assert_eq!(lines[0].text, event.event.text);
+    }
 }

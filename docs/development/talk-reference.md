@@ -19,6 +19,9 @@ src-tauri/target/debug/examples/talk variables
 
 | 명령 | 입력과 결과 |
 | --- | --- |
+| `talk read ENTRY RELATIVE_FILE` | 복호화된 `source`와 저장 충돌 검사용 `revision`을 JSON으로 출력 |
+| `talk save ENTRY RELATIVE_FILE --source TEXT_FILE --revision REVISION` | 평문 원문 파일을 전체 검증한 뒤 암호화 저장. 로드한 revision이 현재와 다르면 거부 |
+| `talk seal ENTRY` | 유효한 import bundle의 평문 파일을 암호화 |
 | `talk check ENTRY` | 진입 파일과 재귀 import를 검사. 성공 시 `valid`, `sceneCount`, canonical `files` 출력 |
 | `talk variables` | `variables` map과 `events` 목록 출력. 각 변수에 `name`, `kind`, `nullable`, `widget`, `description` 포함 |
 | `talk simulate ENTRY --input JSON_OR_FILE` | 명시한 관측값과 이력으로 후보·탈락 이유·선택된 대사 계산 |
@@ -30,10 +33,10 @@ src-tauri/target/debug/examples/talk variables
 
 ### 고정 입력 시뮬레이션
 
-`--input`은 `{`로 시작하는 JSON 문자열 또는 JSON 파일 경로를 받는다. 아래 예시는 실제 기본 대본에서 `timer.focus`를 선택한다. 가상 ID를 사용했으므로 기본 캐릭터 조합 전용 장면은 제외된다.
+`--input`은 `{`로 시작하는 JSON 문자열 또는 JSON 파일 경로를 받는다. 아래 예시는 가상 로컬 ID에 나디르·별꼬리 source identity를 지정해 `timer.focus`를 후보로 만든다. 기본 날씨 정보 없음 등 함께 열린 후보 중 최종 선택은 seed와 이력에 따른다.
 
 ```sh
-src-tauri/target/debug/examples/talk simulate talk/index.talk --input '{"active":["demo-a","demo-b"],"available":["focus-timer"],"values":{"timer.ready":true,"timer.status":"enabled","timer.state":"running","timer.mode":"focus"},"nowMs":100000,"seed":7}'
+src-tauri/target/debug/examples/talk simulate talk/index.talk --input '{"active":["demo-a","demo-b"],"available":["focus-timer"],"values":{"character.a.sourceId":"nadir","character.b.sourceId":"star-tail","timer.ready":true,"timer.status":"enabled","timer.state":"running","timer.mode":"focus"},"nowMs":100000,"seed":7}'
 ```
 
 입력 필드:
@@ -48,7 +51,7 @@ src-tauri/target/debug/examples/talk simulate talk/index.talk --input '{"active"
 | `nowMs` | 정수 또는 null | 기본 `0`. `--now`가 있으면 명령 옵션 우선 |
 | `seed` | 0 이상의 정수 또는 null | 기본 `0`. `--seed`가 있으면 명령 옵션 우선 |
 
-생략한 nullable 변수는 `null`, `ready`는 `false`, `status`는 `not-installed`로 채운다. `available`만 지정한다고 `ready`가 자동으로 `true`가 되지는 않는다. 사건 고정 입력은 `trigger`와 `values`의 `event.kind`·허용 payload 변수를 함께 지정한다. 입력 JSON 파일은 1 MiB 이하이며 알 수 없는 최상위 필드는 허용하지 않는다.
+생략한 nullable 변수는 `null`, 그 밖의 boolean은 `false`, number는 `0`, string은 `not-installed`로 채운다. `dialogue.variant`는 적용된 seed의 나머지 `seed % 5`로 초기화한다. 고정 입력의 `values`는 이 초기값을 덮어쓸 수 있으므로 특정 변주를 검사할 때만 직접 지정한다. `environment.hour`와 캐릭터 source identity는 고정 입력에서 명시해야 한다. `available`만 지정한다고 `ready`가 자동으로 `true`가 되지는 않는다. 사건 고정 입력은 `trigger`와 `values`의 `event.kind`·허용 payload 변수를 함께 지정한다. 입력 JSON 파일은 1 MiB 이하이며 알 수 없는 최상위 필드는 허용하지 않는다.
 
 결과의 `candidates`는 `key`, `sceneId`, `eligible`, `reason`을 제공한다. 주요 reason은 `trigger_mismatch`, `pair_mismatch`, `dependency_unavailable`, `cooldown`, `condition_false`, `condition_error: ...`, `render_error: ...`, `selected`, `eligible_not_selected`다. `selected`에는 완성된 `lines`, 의존 위젯 `dependencies`, 변수 `references`, `cooldownMs`가 포함된다.
 
@@ -89,11 +92,12 @@ DB 모드의 기본 시각은 실행 시각이고 기본 seed는 `0`이다. 설�
 - 경로 문자열은 JSON 문자열 표기를 사용한다. 각 경로는 import한 파일의 디렉터리를 기준으로 해석한다.
 
 ```text
-import "./widgets/index.talk"
-import "./pairs/default.talk" for pair("builtin-a", "builtin-b")
+import "./widgets/index.talk" for pair("source:nadir", "source:star-tail")
+import "./situations/index.talk" for pair("source:nadir", "source:star-tail")
+import "./pairs/default.talk" for pair("source:nadir", "source:star-tail")
 ```
 
-`for pair`의 범위는 하위 import에도 상속된다. 상속한 조합을 다른 조합으로 덮어쓸 수 없다. 두 ID는 서로 달라야 하며 비어 있으면 안 된다. 로컬 ID가 일치하는 조합에서만 해당 장면을 선택한다.
+`for pair`의 범위는 하위 import에도 상속된다. 상속한 조합을 다른 조합으로 덮어쓸 수 없다. 두 ID는 서로 달라야 하며 비어 있으면 안 된다. 일반 문자열은 로컬 ID로, `source:` 접두사를 붙인 문자열은 현재 `character.a.sourceId`·`character.b.sourceId`로 비교한다. 나디르·별꼬리 기본 번들은 위젯·상황 대본까지 위 예시의 source 조합으로 제한한다. 두 멤버가 서로 다른 실제 슬롯에 있어야 하며, 대본의 A/B는 조합에 선언한 순서에 따라 실제 슬롯으로 매핑된다. `for pair("builtin-a", "builtin-b")` 같은 기존 로컬 ID 지정도 지원한다.
 
 로더는 canonical 경로로 진입 파일 디렉터리 안에 있는지 확인한다. 절대 import, 디렉터리 밖으로 나가는 경로와 symlink, 순환 import, 없는 파일은 오류다. 같은 canonical 파일과 정규화한 조합 범위는 한 번만 로드한다. 활성화되지 않은 조합 파일도 묶음 전체 검사에 포함된다.
 
@@ -108,7 +112,7 @@ import "./pairs/default.talk" for pair("builtin-a", "builtin-b")
 | `when` | 아니요 | boolean 조건식. 생략하면 추가 조건 없음 |
 | `cooldown` | 아니요 | `0` 또는 0 이상 정수와 `ms`, `s`, `m`, `h`, `d`. 생략하면 `0` |
 
-`cooldown: 30m`은 첫 줄을 실제로 표시한 후 30분 동안 같은 key를 제외한다. `cooldown: 0.5s`, 음수와 단위 없는 `30`은 허용하지 않는다. key는 파일 경로가 아니라 정규화한 pair와 `scene` ID를 직렬화한 값이다. 직접 조립하지 말고 CLI 결과를 사용한다.
+`cooldown: 30m`은 첫 줄을 실제로 표시한 후 30분 동안 같은 key를 제외한다. 현재 나디르·별꼬리 번들은 `idle` 장면에 `30m`, 실제 사건을 받는 장면에 `0s`를 사용한다. 새 사건은 직전 표시 이력 때문에 억제되지 않으며, 같은 사건의 중복 재생 방지는 호스트의 사건 ID·revision·소비 검사 책임이다. `cooldown: 0.5s`, 음수와 단위 없는 `30`은 허용하지 않는다. key는 파일 경로가 아니라 정규화한 pair와 `scene` ID를 직렬화한 값이다. 직접 조립하지 말고 CLI 결과를 사용한다.
 
 ## 대사·표정·문자 치환
 
@@ -200,7 +204,41 @@ A[평온]: 오늘 기온을 한번 확인했어.
 
 ## 공개 변수 전체 목록
 
-아래 표는 `talk variables`의 109개 변수와 일치한다. `owner`는 `available` 및 재생 무효화에 쓰는 실제 위젯 kind이며 대본의 prefix와 다를 수 있다. `event.*`의 owner는 없고, 실제 사건 발행 위젯의 유효성은 호스트가 별도로 검사한다. 변수나 투영 규칙을 바꾸면 이 표와 고정 입력 검증도 함께 갱신한다.
+아래 표는 `talk variables`의 122개 변수와 일치한다. `owner`는 `available` 및 재생 무효화에 쓰는 실제 위젯 kind이며 대본의 prefix와 다를 수 있다. `environment.*`, `character.*`, `dialogue.*`, `event.*`의 owner는 없고, 실제 사건 발행 위젯의 유효성은 호스트가 별도로 검사한다. 변수나 투영 규칙을 바꾸면 이 표와 고정 입력 검증도 함께 갱신한다.
+
+### environment · 위젯 설치와 독립적인 환경
+
+이 변수들은 위젯 설치 의존성을 만들지 않는다. `environment.hour`는 기기 현지 시각이다. `environment.weather*`는 활성 날씨 연결의 유효한 관측만 투영하며 연결이 없거나 오래됐으면 `weatherReady=false`와 nullable 관측값으로 나타낸다. `weather.*`를 직접 참조하는 장면과 달리, 기본 대본은 날씨 위젯이 없어도 정보 없음 분기를 재생할 수 있다. 관측값을 자동으로 얻기 위해 날씨 연결을 새로 설치하는 기능은 아니다.
+
+| 변수 | 타입 | null 허용 | owner | 의미 |
+| --- | --- | --- | --- | --- |
+| `environment.hour` | `number` | 예 | 없음 | 현재 기기 현지 시각의 시(0~23). 시계 위젯 설치와 무관하며 표현할 수 없는 시각만 null. |
+| `environment.weatherCode` | `number` | 예 | 없음 | 날씨 연결의 최신 WMO weatherCode 숫자. 미설치·비활성·자료 없음·오래됨에는 null(별도 명시된 독립 관측값 제외). |
+| `environment.weatherName` | `string` | 예 | 없음 | 날씨 연결의 관측 대상 지역 이름. 미설치·비활성·자료 없음·오래됨에는 null(별도 명시된 독립 관측값 제외). |
+| `environment.weatherReady` | `boolean` | 아니요 | 없음 | 설치된 날씨 연결에 2시간 이내의 유효한 관측이 있는지 여부. 미설치·비활성·실패·오래됨에는 false |
+| `environment.weatherStatus` | `string` | 아니요 | 없음 | 날씨 연결 상태. not-installed·disabled·offline·stale을 관측 성공과 구분 |
+| `environment.weatherTemperature` | `number` | 예 | 없음 | 날씨 연결의 최신 관측 기온(섭씨). 미설치·비활성·자료 없음·오래됨에는 null(별도 명시된 독립 관측값 제외). |
+
+### character · 활성 캐릭터 신원과 친밀도
+
+자리의 `a`·`b`와 특정 인물 `nadir`를 구분한다. 슬롯을 바꿔도 나디르의 조건을 유지하려면 `character.nadir.affinity`를 사용한다. 실제 호스트는 활성 캐릭터와 저장된 관계에서 값을 읽으며 고정 입력 CLI에서는 `values`로 제공한다.
+
+| 변수 | 타입 | null 허용 | owner | 의미 |
+| --- | --- | --- | --- | --- |
+| `character.a.affinity` | `number` | 예 | 없음 | 해당 캐릭터의 현재 친밀도 점수. 해당 캐릭터가 없으면 null. |
+| `character.a.sourceId` | `string` | 예 | 없음 | 현재 자리에 설치된 캐릭터의 원본 sourceId. 표시 이름·로컬 ID와 구분. 해당 캐릭터가 없으면 null. |
+| `character.b.affinity` | `number` | 예 | 없음 | 해당 캐릭터의 현재 친밀도 점수. 해당 캐릭터가 없으면 null. |
+| `character.b.sourceId` | `string` | 예 | 없음 | 현재 자리에 설치된 캐릭터의 원본 sourceId. 표시 이름·로컬 ID와 구분. 해당 캐릭터가 없으면 null. |
+| `character.nadir.affinity` | `number` | 예 | 없음 | 해당 캐릭터의 현재 친밀도 점수. 해당 캐릭터가 없으면 null. |
+| `character.nadir.present` | `boolean` | 아니요 | 없음 | 활성 캐릭터 중 sourceId가 nadir인 캐릭터가 있는지 여부 |
+
+### dialogue · 장면 변주
+
+`dialogue.variant`는 호스트의 seed에서 계산하며 표시 직전 재검사에도 준비 당시 값을 유지한다. 기본 번들은 0~4를 본문 `@if`로 나눠 사용한다.
+
+| 변수 | 타입 | null 허용 | owner | 의미 |
+| --- | --- | --- | --- | --- |
+| `dialogue.variant` | `number` | 아니요 | 없음 | 한 대본 재생 동안 고정되는 0~4 변형 번호 |
 
 ### todo · 할 일
 

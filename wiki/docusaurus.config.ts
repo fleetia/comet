@@ -3,7 +3,7 @@ import type { Options, ThemeConfig } from '@docusaurus/preset-classic';
 import type { PluginOptions } from '@easyops-cn/docusaurus-search-local';
 
 const config: Config = {
-  title: 'Comet 위키',
+  title: 'comet 위키',
   tagline: '바탕화면 동행과 위젯의 사양·설계·개발 기록',
   url: 'http://127.0.0.1:3000',
   baseUrl: '/',
@@ -44,7 +44,7 @@ const config: Config = {
   ],
   themeConfig: {
     navbar: {
-      title: 'Comet 위키',
+      title: 'comet 위키',
       items: [
         { type: 'docSidebar', sidebarId: 'docs', position: 'left', label: '문서' },
         { to: '/status', label: '현재 상태', position: 'right' },

@@ -10,7 +10,7 @@ pub fn read_pack(path: &Path) -> Result<CharacterPack, String> {
     let file = File::open(path).map_err(|error| error.to_string())?;
     let metadata = file.metadata().map_err(|error| error.to_string())?;
     if !metadata.is_file() || metadata.len() > MAX_PACK_BYTES as u64 {
-        return Err("1 MiB 이하의 캐릭터팩 파일을 선택해 주세요.".into());
+        return Err("32 MiB 이하의 캐릭터팩 파일을 선택해 주세요.".into());
     }
     let mut json = String::new();
     file.take(MAX_PACK_BYTES as u64 + 1)
@@ -51,7 +51,7 @@ pub async fn choose(app: tauri::AppHandle) -> Result<Option<CharacterPack>, Stri
     app.dialog()
         .file()
         .set_title("캐릭터팩 가져오기")
-        .add_filter("Comet 캐릭터팩", &["json"])
+        .add_filter("comet 캐릭터팩", &["json"])
         .pick_file(move |path| {
             let _ = send.send(path);
         });
@@ -70,7 +70,7 @@ pub async fn save(app: tauri::AppHandle, json: String) -> Result<Option<String>,
         .file()
         .set_title("캐릭터팩 공유 파일 저장")
         .set_file_name("characters.comet-character.json")
-        .add_filter("Comet 캐릭터팩", &["json"])
+        .add_filter("comet 캐릭터팩", &["json"])
         .save_file(move |path| {
             let _ = send.send(path);
         });
@@ -93,9 +93,9 @@ mod tests {
     #[test]
     fn bundled_example_packs_pass_validation() {
         let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/character-packs");
-        let sol = read_pack(&examples.join("sol-and-dal.comet-character.json")).unwrap();
-        assert_eq!(sol.characters.len(), 2);
-        assert!(sol.sprites.is_empty());
+        let pair = read_pack(&examples.join("nadir-and-star-tail.comet-character.json")).unwrap();
+        assert_eq!(pair.characters.len(), 2);
+        assert!(pair.sprites.is_empty());
         let byul = read_pack(&examples.join("byulkkori.comet-character.json")).unwrap();
         assert_eq!(byul.characters[0].name, "별꼬리");
         assert!(byul.characters[0].face_icon);
@@ -113,7 +113,10 @@ mod tests {
         let json = characters::pack_json(&pack).unwrap();
         let path = dir.path().join("shared.comet-character.json");
         write_pack(&path, &json).unwrap();
-        assert_eq!(read_pack(&path).unwrap().characters[0].name, "A");
+        assert_eq!(
+            read_pack(&path).unwrap().characters[0].name,
+            pack.characters[0].name
+        );
         assert!(write_pack(&path, "{\"privateData\":true}").is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), json);
         let oversized = dir.path().join("oversized.json");

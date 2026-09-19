@@ -51,7 +51,7 @@ it("keeps per-character drafts and exact dialogue through failed saves and snaps
     target: { value: "  안녕.\n반가워.  " },
   });
   fireEvent.click(
-    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^B/ }),
+    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^별꼬리/ }),
   );
   await screen.findByText("이 캐릭터의 키워드 대사");
   fireEvent.change(screen.getByLabelText("성격과 말투"), { target: { value: "느긋한 말투" } });
@@ -71,7 +71,10 @@ it("keeps per-character drafts and exact dialogue through failed saves and snaps
     id: "builtin-a",
     definition: expect.objectContaining({
       name: "새 이름",
-      greeting: [{ expression: "기쁨", text: "  안녕.\n반가워.  " }],
+      greeting: [
+        { ...snapshot.characters.installed[0].definition.greeting[0], text: "  안녕.\n반가워.  " },
+        ...snapshot.characters.installed[0].definition.greeting.slice(1),
+      ],
     }),
   });
 });
@@ -109,7 +112,7 @@ it("reorders and releases roster members and keeps the last one on the desktop",
     characters: { ...snapshot.characters, active: ["builtin-a", "builtin-b", "local-third"] },
   };
   const { rerender } = render(<CharacterManager snapshot={trio} />);
-  expect(screen.getByText("함께 지내는 친구 3명: A · B · 모래")).toBeTruthy();
+  expect(screen.getByText("함께 지내는 친구 3명: 나디르 · 별꼬리 · 모래")).toBeTruthy();
   expect(screen.getByRole("button", { name: "앞으로" })).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByRole("button", { name: "뒤로" }));
   await waitFor(() =>
@@ -206,7 +209,9 @@ it("preserves all pack preview content, initial disclosure states, and verbatim 
     expect(content.getByText(`성격과 말투: ${character.personality}`)).toBeTruthy();
     expect(
       content.getByText(
-        "평온 [평온] · 기쁨 [기쁨] · 호기심 [호기심] · 생각중 [생각중] · 걱정 [걱정] · 장난 [장난]",
+        Object.entries(character.expressions)
+          .map(([name, expression]) => `${name} [${expression}]`)
+          .join(" · "),
       ),
     ).toBeTruthy();
     for (const line of [...character.greeting, ...character.idleLines]) {
@@ -432,7 +437,7 @@ it("keeps character and dialogue drafts across tabs while locking dialogue targe
   fireEvent.click(screen.getByRole("tab", { name: "기본 정보" }));
   expect(screen.getByLabelText("이름")).toHaveProperty("value", "쓰던 이름");
   expect(
-    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^B/ }),
+    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^별꼬리/ }),
   ).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByRole("tab", { name: "공유" }));
   fireEvent.click(screen.getByRole("tab", { name: "등록 대사" }));

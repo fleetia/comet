@@ -78,7 +78,7 @@ def finalize() -> None:
     manifest['notes'] = body
     notes = '\n'.join([
         '## 다운로드', '', '| 운영체제 | 설치 파일 |', '| --- | --- |', *downloads, '',
-        'macOS는 DMG를 열고 Nanika Box를 Applications 폴더로 옮겨 실행하세요. Windows는 EXE 설치 파일을 실행하세요.', '',
+        'macOS는 DMG를 열고 comet를 Applications 폴더로 옮겨 실행하세요. Windows는 EXE 설치 파일을 실행하세요.', '',
         '앱 updater 서명은 적용됩니다. macOS notarization과 Windows Authenticode 서명은 아직 제공하지 않습니다.', '',
         '## 업데이트 노트', '', body, '',
     ])

@@ -18,7 +18,11 @@
         "todo.ready": true,
         "todo.status": "enabled",
         "todo.openCount": 0,
-        "todo.completedCount": 0
+        "todo.completedCount": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "todo.empty"
     },
@@ -38,7 +42,11 @@
         "todo.ready": true,
         "todo.status": "enabled",
         "todo.openCount": 2,
-        "todo.overdueCount": 0
+        "todo.overdueCount": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "todo.open"
     },
@@ -57,7 +65,11 @@
       "values": {
         "todo.ready": true,
         "todo.status": "enabled",
-        "todo.overdueCount": 1
+        "todo.overdueCount": 1,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "todo.overdue"
     },
@@ -77,7 +89,11 @@
         "todo.ready": true,
         "todo.status": "enabled",
         "todo.openCount": 0,
-        "todo.completedCount": 3
+        "todo.completedCount": 3,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "todo.cleared"
     },
@@ -96,7 +112,11 @@
       "values": {
         "todo.ready": true,
         "todo.status": "enabled",
-        "event.kind": "todo-completed"
+        "event.kind": "todo-completed",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "todo.completed"
     },
@@ -115,7 +135,11 @@
       "values": {
         "todo.ready": true,
         "todo.status": "enabled",
-        "event.kind": "todo-undone"
+        "event.kind": "todo-undone",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "todo.undone"
     },
@@ -134,7 +158,11 @@
       "values": {
         "calendar.ready": true,
         "calendar.status": "ready",
-        "calendar.eventCount": 0
+        "calendar.eventCount": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "calendar.empty"
     },
@@ -155,7 +183,11 @@
         "calendar.status": "ready",
         "calendar.eventCount": 1,
         "calendar.nextAllDay": false,
-        "calendar.nextTitle": "도서관"
+        "calendar.nextTitle": "도서관",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "calendar.timed"
     },
@@ -176,7 +208,11 @@
         "calendar.status": "ready",
         "calendar.eventCount": 1,
         "calendar.nextAllDay": true,
-        "calendar.nextTitle": "기념일"
+        "calendar.nextTitle": "기념일",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "calendar.all-day"
     },
@@ -195,7 +231,11 @@
       "values": {
         "calendar.ready": true,
         "calendar.status": "ready",
-        "event.kind": "calendar-reminder"
+        "event.kind": "calendar-reminder",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "calendar.reminder"
     },
@@ -214,7 +254,11 @@
       "values": {
         "timer.ready": true,
         "timer.status": "enabled",
-        "timer.state": "idle"
+        "timer.state": "idle",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "timer.idle"
     },
@@ -234,7 +278,11 @@
         "timer.ready": true,
         "timer.status": "enabled",
         "timer.state": "running",
-        "timer.mode": "focus"
+        "timer.mode": "focus",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "timer.focus"
     },
@@ -254,7 +302,11 @@
         "timer.ready": true,
         "timer.status": "enabled",
         "timer.state": "running",
-        "timer.mode": "rest"
+        "timer.mode": "rest",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "timer.rest"
     },
@@ -273,7 +325,11 @@
       "values": {
         "timer.ready": true,
         "timer.status": "enabled",
-        "timer.state": "paused"
+        "timer.state": "paused",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "timer.paused"
     },
@@ -293,7 +349,11 @@
         "timer.ready": true,
         "timer.status": "enabled",
         "event.kind": "timer-finished",
-        "event.mode": "focus"
+        "event.mode": "focus",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "timer.finished-focus"
     },
@@ -313,7 +373,11 @@
         "timer.ready": true,
         "timer.status": "enabled",
         "event.kind": "timer-finished",
-        "event.mode": "rest"
+        "event.mode": "rest",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "timer.finished-rest"
     },
@@ -332,7 +396,11 @@
       "values": {
         "preparation.ready": true,
         "preparation.status": "enabled",
-        "preparation.count": 0
+        "preparation.count": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "preparation.empty"
     },
@@ -352,7 +420,11 @@
         "preparation.ready": true,
         "preparation.status": "enabled",
         "preparation.count": 1,
-        "preparation.uncheckedCount": 2
+        "preparation.uncheckedCount": 2,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "preparation.unchecked"
     },
@@ -373,7 +445,11 @@
         "preparation.status": "enabled",
         "preparation.count": 1,
         "preparation.uncheckedCount": 0,
-        "preparation.checkCount": 2
+        "preparation.checkCount": 2,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "preparation.checked"
     },
@@ -392,7 +468,11 @@
       "values": {
         "jar.ready": true,
         "jar.status": "enabled",
-        "jar.count": 0
+        "jar.count": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "jar.empty"
     },
@@ -411,7 +491,11 @@
       "values": {
         "jar.ready": true,
         "jar.status": "enabled",
-        "jar.count": 4
+        "jar.count": 4,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "jar.filled"
     },
@@ -430,7 +514,11 @@
       "values": {
         "clock.ready": true,
         "clock.status": "enabled",
-        "clock.anniversaryCount": 0
+        "clock.anniversaryCount": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "clock.no-anniversary"
     },
@@ -450,7 +538,11 @@
         "clock.ready": true,
         "clock.status": "enabled",
         "clock.daysUntil": 0,
-        "clock.title": "첫날"
+        "clock.title": "첫날",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "clock.today"
     },
@@ -470,7 +562,11 @@
         "clock.ready": true,
         "clock.status": "enabled",
         "clock.daysUntil": 5,
-        "clock.title": "여행"
+        "clock.title": "여행",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "clock.upcoming"
     },
@@ -489,7 +585,11 @@
       "values": {
         "memo.ready": true,
         "memo.status": "enabled",
-        "memo.count": 0
+        "memo.count": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "memo.empty"
     },
@@ -508,7 +608,11 @@
       "values": {
         "memo.ready": true,
         "memo.status": "enabled",
-        "memo.count": 2
+        "memo.count": 2,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "memo.written"
     },
@@ -527,7 +631,11 @@
       "values": {
         "weather.ready": true,
         "weather.status": "ready",
-        "weather.temperature": -3
+        "weather.temperature": -3,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "weather.freezing"
     },
@@ -547,7 +655,11 @@
         "weather.ready": true,
         "weather.status": "ready",
         "weather.temperature": 18,
-        "weather.code": 1
+        "weather.code": 1,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "weather.mild"
     },
@@ -567,7 +679,11 @@
         "weather.ready": true,
         "weather.status": "ready",
         "weather.temperature": 31,
-        "weather.code": 0
+        "weather.code": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "weather.hot"
     },
@@ -586,7 +702,11 @@
       "values": {
         "music.ready": true,
         "music.status": "ready",
-        "music.running": false
+        "music.running": false,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "music.stopped"
     },
@@ -606,7 +726,11 @@
         "music.ready": true,
         "music.status": "ready",
         "music.running": true,
-        "music.playing": false
+        "music.playing": false,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "music.paused"
     },
@@ -626,7 +750,11 @@
         "music.ready": true,
         "music.status": "ready",
         "music.playing": true,
-        "music.title": "작은 산책"
+        "music.title": "작은 산책",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "music.playing"
     },
@@ -645,7 +773,11 @@
       "values": {
         "device.ready": true,
         "device.status": "ready",
-        "device.hasBattery": false
+        "device.hasBattery": false,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "device.no-battery"
     },
@@ -666,7 +798,11 @@
         "device.status": "ready",
         "device.hasBattery": true,
         "device.percent": 15,
-        "device.powerState": "discharging"
+        "device.powerState": "discharging",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "device.low"
     },
@@ -686,7 +822,11 @@
         "device.ready": true,
         "device.status": "ready",
         "device.hasBattery": true,
-        "device.powerState": "charging"
+        "device.powerState": "charging",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "device.charging"
     },
@@ -707,7 +847,11 @@
         "device.status": "ready",
         "device.hasBattery": true,
         "device.percent": 70,
-        "device.powerState": "discharging"
+        "device.powerState": "discharging",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "device.enough"
     },
@@ -726,7 +870,11 @@
       "values": {
         "interaction.ready": true,
         "interaction.status": "enabled",
-        "interaction.snacks": 3
+        "interaction.snacks": 3,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "interaction.snacks"
     },
@@ -745,7 +893,11 @@
       "values": {
         "interaction.ready": true,
         "interaction.status": "enabled",
-        "interaction.snacks": 0
+        "interaction.snacks": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "interaction.empty"
     },
@@ -764,7 +916,11 @@
       "values": {
         "ball.ready": true,
         "ball.status": "enabled",
-        "ball.moving": false
+        "ball.moving": false,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "ball.still"
     },
@@ -783,7 +939,11 @@
       "values": {
         "ball.ready": true,
         "ball.status": "enabled",
-        "ball.moving": true
+        "ball.moving": true,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "ball.moving"
     },
@@ -802,7 +962,11 @@
       "values": {
         "ball.ready": true,
         "ball.status": "enabled",
-        "event.kind": "ball.stopped"
+        "event.kind": "ball.stopped",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "ball.stopped"
     },
@@ -821,7 +985,11 @@
       "values": {
         "plane.ready": true,
         "plane.status": "enabled",
-        "plane.flying": false
+        "plane.flying": false,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "plane.ready"
     },
@@ -840,7 +1008,11 @@
       "values": {
         "plane.ready": true,
         "plane.status": "enabled",
-        "plane.flying": true
+        "plane.flying": true,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "plane.flying"
     },
@@ -860,7 +1032,11 @@
         "plane.ready": true,
         "plane.status": "enabled",
         "event.kind": "paper-plane.landed",
-        "plane.distance": 42
+        "plane.distance": 42,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "plane.landed"
     },
@@ -879,7 +1055,11 @@
       "values": {
         "bubbles.ready": true,
         "bubbles.status": "enabled",
-        "bubbles.count": 0
+        "bubbles.count": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "bubbles.empty"
     },
@@ -898,7 +1078,11 @@
       "values": {
         "bubbles.ready": true,
         "bubbles.status": "enabled",
-        "bubbles.count": 5
+        "bubbles.count": 5,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "bubbles.floating"
     },
@@ -917,7 +1101,11 @@
       "values": {
         "match.ready": true,
         "match.status": "enabled",
-        "match.rounds": 0
+        "match.rounds": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "match.new"
     },
@@ -936,7 +1124,11 @@
       "values": {
         "match.ready": true,
         "match.status": "enabled",
-        "match.rounds": 2
+        "match.rounds": 2,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "match.played"
     },
@@ -955,7 +1147,11 @@
       "values": {
         "match.ready": true,
         "match.status": "enabled",
-        "event.outcome": "winner-a"
+        "event.outcome": "winner-a",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "match.winner-a"
     },
@@ -974,7 +1170,11 @@
       "values": {
         "match.ready": true,
         "match.status": "enabled",
-        "event.outcome": "winner-b"
+        "event.outcome": "winner-b",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "match.winner-b"
     },
@@ -993,7 +1193,11 @@
       "values": {
         "match.ready": true,
         "match.status": "enabled",
-        "event.outcome": "draw"
+        "event.outcome": "draw",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "match.draw"
     },
@@ -1012,7 +1216,11 @@
       "values": {
         "match.ready": true,
         "match.status": "enabled",
-        "event.outcome": "winner-user"
+        "event.outcome": "winner-user",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "match.winner-user"
     },
@@ -1031,7 +1239,11 @@
       "values": {
         "match.ready": true,
         "match.status": "enabled",
-        "event.outcome": "winner-character"
+        "event.outcome": "winner-character",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "match.winner-character"
     },
@@ -1050,7 +1262,11 @@
       "values": {
         "match.ready": true,
         "match.status": "enabled",
-        "event.outcome": "correct"
+        "event.outcome": "correct",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "match.correct"
     },
@@ -1069,7 +1285,11 @@
       "values": {
         "match.ready": true,
         "match.status": "enabled",
-        "event.outcome": "miss"
+        "event.outcome": "miss",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "match.miss"
     },
@@ -1089,7 +1309,11 @@
         "guessing.ready": true,
         "guessing.status": "enabled",
         "guessing.playing": false,
-        "guessing.attempts": 0
+        "guessing.attempts": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "guessing.idle"
     },
@@ -1109,7 +1333,11 @@
         "guessing.ready": true,
         "guessing.status": "enabled",
         "guessing.playing": true,
-        "guessing.mode": "cups"
+        "guessing.mode": "cups",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "guessing.cups"
     },
@@ -1129,7 +1357,11 @@
         "guessing.ready": true,
         "guessing.status": "enabled",
         "guessing.playing": true,
-        "guessing.mode": "number"
+        "guessing.mode": "number",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "guessing.number"
     },
@@ -1148,7 +1380,11 @@
       "values": {
         "guessing.ready": true,
         "guessing.status": "enabled",
-        "event.outcome": "correct"
+        "event.outcome": "correct",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "guessing.correct"
     },
@@ -1167,7 +1403,11 @@
       "values": {
         "guessing.ready": true,
         "guessing.status": "enabled",
-        "event.outcome": "exhausted"
+        "event.outcome": "exhausted",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "guessing.exhausted"
     },
@@ -1186,7 +1426,11 @@
       "values": {
         "guessing.ready": true,
         "guessing.status": "enabled",
-        "event.outcome": "empty"
+        "event.outcome": "empty",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "guessing.empty"
     },
@@ -1205,7 +1449,11 @@
       "values": {
         "guessing.ready": true,
         "guessing.status": "enabled",
-        "event.outcome": "higher"
+        "event.outcome": "higher",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "guessing.higher"
     },
@@ -1224,7 +1472,11 @@
       "values": {
         "guessing.ready": true,
         "guessing.status": "enabled",
-        "event.outcome": "lower"
+        "event.outcome": "lower",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "guessing.lower"
     },
@@ -1243,7 +1495,11 @@
       "values": {
         "fishing.ready": true,
         "fishing.status": "enabled",
-        "fishing.phase": "idle"
+        "fishing.phase": "idle",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "fishing.idle"
     },
@@ -1262,7 +1518,11 @@
       "values": {
         "fishing.ready": true,
         "fishing.status": "enabled",
-        "fishing.phase": "waiting"
+        "fishing.phase": "waiting",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "fishing.waiting"
     },
@@ -1281,7 +1541,11 @@
       "values": {
         "fishing.ready": true,
         "fishing.status": "enabled",
-        "fishing.phase": "bite"
+        "fishing.phase": "bite",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "fishing.bite"
     },
@@ -1300,7 +1564,11 @@
       "values": {
         "fishing.ready": true,
         "fishing.status": "enabled",
-        "event.kind": "fishing.bite"
+        "event.kind": "fishing.bite",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "fishing.bite-event"
     },
@@ -1319,7 +1587,11 @@
       "values": {
         "fishing.ready": true,
         "fishing.status": "enabled",
-        "event.kind": "fishing.missed"
+        "event.kind": "fishing.missed",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "fishing.missed"
     },
@@ -1338,7 +1610,11 @@
       "values": {
         "fortune.ready": true,
         "fortune.status": "enabled",
-        "fortune.draws": 0
+        "fortune.draws": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "fortune.fresh"
     },
@@ -1357,7 +1633,11 @@
       "values": {
         "fortune.ready": true,
         "fortune.status": "enabled",
-        "fortune.draws": 1
+        "fortune.draws": 1,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "fortune.drawn"
     },
@@ -1377,7 +1657,11 @@
         "fortune.ready": true,
         "fortune.status": "enabled",
         "event.kind": "fortune.draw",
-        "fortune.text": "작은 구름을 만날지도 몰라요."
+        "fortune.text": "작은 구름을 만날지도 몰라요.",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "fortune.draw"
     },
@@ -1397,7 +1681,11 @@
         "plant.ready": true,
         "plant.status": "enabled",
         "plant.stage": 0,
-        "plant.water": 0
+        "plant.water": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "plant.dry"
     },
@@ -1417,7 +1705,11 @@
         "plant.ready": true,
         "plant.status": "enabled",
         "plant.stage": 1,
-        "plant.water": 2
+        "plant.water": 2,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "plant.watered"
     },
@@ -1436,7 +1728,11 @@
       "values": {
         "plant.ready": true,
         "plant.status": "enabled",
-        "plant.stage": 3
+        "plant.stage": 3,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "plant.grown"
     },
@@ -1455,7 +1751,11 @@
       "values": {
         "plant.ready": true,
         "plant.status": "enabled",
-        "event.kind": "plant.growth"
+        "event.kind": "plant.growth",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "plant.growth"
     },
@@ -1474,7 +1774,11 @@
       "values": {
         "pet.ready": true,
         "pet.status": "enabled",
-        "pet.moving": false
+        "pet.moving": false,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "pet.resting"
     },
@@ -1493,7 +1797,11 @@
       "values": {
         "pet.ready": true,
         "pet.status": "enabled",
-        "pet.moving": true
+        "pet.moving": true,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "pet.moving"
     },
@@ -1512,7 +1820,11 @@
       "values": {
         "pet.ready": true,
         "pet.status": "enabled",
-        "event.kind": "pet.arrived"
+        "event.kind": "pet.arrived",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "pet.arrived"
     },
@@ -1531,7 +1843,11 @@
       "values": {
         "collection.ready": true,
         "collection.status": "enabled",
-        "collection.count": 0
+        "collection.count": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "collection.empty"
     },
@@ -1551,7 +1867,11 @@
         "collection.ready": true,
         "collection.status": "enabled",
         "collection.count": 2,
-        "collection.decorationCount": 0
+        "collection.decorationCount": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "collection.stored"
     },
@@ -1570,7 +1890,11 @@
       "values": {
         "collection.ready": true,
         "collection.status": "enabled",
-        "collection.decorationCount": 1
+        "collection.decorationCount": 1,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "collection.decorated"
     },
@@ -1590,7 +1914,11 @@
         "collection.ready": true,
         "collection.status": "enabled",
         "event.kind": "item-acquired",
-        "event.itemName": "파란 물고기"
+        "event.itemName": "파란 물고기",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "collection.acquired"
     },
@@ -1609,7 +1937,11 @@
       "values": {
         "journal.ready": true,
         "journal.status": "enabled",
-        "journal.count": 0
+        "journal.count": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "journal.empty"
     },
@@ -1628,7 +1960,11 @@
       "values": {
         "journal.ready": true,
         "journal.status": "enabled",
-        "journal.count": 3
+        "journal.count": 3,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "journal.recorded"
     },
@@ -1648,7 +1984,11 @@
         "calendar.ready": true,
         "calendar.status": "ready",
         "calendar.eventCount": 2,
-        "calendar.nextTitle": null
+        "calendar.nextTitle": null,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "calendar.no-next"
     },
@@ -1666,7 +2006,11 @@
       ],
       "values": {
         "calendar.ready": false,
-        "calendar.status": "permission-needed"
+        "calendar.status": "permission-needed",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "calendar.unconfigured"
     },
@@ -1684,7 +2028,11 @@
       ],
       "values": {
         "calendar.ready": false,
-        "calendar.status": "stale"
+        "calendar.status": "stale",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "calendar.stale"
     },
@@ -1702,7 +2050,11 @@
       ],
       "values": {
         "weather.ready": false,
-        "weather.status": "permission-needed"
+        "weather.status": "permission-needed",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "weather.unconfigured"
     },
@@ -1720,7 +2072,11 @@
       ],
       "values": {
         "weather.ready": false,
-        "weather.status": "stale"
+        "weather.status": "stale",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "weather.stale"
     },
@@ -1739,7 +2095,11 @@
       "values": {
         "timer.ready": true,
         "timer.status": "enabled",
-        "timer.state": "finished"
+        "timer.state": "finished",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "timer.finished"
     },
@@ -1759,7 +2119,11 @@
         "preparation.ready": true,
         "preparation.status": "enabled",
         "preparation.count": 1,
-        "preparation.checkCount": 0
+        "preparation.checkCount": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "preparation.no-checks"
     },
@@ -1779,7 +2143,11 @@
         "clock.ready": true,
         "clock.status": "enabled",
         "clock.daysUntil": -2,
-        "clock.title": "전시 첫날"
+        "clock.title": "전시 첫날",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "clock.past"
     },
@@ -1799,7 +2167,11 @@
         "device.ready": true,
         "device.status": "ready",
         "device.hasBattery": true,
-        "device.powerState": "charged"
+        "device.powerState": "charged",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "device.charged"
     },
@@ -1819,7 +2191,11 @@
         "device.ready": true,
         "device.status": "ready",
         "device.hasBattery": true,
-        "device.powerState": "unknown"
+        "device.powerState": "unknown",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "device.unknown"
     },
@@ -1839,7 +2215,11 @@
         "guessing.ready": true,
         "guessing.status": "enabled",
         "guessing.playing": false,
-        "guessing.attempts": 2
+        "guessing.attempts": 2,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "guessing.between-rounds"
     },
@@ -1859,7 +2239,11 @@
         "interaction.ready": true,
         "interaction.status": "enabled",
         "event.action": "stroke",
-        "event.character": "A"
+        "event.character": "A",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "interaction.stroke"
     },
@@ -1879,7 +2263,11 @@
         "interaction.ready": true,
         "interaction.status": "enabled",
         "event.action": "poke",
-        "event.character": "A"
+        "event.character": "A",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "interaction.poke"
     },
@@ -1899,7 +2287,11 @@
         "interaction.ready": true,
         "interaction.status": "enabled",
         "event.action": "snack",
-        "event.character": "A"
+        "event.character": "A",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "interaction.snack"
     },
@@ -1919,7 +2311,11 @@
         "bubbles.ready": true,
         "bubbles.status": "enabled",
         "event.kind": "bubbles.streak",
-        "bubbles.streak": 5
+        "bubbles.streak": 5,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "bubbles.streak"
     },
@@ -1939,7 +2335,11 @@
         "weather.ready": true,
         "weather.status": "ready",
         "weather.temperature": 12,
-        "weather.code": 45
+        "weather.code": 45,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "weather.fog"
     },
@@ -1959,7 +2359,11 @@
         "weather.ready": true,
         "weather.status": "ready",
         "weather.temperature": 12,
-        "weather.code": 61
+        "weather.code": 61,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "weather.rain"
     },
@@ -1979,7 +2383,11 @@
         "weather.ready": true,
         "weather.status": "ready",
         "weather.temperature": 2,
-        "weather.code": 73
+        "weather.code": 73,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "weather.snow"
     },
@@ -1999,7 +2407,11 @@
         "weather.ready": true,
         "weather.status": "ready",
         "weather.temperature": 12,
-        "weather.code": 80
+        "weather.code": 80,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "weather.showers"
     },
@@ -2019,7 +2431,11 @@
         "weather.ready": true,
         "weather.status": "ready",
         "weather.temperature": 12,
-        "weather.code": 95
+        "weather.code": 95,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "weather.storm"
     },
@@ -2039,7 +2455,11 @@
         "timer.ready": true,
         "timer.status": "enabled",
         "timer.state": "idle",
-        "timer.mode": "focus"
+        "timer.mode": "focus",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "timer.idle"
     },
@@ -2059,7 +2479,11 @@
         "timer.ready": true,
         "timer.status": "enabled",
         "timer.state": "idle",
-        "timer.mode": "rest"
+        "timer.mode": "rest",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "timer.idle"
     },
@@ -2079,7 +2503,11 @@
         "timer.ready": true,
         "timer.status": "enabled",
         "timer.state": "paused",
-        "timer.mode": "focus"
+        "timer.mode": "focus",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "timer.paused"
     },
@@ -2099,7 +2527,11 @@
         "timer.ready": true,
         "timer.status": "enabled",
         "timer.state": "paused",
-        "timer.mode": "rest"
+        "timer.mode": "rest",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "timer.paused"
     },
@@ -2119,7 +2551,11 @@
         "match.ready": true,
         "match.status": "enabled",
         "match.rounds": 2,
-        "match.game": "dice"
+        "match.game": "dice",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "match.played"
     },
@@ -2139,7 +2575,11 @@
         "match.ready": true,
         "match.status": "enabled",
         "match.rounds": 2,
-        "match.game": "coin"
+        "match.game": "coin",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "match.played"
     },
@@ -2159,7 +2599,11 @@
         "match.ready": true,
         "match.status": "enabled",
         "match.rounds": 2,
-        "match.game": "rps"
+        "match.game": "rps",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "match.played"
     },
@@ -2179,7 +2623,11 @@
         "plant.ready": true,
         "plant.status": "enabled",
         "plant.stage": 0,
-        "plant.water": 0
+        "plant.water": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "plant.dry"
     },
@@ -2199,7 +2647,11 @@
         "plant.ready": true,
         "plant.status": "enabled",
         "plant.stage": 1,
-        "plant.water": 0
+        "plant.water": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "plant.dry"
     },
@@ -2219,7 +2671,11 @@
         "plant.ready": true,
         "plant.status": "enabled",
         "plant.stage": 2,
-        "plant.water": 0
+        "plant.water": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "plant.dry"
     },
@@ -2239,7 +2695,11 @@
         "plant.ready": true,
         "plant.status": "enabled",
         "plant.stage": 0,
-        "plant.water": 2
+        "plant.water": 2,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "plant.watered"
     },
@@ -2259,7 +2719,11 @@
         "plant.ready": true,
         "plant.status": "enabled",
         "plant.stage": 1,
-        "plant.water": 2
+        "plant.water": 2,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "plant.watered"
     },
@@ -2279,7 +2743,11 @@
         "plant.ready": true,
         "plant.status": "enabled",
         "plant.stage": 2,
-        "plant.water": 2
+        "plant.water": 2,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "plant.watered"
     },
@@ -2299,7 +2767,11 @@
         "timer.ready": true,
         "timer.status": "enabled",
         "timer.state": "finished",
-        "timer.mode": "focus"
+        "timer.mode": "focus",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "timer.finished"
     },
@@ -2319,7 +2791,11 @@
         "timer.ready": true,
         "timer.status": "enabled",
         "timer.state": "finished",
-        "timer.mode": "rest"
+        "timer.mode": "rest",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "timer.finished"
     },
@@ -2337,7 +2813,11 @@
       ],
       "values": {
         "weather.ready": false,
-        "weather.status": "offline"
+        "weather.status": "offline",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "weather.offline"
     },
@@ -2355,7 +2835,11 @@
       ],
       "values": {
         "weather.ready": false,
-        "weather.status": "unsupported"
+        "weather.status": "unsupported",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "weather.unsupported"
     },
@@ -2373,7 +2857,11 @@
       ],
       "values": {
         "weather.ready": false,
-        "weather.status": "error"
+        "weather.status": "error",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "weather.error"
     },
@@ -2391,7 +2879,11 @@
       ],
       "values": {
         "music.ready": false,
-        "music.status": "offline"
+        "music.status": "offline",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "music.offline"
     },
@@ -2409,7 +2901,11 @@
       ],
       "values": {
         "music.ready": false,
-        "music.status": "unsupported"
+        "music.status": "unsupported",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "music.unsupported"
     },
@@ -2427,7 +2923,11 @@
       ],
       "values": {
         "music.ready": false,
-        "music.status": "error"
+        "music.status": "error",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "music.error"
     },
@@ -2445,7 +2945,11 @@
       ],
       "values": {
         "music.ready": false,
-        "music.status": "stale"
+        "music.status": "stale",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "music.stale"
     },
@@ -2463,7 +2967,11 @@
       ],
       "values": {
         "music.ready": false,
-        "music.status": "permission-needed"
+        "music.status": "permission-needed",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "music.permission-needed"
     },
@@ -2481,7 +2989,11 @@
       ],
       "values": {
         "device.ready": false,
-        "device.status": "offline"
+        "device.status": "offline",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "device.offline"
     },
@@ -2499,7 +3011,11 @@
       ],
       "values": {
         "device.ready": false,
-        "device.status": "unsupported"
+        "device.status": "unsupported",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "device.unsupported"
     },
@@ -2517,7 +3033,11 @@
       ],
       "values": {
         "device.ready": false,
-        "device.status": "error"
+        "device.status": "error",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "device.error"
     },
@@ -2535,7 +3055,11 @@
       ],
       "values": {
         "device.ready": false,
-        "device.status": "stale"
+        "device.status": "stale",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "device.stale"
     },
@@ -2553,7 +3077,11 @@
       ],
       "values": {
         "device.ready": false,
-        "device.status": "permission-needed"
+        "device.status": "permission-needed",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "device.permission-needed"
     },
@@ -2573,7 +3101,11 @@
         "device.ready": false,
         "device.status": "stale",
         "event.kind": "device-woke",
-        "device.woke": true
+        "device.woke": true,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "device.woke"
     },
@@ -2595,7 +3127,11 @@
         "timer.state": "running",
         "timer.mode": "focus",
         "music.ready": true,
-        "music.playing": true
+        "music.playing": true,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "situation.quiet-focus",
       "seed": 3
@@ -2617,7 +3153,11 @@
         "plant.ready": true,
         "plant.stage": 3,
         "collection.ready": true,
-        "collection.decorationCount": 2
+        "collection.decorationCount": 2,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "situation.little-shelf",
       "seed": 10
@@ -2640,7 +3180,11 @@
         "timer.state": "running",
         "timer.mode": "focus",
         "music.ready": true,
-        "music.playing": true
+        "music.playing": true,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "pair.quiet-focus"
     },
@@ -2661,14 +3205,18 @@
         "plant.ready": true,
         "plant.stage": 3,
         "collection.ready": true,
-        "collection.decorationCount": 2
+        "collection.decorationCount": 2,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "pair.little-shelf"
     },
     {
-      "id": "negative.no-widgets",
+      "id": "negative.incomplete-context",
       "path": "index.talk",
-      "state": "not installed",
+      "state": "missing source identity and core environment",
       "trigger": "idle",
       "available": [],
       "active": [
@@ -2691,7 +3239,11 @@
       "values": {
         "todo.ready": true,
         "todo.openCount": 0,
-        "todo.completedCount": 0
+        "todo.completedCount": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": null
     },
@@ -2711,7 +3263,11 @@
         "weather.ready": true,
         "weather.status": "ready",
         "weather.temperature": null,
-        "weather.code": null
+        "weather.code": null,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": null
     },
@@ -2731,7 +3287,11 @@
         "music.ready": false,
         "music.status": "stale",
         "music.playing": true,
-        "music.title": "지난 관측"
+        "music.title": "지난 관측",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "music.stale"
     },
@@ -2749,7 +3309,11 @@
       ],
       "values": {
         "guessing.ready": true,
-        "event.outcome": "correct"
+        "event.outcome": "correct",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": null
     },
@@ -2767,7 +3331,11 @@
       ],
       "values": {
         "match.ready": true,
-        "event.outcome": null
+        "event.outcome": null,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": null
     },
@@ -2787,7 +3355,11 @@
         "preparation.ready": true,
         "preparation.count": 1,
         "preparation.checkCount": 0,
-        "preparation.uncheckedCount": 0
+        "preparation.uncheckedCount": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "preparation.no-checks"
     },
@@ -2805,7 +3377,11 @@
       ],
       "values": {
         "calendar.ready": false,
-        "calendar.status": "offline"
+        "calendar.status": "offline",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "calendar.unavailable"
     },
@@ -2823,7 +3399,11 @@
       ],
       "values": {
         "calendar.ready": false,
-        "calendar.status": "syncing"
+        "calendar.status": "syncing",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "calendar.syncing"
     },
@@ -2841,7 +3421,11 @@
       ],
       "values": {
         "weather.ready": false,
-        "weather.status": "syncing"
+        "weather.status": "syncing",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "weather.syncing"
     },
@@ -2859,7 +3443,11 @@
       ],
       "values": {
         "music.ready": false,
-        "music.status": "syncing"
+        "music.status": "syncing",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "music.syncing"
     },
@@ -2877,7 +3465,11 @@
       ],
       "values": {
         "device.ready": false,
-        "device.status": "syncing"
+        "device.status": "syncing",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "device.syncing"
     },
@@ -2896,7 +3488,11 @@
       "values": {
         "device.ready": true,
         "device.hasBattery": true,
-        "device.powerState": "not-charging"
+        "device.powerState": "not-charging",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "device.not-charging"
     },
@@ -2915,7 +3511,11 @@
       "values": {
         "weather.ready": true,
         "weather.temperature": 17,
-        "weather.code": 49
+        "weather.code": 49,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "weather.unclassified"
     },
@@ -2934,7 +3534,11 @@
       "values": {
         "weather.ready": true,
         "weather.status": "ready",
-        "weather.temperature": 0
+        "weather.temperature": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "weather.freezing"
     },
@@ -2954,7 +3558,11 @@
         "weather.ready": true,
         "weather.status": "ready",
         "weather.temperature": 28,
-        "weather.code": 0
+        "weather.code": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "weather.hot"
     },
@@ -2975,7 +3583,11 @@
         "device.status": "ready",
         "device.hasBattery": true,
         "device.percent": 20,
-        "device.powerState": "discharging"
+        "device.powerState": "discharging",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "device.low"
     },
@@ -2995,7 +3607,11 @@
         "plant.ready": true,
         "plant.status": "enabled",
         "plant.stage": 3,
-        "plant.water": 2
+        "plant.water": 2,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "plant.grown"
     },
@@ -3015,7 +3631,11 @@
         "plant.ready": true,
         "plant.status": "enabled",
         "plant.stage": 3,
-        "plant.water": 0
+        "plant.water": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "plant.grown"
     },
@@ -3033,7 +3653,11 @@
       ],
       "values": {
         "calendar.ready": false,
-        "calendar.status": "auth-error"
+        "calendar.status": "auth-error",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "calendar.unavailable"
     },
@@ -3051,7 +3675,11 @@
       ],
       "values": {
         "calendar.ready": false,
-        "calendar.status": "permission-error"
+        "calendar.status": "permission-error",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "calendar.unavailable"
     },
@@ -3072,7 +3700,11 @@
         "guessing.status": "enabled",
         "guessing.playing": false,
         "guessing.attempts": 0,
-        "guessing.mode": "cups"
+        "guessing.mode": "cups",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "guessing.idle"
     },
@@ -3092,7 +3724,11 @@
         "match.ready": true,
         "match.status": "enabled",
         "match.rounds": 0,
-        "match.game": ""
+        "match.game": "",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "match.new"
     },
@@ -3113,7 +3749,11 @@
         "fishing.status": "enabled",
         "event.kind": "item-acquired",
         "event.widget": "fishing",
-        "event.itemName": "파란 물고기"
+        "event.itemName": "파란 물고기",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "fishing.caught"
     },
@@ -3134,7 +3774,11 @@
         "fishing.status": "enabled",
         "event.kind": "item-acquired",
         "event.widget": "fishing",
-        "event.itemName": "양말"
+        "event.itemName": "양말",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "fishing.caught"
     },
@@ -3155,7 +3799,11 @@
         "fishing.status": "enabled",
         "event.kind": "item-acquired",
         "event.widget": "fishing",
-        "event.itemName": "동그란 돌"
+        "event.itemName": "동그란 돌",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "fishing.caught"
     },
@@ -3175,7 +3823,11 @@
         "interaction.ready": true,
         "interaction.status": "enabled",
         "event.action": "stroke",
-        "event.character": "B"
+        "event.character": "B",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "interaction.stroke"
     },
@@ -3195,7 +3847,11 @@
         "interaction.ready": true,
         "interaction.status": "enabled",
         "event.action": "poke",
-        "event.character": "B"
+        "event.character": "B",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "interaction.poke"
     },
@@ -3215,9 +3871,268 @@
         "interaction.ready": true,
         "interaction.status": "enabled",
         "event.action": "snack",
-        "event.character": "B"
+        "event.character": "B",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
       },
       "expectedScene": "interaction.snack"
+    },
+    {
+      "id": "time.morning",
+      "values": {
+        "environment.hour": 9,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "trigger": "idle",
+      "expectedScene": "time.morning"
+    },
+    {
+      "id": "time.afternoon",
+      "values": {
+        "environment.hour": 14,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "trigger": "idle",
+      "expectedScene": "time.afternoon"
+    },
+    {
+      "id": "time.evening",
+      "values": {
+        "environment.hour": 19,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "trigger": "idle",
+      "expectedScene": "time.evening"
+    },
+    {
+      "id": "time.night",
+      "values": {
+        "environment.hour": 1,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "trigger": "idle",
+      "expectedScene": "time.night"
+    },
+    {
+      "id": "base-weather.unknown",
+      "values": {
+        "environment.weatherReady": false,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "trigger": "idle",
+      "expectedScene": "base-weather.unknown"
+    },
+    {
+      "id": "base-weather.freezing",
+      "values": {
+        "environment.weatherReady": true,
+        "environment.weatherTemperature": -3,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "trigger": "idle",
+      "expectedScene": "base-weather.freezing"
+    },
+    {
+      "id": "base-weather.mild",
+      "values": {
+        "environment.weatherReady": true,
+        "environment.weatherTemperature": 18,
+        "environment.weatherCode": 1,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "trigger": "idle",
+      "expectedScene": "base-weather.mild"
+    },
+    {
+      "id": "base-weather.hot",
+      "values": {
+        "environment.weatherReady": true,
+        "environment.weatherTemperature": 31,
+        "environment.weatherCode": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "trigger": "idle",
+      "expectedScene": "base-weather.hot"
+    },
+    {
+      "id": "base-weather.fog",
+      "values": {
+        "environment.weatherReady": true,
+        "environment.weatherTemperature": 12,
+        "environment.weatherCode": 45,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "trigger": "idle",
+      "expectedScene": "base-weather.fog"
+    },
+    {
+      "id": "base-weather.rain",
+      "values": {
+        "environment.weatherReady": true,
+        "environment.weatherTemperature": 12,
+        "environment.weatherCode": 61,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "trigger": "idle",
+      "expectedScene": "base-weather.rain"
+    },
+    {
+      "id": "base-weather.snow",
+      "values": {
+        "environment.weatherReady": true,
+        "environment.weatherTemperature": 2,
+        "environment.weatherCode": 73,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "trigger": "idle",
+      "expectedScene": "base-weather.snow"
+    },
+    {
+      "id": "base-weather.showers",
+      "values": {
+        "environment.weatherReady": true,
+        "environment.weatherTemperature": 12,
+        "environment.weatherCode": 80,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "trigger": "idle",
+      "expectedScene": "base-weather.showers"
+    },
+    {
+      "id": "base-weather.storm",
+      "values": {
+        "environment.weatherReady": true,
+        "environment.weatherTemperature": 12,
+        "environment.weatherCode": 95,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "trigger": "idle",
+      "expectedScene": "base-weather.storm"
+    },
+    {
+      "id": "base-weather.unclassified",
+      "values": {
+        "environment.weatherReady": true,
+        "environment.weatherTemperature": 17,
+        "environment.weatherCode": 49,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "trigger": "idle",
+      "expectedScene": "base-weather.unclassified"
     }
   ]
 }

@@ -38,7 +38,6 @@ const sidebars: SidebarsConfig = {
         "development/talk-reference",
         "development/talk-coverage",
         "development/roadmap",
-        "development/multi-character-plan",
         "development/wiki",
         "development/releases",
       ],

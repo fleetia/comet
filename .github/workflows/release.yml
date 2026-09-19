@@ -167,7 +167,7 @@ jobs:
       - name: Verify macOS bundles
         if: runner.os == 'macOS'
         run: |
-          codesign --verify --deep --strict 'src-tauri/target/release/bundle/macos/Nanika Box.app'
+          codesign --verify --deep --strict 'src-tauri/target/release/bundle/macos/comet.app'
           for installer in src-tauri/target/release/bundle/dmg/*.dmg; do
             hdiutil verify "$installer"
           done

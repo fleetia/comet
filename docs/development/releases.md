@@ -28,8 +28,8 @@ Updater 서명은 Apple notarization이나 Windows Authenticode 서명을 대체
 
 | Artifact | 포함 파일 |
 | --- | --- |
-| `nanika-box-arm64-macOS` | Apple Silicon `.dmg`와 `.app` ZIP |
-| `nanika-box-x64-Windows` | Windows x64 NSIS `.exe` |
+| `comet-arm64-macOS` | Apple Silicon `.dmg`와 `.app` ZIP |
+| `comet-x64-Windows` | Windows x64 NSIS `.exe` |
 
 macOS는 `app,dmg`, Windows는 `nsis` bundle을 생성합니다. macOS 앱 서명과 `hdiutil verify`의 DMG 무결성 검사를 통과해야 artifact를 올립니다. 이 workflow는 Release를 공개하거나 updater manifest를 게시하지 않습니다.
 
@@ -59,7 +59,7 @@ GitHub 저장소에는 다음 값을 등록합니다.
 
 ## 버전 배포
 
-1. 사용자에게 전달할 변경과 함께 루트에서 `pnpm changeset`을 실행합니다. `nanika-box`와 patch·minor·major 수준을 선택하고 한국어 업데이트 노트를 작성한 뒤 `.changeset/*.md`를 같은 PR에 포함합니다. 문서·내부 정리만 바꾸면 변경셋을 생략할 수 있습니다.
+1. 사용자에게 전달할 변경과 함께 루트에서 `pnpm changeset`을 실행합니다. `comet`와 patch·minor·major 수준을 선택하고 한국어 업데이트 노트를 작성한 뒤 `.changeset/*.md`를 같은 PR에 포함합니다. 문서·내부 정리만 바꾸면 변경셋을 생략할 수 있습니다.
 2. main에 병합하면 `Version and release` workflow가 `changeset-release/main` 브랜치의 버전 PR을 만들거나 갱신합니다. Changesets가 `package.json`과 `CHANGELOG.md`를 갱신하고 `pnpm version:release`가 Tauri JSON·Cargo manifest·Cargo.lock의 앱 버전을 함께 맞춥니다. 직접 네 파일의 버전을 편집하지 않습니다.
 3. 버전 PR에서 버전·업데이트 노트·실기 인수 상태를 검토하고 병합합니다. main workflow는 해당 버전의 CHANGELOG 항목과 네 파일의 일치를 확인하고 `vX.Y.Z` 태그를 고정한 뒤 `Release desktop`을 직접 호출합니다. GitHub 기본 토큰이 만든 tag push가 다음 workflow를 실행하지 않는 제한을 이 직접 호출로 처리합니다. 새 토큰이나 npm publish 권한은 필요하지 않습니다.
 4. `Release desktop`은 태그를 checkout하고 Ubuntu에서 프론트엔드 검사를 통과한 뒤 해당 CHANGELOG 항목을 담은 draft release를 만듭니다. macOS·Windows 각각 Rust 검사와 sidecar 준비, signed updater build를 수행합니다. 비공개 개인키는 release build 단계에만 전달합니다.

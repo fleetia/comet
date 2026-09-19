@@ -1,5 +1,3 @@
-use crate::types::SceneLine;
-
 pub fn reading_millis(text: &str) -> i64 {
     (2_000 + text.chars().count() as i64 * 65).clamp(2_800, 16_000)
 }
@@ -7,11 +5,6 @@ pub fn reading_millis(text: &str) -> i64 {
 pub fn next_idle_at(now: i64, minutes: u32, entropy: u64) -> i64 {
     let seconds = i64::from(minutes.clamp(1, 60)) * 60;
     now + seconds * (80 + (entropy % 41) as i64) / 100
-}
-
-pub fn builtin_scene(sequence: u64) -> Vec<SceneLine> {
-    let pack = crate::characters::default_pack();
-    pack.pair_scenes[sequence as usize % pack.pair_scenes.len()].clone()
 }
 
 pub fn idle_source(sequence: u64, has_wordbook: bool, has_generated: bool) -> &'static str {
@@ -38,17 +31,7 @@ mod tests {
     }
 
     #[test]
-    fn cold_start_and_missing_model_still_have_alternating_conversations() {
-        for index in 0..8 {
-            let lines = builtin_scene(index);
-            assert!((2..=4).contains(&lines.len()));
-            assert!(lines
-                .windows(2)
-                .all(|pair| pair[0].persona != pair[1].persona));
-            assert!(lines
-                .iter()
-                .all(|line| crate::domain::allowed_expression(&line.expression)));
-        }
+    fn idle_source_preserves_wordbook_and_generated_rotation() {
         assert_eq!(idle_source(0, false, false), "script");
         assert_eq!(idle_source(0, false, true), "llm");
         assert_eq!(idle_source(1, true, true), "wordbook");

@@ -1,4 +1,4 @@
-# nanika-box
+# comet
 
 ## 0.4.1
 

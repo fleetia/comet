@@ -1,7 +1,4 @@
-use crate::{
-    domain::allowed_expression,
-    types::{SceneLine, WordbookEntry},
-};
+use crate::{domain::allowed_expression, types::WordbookEntry};
 use rusqlite::{params, Connection};
 use std::collections::HashSet;
 
@@ -34,6 +31,7 @@ pub(crate) fn initialize(conn: &Connection) -> Result<()> {
         )
         .map_err(|e| e.to_string())?;
     }
+    migrate_factory_samples(&tx)?;
     tx.commit().map_err(|e| e.to_string())
 }
 
@@ -118,41 +116,31 @@ pub fn match_entry<'a>(entries: &'a [WordbookEntry], input: &str) -> Option<&'a 
 }
 
 fn samples() -> Vec<WordbookEntry> {
-    let line = |persona: &str, expression: &str, text: &str| SceneLine {
-        persona: persona.into(),
-        expression: expression.into(),
-        text: text.into(),
-    };
-    vec![
-        WordbookEntry {
-            id: "8c6b2810-721c-4e02-b4c4-6ab19f428e01".into(),
-            title: "가벼운 인사".into(),
-            keywords: vec!["안녕".into()],
-            enabled: true,
-            use_for_idle: false,
-            lines: vec![
-                line("a", "기쁨", "안녕! 잠깐 이야기할까?"),
-                line("b", "평온", "반가워. 편하게 말 걸어 줘."),
-            ],
-        },
-        WordbookEntry {
-            id: "8c6b2810-721c-4e02-b4c4-6ab19f428e02".into(),
-            title: "잠깐 쉬기".into(),
-            keywords: vec!["쉬자".into()],
-            enabled: true,
-            use_for_idle: false,
-            lines: vec![
-                line("a", "평온", "좋아, 잠깐 쉬자."),
-                line("b", "평온", "말없이 있어도 괜찮아."),
-                line("a", "기쁨", "그럼 우리도 잠깐 조용히 있을게."),
-            ],
-        },
-    ]
+    serde_json::from_str(r#"[{"id":"8c6b2810-721c-4e02-b4c4-6ab19f428e01","title":"가벼운 인사","keywords":["안녕"],"lines":[{"persona":"a","expression":"평온","text":"안녕하세요. 나디르예요. 영창을 공부하고 있었어요."},{"persona":"b","expression":"기쁨","text":"별꼬리도 안녕! 여기서 꼬리 흔들고 있어!"}],"enabled":true,"useForIdle":false},{"id":"8c6b2810-721c-4e02-b4c4-6ab19f428e02","title":"잠깐 쉬기","keywords":["쉬자"],"lines":[{"persona":"a","expression":"평온","text":"쉬자고요? 좋아요. 펜 뚜껑부터 닫을게."},{"persona":"b","expression":"기쁨","text":"나디르 노트 덮기 성공! 나도 꼬리 쉴래!"}],"enabled":true,"useForIdle":false}]"#).expect("valid factory wordbook")
+}
+
+fn migrate_factory_samples(conn: &Connection) -> Result<()> {
+    use sha2::{Digest, Sha256};
+    let replacements = samples();
+    let hashes = [
+        "80b091fa32fc84ab7622b071db9ee6cc67c9afa37358c259772ad91763efb45a",
+        "ccbcd4e60097f147d4fb06e931e070b864fa69969ec0bce682b2b9f08ce4e960",
+    ];
+    for current in entries(conn)? {
+        if let Some(index) = replacements.iter().position(|item| item.id == current.id) {
+            let encoded = serde_json::to_vec(&current).map_err(|error| error.to_string())?;
+            if hex::encode(Sha256::digest(encoded)) == hashes[index] {
+                save(conn, &replacements[index])?;
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::SceneLine;
 
     fn entry(keyword: &str) -> WordbookEntry {
         WordbookEntry {
@@ -167,6 +155,31 @@ mod tests {
             enabled: true,
             use_for_idle: false,
         }
+    }
+
+    #[test]
+    fn sample_migration_keeps_edits_and_never_restores_deleted_entries() {
+        let conn = crate::store::open(Path::new(":memory:")).unwrap();
+        let legacy: Vec<WordbookEntry> = serde_json::from_str(r#"[{"id":"8c6b2810-721c-4e02-b4c4-6ab19f428e01","title":"가벼운 인사","keywords":["안녕"],"lines":[{"persona":"a","expression":"기쁨","text":"안녕! 잠깐 이야기할까?"},{"persona":"b","expression":"평온","text":"반가워. 편하게 말 걸어 줘."}],"enabled":true,"useForIdle":false},{"id":"8c6b2810-721c-4e02-b4c4-6ab19f428e02","title":"잠깐 쉬기","keywords":["쉬자"],"lines":[{"persona":"a","expression":"평온","text":"좋아, 잠깐 쉬자."},{"persona":"b","expression":"평온","text":"말없이 있어도 괜찮아."},{"persona":"a","expression":"기쁨","text":"그럼 우리도 잠깐 조용히 있을게."}],"enabled":true,"useForIdle":false}]"#).unwrap();
+        for entry in &legacy {
+            save(&conn, entry).unwrap();
+        }
+        let mut edited = legacy[1].clone();
+        edited.lines[0].text = "  개인 대사\n그대로  ".into();
+        save(&conn, &edited).unwrap();
+        initialize(&conn).unwrap();
+        let current = entries(&conn).unwrap();
+        assert_eq!(current[0].lines[0].text, samples()[0].lines[0].text);
+        assert_eq!(current[1].lines[0].text, edited.lines[0].text);
+        delete(&conn, &current[0].id).unwrap();
+        initialize(&conn).unwrap();
+        assert_eq!(entries(&conn).unwrap().len(), 1);
+        save(&conn, &legacy[1]).unwrap();
+        initialize(&conn).unwrap();
+        assert_eq!(
+            entries(&conn).unwrap()[0].lines[0].text,
+            samples()[1].lines[0].text
+        );
     }
 
     #[test]

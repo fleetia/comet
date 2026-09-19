@@ -12,16 +12,16 @@ SCRIPT = Path(__file__).with_name("release.py").resolve()
 
 def fixture(root: Path, version: str = "0.4.0") -> None:
     (root / "src-tauri").mkdir()
-    (root / "package.json").write_text(json.dumps({"name": "nanika-box", "version": version, "private": True}), encoding="utf-8")
-    (root / "src-tauri/tauri.conf.json").write_text(json.dumps({"productName": "Nanika Box", "version": "0.4.0", "bundle": {"active": True}}), encoding="utf-8")
+    (root / "package.json").write_text(json.dumps({"name": "comet", "version": version, "private": True}), encoding="utf-8")
+    (root / "src-tauri/tauri.conf.json").write_text(json.dumps({"productName": "comet", "version": "0.4.0", "bundle": {"active": True}}), encoding="utf-8")
     (root / "src-tauri/Cargo.toml").write_text(
-        '[package]\nname = "nanika-box"\nversion = "0.4.0" # app\nedition = "2021"\n\n'
+        '[package]\nname = "comet"\nversion = "0.4.0" # app\nedition = "2021"\n\n'
         '[dependencies]\nserde = { version = "1", features = ["derive"] }\n\n'
         '[dependencies.example]\nversion = "0.4.0"\n', encoding="utf-8")
     (root / "src-tauri/Cargo.lock").write_text(
         '# Generated lockfile\nversion = 4\n\n'
         '[[package]]\nname = "before"\nversion = "0.4.0"\n\n'
-        '[[package]]\nname = "nanika-box"\nversion = "0.4.0"\ndependencies = ["before", "serde"]\n\n'
+        '[[package]]\nname = "comet"\nversion = "0.4.0"\ndependencies = ["before", "serde"]\n\n'
         '[[package]]\nname = "serde"\nversion = "1.0.0"\nsource = "registry+https://example.com"\n', encoding="utf-8")
 
 
@@ -53,9 +53,9 @@ def test_sync_versions_and_preserve_dependencies() -> None:
 
 def test_invalid_identity_prevents_writes() -> None:
     for path, old, new in [
-        ("package.json", "nanika-box", "other-app"),
-        ("src-tauri/Cargo.toml", "nanika-box", "other-app"),
-        ("src-tauri/Cargo.lock", 'name = "nanika-box"', 'name = "missing-root"'),
+        ("package.json", "comet", "other-app"),
+        ("src-tauri/Cargo.toml", "comet", "other-app"),
+        ("src-tauri/Cargo.lock", 'name = "comet"', 'name = "missing-root"'),
     ]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -73,7 +73,7 @@ def test_notes_select_current_release() -> None:
         root = Path(directory)
         fixture(root, "0.4.1")
         (root / "CHANGELOG.md").write_text(
-            '# nanika-box\n\n## 0.5.0\n\nFuture release\n\n## 0.4.1\n\n'
+            '# comet\n\n## 0.5.0\n\nFuture release\n\n## 0.4.1\n\n'
             '### Patch Changes\n\n- Windows 설치와 macOS DMG 개선\n\n## 0.4.0\n\nOlder release\n', encoding="utf-8")
         result = run(root, "notes")
         assert result.returncode == 0, result.stderr
@@ -81,7 +81,7 @@ def test_notes_select_current_release() -> None:
 
 
 def test_invalid_lock_prevents_partial_sync() -> None:
-    for suffix in ['\n[[package]]\nname = "nanika-box"\nversion = "0.4.0"\n', '\ninvalid = [\n']:
+    for suffix in ['\n[[package]]\nname = "comet"\nversion = "0.4.0"\n', '\ninvalid = [\n']:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             fixture(root, "0.4.1")

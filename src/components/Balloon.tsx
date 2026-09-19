@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
 import { Button, IconButton, Rule, Select, TextArea } from "@fleetia/lagrange";
 import type { Dispatch, Persona, Snapshot } from "../types";
-import { command, errorText, isDesktop } from "../hooks/useSnapshot";
+import { command, errorText } from "../hooks/useSnapshot";
+import { useBalloonSizing } from "../hooks/useBalloonSizing";
 import * as s from "./companion.css";
 import * as ui from "../lagrange.css";
+import { StoryChoices } from "./StoryChoices";
 import {
   activeCharacter,
   BALLOON_SPRITE,
@@ -43,6 +45,7 @@ export function shouldSubmit(
 export function Balloon({ snapshot, preview = false, dispatch = command }: Props): JSX.Element {
   const speaker: Persona =
     snapshot.panel?.persona ??
+    snapshot.story?.persona ??
     snapshot.playback?.persona ??
     snapshot.runtime.persona ??
     snapshot.characters.active[0] ??
@@ -69,7 +72,6 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
   const composing = useRef(false);
   const submitting = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const balloonRef = useRef<HTMLElement>(null);
   const responding = ["loading", "generating"].includes(snapshot.runtime.phase);
   const latestUser = snapshot.messages.filter((message) => message.role === "user").at(-1);
   const canRetry = (mode === "input" || !mode) && snapshot.runtime.phase === "error" && latestUser;
@@ -85,48 +87,7 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
   useEffect(() => {
     setError(null);
   }, [mode, persona]);
-  useEffect(() => {
-    const element = balloonRef.current;
-    if (
-      !element ||
-      preview ||
-      !isDesktop() ||
-      new URLSearchParams(window.location.search).get("view") !== "balloon"
-    ) {
-      return;
-    }
-    const measuredElement = element;
-    let active = true;
-    let previousHeight = 0;
-    let frame = 0;
-    function measure(): void {
-      const height = Math.min(
-        520,
-        Math.max(110, Math.ceil(measuredElement.getBoundingClientRect().height)),
-      );
-      if (height === previousHeight) {
-        return;
-      }
-      previousHeight = height;
-      void command("resize_balloon", { height }).catch((cause: unknown) => {
-        if (active) {
-          setError(errorText(cause));
-        }
-      });
-    }
-    function schedule(): void {
-      window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(measure);
-    }
-    const observer = new ResizeObserver(schedule);
-    observer.observe(element);
-    schedule();
-    return () => {
-      active = false;
-      observer.disconnect();
-      window.cancelAnimationFrame(frame);
-    };
-  }, [preview]);
+  const balloonRef = useBalloonSizing(preview, setError);
   async function perform(name: string, args?: Record<string, unknown>): Promise<void> {
     setError(null);
     try {
@@ -362,7 +323,10 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
           </div>
         </>
       )}
-      {!mode && (
+      {!mode && snapshot.story && (
+        <StoryChoices key={snapshot.story.id} story={snapshot.story} dispatch={dispatch} />
+      )}
+      {!mode && !snapshot.story && (
         <div className={s.speech} aria-live="polite">
           {snapshot.playback?.text ?? (responding ? <WaitingDots /> : "")}
         </div>
