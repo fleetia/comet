@@ -24,7 +24,7 @@ Updater 서명은 Apple notarization이나 Windows Authenticode 서명을 대체
 
 ## 검증용 설치 파일 받기
 
-[Verify desktop](https://github.com/fleetia/comet/actions/workflows/verify.yml)은 main push와 main 대상 pull request 때 실행합니다. 일반 branch push·tag push로 중복 실행하지 않으며, `docs/`·`wiki/`·`.changeset/`·루트 Markdown·LICENSE만 바뀌면 생략합니다. Actions 화면의 `Run workflow`에서는 변경 경로와 관계없이 원하는 branch를 직접 실행할 수 있습니다. 성공한 실행의 Artifacts에서 다음 파일을 받습니다. 다운로드에는 GitHub 로그인이 필요하며 검증용 artifact는 7일 보관합니다.
+[Verify desktop](https://github.com/fleetia/comet/actions/workflows/verify.yml)은 main push와 main 대상 pull request 때 실행합니다. PR에서는 프론트엔드와 두 OS의 Rust 테스트까지 실행하고, main push와 수동 실행에서 설치 파일도 만듭니다. 일반 branch push·tag push로 중복 실행하지 않으며, `docs/`·`wiki/`·`.changeset/`·루트 Markdown·LICENSE만 바뀌면 생략합니다. PR의 설치물을 미리 확인하려면 Actions 화면의 `Run workflow`에서 해당 branch를 고릅니다. 수동 실행은 변경 경로와 관계없이 전체 검증·패키징을 수행합니다. 성공한 main·수동 실행의 Artifacts에서 다음 파일을 받습니다. 다운로드에는 GitHub 로그인이 필요하며 검증용 artifact는 7일 보관합니다.
 
 | Artifact | 포함 파일 |
 | --- | --- |
@@ -35,7 +35,7 @@ macOS는 `app,dmg`, Windows는 `nsis` bundle을 생성합니다. macOS 앱 서�
 
 ### CI 실행과 캐시
 
-프론트엔드 검사·테스트는 Ubuntu에서 한 번 실행하고, 성공해야 두 native job을 시작합니다. Rust 테스트·앱 빌드·설치물 검사는 두 OS에서 각각 유지합니다. Tauri의 `beforeBuildCommand`가 프론트엔드를 빌드하므로 native job에서 `pnpm build`를 별도로 반복하지 않습니다. Release도 Ubuntu prepare에서 공통 검사를 마친 뒤 두 OS를 빌드합니다.
+프론트엔드 검사·테스트는 Ubuntu에서 한 번 실행하고, 성공해야 두 native job을 시작합니다. PR에서는 Ubuntu에서 production 프론트엔드 빌드도 검사합니다. Rust 테스트는 PR을 포함한 모든 실행에서 두 OS 각각 수행합니다. release 모드 컴파일·패키징 비용을 줄이기 위해 PR에서는 설치물 생성을 생략하며, 패키징 오류는 main 또는 수동 실행에서 확인합니다. Tauri의 `beforeBuildCommand`가 프론트엔드를 빌드하므로 native job에서 `pnpm build`를 별도로 반복하지 않습니다. Release는 Ubuntu prepare에서 공통 검사를 마친 뒤 두 OS를 빌드하며, 서명·설치물 검증을 모두 통과해야 공개합니다.
 
 pnpm store 캐시는 lockfile 기준으로 유지합니다. `Swatinem/rust-cache`는 OS·아키텍처·toolchain·Cargo manifest/lock에 맞는 registry와 컴파일된 의존성을 복원하며, Verify와 Release가 같은 키를 사용합니다. Sidecar는 OS·아키텍처·`scripts/prepare-sidecar.mjs` 전체 hash가 같은 경우만 준비된 파일을 복원합니다. 캐시가 없으면 기존 SHA-256 검증·라이선스 동봉 절차로 다시 준비합니다. Rust·sidecar 캐시는 main 실행에서만 저장하여 PR별 대형 캐시가 쌓이지 않게 합니다. PR과 태그 Release는 main 캐시를 읽으며, 서명용 secret·설정 파일과 최종 설치물은 이 캐시에 저장하지 않습니다. Rust 의존성 캐시의 키와 정리 범위는 [공식 action](https://github.com/Swatinem/rust-cache)을 따릅니다.
 
