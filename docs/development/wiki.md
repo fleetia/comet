@@ -5,17 +5,18 @@ description: 저장소 Markdown을 원본으로 사용하는 Docusaurus 위키�
 
 # 문서와 위키 운영
 
-Comet의 사양은 저장소 `docs/`에서 관리한다. `wiki/`의 Docusaurus가 이 디렉터리를 직접 읽어 같은 내용을 웹으로 보여 준다. 이 페이지는 문서 작성자와 개발자가 로컬 위키를 실행하고 변경 결과를 검증할 때 사용한다.
+comet의 사양은 저장소 `docs/`에서 관리한다. `wiki/`의 Docusaurus가 이 디렉터리를 직접 읽어 같은 내용을 웹으로 보여 준다. 이 페이지는 문서 작성자와 개발자가 로컬 위키를 실행하고 변경 결과를 검증할 때 사용한다.
 
 ## 구성
 
 | 위치 | 역할 |
 | --- | --- |
 | `docs/index.md` | 위키 첫 화면과 사양 탐색 입구 |
-| `docs/product/` | 바탕화면·대화·토이·생활 도구 사양 |
+| `docs/product/` | 바탕화면·캐릭터·대화·대본·토이·생활 도구 사양 |
 | `docs/widgets/` | 외부 위젯 계약과 작성 안내 |
 | `docs/development/` | 구조·개발 순서·문서 운영 |
-| `docs/PRODUCT.md`, `docs/VALIDATION-0.2.0.md` | 기존 0.2 기준과 당시 검증 기록 |
+| `docs/status.md` | 변경별 소스 구현과 검증 범위 |
+| `docs/PRODUCT.md`, `docs/VALIDATION-*.md` | 기존 0.2 기준과 각 변경 시점의 검증 기록 |
 | `wiki/docusaurus.config.ts`, `wiki/sidebars.ts` | 사이트 설정과 문서 목차 |
 | `wiki/package.json`, `wiki/pnpm-lock.yaml` | 위키 전용 의존성과 고정 버전 |
 | `wiki/build/` | 생성되는 정적 사이트. 직접 수정하지 않음 |
@@ -66,6 +67,8 @@ corepack pnpm docs:build
 새 Markdown에는 `title`과 `description`을 지정하고, 첫 단락에서 대상·범위·구현 상태를 설명한다. 첫 화면인 `docs/index.md`만 `slug: /`를 사용한다. 문서 사이에는 파일 기준의 `.md` 상대 링크를 사용한다.
 
 새 문서를 해당 주제 디렉터리에 두고 `wiki/sidebars.ts`와 필요한 탐색 링크를 갱신한다. 코드 파일은 프로젝트 기준 경로를 인라인 코드로 표시한다. 확인되지 않은 공개 저장소 URL을 만들거나 개인 컴퓨터의 절대 경로를 웹 링크로 넣지 않는다.
+
+코드 책임이나 파일 경계를 옮기면 [구조와 책임](architecture.md)의 모듈 표와 상태 전달·취소 경계를 갱신한다. README에는 실행 방법과 탐색 링크를 유지하고 상세 구조를 복제하지 않는다. 문서 경로를 유지하는 수정에는 사이드바 변경이 필요하지 않다.
 
 제품 방향이 바뀌면 해당 주제 문서와 [상태표](../status.md)를 수정한다. 과거 검증 기록에 새 버전 결과를 덮어쓰지 않는다. API 예시는 실제 배포된 계약이 확정되기 전까지 설계 예시로 표시한다.
 

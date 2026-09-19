@@ -158,7 +158,9 @@ it("keeps resting bodies free of old dialogue and changes only the active actor 
     ],
   };
   const { rerender } = render(<CompanionBox persona="b" snapshot={snapshot} />);
-  expect(screen.getByText("[평온]")).toBeTruthy();
+  expect(
+    screen.getByText(`[${PREVIEW_SNAPSHOT.characters.installed[1].definition.expressions.평온}]`),
+  ).toBeTruthy();
   expect(screen.queryByText("오래된 대사")).toBeNull();
   expect(screen.queryByText(/친밀도/)).toBeNull();
   rerender(
@@ -179,7 +181,9 @@ it("keeps resting bodies free of old dialogue and changes only the active actor 
       }}
     />,
   );
-  expect(screen.getByText("[평온]")).toBeTruthy();
+  expect(
+    screen.getByText(`[${PREVIEW_SNAPSHOT.characters.installed[1].definition.expressions.평온}]`),
+  ).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: /메뉴 열기/ }));
   expect(command).toHaveBeenCalledWith("open_panel", { persona: "b", mode: "menu" });
 });

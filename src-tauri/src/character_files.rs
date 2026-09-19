@@ -51,7 +51,7 @@ pub async fn choose(app: tauri::AppHandle) -> Result<Option<CharacterPack>, Stri
     app.dialog()
         .file()
         .set_title("캐릭터팩 가져오기")
-        .add_filter("Comet 캐릭터팩", &["json"])
+        .add_filter("comet 캐릭터팩", &["json"])
         .pick_file(move |path| {
             let _ = send.send(path);
         });
@@ -70,7 +70,7 @@ pub async fn save(app: tauri::AppHandle, json: String) -> Result<Option<String>,
         .file()
         .set_title("캐릭터팩 공유 파일 저장")
         .set_file_name("characters.comet-character.json")
-        .add_filter("Comet 캐릭터팩", &["json"])
+        .add_filter("comet 캐릭터팩", &["json"])
         .save_file(move |path| {
             let _ = send.send(path);
         });
@@ -99,7 +99,10 @@ mod tests {
         let json = serde_json::to_string_pretty(&pack).unwrap();
         let path = dir.path().join("shared.comet-character.json");
         write_pack(&path, &json).unwrap();
-        assert_eq!(read_pack(&path).unwrap().characters[0].name, "A");
+        assert_eq!(
+            read_pack(&path).unwrap().characters[0].name,
+            pack.characters[0].name
+        );
         assert!(write_pack(&path, "{\"privateData\":true}").is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), json);
         let oversized = dir.path().join("oversized.json");

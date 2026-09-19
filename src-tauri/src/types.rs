@@ -194,6 +194,8 @@ pub struct Snapshot {
     pub playback: Option<Playback>,
     pub panel: Option<PanelState>,
     pub wordbook: Vec<WordbookEntry>,
+    #[serde(default, skip_deserializing)]
+    pub story: Option<crate::story::Request>,
 }
 
 #[cfg(test)]

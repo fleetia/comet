@@ -11,16 +11,27 @@ description: 현재 Tauri 앱의 코드 소유권과 생활 도구·외부 위�
 
 | 위치 | 책임 |
 | --- | --- |
-| `src/App.tsx`, `src/components/` | 본체·말풍선·입력과 보조 화면 |
+| `src/App.tsx`, `src/components/` | 창별 화면 선택, 본체·말풍선·입력과 보조 화면 |
+| `src/components/SettingsPanel.tsx`, `ModelSettings.tsx`, `MemorySettings.tsx` | 설정 탭·기본 설정·공통 저장바, 모델/API 설정, 개별 기억 편집을 나눠 구성한다. |
+| `src/hooks/useSettingsDraft.ts` | 설정·API 키 초안, 변경 여부와 snapshot 동기화, 명령 잠금·저장·취소 |
+| `src/hooks/useBalloonSizing.ts`, `src/components/Balloon.tsx` | hook은 데스크톱의 ResizeObserver·requestAnimationFrame·네이티브 크기 변경을 관리하고, Balloon은 메뉴·입력·기록·스토리·대사를 표시한다. |
 | `src/main.tsx`, `src/lagrange.css.ts`, `src/desktop.css.ts` | 모든 화면에 적용하는 공통 테마·reset·글꼴 역할, 공용 폼 스타일과 보조 화면 레이아웃. 위젯별 배치는 `src/widgets/widgets.css.ts`와 `src/widgets/tools.css.ts`가 담당한다. |
 | `src/hooks/useSnapshot.ts`, `src/types.ts` | Rust 상태 수신·이벤트 구독과 화면용 타입 |
-| `src-tauri/src/lib.rs` | Tauri 명령, 앱 상태, 작업 직렬화·취소, 자동 장면 준비 |
+| `src-tauri/src/lib.rs` | 도메인 모듈 선언과 공개 `talk`·`run` 진입점 |
+| `src-tauri/src/app/mod.rs` | 공유 `AppState`, snapshot 발행과 `interrupt`·phase·최신 작업 판정 |
+| `src-tauri/src/app/lifecycle.rs` | Tauri 초기화·명령 등록·트레이·종료와 창 위치 저장 |
+| `src-tauri/src/app/conversation.rs` | 직접 입력·재시도·프롬프트 구성과 생성 |
+| `src-tauri/src/app/scene.rs` | 등록 대사·생성 대사의 표시와 다음 장면 선택 |
+| `src-tauri/src/app/background.rs` | 자동 동작 루프·기억 분석·LLM 장면 준비와 API 예산 |
+| `src-tauri/src/app/settings.rs` | 설정·모델·단어장·기억 관련 앱 명령 |
+| `src-tauri/src/app/windows.rs` | 패널·말풍선·본체 표시/숨김·일시정지·종료 명령 |
 | `src-tauri/src/desktop.rs`, `playback.rs` | 네이티브 창 배치와 재생 관련 규칙 |
-| `src-tauri/src/store.rs` | SQLite 대화·기억·설정, 당시 캐릭터 정체성과 로컬 ID별 관계 저장 |
-| `src-tauri/src/characters.rs` | 로컬 캐릭터·조합 대사·공유 JSON 검증과 데이터 변환 |
+| `src-tauri/src/store.rs`, `store/` | `store.rs`는 DB 초기화·설정·창 위치·revision·준비 장면과 기존 함수 진입점을 유지한다. `messages.rs`는 원문·당시 캐릭터 정체성·생성 대사 회상과 삽입 transaction, `memory.rs`는 기억 편집·분석 적용·캐릭터별 관계를 담당한다. |
+| `src-tauri/src/characters.rs`, `characters/` | `characters.rs`는 타입·설치·활성 자리·기본 정의 이전·팩 입출력과 기존 함수 진입점을 유지한다. `validation.rs`는 정의·대사·팩 JSON 검증, `dialogue.rs`는 소유 대사·자리 변환·인사·수다·키워드 선택을 담당한다. |
 | `src-tauri/src/character_commands.rs`, `character_files.rs` | 캐릭터 변경의 직렬화·트랜잭션·취소, 네이티브 파일 선택과 검증 후 저장 |
 | `src-tauri/src/talk/` | `.talk` 파서·조건 평가·공개 상태 projection·재로딩·재언급 간격. 앱과 CLI가 같은 평가기 사용 |
 | `src-tauri/src/talk_host.rs` | 실제 사건·상태 대본을 기존 재생기로 연결하고 프로그램·캐릭터·원본 revision을 재검사 |
+| `src-tauri/src/story.rs`, `story_host.rs`, `story_editor.rs` | 선택지 스토리의 공개 단계·선택 보상·업타임, 앱 재생 연결, 암호화 파일 편집 |
 | `talk/`, `src-tauri/examples/talk.rs` | 기본 대본·fixture와 검사·변수 조회·읽기 전용 DB 시뮬레이션 CLI |
 | `src-tauri/src/wordbook.rs` | 단어장 저장·초기 예제·정확한 키워드 매칭 |
 | `src-tauri/src/domain.rs` | 모델 출력과 기억 분석 결과의 검증 |
@@ -28,11 +39,30 @@ description: 현재 Tauri 앱의 코드 소유권과 생활 도구·외부 위�
 | `src-tauri/src/models.rs`, `resources.rs` | 고정 모델 다운로드와 로컬 준비 시점의 부하 판단 |
 | `scripts/prepare-sidecar.mjs` | 운영체제별 llama.cpp 실행기 준비 |
 
+2026-09-19 모듈 분리는 제품 동작·Tauri 명령 이름·저장 schema를 바꾸지 않는다. 앱 실행 조정은 `app/`, 저장과 캐릭터 내부 책임은 각각 `store/`·`characters/`로 나눈다. 기존 `store.rs`·`characters.rs` 경로와 함수 진입점을 유지하여 smoke 예제와 대본 CLI도 같은 도메인 구현을 사용한다. 기존 회귀 테스트는 `app/tests.rs`·`store/tests.rs`·`characters/tests.rs`에서 해당 내부 경계를 확인한다.
+
 Rust가 저장 상태를 관리하고 프론트엔드가 상태와 재생 이벤트를 표시한다. 공식 도구의 상태·일정 캐시·사건은 `src-tauri/src/widgets/storage.rs`의 SQLite 저장을 사용하고, 화면은 `src/widgets/`, 명령·연결 작업은 `widget_commands.rs`·`widget_connections.rs`가 담당한다. 공개 외부 위젯 실행기는 제공하지 않는다.
 
 캐릭터 데이터 이전은 원문 메시지 JSON과 기존 친밀도 표를 보존하며 별도 정체성·친밀도 표를 사용한다. 캐릭터 변경은 기존 작업 취소와 준비 대사 무효화를 동반한다. 공유 파일은 정의·대사만 구성하며 개인 단어장은 명시적으로 선택한 항목만 포함한다. 상세 규격은 [캐릭터 교체와 공유](../product/characters.md)를 따른다. 실제 흐름과 데이터 보존 검증은 [0.3.0 검증 기록](../VALIDATION-0.3.0.md)을 따른다.
 
-`.talk`는 위젯 상태를 [공개 변수](talk-reference.md)로 정규화한 뒤 대본을 평가하고 `SceneLine` 배열을 기존 재생 경로에 전달한다. 자동 `.talk` 차례와 기존 일반 수다 차례를 번갈아 사용하며, 실제 사건은 기존 사건 대기열을 통과한다. 파서·평가기·CLI는 위젯 쓰기 명령이나 외부 코드를 실행하지 않는다. 대본 편집 UI와 외부 Widget SDK는 이 경로에 포함되지 않는다.
+`.talk`는 위젯 상태를 [공개 변수](talk-reference.md)로 정규화한 뒤 대본을 평가하고 `SceneLine` 배열을 기존 재생 경로에 전달한다. 자동 `.talk` 차례와 기존 일반 수다 차례를 번갈아 사용하며, 실제 사건은 기존 사건 대기열을 통과한다. 파서·평가기·CLI는 위젯 쓰기 명령이나 외부 코드를 실행하지 않는다. 캐릭터 관리의 `src/components/TalkEditor.tsx`는 `talk_editor_commands.rs`를 통해 파일을 읽고 검사 후 저장한다. `.talk` 편집·암호화는 `talk/editor.rs`·`talk/encryption.rs`, 선택지 스토리 파일 검증과 저장은 `story_editor.rs`가 맡는다. 파일 revision 충돌이나 검사 실패 시 기존 파일을 유지한다. 외부 Widget SDK는 제공하지 않는다.
+
+## 상태 전달과 취소 경계
+
+화면의 명령은 Rust에서 저장·검증한 뒤 `app-state` 또는 `widgets-state` 이벤트로 반영한다. 화면 구독은 이벤트 수신을 먼저 연결하고 최초 snapshot을 조회한다. 조회 중 이벤트를 받았다면 늦게 도착한 최초 응답으로 새 상태를 덮어쓰지 않으며, 화면을 떠난 뒤에는 구독과 결과 적용을 정리한다. 브라우저 미리보기 데이터는 실제 SQLite 저장이나 네이티브 명령 실행을 대신하지 않는다.
+
+대화와 자동 작업은 서로 다른 경계를 함께 사용한다. 모듈을 나눠도 아래 역할과 확인 순서는 유지한다.
+
+| 경계 | 보호하는 대상 |
+| --- | --- |
+| `action` | 취소 token 교체, epoch 증가와 짧은 상태 변경을 직렬화한다. 잠금 순서는 `action` 다음 DB·cancellation·runtime이며 표준 mutex guard를 `await` 너머로 유지하지 않는다. |
+| `gate` | 비동기 대화 생성·재생 작업을 직렬화한다. 대기 후에도 epoch와 취소 token을 확인한다. |
+| epoch와 취소 token | 사용자 입력·숨김·일시정지·설정 변경 이후 이전 작업이 다시 표시되는 것을 막는다. |
+| 저장 revision | 생성 시 읽었던 기억·캐릭터·설정 문맥이 바뀌었으면 이전 결과의 저장과 재생을 거부한다. |
+| 위젯·대본 최신성 | 위젯 사건과 대본은 공통 epoch 검사에 더해 원본 사건·프로그램·캐릭터와 관련 revision을 확인한다. |
+| 편집 파일 revision | 대본을 연 뒤 외부에서 바뀐 파일을 오래된 초안으로 덮어쓰지 않는다. |
+
+`present_line`은 최신성 검사를 통과한 뒤 기록과 재생 상태를 함께 갱신한다. 대본 파서가 성공하거나 모델이 응답했다는 사실만으로 말풍선을 표시하지 않는다. 자동 생성과 자동 재생의 조건은 함께 검토하며, 앱 종료와 취소는 앱이 소유한 추론 프로세스만 정리한다.
 
 ## 확장 후 책임 경계
 

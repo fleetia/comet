@@ -1,4 +1,4 @@
-use crate::{store, types::Snapshot, AppState};
+use crate::{app::AppState, store, types::Snapshot};
 use tauri::{AppHandle, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewWindow};
 
 #[derive(Clone, Copy, Debug)]
@@ -52,7 +52,7 @@ pub(crate) fn create_boxes(app: &AppHandle, state: &AppState) -> Result<(), Stri
             *id,
             tauri::WebviewUrl::App(format!("index.html?persona={id}").into()),
         )
-        .title(format!("Nanika Box · {}", id.to_uppercase()))
+        .title(format!("comet · {}", id.to_uppercase()))
         .inner_size(112.0, 88.0)
         .min_inner_size(112.0, 88.0)
         .resizable(false)
@@ -65,7 +65,7 @@ pub(crate) fn create_boxes(app: &AppHandle, state: &AppState) -> Result<(), Stri
         .build()
         .map_err(|e| e.to_string())?;
         let monitors = window.available_monitors().map_err(|e| e.to_string())?;
-        let saved = store::window_position(&*super::lock(&state.db)?, id)?;
+        let saved = store::window_position(&*crate::app::lock(&state.db)?, id)?;
         let saved_monitor = saved
             .as_ref()
             .filter(|p| p.x.is_finite() && p.y.is_finite())
@@ -114,6 +114,7 @@ fn owner(snapshot: &Snapshot) -> Option<&str> {
         .panel
         .as_ref()
         .map(|panel| panel.persona.as_str())
+        .or_else(|| snapshot.story.as_ref().map(|story| story.persona.as_str()))
         .or_else(|| {
             snapshot
                 .playback
@@ -139,7 +140,7 @@ fn get_balloon(app: &AppHandle) -> Result<WebviewWindow, String> {
         "balloon",
         tauri::WebviewUrl::App("index.html?view=balloon".into()),
     )
-    .title("Nanika Box · 말풍선")
+    .title("comet · 말풍선")
     .inner_size(320.0, 180.0)
     .decorations(false)
     .maximizable(false)
@@ -234,6 +235,23 @@ pub(crate) fn resize_balloon(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_story_owns_native_balloon_and_interruption_removes_it() {
+        let state = crate::app::tests::state();
+        let request = crate::story::prepare(&crate::app::lock(&state.db).unwrap(), "a", 0, 0)
+            .unwrap()
+            .unwrap();
+        *crate::app::lock(&state.story).unwrap() = Some(request);
+        crate::app::lock(&state.runtime).unwrap().phase = "story".into();
+        assert!(crate::app::lock(&state.playback).unwrap().is_none());
+        assert_eq!(owner(&crate::app::snapshot(&state).unwrap()), Some("a"));
+        crate::app::lock(&state.runtime).unwrap().hidden = true;
+        assert_eq!(owner(&crate::app::snapshot(&state).unwrap()), None);
+        crate::app::lock(&state.runtime).unwrap().hidden = false;
+        crate::app::interrupt(&state, false).unwrap();
+        assert_eq!(owner(&crate::app::snapshot(&state).unwrap()), None);
+    }
 
     #[test]
     fn balloon_stays_in_work_area_across_scale_and_screen_edges() {

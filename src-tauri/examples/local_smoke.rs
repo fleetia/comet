@@ -1,17 +1,32 @@
+// Source modules stay private in the app; these smokes intentionally use only part of them.
+#[allow(dead_code, unused_imports)]
 #[path = "../src/characters.rs"]
 mod characters;
+#[allow(dead_code)]
 #[path = "../src/domain.rs"]
 mod domain;
+#[allow(dead_code)]
 #[path = "../src/inference.rs"]
 mod inference;
+#[allow(dead_code)]
 #[path = "../src/models.rs"]
 mod models;
+#[allow(dead_code, unused_imports)]
 #[path = "../src/store.rs"]
 mod store;
+#[allow(dead_code)]
+#[path = "../src/story.rs"]
+mod story;
+#[allow(dead_code, unused_imports)]
+#[path = "../src/talk/mod.rs"]
+mod talk;
+#[allow(dead_code)]
 #[path = "../src/types.rs"]
 mod types;
+#[allow(dead_code, unused_imports)]
 #[path = "../src/widgets/mod.rs"]
 mod widgets;
+#[allow(dead_code)]
 #[path = "../src/wordbook.rs"]
 mod wordbook;
 use std::{

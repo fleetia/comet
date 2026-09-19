@@ -1,4 +1,4 @@
-use nanika_box::talk::{self, context, EvalContext, History, Registry, ValueType};
+use comet_lib::talk::{self, context, EvalContext, History, Registry, ValueType};
 use rusqlite::{Connection, OpenFlags};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -8,7 +8,7 @@ use std::{
     path::Path,
 };
 
-const USAGE: &str = "talk check ENTRY\ntalk variables\ntalk simulate ENTRY (--input JSON_OR_FILE | --db PATH [--event JSON_OR_FILE]) [--seed N] [--now MILLISECONDS]\ntalk characters --db PATH";
+const USAGE: &str = "talk check ENTRY\ntalk variables\ntalk simulate ENTRY (--input JSON_OR_FILE | --db PATH [--event JSON_OR_FILE]) [--seed N] [--now MILLISECONDS]\ntalk characters --db PATH\ntalk seal ENTRY\ntalk read ENTRY RELATIVE_FILE\ntalk save ENTRY RELATIVE_FILE --source TEXT_FILE --revision REVISION";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -91,14 +91,20 @@ fn fixture(
         .map(|(name, variable)| {
             let value = if variable.nullable {
                 Value::Null
-            } else if variable.kind == ValueType::Boolean {
-                json!(false)
             } else {
-                json!("not-installed")
+                match variable.kind {
+                    ValueType::Boolean => json!(false),
+                    ValueType::Number => json!(0),
+                    ValueType::String => json!("not-installed"),
+                }
             };
             (name.clone(), value)
         })
         .collect::<BTreeMap<_, _>>();
+    values.insert(
+        "dialogue.variant".into(),
+        json!(seed.or(input.seed).unwrap_or(0) % 5),
+    );
     for (name, value) in input.values {
         let variable = registry
             .variables
@@ -158,6 +164,33 @@ fn run(arguments: &[String]) -> Result<Value, String> {
             let program = talk::load(Path::new(&arguments[1]), &registry)
                 .map_err(|errors| serde_json::to_string_pretty(&errors).unwrap_or_default())?;
             Ok(json!({"valid":true,"sceneCount":program.scenes.len(),"files":program.files}))
+        }
+        Some("seal") if arguments.len() == 2 => {
+            let changed = talk::editor::seal_bundle(Path::new(&arguments[1]), &registry)?;
+            Ok(json!({"encryptedFiles": changed}))
+        }
+        Some("read") if arguments.len() == 3 => serde_json::to_value(talk::editor::read_file(
+            Path::new(&arguments[1]),
+            &arguments[2],
+        )?)
+        .map_err(|error| error.to_string()),
+        Some("save") if arguments.len() == 7 => {
+            let options = options(&arguments[3..], &["--source", "--revision"])?;
+            let file = std::fs::File::open(options.get("--source").ok_or(USAGE)?)
+                .map_err(|error| error.to_string())?;
+            let mut source = String::new();
+            file.take(1_048_577)
+                .read_to_string(&mut source)
+                .map_err(|error| error.to_string())?;
+            let document = talk::editor::save_file(
+                Path::new(&arguments[1]),
+                &arguments[2],
+                &source,
+                options.get("--revision").ok_or(USAGE)?,
+                &registry,
+            )
+            .map_err(|errors| serde_json::to_string_pretty(&errors).unwrap_or_default())?;
+            Ok(json!({"path":document.path, "revision":document.revision, "saved":true}))
         }
         Some("characters") => {
             let options = options(&arguments[1..], &["--db"])?;

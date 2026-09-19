@@ -8,10 +8,14 @@ import * as s from "./companion.css";
 import * as ui from "../lagrange.css";
 
 const DEMO: SceneLine[] = [
-  { persona: "a", expression: "호기심", text: "아무 말 안 해도, 여기 있어도 되지?" },
-  { persona: "b", expression: "평온", text: "응. 조용히 있는 건 내가 좀 잘해." },
-  { persona: "a", expression: "기쁨", text: "그럼 난 가끔 말을 거는 쪽을 맡을게." },
-  { persona: "b", expression: "장난", text: "가끔의 뜻은 나중에 합의하자." },
+  {
+    persona: "a",
+    expression: "호기심",
+    text: "박자를 하나 빼도 영창이 될까요. 아. 지금 해 보겠다는 건 아니고요.",
+  },
+  { persona: "b", expression: "기쁨", text: "빈 박자는 내가 꼬리로 채울게! 톡!" },
+  { persona: "a", expression: "생각중", text: "그러면 뺀 게 아니잖아. ……일단 적어 둘게요." },
+  { persona: "b", expression: "장난", text: "별꼬리표 박자, 한 칸 추가!" },
 ];
 export function DesktopPreview({ initial }: { initial: Snapshot }): JSX.Element {
   const [state, setState] = useState(initial);
@@ -90,7 +94,7 @@ export function DesktopPreview({ initial }: { initial: Snapshot }): JSX.Element 
   }
   return (
     <main className={s.preview}>
-      <h1 className={s.previewTitle}>Nanika Box</h1>
+      <h1 className={s.previewTitle}>comet</h1>
       <p className={ui.quiet}>바탕화면 한쪽에, 둘이 있어요.</p>
       <div className={s.stage}>
         {!state.runtime.hidden && (snapshot.panel || snapshot.playback) ? (

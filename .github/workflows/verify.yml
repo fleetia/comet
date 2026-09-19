@@ -57,11 +57,11 @@ jobs:
       - name: Verify and archive macOS app
         if: runner.os == 'macOS'
         run: |
-          codesign --verify --deep --strict 'src-tauri/target/release/bundle/macos/Nanika Box.app'
-          ditto -c -k --sequesterRsrc --keepParent 'src-tauri/target/release/bundle/macos/Nanika Box.app' 'src-tauri/target/release/bundle/Nanika-Box-macOS-arm64.zip'
+          codesign --verify --deep --strict 'src-tauri/target/release/bundle/macos/comet.app'
+          ditto -c -k --sequesterRsrc --keepParent 'src-tauri/target/release/bundle/macos/comet.app' 'src-tauri/target/release/bundle/comet-macOS-arm64.zip'
       - uses: actions/upload-artifact@v4
         with:
-          name: nanika-box-${{ matrix.arch }}-${{ runner.os }}
+          name: comet-${{ matrix.arch }}-${{ runner.os }}
           path: |
             src-tauri/target/release/bundle/*.zip
             src-tauri/target/release/bundle/nsis/*.exe

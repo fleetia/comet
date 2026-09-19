@@ -1,8 +1,20 @@
-# Comet
+# comet
 
 바탕화면에 머무는 A와 B가 먼저 인사하고, 짧게 수다를 떨고, 다시 조용해지는 나니카·우카가카형 데스크톱 앱입니다. 내장 대사와 사용자가 등록한 단어장이 기본 대화를 맡고, 선택적으로 로컬 LLM이나 외부 API를 연결합니다.
 
-프로젝트 이름은 **Comet**이며 실행 앱 이름은 Nanika Box, 패키지는 `nanika-box`, 데이터 식별자는 `space.starlight.nanika-box`를 유지합니다. 캐릭터 관리·공유는 0.3.0에 구현되었으며 macOS 패키지와 네이티브 사용 흐름을 검증했습니다. 전체 사양의 입구는 [Comet 사양 안내](docs/index.md), 구현과 개발 예정 범위는 [상태표](docs/status.md)에서 확인합니다. 기존 0.2 기준과 검증 기록은 보존합니다. 공식 위젯 22개와 선택 설치 관리의 소스를 구현했으며, 새 검증과 제한은 [위젯 검증 기록](docs/VALIDATION-WIDGETS.md)에 구분합니다. 외부 Widget SDK·임의 코드 실행·원격 배포는 후속입니다. 이 README는 현재 앱의 실행과 설정을 안내합니다.
+기본 캐릭터 나디르·별꼬리, 암호화 대본 에디터와 선택지 스토리, 선택 설치하는 공식 위젯 22개를 제공합니다. 모델이나 API 없이 내장 대사와 생활 도구를 사용할 수 있습니다. 외부 Widget SDK·임의 코드 실행·원격 배포는 후속 범위입니다.
+
+이 README는 개발 환경 준비와 앱 사용을 안내합니다. 제품 계약·소스 구조·검증 기록은 다음 문서에서 확인합니다.
+
+| 목적 | 시작점 |
+| --- | --- |
+| 제품 경험과 기능별 계약 | [사양 안내](docs/index.md) |
+| 구현된 기능과 남은 검증 | [구현 상태](docs/status.md) |
+| 코드 책임과 변경 시 보존할 경계 | [구조와 책임](docs/development/architecture.md) |
+| 대본 작성과 검사 | [대본 작성](docs/product/talk.md), [CLI·변수](docs/development/talk-reference.md) |
+| 위키 실행과 문서 수정 | [위키 운영](docs/development/wiki.md) |
+
+프로젝트·실행 앱·JavaScript 및 Rust 패키지·실행 파일은 소문자 **comet**, Rust 라이브러리는 `comet_lib`입니다. 기존 데이터를 이어 쓰도록 `space.starlight.nanika-box`, `nanika.sqlite`, 자격 증명 서비스 이름과 암호화 파일 형식을 유지합니다. 아이콘 원본은 `src-tauri/icons/source.svg`입니다. 기존 0.2 사양과 각 변경의 검증 기록은 당시 결과로 보존합니다.
 
 ## 사양 문서와 Docusaurus 위키
 
@@ -18,6 +30,8 @@ corepack pnpm docs:dev
 ## 시작하기
 
 지원 빌드 대상은 **macOS 14 이상 Apple Silicon**과 **Windows x64**입니다. Node.js 24, pnpm 10.32.1, Rust stable이 필요합니다. macOS에는 Xcode Command Line Tools, Windows에는 Visual Studio의 C++ 데스크톱 빌드 도구와 WebView2가 필요합니다. Windows 설치 패키지는 WebView2가 없으면 bootstrapper로 설치합니다.
+
+`.npmrc`는 `@fleetia` 패키지를 GitHub Packages에서 받도록 설정되어 있습니다. 설치 전에 `@fleetia/lagrange`를 내려받을 수 있는 기존 registry 인증을 준비하세요. 인증 정보는 로컬 또는 실행 환경에서 제공하고 저장소에 커밋하지 않습니다.
 
 프로젝트 루트에서 실행합니다.
 
@@ -49,9 +63,11 @@ Command Line Tools 자체가 없다면 `xcode-select --install`로 설치한 뒤
 
 사용자가 먼저 입력하지 않아도 실행 약 5초 후 내장 인사를 시작하고, 기본 2분 간격에 ±20% 변동을 둔 잡담을 이어 가는 것이 제품 기준입니다. 모델이나 API가 없어도 내장 대사가 동작합니다. `autonomousEnabled`는 자동 생성과 재생 전체를 제어하며 기본값은 켜짐입니다. 일시정지·숨김·상위 자동 설정 끄기는 자동 재생도 멈춥니다. 사용자 입력은 진행 중인 자동 장면보다 우선합니다.
 
-### 파일로 편집하는 `.talk` 대본
+### 암호화 대본과 선택지 스토리
 
-앱 데이터 폴더의 `talk/index.talk`에서 시작하는 대본을 편집하면, 공식 위젯의 실제 상태와 사건을 이용해 A/B의 수다를 만들 수 있습니다. `import`로 파일을 나누고 조건·표정·변수 보간을 지정합니다. 모델이나 API는 필요하지 않습니다. 첫 인사 뒤에는 위젯 상태 대본과 기존 일반 수다 차례를 번갈아 사용하며, 상태 대본 후보가 없으면 일반 수다로 이어집니다. 위젯 사건은 기존 사건 대기열을 사용합니다.
+캐릭터 관리의 **대본 에디터**에서 앱 데이터 폴더의 `talk/index.talk`부터 이어지는 대본을 편집하면, 공식 위젯의 실제 상태와 사건을 이용해 A/B의 수다를 만들 수 있습니다. `import`로 파일을 나누고 조건·표정·변수 보간을 지정합니다. 모델이나 API는 필요하지 않습니다. 첫 인사 뒤에는 위젯 상태 대본과 기존 일반 수다 차례를 번갈아 사용하며, 상태 대본 후보가 없으면 일반 수다로 이어집니다. 위젯 사건은 기존 사건 대기열을 사용합니다.
+
+기본 캐릭터는 나디르·별꼬리이며 업타임 1시간마다 선택지 스토리로 먼저 말을 겁니다. 초기에는 표면만 공개하고 친밀도 40/70과 앞 단계 진행에 따라 개인 이야기를 엽니다. 행동별 대사 변주는 최소 5개입니다. 시간과 날씨 정보 없음 대사는 위젯 없이도 나오며 실제 날씨는 설정한 지역의 유효한 관측값이 있어야 사용합니다.
 
 최초 실행에 기본 대본을 한 번 설치합니다. 수정한 파일을 다시 읽고, 오류가 나면 마지막 정상 대본을 유지합니다. 삭제한 파일은 재시작해도 복원하지 않습니다. 문법·파일 위치·재로딩 규칙은 [대본 작성](docs/product/talk.md), 명령과 변수는 [CLI·변수 참고](docs/development/talk-reference.md)를 따릅니다.
 
@@ -62,7 +78,7 @@ pnpm talk check talk/index.talk
 pnpm talk variables
 ```
 
-[대본 범위](docs/development/talk-coverage.md)와 [이번 검증 기록](docs/VALIDATION-TALK.md)은 자동 테스트, 실제 macOS 실행, 미검증 외부 환경을 구분합니다. 시각적 대본 편집 UI와 SSP/Yarn 파일 호환은 제공하지 않습니다.
+[대본 범위](docs/development/talk-coverage.md)와 [이전 대본 검증 기록](docs/VALIDATION-TALK.md)은 자동 테스트, 실제 macOS 실행, 미검증 외부 환경을 구분합니다. 암호화 대본 에디터는 원문·파일 선택·오류 위치·검사 후 저장을 제공합니다. SSP/Yarn 파일 호환은 제공하지 않습니다.
 
 ### 단어장
 
@@ -76,7 +92,7 @@ pnpm talk variables
 
 본체 메뉴의 `캐릭터 관리`에서 캐릭터를 만들고 이름·성격·텍스트 표정·인사·수다를 편집합니다. 저장한 캐릭터를 A 또는 B에 적용하거나 현재 둘의 조합을 관리할 수 있습니다. 캐릭터 하나·둘의 조합에 속한 장면과 키워드 대사도 별도로 편집합니다.
 
-`공유 파일 가져오기`에서 JSON을 선택하고 미리본 뒤 가져옵니다. 설치 후 원하는 자리에 적용하며, 재가져오기는 기존 캐릭터 업데이트가 아닌 새 로컬 복사본입니다. 예제는 [솔·달 캐릭터팩](examples/character-packs/sol-and-dal.comet-character.json)입니다.
+`공유 파일 가져오기`에서 JSON을 선택하고 미리본 뒤 가져옵니다. 설치 후 원하는 자리에 적용하며, 재가져오기는 기존 캐릭터 업데이트가 아닌 새 로컬 복사본입니다. 예제는 [나디르·별꼬리 캐릭터팩](examples/character-packs/nadir-and-star-tail.comet-character.json)입니다.
 
 내보내기는 저장된 선택 캐릭터 또는 현재 둘을 UTF-8 `*.comet-character.json` 파일로 만듭니다. 개인 단어장은 기본 제외되며 선택한 항목만 추가합니다. 실제 대화·기억·친밀도·API 키는 포함하지 않습니다. 새 캐릭터의 친밀도는 20이고, 이전 캐릭터로 돌아오면 관계를 복원합니다. 이름을 바꿔도 과거 기록의 화자 이름은 보존합니다.
 
@@ -134,20 +150,9 @@ API 모드에서는 대화와 필요한 기억이 선택한 제공자에게 전�
 
 `nanika.sqlite`에는 대화, 기억, 관계 점수, 단어장, 설정, 창 위치와 위젯 상태·명령 중복 방지 기록·선택한 사건 일지를 저장하고 `models/`에는 모델과 다운로드 임시 파일을 둡니다. 백업할 때는 앱을 종료한 뒤 데이터 폴더를 복사하세요. API 키는 별도의 운영체제 자격 증명 저장소에 있으므로 데이터 폴더 백업에 포함되지 않습니다.
 
-| 위치 | 책임 |
-| --- | --- |
-| [src/App.tsx](src/App.tsx), [components](src/components/) | 캐릭터 본체·말풍선·입력·보조 화면 |
-| [useSnapshot.ts](src/hooks/useSnapshot.ts) | 최초 상태 조회, `app-state` 이벤트 구독과 정리 |
-| [src-tauri/src/lib.rs](src-tauri/src/lib.rs) | 창·트레이, 명령 처리, 작업 직렬화·취소, 백그라운드 작업 |
-| [store.rs](src-tauri/src/store.rs), [domain.rs](src-tauri/src/domain.rs) | SQLite 저장과 기억·대화 결과 검증 |
-| [wordbook.rs](src-tauri/src/wordbook.rs) | 단어장 저장·초기 예제·키워드 매칭 |
-| [inference.rs](src-tauri/src/inference.rs) | 로컬 프로세스 소유권, API 통신, 자격 증명 |
-| [characters.rs](src-tauri/src/characters.rs), [character_commands.rs](src-tauri/src/character_commands.rs), [character_files.rs](src-tauri/src/character_files.rs) | 캐릭터 정체성·대사·팩 검증, 교체·파일 공유 |
-| [src/widgets](src/widgets/), [widgets](src-tauri/src/widgets/), [widget_connections.rs](src-tauri/src/widget_connections.rs) | 공식 도구 화면·상태 전이·설치와 데이터 보존·읽기 연결·취소 및 최신 revision 검사 |
-| [models.rs](src-tauri/src/models.rs) | 고정 모델 다운로드·이어받기·검증 |
-| [prepare-sidecar.mjs](scripts/prepare-sidecar.mjs) | 운영체제별 고정 sidecar 준비 |
-
 Rust 상태가 원본이며 프론트엔드는 이벤트를 받아 표시합니다. 사용자 입력이나 설정 변경으로 취소된 생성 결과는 적용하지 않습니다. 기억을 수정하면 기존 기억에 기반한 준비 대사를 무효화합니다.
+
+화면·명령·재생·저장·대본의 상세 파일 배치와 `action`·`gate`·epoch·revision 경계는 [구조와 책임](docs/development/architecture.md)에서 관리합니다. 코드 책임을 옮기면 구조 문서의 모듈 표를 함께 갱신합니다.
 
 ## 검증과 패키징
 
@@ -165,6 +170,8 @@ pnpm build:desktop
 [verify.yml](.github/workflows/verify.yml)은 macOS arm64와 Windows x64에서 UI 검사·테스트, Rust 테스트, 네이티브 패키징을 실행하도록 구성되어 있습니다. macOS는 `app`, Windows는 `nsis` bundle을 검사합니다. `macos-14`가 arm64이고 `windows-latest`가 x64라는 [GitHub 공식 runner 표](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job)를 기준으로 하며, 실행 시 Node의 실제 아키텍처도 검사합니다.
 
 ### 검증 범위
+
+2026-09-19 구조 리팩토링은 Rust·프런트엔드 회귀 테스트, 예제를 포함한 strict Clippy, Node.js 24의 위키 검사를 통과했습니다. 격리된 macOS QA 앱에서 모델 없는 설정 저장·자동 잡담, 정확한 단어장 재생·중단, 말풍선 종료와 재시작 데이터 보존을 확인했습니다. release 앱·DMG 생성과 앱 서명·DMG 무결성 검사도 통과했습니다. 기존 사용자 앱 교체와 Windows 실행은 포함하지 않습니다. 구체적인 명령·결과와 미검증 범위는 [현재 상태표](docs/status.md#2026-09-19-구조-리팩토링)를 따릅니다.
 
 0.3.0은 캐릭터 편집·교체·JSON 공유의 자동 테스트, macOS 네이티브 조작, 기존 데이터 보존과 패키지 검증을 통과했습니다. 구체적인 흐름과 한계는 [0.3.0 검증 기록](docs/VALIDATION-0.3.0.md)에 있습니다. 아래 0.2.0 결과는 이전 버전의 기록입니다.
 
@@ -185,7 +192,7 @@ cargo run --manifest-path src-tauri/Cargo.toml --example behavior_smoke -- /abso
 
 4B와 9B 모두 한국어 표현과 사실·정정 이해에는 오류가 남을 수 있습니다. JSON 구조 검증은 대사의 사실성을 보장하지 않습니다. 기억 분석은 짧고 완결된 사용자 발화만 후보로 삼으며, 긴 발화는 중간에서 잘라 의미를 바꾸는 대신 자동 기억에서 제외합니다. 원문 일치와 수정 이력을 코드로 검증하지만 후보 선택 자체는 모델에 의존하므로 중요한 사실은 기억 목록에서 확인해야 합니다.
 
-친밀도는 20에서 시작합니다. 직접적인 감사·모욕의 좁은 허용 목록만 ±1로 반영하고, 같은 종류의 반복 표현은 하루에 한 번만 인정합니다. 일일 절대 변동 상한은 3이며 정정·반대·부재는 점수를 낮추지 않습니다. 모델이 점수를 직접 결정하거나 기능을 잠그지 않습니다.
+친밀도는 20에서 시작합니다. 일반 대화는 직접적인 감사·모욕의 좁은 허용 목록만 ±1로 반영하고, 같은 종류의 반복 표현은 하루에 한 번만 인정합니다. 일일 절대 변동 상한은 3이며 정정·반대·부재는 점수를 낮추지 않습니다. 선택지 스토리는 일반 대화 상한과 별도로 동봉 선택의 +5/-3을 반영합니다. 미루기·닫기에는 감점이 없습니다. 모델이 점수를 직접 결정하거나 도구 기능을 잠그지 않습니다. 세부 공개 단계는 [대화 사양](docs/product/conversation.md#나디르-선택지-스토리)을 따릅니다.
 
 ## 모델과 sidecar 라이선스
 

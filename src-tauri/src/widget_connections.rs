@@ -1,8 +1,8 @@
 use crate::{
-    lock, models,
+    app::{lock, AppState},
+    models,
     widget_commands::publish_widgets,
     widgets::{calendar, connections, storage, WidgetInstance},
-    AppState,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

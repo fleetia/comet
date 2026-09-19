@@ -1,7 +1,8 @@
 use crate::{
+    app::{interrupt, lock, now, publish, windows::skip_talk, AppState},
     character_files,
     characters::{self, CharacterDefinition, CharacterDialogue, CharacterPack, InstalledCharacter},
-    interrupt, lock, now, publish, skip_talk, store, wordbook, AppState,
+    store, wordbook,
 };
 use rusqlite::Connection;
 use std::sync::{atomic::Ordering, Arc};
@@ -198,7 +199,7 @@ pub(crate) fn open_characters(app: tauri::AppHandle) -> Result<(), String> {
         "characters",
         tauri::WebviewUrl::App("index.html?view=characters".into()),
     )
-    .title("Comet · 캐릭터 관리")
+    .title("comet · 캐릭터 관리")
     .inner_size(920.0, 760.0)
     .min_inner_size(640.0, 480.0)
     .decorations(false)

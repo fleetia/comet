@@ -1,4 +1,7 @@
-use crate::{interrupt, lock, publish, talk, widgets, AppState};
+use crate::{
+    app::{interrupt, lock, publish, AppState},
+    talk, widgets,
+};
 use rusqlite::Connection;
 use std::{
     collections::BTreeMap,
@@ -14,6 +17,7 @@ pub(crate) struct PreparedTalk {
     program: Arc<talk::Program>,
     text_values: BTreeMap<String, serde_json::Value>,
     event: Option<widgets::WidgetEvent>,
+    seed: u64,
 }
 
 pub(crate) fn prepare(
@@ -39,6 +43,13 @@ pub(crate) fn prepare(
         return Ok(None);
     };
     let mut dependencies = selection.dependencies.clone();
+    if selection
+        .references
+        .iter()
+        .any(|name| name.starts_with("environment.weather"))
+    {
+        dependencies.insert("weather".into());
+    }
     if let Some(event) = event {
         dependencies.insert(event.widget_kind.clone());
     }
@@ -47,7 +58,9 @@ pub(crate) fn prepare(
     }
     let revisions = widgets::storage::instances(db)?
         .into_iter()
-        .filter(|instance| dependencies.contains(&instance.kind))
+        .filter(|instance| {
+            dependencies.contains(&instance.kind) && instance.installed && instance.enabled
+        })
         .map(|instance| (instance.id, instance.revision))
         .collect();
     let lines = selection.lines.clone();
@@ -59,6 +72,7 @@ pub(crate) fn prepare(
         program,
         text_values: context.values,
         event: event.cloned(),
+        seed: context.seed,
     });
     Ok(Some(lines))
 }
@@ -90,7 +104,7 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
     }) {
         return Ok(false);
     }
-    let context = talk::context::build(db, prepared.event.as_ref(), now, 0)?;
+    let context = talk::context::build(db, prepared.event.as_ref(), now, prepared.seed)?;
     let rendered = talk::render_scene_with_text_values(
         &prepared.program,
         &prepared.selection.key,
@@ -163,4 +177,74 @@ pub(crate) fn watch(app: tauri::AppHandle, state: Arc<AppState>) {
             std::thread::sleep(Duration::from_millis(250));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::path::Path;
+
+    #[test]
+    fn core_weather_revision_change_cancels_even_when_condition_and_text_still_match() {
+        let state = crate::app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        let data = json!({"status":"ready","lastSuccessAt":now,"observation":{"temperature":1,"weatherCode":3,"name":"서울","observedAt":now}});
+        db.execute("INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data,error) VALUES('weather','weather',1,1,1,0,?1,NULL)", [data.to_string()]).unwrap();
+        let program = talk::validate_source(Path::new("core.talk"), "format: 1\nscene: weather\non: idle\nwhen: environment.weatherReady and environment.weatherTemperature != null and environment.weatherTemperature < 5\n---\nA: 기온이 낮네.\nB: 겉옷을 챙겨.\n===", &talk::context::registry()).unwrap();
+        lock(&state.talk).unwrap().apply(Ok(program));
+        assert!(prepare(&state, &db, None).unwrap().is_some());
+        assert!(current(&state, &db).unwrap());
+        db.execute("UPDATE widget_instances SET revision=revision+1,data=json_set(data,'$.observation.temperature',2) WHERE id='weather'", []).unwrap();
+        assert!(!current(&state, &db).unwrap());
+    }
+
+    #[test]
+    fn unknown_weather_fallback_can_play_with_a_disabled_or_missing_connection() {
+        let state = crate::app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let program = talk::validate_source(Path::new("core.talk"), "format: 1\nscene: unknown\non: idle\nwhen: not environment.weatherReady\n---\nA: 지금 날씨는 몰라.\n===", &talk::context::registry()).unwrap();
+        lock(&state.talk).unwrap().apply(Ok(program));
+        assert!(prepare(&state, &db, None).unwrap().is_some());
+        assert!(current(&state, &db).unwrap());
+        db.execute("INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data,error) VALUES('weather','weather',1,1,0,0,'{}',NULL)", []).unwrap();
+        assert!(prepare(&state, &db, None).unwrap().is_some());
+        assert!(current(&state, &db).unwrap());
+    }
+
+    #[test]
+    fn revalidation_uses_the_prepared_variant_for_every_line() {
+        let state = crate::app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let branches = (0..5)
+            .map(|variant| {
+                format!("@if dialogue.variant == {variant}\nA: 변형 {variant}\n@endif\n")
+            })
+            .collect::<String>();
+        let program = talk::validate_source(
+            Path::new("variant.talk"),
+            &format!("format: 1\nscene: variant\non: idle\n---\n{branches}===\n"),
+            &talk::context::registry(),
+        )
+        .unwrap();
+        lock(&state.talk).unwrap().apply(Ok(program));
+        assert!(prepare(&state, &db, None).unwrap().is_some());
+        assert!(current(&state, &db).unwrap());
+        for seed in 0..5 {
+            {
+                let mut playing = lock(&state.talk_playback).unwrap();
+                let prepared = playing.as_mut().unwrap();
+                let context =
+                    talk::context::build(&db, None, chrono::Utc::now().timestamp_millis(), seed)
+                        .unwrap();
+                prepared.selection =
+                    talk::render_scene(&prepared.program, &prepared.selection.key, &context)
+                        .unwrap();
+                prepared.seed = seed;
+                prepared.text_values = context.values;
+            }
+            assert!(current(&state, &db).unwrap(), "variant {seed}");
+        }
+    }
 }

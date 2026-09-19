@@ -1,7 +1,10 @@
 pub mod context;
 pub mod defaults;
+pub mod editor;
+pub(crate) mod encryption;
 mod evaluator;
 mod expr;
+mod legacy;
 mod parser;
 pub mod runtime;
 #[cfg(test)]

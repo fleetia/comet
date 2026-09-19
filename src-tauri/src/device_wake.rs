@@ -1,8 +1,7 @@
 use crate::{
-    lock,
+    app::{lock, AppState},
     widget_commands::publish_widgets,
     widgets::{storage, EventDraft},
-    AppState,
 };
 use rusqlite::Connection;
 use serde_json::json;

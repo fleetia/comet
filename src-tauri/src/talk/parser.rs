@@ -29,6 +29,13 @@ fn file_error(path: &Path, code: &str, message: impl Into<String>) -> Vec<Diagno
     vec![span(path, 1, 1).error(code, message)]
 }
 pub fn load(entry: &Path, registry: &Registry) -> Result<Program, Vec<Diagnostic>> {
+    load_with_source(entry, registry, None)
+}
+pub(crate) fn load_with_source(
+    entry: &Path,
+    registry: &Registry,
+    replacement: Option<(&Path, &str)>,
+) -> Result<Program, Vec<Diagnostic>> {
     let lexical_root = entry
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
@@ -38,6 +45,7 @@ pub fn load(entry: &Path, registry: &Registry) -> Result<Program, Vec<Diagnostic
     let mut loader = Loader {
         root,
         registry,
+        replacement,
         program: Program {
             files: BTreeSet::new(),
             sources: BTreeMap::new(),
@@ -54,6 +62,7 @@ pub fn load(entry: &Path, registry: &Registry) -> Result<Program, Vec<Diagnostic
 struct Loader<'a> {
     root: PathBuf,
     registry: &'a Registry,
+    replacement: Option<(&'a Path, &'a str)>,
     program: Program,
     visited: BTreeSet<(PathBuf, Option<[String; 2]>)>,
     stack: BTreeSet<PathBuf>,
@@ -115,31 +124,24 @@ impl Loader<'_> {
         let source = if let Some(source) = self.program.sources.get(&canonical) {
             source.clone()
         } else {
-            let metadata = fs::metadata(&canonical)
-                .map_err(|error| file_error(path, "IMPORT_IO", error.to_string()))?;
-            if !metadata.is_file() || metadata.len() > FILE_LIMIT {
-                return Err(file_error(
-                    path,
-                    "FILE_SIZE",
-                    "대본은 1 MiB 이하의 일반 파일이어야 해요.",
-                ));
-            }
-            // Bound the read even if a file changes between metadata and reading.
-            use std::io::Read;
-            let file = fs::File::open(&canonical)
-                .map_err(|error| file_error(path, "IMPORT_IO", error.to_string()))?;
-            let mut data = Vec::new();
-            file.take(FILE_LIMIT + 1)
-                .read_to_end(&mut data)
-                .map_err(|error| file_error(path, "IMPORT_IO", error.to_string()))?;
-            if data.len() > FILE_LIMIT as usize {
-                return Err(file_error(
-                    path,
-                    "FILE_SIZE",
-                    "대본 파일은 1 MiB 이하여야 해요.",
-                ));
-            }
-            self.bytes += data.len();
+            let source = if let Some((_, source)) =
+                self.replacement.filter(|(path, _)| *path == canonical)
+            {
+                if source.len() > FILE_LIMIT as usize {
+                    return Err(file_error(
+                        path,
+                        "FILE_SIZE",
+                        "대본 파일은 1 MiB 이하여야 해요.",
+                    ));
+                }
+                source.to_owned()
+            } else {
+                let data = super::encryption::read_bytes(&canonical)
+                    .map_err(|error| file_error(path, "IMPORT_IO", error))?;
+                super::encryption::decode(&data)
+                    .map_err(|error| file_error(path, "DECRYPT", error))?
+            };
+            self.bytes += source.len();
             if self.bytes > BUNDLE_LIMIT {
                 return Err(file_error(
                     path,
@@ -147,8 +149,6 @@ impl Loader<'_> {
                     "대본 전체는 4 MiB 이하여야 해요.",
                 ));
             }
-            let source = String::from_utf8(data)
-                .map_err(|_| file_error(path, "ENCODING", "UTF-8 대본이 필요해요."))?;
             self.program
                 .sources
                 .insert(canonical.clone(), source.clone());
