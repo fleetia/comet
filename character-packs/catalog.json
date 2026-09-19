@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "packages": [
+    {
+      "id": "nadir-and-star-tail",
+      "name": "나디르와 별꼬리",
+      "description": "나디르와 별꼬리의 텍스트 표정과 기본 대화를 제공하는 캐릭터팩입니다.",
+      "author": "Comet",
+      "sourceUrl": "",
+      "file": "../examples/character-packs/nadir-and-star-tail.comet-character.json",
+      "license": "",
+      "minimumAppVersion": "0.3.0",
+      "formatVersion": 1
+    },
+    {
+      "id": "byulkkori",
+      "name": "별꼬리",
+      "description": "표정 이미지가 포함된 공식 캐릭터팩입니다.",
+      "author": "",
+      "sourceUrl": "",
+      "file": "../examples/character-packs/byulkkori.comet-character.json",
+      "license": "LicenseRef-Comet-Official-Content",
+      "licenseFile": "../examples/character-packs/byulkkori.LICENSE.txt",
+      "minimumAppVersion": "0.4.0",
+      "formatVersion": 2,
+      "preview": "byulkkori-preview.svg"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>음악 정보 위젯에서 사용자가 선택한 Music 또는 Spotify의 현재 재생 곡 정보를 읽습니다. 재생이나 재생목록을 변경하지 않습니다.</string>
+</dict>
+</plist>

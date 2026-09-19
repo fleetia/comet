@@ -1,0 +1,129 @@
+name: Version and release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - '.changeset/**'
+      - '.github/workflows/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'src-tauri/Cargo.toml'
+      - 'src-tauri/Cargo.lock'
+      - 'src-tauri/tauri.conf.json'
+      - 'CHANGELOG.md'
+      - 'scripts/release.py'
+      - 'scripts/finalize_release.py'
+      - 'scripts/prepare-release*'
+      - 'scripts/test_*.py'
+      - 'vitest.release.config.ts'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: changesets-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: Check release automation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prepare Changesets base branch
+        run: git show-ref --verify --quiet refs/heads/main || git branch main origin/main
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://npm.pkg.github.com
+          scope: '@fleetia'
+      - run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: pnpm release:check
+      - run: pnpm test:release
+      - name: Validate changeset entries
+        run: |
+          if node -e "process.exit(require('node:fs').readdirSync('.changeset').some(name => name.endsWith('.md') && name !== 'README.md') ? 0 : 1)"; then
+            pnpm changeset status
+          else
+            pnpm changeset status --since=HEAD
+          fi
+
+  version:
+    needs: check
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      packages: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://npm.pkg.github.com
+          scope: '@fleetia'
+      - run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: changesets/action@v2.1.2
+        id: changesets
+        with:
+          version-script: pnpm version:release
+          commit-message: 'chore: 앱 버전과 변경 기록 갱신'
+          pr-title: 'chore: 다음 앱 버전 배포'
+          create-github-releases: false
+          push-git-tags: false
+      - name: Check release entry
+        id: entry
+        if: steps.changesets.outputs.has-changesets == 'false'
+        run: |
+          if test -f CHANGELOG.md; then
+            pnpm release:check
+            python3 scripts/release.py notes > /dev/null
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Prepare immutable version tag
+        id: tag
+        if: steps.entry.outputs.ready == 'true'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { prepareRelease } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/prepare-release.mjs`);
+            const { version } = JSON.parse(require('fs').readFileSync('package.json', 'utf8'));
+            const tag = await prepareRelease(github, context.repo, version, context.sha);
+            core.setOutput('tag', tag);
+
+  release:
+    needs: version
+    if: needs.version.outputs.tag != ''
+    permissions:
+      contents: write
+      packages: read
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.version.outputs.tag }}
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
