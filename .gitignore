@@ -6,6 +6,7 @@ src-tauri/binaries/*
 *.tsbuildinfo
 __pycache__/
 .DS_Store
+.idea/
 test-results/
 src-tauri/gen/
 
