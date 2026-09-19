@@ -25,7 +25,7 @@ description: 공식 위젯과 보조 화면의 소스 구현, 실제 검증 범�
 
 Changesets 후속 구현은 변경셋의 main 병합 후 버전 PR을 만들고, 버전 PR 병합 후 서명된 데스크톱 Release workflow를 직접 호출한다. package.json·Tauri·Cargo manifest·lock의 버전을 동기화하고 해당 CHANGELOG 항목을 Release와 앱 updater의 업데이트 노트로 사용한다. 초기 상태·이미 공개한 버전은 발행을 건너뛰며 기존 태그를 다른 커밋으로 옮기지 않는다. 모든 updater 플랫폼 URL을 같은 Release의 공개 다운로드 주소로 정규화한 manifest를 업로드한 뒤 공개한다. 동기화·노트·태그·manifest 검사는 통과했으며 실제 signed Release 공개·설치 인수는 별도로 남는다.
 
-CI 최적화는 branch push·PR의 중복 실행과 문서 변경의 native 빌드를 줄이고, 공통 프론트엔드 검사를 Ubuntu로 옮긴다. main에서 저장한 Rust 의존성·고정 sidecar 캐시를 Verify와 Release가 공유한다. 두 OS의 Rust·패키징·서명/무결성 검사는 유지하며 실행 조건과 캐시 무효화 기준은 [릴리스 문서](development/releases.md#ci-실행과-캐시)를 따른다. 설정 변경만으로 빌드 시간 단축률이나 Release 설치 인수를 선언하지 않는다.
+CI 최적화는 branch push·PR의 중복 실행과 문서 변경의 native 빌드를 줄이고, 공통 프론트엔드 검사를 Ubuntu로 옮긴다. main에서 저장한 Rust 의존성·고정 sidecar 캐시를 Verify와 Release가 공유한다. PR에서는 두 OS의 Rust 테스트까지 수행하고, main·수동 실행·Release에서 패키징과 서명/무결성 검사도 수행한다. 실행 조건과 캐시 무효화 기준은 [릴리스 문서](development/releases.md#ci-실행과-캐시)를 따른다. 설정 변경만으로 빌드 시간 단축률이나 Release 설치 인수를 선언하지 않는다.
 
 macOS 별도 QA 앱을 빌드하고 `codesign --verify --deep --strict`를 통과했다. 캐릭터를 숨긴 상태에서 메모를 열고 저장했으며 재시작 후 숨김 값과 설치한 위젯 여섯 개의 보존을 DB에서 확인했다. 최신 native 공 꺼내기는 위젯 관리 화면의 포커스를 바꾸지 않았고, actor ID를 포함한 정지 결과 한 건을 기록했다. 설정에서 장난감 정리와 업데이트 정보 없음 상태, 입력창 포커스와 메뉴 복귀도 확인했다. 별꼬리 v2 파일의 미리보기·설치 후 활성 A/B가 유지됐으며 관리 화면에서 빈 제작자·출처 URL을 저장하고 DB의 빈 문자열을 확인했다. 외부 앱의 입력 포커스, 클릭 통과·드래그·창 충돌, 다중 모니터, 숨김 재시작 후 트레이 직접 호출, Windows 실기와 공식 배포 채널을 통한 두 OS 업데이트 검증은 아직 인수하지 않았다. 전체 완료는 이 실기 조건을 충족한 뒤 판단한다.
 
