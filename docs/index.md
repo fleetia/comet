@@ -41,7 +41,7 @@ comet은 나니카·우카가카처럼 바탕화면에 머물며 먼저 말을 �
 | 외부 개발자는 무엇을 준비하는가 | [위젯 작성 안내](widgets/authoring.md) |
 | 코드를 어디에서 바꾸고 무엇을 보존하는가 | [구조와 책임](development/architecture.md) |
 | 다음 개발과 검증은 무엇인가 | [개발 순서와 인수 기준](development/roadmap.md), [구현 상태](status.md) |
-| 캐릭터를 1명이나 3명 이상 두려면 | [캐릭터 관리](product/characters.md), [당시 설계안](development/multi-character-plan.md) |
+| 캐릭터 수와 조합을 이해하려면 | [캐릭터팩·1~8명 조합·내보내기](product/characters.md) |
 | 이 문서와 위키를 어떻게 수정하는가 | [위키 운영](development/wiki.md) |
 
 ## 유지할 제품 경계
