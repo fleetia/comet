@@ -113,7 +113,7 @@ fn validation_reports_unknown_fields_variables_events_and_bad_types() {
             4,
         ),
         (
-            "format: 1\nscene: bad\non: idle\n---\nC: 안녕\n===",
+            "format: 1\nscene: bad\non: idle\n---\nI: 안녕\n===",
             "SPEAKER",
             5,
         ),
@@ -458,4 +458,36 @@ fn text_snapshot_survives_elapsed_time_while_live_conditions_and_nullability_are
         render_scene_with_text_values(&program, &program.scenes[1].key, &state, &text_values)
             .is_none()
     );
+}
+
+#[test]
+fn cast_aliases_follow_all_three_identities_and_reject_out_of_cast_speakers() {
+    let directory = tempdir().unwrap();
+    let entry = directory.path().join("index.talk");
+    fs::write(
+        &entry,
+        "format: 1\nimport \"cast.talk\" for cast(\"first\", \"second\", \"third\")\n",
+    )
+    .unwrap();
+    fs::write(
+        directory.path().join("cast.talk"),
+        "format: 1\nscene: three\non: idle\n---\nC:  셋째 원문  \nA: 첫째\n===",
+    )
+    .unwrap();
+    let program = load(&entry, &registry()).unwrap();
+    let mut current = context();
+    current.active = vec!["third".into(), "second".into(), "first".into()];
+    let selected = render_scene(&program, &program.scenes[0].key, &current).unwrap();
+    assert_eq!(selected.lines[0].persona, "a");
+    assert_eq!(selected.lines[0].text, " 셋째 원문  ");
+    assert_eq!(selected.lines[1].persona, "c");
+    fs::write(
+        directory.path().join("cast.talk"),
+        "format: 1\nscene: invalid\non: idle\n---\nD: 없음\n===",
+    )
+    .unwrap();
+    assert!(load(&entry, &registry())
+        .unwrap_err()
+        .iter()
+        .any(|d| d.code == "SPEAKER"));
 }

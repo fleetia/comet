@@ -5,6 +5,8 @@ use serde_json::Value;
 use std::path::Path;
 
 type Result<T> = std::result::Result<T, String>;
+const GENERATED_RECALL_MILLIS: i64 = 30 * 60 * 1000;
+
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
@@ -23,8 +25,36 @@ INSERT OR IGNORE INTO kv VALUES('revision','0');").map_err(err)?;
     crate::wordbook::initialize(&conn)?;
     crate::characters::initialize(&conn)?;
     initialize_identities(&conn)?;
+    initialize_message_context(&conn)?;
     crate::widgets::storage::initialize(&conn)?;
     Ok(conn)
+}
+
+fn initialize_message_context(conn: &Connection) -> Result<()> {
+    let tx = conn.unchecked_transaction().map_err(err)?;
+    tx.execute_batch(
+        "CREATE TABLE IF NOT EXISTS message_context(
+            message_id TEXT PRIMARY KEY REFERENCES messages(id),
+            source TEXT NOT NULL,
+            expires_at INTEGER,
+            forgotten INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS message_context_expiry ON message_context(expires_at)
+            WHERE forgotten=0 AND expires_at IS NOT NULL;",
+    )
+    .map_err(err)?;
+    if get::<bool>(&tx, "message_context_v1")? != Some(true) {
+        tx.execute(
+            "INSERT OR IGNORE INTO message_context(message_id,source,expires_at)
+             SELECT id,CASE WHEN role='user' THEN 'user' ELSE 'unknown' END,
+                    CASE WHEN role='assistant' THEN json_extract(data,'$.createdAt')+?1 END
+             FROM messages",
+            [GENERATED_RECALL_MILLIS],
+        )
+        .map_err(err)?;
+        put(&tx, "message_context_v1", &true)?;
+    }
+    tx.commit().map_err(err)
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -39,7 +69,8 @@ pub struct MessageIdentity {
 fn initialize_identities(conn: &Connection) -> Result<()> {
     let tx = conn.unchecked_transaction().map_err(err)?;
     tx.execute_batch("CREATE TABLE IF NOT EXISTS message_characters(message_id TEXT NOT NULL,persona TEXT NOT NULL,character_id TEXT NOT NULL,name TEXT NOT NULL,version INTEGER NOT NULL,PRIMARY KEY(message_id,persona));
-CREATE TABLE IF NOT EXISTS character_affinity(source TEXT NOT NULL,character_id TEXT NOT NULL,day TEXT NOT NULL,delta INTEGER NOT NULL,fingerprint TEXT NOT NULL,PRIMARY KEY(source,character_id));").map_err(err)?;
+CREATE TABLE IF NOT EXISTS character_affinity(source TEXT NOT NULL,character_id TEXT NOT NULL,day TEXT NOT NULL,delta INTEGER NOT NULL,fingerprint TEXT NOT NULL,PRIMARY KEY(source,character_id));
+CREATE TABLE IF NOT EXISTS message_targets(message_id TEXT PRIMARY KEY,ids TEXT NOT NULL);").map_err(err)?;
     if get::<bool>(&tx, "character_identity_v1")? != Some(true) {
         let originals: Vec<Message> = {
             let mut stmt = tx
@@ -69,11 +100,12 @@ CREATE TABLE IF NOT EXISTS character_affinity(source TEXT NOT NULL,character_id 
     }
     tx.commit().map_err(err)
 }
-fn message_slots(message: &Message) -> Vec<&'static str> {
+fn message_slots(message: &Message) -> Vec<&str> {
     match message.persona.as_deref() {
         Some("a") => vec!["a"],
         Some("b") => vec!["b"],
         Some("both") if message.role == "user" => vec!["a", "b"],
+        Some(id) if id != "all" => vec![id],
         _ => vec![],
     }
 }
@@ -134,7 +166,6 @@ pub fn messages(conn: &Connection, limit: usize) -> Result<Vec<Message>> {
     rows.map(|r| serde_json::from_str(&r.map_err(err)?).map_err(err))
         .collect()
 }
-#[cfg(test)]
 pub fn context_messages(conn: &Connection, limit: usize) -> Result<Vec<Message>> {
     context_for_character(conn, limit, None)
 }
@@ -152,18 +183,19 @@ fn context_for_character(
     character: Option<&str>,
 ) -> Result<Vec<Message>> {
     let ids = crate::characters::active_ids(conn)?;
-    let a = ids.first().cloned().ok_or("바탕화면에 캐릭터가 없습니다.")?;
-    let b = ids.get(1).cloned();
+    let roster_json = serde_json::to_string(&ids).map_err(err)?;
     let mut stmt = conn.prepare("SELECT data FROM (
         SELECT seq,data FROM messages AS message
-        WHERE EXISTS (SELECT 1 FROM message_characters i WHERE i.message_id=message.id AND i.character_id IN (?2,?3) AND (?4 IS NULL OR i.character_id=?4))
+        WHERE EXISTS (SELECT 1 FROM message_characters i WHERE i.message_id=message.id AND i.character_id IN (SELECT value FROM json_each(?2)) AND (?3 IS NULL OR i.character_id=?3))
+        AND NOT EXISTS (SELECT 1 FROM message_context c WHERE c.message_id=message.id AND (c.forgotten=1 OR c.source='story'))
         AND (message.role!='user' OR NOT EXISTS (
             SELECT 1 FROM memories AS memory WHERE memory.source=message.id AND (memory.deleted=1 OR memory.locked=1)
         )) ORDER BY seq DESC LIMIT ?1) ORDER BY seq").map_err(err)?;
     let rows = stmt
-        .query_map(params![limit.min(1000) as i64, a, b, character], |row| {
-            row.get::<_, String>(0)
-        })
+        .query_map(
+            params![limit.min(1000) as i64, roster_json, character],
+            |row| row.get::<_, String>(0),
+        )
         .map_err(err)?;
     let mut identity = conn
         .prepare("SELECT character_id FROM message_characters WHERE message_id=? AND persona=?")
@@ -174,12 +206,42 @@ fn context_for_character(
             let id: String = identity
                 .query_row(params![message.id, slot], |r| r.get(0))
                 .map_err(err)?;
-            message.persona = Some(if id == a { "a" } else { "b" }.into());
+            message.persona = Some(if character.is_some_and(|value| value == id) {
+                id
+            } else {
+                ids.iter()
+                    .position(|value| value == &id)
+                    .map(|index| crate::characters::SLOTS[index].to_string())
+                    .unwrap_or(id)
+            });
         }
         Ok(message)
     })
     .collect()
 }
+pub fn message_targets(conn: &Connection, message_id: &str) -> Result<Vec<String>> {
+    let saved: Option<String> = conn
+        .query_row(
+            "SELECT ids FROM message_targets WHERE message_id=?",
+            [message_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(err)?;
+    if let Some(saved) = saved {
+        return serde_json::from_str(&saved).map_err(err);
+    }
+    let mut statement = conn
+        .prepare("SELECT character_id FROM message_characters WHERE message_id=? ORDER BY persona")
+        .map_err(err)?;
+    let result = statement
+        .query_map([message_id], |row| row.get(0))
+        .map_err(err)?
+        .collect::<rusqlite::Result<Vec<String>>>()
+        .map_err(err)?;
+    Ok(result)
+}
+
 pub fn insert_message(conn: &Connection, message: &Message) -> Result<()> {
     insert_message_with_talk(conn, message, None)
 }
@@ -187,6 +249,21 @@ pub fn insert_message_with_talk(
     conn: &Connection,
     message: &Message,
     scene_key: Option<&str>,
+) -> Result<()> {
+    let source = if scene_key.is_some() {
+        "talk"
+    } else {
+        "unknown"
+    };
+    insert_message_with_source(conn, message, source, scene_key, false)
+}
+
+pub fn insert_message_with_source(
+    conn: &Connection,
+    message: &Message,
+    source: &str,
+    scene_key: Option<&str>,
+    direct_reply: bool,
 ) -> Result<()> {
     let tx = conn.unchecked_transaction().map_err(err)?;
     let changed = tx
@@ -200,8 +277,31 @@ pub fn insert_message_with_talk(
         )
         .map_err(err)?;
     if changed > 0 {
-        for slot in message_slots(message) {
-            let character = crate::characters::active_character(&tx, slot)?;
+        let source = if message.role == "user" {
+            "user"
+        } else {
+            source
+        };
+        let expires_at = (message.role == "assistant"
+            && matches!(source, "llm" | "question" | "unknown"))
+        .then(|| message.created_at.saturating_add(GENERATED_RECALL_MILLIS));
+        tx.execute(
+            "INSERT INTO message_context(message_id,source,expires_at) VALUES(?1,?2,?3)",
+            params![message.id, source, expires_at],
+        )
+        .map_err(err)?;
+        let targets = if message.role == "user" && message.persona.as_deref() == Some("all") {
+            crate::characters::active_ids(&tx)?
+        } else {
+            message_slots(message)
+                .into_iter()
+                .map(str::to_string)
+                .collect()
+        };
+        let mut target_ids = Vec::new();
+        for slot in targets {
+            let character = crate::characters::active_character(&tx, &slot)?;
+            target_ids.push(character.id.clone());
             tx.execute(
                 "INSERT INTO message_characters VALUES(?1,?2,?3,?4,?5)",
                 params![
@@ -215,7 +315,18 @@ pub fn insert_message_with_talk(
             .map_err(err)?;
         }
         if message.role == "user" {
+            tx.execute(
+                "INSERT INTO message_targets VALUES(?1,?2)",
+                params![message.id, serde_json::to_string(&target_ids).map_err(err)?],
+            )
+            .map_err(err)?;
+        }
+        if message.role == "user" {
+            forget_expired_messages(&tx, message.created_at)?;
+            extend_generated_recall(&tx, message.created_at)?;
             bump_revision(&tx)?;
+        } else if direct_reply {
+            extend_generated_recall(&tx, message.created_at)?;
         }
         if let Some(key) = scene_key {
             tx.execute(
@@ -224,6 +335,44 @@ pub fn insert_message_with_talk(
             ).map_err(err)?;
         }
     }
+    tx.commit().map_err(err)
+}
+
+fn forget_expired_messages(conn: &Connection, at: i64) -> Result<bool> {
+    conn.execute(
+        "UPDATE message_context SET forgotten=1 WHERE forgotten=0 AND expires_at<=?1",
+        [at],
+    )
+    .map(|changed| changed > 0)
+    .map_err(err)
+}
+
+fn extend_generated_recall(conn: &Connection, at: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE message_context SET expires_at=MAX(expires_at,?1)
+         WHERE forgotten=0 AND expires_at IS NOT NULL",
+        [at.saturating_add(GENERATED_RECALL_MILLIS)],
+    )
+    .map_err(err)?;
+    Ok(())
+}
+
+pub fn expire_generated_recall(conn: &Connection, at: i64) -> Result<bool> {
+    let tx = conn.unchecked_transaction().map_err(err)?;
+    let changed = forget_expired_messages(&tx, at)?;
+    if changed {
+        bump_revision(&tx)?;
+    }
+    tx.commit().map_err(err)?;
+    Ok(changed)
+}
+
+pub fn resume_conversation(conn: &Connection, at: i64) -> Result<()> {
+    let tx = conn.unchecked_transaction().map_err(err)?;
+    if forget_expired_messages(&tx, at)? {
+        bump_revision(&tx)?;
+    }
+    extend_generated_recall(&tx, at)?;
     tx.commit().map_err(err)
 }
 pub fn memories(conn: &Connection) -> Result<Vec<Memory>> {
@@ -263,8 +412,7 @@ pub fn delete_memory(conn: &Connection, id: &str) -> Result<()> {
 pub fn relationships(conn: &Connection) -> Result<Vec<Relationship>> {
     crate::characters::active_ids(conn)?
         .iter()
-        .zip(["a", "b"])
-        .map(|(id, persona)| {
+        .map(|id| {
             let sum: i32 = conn
                 .query_row(
                     "SELECT COALESCE(SUM(delta),0) FROM character_affinity WHERE character_id=?",
@@ -273,7 +421,7 @@ pub fn relationships(conn: &Connection) -> Result<Vec<Relationship>> {
                 )
                 .map_err(err)?;
             Ok(Relationship {
-                persona: persona.into(),
+                persona: id.clone(),
                 score: (20 + sum).clamp(0, 100),
             })
         })
@@ -412,16 +560,14 @@ pub fn analyze_apply(conn: &Connection, value: &Value) -> Result<()> {
     if let Some(items) = value.get("events").and_then(Value::as_array) {
         for item in items.iter().take(24) {
             let persona = field(item, "persona");
-            if !["a", "b"].contains(&persona)
-                || item.get("certain").and_then(Value::as_bool) != Some(true)
-            {
+            if item.get("certain").and_then(Value::as_bool) != Some(true) {
                 continue;
             }
             let Some(source) = evidence(&tx, item)? else {
                 continue;
             };
             if source.persona.as_deref() != Some(persona)
-                && source.persona.as_deref() != Some("both")
+                && !matches!(source.persona.as_deref(), Some("both" | "all"))
             {
                 continue;
             }
@@ -505,15 +651,189 @@ mod tests {
         insert_message(&conn, &message("hello", "user", "안녕")).unwrap();
         insert_message(&conn, &message("reply", "assistant", "반가워")).unwrap();
         assert_eq!(relationships(&conn).unwrap().len(), 1);
-        assert_eq!(relationships(&conn).unwrap()[0].persona, "a");
+        assert_eq!(relationships(&conn).unwrap()[0].persona, "builtin-b");
         let context = context_messages_for(&conn, 10, "a").unwrap();
         assert_eq!(context.len(), 2);
-        assert!(context.iter().all(|m| m.persona.as_deref() == Some("a")));
+        assert!(context
+            .iter()
+            .all(|m| m.persona.as_deref() == Some("builtin-b")));
         assert!(context_messages_for(&conn, 10, "b").is_err());
         let mut to_b = message("to-b", "user", "거기?");
         to_b.persona = Some("b".into());
         assert!(insert_message(&conn, &to_b).is_err());
         assert_eq!(messages(&conn, 10).unwrap().len(), 2);
+    }
+    #[test]
+    fn generated_recall_expires_without_changing_authored_history_or_user_memory() {
+        let conn = open(Path::new(":memory:")).unwrap();
+        let user = message("user", "user", "나는 차를 좋아해");
+        insert_message(&conn, &user).unwrap();
+        apply(&conn, vec![fact("user", &user.content)], vec![]);
+        for source in ["llm", "wordbook", "script", "talk", "widget"] {
+            insert_message_with_source(
+                &conn,
+                &message(source, "assistant", "  어릴 때 바다에 갔어.\n  "),
+                source,
+                None,
+                false,
+            )
+            .unwrap();
+        }
+        let transcript = messages(&conn, 100).unwrap();
+        let memory = memories(&conn).unwrap();
+        let identities = message_identities(&conn, 100).unwrap();
+        let relationships = relationships(&conn).unwrap();
+        let before = revision(&conn).unwrap();
+        add_scene(
+            &conn,
+            &PreparedScene {
+                id: "prepared".into(),
+                revision: before,
+                lines: vec![],
+            },
+        )
+        .unwrap();
+        let expires_at = user.created_at + GENERATED_RECALL_MILLIS;
+        assert!(!expire_generated_recall(&conn, expires_at - 1).unwrap());
+        assert_eq!(context_messages(&conn, 100).unwrap().len(), 6);
+        assert!(expire_generated_recall(&conn, expires_at).unwrap());
+        assert_eq!(revision(&conn).unwrap(), before + 1);
+        assert!(prepared_scenes(&conn).unwrap().is_empty());
+        assert_eq!(
+            context_messages(&conn, 100)
+                .unwrap()
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            ["user", "wordbook", "script", "talk", "widget"]
+        );
+        assert!(!expire_generated_recall(&conn, expires_at + 1).unwrap());
+        assert_eq!(revision(&conn).unwrap(), before + 1);
+        assert_eq!(
+            serde_json::to_value(messages(&conn, 100).unwrap()).unwrap(),
+            serde_json::to_value(transcript).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(memories(&conn).unwrap()).unwrap(),
+            serde_json::to_value(memory).unwrap()
+        );
+        assert_eq!(message_identities(&conn, 100).unwrap(), identities);
+        assert_eq!(
+            serde_json::to_value(super::relationships(&conn).unwrap()).unwrap(),
+            serde_json::to_value(relationships).unwrap()
+        );
+    }
+
+    #[test]
+    fn direct_conversation_extends_recall_but_automatic_chatter_does_not() {
+        let conn = open(Path::new(":memory:")).unwrap();
+        let mut generated = message("first", "assistant", "어릴 때 바다에 갔어");
+        let start = generated.created_at;
+        insert_message_with_source(&conn, &generated, "llm", None, false).unwrap();
+        let mut user = message("followup", "user", "그다음에는?");
+        user.created_at = start + GENERATED_RECALL_MILLIS - 1;
+        insert_message(&conn, &user).unwrap();
+        let mut reply = message("direct-reply", "assistant", "계속 이야기할게");
+        reply.created_at = user.created_at + 60_000;
+        insert_message_with_source(&conn, &reply, "llm", None, true).unwrap();
+        let expires_at = reply.created_at + GENERATED_RECALL_MILLIS;
+        generated.id = "automatic".into();
+        generated.created_at = expires_at - 1;
+        insert_message_with_source(&conn, &generated, "llm", None, false).unwrap();
+        assert!(!expire_generated_recall(&conn, expires_at - 1).unwrap());
+        assert!(expire_generated_recall(&conn, expires_at).unwrap());
+        assert_eq!(
+            context_messages(&conn, 100)
+                .unwrap()
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            ["followup", "automatic"]
+        );
+        let mut next = message("next", "user", "안녕");
+        next.created_at = expires_at + GENERATED_RECALL_MILLIS;
+        insert_message(&conn, &next).unwrap();
+        assert!(context_messages(&conn, 100)
+            .unwrap()
+            .iter()
+            .all(|m| m.role == "user"));
+        resume_conversation(&conn, start).unwrap();
+        assert!(context_messages(&conn, 100)
+            .unwrap()
+            .iter()
+            .all(|m| m.role == "user"));
+        assert_eq!(messages(&conn, 100).unwrap().len(), 5);
+    }
+
+    #[test]
+    fn recall_metadata_and_expiration_roll_back_with_failed_storage() {
+        let conn = open(Path::new(":memory:")).unwrap();
+        let mut original = message("generated", "assistant", "임시 대사");
+        insert_message_with_source(&conn, &original, "llm", None, false).unwrap();
+        let expires_at = original.created_at + GENERATED_RECALL_MILLIS;
+        let before = revision(&conn).unwrap();
+        conn.execute_batch("CREATE TRIGGER fail_revision BEFORE UPDATE ON kv WHEN OLD.key='revision' BEGIN SELECT RAISE(ABORT,'storage failure'); END;").unwrap();
+        let mut user = message("new-user", "user", "새 대화");
+        user.created_at = expires_at;
+        assert!(insert_message(&conn, &user).is_err());
+        assert!(expire_generated_recall(&conn, expires_at).is_err());
+        assert_eq!(messages(&conn, 100).unwrap().len(), 1);
+        assert_eq!(context_messages(&conn, 100).unwrap().len(), 1);
+        assert_eq!(revision(&conn).unwrap(), before);
+        conn.execute_batch("DROP TRIGGER fail_revision").unwrap();
+        original.created_at = expires_at + 1;
+        original.content = "중복으로 바뀐 원문".into();
+        insert_message_with_source(&conn, &original, "script", None, true).unwrap();
+        assert!(expire_generated_recall(&conn, expires_at).unwrap());
+        assert!(context_messages(&conn, 100).unwrap().is_empty());
+        assert_eq!(messages(&conn, 100).unwrap()[0].content, "임시 대사");
+        let source: String = conn
+            .query_row(
+                "SELECT source FROM message_context WHERE message_id='generated'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(source, "llm");
+    }
+
+    #[test]
+    fn legacy_unknown_recall_migrates_once_and_stays_forgotten_after_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("legacy-recall.sqlite");
+        let legacy = Connection::open(&path).unwrap();
+        legacy.execute_batch("CREATE TABLE messages(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,role TEXT NOT NULL,data TEXT NOT NULL);").unwrap();
+        let old = message("old", "assistant", "  예전 이야기\n  ");
+        let raw = serde_json::to_string_pretty(&old).unwrap();
+        legacy
+            .execute(
+                "INSERT INTO messages(id,role,data) VALUES('old','assistant',?1)",
+                [&raw],
+            )
+            .unwrap();
+        drop(legacy);
+        let conn = open(&path).unwrap();
+        assert_eq!(context_messages_for(&conn, 100, "a").unwrap().len(), 1);
+        assert!(expire_generated_recall(&conn, old.created_at + GENERATED_RECALL_MILLIS).unwrap());
+        drop(conn);
+        let conn = open(&path).unwrap();
+        resume_conversation(&conn, old.created_at).unwrap();
+        assert!(context_messages_for(&conn, 100, "a").unwrap().is_empty());
+        let preserved: String = conn
+            .query_row("SELECT data FROM messages WHERE id='old'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(preserved, raw);
+        let source: String = conn
+            .query_row(
+                "SELECT source FROM message_context WHERE message_id='old'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(source, "unknown");
+        assert_eq!(messages(&conn, 100).unwrap()[0].content, old.content);
     }
     #[test]
     fn swaps_restore_relationships_and_late_analysis_uses_original_target() {
@@ -576,7 +896,9 @@ mod tests {
         crate::characters::apply_pair(&conn, ["builtin-b".into(), "builtin-a".into()]).unwrap();
         let context = context_messages_for(&conn, 10, "b").unwrap();
         assert_eq!(context.len(), 2);
-        assert!(context.iter().all(|m| m.persona.as_deref() == Some("b")));
+        assert!(context
+            .iter()
+            .all(|m| m.persona.as_deref() == Some("builtin-a")));
         assert_eq!(
             messages(&conn, 10).unwrap()[0].persona.as_deref(),
             Some("a")
@@ -786,5 +1108,68 @@ CREATE TABLE affinity(source TEXT NOT NULL,persona TEXT NOT NULL,day TEXT NOT NU
         set_last_analysis_id(&conn, "u").unwrap();
         insert_message(&conn, &message("u2", "user", "다시 안녕")).unwrap();
         assert_eq!(pending_user_messages(&conn).unwrap()[0].id, "u2");
+    }
+    #[test]
+    fn all_targets_and_recall_follow_ids_after_roster_reordering() {
+        let conn = open(Path::new(":memory:")).unwrap();
+        let third = crate::characters::clone_character(&conn, "builtin-a")
+            .unwrap()
+            .id;
+        let original = vec![
+            "builtin-a".to_string(),
+            "builtin-b".to_string(),
+            third.clone(),
+        ];
+        crate::characters::apply_roster(&conn, original.clone()).unwrap();
+        let mut user = message("all-question", "user", "고마워");
+        user.persona = Some("all".into());
+        insert_message(&conn, &user).unwrap();
+        let mut reply = message("third-answer", "assistant", "나도 고마워");
+        reply.persona = Some(third.clone());
+        insert_message_with_source(&conn, &reply, "llm", None, true).unwrap();
+        let mut reordered = original.clone();
+        reordered.reverse();
+        crate::characters::apply_roster(&conn, reordered).unwrap();
+        assert_eq!(message_targets(&conn, &user.id).unwrap(), original);
+        assert_eq!(
+            context_messages_for(&conn, 20, &third)
+                .unwrap()
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            ["all-question", "third-answer"]
+        );
+        assert_eq!(
+            context_messages_for(&conn, 20, "builtin-a")
+                .unwrap()
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            ["all-question"]
+        );
+        apply(
+            &conn,
+            vec![],
+            vec![
+                json!({"kind":"thanks","certain":true,"sourceMessageId":user.id,"evidence":"고마워","persona":third}),
+            ],
+        );
+        let relationships = relationships(&conn).unwrap();
+        assert_eq!(
+            relationships
+                .iter()
+                .find(|r| r.persona == third)
+                .unwrap()
+                .score,
+            21
+        );
+        assert_eq!(
+            relationships
+                .iter()
+                .find(|r| r.persona == "builtin-a")
+                .unwrap()
+                .score,
+            20
+        );
     }
 }

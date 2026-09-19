@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS widget_requests(id TEXT PRIMARY KEY,fingerprint TEXT 
 CREATE TABLE IF NOT EXISTS widget_events(seq INTEGER PRIMARY KEY AUTOINCREMENT,
 id TEXT UNIQUE NOT NULL,instance_id TEXT NOT NULL,data TEXT NOT NULL,pending INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS widget_journal(event_id TEXT PRIMARY KEY);
-CREATE TABLE IF NOT EXISTS widget_preferences(key TEXT PRIMARY KEY,value TEXT NOT NULL);",
+CREATE TABLE IF NOT EXISTS widget_preferences(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS desktop_toy_results(id TEXT PRIMARY KEY,widget_id TEXT NOT NULL,kind TEXT NOT NULL,created_at INTEGER NOT NULL,data TEXT NOT NULL);",
     )
     .map_err(err)
 }
@@ -329,6 +330,10 @@ pub fn remove(db: &Connection, directory: &Path, id: &str, delete_data: bool) ->
         suspend(&mut instance, chrono::Utc::now().timestamp_millis(), false);
         if delete_data {
             instance.data = super::initial(&instance.kind)?;
+            tx.execute("DELETE FROM widget_journal WHERE event_id IN (SELECT id FROM desktop_toy_results WHERE widget_id=?1)",[id]).map_err(err)?;
+            tx.execute("DELETE FROM widget_events WHERE id IN (SELECT id FROM desktop_toy_results WHERE widget_id=?1)",[id]).map_err(err)?;
+            tx.execute("DELETE FROM desktop_toy_results WHERE widget_id=?1", [id])
+                .map_err(err)?;
         }
         if delete_data && instance.kind == "journal" {
             tx.execute("DELETE FROM widget_journal", []).map_err(err)?;
@@ -520,6 +525,48 @@ pub fn commit_data(
     }
     apply_effect(&tx, instance, WidgetEffect { data, events }, now)?;
     tx.commit().map_err(err)
+}
+
+pub(crate) fn record_desktop_result(
+    db: &Connection,
+    id: &str,
+    revision: i64,
+    draft: EventDraft,
+    now: i64,
+    pending: bool,
+) -> Result<bool> {
+    let tx = db.unchecked_transaction().map_err(err)?;
+    let instance = get(&tx, id)?;
+    if !instance.installed || !instance.enabled || instance.revision != revision {
+        return Ok(false);
+    }
+    let event = WidgetEvent {
+        id: uuid::Uuid::new_v4().to_string(),
+        instance_id: id.into(),
+        widget_kind: instance.kind.clone(),
+        revision,
+        created_at: now,
+        expires_at: now + 30_000,
+        event: draft,
+    };
+    let data = serde_json::to_string(&event).map_err(err)?;
+    tx.execute(
+        "INSERT INTO desktop_toy_results VALUES(?1,?2,?3,?4,?5)",
+        params![event.id, id, instance.kind, now, data],
+    )
+    .map_err(err)?;
+    tx.execute(
+        "INSERT INTO widget_events(id,instance_id,data,pending) VALUES(?1,?2,?3,?4)",
+        params![event.id, id, data, pending],
+    )
+    .map_err(err)?;
+    if active_data(&tx)?.contains_key("journal") {
+        tx.execute("INSERT INTO widget_journal VALUES(?1)", [&event.id])
+            .map_err(err)?;
+    }
+    tx.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND (json_extract(data,'$.expiresAt')<=?1 OR seq NOT IN (SELECT seq FROM widget_events WHERE pending=1 ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder') THEN 0 ELSE 1 END,seq DESC LIMIT 8))",[now]).map_err(err)?;
+    tx.commit().map_err(err)?;
+    Ok(true)
 }
 
 fn collect_item(db: &Connection, event: &EventDraft) -> Result<()> {

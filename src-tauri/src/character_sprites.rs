@@ -173,7 +173,10 @@ mod tests {
         assert_eq!(detect_mime(b"\xFF\xD8\xFF\xE0"), Some("image/jpeg"));
         assert_eq!(detect_mime(b"RIFF0000WEBPVP8 "), Some("image/webp"));
         assert_eq!(
-            detect_mime("\u{feff}\n<?xml version=\"1.0\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\"/>".as_bytes()),
+            detect_mime(
+                "\u{feff}\n<?xml version=\"1.0\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\"/>"
+                    .as_bytes()
+            ),
             Some("image/svg+xml")
         );
         assert_eq!(detect_mime(b"<html><svg/></html>"), Some("image/svg+xml"));

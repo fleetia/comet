@@ -46,7 +46,11 @@ export function CompanionBox({
   return (
     <div className={`${s.bodyFrame} ${preview ? s.bodyPreview : ""}`}>
       <button
-        className={sprite ? `${s.body} ${s.spriteBody}` : `${s.body} ${s.tone[persona ?? "a"]}`}
+        className={
+          sprite
+            ? `${s.body} ${s.spriteBody}`
+            : `${s.body} ${s.tone[snapshot.characters.active.indexOf(id) % 2 === 1 ? "b" : "a"]}`
+        }
         aria-label={persona ? `${name} 메뉴 열기` : name}
         title={
           error ??

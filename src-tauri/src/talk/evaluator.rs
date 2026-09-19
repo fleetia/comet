@@ -189,13 +189,20 @@ fn render(
                     context
                         .active
                         .iter()
-                        .position(|id| id == &pair[*speaker])
+                        .position(|id| {
+                            pair.get(*speaker)
+                                .is_some_and(|speaker_id| id == speaker_id)
+                        })
                         .ok_or("활성 캐릭터가 바뀌었어요.")?
                 } else {
                     *speaker
                 };
                 lines.push(SceneLine {
-                    persona: if mapped == 0 { "a" } else { "b" }.into(),
+                    persona: crate::characters::SLOTS
+                        .get(mapped)
+                        .filter(|_| context.active.get(mapped).is_some())
+                        .ok_or("활성 캐릭터가 없는 화자입니다.")?
+                        .to_string(),
                     expression: expression.clone(),
                     text,
                 });

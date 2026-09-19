@@ -110,7 +110,7 @@ mod tests {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         characters::initialize(&conn).unwrap();
         let pack = characters::export_pack(&conn, &["builtin-a".into()], &[]).unwrap();
-        let json = serde_json::to_string_pretty(&pack).unwrap();
+        let json = characters::pack_json(&pack).unwrap();
         let path = dir.path().join("shared.comet-character.json");
         write_pack(&path, &json).unwrap();
         assert_eq!(read_pack(&path).unwrap().characters[0].name, "A");

@@ -8,7 +8,7 @@ slug: /
 
 Comet은 나니카·우카가카처럼 바탕화면에 머물며 먼저 말을 걸고 서로 수다를 떠는 A와 B다. 작은 토이와 생활 도구의 실제 상태를 대화에 연결하고, 선택적으로 LLM을 사용한다. 기본 화면은 작은 본체와 잠깐 나타나는 말풍선이다.
 
-이 문서는 **2026-09-16까지 반영한 제품 방향과 개발 계약**의 입구다. 구현자와 외부 위젯 개발자가 기능의 목적, 데이터의 주인, 행동 범위와 검증 조건을 확인하는 데 사용한다. 실행 앱의 이름·패키지·데이터 식별자는 아직 `Nanika Box` / `nanika-box` / `space.starlight.nanika-box`이며, 프로젝트 폴더 이름은 `comet`이다.
+이 문서는 **2026-09-19까지 반영한 제품 방향과 개발 계약**의 입구다. 구현자와 외부 위젯 개발자가 기능의 목적, 데이터의 주인, 행동 범위와 검증 조건을 확인하는 데 사용한다. 실행 앱의 이름·패키지·데이터 식별자는 아직 `Nanika Box` / `nanika-box` / `space.starlight.nanika-box`이며, 프로젝트 폴더 이름은 `comet`이다.
 
 ## 사양과 구현 상태
 
@@ -31,14 +31,16 @@ Comet은 나니카·우카가카처럼 바탕화면에 머물며 먼저 말을 �
 | --- | --- |
 | 어떤 앱을 만드는가 | [바탕화면 경험](product/desktop.md), [대화·단어장·친밀도](product/conversation.md) |
 | 위젯 상태로 대본을 작성하는가 | [`.talk` 작성](product/talk.md), [CLI·변수](development/talk-reference.md), [기본 대본 범위](development/talk-coverage.md) |
-| 캐릭터를 바꾸고 공유하는가 | [캐릭터팩·개별 교체·둘의 조합·내보내기](product/characters.md) |
+| 캐릭터를 바꾸고 공유하는가 | [캐릭터팩·1~8명 조합·내보내기](product/characters.md) |
+| 캐릭터팩을 내려받으려면 | [캐릭터팩 갤러리](product/character-gallery.md) |
+| 앱을 배포하고 업데이트하려면 | [앱 릴리스와 업데이트](development/releases.md) |
 | 어떤 도구를 만드는가 | [토이 목록](product/toys.md), [내장 투두와 캘린더](product/planning.md) |
 | 무엇을 선택해서 설치하는가 | [전체 위젯 카탈로그](widgets/catalog.md), [선택 설치·추가·제거](widgets/installation.md) |
 | 위젯은 어떻게 참여하는가 | [외부 위젯 개요](widgets/overview.md), [연결 계약](widgets/contract.md) |
 | 실패·중복·재시작은 어떻게 처리하는가 | [위젯 수명과 실행 규칙](widgets/lifecycle.md) |
 | 외부 개발자는 무엇을 준비하는가 | [위젯 작성 안내](widgets/authoring.md) |
 | 어디부터 개발하는가 | [구조와 책임](development/architecture.md), [개발 순서와 인수 기준](development/roadmap.md) |
-| 캐릭터를 1명이나 3명 이상 두려면 | [캐릭터 수 1~N 설계안](development/multi-character-plan.md) (미구현) |
+| 캐릭터를 1명이나 3명 이상 두려면 | [캐릭터 관리](product/characters.md), [당시 설계안](development/multi-character-plan.md) |
 | 이 문서와 위키를 어떻게 수정하는가 | [위키 운영](development/wiki.md) |
 
 ## 유지할 제품 경계

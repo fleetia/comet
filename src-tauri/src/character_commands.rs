@@ -56,7 +56,7 @@ fn write_sprite(
 ) -> Result<(), String> {
     {
         let _action = lock(&state.action)?;
-        if state.stopping.load(Ordering::SeqCst) {
+        if crate::unavailable(state) {
             return Err("앱을 종료하고 있어요.".into());
         }
         change(&*lock(&state.db)?)?;
@@ -128,7 +128,7 @@ fn mutate_inner<T>(
     change: impl FnOnce(&Connection) -> Result<T, String>,
 ) -> Result<T, String> {
     let _action = lock(&state.action)?;
-    if state.stopping.load(Ordering::SeqCst) {
+    if crate::unavailable(state) {
         return Err("앱을 종료하고 있어요.".into());
     }
     let db = lock(&state.db)?;
@@ -272,7 +272,7 @@ pub(crate) async fn save_character_pack(
             })
             .collect::<Result<Vec<_>, _>>()?;
         let pack = characters::export_pack(&db, &ids, &selected)?;
-        serde_json::to_string_pretty(&pack).map_err(|error| error.to_string())?
+        characters::pack_json(&pack)?
     };
     character_files::save(app, json).await
 }
@@ -297,4 +297,23 @@ pub(crate) fn open_characters(app: tauri::AppHandle) -> Result<(), String> {
     .build()
     .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn get_character_pack_attribution(
+    state: tauri::State<'_, Arc<AppState>>,
+    pack_id: String,
+) -> Result<characters::PackAttribution, String> {
+    characters::pack_attribution(&*lock(&state.db)?, &pack_id)
+}
+#[tauri::command]
+pub(crate) fn save_character_pack_attribution(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    pack_id: String,
+    value: characters::PackAttribution,
+) -> Result<(), String> {
+    write_sprite(&app, &state, |db| {
+        characters::save_pack_attribution(db, &pack_id, &value)
+    })
 }

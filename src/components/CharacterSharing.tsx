@@ -1,5 +1,5 @@
-import { useRef, useState, type JSX } from "react";
-import { Button, Checkbox, Select } from "@fleetia/lagrange";
+import { useEffect, useRef, useState, type JSX } from "react";
+import { Button, Checkbox, Select, TextField } from "@fleetia/lagrange";
 import { command, errorText } from "../hooks/useSnapshot";
 import type { CharacterPack, InstalledCharacter, Snapshot } from "../types";
 import { CharacterPackPreview } from "./CharacterPackPreview";
@@ -19,6 +19,8 @@ export function CharacterSharing({
   onPendingChange,
 }: Props): JSX.Element {
   const [scope, setScope] = useState("selected");
+  const [author, setAuthor] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
   const [wordbookIds, setWordbookIds] = useState<string[]>([]);
   const [pack, setPack] = useState<CharacterPack | null>(null);
   const [installed, setInstalled] = useState<InstalledCharacter[]>([]);
@@ -27,7 +29,32 @@ export function CharacterSharing({
   const [notice, setNotice] = useState<string | null>(null);
   const lock = useRef(false);
   const { active } = snapshot.characters;
-  const ids = scope === "pair" && active.length === 2 ? active : selectedId ? [selectedId] : [];
+  const packId = snapshot.characters.installed.find((item) => item.id === selectedId)?.packId;
+  const [attributionLoaded, setAttributionLoaded] = useState(false);
+  useEffect(() => {
+    let current = true;
+    setAuthor("");
+    setSourceUrl("");
+    setAttributionLoaded(false);
+    if (packId) {
+      void command<{ author: string; sourceUrl: string }>("get_character_pack_attribution", {
+        packId,
+      })
+        .then((value) => {
+          if (!current) return;
+          setAuthor(value.author);
+          setSourceUrl(value.sourceUrl);
+          setAttributionLoaded(true);
+        })
+        .catch((cause: unknown) => {
+          if (current) setError(errorText(cause));
+        });
+    }
+    return () => {
+      current = false;
+    };
+  }, [packId]);
+  const ids = scope === "pair" && active.length > 1 ? active : selectedId ? [selectedId] : [];
   const joining = installed.map((character) => character.id).filter((id) => !active.includes(id));
   async function run(action: () => Promise<void>): Promise<void> {
     if (lock.current || disabled) return;
@@ -54,12 +81,53 @@ export function CharacterSharing({
         포함하지 않아요. 직접 적은 소개나 대사에 개인정보가 없는지도 확인해 주세요.
       </p>
       <fieldset className={s.fieldset} disabled={pending || disabled}>
+        {packId && (
+          <>
+            <p className={ui.quiet}>
+              선택한 캐릭터의 원본 패키지 출처예요. 같은 패키지의 모든 캐릭터에 적용돼요.
+            </p>
+            <label className={ui.field}>
+              제작자
+              <TextField
+                disabled={!attributionLoaded}
+                value={author}
+                maxLength={120}
+                onChange={(event) => setAuthor(event.target.value)}
+              />
+            </label>
+            <label className={ui.field}>
+              출처 URL
+              <TextField
+                disabled={!attributionLoaded}
+                value={sourceUrl}
+                maxLength={2048}
+                onChange={(event) => setSourceUrl(event.target.value)}
+                placeholder="https://…"
+              />
+            </label>
+            <Button
+              variant="secondary"
+              disabled={!attributionLoaded}
+              onClick={() =>
+                void run(async () => {
+                  await command("save_character_pack_attribution", {
+                    packId,
+                    value: { author, sourceUrl },
+                  });
+                  setNotice("패키지 출처를 저장했어요.");
+                })
+              }
+            >
+              출처 저장
+            </Button>
+          </>
+        )}
         <label className={ui.field}>
           내보낼 대상
           <Select value={scope} onChange={(event) => setScope(event.target.value)}>
             <option value="selected">선택한 캐릭터 하나</option>
-            <option value="pair" disabled={active.length !== 2}>
-              함께 지내는 둘의 조합
+            <option value="pair" disabled={active.length < 2}>
+              함께 지내는 친구들의 조합
             </option>
           </Select>
         </label>

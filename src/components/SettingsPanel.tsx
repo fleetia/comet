@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from "react";
+import { listen } from "@tauri-apps/api/event";
 import {
   Button,
   Checkbox,
@@ -13,8 +14,10 @@ import {
   TextField,
 } from "@fleetia/lagrange";
 import type { LocalModel, LocalModelTest, Memory, Settings, Snapshot } from "../types";
-import { command, errorText } from "../hooks/useSnapshot";
+import { command, errorText, isDesktop } from "../hooks/useSnapshot";
 import { WordbookPanel } from "./WordbookPanel";
+import { DesktopPreferences } from "./DesktopPreferences";
+import { UpdatePanel } from "./UpdatePanel";
 import { WindowHeader } from "./WindowHeader";
 import * as s from "../lagrange.css";
 import * as d from "../desktop.css";
@@ -69,7 +72,28 @@ function MemoryRow({ memory }: { memory: Memory }): JSX.Element {
   );
 }
 export function SettingsPanel({ snapshot, preview = false }: Props): JSX.Element {
-  const [section, setSection] = useState("general");
+  const [section, setSection] = useState(
+    new URLSearchParams(window.location.search).get("section") === "updates"
+      ? "updates"
+      : "general",
+  );
+  useEffect(() => {
+    if (!isDesktop()) return;
+    let disposed = false;
+    let cleanup: (() => void) | undefined;
+    void listen("open-updates", () => setSection("updates"))
+      .then((unlisten) => {
+        if (disposed) unlisten();
+        else cleanup = unlisten;
+      })
+      .catch((cause: unknown) => {
+        if (!disposed) setError(errorText(cause));
+      });
+    return () => {
+      disposed = true;
+      cleanup?.();
+    };
+  }, []);
   const [settings, setSettings] = useState<Settings>(snapshot.settings);
   const [apiKey, setApiKey] = useState("");
   const [pending, setPending] = useState<string | null>(null);
@@ -180,6 +204,7 @@ export function SettingsPanel({ snapshot, preview = false }: Props): JSX.Element
           <Tab value="model">대화 모델</Tab>
           <Tab value="wordbook">개인 단어장</Tab>
           <Tab value="memory">기억</Tab>
+          <Tab value="updates">업데이트</Tab>
         </TabList>
         <TabPanel value="general" className={d.tabPanel}>
           <p className={d.info}>
@@ -250,7 +275,10 @@ export function SettingsPanel({ snapshot, preview = false }: Props): JSX.Element
           )}
           <details className={d.disclosure}>
             <summary className={d.disclosureSummary}>표시와 종료</summary>
-            <p className={s.quiet}>상자를 숨겨도 메뉴 막대에서 다시 열 수 있어요.</p>
+            <p className={s.quiet}>
+              캐릭터를 숨겨도 위젯을 사용할 수 있어요. 메뉴 막대나 알림 영역에서 각각 다시 열 수
+              있어요.
+            </p>
             <div className={s.row}>
               <Button
                 variant="secondary"
@@ -264,6 +292,10 @@ export function SettingsPanel({ snapshot, preview = false }: Props): JSX.Element
               </Button>
             </div>
           </details>
+          <DesktopPreferences hidden={snapshot.runtime.hidden} />
+        </TabPanel>
+        <TabPanel value="updates" className={d.tabPanel}>
+          <UpdatePanel />
         </TabPanel>
         <TabPanel value="model" className={d.tabPanel}>
           <p className={d.info}>

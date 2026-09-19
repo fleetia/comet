@@ -346,7 +346,11 @@ fn owner(snapshot: &Snapshot) -> Option<&str> {
         .and_then(|persona| match persona {
             "a" => snapshot.characters.active.first(),
             "b" => snapshot.characters.active.get(1),
-            _ => None,
+            id => snapshot
+                .characters
+                .active
+                .iter()
+                .find(|active| active.as_str() == id),
         })
         .map(String::as_str)
 }

@@ -1,4 +1,5 @@
-export type Persona = "a" | "b";
+export type Persona = string;
+export const CHARACTER_SLOTS = ["a", "b", "c", "d", "e", "f", "g", "h"] as const;
 export type CharacterLine = { expression: string; text: string };
 export type CharacterDefinition = {
   sourceId: string;
@@ -23,9 +24,10 @@ export type CharacterCollection = { installed: InstalledCharacter[]; active: str
 export type CharacterDialogue = { pairScenes: SceneLine[][]; wordbook: WordbookEntry[] };
 export type PackSprite = { sourceId: string; expression: string; mime: string; data: string };
 export type CharacterPack = {
-  formatVersion: 1;
+  formatVersion: 1 | 2;
   name: string;
   author: string;
+  sourceUrl?: string;
   license: string;
   characters: CharacterDefinition[];
   pairScenes: SceneLine[][];
@@ -50,7 +52,7 @@ export type WordbookEntry = {
 };
 export type Playback = SceneLine & {
   id: string;
-  source: "script" | "llm" | "wordbook" | "widget" | "talk";
+  source: "script" | "llm" | "wordbook" | "widget" | "talk" | "question";
   endsAt: number;
   lineIndex: number;
   lineCount: number;

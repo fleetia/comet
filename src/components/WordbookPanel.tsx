@@ -40,6 +40,7 @@ type Props = {
   saveEntry?: (entry: WordbookEntry) => Promise<void>;
   deleteEntry?: (id: string) => Promise<void>;
   singleCharacter?: boolean;
+  speakerCount?: number;
   onDirtyChange?: (dirty: boolean) => void;
 };
 export function WordbookPanel({
@@ -49,6 +50,7 @@ export function WordbookPanel({
   saveEntry,
   deleteEntry,
   singleCharacter = false,
+  speakerCount = 8,
   onDirtyChange,
 }: Props): JSX.Element {
   const [initial] = useState(() => (entries[0] ? draftFor(entries[0]) : newDraft()));
@@ -260,12 +262,15 @@ export function WordbookPanel({
                       onChange={(event) =>
                         changeLine(index, {
                           ...line,
-                          persona: event.target.value === "b" ? "b" : "a",
+                          persona: event.target.value,
                         })
                       }
                     >
-                      <option value="a">{singleCharacter ? "이 캐릭터" : "A"}</option>
-                      {!singleCharacter && <option value="b">B</option>}
+                      {Array.from({ length: singleCharacter ? 1 : speakerCount }, (_, index) => (
+                        <option key={index} value={String.fromCharCode(97 + index)}>
+                          {singleCharacter ? "이 캐릭터" : String.fromCharCode(65 + index)}
+                        </option>
+                      ))}
                     </Select>
                   </label>
                   <label className={s.inline}>

@@ -88,7 +88,7 @@ impl Program {
 pub struct Scene {
     pub key: String,
     pub id: String,
-    pub pair: Option<[String; 2]>,
+    pub pair: Option<Vec<String>>,
     pub trigger: String,
     pub condition: Option<Expr>,
     pub cooldown_ms: i64,

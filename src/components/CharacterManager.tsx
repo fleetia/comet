@@ -95,7 +95,7 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
     await command("apply_character_roster", { ids });
     setNotice(message);
   }
-  const dialogueIds = scope === "pair" && active.length === 2 ? active : [selectedId];
+  const dialogueIds = scope === "pair" && active.length > 1 ? active : [selectedId];
   const dialogueExpressions = [
     ...new Set(
       dialogueIds.flatMap((id) =>
@@ -202,7 +202,10 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                           disabled={busy || position === 0}
                           onClick={() =>
                             void run(() =>
-                              applyRoster(moved(active, position, position - 1), "앞으로 옮겼어요."),
+                              applyRoster(
+                                moved(active, position, position - 1),
+                                "앞으로 옮겼어요.",
+                              ),
                             )
                           }
                         >
@@ -340,9 +343,9 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                       {removeId === selectedId ? (
                         <>
                           <p className={ui.quiet}>
-                            이 캐릭터를 목록에서 제거해요. 함께 지내던 친구면 바탕화면에서도
-                            빠지고, 대화 기록과 관계는 보존해요. 마지막 친구를 제거하면 기본 친구
-                            A가 새로 들어와요.
+                            이 캐릭터를 목록에서 제거해요. 함께 지내던 친구면 바탕화면에서도 빠지고,
+                            대화 기록과 관계는 보존해요. 마지막 친구는 다른 친구를 먼저 함께 지내게
+                            한 뒤 제거할 수 있어요.
                           </p>
                           <div className={ui.row}>
                             <Button
@@ -373,7 +376,9 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                       ) : (
                         <Button
                           variant="secondary"
-                          disabled={busy || dirty}
+                          disabled={
+                            busy || dirty || (active.length === 1 && active[0] === selectedId)
+                          }
                           onClick={() => setRemoveId(selectedId)}
                         >
                           목록에서 제거
@@ -400,8 +405,8 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                             }
                           >
                             <option value="single">선택한 캐릭터 하나</option>
-                            <option value="pair" disabled={active.length !== 2}>
-                              함께 지내는 둘의 조합
+                            <option value="pair" disabled={active.length < 2}>
+                              함께 지내는 친구들의 조합
                             </option>
                           </Select>
                         </label>

@@ -431,7 +431,8 @@ mod tests {
             b"partial-four"
         );
         let file = std::fs::File::create(&four).unwrap();
-        file.set_len(spec(LocalModel::Qwen35_4B).unwrap().size).unwrap();
+        file.set_len(spec(LocalModel::Qwen35_4B).unwrap().size)
+            .unwrap();
         std::fs::write(
             four.with_extension("verified"),
             verification_stamp(&four, spec(LocalModel::Qwen35_4B).unwrap().sha256).unwrap(),
@@ -445,7 +446,9 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let statuses = model_statuses(directory.path());
         assert_eq!(statuses.len(), CATALOG.len());
-        assert!(statuses.iter().all(|status| status.id != LocalModel::Custom));
+        assert!(statuses
+            .iter()
+            .all(|status| status.id != LocalModel::Custom));
         let mut files: Vec<_> = CATALOG
             .iter()
             .map(|model| spec(*model).unwrap().file)
@@ -471,11 +474,18 @@ mod tests {
             local_model_path: format!(" {} ", file.display()),
             ..Settings::default()
         };
-        assert_eq!(selected_path(directory.path(), &settings), Some(file.clone()));
+        assert_eq!(
+            selected_path(directory.path(), &settings),
+            Some(file.clone())
+        );
         assert!(!selected_ready(directory.path(), &settings));
         std::fs::write(&file, b"gguf").unwrap();
         assert!(selected_ready(directory.path(), &settings));
-        for path in ["", "relative.gguf", &directory.path().join("model.bin").display().to_string()] {
+        for path in [
+            "",
+            "relative.gguf",
+            &directory.path().join("model.bin").display().to_string(),
+        ] {
             let settings = Settings {
                 local_model_path: path.into(),
                 ..settings.clone()

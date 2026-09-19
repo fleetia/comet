@@ -444,3 +444,27 @@ it("keeps character and dialogue drafts across tabs while locking dialogue targe
     expect(screen.getByLabelText("등록 대사 대상")).toHaveProperty("disabled", false),
   );
 });
+
+it("loads and saves attribution for the selected source package", async () => {
+  const imported = { ...extra, packId: "source-pack" };
+  const importedSnapshot = {
+    ...snapshot,
+    characters: { ...snapshot.characters, installed: [imported] },
+  };
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "get_character_pack_attribution" ? { author: "원작자", sourceUrl: "" } : undefined,
+  );
+  render(
+    <CharacterSharing snapshot={importedSnapshot} selectedId={imported.id} disabled={false} />,
+  );
+  await waitFor(() => expect(screen.getByLabelText("제작자")).toHaveProperty("value", "원작자"));
+  fireEvent.change(screen.getByLabelText("출처 URL"), {
+    target: { value: "https://example.com/creator" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "출처 저장" }));
+  await screen.findByText("패키지 출처를 저장했어요.");
+  expect(command).toHaveBeenCalledWith("save_character_pack_attribution", {
+    packId: "source-pack",
+    value: { author: "원작자", sourceUrl: "https://example.com/creator" },
+  });
+});

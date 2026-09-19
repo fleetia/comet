@@ -112,7 +112,7 @@ it("shows the detached expression tag with the same fallback rules and opens the
   expect(screen.getByRole("button", { name: "별꼬리 표정" }).textContent).toBe("기본");
   fireEvent.click(screen.getByRole("button", { name: "별꼬리 표정" }));
   await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("open_panel", { persona: "a", mode: "menu" }),
+    expect(command).toHaveBeenCalledWith("open_panel", { persona: "byul", mode: "menu" }),
   );
 });
 

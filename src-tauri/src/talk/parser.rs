@@ -9,7 +9,7 @@ const BUNDLE_LIMIT: usize = 4 * 1024 * 1024;
 
 struct Import {
     path: String,
-    pair: Option<[String; 2]>,
+    pair: Option<Vec<String>>,
     span: Span,
 }
 struct Parsed {
@@ -55,7 +55,7 @@ struct Loader<'a> {
     root: PathBuf,
     registry: &'a Registry,
     program: Program,
-    visited: BTreeSet<(PathBuf, Option<[String; 2]>)>,
+    visited: BTreeSet<(PathBuf, Option<Vec<String>>)>,
     stack: BTreeSet<PathBuf>,
     keys: BTreeSet<String>,
     bytes: usize,
@@ -64,7 +64,7 @@ impl Loader<'_> {
     fn visit(
         &mut self,
         path: &Path,
-        pair: Option<[String; 2]>,
+        pair: Option<Vec<String>>,
         depth: usize,
     ) -> Result<(), Vec<Diagnostic>> {
         if depth > 32 {
@@ -90,10 +90,7 @@ impl Loader<'_> {
                 "순환 import는 허용하지 않아요.",
             ));
         }
-        let mut normalized = pair.clone();
-        if let Some(ids) = &mut normalized {
-            ids.sort();
-        }
+        let normalized = pair.clone();
         let identity = (canonical.clone(), normalized);
         if self.visited.contains(&identity) {
             return Ok(());
@@ -231,7 +228,7 @@ pub fn validate_source(
 fn parse_file(
     path: &Path,
     source: &str,
-    pair: Option<[String; 2]>,
+    pair: Option<Vec<String>>,
     registry: &Registry,
     require_format: bool,
 ) -> Result<Parsed, Vec<Diagnostic>> {
@@ -301,19 +298,30 @@ fn parse_import(source: &str, location: &Span) -> Result<Import, Vec<Diagnostic>
     let pair = if rest.is_empty() {
         None
     } else {
-        let rest = rest
+        let legacy = rest.starts_with("for pair(");
+        let mut rest = rest
             .strip_prefix("for pair(")
-            .ok_or_else(|| fail("for pair(\"A ID\", \"B ID\")가 필요해요.".into()))?;
-        let (a, rest) = json_string(rest.trim_start()).map_err(fail)?;
-        let rest = rest
-            .trim_start()
-            .strip_prefix(',')
-            .ok_or_else(|| fail("pair 사이 쉼표가 필요해요.".into()))?;
-        let (b, rest) = json_string(rest.trim_start()).map_err(fail)?;
-        if rest.trim() != ")" || a.is_empty() || b.is_empty() || a == b {
-            return Err(fail("서로 다른 두 캐릭터 ID가 필요해요.".into()));
+            .or_else(|| rest.strip_prefix("for cast("))
+            .ok_or_else(|| fail("for cast(캐릭터 ID 목록)가 필요해요.".into()))?;
+        let mut ids = Vec::new();
+        loop {
+            let (id, tail) = json_string(rest.trim_start()).map_err(fail)?;
+            if id.is_empty() || ids.contains(&id) || ids.len() >= 8 {
+                return Err(fail("서로 다른 캐릭터 ID 1~8개가 필요해요.".into()));
+            }
+            ids.push(id);
+            rest = tail.trim_start();
+            if rest == ")" {
+                break;
+            }
+            rest = rest
+                .strip_prefix(',')
+                .ok_or_else(|| fail("캐릭터 ID 사이 쉼표가 필요해요.".into()))?;
         }
-        Some([a, b])
+        if legacy && ids.len() != 2 {
+            return Err(fail("pair에는 두 캐릭터 ID가 필요해요.".into()));
+        }
+        Some(ids)
     };
     Ok(Import {
         path,
@@ -350,7 +358,7 @@ impl Reader<'_> {
             self.at += 1;
         }
     }
-    fn scene(&mut self, pair: Option<[String; 2]>) -> Result<Scene, Vec<Diagnostic>> {
+    fn scene(&mut self, pair: Option<Vec<String>>) -> Result<Scene, Vec<Diagnostic>> {
         let location = self.location();
         let mut headers: BTreeMap<String, (String, Span)> = BTreeMap::new();
         loop {
@@ -428,6 +436,9 @@ impl Reader<'_> {
             .transpose()?
             .unwrap_or(0);
         let body = self.body(0)?;
+        if let Some(cast) = &pair {
+            validate_speakers(&body, cast.len())?;
+        }
         if self.current().map(str::trim) != Some("===") {
             return Err(vec![self
                 .location()
@@ -453,10 +464,7 @@ impl Reader<'_> {
                     .and_then(|variable| variable.widget.clone())
             })
             .collect();
-        let mut normalized = pair.clone();
-        if let Some(ids) = &mut normalized {
-            ids.sort();
-        }
+        let normalized = pair.clone();
         let key = serde_json::to_string(&(normalized, &id))
             .map_err(|error| vec![location.error("SCENE_KEY", error.to_string())])?;
         Ok(Scene {
@@ -518,9 +526,8 @@ impl Reader<'_> {
                 })?;
                 let label = label.trim();
                 let speaker = match label.chars().next() {
-                    Some('A') => 0,
-                    Some('B') => 1,
-                    _ => return Err(vec![location.error("SPEAKER", "화자는 A 또는 B여야 해요.")]),
+                    Some(letter @ 'A'..='H') => (letter as u8 - b'A') as usize,
+                    _ => return Err(vec![location.error("SPEAKER", "화자는 A~H여야 해요.")]),
                 };
                 let suffix = &label[1..];
                 let expression = if suffix.is_empty() {
@@ -669,4 +676,20 @@ fn collect(body: &[Statement], references: &mut BTreeSet<String>) {
             }
         }
     }
+}
+
+fn validate_speakers(body: &[Statement], count: usize) -> Result<(), Vec<Diagnostic>> {
+    for statement in body {
+        match statement {
+            Statement::Line { speaker, span, .. } if *speaker >= count => {
+                return Err(vec![span.error("SPEAKER", "cast에 없는 화자입니다.")]);
+            }
+            Statement::If { yes, no, .. } => {
+                validate_speakers(yes, count)?;
+                validate_speakers(no, count)?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }

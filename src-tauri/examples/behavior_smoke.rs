@@ -210,21 +210,27 @@ async fn run(runtime: &inference::Inference) -> Result<(), String> {
         )?;
     }
     let revision = store::revision(&conn)?;
+    let members = [
+        characters::active_character(&conn, "a")?,
+        characters::active_character(&conn, "b")?,
+    ];
+    let targets = members
+        .iter()
+        .map(|member| member.id.clone())
+        .collect::<Vec<_>>();
     let value = generate(
         runtime,
         "idle-scene",
-        &domain::scene_prompt(
+        &domain::roster_scene_prompt(
+            &members,
             &store::memories(&conn)?,
             &store::relationships(&conn)?,
-            &[
-                characters::active_character(&conn, "a")?.definition,
-                characters::active_character(&conn, "b")?.definition,
-            ],
+            false,
         ),
-        domain::scene_schema(),
+        domain::scene_schema_for(&targets, 2, 4),
     )
     .await?;
-    let lines = domain::parse_scene(value)?;
+    let lines = domain::parse_lines_for(value, &targets, 2, 4, false)?;
     store::add_scene(
         &conn,
         &types::PreparedScene {
@@ -273,7 +279,7 @@ async fn main() -> Result<(), String> {
     inference::stop_local(&runtime).await;
     println!(
         "local_running_after_stop={}",
-        inference::is_local_running(&runtime, types::LocalModel::default()).await
+        inference::is_local_running(&runtime, &types::Settings::default()).await
     );
     result
 }

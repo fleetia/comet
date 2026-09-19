@@ -54,6 +54,52 @@ fn first_run_can_skip_without_installing_packages() {
 }
 
 #[test]
+fn desktop_outcomes_preserve_legacy_data_and_reject_removed_revisions() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    install(&db, directory.path(), &["ball", "journal"]);
+    let original = instance(&db, "ball");
+    let draft = || super::EventDraft {
+        kind: "desktop.ball.stopped".into(),
+        text: "공이 멈췄어요.".into(),
+        payload: json!({"distanceUnit":"desktop-logical-points","distance":250.0}),
+    };
+    assert!(storage::record_desktop_result(
+        &db,
+        &original.id,
+        original.revision,
+        draft(),
+        1000,
+        true
+    )
+    .unwrap());
+    assert_eq!(instance(&db, "ball").data, original.data);
+    assert_eq!(instance(&db, "ball").revision, original.revision);
+    assert_eq!(
+        storage::journal(&db, None).unwrap()[0].1.event.payload["distance"],
+        250.0
+    );
+    storage::set_enabled(&db, &original.id, false).unwrap();
+    assert!(!storage::record_desktop_result(
+        &db,
+        &original.id,
+        original.revision,
+        draft(),
+        2000,
+        true
+    )
+    .unwrap());
+    storage::remove(&db, directory.path(), &original.id, true).unwrap();
+    let count: i64 = db
+        .query_row("SELECT COUNT(*) FROM desktop_toy_results", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(count, 0);
+    assert!(storage::journal(&db, None).unwrap().is_empty());
+}
+
+#[test]
 fn preserve_reinstall_and_delete_leave_companion_data_untouched() {
     let directory = tempfile::tempdir().unwrap();
     let db_path = directory.path().join("app.sqlite");

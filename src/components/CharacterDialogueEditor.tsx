@@ -99,17 +99,18 @@ export function CharacterDialogueEditor({
   return (
     <div>
       <WordbookPanel
-        title={ids.length === 1 ? "이 캐릭터의 키워드 대사" : "현재 둘의 키워드 대사"}
+        title={ids.length === 1 ? "이 캐릭터의 키워드 대사" : "현재 친구들의 키워드 대사"}
         description="개인 단어장과 별도로 저장해요. 개인 단어장을 먼저 찾은 뒤 이 대사를 사용해요. 수정 중에는 대상을 바꿀 수 없어요."
         entries={dialogue.wordbook}
         singleCharacter={ids.length === 1}
+        speakerCount={ids.length}
         saveEntry={saveEntry}
         deleteEntry={deleteEntry}
         onDirtyChange={setWordbookDirty}
       />
-      {ids.length === 2 && (
+      {ids.length > 1 && (
         <section className={s.section}>
-          <h3 className={s.subheading}>둘만의 자동 수다</h3>
+          <h3 className={s.subheading}>조합의 자동 수다</h3>
           <fieldset disabled={pending} className={s.fieldset}>
             {scenes.map((lines, sceneIndex) => (
               <div className={s.line} key={sceneIndex}>
@@ -137,15 +138,16 @@ export function CharacterDialogueEditor({
                           changeScene(
                             sceneIndex,
                             lines.map((value, i) =>
-                              i === index
-                                ? { ...value, persona: event.target.value === "b" ? "b" : "a" }
-                                : value,
+                              i === index ? { ...value, persona: event.target.value } : value,
                             ),
                           )
                         }
                       >
-                        <option value="a">A</option>
-                        <option value="b">B</option>
+                        {ids.map((_, index) => (
+                          <option key={index} value={String.fromCharCode(97 + index)}>
+                            {String.fromCharCode(65 + index)}
+                          </option>
+                        ))}
                       </Select>
                       <Select
                         style={{ width: 100 }}

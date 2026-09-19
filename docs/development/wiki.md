@@ -29,7 +29,7 @@ Docusaurus 3.10.2의 기본 문서 테마를 사용한다. 문서 사이트는 �
 프로젝트 루트에서 실행한다.
 
 ```sh
-cd /Users/tracycho/Dev/fleetia/comet
+cd /path/to/comet
 corepack pnpm docs:install
 corepack pnpm docs:dev
 ```

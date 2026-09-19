@@ -5,6 +5,7 @@ import { CompanionBox } from "./components/CompanionBox";
 import { FaceTag } from "./components/FaceTag";
 import { Balloon } from "./components/Balloon";
 import { DesktopPreview } from "./components/DesktopPreview";
+import { DesktopToy } from "./components/DesktopToy";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { WidgetManager } from "./widgets/WidgetManager";
 import { WidgetTool } from "./widgets/WidgetTool";
@@ -16,6 +17,7 @@ export function App(): JSX.Element {
   const { snapshot, error, reload } = useSnapshot();
   const query = new URLSearchParams(window.location.search);
   const view = query.get("view");
+  if (view === "desktop-toy") return <DesktopToy id={query.get("id") ?? ""} />;
   if (query.get("view") === "widgets") return <WidgetManager />;
   if (query.get("view") === "widget") return <WidgetTool id={query.get("id") ?? ""} />;
   if (!snapshot) {

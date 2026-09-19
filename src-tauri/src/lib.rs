@@ -1,8 +1,12 @@
+mod behavior;
 mod character_commands;
 mod character_files;
 mod character_sprites;
 mod characters;
 mod desktop;
+mod desktop_geometry;
+mod desktop_menu;
+mod desktop_toys;
 mod device_wake;
 mod domain;
 mod inference;
@@ -13,6 +17,7 @@ mod store;
 pub mod talk;
 mod talk_host;
 mod types;
+mod updater;
 mod widget_commands;
 mod widget_connections;
 mod widgets;
@@ -62,11 +67,54 @@ struct AppState {
     action: Mutex<()>,
     automatic: AtomicBool,
     stopping: AtomicBool,
+    update_installing: AtomicBool,
+    behavior: Mutex<behavior::Machine>,
     positions: Mutex<HashMap<String, (WindowPosition, Instant)>>,
 }
 
 fn now() -> i64 {
     chrono::Utc::now().timestamp()
+}
+fn unavailable(state: &AppState) -> bool {
+    state.stopping.load(Ordering::SeqCst) || state.update_installing.load(Ordering::SeqCst)
+}
+
+async fn prepare_update_install(app: &tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<Arc<AppState>>();
+    {
+        let _action = lock(&state.action)?;
+        if unavailable(&state) {
+            return Err("앱을 정리하고 있어요.".into());
+        }
+        state.update_installing.store(true, Ordering::SeqCst);
+        interrupt(&state, false)?;
+        *lock(&state.panel)? = None;
+        lock(&state.runtime)?.phase = "idle".into();
+        if let Some(cancel) = lock(&state.download_cancel)?.as_ref() {
+            cancel.store(true, Ordering::SeqCst);
+        }
+        cancel_widget_jobs(&state, None)?;
+    }
+    desktop_toys::clear(app);
+    flush_positions(&state, true)?;
+    publish(app, &state);
+    let _gate = state.gate.lock().await;
+    inference::stop_local(&state.inference).await;
+    lock(&state.db)?
+        .execute_batch("PRAGMA wal_checkpoint(FULL);")
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn restore_update_install(app: &tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<Arc<AppState>>();
+    {
+        let _action = lock(&state.action)?;
+        state.update_installing.store(false, Ordering::SeqCst);
+        schedule_idle(&state, store::settings(&*lock(&state.db)?)?.idle_minutes);
+    }
+    publish(app, &state);
+    Ok(())
 }
 fn schedule_idle(state: &AppState, minutes: u32) {
     state.next_idle.store(
@@ -85,6 +133,7 @@ fn open_session(path: &std::path::Path) -> Result<Connection, String> {
     if let Some(directory) = path.parent() {
         widgets::storage::verify_packages(&db, directory)?;
     }
+    store::expire_generated_recall(&db, chrono::Utc::now().timestamp_millis())?;
     db.execute("DELETE FROM scenes", [])
         .map_err(|error| error.to_string())?;
     Ok(db)
@@ -176,6 +225,7 @@ fn get_snapshot(state: tauri::State<'_, Arc<AppState>>) -> Result<Snapshot, Stri
     snapshot(&state)
 }
 
+#[cfg(test)]
 fn validate_target(target: &str) -> Result<Vec<&str>, String> {
     match target {
         "a" => Ok(vec!["a"]),
@@ -185,17 +235,33 @@ fn validate_target(target: &str) -> Result<Vec<&str>, String> {
     }
 }
 
+fn resolve_targets(db: &Connection, target: &str) -> Result<Vec<String>, String> {
+    if target == "all" {
+        return characters::active_ids(db);
+    }
+    if target == "both" {
+        return ["a", "b"]
+            .iter()
+            .map(|slot| characters::active_character(db, slot).map(|c| c.id))
+            .collect();
+    }
+    Ok(vec![characters::active_character(db, target)?.id])
+}
+
 fn route_message(
     state: &AppState,
     db: &Connection,
     content: &str,
 ) -> Result<Option<Vec<SceneLine>>, String> {
-    let entries = wordbook::entries(db)?;
+    let entries: Vec<_> = wordbook::entries(db)?
+        .into_iter()
+        .filter(|entry| characters::resolve_lines(db, &entry.lines).is_ok())
+        .collect();
     if let Some(entry) = wordbook::match_entry(&entries, content) {
-        return Ok(Some(entry.lines.clone()));
+        return Ok(Some(characters::resolve_lines(db, &entry.lines)?));
     }
     if let Some(lines) = characters::keyword_scene(db, content)? {
-        return Ok(Some(lines));
+        return Ok(Some(characters::resolve_lines(db, &lines)?));
     }
     let settings = store::settings(db)?;
     if settings.mode == "local" && !models::selected_ready(&state.app_data, &settings) {
@@ -217,20 +283,20 @@ async fn send_message(
     target: String,
     client_message_id: String,
 ) -> Result<(), String> {
-    validate_target(&target)?;
     let content = content.trim();
     if content.is_empty() || content.chars().count() > 2000 {
         return Err("대화는 1~2,000자로 입력해 주세요.".into());
     }
     uuid::Uuid::parse_str(&client_message_id)
         .map_err(|_| "메시지 식별자가 올바르지 않아요.".to_string())?;
-    let (token, registered) = {
+    let (token, registered, targets) = {
         let _action = lock(&state.action)?;
-        if state.stopping.load(Ordering::SeqCst) {
+        if unavailable(&state) {
             return Err("앱을 종료하고 있어요.".into());
         }
         let db = lock(&state.db)?;
         let settings = store::settings(&db)?;
+        let targets = resolve_targets(&db, &target)?;
         let exists: bool = db
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM messages WHERE id=?1)",
@@ -258,7 +324,7 @@ async fn send_message(
         *lock(&state.panel)? = None;
         state.last_input.store(now(), Ordering::SeqCst);
         schedule_idle(&state, settings.idle_minutes);
-        (token, registered)
+        (token, registered, targets)
     };
     if let Some(lines) = registered {
         start_scene(
@@ -274,10 +340,7 @@ async fn send_message(
     start_turn(
         app,
         state.inner().clone(),
-        validate_target(&target)?
-            .into_iter()
-            .map(str::to_string)
-            .collect(),
+        targets,
         client_message_id,
         token,
     );
@@ -293,7 +356,7 @@ fn retry_turn(
 ) -> Result<(), String> {
     let (targets, token, registered) = {
         let _action = lock(&state.action)?;
-        if state.stopping.load(Ordering::SeqCst) {
+        if unavailable(&state) {
             return Err("앱을 종료하고 있어요.".into());
         }
         let db = lock(&state.db)?;
@@ -308,20 +371,27 @@ fn retry_turn(
         }
         ensure_retry_characters(&db, &message_id, &target)?;
         let registered = route_message(&state, &db, &latest.content)?;
-        let completed = validate_target(latest.persona.as_deref().unwrap_or(""))?
+        let original = store::message_targets(&db, &message_id)?;
+        let requested = if target == "all" {
+            original.clone()
+        } else {
+            resolve_targets(&db, &target)?
+        };
+        let targets = requested
             .into_iter()
-            .filter(|persona| {
-                history
+            .filter(|id| {
+                !history
                     .iter()
-                    .any(|m| m.id == reply_id(&message_id, persona) && m.status == "complete")
+                    .any(|m| m.id == reply_id(&message_id, id) && m.status == "complete")
             })
-            .map(str::to_string)
             .collect::<Vec<_>>();
-        let targets =
-            remaining_retry(latest.persona.as_deref().unwrap_or(""), &target, &completed)?;
+        if targets.iter().any(|id| !original.contains(id)) {
+            return Err("원래 대화 상대에게만 다시 요청할 수 있어요.".into());
+        }
         if targets.is_empty() && registered.is_none() {
             return Ok(());
         }
+        store::resume_conversation(&db, chrono::Utc::now().timestamp_millis())?;
         let token = interrupt(&state, false)?;
         *lock(&state.panel)? = None;
         state.last_input.store(now(), Ordering::SeqCst);
@@ -348,18 +418,26 @@ fn reply_id(message_id: &str, persona: &str) -> String {
 }
 fn ensure_retry_characters(db: &Connection, message_id: &str, target: &str) -> Result<(), String> {
     let identities = store::message_identities(db, 100)?;
-    for persona in validate_target(target)? {
-        let current = characters::active_character(db, persona)?;
-        if !identities.iter().any(|identity| {
-            identity.message_id == message_id
-                && identity.persona == persona
-                && identity.character_id == current.id
-        }) {
+    let targets = if target == "all" {
+        store::message_targets(db, message_id)?
+    } else {
+        resolve_targets(db, target)?
+    };
+    let active = characters::active_ids(db)?;
+    for id in targets {
+        if !active.contains(&id) {
+            return Err("대화 상대가 바뀌었어요. 새 메시지로 말해 주세요.".into());
+        }
+        if !identities
+            .iter()
+            .any(|identity| identity.message_id == message_id && identity.character_id == id)
+        {
             return Err("대화 상대가 바뀌었어요. 현재 캐릭터에게 새 메시지로 말해 주세요.".into());
         }
     }
     Ok(())
 }
+#[cfg(test)]
 fn remaining_retry(
     original: &str,
     requested: &str,
@@ -428,60 +506,61 @@ fn turn_prompt(
     let memories = store::memories(db)?;
     let relationships = store::relationships(db)?;
     match targets {
-        [a, b] if a == "a" && b == "b" => {
+        [a, b] => {
             let histories = [
-                store::context_messages_for(db, 24, "a")?,
-                store::context_messages_for(db, 24, "b")?,
+                store::context_messages_for(db, 24, a)?,
+                store::context_messages_for(db, 24, b)?,
             ];
-            let latest_user = histories[0]
+            let latest = histories[0]
                 .iter()
-                .find(|message| {
-                    message.id == message_id
-                        && message.role == "user"
-                        && message.status == "complete"
-                        && message.persona.as_deref() == Some("both")
-                        && histories[1].iter().any(|other| other.id == message.id)
+                .find(|m| {
+                    m.id == message_id
+                        && m.role == "user"
+                        && histories[1].iter().any(|other| other.id == m.id)
                 })
                 .ok_or("대화의 근거가 변경되었어요. 새 메시지로 말해 주세요.")?;
-            Ok(domain::pair_prompt_messages(
-                &[
-                    characters::active_character(db, "a")?.definition,
-                    characters::active_character(db, "b")?.definition,
-                ],
-                &histories,
-                &memories,
-                &relationships,
-                latest_user,
-            ))
+            let members = [
+                characters::active_character(db, a)?,
+                characters::active_character(db, b)?,
+            ];
+            if a == "a" && b == "b" {
+                Ok(domain::pair_prompt_messages(
+                    &[members[0].definition.clone(), members[1].definition.clone()],
+                    &histories,
+                    &memories,
+                    &relationships,
+                    latest,
+                ))
+            } else {
+                Ok(domain::roster_pair_prompt(
+                    &members,
+                    &histories,
+                    &memories,
+                    &relationships,
+                    latest,
+                ))
+            }
         }
-        [persona] if persona == "a" || persona == "b" => {
+        [persona] => {
+            let member = characters::active_character(db, persona)?;
             let mut messages = store::context_messages_for(db, 24, persona)?;
-            let is_pair_reply = messages.iter().any(|message| {
-                message.id == message_id
-                    && message.role == "user"
-                    && message.status == "complete"
-                    && message.persona.as_deref() == Some("both")
-            });
-            if is_pair_reply {
-                let other = if persona == "a" { "b" } else { "a" };
-                let previous = store::context_messages_for(db, 100, other)?;
-                if let Some(reply) = previous.into_iter().find(|message| {
-                    message.id == reply_id(message_id, other)
-                        && message.role == "assistant"
-                        && message.status == "complete"
-                }) {
-                    if !messages.iter().any(|message| message.id == reply.id) {
-                        messages.push(reply);
-                    }
+            // Earlier replies in this same turn are reference data, never the user's words.
+            for reply in store::context_messages(db, 100)?.into_iter().filter(|m| {
+                m.role == "assistant"
+                    && m.id.starts_with(&format!("reply:{message_id}:"))
+                    && m.status == "complete"
+            }) {
+                if !messages.iter().any(|m| m.id == reply.id) {
+                    messages.push(reply);
                 }
             }
             let score = relationships
                 .iter()
-                .find(|relationship| relationship.persona == *persona)
-                .map_or(20, |relationship| relationship.score);
+                .find(|r| r.persona == member.id)
+                .map_or(20, |r| r.score);
             Ok(domain::prompt_messages(
                 persona,
-                &characters::active_character(db, persona)?.definition,
+                &member.definition,
                 &messages,
                 &memories,
                 &Relationship {
@@ -514,16 +593,16 @@ async fn generate_turn(
         &settings,
         &prompt,
         if paired {
-            domain::pair_reply_schema()
+            domain::scene_schema_for(targets, 2, 2)
         } else {
-            domain::reply_schema()
+            domain::reply_schema_for(targets)
         },
         if paired { 512 } else { 256 },
         cancel,
     )
     .await?;
     let lines = if paired {
-        domain::parse_pair_reply(value)?
+        domain::parse_lines_for(value, targets, 2, 2, true)?
     } else {
         let line = domain::parse_reply(value)?;
         if targets
@@ -556,24 +635,38 @@ async fn run_turn(
         targets.first().cloned(),
         None,
     );
-    let (lines, revision) = generate_turn(state, targets, message_id, cancel.clone()).await?;
-    for (index, line) in lines.iter().enumerate() {
-        if !present_line(
-            state,
-            line,
-            "llm",
-            &reply_id(message_id, &line.persona),
-            index,
-            lines.len(),
-            revision,
-            epoch,
-            &cancel,
-        )? {
+    let groups: Vec<Vec<String>> = if targets.len() <= 2 {
+        vec![targets.to_vec()]
+    } else {
+        targets.iter().map(|id| vec![id.clone()]).collect()
+    };
+    let mut shown = 0;
+    for group in groups {
+        if !is_current(state, epoch, &cancel) {
             return Ok(());
         }
-        publish(app, state);
-        wait_for_line(app, state, epoch, cancel.clone(), &line.text).await?;
+        let (lines, revision) = generate_turn(state, &group, message_id, cancel.clone()).await?;
+        for line in &lines {
+            if !present_line(
+                state,
+                line,
+                "llm",
+                &reply_id(message_id, &line.persona),
+                shown,
+                targets.len(),
+                revision,
+                epoch,
+                &cancel,
+                true,
+            )? {
+                return Ok(());
+            }
+            shown += 1;
+            publish(app, state);
+            wait_for_line(app, state, epoch, cancel.clone(), &line.text).await?;
+        }
     }
+
     Ok(())
 }
 
@@ -588,12 +681,15 @@ fn present_line(
     revision: i64,
     epoch: u64,
     cancel: &AtomicBool,
+    direct_reply: bool,
 ) -> Result<bool, String> {
     let _action = lock(&state.action)?;
     let db = lock(&state.db)?;
     if !is_current(state, epoch, cancel) || store::revision(&db)? != revision {
         return Ok(false);
     }
+    let resolved = characters::resolve_lines(&db, std::slice::from_ref(line))?;
+    let line = &resolved[0];
     if source == "widget" && !widget_commands::widget_event_current(state, &db)? {
         return Ok(false);
     }
@@ -607,7 +703,7 @@ fn present_line(
     } else {
         None
     };
-    store::insert_message_with_talk(
+    store::insert_message_with_source(
         &db,
         &Message {
             id: id.into(),
@@ -618,7 +714,9 @@ fn present_line(
             created_at: chrono::Utc::now().timestamp_millis(),
             status: "complete".into(),
         },
+        source,
         scene_key.as_deref(),
+        direct_reply,
     )?;
     *lock(&state.playback)? = Some(Playback {
         id: id.into(),
@@ -648,6 +746,26 @@ async fn wait_for_line(
         _ = models::cancelled(cancel.clone()) => return Ok(()),
         _ = tokio::time::sleep(Duration::from_millis(playback::reading_millis(text) as u64)) => {}
     }
+    let question = lock(&state.playback)?
+        .as_ref()
+        .is_some_and(|line| line.source == "question");
+    if question {
+        {
+            let _action = lock(&state.action)?;
+            if !is_current(state, epoch, &cancel) {
+                return Ok(());
+            }
+            if let Some(line) = lock(&state.playback)?.as_mut() {
+                line.ends_at = chrono::Utc::now().timestamp_millis() + 30_000;
+            }
+            lock(&state.runtime)?.phase = "waiting".into();
+        }
+        publish(app, state);
+        tokio::select! {
+            _ = models::cancelled(cancel.clone()) => return Ok(()),
+            _ = tokio::time::sleep(Duration::from_secs(30)) => {}
+        }
+    }
     if clear_line_if_current(state, epoch, &cancel)? {
         publish(app, state);
     }
@@ -667,12 +785,14 @@ fn clear_line_if_current(
     Ok(true)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_scene(
     app: &tauri::AppHandle,
     state: &AppState,
     lines: &[SceneLine],
     source: &str,
     prefix: &str,
+    direct_reply: bool,
     epoch: u64,
     cancel: Arc<AtomicBool>,
 ) -> Result<(), String> {
@@ -688,6 +808,7 @@ async fn run_scene(
             revision,
             epoch,
             &cancel,
+            direct_reply,
         )? {
             return Ok(());
         }
@@ -719,8 +840,19 @@ fn start_scene(
         if !is_current(&state, epoch, &cancel) {
             return;
         }
+        let direct_reply = message_id.is_some();
         let prefix = message_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let result = run_scene(&app, &state, &lines, source, &prefix, epoch, cancel.clone()).await;
+        let result = run_scene(
+            &app,
+            &state,
+            &lines,
+            source,
+            &prefix,
+            direct_reply,
+            epoch,
+            cancel.clone(),
+        )
+        .await;
         if !is_current(&state, epoch, &cancel) {
             return;
         }
@@ -743,14 +875,14 @@ fn open_panel(
     persona: String,
     mode: String,
 ) -> Result<(), String> {
-    if !["a", "b"].contains(&persona.as_str())
+    if characters::active_character(&*lock(&state.db)?, &persona).is_err()
         || !["menu", "input", "history"].contains(&mode.as_str())
     {
         return Err("열 수 없는 캐릭터 메뉴예요.".into());
     }
     let (epoch, _) = {
         let _action = lock(&state.action)?;
-        if state.stopping.load(Ordering::SeqCst) {
+        if unavailable(&state) {
             return Ok(());
         }
         let token = interrupt(&state, false)?;
@@ -820,7 +952,11 @@ fn next_scene(state: &AppState) -> Result<(Vec<SceneLine>, &'static str), String
     }
     let registered: Vec<_> = wordbook::entries(&db)?
         .into_iter()
-        .filter(|entry| entry.enabled && entry.use_for_idle)
+        .filter(|entry| {
+            entry.enabled
+                && entry.use_for_idle
+                && characters::resolve_lines(&db, &entry.lines).is_ok()
+        })
         .collect();
     let scenes = store::prepared_scenes(&db)?;
     let source = playback::idle_source(sequence, !registered.is_empty(), !scenes.is_empty());
@@ -834,7 +970,14 @@ fn next_scene(state: &AppState) -> Result<(Vec<SceneLine>, &'static str), String
         "llm" => {
             let scene = &scenes[0];
             store::delete_scene(&db, &scene.id)?;
-            Ok((scene.lines.clone(), source))
+            Ok((
+                scene.lines.clone(),
+                if scene.id.starts_with("question:") {
+                    "question"
+                } else {
+                    source
+                },
+            ))
         }
         _ => Ok((character_script(&db, sequence)?, "script")),
     }
@@ -860,7 +1003,7 @@ fn character_script(db: &Connection, sequence: u64) -> Result<Vec<SceneLine>, St
     }
     if sequence == 0 {
         let mut greeting = Vec::new();
-        for slot in ["a", "b"].iter().take(members.len()) {
+        for slot in characters::SLOTS.iter().take(members.len()) {
             greeting.extend(characters::greeting(db, slot)?);
         }
         return Ok(greeting);
@@ -872,7 +1015,7 @@ fn character_script(db: &Connection, sequence: u64) -> Result<Vec<SceneLine>, St
 fn talk_now(app: tauri::AppHandle, state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
     let (token, lines, source) = {
         let _action = lock(&state.action)?;
-        if state.stopping.load(Ordering::SeqCst) {
+        if unavailable(&state) {
             return Ok(());
         }
         let token = interrupt(&state, false)?;
@@ -990,7 +1133,7 @@ async fn test_local_model(
     state: tauri::State<'_, Arc<AppState>>,
     settings: Settings,
 ) -> Result<LocalModelTest, String> {
-    if state.stopping.load(Ordering::SeqCst) {
+    if unavailable(&state) {
         return Err("앱을 종료하고 있어요.".into());
     }
     if lock(&state.download_cancel)?.is_some() {
@@ -1006,7 +1149,9 @@ async fn test_local_model(
         ),
     )
     .await
-    .unwrap_or_else(|_| Err("모델 테스트 시간이 초과되었어요. 더 작은 모델을 시도해 보세요.".into()));
+    .unwrap_or_else(|_| {
+        Err("모델 테스트 시간이 초과되었어요. 더 작은 모델을 시도해 보세요.".into())
+    });
     let saved = store::settings(&*lock(&state.db)?)?;
     if result.is_err()
         || models::selected_path(&state.app_data, &saved)
@@ -1064,7 +1209,7 @@ fn download_model(
 
 fn begin_download(state: &AppState, model: LocalModel) -> Result<Arc<AtomicBool>, String> {
     let _action = lock(&state.action)?;
-    if state.stopping.load(Ordering::SeqCst) {
+    if unavailable(state) {
         return Err("앱을 종료하고 있어요.".into());
     }
     let mut active = lock(&state.download_cancel)?;
@@ -1127,16 +1272,30 @@ fn delete_memory(
 
 #[tauri::command]
 fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
+    open_settings_at(app, false)
+}
+
+fn open_settings_at(app: tauri::AppHandle, updates: bool) -> Result<(), String> {
     let state = app.state::<Arc<AppState>>();
     skip_talk(app.clone(), state)?;
     if let Some(window) = app.get_webview_window("settings") {
         window.show().map_err(|e| e.to_string())?;
+        if updates {
+            let _ = window.emit("open-updates", ());
+        }
         return window.set_focus().map_err(|e| e.to_string());
     }
     tauri::WebviewWindowBuilder::new(
         &app,
         "settings",
-        tauri::WebviewUrl::App("index.html?view=settings".into()),
+        tauri::WebviewUrl::App(
+            if updates {
+                "index.html?view=settings&section=updates"
+            } else {
+                "index.html?view=settings"
+            }
+            .into(),
+        ),
     )
     .title("Nanika Box · 설정")
     .inner_size(760.0, 760.0)
@@ -1149,8 +1308,19 @@ fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 fn show_boxes(app: &tauri::AppHandle, state: &AppState) {
-    if state.stopping.load(Ordering::SeqCst) {
+    let Ok(action) = lock(&state.action) else {
         return;
+    };
+    if unavailable(state) {
+        return;
+    }
+    if let Ok(db) = lock(&state.db) {
+        if let Ok(mut preferences) = behavior::preferences(&db) {
+            preferences.characters_visible = true;
+            if behavior::save(&db, &preferences).is_err() {
+                return;
+            }
+        }
     }
     for (label, window) in app.webview_windows() {
         if desktop::is_body(&label) {
@@ -1161,6 +1331,7 @@ fn show_boxes(app: &tauri::AppHandle, state: &AppState) {
         runtime.hidden = false;
     }
     state.last_input.store(now(), Ordering::SeqCst);
+    drop(action);
     publish(app, state);
 }
 
@@ -1169,17 +1340,23 @@ async fn hide_boxes(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    for (label, window) in app.webview_windows() {
-        if desktop::is_body(&label) || desktop::is_face(&label) {
-            window.hide().map_err(|e| e.to_string())?;
-        }
-    }
     let (epoch, cancel) = {
         let _action = lock(&state.action)?;
+        let db = lock(&state.db)?;
+        let mut preferences = behavior::preferences(&db)?;
+        preferences.characters_visible = false;
+        behavior::save(&db, &preferences)?;
+        drop(db);
         lock(&state.runtime)?.hidden = true;
         *lock(&state.panel)? = None;
+        for (label, window) in app.webview_windows() {
+            if desktop::is_body(&label) || desktop::is_face(&label) {
+                window.hide().map_err(|e| e.to_string())?;
+            }
+        }
         interrupt(&state, false)?
     };
+    desktop_toys::clear_automatic(&app);
     phase(&app, &state, epoch, "idle", None, None);
     let _gate = state.gate.lock().await;
     if is_current(&state, epoch, &cancel) {
@@ -1196,6 +1373,9 @@ fn set_paused(
     paused: bool,
 ) -> Result<(), String> {
     let token = apply_pause(&state, paused)?;
+    if paused {
+        desktop_toys::clear_automatic(&app);
+    }
     if let Some((epoch, _)) = token {
         phase(&app, &state, epoch, "idle", None, None);
     } else {
@@ -1264,82 +1444,10 @@ fn resource_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> 
     ))
 }
 
-fn create_tray(app: &tauri::AppHandle) -> Result<(), String> {
-    use tauri::menu::{Menu, MenuItem};
-    let show = MenuItem::with_id(app, "show", "박스 표시", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-    let hide = MenuItem::with_id(app, "hide", "박스 숨김", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-    let pause = MenuItem::with_id(app, "pause", "자동 잡담 정지 / 재개", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-    let settings = MenuItem::with_id(app, "settings", "설정", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-    let characters = MenuItem::with_id(app, "characters", "캐릭터 관리", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-    let widgets = MenuItem::with_id(app, "widgets", "위젯 관리", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-    let quit = MenuItem::with_id(app, "quit", "완전 종료", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-    let menu = Menu::with_items(
-        app,
-        &[
-            &show,
-            &hide,
-            &pause,
-            &characters,
-            &widgets,
-            &settings,
-            &quit,
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-    let icon = app
-        .default_window_icon()
-        .cloned()
-        .ok_or("앱 아이콘을 읽지 못했어요.")?;
-    tauri::tray::TrayIconBuilder::new()
-        .icon(icon)
-        .menu(&menu)
-        .on_menu_event(|app, event| {
-            let state = app.state::<Arc<AppState>>();
-            match event.id.as_ref() {
-                "show" => show_boxes(app, &state),
-                "settings" => {
-                    let _ = open_settings(app.clone());
-                }
-                "characters" => {
-                    let _ = open_characters(app.clone());
-                }
-                "widgets" => {
-                    let _ = open_widgets(app.clone());
-                }
-                "pause" => {
-                    let paused = lock(&state.runtime).map(|s| !s.paused).unwrap_or(true);
-                    let _ = set_paused(app.clone(), state, paused);
-                }
-                "hide" | "quit" => {
-                    let app = app.clone();
-                    let is_quit = event.id.as_ref() == "quit";
-                    tauri::async_runtime::spawn(async move {
-                        let state = app.state::<Arc<AppState>>();
-                        if is_quit {
-                            let _ = quit_app(app.clone(), state).await;
-                        } else {
-                            let _ = hide_boxes(app.clone(), state).await;
-                        }
-                    });
-                }
-                _ => {}
-            }
-        })
-        .build(app)
-        .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .register_uri_scheme_protocol(SPRITE_SCHEME, serve_sprite)
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(state) = app.try_state::<Arc<AppState>>() {
@@ -1381,11 +1489,19 @@ pub fn run() {
                 action: Mutex::new(()),
                 automatic: AtomicBool::new(false),
                 stopping: AtomicBool::new(false),
+                update_installing: AtomicBool::new(false),
+                behavior: Mutex::new(behavior::Machine::default()),
                 positions: Mutex::new(HashMap::new()),
             });
             app.manage(state.clone());
+            app.manage(desktop_toys::Runtime::default());
+            app.manage(updater::UpdateState::default());
+            lock(&state.runtime).map_err(std::io::Error::other)?.hidden =
+                !behavior::preferences(&*lock(&state.db).map_err(std::io::Error::other)?)
+                    .map_err(std::io::Error::other)?
+                    .characters_visible;
             desktop::create_boxes(app.handle(), &state).map_err(std::io::Error::other)?;
-            create_tray(app.handle()).map_err(std::io::Error::other)?;
+            desktop_menu::create(app.handle()).map_err(std::io::Error::other)?;
             if let Err(error) = device_wake::install(app.handle()) {
                 eprintln!("기기 복귀 알림 연결 실패: {error}");
             }
@@ -1397,6 +1513,8 @@ pub fn run() {
             }
             let handle = app.handle().clone();
             talk_host::watch(handle.clone(), state.clone());
+            desktop_toys::start(handle.clone());
+            updater::start(handle.clone());
             tauri::async_runtime::spawn(background_loop(handle, state));
             Ok(())
         })
@@ -1451,6 +1569,13 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
+            behavior::get_desktop_preferences,
+            behavior::set_desktop_preferences,
+            behavior::clear_desktop_toys,
+            desktop_toys::desktop_toy_action,
+            updater::get_update_status,
+            updater::check_app_update,
+            updater::install_app_update,
             get_widgets,
             install_widgets,
             finish_widget_onboarding,
@@ -1482,6 +1607,8 @@ pub fn run() {
             choose_character_pack,
             import_character_pack,
             save_character_pack,
+            get_character_pack_attribution,
+            save_character_pack_attribution,
             choose_character_sprite,
             remove_character_sprite,
             open_panel,
@@ -1511,7 +1638,11 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("failed to build Nanika Box")
         .run(|app, event| match event {
-            tauri::RunEvent::ExitRequested { api, .. } => {
+            tauri::RunEvent::ExitRequested { api, code, .. } => {
+                if code == Some(tauri::RESTART_EXIT_CODE) {
+                    return;
+                }
+                desktop_toys::clear(app);
                 device_wake::shutdown(app);
                 if let Some(state) = app.try_state::<Arc<AppState>>() {
                     let _ = prepare_exit(&state);
@@ -1559,11 +1690,16 @@ fn prepare_exit(state: &AppState) -> Result<(), String> {
 
 async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>) {
     let mut interval = tokio::time::interval(Duration::from_millis(500));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         interval.tick().await;
         if state.stopping.load(Ordering::SeqCst) {
             break;
         }
+        if state.update_installing.load(Ordering::SeqCst) {
+            continue;
+        }
+        let _ = behavior::tick(&app, &state);
         let _ = flush_positions(&state, false);
         let _ = advance_widgets(&app, &state);
         start_due_widget_refreshes(&app, &state);
@@ -1573,12 +1709,24 @@ async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>) {
         if !["idle", "error"].contains(&status.phase.as_str()) {
             continue;
         }
+        if lock(&state.behavior)
+            .map(|machine| {
+                matches!(
+                    machine.phase,
+                    behavior::Phase::Playing | behavior::Phase::Suspended
+                )
+            })
+            .unwrap_or(true)
+        {
+            continue;
+        }
         if play_widget_reaction(&app, &state).unwrap_or(false) {
             continue;
         }
         let Ok(_guard) = state.gate.try_lock() else {
             continue;
         };
+        let _ = expire_idle_recall(&state, chrono::Utc::now().timestamp_millis());
         if now() - state.last_foreground.load(Ordering::SeqCst) >= 120 {
             inference::stop_local(&state.inference).await;
         }
@@ -1594,14 +1742,18 @@ async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>) {
     }
 }
 
+fn expire_idle_recall(state: &AppState, at: i64) -> Result<bool, String> {
+    let _action = lock(&state.action)?;
+    if unavailable(state) || !["idle", "error"].contains(&lock(&state.runtime)?.phase.as_str()) {
+        return Ok(false);
+    }
+    store::expire_generated_recall(&*lock(&state.db)?, at)
+}
+
 fn begin_background(state: &AppState) -> Result<Option<(u64, Arc<AtomicBool>)>, String> {
     let _action = lock(&state.action)?;
     let status = lock(&state.runtime)?.clone();
-    if state.stopping.load(Ordering::SeqCst)
-        || status.hidden
-        || status.paused
-        || lock(&state.panel)?.is_some()
-    {
+    if unavailable(state) || status.hidden || status.paused || lock(&state.panel)?.is_some() {
         return Ok(None);
     }
     let settings = store::settings(&*lock(&state.db)?)?;
@@ -1637,10 +1789,7 @@ async fn run_background(
             store::relationships(&db)?,
             store::revision(&db)?,
             store::prepared_scenes(&db)?,
-            characters::active_members(&db)?
-                .into_iter()
-                .map(|member| member.definition)
-                .collect::<Vec<_>>(),
+            characters::active_members(&db)?,
         )
     };
     if settings.autonomous_enabled && now() >= state.next_idle.load(Ordering::SeqCst) {
@@ -1659,6 +1808,7 @@ async fn run_background(
             &lines,
             source,
             &uuid::Uuid::new_v4().to_string(),
+            false,
             epoch,
             cancel,
         )
@@ -1676,10 +1826,19 @@ async fn run_background(
         if ready && now() - state.last_preparation.load(Ordering::SeqCst) >= 15 {
             state.last_preparation.store(now(), Ordering::SeqCst);
             phase(app, state, epoch, "analyzing", None, None);
+            let mut prompt = domain::analysis_prompt(&pending, &memories, revision);
+            let targets = {
+                let db = lock(&state.db)?;
+                pending.iter().map(|message| Ok(serde_json::json!({"messageId":message.id,"targets":store::message_targets(&db,&message.id)?}))).collect::<Result<Vec<_>,String>>()?
+            };
+            prompt.push(ChatMessage {
+                role: "user".into(),
+                content: serde_json::json!({"recordedTargets":targets}).to_string(),
+            });
             let result = background_generate(
                 state,
                 &settings,
-                &domain::analysis_prompt(&pending, &memories, revision),
+                &prompt,
                 domain::analysis_schema(),
                 768,
                 cancel.clone(),
@@ -1719,10 +1878,11 @@ async fn run_background(
     if !ready {
         return Ok(());
     }
-    // Automatic LLM scenes are still written for two speakers; other roster sizes wait for stage 3.
-    let [first, second] = characters.as_slice() else {
+    let targets: Vec<String> = characters.iter().map(|member| member.id.clone()).collect();
+    if targets.is_empty() {
         return Ok(());
-    };
+    }
+    let question = targets.len() == 1 && state.idle_sequence.load(Ordering::SeqCst) % 2 == 1;
     state.last_preparation.store(now(), Ordering::SeqCst);
     if settings.mode == "local" && !resources::background_allowed() {
         return Ok(());
@@ -1737,17 +1897,23 @@ async fn run_background(
     let result = background_generate(
         state,
         &settings,
-        &domain::scene_prompt(
-            &memories,
-            &relationships,
-            &[first.clone(), second.clone()],
+        &domain::roster_scene_prompt(&characters, &memories, &relationships, question),
+        domain::scene_schema_for(
+            &targets,
+            if targets.len() == 1 { 1 } else { 2 },
+            if targets.len() == 1 { 1 } else { 4 },
         ),
-        domain::scene_schema(),
         512,
         cancel.clone(),
     )
     .await?;
-    let lines = domain::parse_scene(result)?;
+    let lines = domain::parse_lines_for(
+        result,
+        &targets,
+        if targets.len() == 1 { 1 } else { 2 },
+        if targets.len() == 1 { 1 } else { 4 },
+        false,
+    )?;
     let _action = lock(&state.action)?;
     let db = lock(&state.db)?;
     if !is_current(state, epoch, &cancel) || store::revision(&db)? != revision {
@@ -1756,7 +1922,11 @@ async fn run_background(
     store::add_scene(
         &db,
         &PreparedScene {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: format!(
+                "{}{}",
+                if question { "question:" } else { "" },
+                uuid::Uuid::new_v4()
+            ),
             revision,
             lines,
         },
@@ -1857,7 +2027,7 @@ fn clear_api_key(
 #[cfg(test)]
 mod lifecycle_tests {
     use super::*;
-    fn state() -> AppState {
+    pub(crate) fn state() -> AppState {
         AppState {
             db: Mutex::new(store::open(std::path::Path::new(":memory:")).unwrap()),
             inference: inference::Inference::new(PathBuf::new(), PathBuf::new(), PathBuf::new()),
@@ -1886,6 +2056,8 @@ mod lifecycle_tests {
             action: Mutex::new(()),
             automatic: AtomicBool::new(false),
             stopping: AtomicBool::new(false),
+            update_installing: AtomicBool::new(false),
+            behavior: Mutex::new(behavior::Machine::default()),
             positions: Mutex::new(HashMap::new()),
         }
     }
@@ -1925,7 +2097,8 @@ mod lifecycle_tests {
             2,
             revision,
             0,
-            &AtomicBool::new(false)
+            &AtomicBool::new(false),
+            false,
         )
         .unwrap());
         assert_eq!(next_scene(&state).unwrap().1, "script");
@@ -1963,7 +2136,7 @@ mod lifecycle_tests {
                 (token, lines, store::revision(&db).unwrap())
             };
             assert!(present_line(
-                &state, &lines[0], "talk", "first", 0, 2, revision, token.0, &token.1
+                &state, &lines[0], "talk", "first", 0, 2, revision, token.0, &token.1, false,
             )
             .unwrap());
             match cause {
@@ -2020,7 +2193,7 @@ mod lifecycle_tests {
             }
             assert!(
                 !present_line(
-                    &state, &lines[1], "talk", "second", 1, 2, revision, token.0, &token.1
+                    &state, &lines[1], "talk", "second", 1, 2, revision, token.0, &token.1, false,
                 )
                 .unwrap(),
                 "{cause}"
@@ -2190,7 +2363,8 @@ mod lifecycle_tests {
                 2,
                 revision,
                 epoch,
-                &cancel
+                &cancel,
+                false,
             )
             .unwrap());
             match cause {
@@ -2235,7 +2409,8 @@ mod lifecycle_tests {
                     2,
                     revision,
                     epoch,
-                    &cancel
+                    &cancel,
+                    false,
                 )
                 .unwrap(),
                 "{cause}"
@@ -2274,7 +2449,8 @@ mod lifecycle_tests {
             1,
             revision,
             epoch,
-            &cancel
+            &cancel,
+            false,
         )
         .unwrap());
         let before_playback = serde_json::to_value(lock(&state.playback).unwrap().clone()).unwrap();
@@ -2321,7 +2497,8 @@ mod lifecycle_tests {
             1,
             revision,
             epoch,
-            &cancel
+            &cancel,
+            false,
         )
         .unwrap());
     }
@@ -2365,7 +2542,8 @@ mod lifecycle_tests {
             1,
             revision,
             old.0,
-            &old.1
+            &old.1,
+            false,
         )
         .unwrap());
         let before =
@@ -2384,7 +2562,8 @@ mod lifecycle_tests {
             1,
             revision,
             old.0,
-            &old.1
+            &old.1,
+            false,
         )
         .unwrap());
         {
@@ -2481,7 +2660,8 @@ mod lifecycle_tests {
         let lines = route_message(&state, &db, "별사탕").unwrap().unwrap();
         assert_eq!(
             serde_json::to_value(lines).unwrap(),
-            serde_json::to_value(&pack.wordbook[0].lines).unwrap()
+            serde_json::to_value(characters::resolve_lines(&db, &pack.wordbook[0].lines).unwrap())
+                .unwrap()
         );
         let greeting = character_script(&db, 0).unwrap();
         assert_eq!(greeting[0].text, pack.characters[0].greeting[0].text);
@@ -2541,7 +2721,7 @@ mod lifecycle_tests {
             .unwrap();
         assert_eq!(
             serde_json::to_value(lines).unwrap(),
-            serde_json::to_value(&entry.lines).unwrap()
+            serde_json::to_value(characters::resolve_lines(&db, &entry.lines).unwrap()).unwrap()
         );
         assert!(route_message(&state, &db, "새로운 주제로 이야기해 줘").is_err());
         store::save_settings(
@@ -2564,7 +2744,7 @@ mod lifecycle_tests {
         let old = interrupt(&state, true).unwrap();
         let lines = playback::builtin_scene(0);
         assert!(present_line(
-            &state, &lines[0], "script", "old-line", 0, 4, revision, old.0, &old.1
+            &state, &lines[0], "script", "old-line", 0, 4, revision, old.0, &old.1, false,
         )
         .unwrap());
         let current = interrupt(&state, false).unwrap();
@@ -2578,11 +2758,13 @@ mod lifecycle_tests {
             4,
             revision,
             old.0,
-            &old.1
+            &old.1,
+            false,
         )
         .unwrap());
         assert!(present_line(
-            &state, &lines[1], "wordbook", "new-line", 0, 1, revision, current.0, &current.1
+            &state, &lines[1], "wordbook", "new-line", 0, 1, revision, current.0, &current.1,
+            false,
         )
         .unwrap());
         assert!(!clear_line_if_current(&state, old.0, &old.1).unwrap());
@@ -2607,9 +2789,39 @@ mod lifecycle_tests {
             1,
             revision,
             current.0,
-            &current.1
+            &current.1,
+            false,
         )
         .unwrap());
+    }
+
+    #[test]
+    fn idle_recall_expires_while_hidden_and_paused_but_not_during_playback() {
+        let state = state();
+        let token = interrupt(&state, true).unwrap();
+        let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
+        let lines = playback::builtin_scene(0);
+        for (index, source) in ["llm", "script"].into_iter().enumerate() {
+            assert!(present_line(
+                &state, &lines[0], source, source, index, 2, revision, token.0, &token.1, false,
+            )
+            .unwrap());
+        }
+        let at = chrono::Utc::now().timestamp_millis() + 31 * 60 * 1000;
+        assert!(!expire_idle_recall(&state, at).unwrap());
+        {
+            let mut runtime = lock(&state.runtime).unwrap();
+            runtime.phase = "idle".into();
+            runtime.hidden = true;
+            runtime.paused = true;
+        }
+        assert!(expire_idle_recall(&state, at).unwrap());
+        assert!(!expire_idle_recall(&state, at).unwrap());
+        let db = lock(&state.db).unwrap();
+        let recalled = store::context_messages_for(&db, 24, &lines[0].persona).unwrap();
+        assert_eq!(recalled.len(), 1);
+        assert_eq!(recalled[0].id, "script");
+        assert_eq!(store::messages(&db, 24).unwrap().len(), 2);
     }
 
     #[test]
@@ -2661,7 +2873,7 @@ mod lifecycle_tests {
             },
         )
         .unwrap();
-        store::insert_message(
+        store::insert_message_with_source(
             &db,
             &Message {
                 id: "history".into(),
@@ -2672,6 +2884,9 @@ mod lifecycle_tests {
                 created_at: 1,
                 status: "complete".into(),
             },
+            "llm",
+            None,
+            false,
         )
         .unwrap();
         let entries = wordbook::entries(&db).unwrap();
@@ -2679,6 +2894,9 @@ mod lifecycle_tests {
         drop(db);
         let reopened = open_session(&path).unwrap();
         assert!(store::prepared_scenes(&reopened).unwrap().is_empty());
+        assert!(store::context_messages_for(&reopened, 24, "a")
+            .unwrap()
+            .is_empty());
         assert_eq!(
             store::messages(&reopened, 10).unwrap()[0].content,
             "어제의 이야기"
@@ -2926,7 +3144,8 @@ mod lifecycle_tests {
             2,
             revision,
             original.0,
-            &original.1
+            &original.1,
+            true,
         )
         .unwrap());
         let retry = interrupt(&state, false).unwrap();
@@ -2939,7 +3158,8 @@ mod lifecycle_tests {
             2,
             revision,
             original.0,
-            &original.1
+            &original.1,
+            true,
         )
         .unwrap());
         let missing = remaining_retry("both", "both", &["a".into()]).unwrap();
@@ -2958,7 +3178,8 @@ mod lifecycle_tests {
             1,
             revision,
             retry.0,
-            &retry.1
+            &retry.1,
+            true,
         )
         .unwrap());
         let history = store::messages(&lock(&state.db).unwrap(), 100).unwrap();
@@ -3113,7 +3334,7 @@ mod lifecycle_tests {
 
     #[test]
     fn partial_retry_references_only_current_characters_completed_same_turn_reply() {
-        for scenario in ["complete", "incomplete", "other-turn", "swapped"] {
+        for scenario in ["complete", "incomplete", "other-turn", "swapped", "expired"] {
             let db = store::open(std::path::Path::new(":memory:")).unwrap();
             let user = Message {
                 id: "partial-question".into(),
@@ -3146,7 +3367,10 @@ mod lifecycle_tests {
                 }
                 .into(),
             };
-            store::insert_message(&db, &reply).unwrap();
+            store::insert_message_with_source(&db, &reply, "llm", None, true).unwrap();
+            if scenario == "expired" {
+                store::resume_conversation(&db, reply.created_at + 31 * 60 * 1000).unwrap();
+            }
             if scenario == "swapped" {
                 let new_character = characters::clone_character(&db, "builtin-a").unwrap();
                 characters::assign(&db, "a", &new_character.id).unwrap();

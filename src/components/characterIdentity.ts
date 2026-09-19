@@ -16,23 +16,25 @@ export function centerSlice(width: number, height: number): Slice {
 export function characterById(snapshot: Snapshot, id: string): InstalledCharacter | undefined {
   return snapshot.characters.installed.find((character) => character.id === id);
 }
-// Only the first two roster positions speak until scene lines reference characters by ID.
 export function personaOf(snapshot: Snapshot, id: string): Persona | null {
-  const index = snapshot.characters.active.indexOf(id);
-  return index === 0 ? "a" : index === 1 ? "b" : null;
+  return snapshot.characters.active.includes(id) ? id : null;
 }
 export function activeCharacter(
   snapshot: Snapshot,
   persona: Persona,
 ): InstalledCharacter | undefined {
-  const id = snapshot.characters.active[persona === "a" ? 0 : 1];
+  if (snapshot.characters.active.includes(persona)) return characterById(snapshot, persona);
+  const index = ["a", "b", "c", "d", "e", "f", "g", "h"].indexOf(persona);
+  const id = snapshot.characters.active[index];
   return id === undefined ? undefined : characterById(snapshot, id);
 }
 export function characterName(snapshot: Snapshot, persona: Persona): string {
   return activeCharacter(snapshot, persona)?.definition.name ?? persona.toUpperCase();
 }
 export function currentExpression(snapshot: Snapshot, persona: Persona | null): string {
-  return persona !== null && snapshot.playback?.persona === persona
+  return persona !== null &&
+    snapshot.playback &&
+    activeCharacter(snapshot, snapshot.playback.persona)?.id === persona
     ? snapshot.playback.expression
     : DEFAULT_EXPRESSION;
 }
