@@ -274,11 +274,6 @@ export function CharacterManager({ snapshot }: Props): JSX.Element {
                       마지막 친구는 내보낼 수 없어요. 다른 친구를 먼저 함께 지내게 해 주세요.
                     </p>
                   )}
-                  {position >= 2 && (
-                    <p className={ui.quiet}>
-                      세 번째부터는 바탕화면에 보이지만 대사는 다음 단계에서 지원해요.
-                    </p>
-                  )}
                   {!together && active.length >= MAX_ROSTER && (
                     <p className={ui.quiet}>함께 지낼 수 있는 친구는 최대 {MAX_ROSTER}명이에요.</p>
                   )}

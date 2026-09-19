@@ -120,7 +120,6 @@ it("reorders and releases roster members and keeps the last one on the desktop",
   fireEvent.click(
     within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^모래/ }),
   );
-  expect(screen.getByText(/세 번째부터는 바탕화면에 보이지만/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "내보내기" }));
   await waitFor(() =>
     expect(command).toHaveBeenLastCalledWith("apply_character_roster", {
