@@ -1141,6 +1141,9 @@ async fn test_local_model(
         return Err("모델 다운로드가 끝난 뒤에 테스트할 수 있어요.".into());
     }
     let _gate = state.gate.lock().await;
+    if unavailable(&state) {
+        return Err("앱을 종료하고 있어요.".into());
+    }
     let result = tokio::time::timeout(
         Duration::from_secs(120),
         inference::test_local(
