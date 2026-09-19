@@ -47,6 +47,8 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: pnpm check
       - run: pnpm test
+      - run: pnpm build
+        if: github.event_name == 'pull_request'
 
   desktop:
     needs: frontend
@@ -101,9 +103,10 @@ jobs:
           key: ${{ steps.sidecar-cache.outputs.cache-primary-key }}
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
       - name: Build native bundle
+        if: github.event_name != 'pull_request'
         run: pnpm tauri build --bundles ${{ matrix.bundle }}
       - name: Verify and archive macOS app
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && github.event_name != 'pull_request'
         run: |
           codesign --verify --deep --strict 'src-tauri/target/release/bundle/macos/Nanika Box.app'
           for installer in src-tauri/target/release/bundle/dmg/*.dmg; do
@@ -111,6 +114,7 @@ jobs:
           done
           ditto -c -k --sequesterRsrc --keepParent 'src-tauri/target/release/bundle/macos/Nanika Box.app' 'src-tauri/target/release/bundle/Nanika-Box-macOS-arm64.zip'
       - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
         with:
           name: nanika-box-${{ matrix.arch }}-${{ runner.os }}
           path: |
