@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { CompanionBox } from "../components/CompanionBox";
-import { Balloon } from "../components/Balloon";
+import { CompanionBox } from "../components/CompanionBox/CompanionBox";
+import { Balloon } from "../components/Balloon/Balloon";
 import { PREVIEW_SNAPSHOT, command, isDesktop } from "../hooks/useSnapshot";
 
 vi.mock("../hooks/useSnapshot", async (load) => ({
@@ -21,7 +21,7 @@ it("hides the characters from the internal X without opening their menu", async 
   render(<CompanionBox id="builtin-a" snapshot={PREVIEW_SNAPSHOT} />);
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 숨기기" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("hide_boxes"));
-  expect(command).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(command).mock.calls.filter(([name]) => name !== "set_character_collision")).toHaveLength(1);
 });
 function compose(): HTMLTextAreaElement {
   render(<Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "a", mode: "input" } }} />);

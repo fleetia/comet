@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { StoryChoices } from "../components/StoryChoices";
-import { Balloon } from "../components/Balloon";
+import { StoryChoices } from "../components/StoryChoices/StoryChoices";
+import { Balloon } from "../components/Balloon/Balloon";
 import { PREVIEW_SNAPSHOT } from "../previewSnapshot";
 import type { StoryRequest } from "../types";
 

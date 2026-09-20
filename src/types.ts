@@ -21,6 +21,7 @@ export type InstalledCharacter = {
   sprites: Record<string, SpriteInfo>;
 };
 export type CharacterCollection = { installed: InstalledCharacter[]; active: string[] };
+export type InstalledCharacterPack = { id: string; name: string; characterIds: string[] };
 export type CharacterDialogue = { pairScenes: SceneLine[][]; wordbook: WordbookEntry[] };
 export type PackSprite = { sourceId: string; expression: string; mime: string; data: string };
 export type CharacterPack = {
@@ -107,6 +108,14 @@ export type Message = {
   status: string;
 };
 export type Memory = { id: string; content: string; sourceMessageId: string; updatedAt: number };
+export type TalkPack = {
+  id: string;
+  name: string;
+  description: string;
+  installed: boolean;
+  bundled: boolean;
+  defaultInstalled: boolean;
+};
 export type Relationship = { persona: string; score: number };
 export type RuntimeStatus = {
   phase: string;

@@ -9,16 +9,20 @@ description: 22종 위젯의 실제 상태·이벤트와 번들 대사를 연결
 
 ## 검증 대상과 원본
 
-2026-09-19 나디르·별꼬리 번들의 parser 결과, `talk/fixtures/coverage.json`과 `src-tauri/src/talk/defaults.rs`를 기준으로 숫자와 표의 연결을 대조했다. 저장소의 `.talk` 26개는 암호화 envelope이며 loader가 복호화한 대본을 실제 parser로 검증한다.
+2026-09-20부터 동봉 대본은 두 개의 [대화팩](../product/talk.md#대화팩과-나만의-대본)이다. 각 팩은 `talk/packs/<팩 ID>/`의 암호화 envelope과 `talk/fixtures/<팩 ID>.json`의 고정 입력을 가지며, `src-tauri/src/talk/defaults.rs`의 테스트가 loader로 복호화한 대본을 실제 parser에 넣어 두 팩 모두 검증한다. 사용자 진입 파일 `talk/index.talk`는 `format: 1`만 있어 장면이 없다.
 
-| 대상 | 수 | 기준 |
-| --- | ---: | --- |
-| 위젯 종류 | 22 | `widgets/catalog.json` |
-| 번들 `.talk` 파일 | 26 | 진입·목록 파일, 위젯 22개, 공통 상황·조합 파일 포함 |
-| 고유 장면 | 144 | 복호화 후 모든 `scene:` 선언 |
-| 입력 사례 | 180 | fixture의 고유 `cases[].id` |
-| 선택·경계값 사례 | 173 | 아래 위젯·상황·조합별 표 |
-| 억제·잘못된 입력 사례 | 7 | 마지막 표. 명시적 상태 안내를 선택하는 사례도 포함 |
+| 대상 | 별꼬리 기본 대화 `byulkkori` | 나디르와 별꼬리 `nadir-and-star-tail` |
+| --- | ---: | ---: |
+| 기본 설치 | 예 | 아니요 |
+| `.talk` 파일 | 28 | 26 |
+| 고유 장면 | 111 | 144 |
+| 입력 사례 | 129 | 180 |
+| 화자 범위 | 공통 범위 + `speakers: random`. 혼자 17, 둘 6, 셋 4, 넷 2 장면과 위젯 82 장면 | `pair("source:nadir", "source:star-tail")` |
+| 억제·잘못된 입력 사례 | 4 | 7 |
+
+기본 대화팩의 fixture는 혼자 있는 `fixture-a`를 기본으로 두고, 둘·셋·넷 장면과 B 자리를 향한 교감 사건만 필요한 인원을 넣는다. 화자 검증은 무작위 순서를 고정하지 않고 "현재 인원 안의 서로 다른 자리"인지와 같은 seed에서 같은 순서가 나오는지를 검사한다. 8명을 넣은 시뮬레이션에서 2~4명 장면이 열리되 8명이 한 번에 말하는 장면이 없다는 것도 테스트로 확인한다. 위젯별 조건은 두 팩이 같은 초기 상태 장면 ID(`todo.empty`, `calendar.unconfigured` 등 22개)를 공유하므로 22개 위젯 초기 상태 검사를 두 팩에 모두 실행한다.
+
+아래 위젯·상황별 표는 나디르·별꼬리 팩을 기준으로 작성한 2026-09-19 기록이다. 기본 대화팩의 장면 목록과 입력은 `talk/fixtures/byulkkori.json`의 `cases[].id`·`path`가 원본이며, 같은 위젯 파일 이름과 비슷한 상태 이름을 쓴다.
 
 144개 장면 모두에 최소 하나의 선택 사례가 있다. 기존 위젯·상황 130개에 위젯 설치와 독립적인 시간대 4개와 기본 날씨 10개를 더했다. 각 조건은 `dialogue.variant` 0~4에 따라 서로 다른 대사 5개를 제공한다. 교감의 나디르 반응은 친밀도 40 미만·이상에 각각 5개이며 별꼬리 대상도 5개다. 테스트는 친밀도 20·50·80 각각에서 다섯 변주의 렌더링 결과가 서로 다른지 검사한다.
 
@@ -28,8 +32,8 @@ description: 22종 위젯의 실제 상태·이벤트와 번들 대사를 연결
 
 원본은 다음 세 곳이다.
 
-- `talk/fixtures/coverage.json`: 정확한 입력과 기대 장면. 아래 표의 `case ID`가 `cases[].id`이며 `JSON 행`은 이 파일의 해당 객체를 여는 `{` 위치다.
-- `talk/`: 실제 실행하는 암호화 대본과 복호화 후 `when:` 조건. 각 표 위에 대사 파일 경로를 적었다. 읽기·편집 경로는 [대사 작성 참조](talk-reference.md)를 따른다.
+- `talk/fixtures/nadir-and-star-tail.json`: 정확한 입력과 기대 장면. 아래 표의 `case ID`가 `cases[].id`이며 `JSON 행`은 이 파일의 해당 객체를 여는 `{` 위치다.
+- `talk/`: 실제 실행하는 암호화 대본과 복호화 후 `when:` 조건. 각 표 위에 대사 파일 경로를 적었다. 읽기·검사 경로는 [대사 작성 참조](talk-reference.md)를 따르며 원문 편집·저장은 별도 talk editor의 책임이다.
 - `src-tauri/src/talk/defaults.rs`: 원본을 실제 parser와 evaluator에 넣는 테스트, 실제 위젯 저장·이벤트 경로를 검증하는 테스트.
 
 대사 파일 경로·case ID·JSON 행을 함께 사용하면 문서에 입력 JSON을 복제하지 않고 정확한 원본을 찾을 수 있다. 행 번호는 파일이 바뀌면 달라질 수 있으므로 `case ID`를 우선한다.
@@ -44,7 +48,7 @@ import json
 from pathlib import Path
 
 id = "timer.finished-rest"
-cases = json.loads(Path("talk/fixtures/coverage.json").read_text())["cases"]
+cases = json.loads(Path("talk/fixtures/nadir-and-star-tail.json").read_text())["cases"]
 print(json.dumps(next(case for case in cases if case["id"] == id), ensure_ascii=False, indent=2))
 PYCASE
 ```
@@ -63,7 +67,7 @@ fixture 테스트는 registry의 모든 변수를 `null`로 시작하되 `*.read
 cargo test --manifest-path src-tauri/Cargo.toml --lib talk::defaults
 ```
 
-진입 파일은 `talk/index.talk`이며 위젯 목록·상황·둘의 대본을 모두 `for pair("source:nadir", "source:star-tail")`로 불러온다. 가져온 팩과 화면 슬롯 교환에서도 source identity로 화자를 매핑하고, 다른 캐릭터 조합에는 나디르의 대사를 적용하지 않는다. 원본 대사 파일을 편집하는 동안에는 테스트를 실행하지 않는다. 번들 envelope는 컴파일 때 `include_str!`로 포함되므로 빌드 이후 파일을 바꾸면 복호화 원문 일치 검사가 실패할 수 있다.
+나디르·별꼬리 팩의 진입 파일은 `talk/packs/nadir-and-star-tail/index.talk`이며 위젯 목록·상황·둘의 대본을 모두 `for pair("source:nadir", "source:star-tail")`로 불러온다. 가져온 팩과 화면 슬롯 교환에서도 source identity로 화자를 매핑하고, 다른 캐릭터 조합에는 나디르의 대사를 적용하지 않는다. 별도 talk editor에서 원문을 바꾼 뒤에는 parser·fixture·동봉 원본 일치 검사를 다시 실행한다. 번들 envelope는 컴파일 때 `include_str!`로 포함되므로 빌드 이후 파일을 바꾸면 복호화 원문 일치 검사가 실패할 수 있다.
 
 ## 자동 검증이 보장하는 범위
 
@@ -105,7 +109,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 할 일
 
-대사 파일: `talk/widgets/todo.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/todo.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -118,7 +122,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 캘린더
 
-대사 파일: `talk/widgets/calendar.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/calendar.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -136,7 +140,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 집중 타이머
 
-대사 파일: `talk/widgets/focus-timer.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/focus-timer.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -156,7 +160,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 준비 봉투
 
-대사 파일: `talk/widgets/preparation.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/preparation.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -167,7 +171,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 완료 구슬병
 
-대사 파일: `talk/widgets/completion-jar.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/completion-jar.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -176,7 +180,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 시계·기념일
 
-대사 파일: `talk/widgets/clock.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/clock.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -187,7 +191,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 메모
 
-대사 파일: `talk/widgets/memo.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/memo.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -196,7 +200,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 날씨
 
-대사 파일: `talk/widgets/weather.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/weather.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -220,7 +224,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 음악 정보
 
-대사 파일: `talk/widgets/music.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/music.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -236,7 +240,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 기기 소식
 
-대사 파일: `talk/widgets/device.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/device.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -258,7 +262,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 캐릭터 교감
 
-대사 파일: `talk/widgets/interaction.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/interaction.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -273,7 +277,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 공
 
-대사 파일: `talk/widgets/ball.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/ball.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -283,7 +287,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 종이비행기
 
-대사 파일: `talk/widgets/paper-plane.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/paper-plane.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -293,7 +297,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 비눗방울
 
-대사 파일: `talk/widgets/bubbles.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/bubbles.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -303,7 +307,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 작은 승부
 
-대사 파일: `talk/widgets/small-match.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/small-match.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -323,7 +327,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 맞히기 놀이
 
-대사 파일: `talk/widgets/guessing.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/guessing.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -340,7 +344,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 낚시
 
-대사 파일: `talk/widgets/fishing.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/fishing.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -355,7 +359,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 장난 운세
 
-대사 파일: `talk/widgets/fortune.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/fortune.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -365,7 +369,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 화분
 
-대사 파일: `talk/widgets/plant.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/plant.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -384,7 +388,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 작은 펫
 
-대사 파일: `talk/widgets/pet.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/pet.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -394,7 +398,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 수집함·소품
 
-대사 파일: `talk/widgets/collection.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/collection.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -405,7 +409,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 함께한 사건 일지
 
-대사 파일: `talk/widgets/journal.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/widgets/journal.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -414,7 +418,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 위젯을 함께 사용하는 상황
 
-대사 파일: `talk/situations/index.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/situations/index.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -423,7 +427,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 나디르·별꼬리 조합
 
-대사 파일: `talk/pairs/default.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/pairs/default.talk`
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
@@ -432,7 +436,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 ### 위젯 없이 동작하는 시간·날씨
 
-대사 파일: `talk/situations/index.talk`
+대사 파일: `talk/packs/nadir-and-star-tail/situations/index.talk`
 
 이 14개 fixture는 모두 `available: []`이며 나디르·별꼬리 source identity와 core 환경값만 사용한다. 시간대는 로컬 시각으로 아침 06~11시, 낮 12~17시, 저녁 18~21시, 밤 22~05시다. 날씨 정보가 없으면 `base-weather.unknown`이 현재 날씨를 모른다고 말한다. 위젯을 설치하지 않았다고 전체 대화가 사라지는 계약이 아니다. 아래 입력에 관측값을 직접 넣은 날씨 사례는 실제 외부 날씨 연결의 성공을 증명하지 않는다.
 

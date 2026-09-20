@@ -5,14 +5,14 @@ description: 직접 내려받아 설치하는 공식 캐릭터팩과 콘텐츠�
 
 # 캐릭터팩 갤러리
 
-캐릭터팩은 JSON 파일을 직접 내려받은 뒤 Comet의 `캐릭터 관리 → 공유 파일 가져오기`에서 미리보고 설치합니다. 앱 업데이트와 캐릭터팩 설치는 별개이며, 이 갤러리는 자동 설치·자동 갱신 마켓이 아닙니다. 파일 규격과 가져오기 경계는 [캐릭터 교체와 공유](characters.md)를 따릅니다.
+새 설치의 기본 캐릭터는 별꼬리 이미지팩 한 명이며, 아래 목록은 같은 파일과 나디르·별꼬리 텍스트팩을 직접 받아 설치하는 방법입니다. JSON 파일을 직접 내려받은 뒤 Comet의 `캐릭터 관리 → 공유 파일 가져오기`에서 미리보고 설치합니다. 이후 관리 화면 상단에서 팩을 골라 **이 팩으로 함께 지내기**를 누르면 [팩 전체로 전환](characters.md#설치한-캐릭터팩-선택)할 수 있고, 캐릭터별 **함께 지내기**로 원하는 조합을 만들 수도 있습니다. 나디르·별꼬리 전용 `.talk` 대사는 캐릭터팩과 별개로 `설정 → 대화팩`에서 설치합니다. 가져오기만으로 현재 캐릭터 구성을 바꾸지 않습니다. 앱 업데이트와 캐릭터팩 설치는 별개이며, 이 갤러리는 자동 설치·자동 갱신 마켓이 아닙니다. 파일 규격과 가져오기 경계는 [캐릭터 교체와 공유](characters.md)를 따릅니다.
 
 ## 준비된 캐릭터
 
 | 캐릭터 | 내용 | 호환 앱 | 파일 | 이용 조건 |
 | --- | --- | --- | --- | --- |
-| 나디르와 별꼬리 | 텍스트 표정과 기본 대화를 제공하는 캐릭터팩 | 0.3.0 이상 · v1 | [JSON 보기·내려받기](https://github.com/fleetia/comet/blob/main/examples/character-packs/nadir-and-star-tail.comet-character.json) | 패키지에 별도 표기 없음 |
-| 별꼬리 | 표정 이미지가 포함된 공식 캐릭터 | 0.4.0 이상 · v2 | [JSON 보기·내려받기](https://github.com/fleetia/comet/blob/main/examples/character-packs/byulkkori.comet-character.json) | 공식 Comet 채널에서만 배포. 수정·파생 제작·downstream 재배포 금지 |
+| 나디르와 별꼬리 | 텍스트 표정과 인사·일상·조합 대화를 제공하는 추가팩 | 0.3.0 이상 · v1 | [JSON 보기·내려받기](https://github.com/fleetia/comet/blob/main/examples/character-packs/nadir-and-star-tail.comet-character.json) | 패키지에 별도 표기 없음 |
+| 별꼬리 | 표정 이미지가 포함된 공식 팩. 0.6.0부터 새 설치의 기본 캐릭터 | 0.4.0 이상 · v2 | [JSON 보기·내려받기](https://github.com/fleetia/comet/blob/main/examples/character-packs/byulkkori.comet-character.json) | 공식 Comet 채널에서만 배포. 수정·파생 제작·downstream 재배포 금지 |
 
 GitHub 파일 화면의 **Download raw file**로 JSON 파일을 저장합니다. 별꼬리의 구체적인 범위는 [콘텐츠 이용 조건](https://github.com/fleetia/comet/blob/main/examples/character-packs/byulkkori.LICENSE.txt)을 확인하세요. 소스 코드가 공개되어 있어도 캐릭터 콘텐츠에 같은 이용 조건이 적용되지는 않습니다.
 

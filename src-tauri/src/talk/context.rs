@@ -70,6 +70,7 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         ("environment", "weatherCode") => "날씨 연결의 최신 WMO weatherCode 숫자",
         ("environment", "weatherName") => "날씨 연결의 관측 대상 지역 이름",
         ("character.nadir", "present") => "활성 캐릭터 중 sourceId가 nadir인 캐릭터가 있는지 여부",
+        ("character", "count") => "지금 바탕화면에 함께 지내는 캐릭터 수(1~8). speakers: random 장면의 화자 수 조건에 사용",
         (_, "sourceId") if prefix.starts_with("character.") => "현재 자리에 설치된 캐릭터의 원본 sourceId. 표시 이름·로컬 ID와 구분",
         (_, "affinity") if prefix.starts_with("character.") => "해당 캐릭터의 현재 친밀도 점수",
 
@@ -238,6 +239,7 @@ pub fn registry() -> Registry {
         None,
     );
     add("character.nadir", "affinity", ValueType::Number, true, None);
+    add("character", "count", ValueType::Number, false, None);
     Registry {
         variables,
         events: [
@@ -581,6 +583,7 @@ pub fn build(
     let relationships = crate::store::relationships(db)?;
     values.insert("dialogue.variant".into(), json!(seed % 5));
     values.insert("character.nadir.present".into(), json!(false));
+    values.insert("character.count".into(), json!(characters.len()));
     for (persona, character) in crate::characters::SLOTS.into_iter().zip(&characters) {
         let score = relationships
             .iter()
@@ -700,6 +703,7 @@ mod tests {
                 status: "enabled".into(),
                 missing: vec![],
                 package_bytes: 0,
+                background_updated_at: None,
             }],
         }
     }

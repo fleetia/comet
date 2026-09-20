@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { DesktopToy } from "../DesktopToy";
+import { DesktopToy } from "../DesktopToy/DesktopToy";
 import { command } from "../../hooks/useSnapshot";
 
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(vi.fn()) }));
@@ -46,9 +46,17 @@ it("orders grab and release and dismisses only through the actor command", async
 });
 
 it("pops a bubble without beginning a drag", async () => {
-  vi.mocked(command).mockResolvedValue({ ...frame, kind: "bubbles" });
+  vi.mocked(command).mockResolvedValue({
+    ...frame,
+    kind: "bubbles",
+    bubbleSize: 28,
+    bubbleColor: 2,
+  });
   render(<DesktopToy id="actor" />);
   const bubble = await screen.findByRole("button", { name: "비눗방울" });
+  const shape = bubble.querySelector<HTMLElement>('[aria-hidden="true"]');
+  expect(shape?.style.width).toBe("28px");
+  expect(shape?.style.height).toBe("28px");
   fireEvent.pointerDown(bubble, { button: 0 });
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("desktop_toy_action", { id: "actor", action: "pop" }),

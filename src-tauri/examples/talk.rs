@@ -8,7 +8,18 @@ use std::{
     path::Path,
 };
 
-const USAGE: &str = "talk check ENTRY\ntalk variables\ntalk simulate ENTRY (--input JSON_OR_FILE | --db PATH [--event JSON_OR_FILE]) [--seed N] [--now MILLISECONDS]\ntalk characters --db PATH\ntalk seal ENTRY\ntalk read ENTRY RELATIVE_FILE\ntalk save ENTRY RELATIVE_FILE --source TEXT_FILE --revision REVISION";
+const USAGE: &str = "talk check ENTRY_OR_ROOT\ntalk packs ROOT\ntalk variables\ntalk simulate ENTRY_OR_ROOT (--input JSON_OR_FILE | --db PATH [--event JSON_OR_FILE]) [--seed N] [--now MILLISECONDS]\ntalk characters --db PATH";
+
+/// A directory loads as a bundle (user `index.talk` plus `packs/<id>/`); a file loads alone.
+fn load_any(path: &str, registry: &Registry) -> Result<talk::Program, String> {
+    let path = Path::new(path);
+    let result = if path.is_dir() {
+        talk::load_bundle(path, registry)
+    } else {
+        talk::load(path, registry)
+    };
+    result.map_err(|errors| serde_json::to_string_pretty(&errors).unwrap_or_default())
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -105,6 +116,7 @@ fn fixture(
         "dialogue.variant".into(),
         json!(seed.or(input.seed).unwrap_or(0) % 5),
     );
+    values.insert("character.count".into(), json!(input.active.len()));
     for (name, value) in input.values {
         let variable = registry
             .variables
@@ -166,36 +178,14 @@ fn run(arguments: &[String]) -> Result<Value, String> {
             serde_json::to_value(registry).map_err(|error| error.to_string())
         }
         Some("check") if arguments.len() == 2 => {
-            let program = talk::load(Path::new(&arguments[1]), &registry)
-                .map_err(|errors| serde_json::to_string_pretty(&errors).unwrap_or_default())?;
-            Ok(json!({"valid":true,"sceneCount":program.scenes.len(),"files":program.files}))
-        }
-        Some("seal") if arguments.len() == 2 => {
-            let changed = talk::editor::seal_bundle(Path::new(&arguments[1]), &registry)?;
-            Ok(json!({"encryptedFiles": changed}))
-        }
-        Some("read") if arguments.len() == 3 => serde_json::to_value(talk::editor::read_file(
-            Path::new(&arguments[1]),
-            &arguments[2],
-        )?)
-        .map_err(|error| error.to_string()),
-        Some("save") if arguments.len() == 7 => {
-            let options = options(&arguments[3..], &["--source", "--revision"])?;
-            let file = std::fs::File::open(options.get("--source").ok_or(USAGE)?)
-                .map_err(|error| error.to_string())?;
-            let mut source = String::new();
-            file.take(1_048_577)
-                .read_to_string(&mut source)
-                .map_err(|error| error.to_string())?;
-            let document = talk::editor::save_file(
-                Path::new(&arguments[1]),
-                &arguments[2],
-                &source,
-                options.get("--revision").ok_or(USAGE)?,
-                &registry,
+            let program = load_any(&arguments[1], &registry)?;
+            Ok(
+                json!({"valid":true,"sceneCount":program.scenes.len(),"files":program.files,"packs":program.packs}),
             )
-            .map_err(|errors| serde_json::to_string_pretty(&errors).unwrap_or_default())?;
-            Ok(json!({"path":document.path, "revision":document.revision, "saved":true}))
+        }
+        Some("packs") if arguments.len() == 2 => {
+            serde_json::to_value(talk::runtime::pack_statuses(Path::new(&arguments[1]))?)
+                .map_err(|error| error.to_string())
         }
         Some("characters") => {
             let options = options(&arguments[1..], &["--db"])?;
@@ -250,8 +240,7 @@ fn run(arguments: &[String]) -> Result<Value, String> {
                     )
                 }
             };
-            let program = talk::load(Path::new(&arguments[1]), &registry)
-                .map_err(|errors| serde_json::to_string_pretty(&errors).unwrap_or_default())?;
+            let program = load_any(&arguments[1], &registry)?;
             serde_json::to_value(talk::simulate(&program, &context, &history))
                 .map_err(|error| error.to_string())
         }

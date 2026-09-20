@@ -31,7 +31,7 @@ pub fn advance(state: &AppState, at: Instant) -> Result<bool, String> {
     if !crate::store::settings(&db)?.autonomous_enabled {
         return Ok(false);
     }
-    if let Ok(catalog) = crate::story_editor::load(&state.app_data) {
+    if let Ok(catalog) = story::load(&state.app_data) {
         *lock(&state.story_catalog)? = catalog;
     }
     let seed = uuid::Uuid::new_v4().as_u128() as u64;

@@ -19,6 +19,11 @@ mod native;
 const STEP: f64 = 1.0 / 120.0;
 const SIZE: f64 = 56.0;
 const MAX_ACTORS: usize = 8;
+const BUBBLE_COUNT_MIN: usize = 3;
+const BUBBLE_COUNT_MAX: usize = 6;
+const BUBBLE_SIZE_MIN: f64 = 24.0;
+const BUBBLE_SIZE_MAX: f64 = 48.0;
+const BUBBLE_COLOR_COUNT: u8 = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -46,6 +51,8 @@ pub(crate) struct Frame {
     pub dragging: bool,
     pub moving: bool,
     pub external_windows_available: bool,
+    pub bubble_size: f64,
+    pub bubble_color: u8,
 }
 #[derive(Clone, Debug)]
 pub(crate) struct Outcome {
@@ -75,6 +82,7 @@ struct Actor {
     automatic: bool,
     kind: Kind,
     motion: Motion,
+    bubble_color: u8,
     scale: f64,
     angle: f64,
     distance: f64,
@@ -98,11 +106,46 @@ struct World {
     last_geometry_ok: Option<Instant>,
     accumulator: f64,
     scales: Vec<(Rect, f64)>,
+    clear_version: u64,
+    widget_clear_versions: BTreeMap<String, u64>,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct LaunchToken {
+    clear_version: u64,
+    widget_clear_version: u64,
+}
+
+fn world_launch_token(world: &World, widget_id: &str) -> LaunchToken {
+    LaunchToken {
+        clear_version: world.clear_version,
+        widget_clear_version: world
+            .widget_clear_versions
+            .get(widget_id)
+            .copied()
+            .unwrap_or_default(),
+    }
+}
+
+fn cancel_pending_launches(world: &mut World, widget_id: Option<&str>) {
+    if let Some(widget_id) = widget_id {
+        let version = world
+            .widget_clear_versions
+            .entry(widget_id.into())
+            .or_default();
+        *version = version.wrapping_add(1);
+    } else {
+        world.clear_version = world.clear_version.wrapping_add(1);
+        world.widget_clear_versions.clear();
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Runtime {
     world: Mutex<World>,
     started: AtomicBool,
+    #[cfg(target_os = "macos")]
+    native_updates: native::Updates,
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -117,6 +160,12 @@ fn frame(actor: &Actor, geometry: &Geometry) -> Frame {
         dragging: actor.dragging,
         moving: actor.moving,
         external_windows_available: geometry.external_windows_available,
+        bubble_size: if actor.kind == Kind::Bubbles {
+            actor.motion.radius * 2.0 / actor.scale
+        } else {
+            38.0
+        },
+        bubble_color: actor.bubble_color,
     }
 }
 fn outcome(actor: &Actor, popped: bool) -> Outcome {
@@ -139,6 +188,83 @@ fn initial_velocity(kind: Kind, scale: f64) -> (f64, f64) {
         Kind::Bubbles => (20.0 * scale, -65.0 * scale),
         Kind::Pet => (45.0 * scale, 0.0),
     }
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct BubbleAppearance {
+    size: f64,
+    color: u8,
+}
+
+fn random_fraction(seed: u128, rotation: u32) -> f64 {
+    (seed.rotate_left(rotation) % 10_000) as f64 / 9_999.0
+}
+
+fn random_range(seed: u128, rotation: u32, min: f64, max: f64) -> f64 {
+    min + (max - min) * random_fraction(seed, rotation)
+}
+
+fn bubble_appearance(seed: u128) -> BubbleAppearance {
+    BubbleAppearance {
+        size: random_range(seed, 7, BUBBLE_SIZE_MIN, BUBBLE_SIZE_MAX),
+        color: (seed.rotate_left(29) % BUBBLE_COLOR_COUNT as u128) as u8,
+    }
+}
+
+fn bubble_count(seed: u128, available: usize) -> usize {
+    let max = BUBBLE_COUNT_MAX.min(available);
+    if max == 0 {
+        return 0;
+    }
+    if max < BUBBLE_COUNT_MIN {
+        return max;
+    }
+    BUBBLE_COUNT_MIN + (seed % (max - BUBBLE_COUNT_MIN + 1) as u128) as usize
+}
+
+fn bubble_position(
+    seed: u128,
+    area: Rect,
+    radius: f64,
+    scale: f64,
+    cursor: Option<(f64, f64)>,
+    automatic: bool,
+) -> (f64, f64) {
+    let x_min = area.x + radius;
+    let x_max = (area.x + area.width - radius).max(x_min);
+    let y_min = area.y + radius;
+    let y_max = (area.y + area.height - radius).max(y_min);
+    let mut candidate_seed = seed;
+    for _ in 0..8 {
+        let candidate = (
+            random_range(candidate_seed, 43, x_min, x_max),
+            random_range(candidate_seed, 71, y_min, y_max),
+        );
+        if !automatic
+            || cursor.is_none_or(|(x, y)| (x - candidate.0).hypot(y - candidate.1) >= 160.0 * scale)
+        {
+            return candidate;
+        }
+        candidate_seed = candidate_seed.rotate_left(17);
+    }
+    let x = cursor
+        .map(|(x, _)| {
+            if x < area.x + area.width / 2.0 {
+                x_max
+            } else {
+                x_min
+            }
+        })
+        .unwrap_or(x_min);
+    let y = cursor
+        .map(|(_, y)| {
+            if y < area.y + area.height / 2.0 {
+                y_max
+            } else {
+                y_min
+            }
+        })
+        .unwrap_or(y_min);
+    (x, y)
 }
 fn scale_at(app: &AppHandle, x: f64, y: f64) -> f64 {
     app.state::<Runtime>()
@@ -166,7 +292,7 @@ fn set_position(window: &WebviewWindow, x: f64, y: f64) -> Result<(), String> {
 }
 
 #[cfg(target_os = "windows")]
-fn apply_input_region(window: &WebviewWindow, kind: Kind, angle: f64) -> Result<(), String> {
+fn apply_input_region(window: &WebviewWindow, frame: &Frame) -> Result<(), String> {
     use std::ffi::c_void;
     use windows_sys::Win32::Foundation::{HWND, POINT};
     #[link(name = "gdi32")]
@@ -182,8 +308,8 @@ fn apply_input_region(window: &WebviewWindow, kind: Kind, angle: f64) -> Result<
     let handle = window.hwnd().map_err(|error| error.to_string())?.0 as HWND;
     let scale = window.scale_factor().map_err(|error| error.to_string())?;
     unsafe {
-        let region = if kind == Kind::PaperPlane {
-            let radians = angle.to_radians();
+        let region = if frame.kind == Kind::PaperPlane {
+            let radians = frame.angle.to_radians();
             let points =
                 [(-19.0, -16.0), (21.0, 0.0), (-19.0, 16.0), (-11.0, 0.0)].map(|(x, y)| POINT {
                     x: ((28.0 + x * radians.cos() - y * radians.sin()) * scale).round() as i32,
@@ -191,11 +317,16 @@ fn apply_input_region(window: &WebviewWindow, kind: Kind, angle: f64) -> Result<
                 });
             CreatePolygonRgn(points.as_ptr(), 4, 1)
         } else {
+            let radius = if frame.kind == Kind::Bubbles {
+                frame.bubble_size / 2.0
+            } else {
+                19.0
+            };
             CreateEllipticRgn(
-                (9.0 * scale).round() as i32,
-                (9.0 * scale).round() as i32,
-                (47.0 * scale).round() as i32,
-                (47.0 * scale).round() as i32,
+                ((28.0 - radius) * scale).round() as i32,
+                ((28.0 - radius) * scale).round() as i32,
+                ((28.0 + radius) * scale).round() as i32,
+                ((28.0 + radius) * scale).round() as i32,
             )
         };
         if region.is_null() {
@@ -221,9 +352,59 @@ pub(crate) fn open(
     owner: Option<String>,
     revision: i64,
     automatic: bool,
+    geometry: &Geometry,
 ) -> Result<String, String> {
     let kind = parse_kind(kind)?;
-    let geometry = desktop_geometry::capture()?;
+    let count = if kind == Kind::Bubbles && !automatic {
+        let available = available_actor_slots(app)?;
+        bubble_count(uuid::Uuid::new_v4().as_u128(), available)
+    } else {
+        1
+    };
+    if count == 0 {
+        return Err("먼저 꺼낸 장난감을 정리해 주세요.".into());
+    }
+    let mut ids = Vec::with_capacity(count);
+    for _ in 0..count {
+        match open_one(
+            app,
+            widget_id,
+            kind,
+            owner.clone(),
+            revision,
+            automatic,
+            geometry,
+        ) {
+            Ok(id) => ids.push(id),
+            Err(error) => {
+                for id in ids {
+                    remove_actor(app, &id);
+                }
+                return Err(error);
+            }
+        }
+    }
+    ids.into_iter()
+        .next()
+        .ok_or("장난감을 꺼내지 못했어요.".into())
+}
+
+fn available_actor_slots(app: &AppHandle) -> Result<usize, String> {
+    let runtime = app.state::<Runtime>();
+    let world = crate::lock(&runtime.world)?;
+    Ok(MAX_ACTORS.saturating_sub(world.actors.len()))
+}
+
+fn open_one(
+    app: &AppHandle,
+    widget_id: &str,
+    kind: Kind,
+    owner: Option<String>,
+    revision: i64,
+    automatic: bool,
+    geometry: &Geometry,
+) -> Result<String, String> {
+    let seed = uuid::Uuid::new_v4().as_u128();
     let cursor = desktop_geometry::cursor_position();
     let location = cursor;
     let area = geometry
@@ -233,16 +414,32 @@ pub(crate) fn open(
         .or_else(|| geometry.monitors.first())
         .ok_or("사용할 수 있는 화면이 없어요.")?;
     let scale = scale_at(app, area.x + area.width * 0.5, area.y + area.height * 0.5);
-    let radius = 19.0 * scale;
-    let (x, y) = (area.x + area.width * 0.25, area.y + area.height * 0.35);
-    let x = x.clamp(
-        area.x + radius,
-        (area.x + area.width - radius).max(area.x + radius),
-    );
-    let y = y.clamp(
-        area.y + radius,
-        (area.y + area.height - radius).max(area.y + radius),
-    );
+    let appearance = if kind == Kind::Bubbles {
+        bubble_appearance(seed)
+    } else {
+        BubbleAppearance {
+            size: 38.0,
+            color: 0,
+        }
+    };
+    let radius = if kind == Kind::Bubbles {
+        appearance.size / 2.0 * scale
+    } else {
+        19.0 * scale
+    };
+    let (x, y) = if kind == Kind::Bubbles {
+        bubble_position(seed, *area, radius, scale, cursor, automatic)
+    } else {
+        let x = (area.x + area.width * 0.25).clamp(
+            area.x + radius,
+            (area.x + area.width - radius).max(area.x + radius),
+        );
+        let y = (area.y + area.height * 0.35).clamp(
+            area.y + radius,
+            (area.y + area.height - radius).max(area.y + radius),
+        );
+        (x, y)
+    };
     if automatic && cursor.is_some_and(|(cx, cy)| (cx - x).hypot(cy - y) < 160.0 * scale) {
         return Err("포인터 근처에서는 자동으로 놀지 않아요.".into());
     }
@@ -263,6 +460,7 @@ pub(crate) fn open(
             vy,
             radius,
         },
+        bubble_color: appearance.color,
         scale,
         angle: 0.0,
         distance: 0.0,
@@ -279,7 +477,7 @@ pub(crate) fn open(
         last_sent: None,
     };
     #[cfg(target_os = "macos")]
-    let initial_frame = frame(&actor, &geometry);
+    let initial_frame = frame(&actor, geometry);
     {
         let runtime = app.state::<Runtime>();
         let mut world = crate::lock(&runtime.world)?;
@@ -292,7 +490,7 @@ pub(crate) fn open(
         if automatic && world.actors.values().any(|actor| actor.dragging) {
             return Err("장난감을 조작하는 동안에는 기다릴게요.".into());
         }
-        world.geometry = geometry;
+        world.geometry = geometry.clone();
         world.geometry_at = Some(now);
         world.last_geometry_ok = Some(now);
         world.actors.insert(id.clone(), actor);
@@ -394,6 +592,7 @@ pub(crate) fn remove_actor(app: &AppHandle, id: &str) {
 pub(crate) fn remove_widget(app: &AppHandle, id: &str) {
     remove_matching(app, |actor| actor.widget_id == id);
     if let Ok(mut world) = app.state::<Runtime>().world.lock() {
+        cancel_pending_launches(&mut world, Some(id));
         world.outcomes.retain(|event| event.widget_id != id);
     }
 }
@@ -406,6 +605,7 @@ pub(crate) fn clear_automatic(app: &AppHandle) {
 pub(crate) fn clear(app: &AppHandle) {
     remove_matching(app, |_| true);
     if let Ok(mut world) = app.state::<Runtime>().world.lock() {
+        cancel_pending_launches(&mut world, None);
         world.outcomes.clear();
         world.accumulator = 0.0;
     }
@@ -417,19 +617,49 @@ pub(crate) fn drain_outcomes(app: &AppHandle) -> Vec<Outcome> {
         .map(|mut world| std::mem::take(&mut world.outcomes))
         .unwrap_or_default()
 }
-pub(crate) fn fullscreen_active(app: &AppHandle) -> bool {
+
+pub(crate) fn launch_token(app: &AppHandle, widget_id: &str) -> Result<LaunchToken, String> {
+    let runtime = app.state::<Runtime>();
+    let world = crate::lock(&runtime.world)?;
+    Ok(world_launch_token(&world, widget_id))
+}
+
+// The caller holds the action gate through validation and actor creation.
+pub(crate) fn validate_launch(
+    app: &AppHandle,
+    widget_id: &str,
+    token: LaunchToken,
+) -> Result<(), String> {
+    if launch_token(app, widget_id)? != token {
+        return Err("장난감을 정리해서 꺼내기를 취소했어요.".into());
+    }
+    Ok(())
+}
+
+// Call before entering action/DB gates: the macOS query runs on the UI thread.
+pub(crate) async fn current_geometry(app: &AppHandle) -> Result<Geometry, String> {
     let runtime = app.state::<Runtime>();
     if let Ok(world) = runtime.world.lock() {
-        if world
-            .geometry_at
-            .is_some_and(|at| at.elapsed() < Duration::from_millis(250))
+        if world.geometry.external_windows_available
+            && world
+                .last_geometry_ok
+                .is_some_and(|at| at.elapsed() < Duration::from_millis(150))
         {
-            return world.geometry.fullscreen;
+            return Ok(world.geometry.clone());
         }
     }
-    desktop_geometry::capture()
-        .map(|geometry| geometry.fullscreen)
-        .unwrap_or(true)
+    let sample = request_geometry(app)
+        .await
+        .map_err(|_| "화면 위치를 읽지 못했어요.".to_string())?;
+    let now = Instant::now();
+    let result = if now.duration_since(sample.started) <= Duration::from_secs(1) {
+        sample.result.clone()
+    } else {
+        Err("화면 위치를 제때 읽지 못했어요. 다시 시도해 주세요.".into())
+    };
+    let mut world = crate::lock(&runtime.world)?;
+    apply_geometry(&mut world, Some(sample), now);
+    result.map(|_| world.geometry.clone())
 }
 #[tauri::command]
 pub(crate) fn desktop_toy_action(
@@ -451,7 +681,7 @@ pub(crate) fn desktop_toy_action(
         let current = perform_action(&app, &id, &action)?;
         if action == "ready" {
             #[cfg(target_os = "windows")]
-            if let Err(error) = apply_input_region(&window, current.kind, current.angle) {
+            if let Err(error) = apply_input_region(&window, &current) {
                 remove_actor(&app, &id);
                 return Err(error);
             }
@@ -657,25 +887,50 @@ fn hit_shape(actor: &Actor, x: f64, y: f64) -> bool {
         let py = -dx * angle.sin() + dy * angle.cos();
         return (-19.0..=21.0).contains(&px) && py.abs() <= (21.0 - px) * 0.4;
     }
-    dx.hypot(dy) <= 19.0
+    dx.hypot(dy) <= actor.motion.radius / actor.scale
 }
-fn supported(body: Motion, geometry: &Geometry) -> bool {
-    geometry.edges.iter().any(|edge| {
+fn supported(body: Motion, edges: &[Edge]) -> bool {
+    edges.iter().any(|edge| {
         edge.horizontal
             && body.x >= edge.from
             && body.x <= edge.to
             && (edge.axis - body.y - body.radius).abs() < 1.0
     })
 }
+
+fn append_character_edges(body: Motion, geometry: &Geometry, dt: f64, edges: &mut Vec<Edge>) {
+    // A rebound can travel in any direction. Include the support tolerance and
+    // collision nudges as well as the circle's full swept reach.
+    let reach = body.radius + body.vx.hypot(body.vy) * dt + 1.0;
+    let query = Rect {
+        x: body.x - reach,
+        y: body.y - reach,
+        width: reach * 2.0,
+        height: reach * 2.0,
+    };
+    for character in &geometry.characters {
+        character
+            .shape
+            .append_edges(character.origin, character.scale, query, edges);
+    }
+}
+
 fn step(actor: &mut Actor, geometry: &Geometry, dt: f64) -> Option<Outcome> {
     if actor.dragging {
         return None;
     }
-    if !actor.moving && supported(actor.motion, geometry) {
-        return None;
+    let mut character_edges = Vec::new();
+    if !actor.moving {
+        append_character_edges(actor.motion, geometry, 0.0, &mut character_edges);
+        if supported(actor.motion, &geometry.edges) || supported(actor.motion, &character_edges) {
+            return None;
+        }
+        character_edges.clear();
     }
     actor.moving = true;
     resolve_overlap(&mut actor.motion, &geometry.edges, actor.scale);
+    append_character_edges(actor.motion, geometry, 0.0, &mut character_edges);
+    resolve_overlap(&mut actor.motion, &character_edges, actor.scale);
     let old = (actor.motion.x, actor.motion.y);
     match actor.kind {
         Kind::Ball => {
@@ -695,6 +950,16 @@ fn step(actor: &mut Actor, geometry: &Geometry, dt: f64) -> Option<Outcome> {
             actor.motion.vx = if actor.motion.vx < 0.0 { -45.0 } else { 45.0 } * actor.scale;
         }
     }
+    // Gather again after overlap correction and acceleration, so neither can
+    // move the swept path outside the character contour query.
+    character_edges.clear();
+    append_character_edges(actor.motion, geometry, dt, &mut character_edges);
+    let edges = if character_edges.is_empty() {
+        geometry.edges.as_slice()
+    } else {
+        character_edges.extend_from_slice(&geometry.edges);
+        character_edges.as_slice()
+    };
     let restitution = match actor.kind {
         Kind::Ball => 0.66,
         Kind::PaperPlane => 0.16,
@@ -704,7 +969,7 @@ fn step(actor: &mut Actor, geometry: &Geometry, dt: f64) -> Option<Outcome> {
     let incoming_vx = actor.motion.vx;
     let (hits, on_ground) = advance_motion(
         &mut actor.motion,
-        &geometry.edges,
+        edges,
         dt,
         restitution,
         if actor.kind == Kind::Pet { 1.0 } else { 0.82 },
@@ -728,7 +993,7 @@ fn step(actor: &mut Actor, geometry: &Geometry, dt: f64) -> Option<Outcome> {
     if actor.kind == Kind::Pet {
         actor.angle = if actor.motion.vx < 0.0 { 180.0 } else { 0.0 };
     }
-    if (on_ground || supported(actor.motion, geometry))
+    if (on_ground || supported(actor.motion, edges))
         && actor.motion.vx.hypot(actor.motion.vy) < 30.0 * actor.scale
     {
         actor.resting += dt;
@@ -747,6 +1012,106 @@ fn step(actor: &mut Actor, geometry: &Geometry, dt: f64) -> Option<Outcome> {
     None
 }
 
+struct GeometrySample {
+    started: Instant,
+    result: Result<Geometry, String>,
+    scales: Option<Vec<(Rect, f64)>>,
+}
+
+fn capture_geometry(_app: &AppHandle) -> GeometrySample {
+    let started = Instant::now();
+    crate::character_collision_host::refresh_all(_app);
+    let result = desktop_geometry::capture();
+    #[cfg(target_os = "windows")]
+    let scales = {
+        _app.available_monitors().ok().map(|monitors| {
+            monitors
+                .into_iter()
+                .map(|monitor| {
+                    let p = monitor.position();
+                    let size = monitor.size();
+                    (
+                        Rect {
+                            x: p.x as f64,
+                            y: p.y as f64,
+                            width: size.width as f64,
+                            height: size.height as f64,
+                        },
+                        monitor.scale_factor(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+    };
+    #[cfg(not(target_os = "windows"))]
+    let scales: Option<Vec<(Rect, f64)>> = None;
+
+    GeometrySample {
+        started,
+        result,
+        scales,
+    }
+}
+
+fn request_geometry(app: &AppHandle) -> tokio::sync::oneshot::Receiver<GeometrySample> {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let capture_app = app.clone();
+    let capture = move || {
+        let _ = sender.send(capture_geometry(&capture_app));
+    };
+    // Quartz window queries share a connection lock with AppKit commits.
+    // Running them on a worker can stall both threads until a timeout.
+    #[cfg(target_os = "macos")]
+    let _ = app.run_on_main_thread(capture);
+    #[cfg(not(target_os = "macos"))]
+    tauri::async_runtime::spawn_blocking(capture);
+    receiver
+}
+
+fn poll_geometry(
+    pending: &mut Option<tokio::sync::oneshot::Receiver<GeometrySample>>,
+) -> Option<GeometrySample> {
+    let result = pending.as_mut()?.try_recv();
+    match result {
+        Ok(sample) => {
+            *pending = None;
+            Some(sample)
+        }
+        Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+            *pending = None;
+            None
+        }
+        Err(tokio::sync::oneshot::error::TryRecvError::Empty) => None,
+    }
+}
+
+fn apply_geometry(world: &mut World, sample: Option<GeometrySample>, now: Instant) {
+    // A launch can install newer geometry while this OS query is still running.
+    if let Some(sample) =
+        sample.filter(|sample| world.geometry_at.is_none_or(|at| at <= sample.started))
+    {
+        world.geometry_at = Some(sample.started);
+        match sample.result {
+            Ok(geometry) if now.duration_since(sample.started) <= Duration::from_secs(1) => {
+                world.geometry = geometry;
+                world.last_geometry_ok = Some(sample.started);
+                if let Some(scales) = sample.scales {
+                    world.scales = scales;
+                }
+            }
+            _ => world.geometry.external_windows_available = false,
+        }
+    }
+    // A stalled query must not keep obsolete window edges alive indefinitely.
+    if world
+        .last_geometry_ok
+        .is_none_or(|at| now.duration_since(at) > Duration::from_secs(1))
+    {
+        world.geometry.external_windows_available = false;
+        world.geometry.edges = desktop_geometry::monitor_edges(&world.geometry.monitors);
+    }
+}
+
 pub(crate) fn start(app: AppHandle) {
     if app.state::<Runtime>().started.swap(true, Ordering::SeqCst) {
         return;
@@ -755,6 +1120,7 @@ pub(crate) fn start(app: AppHandle) {
         let mut timer = tokio::time::interval(Duration::from_millis(16));
         timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut previous = Instant::now();
+        let mut pending_geometry = None;
         loop {
             timer.tick().await;
             let now = Instant::now();
@@ -776,35 +1142,14 @@ pub(crate) fn start(app: AppHandle) {
                 .lock()
                 .map(|world| !world.actors.is_empty())
                 .unwrap_or(false);
+            let captured = poll_geometry(&mut pending_geometry);
             if !active {
                 continue;
             }
-            let captured = refresh.then(desktop_geometry::capture);
-            #[cfg(target_os = "windows")]
-            let scales = if refresh {
-                app.available_monitors().ok().map(|monitors| {
-                    monitors
-                        .into_iter()
-                        .map(|monitor| {
-                            let p = monitor.position();
-                            let size = monitor.size();
-                            (
-                                Rect {
-                                    x: p.x as f64,
-                                    y: p.y as f64,
-                                    width: size.width as f64,
-                                    height: size.height as f64,
-                                },
-                                monitor.scale_factor(),
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                })
-            } else {
-                None
-            };
-            #[cfg(not(target_os = "windows"))]
-            let scales: Option<Vec<(Rect, f64)>> = None;
+            if refresh && pending_geometry.is_none() && captured.is_none() {
+                pending_geometry = Some(request_geometry(&app));
+            }
+            let characters = crate::character_collision_host::colliders(&app);
             let cursor = desktop_geometry::cursor_position();
             let mut displays = vec![];
             let mut removed = vec![];
@@ -823,30 +1168,10 @@ pub(crate) fn start(app: AppHandle) {
                     world.outcomes.clear();
                     world.accumulator = 0.0;
                 }
-                if let Some(result) = captured {
-                    world.geometry_at = Some(now);
-                    match result {
-                        Ok(geometry) => {
-                            world.geometry = geometry;
-                            world.last_geometry_ok = Some(now);
-                        }
-                        Err(_) => {
-                            world.geometry.external_windows_available = false;
-                            if world
-                                .last_geometry_ok
-                                .is_none_or(|at| now.duration_since(at) > Duration::from_secs(1))
-                            {
-                                world.geometry.edges =
-                                    desktop_geometry::monitor_edges(&world.geometry.monitors);
-                            }
-                        }
-                    }
-                }
-                if let Some(scales) = scales {
-                    world.scales = scales;
-                }
+                apply_geometry(&mut world, captured, now);
                 let scales = world.scales.clone();
-                let geometry = world.geometry.clone();
+                let mut geometry = world.geometry.clone();
+                geometry.characters = characters;
                 world.accumulator = (world.accumulator + elapsed.min(0.1)).min(0.1);
                 let steps = (world.accumulator / STEP).floor() as usize;
                 world.accumulator -= steps as f64 * STEP;
@@ -961,7 +1286,7 @@ pub(crate) fn start(app: AppHandle) {
                     #[cfg(target_os = "windows")]
                     {
                         let _ = input_change;
-                        let _ = apply_input_region(&window, frame.kind, frame.angle);
+                        let _ = apply_input_region(&window, &frame);
                     }
                     #[cfg(not(target_os = "windows"))]
                     if let Some(ignore) = input_change {
@@ -977,6 +1302,71 @@ pub(crate) fn start(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clearing_cancels_pending_launches_without_blocking_new_or_unrelated_requests() {
+        let mut world = World::default();
+        let pending_ball = world_launch_token(&world, "ball");
+        let pending_plane = world_launch_token(&world, "plane");
+
+        // A clear must cancel an in-flight launch even before it created an actor.
+        assert!(world.actors.is_empty());
+        cancel_pending_launches(&mut world, Some("ball"));
+        assert_ne!(pending_ball, world_launch_token(&world, "ball"));
+        assert_eq!(pending_plane, world_launch_token(&world, "plane"));
+
+        let new_ball = world_launch_token(&world, "ball");
+        cancel_pending_launches(&mut world, Some("plane"));
+        assert_eq!(new_ball, world_launch_token(&world, "ball"));
+        cancel_pending_launches(&mut world, None);
+        assert_ne!(new_ball, world_launch_token(&world, "ball"));
+        assert_ne!(pending_plane, world_launch_token(&world, "plane"));
+        assert_ne!(pending_ball, world_launch_token(&world, "ball"));
+
+        let new_plane = world_launch_token(&world, "plane");
+        cancel_pending_launches(&mut world, Some("ball"));
+        assert_eq!(new_plane, world_launch_token(&world, "plane"));
+    }
+
+    #[test]
+    fn bubbles_randomize_count_position_size_and_color_within_safe_bounds() {
+        let area = Rect {
+            x: -400.0,
+            y: 20.0,
+            width: 1200.0,
+            height: 800.0,
+        };
+        let counts: Vec<_> = (0..32).map(|seed| bubble_count(seed, MAX_ACTORS)).collect();
+        assert!(counts
+            .iter()
+            .all(|count| (BUBBLE_COUNT_MIN..=BUBBLE_COUNT_MAX).contains(count)));
+        assert!(counts.windows(2).any(|pair| pair[0] != pair[1]));
+
+        let samples: Vec<_> = (1..=8)
+            .map(|seed| {
+                let appearance = bubble_appearance(seed);
+                let radius = appearance.size / 2.0;
+                let position = bubble_position(seed, area, radius, 1.0, None, false);
+                (appearance, position, radius)
+            })
+            .collect();
+        assert!(samples.iter().all(|(appearance, (x, y), radius)| {
+            (BUBBLE_SIZE_MIN..=BUBBLE_SIZE_MAX).contains(&appearance.size)
+                && (0..BUBBLE_COLOR_COUNT).contains(&appearance.color)
+                && *x >= area.x + radius
+                && *x <= area.x + area.width - radius
+                && *y >= area.y + radius
+                && *y <= area.y + area.height - radius
+        }));
+        assert!(samples
+            .windows(2)
+            .any(|pair| pair[0].0.size != pair[1].0.size));
+        assert!(samples
+            .windows(2)
+            .any(|pair| pair[0].0.color != pair[1].0.color));
+        assert!(samples.windows(2).any(|pair| pair[0].1 != pair[1].1));
+    }
+
     fn resting_ball() -> Actor {
         Actor {
             id: "test".into(),
@@ -992,6 +1382,7 @@ mod tests {
                 vy: 0.0,
                 radius: 10.0,
             },
+            bubble_color: 0,
             scale: 1.0,
             angle: 0.0,
             distance: 0.0,
@@ -1007,6 +1398,115 @@ mod tests {
             last_sent: None,
         }
     }
+    #[test]
+    fn pending_geometry_does_not_block_toy_motion_and_is_consumed_once() {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let mut pending = Some(receiver);
+        for kind in [Kind::Ball, Kind::PaperPlane, Kind::Bubbles] {
+            let mut actor = resting_ball();
+            actor.kind = kind;
+            let start = (actor.motion.x, actor.motion.y);
+            for _ in 0..60 {
+                assert!(poll_geometry(&mut pending).is_none());
+                step(&mut actor, &Geometry::default(), STEP);
+            }
+            assert_ne!((actor.motion.x, actor.motion.y), start);
+        }
+        assert!(pending.is_some());
+        assert!(sender
+            .send(GeometrySample {
+                started: Instant::now(),
+                result: Ok(Geometry::default()),
+                scales: None,
+            })
+            .is_ok());
+        assert!(poll_geometry(&mut pending).is_some());
+        assert!(poll_geometry(&mut pending).is_none());
+        assert!(pending.is_none());
+    }
+
+    #[test]
+    fn late_geometry_cannot_replace_a_newer_launch_snapshot() {
+        let now = Instant::now();
+        let mut world = World {
+            geometry: Geometry {
+                fullscreen: true,
+                external_windows_available: true,
+                ..Geometry::default()
+            },
+            geometry_at: Some(now),
+            last_geometry_ok: Some(now),
+            ..World::default()
+        };
+        for result in [Ok(Geometry::default()), Err("query failed".into())] {
+            apply_geometry(
+                &mut world,
+                Some(GeometrySample {
+                    started: now - Duration::from_millis(100),
+                    result,
+                    scales: Some(vec![]),
+                }),
+                now,
+            );
+            assert!(world.geometry.fullscreen);
+            assert!(world.geometry.external_windows_available);
+            assert_eq!(world.geometry_at, Some(now));
+        }
+    }
+
+    #[test]
+    fn unavailable_geometry_keeps_a_short_grace_then_uses_only_screen_edges() {
+        let now = Instant::now();
+        let mut world = World {
+            geometry: Geometry {
+                monitors: vec![Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1000.0,
+                    height: 800.0,
+                }],
+                edges: vec![Edge {
+                    horizontal: true,
+                    axis: 123.0,
+                    from: 0.0,
+                    to: 500.0,
+                }],
+                external_windows_available: true,
+                ..Geometry::default()
+            },
+            geometry_at: Some(now),
+            last_geometry_ok: Some(now),
+            ..World::default()
+        };
+        apply_geometry(
+            &mut world,
+            Some(GeometrySample {
+                started: now + Duration::from_millis(150),
+                result: Err("query failed".into()),
+                scales: None,
+            }),
+            now + Duration::from_millis(200),
+        );
+        assert!(!world.geometry.external_windows_available);
+        assert_eq!(world.geometry.edges.len(), 1);
+        // The next query is still pending; expiry cannot depend on it returning.
+        apply_geometry(&mut world, None, now + Duration::from_millis(1100));
+        assert_eq!(world.geometry.edges.len(), 4);
+        assert!(world.geometry.edges.iter().all(|edge| edge.axis != 123.0));
+        apply_geometry(
+            &mut world,
+            Some(GeometrySample {
+                started: now + Duration::from_millis(250),
+                result: Ok(Geometry::default()),
+                scales: None,
+            }),
+            now + Duration::from_millis(1400),
+        );
+        assert!(!world.geometry.external_windows_available);
+        assert_eq!(world.geometry.edges.len(), 4);
+        assert_eq!(world.last_geometry_ok, Some(now));
+    }
+
     #[test]
     fn resting_on_a_window_emits_one_result_and_removing_it_resumes_gravity() {
         let mut actor = resting_ball();
@@ -1123,5 +1623,142 @@ mod tests {
         );
         assert!(body.x > 110.0);
         assert_eq!(body.vx, 0.0);
+    }
+
+    fn character_geometry(pixels: &[&str], bounds: Rect) -> Geometry {
+        let columns = pixels[0].len();
+        let rows = pixels.len();
+        let mut bits = vec![0; (columns * rows).div_ceil(8)];
+        for (row, pixels) in pixels.iter().enumerate() {
+            for (column, pixel) in pixels.bytes().enumerate() {
+                if pixel == b'#' {
+                    let index = row * columns + column;
+                    bits[index / 8] |= 1 << (index % 8);
+                }
+            }
+        }
+        let shape =
+            crate::character_collision::Shape::from_mask(crate::character_collision::Mask {
+                x: 0.0,
+                y: 0.0,
+                width: bounds.width,
+                height: bounds.height,
+                columns,
+                rows,
+                bits,
+            })
+            .unwrap();
+        Geometry {
+            characters: vec![crate::character_collision::Collider {
+                shape: std::sync::Arc::new(shape),
+                origin: (bounds.x, bounds.y),
+                scale: 1.0,
+            }],
+            ..Geometry::default()
+        }
+    }
+
+    #[test]
+    fn ball_and_plane_bounce_off_opaque_character_pixels() {
+        let geometry = character_geometry(
+            &["#"],
+            Rect {
+                x: 100.0,
+                y: 0.0,
+                width: 40.0,
+                height: 200.0,
+            },
+        );
+        for kind in [Kind::Ball, Kind::PaperPlane] {
+            let mut actor = resting_ball();
+            actor.kind = kind;
+            actor.motion.vx = 1000.0;
+            step(&mut actor, &geometry, 0.1);
+            assert!(actor.bounces > 0);
+            assert!(actor.motion.x < 90.0);
+            assert!(actor.motion.vx < 0.0);
+        }
+    }
+
+    #[test]
+    fn transparent_character_gap_does_not_collide_with_the_image_rectangle() {
+        let geometry = character_geometry(
+            &["#.#"],
+            Rect {
+                x: 100.0,
+                y: 0.0,
+                width: 120.0,
+                height: 200.0,
+            },
+        );
+        let mut actor = resting_ball();
+        actor.motion.x = 160.0;
+        actor.motion.y = -40.0;
+        actor.motion.vy = 1000.0;
+        step(&mut actor, &geometry, 0.1);
+        assert_eq!(actor.bounces, 0);
+        assert_eq!(actor.motion.x, 160.0);
+        assert!(actor.motion.y > 0.0);
+    }
+
+    #[test]
+    fn bubble_pops_on_the_character_contour() {
+        let geometry = character_geometry(
+            &["#"],
+            Rect {
+                x: 0.0,
+                y: 40.0,
+                width: 200.0,
+                height: 20.0,
+            },
+        );
+        let mut actor = resting_ball();
+        actor.kind = Kind::Bubbles;
+        let result = step(&mut actor, &geometry, 0.4).expect("bubble touches the opaque pixels");
+        assert!(result.popped);
+        assert!(actor.reported);
+        assert!(actor.expires.is_some());
+    }
+
+    #[test]
+    fn character_support_settles_once_and_resumes_when_the_character_disappears() {
+        let geometry = character_geometry(
+            &["....#", "...##", "..###", ".####", "#####"],
+            Rect {
+                x: 0.0,
+                y: 100.0,
+                width: 100.0,
+                height: 100.0,
+            },
+        );
+        let mut actor = resting_ball();
+        let outcomes: Vec<_> = (0..600)
+            .filter_map(|_| step(&mut actor, &geometry, STEP))
+            .collect();
+        assert_eq!(outcomes.len(), 1);
+        assert!(!actor.moving);
+        let y = actor.motion.y;
+        step(&mut actor, &Geometry::default(), STEP);
+        assert!(actor.moving && actor.motion.y > y);
+    }
+
+    #[test]
+    fn character_candidates_cover_rebounds_in_the_same_step() {
+        let geometry = character_geometry(
+            &["#..#"],
+            Rect {
+                x: 40.0,
+                y: 0.0,
+                width: 40.0,
+                height: 200.0,
+            },
+        );
+        let mut actor = resting_ball();
+        actor.motion.x = 60.0;
+        actor.motion.radius = 3.0;
+        actor.motion.vx = 200.0;
+        step(&mut actor, &geometry, 0.2);
+        assert!(actor.bounces >= 2);
+        assert!((53.0..=67.0).contains(&actor.motion.x));
     }
 }

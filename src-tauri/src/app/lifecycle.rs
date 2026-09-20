@@ -5,18 +5,19 @@ use super::{
     windows, AppState,
 };
 use super::{publish, schedule_idle, unavailable};
+use crate::widget_backgrounds::{self, SCHEME as WIDGET_BACKGROUND_SCHEME};
 use crate::{behavior, desktop_menu, desktop_toys, updater};
 use crate::{
     character_commands::{self, serve_sprite, SPRITE_SCHEME},
-    desktop, device_wake, inference, store, story, story_editor, story_host, talk_editor_commands,
-    talk_host,
+    desktop, device_wake, inference, store, story, story_host, talk_host,
     types::*,
     widget_commands::{self, cancel_widget_jobs, open_widgets},
     widget_connections, widgets,
 };
 use std::{
     collections::HashMap,
-    path::PathBuf,
+    fs, io,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
         Arc, Mutex,
@@ -58,11 +59,75 @@ pub(crate) fn resource_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf
     ))
 }
 
+const DATABASE_FILE: &str = "comet.sqlite";
+
+fn merge_missing_entries(source: &Path, destination: &Path) -> io::Result<()> {
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        if !destination_path.exists() {
+            fs::rename(source_path, destination_path)?;
+            continue;
+        }
+        let source_type = fs::symlink_metadata(&source_path)?.file_type();
+        let destination_type = fs::symlink_metadata(&destination_path)?.file_type();
+        if source_type.is_dir() && destination_type.is_dir() {
+            merge_missing_entries(&source_path, &destination_path)?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn migrate_app_data(app_data: &Path) -> io::Result<()> {
+    let Some(parent) = app_data.parent() else {
+        return Ok(());
+    };
+    let legacy = parent.join(crate::legacy_names::app_identifier());
+    if legacy.exists() {
+        let legacy_type = fs::symlink_metadata(&legacy)?.file_type();
+        if legacy_type.is_symlink() || !legacy_type.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "기존 Comet 데이터 위치가 디렉터리가 아닙니다.",
+            ));
+        }
+        if app_data.exists() {
+            let current_type = fs::symlink_metadata(app_data)?.file_type();
+            if current_type.is_symlink() || !current_type.is_dir() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Comet 데이터 위치가 디렉터리가 아닙니다.",
+                ));
+            }
+            merge_missing_entries(&legacy, app_data)?;
+        } else {
+            fs::rename(&legacy, app_data)?;
+        }
+    }
+    let old_database = app_data.join(crate::legacy_names::database_file());
+    let new_database = app_data.join(DATABASE_FILE);
+    if old_database.exists() && !new_database.exists() {
+        fs::rename(old_database, new_database)?;
+    }
+    let old_database_name = crate::legacy_names::database_file();
+    for suffix in ["-shm", "-wal"] {
+        let old_sidecar = app_data.join(format!("{old_database_name}{suffix}"));
+        let new_sidecar = app_data.join(format!("{DATABASE_FILE}{suffix}"));
+        if old_sidecar.exists() && !new_sidecar.exists() {
+            fs::rename(old_sidecar, new_sidecar)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
+        .manage(crate::character_collision_host::Runtime::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .register_uri_scheme_protocol(SPRITE_SCHEME, serve_sprite)
+        .register_uri_scheme_protocol(WIDGET_BACKGROUND_SCHEME, widget_backgrounds::serve)
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(state) = app.try_state::<Arc<AppState>>() {
                 show_boxes(app, &state);
@@ -70,18 +135,19 @@ pub fn run() {
         }))
         .setup(|app| {
             let app_data = app.path().app_data_dir()?;
+            migrate_app_data(&app_data)?;
             std::fs::create_dir_all(&app_data)?;
             let (sidecar, runtime) = resource_paths(app.handle()).map_err(std::io::Error::other)?;
             let talk = talk_host::initialize(&app_data);
-            if let Err(error) = story_editor::initialize(&app_data) {
+            if let Err(error) = story::initialize_files(&app_data) {
                 eprintln!("Story initialization: {error}");
             }
-            let story_catalog = story_editor::load(&app_data)
+            let story_catalog = story::load(&app_data)
                 .or_else(|_| story::catalog())
                 .map_err(std::io::Error::other)?;
             let state = Arc::new(AppState {
                 db: Mutex::new(
-                    open_session(&app_data.join("nanika.sqlite")).map_err(std::io::Error::other)?,
+                    open_session(&app_data.join(DATABASE_FILE)).map_err(std::io::Error::other)?,
                 ),
                 inference: inference::Inference::new(app_data.clone(), sidecar, runtime),
                 app_data,
@@ -119,6 +185,7 @@ pub fn run() {
             app.manage(state.clone());
             app.manage(desktop_toys::Runtime::default());
             app.manage(updater::UpdateState::default());
+            crate::memo_notes::schedule_sync(app.handle());
             lock(&state.runtime).map_err(std::io::Error::other)?.hidden =
                 !behavior::preferences(&*lock(&state.db).map_err(std::io::Error::other)?)
                     .map_err(std::io::Error::other)?
@@ -154,6 +221,21 @@ pub fn run() {
             let face = desktop::is_face(window.label());
             if !face && !desktop::is_body(window.label()) {
                 return;
+            }
+            if !face {
+                match event {
+                    WindowEvent::Moved(_)
+                    | WindowEvent::Resized(_)
+                    | WindowEvent::ScaleFactorChanged { .. }
+                    | WindowEvent::Focused(_) => crate::character_collision_host::refresh(
+                        window.app_handle(),
+                        window.label(),
+                    ),
+                    WindowEvent::Destroyed => {
+                        crate::character_collision_host::remove(window.app_handle(), window.label())
+                    }
+                    _ => {}
+                }
             }
             let state = window.state::<Arc<AppState>>();
             match event {
@@ -199,20 +281,31 @@ pub fn run() {
             behavior::set_desktop_preferences,
             behavior::clear_desktop_toys,
             desktop_toys::desktop_toy_action,
+            crate::character_collision_host::set_character_collision,
             updater::get_update_status,
             updater::check_app_update,
             updater::install_app_update,
+            crate::memo_notes::create_memo_note,
+            crate::memo_notes::open_memo_note,
+            crate::memo_notes::close_memo_note,
+            crate::memo_notes::request_close_memo_note,
+            crate::memo_notes::save_memo_note,
             widget_commands::get_widgets,
             widget_commands::install_widgets,
             widget_commands::finish_widget_onboarding,
             widget_commands::set_widget_enabled,
             widget_commands::remove_widget,
             widget_commands::execute_widget,
+            widget_commands::configure_widget_appearance,
+            widget_commands::choose_widget_background,
+            widget_commands::remove_widget_background,
             widget_commands::get_widget_journal,
             widget_commands::open_widgets,
             widget_commands::close_widgets,
             widget_commands::open_widget,
             widget_commands::close_widget,
+            widget_commands::open_widget_display,
+            widget_commands::close_widget_display,
             widget_connections::connect_calendar_ics,
             widget_connections::connect_calendar_google,
             widget_connections::refresh_calendar,
@@ -228,6 +321,8 @@ pub fn run() {
             character_commands::save_character_dialogue,
             character_commands::clone_character,
             character_commands::apply_character_roster,
+            character_commands::get_character_packs,
+            character_commands::apply_character_pack,
             character_commands::remove_character,
             character_commands::preview_character_pack,
             character_commands::choose_character_pack,
@@ -235,6 +330,9 @@ pub fn run() {
             character_commands::save_character_pack,
             character_commands::get_character_pack_attribution,
             character_commands::save_character_pack_attribution,
+            crate::talk_commands::get_talk_packs,
+            crate::talk_commands::install_talk_pack,
+            crate::talk_commands::remove_talk_pack,
             character_commands::choose_character_sprite,
             character_commands::remove_character_sprite,
             windows::open_panel,
@@ -262,9 +360,6 @@ pub fn run() {
             windows::quit_app,
             story_host::choose_story,
             story_host::defer_story,
-            talk_editor_commands::list_talk_files,
-            talk_editor_commands::read_talk_file,
-            talk_editor_commands::save_talk_file,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build comet")
@@ -370,4 +465,72 @@ pub(crate) fn restore_update_install(app: &tauri::AppHandle) -> Result<(), Strin
     }
     publish(app, &state);
     Ok(())
+}
+
+#[cfg(test)]
+mod migration_tests {
+    use super::*;
+
+    #[test]
+    fn moves_legacy_directory_and_database_without_losing_entries() {
+        let root = tempfile::tempdir().unwrap();
+        let app_data = root.path().join("space.starlight.comet");
+        let legacy = root.path().join(crate::legacy_names::app_identifier());
+        fs::create_dir_all(legacy.join("models")).unwrap();
+        fs::write(
+            legacy.join(crate::legacy_names::database_file()),
+            b"database",
+        )
+        .unwrap();
+        fs::write(
+            legacy.join(format!("{}-wal", crate::legacy_names::database_file())),
+            b"wal",
+        )
+        .unwrap();
+        fs::write(
+            legacy.join(format!("{}-shm", crate::legacy_names::database_file())),
+            b"shm",
+        )
+        .unwrap();
+        fs::write(legacy.join("models").join("model.gguf"), b"model").unwrap();
+
+        migrate_app_data(&app_data).unwrap();
+
+        assert_eq!(fs::read(app_data.join(DATABASE_FILE)).unwrap(), b"database");
+        assert_eq!(
+            fs::read(app_data.join(format!("{DATABASE_FILE}-wal"))).unwrap(),
+            b"wal"
+        );
+        assert_eq!(
+            fs::read(app_data.join(format!("{DATABASE_FILE}-shm"))).unwrap(),
+            b"shm"
+        );
+        assert_eq!(
+            fs::read(app_data.join("models").join("model.gguf")).unwrap(),
+            b"model"
+        );
+        assert!(!legacy.exists());
+    }
+
+    #[test]
+    fn merges_only_missing_entries_when_new_directory_already_exists() {
+        let root = tempfile::tempdir().unwrap();
+        let app_data = root.path().join("space.starlight.comet");
+        let legacy = root.path().join(crate::legacy_names::app_identifier());
+        fs::create_dir_all(&app_data).unwrap();
+        fs::create_dir_all(&legacy).unwrap();
+        fs::write(app_data.join("keep.txt"), b"new").unwrap();
+        fs::write(legacy.join("keep.txt"), b"old").unwrap();
+        fs::write(
+            legacy.join(crate::legacy_names::database_file()),
+            b"database",
+        )
+        .unwrap();
+
+        migrate_app_data(&app_data).unwrap();
+
+        assert_eq!(fs::read(app_data.join("keep.txt")).unwrap(), b"new");
+        assert_eq!(fs::read(app_data.join(DATABASE_FILE)).unwrap(), b"database");
+        assert!(legacy.exists());
+    }
 }

@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
-import { Balloon } from "../components/Balloon";
+import { Balloon } from "../components/Balloon/Balloon";
 import { PREVIEW_SNAPSHOT, command } from "../hooks/useSnapshot";
 
 vi.mock("../hooks/useSnapshot", async (load) => ({

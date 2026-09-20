@@ -59,7 +59,8 @@ export function spriteUrl(
 ): string | null {
   const sprite = character?.sprites[expression];
   if (!character || !sprite || !isDesktop()) return null;
-  const query = new URLSearchParams({ expression, v: String(sprite.updatedAt) });
+  // Bypass immutable image responses cached before canvas-readable CORS headers existed.
+  const query = new URLSearchParams({ expression, v: String(sprite.updatedAt), cors: "1" });
   return `${convertFileSrc(character.id, "sprite")}?${query}`;
 }
 export function spriteSource(

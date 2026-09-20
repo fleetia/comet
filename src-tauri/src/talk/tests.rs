@@ -426,7 +426,7 @@ fn watcher_detects_symlink_retarget_with_identical_file_size_and_modification_ti
         fs::metadata(&second).unwrap().modified().unwrap()
     );
     symlink(&first, &link).unwrap();
-    let mut monitor = runtime::Monitor::new(entry);
+    let mut monitor = runtime::Monitor::new(directory.path().to_path_buf());
     let at = Instant::now();
     assert!(monitor.poll(&registry(), at).is_none());
     let before = monitor
@@ -580,6 +580,108 @@ fn source_scoped_pack_follows_imported_identity_and_swapped_slots() {
     assert!(simulate(&program, &input, &History::new())
         .selected
         .is_none());
+}
+
+#[test]
+fn random_speakers_pick_distinct_active_slots_and_are_rejected_inside_a_cast() {
+    let program = parse(
+        "format: 1\nscene: duo\non: idle\nspeakers: random\n---\nA: 하나\nB: 둘\n===\nscene: solo\non: idle\nspeakers: random\n---\nA: 혼자\n===\n",
+    );
+    let mut input = context();
+    input.active = vec!["only".into()];
+    let alone = simulate(&program, &input, &History::new());
+    assert!(alone.candidates.iter().any(
+        |candidate| candidate.scene_id == "duo" && candidate.reason.starts_with("render_error")
+    ));
+    assert_eq!(alone.selected.unwrap().scene_id, "solo");
+
+    input.active = (0..8).map(|index| format!("friend-{index}")).collect();
+    let duo = &program.scenes[0];
+    let mut pairs = BTreeSet::new();
+    for seed in 0..40 {
+        input.seed = seed;
+        let lines = render_scene(&program, &duo.key, &input).unwrap().lines;
+        assert_ne!(lines[0].persona, lines[1].persona);
+        pairs.insert((lines[0].persona.clone(), lines[1].persona.clone()));
+    }
+    assert!(pairs.len() > 4, "{pairs:?}");
+    input.seed = 5;
+    let first = render_scene(&program, &duo.key, &input).unwrap().lines;
+    let again = render_scene(&program, &duo.key, &input).unwrap().lines;
+    assert_eq!(first[0].persona, again[0].persona);
+
+    for (source, code) in [
+        (
+            "format: 1\nscene: bad\non: idle\nspeakers: shuffle\n---\nA: x\n===\n",
+            "SPEAKERS",
+        ),
+        (
+            "format: 1\nscene: dup\non: idle\nspeakers: random\nspeakers: slots\n---\nA: x\n===\n",
+            "DUPLICATE_HEADER",
+        ),
+    ] {
+        let error = validate_source(Path::new("main.talk"), source, &registry()).unwrap_err();
+        assert_eq!(error[0].code, code, "{source}");
+    }
+    let directory = tempdir().unwrap();
+    let entry = directory.path().join("index.talk");
+    fs::write(
+        &entry,
+        "format: 1\nimport \"cast.talk\" for cast(\"first\", \"second\")\n",
+    )
+    .unwrap();
+    fs::write(
+        directory.path().join("cast.talk"),
+        "scene: scoped\non: idle\nspeakers: random\n---\nA: x\n===\n",
+    )
+    .unwrap();
+    let errors = load(&entry, &registry()).unwrap_err();
+    assert_eq!(errors[0].code, "SPEAKERS_SCOPE");
+}
+
+#[test]
+fn pack_scenes_carry_their_pack_id_in_keys_while_user_scenes_keep_the_old_key() {
+    let directory = tempdir().unwrap();
+    let root = directory.path();
+    fs::write(
+        root.join("index.talk"),
+        "format: 1\nscene: hello\non: idle\n---\nA: 내 대본\n===\n",
+    )
+    .unwrap();
+    for pack in ["alpha", "beta"] {
+        let folder = root.join("packs").join(pack);
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(
+            folder.join("index.talk"),
+            format!("format: 1\nscene: hello\non: idle\n---\nA: {pack}\n===\n"),
+        )
+        .unwrap();
+    }
+    fs::create_dir_all(root.join("packs/Bad Name")).unwrap();
+    fs::write(root.join("packs/Bad Name/index.talk"), "format: 1\n").unwrap();
+    fs::create_dir_all(root.join("packs/empty")).unwrap();
+    let program = load_bundle(root, &registry()).unwrap();
+    assert_eq!(
+        program.packs,
+        BTreeSet::from(["alpha".to_owned(), "beta".to_owned()])
+    );
+    assert_eq!(program.scenes.len(), 3);
+    assert_eq!(program.scenes[0].key, "[null,\"hello\"]");
+    assert!(program.scenes[0].pack.is_none());
+    assert_eq!(program.scenes[1].key, "[\"alpha\",null,\"hello\"]");
+    assert_eq!(program.scenes[1].pack.as_deref(), Some("alpha"));
+    assert_eq!(program.files.len(), 3);
+    fs::write(
+        root.join("packs/beta/index.talk"),
+        "format: 1\nscene: broken\n",
+    )
+    .unwrap();
+    assert!(load_bundle(root, &registry()).is_err());
+    fs::remove_file(root.join("index.talk")).unwrap();
+    fs::remove_dir_all(root.join("packs/beta")).unwrap();
+    let without_entry = load_bundle(root, &registry()).unwrap();
+    assert_eq!(without_entry.scenes.len(), 1);
+    assert_eq!(without_entry.scenes[0].pack.as_deref(), Some("alpha"));
 }
 
 #[test]

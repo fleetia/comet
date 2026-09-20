@@ -29,12 +29,74 @@ fn file_error(path: &Path, code: &str, message: impl Into<String>) -> Vec<Diagno
     vec![span(path, 1, 1).error(code, message)]
 }
 pub fn load(entry: &Path, registry: &Registry) -> Result<Program, Vec<Diagnostic>> {
-    load_with_source(entry, registry, None)
+    load_with_source(entry, registry, None, None)
+}
+/// Loads one installed talk pack. Its scene keys carry the pack ID so packs never collide.
+pub fn load_pack(
+    entry: &Path,
+    registry: &Registry,
+    pack: &str,
+) -> Result<Program, Vec<Diagnostic>> {
+    load_with_source(entry, registry, None, Some(pack))
+}
+pub(crate) const PACKS_DIRECTORY: &str = "packs";
+
+pub(crate) fn valid_pack_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b'-' | b'_'))
+}
+
+/// Lists the pack IDs that have an `index.talk` under `<root>/packs/`.
+pub fn installed_packs(root: &Path) -> Result<Vec<String>, String> {
+    let directory = root.join(PACKS_DIRECTORY);
+    let entries = match fs::read_dir(&directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.to_string()),
+    };
+    let mut ids = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let metadata = fs::symlink_metadata(entry.path()).map_err(|error| error.to_string())?;
+        if metadata.is_dir() && valid_pack_id(&name) && entry.path().join("index.talk").is_file() {
+            ids.push(name);
+        }
+    }
+    ids.sort();
+    Ok(ids)
+}
+
+/// Loads the user's `index.talk` (when present) together with every installed pack under
+/// `<root>/packs/<id>/index.talk`. Any error keeps the whole bundle from activating.
+pub fn load_bundle(root: &Path, registry: &Registry) -> Result<Program, Vec<Diagnostic>> {
+    let mut program = Program::default();
+    let entry = root.join("index.talk");
+    if entry.is_file() {
+        program = load(&entry, registry)?;
+    }
+    let packs = installed_packs(root).map_err(|error| file_error(root, "PACKS_IO", error))?;
+    for id in packs {
+        let pack = load_pack(
+            &root.join(PACKS_DIRECTORY).join(&id).join("index.talk"),
+            registry,
+            &id,
+        )?;
+        program.files.extend(pack.files);
+        program.sources.extend(pack.sources);
+        program.scenes.extend(pack.scenes);
+        program.packs.insert(id);
+    }
+    Ok(program)
 }
 pub(crate) fn load_with_source(
     entry: &Path,
     registry: &Registry,
     replacement: Option<(&Path, &str)>,
+    pack: Option<&str>,
 ) -> Result<Program, Vec<Diagnostic>> {
     let lexical_root = entry
         .parent()
@@ -46,23 +108,24 @@ pub(crate) fn load_with_source(
         root,
         registry,
         replacement,
-        program: Program {
-            files: BTreeSet::new(),
-            sources: BTreeMap::new(),
-            scenes: Vec::new(),
-        },
+        pack,
+        program: Program::default(),
         visited: BTreeSet::new(),
         stack: BTreeSet::new(),
         keys: BTreeSet::new(),
         bytes: 0,
     };
     loader.visit(entry, None, 0)?;
+    if let Some(pack) = pack {
+        loader.program.packs.insert(pack.to_owned());
+    }
     Ok(loader.program)
 }
 struct Loader<'a> {
     root: PathBuf,
     registry: &'a Registry,
     replacement: Option<(&'a Path, &'a str)>,
+    pack: Option<&'a str>,
     program: Program,
     visited: BTreeSet<(PathBuf, Option<Vec<String>>)>,
     stack: BTreeSet<PathBuf>,
@@ -151,7 +214,14 @@ impl Loader<'_> {
                 .insert(canonical.clone(), source.clone());
             source
         };
-        let parsed = parse_file(&canonical, &source, pair.clone(), self.registry, depth == 0)?;
+        let parsed = parse_file(
+            &canonical,
+            &source,
+            pair.clone(),
+            self.registry,
+            depth == 0,
+            self.pack,
+        )?;
         self.stack.insert(canonical.clone());
         self.visited.insert(identity);
         self.program.files.insert(canonical.clone());
@@ -204,7 +274,7 @@ pub fn validate_source(
             "대본 파일은 1 MiB 이하여야 해요.",
         ));
     }
-    let parsed = parse_file(path, source, None, registry, true)?;
+    let parsed = parse_file(path, source, None, registry, true, None)?;
     if let Some(import) = parsed.imports.first() {
         return Err(vec![import.span.error(
             "IMPORT_REQUIRES_FILE",
@@ -223,6 +293,7 @@ pub fn validate_source(
         files: BTreeSet::from([path.to_owned()]),
         sources: BTreeMap::from([(path.to_owned(), source.into())]),
         scenes: parsed.scenes,
+        packs: BTreeSet::new(),
     })
 }
 fn parse_file(
@@ -231,12 +302,14 @@ fn parse_file(
     pair: Option<Vec<String>>,
     registry: &Registry,
     require_format: bool,
+    pack: Option<&str>,
 ) -> Result<Parsed, Vec<Diagnostic>> {
     let mut reader = Reader {
         path,
         lines: source.split('\n').collect(),
         at: 0,
         registry,
+        pack,
     };
     reader.skip();
     let has_format = reader.current().is_some_and(|line| {
@@ -334,6 +407,7 @@ struct Reader<'a> {
     lines: Vec<&'a str>,
     at: usize,
     registry: &'a Registry,
+    pack: Option<&'a str>,
 }
 impl Reader<'_> {
     fn current(&self) -> Option<&str> {
@@ -376,7 +450,7 @@ impl Reader<'_> {
                     .error("HEADER", "name: value 형식의 header가 필요해요.")]
             })?;
             let name = name.trim();
-            if !["scene", "on", "when", "cooldown"].contains(&name) {
+            if !["scene", "on", "when", "cooldown", "speakers"].contains(&name) {
                 return Err(vec![self
                     .location()
                     .error("UNKNOWN_HEADER", format!("알 수 없는 header: {name}"))]);
@@ -435,6 +509,24 @@ impl Reader<'_> {
             })
             .transpose()?
             .unwrap_or(0);
+        let random_speakers = match headers.get("speakers") {
+            None => false,
+            Some((value, _)) if value == "slots" => false,
+            Some((value, span)) if value == "random" => {
+                if pair.is_some() {
+                    return Err(vec![span.error(
+                        "SPEAKERS_SCOPE",
+                        "cast 범위의 장면에는 speakers: random을 쓸 수 없어요.",
+                    )]);
+                }
+                true
+            }
+            Some((_, span)) => {
+                return Err(vec![
+                    span.error("SPEAKERS", "speakers는 slots 또는 random이어야 해요.")
+                ])
+            }
+        };
         let body = self.body(0)?;
         if let Some(cast) = &pair {
             validate_speakers(&body, cast.len())?;
@@ -465,12 +557,19 @@ impl Reader<'_> {
             })
             .collect();
         let normalized = pair.clone();
-        let key = serde_json::to_string(&(normalized, &id))
-            .map_err(|error| vec![location.error("SCENE_KEY", error.to_string())])?;
+        // The user's own bundle keeps the historical two-part key so stored talk_history rows
+        // still match; pack scenes add the pack ID so two packs may reuse a scene ID.
+        let key = match self.pack {
+            Some(pack) => serde_json::to_string(&(pack, normalized, &id)),
+            None => serde_json::to_string(&(normalized, &id)),
+        }
+        .map_err(|error| vec![location.error("SCENE_KEY", error.to_string())])?;
         Ok(Scene {
             key,
             id,
+            pack: self.pack.map(str::to_owned),
             pair,
+            random_speakers,
             trigger,
             condition,
             cooldown_ms,

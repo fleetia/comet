@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { UpdatePanel } from "../components/UpdatePanel";
+import { UpdatePanel } from "../components/UpdatePanel/UpdatePanel";
 import { command } from "../hooks/useSnapshot";
 
 vi.mock("../hooks/useSnapshot", () => ({

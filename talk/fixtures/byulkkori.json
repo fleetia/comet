@@ -1,0 +1,2337 @@
+{
+  "cases": [
+    {
+      "id": "time.morning",
+      "path": "situations/time.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "environment.hour": 8
+      },
+      "expectedScene": "time.morning"
+    },
+    {
+      "id": "time.afternoon",
+      "path": "situations/time.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "environment.hour": 15
+      },
+      "expectedScene": "time.afternoon"
+    },
+    {
+      "id": "time.evening",
+      "path": "situations/time.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "environment.hour": 20
+      },
+      "expectedScene": "time.evening"
+    },
+    {
+      "id": "time.night.0",
+      "path": "situations/time.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "environment.hour": 23
+      },
+      "expectedScene": "time.night"
+    },
+    {
+      "id": "time.night.early",
+      "path": "situations/time.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "environment.hour": 3
+      },
+      "expectedScene": "time.night"
+    },
+    {
+      "id": "weather.unknown",
+      "path": "situations/weather.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "environment.weatherReady": false,
+        "environment.weatherStatus": "not-installed"
+      },
+      "expectedScene": "weather.unknown"
+    },
+    {
+      "id": "weather.cold",
+      "path": "situations/weather.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "environment.weatherReady": true,
+        "environment.weatherStatus": "ready",
+        "environment.weatherName": "서울",
+        "environment.weatherTemperature": 1,
+        "environment.weatherCode": 3
+      },
+      "expectedScene": "weather.cold"
+    },
+    {
+      "id": "weather.hot",
+      "path": "situations/weather.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "environment.weatherReady": true,
+        "environment.weatherStatus": "ready",
+        "environment.weatherName": "서울",
+        "environment.weatherTemperature": 31,
+        "environment.weatherCode": 0
+      },
+      "expectedScene": "weather.hot"
+    },
+    {
+      "id": "weather.rain",
+      "path": "situations/weather.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "environment.weatherReady": true,
+        "environment.weatherStatus": "ready",
+        "environment.weatherName": "서울",
+        "environment.weatherTemperature": 15,
+        "environment.weatherCode": 61
+      },
+      "expectedScene": "weather.rain"
+    },
+    {
+      "id": "weather.snow",
+      "path": "situations/weather.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "environment.weatherReady": true,
+        "environment.weatherStatus": "ready",
+        "environment.weatherName": "서울",
+        "environment.weatherTemperature": -1,
+        "environment.weatherCode": 71
+      },
+      "expectedScene": "weather.snow"
+    },
+    {
+      "id": "weather.clear",
+      "path": "situations/weather.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "environment.weatherReady": true,
+        "environment.weatherStatus": "ready",
+        "environment.weatherName": "서울",
+        "environment.weatherTemperature": 22,
+        "environment.weatherCode": 0
+      },
+      "expectedScene": "weather.clear"
+    },
+    {
+      "id": "weather.cloudy",
+      "path": "situations/weather.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "environment.weatherReady": true,
+        "environment.weatherStatus": "ready",
+        "environment.weatherName": "서울",
+        "environment.weatherTemperature": 18,
+        "environment.weatherCode": 3
+      },
+      "expectedScene": "weather.cloudy"
+    },
+    {
+      "id": "negative.null-weather",
+      "path": "situations/weather.talk",
+      "state": "ready without observation",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "environment.weatherReady": true,
+        "environment.weatherStatus": "ready",
+        "environment.weatherTemperature": null,
+        "environment.weatherCode": null,
+        "environment.weatherName": null
+      },
+      "expectedScene": null
+    },
+    {
+      "id": "solo.stretch",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {},
+      "expectedScene": "solo.stretch"
+    },
+    {
+      "id": "solo.window",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {},
+      "expectedScene": "solo.window"
+    },
+    {
+      "id": "solo.snack",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {},
+      "expectedScene": "solo.snack"
+    },
+    {
+      "id": "solo.hum",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {},
+      "expectedScene": "solo.hum"
+    },
+    {
+      "id": "solo.count",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {},
+      "expectedScene": "solo.count"
+    },
+    {
+      "id": "duo.tail-race",
+      "path": "situations/duo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {},
+      "expectedScene": "duo.tail-race"
+    },
+    {
+      "id": "duo.share",
+      "path": "situations/duo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {},
+      "expectedScene": "duo.share"
+    },
+    {
+      "id": "duo.echo",
+      "path": "situations/duo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {},
+      "expectedScene": "duo.echo"
+    },
+    {
+      "id": "duo.quiet",
+      "path": "situations/duo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {},
+      "expectedScene": "duo.quiet"
+    },
+    {
+      "id": "duo.guess",
+      "path": "situations/duo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {},
+      "expectedScene": "duo.guess"
+    },
+    {
+      "id": "duo.stars",
+      "path": "situations/duo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {},
+      "expectedScene": "duo.stars"
+    },
+    {
+      "id": "trio.circle",
+      "path": "situations/group.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b",
+        "fixture-c"
+      ],
+      "values": {},
+      "expectedScene": "trio.circle"
+    },
+    {
+      "id": "trio.roll-call",
+      "path": "situations/group.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b",
+        "fixture-c"
+      ],
+      "values": {},
+      "expectedScene": "trio.roll-call"
+    },
+    {
+      "id": "trio.song",
+      "path": "situations/group.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b",
+        "fixture-c"
+      ],
+      "values": {},
+      "expectedScene": "trio.song"
+    },
+    {
+      "id": "trio.secret",
+      "path": "situations/group.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b",
+        "fixture-c"
+      ],
+      "values": {},
+      "expectedScene": "trio.secret"
+    },
+    {
+      "id": "quad.parade",
+      "path": "situations/group.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b",
+        "fixture-c",
+        "fixture-d"
+      ],
+      "values": {},
+      "expectedScene": "quad.parade"
+    },
+    {
+      "id": "quad.count",
+      "path": "situations/group.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b",
+        "fixture-c",
+        "fixture-d"
+      ],
+      "values": {},
+      "expectedScene": "quad.count"
+    },
+    {
+      "id": "todo.empty",
+      "path": "widgets/todo.talk",
+      "trigger": "idle",
+      "available": [
+        "todo"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "todo.openCount": 0,
+        "todo.completedCount": 2,
+        "todo.overdueCount": 0,
+        "todo.ready": true,
+        "todo.status": "enabled"
+      },
+      "expectedScene": "todo.empty"
+    },
+    {
+      "id": "todo.open",
+      "path": "widgets/todo.talk",
+      "trigger": "idle",
+      "available": [
+        "todo"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "todo.openCount": 3,
+        "todo.completedCount": 1,
+        "todo.overdueCount": 0,
+        "todo.ready": true,
+        "todo.status": "enabled"
+      },
+      "expectedScene": "todo.open"
+    },
+    {
+      "id": "todo.overdue",
+      "path": "widgets/todo.talk",
+      "trigger": "idle",
+      "available": [
+        "todo"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "todo.openCount": 2,
+        "todo.completedCount": 0,
+        "todo.overdueCount": 1,
+        "todo.ready": true,
+        "todo.status": "enabled"
+      },
+      "expectedScene": "todo.overdue"
+    },
+    {
+      "id": "todo.completed",
+      "path": "widgets/todo.talk",
+      "trigger": "todo-completed",
+      "available": [
+        "todo"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "todo-completed",
+        "event.widget": "todo",
+        "todo.openCount": 1,
+        "todo.completedCount": 1,
+        "todo.overdueCount": 0,
+        "todo.ready": true,
+        "todo.status": "enabled"
+      },
+      "expectedScene": "todo.completed"
+    },
+    {
+      "id": "todo.undone",
+      "path": "widgets/todo.talk",
+      "trigger": "todo-undone",
+      "available": [
+        "todo"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "todo-undone",
+        "event.widget": "todo",
+        "todo.openCount": 2,
+        "todo.completedCount": 0,
+        "todo.overdueCount": 0,
+        "todo.ready": true,
+        "todo.status": "enabled"
+      },
+      "expectedScene": "todo.undone"
+    },
+    {
+      "id": "negative.disabled-todo",
+      "path": "widgets/todo.talk",
+      "state": "todo installed but disabled",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "todo.ready": false,
+        "todo.status": "disabled",
+        "todo.openCount": 0
+      },
+      "expectedScene": null
+    },
+    {
+      "id": "calendar.unconfigured",
+      "path": "widgets/calendar.talk",
+      "trigger": "idle",
+      "available": [
+        "calendar"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "calendar.ready": false,
+        "calendar.status": "permission-needed"
+      },
+      "expectedScene": "calendar.unconfigured"
+    },
+    {
+      "id": "calendar.none",
+      "path": "widgets/calendar.talk",
+      "trigger": "idle",
+      "available": [
+        "calendar"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "calendar.eventCount": 0,
+        "calendar.ready": true,
+        "calendar.status": "enabled"
+      },
+      "expectedScene": "calendar.none"
+    },
+    {
+      "id": "calendar.next",
+      "path": "widgets/calendar.talk",
+      "trigger": "idle",
+      "available": [
+        "calendar"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "calendar.eventCount": 2,
+        "calendar.nextTitle": "도서관",
+        "calendar.nextAllDay": false,
+        "calendar.ready": true,
+        "calendar.status": "enabled"
+      },
+      "expectedScene": "calendar.next"
+    },
+    {
+      "id": "calendar.reminder",
+      "path": "widgets/calendar.talk",
+      "trigger": "calendar-reminder",
+      "available": [
+        "calendar"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "calendar-reminder",
+        "event.widget": "calendar",
+        "calendar.eventCount": 1,
+        "calendar.nextTitle": "도서관",
+        "calendar.nextAllDay": false,
+        "calendar.ready": true,
+        "calendar.status": "enabled"
+      },
+      "expectedScene": "calendar.reminder"
+    },
+    {
+      "id": "timer.idle",
+      "path": "widgets/focus-timer.talk",
+      "trigger": "idle",
+      "available": [
+        "focus-timer"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "timer.state": "idle",
+        "timer.ready": true,
+        "timer.status": "enabled"
+      },
+      "expectedScene": "timer.idle"
+    },
+    {
+      "id": "timer.focus",
+      "path": "widgets/focus-timer.talk",
+      "trigger": "idle",
+      "available": [
+        "focus-timer"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "timer.state": "running",
+        "timer.mode": "focus",
+        "timer.remainingMs": 600000,
+        "timer.ready": true,
+        "timer.status": "enabled"
+      },
+      "expectedScene": "timer.focus"
+    },
+    {
+      "id": "timer.rest",
+      "path": "widgets/focus-timer.talk",
+      "trigger": "idle",
+      "available": [
+        "focus-timer"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "timer.state": "running",
+        "timer.mode": "rest",
+        "timer.remainingMs": 300000,
+        "timer.ready": true,
+        "timer.status": "enabled"
+      },
+      "expectedScene": "timer.rest"
+    },
+    {
+      "id": "timer.paused",
+      "path": "widgets/focus-timer.talk",
+      "trigger": "idle",
+      "available": [
+        "focus-timer"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "timer.state": "paused",
+        "timer.mode": "focus",
+        "timer.ready": true,
+        "timer.status": "enabled"
+      },
+      "expectedScene": "timer.paused"
+    },
+    {
+      "id": "timer.finished-focus",
+      "path": "widgets/focus-timer.talk",
+      "trigger": "timer-finished",
+      "available": [
+        "focus-timer"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "timer-finished",
+        "event.widget": "focus-timer",
+        "event.mode": "focus",
+        "timer.state": "finished",
+        "timer.mode": "focus",
+        "timer.ready": true,
+        "timer.status": "enabled"
+      },
+      "expectedScene": "timer.finished-focus"
+    },
+    {
+      "id": "timer.finished-rest",
+      "path": "widgets/focus-timer.talk",
+      "trigger": "timer-finished",
+      "available": [
+        "focus-timer"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "timer-finished",
+        "event.widget": "focus-timer",
+        "event.mode": "rest",
+        "timer.state": "finished",
+        "timer.mode": "rest",
+        "timer.ready": true,
+        "timer.status": "enabled"
+      },
+      "expectedScene": "timer.finished-rest"
+    },
+    {
+      "id": "preparation.empty",
+      "path": "widgets/preparation.talk",
+      "trigger": "idle",
+      "available": [
+        "preparation"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "preparation.count": 0,
+        "preparation.checkCount": 0,
+        "preparation.uncheckedCount": 0,
+        "preparation.ready": true,
+        "preparation.status": "enabled"
+      },
+      "expectedScene": "preparation.empty"
+    },
+    {
+      "id": "preparation.no-checks",
+      "path": "widgets/preparation.talk",
+      "trigger": "idle",
+      "available": [
+        "preparation"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "preparation.count": 1,
+        "preparation.checkCount": 0,
+        "preparation.uncheckedCount": 0,
+        "preparation.ready": true,
+        "preparation.status": "enabled"
+      },
+      "expectedScene": "preparation.no-checks"
+    },
+    {
+      "id": "preparation.unchecked",
+      "path": "widgets/preparation.talk",
+      "trigger": "idle",
+      "available": [
+        "preparation"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "preparation.count": 1,
+        "preparation.checkCount": 3,
+        "preparation.uncheckedCount": 2,
+        "preparation.ready": true,
+        "preparation.status": "enabled"
+      },
+      "expectedScene": "preparation.unchecked"
+    },
+    {
+      "id": "preparation.checked",
+      "path": "widgets/preparation.talk",
+      "trigger": "idle",
+      "available": [
+        "preparation"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "preparation.count": 1,
+        "preparation.checkCount": 2,
+        "preparation.uncheckedCount": 0,
+        "preparation.ready": true,
+        "preparation.status": "enabled"
+      },
+      "expectedScene": "preparation.checked"
+    },
+    {
+      "id": "jar.empty",
+      "path": "widgets/completion-jar.talk",
+      "trigger": "idle",
+      "available": [
+        "completion-jar"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "jar.count": 0,
+        "jar.ready": true,
+        "jar.status": "enabled"
+      },
+      "expectedScene": "jar.empty"
+    },
+    {
+      "id": "jar.some",
+      "path": "widgets/completion-jar.talk",
+      "trigger": "idle",
+      "available": [
+        "completion-jar"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "jar.count": 4,
+        "jar.ready": true,
+        "jar.status": "enabled"
+      },
+      "expectedScene": "jar.some"
+    },
+    {
+      "id": "clock.no-anniversary",
+      "path": "widgets/clock.talk",
+      "trigger": "idle",
+      "available": [
+        "clock"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "clock.hour": 10,
+        "clock.anniversaryCount": 0,
+        "clock.ready": true,
+        "clock.status": "enabled"
+      },
+      "expectedScene": "clock.no-anniversary"
+    },
+    {
+      "id": "clock.today",
+      "path": "widgets/clock.talk",
+      "trigger": "idle",
+      "available": [
+        "clock"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "clock.hour": 10,
+        "clock.anniversaryCount": 1,
+        "clock.daysUntil": 0,
+        "clock.title": "우리 만난 날",
+        "clock.ready": true,
+        "clock.status": "enabled"
+      },
+      "expectedScene": "clock.today"
+    },
+    {
+      "id": "clock.soon",
+      "path": "widgets/clock.talk",
+      "trigger": "idle",
+      "available": [
+        "clock"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "clock.hour": 10,
+        "clock.anniversaryCount": 1,
+        "clock.daysUntil": 3,
+        "clock.title": "생일",
+        "clock.ready": true,
+        "clock.status": "enabled"
+      },
+      "expectedScene": "clock.soon"
+    },
+    {
+      "id": "clock.far",
+      "path": "widgets/clock.talk",
+      "trigger": "idle",
+      "available": [
+        "clock"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "clock.hour": 10,
+        "clock.anniversaryCount": 2,
+        "clock.daysUntil": 40,
+        "clock.title": "여행",
+        "clock.ready": true,
+        "clock.status": "enabled"
+      },
+      "expectedScene": "clock.far"
+    },
+    {
+      "id": "clock.past",
+      "path": "widgets/clock.talk",
+      "trigger": "idle",
+      "available": [
+        "clock"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "clock.hour": 10,
+        "clock.anniversaryCount": 1,
+        "clock.daysUntil": -5,
+        "clock.title": "첫 눈",
+        "clock.ready": true,
+        "clock.status": "enabled"
+      },
+      "expectedScene": "clock.past"
+    },
+    {
+      "id": "memo.empty",
+      "path": "widgets/memo.talk",
+      "trigger": "idle",
+      "available": [
+        "memo"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "memo.count": 0,
+        "memo.ready": true,
+        "memo.status": "enabled"
+      },
+      "expectedScene": "memo.empty"
+    },
+    {
+      "id": "memo.some",
+      "path": "widgets/memo.talk",
+      "trigger": "idle",
+      "available": [
+        "memo"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "memo.count": 3,
+        "memo.ready": true,
+        "memo.status": "enabled"
+      },
+      "expectedScene": "memo.some"
+    },
+    {
+      "id": "weather.unconfigured",
+      "path": "widgets/weather.talk",
+      "trigger": "idle",
+      "available": [
+        "weather"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "weather.ready": false,
+        "weather.status": "permission-needed"
+      },
+      "expectedScene": "weather.unconfigured"
+    },
+    {
+      "id": "weather.stale",
+      "path": "widgets/weather.talk",
+      "trigger": "idle",
+      "available": [
+        "weather"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "weather.ready": false,
+        "weather.status": "stale"
+      },
+      "expectedScene": "weather.stale"
+    },
+    {
+      "id": "music.permission-needed",
+      "path": "widgets/music.talk",
+      "trigger": "idle",
+      "available": [
+        "music"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "music.ready": false,
+        "music.status": "permission-needed"
+      },
+      "expectedScene": "music.permission-needed"
+    },
+    {
+      "id": "music.playing",
+      "path": "widgets/music.talk",
+      "trigger": "idle",
+      "available": [
+        "music"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "music.running": true,
+        "music.playing": true,
+        "music.title": "작은 별",
+        "music.artist": "누군가",
+        "music.ready": true,
+        "music.status": "enabled"
+      },
+      "expectedScene": "music.playing"
+    },
+    {
+      "id": "music.quiet",
+      "path": "widgets/music.talk",
+      "trigger": "idle",
+      "available": [
+        "music"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "music.running": true,
+        "music.playing": false,
+        "music.ready": true,
+        "music.status": "enabled"
+      },
+      "expectedScene": "music.quiet"
+    },
+    {
+      "id": "device.permission-needed",
+      "path": "widgets/device.talk",
+      "trigger": "idle",
+      "available": [
+        "device"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "device.ready": false,
+        "device.status": "permission-needed"
+      },
+      "expectedScene": "device.permission-needed"
+    },
+    {
+      "id": "device.desktop",
+      "path": "widgets/device.talk",
+      "trigger": "idle",
+      "available": [
+        "device"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "device.hasBattery": false,
+        "device.woke": false,
+        "device.ready": true,
+        "device.status": "enabled"
+      },
+      "expectedScene": "device.desktop"
+    },
+    {
+      "id": "device.charging",
+      "path": "widgets/device.talk",
+      "trigger": "idle",
+      "available": [
+        "device"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "device.hasBattery": true,
+        "device.percent": 45,
+        "device.powerState": "charging",
+        "device.woke": false,
+        "device.ready": true,
+        "device.status": "enabled"
+      },
+      "expectedScene": "device.charging"
+    },
+    {
+      "id": "device.low",
+      "path": "widgets/device.talk",
+      "trigger": "idle",
+      "available": [
+        "device"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "device.hasBattery": true,
+        "device.percent": 15,
+        "device.powerState": "discharging",
+        "device.woke": false,
+        "device.ready": true,
+        "device.status": "enabled"
+      },
+      "expectedScene": "device.low"
+    },
+    {
+      "id": "device.fine",
+      "path": "widgets/device.talk",
+      "trigger": "idle",
+      "available": [
+        "device"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "device.hasBattery": true,
+        "device.percent": 72,
+        "device.powerState": "discharging",
+        "device.woke": false,
+        "device.ready": true,
+        "device.status": "enabled"
+      },
+      "expectedScene": "device.fine"
+    },
+    {
+      "id": "device.woke",
+      "path": "widgets/device.talk",
+      "trigger": "device-woke",
+      "available": [
+        "device"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "device-woke",
+        "event.widget": "device",
+        "device.hasBattery": true,
+        "device.percent": 60,
+        "device.powerState": "discharging",
+        "device.woke": true,
+        "device.ready": true,
+        "device.status": "enabled"
+      },
+      "expectedScene": "device.woke"
+    },
+    {
+      "id": "interaction.snacks",
+      "path": "widgets/interaction.talk",
+      "trigger": "idle",
+      "available": [
+        "interaction"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "interaction.snacks": 4,
+        "interaction.touches": 2,
+        "interaction.ready": true,
+        "interaction.status": "enabled"
+      },
+      "expectedScene": "interaction.snacks"
+    },
+    {
+      "id": "interaction.empty",
+      "path": "widgets/interaction.talk",
+      "trigger": "idle",
+      "available": [
+        "interaction"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "interaction.snacks": 0,
+        "interaction.touches": 5,
+        "interaction.ready": true,
+        "interaction.status": "enabled"
+      },
+      "expectedScene": "interaction.empty"
+    },
+    {
+      "id": "interaction.stroke.a",
+      "path": "widgets/interaction.talk",
+      "trigger": "interaction.touch",
+      "available": [
+        "interaction"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "interaction.touch",
+        "event.widget": "interaction",
+        "event.action": "stroke",
+        "interaction.snacks": 3,
+        "interaction.touches": 1,
+        "event.character": "A",
+        "interaction.ready": true,
+        "interaction.status": "enabled"
+      },
+      "expectedScene": "interaction.stroke"
+    },
+    {
+      "id": "interaction.stroke.b",
+      "path": "widgets/interaction.talk",
+      "trigger": "interaction.touch",
+      "available": [
+        "interaction"
+      ],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {
+        "event.kind": "interaction.touch",
+        "event.widget": "interaction",
+        "event.action": "stroke",
+        "interaction.snacks": 3,
+        "interaction.touches": 1,
+        "event.character": "B",
+        "interaction.ready": true,
+        "interaction.status": "enabled"
+      },
+      "expectedScene": "interaction.stroke"
+    },
+    {
+      "id": "interaction.poke.a",
+      "path": "widgets/interaction.talk",
+      "trigger": "interaction.touch",
+      "available": [
+        "interaction"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "interaction.touch",
+        "event.widget": "interaction",
+        "event.action": "poke",
+        "interaction.snacks": 3,
+        "interaction.touches": 1,
+        "event.character": "A",
+        "interaction.ready": true,
+        "interaction.status": "enabled"
+      },
+      "expectedScene": "interaction.poke"
+    },
+    {
+      "id": "interaction.poke.b",
+      "path": "widgets/interaction.talk",
+      "trigger": "interaction.touch",
+      "available": [
+        "interaction"
+      ],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {
+        "event.kind": "interaction.touch",
+        "event.widget": "interaction",
+        "event.action": "poke",
+        "interaction.snacks": 3,
+        "interaction.touches": 1,
+        "event.character": "B",
+        "interaction.ready": true,
+        "interaction.status": "enabled"
+      },
+      "expectedScene": "interaction.poke"
+    },
+    {
+      "id": "interaction.snack.a",
+      "path": "widgets/interaction.talk",
+      "trigger": "interaction.touch",
+      "available": [
+        "interaction"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "interaction.touch",
+        "event.widget": "interaction",
+        "event.action": "snack",
+        "interaction.snacks": 3,
+        "interaction.touches": 1,
+        "event.character": "A",
+        "interaction.ready": true,
+        "interaction.status": "enabled"
+      },
+      "expectedScene": "interaction.snack"
+    },
+    {
+      "id": "interaction.snack.b",
+      "path": "widgets/interaction.talk",
+      "trigger": "interaction.touch",
+      "available": [
+        "interaction"
+      ],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {
+        "event.kind": "interaction.touch",
+        "event.widget": "interaction",
+        "event.action": "snack",
+        "interaction.snacks": 3,
+        "interaction.touches": 1,
+        "event.character": "B",
+        "interaction.ready": true,
+        "interaction.status": "enabled"
+      },
+      "expectedScene": "interaction.snack"
+    },
+    {
+      "id": "ball.still",
+      "path": "widgets/ball.talk",
+      "trigger": "idle",
+      "available": [
+        "ball"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "ball.moving": false,
+        "ball.bounces": 0,
+        "ball.ready": true,
+        "ball.status": "enabled"
+      },
+      "expectedScene": "ball.still"
+    },
+    {
+      "id": "ball.moving",
+      "path": "widgets/ball.talk",
+      "trigger": "idle",
+      "available": [
+        "ball"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "ball.moving": true,
+        "ball.bounces": 2,
+        "ball.ready": true,
+        "ball.status": "enabled"
+      },
+      "expectedScene": "ball.moving"
+    },
+    {
+      "id": "ball.stopped",
+      "path": "widgets/ball.talk",
+      "trigger": "ball.stopped",
+      "available": [
+        "ball"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "ball.stopped",
+        "event.widget": "ball",
+        "ball.moving": false,
+        "ball.bounces": 3,
+        "ball.ready": true,
+        "ball.status": "enabled"
+      },
+      "expectedScene": "ball.stopped"
+    },
+    {
+      "id": "plane.ready",
+      "path": "widgets/paper-plane.talk",
+      "trigger": "idle",
+      "available": [
+        "paper-plane"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "plane.flying": false,
+        "plane.distance": 0,
+        "plane.best": 120,
+        "plane.ready": true,
+        "plane.status": "enabled"
+      },
+      "expectedScene": "plane.ready"
+    },
+    {
+      "id": "plane.flying",
+      "path": "widgets/paper-plane.talk",
+      "trigger": "idle",
+      "available": [
+        "paper-plane"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "plane.flying": true,
+        "plane.distance": 40,
+        "plane.best": 120,
+        "plane.ready": true,
+        "plane.status": "enabled"
+      },
+      "expectedScene": "plane.flying"
+    },
+    {
+      "id": "plane.landed.best",
+      "path": "widgets/paper-plane.talk",
+      "trigger": "paper-plane.landed",
+      "available": [
+        "paper-plane"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "paper-plane.landed",
+        "event.widget": "paper-plane",
+        "plane.flying": false,
+        "plane.distance": 150,
+        "plane.best": 150,
+        "plane.ready": true,
+        "plane.status": "enabled"
+      },
+      "expectedScene": "plane.landed"
+    },
+    {
+      "id": "plane.landed.normal",
+      "path": "widgets/paper-plane.talk",
+      "trigger": "paper-plane.landed",
+      "available": [
+        "paper-plane"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "paper-plane.landed",
+        "event.widget": "paper-plane",
+        "plane.flying": false,
+        "plane.distance": 80,
+        "plane.best": 150,
+        "plane.ready": true,
+        "plane.status": "enabled"
+      },
+      "expectedScene": "plane.landed"
+    },
+    {
+      "id": "bubbles.empty",
+      "path": "widgets/bubbles.talk",
+      "trigger": "idle",
+      "available": [
+        "bubbles"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "bubbles.count": 0,
+        "bubbles.streak": 0,
+        "bubbles.ready": true,
+        "bubbles.status": "enabled"
+      },
+      "expectedScene": "bubbles.empty"
+    },
+    {
+      "id": "bubbles.floating",
+      "path": "widgets/bubbles.talk",
+      "trigger": "idle",
+      "available": [
+        "bubbles"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "bubbles.count": 5,
+        "bubbles.streak": 1,
+        "bubbles.ready": true,
+        "bubbles.status": "enabled"
+      },
+      "expectedScene": "bubbles.floating"
+    },
+    {
+      "id": "bubbles.streak",
+      "path": "widgets/bubbles.talk",
+      "trigger": "bubbles.streak",
+      "available": [
+        "bubbles"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "bubbles.streak",
+        "event.widget": "bubbles",
+        "bubbles.count": 2,
+        "bubbles.streak": 4,
+        "bubbles.ready": true,
+        "bubbles.status": "enabled"
+      },
+      "expectedScene": "bubbles.streak"
+    },
+    {
+      "id": "match.new",
+      "path": "widgets/small-match.talk",
+      "trigger": "idle",
+      "available": [
+        "small-match"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "match.rounds": 0,
+        "match.game": "",
+        "match.ready": true,
+        "match.status": "enabled"
+      },
+      "expectedScene": "match.new"
+    },
+    {
+      "id": "match.played",
+      "path": "widgets/small-match.talk",
+      "trigger": "idle",
+      "available": [
+        "small-match"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "match.rounds": 3,
+        "match.game": "dice",
+        "match.result": "무승부",
+        "match.ready": true,
+        "match.status": "enabled"
+      },
+      "expectedScene": "match.played"
+    },
+    {
+      "id": "match.dice.winner-a",
+      "path": "widgets/small-match.talk",
+      "trigger": "small-match.result",
+      "available": [
+        "small-match"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "small-match.result",
+        "event.widget": "small-match",
+        "match.rounds": 1,
+        "event.mode": "dice",
+        "event.outcome": "winner-a",
+        "match.game": "dice",
+        "match.ready": true,
+        "match.status": "enabled"
+      },
+      "expectedScene": "match.dice"
+    },
+    {
+      "id": "match.dice.winner-b",
+      "path": "widgets/small-match.talk",
+      "trigger": "small-match.result",
+      "available": [
+        "small-match"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "small-match.result",
+        "event.widget": "small-match",
+        "match.rounds": 1,
+        "event.mode": "dice",
+        "event.outcome": "winner-b",
+        "match.game": "dice",
+        "match.ready": true,
+        "match.status": "enabled"
+      },
+      "expectedScene": "match.dice"
+    },
+    {
+      "id": "match.dice.draw",
+      "path": "widgets/small-match.talk",
+      "trigger": "small-match.result",
+      "available": [
+        "small-match"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "small-match.result",
+        "event.widget": "small-match",
+        "match.rounds": 1,
+        "event.mode": "dice",
+        "event.outcome": "draw",
+        "match.game": "dice",
+        "match.ready": true,
+        "match.status": "enabled"
+      },
+      "expectedScene": "match.dice"
+    },
+    {
+      "id": "match.coin.correct",
+      "path": "widgets/small-match.talk",
+      "trigger": "small-match.result",
+      "available": [
+        "small-match"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "small-match.result",
+        "event.widget": "small-match",
+        "match.rounds": 1,
+        "event.mode": "coin",
+        "event.outcome": "correct",
+        "match.game": "coin",
+        "match.ready": true,
+        "match.status": "enabled"
+      },
+      "expectedScene": "match.coin"
+    },
+    {
+      "id": "match.coin.miss",
+      "path": "widgets/small-match.talk",
+      "trigger": "small-match.result",
+      "available": [
+        "small-match"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "small-match.result",
+        "event.widget": "small-match",
+        "match.rounds": 1,
+        "event.mode": "coin",
+        "event.outcome": "miss",
+        "match.game": "coin",
+        "match.ready": true,
+        "match.status": "enabled"
+      },
+      "expectedScene": "match.coin"
+    },
+    {
+      "id": "match.rps.winner-user",
+      "path": "widgets/small-match.talk",
+      "trigger": "small-match.result",
+      "available": [
+        "small-match"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "small-match.result",
+        "event.widget": "small-match",
+        "match.rounds": 1,
+        "event.mode": "rps",
+        "event.outcome": "winner-user",
+        "match.game": "rps",
+        "match.ready": true,
+        "match.status": "enabled"
+      },
+      "expectedScene": "match.rps"
+    },
+    {
+      "id": "match.rps.winner-character",
+      "path": "widgets/small-match.talk",
+      "trigger": "small-match.result",
+      "available": [
+        "small-match"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "small-match.result",
+        "event.widget": "small-match",
+        "match.rounds": 1,
+        "event.mode": "rps",
+        "event.outcome": "winner-character",
+        "match.game": "rps",
+        "match.ready": true,
+        "match.status": "enabled"
+      },
+      "expectedScene": "match.rps"
+    },
+    {
+      "id": "match.rps.draw",
+      "path": "widgets/small-match.talk",
+      "trigger": "small-match.result",
+      "available": [
+        "small-match"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "small-match.result",
+        "event.widget": "small-match",
+        "match.rounds": 1,
+        "event.mode": "rps",
+        "event.outcome": "draw",
+        "match.game": "rps",
+        "match.ready": true,
+        "match.status": "enabled"
+      },
+      "expectedScene": "match.rps"
+    },
+    {
+      "id": "negative.unknown-result",
+      "path": "widgets/small-match.talk",
+      "state": "unknown match mode",
+      "trigger": "small-match.result",
+      "available": [
+        "small-match"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "match.ready": true,
+        "match.status": "enabled",
+        "event.kind": "small-match.result",
+        "event.widget": "small-match",
+        "event.mode": "unknown",
+        "event.outcome": "unknown",
+        "match.rounds": 1
+      },
+      "expectedScene": null
+    },
+    {
+      "id": "guessing.idle",
+      "path": "widgets/guessing.talk",
+      "trigger": "idle",
+      "available": [
+        "guessing"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "guessing.playing": false,
+        "guessing.attempts": 0,
+        "guessing.ready": true,
+        "guessing.status": "enabled"
+      },
+      "expectedScene": "guessing.idle"
+    },
+    {
+      "id": "guessing.cups",
+      "path": "widgets/guessing.talk",
+      "trigger": "idle",
+      "available": [
+        "guessing"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "guessing.playing": true,
+        "guessing.mode": "cups",
+        "guessing.attempts": 0,
+        "guessing.ready": true,
+        "guessing.status": "enabled"
+      },
+      "expectedScene": "guessing.cups"
+    },
+    {
+      "id": "guessing.number",
+      "path": "widgets/guessing.talk",
+      "trigger": "idle",
+      "available": [
+        "guessing"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "guessing.playing": true,
+        "guessing.mode": "number",
+        "guessing.attempts": 2,
+        "guessing.hint": "더 큰 수",
+        "guessing.ready": true,
+        "guessing.status": "enabled"
+      },
+      "expectedScene": "guessing.number"
+    },
+    {
+      "id": "guessing.correct",
+      "path": "widgets/guessing.talk",
+      "trigger": "guessing.attempt",
+      "available": [
+        "guessing"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "guessing.attempt",
+        "event.widget": "guessing",
+        "event.mode": "number",
+        "event.outcome": "correct",
+        "guessing.playing": false,
+        "guessing.mode": "number",
+        "guessing.attempts": 1,
+        "guessing.ready": true,
+        "guessing.status": "enabled"
+      },
+      "expectedScene": "guessing.attempt"
+    },
+    {
+      "id": "guessing.exhausted",
+      "path": "widgets/guessing.talk",
+      "trigger": "guessing.attempt",
+      "available": [
+        "guessing"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "guessing.attempt",
+        "event.widget": "guessing",
+        "event.mode": "number",
+        "event.outcome": "exhausted",
+        "guessing.playing": false,
+        "guessing.mode": "number",
+        "guessing.attempts": 1,
+        "guessing.ready": true,
+        "guessing.status": "enabled"
+      },
+      "expectedScene": "guessing.attempt"
+    },
+    {
+      "id": "guessing.higher",
+      "path": "widgets/guessing.talk",
+      "trigger": "guessing.attempt",
+      "available": [
+        "guessing"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "guessing.attempt",
+        "event.widget": "guessing",
+        "event.mode": "number",
+        "event.outcome": "higher",
+        "guessing.playing": true,
+        "guessing.mode": "number",
+        "guessing.attempts": 1,
+        "guessing.ready": true,
+        "guessing.status": "enabled"
+      },
+      "expectedScene": "guessing.attempt"
+    },
+    {
+      "id": "guessing.lower",
+      "path": "widgets/guessing.talk",
+      "trigger": "guessing.attempt",
+      "available": [
+        "guessing"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "guessing.attempt",
+        "event.widget": "guessing",
+        "event.mode": "number",
+        "event.outcome": "lower",
+        "guessing.playing": true,
+        "guessing.mode": "number",
+        "guessing.attempts": 1,
+        "guessing.ready": true,
+        "guessing.status": "enabled"
+      },
+      "expectedScene": "guessing.attempt"
+    },
+    {
+      "id": "guessing.empty",
+      "path": "widgets/guessing.talk",
+      "trigger": "guessing.attempt",
+      "available": [
+        "guessing"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "guessing.attempt",
+        "event.widget": "guessing",
+        "event.mode": "cups",
+        "event.outcome": "empty",
+        "guessing.playing": true,
+        "guessing.mode": "cups",
+        "guessing.attempts": 1,
+        "guessing.ready": true,
+        "guessing.status": "enabled"
+      },
+      "expectedScene": "guessing.attempt"
+    },
+    {
+      "id": "negative.event-mismatch",
+      "path": "widgets/guessing.talk",
+      "state": "attempt outcome without the attempt trigger",
+      "trigger": "idle",
+      "available": [
+        "guessing"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "guessing.ready": true,
+        "guessing.status": "enabled",
+        "guessing.playing": true,
+        "guessing.mode": "cups",
+        "event.outcome": "correct"
+      },
+      "expectedScene": null
+    },
+    {
+      "id": "fishing.idle",
+      "path": "widgets/fishing.talk",
+      "trigger": "idle",
+      "available": [
+        "fishing"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "fishing.phase": "idle",
+        "fishing.catches": 2,
+        "fishing.ready": true,
+        "fishing.status": "enabled"
+      },
+      "expectedScene": "fishing.idle"
+    },
+    {
+      "id": "fishing.waiting",
+      "path": "widgets/fishing.talk",
+      "trigger": "idle",
+      "available": [
+        "fishing"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "fishing.phase": "waiting",
+        "fishing.catches": 2,
+        "fishing.ready": true,
+        "fishing.status": "enabled"
+      },
+      "expectedScene": "fishing.waiting"
+    },
+    {
+      "id": "fishing.biting",
+      "path": "widgets/fishing.talk",
+      "trigger": "idle",
+      "available": [
+        "fishing"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "fishing.phase": "bite",
+        "fishing.catches": 2,
+        "fishing.ready": true,
+        "fishing.status": "enabled"
+      },
+      "expectedScene": "fishing.biting"
+    },
+    {
+      "id": "fishing.bite",
+      "path": "widgets/fishing.talk",
+      "trigger": "fishing.bite",
+      "available": [
+        "fishing"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "fishing.bite",
+        "event.widget": "fishing",
+        "fishing.phase": "bite",
+        "fishing.catches": 0,
+        "fishing.ready": true,
+        "fishing.status": "enabled"
+      },
+      "expectedScene": "fishing.bite"
+    },
+    {
+      "id": "fishing.missed",
+      "path": "widgets/fishing.talk",
+      "trigger": "fishing.missed",
+      "available": [
+        "fishing"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "fishing.missed",
+        "event.widget": "fishing",
+        "fishing.phase": "idle",
+        "fishing.catches": 0,
+        "fishing.ready": true,
+        "fishing.status": "enabled"
+      },
+      "expectedScene": "fishing.missed"
+    },
+    {
+      "id": "fishing.caught",
+      "path": "widgets/fishing.talk",
+      "trigger": "item-acquired",
+      "available": [
+        "fishing"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "item-acquired",
+        "event.widget": "fishing",
+        "event.itemName": "파란 물고기",
+        "fishing.phase": "idle",
+        "fishing.catches": 1,
+        "fishing.lastCatch": "파란 물고기",
+        "fishing.ready": true,
+        "fishing.status": "enabled"
+      },
+      "expectedScene": "fishing.caught"
+    },
+    {
+      "id": "fortune.fresh",
+      "path": "widgets/fortune.talk",
+      "trigger": "idle",
+      "available": [
+        "fortune"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "fortune.draws": 0,
+        "fortune.ready": true,
+        "fortune.status": "enabled"
+      },
+      "expectedScene": "fortune.fresh"
+    },
+    {
+      "id": "fortune.drawn",
+      "path": "widgets/fortune.talk",
+      "trigger": "idle",
+      "available": [
+        "fortune"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "fortune.draws": 2,
+        "fortune.text": "작은 행운이 굴러와요",
+        "fortune.ready": true,
+        "fortune.status": "enabled"
+      },
+      "expectedScene": "fortune.drawn"
+    },
+    {
+      "id": "fortune.draw",
+      "path": "widgets/fortune.talk",
+      "trigger": "fortune.draw",
+      "available": [
+        "fortune"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "fortune.draw",
+        "event.widget": "fortune",
+        "fortune.draws": 1,
+        "fortune.text": "꼬리가 세 번 흔들리는 날",
+        "fortune.ready": true,
+        "fortune.status": "enabled"
+      },
+      "expectedScene": "fortune.draw"
+    },
+    {
+      "id": "plant.dry",
+      "path": "widgets/plant.talk",
+      "trigger": "idle",
+      "available": [
+        "plant"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "plant.stage": 1,
+        "plant.water": 0,
+        "plant.ready": true,
+        "plant.status": "enabled"
+      },
+      "expectedScene": "plant.dry"
+    },
+    {
+      "id": "plant.growing",
+      "path": "widgets/plant.talk",
+      "trigger": "idle",
+      "available": [
+        "plant"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "plant.stage": 1,
+        "plant.water": 2,
+        "plant.ready": true,
+        "plant.status": "enabled"
+      },
+      "expectedScene": "plant.growing"
+    },
+    {
+      "id": "plant.bloom",
+      "path": "widgets/plant.talk",
+      "trigger": "idle",
+      "available": [
+        "plant"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "plant.stage": 3,
+        "plant.water": 2,
+        "plant.ready": true,
+        "plant.status": "enabled"
+      },
+      "expectedScene": "plant.bloom"
+    },
+    {
+      "id": "plant.growth",
+      "path": "widgets/plant.talk",
+      "trigger": "plant.growth",
+      "available": [
+        "plant"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "plant.growth",
+        "event.widget": "plant",
+        "plant.stage": 2,
+        "plant.water": 1,
+        "plant.ready": true,
+        "plant.status": "enabled"
+      },
+      "expectedScene": "plant.growth"
+    },
+    {
+      "id": "pet.resting",
+      "path": "widgets/pet.talk",
+      "trigger": "idle",
+      "available": [
+        "pet"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "pet.moving": false,
+        "pet.arrivals": 3,
+        "pet.ready": true,
+        "pet.status": "enabled"
+      },
+      "expectedScene": "pet.resting"
+    },
+    {
+      "id": "pet.moving",
+      "path": "widgets/pet.talk",
+      "trigger": "idle",
+      "available": [
+        "pet"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "pet.moving": true,
+        "pet.arrivals": 3,
+        "pet.ready": true,
+        "pet.status": "enabled"
+      },
+      "expectedScene": "pet.moving"
+    },
+    {
+      "id": "pet.arrived",
+      "path": "widgets/pet.talk",
+      "trigger": "pet.arrived",
+      "available": [
+        "pet"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "event.kind": "pet.arrived",
+        "event.widget": "pet",
+        "pet.moving": false,
+        "pet.arrivals": 4,
+        "pet.ready": true,
+        "pet.status": "enabled"
+      },
+      "expectedScene": "pet.arrived"
+    },
+    {
+      "id": "collection.empty",
+      "path": "widgets/collection.talk",
+      "trigger": "idle",
+      "available": [
+        "collection"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "collection.count": 0,
+        "collection.decorationCount": 0,
+        "collection.ready": true,
+        "collection.status": "enabled"
+      },
+      "expectedScene": "collection.empty"
+    },
+    {
+      "id": "collection.some",
+      "path": "widgets/collection.talk",
+      "trigger": "idle",
+      "available": [
+        "collection"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "collection.count": 3,
+        "collection.decorationCount": 0,
+        "collection.ready": true,
+        "collection.status": "enabled"
+      },
+      "expectedScene": "collection.some"
+    },
+    {
+      "id": "collection.decorated",
+      "path": "widgets/collection.talk",
+      "trigger": "idle",
+      "available": [
+        "collection"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "collection.count": 3,
+        "collection.decorationCount": 2,
+        "collection.ready": true,
+        "collection.status": "enabled"
+      },
+      "expectedScene": "collection.decorated"
+    },
+    {
+      "id": "journal.empty",
+      "path": "widgets/journal.talk",
+      "trigger": "idle",
+      "available": [
+        "journal"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "journal.count": 0,
+        "journal.ready": true,
+        "journal.status": "enabled"
+      },
+      "expectedScene": "journal.empty"
+    },
+    {
+      "id": "journal.some",
+      "path": "widgets/journal.talk",
+      "trigger": "idle",
+      "available": [
+        "journal"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "journal.count": 5,
+        "journal.recentKind": "todo-completed",
+        "journal.ready": true,
+        "journal.status": "enabled"
+      },
+      "expectedScene": "journal.some"
+    }
+  ]
+}

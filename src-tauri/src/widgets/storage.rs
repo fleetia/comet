@@ -22,7 +22,20 @@ CREATE TABLE IF NOT EXISTS widget_journal(event_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS widget_preferences(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS desktop_toy_results(id TEXT PRIMARY KEY,widget_id TEXT NOT NULL,kind TEXT NOT NULL,created_at INTEGER NOT NULL,data TEXT NOT NULL);",
     )
-    .map_err(err)
+    .map_err(err)?;
+    super::backgrounds::initialize(db)
+}
+
+pub fn bump_revision(db: &Connection, id: &str, expected_revision: i64) -> Result<WidgetInstance> {
+    let mut instance = get(db, id)?;
+    if !instance.installed || !instance.enabled || instance.revision != expected_revision {
+        return Err(
+            "다른 화면에서 위젯이 변경됐어요. 최신 상태를 확인하고 다시 시도해 주세요.".into(),
+        );
+    }
+    instance.revision += 1;
+    put(db, &instance)?;
+    Ok(instance)
 }
 
 pub fn instances(db: &Connection) -> Result<Vec<WidgetInstance>> {
@@ -91,7 +104,11 @@ pub fn snapshot(db: &Connection) -> Result<WidgetSnapshot> {
         widgets: all
             .iter()
             .cloned()
-            .map(|instance| super::project(instance, &all))
+            .map(|instance| {
+                let background_updated_at = super::backgrounds::info(db, &instance.id)?
+                    .map(|background| background.updated_at);
+                super::project_with_background(instance, &all, background_updated_at)
+            })
             .collect::<Result<_>>()?,
         onboarding_done: db
             .query_row(
@@ -330,6 +347,7 @@ pub fn remove(db: &Connection, directory: &Path, id: &str, delete_data: bool) ->
         suspend(&mut instance, chrono::Utc::now().timestamp_millis(), false);
         if delete_data {
             instance.data = super::initial(&instance.kind)?;
+            super::backgrounds::remove(&tx, id)?;
             tx.execute("DELETE FROM widget_journal WHERE event_id IN (SELECT id FROM desktop_toy_results WHERE widget_id=?1)",[id]).map_err(err)?;
             tx.execute("DELETE FROM widget_events WHERE id IN (SELECT id FROM desktop_toy_results WHERE widget_id=?1)",[id]).map_err(err)?;
             tx.execute("DELETE FROM desktop_toy_results WHERE widget_id=?1", [id])

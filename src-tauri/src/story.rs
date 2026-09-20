@@ -1,8 +1,17 @@
+use crate::talk::{encryption, files::atomic_write};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashSet,
+    fs,
+    path::{Path, PathBuf},
+    sync::Mutex,
+    time::{Duration, Instant},
+};
 
 type Result<T> = std::result::Result<T, String>;
+const MARKER: &str = ".nadir-story-initialized";
+static FILE_GATE: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,13 +79,117 @@ pub fn tick(clock: &mut Clock, at: Instant) -> bool {
     clock.elapsed >= Duration::from_secs(3600)
 }
 
+fn directory(app_data: &Path) -> Result<PathBuf> {
+    let root = fs::canonicalize(app_data).map_err(|error| error.to_string())?;
+    let directory = root.join("story");
+    let metadata = fs::symlink_metadata(&directory).map_err(|error| error.to_string())?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err("이야기 폴더는 일반 폴더여야 해요.".into());
+    }
+    Ok(directory)
+}
+
+fn resolve(app_data: &Path) -> Result<PathBuf> {
+    let path = directory(app_data)?.join("nadir.story.enc");
+    let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err("이야기 파일은 심볼릭 링크가 아닌 일반 파일이어야 해요.".into());
+    }
+    Ok(path)
+}
+
+pub fn initialize_files(app_data: &Path) -> Result<()> {
+    let _gate = FILE_GATE
+        .lock()
+        .map_err(|_| "이야기 파일 잠금을 열 수 없어요.")?;
+    let root = fs::canonicalize(app_data).map_err(|error| error.to_string())?;
+    if fs::symlink_metadata(root.join(MARKER)).is_ok() {
+        return Ok(());
+    }
+    let story_directory = root.join("story");
+    if fs::symlink_metadata(&story_directory).is_err() {
+        fs::create_dir(&story_directory).map_err(|error| error.to_string())?;
+    }
+    let path = directory(app_data)?.join("nadir.story.enc");
+    if fs::symlink_metadata(&path).is_err() {
+        atomic_write(&path, include_bytes!("../story/nadir.story.enc"))?;
+    }
+    atomic_write(&root.join(MARKER), b"1")
+}
+
+fn valid_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value
+            .bytes()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, b'-' | b'_'))
+}
+
+fn bounded(value: &str, max: usize) -> bool {
+    !value.trim().is_empty() && value.chars().count() <= max
+}
+
+pub fn validate(source: &str) -> Result<Vec<Scene>> {
+    if source.len() > encryption::SOURCE_LIMIT {
+        return Err("이야기 파일은 1 MiB 이하여야 해요.".into());
+    }
+    let scenes: Vec<Scene> =
+        serde_json::from_str(source).map_err(|error| format!("이야기 JSON: {error}"))?;
+    if !(15..=256).contains(&scenes.len()) {
+        return Err("이야기는 15~256개가 필요해요.".into());
+    }
+    let mut ids = HashSet::new();
+    let mut chapters = [0; 3];
+    for scene in &scenes {
+        if !valid_id(&scene.id)
+            || !ids.insert(&scene.id)
+            || scene.chapter > 2
+            || !bounded(&scene.title, 80)
+            || !bounded(&scene.prompt, 500)
+            || !(2..=4).contains(&scene.choices.len())
+        {
+            return Err(format!(
+                "장면 {}의 ID·단계·제목·본문·선택지 수를 확인해 주세요.",
+                scene.id
+            ));
+        }
+        chapters[usize::from(scene.chapter)] += 1;
+        let mut choices = HashSet::new();
+        for choice in &scene.choices {
+            if !valid_id(&choice.id)
+                || !choices.insert(&choice.id)
+                || !bounded(&choice.label, 160)
+                || !bounded(&choice.response, 500)
+                || !(-5..=5).contains(&choice.delta)
+            {
+                return Err(format!(
+                    "장면 {}의 선택지 {}를 확인해 주세요.",
+                    scene.id, choice.id
+                ));
+            }
+        }
+    }
+    if chapters.iter().any(|count| *count < 5) {
+        return Err("각 공개 단계에 장면이 5개 이상 필요해요.".into());
+    }
+    Ok(scenes)
+}
+
+pub fn load(app_data: &Path) -> Result<Vec<Scene>> {
+    let data = encryption::read_bytes(&resolve(app_data)?)?;
+    if !encryption::is_encrypted(&data) {
+        return Err("암호화된 이야기 파일이 필요해요.".into());
+    }
+    validate(&encryption::decode(&data)?)
+}
+
 pub fn initialize(db: &Connection) -> Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS story_answers(request_id TEXT PRIMARY KEY,character_id TEXT NOT NULL,scene_id TEXT NOT NULL,chapter INTEGER NOT NULL,choice_id TEXT NOT NULL); CREATE INDEX IF NOT EXISTS story_character ON story_answers(character_id);")
         .map_err(|e| e.to_string())
 }
 
 pub fn catalog() -> Result<Vec<Scene>> {
-    let source = crate::talk::encryption::decode(include_bytes!("../story/nadir.story.enc"))?;
+    let source = encryption::decode(include_bytes!("../story/nadir.story.enc"))?;
     serde_json::from_str(&source).map_err(|e| e.to_string())
 }
 
@@ -258,19 +371,54 @@ pub fn prompt_history(
 mod tests {
     use super::*;
 
-    fn database(path: &std::path::Path) -> Connection {
+    fn database(path: &std::path::Path) -> (Connection, [String; 2]) {
         let db = crate::store::open(path).unwrap();
-        let mut definition = crate::characters::active_character(&db, "a")
-            .unwrap()
-            .definition;
-        definition.source_id = "nadir".into();
-        db.execute(
-            "UPDATE characters SET data=? WHERE id='builtin-a'",
-            [serde_json::to_string(&definition).unwrap()],
-        )
-        .unwrap();
+        let imported =
+            crate::characters::import_pack(&db, &crate::characters::nadir_pack()).unwrap();
+        let pair = [imported[0].id.clone(), imported[1].id.clone()];
+        crate::characters::apply_pair(&db, pair.clone()).unwrap();
         initialize(&db).unwrap();
-        db
+        (db, pair)
+    }
+
+    #[test]
+    fn builtin_characters_do_not_receive_addon_story_or_profile_rules() {
+        let db = crate::store::open(std::path::Path::new(":memory:")).unwrap();
+        let messages = vec![crate::types::Message {
+            id: "ordinary-history".into(),
+            role: "assistant".into(),
+            persona: Some("builtin-a".into()),
+            content: "earlier conversation".into(),
+            expression: None,
+            created_at: 0,
+            status: "complete".into(),
+        }];
+        for persona in ["a", "b"] {
+            assert!(prepare(&db, persona, 7, 0).unwrap().is_none());
+            let character = crate::characters::active_character(&db, persona).unwrap();
+            let definition = character.definition.clone();
+            assert_eq!(profile(&db, character).unwrap(), definition);
+            assert_eq!(
+                prompt_history(&db, persona, messages.clone())
+                    .unwrap()
+                    .len(),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn story_initialization_does_not_restore_a_deleted_user_file() {
+        let directory = tempfile::tempdir().unwrap();
+        initialize_files(directory.path()).unwrap();
+        assert!(load(directory.path()).is_ok());
+
+        let path = directory.path().join("story/nadir.story.enc");
+        fs::remove_file(&path).unwrap();
+        initialize_files(directory.path()).unwrap();
+
+        assert!(!path.exists());
+        assert!(load(directory.path()).is_err());
     }
 
     #[test]
@@ -294,8 +442,8 @@ mod tests {
 
     #[test]
     fn random_unseen_variants_progress_only_through_affinity_and_ordered_chapters() {
-        let db = database(std::path::Path::new(":memory:"));
-        assert_eq!(disclosure_level(&db, "builtin-a", 100).unwrap(), 0);
+        let (db, [nadir, _]) = database(std::path::Path::new(":memory:"));
+        assert_eq!(disclosure_level(&db, &nadir, 100).unwrap(), 0);
         for chapter in 0..3 {
             let mut seen = std::collections::HashSet::new();
             for seed in 0..5 {
@@ -308,19 +456,19 @@ mod tests {
                 answer(&db, &request, "listen", 7).unwrap();
             }
             if chapter == 0 {
-                assert_eq!(disclosure_level(&db, "builtin-a", 39).unwrap(), 0);
-                assert_eq!(disclosure_level(&db, "builtin-a", 40).unwrap(), 1);
-                assert_eq!(disclosure_level(&db, "builtin-a", 100).unwrap(), 1);
+                assert_eq!(disclosure_level(&db, &nadir, 39).unwrap(), 0);
+                assert_eq!(disclosure_level(&db, &nadir, 40).unwrap(), 1);
+                assert_eq!(disclosure_level(&db, &nadir, 100).unwrap(), 1);
             }
         }
-        assert_eq!(disclosure_level(&db, "builtin-a", 69).unwrap(), 1);
-        assert_eq!(disclosure_level(&db, "builtin-a", 70).unwrap(), 2);
+        assert_eq!(disclosure_level(&db, &nadir, 69).unwrap(), 1);
+        assert_eq!(disclosure_level(&db, &nadir, 70).unwrap(), 2);
         assert_eq!(catalog().unwrap().len(), 15);
     }
 
     #[test]
     fn llm_profile_reveals_only_current_unlocked_canon() {
-        let db = database(std::path::Path::new(":memory:"));
+        let (db, [nadir, _]) = database(std::path::Path::new(":memory:"));
         let get = || profile(&db, crate::characters::active_character(&db, "a").unwrap()).unwrap();
         assert!(!get().description.contains("악마"));
         assert!(!get().description.contains("리치"));
@@ -336,8 +484,8 @@ mod tests {
         }
         assert!(get().description.contains("리치"));
         db.execute(
-            "INSERT INTO character_affinity VALUES('drop','builtin-a','today',-40,'test')",
-            [],
+            "INSERT INTO character_affinity VALUES('drop',?1,'today',-40,'test')",
+            [&nadir],
         )
         .unwrap();
         assert!(!get().description.contains("악마"));
@@ -346,7 +494,7 @@ mod tests {
 
     #[test]
     fn private_assistant_history_is_filtered_without_erasing_user_or_custom_context() {
-        let db = database(std::path::Path::new(":memory:"));
+        let (db, _) = database(std::path::Path::new(":memory:"));
         let messages: Vec<_> = ["user", "assistant"]
             .into_iter()
             .map(|role| crate::types::Message {
@@ -373,7 +521,7 @@ mod tests {
 
     #[test]
     fn duplicate_stale_and_failed_choices_never_grant_or_lose_affinity() {
-        let db = database(std::path::Path::new(":memory:"));
+        let (db, _) = database(std::path::Path::new(":memory:"));
         let request = prepare(&db, "a", 7, 0).unwrap().unwrap();
         assert!(answer(&db, &request, "listen", 8).is_err());
         assert!(answer(&db, &request, "invalid", 7).is_err());
@@ -394,7 +542,7 @@ mod tests {
 
     #[test]
     fn score_bounds_do_not_bank_rewards_and_a_closed_gate_rejects_an_old_choice() {
-        let db = database(std::path::Path::new(":memory:"));
+        let (db, [nadir, _]) = database(std::path::Path::new(":memory:"));
         for seed in 0..10 {
             let request = prepare(&db, "a", 7, seed).unwrap().unwrap();
             answer(&db, &request, "listen", 7).unwrap();
@@ -402,14 +550,14 @@ mod tests {
         let secret = prepare(&db, "a", 7, 0).unwrap().unwrap();
         assert_eq!(secret.scene.chapter, 2);
         db.execute(
-            "INSERT INTO character_affinity VALUES('drop','builtin-a','today',-1,'test')",
-            [],
+            "INSERT INTO character_affinity VALUES('drop',?1,'today',-1,'test')",
+            [&nadir],
         )
         .unwrap();
         assert!(answer(&db, &secret, "listen", 7).is_err());
         db.execute(
-            "INSERT INTO character_affinity VALUES('rise','builtin-a','today',31,'test')",
-            [],
+            "INSERT INTO character_affinity VALUES('rise',?1,'today',31,'test')",
+            [&nadir],
         )
         .unwrap();
         for _ in 0..3 {
@@ -425,14 +573,14 @@ mod tests {
     fn progress_and_reward_survive_reopen_and_follow_identity_after_swapping_slots() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("story.sqlite");
-        let db = database(&path);
+        let (db, [nadir, star_tail]) = database(&path);
         let request = prepare(&db, "a", 7, 0).unwrap().unwrap();
         answer(&db, &request, "listen", 7).unwrap();
         drop(db);
         let db = crate::store::open(&path).unwrap();
         initialize(&db).unwrap();
         assert!(answer(&db, &request, "listen", 7).is_err());
-        crate::characters::apply_pair(&db, ["builtin-b".into(), "builtin-a".into()]).unwrap();
+        crate::characters::apply_pair(&db, [star_tail, nadir]).unwrap();
         assert!(answer(&db, &request, "dismiss", 7).is_err());
         let next = prepare(&db, "b", 8, 0).unwrap().unwrap();
         assert_ne!(next.scene.id, request.scene.id);
@@ -441,46 +589,37 @@ mod tests {
     }
     #[test]
     fn canonical_story_and_history_follow_nadir_beyond_the_first_two_slots() {
-        let db = database(std::path::Path::new(":memory:"));
+        let (db, [nadir, star_tail]) = database(std::path::Path::new(":memory:"));
         let mut definition = crate::characters::active_character(&db, "b")
             .unwrap()
             .definition;
         definition.source_id = "custom".into();
         let custom = crate::characters::create(&db, &definition).unwrap();
-        crate::characters::apply_roster(
-            &db,
-            vec![custom.id, "builtin-b".into(), "builtin-a".into()],
-        )
-        .unwrap();
+        crate::characters::apply_roster(&db, vec![custom.id, star_tail.clone(), nadir.clone()])
+            .unwrap();
         for seed in 0..5 {
             let request = prepare(&db, "c", 7, seed).unwrap().unwrap();
-            assert_eq!(request.character_id, "builtin-a");
+            assert_eq!(request.character_id, nadir);
             answer(&db, &request, "listen", 7).unwrap();
         }
         assert_eq!(
-            prepare(&db, "builtin-a", 7, 0)
-                .unwrap()
-                .unwrap()
-                .scene
-                .chapter,
+            prepare(&db, &nadir, 7, 0).unwrap().unwrap().scene.chapter,
             1
         );
         let messages = vec![crate::types::Message {
             id: "private".into(),
             role: "assistant".into(),
-            persona: Some("builtin-a".into()),
+            persona: Some(nadir.clone()),
             content: "earlier private story".into(),
             expression: None,
             created_at: 0,
             status: "complete".into(),
         }];
-        assert!(prompt_history(&db, "builtin-b", messages.clone())
+        assert!(prompt_history(&db, &star_tail, messages.clone())
             .unwrap()
             .is_empty());
-        crate::characters::apply_roster(&db, vec!["builtin-a".into()]).unwrap();
-        assert!(prompt_history(&db, "builtin-a", messages)
-            .unwrap()
-            .is_empty());
+        crate::characters::apply_roster(&db, vec![nadir.clone()]).unwrap();
+        assert!(prompt_history(&db, &nadir, messages).unwrap().is_empty());
         assert_eq!(prepare(&db, "a", 7, 0).unwrap().unwrap().scene.chapter, 1);
     }
 }

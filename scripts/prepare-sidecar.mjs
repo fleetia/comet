@@ -16,7 +16,7 @@ const target = targets[selected];
 if (!target) throw new Error('Supported hosts: macOS arm64 or Windows x64 (--vulkan optional on Windows).');
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const destination = join(root, 'src-tauri', 'binaries');
-const temporary = await mkdtemp(join(tmpdir(), 'nanika-sidecar-'));
+const temporary = await mkdtemp(join(tmpdir(), 'comet-sidecar-'));
 async function files(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
   const nested = await Promise.all(entries.map(entry => entry.isDirectory() ? files(join(directory, entry.name)) : [join(directory, entry.name)]));

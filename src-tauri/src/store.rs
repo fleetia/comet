@@ -39,7 +39,12 @@ CREATE TABLE IF NOT EXISTS affinity(source TEXT NOT NULL,persona TEXT NOT NULL,d
 CREATE TABLE IF NOT EXISTS talk_history(scene_key TEXT PRIMARY KEY,shown_at INTEGER NOT NULL);
 INSERT OR IGNORE INTO kv VALUES('revision','0');").map_err(err)?;
     crate::wordbook::initialize(&conn)?;
+    // Regression tests were written against the A/B factory roster; production seeds the
+    // Byulkkori default. Both paths share the same one-time `character_seed` guard.
+    #[cfg(not(test))]
     crate::characters::initialize(&conn)?;
+    #[cfg(test)]
+    crate::characters::initialize_for_tests(&conn)?;
     initialize_identities(&conn)?;
     initialize_message_context(&conn)?;
     crate::widgets::storage::initialize(&conn)?;

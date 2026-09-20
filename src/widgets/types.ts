@@ -28,6 +28,7 @@ export type WidgetView = {
   status: "not-installed" | "install-error" | "disabled" | "setup" | "error" | "enabled";
   missing: string[];
   packageBytes: number;
+  backgroundUpdatedAt?: number | null;
 };
 
 export type WidgetSnapshot = {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { WidgetManager } from "../WidgetManager";
+import { WidgetManager } from "../WidgetManager/WidgetManager";
 import { useWidgets, PREVIEW_WIDGETS } from "../useWidgets";
 import { command, isDesktop } from "../../hooks/useSnapshot";
 import type { WidgetView } from "../types";

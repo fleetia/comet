@@ -76,6 +76,13 @@ pub struct CharacterCollection {
     pub installed: Vec<InstalledCharacter>,
     pub active: Vec<String>,
 }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InstalledCharacterPack {
+    pub id: String,
+    pub name: String,
+    pub character_ids: Vec<String>,
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CharacterPack {
@@ -127,45 +134,50 @@ pub(crate) fn factory_pack() -> CharacterPack {
     default_pack()
 }
 
+#[cfg(test)]
 fn builtin(slot: &str) -> CharacterDefinition {
     factory_pack().characters.remove(usize::from(slot != "a"))
 }
 
-fn migrate_factory_definition(conn: &Connection, slot: &str) -> Result<()> {
-    use sha2::{Digest, Sha256};
-    let id = format!("builtin-{slot}");
-    let exists: bool = conn
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM characters WHERE id=?1)",
-            [&id],
-            |row| row.get(0),
-        )
-        .map_err(|error| error.to_string())?;
-    if !exists {
-        return Ok(());
-    }
-    let current = get(conn, &id)?;
-    let encoded = serde_json::to_string(&current.definition).map_err(|error| error.to_string())?;
-    let encoded = encoded.replace(",\"faceIcon\":false,\"spriteSize\":64", "");
-    let expected = if slot == "a" {
-        "bdd4ee7e8fb049267609de0bd1b5dc5ff0a1e8817312c6bcce8d527ee0053b1f"
-    } else {
-        "d540c8261278ce79284d9ab28c6d0ff5aae061bc1ea6c1c1da23ffcbfdc580bd"
-    };
-    if hex::encode(Sha256::digest(encoded)) == expected {
-        conn.execute(
-            "UPDATE characters SET data=?1 WHERE id=?2",
-            params![
-                serde_json::to_string(&builtin(slot)).map_err(|error| error.to_string())?,
-                id
-            ],
-        )
-        .map_err(|error| error.to_string())?;
-    }
-    Ok(())
+pub(crate) fn nadir_pack() -> CharacterPack {
+    parse_pack(include_str!(
+        "../../examples/character-packs/nadir-and-star-tail.comet-character.json"
+    ))
+    .expect("bundled add-on character package must be valid")
 }
+
+/// The official Byulkkori image pack. A fresh install starts with this single character; it is
+/// an ordinary imported pack afterwards, so it can be removed like any other.
+pub(crate) fn byulkkori_pack() -> CharacterPack {
+    parse_pack(include_str!(
+        "../../examples/character-packs/byulkkori.comet-character.json"
+    ))
+    .expect("bundled default character package must be valid")
+}
+
+fn seed_byulkkori(conn: &Connection) -> Result<Vec<String>> {
+    // New installs start with Byulkkori alone; the text-only A/B definitions stay available
+    // for older databases that already hold them.
+    Ok(import_pack(conn, &byulkkori_pack())?
+        .into_iter()
+        .map(|character| character.id)
+        .collect())
+}
+
+/// Test-only seed: the pre-0.6 factory roster (A/B) that the regression suite addresses as
+/// `builtin-a`/`builtin-b`. Production never calls this.
+#[cfg(test)]
+pub(crate) fn initialize_for_tests(conn: &Connection) -> Result<()> {
+    initialize_with(conn, |tx| {
+        ["a", "b"]
+            .iter()
+            .map(|slot| restore_builtin(tx, slot))
+            .collect()
+    })
+}
+
 fn migrate_factory_expressions(conn: &Connection) -> Result<()> {
-    let factory = factory_pack();
+    let factory = nadir_pack();
     for mut character in collection(conn)?.installed {
         let previous = match character.definition.source_id.as_str() {
             "nadir" => [
@@ -215,6 +227,13 @@ fn migrate_factory_expressions(conn: &Connection) -> Result<()> {
 }
 
 pub fn initialize(conn: &Connection) -> Result<()> {
+    initialize_with(conn, seed_byulkkori)
+}
+
+fn initialize_with(
+    conn: &Connection,
+    seed: impl FnOnce(&Connection) -> Result<Vec<String>>,
+) -> Result<()> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     tx.execute_batch("CREATE TABLE IF NOT EXISTS characters(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,pack_id TEXT,data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS character_seed(version INTEGER PRIMARY KEY); CREATE TABLE IF NOT EXISTS character_roster(position INTEGER PRIMARY KEY,character_id TEXT NOT NULL UNIQUE); CREATE TABLE IF NOT EXISTS character_packs(id TEXT PRIMARY KEY,data TEXT NOT NULL,members TEXT NOT NULL); CREATE TABLE IF NOT EXISTS character_dialogues(members TEXT PRIMARY KEY,data TEXT NOT NULL);").map_err(|e| e.to_string())?;
     sprites::initialize(&tx)?;
@@ -231,21 +250,16 @@ pub fn initialize(conn: &Connection) -> Result<()> {
             .query_row("SELECT COUNT(*) FROM characters", [], |r| r.get(0))
             .map_err(|e| e.to_string())?;
         if installed == 0 {
-            let ids = ["a", "b"]
-                .iter()
-                .map(|slot| restore_builtin(&tx, slot))
-                .collect::<Result<Vec<_>>>()?;
+            let ids = seed(&tx)?;
             write_roster(&tx, &ids)?;
         }
         tx.execute("INSERT INTO character_seed VALUES(1)", [])
             .map_err(|e| e.to_string())?;
     }
-    for slot in ["a", "b"] {
-        migrate_factory_definition(&tx, slot)?;
-    }
     migrate_factory_expressions(&tx)?;
     tx.commit().map_err(|e| e.to_string())
 }
+#[cfg(test)]
 fn restore_builtin(conn: &Connection, slot: &str) -> Result<String> {
     let id = format!("builtin-{slot}");
     conn.execute(
@@ -342,6 +356,51 @@ pub fn collection(conn: &Connection) -> Result<CharacterCollection> {
 }
 pub fn active_members(conn: &Connection) -> Result<Vec<InstalledCharacter>> {
     active_ids(conn)?.iter().map(|id| get(conn, id)).collect()
+}
+pub fn installed_packs(conn: &Connection) -> Result<Vec<InstalledCharacterPack>> {
+    let mut statement = conn
+        .prepare("SELECT id FROM character_packs ORDER BY rowid")
+        .map_err(|e| e.to_string())?;
+    let ids = statement
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(ids
+        .iter()
+        .map(|id| installed_pack(conn, id))
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .filter(|pack| !pack.character_ids.is_empty())
+        .collect())
+}
+fn installed_pack(conn: &Connection, id: &str) -> Result<InstalledCharacterPack> {
+    let (pack, members) = pack_record(conn, id)?;
+    let mut statement = conn
+        .prepare("SELECT id FROM characters WHERE pack_id=?")
+        .map_err(|e| e.to_string())?;
+    let installed = statement
+        .query_map([id], |r| r.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<std::result::Result<HashSet<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(InstalledCharacterPack {
+        id: id.into(),
+        name: pack.name,
+        character_ids: members
+            .into_iter()
+            .filter(|member| installed.contains(member))
+            .collect(),
+    })
+}
+pub fn apply_pack(conn: &Connection, pack_id: &str) -> Result<()> {
+    with_transaction(conn, |tx| {
+        let pack = installed_pack(tx, pack_id)?;
+        if pack.character_ids.is_empty() {
+            return Err("이 팩에는 함께 지낼 캐릭터가 남아 있지 않습니다.".into());
+        }
+        apply_roster(tx, pack.character_ids)
+    })
 }
 pub fn active_character(conn: &Connection, slot: &str) -> Result<InstalledCharacter> {
     let ids = active_ids(conn)?;

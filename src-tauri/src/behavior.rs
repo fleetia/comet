@@ -227,9 +227,12 @@ fn cancel_automatic_reaction(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
+pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
+    let geometry = desktop_toys::current_geometry(app).await;
     let timestamp = crate::now();
-    let fullscreen = desktop_toys::fullscreen_active(app);
+    let fullscreen = geometry
+        .as_ref()
+        .map_or(true, |geometry| geometry.fullscreen);
     let entropy = uuid::Uuid::new_v4().as_u128() as u64;
     let _action = lock(&state.action)?;
     if crate::unavailable(state) {
@@ -330,7 +333,10 @@ pub(crate) fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(), Strin
             })
             .collect();
         machine.schedule(timestamp, entropy);
-        if let Some(instance) = eligible.get((entropy as usize) % eligible.len().max(1)) {
+        if let (Some(instance), Ok(geometry)) = (
+            eligible.get((entropy as usize) % eligible.len().max(1)),
+            geometry.as_ref(),
+        ) {
             let owner = crate::characters::collection(&db)?.active.first().cloned();
             let actor = desktop_toys::open(
                 app,
@@ -339,6 +345,7 @@ pub(crate) fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(), Strin
                 owner,
                 instance.revision,
                 true,
+                geometry,
             )?;
             machine.begin(actor, epoch, timestamp);
         }

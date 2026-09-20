@@ -62,16 +62,27 @@ fn endpoint(settings: &Settings) -> Result<String, String> {
     }
     Ok(url.as_str().trim_end_matches('/').to_string())
 }
-fn credential(settings: &Settings) -> Result<keyring::Entry, String> {
+
+const API_SERVICE: &str = "space.starlight.comet.api";
+
+fn account(settings: &Settings) -> Result<String, String> {
     let url = endpoint(settings)?;
-    let account = hex::encode(Sha256::digest(url.as_bytes()));
-    keyring::Entry::new("space.nanika-box.api", &account)
+    Ok(hex::encode(Sha256::digest(url.as_bytes())))
+}
+
+fn credential(settings: &Settings) -> Result<keyring::Entry, String> {
+    let account = account(settings)?;
+    keyring::Entry::new(API_SERVICE, &account)
+        .map_err(|_| "시스템 자격 증명 저장소에 접근할 수 없습니다.".into())
+}
+fn legacy_credential(settings: &Settings) -> Result<keyring::Entry, String> {
+    let account = account(settings)?;
+    let service = crate::legacy_names::api_service();
+    keyring::Entry::new(&service, &account)
         .map_err(|_| "시스템 자격 증명 저장소에 접근할 수 없습니다.".into())
 }
 pub fn has_api_key(settings: &Settings) -> bool {
-    credential(settings)
-        .and_then(|entry| entry.get_password().map_err(|_| String::new()))
-        .is_ok()
+    saved_key(settings).ok().flatten().is_some()
 }
 pub fn set_api_key(settings: &Settings, key: &str) -> Result<(), String> {
     if key.trim().is_empty() || key.len() > 8192 || key.contains(['\r', '\n']) {
@@ -79,10 +90,18 @@ pub fn set_api_key(settings: &Settings, key: &str) -> Result<(), String> {
     }
     credential(settings)?
         .set_password(key.trim())
-        .map_err(|_| "API 키를 시스템 자격 증명 저장소에 저장할 수 없습니다.".into())
+        .map_err(|_| String::from("API 키를 시스템 자격 증명 저장소에 저장할 수 없습니다."))?;
+    if let Ok(entry) = legacy_credential(settings) {
+        let _ = entry.delete_credential();
+    }
+    Ok(())
 }
 pub fn clear_api_key(settings: &Settings) -> Result<(), String> {
     match credential(settings)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => {}
+        Err(_) => return Err("API 키 삭제에 실패했습니다.".into()),
+    }
+    match legacy_credential(settings)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(_) => Err("API 키 삭제에 실패했습니다.".into()),
     }
@@ -90,7 +109,19 @@ pub fn clear_api_key(settings: &Settings) -> Result<(), String> {
 fn saved_key(settings: &Settings) -> Result<Option<String>, String> {
     match credential(settings)?.get_password() {
         Ok(key) => Ok(Some(key)),
-        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(keyring::Error::NoEntry) => match legacy_credential(settings)?.get_password() {
+            Ok(key) => {
+                if let Ok(entry) = credential(settings) {
+                    let _ = entry.set_password(&key);
+                }
+                if let Ok(entry) = legacy_credential(settings) {
+                    let _ = entry.delete_credential();
+                }
+                Ok(Some(key))
+            }
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(_) => Err("시스템 자격 증명 저장소에서 API 키를 읽을 수 없습니다.".into()),
+        },
         Err(_) => Err("시스템 자격 증명 저장소에서 API 키를 읽을 수 없습니다.".into()),
     }
 }

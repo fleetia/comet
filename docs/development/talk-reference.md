@@ -1,6 +1,6 @@
 ---
 title: 대본 문법·변수·CLI
-description: Nanika .talk format 1의 문법, 전체 공개 변수, 사건과 읽기 전용 검증 명령
+description: Comet .talk format 1의 문법, 전체 공개 변수, 사건과 읽기 전용 검증 명령
 ---
 
 # 대본 문법·변수·CLI
@@ -13,37 +13,41 @@ description: Nanika .talk format 1의 문법, 전체 공개 변수, 사건과 �
 
 ```sh
 cargo build --manifest-path src-tauri/Cargo.toml --example talk
-src-tauri/target/debug/examples/talk check talk/index.talk
+src-tauri/target/debug/examples/talk check talk
+src-tauri/target/debug/examples/talk check talk/packs/byulkkori/index.talk
 src-tauri/target/debug/examples/talk variables
 ```
 
+`ENTRY_OR_ROOT`에 폴더를 주면 그 폴더의 `index.talk`(있을 때)와 `packs/<팩 ID>/index.talk`를 모두 읽는 묶음 검사이고, 파일을 주면 그 진입 파일 하나의 import graph만 검사한다. 팩 ID는 소문자·숫자·`-`·`_` 1~64자이며 규칙에 맞지 않는 폴더는 무시한다.
+
 | 명령 | 입력과 결과 |
 | --- | --- |
-| `talk read ENTRY RELATIVE_FILE` | 복호화된 `source`와 저장 충돌 검사용 `revision`을 JSON으로 출력 |
-| `talk save ENTRY RELATIVE_FILE --source TEXT_FILE --revision REVISION` | 평문 원문 파일을 전체 검증한 뒤 암호화 저장. 로드한 revision이 현재와 다르면 거부 |
-| `talk seal ENTRY` | 유효한 import bundle의 평문 파일을 암호화 |
-| `talk check ENTRY` | 진입 파일과 재귀 import를 검사. 성공 시 `valid`, `sceneCount`, canonical `files` 출력 |
+| `talk check ENTRY_OR_ROOT` | 진입 파일 또는 묶음을 검사. 성공 시 `valid`, `sceneCount`, canonical `files`, 읽은 `packs` 출력 |
+| `talk packs ROOT` | 동봉 팩과 폴더에 설치된 팩의 `id`, `name`, `description`, `installed`, `bundled`, `defaultInstalled` 출력 |
 | `talk variables` | `variables` map과 `events` 목록 출력. 각 변수에 `name`, `kind`, `nullable`, `widget`, `description` 포함 |
-| `talk simulate ENTRY --input JSON_OR_FILE` | 명시한 관측값과 이력으로 후보·탈락 이유·선택된 대사 계산 |
-| `talk simulate ENTRY --db PATH` | 기존 앱 SQLite를 읽기 전용으로 열어 `idle` 시뮬레이션 |
-| `talk simulate ENTRY --db PATH --event JSON_OR_FILE` | 입력한 사건을 현재 DB 상태와 함께 시뮬레이션 |
+| `talk simulate ENTRY_OR_ROOT --input JSON_OR_FILE` | 명시한 관측값과 이력으로 후보·탈락 이유·선택된 대사 계산 |
+| `talk simulate ENTRY_OR_ROOT --db PATH` | 기존 앱 SQLite를 읽기 전용으로 열어 `idle` 시뮬레이션 |
+| `talk simulate ENTRY_OR_ROOT --db PATH --event JSON_OR_FILE` | 입력한 사건을 현재 DB 상태와 함께 시뮬레이션 |
 | `talk characters --db PATH` | 설치된 캐릭터의 로컬 `id`, 표시 `name`, 활성 목록 순서 `position`(0부터, 비활성은 null) 조회 |
 
 `simulate`에는 `--input` 또는 `--db` 중 정확히 하나를 지정한다. `--seed N`, `--now MILLISECONDS`를 추가할 수 있다. 옵션은 값과 한 쌍으로 쓰며 중복·미등록 옵션은 오류다. 성공 결과는 표준 출력의 JSON, 오류는 표준 오류와 종료 코드 `1`이다. 후보가 없어서 `selected`가 `null`인 것은 정상적인 시뮬레이션 결과다.
 
+CLI는 현재 `.talk`와 story 원문을 읽기 전용으로 검사·시뮬레이션한다. 원문 작성, import bundle 저장, 암호화 저장은 Comet 앱에 포함하지 않으며 별도 talk editor의 책임이다.
+
 ### 고정 입력 시뮬레이션
 
-`--input`은 `{`로 시작하는 JSON 문자열 또는 JSON 파일 경로를 받는다. 아래 예시는 가상 로컬 ID에 나디르·별꼬리 source identity를 지정해 `timer.focus`를 후보로 만든다. 기본 날씨 정보 없음 등 함께 열린 후보 중 최종 선택은 seed와 이력에 따른다.
+`--input`은 `{`로 시작하는 JSON 문자열 또는 JSON 파일 경로를 받는다. 첫 예시는 저장소 묶음 전체에 혼자 있는 캐릭터를 넣어 기본 대화팩의 혼자 장면만 열리는지 본다. 둘째 예시는 나디르·별꼬리 팩 파일에 가상 로컬 ID와 source identity를 지정해 `timer.focus`를 후보로 만든다. 기본 날씨 정보 없음 등 함께 열린 후보 중 최종 선택은 seed와 이력에 따른다.
 
 ```sh
-src-tauri/target/debug/examples/talk simulate talk/index.talk --input '{"active":["demo-a","demo-b"],"available":["focus-timer"],"values":{"character.a.sourceId":"nadir","character.b.sourceId":"star-tail","timer.ready":true,"timer.status":"enabled","timer.state":"running","timer.mode":"focus"},"nowMs":100000,"seed":7}'
+src-tauri/target/debug/examples/talk simulate talk --input '{"active":["solo"],"values":{"environment.hour":9},"seed":3}'
+src-tauri/target/debug/examples/talk simulate talk/packs/nadir-and-star-tail/index.talk --input '{"active":["demo-a","demo-b"],"available":["focus-timer"],"values":{"character.a.sourceId":"nadir","character.b.sourceId":"star-tail","timer.ready":true,"timer.status":"enabled","timer.state":"running","timer.mode":"focus"},"nowMs":100000,"seed":7}'
 ```
 
 입력 필드:
 
 | 필드 | 타입 | 기본값·규칙 |
 | --- | --- | --- |
-| `active` | string 1~8개 배열 | 필수. 바탕화면 목록 순서의 서로 다른 비어 있지 않은 로컬 ID. 기본 대본은 앞 두 명(A/B)만 화자로 쓴다 |
+| `active` | string 1~8개 배열 | 필수. 바탕화면 목록 순서의 서로 다른 비어 있지 않은 로컬 ID. `character.count`는 이 배열의 길이로 자동 채운다 |
 | `available` | string 배열 | 기본 `[]`. 설치·활성·필수 의존성 검사를 통과한 실제 위젯 kind. `timer` 대신 `focus-timer` 사용 |
 | `values` | 변수 이름 → 값 map | 기본 `{}`. 이름은 `timer.state` 같은 평탄한 key. 미등록 변수와 잘못된 타입은 오류 |
 | `trigger` | string | 기본 `idle`. 아래 사건 목록의 값만 허용 |
@@ -51,7 +55,7 @@ src-tauri/target/debug/examples/talk simulate talk/index.talk --input '{"active"
 | `nowMs` | 정수 또는 null | 기본 `0`. `--now`가 있으면 명령 옵션 우선 |
 | `seed` | 0 이상의 정수 또는 null | 기본 `0`. `--seed`가 있으면 명령 옵션 우선 |
 
-생략한 nullable 변수는 `null`, 그 밖의 boolean은 `false`, number는 `0`, string은 `not-installed`로 채운다. `dialogue.variant`는 적용된 seed의 나머지 `seed % 5`로 초기화한다. 고정 입력의 `values`는 이 초기값을 덮어쓸 수 있으므로 특정 변주를 검사할 때만 직접 지정한다. `environment.hour`와 캐릭터 source identity는 고정 입력에서 명시해야 한다. `available`만 지정한다고 `ready`가 자동으로 `true`가 되지는 않는다. 사건 고정 입력은 `trigger`와 `values`의 `event.kind`·허용 payload 변수를 함께 지정한다. 입력 JSON 파일은 1 MiB 이하이며 알 수 없는 최상위 필드는 허용하지 않는다.
+생략한 nullable 변수는 `null`, 그 밖의 boolean은 `false`, number는 `0`, string은 `not-installed`로 채운다. `dialogue.variant`는 적용된 seed의 나머지 `seed % 5`, `character.count`는 `active`의 길이로 초기화한다. 고정 입력의 `values`는 이 초기값을 덮어쓸 수 있으므로 특정 변주를 검사할 때만 직접 지정한다. `environment.hour`와 캐릭터 source identity는 고정 입력에서 명시해야 한다. `available`만 지정한다고 `ready`가 자동으로 `true`가 되지는 않는다. 사건 고정 입력은 `trigger`와 `values`의 `event.kind`·허용 payload 변수를 함께 지정한다. 입력 JSON 파일은 1 MiB 이하이며 알 수 없는 최상위 필드는 허용하지 않는다.
 
 결과의 `candidates`는 `key`, `sceneId`, `eligible`, `reason`을 제공한다. 주요 reason은 `trigger_mismatch`, `pair_mismatch`, `dependency_unavailable`, `cooldown`, `condition_false`, `condition_error: ...`, `render_error: ...`, `selected`, `eligible_not_selected`다. `selected`에는 완성된 `lines`, 의존 위젯 `dependencies`, 변수 `references`, `cooldownMs`가 포함된다.
 
@@ -60,8 +64,8 @@ src-tauri/target/debug/examples/talk simulate talk/index.talk --input '{"active"
 macOS 기본 설치 경로 예시다. 대본 경로와 DB 경로는 같은 앱 데이터 디렉터리를 가리키게 한다.
 
 ```sh
-src-tauri/target/debug/examples/talk characters --db "$HOME/Library/Application Support/space.starlight.nanika-box/nanika.sqlite"
-src-tauri/target/debug/examples/talk simulate "$HOME/Library/Application Support/space.starlight.nanika-box/talk/index.talk" --db "$HOME/Library/Application Support/space.starlight.nanika-box/nanika.sqlite" --seed 7
+src-tauri/target/debug/examples/talk characters --db "$HOME/Library/Application Support/space.starlight.comet/comet.sqlite"
+src-tauri/target/debug/examples/talk simulate "$HOME/Library/Application Support/space.starlight.comet/talk/index.talk" --db "$HOME/Library/Application Support/space.starlight.comet/comet.sqlite" --seed 7
 ```
 
 DB 모드의 기본 시각은 실행 시각이고 기본 seed는 `0`이다. 설치된 캐릭터와 위젯 상태, 저장된 `talk_history`를 읽는다. DB를 새로 만들거나 migration을 적용하지 않는다. `talk_history` 테이블이 없는 기존 DB에서는 빈 이력으로 계산한다.
@@ -97,13 +101,17 @@ import "./situations/index.talk" for pair("source:nadir", "source:star-tail")
 import "./pairs/default.talk" for pair("source:nadir", "source:star-tail")
 ```
 
-`for pair`의 범위는 하위 import에도 상속된다. 상속한 조합을 다른 조합으로 덮어쓸 수 없다. 두 ID는 서로 달라야 하며 비어 있으면 안 된다. 일반 문자열은 로컬 ID로, `source:` 접두사를 붙인 문자열은 현재 `character.a.sourceId`·`character.b.sourceId`로 비교한다. 나디르·별꼬리 기본 번들은 위젯·상황 대본까지 위 예시의 source 조합으로 제한한다. 두 멤버가 서로 다른 실제 슬롯에 있어야 하며, 대본의 A/B는 조합에 선언한 순서에 따라 실제 슬롯으로 매핑된다. `for pair("builtin-a", "builtin-b")` 같은 기존 로컬 ID 지정도 지원한다.
+`for pair`의 범위는 하위 import에도 상속된다. 상속한 조합을 다른 조합으로 덮어쓸 수 없다. 두 ID는 서로 달라야 하며 비어 있으면 안 된다. 일반 문자열은 로컬 ID로, `source:` 접두사를 붙인 문자열은 현재 `character.a.sourceId`~`character.h.sourceId`로 비교한다. 나디르·별꼬리 대화팩은 위젯·상황 대본까지 위 예시의 source 조합으로 제한하며 다른 조합에서는 선택되지 않는다. 두 멤버가 서로 다른 실제 슬롯에 있어야 하며, 대본의 A/B는 조합에 선언한 순서에 따라 실제 슬롯으로 매핑된다. `for pair("builtin-a", "builtin-b")` 같은 기존 로컬 ID 지정도 지원한다.
 
 로더는 canonical 경로로 진입 파일 디렉터리 안에 있는지 확인한다. 절대 import, 디렉터리 밖으로 나가는 경로와 symlink, 순환 import, 없는 파일은 오류다. 같은 canonical 파일과 정규화한 조합 범위는 한 번만 로드한다. 활성화되지 않은 조합 파일도 묶음 전체 검사에 포함된다.
 
+### 대화팩 묶음
+
+앱은 `talk/index.talk`(사용자)와 `talk/packs/<팩 ID>/index.talk`(설치된 팩)를 하나의 `Program`으로 합친다. 팩 진입 파일의 import 루트는 그 팩 폴더이므로 팩이 사용자 파일이나 다른 팩을 import할 수 없다. 팩 장면의 key는 `[팩 ID, 조합, 장면 ID]`, 사용자 장면의 key는 기존 `[조합, 장면 ID]`다. 같은 장면 ID를 두 팩이 써도 충돌하지 않지만 한 팩 안의 같은 범위에서는 고유해야 한다. 어느 한 파일의 오류는 묶음 전체의 로드 오류다.
+
 ## 장면 header
 
-장면은 header, `---`, 본문, `===` 순서다. header 이름은 아래 네 개만 허용하고 같은 장면에서 중복하지 않는다.
+장면은 header, `---`, 본문, `===` 순서다. header 이름은 아래 다섯 개만 허용하고 같은 장면에서 중복하지 않는다.
 
 | header | 필수 | 값 |
 | --- | --- | --- |
@@ -111,8 +119,11 @@ import "./pairs/default.talk" for pair("source:nadir", "source:star-tail")
 | `on` | 예 | `idle` 또는 등록된 사건 이름 |
 | `when` | 아니요 | boolean 조건식. 생략하면 추가 조건 없음 |
 | `cooldown` | 아니요 | `0` 또는 0 이상 정수와 `ms`, `s`, `m`, `h`, `d`. 생략하면 `0` |
+| `speakers` | 아니요 | `slots`(기본) 또는 `random`. 공통 범위에서만 허용하며 `cast`·`pair` 범위에서는 `SPEAKERS_SCOPE` 오류 |
 
-`cooldown: 30m`은 첫 줄을 실제로 표시한 후 30분 동안 같은 key를 제외한다. 현재 나디르·별꼬리 번들은 `idle` 장면에 `30m`, 실제 사건을 받는 장면에 `0s`를 사용한다. 새 사건은 직전 표시 이력 때문에 억제되지 않으며, 같은 사건의 중복 재생 방지는 호스트의 사건 ID·revision·소비 검사 책임이다. `cooldown: 0.5s`, 음수와 단위 없는 `30`은 허용하지 않는다. key는 파일 경로가 아니라 정규화한 pair와 `scene` ID를 직렬화한 값이다. 직접 조립하지 말고 CLI 결과를 사용한다.
+`speakers: random`은 본문의 A~H를 자리 순서 대신 현재 활성 캐릭터를 seed로 섞은 순서에 대응시킨다. 같은 장면 key·seed·인원이면 순서가 같다. 본문이 쓰는 글자 수가 활성 인원보다 많으면 `render_error`로 후보에서 빠지므로 인원 조건은 `when: character.count >= N`으로 함께 적는다.
+
+`cooldown: 30m`은 첫 줄을 실제로 표시한 후 30분 동안 같은 key를 제외한다. 두 동봉 대화팩은 `idle` 장면에 `30m`, 실제 사건을 받는 장면에 `0s`를 사용한다. 새 사건은 직전 표시 이력 때문에 억제되지 않으며, 같은 사건의 중복 재생 방지는 호스트의 사건 ID·revision·소비 검사 책임이다. `cooldown: 0.5s`, 음수와 단위 없는 `30`은 허용하지 않는다. key는 파일 경로가 아니라 정규화한 pair와 `scene` ID를 직렬화한 값이다. 직접 조립하지 말고 CLI 결과를 사용한다.
 
 ## 대사·표정·문자 치환
 
@@ -122,7 +133,7 @@ B[평온]: 시계는 ${clock.hour}시를 가리키고 있어.
 A: 표정을 생략하면 평온이야.
 ```
 
-화자는 대문자 `A` 또는 `B`다. 표정은 앞뒤 공백 없는 1~20자 이름이며 기본 6개는 `평온`, `기쁨`, `호기심`, `생각중`, `걱정`, `장난`이다. 캐릭터에 없는 표정은 재생 시 기본 표정(`평온`)으로 표시한다. `normal`은 일부 기존 위젯 내장 문구에서 사용하는 값이며 `.talk`의 표정 별칭이 아니다.
+화자는 대문자 `A`~`H`다. 공통 범위에서는 자리 1~8, `cast` 범위에서는 선언 순서, `speakers: random`에서는 섞은 순서다. 표정은 앞뒤 공백 없는 1~20자 이름이며 기본 6개는 `평온`, `기쁨`, `호기심`, `생각중`, `걱정`, `장난`이다. 별꼬리 이미지팩은 `슬픔`, `졸림`, `화남`을 더 가진다. 캐릭터에 없는 표정은 재생 시 기본 표정(`평온`)으로 표시한다. `normal`은 일부 기존 위젯 내장 문구에서 사용하는 값이며 `.talk`의 표정 별칭이 아니다.
 
 콜론 다음의 선택적인 공백 한 개를 구분자로 제거하고 나머지 본문은 유지한다. 텍스트의 `${변수}`는 string·number·boolean을 문자열로 바꾼다. `null`은 빈 문자열이나 숫자 `0`으로 바꾸지 않으며, 해당 장면을 재생 불가로 판단한다. 치환 위치에는 변수 이름만 넣을 수 있고 계산식이나 함수는 허용하지 않는다.
 
@@ -204,7 +215,7 @@ A[평온]: 오늘 기온을 한번 확인했어.
 
 ## 공개 변수 전체 목록
 
-아래 표는 `talk variables`의 122개 변수와 일치한다. `owner`는 `available` 및 재생 무효화에 쓰는 실제 위젯 kind이며 대본의 prefix와 다를 수 있다. `environment.*`, `character.*`, `dialogue.*`, `event.*`의 owner는 없고, 실제 사건 발행 위젯의 유효성은 호스트가 별도로 검사한다. 변수나 투영 규칙을 바꾸면 이 표와 고정 입력 검증도 함께 갱신한다.
+아래 표는 `talk variables`의 123개 변수와 일치한다. `owner`는 `available` 및 재생 무효화에 쓰는 실제 위젯 kind이며 대본의 prefix와 다를 수 있다. `environment.*`, `character.*`, `dialogue.*`, `event.*`의 owner는 없고, 실제 사건 발행 위젯의 유효성은 호스트가 별도로 검사한다. 변수나 투영 규칙을 바꾸면 이 표와 고정 입력 검증도 함께 갱신한다.
 
 ### environment · 위젯 설치와 독립적인 환경
 
@@ -221,10 +232,11 @@ A[평온]: 오늘 기온을 한번 확인했어.
 
 ### character · 활성 캐릭터 신원과 친밀도
 
-자리의 `a`·`b`와 특정 인물 `nadir`를 구분한다. 슬롯을 바꿔도 나디르의 조건을 유지하려면 `character.nadir.affinity`를 사용한다. 실제 호스트는 활성 캐릭터와 저장된 관계에서 값을 읽으며 고정 입력 CLI에서는 `values`로 제공한다.
+자리 `a`~`h`와 특정 인물 `nadir`를 구분한다. 슬롯을 바꿔도 나디르의 조건을 유지하려면 `character.nadir.affinity`를 사용한다. 실제 호스트는 활성 캐릭터와 저장된 관계에서 값을 읽으며 고정 입력 CLI에서는 `values`로 제공한다. 아래는 `a`·`b`만 적었고 `c`~`h`도 같은 두 변수를 가진다.
 
 | 변수 | 타입 | null 허용 | owner | 의미 |
 | --- | --- | --- | --- | --- |
+| `character.count` | `number` | 아니요 | 없음 | 지금 바탕화면에 함께 지내는 캐릭터 수(1~8). `speakers: random` 장면의 화자 수 조건에 사용 |
 | `character.a.affinity` | `number` | 예 | 없음 | 해당 캐릭터의 현재 친밀도 점수. 해당 캐릭터가 없으면 null. |
 | `character.a.sourceId` | `string` | 예 | 없음 | 현재 자리에 설치된 캐릭터의 원본 sourceId. 표시 이름·로컬 ID와 구분. 해당 캐릭터가 없으면 null. |
 | `character.b.affinity` | `number` | 예 | 없음 | 해당 캐릭터의 현재 친밀도 점수. 해당 캐릭터가 없으면 null. |
@@ -234,7 +246,7 @@ A[평온]: 오늘 기온을 한번 확인했어.
 
 ### dialogue · 장면 변주
 
-`dialogue.variant`는 호스트의 seed에서 계산하며 표시 직전 재검사에도 준비 당시 값을 유지한다. 기본 번들은 0~4를 본문 `@if`로 나눠 사용한다.
+`dialogue.variant`는 호스트의 seed에서 계산하며 표시 직전 재검사에도 준비 당시 값을 유지한다. 두 동봉 대화팩은 0~4를 본문 `@if`로 나눠 사용한다.
 
 | 변수 | 타입 | null 허용 | owner | 의미 |
 | --- | --- | --- | --- | --- |
@@ -506,8 +518,8 @@ A[평온]: 오늘 기온을 한번 확인했어.
 ## AI 작성·검증 순서
 
 1. `talk variables`와 수정할 기존 `.talk`를 제공하여 실제 변수·사건 이름을 사용하게 한다.
-2. 각 장면의 `scene`, `on`, nullable guard, 기대 상태를 정한다. 사용자 사실이나 외부 상태를 대사에서 임의로 추정하지 않는다.
-3. `talk check ENTRY`로 묶음 전체를 검사한다. 오류의 파일·줄·열·코드를 원문에 대조하여 고친다.
+2. 각 장면의 `scene`, `on`, nullable guard, 기대 상태를 정한다. 여러 명이 말하는 공통 장면은 `speakers: random`과 `character.count` 조건을 함께 둔다. 사용자 사실이나 외부 상태를 대사에서 임의로 추정하지 않는다.
+3. `talk check ENTRY_OR_ROOT`로 묶음 전체를 검사한다. 오류의 파일·줄·열·코드를 원문에 대조하여 고친다.
 4. `talk simulate`에 정상·빈 상태·오래된 상태·nullable 값·cooldown·다른 캐릭터 조합 입력을 넣어 예상 장면과 대사를 확인한다.
 5. 실제 데스크톱에서는 기존 재생 경계의 취소·재로딩·첫 표시 기록을 별도로 확인한다. 미리보기 성공을 실제 표시 검증으로 기록하지 않는다.
 

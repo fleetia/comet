@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { command } from "../../hooks/useSnapshot";
-import { ConnectionTool } from "../ConnectionTools";
-import { CalendarTool } from "../CalendarTool";
+import { ConnectionTool } from "../ConnectionTools/ConnectionTools";
+import { CalendarTool } from "../CalendarTool/CalendarTool";
 import type { WidgetValue, WidgetView } from "../types";
 vi.mock("../../hooks/useSnapshot", async (load) => ({
   ...(await load<typeof import("../../hooks/useSnapshot")>()),

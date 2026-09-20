@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { SettingsPanel } from "../components/SettingsPanel";
+import { SettingsPanel } from "../components/SettingsPanel/SettingsPanel";
 import { PREVIEW_SNAPSHOT, command } from "../hooks/useSnapshot";
 import type { Snapshot } from "../types";
 

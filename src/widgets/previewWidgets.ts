@@ -49,6 +49,8 @@ export function getWidgetPreview(): WidgetSnapshot {
           title: "작은 생각",
           body: "오늘 떠오른 문장을 적어 두기.\n\n다음에 이어서 생각해요.",
           updatedAt: now,
+          isOpen: true,
+          fontSize: 16,
         },
       ],
     },

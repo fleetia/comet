@@ -1,6 +1,6 @@
 use super::validation::{validate_scene, validate_wordbook};
 use super::{
-    active_character, active_ids, builtin, factory_pack, get, pack_record, slot_index,
+    active_character, active_ids, factory_pack, get, nadir_pack, pack_record, slot_index,
     CharacterDialogue, CharacterPack, Result, MAX_PACK_BYTES, MAX_ROSTER, SLOTS,
 };
 use crate::types::SceneLine;
@@ -52,6 +52,7 @@ pub fn greeting(conn: &Connection, slot: &str) -> Result<Vec<SceneLine>> {
     let factory = factory_pack()
         .characters
         .into_iter()
+        .chain(nadir_pack().characters)
         .find(|item| item.source_id == definition.source_id);
     let mut lines = definition.greeting;
     if factory.is_some_and(|item| item.greeting == lines) {
@@ -152,23 +153,26 @@ pub fn dialogue(conn: &Connection, ids: &[String]) -> Result<CharacterDialogue> 
         }
     }
     let factory_members = vec!["builtin-a".to_string(), "builtin-b".to_string()];
-    if ids.len() == 2
-        && factory_members.iter().all(|id| ids.contains(id))
-        && overridden.is_empty()
-        && get(conn, "builtin-a")?.definition == builtin("a")
-        && get(conn, "builtin-b")?.definition == builtin("b")
+    if ids.len() == 2 && factory_members.iter().all(|id| ids.contains(id)) && overridden.is_empty()
     {
-        let pack = factory_pack();
-        let mapped = mapped_dialogue(
-            CharacterDialogue {
-                pair_scenes: pack.pair_scenes,
-                wordbook: pack.wordbook,
-            },
-            &factory_members,
-            ids,
-        )?;
-        result.pair_scenes.extend(mapped.pair_scenes);
-        result.wordbook.extend(mapped.wordbook);
+        let a = get(conn, "builtin-a")?.definition;
+        let b = get(conn, "builtin-b")?.definition;
+        // Keep authored scenes for existing installations of the former default pack.
+        for pack in [factory_pack(), nadir_pack()] {
+            if a != pack.characters[0] || b != pack.characters[1] {
+                continue;
+            }
+            let mapped = mapped_dialogue(
+                CharacterDialogue {
+                    pair_scenes: pack.pair_scenes,
+                    wordbook: pack.wordbook,
+                },
+                &factory_members,
+                ids,
+            )?;
+            result.pair_scenes.extend(mapped.pair_scenes);
+            result.wordbook.extend(mapped.wordbook);
+        }
     }
     for (pack, members) in packs_for(conn, ids)? {
         if members.len() == 1 && overridden.contains(&members[0]) {

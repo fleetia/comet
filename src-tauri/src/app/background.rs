@@ -29,7 +29,7 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         if state.update_installing.load(Ordering::SeqCst) {
             continue;
         }
-        let _ = behavior::tick(&app, &state);
+        let _ = behavior::tick(&app, &state).await;
         let _ = flush_positions(&state, false);
         let _ = advance_widgets(&app, &state);
         start_due_widget_refreshes(&app, &state);

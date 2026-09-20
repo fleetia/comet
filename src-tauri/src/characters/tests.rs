@@ -2,7 +2,7 @@ use super::*;
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\n-body";
 fn database() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
-    initialize(&conn).unwrap();
+    initialize_for_tests(&conn).unwrap();
     conn
 }
 fn pack() -> CharacterPack {
@@ -41,9 +41,58 @@ fn pack() -> CharacterPack {
     }
 }
 #[test]
-fn factory_pack_has_public_profiles_and_real_greeting_alternatives() {
-    let pack = factory_pack();
-    validate_pack(&pack).unwrap();
+fn fresh_install_starts_with_byulkkori_alone_as_a_removable_pack() {
+    let conn = Connection::open_in_memory().unwrap();
+    initialize(&conn).unwrap();
+    let current = collection(&conn).unwrap();
+    assert_eq!(current.installed.len(), 1);
+    let only = &current.installed[0];
+    assert_eq!(current.active, std::slice::from_ref(&only.id));
+    assert_eq!(only.definition.name, "별꼬리");
+    assert!(only.pack_id.is_some(), "installed as an ordinary pack");
+    assert_eq!(only.sprites.len(), 9);
+    assert!(only.definition.face_icon);
+    let idle = idle_scene(&conn, 0).unwrap();
+    assert_eq!(idle.len(), 1);
+    assert_eq!(idle[0].persona, "a");
+    assert!(!idle[0].text.contains("나디르"));
+    assert_eq!(greeting(&conn, "a").unwrap().len(), 1);
+    // Restart keeps the same single character and does not add A/B.
+    initialize(&conn).unwrap();
+    assert_eq!(collection(&conn).unwrap().installed.len(), 1);
+    // The default is removable once another friend is present.
+    let other = create(&conn, &builtin("a")).unwrap();
+    apply_roster(&conn, vec![other.id.clone()]).unwrap();
+    remove(&conn, &only.id).unwrap();
+    assert_eq!(collection(&conn).unwrap().installed.len(), 1);
+    initialize(&conn).unwrap();
+    assert_eq!(collection(&conn).unwrap().active, [other.id]);
+}
+
+#[test]
+fn legacy_factory_pair_keeps_a_and_b_and_local_dialogue() {
+    let conn = database();
+    let current = collection(&conn).unwrap();
+    assert_eq!(current.active, ["builtin-a", "builtin-b"]);
+    assert_eq!(current.installed.len(), 2);
+    for (slot, name) in [("a", "A"), ("b", "B")] {
+        let character = active_character(&conn, slot).unwrap();
+        assert_eq!(character.definition.source_id, format!("builtin-{slot}"));
+        assert_eq!(character.definition.name, name);
+        assert!(character.pack_id.is_none());
+        assert!(!greeting(&conn, slot).unwrap().is_empty());
+    }
+    let idle = idle_scene(&conn, 0).unwrap();
+    assert_eq!(idle.len(), 2);
+    for line in idle {
+        assert!(!line.text.contains("나디르"));
+        assert!(!line.text.contains("별꼬리"));
+    }
+}
+
+#[test]
+fn addon_keeps_public_profiles_and_greeting_alternatives_after_import() {
+    let pack = nadir_pack();
     assert_eq!(pack.pair_scenes.len(), 5);
     for character in &pack.characters {
         assert_eq!(character.greeting.len(), 5);
@@ -54,17 +103,20 @@ fn factory_pack_has_public_profiles_and_real_greeting_alternatives() {
         }
     }
     let conn = database();
-    for slot in ["a", "b"] {
+    let imported = import_pack(&conn, &pack).unwrap();
+    assert_eq!(active_ids(&conn).unwrap(), ["builtin-a", "builtin-b"]);
+    apply_pair(&conn, [imported[0].id.clone(), imported[1].id.clone()]).unwrap();
+    for (index, slot) in ["a", "b"].iter().enumerate() {
         for _ in 0..20 {
             let lines = greeting(&conn, slot).unwrap();
             assert_eq!(lines.len(), 1);
-            assert!(builtin(slot)
+            assert!(pack.characters[index]
                 .greeting
                 .iter()
                 .any(|line| line.text == lines[0].text));
         }
     }
-    let mut edited = builtin("a");
+    let mut edited = imported[0].definition.clone();
     edited.greeting = vec![
         CharacterLine {
             expression: "평온".into(),
@@ -75,15 +127,15 @@ fn factory_pack_has_public_profiles_and_real_greeting_alternatives() {
             text: "둘째 줄".into(),
         },
     ];
-    save(&conn, "builtin-a", &edited).unwrap();
+    save(&conn, &imported[0].id, &edited).unwrap();
     assert_eq!(greeting(&conn, "a").unwrap().len(), 2);
 }
 
 #[test]
-fn legacy_factory_migrates_only_exact_definitions_and_retains_identity() {
-    let conn = database();
-    let legacy: [CharacterDefinition; 2] = serde_json::from_str(r#"[{"sourceId":"builtin-a","version":1,"name":"A","description":"Comet 기본 캐릭터","personality":"호기심이 많고 다정하며 먼저 말을 건넨다.","expressions":{"걱정":"(・・;)","기쁨":"(^‿^)","생각중":"(－_－)","장난":"(¬‿¬)","평온":"(・_・)","호기심":"(・o・)"},"greeting":[{"expression":"기쁨","text":"왔네. 오늘도 여기서 같이 지내자."}],"idleLines":[{"expression":"평온","text":"잠깐 쉬어 가도 좋겠다."}]},{"sourceId":"builtin-b","version":1,"name":"B","description":"Comet 기본 캐릭터","personality":"차분하고 간결하며 가끔 부드러운 농담을 한다.","expressions":{"걱정":"(・・;)","기쁨":"(^‿^)","생각중":"(－_－)","장난":"(¬‿¬)","평온":"(・_・)","호기심":"(・o・)"},"greeting":[{"expression":"기쁨","text":"계속 대답해 주지는 않아도 돼. 우리끼리도 잘 놀거든."}],"idleLines":[{"expression":"평온","text":"여기서 조용히 같이 있을게."}]}]"#).unwrap();
-    for (slot, definition) in ["a", "b"].iter().zip(&legacy) {
+fn initialization_preserves_existing_addon_characters_and_personal_data() {
+    let conn = crate::store::open(std::path::Path::new(":memory:")).unwrap();
+    let pack = nadir_pack();
+    for (slot, definition) in ["a", "b"].iter().zip(&pack.characters) {
         conn.execute(
             "UPDATE characters SET data=?1 WHERE id=?2",
             params![
@@ -93,26 +145,57 @@ fn legacy_factory_migrates_only_exact_definitions_and_retains_identity() {
         )
         .unwrap();
     }
-    let mut edited = legacy[1].clone();
+    conn.execute_batch(
+        "INSERT INTO memories VALUES('memory','기억 원문','source',123,0,0);
+        INSERT INTO character_affinity VALUES('source','builtin-a','2026-09-20',5,'fingerprint');
+        ",
+    )
+    .unwrap();
+    crate::store::insert_message(
+        &conn,
+        &crate::types::Message {
+            id: "message".into(),
+            role: "assistant".into(),
+            persona: Some("a".into()),
+            content: "  이전 대화\n원문  ".into(),
+            expression: Some("평온".into()),
+            created_at: 123,
+            status: "complete".into(),
+        },
+    )
+    .unwrap();
+    let mut edited = builtin("b");
     edited.name = "내가 고친 친구".into();
-    conn.execute(
-        "UPDATE characters SET data=?1 WHERE id='builtin-b'",
-        [serde_json::to_string(&edited).unwrap()],
-    )
-    .unwrap();
-    initialize(&conn).unwrap();
-    assert_eq!(get(&conn, "builtin-a").unwrap().definition, builtin("a"));
-    assert_eq!(get(&conn, "builtin-b").unwrap().definition, edited);
-    assert_eq!(active_ids(&conn).unwrap(), ["builtin-a", "builtin-b"]);
-    initialize(&conn).unwrap();
-    assert_eq!(get(&conn, "builtin-b").unwrap().definition, edited);
-    conn.execute(
-        "UPDATE characters SET data=?1 WHERE id='builtin-b'",
-        [serde_json::to_string(&legacy[1]).unwrap()],
-    )
-    .unwrap();
-    initialize(&conn).unwrap();
-    assert_eq!(get(&conn, "builtin-b").unwrap().definition, builtin("b"));
+    let custom = create(&conn, &edited).unwrap();
+    let before = serde_json::to_string(&collection(&conn).unwrap()).unwrap();
+    initialize_for_tests(&conn).unwrap();
+    assert_eq!(
+        serde_json::to_string(&collection(&conn).unwrap()).unwrap(),
+        before
+    );
+    assert_eq!(
+        serde_json::to_value(idle_scene(&conn, 0).unwrap()).unwrap(),
+        serde_json::to_value(&pack.pair_scenes[0]).unwrap()
+    );
+    assert_eq!(greeting(&conn, "a").unwrap().len(), 1);
+    assert_eq!(
+        crate::store::messages(&conn, 10).unwrap()[0].content,
+        "  이전 대화\n원문  "
+    );
+    assert_eq!(
+        crate::store::memories(&conn).unwrap()[0].content,
+        "기억 원문"
+    );
+    assert_eq!(crate::store::relationships(&conn).unwrap()[0].score, 25);
+    assert_eq!(
+        crate::store::message_identities(&conn, 10).unwrap()[0].name,
+        "나디르"
+    );
+    assert_eq!(get(&conn, &custom.id).unwrap().definition, edited);
+    remove(&conn, "builtin-b").unwrap();
+    initialize_for_tests(&conn).unwrap();
+    assert!(get(&conn, "builtin-b").is_err());
+    assert_eq!(active_ids(&conn).unwrap(), ["builtin-a"]);
 }
 
 #[test]
@@ -122,7 +205,7 @@ fn factory_expression_migration_preserves_customizations_and_installed_identity(
             {"평온":"안경을 고쳐 쓰는 나디르","기쁨":"조금 웃는 나디르","호기심":"한쪽 눈썹을 올린 나디르","생각중":"음절을 짚는 나디르","걱정":"말끝을 고르는 나디르","장난":"작게 웃음을 참는 나디르"},
             {"평온":"꼬리를 살랑이는 별꼬리","기쁨":"폴짝 웃는 별꼬리","호기심":"고개를 갸웃한 별꼬리","생각중":"꼬리를 동그랗게 만 별꼬리","걱정":"살짝 처진 별꼬리","장난":"한쪽 눈을 찡긋한 별꼬리"}
         ]"#).unwrap();
-    let mut old_pack = factory_pack();
+    let mut old_pack = nadir_pack();
     for (index, definition) in old_pack.characters.iter_mut().enumerate() {
         definition.expressions = old_maps[index].clone();
         conn.execute(
@@ -147,11 +230,11 @@ fn factory_expression_migration_preserves_customizations_and_installed_identity(
     let mut unrelated = old_pack.characters[0].clone();
     unrelated.source_id = "another-character".into();
     let unrelated = create(&conn, &unrelated).unwrap();
-    initialize(&conn).unwrap();
-    for slot in ["a", "b"] {
+    initialize_for_tests(&conn).unwrap();
+    for (index, slot) in ["a", "b"].iter().enumerate() {
         assert_eq!(
             get(&conn, &format!("builtin-{slot}")).unwrap().definition,
-            builtin(slot)
+            nadir_pack().characters[index]
         );
     }
     assert_eq!(
@@ -159,7 +242,7 @@ fn factory_expression_migration_preserves_customizations_and_installed_identity(
             .unwrap()
             .pair_scenes
             .len(),
-        factory_pack().pair_scenes.len()
+        nadir_pack().pair_scenes.len()
     );
     let migrated = get(&conn, &named.id).unwrap();
     let mut expected = named.definition;
@@ -177,7 +260,7 @@ fn factory_expression_migration_preserves_customizations_and_installed_identity(
     );
     assert_eq!(active_ids(&conn).unwrap(), ["builtin-a", "builtin-b"]);
     let before = serde_json::to_string(&collection(&conn).unwrap()).unwrap();
-    initialize(&conn).unwrap();
+    initialize_for_tests(&conn).unwrap();
     assert_eq!(
         serde_json::to_string(&collection(&conn).unwrap()).unwrap(),
         before
@@ -218,9 +301,71 @@ fn import_is_atomic_separate_and_does_not_activate() {
     );
 }
 #[test]
+fn installed_packs_keep_original_member_order_and_separate_local_copies() {
+    let conn = database();
+    create(&conn, &builtin("a")).unwrap();
+    assert!(installed_packs(&conn).unwrap().is_empty());
+    let first = import_pack(&conn, &pack()).unwrap();
+    let second = import_pack(&conn, &pack()).unwrap();
+    let cloned = clone_character(&conn, &first[0].id).unwrap();
+    apply_roster(&conn, vec![first[1].id.clone(), first[0].id.clone()]).unwrap();
+    let packs = installed_packs(&conn).unwrap();
+    assert_eq!(packs.len(), 3);
+    assert_eq!(packs[0].id, first[0].pack_id.as_deref().unwrap());
+    assert_eq!(packs[0].name, "두 친구");
+    assert_eq!(
+        packs[0].character_ids,
+        [first[0].id.clone(), first[1].id.clone()]
+    );
+    assert_eq!(packs[1].id, second[0].pack_id.as_deref().unwrap());
+    assert_eq!(packs[1].name, packs[0].name);
+    assert_eq!(
+        packs[1].character_ids,
+        [second[0].id.clone(), second[1].id.clone()]
+    );
+    assert_eq!(packs[2].id, cloned.pack_id.as_deref().unwrap());
+    assert_eq!(packs[2].character_ids, [cloned.id]);
+}
+#[test]
+fn pack_selection_resolves_remaining_members_and_never_restores_removed_characters() {
+    let conn = database();
+    let imported = import_pack(&conn, &pack()).unwrap();
+    let selected = installed_packs(&conn).unwrap().remove(0);
+    remove(&conn, &imported[0].id).unwrap();
+    let mut edited = imported[1].definition.clone();
+    edited.name = "내가 고친 친구".into();
+    save(&conn, &imported[1].id, &edited).unwrap();
+    apply_pack(&conn, &selected.id).unwrap();
+    assert_eq!(active_ids(&conn).unwrap(), [imported[1].id.clone()]);
+    assert_eq!(
+        installed_packs(&conn).unwrap()[0].character_ids,
+        [imported[1].id.clone()]
+    );
+    assert_eq!(
+        active_character(&conn, "a").unwrap().definition.name,
+        "내가 고친 친구"
+    );
+    assert!(get(&conn, &imported[0].id).is_err());
+    assert!(apply_pack(&conn, "missing-pack").is_err());
+    assert_eq!(active_ids(&conn).unwrap(), [imported[1].id.clone()]);
+    apply_roster(&conn, vec!["builtin-a".into()]).unwrap();
+    remove(&conn, &imported[1].id).unwrap();
+    assert!(installed_packs(&conn).unwrap().is_empty());
+    assert!(apply_pack(&conn, &selected.id).is_err());
+    assert_eq!(active_ids(&conn).unwrap(), ["builtin-a"]);
+    conn.execute(
+        "INSERT INTO character_packs(id,data,members) VALUES('empty-pack',?1,'[]')",
+        [serde_json::to_string(&pack()).unwrap()],
+    )
+    .unwrap();
+    assert!(installed_packs(&conn).unwrap().is_empty());
+    assert!(apply_pack(&conn, "empty-pack").is_err());
+    assert_eq!(active_ids(&conn).unwrap(), ["builtin-a"]);
+}
+#[test]
 fn database_failure_rolls_back_entire_import() {
     let conn = database();
-    conn.execute_batch("CREATE TRIGGER reject_second BEFORE INSERT ON characters WHEN json_extract(NEW.data,'$.sourceId')='star-tail' BEGIN SELECT RAISE(ABORT,'test failure'); END;").unwrap();
+    conn.execute_batch("CREATE TRIGGER reject_second BEFORE INSERT ON characters WHEN json_extract(NEW.data,'$.sourceId')='builtin-b' BEGIN SELECT RAISE(ABORT,'test failure'); END;").unwrap();
     assert!(import_pack(&conn, &pack()).is_err());
     assert_eq!(collection(&conn).unwrap().installed.len(), 2);
     assert_eq!(
@@ -261,7 +406,7 @@ fn edit_preserves_identity_and_increments_host_version() {
     let current = active_character(&conn, "a").unwrap();
     assert_eq!(current.id, created.id);
     assert_eq!(current.definition.version, created.definition.version + 1);
-    assert_eq!(current.definition.source_id, "nadir");
+    assert_eq!(current.definition.source_id, "builtin-a");
     let copy = clone_character(&conn, &created.id).unwrap();
     assert_ne!(copy.id, created.id);
     assert!(assign(&conn, "b", &created.id).is_err());
@@ -270,7 +415,8 @@ fn edit_preserves_identity_and_increments_host_version() {
 #[test]
 fn canonical_export_roundtrip_preserves_talk_scope_and_story_activation() {
     let conn = crate::store::open(std::path::Path::new(":memory:")).unwrap();
-    let exported = export_pack(&conn, &["builtin-a".into(), "builtin-b".into()], &[]).unwrap();
+    let addon = import_pack(&conn, &nadir_pack()).unwrap();
+    let exported = export_pack(&conn, &[addon[0].id.clone(), addon[1].id.clone()], &[]).unwrap();
     assert_eq!(exported.characters[0].source_id, "nadir");
     assert_eq!(exported.characters[1].source_id, "star-tail");
     let parsed = parse_pack(&pack_json(&exported).unwrap()).unwrap();
@@ -317,7 +463,7 @@ fn export_single_b_remaps_selected_personal_lines_and_excludes_private_data() {
     let text = pack_json(&exported).unwrap();
     assert!(!text.contains("never-export"));
     let imported = import_pack(&conn, &parse_pack(&text).unwrap()).unwrap();
-    assert_eq!(imported[0].definition.name, "별꼬리");
+    assert_eq!(imported[0].definition.name, "B");
     assert!(export_pack(&conn, &["builtin-b".into()], &[])
         .unwrap()
         .wordbook
@@ -424,7 +570,7 @@ fn invalid_dialogue_does_not_replace_saved_content_and_reopens() {
     let ids = ["builtin-a".to_string()];
     {
         let conn = Connection::open(&path).unwrap();
-        initialize(&conn).unwrap();
+        initialize_for_tests(&conn).unwrap();
         let mut content = CharacterDialogue {
             pair_scenes: Vec::new(),
             wordbook: pack().wordbook,
@@ -435,7 +581,7 @@ fn invalid_dialogue_does_not_replace_saved_content_and_reopens() {
         assert!(save_dialogue(&conn, &ids, &content).is_err());
     }
     let conn = Connection::open(&path).unwrap();
-    initialize(&conn).unwrap();
+    initialize_for_tests(&conn).unwrap();
     assert_eq!(
         dialogue(&conn, &ids).unwrap().wordbook[0].lines[0].persona,
         "a"
@@ -583,7 +729,11 @@ fn sprites_follow_save_clone_export_import_and_removal() {
     remove_sprite(&conn, &created.id, BALLOON_SPRITE).unwrap();
     let exported = export_pack(&conn, std::slice::from_ref(&created.id), &[]).unwrap();
     assert_eq!(exported.sprites.len(), 1);
-    assert_eq!(exported.sprites[0].source_id, created.definition.source_id);
+    assert_eq!(exported.characters[0].source_id, "character-1");
+    assert_eq!(
+        exported.sprites[0].source_id,
+        exported.characters[0].source_id
+    );
     let json = serde_json::to_string(&exported).unwrap();
     let imported = import_pack(&conn, &parse_pack(&json).unwrap()).unwrap();
     assert_eq!(
@@ -619,18 +769,18 @@ fn reopen_and_last_member_protection_preserve_unrelated_data() {
     let id;
     {
         let conn = Connection::open(&path).unwrap();
-        initialize(&conn).unwrap();
+        initialize_for_tests(&conn).unwrap();
         conn.execute_batch("CREATE TABLE history(text TEXT); INSERT INTO history VALUES('old');")
             .unwrap();
         id = clone_character(&conn, "builtin-b").unwrap().id;
         assign(&conn, "b", &id).unwrap();
     }
     let conn = Connection::open(&path).unwrap();
-    initialize(&conn).unwrap();
+    initialize_for_tests(&conn).unwrap();
     assert_eq!(active_character(&conn, "b").unwrap().id, id);
     remove(&conn, &id).unwrap();
     assert_eq!(active_ids(&conn).unwrap(), ["builtin-a"]);
-    initialize(&conn).unwrap();
+    initialize_for_tests(&conn).unwrap();
     assert_eq!(collection(&conn).unwrap().installed.len(), 2);
     assert_eq!(
         conn.query_row("SELECT text FROM history", [], |r| r.get::<_, String>(0))
@@ -638,13 +788,13 @@ fn reopen_and_last_member_protection_preserve_unrelated_data() {
         "old"
     );
     remove(&conn, "builtin-b").unwrap();
-    initialize(&conn).unwrap();
+    initialize_for_tests(&conn).unwrap();
     assert_eq!(collection(&conn).unwrap().installed.len(), 1);
     let mut edited = builtin("a");
     edited.name = "바뀐 A".into();
     save(&conn, "builtin-a", &edited).unwrap();
     assert!(remove(&conn, "builtin-a").is_err());
-    initialize(&conn).unwrap();
+    initialize_for_tests(&conn).unwrap();
     assert_eq!(active_ids(&conn).unwrap(), ["builtin-a"]);
     assert_eq!(
         active_character(&conn, "a").unwrap().definition.name,
@@ -667,7 +817,7 @@ fn legacy_slot_table_migrates_once_into_the_roster() {
         )
         .unwrap();
     }
-    initialize(&conn).unwrap();
+    initialize_for_tests(&conn).unwrap();
     assert_eq!(active_ids(&conn).unwrap(), ["builtin-b", "builtin-a"]);
     let has_slots: bool = conn
         .query_row(
@@ -678,7 +828,7 @@ fn legacy_slot_table_migrates_once_into_the_roster() {
         .unwrap();
     assert!(!has_slots);
     apply_roster(&conn, vec!["builtin-a".into()]).unwrap();
-    initialize(&conn).unwrap();
+    initialize_for_tests(&conn).unwrap();
     assert_eq!(active_ids(&conn).unwrap(), ["builtin-a"]);
 }
 
@@ -727,7 +877,7 @@ fn attribution_reopens_and_exports_without_private_data() {
     let path = dir.path().join("attribution.db");
     let (id, pack_id) = {
         let conn = Connection::open(&path).unwrap();
-        initialize(&conn).unwrap();
+        initialize_for_tests(&conn).unwrap();
         let character = import_pack(&conn, &pack()).unwrap().remove(0);
         let pack_id = character.pack_id.unwrap();
         save_pack_attribution(
@@ -742,7 +892,7 @@ fn attribution_reopens_and_exports_without_private_data() {
         (character.id, pack_id)
     };
     let conn = Connection::open(&path).unwrap();
-    initialize(&conn).unwrap();
+    initialize_for_tests(&conn).unwrap();
     let saved = pack_attribution(&conn, &pack_id).unwrap();
     assert_eq!(saved.author, "원작자");
     let exported = export_pack(&conn, &[id], &[]).unwrap();
@@ -821,9 +971,9 @@ fn removed_builtins_are_not_reseeded_and_final_member_cannot_be_deleted() {
     apply_roster(&conn, vec![friend.id.clone()]).unwrap();
     remove(&conn, "builtin-a").unwrap();
     remove(&conn, "builtin-b").unwrap();
-    initialize(&conn).unwrap();
+    initialize_for_tests(&conn).unwrap();
     assert_eq!(collection(&conn).unwrap().installed.len(), 1);
     assert!(remove(&conn, &friend.id).is_err());
-    initialize(&conn).unwrap();
+    initialize_for_tests(&conn).unwrap();
     assert_eq!(active_ids(&conn).unwrap(), [friend.id]);
 }

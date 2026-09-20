@@ -16,7 +16,7 @@
     "tauri": "tauri",
     "desktop": "tauri dev",
     "prepare:sidecar": "node scripts/prepare-sidecar.mjs",
-    "build:desktop": "pnpm prepare:sidecar && tauri build",
+    "build:desktop": "corepack pnpm prepare:sidecar && tauri build",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "docs:install": "corepack pnpm --dir wiki install --frozen-lockfile",
     "docs:dev": "corepack pnpm --dir wiki start",
@@ -48,5 +48,5 @@
     "vite": "^8.3.0",
     "vitest": "^5.0.0"
   },
-  "packageManager": "pnpm@10.32.1"
+  "packageManager": "pnpm@11.27.0"
 }

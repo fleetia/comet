@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { CompanionBox } from "../components/CompanionBox";
-import { FaceTag } from "../components/FaceTag";
-import { Balloon } from "../components/Balloon";
-import { CharacterEditor } from "../components/CharacterEditor";
+import { CompanionBox } from "../components/CompanionBox/CompanionBox";
+import { FaceTag } from "../components/FaceTag/FaceTag";
+import { Balloon } from "../components/Balloon/Balloon";
+import { CharacterEditor } from "../components/CharacterEditor/CharacterEditor";
 import { PREVIEW_SNAPSHOT, command, isDesktop } from "../hooks/useSnapshot";
 import type { InstalledCharacter, Playback, Snapshot } from "../types";
 import { centerSlice } from "../components/characterIdentity";
@@ -67,7 +67,7 @@ it("shows the sprite for the spoken expression and falls back to the default spr
     <CompanionBox id="byul" snapshot={{ ...snapshot, playback: playing("기쁨") }} />,
   );
   expect(bodyImage()?.getAttribute("src")).toBe(
-    "sprite://localhost/byul?expression=%EA%B8%B0%EC%81%A8&v=20",
+    "sprite://localhost/byul?expression=%EA%B8%B0%EC%81%A8&v=20&cors=1",
   );
   expect(screen.queryByText(/^\[/)).toBeNull();
   rerender(<CompanionBox id="byul" snapshot={{ ...snapshot, playback: playing("슬픔") }} />);
@@ -93,6 +93,7 @@ it("keeps the text face for characters without sprites and outside the desktop a
 it("sizes the sprite from the character, drops the box controls, and clears the transparent root on unmount", () => {
   render(<CompanionBox id="byul" snapshot={{ ...snapshot, playback: playing("기쁨") }} />);
   expect(bodyImage()?.style.width).toBe("128px");
+  expect(bodyImage()?.crossOrigin).toBe("anonymous");
   expect(screen.queryByText("기쁨")).toBeNull();
   expect(screen.queryByRole("button", { name: "캐릭터 숨기기" })).toBeNull();
   expect(document.documentElement.className).not.toBe("");

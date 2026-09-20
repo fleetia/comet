@@ -1,3 +1,5 @@
+pub(crate) mod appearance;
+pub(crate) mod backgrounds;
 pub(crate) mod calendar;
 pub(crate) mod connections;
 pub(crate) mod planning;
@@ -44,6 +46,7 @@ pub struct WidgetView {
     pub status: String,
     pub missing: Vec<String>,
     pub package_bytes: usize,
+    pub background_updated_at: Option<i64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -131,6 +134,10 @@ pub fn initial(kind: &str) -> Result<Value, String> {
     })
 }
 
+pub fn configure_appearance(instance: &WidgetInstance, input: &Value) -> Result<Value, String> {
+    appearance::configure(&instance.kind, &instance.data, input)
+}
+
 pub fn act(
     instance: &WidgetInstance,
     request: &WidgetRequest,
@@ -186,7 +193,16 @@ pub fn tick(instance: &WidgetInstance, now: i64) -> Result<Option<WidgetEffect>,
     }
 }
 
-pub fn project(mut instance: WidgetInstance, all: &[WidgetInstance]) -> Result<WidgetView, String> {
+#[cfg(test)]
+pub fn project(instance: WidgetInstance, all: &[WidgetInstance]) -> Result<WidgetView, String> {
+    project_with_background(instance, all, None)
+}
+
+pub fn project_with_background(
+    mut instance: WidgetInstance,
+    all: &[WidgetInstance],
+    background_updated_at: Option<i64>,
+) -> Result<WidgetView, String> {
     let metadata = manifest(&instance.kind)?;
     let missing = metadata
         .required
@@ -239,6 +255,7 @@ pub fn project(mut instance: WidgetInstance, all: &[WidgetInstance]) -> Result<W
         package_bytes: serde_json::to_vec(&metadata)
             .map_err(|error| error.to_string())?
             .len(),
+        background_updated_at,
     })
 }
 

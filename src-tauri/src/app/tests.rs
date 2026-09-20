@@ -86,13 +86,8 @@ fn hourly_story_suppression_and_interruption_never_resurrect_a_request() {
         let state = state();
         {
             let db = lock(&state.db).unwrap();
-            let mut definition = characters::active_character(&db, "a").unwrap().definition;
-            definition.source_id = "nadir".into();
-            db.execute(
-                "UPDATE characters SET data=? WHERE id='builtin-a'",
-                [serde_json::to_string(&definition).unwrap()],
-            )
-            .unwrap();
+            let imported = characters::import_pack(&db, &characters::nadir_pack()).unwrap();
+            characters::apply_pair(&db, [imported[0].id.clone(), imported[1].id.clone()]).unwrap();
         }
         lock(&state.story_clock).unwrap().elapsed = Duration::from_secs(3600);
         lock(&state.runtime).unwrap().hidden = true;
@@ -649,6 +644,101 @@ fn character_change_cancels_old_playback_and_retry_preserving_the_transcript() {
 }
 
 #[test]
+fn pack_switch_cancels_stale_playback_and_restores_the_same_characters_and_personal_data() {
+    let state = state();
+    let (first_pack, second_pack) = {
+        let db = lock(&state.db).unwrap();
+        let imported = characters::import_pack(&db, &characters::nadir_pack()).unwrap();
+        let first_pack = imported[0].pack_id.clone().unwrap();
+        let cloned = characters::clone_character(&db, &imported[0].id).unwrap();
+        let mut edited = imported[0].definition.clone();
+        edited.name = "나의 친구".into();
+        characters::save(&db, &imported[0].id, &edited).unwrap();
+        db.execute(
+            "INSERT INTO character_affinity VALUES('before-pack-switch',?1,'2026-09-20',7,'pack-switch')",
+            [&imported[0].id],
+        ).unwrap();
+        db.execute(
+            "INSERT INTO memories(id,content,source,updated) VALUES('saved-memory','나는 차를 좋아해','user-source',1)",
+            [],
+        ).unwrap();
+        (first_pack, cloned.pack_id.unwrap())
+    };
+    character_commands::mutate(&state, |db| characters::apply_pack(db, &first_pack)).unwrap();
+    let old = {
+        let _action = lock(&state.action).unwrap();
+        interrupt(&state, false).unwrap()
+    };
+    let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
+    let line = SceneLine {
+        persona: "a".into(),
+        expression: "평온".into(),
+        text: "  팩을 바꾸기 전의 대사\n그대로  ".into(),
+    };
+    assert!(present_line(
+        &state,
+        &line,
+        "script",
+        "before-pack-switch",
+        0,
+        2,
+        revision,
+        old.0,
+        &old.1,
+        false,
+    )
+    .unwrap());
+    let before = {
+        let db = lock(&state.db).unwrap();
+        serde_json::json!({
+            "characters": characters::active_members(&db).unwrap(),
+            "messages": store::messages(&db, 100).unwrap(),
+            "identities": store::message_identities(&db, 100).unwrap(),
+            "memories": store::memories(&db).unwrap(),
+            "relationships": store::relationships(&db).unwrap(),
+            "wordbook": wordbook::entries(&db).unwrap(),
+        })
+    };
+    character_commands::mutate(&state, |db| characters::apply_pack(db, &first_pack)).unwrap();
+    assert_eq!(state.epoch.load(Ordering::SeqCst), old.0);
+    assert_eq!(
+        store::revision(&lock(&state.db).unwrap()).unwrap(),
+        revision
+    );
+    assert!(!old.1.load(Ordering::SeqCst));
+    assert!(lock(&state.playback).unwrap().is_some());
+    character_commands::mutate(&state, |db| characters::apply_pack(db, &second_pack)).unwrap();
+    assert!(old.1.load(Ordering::SeqCst));
+    assert!(lock(&state.playback).unwrap().is_none());
+    assert!(!present_line(
+        &state,
+        &line,
+        "script",
+        "stale-pack-line",
+        1,
+        2,
+        revision,
+        old.0,
+        &old.1,
+        false,
+    )
+    .unwrap());
+    character_commands::mutate(&state, |db| characters::apply_pack(db, &first_pack)).unwrap();
+    let db = lock(&state.db).unwrap();
+    assert_eq!(
+        serde_json::json!({
+            "characters": characters::active_members(&db).unwrap(),
+            "messages": store::messages(&db, 100).unwrap(),
+            "identities": store::message_identities(&db, 100).unwrap(),
+            "memories": store::memories(&db).unwrap(),
+            "relationships": store::relationships(&db).unwrap(),
+            "wordbook": wordbook::entries(&db).unwrap(),
+        }),
+        before
+    );
+}
+
+#[test]
 fn character_change_rolls_back_if_prepared_scene_invalidation_fails() {
     let state = state();
     let id = characters::clone_character(&lock(&state.db).unwrap(), "builtin-a")
@@ -698,13 +788,11 @@ fn authored_idle_wordbook_overrides_the_character_pair_fallback() {
 }
 
 #[test]
-fn missing_model_uses_current_character_greetings_and_authored_pair_scenes() {
+fn missing_model_uses_imported_character_greetings_and_authored_pair_scenes() {
     let state = state();
     let db = lock(&state.db).unwrap();
-    let characters = [
-        characters::active_character(&db, "a").unwrap(),
-        characters::active_character(&db, "b").unwrap(),
-    ];
+    let characters = characters::import_pack(&db, &characters::nadir_pack()).unwrap();
+    characters::apply_pair(&db, [characters[0].id.clone(), characters[1].id.clone()]).unwrap();
     let greeting = character_script(&db, 0).unwrap();
     assert_eq!(greeting.len(), 2);
     for (line, character) in greeting.iter().zip(&characters) {

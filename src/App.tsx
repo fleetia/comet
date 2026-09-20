@@ -1,15 +1,17 @@
 import type { JSX } from "react";
 import { Button } from "@fleetia/lagrange";
-import { CharacterManager } from "./components/CharacterManager";
-import { CompanionBox } from "./components/CompanionBox";
-import { FaceTag } from "./components/FaceTag";
-import { Balloon } from "./components/Balloon";
-import { DesktopPreview } from "./components/DesktopPreview";
-import { DesktopToy } from "./components/DesktopToy";
-import { SettingsPanel } from "./components/SettingsPanel";
-import { WidgetManager } from "./widgets/WidgetManager";
-import { WidgetTool } from "./widgets/WidgetTool";
-import { WindowHeader } from "./components/WindowHeader";
+import { CharacterManager } from "./components/CharacterManager/CharacterManager";
+import { CompanionBox } from "./components/CompanionBox/CompanionBox";
+import { FaceTag } from "./components/FaceTag/FaceTag";
+import { Balloon } from "./components/Balloon/Balloon";
+import { DesktopPreview } from "./components/DesktopPreview/DesktopPreview";
+import { DesktopToy } from "./components/DesktopToy/DesktopToy";
+import { SettingsPanel } from "./components/SettingsPanel/SettingsPanel";
+import { WidgetManager } from "./widgets/WidgetManager/WidgetManager";
+import { WidgetTool } from "./widgets/WidgetTool/WidgetTool";
+import { WidgetDisplay } from "./widgets/WidgetDisplay/WidgetDisplay";
+import { MemoNote } from "./widgets/MemoNote/MemoNote";
+import { WindowHeader } from "./components/WindowHeader/WindowHeader";
 import { command, isDesktop, useSnapshot } from "./hooks/useSnapshot";
 import * as s from "./lagrange.css";
 
@@ -18,6 +20,10 @@ export function App(): JSX.Element {
   const query = new URLSearchParams(window.location.search);
   const view = query.get("view");
   if (view === "desktop-toy") return <DesktopToy id={query.get("id") ?? ""} />;
+  if (view === "widget-display") return <WidgetDisplay id={query.get("id") ?? ""} />;
+  if (view === "memo-note") {
+    return <MemoNote id={query.get("id") ?? ""} noteId={query.get("noteId") ?? ""} />;
+  }
   if (query.get("view") === "widgets") return <WidgetManager />;
   if (query.get("view") === "widget") return <WidgetTool id={query.get("id") ?? ""} />;
   if (!snapshot) {

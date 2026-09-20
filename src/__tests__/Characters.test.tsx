@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { CharacterManager } from "../components/CharacterManager";
-import { CharacterSharing } from "../components/CharacterSharing";
-import { CharacterDialogueEditor } from "../components/CharacterDialogueEditor";
-import { CompanionBox } from "../components/CompanionBox";
-import { Balloon } from "../components/Balloon";
+import { CharacterManager } from "../components/CharacterManager/CharacterManager";
+import { CharacterSharing } from "../components/CharacterSharing/CharacterSharing";
+import { CharacterDialogueEditor } from "../components/CharacterDialogueEditor/CharacterDialogueEditor";
+import { CompanionBox } from "../components/CompanionBox/CompanionBox";
+import { Balloon } from "../components/Balloon/Balloon";
 import { command, PREVIEW_SNAPSHOT } from "../hooks/useSnapshot";
 import type { CharacterPack, Snapshot } from "../types";
 vi.mock("../hooks/useSnapshot", async (load) => ({
@@ -43,6 +43,11 @@ const pack: CharacterPack = {
   wordbook: [],
 };
 
+it("does not expose the internal talk editor in character management", () => {
+  render(<CharacterManager snapshot={snapshot} />);
+  expect(screen.queryByRole("tab", { name: "대본 에디터" })).toBeNull();
+});
+
 it("keeps per-character drafts and exact dialogue through failed saves and snapshot refresh", async () => {
   const { rerender } = render(<CharacterManager snapshot={snapshot} />);
   await screen.findByText("이 캐릭터의 키워드 대사");
@@ -51,7 +56,7 @@ it("keeps per-character drafts and exact dialogue through failed saves and snaps
     target: { value: "  안녕.\n반가워.  " },
   });
   fireEvent.click(
-    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^별꼬리/ }),
+    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^B/ }),
   );
   await screen.findByText("이 캐릭터의 키워드 대사");
   fireEvent.change(screen.getByLabelText("성격과 말투"), { target: { value: "느긋한 말투" } });
@@ -112,7 +117,7 @@ it("reorders and releases roster members and keeps the last one on the desktop",
     characters: { ...snapshot.characters, active: ["builtin-a", "builtin-b", "local-third"] },
   };
   const { rerender } = render(<CharacterManager snapshot={trio} />);
-  expect(screen.getByText("함께 지내는 친구 3명: 나디르 · 별꼬리 · 모래")).toBeTruthy();
+  expect(screen.getByText("함께 지내는 친구 3명: A · B · 모래")).toBeTruthy();
   expect(screen.getByRole("button", { name: "앞으로" })).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByRole("button", { name: "뒤로" }));
   await waitFor(() =>
@@ -437,7 +442,7 @@ it("keeps character and dialogue drafts across tabs while locking dialogue targe
   fireEvent.click(screen.getByRole("tab", { name: "기본 정보" }));
   expect(screen.getByLabelText("이름")).toHaveProperty("value", "쓰던 이름");
   expect(
-    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^별꼬리/ }),
+    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^B/ }),
   ).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByRole("tab", { name: "공유" }));
   fireEvent.click(screen.getByRole("tab", { name: "등록 대사" }));

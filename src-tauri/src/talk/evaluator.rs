@@ -85,6 +85,20 @@ fn rank(key: &str, seed: u64) -> u64 {
     value ^= value >> 27;
     value.wrapping_mul(0x94d049bb133111eb) ^ (value >> 31)
 }
+/// Seeded Fisher-Yates order of the active slots for `speakers: random` scenes. The same
+/// (scene, seed, roster size) always yields the same order so pre-display revalidation matches.
+fn shuffled_slots(count: usize, key: &str, seed: u64) -> Vec<usize> {
+    let mut state = rank(key, seed.rotate_left(17) ^ 0x5eed_5eed_5eed_5eed);
+    let mut slots: Vec<usize> = (0..count).collect();
+    for index in (1..count).rev() {
+        state ^= state >> 12;
+        state ^= state << 25;
+        state ^= state >> 27;
+        let pick = (state.wrapping_mul(0x2545_f491_4f6c_dd1d) % (index as u64 + 1)) as usize;
+        slots.swap(index, pick);
+    }
+    slots
+}
 fn member_slot(context: &EvalContext, member: &str) -> Option<usize> {
     if let Some(source) = member.strip_prefix("source:") {
         crate::characters::SLOTS[..context.active.len()]
@@ -140,8 +154,18 @@ fn eligible(
         }
     }
     let mut lines = Vec::new();
-    render(&scene.body, scene, context, text_values, &mut lines)
-        .map_err(|error| format!("render_error: {error}"))?;
+    let order = scene
+        .random_speakers
+        .then(|| shuffled_slots(context.active.len(), &scene.key, context.seed));
+    render(
+        &scene.body,
+        scene,
+        context,
+        text_values,
+        order.as_deref(),
+        &mut lines,
+    )
+    .map_err(|error| format!("render_error: {error}"))?;
     if lines.is_empty() || lines.len() > 8 {
         return Err("line_count: 장면은 1~8줄이어야 해요.".into());
     }
@@ -159,6 +183,7 @@ fn render(
     scene: &Scene,
     context: &EvalContext,
     text_values: &BTreeMap<String, Value>,
+    order: Option<&[usize]>,
     lines: &mut Vec<SceneLine>,
 ) -> Result<(), String> {
     for statement in body {
@@ -171,7 +196,7 @@ fn render(
                 } else {
                     no
                 };
-                render(branch, scene, context, text_values, lines)?;
+                render(branch, scene, context, text_values, order, lines)?;
             }
             Statement::Line {
                 speaker,
@@ -211,6 +236,10 @@ fn render(
                     pair.get(*speaker)
                         .and_then(|member| member_slot(context, member))
                         .ok_or("활성 캐릭터가 바뀌었어요.")?
+                } else if let Some(order) = order {
+                    *order
+                        .get(*speaker)
+                        .ok_or("지금 함께 지내는 친구 수보다 많은 화자예요.")?
                 } else {
                     *speaker
                 };

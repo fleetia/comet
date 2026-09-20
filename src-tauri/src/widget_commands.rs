@@ -2,10 +2,13 @@ use crate::{
     app::{interrupt, lock, now, publish, scene::start_scene, windows::skip_talk, AppState},
     store,
     types::SceneLine,
+    widget_backgrounds,
     widgets::{self, storage, WidgetEvent, WidgetRequest, WidgetSnapshot},
 };
+use serde_json::Value;
 use std::sync::{atomic::Ordering, Arc};
 use tauri::{Emitter, Manager};
+use tauri_plugin_dialog::DialogExt;
 
 pub(crate) fn publish_widgets(app: &tauri::AppHandle, state: &AppState) {
     if let Ok(db) = lock(&state.db) {
@@ -25,7 +28,7 @@ fn current_events(state: &AppState, db: &rusqlite::Connection) -> Result<(), Str
     Ok(())
 }
 
-fn change<T>(
+pub(crate) fn change<T>(
     state: &AppState,
     action: impl FnOnce(&rusqlite::Connection) -> Result<T, String>,
 ) -> Result<T, String> {
@@ -36,6 +39,33 @@ fn change<T>(
     let db = lock(&state.db)?;
     current_events(state, &db)?;
     action(&db)
+}
+
+fn active_appearance_target(
+    instance: &widgets::WidgetInstance,
+    expected_revision: i64,
+) -> Result<(), String> {
+    if !instance.installed || !instance.enabled {
+        return Err("설치하고 켠 위젯만 사용할 수 있어요.".into());
+    }
+    if instance.revision != expected_revision {
+        return Err(
+            "다른 화면에서 위젯이 변경됐어요. 최신 상태를 확인하고 다시 시도해 주세요.".into(),
+        );
+    }
+    if !widgets::appearance::supports(&instance.kind) {
+        return Err("이 위젯은 바탕화면 표시를 지원하지 않아요.".into());
+    }
+    Ok(())
+}
+
+fn close_widget_windows(app: &tauri::AppHandle, id: &str) -> Result<(), String> {
+    for label in [format!("widget-{id}"), format!("widget-display-{id}")] {
+        if let Some(window) = app.get_webview_window(&label) {
+            window.close().map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -52,6 +82,7 @@ pub(crate) fn install_widgets(
     kinds: Vec<String>,
 ) -> Result<(), String> {
     let result = change(&state, |db| storage::install(db, &state.app_data, &kinds));
+    crate::memo_notes::schedule_sync(&app);
     publish_widgets(&app, &state);
     result
 }
@@ -67,51 +98,55 @@ pub(crate) fn finish_widget_onboarding(
 }
 
 #[tauri::command]
-pub(crate) fn set_widget_enabled(
+pub(crate) async fn set_widget_enabled(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
     enabled: bool,
 ) -> Result<(), String> {
-    change(&state, |db| {
+    let mutation = |db: &rusqlite::Connection| {
         storage::set_enabled(db, &id, enabled)?;
         if !enabled {
             cancel_widget_jobs(&state, Some(&id))?;
         }
         Ok(())
-    })?;
+    };
+    if enabled {
+        change(&state, mutation)?;
+    } else {
+        crate::memo_notes::with_flushed_notes(&app, &state, &id, mutation).await?;
+    }
+    crate::memo_notes::schedule_sync(&app);
     if !enabled {
         crate::desktop_toys::remove_widget(&app, &id);
         cancel_widget_scene(&app, &state)?;
-        if let Some(window) = app.get_webview_window(&format!("widget-{id}")) {
-            window.close().map_err(|error| error.to_string())?;
-        }
+        close_widget_windows(&app, &id)?;
     }
     publish_widgets(&app, &state);
     Ok(())
 }
 
 #[tauri::command]
-pub(crate) fn remove_widget(
+pub(crate) async fn remove_widget(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
     delete_data: bool,
 ) -> Result<(), String> {
-    change(&state, |db| {
+    crate::memo_notes::with_flushed_notes(&app, &state, &id, |db| {
         storage::remove(db, &state.app_data, &id, delete_data)?;
         cancel_widget_jobs(&state, Some(&id))
-    })?;
+    })
+    .await?;
+    crate::memo_notes::schedule_sync(&app);
     cancel_widget_scene(&app, &state)?;
     crate::desktop_toys::remove_widget(&app, &id);
-    if let Some(window) = app.get_webview_window(&format!("widget-{id}")) {
-        window.close().map_err(|error| error.to_string())?;
-    }
+    close_widget_windows(&app, &id)?;
     publish_widgets(&app, &state);
     Ok(())
 }
 
-fn cancel_widget_scene(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
+pub(crate) fn cancel_widget_scene(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
     {
         let _action = lock(&state.action)?;
         let has_scene = lock(&state.widget_playback)?.is_some();
@@ -177,6 +212,12 @@ pub(crate) async fn execute_widget(
     request: WidgetRequest,
 ) -> Result<(), String> {
     if matches!(request.action.as_str(), "desktop-open" | "desktop-clear") {
+        let launch = if request.action == "desktop-open" {
+            let token = crate::desktop_toys::launch_token(&app, &request.instance_id)?;
+            Some((token, crate::desktop_toys::current_geometry(&app).await?))
+        } else {
+            None
+        };
         return change(&state, |db| {
             let instance = storage::get(db, &request.instance_id)?;
             if !instance.installed
@@ -186,9 +227,8 @@ pub(crate) async fn execute_widget(
             {
                 return Err("장난감 상태가 바뀌었어요. 다시 열어 주세요.".into());
             }
-            if request.action == "desktop-clear" {
-                crate::desktop_toys::remove_widget(&app, &instance.id);
-            } else {
+            if let Some((token, geometry)) = &launch {
+                crate::desktop_toys::validate_launch(&app, &instance.id, *token)?;
                 crate::desktop_toys::open(
                     &app,
                     &instance.id,
@@ -196,7 +236,10 @@ pub(crate) async fn execute_widget(
                     None,
                     instance.revision,
                     false,
+                    geometry,
                 )?;
+            } else {
+                crate::desktop_toys::remove_widget(&app, &instance.id);
             }
             Ok(())
         });
@@ -209,10 +252,106 @@ pub(crate) async fn execute_widget(
             uuid::Uuid::new_v4().as_u128() as u64,
         )
     })?;
+    crate::memo_notes::schedule_sync(&app);
     // New state can invalidate an already playing reaction to this widget.
     cancel_widget_scene(&app, &state)?;
     publish_widgets(&app, &state);
     Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn configure_widget_appearance(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    expected_revision: i64,
+    input: Value,
+) -> Result<(), String> {
+    change(&state, |db| {
+        let instance = storage::get(db, &id)?;
+        active_appearance_target(&instance, expected_revision)?;
+        let data = widgets::configure_appearance(&instance, &input)?;
+        storage::commit_data(db, &id, expected_revision, data, vec![], now())
+    })?;
+    crate::memo_notes::schedule_sync(&app);
+    cancel_widget_scene(&app, &state)?;
+    publish_widgets(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn choose_widget_background(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    expected_revision: i64,
+) -> Result<bool, String> {
+    {
+        let db = lock(&state.db)?;
+        let instance = storage::get(&db, &id)?;
+        active_appearance_target(&instance, expected_revision)?;
+    }
+    let (send, receive) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("위젯 배경 이미지 선택")
+        .add_filter("이미지", &widget_backgrounds::EXTENSIONS)
+        .pick_file(move |path| {
+            let _ = send.send(path);
+        });
+    let Some(path) = receive
+        .await
+        .map_err(|_| "파일 선택이 중단됐어요.".to_string())?
+    else {
+        return Ok(false);
+    };
+    let path = path.into_path().map_err(|error| error.to_string())?;
+    let bytes = tauri::async_runtime::spawn_blocking(move || widget_backgrounds::read_file(&path))
+        .await
+        .map_err(|error| error.to_string())??;
+    change(&state, |db| {
+        let tx = db
+            .unchecked_transaction()
+            .map_err(|error| error.to_string())?;
+        let instance = storage::get(&tx, &id)?;
+        active_appearance_target(&instance, expected_revision)?;
+        widget_backgrounds::put(&tx, &id, &bytes)?;
+        storage::bump_revision(&tx, &id, expected_revision)?;
+        tx.commit().map_err(|error| error.to_string())
+    })?;
+    crate::memo_notes::schedule_sync(&app);
+    cancel_widget_scene(&app, &state)?;
+    publish_widgets(&app, &state);
+    Ok(true)
+}
+
+#[tauri::command]
+pub(crate) fn remove_widget_background(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    expected_revision: i64,
+) -> Result<bool, String> {
+    let removed = change(&state, |db| {
+        let tx = db
+            .unchecked_transaction()
+            .map_err(|error| error.to_string())?;
+        let instance = storage::get(&tx, &id)?;
+        active_appearance_target(&instance, expected_revision)?;
+        if !widget_backgrounds::remove(&tx, &id)? {
+            tx.commit().map_err(|error| error.to_string())?;
+            return Ok(false);
+        }
+        storage::bump_revision(&tx, &id, expected_revision)?;
+        tx.commit().map_err(|error| error.to_string())?;
+        Ok(true)
+    })?;
+    if removed {
+        crate::memo_notes::schedule_sync(&app);
+        cancel_widget_scene(&app, &state)?;
+        publish_widgets(&app, &state);
+    }
+    Ok(removed)
 }
 
 #[tauri::command]
@@ -275,11 +414,14 @@ pub(crate) async fn open_widget(
     }
     uuid::Uuid::parse_str(&id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
     if crate::behavior::TOYS.contains(&instance.kind.as_str()) {
+        let token = crate::desktop_toys::launch_token(&app, &id)?;
+        let geometry = crate::desktop_toys::current_geometry(&app).await?;
         return change(&state, |db| {
             let current = storage::get(db, &id)?;
             if !current.installed || !current.enabled {
                 return Err("장난감을 설치하고 켜 주세요.".into());
             }
+            crate::desktop_toys::validate_launch(&app, &id, token)?;
             crate::desktop_toys::open(
                 &app,
                 &current.id,
@@ -287,6 +429,7 @@ pub(crate) async fn open_widget(
                 None,
                 current.revision,
                 false,
+                &geometry,
             )?;
             Ok(())
         });
@@ -315,9 +458,60 @@ pub(crate) async fn open_widget(
 }
 
 #[tauri::command]
+pub(crate) async fn open_widget_display(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+) -> Result<(), String> {
+    if crate::unavailable(&state) {
+        return Err("앱을 정리하고 있어요.".into());
+    }
+    let instance = storage::get(&*lock(&state.db)?, &id)?;
+    if !instance.installed || !instance.enabled || !widgets::appearance::supports(&instance.kind) {
+        return Err("기념일·날씨·배터리 위젯을 설치하고 켜 주세요.".into());
+    }
+    uuid::Uuid::parse_str(&id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
+    let label = format!("widget-display-{id}");
+    if let Some(window) = app.get_webview_window(&label) {
+        window.show().map_err(|error| error.to_string())?;
+        return window.set_focus().map_err(|error| error.to_string());
+    }
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        label,
+        tauri::WebviewUrl::App(format!("index.html?view=widget-display&id={id}").into()),
+    )
+    .title(format!(
+        "comet · {}",
+        widgets::manifest(&instance.kind)?.name
+    ))
+    .inner_size(340.0, 220.0)
+    .min_inner_size(240.0, 160.0)
+    .resizable(true)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .maximizable(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .build()
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub(crate) fn close_widget(app: tauri::AppHandle, id: String) -> Result<(), String> {
     uuid::Uuid::parse_str(&id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
     if let Some(window) = app.get_webview_window(&format!("widget-{id}")) {
+        window.close().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn close_widget_display(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    uuid::Uuid::parse_str(&id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
+    if let Some(window) = app.get_webview_window(&format!("widget-display-{id}")) {
         window.close().map_err(|error| error.to_string())?;
     }
     Ok(())
@@ -404,13 +598,14 @@ fn fallback_reaction(
     db: &rusqlite::Connection,
     event: &WidgetEvent,
 ) -> Result<Option<Vec<SceneLine>>, String> {
-    let a = crate::characters::active_character(db, "a")?;
-    let b = crate::characters::active_character(db, "b")?;
-    let sources = [
-        a.definition.source_id.as_str(),
-        b.definition.source_id.as_str(),
-    ];
-    if sources.contains(&"nadir") && sources.contains(&"star-tail") {
+    // Any roster size: the Nadir/Byulkkori pair skips raw widget text wherever the two sit.
+    let members = crate::characters::active_members(db)?;
+    let has = |source: &str| {
+        members
+            .iter()
+            .any(|member| member.definition.source_id == source)
+    };
+    if has("nadir") && has("star-tail") {
         return Ok(None);
     }
     Ok(Some(vec![SceneLine {
@@ -425,7 +620,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn factory_pair_never_speaks_raw_widget_notifications_but_custom_characters_keep_fallback() {
+    fn addon_pair_skips_raw_widget_notifications_while_default_and_custom_keep_fallback() {
         let db = store::open(std::path::Path::new(":memory:")).unwrap();
         let event = WidgetEvent {
             id: "test-event".into(),
@@ -440,8 +635,15 @@ mod tests {
                 payload: serde_json::json!({}),
             },
         };
+        let lines = fallback_reaction(&db, &event).unwrap().unwrap();
+        assert_eq!(lines[0].text, event.event.text);
+        let imported =
+            crate::characters::import_pack(&db, &crate::characters::nadir_pack()).unwrap();
+        crate::characters::apply_pair(&db, [imported[0].id.clone(), imported[1].id.clone()])
+            .unwrap();
         assert!(fallback_reaction(&db, &event).unwrap().is_none());
-        crate::characters::apply_pair(&db, ["builtin-b".into(), "builtin-a".into()]).unwrap();
+        crate::characters::apply_pair(&db, [imported[1].id.clone(), imported[0].id.clone()])
+            .unwrap();
         assert!(fallback_reaction(&db, &event).unwrap().is_none());
         let character = crate::characters::active_character(&db, "a").unwrap();
         let mut definition = character.definition;

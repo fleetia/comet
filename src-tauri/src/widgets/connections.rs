@@ -1,3 +1,4 @@
+use super::appearance;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{process::Stdio, time::Duration};
@@ -30,6 +31,8 @@ struct State {
     error: Option<String>,
     config: Value,
     observation: Option<Value>,
+    #[serde(default)]
+    appearance: appearance::Appearance,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -54,7 +57,7 @@ pub fn initial(kind: &str) -> Value {
     if !["weather", "music", "device"].contains(&kind) {
         return Value::Null;
     }
-    json!({"configured":false,"status":"permission-needed","lastSuccessAt":null,"error":null,"config":{},"observation":null})
+    json!({"configured":false,"status":"permission-needed","lastSuccessAt":null,"error":null,"config":{},"observation":null,"appearance":appearance::initial()})
 }
 
 pub fn min_interval(kind: &str) -> i64 {

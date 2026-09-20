@@ -1,5 +1,5 @@
 import type { LocalModel, Snapshot } from "./types";
-import CHARACTER_PACK from "../examples/character-packs/nadir-and-star-tail.comet-character.json";
+import CHARACTER_PACK from "../src-tauri/content/default.comet-character.json";
 
 export const PREVIEW_SNAPSHOT: Snapshot = {
   characters: {

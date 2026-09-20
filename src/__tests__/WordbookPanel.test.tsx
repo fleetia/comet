@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { WordbookPanel } from "../components/WordbookPanel";
+import { WordbookPanel } from "../components/WordbookPanel/WordbookPanel";
 import { command } from "../hooks/useSnapshot";
 import type { WordbookEntry } from "../types";
 vi.mock("../hooks/useSnapshot", async (load) => ({

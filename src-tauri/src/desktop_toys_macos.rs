@@ -6,7 +6,12 @@ use objc2::{
     sel, MainThreadMarker,
 };
 use objc2_foundation::{NSPoint, NSRect, NSSize};
-use std::{cell::RefCell, collections::BTreeMap, ffi::CString, sync::OnceLock};
+use std::{
+    cell::RefCell,
+    collections::BTreeMap,
+    ffi::CString,
+    sync::{Mutex, OnceLock},
+};
 use tauri::{AppHandle, Manager};
 
 struct Panel {
@@ -16,6 +21,41 @@ struct Panel {
     frame: Frame,
 }
 thread_local! { static PANELS: RefCell<BTreeMap<String, Panel>> = const { RefCell::new(BTreeMap::new()) }; }
+
+#[derive(Default)]
+pub(super) struct Updates {
+    pending: Mutex<PendingUpdates>,
+}
+
+#[derive(Default)]
+struct PendingUpdates {
+    frames: BTreeMap<String, (f64, f64, Frame)>,
+    scheduled: bool,
+}
+
+impl PendingUpdates {
+    fn push(&mut self, id: String, x: f64, y: f64, frame: Frame) -> bool {
+        self.frames.insert(id, (x, y, frame));
+        !std::mem::replace(&mut self.scheduled, true)
+    }
+
+    fn take(&mut self) -> BTreeMap<String, (f64, f64, Frame)> {
+        self.scheduled = false;
+        std::mem::take(&mut self.frames)
+    }
+}
+
+fn appearance_changed(previous: &Frame, current: &Frame) -> bool {
+    previous.kind != current.kind
+        || match current.kind {
+            Kind::Ball | Kind::PaperPlane => previous.angle != current.angle,
+            Kind::Bubbles => {
+                previous.bubble_size != current.bubble_size
+                    || previous.bubble_color != current.bubble_color
+            }
+            Kind::Pet => false,
+        }
+}
 
 fn on_main(app: &AppHandle, action: impl FnOnce() + Send + 'static) -> Result<(), String> {
     if MainThreadMarker::new().is_some() {
@@ -81,6 +121,19 @@ unsafe fn oval(rect: NSRect, fill: (f64, f64, f64, f64)) {
     let path: *mut AnyObject = msg_send![class!(NSBezierPath),bezierPathWithOvalInRect:rect];
     let _: () = msg_send![path, fill];
 }
+type Rgba = (f64, f64, f64, f64);
+type BubblePalette = (Rgba, Rgba);
+
+fn bubble_palette(index: u8) -> BubblePalette {
+    match index % 6 {
+        0 => ((0.70, 0.87, 0.96, 0.48), (0.40, 0.66, 0.78, 0.9)),
+        1 => ((0.82, 0.74, 0.97, 0.48), (0.55, 0.40, 0.76, 0.9)),
+        2 => ((0.98, 0.70, 0.82, 0.48), (0.86, 0.36, 0.58, 0.9)),
+        3 => ((1.00, 0.88, 0.55, 0.48), (0.84, 0.60, 0.18, 0.9)),
+        4 => ((0.56, 0.90, 0.78, 0.48), (0.24, 0.62, 0.48, 0.9)),
+        _ => ((1.00, 0.70, 0.55, 0.48), (0.82, 0.40, 0.24, 0.9)),
+    }
+}
 fn rect(x: f64, y: f64, width: f64, height: f64) -> NSRect {
     NSRect::new(NSPoint::new(x, y), NSSize::new(width, height))
 }
@@ -115,12 +168,26 @@ unsafe extern "C-unwind" fn draw(view: &AnyObject, _: Sel, _: NSRect) {
                     );
                 }
                 Kind::Bubbles => {
-                    oval(rect(9.0, 9.0, 38.0, 38.0), (0.70, 0.87, 0.96, 0.48));
-                    let path: *mut AnyObject = msg_send![class!(NSBezierPath),bezierPathWithOvalInRect:rect(9.0,9.0,38.0,38.0)];
-                    color(0.40, 0.66, 0.78, 0.9);
+                    let diameter = frame.bubble_size.clamp(18.0, 50.0);
+                    let inset = (SIZE - diameter) / 2.0;
+                    let bubble_rect = rect(inset, inset, diameter, diameter);
+                    let (fill, stroke) = bubble_palette(frame.bubble_color);
+                    oval(bubble_rect, fill);
+                    let path: *mut AnyObject =
+                        msg_send![class!(NSBezierPath),bezierPathWithOvalInRect:bubble_rect];
+                    color(stroke.0, stroke.1, stroke.2, stroke.3);
                     let _: () = msg_send![path,setLineWidth:1.5_f64];
                     let _: () = msg_send![path, stroke];
-                    oval(rect(16.0, 15.0, 7.0, 7.0), (1.0, 1.0, 1.0, 0.95));
+                    let highlight = (diameter * 0.18).max(4.0);
+                    oval(
+                        rect(
+                            inset + diameter * 0.2,
+                            inset + diameter * 0.16,
+                            highlight,
+                            highlight,
+                        ),
+                        (1.0, 1.0, 1.0, 0.95),
+                    );
                 }
                 Kind::PaperPlane => {
                     let angle = frame.angle.to_radians();
@@ -287,24 +354,63 @@ pub(super) fn create(app: &AppHandle, frame: Frame, x: f64, y: f64) -> Result<()
 }
 
 pub(super) fn update(app: &AppHandle, id: String, x: f64, y: f64, frame: Frame) {
-    let _ = on_main(app, move || {
+    let runtime = app.state::<super::Runtime>();
+    let schedule = runtime
+        .native_updates
+        .pending
+        .lock()
+        .map(|mut pending| pending.push(id, x, y, frame))
+        .unwrap_or(false);
+    if !schedule {
+        return;
+    }
+    let app_copy = app.clone();
+    if app
+        .run_on_main_thread(move || apply_updates(&app_copy))
+        .is_err()
+    {
+        if let Ok(mut pending) = runtime.native_updates.pending.lock() {
+            *pending = PendingUpdates::default();
+        }
+    }
+}
+
+fn apply_updates(app: &AppHandle) {
+    let runtime = app.state::<super::Runtime>();
+    let frames = match runtime.native_updates.pending.lock() {
+        Ok(mut pending) => pending.take(),
+        Err(_) => return,
+    };
+    if frames.is_empty() {
+        return;
+    }
+    let height = unsafe { screen_height() };
+    for (id, (x, y, frame)) in frames {
         let target = PANELS.with(|panels| {
             let mut panels = panels.borrow_mut();
             panels.get_mut(&id).map(|panel| {
+                let redraw = appearance_changed(&panel.frame, &frame);
                 panel.frame = frame;
-                (panel.window.clone(), panel.view.clone())
+                (panel.window.clone(), panel.view.clone(), redraw)
             })
         });
-        if let Some((panel, view)) = target {
+        if let Some((panel, view, redraw)) = target {
+            // AppKit may invoke drawRect or mouse callbacks while moving a panel.
+            // Neither the pending queue nor PANELS may stay borrowed here.
             unsafe {
-                let _: () =
-                    msg_send![&*panel,setFrameTopLeftPoint:NSPoint::new(x,screen_height()-y)];
-                let _: () = msg_send![&*view,setNeedsDisplay:Bool::YES];
+                let _: () = msg_send![&*panel,setFrameTopLeftPoint:NSPoint::new(x,height-y)];
+                if redraw {
+                    let _: () = msg_send![&*view,setNeedsDisplay:Bool::YES];
+                }
             }
         }
-    });
+    }
 }
 pub(super) fn close(app: &AppHandle, id: String) {
+    let runtime = app.state::<super::Runtime>();
+    if let Ok(mut pending) = runtime.native_updates.pending.lock() {
+        pending.frames.remove(&id);
+    }
     let _ = on_main(app, move || {
         let panel = PANELS.with(|panels| panels.borrow_mut().remove(&id));
         if let Some(panel) = panel {
@@ -314,4 +420,89 @@ pub(super) fn close(app: &AppHandle, id: String) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame(id: &str, kind: Kind) -> Frame {
+        Frame {
+            id: id.into(),
+            kind,
+            angle: 0.0,
+            dragging: false,
+            moving: true,
+            external_windows_available: true,
+            bubble_size: 38.0,
+            bubble_color: 0,
+        }
+    }
+
+    #[test]
+    fn pending_frames_replace_stale_positions_and_preserve_other_actors() {
+        let mut pending = PendingUpdates::default();
+        let ball = frame("ball", Kind::Ball);
+        let bubble = frame("bubble", Kind::Bubbles);
+        assert!(pending.push(ball.id.clone(), 1.0, 2.0, ball.clone()));
+        assert!(!pending.push(bubble.id.clone(), 3.0, 4.0, bubble.clone()));
+        let latest_ball = Frame {
+            angle: 45.0,
+            ..ball
+        };
+        assert!(!pending.push(latest_ball.id.clone(), 5.0, 6.0, latest_ball.clone()));
+
+        let frames = pending.take();
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames["ball"], (5.0, 6.0, latest_ball));
+        assert_eq!(frames["bubble"], (3.0, 4.0, bubble));
+    }
+
+    #[test]
+    fn updates_arriving_after_drain_schedule_one_new_callback() {
+        let mut pending = PendingUpdates::default();
+        let ball = frame("ball", Kind::Ball);
+        assert!(pending.push(ball.id.clone(), 1.0, 2.0, ball.clone()));
+        let drawing = pending.take();
+        assert!(pending.push(ball.id.clone(), 3.0, 4.0, ball.clone()));
+        assert!(!pending.push(ball.id.clone(), 5.0, 6.0, ball.clone()));
+
+        assert_eq!(drawing["ball"], (1.0, 2.0, ball.clone()));
+        assert_eq!(pending.take()["ball"], (5.0, 6.0, ball));
+        assert!(pending.take().is_empty());
+    }
+
+    #[test]
+    fn redraw_depends_on_visible_shape_not_movement_status() {
+        for kind in [Kind::Ball, Kind::PaperPlane, Kind::Bubbles, Kind::Pet] {
+            let previous = frame("toy", kind);
+            let mut current = Frame {
+                dragging: true,
+                moving: false,
+                external_windows_available: false,
+                ..previous.clone()
+            };
+            assert!(!appearance_changed(&previous, &current));
+            current.angle = 90.0;
+            assert_eq!(
+                appearance_changed(&previous, &current),
+                matches!(kind, Kind::Ball | Kind::PaperPlane)
+            );
+        }
+        let bubble = frame("bubble", Kind::Bubbles);
+        assert!(appearance_changed(
+            &bubble,
+            &Frame {
+                bubble_color: 1,
+                ..bubble.clone()
+            }
+        ));
+        assert!(appearance_changed(
+            &bubble,
+            &Frame {
+                bubble_size: 28.0,
+                ..bubble.clone()
+            }
+        ));
+    }
 }

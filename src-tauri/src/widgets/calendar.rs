@@ -107,9 +107,22 @@ fn validate_name(name: &str) -> Result<(), CalendarError> {
     }
     Ok(())
 }
-fn key(id: &str) -> Result<keyring::Entry, CalendarError> {
+const CALENDAR_SERVICE: &str = "space.starlight.comet.calendar";
+
+fn validate_id(id: &str) -> Result<(), CalendarError> {
     uuid::Uuid::parse_str(id).map_err(|_| invalid("연결 ID가 올바르지 않습니다."))?;
-    keyring::Entry::new("space.starlight.nanika-box.calendar", id)
+    Ok(())
+}
+
+fn key(id: &str) -> Result<keyring::Entry, CalendarError> {
+    validate_id(id)?;
+    keyring::Entry::new(CALENDAR_SERVICE, id)
+        .map_err(|_| error("auth-error", "OS 자격 증명 저장소를 열 수 없습니다."))
+}
+fn legacy_key(id: &str) -> Result<keyring::Entry, CalendarError> {
+    validate_id(id)?;
+    let service = crate::legacy_names::calendar_service();
+    keyring::Entry::new(&service, id)
         .map_err(|_| error("auth-error", "OS 자격 증명 저장소를 열 수 없습니다."))
 }
 fn save(credential: &Credential) -> Result<(), CalendarError> {
@@ -117,19 +130,38 @@ fn save(credential: &Credential) -> Result<(), CalendarError> {
         .map_err(|_| invalid("연결 정보를 저장할 수 없습니다."))?;
     key(&credential.connection_id)?
         .set_password(&value)
-        .map_err(|_| error("auth-error", "OS 자격 증명 저장소에 저장하지 못했습니다."))
+        .map_err(|_| error("auth-error", "OS 자격 증명 저장소에 저장하지 못했습니다."))?;
+    if let Ok(entry) = legacy_key(&credential.connection_id) {
+        let _ = entry.delete_credential();
+    }
+    Ok(())
 }
 fn load(connection: &Connection) -> Result<Credential, CalendarError> {
-    let value = key(&connection.id)?.get_password().map_err(|_| {
-        error(
-            "auth-error",
-            "연결 정보를 찾을 수 없습니다. 다시 연결해 주세요.",
-        )
-    })?;
+    let (value, migrate) = match key(&connection.id)?.get_password() {
+        Ok(value) => (value, false),
+        Err(keyring::Error::NoEntry) => (
+            legacy_key(&connection.id)?.get_password().map_err(|_| {
+                error(
+                    "auth-error",
+                    "연결 정보를 찾을 수 없습니다. 다시 연결해 주세요.",
+                )
+            })?,
+            true,
+        ),
+        Err(_) => {
+            return Err(error(
+                "auth-error",
+                "연결 정보를 찾을 수 없습니다. 다시 연결해 주세요.",
+            ));
+        }
+    };
     let credential: Credential = serde_json::from_str(&value)
         .map_err(|_| error("auth-error", "저장된 연결 정보를 읽을 수 없습니다."))?;
     if credential.connection_id != connection.id || credential.provider != connection.provider {
         return Err(error("auth-error", "연결 정보의 소유 범위가 다릅니다."));
+    }
+    if migrate {
+        save(&credential)?;
     }
     Ok(credential)
 }
@@ -144,6 +176,15 @@ pub fn commit_refresh(value: &Refreshed) -> Result<(), CalendarError> {
 }
 pub fn disconnect(connection: &Connection) -> Result<(), CalendarError> {
     match key(&connection.id)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => {}
+        Err(_) => {
+            return Err(error(
+                "auth-error",
+                "OS 자격 증명 저장소에서 연결을 삭제하지 못했습니다.",
+            ))
+        }
+    }
+    match legacy_key(&connection.id)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(_) => Err(error(
             "auth-error",

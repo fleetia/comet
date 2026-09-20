@@ -1,4 +1,4 @@
-use super::{EventDraft, WidgetEffect};
+use super::{appearance, EventDraft, WidgetEffect};
 use chrono::{DateTime, Days, Months, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -58,11 +58,30 @@ struct Note {
     title: String,
     body: String,
     updated_at: i64,
+    #[serde(default)]
+    is_open: bool,
+    #[serde(default = "memo_font_size")]
+    font_size: u8,
+}
+fn memo_font_size() -> u8 {
+    16
+}
+fn note_font_size(input: &Value) -> Result<u8, String> {
+    match input.get("fontSize") {
+        None => Ok(memo_font_size()),
+        Some(value) => value
+            .as_u64()
+            .filter(|size| (12..=24).contains(size) && size % 2 == 0)
+            .map(|size| size as u8)
+            .ok_or_else(|| "글자 크기는 12부터 24까지 짝수여야 합니다.".into()),
+    }
 }
 #[derive(Serialize, Deserialize)]
 struct Clock {
     format: String,
     anniversaries: Vec<Anniversary>,
+    #[serde(default)]
+    appearance: appearance::Appearance,
 }
 #[derive(Serialize, Deserialize)]
 struct Anniversary {
@@ -164,7 +183,7 @@ pub fn initial(kind: &str) -> Value {
             json!({"status":"idle","mode":"focus","durationMs":1500000,"remainingMs":1500000,"deadline":null,"todoId":null})
         }
         "preparation" => json!({"envelopes":[]}),
-        "clock" => json!({"format":"24h","anniversaries":[]}),
+        "clock" => json!({"format":"24h","anniversaries":[],"appearance":appearance::initial()}),
         "memo" => json!({"notes":[]}),
         _ => Value::Null,
     }
@@ -581,9 +600,14 @@ pub fn act(
                     }
                     state.notes.push(Note {
                         id: key,
-                        title: text(input, "title", 500)?,
+                        title: optional_text(input, "title", 500)?,
                         body: optional_text(input, "body", 50000)?,
                         updated_at: now,
+                        is_open: input
+                            .get("isOpen")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                        font_size: note_font_size(input)?,
                     });
                 }
                 "update" | "delete" => {
@@ -597,6 +621,18 @@ pub fn act(
                         state.notes.remove(at);
                     } else {
                         let item = &mut state.notes[at];
+                        if let Some(expected) = input.get("expectedBody") {
+                            if expected.as_str() != Some(item.body.as_str()) {
+                                return Err("다른 화면에서 이 메모가 변경됐어요. 내용을 확인한 뒤 다시 저장해 주세요.".into());
+                            }
+                        }
+                        if let Some(open) = input.get("isOpen") {
+                            item.is_open =
+                                open.as_bool().ok_or("메모 열림 값이 올바르지 않습니다.")?;
+                        }
+                        if input.get("fontSize").is_some() {
+                            item.font_size = note_font_size(input)?;
+                        }
                         if input.get("title").is_some() {
                             item.title = text(input, "title", 500)?;
                         }

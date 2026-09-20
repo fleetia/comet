@@ -1,7 +1,10 @@
 use crate::{
     app::{interrupt, lock, now, publish, windows::skip_talk, AppState},
     character_files, character_sprites,
-    characters::{self, CharacterDefinition, CharacterDialogue, CharacterPack, InstalledCharacter},
+    characters::{
+        self, CharacterDefinition, CharacterDialogue, CharacterPack, InstalledCharacter,
+        InstalledCharacterPack,
+    },
     store, wordbook,
 };
 use rusqlite::Connection;
@@ -11,11 +14,32 @@ use tauri_plugin_dialog::DialogExt;
 
 pub(crate) const SPRITE_SCHEME: &str = "sprite";
 
-fn sprite_response(status: u16, mime: &str, body: Vec<u8>) -> tauri::http::Response<Vec<u8>> {
-    tauri::http::Response::builder()
+pub(crate) fn sprite_response(
+    status: u16,
+    mime: &str,
+    body: Vec<u8>,
+    origin: Option<&str>,
+    dev_url: Option<&tauri::Url>,
+) -> tauri::http::Response<Vec<u8>> {
+    let allowed_origin = origin.filter(|origin| {
+        matches!(
+            *origin,
+            "tauri://localhost" | "http://tauri.localhost" | "https://tauri.localhost"
+        ) || (cfg!(debug_assertions)
+            && dev_url.is_some_and(|url| {
+                matches!(url.scheme(), "http" | "https")
+                    && url.origin().ascii_serialization() == *origin
+            }))
+    });
+    let mut response = tauri::http::Response::builder()
         .status(status)
         .header("Content-Type", mime)
         .header("Cache-Control", "public, max-age=31536000, immutable")
+        .header("Vary", "Origin");
+    if let Some(origin) = allowed_origin {
+        response = response.header("Access-Control-Allow-Origin", origin);
+    }
+    response
         .body(body)
         .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()))
 }
@@ -26,8 +50,13 @@ pub(crate) fn serve_sprite(
     ctx: tauri::UriSchemeContext<'_, tauri::Wry>,
     request: tauri::http::Request<Vec<u8>>,
 ) -> tauri::http::Response<Vec<u8>> {
+    let origin = request
+        .headers()
+        .get("Origin")
+        .and_then(|value| value.to_str().ok());
+    let dev_url = ctx.app_handle().config().build.dev_url.as_ref();
     let Ok(url) = tauri::Url::parse(&request.uri().to_string()) else {
-        return sprite_response(400, "text/plain", Vec::new());
+        return sprite_response(400, "text/plain", Vec::new(), origin, dev_url);
     };
     let id = url
         .path_segments()
@@ -39,14 +68,14 @@ pub(crate) fn serve_sprite(
         .find(|(key, _)| key == "expression")
         .map(|(_, value)| value.into_owned())
     else {
-        return sprite_response(400, "text/plain", Vec::new());
+        return sprite_response(400, "text/plain", Vec::new(), origin, dev_url);
     };
     let state = ctx.app_handle().state::<Arc<AppState>>();
     let found = lock(&state.db).and_then(|db| characters::sprite(&db, &id, &expression));
     match found {
-        Ok(Some(sprite)) => sprite_response(200, &sprite.mime, sprite.data),
-        Ok(None) => sprite_response(404, "text/plain", Vec::new()),
-        Err(_) => sprite_response(500, "text/plain", Vec::new()),
+        Ok(Some(sprite)) => sprite_response(200, &sprite.mime, sprite.data, origin, dev_url),
+        Ok(None) => sprite_response(404, "text/plain", Vec::new(), origin, dev_url),
+        Err(_) => sprite_response(500, "text/plain", Vec::new(), origin, dev_url),
     }
 }
 
@@ -190,6 +219,22 @@ pub(crate) fn clone_character(
     Ok(character)
 }
 #[tauri::command]
+pub(crate) fn get_character_packs(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<Vec<InstalledCharacterPack>, String> {
+    characters::installed_packs(&*lock(&state.db)?)
+}
+#[tauri::command]
+pub(crate) fn apply_character_pack(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    pack_id: String,
+) -> Result<(), String> {
+    mutate(&state, |db| characters::apply_pack(db, &pack_id))?;
+    publish(&app, &state);
+    Ok(())
+}
+#[tauri::command]
 pub(crate) fn apply_character_roster(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
@@ -317,4 +362,90 @@ pub(crate) fn save_character_pack_attribution(
     write_sprite(&app, &state, |db| {
         characters::save_pack_attribution(db, &pack_id, &value)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sprite_response;
+
+    #[test]
+    fn sprite_cors_allows_only_app_origins_and_varies_cached_responses() {
+        for origin in [
+            "tauri://localhost",
+            "http://tauri.localhost",
+            "https://tauri.localhost",
+        ] {
+            let response = sprite_response(200, "image/png", vec![1, 2, 3], Some(origin), None);
+            assert_eq!(response.status(), 200);
+            assert_eq!(response.headers()["Access-Control-Allow-Origin"], origin);
+            assert_eq!(response.headers()["Vary"], "Origin");
+            assert_eq!(response.headers()["Content-Type"], "image/png");
+            assert_eq!(response.body(), &[1, 2, 3]);
+            assert!(!response
+                .headers()
+                .contains_key("Access-Control-Allow-Credentials"));
+        }
+        for origin in [
+            None,
+            Some("null"),
+            Some("https://example.com"),
+            Some("http://tauri.localhost.attacker.test"),
+            Some("http://tauri.localhost:1420"),
+            Some("http://127.0.0.1:1420"),
+        ] {
+            let response = sprite_response(200, "image/png", vec![], origin, None);
+            assert!(!response
+                .headers()
+                .contains_key("Access-Control-Allow-Origin"));
+            assert_eq!(response.headers()["Vary"], "Origin");
+        }
+    }
+
+    #[test]
+    fn sprite_cors_allows_the_configured_dev_origin_only_in_debug() {
+        let dev_url = tauri::Url::parse("http://127.0.0.1:5173/nested/path").unwrap();
+        let response = sprite_response(
+            200,
+            "image/png",
+            vec![],
+            Some("http://127.0.0.1:5173"),
+            Some(&dev_url),
+        );
+        assert_eq!(
+            response.headers().get("Access-Control-Allow-Origin"),
+            cfg!(debug_assertions).then_some(&tauri::http::HeaderValue::from_static(
+                "http://127.0.0.1:5173"
+            ))
+        );
+        for origin in ["http://127.0.0.1:1420", "http://localhost:5173", "null"] {
+            let response = sprite_response(200, "image/png", vec![], Some(origin), Some(&dev_url));
+            assert!(!response
+                .headers()
+                .contains_key("Access-Control-Allow-Origin"));
+        }
+        let opaque_url = tauri::Url::parse("file:///tmp/index.html").unwrap();
+        let response = sprite_response(200, "image/png", vec![], Some("null"), Some(&opaque_url));
+        assert!(!response
+            .headers()
+            .contains_key("Access-Control-Allow-Origin"));
+    }
+
+    #[test]
+    fn sprite_errors_keep_the_same_cors_contract() {
+        for status in [400, 404, 500] {
+            let response = sprite_response(
+                status,
+                "text/plain",
+                vec![],
+                Some("tauri://localhost"),
+                None,
+            );
+            assert_eq!(response.status(), status);
+            assert_eq!(
+                response.headers()["Access-Control-Allow-Origin"],
+                "tauri://localhost"
+            );
+            assert_eq!(response.headers()["Vary"], "Origin");
+        }
+    }
 }

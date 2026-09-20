@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { TodoTool } from "../TodoTool";
-import { PreparationTool } from "../PreparationTool";
+import { TodoTool } from "../TodoTool/TodoTool";
+import { PreparationTool } from "../PreparationTool/PreparationTool";
 import { command } from "../../hooks/useSnapshot";
 import type { WidgetValue, WidgetView } from "../types";
 vi.mock("../../hooks/useSnapshot", async (load) => ({

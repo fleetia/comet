@@ -433,6 +433,8 @@ fn affinity_replay_farming_and_ambiguous_corrections_do_not_change_scores() {
 #[test]
 fn story_rewards_do_not_consume_direct_affinity_budget_or_fingerprints() {
     let conn = open(Path::new(":memory:")).unwrap();
+    let imported = crate::characters::import_pack(&conn, &crate::characters::nadir_pack()).unwrap();
+    crate::characters::apply_pair(&conn, [imported[0].id.clone(), imported[1].id.clone()]).unwrap();
     let mut request = crate::story::prepare(&conn, "a", 0, 0).unwrap().unwrap();
     request.scene.id = "thanks".into();
     crate::story::answer(&conn, &request, "listen", 0).unwrap();
@@ -451,8 +453,8 @@ fn story_rewards_do_not_consume_direct_affinity_budget_or_fingerprints() {
     assert_eq!(relationships(&conn).unwrap()[0].score, 26);
     for (source, delta) in [("earlier-positive", 1), ("earlier-negative", -1)] {
         conn.execute(
-            "INSERT INTO character_affinity VALUES(?1,'builtin-a',?2,?3,?1)",
-            params![source, date, delta],
+            "INSERT INTO character_affinity VALUES(?1,?2,?3,?4,?1)",
+            params![source, imported[0].id, date, delta],
         )
         .unwrap();
     }

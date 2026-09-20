@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { WindowHeader } from "../components/WindowHeader";
+import { WindowHeader } from "../components/WindowHeader/WindowHeader";
 import { isDesktop } from "../hooks/useSnapshot";
-import { grabTarget } from "../components/windowHeader.css";
+import { grabTarget } from "../components/WindowHeader/windowHeader.css";
 
 const native = vi.hoisted(() => ({ close: vi.fn(), startDragging: vi.fn() }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => native }));

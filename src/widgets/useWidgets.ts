@@ -17,7 +17,10 @@ export function useWidgets(): {
       return null;
     }
     const query = new URLSearchParams(window.location.search);
-    return query.get("view") === "widget" || query.get("preview") === "installed"
+    return query.get("view") === "widget" ||
+      query.get("view") === "widget-display" ||
+      query.get("view") === "memo-note" ||
+      query.get("preview") === "installed"
       ? getWidgetPreview()
       : PREVIEW_WIDGETS;
   });

@@ -6,8 +6,8 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use std::{fs, io::Read, path::Path};
 
 pub(crate) const SOURCE_LIMIT: usize = 1024 * 1024;
-const HEADER: &str = "NANIKA-TALK-AES256GCM-V1\n";
-const STORED_LIMIT: usize = (SOURCE_LIMIT + 28).div_ceil(3) * 4 + HEADER.len();
+const HEADER: &str = "COMET-TALK-AES256GCM-V1\n";
+const STORED_LIMIT: usize = (SOURCE_LIMIT + 28).div_ceil(3) * 4 + 32;
 // A portable bundled key protects the stored format, not secrets from the app owner.
 const KEY: &[u8; 32] = &[
     0x91, 0x6d, 0x24, 0xb7, 0x48, 0xca, 0xef, 0x08, 0x72, 0x35, 0x1c, 0xd9, 0x66, 0xa2, 0xf0, 0x53,
@@ -15,7 +15,17 @@ const KEY: &[u8; 32] = &[
 ];
 
 pub(crate) fn is_encrypted(data: &[u8]) -> bool {
-    data.starts_with(HEADER.as_bytes())
+    encrypted_header(data).is_some()
+}
+
+fn encrypted_header(data: &[u8]) -> Option<&'static [u8]> {
+    if data.starts_with(HEADER.as_bytes()) {
+        Some(HEADER.as_bytes())
+    } else if data.starts_with(crate::legacy_names::talk_header()) {
+        Some(crate::legacy_names::talk_header())
+    } else {
+        None
+    }
 }
 
 pub(crate) fn encode(source: &str) -> Result<Vec<u8>, String> {
@@ -45,9 +55,9 @@ pub(crate) fn decode(data: &[u8]) -> Result<String, String> {
     if data.len() > STORED_LIMIT {
         return Err("암호화 대본 파일 크기 제한을 넘었어요.".into());
     }
-    let plaintext = if is_encrypted(data) {
+    let plaintext = if let Some(header) = encrypted_header(data) {
         let payload = STANDARD
-            .decode(&data[HEADER.len()..])
+            .decode(&data[header.len()..])
             .map_err(|_| "암호화 대본 형식이 잘못됐어요.")?;
         if payload.len() < 28 {
             return Err("암호화 대본이 잘렸어요.".into());
@@ -57,7 +67,7 @@ pub(crate) fn decode(data: &[u8]) -> Result<String, String> {
                 Nonce::from_slice(&payload[..12]),
                 Payload {
                     msg: &payload[12..],
-                    aad: HEADER.as_bytes(),
+                    aad: header,
                 },
             )
             .map_err(|_| "대본 인증에 실패했어요. 파일이 손상되었거나 키가 달라요.")?
@@ -115,6 +125,27 @@ mod tests {
             assert!(decode(stored.as_bytes()).is_err());
         }
         assert!(decode(HEADER.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn legacy_envelope_remains_readable() {
+        let source = "format: 1\n";
+        let cipher = Aes256Gcm::new(KEY.into());
+        let nonce = [7u8; 12];
+        let encrypted = cipher
+            .encrypt(
+                Nonce::from_slice(&nonce),
+                Payload {
+                    msg: source.as_bytes(),
+                    aad: crate::legacy_names::talk_header(),
+                },
+            )
+            .unwrap();
+        let mut stored = crate::legacy_names::talk_header().to_vec();
+        let mut payload = nonce.to_vec();
+        payload.extend(encrypted);
+        stored.extend(STANDARD.encode(payload).as_bytes());
+        assert_eq!(decode(&stored).unwrap(), source);
     }
 
     #[test]

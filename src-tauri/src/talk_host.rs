@@ -42,11 +42,6 @@ pub(crate) fn prepare(
     else {
         return Ok(None);
     };
-    // Bundled scripts assume two speakers; until cast declarations land, a lone character skips
-    // scenes that give the second seat a line.
-    if context.active.len() < 2 && selection.lines.iter().any(|line| line.persona != "a") {
-        return Ok(None);
-    }
     let mut dependencies = selection.dependencies.clone();
     if selection
         .references
@@ -141,8 +136,8 @@ fn log_diagnostics(diagnostics: &[talk::Diagnostic]) {
 pub(crate) fn initialize(app_data: &std::path::Path) -> talk::runtime::ActiveProgram {
     let mut active = talk::runtime::ActiveProgram::default();
     match talk::runtime::initialize_files(app_data) {
-        Ok(entry) => {
-            active.apply(talk::load(&entry, &talk::context::registry()));
+        Ok(root) => {
+            active.apply(talk::load_bundle(&root, &talk::context::registry()));
             log_diagnostics(&active.diagnostics);
         }
         Err(error) => eprintln!(".talk 초기화 실패: {error}"),
@@ -152,7 +147,7 @@ pub(crate) fn initialize(app_data: &std::path::Path) -> talk::runtime::ActivePro
 
 pub(crate) fn watch(app: tauri::AppHandle, state: Arc<AppState>) {
     tauri::async_runtime::spawn_blocking(move || {
-        let mut monitor = talk::runtime::Monitor::new(state.app_data.join("talk/index.talk"));
+        let mut monitor = talk::runtime::Monitor::new(talk::runtime::root(&state.app_data));
         let registry = talk::context::registry();
         while !state.stopping.load(Ordering::SeqCst) {
             if let Some(result) = monitor.poll(&registry, Instant::now()) {

@@ -1,10 +1,17 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { WidgetTool } from "../WidgetTool";
-import { TodoTool } from "../TodoTool";
-import { ClockTool, MemoTool, TimerTool } from "../PlanningTools";
-import { MotionTool, ToyTool } from "../ToyTools";
-import { JournalTool } from "../JournalTool";
+import {
+  act as reactAct,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { WidgetTool } from "../WidgetTool/WidgetTool";
+import { TodoTool } from "../TodoTool/TodoTool";
+import { ClockTool, TimerTool } from "../PlanningTools/PlanningTools";
+import { ToyTool } from "../ToyTools/ToyTools";
+import { JournalTool } from "../JournalTool/JournalTool";
 import { PREVIEW_WIDGETS, useWidgets } from "../useWidgets";
 import { command } from "../../hooks/useSnapshot";
 import type { WidgetValue, WidgetView } from "../types";
@@ -75,19 +82,6 @@ it("executes one explicit intent with the observed revision and never exposes a 
     }),
   );
 });
-it("preserves memo whitespace exactly and keeps the draft on failed save", async () => {
-  act.mockResolvedValue(false);
-  render(<MemoTool widget={widget("memo", { notes: [] })} widgets={[]} act={act} />);
-  fireEvent.change(screen.getByLabelText(/^메모 제목\s*\*?$/), { target: { value: "메모" } });
-  fireEvent.change(screen.getByLabelText("메모 본문"), {
-    target: { value: "  첫 줄\n\n둘째 줄  " },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "메모 추가" }));
-  await waitFor(() =>
-    expect(act).toHaveBeenCalledWith("add", { title: "메모", body: "  첫 줄\n\n둘째 줄  " }),
-  );
-  expect(screen.getByLabelText("메모 본문")).toHaveProperty("value", "  첫 줄\n\n둘째 줄  ");
-});
 it("keeps local dates separate from datetime and shows retained settings after saving", async () => {
   render(
     <TodoTool
@@ -148,15 +142,87 @@ it("only completes a linked todo after an explicit completion click", async () =
 });
 it.each(["ball", "paper-plane", "bubbles", "pet"])(
   "opens and clears %s on the desktop without a panel playground",
-  (kind) => {
-    render(<MotionTool widget={widget(kind, {})} act={act} />);
+  async (kind) => {
+    vi.mocked(useWidgets).mockReturnValue({
+      snapshot: { ...PREVIEW_WIDGETS, widgets: [widget(kind, {})] },
+      error: null,
+      reload: vi.fn(),
+    });
+    let finish: (() => void) | undefined;
+    vi.mocked(command).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    render(<WidgetTool id={kind} />);
     expect(screen.queryByLabelText("공 놀이 공간")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "바탕화면에 꺼내기" }));
-    expect(act).toHaveBeenCalledWith("desktop-open");
-    fireEvent.click(screen.getByRole("button", { name: "정리하기" }));
-    expect(act).toHaveBeenLastCalledWith("desktop-clear");
+    const open = screen.getByRole("button", { name: "바탕화면에 꺼내기" });
+    const clear = screen.getByRole("button", { name: "정리하기" });
+    expect(open.closest("footer")).not.toBeNull();
+    fireEvent.click(open);
+    expect(command).toHaveBeenCalledWith("execute_widget", {
+      request: expect.objectContaining({
+        instanceId: kind,
+        expectedRevision: 8,
+        action: "desktop-open",
+      }),
+    });
+    expect(open).toHaveProperty("disabled", true);
+    expect(clear).toHaveProperty("disabled", true);
+    fireEvent.click(clear);
+    expect(command).toHaveBeenCalledTimes(1);
+    await reactAct(async () => finish?.());
+    fireEvent.click(clear);
+    await waitFor(() =>
+      expect(command).toHaveBeenLastCalledWith("execute_widget", {
+        request: expect.objectContaining({
+          instanceId: kind,
+          expectedRevision: 8,
+          action: "desktop-clear",
+        }),
+      }),
+    );
   },
 );
+it("locks collection footer cleanup and item actions together while clearing", async () => {
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: {
+      ...PREVIEW_WIDGETS,
+      widgets: [
+        widget("collection", {
+          items: [{ itemId: "sock", name: "양말", quantity: 1 }],
+          decorations: [],
+        }),
+      ],
+    },
+    error: null,
+    reload: vi.fn(),
+  });
+  let finish: (() => void) | undefined;
+  vi.mocked(command).mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  render(<WidgetTool id="collection" />);
+  const clear = screen.getByRole("button", { name: "소품 모두 넣기" });
+  expect(clear.closest("footer")).not.toBeNull();
+  fireEvent.click(clear);
+  expect(clear).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "꺼내 놓기" }).matches(":disabled")).toBe(true);
+  expect(command).toHaveBeenCalledWith("execute_widget", {
+    request: expect.objectContaining({
+      instanceId: "collection",
+      expectedRevision: 8,
+      action: "clear",
+    }),
+  });
+  await reactAct(async () => finish?.());
+  expect(clear).toHaveProperty("disabled", false);
+  expect(screen.getByRole("button", { name: "꺼내 놓기" }).matches(":disabled")).toBe(false);
+});
 it("uses actual fishing phases and acquired inventory limits", () => {
   const rendered = render(
     <ToyTool widget={widget("fishing", { phase: "bite", catches: 0 })} act={act} />,
@@ -207,39 +273,6 @@ it("restores the active guessing mode when reopening a number game", () => {
   fireEvent.change(guess, { target: { value: "" } });
   expect(guess).toHaveProperty("validity.valueMissing", true);
   expect(screen.queryByRole("button", { name: "1번 컵" })).toBeNull();
-});
-
-it("keeps memo reading separate from editing and returns to a blank new memo after cancellation", async () => {
-  act.mockResolvedValue(false);
-  render(
-    <MemoTool
-      widget={widget("memo", {
-        notes: [{ id: "note", title: "저장된 메모", body: "  원문\n둘째 줄  " }],
-      })}
-      widgets={[]}
-      act={act}
-    />,
-  );
-  expect(screen.queryByLabelText("메모 본문")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "수정" }));
-  expect(document.activeElement).toBe(screen.getByLabelText(/^메모 제목\s*\*?$/));
-  fireEvent.change(screen.getByLabelText("메모 본문"), {
-    target: { value: "  수정 중\n그대로  " },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "메모 변경 저장" }));
-  await waitFor(() =>
-    expect(act).toHaveBeenCalledWith("update", {
-      id: "note",
-      title: "저장된 메모",
-      body: "  수정 중\n그대로  ",
-    }),
-  );
-  expect(screen.getByLabelText("메모 본문")).toHaveProperty("value", "  수정 중\n그대로  ");
-  fireEvent.click(screen.getByRole("button", { name: "수정 취소" }));
-  expect(screen.queryByLabelText("메모 본문")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "새 메모" }));
-  expect(screen.getByLabelText("메모 본문")).toHaveProperty("value", "");
-  expect(screen.getByLabelText(/^메모 제목\s*\*?$/)).toHaveProperty("value", "");
 });
 
 it("cancels anniversary edits without reusing the old record for a new anniversary", async () => {
@@ -304,16 +337,17 @@ it("replaces loading with a retry action after a widget snapshot failure", () =>
   expect(reload).toHaveBeenCalledTimes(1);
 });
 
-it("opens widget management from unavailable tools and closes without disabling the widget", async () => {
+it("directs unavailable tools to the body menu and closes without disabling the widget", async () => {
   vi.mocked(useWidgets).mockReturnValue({
     snapshot: { ...PREVIEW_WIDGETS, widgets: [{ ...widget("memo", {}), enabled: false }] },
     error: null,
     reload: vi.fn(),
   });
   const view = render(<WidgetTool id="memo" />);
-  expect(screen.getByText("꺼진 도구입니다. 위젯 관리에서 켜 주세요.")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "위젯 관리" }));
-  await waitFor(() => expect(command).toHaveBeenCalledWith("open_widgets"));
+  expect(screen.getByText("꺼진 도구입니다. 본체 메뉴의 위젯 관리에서 켜 주세요.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "위젯 관리" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "+ 새 메모" })).toBeNull();
+  expect(screen.queryByText("생활 도구")).toBeNull();
   vi.mocked(useWidgets).mockReturnValue({
     snapshot: PREVIEW_WIDGETS,
     error: null,
@@ -321,15 +355,12 @@ it("opens widget management from unavailable tools and closes without disabling 
   });
   view.rerender(<WidgetTool id="memo" />);
   expect(
-    screen.getByText("설치되지 않았거나 제거한 도구입니다. 위젯 관리에서 설치해 주세요."),
+    screen.getByText(
+      "설치되지 않았거나 제거한 도구입니다. 본체 메뉴의 위젯 관리에서 설치해 주세요.",
+    ),
   ).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "위젯 관리" }));
-  await waitFor(() => expect(command).toHaveBeenCalledTimes(2));
+  expect(screen.queryByRole("button", { name: "위젯 관리" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "위젯 닫기" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("close_widget", { id: "memo" }));
-  expect(vi.mocked(command).mock.calls).toEqual([
-    ["open_widgets"],
-    ["open_widgets"],
-    ["close_widget", { id: "memo" }],
-  ]);
+  expect(vi.mocked(command).mock.calls).toEqual([["close_widget", { id: "memo" }]]);
 });

@@ -26,6 +26,7 @@ pub(crate) struct Edge {
 pub(crate) struct Geometry {
     pub monitors: Vec<Rect>,
     pub edges: Vec<Edge>,
+    pub characters: Vec<crate::character_collision::Collider>,
     pub external_windows_available: bool,
     pub fullscreen: bool,
 }
@@ -161,6 +162,7 @@ pub(crate) fn capture() -> Result<Geometry, String> {
     Ok(Geometry {
         monitors,
         edges: edge_list,
+        characters: Vec::new(),
         external_windows_available: true,
         fullscreen,
     })

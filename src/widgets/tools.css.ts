@@ -2,30 +2,9 @@ import { globalStyle, style } from "@vanilla-extract/css";
 import { semanticVars as vars } from "@fleetia/lagrange/theme";
 import * as common from "../lagrange.css";
 export const host = style({
-  padding: `${vars.space.lg} ${vars.space.lg} ${vars.space.xl}`,
-  background: vars.color.surface.canvas,
-  minHeight: "100dvh",
   maxWidth: 760,
   margin: "0 auto",
   overflowWrap: "anywhere",
-});
-export const header = style({
-  display: "grid",
-  gap: vars.space.sm,
-  paddingBottom: vars.space.md,
-  borderBottom: `1px solid ${vars.color.border.strong}`,
-  marginBottom: vars.space.lg,
-});
-export const eyebrow = style({
-  color: vars.color.content.secondary,
-  fontSize: vars.typography.size.caption,
-  letterSpacing: "0.08em",
-});
-export const title = style({
-  color: vars.color.content.accent,
-  fontFamily: vars.typography.family.display,
-  fontSize: vars.typography.size.headingMd,
-  lineHeight: vars.typography.lineHeight.tight,
 });
 export const status = style({
   color: vars.color.content.secondary,

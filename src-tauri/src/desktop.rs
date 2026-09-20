@@ -28,6 +28,7 @@ fn face_label(id: &str) -> String {
 
 // Displaying ambient content must not replace the foreground application's key window.
 fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
+    let collision_token = crate::character_collision_host::prepare_show(window);
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         use std::sync::atomic::Ordering;
@@ -73,16 +74,20 @@ fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
                     );
                 }
             }
+            crate::character_collision_host::did_show(&window, collision_token);
         }).map_err(|error| error.to_string())
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = app;
-        window.show().map_err(|error| error.to_string())
+        window.show().map_err(|error| error.to_string())?;
+        crate::character_collision_host::did_show(window, collision_token);
+        Ok(())
     }
 }
 
 pub(crate) fn hide_ambient(window: &WebviewWindow) -> Result<(), String> {
+    crate::character_collision_host::visibility(window, false);
     #[cfg(target_os = "windows")]
     {
         window.hide().map_err(|error| error.to_string())?;
@@ -401,6 +406,7 @@ fn reconcile(app: &AppHandle, state: &AppState, snapshot: &Snapshot) -> Result<(
             .strip_prefix(BODY_PREFIX)
             .or_else(|| label.strip_prefix(FACE_PREFIX));
         if id.is_some_and(|id| !roster.iter().any(|active| active == id)) {
+            crate::character_collision_host::remove(app, &label);
             let _ = window.destroy();
         }
     }
@@ -560,15 +566,23 @@ mod tests {
     #[test]
     fn pending_story_owns_native_balloon_and_interruption_removes_it() {
         let state = crate::app::tests::state();
-        let request = crate::story::prepare(&crate::app::lock(&state.db).unwrap(), "a", 0, 0)
-            .unwrap()
-            .unwrap();
+        let (request, character_id) = {
+            let db = crate::app::lock(&state.db).unwrap();
+            let imported =
+                crate::characters::import_pack(&db, &crate::characters::nadir_pack()).unwrap();
+            crate::characters::apply_pair(&db, [imported[0].id.clone(), imported[1].id.clone()])
+                .unwrap();
+            (
+                crate::story::prepare(&db, "a", 0, 0).unwrap().unwrap(),
+                imported[0].id.clone(),
+            )
+        };
         *crate::app::lock(&state.story).unwrap() = Some(request);
         crate::app::lock(&state.runtime).unwrap().phase = "story".into();
         assert!(crate::app::lock(&state.playback).unwrap().is_none());
         assert_eq!(
             owner(&crate::app::snapshot(&state).unwrap()),
-            Some("builtin-a")
+            Some(character_id.as_str())
         );
         crate::app::lock(&state.runtime).unwrap().hidden = true;
         assert_eq!(owner(&crate::app::snapshot(&state).unwrap()), None);

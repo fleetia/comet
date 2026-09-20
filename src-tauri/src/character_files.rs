@@ -108,7 +108,7 @@ mod tests {
     fn file_roundtrip_is_validated_and_failed_save_preserves_destination() {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
-        characters::initialize(&conn).unwrap();
+        characters::initialize_for_tests(&conn).unwrap();
         let pack = characters::export_pack(&conn, &["builtin-a".into()], &[]).unwrap();
         let json = characters::pack_json(&pack).unwrap();
         let path = dir.path().join("shared.comet-character.json");
