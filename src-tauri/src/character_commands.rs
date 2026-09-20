@@ -1,5 +1,9 @@
 use crate::{
-    app::{interrupt, lock, now, publish, windows::skip_talk, AppState},
+    app::{
+        interrupt, lock, now, publish,
+        windows::{open_settings_section, SettingsSection},
+        AppState,
+    },
     character_files, character_sprites,
     characters::{
         self, CharacterDefinition, CharacterDialogue, CharacterPack, InstalledCharacter,
@@ -323,26 +327,8 @@ pub(crate) async fn save_character_pack(
     character_files::save(app, json).await
 }
 #[tauri::command]
-pub(crate) fn open_characters(app: tauri::AppHandle) -> Result<(), String> {
-    let state = app.state::<Arc<AppState>>();
-    skip_talk(app.clone(), state)?;
-    if let Some(window) = app.get_webview_window("characters") {
-        window.show().map_err(|error| error.to_string())?;
-        return window.set_focus().map_err(|error| error.to_string());
-    }
-    tauri::WebviewWindowBuilder::new(
-        &app,
-        "characters",
-        tauri::WebviewUrl::App("index.html?view=characters".into()),
-    )
-    .title("comet · 캐릭터 관리")
-    .inner_size(920.0, 760.0)
-    .min_inner_size(640.0, 480.0)
-    .decorations(false)
-    .maximizable(false)
-    .build()
-    .map_err(|error| error.to_string())?;
-    Ok(())
+pub(crate) async fn open_characters(app: tauri::AppHandle) -> Result<(), String> {
+    open_settings_section(app, SettingsSection::Characters)
 }
 
 #[tauri::command]

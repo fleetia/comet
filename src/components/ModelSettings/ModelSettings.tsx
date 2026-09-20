@@ -4,6 +4,7 @@ import type { LocalModel, Settings, Snapshot } from "../../types";
 import type { SettingsDraft } from "../../hooks/useSettingsDraft";
 import * as s from "../../lagrange.css";
 import * as d from "../../desktop.css";
+import * as layout from "../SettingsPanel/settings.css";
 
 type Props = { snapshot: Snapshot; draft: SettingsDraft };
 
@@ -35,8 +36,8 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
   return (
     <>
       <p className={d.info}>
-        자유로운 대화와 새로운 잡담을 위한 선택 설정이에요. 로컬 모델은 이 기기에서, 외부 API는
-        선택한 제공자에게 내용을 보내 처리해요.
+        현재 사용 중: {snapshot.settings.mode === "local" ? "로컬 모델" : "외부 API"}. 사용할 방식을
+        선택하고 저장해요. 연결 테스트만으로 전환하지 않아요.
       </p>
       <fieldset className={d.fieldset} disabled={!!pending} aria-label="대화 모델 설정">
         <div className={d.modeChoices} role="group" aria-label="대화 방식">
@@ -46,7 +47,7 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
             aria-pressed={settings.mode === "local"}
             onClick={() => change("mode", "local")}
           >
-            이 기기에서
+            로컬 모델 사용
           </Button>
           <Button
             variant="secondary"
@@ -54,10 +55,10 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
             aria-pressed={settings.mode === "api"}
             onClick={() => change("mode", "api")}
           >
-            외부 API로
+            외부 API 사용
           </Button>
         </div>
-        {settings.mode === "local" ? (
+        <div className={layout.columns}>
           <section>
             <h2 className={s.sectionTitle}>이 기기에서 대화하기</h2>
             <FormField className={s.field} label="로컬 모델">
@@ -138,13 +139,13 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
               </Button>
             </div>
             <p className={s.quiet}>
-              테스트는 선택한 모델을 불러와 짧은 인사에 답하게 하고, 걸린 시간과 답을 아래에
-              보여 줘요. 저장하지 않은 선택도 테스트할 수 있어요.
+              테스트는 선택한 모델을 불러와 짧은 인사에 답하게 하고, 걸린 시간과 답을 아래에 보여
+              줘요. 저장하지 않은 선택도 테스트할 수 있어요.
             </p>
             {downloading && !download && (
               <p className={s.quiet}>
-                {downloadingModel?.name} 파일을 준비하고 있어요. 완료하거나 중단한 뒤 다른
-                모델을 내려받을 수 있어요.
+                {downloadingModel?.name} 파일을 준비하고 있어요. 완료하거나 중단한 뒤 다른 모델을
+                내려받을 수 있어요.
               </p>
             )}
             {download?.error && (
@@ -171,8 +172,8 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
               </>
             )}
           </section>
-        ) : (
           <section>
+            <h2 className={s.sectionTitle}>외부 API 연결</h2>
             <FormField className={s.field} label="API 주소">
               <TextField
                 type="url"
@@ -223,23 +224,19 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
                 )}
               </div>
             )}
-            <details className={s.quiet}>
-              <summary>API 호환성 설정</summary>
+            <div>
               <FormField className={s.field} label="응답 길이 매개변수">
                 <Select
                   value={settings.apiTokenParameter}
                   onChange={(event) =>
-                    change(
-                      "apiTokenParameter",
-                      event.target.value as Settings["apiTokenParameter"],
-                    )
+                    change("apiTokenParameter", event.target.value as Settings["apiTokenParameter"])
                   }
                 >
                   <option value="max_tokens">max_tokens</option>
                   <option value="max_completion_tokens">max_completion_tokens</option>
                 </Select>
               </FormField>
-            </details>
+            </div>
             <div className={s.row}>
               <Button
                 variant="secondary"
@@ -256,7 +253,7 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
               <span className={s.quiet}>테스트 요청에도 제공자 요금이 발생할 수 있어요.</span>
             </div>
           </section>
-        )}
+        </div>
       </fieldset>
       {snapshot.runtime.error && (
         <p className={s.error} role="alert">

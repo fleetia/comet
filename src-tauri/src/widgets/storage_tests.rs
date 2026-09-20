@@ -42,6 +42,58 @@ fn act(db: &Connection, kind: &str, action: &str, input: Value, now: i64, entrop
 }
 
 #[test]
+fn planner_batch_is_atomic_and_frequency_records_drive_completion_jar() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    install(&db, directory.path(), &["todo", "completion-jar"]);
+    let before = instance(&db, "todo");
+    let invalid = request(
+        &db,
+        "todo",
+        "batch-add",
+        json!({"listName":"임시 목록","items":[{"title":"valid"},{"title":""}]}),
+    );
+    assert!(storage::execute(&db, &invalid, 1, 1).is_err());
+    assert_eq!(instance(&db, "todo").data, before.data);
+    assert_eq!(instance(&db, "todo").revision, before.revision);
+    act(
+        &db,
+        "todo",
+        "add",
+        json!({"title":"산책","repeatRule":{"mode":"frequency","unit":"week","interval":1,"timesPerWeek":3,"timeZone":"UTC"}}),
+        1,
+        1,
+    );
+    let item_id = instance(&db, "todo").data["items"][0]["id"].clone();
+    let record = request(
+        &db,
+        "todo",
+        "record-frequency",
+        json!({"id":item_id,"date":"2026-09-21"}),
+    );
+    let now = chrono::DateTime::parse_from_rfc3339("2026-09-21T12:00:00Z")
+        .unwrap()
+        .timestamp_millis();
+    storage::execute(&db, &record, now, 2).unwrap();
+    storage::execute(&db, &record, now + 1, 3).unwrap();
+    let jar = instance(&db, "completion-jar").data;
+    assert_eq!(jar["completed"].as_array().unwrap().len(), 1);
+    let record_id = jar["completed"][0]["id"].clone();
+    act(
+        &db,
+        "todo",
+        "undo-frequency",
+        json!({"id":item_id,"recordId":record_id}),
+        now + 2,
+        4,
+    );
+    assert!(instance(&db, "completion-jar").data["completed"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
 fn first_run_can_skip_without_installing_packages() {
     let db = database();
     let before = storage::snapshot(&db).unwrap();
@@ -458,6 +510,7 @@ fn damaged_package_is_disabled_without_blocking_other_widgets_or_losing_data() {
 fn timely_calendar_and_timer_alerts_survive_a_burst_of_ordinary_events() {
     for (kind, event_kind) in [
         ("calendar", "calendar-reminder"),
+        ("calendar", "planner-reminder"),
         ("focus-timer", "timer-finished"),
     ] {
         let db = database();

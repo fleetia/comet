@@ -1,5 +1,10 @@
 use crate::{
-    app::{interrupt, lock, now, publish, scene::start_scene, windows::skip_talk, AppState},
+    app::{
+        interrupt, lock, now, publish,
+        scene::start_scene,
+        windows::{open_settings_section, SettingsSection},
+        AppState,
+    },
     store,
     types::SceneLine,
     widget_backgrounds,
@@ -189,6 +194,7 @@ pub(crate) fn widget_event_current(
     };
     let all = storage::instances(db)?;
     Ok(event.expires_at > chrono::Utc::now().timestamp_millis()
+        && widgets::reminders::event_current(db, &event)?
         && all.iter().any(|instance| {
             instance.id == event.instance_id
                 && instance.installed
@@ -250,7 +256,11 @@ pub(crate) async fn execute_widget(
             &request,
             chrono::Utc::now().timestamp_millis(),
             uuid::Uuid::new_v4().as_u128() as u64,
-        )
+        )?;
+        if request.action == "configure-alerts" {
+            lock(&state.widget_clocks)?.remove(&request.instance_id);
+        }
+        Ok(())
     })?;
     crate::memo_notes::schedule_sync(&app);
     // New state can invalidate an already playing reaction to this widget.
@@ -370,31 +380,14 @@ pub(crate) fn get_widget_journal(
 }
 
 #[tauri::command]
-pub(crate) fn open_widgets(app: tauri::AppHandle) -> Result<(), String> {
-    skip_talk(app.clone(), app.state::<Arc<AppState>>())?;
-    if let Some(window) = app.get_webview_window("widgets") {
-        window.show().map_err(|error| error.to_string())?;
-        return window.set_focus().map_err(|error| error.to_string());
-    }
-    tauri::WebviewWindowBuilder::new(
-        &app,
-        "widgets",
-        tauri::WebviewUrl::App("index.html?view=widgets".into()),
-    )
-    .title("comet · 위젯 관리")
-    .inner_size(880.0, 760.0)
-    .min_inner_size(560.0, 480.0)
-    .decorations(false)
-    .maximizable(false)
-    .build()
-    .map_err(|error| error.to_string())?;
-    Ok(())
+pub(crate) async fn open_widgets(app: tauri::AppHandle) -> Result<(), String> {
+    open_settings_section(app, SettingsSection::Widgets)
 }
 
 #[tauri::command]
 pub(crate) fn close_widgets(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("widgets") {
-        window.close().map_err(|error| error.to_string())?;
+    if let Some(window) = app.get_webview_window("settings") {
+        window.hide().map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -413,6 +406,16 @@ pub(crate) async fn open_widget(
         return Err("위젯을 설치하고 켜 주세요.".into());
     }
     uuid::Uuid::parse_str(&id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
+    if matches!(instance.kind.as_str(), "todo" | "calendar") {
+        return crate::planner_windows::open(
+            &app,
+            if instance.kind == "calendar" {
+                "calendar"
+            } else {
+                "today"
+            },
+        );
+    }
     if crate::behavior::TOYS.contains(&instance.kind.as_str()) {
         let token = crate::desktop_toys::launch_token(&app, &id)?;
         let geometry = crate::desktop_toys::current_geometry(&app).await?;
@@ -448,7 +451,18 @@ pub(crate) async fn open_widget(
         "comet · {}",
         widgets::manifest(&instance.kind)?.name
     ))
-    .inner_size(360.0, 480.0)
+    .inner_size(
+        if instance.kind == "todo" {
+            480.0
+        } else {
+            360.0
+        },
+        if instance.kind == "todo" {
+            336.0
+        } else {
+            480.0
+        },
+    )
     .min_inner_size(296.0, 320.0)
     .decorations(false)
     .maximizable(false)
@@ -527,7 +541,17 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
         if runtime.hidden || runtime.paused || !store::settings(db)?.autonomous_enabled {
             storage::discard_pending(db)?;
         }
-        Ok(changed || alerted)
+        drop(runtime);
+        for delivery in alerted.os {
+            // OS delivery has its own opt-in and survives a hidden character balloon.
+            crate::planner_notifications::deliver(
+                app,
+                &delivery.instance_id,
+                timestamp,
+                &delivery.text,
+            );
+        }
+        Ok(changed || alerted.changed)
     })?;
     if changed {
         cancel_widget_scene(app, state)?;
@@ -561,6 +585,9 @@ pub(crate) fn play_widget_reaction(
         }
         let event = storage::take_reaction(&db, chrono::Utc::now().timestamp_millis())?;
         if let Some(event) = event {
+            if !widgets::reminders::event_current(&db, &event)? {
+                return Ok(false);
+            }
             let token = interrupt(state, true)?;
             state.widget_epoch.store(token.0, Ordering::SeqCst);
             *lock(&state.widget_playback)? = Some(event.clone());
@@ -605,7 +632,7 @@ fn fallback_reaction(
             .iter()
             .any(|member| member.definition.source_id == source)
     };
-    if has("nadir") && has("star-tail") {
+    if has("nadir") && has("star-tail") && !event.event.kind.starts_with("planner-") {
         return Ok(None);
     }
     Ok(Some(vec![SceneLine {

@@ -18,7 +18,8 @@ afterEach(() => {
 
 it.each([
   ["settings", "설정 닫기"],
-  ["characters", "캐릭터 관리 닫기"],
+  ["characters", "설정 닫기"],
+  ["widgets", "설정 닫기"],
 ])("keeps %s closable during loading, failure, and loaded content", async (view, label) => {
   window.history.replaceState(null, "", `/?view=${view}`);
   const reload = vi.fn();

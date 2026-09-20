@@ -1,163 +1,296 @@
 import { style } from "@vanilla-extract/css";
-import { semanticVars } from "@fleetia/lagrange/theme";
+import { semanticVars as vars } from "@fleetia/lagrange/theme";
+
 export const page = style({
-  maxWidth: 1100,
-  margin: "0 auto",
-  padding: `${semanticVars.space.xl} ${semanticVars.space.xl} ${semanticVars.space.xxl}`,
-  background: semanticVars.color.surface.canvas,
+  padding: vars.space.lg,
+  background: vars.color.surface.canvas,
   minHeight: "100dvh",
 });
-export const header = style({
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: semanticVars.space.lg,
-  marginBottom: semanticVars.space.lg,
-});
+export const embedded = style({ minWidth: 0 });
+export const header = style({ marginBottom: vars.space.md });
+export const title = style({ fontSize: vars.typography.size.headingSm, margin: 0 });
 export const layout = style({
   display: "grid",
-  gridTemplateColumns: "190px minmax(0,1fr)",
-  gap: semanticVars.space.xl,
-  "@media": { "(max-width: 650px)": { gridTemplateColumns: "1fr" } },
+  gridTemplateColumns: "168px minmax(0,1fr)",
+  alignItems: "start",
+  gap: vars.space.lg,
+  "@media": {
+    "(max-width: 680px)": { gridTemplateColumns: "140px minmax(0,1fr)", gap: vars.space.sm },
+  },
 });
 export const list = style({
   display: "flex",
   flexDirection: "column",
-  gap: semanticVars.space.xxs,
-  alignSelf: "start",
+  gap: vars.space.xs,
   position: "sticky",
-  top: 16,
-  "@media": { "(max-width: 650px)": { position: "static" } },
-});
-export const item = style({
-  width: "100%",
-  flexDirection: "column",
-  alignItems: "flex-start",
-  gap: 0,
-  padding: `${semanticVars.space.sm} ${semanticVars.space.xs}`,
-  border: "1px solid transparent",
-  borderRadius: semanticVars.shape.radius.none,
-  textAlign: "left",
-  background: "transparent",
-  overflowWrap: "anywhere",
-  selectors: {
-    '&[aria-pressed="true"]': {
-      color: semanticVars.color.content.primary,
-      background: semanticVars.color.selection.surface,
-      borderColor: semanticVars.color.selection.indicator,
-      borderBottomStyle: "solid",
-    },
-    '&[aria-pressed="true"]:hover:not(:disabled)': {
-      background: semanticVars.color.selection.surface,
-    },
-  },
-});
-export const small = style({
-  display: "block",
-  marginTop: semanticVars.space.xxs,
-  color: semanticVars.color.content.secondary,
-  fontSize: semanticVars.typography.size.caption,
-});
-export const section = style({
-  margin: `${semanticVars.space.lg} 0`,
-  paddingTop: semanticVars.space.md,
-  borderTop: `1px solid ${semanticVars.color.border.subtle}`,
-});
-export const subheading = style({
-  fontFamily: semanticVars.typography.family.display,
-  color: semanticVars.color.content.accent,
-  lineHeight: semanticVars.typography.lineHeight.compact,
-  fontSize: semanticVars.typography.size.headingSm,
-  fontWeight: 600,
-  marginBottom: semanticVars.space.sm,
-});
-export const fieldset = style({ border: 0, padding: 0, margin: 0, minWidth: 0 });
-export const textarea = style({ minHeight: 66 });
-export const expressions = style({
-  display: "grid",
-  gridTemplateColumns: "repeat(3,minmax(0,1fr))",
-  gap: semanticVars.space.md,
-  "@media": { "(max-width: 500px)": { gridTemplateColumns: "repeat(2,minmax(0,1fr))" } },
-});
-export const expressionCard = style({
-  display: "flex",
-  flexDirection: "column",
-  gap: semanticVars.space.xs,
+  top: 0,
   minWidth: 0,
 });
-export const spriteFrame = style({
-  width: 64,
-  height: 64,
+export const libraryHeading = style({
   display: "flex",
+  alignItems: "baseline",
+  justifyContent: "space-between",
+  gap: vars.space.xs,
+  borderBottom: `1px solid ${vars.color.border.strong}`,
+  paddingBottom: vars.space.xs,
+});
+export const characterList = style({ display: "flex", flexDirection: "column" });
+export const item = style({
+  width: "100%",
+  justifyContent: "space-between",
+  gap: vars.space.xs,
+  padding: `${vars.space.xs} ${vars.space.sm}`,
+  minHeight: vars.dimension.control,
+  textAlign: "left",
+  whiteSpace: "normal",
+  border: 0,
+  borderBottom: `1px dotted ${vars.color.border.subtle}`,
+  borderInlineStart: "2px solid transparent",
+  selectors: {
+    '&[aria-pressed="true"]': {
+      background: vars.color.selection.surface,
+      color: vars.color.content.accent,
+      borderInlineStartColor: vars.color.selection.indicator,
+    },
+    '&[aria-pressed="true"]:hover:not(:disabled)': { background: vars.color.selection.surface },
+  },
+});
+export const itemName = style({ overflowWrap: "anywhere", minWidth: 0 });
+export const small = style({
+  fontSize: vars.typography.size.caption,
+  lineHeight: vars.typography.lineHeight.body,
+  color: vars.color.content.secondary,
+  margin: 0,
+  overflowWrap: "anywhere",
+});
+export const roster = style({
+  display: "grid",
+  gap: vars.space.xs,
+  padding: `${vars.space.sm} 0 ${vars.space.md}`,
+});
+export const libraryActions = style({
+  display: "flex",
+  flexWrap: "wrap",
+  gap: vars.space.sm,
+  margin: `${vars.space.sm} 0`,
+});
+export const detail = style({
+  minWidth: 0,
+  paddingLeft: vars.space.lg,
+  borderLeft: `1px solid ${vars.color.border.subtle}`,
+  "@media": { "(max-width: 680px)": { paddingLeft: vars.space.sm } },
+});
+export const editor = style({ minWidth: 0 });
+export const fieldset = style({ border: 0, padding: 0, margin: 0, minWidth: 0 });
+export const section = style({
+  margin: `${vars.space.md} 0 0`,
+  paddingTop: vars.space.sm,
+  borderTop: `1px solid ${vars.color.border.strong}`,
+});
+export const sectionHeader = style({
+  display: "flex",
+  alignItems: "start",
+  justifyContent: "space-between",
+  gap: vars.space.sm,
+});
+export const subheading = style({
+  color: vars.color.content.accent,
+  fontFamily: vars.typography.family.display,
+  fontSize: vars.typography.size.label,
+  lineHeight: vars.typography.lineHeight.compact,
+  fontWeight: 600,
+  margin: `0 0 ${vars.space.sm}`,
+});
+export const characterFace = style({
+  width: 32,
+  height: 32,
+  display: "grid",
+  placeItems: "center",
+  fontSize: vars.typography.size.body,
+  whiteSpace: "nowrap",
+  color: vars.color.content.accent,
+});
+export const characterPortrait = style({
+  width: "100%",
+  height: "100%",
+  objectFit: "contain",
+  imageRendering: "pixelated",
+});
+export const basicFields = style({
+  display: "grid",
+  gridTemplateColumns: "minmax(170px,0.8fr) minmax(0,1.4fr)",
+  gap: `${vars.space.xs} ${vars.space.lg}`,
+  "@media": { "(max-width: 850px)": { gridTemplateColumns: "1fr" } },
+});
+export const inlineField = style({
+  display: "grid",
+  gridTemplateColumns: "68px minmax(0,1fr)",
+  alignItems: "baseline",
+  columnGap: vars.space.sm,
+  minWidth: 0,
+});
+export const personalityInput = style({
+  minHeight: vars.dimension.control,
+  height: vars.dimension.control,
+});
+export const expressionAdd = style({
+  display: "grid",
+  gridTemplateColumns: "minmax(0,1fr) auto",
+  gap: vars.space.sm,
+  alignItems: "center",
+  marginTop: vars.space.xs,
+});
+export const personalityField = style([inlineField, { gridColumn: "1 / -1" }]);
+export const appearanceLayout = style({
+  display: "grid",
+  gridTemplateColumns: "minmax(0,1.6fr) minmax(160px,1fr)",
+  gap: vars.space.lg,
+  "@media": { "(max-width: 900px)": { gridTemplateColumns: "1fr" } },
+});
+export const appearanceSettings = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: vars.space.sm,
+  minWidth: 0,
+});
+export const appearanceCheckbox = style({
+  width: "100%",
+  maxWidth: "100%",
+  whiteSpace: "normal",
+  overflowWrap: "anywhere",
+});
+export const expressionHead = style({
+  display: "grid",
+  gridTemplateColumns: "70px minmax(60px,1fr) minmax(105px,1.2fr) 24px",
+  alignItems: "center",
+  gap: vars.space.sm,
+  borderBottom: `1px solid ${vars.color.border.strong}`,
+  minHeight: vars.dimension.control,
+  color: vars.color.content.secondary,
+  fontSize: vars.typography.size.caption,
+});
+export const expressionRow = style({
+  display: "grid",
+  gridTemplateColumns: "70px minmax(60px,1fr) minmax(105px,1.2fr) 24px",
+  alignItems: "center",
+  gap: vars.space.sm,
+  minHeight: vars.dimension.control,
+  padding: 0,
+  borderBottom: `1px dotted ${vars.color.border.subtle}`,
+  fontSize: vars.typography.size.label,
+});
+export const spriteFrame = style({
+  width: 24,
+  height: 24,
+  display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  border: `1px dashed ${semanticVars.color.border.subtle}`,
-  background: semanticVars.color.surface.muted,
-  fontSize: semanticVars.typography.size.caption,
-  color: semanticVars.color.content.secondary,
-  textAlign: "center",
+  flexShrink: 0,
+  fontSize: vars.typography.size.caption,
+  color: vars.color.content.secondary,
   overflow: "hidden",
 });
 export const spriteImage = style({
-  width: 64,
-  height: 64,
+  width: "100%",
+  height: "100%",
   objectFit: "contain",
   imageRendering: "pixelated",
 });
 export const spriteActions = style({
   display: "flex",
-  flexWrap: "wrap",
-  gap: semanticVars.space.xxs,
-});
-export const line = style({ paddingBottom: 12 });
-export const workspace = style({
+  alignItems: "center",
+  gap: vars.space.xxs,
   minWidth: 0,
-  marginTop: semanticVars.space.lg,
 });
-export const tabIntro = style({
-  color: semanticVars.color.content.secondary,
-  fontSize: semanticVars.typography.size.caption,
-  marginBottom: semanticVars.space.md,
+export const balloonSetting = style({
+  display: "flex",
+  alignItems: "center",
+  flexWrap: "wrap",
+  gap: vars.space.xs,
+});
+export const compactActions = style({
+  display: "flex",
+  alignItems: "center",
+  flexWrap: "wrap",
+  gap: vars.space.sm,
+  marginTop: vars.space.xs,
+});
+export const dialogueRow = style({
+  display: "grid",
+  gridTemplateColumns: "78px minmax(0,1fr) auto",
+  alignItems: "center",
+  gap: vars.space.sm,
+  minHeight: 30,
+  padding: 0,
+  borderBottom: `1px dotted ${vars.color.border.subtle}`,
+  fontSize: vars.typography.size.label,
+});
+export const lineSummary = style({
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+  color: vars.color.content.secondary,
+});
+export const lineEditor = style({ padding: `${vars.space.sm} 0 ${vars.space.md}`, minWidth: 0 });
+export const line = style({ paddingBottom: vars.space.sm });
+export const textarea = style({ minHeight: `calc(${vars.dimension.control} * 2)` });
+export const dialogueScope = style({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: vars.space.sm,
+  margin: `${vars.space.sm} 0`,
+});
+export const scopeField = style({
+  display: "flex",
+  alignItems: "center",
+  gap: vars.space.sm,
+  fontSize: vars.typography.size.caption,
+  color: vars.color.content.secondary,
 });
 export const saveBar = style({
   position: "sticky",
   bottom: 0,
-  background: semanticVars.color.surface.canvas,
-  padding: `0 0 ${semanticVars.space.sm}`,
-  display: "grid",
-  gap: semanticVars.space.sm,
-  marginTop: semanticVars.space.lg,
-});
-export const saveActions = style({
+  zIndex: 1,
+  background: vars.color.surface.canvas,
+  borderTop: `3px double ${vars.color.border.strong}`,
+  padding: `${vars.space.xs} 0`,
+  marginTop: vars.space.md,
   display: "flex",
-  flexWrap: "wrap",
   alignItems: "center",
-  gap: semanticVars.space.sm,
+  justifyContent: "space-between",
+  gap: vars.space.sm,
+  flexWrap: "wrap",
 });
+export const attributionSummary = style({
+  display: "grid",
+  gridTemplateColumns: "64px minmax(0,1fr) auto",
+  alignItems: "center",
+  columnGap: vars.space.sm,
+  rowGap: vars.space.xs,
+  marginTop: vars.space.sm,
+  fontSize: vars.typography.size.label,
+});
+export const packSelector = style({ padding: vars.space.sm });
+export const packControls = style({ marginTop: vars.space.sm });
+export const packField = style({ flex: "1 1 180px", minWidth: 0 });
+export const packHint = style({ display: "block", marginTop: vars.space.xs });
 export const preview = style({
-  padding: `${semanticVars.space.md} 0`,
+  padding: `${vars.space.sm} 0`,
   display: "flex",
   flexDirection: "column",
-  gap: semanticVars.space.md,
+  gap: vars.space.sm,
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
 });
 export const notice = style({
-  margin: `${semanticVars.space.md} 0`,
-  padding: semanticVars.space.md,
-  background: semanticVars.color.surface.muted,
-  fontSize: semanticVars.typography.size.label,
-  lineHeight: semanticVars.typography.lineHeight.body,
+  margin: `${vars.space.sm} 0`,
+  fontSize: vars.typography.size.label,
+  lineHeight: vars.typography.lineHeight.body,
 });
-
 export const disclosureSummary = style({
-  padding: `${semanticVars.space.sm} 0`,
-  color: semanticVars.color.content.accent,
-  fontSize: semanticVars.typography.size.label,
-  fontWeight: 600,
+  padding: `${vars.space.xs} 0`,
+  color: vars.color.content.accent,
+  fontSize: vars.typography.size.label,
   cursor: "pointer",
-  ":focus-visible": {
-    outline: `1px solid ${semanticVars.color.interaction.focus}`,
-    outlineOffset: 2,
-  },
 });

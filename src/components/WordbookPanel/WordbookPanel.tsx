@@ -8,7 +8,7 @@ import * as w from "./WordbookPanel.css";
 type Draft = { entry: WordbookEntry; keywords: string; dirty: boolean; persisted: boolean };
 const EXPRESSIONS = ["평온", "기쁨", "호기심", "생각중", "걱정", "장난"];
 function draftFor(entry: WordbookEntry, persisted = true): Draft {
-  return { entry, keywords: entry.keywords.join(", "), dirty: !persisted, persisted };
+  return { entry, keywords: entry.keywords.join(", "), dirty: false, persisted };
 }
 function newDraft(): Draft {
   return draftFor(
@@ -42,6 +42,7 @@ type Props = {
   singleCharacter?: boolean;
   speakerCount?: number;
   onDirtyChange?: (dirty: boolean) => void;
+  initialEntryId?: string;
 };
 export function WordbookPanel({
   title = "단어장",
@@ -52,8 +53,12 @@ export function WordbookPanel({
   singleCharacter = false,
   speakerCount = 8,
   onDirtyChange,
+  initialEntryId,
 }: Props): JSX.Element {
-  const [initial] = useState(() => (entries[0] ? draftFor(entries[0]) : newDraft()));
+  const [initial] = useState(() => {
+    const entry = entries.find((item) => item.id === initialEntryId) ?? entries[0];
+    return entry ? draftFor(entry) : newDraft();
+  });
   const [selected, setSelected] = useState(initial.entry.id);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({ [initial.entry.id]: initial });
   const [removed, setRemoved] = useState<string[]>([]);
@@ -73,9 +78,7 @@ export function WordbookPanel({
       return next;
     });
   }, [entries]);
-  const hasDirtyDraft = Object.values(drafts).some(
-    (draft) => draft.dirty && (draft.entry.title || draft.entry.lines.some((line) => line.text)),
-  );
+  const hasDirtyDraft = Object.values(drafts).some((draft) => draft.dirty);
   useEffect(() => {
     onDirtyChange?.(hasDirtyDraft);
   }, [hasDirtyDraft, onDirtyChange]);

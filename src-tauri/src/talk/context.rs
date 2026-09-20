@@ -248,6 +248,8 @@ pub fn registry() -> Registry {
             "todo-undone",
             "timer-finished",
             "calendar-reminder",
+            "planner-reminder",
+            "planner-mood",
             "device-woke",
             "interaction.touch",
             "ball.stopped",

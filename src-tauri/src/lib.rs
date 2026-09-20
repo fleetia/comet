@@ -16,6 +16,8 @@ mod inference;
 mod legacy_names;
 mod memo_notes;
 mod models;
+mod planner_notifications;
+mod planner_windows;
 mod playback;
 mod resources;
 mod store;
@@ -37,9 +39,7 @@ pub use app::lifecycle::run;
 pub(crate) use app::lifecycle::{prepare_update_install, restore_update_install};
 #[cfg(test)]
 pub(crate) use app::tests as lifecycle_tests;
-pub(crate) use app::windows::{
-    hide_boxes, open_settings, open_settings_at, quit_app, set_paused, show_boxes,
-};
+pub(crate) use app::windows::{hide_boxes, open_settings, quit_app, set_paused, show_boxes};
 pub(crate) use app::{interrupt, lock, now, publish, snapshot, unavailable, AppState};
 pub(crate) use character_commands::open_characters;
 pub(crate) use widget_commands::{open_widget, open_widgets};

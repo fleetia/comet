@@ -38,16 +38,14 @@ afterEach(cleanup);
 it("saves background and text placement together with the observed widget revision", async () => {
   render(
     <WidgetAppearance
-      widget={
-        widget({
-          appearance: {
-            backgroundColor: "#24202d",
-            backgroundPosition: "center-center",
-            textColor: "#fffaf2",
-            textPosition: "center-center",
-          },
-        })
-      }
+      widget={widget({
+        appearance: {
+          backgroundColor: "#24202d",
+          backgroundPosition: "center-center",
+          textColor: "#fffaf2",
+          textPosition: "center-center",
+        },
+      })}
     />,
   );
   fireEvent.click(
@@ -79,4 +77,41 @@ it("keeps background image actions revision guarded", async () => {
       expectedRevision: 4,
     }),
   );
+});
+
+it("retains unsaved placement through refresh and failure, and saves with the latest revision", async () => {
+  const dirty = vi.fn();
+  const view = render(<WidgetAppearance widget={widget({})} onDirtyChange={dirty} />);
+  fireEvent.click(
+    within(screen.getByRole("radiogroup", { name: "글자 위치" })).getByRole("radio", {
+      name: "오른쪽 아래",
+    }),
+  );
+  await waitFor(() => expect(dirty).toHaveBeenLastCalledWith(true));
+  view.rerender(
+    <WidgetAppearance
+      widget={{ ...widget({ observation: { temperature: 21 } }), revision: 5 }}
+      onDirtyChange={dirty}
+    />,
+  );
+  expect(
+    within(screen.getByRole("radiogroup", { name: "글자 위치" }))
+      .getByRole("radio", {
+        name: "오른쪽 아래",
+      })
+      .getAttribute("aria-checked"),
+  ).toBe("true");
+  vi.mocked(command).mockRejectedValueOnce(new Error("저장 실패"));
+  fireEvent.click(screen.getByRole("button", { name: "표시 설정 저장" }));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "저장 실패");
+  expect(command).toHaveBeenCalledWith(
+    "configure_widget_appearance",
+    expect.objectContaining({
+      expectedRevision: 5,
+      input: expect.objectContaining({ textPosition: "bottom-right" }),
+    }),
+  );
+  expect(dirty).toHaveBeenLastCalledWith(true);
+  fireEvent.click(screen.getByRole("button", { name: "표시 변경 취소" }));
+  await waitFor(() => expect(dirty).toHaveBeenLastCalledWith(false));
 });

@@ -11,6 +11,36 @@ use std::sync::{
 use tauri::Emitter;
 use tauri::Manager;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum SettingsSection {
+    #[default]
+    Characters,
+    Widgets,
+    Automatic,
+    Wordbook,
+    Talk,
+    Memory,
+    Model,
+    #[serde(alias = "updates")]
+    General,
+}
+
+impl SettingsSection {
+    fn key(self) -> &'static str {
+        match self {
+            Self::General => "general",
+            Self::Characters => "characters",
+            Self::Widgets => "widgets",
+            Self::Automatic => "automatic",
+            Self::Wordbook => "wordbook",
+            Self::Talk => "talk",
+            Self::Memory => "memory",
+            Self::Model => "model",
+        }
+    }
+}
+
 #[tauri::command]
 pub(crate) fn cancel_generation(
     app: tauri::AppHandle,
@@ -114,8 +144,30 @@ pub(crate) fn talk_now(
 }
 
 #[tauri::command]
-pub(crate) fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
-    open_settings_at(app, false)
+pub(crate) async fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
+    let section = *lock(&app.state::<Arc<AppState>>().settings_section)?;
+    open_settings_section(app, section)
+}
+
+#[tauri::command]
+pub(crate) async fn get_settings_section(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<SettingsSection, String> {
+    Ok(*lock(&state.settings_section)?)
+}
+
+#[tauri::command]
+pub(crate) fn set_settings_section(
+    state: tauri::State<'_, Arc<AppState>>,
+    section: SettingsSection,
+) -> Result<(), String> {
+    *lock(&state.settings_section)? = section;
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn set_settings_dirty(state: tauri::State<'_, Arc<AppState>>, dirty: bool) {
+    state.settings_dirty.store(dirty, Ordering::SeqCst);
 }
 
 pub(crate) fn show_boxes(app: &tauri::AppHandle, state: &AppState) {
@@ -144,6 +196,11 @@ pub(crate) fn show_boxes(app: &tauri::AppHandle, state: &AppState) {
     state.last_input.store(now(), Ordering::SeqCst);
     drop(action);
     publish(app, state);
+}
+
+#[tauri::command]
+pub(crate) fn show_characters(app: tauri::AppHandle, state: tauri::State<'_, Arc<AppState>>) {
+    show_boxes(&app, &state);
 }
 
 #[tauri::command]
@@ -219,41 +276,69 @@ pub(crate) fn apply_pause(
 pub(crate) async fn quit_app(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
+    force: Option<bool>,
 ) -> Result<(), String> {
+    if !force.unwrap_or(false) && confirm_settings_exit(&app, &state)? {
+        return Ok(());
+    }
     flush_positions(&state, true)?;
+    if force.unwrap_or(false) {
+        state.settings_exit_confirmed.store(true, Ordering::SeqCst);
+    }
     app.exit(0);
     Ok(())
+}
+
+pub(crate) fn confirm_settings_exit(
+    app: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<bool, String> {
+    if !settings_exit_needs_confirmation(state) {
+        return Ok(false);
+    }
+    let section = *lock(&state.settings_section)?;
+    open_settings_section(app.clone(), section)?;
+    app.emit_to("settings", "confirm-settings-exit", ())
+        .map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
+pub(crate) fn settings_exit_needs_confirmation(state: &AppState) -> bool {
+    state.settings_dirty.load(Ordering::SeqCst)
+        && !state.settings_exit_confirmed.load(Ordering::SeqCst)
 }
 
 pub(crate) fn should_cancel_for_pause(paused: bool, automatic: bool) -> bool {
     paused && automatic
 }
 
-pub(crate) fn open_settings_at(app: tauri::AppHandle, updates: bool) -> Result<(), String> {
+pub(crate) fn open_settings_section(
+    app: tauri::AppHandle,
+    section: SettingsSection,
+) -> Result<(), String> {
     let state = app.state::<Arc<AppState>>();
-    skip_talk(app.clone(), state)?;
+    skip_talk(app.clone(), app.state::<Arc<AppState>>())?;
+    // Keep the latest destination until the WebView has registered its listener,
+    // and serialize simultaneous menu requests while the singleton is created.
+    let mut current_section = lock(&state.settings_section)?;
+    *current_section = section;
     if let Some(window) = app.get_webview_window("settings") {
+        window
+            .emit("open-settings-section", section)
+            .map_err(|e| e.to_string())?;
         window.show().map_err(|e| e.to_string())?;
-        if updates {
-            let _ = window.emit("open-updates", ());
-        }
         return window.set_focus().map_err(|e| e.to_string());
     }
     tauri::WebviewWindowBuilder::new(
         &app,
         "settings",
         tauri::WebviewUrl::App(
-            if updates {
-                "index.html?view=settings&section=updates"
-            } else {
-                "index.html?view=settings"
-            }
-            .into(),
+            format!("index.html?view=settings&section={}", section.key()).into(),
         ),
     )
     .title("comet · 설정")
-    .inner_size(760.0, 760.0)
-    .min_inner_size(560.0, 480.0)
+    .inner_size(1120.0, 720.0)
+    .min_inner_size(960.0, 640.0)
     .decorations(false)
     .maximizable(false)
     .build()

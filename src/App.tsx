@@ -1,14 +1,13 @@
 import type { JSX } from "react";
 import { Button } from "@fleetia/lagrange";
-import { CharacterManager } from "./components/CharacterManager/CharacterManager";
 import { CompanionBox } from "./components/CompanionBox/CompanionBox";
 import { FaceTag } from "./components/FaceTag/FaceTag";
 import { Balloon } from "./components/Balloon/Balloon";
 import { DesktopPreview } from "./components/DesktopPreview/DesktopPreview";
 import { DesktopToy } from "./components/DesktopToy/DesktopToy";
 import { SettingsPanel } from "./components/SettingsPanel/SettingsPanel";
-import { WidgetManager } from "./widgets/WidgetManager/WidgetManager";
 import { WidgetTool } from "./widgets/WidgetTool/WidgetTool";
+import { Planner } from "./widgets/Planner/Planner";
 import { WidgetDisplay } from "./widgets/WidgetDisplay/WidgetDisplay";
 import { MemoNote } from "./widgets/MemoNote/MemoNote";
 import { WindowHeader } from "./components/WindowHeader/WindowHeader";
@@ -19,12 +18,12 @@ export function App(): JSX.Element {
   const { snapshot, error, reload } = useSnapshot();
   const query = new URLSearchParams(window.location.search);
   const view = query.get("view");
+  if (view === "planner") return <Planner />;
   if (view === "desktop-toy") return <DesktopToy id={query.get("id") ?? ""} />;
   if (view === "widget-display") return <WidgetDisplay id={query.get("id") ?? ""} />;
   if (view === "memo-note") {
     return <MemoNote id={query.get("id") ?? ""} noteId={query.get("noteId") ?? ""} />;
   }
-  if (query.get("view") === "widgets") return <WidgetManager />;
   if (query.get("view") === "widget") return <WidgetTool id={query.get("id") ?? ""} />;
   if (!snapshot) {
     return (
@@ -33,7 +32,7 @@ export function App(): JSX.Element {
           <WindowHeader
             label="창 닫기"
             onClose={
-              view === "settings" || view === "characters"
+              view === "settings" || view === "characters" || view === "widgets"
                 ? undefined
                 : () => command(view === "balloon" ? "skip_talk" : "hide_boxes")
             }
@@ -55,9 +54,10 @@ export function App(): JSX.Element {
       </main>
     );
   }
-  if (query.get("view") === "characters") return <CharacterManager snapshot={snapshot} />;
-  if (query.get("view") === "settings") {
-    return <SettingsPanel snapshot={snapshot} />;
+  if (view === "settings" || view === "characters" || view === "widgets") {
+    return (
+      <SettingsPanel snapshot={snapshot} initialSection={view === "settings" ? undefined : view} />
+    );
   }
   if (query.get("view") === "balloon") {
     return <Balloon snapshot={snapshot} />;

@@ -524,7 +524,7 @@ fn apply_effect(
         synchronize_jar(db)?;
     }
     db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND (json_extract(data,'$.expiresAt')<=?1 OR NOT EXISTS(SELECT 1 FROM widget_instances i WHERE i.id=widget_events.instance_id AND i.installed=1 AND i.enabled=1 AND i.revision=json_extract(widget_events.data,'$.revision')))",[now]).map_err(err)?;
-    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND seq NOT IN (SELECT seq FROM widget_events WHERE pending=1 ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder') THEN 0 ELSE 1 END,seq DESC LIMIT 8)",[]).map_err(err)?;
+    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND seq NOT IN (SELECT seq FROM widget_events WHERE pending=1 ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END,seq DESC LIMIT 8)",[]).map_err(err)?;
     Ok(())
 }
 
@@ -582,7 +582,7 @@ pub(crate) fn record_desktop_result(
         tx.execute("INSERT INTO widget_journal VALUES(?1)", [&event.id])
             .map_err(err)?;
     }
-    tx.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND (json_extract(data,'$.expiresAt')<=?1 OR seq NOT IN (SELECT seq FROM widget_events WHERE pending=1 ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder') THEN 0 ELSE 1 END,seq DESC LIMIT 8))",[now]).map_err(err)?;
+    tx.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND (json_extract(data,'$.expiresAt')<=?1 OR seq NOT IN (SELECT seq FROM widget_events WHERE pending=1 ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END,seq DESC LIMIT 8))",[now]).map_err(err)?;
     tx.commit().map_err(err)?;
     Ok(true)
 }
@@ -631,8 +631,16 @@ fn synchronize_jar(db: &Connection) -> Result<()> {
     // The todo owner remains authoritative even while its presentation is disabled.
     let completed = all.iter().find(|entry| entry.kind == "todo")
         .and_then(|entry| entry.data["items"].as_array())
-        .map(|items| items.iter().filter(|item| item["completedAt"].is_number())
-            .map(|item| json!({"id":item["id"],"title":item["title"],"completedAt":item["completedAt"]})).collect::<Vec<_>>())
+        .map(|items| items.iter().flat_map(|item| {
+            let mut completed = vec![];
+            if item["completedAt"].is_number() {
+                completed.push(json!({"id":item["id"],"title":item["title"],"completedAt":item["completedAt"]}));
+            }
+            for record in item["frequencyRecords"].as_array().into_iter().flatten() {
+                completed.push(json!({"id":record["id"],"title":item["title"],"completedAt":record["createdAt"]}));
+            }
+            completed
+        }).collect::<Vec<_>>())
         .unwrap_or_default();
     let data = json!({"completed":completed});
     if jar.data != data {
@@ -684,7 +692,7 @@ pub fn discard_pending(db: &Connection) -> Result<()> {
 }
 
 pub fn take_reaction(db: &Connection, now: i64) -> Result<Option<WidgetEvent>> {
-    let mut statement = db.prepare("SELECT data FROM widget_events WHERE pending=1 ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder') THEN 0 ELSE 1 END,seq DESC LIMIT 8").map_err(err)?;
+    let mut statement = db.prepare("SELECT data FROM widget_events WHERE pending=1 ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END,seq DESC LIMIT 8").map_err(err)?;
     let events = statement
         .query_map([], |row| row.get::<_, String>(0))
         .map_err(err)?

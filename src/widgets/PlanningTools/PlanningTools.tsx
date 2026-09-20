@@ -2,7 +2,6 @@ import { FormField, Button, DateField, Select, TextField } from "@fleetia/lagran
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { localDay, number, record, rows, text, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
-import { WidgetAppearance } from "../WidgetAppearance/WidgetAppearance";
 import * as c from "../../lagrange.css";
 import * as s from "../tools.css";
 
@@ -135,15 +134,6 @@ export function ClockTool({ widget, act }: Props): ReactElement {
           minute: "2-digit",
         })}
       </time>
-      <FormField className={c.field} label="시계 형식">
-        <Select
-          value={text(d.format)}
-          onChange={(e) => void act("configure", { format: e.target.value })}
-        >
-          <option value="24h">24시간</option>
-          <option value="12h">12시간</option>
-        </Select>
-      </FormField>
       {rows(d.anniversaries).map((item) => {
         const difference = Math.round(
           (Date.parse(text(item.date) + "T00:00:00Z") - today) / 86400000,
@@ -215,10 +205,21 @@ export function ClockTool({ widget, act }: Props): ReactElement {
           )}
         </div>
       </form>
-      <details className={s.disclosure}>
-        <summary>바탕화면 표시 꾸미기</summary>
-        <WidgetAppearance widget={widget} />
-      </details>
     </>
+  );
+}
+
+export function ClockSettings({ widget, act }: Pick<Props, "widget" | "act">): ReactElement {
+  const d = record(widget.data);
+  return (
+    <FormField className={c.field} label="시계 형식">
+      <Select
+        value={text(d.format)}
+        onChange={(e) => void act("configure", { format: e.target.value })}
+      >
+        <option value="24h">24시간</option>
+        <option value="12h">12시간</option>
+      </Select>
+    </FormField>
   );
 }

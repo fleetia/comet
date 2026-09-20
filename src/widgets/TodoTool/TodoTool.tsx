@@ -9,10 +9,19 @@ import {
   TextField,
 } from "@fleetia/lagrange";
 import { useRef, useState, type ReactElement } from "react";
-import { localDay, number, record, rows, text, type DataRecord, type ToolAction } from "../toolData";
+import {
+  localDay,
+  number,
+  record,
+  rows,
+  text,
+  type DataRecord,
+  type ToolAction,
+} from "../toolData";
 import type { WidgetView } from "../types";
 import * as c from "../../lagrange.css";
 import * as s from "../tools.css";
+import * as todo from "./todoTool.css";
 
 type Props = { widget: WidgetView; act: ToolAction };
 const repeatLabels: Record<string, string> = { daily: "매일", weekly: "매주", monthly: "매월" };
@@ -97,7 +106,7 @@ export function TodoTool({ widget, act }: Props): ReactElement {
     }
   });
   return (
-    <>
+    <div className={todo.root}>
       <form
         className={s.composer}
         onInvalidCapture={(event) => {
@@ -124,19 +133,26 @@ export function TodoTool({ widget, act }: Props): ReactElement {
           }
         }}
       >
-        <h2 className={s.sectionTitle}>{editing ? "할 일 수정" : "새 할 일"}</h2>
+        {editing && <h2 className={s.sectionTitle}>할 일 수정</h2>}
         <div className={s.actions}>
-          <FormField className={c.field} label="할 일 제목" required>
+          <div className={todo.titleField}>
             <TextField
+              aria-label="할 일 제목"
+              placeholder="할 일 추가"
+              required
               ref={titleInput}
               maxLength={500}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
-          </FormField>
+          </div>
           <div className={s.actions}>
-            <Button type="submit" variant="primary">
-              {editing ? "변경 저장" : "할 일 추가"}
+            <Button
+              type="submit"
+              variant="primary"
+              aria-label={editing ? "변경 저장" : "할 일 추가"}
+            >
+              {editing ? "변경 저장" : "추가"}
             </Button>
             {editing && (
               <Button type="button" variant="secondary" onClick={resetDraft}>
@@ -195,28 +211,33 @@ export function TodoTool({ widget, act }: Props): ReactElement {
         </details>
       </form>
       <Rule variant="structural" />
-      <nav className={s.filters} aria-label="할 일 보기">
-        {[
-          ["all", "전체"],
-          ["today", "오늘"],
-          ["routine", "루틴"],
-          ["shopping", "장보기"],
-          ["wrap", "하루 마무리"],
-        ].map(([value, label]) => (
-          <Button
-            variant="quiet"
-            size="compact"
-            className={s.filterButton}
-            aria-pressed={filter === value}
-            key={value}
-            onClick={() => setFilter(value)}
-          >
-            {label}
-          </Button>
-        ))}
-      </nav>
-      <FormField className={c.field} label="조회할 목록">
-        <Select value={visibleList} onChange={(event) => setVisibleList(event.target.value)}>
+      <div className={todo.toolbar}>
+        <nav className={s.filters} aria-label="할 일 보기">
+          {[
+            ["all", "전체"],
+            ["today", "오늘"],
+            ["routine", "루틴"],
+            ["shopping", "장보기"],
+            ["wrap", "하루 마무리"],
+          ].map(([value, label]) => (
+            <Button
+              variant="quiet"
+              size="compact"
+              className={s.filterButton}
+              aria-pressed={filter === value}
+              key={value}
+              onClick={() => setFilter(value)}
+            >
+              {label}
+            </Button>
+          ))}
+        </nav>
+        <Select
+          className={todo.listSelect}
+          aria-label="조회할 목록"
+          value={visibleList}
+          onChange={(event) => setVisibleList(event.target.value)}
+        >
           <option value="all">모든 목록</option>
           {lists.map((item) => (
             <option key={text(item.id)} value={text(item.id)}>
@@ -224,36 +245,48 @@ export function TodoTool({ widget, act }: Props): ReactElement {
             </option>
           ))}
         </Select>
-      </FormField>
+      </div>
+      <p className={todo.count}>
+        진행 중 {items.filter((item) => item.completedAt === null).length} · 완료{" "}
+        {items.filter((item) => typeof item.completedAt === "number").length}
+      </p>
       {shown.length === 0 && (
         <p className={c.quiet}>이 보기에 할 일이 없어요. 위에서 새 항목을 작성할 수 있어요.</p>
       )}
       {shown.map((item) => (
-        <article className={s.item} key={text(item.id)}>
-          <Checkbox
-            checked={typeof item.completedAt === "number"}
-            onChange={() =>
-              void act(typeof item.completedAt === "number" ? "undo" : "complete", {
-                id: text(item.id),
-              })
-            }
-          >
-            {text(item.title)}
-          </Checkbox>
-          {text(item.memo) && <p className={s.prose}>{text(item.memo)}</p>}
-          <p className={c.quiet}>
-            {text(item.dueDate)}
-            {typeof item.dueAt === "number" && new Date(item.dueAt).toLocaleString()}{" "}
-            {repeatLabels[text(item.repeat)]}
-          </p>
-          <div className={s.row}>
-            <Button variant="secondary" onClick={() => edit(item)}>
-              수정
-            </Button>
-            <Button variant="secondary" onClick={() => void act("delete", { id: text(item.id) })}>
-              삭제
-            </Button>
+        <article className={todo.item} key={text(item.id)}>
+          <div className={todo.itemMain}>
+            <Checkbox
+              checked={typeof item.completedAt === "number"}
+              onChange={() =>
+                void act(typeof item.completedAt === "number" ? "undo" : "complete", {
+                  id: text(item.id),
+                })
+              }
+            >
+              {text(item.title)}
+            </Checkbox>
+            <div className={s.row}>
+              <Button variant="secondary" size="compact" onClick={() => edit(item)}>
+                수정
+              </Button>
+              <Button
+                variant="quiet"
+                size="compact"
+                onClick={() => void act("delete", { id: text(item.id) })}
+              >
+                삭제
+              </Button>
+            </div>
           </div>
+          {text(item.memo) && <p className={todo.memo}>{text(item.memo)}</p>}
+          {(item.dueDate || typeof item.dueAt === "number" || repeatLabels[text(item.repeat)]) && (
+            <p className={c.quiet}>
+              {text(item.dueDate)}
+              {typeof item.dueAt === "number" && new Date(item.dueAt).toLocaleString()}{" "}
+              {repeatLabels[text(item.repeat)]}
+            </p>
+          )}
           {filter === "wrap" && (
             <Checkbox
               checked={rollover.includes(text(item.id))}
@@ -351,7 +384,7 @@ export function TodoTool({ widget, act }: Props): ReactElement {
         완료 {items.filter((item) => typeof item.completedAt === "number").length}개 / 전체{" "}
         {number(items.length)}개
       </p>
-    </>
+    </div>
   );
 }
 function ListEditor({

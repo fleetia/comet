@@ -16,7 +16,10 @@ export const frame = styleVariants({
 export const fixedHeader = style({ flexShrink: 0 });
 export const header = styleVariants({
   tool: {
-    padding: vars.space.lg,
+    padding: `${vars.space.xs} ${vars.space.lg}`,
+    minHeight: "32px",
+    boxSizing: "border-box",
+    borderBottom: `1px solid ${vars.color.border.strong}`,
   },
   note: {
     padding: `${vars.space.xs} ${vars.space.sm}`,
@@ -31,8 +34,8 @@ export const title = styleVariants({
     whiteSpace: "nowrap",
     color: vars.color.content.accent,
     fontFamily: vars.typography.family.display,
-    fontSize: vars.typography.size.headingMd,
-    lineHeight: vars.typography.lineHeight.tight,
+    fontSize: vars.typography.size.body,
+    lineHeight: vars.typography.lineHeight.compact,
   },
   note: {
     overflow: "hidden",
@@ -70,6 +73,12 @@ const actionArea = style({
   gap: vars.space.sm,
 });
 export const footer = styleVariants({
-  tool: [actionArea, { padding: `${vars.space.md} ${vars.space.lg} ${vars.space.lg}` }],
+  tool: [
+    actionArea,
+    {
+      padding: `${vars.space.sm} ${vars.space.lg}`,
+      borderTop: `4px double ${vars.color.border.strong}`,
+    },
+  ],
   note: [actionArea, { padding: `${vars.space.xs} ${vars.space.sm} ${vars.space.sm}` }],
 });

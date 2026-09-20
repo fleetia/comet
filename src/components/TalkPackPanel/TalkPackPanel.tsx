@@ -4,6 +4,7 @@ import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { TalkPack } from "../../types";
 import * as s from "../../lagrange.css";
 import * as d from "../../desktop.css";
+import * as layout from "../SettingsPanel/settings.css";
 
 const PREVIEW_PACKS: TalkPack[] = [
   {
@@ -70,9 +71,9 @@ export function TalkPackPanel(): JSX.Element {
   return (
     <section aria-label="대화팩">
       <p className={d.info}>
-        대화팩은 시간·날씨·위젯 상태에 맞춰 캐릭터가 먼저 하는 말이에요. 기본팩은 함께 지내는
-        친구 1~8명 중 무작위로 화자를 고르고, 제거하면 다시 시작해도 되살리지 않아요. 나만의 대본은
-        앱 데이터의 talk/index.talk에 그대로 남아요.
+        대화팩은 시간·날씨·위젯 상태에 맞춰 캐릭터가 먼저 하는 말이에요. 기본팩은 함께 지내는 친구
+        1~8명 중 무작위로 화자를 고르고, 제거하면 다시 시작해도 되살리지 않아요. 나만의 대본은 앱
+        데이터의 talk/index.talk에 그대로 남아요.
       </p>
       {error && (
         <p className={s.error} role="alert">
@@ -89,19 +90,21 @@ export function TalkPackPanel(): JSX.Element {
           대화팩 목록을 읽고 있어요.
         </p>
       ) : (
-        <ul className={s.memory} aria-label="대화팩 목록">
+        <ul className={layout.packList} aria-label="대화팩 목록">
           {packs.map((pack) => (
-            <li key={pack.id} className={s.section}>
-              <p className={s.sectionTitle}>
-                {pack.name}
-                <span className={s.quiet}>
-                  {" · "}
-                  {pack.installed ? "설치됨" : "설치 안 됨"}
-                  {pack.defaultInstalled ? " · 기본" : ""}
-                  {pack.bundled ? "" : " · 직접 추가한 팩"}
-                </span>
-              </p>
-              {pack.description && <p className={s.quiet}>{pack.description}</p>}
+            <li key={pack.id} className={layout.packRow}>
+              <div>
+                <p className={s.sectionTitle}>
+                  {pack.name}
+                  <span className={s.quiet}>
+                    {" · "}
+                    {pack.installed ? "설치됨" : "설치 안 됨"}
+                    {pack.defaultInstalled ? " · 기본" : ""}
+                    {pack.bundled ? "" : " · 직접 추가한 팩"}
+                  </span>
+                </p>
+                {pack.description && <p className={s.quiet}>{pack.description}</p>}
+              </div>
               <div className={s.row}>
                 {pack.installed ? (
                   <Button

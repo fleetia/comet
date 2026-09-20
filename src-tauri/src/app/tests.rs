@@ -4,7 +4,7 @@ use super::conversation::{
 };
 use super::lifecycle::{flush_positions, prepare_exit};
 use super::scene::{character_script, clear_line_if_current, next_scene, present_line};
-use super::settings::{apply_settings, begin_download};
+use super::settings::{apply_settings, begin_download, SettingsScope};
 use super::windows::{apply_pause, should_cancel_for_pause};
 use super::*;
 use crate::{character_commands, story_host};
@@ -17,6 +17,9 @@ pub(crate) fn state() -> AppState {
         runtime: Mutex::new(RuntimeStatus::default()),
         playback: Mutex::new(None),
         panel: Mutex::new(None),
+        settings_section: Mutex::new(windows::SettingsSection::default()),
+        settings_dirty: AtomicBool::new(false),
+        settings_exit_confirmed: AtomicBool::new(false),
         cancellation: Mutex::new(None),
         download_cancel: Mutex::new(None),
         gate: tokio::sync::Mutex::new(()),
@@ -106,7 +109,7 @@ fn hourly_story_suppression_and_interruption_never_resurrect_a_request() {
             "settings" => {
                 let mut settings = store::settings(&lock(&state.db).unwrap()).unwrap();
                 settings.autonomous_enabled = false;
-                apply_settings(&state, &settings).unwrap();
+                apply_settings(&state, &settings, None, None).unwrap();
             }
             _ => {
                 let _action = lock(&state.action).unwrap();
@@ -239,7 +242,7 @@ fn talk_remaining_lines_stop_after_each_dependency_and_host_invalidation() {
             "auto-off" => {
                 let mut settings = store::settings(&lock(&state.db).unwrap()).unwrap();
                 settings.autonomous_enabled = false;
-                apply_settings(&state, &settings).unwrap();
+                apply_settings(&state, &settings, None, None).unwrap();
             }
             "reload" => {
                 lock(&state.talk).unwrap().apply(talk::validate_source(
@@ -459,7 +462,7 @@ fn widget_lines_stop_after_source_change_or_user_cancellation() {
             "auto-off" => {
                 let mut settings = store::settings(&lock(&state.db).unwrap()).unwrap();
                 settings.autonomous_enabled = false;
-                apply_settings(&state, &settings).unwrap();
+                apply_settings(&state, &settings, None, None).unwrap();
             }
             _ => {
                 let _guard = lock(&state.action).unwrap();
@@ -1147,7 +1150,7 @@ fn model_change_preserves_history_and_invalidates_previous_work() {
         local_model: LocalModel::Qwen35_9B,
         ..Settings::default()
     };
-    let current = apply_settings(&state, &selected).unwrap();
+    let current = apply_settings(&state, &selected, Some(SettingsScope::Model), None).unwrap();
     assert!(old.1.load(Ordering::SeqCst));
     assert!(!set_phase_if_current(&state, old.0, "idle", None, None).unwrap());
     assert!(is_current(&state, current.0, &current.1));
@@ -1161,6 +1164,149 @@ fn model_change_preserves_history_and_invalidates_previous_work() {
     assert_eq!(store::messages(&reopened, 10).unwrap()[0].content, "안녕");
     assert!(store::prepared_scenes(&reopened).unwrap().is_empty());
 }
+
+#[test]
+fn scoped_settings_saves_preserve_other_sections_newer_values() {
+    let state = state();
+    let original = Settings::default();
+    let model = Settings {
+        mode: "api".into(),
+        base_url: "https://example.com/v1".into(),
+        api_model: "selected-model".into(),
+        local_model: LocalModel::Qwen35_9B,
+        local_model_path: "/models/kept.gguf".into(),
+        api_token_parameter: "max_tokens".into(),
+        ..original.clone()
+    };
+    apply_settings(&state, &model, Some(SettingsScope::Model), None).unwrap();
+    let automatic = Settings {
+        autonomous_enabled: false,
+        local_idle_enabled: false,
+        api_idle_enabled: true,
+        idle_minutes: 17,
+        // Unrelated invalid draft values must neither block this save nor be persisted.
+        mode: "unfinished-mode".into(),
+        base_url: "unfinished-url".into(),
+        ..original
+    };
+    apply_settings(
+        &state,
+        &automatic,
+        Some(SettingsScope::Automatic),
+        Some("unrelated-draft-key-must-not-reach-keyring"),
+    )
+    .unwrap();
+    let expected = Settings {
+        autonomous_enabled: false,
+        local_idle_enabled: false,
+        api_idle_enabled: true,
+        idle_minutes: 17,
+        ..model.clone()
+    };
+    assert_eq!(
+        serde_json::to_value(store::settings(&lock(&state.db).unwrap()).unwrap()).unwrap(),
+        serde_json::to_value(&expected).unwrap()
+    );
+    let next_model = Settings {
+        api_model: "new-selected-model".into(),
+        // The model draft predates the automatic save and its interval is incomplete.
+        idle_minutes: 0,
+        ..model
+    };
+    apply_settings(&state, &next_model, Some(SettingsScope::Model), None).unwrap();
+    assert_eq!(
+        serde_json::to_value(store::settings(&lock(&state.db).unwrap()).unwrap()).unwrap(),
+        serde_json::to_value(Settings {
+            api_model: "new-selected-model".into(),
+            ..expected
+        })
+        .unwrap()
+    );
+    assert_eq!(store::revision(&lock(&state.db).unwrap()).unwrap(), 3);
+}
+
+#[test]
+fn scoped_settings_failures_preserve_saved_values_and_running_work() {
+    let state = state();
+    let previous = {
+        let _action = lock(&state.action).unwrap();
+        interrupt(&state, false).unwrap()
+    };
+    let original = store::settings(&lock(&state.db).unwrap()).unwrap();
+    let invalid_automatic = Settings {
+        idle_minutes: 0,
+        ..original.clone()
+    };
+    assert!(apply_settings(
+        &state,
+        &invalid_automatic,
+        Some(SettingsScope::Automatic),
+        None
+    )
+    .is_err());
+    let invalid_model = Settings {
+        mode: "api".into(),
+        base_url: "http://example.com/v1".into(),
+        api_model: "model".into(),
+        ..original.clone()
+    };
+    assert!(apply_settings(&state, &invalid_model, Some(SettingsScope::Model), None).is_err());
+    lock(&state.db).unwrap().execute_batch("CREATE TRIGGER fail_revision BEFORE UPDATE ON kv WHEN OLD.key='revision' BEGIN SELECT RAISE(ABORT,'storage failure'); END;").unwrap();
+    let changed = Settings {
+        autonomous_enabled: false,
+        ..original.clone()
+    };
+    assert!(apply_settings(&state, &changed, Some(SettingsScope::Automatic), None).is_err());
+    assert!(is_current(&state, previous.0, &previous.1));
+    assert_eq!(store::revision(&lock(&state.db).unwrap()).unwrap(), 0);
+    assert_eq!(
+        serde_json::to_value(store::settings(&lock(&state.db).unwrap()).unwrap()).unwrap(),
+        serde_json::to_value(original).unwrap()
+    );
+}
+
+#[test]
+fn unsaved_settings_require_exit_confirmation_and_block_update_installation() {
+    let state = state();
+    assert!(!windows::settings_exit_needs_confirmation(&state));
+    assert!(lifecycle::ensure_settings_saved_for_update(&state).is_ok());
+    state.settings_dirty.store(true, Ordering::SeqCst);
+    assert!(windows::settings_exit_needs_confirmation(&state));
+    assert!(lifecycle::ensure_settings_saved_for_update(&state).is_err());
+    state.settings_exit_confirmed.store(true, Ordering::SeqCst);
+    assert!(!windows::settings_exit_needs_confirmation(&state));
+    // Approving exit does not authorize an update to discard an unsaved draft.
+    assert!(lifecycle::ensure_settings_saved_for_update(&state).is_err());
+    state.settings_dirty.store(false, Ordering::SeqCst);
+    assert!(lifecycle::ensure_settings_saved_for_update(&state).is_ok());
+}
+
+#[test]
+fn settings_navigation_defaults_to_characters_and_maps_update_links_to_general() {
+    assert_eq!(
+        windows::SettingsSection::default(),
+        windows::SettingsSection::Characters
+    );
+    for section in [
+        "characters",
+        "widgets",
+        "automatic",
+        "wordbook",
+        "talk",
+        "memory",
+        "model",
+        "general",
+    ] {
+        let value = serde_json::Value::String(section.into());
+        let parsed: windows::SettingsSection = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(parsed).unwrap(), value);
+    }
+    assert_eq!(
+        serde_json::from_str::<windows::SettingsSection>("\"updates\"").unwrap(),
+        windows::SettingsSection::General
+    );
+}
+
 #[test]
 fn download_reserves_selected_model_before_work_begins() {
     let mut state = state();

@@ -101,6 +101,11 @@ export function WidgetTool({ id }: { id: string }): ReactElement {
     switch (widget.kind) {
       case "todo":
         content = <TodoTool {...props} />;
+        footer = (
+          <p className={s.previewNote}>
+            이 창을 닫아도 작성한 할 일과 위젯 사용 상태는 유지됩니다.
+          </p>
+        );
         break;
       case "focus-timer":
         content = <TimerTool {...props} />;
@@ -200,28 +205,6 @@ export function WidgetTool({ id }: { id: string }): ReactElement {
             </Button>
           );
         }
-    }
-    if (["clock", "weather", "device"].includes(widget.kind)) {
-      footer = (
-        <>
-          <Button
-            variant="secondary"
-            size="compact"
-            disabled={busy}
-            onClick={() => void run(() => command("close_widget_display", { id }))}
-          >
-            표시 닫기
-          </Button>
-          <Button
-            variant="primary"
-            size="compact"
-            disabled={busy}
-            onClick={() => void run(() => command("open_widget_display", { id }))}
-          >
-            바탕화면에 꺼내기
-          </Button>
-        </>
-      );
     }
   }
   return (

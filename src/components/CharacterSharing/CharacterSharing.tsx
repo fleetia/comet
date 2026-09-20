@@ -1,26 +1,37 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, Checkbox, Select, TextField } from "@fleetia/lagrange";
+import { Button, Checkbox, Dialog, Select, TextField } from "@fleetia/lagrange";
 import { command, errorText } from "../../hooks/useSnapshot";
 import type { CharacterPack, InstalledCharacter, Snapshot } from "../../types";
 import { CharacterPackPreview } from "../CharacterPackPreview/CharacterPackPreview";
 import * as ui from "../../lagrange.css";
 import * as s from "../characters.css";
 
+export type SharingAction = "import" | "export" | "attribution";
+type Attribution = { author: string; sourceUrl: string };
+type AttributionDraft = { saved: Attribution; draft: Attribution };
+
 type Props = {
   snapshot: Snapshot;
   selectedId: string | null;
   disabled: boolean;
   onPendingChange?: (pending: boolean) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+  action?: SharingAction | null;
+  onActionChange?: (action: SharingAction | null) => void;
+  contentDirty?: boolean;
 };
 export function CharacterSharing({
   snapshot,
   selectedId,
   disabled,
   onPendingChange,
+  onDirtyChange,
+  action,
+  onActionChange,
+  contentDirty = false,
 }: Props): JSX.Element {
   const [scope, setScope] = useState("selected");
-  const [author, setAuthor] = useState("");
-  const [sourceUrl, setSourceUrl] = useState("");
+  const [attributions, setAttributions] = useState<Record<string, AttributionDraft>>({});
   const [wordbookIds, setWordbookIds] = useState<string[]>([]);
   const [pack, setPack] = useState<CharacterPack | null>(null);
   const [installed, setInstalled] = useState<InstalledCharacter[]>([]);
@@ -30,30 +41,57 @@ export function CharacterSharing({
   const lock = useRef(false);
   const { active } = snapshot.characters;
   const packId = snapshot.characters.installed.find((item) => item.id === selectedId)?.packId;
-  const [attributionLoaded, setAttributionLoaded] = useState(false);
-  useEffect(() => {
-    let current = true;
-    setAuthor("");
-    setSourceUrl("");
-    setAttributionLoaded(false);
-    if (packId) {
-      void command<{ author: string; sourceUrl: string }>("get_character_pack_attribution", {
-        packId,
-      })
-        .then((value) => {
-          if (!current) return;
-          setAuthor(value.author);
-          setSourceUrl(value.sourceUrl);
-          setAttributionLoaded(true);
-        })
-        .catch((cause: unknown) => {
-          if (current) setError(errorText(cause));
-        });
+  const attribution = packId ? attributions[packId] : undefined;
+  const author = attribution?.draft.author ?? "";
+  const sourceUrl = attribution?.draft.sourceUrl ?? "";
+  const attributionLoaded = Boolean(attribution);
+  const attributionDirty = Object.values(attributions).some(
+    ({ saved, draft }) => saved.author !== draft.author || saved.sourceUrl !== draft.sourceUrl,
+  );
+  const currentAttributionDirty =
+    attribution &&
+    (attribution.saved.author !== author || attribution.saved.sourceUrl !== sourceUrl);
+  const [attributionRevision, setAttributionRevision] = useState(0);
+  function changeAttribution(patch: Partial<Attribution>): void {
+    if (!packId || !attribution) {
+      return;
     }
+    setAttributions((values) => ({
+      ...values,
+      [packId]: { ...attribution, draft: { ...attribution.draft, ...patch } },
+    }));
+  }
+  useEffect(() => {
+    onDirtyChange?.(attributionDirty);
+  }, [attributionDirty, onDirtyChange]);
+  useEffect(() => {
+    if (!packId || attributions[packId]) {
+      return;
+    }
+    let current = true;
+    setError(null);
+    void command<Attribution>("get_character_pack_attribution", { packId })
+      .then((value) => {
+        if (current) {
+          setAttributions((values) =>
+            values[packId] ? values : { ...values, [packId]: { saved: value, draft: value } },
+          );
+        }
+      })
+      .catch((cause: unknown) => {
+        if (current) {
+          setError(errorText(cause));
+        }
+      });
     return () => {
       current = false;
     };
-  }, [packId]);
+  }, [packId, attributionRevision]);
+  useEffect(() => {
+    if (action === "import") {
+      void choosePack();
+    }
+  }, [action]);
   const ids = scope === "pair" && active.length > 1 ? active : selectedId ? [selectedId] : [];
   const joining = installed.map((character) => character.id).filter((id) => !active.includes(id));
   async function run(action: () => Promise<void>): Promise<void> {
@@ -73,15 +111,25 @@ export function CharacterSharing({
       onPendingChange?.(false);
     }
   }
-  return (
+  async function choosePack(): Promise<void> {
+    await run(async () => {
+      const chosen = await command<CharacterPack | null>("choose_character_pack");
+      if (chosen) {
+        setPack(chosen);
+        setInstalled([]);
+      }
+    });
+  }
+  const full = action === undefined;
+  const content = (
     <section className={s.section} aria-label="캐릭터 공유">
-      <h2 className={s.subheading}>캐릭터 공유</h2>
+      {full && <h2 className={s.subheading}>캐릭터 공유</h2>}
       <p className={s.notice}>
         이름·성격·표정과 표정 이미지·등록 대사만 공유해요. 대화 기록·기억·친밀도·API 키·모델 파일은
         포함하지 않아요. 직접 적은 소개나 대사에 개인정보가 없는지도 확인해 주세요.
       </p>
       <fieldset className={s.fieldset} disabled={pending || disabled}>
-        {packId && (
+        {packId && (full || action === "attribution") && (
           <>
             <p className={ui.quiet}>
               선택한 캐릭터의 원본 패키지 출처예요. 같은 패키지의 모든 캐릭터에 적용돼요.
@@ -92,7 +140,7 @@ export function CharacterSharing({
                 disabled={!attributionLoaded}
                 value={author}
                 maxLength={120}
-                onChange={(event) => setAuthor(event.target.value)}
+                onChange={(event) => changeAttribution({ author: event.target.value })}
               />
             </label>
             <label className={ui.field}>
@@ -101,7 +149,7 @@ export function CharacterSharing({
                 disabled={!attributionLoaded}
                 value={sourceUrl}
                 maxLength={2048}
-                onChange={(event) => setSourceUrl(event.target.value)}
+                onChange={(event) => changeAttribution({ sourceUrl: event.target.value })}
                 placeholder="https://…"
               />
             </label>
@@ -114,103 +162,131 @@ export function CharacterSharing({
                     packId,
                     value: { author, sourceUrl },
                   });
+                  const saved = { author, sourceUrl };
+                  setAttributions((values) => ({ ...values, [packId]: { saved, draft: saved } }));
                   setNotice("패키지 출처를 저장했어요.");
                 })
               }
             >
               출처 저장
             </Button>
+            {currentAttributionDirty && (
+              <Button
+                variant="quiet"
+                size="compact"
+                onClick={() => {
+                  if (attribution) {
+                    setAttributions((values) => ({
+                      ...values,
+                      [packId]: { ...attribution, draft: attribution.saved },
+                    }));
+                  }
+                }}
+              >
+                출처 수정 취소
+              </Button>
+            )}
+            {!attributionLoaded && error && (
+              <Button
+                variant="secondary"
+                size="compact"
+                onClick={() => setAttributionRevision((value) => value + 1)}
+              >
+                출처 다시 불러오기
+              </Button>
+            )}
           </>
         )}
-        <label className={ui.field}>
-          내보낼 대상
-          <Select value={scope} onChange={(event) => setScope(event.target.value)}>
-            <option value="selected">선택한 캐릭터 하나</option>
-            <option value="pair" disabled={active.length < 2}>
-              함께 지내는 친구들의 조합
-            </option>
-          </Select>
-        </label>
-        <p className={ui.quiet}>
-          {ids
-            .map(
-              (id) =>
-                snapshot.characters.installed.find((character) => character.id === id)?.definition
-                  .name ?? "",
-            )
-            .join(" + ")}{" "}
-          · 저장된 내용으로 내보내요.
-        </p>
-        <details className={s.section}>
-          <summary className={s.disclosureSummary}>
-            개인 단어장 선택해서 포함하기 ({wordbookIds.length}개)
-          </summary>
-          <p className={ui.quiet}>
-            기본으로 제외해요. 단일 캐릭터를 내보낼 때는 그 캐릭터만 말하는 항목을 선택해 주세요.
-          </p>
-          {snapshot.wordbook.length === 0 ? (
-            <p className={ui.quiet}>개인 단어장이 없어요.</p>
-          ) : (
-            snapshot.wordbook.map((entry) => (
-              <div className={s.line} key={entry.id}>
-                <Checkbox
-                  disabled={pending || disabled}
-                  checked={wordbookIds.includes(entry.id)}
-                  onChange={(event) =>
-                    setWordbookIds((values) =>
-                      event.target.checked
-                        ? [...values, entry.id]
-                        : values.filter((id) => id !== entry.id),
-                    )
-                  }
-                >
-                  {entry.title}
-                </Checkbox>
-                <p className={ui.quiet}>{entry.keywords.join(", ")}</p>
-                <div className={s.preview}>
-                  {entry.lines.map((line, index) => (
-                    <p key={index}>
-                      {line.persona.toUpperCase()} [{line.expression}] {line.text}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            ))
-          )}
-        </details>
-        <div className={ui.row}>
-          <Button
-            variant="secondary"
-            disabled={!ids.length}
-            onClick={() =>
-              void run(async () => {
-                const path = await command<string | null>("save_character_pack", {
-                  ids,
-                  wordbookIds,
-                });
-                if (path) setNotice(`공유 파일을 저장했어요. ${path}`);
-              })
-            }
-          >
-            공유 파일 내보내기
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() =>
-              void run(async () => {
-                const chosen = await command<CharacterPack | null>("choose_character_pack");
-                if (chosen) {
-                  setPack(chosen);
-                  setInstalled([]);
+        {(full || action === "export") && (
+          <div>
+            <label className={ui.field}>
+              내보낼 대상
+              <Select value={scope} onChange={(event) => setScope(event.target.value)}>
+                <option value="selected">선택한 캐릭터 하나</option>
+                <option value="pair" disabled={active.length < 2}>
+                  함께 지내는 친구들의 조합
+                </option>
+              </Select>
+            </label>
+            <p className={ui.quiet}>
+              {ids
+                .map(
+                  (id) =>
+                    snapshot.characters.installed.find((character) => character.id === id)
+                      ?.definition.name ?? "",
+                )
+                .join(" + ")}{" "}
+              · 저장된 내용으로 내보내요.
+            </p>
+            <details className={s.section}>
+              <summary className={s.disclosureSummary}>
+                개인 단어장 선택해서 포함하기 ({wordbookIds.length}개)
+              </summary>
+              <p className={ui.quiet}>
+                기본으로 제외해요. 단일 캐릭터를 내보낼 때는 그 캐릭터만 말하는 항목을 선택해
+                주세요.
+              </p>
+              {snapshot.wordbook.length === 0 ? (
+                <p className={ui.quiet}>개인 단어장이 없어요.</p>
+              ) : (
+                snapshot.wordbook.map((entry) => (
+                  <div className={s.line} key={entry.id}>
+                    <Checkbox
+                      disabled={pending || disabled}
+                      checked={wordbookIds.includes(entry.id)}
+                      onChange={(event) =>
+                        setWordbookIds((values) =>
+                          event.target.checked
+                            ? [...values, entry.id]
+                            : values.filter((id) => id !== entry.id),
+                        )
+                      }
+                    >
+                      {entry.title}
+                    </Checkbox>
+                    <p className={ui.quiet}>{entry.keywords.join(", ")}</p>
+                    <div className={s.preview}>
+                      {entry.lines.map((line, index) => (
+                        <p key={index}>
+                          {line.persona.toUpperCase()} [{line.expression}] {line.text}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </details>
+            <div className={ui.row}>
+              <Button
+                variant="secondary"
+                disabled={!ids.length || contentDirty || attributionDirty}
+                onClick={() =>
+                  void run(async () => {
+                    const path = await command<string | null>("save_character_pack", {
+                      ids,
+                      wordbookIds,
+                    });
+                    if (path) setNotice(`공유 파일을 저장했어요. ${path}`);
+                  })
                 }
-              })
-            }
-          >
+              >
+                공유 파일 내보내기
+              </Button>
+            </div>
+            {(contentDirty || attributionDirty) && (
+              <p className={s.small}>
+                공유할 내용과 출처의 미저장 수정을 먼저 저장하거나 취소해 주세요.
+              </p>
+            )}
+          </div>
+        )}
+        {(full || action === "import") && (
+          <Button variant="secondary" size="compact" onClick={() => void choosePack()}>
             공유 파일 가져오기
           </Button>
-        </div>
+        )}
         <p className={ui.quiet}>.comet-character.json · 최대 32 MiB · 온라인에 게시하지 않아요.</p>
-        {pack && (
+        {pack && (full || action === "import") && (
           <section className={s.section} aria-label="가져오기 미리보기">
             <CharacterPackPreview pack={pack} />
             {installed.length === 0 ? (
@@ -237,7 +313,9 @@ export function CharacterSharing({
               <div className={ui.row}>
                 <Button
                   variant="primary"
-                  disabled={joining.length === 0 || active.length + joining.length > 8}
+                  disabled={
+                    contentDirty || joining.length === 0 || active.length + joining.length > 8
+                  }
                   onClick={() =>
                     void run(async () => {
                       await command("apply_character_roster", { ids: [...active, ...joining] });
@@ -277,5 +355,54 @@ export function CharacterSharing({
         </p>
       )}
     </section>
+  );
+  if (full) {
+    return content;
+  }
+  return (
+    <>
+      <div className={s.attributionSummary}>
+        <span>팩 정보</span>
+        <span className={s.small}>
+          {packId
+            ? `${author || "제작자 미등록"}${currentAttributionDirty ? " · 미저장" : ""}`
+            : "직접 만든 캐릭터"}
+        </span>
+        <Button
+          variant="secondary"
+          size="compact"
+          disabled={!packId || disabled}
+          onClick={() => onActionChange?.("attribution")}
+        >
+          정보·출처 편집
+        </Button>
+        <span>출처</span>
+        <span className={s.small}>{sourceUrl || "등록된 출처 없음"}</span>
+      </div>
+      <Dialog
+        closeLabel="닫기"
+        isOpen={action !== null}
+        onOpenChange={(open) => {
+          if (!open && !pending) {
+            onActionChange?.(null);
+          }
+        }}
+        onCancel={(event) => {
+          if (pending) {
+            event.preventDefault();
+          }
+        }}
+        title={
+          action === "import"
+            ? "캐릭터 가져오기"
+            : action === "export"
+              ? "파일로 내보내기"
+              : "팩 정보·출처"
+        }
+        size="large"
+      >
+        {content}
+      </Dialog>
+    </>
   );
 }

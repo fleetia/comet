@@ -1,10 +1,9 @@
 import { FormField, Button, Select, TextField } from "@fleetia/lagrange";
-import { useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { record, rows, text, number, type DataRecord } from "../toolData";
 import { useConnectionCommand } from "../useConnectionCommand";
 import type { WidgetValue, WidgetView } from "../types";
-import { WidgetAppearance } from "../WidgetAppearance/WidgetAppearance";
 import * as c from "../../lagrange.css";
 import * as s from "../tools.css";
 function stamp(value: WidgetValue | undefined): string {
@@ -34,12 +33,27 @@ function weatherLabel(code: number): string {
   }
   return "뇌우";
 }
-export function ConnectionTool({ widget }: { widget: WidgetView }): ReactElement {
+export function ConnectionTool({
+  widget,
+  mode = "tool",
+  onDirtyChange,
+}: {
+  widget: WidgetView;
+  mode?: "settings" | "tool";
+  onDirtyChange?: (dirty: boolean) => void;
+}): ReactElement {
   const d = record(widget.data),
     observation = record(d.observation),
     config = record(d.config);
   const { busy, error, run } = useConnectionCommand();
-  const [provider, setProvider] = useState(text(config.provider) || "music");
+  const storedProvider = text(config.provider) || "music";
+  const [providerDraft, setProvider] = useState<string | null>(null);
+  const provider = providerDraft ?? storedProvider;
+  const [regionDirty, setRegionDirty] = useState(false);
+  const dirty = regionDirty || (providerDraft !== null && providerDraft !== storedProvider);
+  useEffect(() => {
+    onDirtyChange?.(mode === "settings" && dirty);
+  }, [dirty, mode, onDirtyChange]);
   const stale = d.status !== "ready";
   return (
     <fieldset className={s.body} disabled={busy}>
@@ -52,7 +66,7 @@ export function ConnectionTool({ widget }: { widget: WidgetView }): ReactElement
       {d.status === "unsupported" && (
         <p role="status">이 운영체제에서는 해당 연결을 지원하지 않습니다.</p>
       )}
-      {d.observation && (
+      {mode === "tool" && d.observation && (
         <section className={s.item} aria-label="마지막 조회 정보">
           {stale && <p className={c.error}>이전 정보 · 현재 상태를 확인하지 못했어요.</p>}
           {widget.kind === "weather" && (
@@ -122,7 +136,7 @@ export function ConnectionTool({ widget }: { widget: WidgetView }): ReactElement
           <p className={c.quiet}>마지막 조회 성공: {stamp(d.lastSuccessAt)}</p>
         </section>
       )}
-      {d.configured === true && (
+      {mode === "tool" && d.configured === true && (
         <>
           <Button
             variant="primary"
@@ -137,20 +151,21 @@ export function ConnectionTool({ widget }: { widget: WidgetView }): ReactElement
           {!d.observation && <p>아직 성공적으로 조회한 정보가 없어요.</p>}
         </>
       )}
-      {widget.kind === "weather" && (
-        <details className={s.disclosure} open={d.configured !== true}>
-          <summary>{d.configured === true ? "지역 변경" : "지역 선택"}</summary>
-          <WeatherRegion id={widget.id} run={run} />
-        </details>
+      {mode === "settings" && widget.kind === "weather" && (
+        <section className={s.section} aria-label="날씨 지역 설정">
+          <h2 className={s.sectionTitle}>{d.configured === true ? "지역 변경" : "지역 선택"}</h2>
+          <WeatherRegion id={widget.id} run={run} onDirtyChange={setRegionDirty} />
+        </section>
       )}
-      {widget.kind === "music" && (
-        <details className={s.disclosure} open={d.configured !== true}>
-          <summary>음악 앱 연결 설정</summary>
+      {mode === "settings" && widget.kind === "music" && (
+        <section className={s.section} aria-label="음악 앱 연결 설정">
+          <h2 className={s.sectionTitle}>음악 앱 연결 설정</h2>
           <form
             className={s.composer}
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
-              void run("configure_connection_widget", { id: widget.id, input: { provider } });
+              if (await run("configure_connection_widget", { id: widget.id, input: { provider } }))
+                setProvider(null);
             }}
           >
             <p>
@@ -169,10 +184,15 @@ export function ConnectionTool({ widget }: { widget: WidgetView }): ReactElement
             <Button type="submit" variant="secondary">
               곡 정보 조회 허용하고 연결
             </Button>
+            {dirty && (
+              <Button variant="quiet" type="button" onClick={() => setProvider(null)}>
+                연결 변경 취소
+              </Button>
+            )}
           </form>
-        </details>
+        </section>
       )}
-      {widget.kind === "device" && d.configured !== true && (
+      {mode === "settings" && widget.kind === "device" && d.configured !== true && (
         <>
           <p>이 기기의 배터리 잔량과 전원 상태를 읽습니다. macOS와 Windows에서 지원합니다.</p>
           <Button
@@ -183,11 +203,9 @@ export function ConnectionTool({ widget }: { widget: WidgetView }): ReactElement
           </Button>
         </>
       )}
-      {(widget.kind === "weather" || widget.kind === "device") && (
-        <details className={s.disclosure}>
-          <summary>바탕화면 표시 꾸미기</summary>
-          <WidgetAppearance widget={widget} />
-        </details>
+      {mode === "tool" && d.configured !== true && <p>설정창의 위젯에서 연결을 설정해 주세요.</p>}
+      {mode === "settings" && widget.kind === "device" && d.configured === true && (
+        <p>이 기기의 배터리와 전원 정보 조회를 허용했습니다.</p>
       )}
       {busy && <p role="status">연결 정보를 처리하고 있어요.</p>}
     </fieldset>
@@ -196,15 +214,20 @@ export function ConnectionTool({ widget }: { widget: WidgetView }): ReactElement
 function WeatherRegion({
   id,
   run,
+  onDirtyChange,
 }: {
   id: string;
   run: (name: string, args: Record<string, unknown>) => Promise<boolean>;
+  onDirtyChange: (dirty: boolean) => void;
 }): ReactElement {
   const [query, setQuery] = useState(""),
     [results, setResults] = useState<DataRecord[] | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null);
   const pending = useRef(false);
+  useEffect(() => {
+    onDirtyChange(query.length > 0);
+  }, [query, onDirtyChange]);
   async function search(): Promise<void> {
     if (!isDesktop()) {
       setError("지역 검색과 연결은 데스크톱 앱에서 사용할 수 있어요.");
@@ -265,20 +288,37 @@ function WeatherRegion({
         <Button
           variant="secondary"
           key={number(region.id)}
-          onClick={() =>
-            void run("configure_connection_widget", {
-              id,
-              input: {
-                name: text(region.name),
-                latitude: number(region.latitude),
-                longitude: number(region.longitude),
-              },
-            })
-          }
+          onClick={async () => {
+            if (
+              await run("configure_connection_widget", {
+                id,
+                input: {
+                  name: text(region.name),
+                  latitude: number(region.latitude),
+                  longitude: number(region.longitude),
+                },
+              })
+            ) {
+              setQuery("");
+              setResults(null);
+            }
+          }}
         >
           {text(region.name)} · {text(region.admin1)} · {text(region.country)} 선택
         </Button>
       ))}
+      {query && (
+        <Button
+          variant="quiet"
+          disabled={busy}
+          onClick={() => {
+            setQuery("");
+            setResults(null);
+          }}
+        >
+          지역 입력 지우기
+        </Button>
+      )}
       {busy && <p role="status">지역을 검색하고 있어요.</p>}
     </section>
   );

@@ -82,8 +82,16 @@ it("keeps the text face for characters without sprites and outside the desktop a
   const { rerender } = render(
     <CompanionBox id="builtin-b" snapshot={{ ...snapshot, playback: playing("화남", "b") }} />,
   );
-  expect(screen.getByRole("button", { name: `${PREVIEW_SNAPSHOT.characters.installed[1].definition.name} 메뉴 열기` }).querySelector("img")).toBeNull();
-  expect(screen.getByText(`[${PREVIEW_SNAPSHOT.characters.installed[1].definition.expressions.평온}]`)).toBeTruthy();
+  expect(
+    screen
+      .getByRole("button", {
+        name: `${PREVIEW_SNAPSHOT.characters.installed[1].definition.name} 메뉴 열기`,
+      })
+      .querySelector("img"),
+  ).toBeNull();
+  expect(
+    screen.getByText(`[${PREVIEW_SNAPSHOT.characters.installed[1].definition.expressions.평온}]`),
+  ).toBeTruthy();
   vi.mocked(isDesktop).mockReturnValue(false);
   rerender(<CompanionBox id="byul" snapshot={{ ...snapshot, playback: playing("기쁨") }} />);
   expect(bodyImage()).toBeNull();
@@ -189,7 +197,7 @@ it("adds and removes expressions, protects the default one, and gates images on 
   );
   expect(screen.queryByRole("button", { name: "평온 표정 삭제" })).toBeNull();
   expect(screen.getByText("캐릭터를 먼저 저장하면 표정마다 이미지를 넣을 수 있어요.")).toBeTruthy();
-  for (const button of screen.getAllByRole("button", { name: "이미지 선택" })) {
+  for (const button of screen.getAllByRole("button", { name: /^(?!말풍선).* 이미지 선택$/ })) {
     expect(button).toHaveProperty("disabled", true);
   }
   fireEvent.change(screen.getByLabelText("새 표정 이름"), { target: { value: " 화남 " } });
@@ -223,13 +231,13 @@ it("adds and removes expressions, protects the default one, and gates images on 
   expect(within(joy).getByRole("img").getAttribute("src")).toContain(
     "expression=%EA%B8%B0%EC%81%A8",
   );
-  expect(screen.getByLabelText("슬픔 이미지").textContent).toBe("이미지 없음");
-  expect(screen.getAllByRole("button", { name: "이미지 제거" })).toHaveLength(2);
-  fireEvent.click(screen.getAllByRole("button", { name: "이미지 선택" })[2]);
+  expect(screen.getByLabelText("슬픔 이미지").textContent).toBe("—");
+  expect(screen.getAllByRole("button", { name: /^(?!말풍선).* 이미지 제거$/ })).toHaveLength(2);
+  fireEvent.click(screen.getAllByRole("button", { name: /^(?!말풍선).* 이미지 선택$/ })[2]);
   expect(onSprite).toHaveBeenLastCalledWith("슬픔", false);
-  fireEvent.click(screen.getAllByRole("button", { name: "이미지 제거" })[1]);
+  fireEvent.click(screen.getAllByRole("button", { name: /^(?!말풍선).* 이미지 제거$/ })[1]);
   expect(onSprite).toHaveBeenLastCalledWith("기쁨", true);
-  expect(screen.getByLabelText("말풍선 이미지").textContent).toBe("이미지 없음");
+  expect(screen.getByLabelText("말풍선 이미지").textContent).toBe("기본");
   fireEvent.click(screen.getByRole("button", { name: "말풍선 이미지 선택" }));
   expect(onSprite).toHaveBeenLastCalledWith("$balloon", false);
   expect(screen.queryByRole("button", { name: "말풍선 이미지 제거" })).toBeNull();

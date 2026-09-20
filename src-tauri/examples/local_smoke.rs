@@ -11,6 +11,9 @@ mod domain;
 #[path = "../src/inference.rs"]
 mod inference;
 #[allow(dead_code)]
+#[path = "../src/legacy_names.rs"]
+mod legacy_names;
+#[allow(dead_code)]
 #[path = "../src/models.rs"]
 mod models;
 #[allow(dead_code, unused_imports)]

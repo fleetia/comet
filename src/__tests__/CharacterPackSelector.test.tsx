@@ -41,6 +41,9 @@ beforeEach(() => {
   props.onApplied.mockReset();
   props.onPendingChange.mockReset();
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_character_pack_attribution") {
+      return { author: "", sourceUrl: "" };
+    }
     if (name === "get_character_packs") {
       return packs;
     }
@@ -54,6 +57,9 @@ beforeEach(() => {
 it("previews the selected installation and replaces the roster only after applying once", async () => {
   let finish: () => void = () => {};
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_character_pack_attribution") {
+      return { author: "", sourceUrl: "" };
+    }
     if (name === "get_character_packs") {
       return packs;
     }
@@ -66,7 +72,7 @@ it("previews the selected installation and replaces the roster only after applyi
   expect(select).toHaveProperty("value", "pair");
   expect(screen.getByRole("button", { name: "함께 지내는 중" })).toHaveProperty("disabled", true);
   fireEvent.change(select, { target: { value: "solo-pack" } });
-  expect(screen.getByText("함께 지낼 순서: 모래")).toBeTruthy();
+  expect(screen.getByText(/함께 지낼 순서: 모래/)).toBeTruthy();
   expect(command).toHaveBeenCalledTimes(1);
   const apply = screen.getByRole("button", { name: "이 팩으로 함께 지내기" });
   fireEvent.click(apply);
@@ -93,7 +99,7 @@ it("treats a mixed or reordered roster as different from the pack order", async 
     />,
   );
   fireEvent.change(await screen.findByLabelText("설치한 캐릭터 팩"), { target: { value: "pair" } });
-  expect(screen.getByText("함께 지낼 순서: A → B")).toBeTruthy();
+  expect(screen.getByText(/함께 지낼 순서: A → B/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "이 팩으로 함께 지내기" })).toHaveProperty(
     "disabled",
     false,
@@ -102,6 +108,9 @@ it("treats a mixed or reordered roster as different from the pack order", async 
 
 it("retains the selection on apply failure and allows a retry without claiming success", async () => {
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_character_pack_attribution") {
+      return { author: "", sourceUrl: "" };
+    }
     if (name === "get_character_packs") {
       return packs;
     }
@@ -175,31 +184,32 @@ it("refreshes changed membership, rejects a removed selection, and ignores late 
   );
 });
 
-it("blocks switching for drafts on any character and unlocks after cancelling", async () => {
-  render(<CharacterManager snapshot={{ ...PREVIEW_SNAPSHOT, characters }} />);
-  const select = await screen.findByLabelText("설치한 캐릭터 팩");
-  fireEvent.change(select, { target: { value: "solo-pack" } });
+it("blocks pack application for a draft on another character and unlocks after cancelling", async () => {
+  render(<CharacterManager embedded snapshot={{ ...PREVIEW_SNAPSHOT, characters }} />);
   fireEvent.change(screen.getByLabelText("이름"), { target: { value: "수정 중인 A" } });
   fireEvent.click(
     within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^B/ }),
   );
+  fireEvent.click(screen.getByRole("button", { name: "설치한 팩으로 바꾸기" }));
+  const select = await screen.findByLabelText("설치한 캐릭터 팩");
   expect(select).toHaveProperty("disabled", true);
-  expect(screen.getByRole("button", { name: "이 팩으로 함께 지내기" })).toHaveProperty(
-    "disabled",
-    true,
-  );
   expect(screen.getByText(/수정 중인 캐릭터와 대사를 저장하거나 취소/)).toBeTruthy();
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "닫기" }));
   fireEvent.click(
     within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^수정 중인 A/ }),
   );
   expect(screen.getByLabelText("이름")).toHaveProperty("value", "수정 중인 A");
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 수정 취소" }));
-  expect(select).toHaveProperty("disabled", false);
+  fireEvent.click(screen.getByRole("button", { name: "설치한 팩으로 바꾸기" }));
+  expect(screen.getByLabelText("설치한 캐릭터 팩")).toHaveProperty("disabled", false);
 });
 
-it("prevents a new dialogue draft during an unresolved pack switch", async () => {
+it("locks character and dialogue edits during an unresolved pack switch", async () => {
   let finish: () => void = () => {};
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_character_pack_attribution") {
+      return { author: "", sourceUrl: "" };
+    }
     if (name === "get_character_packs") {
       return packs;
     }
@@ -210,17 +220,15 @@ it("prevents a new dialogue draft during an unresolved pack switch", async () =>
     }
     return { pairScenes: [], wordbook: [] };
   });
-  render(<CharacterManager snapshot={{ ...PREVIEW_SNAPSHOT, characters }} />);
+  render(<CharacterManager embedded snapshot={{ ...PREVIEW_SNAPSHOT, characters }} />);
+  await screen.findByRole("button", { name: "키워드 대사 편집" });
+  fireEvent.click(screen.getByRole("button", { name: "설치한 팩으로 바꾸기" }));
   fireEvent.change(await screen.findByLabelText("설치한 캐릭터 팩"), {
     target: { value: "solo-pack" },
   });
-  fireEvent.click(screen.getByRole("tab", { name: "등록 대사" }));
-  const create = await screen.findByRole("button", { name: "새 항목 만들기" });
-  expect(create.matches(":disabled")).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "이 팩으로 함께 지내기" }));
-  expect(create.matches(":disabled")).toBe(true);
+  expect(screen.getByLabelText("이름").matches(":disabled")).toBe(true);
   expect(screen.getByLabelText("등록 대사 대상").matches(":disabled")).toBe(true);
   finish();
-  await screen.findByText("별 친구 팩으로 바꿨어요.");
-  expect(screen.getByLabelText("이름")).toHaveProperty("value", "모래");
+  await waitFor(() => expect(screen.getByLabelText("이름")).toHaveProperty("value", "모래"));
 });

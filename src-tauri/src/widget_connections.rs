@@ -208,29 +208,43 @@ async fn connect_result(
     let outcome = match result {
         Ok(result) => finish(state, &job, |db, current| {
             let mut data = decode_calendar(&current.data)?;
+            let previous = data
+                .connections
+                .iter()
+                .find(|connection| connection.id == connected.connection.id)
+                .cloned();
             let (connection, events) = match &result {
                 Ok(refreshed) => (
                     calendar::success(&connected.connection, timestamp()),
                     Some(refreshed.events.clone()),
                 ),
                 Err(failure) => (
-                    calendar::failed(&connected.connection, failure, timestamp()),
+                    calendar::failed(
+                        previous.as_ref().unwrap_or(&connected.connection),
+                        failure,
+                        timestamp(),
+                    ),
                     None,
                 ),
             };
-            if data.connections.len() >= 20 {
+            if previous.is_none() && data.connections.len() >= 20 {
                 return Err("캘린더 연결은 20개까지 추가할 수 있습니다.".into());
             }
             merge_calendar(&mut data, connection, events);
-            calendar::commit_connected(&connected).map_err(|x| x.message)?;
+            // A failed reconnect keeps the old selection, key and cached events intact.
+            if previous.is_some() && result.is_err() {
+                store_calendar(db, current, data)?;
+                return result.map(|_| ()).map_err(|failure| failure.message);
+            }
+            let rollback = calendar::commit_connected(&connected).map_err(|x| x.message)?;
             if let Ok(refreshed) = &result {
                 if let Err(error) = calendar::commit_refresh(refreshed) {
-                    let _ = calendar::disconnect(&connected.connection);
+                    let _ = calendar::rollback_connected(&rollback);
                     return Err(error.message);
                 }
             }
             if let Err(error) = store_calendar(db, current, data) {
-                let _ = calendar::disconnect(&connected.connection);
+                let _ = calendar::rollback_connected(&rollback);
                 return Err(error);
             }
             match result {
@@ -246,16 +260,37 @@ async fn connect_result(
     publish_widgets(app, state);
     outcome
 }
+fn reuse_connection(
+    job: &Job,
+    connected: &mut calendar::Connected,
+    connection_id: Option<&str>,
+) -> Result<(), String> {
+    if let Some(id) = connection_id {
+        let data = decode_calendar(&job.instance.data)?;
+        let previous = data
+            .connections
+            .iter()
+            .find(|connection| connection.id == id)
+            .ok_or("다시 연결할 캘린더를 찾을 수 없습니다.")?;
+        calendar::reconnect(connected, previous).map_err(|error| error.message)?;
+    }
+    Ok(())
+}
 #[tauri::command]
 pub(crate) async fn connect_calendar_ics(
     app: AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
     input: calendar::IcsConnectInput,
+    connection_id: Option<String>,
 ) -> Result<(), String> {
-    let connected = calendar::connect_ics(input).map_err(|x| x.message)?;
+    let mut connected = calendar::connect_ics(input).map_err(|x| x.message)?;
     let state = state.inner().clone();
     let job = begin(&state, &id, Some("calendar"), |_| Ok(None))?;
+    if let Err(error) = reuse_connection(&job, &mut connected, connection_id.as_deref()) {
+        abandon(&state, &job);
+        return Err(error);
+    }
     connect_result(&app, &state, job, connected).await
 }
 #[tauri::command]
@@ -264,9 +299,20 @@ pub(crate) async fn connect_calendar_google(
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
     input: calendar::GoogleConnectInput,
+    connection_id: Option<String>,
 ) -> Result<(), String> {
     let state = state.inner().clone();
     let job = begin(&state, &id, Some("calendar"), |_| Ok(None))?;
+    if let Some(connection_id) = connection_id.as_deref() {
+        let valid = decode_calendar(&job.instance.data)?
+            .connections
+            .iter()
+            .any(|connection| connection.id == connection_id && connection.provider == "google");
+        if !valid {
+            abandon(&state, &job);
+            return Err("다시 연결할 Google 캘린더를 찾을 수 없습니다.".into());
+        }
+    }
     let pending: calendar::GooglePending = match calendar::begin_google(input).await {
         Ok(value) => value,
         Err(error) => {
@@ -284,12 +330,60 @@ pub(crate) async fn connect_calendar_google(
     }
     let result = tokio::select! {_ = models::cancelled(job.cancel.clone())=>Err("로그인을 취소했습니다.".into()),result=calendar::finish_google(pending)=>result.map_err(|x|x.message)};
     match result {
-        Ok(connected) => connect_result(&app, &state, job, connected).await,
+        Ok(mut connected) => {
+            if let Err(error) = reuse_connection(&job, &mut connected, connection_id.as_deref()) {
+                abandon(&state, &job);
+                return Err(error);
+            }
+            connect_result(&app, &state, job, connected).await
+        }
         Err(error) => {
             abandon(&state, &job);
             Err(error)
         }
     }
+}
+#[tauri::command]
+pub(crate) async fn list_apple_calendars(
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    request_access: bool,
+) -> Result<calendar::apple::AppleCalendars, String> {
+    let state = state.inner().clone();
+    let job = begin(&state, &id, Some("calendar"), |_| Ok(None))?;
+    let result = execute(&job, async {
+        calendar::apple::list(request_access)
+            .await
+            .map_err(|error| error.message)
+    })
+    .await;
+    match result {
+        Ok(value) => {
+            finish(&state, &job, |_, _| Ok(()))?;
+            Ok(value)
+        }
+        Err(error) => {
+            abandon(&state, &job);
+            Err(error)
+        }
+    }
+}
+#[tauri::command]
+pub(crate) async fn connect_calendar_apple(
+    app: AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    input: calendar::apple::AppleConnectInput,
+    connection_id: Option<String>,
+) -> Result<(), String> {
+    let mut connected = calendar::apple::connect(input).map_err(|error| error.message)?;
+    let state = state.inner().clone();
+    let job = begin(&state, &id, Some("calendar"), |_| Ok(None))?;
+    if let Err(error) = reuse_connection(&job, &mut connected, connection_id.as_deref()) {
+        abandon(&state, &job);
+        return Err(error);
+    }
+    connect_result(&app, &state, job, connected).await
 }
 async fn refresh_calendar_inner(
     app: &AppHandle,

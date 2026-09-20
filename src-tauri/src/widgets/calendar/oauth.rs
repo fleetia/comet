@@ -35,17 +35,7 @@ pub async fn begin_google(input: GoogleConnectInput) -> Result<GooglePending, Ca
     if input.client_secret.as_ref().is_some_and(|x| x.len() > 1000) {
         return Err(invalid("OAuth client secret이 너무 깁니다."));
     }
-    if input.calendar_ids.is_empty()
-        || input.calendar_ids.len() > 20
-        || input
-            .calendar_ids
-            .iter()
-            .any(|x| x.trim().is_empty() || x.len() > 1000)
-    {
-        return Err(invalid(
-            "조회할 calendar ID를 1~20개 선택하세요. 기본 캘린더 ID는 primary입니다.",
-        ));
-    }
+    validate_calendar_ids(&input.calendar_ids)?;
     let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .await
         .map_err(|_| error("offline", "로그인 응답을 받을 로컬 포트를 열 수 없습니다."))?;
@@ -186,7 +176,8 @@ pub async fn finish_google(pending: GooglePending) -> Result<Connected, Calendar
             .map_err(|_| error("offline", "Google 인증 서버에 연결하지 못했습니다."))?,
     )
     .await?;
-    let connection = connection(pending.input.name, "google");
+    let mut connection = connection(pending.input.name, "google");
+    connection.selected_calendar_ids = pending.input.calendar_ids.clone();
     let mut credential = Credential {
         connection_id: connection.id.clone(),
         provider: "google".into(),

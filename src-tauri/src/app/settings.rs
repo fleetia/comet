@@ -7,6 +7,13 @@ use std::sync::{
 };
 use std::time::Duration;
 
+#[derive(Clone, Copy, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum SettingsScope {
+    Automatic,
+    Model,
+}
+
 #[tauri::command]
 pub(crate) fn save_wordbook_entry(
     app: tauri::AppHandle,
@@ -41,9 +48,30 @@ pub(crate) async fn save_settings(
     state: tauri::State<'_, Arc<AppState>>,
     settings: Settings,
     api_key: Option<String>,
+    scope: Option<SettingsScope>,
 ) -> Result<(), String> {
+    let (epoch, cancel) = apply_settings(&state, &settings, scope, api_key.as_deref())?;
+    publish(&app, &state);
+    let _gate = state.gate.lock().await;
+    if is_current(&state, epoch, &cancel) {
+        inference::stop_local(&state.inference).await;
+    }
+    phase(&app, &state, epoch, "idle", None, None);
+    Ok(())
+}
+
+fn validate_settings(
+    state: &AppState,
+    settings: &Settings,
+    scope: Option<SettingsScope>,
+) -> Result<(), String> {
+    if scope != Some(SettingsScope::Model) && !(1..=60).contains(&settings.idle_minutes) {
+        return Err("설정값을 확인해 주세요.".into());
+    }
+    if scope == Some(SettingsScope::Automatic) {
+        return Ok(());
+    }
     if !["local", "api"].contains(&settings.mode.as_str())
-        || !(1..=60).contains(&settings.idle_minutes)
         || !["max_tokens", "max_completion_tokens"].contains(&settings.api_token_parameter.as_str())
     {
         return Err("설정값을 확인해 주세요.".into());
@@ -63,35 +91,54 @@ pub(crate) async fn save_settings(
     }
     if settings.mode == "local"
         && settings.local_model == LocalModel::Custom
-        && !models::selected_ready(&state.app_data, &settings)
+        && !models::selected_ready(&state.app_data, settings)
     {
         return Err("GGUF 모델 파일의 절대 경로를 확인해 주세요.".into());
     }
-    if let Some(key) = api_key {
-        if !key.trim().is_empty() {
-            inference::set_api_key(&settings, key.trim())?;
-        }
-    }
-    let (epoch, cancel) = apply_settings(&state, &settings)?;
-    publish(&app, &state);
-    let _gate = state.gate.lock().await;
-    if is_current(&state, epoch, &cancel) {
-        inference::stop_local(&state.inference).await;
-    }
-    phase(&app, &state, epoch, "idle", None, None);
     Ok(())
 }
 
 pub(crate) fn apply_settings(
     state: &AppState,
     settings: &Settings,
+    scope: Option<SettingsScope>,
+    api_key: Option<&str>,
 ) -> Result<(u64, Arc<AtomicBool>), String> {
     let _action = lock(&state.action)?;
+    if unavailable(state) {
+        return Err("앱을 정리하고 있어요.".into());
+    }
     let db = lock(&state.db)?;
     let tx = db
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
-    store::save_settings(&tx, settings)?;
+    let current = store::settings(&tx)?;
+    let settings = match scope {
+        Some(SettingsScope::Automatic) => Settings {
+            autonomous_enabled: settings.autonomous_enabled,
+            local_idle_enabled: settings.local_idle_enabled,
+            api_idle_enabled: settings.api_idle_enabled,
+            idle_minutes: settings.idle_minutes,
+            ..current
+        },
+        Some(SettingsScope::Model) => Settings {
+            mode: settings.mode.clone(),
+            local_model: settings.local_model,
+            local_model_path: settings.local_model_path.clone(),
+            base_url: settings.base_url.clone(),
+            api_model: settings.api_model.clone(),
+            api_token_parameter: settings.api_token_parameter.clone(),
+            ..current
+        },
+        None => settings.clone(),
+    };
+    validate_settings(state, &settings, scope)?;
+    if scope != Some(SettingsScope::Automatic) {
+        if let Some(key) = api_key.map(str::trim).filter(|key| !key.is_empty()) {
+            inference::set_api_key(&settings, key)?;
+        }
+    }
+    store::save_settings(&tx, &settings)?;
     store::bump_revision(&tx)?;
     tx.commit().map_err(|error| error.to_string())?;
     let token = interrupt(state, false)?;

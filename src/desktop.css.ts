@@ -1,21 +1,9 @@
-import { createTheme, globalStyle, style } from "@vanilla-extract/css";
-import { createThemeTokens, semanticVars as vars, themeVars } from "@fleetia/lagrange/theme";
+import { globalStyle, style } from "@vanilla-extract/css";
+import { lagrangeThemeClass, semanticVars as vars } from "@fleetia/lagrange/theme";
+import { localFonts } from "./fonts.css";
 import * as shared from "./lagrange.css";
 
-export const theme = createTheme(
-  themeVars,
-  createThemeTokens({
-    semantic: {
-      typography: {
-        family: {
-          display: '"Iowan Old Style", "AppleMyungjo", "Noto Serif KR", Georgia, serif',
-          ui: '"Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif',
-          data: '"SFMono-Regular", Menlo, Consolas, monospace',
-        },
-      },
-    },
-  }),
-);
+export const theme = style([lagrangeThemeClass, localFonts]);
 
 export const documentRoot = style({ minHeight: "100%" });
 export const root = style({ minHeight: "100dvh" });

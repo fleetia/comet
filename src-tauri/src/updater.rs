@@ -178,6 +178,9 @@ pub(crate) async fn install_app_update(
     app: tauri::AppHandle,
     version: String,
 ) -> Result<(), String> {
+    crate::app::lifecycle::ensure_settings_saved_for_update(
+        &app.state::<std::sync::Arc<crate::app::AppState>>(),
+    )?;
     let state = app.state::<UpdateState>();
     let _operation = state
         .operation

@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { CharacterManager } from "../components/CharacterManager/CharacterManager";
 import { CharacterSharing } from "../components/CharacterSharing/CharacterSharing";
 import { CharacterDialogueEditor } from "../components/CharacterDialogueEditor/CharacterDialogueEditor";
 import { CompanionBox } from "../components/CompanionBox/CompanionBox";
@@ -42,106 +41,6 @@ const pack: CharacterPack = {
   pairScenes: [],
   wordbook: [],
 };
-
-it("does not expose the internal talk editor in character management", () => {
-  render(<CharacterManager snapshot={snapshot} />);
-  expect(screen.queryByRole("tab", { name: "대본 에디터" })).toBeNull();
-});
-
-it("keeps per-character drafts and exact dialogue through failed saves and snapshot refresh", async () => {
-  const { rerender } = render(<CharacterManager snapshot={snapshot} />);
-  await screen.findByText("이 캐릭터의 키워드 대사");
-  fireEvent.change(screen.getByLabelText("이름"), { target: { value: "새 이름" } });
-  fireEvent.change(screen.getByLabelText("인사 1 대사"), {
-    target: { value: "  안녕.\n반가워.  " },
-  });
-  fireEvent.click(
-    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^B/ }),
-  );
-  await screen.findByText("이 캐릭터의 키워드 대사");
-  fireEvent.change(screen.getByLabelText("성격과 말투"), { target: { value: "느긋한 말투" } });
-  rerender(<CharacterManager snapshot={{ ...snapshot, characters: { ...snapshot.characters } }} />);
-  fireEvent.click(
-    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^새 이름/ }),
-  );
-  expect(screen.getByLabelText("인사 1 대사")).toHaveProperty("value", "  안녕.\n반가워.  ");
-  vi.mocked(command).mockImplementation(async (name) => {
-    if (name === "save_character") throw new Error("저장 실패");
-    return { pairScenes: [], wordbook: [] };
-  });
-  fireEvent.click(screen.getByRole("button", { name: "캐릭터 저장" }));
-  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "저장 실패");
-  expect(screen.getByLabelText("이름")).toHaveProperty("value", "새 이름");
-  expect(command).toHaveBeenCalledWith("save_character", {
-    id: "builtin-a",
-    definition: expect.objectContaining({
-      name: "새 이름",
-      greeting: [
-        { ...snapshot.characters.installed[0].definition.greeting[0], text: "  안녕.\n반가워.  " },
-        ...snapshot.characters.installed[0].definition.greeting.slice(1),
-      ],
-    }),
-  });
-});
-
-it("adds the selected resting character to the roster once and never applies an unsaved draft", async () => {
-  render(<CharacterManager snapshot={snapshot} />);
-  fireEvent.click(
-    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^모래/ }),
-  );
-  await screen.findByText("이 캐릭터의 키워드 대사");
-  fireEvent.change(screen.getByLabelText("이름"), { target: { value: "수정 중" } });
-  expect(screen.getByRole("button", { name: "함께 지내기" })).toHaveProperty("disabled", true);
-  fireEvent.click(screen.getByRole("button", { name: "캐릭터 수정 취소" }));
-  let finish: () => void = () => {};
-  vi.mocked(command).mockImplementation((name) =>
-    name === "apply_character_roster"
-      ? new Promise<void>((resolve) => {
-          finish = resolve;
-        })
-      : Promise.resolve({ pairScenes: [], wordbook: [] }),
-  );
-  fireEvent.click(screen.getByRole("button", { name: "함께 지내기" }));
-  fireEvent.click(screen.getByRole("button", { name: "함께 지내기" }));
-  expect(
-    vi.mocked(command).mock.calls.filter(([name]) => name === "apply_character_roster"),
-  ).toEqual([["apply_character_roster", { ids: ["builtin-a", "builtin-b", "local-third"] }]]);
-  finish();
-  await screen.findByText(/함께 지내기 시작했어요/);
-});
-
-it("reorders and releases roster members and keeps the last one on the desktop", async () => {
-  vi.mocked(command).mockResolvedValue(undefined);
-  const trio: Snapshot = {
-    ...snapshot,
-    characters: { ...snapshot.characters, active: ["builtin-a", "builtin-b", "local-third"] },
-  };
-  const { rerender } = render(<CharacterManager snapshot={trio} />);
-  expect(screen.getByText("함께 지내는 친구 3명: A · B · 모래")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "앞으로" })).toHaveProperty("disabled", true);
-  fireEvent.click(screen.getByRole("button", { name: "뒤로" }));
-  await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("apply_character_roster", {
-      ids: ["builtin-b", "builtin-a", "local-third"],
-    }),
-  );
-  fireEvent.click(
-    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^모래/ }),
-  );
-  fireEvent.click(screen.getByRole("button", { name: "내보내기" }));
-  await waitFor(() =>
-    expect(command).toHaveBeenLastCalledWith("apply_character_roster", {
-      ids: ["builtin-a", "builtin-b"],
-    }),
-  );
-  rerender(
-    <CharacterManager
-      snapshot={{ ...snapshot, characters: { ...snapshot.characters, active: ["local-third"] } }}
-    />,
-  );
-  expect(screen.getByRole("button", { name: "내보내기" })).toHaveProperty("disabled", true);
-  expect(screen.getByText(/마지막 친구는 내보낼 수 없어요/)).toBeTruthy();
-});
 
 it("previews a pack before install and keeps assignment an explicit separate action", async () => {
   vi.mocked(command).mockImplementation(async (name) => {
@@ -406,7 +305,7 @@ it("keeps pair scene order and whitespace when saving the current two characters
   await screen.findByLabelText("장면 1 대사 1");
   fireEvent.click(screen.getByRole("button", { name: "장면 1 대사 2 위로" }));
   expect(screen.getByLabelText("장면 1 대사 1")).toHaveProperty("value", "둘째\n말");
-  fireEvent.click(screen.getByRole("button", { name: "둘의 수다 저장" }));
+  fireEvent.click(screen.getByRole("button", { name: "조합 대사 저장" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("save_character_dialogue", {
       ids: ["builtin-a", "local-third"],
@@ -431,29 +330,6 @@ it("rejects invalid import without installation or changing the selected export 
   expect(vi.mocked(command).mock.calls).toEqual([["choose_character_pack"]]);
 });
 
-it("keeps character and dialogue drafts across tabs while locking dialogue target changes", async () => {
-  render(<CharacterManager snapshot={snapshot} />);
-  fireEvent.change(screen.getByLabelText("이름"), { target: { value: "쓰던 이름" } });
-  fireEvent.click(screen.getByRole("tab", { name: "등록 대사" }));
-  fireEvent.change(await screen.findByRole("textbox", { name: "키워드" }), {
-    target: { value: "반가워" },
-  });
-  fireEvent.change(screen.getByLabelText("대사 1"), { target: { value: "  쓰던 인사\n반가워  " } });
-  fireEvent.click(screen.getByRole("tab", { name: "기본 정보" }));
-  expect(screen.getByLabelText("이름")).toHaveProperty("value", "쓰던 이름");
-  expect(
-    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^B/ }),
-  ).toHaveProperty("disabled", true);
-  fireEvent.click(screen.getByRole("tab", { name: "공유" }));
-  fireEvent.click(screen.getByRole("tab", { name: "등록 대사" }));
-  expect(screen.getByLabelText("등록 대사 대상")).toHaveProperty("disabled", true);
-  expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "  쓰던 인사\n반가워  ");
-  fireEvent.click(screen.getByRole("button", { name: "대사 수정 취소" }));
-  await waitFor(() =>
-    expect(screen.getByLabelText("등록 대사 대상")).toHaveProperty("disabled", false),
-  );
-});
-
 it("loads and saves attribution for the selected source package", async () => {
   const imported = { ...extra, packId: "source-pack" };
   const importedSnapshot = {
@@ -476,4 +352,65 @@ it("loads and saves attribution for the selected source package", async () => {
     packId: "source-pack",
     value: { author: "원작자", sourceUrl: "https://example.com/creator" },
   });
+});
+
+it("preserves attribution drafts per package across selection and failed saves", async () => {
+  const first = { ...snapshot.characters.installed[0], packId: "first-pack" };
+  const second = { ...snapshot.characters.installed[1], packId: "second-pack" };
+  const sharingSnapshot = {
+    ...snapshot,
+    characters: { ...snapshot.characters, installed: [first, second] },
+  };
+  const onDirtyChange = vi.fn();
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_character_pack_attribution") {
+      return { author: args?.packId === "first-pack" ? "첫 제작자" : "둘째 제작자", sourceUrl: "" };
+    }
+    if (name === "save_character_pack_attribution") {
+      throw new Error("출처 저장 실패");
+    }
+    return undefined;
+  });
+  const { rerender } = render(
+    <CharacterSharing
+      snapshot={sharingSnapshot}
+      selectedId={first.id}
+      disabled={false}
+      onDirtyChange={onDirtyChange}
+    />,
+  );
+  await waitFor(() => expect(screen.getByLabelText("제작자")).toHaveProperty("value", "첫 제작자"));
+  fireEvent.change(screen.getByLabelText("출처 URL"), {
+    target: { value: "https://example.com/first" },
+  });
+  rerender(
+    <CharacterSharing
+      snapshot={sharingSnapshot}
+      selectedId={second.id}
+      disabled={false}
+      onDirtyChange={onDirtyChange}
+    />,
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText("제작자")).toHaveProperty("value", "둘째 제작자"),
+  );
+  expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  rerender(
+    <CharacterSharing
+      snapshot={sharingSnapshot}
+      selectedId={first.id}
+      disabled={false}
+      onDirtyChange={onDirtyChange}
+    />,
+  );
+  expect(screen.getByLabelText("출처 URL")).toHaveProperty("value", "https://example.com/first");
+  fireEvent.click(screen.getByRole("button", { name: "출처 저장" }));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "출처 저장 실패");
+  expect(screen.getByLabelText("출처 URL")).toHaveProperty("value", "https://example.com/first");
+  expect(command).toHaveBeenCalledWith("save_character_pack_attribution", {
+    packId: "first-pack",
+    value: { author: "첫 제작자", sourceUrl: "https://example.com/first" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "출처 수정 취소" }));
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
 });

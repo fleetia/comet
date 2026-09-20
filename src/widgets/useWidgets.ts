@@ -4,6 +4,7 @@ import { command, errorText, isDesktop } from "../hooks/useSnapshot";
 import catalog from "../../widgets/catalog.json";
 import type { WidgetSnapshot } from "./types";
 import { getWidgetPreview } from "./previewWidgets";
+import { getPlannerPreview } from "./Planner/previewPlanner";
 
 export const PREVIEW_WIDGETS: WidgetSnapshot = { catalog, widgets: [], onboardingDone: false };
 
@@ -17,6 +18,7 @@ export function useWidgets(): {
       return null;
     }
     const query = new URLSearchParams(window.location.search);
+    if (query.get("view") === "planner") return getPlannerPreview();
     return query.get("view") === "widget" ||
       query.get("view") === "widget-display" ||
       query.get("view") === "memo-note" ||

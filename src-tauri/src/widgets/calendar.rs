@@ -1,3 +1,4 @@
+pub mod apple;
 mod ics;
 mod oauth;
 
@@ -29,6 +30,8 @@ pub struct Connection {
     pub failure_count: u32,
     #[serde(default)]
     pub next_refresh_at: i64,
+    #[serde(default)]
+    pub selected_calendar_ids: Vec<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -99,12 +102,33 @@ fn connection(name: String, provider: &str) -> Connection {
         error: None,
         failure_count: 0,
         next_refresh_at: 0,
+        selected_calendar_ids: vec![],
     }
 }
 fn validate_name(name: &str) -> Result<(), CalendarError> {
     if name.trim().is_empty() || name.chars().count() > 200 {
         return Err(invalid("연결 이름은 1~200자로 입력하세요."));
     }
+    Ok(())
+}
+fn validate_calendar_ids(ids: &[String]) -> Result<(), CalendarError> {
+    if ids.is_empty()
+        || ids.len() > 20
+        || ids.iter().any(|id| id.trim().is_empty() || id.len() > 1000)
+        || ids.iter().collect::<std::collections::BTreeSet<_>>().len() != ids.len()
+    {
+        return Err(invalid("조회할 캘린더를 중복 없이 1~20개 선택하세요."));
+    }
+    Ok(())
+}
+
+pub fn reconnect(connected: &mut Connected, previous: &Connection) -> Result<(), CalendarError> {
+    if connected.connection.provider != previous.provider {
+        return Err(invalid("같은 제공자의 캘린더만 다시 연결할 수 있습니다."));
+    }
+    connected.connection.id = previous.id.clone();
+    connected.connection.last_success_at = previous.last_success_at;
+    connected.credential.connection_id = previous.id.clone();
     Ok(())
 }
 const CALENDAR_SERVICE: &str = "space.starlight.comet.calendar";
@@ -139,15 +163,21 @@ fn save(credential: &Credential) -> Result<(), CalendarError> {
 fn load(connection: &Connection) -> Result<Credential, CalendarError> {
     let (value, migrate) = match key(&connection.id)?.get_password() {
         Ok(value) => (value, false),
-        Err(keyring::Error::NoEntry) => (
-            legacy_key(&connection.id)?.get_password().map_err(|_| {
-                error(
+        Err(keyring::Error::NoEntry) => match legacy_key(&connection.id)?.get_password() {
+            Ok(value) => (value, true),
+            Err(keyring::Error::NoEntry) => {
+                return Err(error(
                     "auth-error",
                     "연결 정보를 찾을 수 없습니다. 다시 연결해 주세요.",
-                )
-            })?,
-            true,
-        ),
+                ))
+            }
+            Err(_) => {
+                return Err(error(
+                    "auth-error",
+                    "OS 자격 증명 저장소를 읽을 수 없습니다.",
+                ))
+            }
+        },
         Err(_) => {
             return Err(error(
                 "auth-error",
@@ -165,8 +195,47 @@ fn load(connection: &Connection) -> Result<Credential, CalendarError> {
     }
     Ok(credential)
 }
-pub fn commit_connected(value: &Connected) -> Result<(), CalendarError> {
-    save(&value.credential)
+pub struct CredentialRollback {
+    connection: Connection,
+    current: Option<String>,
+    legacy: Option<String>,
+}
+pub fn commit_connected(value: &Connected) -> Result<CredentialRollback, CalendarError> {
+    let read = |entry: keyring::Entry| match entry.get_password() {
+        Ok(value) => Ok(Some(value)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(_) => Err(error(
+            "auth-error",
+            "기존 연결 정보를 보존할 수 없습니다. OS 자격 증명 권한을 확인해 주세요.",
+        )),
+    };
+    // Preserve the original bytes, including a malformed credential that a reconnect repairs.
+    let current = read(key(&value.connection.id)?)?;
+    let legacy = read(legacy_key(&value.connection.id)?)?;
+    save(&value.credential)?;
+    Ok(CredentialRollback {
+        connection: value.connection.clone(),
+        current,
+        legacy,
+    })
+}
+pub fn rollback_connected(previous: &CredentialRollback) -> Result<(), CalendarError> {
+    let restore = |entry: keyring::Entry, value: &Option<String>| {
+        let result = if let Some(value) = value {
+            entry.set_password(value)
+        } else {
+            entry.delete_credential()
+        };
+        match result {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(_) => Err(error(
+                "auth-error",
+                "이전 연결 정보를 복구하지 못했습니다. 연결 설정을 다시 확인해 주세요.",
+            )),
+        }
+    };
+    restore(key(&previous.connection.id)?, &previous.current)?;
+    restore(legacy_key(&previous.connection.id)?, &previous.legacy)
 }
 pub fn commit_refresh(value: &Refreshed) -> Result<(), CalendarError> {
     if let Some(credential) = &value.credential {
@@ -415,6 +484,8 @@ async fn refresh_credential(
     } else if connection.provider == "google" {
         oauth::refresh_token(&mut credential, now).await?;
         google_events(&credential, now).await?
+    } else if connection.provider == "apple" {
+        apple::refresh(connection, credential.calendar_ids.clone(), now).await?
     } else {
         return Err(invalid("지원하지 않는 캘린더 연결입니다."));
     };
@@ -587,6 +658,34 @@ mod tests {
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpListener,
     };
+    #[test]
+    fn reconnect_keeps_identity_and_rejects_provider_changes() {
+        let input = || IcsConnectInput {
+            name: "일정".into(),
+            url: "https://example.com/feed.ics".into(),
+        };
+        let original = connect_ics(input()).unwrap();
+        let mut previous = success(&original.connection, 123);
+        let mut replacement = connect_ics(input()).unwrap();
+        reconnect(&mut replacement, &previous).unwrap();
+        assert_eq!(replacement.connection.id, original.connection.id);
+        assert_eq!(replacement.credential.connection_id, original.connection.id);
+        assert_eq!(replacement.connection.last_success_at, Some(123));
+        previous.provider = "google".into();
+        assert!(reconnect(&mut replacement, &previous).is_err());
+    }
+    #[test]
+    fn selected_calendars_require_an_explicit_bounded_unique_set() {
+        assert!(validate_calendar_ids(&[]).is_err());
+        assert!(validate_calendar_ids(&["a".into(), "a".into()]).is_err());
+        assert!(validate_calendar_ids(&vec!["a".into(); 21]).is_err());
+        assert!(validate_calendar_ids(&["personal".into(), "shared".into()]).is_ok());
+        let old = serde_json::to_value(connection("old".into(), "google")).unwrap();
+        let mut old = old.as_object().unwrap().clone();
+        old.remove("selectedCalendarIds");
+        let restored: Connection = serde_json::from_value(Value::Object(old)).unwrap();
+        assert!(restored.selected_calendar_ids.is_empty());
+    }
     #[test]
     fn secrets_never_enter_public_connection_or_errors() {
         let connected = connect_ics(IcsConnectInput {

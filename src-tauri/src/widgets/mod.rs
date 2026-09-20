@@ -165,10 +165,18 @@ pub fn act(
             entropy,
         ),
         "completion-jar" | "journal" => Err("이 위젯은 실제 사건을 모아 보여 줘요.".into()),
-        "calendar" if request.action == "configure-alerts" => Ok(WidgetEffect {
-            data: reminders::configure(&instance.data, &request.input)?,
-            events: vec![],
-        }),
+        "calendar"
+            if matches!(
+                request.action.as_str(),
+                "configure-alerts"
+                    | "mute-alerts"
+                    | "unmute-alerts"
+                    | "snooze-alert"
+                    | "preview-alert"
+            ) =>
+        {
+            reminders::act(&instance.data, &request.action, &request.input, now)
+        }
         "calendar" | "weather" | "music" | "device" => {
             Err("연결 설정 화면에서 이 기능을 사용해 주세요.".into())
         }

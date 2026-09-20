@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { LocalModelTest, Settings } from "../types";
 import { command, errorText } from "./useSnapshot";
 
+export type SettingsScope = "automatic" | "model";
 export type SettingsDraft = {
   settings: Settings;
   apiKey: string;
@@ -16,45 +17,46 @@ export type SettingsDraft = {
   reset: () => void;
 };
 
-export function useSettingsDraft(savedSettings: Settings): SettingsDraft {
-  const [settings, setSettings] = useState<Settings>(savedSettings);
+export function useSettingsDraft(savedSettings: Settings, scope: SettingsScope): SettingsDraft {
+  const [settings, setSettings] = useState(savedSettings);
   const [apiKey, setApiKey] = useState("");
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const dirty = useRef(false);
+  const dirty = useRef(new Set<keyof Settings>());
   const lock = useRef(false);
   useEffect(() => {
-    if (!dirty.current) {
-      setSettings(savedSettings);
-    }
+    setSettings((previous) => ({
+      ...savedSettings,
+      ...Object.fromEntries([...dirty.current].map((key) => [key, previous[key]])),
+    }));
   }, [savedSettings]);
   function change<K extends keyof Settings>(key: K, value: Settings[K]): void {
-    dirty.current = true;
+    if (value === savedSettings[key]) dirty.current.delete(key);
+    else dirty.current.add(key);
     setSettings((previous) => ({ ...previous, [key]: value }));
+    setNotice(null);
   }
   async function run(name: string, commandArgs?: Record<string, unknown>): Promise<void> {
-    if (lock.current) {
-      return;
-    }
+    if (lock.current) return;
     lock.current = true;
     setPending(name);
     setError(null);
     setNotice(null);
     try {
       let args = commandArgs;
-      if (name === "save_settings" || name === "test_connection") {
-        args = { settings, apiKey: apiKey.trim() || null };
+      if (name === "save_settings") {
+        args = { settings, scope, apiKey: scope === "model" ? apiKey.trim() || null : null };
+      } else if (name === "test_connection") {
+        args = { settings: { ...settings, mode: "api" }, apiKey: apiKey.trim() || null };
       } else if (name === "download_model") {
         args = { model: settings.localModel };
       } else if (name === "test_local_model") {
-        args = { settings };
+        args = { settings: { ...settings, mode: "local" } };
       }
       if (name === "pick_model_file") {
         const picked = await command<string | null>(name);
-        if (picked) {
-          change("localModelPath", picked);
-        }
+        if (picked) change("localModelPath", picked);
         return;
       }
       if (name === "test_local_model") {
@@ -65,14 +67,12 @@ export function useSettingsDraft(savedSettings: Settings): SettingsDraft {
       await command(name, args);
       if (name === "save_settings") {
         setApiKey("");
-        dirty.current = false;
-        setNotice("설정을 저장했어요.");
-      }
-      if (name === "clear_api_key") {
+        dirty.current.clear();
+        setNotice(scope === "automatic" ? "자동 대화 설정을 저장했어요." : "AI 연결을 저장했어요.");
+      } else if (name === "clear_api_key") {
         setApiKey("");
         setNotice("저장된 API 키를 지웠어요.");
-      }
-      if (name === "test_connection") {
+      } else if (name === "test_connection") {
         setNotice("연결을 확인했어요.");
       }
     } catch (cause) {
@@ -82,13 +82,8 @@ export function useSettingsDraft(savedSettings: Settings): SettingsDraft {
       setPending(null);
     }
   }
-  const hasChanges = dirty.current || apiKey.length > 0;
-  const validInterval =
-    Number.isInteger(settings.idleMinutes) &&
-    settings.idleMinutes >= 1 &&
-    settings.idleMinutes <= 60;
   function reset(): void {
-    dirty.current = false;
+    dirty.current.clear();
     setSettings(savedSettings);
     setApiKey("");
     setError(null);
@@ -101,8 +96,11 @@ export function useSettingsDraft(savedSettings: Settings): SettingsDraft {
     pending,
     error,
     notice,
-    hasChanges,
-    validInterval,
+    hasChanges: dirty.current.size > 0 || apiKey.length > 0,
+    validInterval:
+      Number.isInteger(settings.idleMinutes) &&
+      settings.idleMinutes >= 1 &&
+      settings.idleMinutes <= 60,
     change,
     run,
     reset,

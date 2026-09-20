@@ -12,10 +12,13 @@ description: 현재 Tauri 앱의 코드 소유권과 생활 도구·외부 위�
 | 위치 | 책임 |
 | --- | --- |
 | `src/App.tsx`, `src/components/<Component>/<Component>.tsx` | 창별 화면 선택, 본체·말풍선·입력과 보조 화면. 화면 컴포넌트는 컴포넌트별 디렉터리에 둔다. |
-| `src/components/SettingsPanel/SettingsPanel.tsx`, `ModelSettings/ModelSettings.tsx`, `MemorySettings/MemorySettings.tsx` | 설정 탭·기본 설정·공통 저장바, 모델/API 설정, 개별 기억 편집을 나눠 구성한다. |
-| `src/hooks/useSettingsDraft.ts` | 설정·API 키 초안, 변경 여부와 snapshot 동기화, 명령 잠금·저장·취소 |
+| `src/components/SettingsPanel/SettingsPanel.tsx`, `ModelSettings/ModelSettings.tsx`, `MemorySettings/MemorySettings.tsx` | 8개 직접 탐색, 자동 대화·AI 연결의 독립 저장, 미저장 편집 집계와 종료 확인, 모델/API·기억 편집 |
+| `src/components/SettingsPanel/useSettingsNavigation.ts` | 통합 탭 선택·방문한 패널 유지, 앱 실행 중 마지막 영역 기록, 네이티브 목적지 이벤트와 최초 조회의 경합 처리 |
+| `src/hooks/useSettingsDraft.ts` | `automatic`·`model` scope별 설정·API 키 초안, 변경 여부와 snapshot 동기화, 명령 잠금·저장·취소 |
+| `src/widgets/WidgetManager/WidgetManager.tsx`, `src/widgets/WidgetTool/WidgetTool.tsx` | 통합 설정 안의 설치·활성·표시·연결 관리와 별도 실행 창의 실제 위젯 작업을 분리 |
+| `src/widgets/Planner/`, `src/widgets/PlannerAlerts/` | 플래너의 오늘·기간 계획·주간/월간 캘린더·템플릿·회차 편집과 생활 알림 설정. 화면은 위젯 snapshot을 읽고 호스트 명령으로 저장한다. |
 | `src/hooks/useBalloonSizing.ts`, `src/components/Balloon/Balloon.tsx` | hook은 데스크톱의 ResizeObserver·requestAnimationFrame·네이티브 크기 변경을 관리하고, Balloon은 메뉴·입력·기록·스토리·대사를 표시한다. |
-| `src/main.tsx`, `src/lagrange.css.ts`, `src/desktop.css.ts` | 모든 화면에 적용하는 공통 테마·reset·글꼴 역할, 공용 폼 스타일과 보조 화면 레이아웃. 위젯 컴포넌트는 `src/widgets/<Tool>/<Tool>.tsx`, 위젯별 배치는 `src/widgets/widgets.css.ts`와 `src/widgets/tools.css.ts`가 담당한다. |
+| `src/main.tsx`, `src/lagrange.css.ts`, `src/desktop.css.ts` | 모든 화면에 적용하는 공통 테마·reset·글꼴 역할, 공용 폼 스타일과 보조 화면 레이아웃. 위젯 컴포넌트는 `src/widgets/<Tool>/<Tool>.tsx`, 위젯별 배치는 `src/widgets/WidgetManager/widgetManager.css.ts`와 `src/widgets/tools.css.ts`가 담당한다. |
 | `src/hooks/useSnapshot.ts`, `src/types.ts` | Rust 상태 수신·이벤트 구독과 화면용 타입 |
 | `src/widgets/WidgetFrame/` | 개별 도구와 낱장 메모의 공통 창 높이·제목과 ×의 한 줄 고정 헤더·본문 스크롤·선택적인 하단 고정 조작 배치. 드래그와 닫기는 `WindowHeader`에 위임한다. 하단 조작 내용과 저장·명령 잠금은 각 도구가 소유하며, 폼 저장·타이머·조회 결과에 붙는 조작은 본문에 둔다. |
 | `src-tauri/src/lib.rs` | 도메인 모듈 선언과 공개 `talk`·`run` 진입점 |
@@ -24,8 +27,13 @@ description: 현재 Tauri 앱의 코드 소유권과 생활 도구·외부 위�
 | `src-tauri/src/app/conversation.rs` | 직접 입력·재시도·프롬프트 구성과 생성 |
 | `src-tauri/src/app/scene.rs` | 등록 대사·생성 대사의 표시와 다음 장면 선택 |
 | `src-tauri/src/app/background.rs` | 자동 동작 루프·기억 분석·LLM 장면 준비와 API 예산 |
-| `src-tauri/src/app/settings.rs` | 설정·모델·단어장·기억 관련 앱 명령 |
-| `src-tauri/src/app/windows.rs` | 패널·말풍선·본체 표시/숨김·일시정지·종료 명령 |
+| `src-tauri/src/app/settings.rs` | 최신 저장값에 scope별 필드를 병합하는 설정 저장, 모델·단어장·기억 관련 앱 명령 |
+| `src-tauri/src/app/windows.rs` | 단일 설정창·마지막 목적지·미저장 상태, 종료 확인, 패널·말풍선·본체 표시/숨김·일시정지 명령 |
+| `src-tauri/src/planner_windows.rs` | 단일 `planner` 실행 창과 탭 목적지, 통합 설정의 해당 위젯으로 이동 |
+| `src-tauri/src/widgets/planning.rs`, `widgets/planning/recurrence.rs` | 내장 할 일·기간 계획·반복·횟수·선택 이월의 입력 검증과 상태 전이, 날짜·시간대 계산, 기존 JSON 호환 |
+| `src-tauri/src/widgets/storage.rs` | 위젯 JSON의 SQLite 저장, 요청 중복·revision·transaction, 사건 유효기간과 실제 완료·횟수 기록의 구슬병 동기화 |
+| `src-tauri/src/widget_connections.rs`, `widgets/calendar.rs`, `widgets/calendar/` | Google OAuth·ICS·macOS EventKit 읽기 연결, 자격 증명·선택 캘린더·조회 범위와 비동기 갱신 결과의 최신성 검사 |
+| `src-tauri/src/widgets/reminders.rs`, `planner_notifications.rs` | 기한·무드 안내 시점과 다시 알림 대상 검증, 캐릭터 사건과 OS 전달 분리, OS 권한·표시·macOS 알림 버튼 |
 | `src-tauri/src/desktop.rs`, `playback.rs` | 네이티브 창 배치와 재생 관련 규칙 |
 | `src-tauri/src/desktop_geometry.rs`, `desktop_menu.rs`, `character_sprites.rs` | 다중 캐릭터 창 배치, 트레이 메뉴, 표정 이미지 저장과 내부 이미지 주소 |
 | `src-tauri/src/behavior.rs`, `desktop_toys.rs`, `desktop_toys_macos.rs` | 자동 장난 상태·취소와 데스크톱 물체의 실행·창 경계 관측 |
@@ -49,6 +57,8 @@ description: 현재 Tauri 앱의 코드 소유권과 생활 도구·외부 위�
 
 Rust가 저장 상태를 관리하고 프론트엔드가 상태와 재생 이벤트를 표시한다. 공식 도구의 상태·일정 캐시·사건은 `src-tauri/src/widgets/storage.rs`의 SQLite 저장을 사용하고, 화면은 `src/widgets/`, 명령·연결 작업은 `widget_commands.rs`·`widget_connections.rs`가 담당한다. 공개 외부 위젯 실행기는 제공하지 않는다.
 
+앱 식별자 이전은 `app/lifecycle.rs::migrate_app_data`가 DB를 열기 전에 수행한다. SQLite 본체와 WAL/SHM는 같은 출처의 한 묶음으로 취급한다. 현재 위치에 DB가 있으면 이전 위치의 DB·보조 파일을 병합하지 않고, 옛 이름을 바꾸는 경우에만 그 본체의 보조 파일을 함께 이동한다. 본체 없는 보조 파일이나 이전 대상의 충돌을 발견하면 임의로 조합하지 않고 중단한다. 모델 등 DB 외 파일의 기존 병합은 유지한다.
+
 캐릭터 데이터 이전은 원문 메시지 JSON과 기존 친밀도 표를 보존하며 별도 정체성·친밀도 표를 사용한다. 캐릭터 변경은 기존 작업 취소와 준비 대사 무효화를 동반한다. 공유 파일은 정의·대사만 구성하며 개인 단어장은 명시적으로 선택한 항목만 포함한다. 상세 규격은 [캐릭터 교체와 공유](../product/characters.md)를 따른다. 실제 흐름과 데이터 보존 검증은 [0.3.0 검증 기록](../VALIDATION-0.3.0.md)을 따른다.
 
 `.talk`는 위젯 상태를 [공개 변수](talk-reference.md)로 정규화한 뒤 대본을 평가하고 `SceneLine` 배열을 기존 재생 경로에 전달한다. 자동 `.talk` 차례와 기존 일반 수다 차례를 번갈아 사용하며, 실제 사건은 기존 사건 대기열을 통과한다. 파서·평가기·CLI는 위젯 쓰기 명령이나 외부 코드를 실행하지 않는다. `talk/files.rs`는 앱 런타임의 안전한 파일 읽기·재로딩과 초기화 중 암호화 전환을 담당하고, `story.rs`는 선택지 story catalog를 읽고 검증한다. 원문 작성·편집·암호화 저장은 앱 밖의 별도 talk editor가 맡는다. 파일 변경 시 runtime generation과 last-good 경계를 지키며, 검사 실패 시 기존 파일을 유지한다. 외부 Widget SDK는 제공하지 않는다.
@@ -56,6 +66,10 @@ Rust가 저장 상태를 관리하고 프론트엔드가 상태와 재생 이벤
 ## 상태 전달과 취소 경계
 
 화면의 명령은 Rust에서 저장·검증한 뒤 `app-state` 또는 `widgets-state` 이벤트로 반영한다. 화면 구독은 이벤트 수신을 먼저 연결하고 최초 snapshot을 조회한다. 조회 중 이벤트를 받았다면 늦게 도착한 최초 응답으로 새 상태를 덮어쓰지 않으며, 화면을 떠난 뒤에는 구독과 결과 적용을 정리한다. 브라우저 미리보기 데이터는 실제 SQLite 저장이나 네이티브 명령 실행을 대신하지 않는다.
+
+통합 설정의 `save_settings`는 `scope: automatic`에서 `autonomousEnabled`·`localIdleEnabled`·`apiIdleEnabled`·`idleMinutes`를, `scope: model`에서 `mode`·`localModel`·`localModelPath`·`baseUrl`·`apiModel`·`apiTokenParameter`를 저장한다. `action`과 DB transaction 안에서 최신 설정을 읽고 해당 필드만 합치므로 다른 영역의 오래된 snapshot이 최신 저장을 덮어쓰지 않는다. 검증과 API 키 적용도 해당 scope에 한정하며 revision 갱신 후 기존 `interrupt`·`gate` 경계를 따른다. scope 생략은 기존 전체 저장 호출의 호환 경로이고 새 설정 UI는 명시적인 scope를 전달한다.
+
+`get_settings_section`·`set_settings_section`은 앱 실행 중 마지막 영역을 공유한다. 네이티브 바로가기는 같은 `settings` 창에 `open-settings-section` 이벤트를 보내며 초기 목적지는 `characters`, 업데이트 목적지는 `general`이다. `set_settings_dirty`는 저장 데이터와 별개인 미저장 편집 신호다. `quit_app`과 네이티브 `ExitRequested`는 이 신호가 있으면 설정창을 보여 주고 `confirm-settings-exit`로 확인을 요청한다. 명시적인 `force: true`만 미저장 내용을 버리고 종료한다. 업데이트는 다운로드 전과 실제 설치 직전에 미저장 상태를 검사한다. UI 탐색·종료·저장 계약의 원본은 [통합 설정창](../product/settings.md)이다.
 
 대화와 자동 작업은 서로 다른 경계를 함께 사용한다. 모듈을 나눠도 아래 역할과 확인 순서는 유지한다.
 
@@ -69,6 +83,22 @@ Rust가 저장 상태를 관리하고 프론트엔드가 상태와 재생 이벤
 | 대본 파일 최신성 | 읽은 대본의 revision·generation이 바뀌면 오래된 재생 결과를 무효화하고 last-good 파일을 유지한다. 원문 저장 충돌은 별도 talk editor의 책임이다. |
 
 `present_line`은 최신성 검사를 통과한 뒤 기록과 재생 상태를 함께 갱신한다. 대본 파서가 성공하거나 모델이 응답했다는 사실만으로 말풍선을 표시하지 않는다. 자동 생성과 자동 재생의 조건은 함께 검토하며, 앱 종료와 취소는 앱이 소유한 추론 프로세스만 정리한다.
+
+## 플래너의 실행·저장·알림 경계 {#planner-boundaries}
+
+`view=planner`는 기존 `todo`·`calendar`·`preparation`·`focus-timer` 위젯의 상태를 함께 표시하는 실행 화면이다. 새 플래너 저장소나 외부 일정 쓰기 계층을 만들지 않는다. `open_widget`의 할 일·캘린더 진입은 `planner_windows::open`으로 같은 창을 재사용하고, 연결·알림 설정은 `open_planner_settings`가 기존 `settings` 창의 위젯 영역으로 전달한다. 로컬 할 일 작업은 캘린더 인증·네트워크·LLM에 의존하지 않는다.
+
+변경은 기존 `execute_widget` → `widget_commands::change` → `widgets::storage::execute`를 통과한다. `requestId`의 UUID와 요청 fingerprint로 재전송을 구분하고 `expectedRevision`이 현재 위젯 revision과 같을 때만 transaction을 적용한다. `batch-add`의 새 목록·선택 항목은 함께 성공하거나 함께 취소된다. `plan`은 선택한 항목의 `plannedDate`를 바꾸고 기한을 건드리지 않으며, 기존 `rollover`는 기한 변경의 호환 명령으로 남는다. 공개 입력 의미와 제한의 원본은 [할 일과 캘린더](../product/planning.md)다.
+
+할 일은 `widget_instances.data`의 기존 JSON을 확장한다. `planPeriod`·`planAnchor`·`plannedDate`와 `repeatRule`·`frequencyRecords`를 읽되 이전 데이터의 기한·완료·생성 연결을 보존한다. `plannedDate`가 없던 항목만 기존 기한의 지역 날짜를 승계하고 명시적인 `null`은 그대로 둔다. `planning/recurrence.rs`는 새 규칙의 지역 시각과 월 날짜 앵커를 계산하며, 기존 `repeat` 문자열의 UTC·월말 계산은 별도로 보존한다. DST가 모호하거나 존재하지 않는 시각은 오류로 반환한다.
+
+회차 편집의 `continuation`은 이번 회차에만 적용한 변경이 다음 회차 템플릿을 덮어쓰지 않게 한다. 완료 시 생성한 자식과 `generation.snapshot`을 저장하고, 완료 취소는 정규화한 스냅샷과 여전히 같은 자식만 제거한다. 수정·완료한 자식은 보존하고 재완료로 복제하지 않는다. 주간 횟수는 항목 전체의 `completedAt` 대신 개별 기록을 추가·제거한다. 구슬병은 일반 완료와 횟수 기록을 소유한 할 일 데이터에서 다시 계산하므로 사건 재생 여부가 보상을 결정하지 않는다.
+
+`widget_connections.rs`는 연결 작업의 token·위젯 revision을 완료 시 다시 검사한 뒤 키와 캐시를 저장한다. Google·ICS 자격 증명은 OS 저장소를 사용하고 EventKit 객체는 전용 작업 스레드 안에 둔다. Apple은 명시적인 권한 요청과 선택한 캘린더 조회만 수행하며 `FullAccess`가 필요한 OS 권한 범위와 앱의 읽기 전용 동작을 구분한다. 연결 데이터의 확장 필드는 갱신 때 보존하여 알림 설정과 다시 알림 상태를 잃지 않는다.
+
+`reminders::advance`는 호스트 시계와 저장 상태를 사용해 기한·무드 안내를 결정한다. 첫 확인·2분 초과 공백은 따라잡지 않고 조용한 시간과 알림 쉬기를 적용한다. 외부 일정은 연결 캐시의 최신성을 확인하고 로컬 할 일은 현재 완료·기한 상태를 확인한다. 캐릭터 발화는 위젯 사건 대기열과 기존 숨김·일시정지·자동 대화·직접 입력 우선 경계를 통과하며, 재생 전 `reminders::event_current`로 대상과 타이머 revision을 다시 검사한다. OS 알림은 별도의 명시적 선택 채널로 전달하여 말풍선 숨김과 분리한다. OS에 미래 예약을 쌓지 않고 즉시 표시만 요청한다.
+
+macOS 알림 버튼은 알림에 담긴 위젯 ID와 `observedAt`을 마지막 저장 알림과 비교한 뒤 다시 알림을 저장한다. 따라서 오래된 알림이 새 대상의 예약을 덮어쓰지 않는다. 권한 요청은 사용자 버튼에서만 실행하고 OS 전달 실패는 `planner-notification-error`로 표시한다. 네이티브 `.app`의 실제 권한·배너·버튼, Apple·Google 실계정 조회와 Windows 동작은 Rust 로직 테스트나 브라우저 미리보기로 검증됐다고 간주하지 않는다.
 
 ## 확장 후 책임 경계
 

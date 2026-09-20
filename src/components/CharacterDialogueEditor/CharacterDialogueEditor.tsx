@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, Select, TextArea } from "@fleetia/lagrange";
+import { Button, Dialog, Select, TextArea } from "@fleetia/lagrange";
 import { command, errorText } from "../../hooks/useSnapshot";
 import type { CharacterDialogue, SceneLine, WordbookEntry } from "../../types";
 import { WordbookPanel } from "../WordbookPanel/WordbookPanel";
@@ -12,13 +12,17 @@ type Props = {
   expressions?: string[];
   onDirtyChange: (dirty: boolean) => void;
   onPendingChange?: (pending: boolean) => void;
+  compact?: boolean;
 };
 export function CharacterDialogueEditor({
   ids,
   expressions = EXPRESSIONS,
   onDirtyChange,
   onPendingChange,
+  compact = false,
 }: Props): JSX.Element {
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [scenesOpen, setScenesOpen] = useState(false);
   const [dialogue, setDialogue] = useState<CharacterDialogue | null>(null);
   const [scenes, setScenes] = useState<SceneLine[][]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -96,20 +100,76 @@ export function CharacterDialogueEditor({
         )}
       </section>
     );
+  const wordbookEditor = (
+    <WordbookPanel
+      title={ids.length === 1 ? "이 캐릭터의 키워드 대사" : "현재 친구들의 키워드 대사"}
+      description="개인 단어장 다음에 찾는 캐릭터 소유 대사예요. 항목별로 저장하며 캐릭터 저장과는 별개예요."
+      entries={dialogue.wordbook}
+      singleCharacter={ids.length === 1}
+      speakerCount={ids.length}
+      saveEntry={saveEntry}
+      deleteEntry={deleteEntry}
+      onDirtyChange={setWordbookDirty}
+    />
+  );
   return (
     <div>
-      <WordbookPanel
-        title={ids.length === 1 ? "이 캐릭터의 키워드 대사" : "현재 친구들의 키워드 대사"}
-        description="개인 단어장과 별도로 저장해요. 개인 단어장을 먼저 찾은 뒤 이 대사를 사용해요. 수정 중에는 대상을 바꿀 수 없어요."
-        entries={dialogue.wordbook}
-        singleCharacter={ids.length === 1}
-        speakerCount={ids.length}
-        saveEntry={saveEntry}
-        deleteEntry={deleteEntry}
-        onDirtyChange={setWordbookDirty}
-      />
+      {compact ? (
+        <>
+          <div className={s.dialogueRow}>
+            <span>키워드</span>
+            <span className={s.lineSummary}>
+              {dialogue.wordbook.length
+                ? dialogue.wordbook
+                    .map((entry) => `${entry.keywords.join(", ")} → ${entry.lines[0]?.text ?? ""}`)
+                    .join(" / ")
+                : "등록된 키워드 대사 없음"}
+              {wordbookDirty ? " · 미저장" : ""}
+            </span>
+            <Button variant="secondary" size="compact" onClick={() => setEditorOpen(true)}>
+              키워드 대사 편집
+            </Button>
+          </div>
+          <Dialog
+            closeLabel="닫기"
+            isOpen={editorOpen}
+            onOpenChange={(open) => {
+              if (!pending) {
+                setEditorOpen(open);
+              }
+            }}
+            onCancel={(event) => {
+              if (pending) {
+                event.preventDefault();
+              }
+            }}
+            title={ids.length === 1 ? "캐릭터 키워드 대사" : "조합 키워드 대사"}
+            size="large"
+          >
+            {wordbookEditor}
+          </Dialog>
+        </>
+      ) : (
+        wordbookEditor
+      )}
+      {compact && ids.length > 1 && (
+        <div className={s.dialogueRow}>
+          <span>조합 수다</span>
+          <span className={s.lineSummary}>
+            {scenes.length}개 장면{dirty ? " · 미저장" : ""}
+          </span>
+          <Button
+            variant="secondary"
+            size="compact"
+            aria-expanded={scenesOpen}
+            onClick={() => setScenesOpen(!scenesOpen)}
+          >
+            {scenesOpen ? "장면 접기" : "장면 편집"}
+          </Button>
+        </div>
+      )}
       {ids.length > 1 && (
-        <section className={s.section}>
+        <section className={s.lineEditor} hidden={compact && !scenesOpen}>
           <h3 className={s.subheading}>조합의 자동 수다</h3>
           <fieldset disabled={pending} className={s.fieldset}>
             {scenes.map((lines, sceneIndex) => (
@@ -247,7 +307,7 @@ export function CharacterDialogueEditor({
                     .catch((cause: unknown) => setError(errorText(cause)));
                 }}
               >
-                둘의 수다 저장
+                조합 대사 저장
               </Button>
               {dirty && (
                 <Button

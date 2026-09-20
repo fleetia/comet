@@ -30,7 +30,13 @@ const INITIAL_STATUS: UpdateStatus = {
   message: null,
 };
 
-export function UpdatePanel(): JSX.Element {
+export function UpdatePanel({
+  onBusyChange,
+  hasUnsavedChanges = false,
+}: {
+  onBusyChange?: (busy: boolean) => void;
+  hasUnsavedChanges?: boolean;
+}): JSX.Element {
   const [status, setStatus] = useState(INITIAL_STATUS);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +88,9 @@ export function UpdatePanel(): JSX.Element {
   }
 
   const busy = pending || ["checking", "downloading", "installing"].includes(status.phase);
+  useEffect(() => {
+    onBusyChange?.(busy);
+  }, [busy, onBusyChange]);
   const available = status.version && ["available", "error"].includes(status.phase);
   const message = error ?? status.message;
   return (
@@ -123,12 +132,15 @@ export function UpdatePanel(): JSX.Element {
         </p>
       )}
       {available && <p className={s.quiet}>설치하면 진행 중인 대화를 멈추고 앱을 다시 시작해요.</p>}
+      {available && hasUnsavedChanges && (
+        <p className={s.quiet}>저장하지 않은 변경을 저장하거나 취소한 뒤 설치해 주세요.</p>
+      )}
       <div className={s.row}>
         <Button variant="secondary" disabled={busy} onClick={() => void run(false)}>
           업데이트 확인
         </Button>
         {available && (
-          <Button disabled={busy} onClick={() => void run(true)}>
+          <Button disabled={busy || hasUnsavedChanges} onClick={() => void run(true)}>
             설치하고 다시 시작
           </Button>
         )}

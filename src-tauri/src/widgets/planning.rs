@@ -3,6 +3,10 @@ use chrono::{DateTime, Days, Months, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+mod recurrence;
+#[cfg(test)]
+mod recurrence_tests;
+use recurrence::{FrequencyRecord, RepeatRule};
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,6 +33,21 @@ struct Todo {
     generated_from: Option<String>,
     generation: Option<Generation>,
     revision: u64,
+    #[serde(default = "no_period")]
+    plan_period: String,
+    #[serde(default)]
+    plan_anchor: Option<String>,
+    #[serde(default)]
+    planned_date: Option<String>,
+    #[serde(default)]
+    repeat_rule: Option<RepeatRule>,
+    #[serde(default)]
+    frequency_records: Vec<FrequencyRecord>,
+    #[serde(default)]
+    continuation: Option<Box<Todo>>,
+}
+fn no_period() -> String {
+    "none".into()
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct Generation {
@@ -213,11 +232,15 @@ fn apply_due(item: &mut Todo, input: &Value) -> Result<(), String> {
     }
     if let Some(value) = input.get("repeat") {
         let s = value.as_str().ok_or("반복 설정이 올바르지 않습니다.")?;
-        if !["none", "daily", "weekly", "monthly"].contains(&s) {
+        if !["none", "daily", "weekly", "monthly", "yearly"].contains(&s) {
             return Err("지원하지 않는 반복 설정입니다.".into());
         }
         item.repeat = s.into();
+        if input.get("repeatRule").is_none() {
+            item.repeat_rule = None;
+        }
     }
+    recurrence::apply(item, input)?;
     Ok(())
 }
 fn next_date(day: NaiveDate, repeat: &str) -> Result<NaiveDate, String> {
@@ -225,9 +248,122 @@ fn next_date(day: NaiveDate, repeat: &str) -> Result<NaiveDate, String> {
         "daily" => day.checked_add_days(Days::new(1)),
         "weekly" => day.checked_add_days(Days::new(7)),
         "monthly" => day.checked_add_months(Months::new(1)),
+        "yearly" => day.checked_add_months(Months::new(12)),
         _ => None,
     }
     .ok_or_else(|| "다음 반복 날짜를 계산할 수 없습니다.".into())
+}
+
+fn new_todo(input: &Value, lists: &[List], new_id: String) -> Result<Todo, String> {
+    let list_id = match input.get("listId") {
+        Some(_) => text(input, "listId", 200)?,
+        None => "default".into(),
+    };
+    if !lists.iter().any(|list| list.id == list_id) {
+        return Err(missing());
+    }
+    let mut item = Todo {
+        id: new_id,
+        title: text(input, "title", 500)?,
+        memo: optional_text(input, "memo", 20000)?,
+        list_id,
+        due_date: None,
+        due_at: None,
+        repeat: "none".into(),
+        completed_at: None,
+        generated_from: None,
+        generation: None,
+        revision: 0,
+        plan_period: no_period(),
+        plan_anchor: None,
+        planned_date: None,
+        repeat_rule: None,
+        frequency_records: vec![],
+        continuation: None,
+    };
+    apply_due(&mut item, input)?;
+    Ok(item)
+}
+
+fn update_todo(item: &mut Todo, input: &Value, lists: &[List]) -> Result<(), String> {
+    if input.get("title").is_some() {
+        item.title = text(input, "title", 500)?;
+    }
+    if input.get("memo").is_some() {
+        item.memo = optional_text(input, "memo", 20000)?;
+    }
+    if input.get("listId").is_some() {
+        let list_id = text(input, "listId", 200)?;
+        if !lists.iter().any(|list| list.id == list_id) {
+            return Err(missing());
+        }
+        item.list_id = list_id;
+    }
+    apply_due(item, input)?;
+    item.revision += 1;
+    Ok(())
+}
+
+fn normalize_legacy_todo(mut value: Value) -> Result<Value, String> {
+    if value.get("plannedDate").is_none() {
+        value["plannedDate"] = match value["dueDate"].as_str() {
+            Some(day) => json!(day),
+            None => match value["dueAt"].as_i64() {
+                Some(at) => json!(recurrence::local_datetime(at, "local")?.date().to_string()),
+                None => Value::Null,
+            },
+        };
+    }
+    Ok(value)
+}
+
+pub fn recurrence_preview(data: &Value, input: &Value, now: i64) -> Result<Vec<String>, String> {
+    if !input.is_object()
+        || serde_json::to_vec(input)
+            .map_err(|error| error.to_string())?
+            .len()
+            > 64 * 1024
+    {
+        return Err("반복 미리보기 입력 형식이나 크기가 올바르지 않습니다.".into());
+    }
+    let state: TodoState = decode(data)?;
+    let mut item = if let Some(key) = input["id"].as_str() {
+        let mut item = state
+            .items
+            .iter()
+            .find(|item| item.id == key)
+            .cloned()
+            .ok_or_else(missing)?;
+        apply_due(&mut item, input)?;
+        item
+    } else {
+        let mut draft = input.clone();
+        draft["title"] = json!("반복 미리보기");
+        new_todo(&draft, &state.lists, "preview".into())?
+    };
+    if !recurrence::repeats(&item) || recurrence::is_frequency(&item) {
+        return Ok(vec![]);
+    }
+    let count = if item
+        .repeat_rule
+        .as_ref()
+        .is_some_and(|rule| rule.mode == "completion")
+    {
+        1
+    } else {
+        3
+    };
+    let mut preview = vec![];
+    for _ in 0..count {
+        item = recurrence::advance(&item, now)?;
+        preview.push(match item.due_date.as_ref() {
+            Some(day) => day.clone(),
+            None => DateTime::<Utc>::from_timestamp_millis(item.due_at.ok_or("반복 날짜 오류")?)
+                .ok_or("반복 날짜 범위 오류")?
+                .to_rfc3339(),
+        });
+    }
+    Ok(preview)
 }
 fn todo(
     data: &Value,
@@ -236,7 +372,13 @@ fn todo(
     now: i64,
     entropy: u64,
 ) -> Result<WidgetEffect, String> {
-    let mut state: TodoState = decode(data)?;
+    let mut normalized = data.clone();
+    if let Some(items) = normalized["items"].as_array_mut() {
+        for item in items {
+            *item = normalize_legacy_todo(item.clone())?;
+        }
+    }
+    let mut state: TodoState = decode(&normalized)?;
     let mut events = vec![];
     let new_id = id(now, entropy);
     match action {
@@ -276,29 +418,188 @@ fn todo(
             if state.items.iter().any(|x| x.id == new_id) {
                 return Err("ID 충돌입니다. 다시 시도하세요.".into());
             }
-            let list_id = if input.get("listId").is_some() {
-                text(input, "listId", 200)?
-            } else {
-                "default".into()
-            };
-            if !state.lists.iter().any(|x| x.id == list_id) {
-                return Err(missing());
+            state.items.push(new_todo(input, &state.lists, new_id)?);
+        }
+        "batch-add" => {
+            let entries = input["items"]
+                .as_array()
+                .ok_or("추가할 항목을 선택해 주세요.")?;
+            if entries.is_empty() || entries.len() > 30 || state.items.len() + entries.len() > 2000
+            {
+                return Err("한 번에 1~30개, 전체 2000개까지 추가할 수 있습니다.".into());
             }
-            let mut item = Todo {
-                id: new_id,
-                title: text(input, "title", 500)?,
-                memo: optional_text(input, "memo", 20000)?,
-                list_id,
-                due_date: None,
-                due_at: None,
-                repeat: "none".into(),
-                completed_at: None,
-                generated_from: None,
-                generation: None,
-                revision: 0,
+            if input.get("listName").is_some() && input.get("listId").is_some() {
+                return Err("목록 이름과 ID 중 하나만 지정해 주세요.".into());
+            }
+            let list = if input.get("listName").is_some() {
+                let name = text(input, "listName", 100)?;
+                if let Some(list) = state.lists.iter().find(|list| list.name == name) {
+                    Some(list.id.clone())
+                } else {
+                    capacity(state.lists.len())?;
+                    let list_id = format!("{new_id}-list");
+                    if state.lists.iter().any(|list| list.id == list_id) {
+                        return Err("목록 ID 충돌입니다.".into());
+                    }
+                    state.lists.push(List {
+                        id: list_id.clone(),
+                        name,
+                    });
+                    Some(list_id)
+                }
+            } else {
+                input
+                    .get("listId")
+                    .map(|_| text(input, "listId", 200))
+                    .transpose()?
             };
-            apply_due(&mut item, input)?;
-            state.items.push(item);
+            for (index, entry) in entries.iter().enumerate() {
+                let mut entry = entry.clone();
+                if !entry.is_object() {
+                    return Err("할 일 형식이 올바르지 않습니다.".into());
+                }
+                if let Some(list) = &list {
+                    entry["listId"] = json!(list);
+                }
+                let item_id = format!("{new_id}-{index}");
+                if state.items.iter().any(|item| item.id == item_id) {
+                    return Err("항목 ID 충돌입니다.".into());
+                }
+                state.items.push(new_todo(&entry, &state.lists, item_id)?);
+            }
+        }
+        "plan" => {
+            let ids: Vec<String> = decode(input.get("ids").ok_or("항목을 선택해 주세요.")?)?;
+            if ids.is_empty() || ids.len() > 2000 {
+                return Err("항목을 선택해 주세요.".into());
+            }
+            let selected = input.get("date").ok_or("선택 날짜가 필요합니다.")?;
+            let mut planning_input = json!({"plannedDate":selected});
+            for field in ["planPeriod", "planAnchor"] {
+                if let Some(value) = input.get(field) {
+                    planning_input[field] = value.clone();
+                }
+            }
+            for key in ids {
+                let item = state
+                    .items
+                    .iter_mut()
+                    .find(|item| item.id == key)
+                    .ok_or_else(missing)?;
+                if item.completed_at.is_some() {
+                    return Err("완료한 항목의 계획은 변경할 수 없습니다.".into());
+                }
+                recurrence::apply(item, &planning_input)?;
+                item.revision += 1;
+            }
+        }
+        "record-frequency" | "undo-frequency" => {
+            let key = text(input, "id", 200)?;
+            let item = state
+                .items
+                .iter_mut()
+                .find(|item| item.id == key)
+                .ok_or_else(missing)?;
+            if !recurrence::is_frequency(item) {
+                return Err("주간 횟수 목표를 선택해 주세요.".into());
+            }
+            if item.completed_at.is_some() {
+                return Err("완료한 항목은 완료를 취소한 뒤 기록해 주세요.".into());
+            }
+            let record_id = if action == "record-frequency" {
+                capacity(item.frequency_records.len())?;
+                let day = date(&text(input, "date", 10)?)?;
+                let rule = item.repeat_rule.as_ref().ok_or("주간 목표 오류")?;
+                if day > recurrence::local_datetime(now, &rule.time_zone)?.date() {
+                    return Err("미래의 완료를 기록할 수 없습니다.".into());
+                }
+                let week = recurrence::anchor(day, "week")?;
+                if item
+                    .frequency_records
+                    .iter()
+                    .any(|record| record.date == day.to_string())
+                {
+                    return Err("같은 날에는 한 번만 기록할 수 있습니다.".into());
+                }
+                let count = item
+                    .frequency_records
+                    .iter()
+                    .filter(|record| {
+                        date(&record.date)
+                            .ok()
+                            .and_then(|date| recurrence::anchor(date, "week").ok())
+                            .flatten()
+                            == week
+                    })
+                    .count();
+                if count >= rule.times_per_week.unwrap_or(1) {
+                    return Err("이번 주 목표를 이미 채웠습니다.".into());
+                }
+                if item
+                    .frequency_records
+                    .iter()
+                    .any(|record| record.id == new_id)
+                {
+                    return Err("기록 ID 충돌입니다.".into());
+                }
+                item.frequency_records.push(FrequencyRecord {
+                    id: new_id.clone(),
+                    date: day.to_string(),
+                    created_at: now,
+                });
+                new_id
+            } else {
+                let record_id = text(input, "recordId", 200)?;
+                let index = item
+                    .frequency_records
+                    .iter()
+                    .position(|record| record.id == record_id)
+                    .ok_or_else(missing)?;
+                item.frequency_records.remove(index);
+                record_id
+            };
+            item.revision += 1;
+            events.push(EventDraft {
+                kind: if action == "record-frequency" {
+                    "todo-completed"
+                } else {
+                    "todo-undone"
+                }
+                .into(),
+                text: format!(
+                    "{} {}",
+                    item.title,
+                    if action == "record-frequency" {
+                        "1회 완료"
+                    } else {
+                        "완료 기록 취소"
+                    }
+                ),
+                payload: json!({"itemId":item.id,"occurrenceId":record_id,"frequency":true}),
+            });
+        }
+        "skip" => {
+            let key = text(input, "id", 200)?;
+            let item = state
+                .items
+                .iter_mut()
+                .find(|item| item.id == key)
+                .ok_or_else(missing)?;
+            if item.completed_at.is_some()
+                || !recurrence::repeats(item)
+                || item
+                    .repeat_rule
+                    .as_ref()
+                    .is_some_and(|rule| rule.mode != "calendar")
+            {
+                return Err("날짜 기준 반복의 미완료 회차만 건너뛸 수 있습니다.".into());
+            }
+            let mut next = recurrence::advance(item, now)?;
+            if let Some(template) = item.continuation.as_deref() {
+                next.continuation = Some(Box::new(recurrence::advance(template, now)?));
+            }
+            next.revision += 1;
+            *item = next;
         }
         "rollover" => {
             let day = text(input, "date", 10)?;
@@ -361,32 +662,81 @@ fn todo(
                     state.items.remove(at);
                 }
                 "update" => {
-                    if let Some(list) = input.get("listId") {
-                        let name = list.as_str().ok_or("목록 ID 오류")?;
-                        if !state.lists.iter().any(|x| x.id == name) {
-                            return Err(missing());
+                    let scope = input
+                        .get("scope")
+                        .map(|value| value.as_str().ok_or("편집 범위 오류"))
+                        .transpose()?
+                        .unwrap_or("occurrence");
+                    if !["occurrence", "following"].contains(&scope) {
+                        return Err("편집 범위를 확인해 주세요.".into());
+                    }
+                    if scope == "occurrence"
+                        && recurrence::repeats(&state.items[at])
+                        && !recurrence::is_frequency(&state.items[at])
+                        && state.items[at].continuation.is_none()
+                    {
+                        let mut template = state.items[at].clone();
+                        template.generation = None;
+                        state.items[at].continuation = Some(Box::new(template));
+                    } else if scope == "following" {
+                        state.items[at].continuation = None;
+                    }
+                    update_todo(&mut state.items[at], input, &state.lists)?;
+                    if scope == "following" {
+                        let mut parent = state.items[at].clone();
+                        let mut visited = std::collections::BTreeSet::from([parent.id.clone()]);
+                        while let Some(index) = state
+                            .items
+                            .iter()
+                            .position(|item| item.generated_from.as_ref() == Some(&parent.id))
+                        {
+                            if !visited.insert(state.items[index].id.clone()) {
+                                return Err("반복 연결이 올바르지 않습니다.".into());
+                            }
+                            if state.items[index].completed_at.is_none() {
+                                let mut descendant_input = input.clone();
+                                let scheduling_changed =
+                                    ["dueDate", "dueAt", "repeat", "repeatRule"]
+                                        .iter()
+                                        .any(|field| input.get(field).is_some());
+                                if let Some(fields) = descendant_input.as_object_mut() {
+                                    fields.remove("dueDate");
+                                    fields.remove("dueAt");
+                                }
+                                if scheduling_changed
+                                    && recurrence::repeats(&parent)
+                                    && !recurrence::is_frequency(&parent)
+                                {
+                                    let next = recurrence::advance(&parent, now)?;
+                                    state.items[index].due_at = next.due_at;
+                                    state.items[index].due_date = next.due_date;
+                                }
+                                state.items[index].continuation = None;
+                                update_todo(
+                                    &mut state.items[index],
+                                    &descendant_input,
+                                    &state.lists,
+                                )?;
+                            }
+                            parent = state.items[index].clone();
                         }
                     }
-                    let item = &mut state.items[at];
-                    if input.get("title").is_some() {
-                        item.title = text(input, "title", 500)?;
-                    }
-                    if input.get("memo").is_some() {
-                        item.memo = optional_text(input, "memo", 20000)?;
-                    }
-                    if input.get("listId").is_some() {
-                        item.list_id = text(input, "listId", 200)?;
-                    }
-                    apply_due(item, input)?;
-                    item.revision += 1;
                 }
                 "complete" => {
+                    if recurrence::is_frequency(&state.items[at]) {
+                        return Err("주간 목표는 횟수 기록을 사용해 주세요.".into());
+                    }
                     if state.items[at].completed_at.is_none() {
                         let mut item = state.items[at].clone();
                         item.completed_at = Some(now);
-                        if item.repeat != "none" && item.generation.is_none() {
+                        if (recurrence::repeats(&item) || item.continuation.is_some())
+                            && item.generation.is_none()
+                        {
                             capacity(state.items.len())?;
-                            let mut next = item.clone();
+                            let mut next = recurrence::advance(
+                                item.continuation.as_deref().unwrap_or(&item),
+                                now,
+                            )?;
                             next.id = format!("{}-next", id(now, entropy));
                             if state.items.iter().any(|x| x.id == next.id) {
                                 return Err("다음 회차 ID가 이미 있습니다.".into());
@@ -395,24 +745,8 @@ fn todo(
                             next.generation = None;
                             next.generated_from = Some(item.id.clone());
                             next.revision = 0;
-                            if let Some(at) = item.due_at {
-                                let dt = DateTime::<Utc>::from_timestamp_millis(at)
-                                    .ok_or("시각 오류")?;
-                                next.due_at = Some(
-                                    next_date(dt.date_naive(), &item.repeat)?
-                                        .and_time(dt.time())
-                                        .and_utc()
-                                        .timestamp_millis(),
-                                );
-                            } else {
-                                let day = match &item.due_date {
-                                    Some(d) => date(d)?,
-                                    None => DateTime::<Utc>::from_timestamp_millis(now)
-                                        .ok_or("현재 시각 오류")?
-                                        .date_naive(),
-                                };
-                                next.due_date = Some(next_date(day, &item.repeat)?.to_string());
-                            }
+                            next.continuation = None;
+                            next.frequency_records.clear();
                             item.generation = Some(Generation {
                                 id: next.id.clone(),
                                 snapshot: serde_json::to_value(&next).map_err(|e| e.to_string())?,
@@ -430,9 +764,11 @@ fn todo(
                             if let Some(child) =
                                 state.items.iter().position(|x| x.id == generation.id)
                             {
+                                let snapshot: Todo =
+                                    decode(&normalize_legacy_todo(generation.snapshot)?)?;
                                 if serde_json::to_value(&state.items[child])
                                     .map_err(|e| e.to_string())?
-                                    == generation.snapshot
+                                    == serde_json::to_value(snapshot).map_err(|e| e.to_string())?
                                 {
                                     state.items.remove(child);
                                     let parent = state

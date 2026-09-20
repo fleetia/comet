@@ -11,7 +11,7 @@ use crate::{
     character_commands::{self, serve_sprite, SPRITE_SCHEME},
     desktop, device_wake, inference, store, story, story_host, talk_host,
     types::*,
-    widget_commands::{self, cancel_widget_jobs, open_widgets},
+    widget_commands::{self, cancel_widget_jobs},
     widget_connections, widgets,
 };
 use std::{
@@ -83,6 +83,22 @@ pub(crate) fn migrate_app_data(app_data: &Path) -> io::Result<()> {
     let Some(parent) = app_data.parent() else {
         return Ok(());
     };
+    let old_database_name = crate::legacy_names::database_file();
+    let old_database = app_data.join(&old_database_name);
+    let new_database = app_data.join(DATABASE_FILE);
+    if !new_database.exists()
+        && !old_database.exists()
+        && [DATABASE_FILE, old_database_name.as_str()]
+            .iter()
+            .any(|database| {
+                ["-wal", "-shm"]
+                    .iter()
+                    .any(|suffix| app_data.join(format!("{database}{suffix}")).exists())
+            })
+    {
+        return Err(io::Error::new(io::ErrorKind::AlreadyExists,
+            "데이터베이스 본체 없이 WAL/SHM 파일이 남아 있습니다. 이전 전에 연결 파일을 확인해 주세요."));
+    }
     let legacy = parent.join(crate::legacy_names::app_identifier());
     if legacy.exists() {
         let legacy_type = fs::symlink_metadata(&legacy)?.file_type();
@@ -100,23 +116,56 @@ pub(crate) fn migrate_app_data(app_data: &Path) -> io::Result<()> {
                     "Comet 데이터 위치가 디렉터리가 아닙니다.",
                 ));
             }
-            merge_missing_entries(&legacy, app_data)?;
+            if new_database.exists() || old_database.exists() {
+                // A database and its WAL belong to one source. Never fill a current
+                // database's missing sidecars from the legacy directory.
+                for entry in fs::read_dir(&legacy)? {
+                    let entry = entry?;
+                    let name = entry.file_name();
+                    if [DATABASE_FILE, old_database_name.as_str()]
+                        .iter()
+                        .any(|database| {
+                            ["", "-wal", "-shm"]
+                                .iter()
+                                .any(|suffix| name == format!("{database}{suffix}").as_str())
+                        })
+                    {
+                        continue;
+                    }
+                    let source = entry.path();
+                    let destination = app_data.join(name);
+                    if !destination.exists() {
+                        fs::rename(source, destination)?;
+                    } else if fs::symlink_metadata(&source)?.file_type().is_dir()
+                        && fs::symlink_metadata(&destination)?.file_type().is_dir()
+                    {
+                        merge_missing_entries(&source, &destination)?;
+                    }
+                }
+            } else {
+                merge_missing_entries(&legacy, app_data)?;
+            }
         } else {
             fs::rename(&legacy, app_data)?;
         }
     }
-    let old_database = app_data.join(crate::legacy_names::database_file());
-    let new_database = app_data.join(DATABASE_FILE);
     if old_database.exists() && !new_database.exists() {
-        fs::rename(old_database, new_database)?;
-    }
-    let old_database_name = crate::legacy_names::database_file();
-    for suffix in ["-shm", "-wal"] {
-        let old_sidecar = app_data.join(format!("{old_database_name}{suffix}"));
-        let new_sidecar = app_data.join(format!("{DATABASE_FILE}{suffix}"));
-        if old_sidecar.exists() && !new_sidecar.exists() {
-            fs::rename(old_sidecar, new_sidecar)?;
+        for suffix in ["-shm", "-wal"] {
+            if app_data.join(format!("{DATABASE_FILE}{suffix}")).exists() {
+                return Err(io::Error::new(io::ErrorKind::AlreadyExists,
+                    "데이터베이스 이전 대상에 기존 WAL/SHM 파일이 있습니다. 본체와 연결 파일을 확인해 주세요."));
+            }
         }
+        for suffix in ["-shm", "-wal"] {
+            let old_sidecar = app_data.join(format!("{old_database_name}{suffix}"));
+            let new_sidecar = app_data.join(format!("{DATABASE_FILE}{suffix}"));
+            if old_sidecar.exists() {
+                fs::rename(old_sidecar, new_sidecar)?;
+            }
+        }
+        // Publish the new main file last; an interrupted transfer is rejected as
+        // orphan sidecars on retry instead of opening a main file without its WAL.
+        fs::rename(&old_database, &new_database)?;
     }
     Ok(())
 }
@@ -124,7 +173,9 @@ pub(crate) fn migrate_app_data(app_data: &Path) -> io::Result<()> {
 pub fn run() {
     tauri::Builder::default()
         .manage(crate::character_collision_host::Runtime::default())
+        .manage(crate::planner_windows::Navigation::default())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .register_uri_scheme_protocol(SPRITE_SCHEME, serve_sprite)
         .register_uri_scheme_protocol(WIDGET_BACKGROUND_SCHEME, widget_backgrounds::serve)
@@ -154,6 +205,9 @@ pub fn run() {
                 runtime: Mutex::new(RuntimeStatus::default()),
                 playback: Mutex::new(None),
                 panel: Mutex::new(None),
+                settings_section: Mutex::new(windows::SettingsSection::default()),
+                settings_dirty: AtomicBool::new(false),
+                settings_exit_confirmed: AtomicBool::new(false),
                 cancellation: Mutex::new(None),
                 download_cancel: Mutex::new(None),
                 gate: tokio::sync::Mutex::new(()),
@@ -192,6 +246,7 @@ pub fn run() {
                     .characters_visible;
             desktop::create_boxes(app.handle(), &state).map_err(std::io::Error::other)?;
             desktop_menu::create(app.handle()).map_err(std::io::Error::other)?;
+            crate::planner_notifications::install(app.handle())?;
             if let Err(error) = device_wake::install(app.handle()) {
                 eprintln!("기기 복귀 알림 연결 실패: {error}");
             }
@@ -199,7 +254,11 @@ pub fn run() {
                 .map_err(std::io::Error::other)?
                 .onboarding_done
             {
-                open_widgets(app.handle().clone()).map_err(std::io::Error::other)?;
+                windows::open_settings_section(
+                    app.handle().clone(),
+                    windows::SettingsSection::Widgets,
+                )
+                .map_err(std::io::Error::other)?;
             }
             let handle = app.handle().clone();
             talk_host::watch(handle.clone(), state.clone());
@@ -210,6 +269,15 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == "settings" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    if let Err(error) = window.hide() {
+                        eprintln!("Settings window hide failed: {error}");
+                    }
+                }
+                return;
+            }
             if window.label() == "balloon" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
@@ -308,6 +376,15 @@ pub fn run() {
             widget_commands::close_widget_display,
             widget_connections::connect_calendar_ics,
             widget_connections::connect_calendar_google,
+            widget_connections::connect_calendar_apple,
+            widget_connections::list_apple_calendars,
+            crate::planner_windows::get_planner_tab,
+            crate::planner_windows::preview_planner_recurrence,
+            crate::planner_windows::open_planner_settings,
+            crate::planner_windows::get_planner_settings_target,
+            crate::planner_notifications::get_planner_notification_permission,
+            crate::planner_notifications::request_planner_notification_permission,
+            crate::planner_notifications::preview_planner_notification,
             widget_connections::refresh_calendar,
             widget_connections::disconnect_calendar,
             widget_connections::configure_connection_widget,
@@ -355,6 +432,10 @@ pub fn run() {
             settings::edit_memory,
             settings::delete_memory,
             windows::open_settings,
+            windows::get_settings_section,
+            windows::set_settings_section,
+            windows::set_settings_dirty,
+            windows::show_characters,
             windows::hide_boxes,
             windows::set_paused,
             windows::quit_app,
@@ -365,6 +446,15 @@ pub fn run() {
         .expect("failed to build comet")
         .run(|app, event| match event {
             tauri::RunEvent::ExitRequested { api, code, .. } => {
+                if let Some(state) = app.try_state::<Arc<AppState>>() {
+                    if windows::settings_exit_needs_confirmation(&state) {
+                        api.prevent_exit();
+                        if let Err(error) = windows::confirm_settings_exit(app, &state) {
+                            eprintln!("Failed to confirm unsaved settings before exit: {error}");
+                        }
+                        return;
+                    }
+                }
                 if code == Some(tauri::RESTART_EXIT_CODE) {
                     return;
                 }
@@ -436,6 +526,7 @@ pub(crate) async fn prepare_update_install(app: &tauri::AppHandle) -> Result<(),
         if unavailable(&state) {
             return Err("앱을 정리하고 있어요.".into());
         }
+        ensure_settings_saved_for_update(&state)?;
         state.update_installing.store(true, Ordering::SeqCst);
         interrupt(&state, false)?;
         *lock(&state.panel)? = None;
@@ -456,6 +547,16 @@ pub(crate) async fn prepare_update_install(app: &tauri::AppHandle) -> Result<(),
     Ok(())
 }
 
+pub(crate) fn ensure_settings_saved_for_update(state: &AppState) -> Result<(), String> {
+    if state.settings_dirty.load(Ordering::SeqCst) {
+        return Err(
+            "저장하지 않은 설정이 있어요. 저장하거나 변경을 취소한 뒤 업데이트를 설치해 주세요."
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 pub(crate) fn restore_update_install(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<Arc<AppState>>();
     {
@@ -470,6 +571,135 @@ pub(crate) fn restore_update_install(app: &tauri::AppHandle) -> Result<(), Strin
 #[cfg(test)]
 mod migration_tests {
     use super::*;
+
+    fn copy_database_with_wal(destination: &Path, name: &str) {
+        let source = tempfile::tempdir().unwrap();
+        let database = source.path().join("source.sqlite");
+        let connection = rusqlite::Connection::open(&database).unwrap();
+        connection.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE records(value TEXT); INSERT INTO records VALUES('legacy-main'); PRAGMA wal_checkpoint(TRUNCATE); INSERT INTO records VALUES('legacy-wal');").unwrap();
+        for suffix in ["", "-wal", "-shm"] {
+            fs::copy(
+                source.path().join(format!("source.sqlite{suffix}")),
+                destination.join(format!("{name}{suffix}")),
+            )
+            .unwrap();
+        }
+    }
+
+    fn records(path: &Path) -> Vec<String> {
+        let connection = rusqlite::Connection::open(path).unwrap();
+        let mut query = connection
+            .prepare("SELECT value FROM records ORDER BY rowid")
+            .unwrap();
+        query
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    }
+
+    #[test]
+    fn existing_current_database_never_inherits_legacy_named_or_current_named_sidecars() {
+        for (name, already_merged) in [
+            (crate::legacy_names::database_file(), false),
+            (DATABASE_FILE.to_string(), false),
+            (crate::legacy_names::database_file(), true),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let app_data = root.path().join("space.starlight.comet");
+            let legacy = root.path().join(crate::legacy_names::app_identifier());
+            fs::create_dir_all(&app_data).unwrap();
+            fs::create_dir_all(&legacy).unwrap();
+            let database = app_data.join(DATABASE_FILE);
+            let current = rusqlite::Connection::open(&database).unwrap();
+            current
+                .execute_batch(
+                    "CREATE TABLE records(value TEXT); INSERT INTO records VALUES('current');",
+                )
+                .unwrap();
+            drop(current);
+            let source = if already_merged { &app_data } else { &legacy };
+            copy_database_with_wal(source, &name);
+            fs::write(legacy.join("keep-model.gguf"), b"model").unwrap();
+
+            migrate_app_data(&app_data).unwrap();
+            migrate_app_data(&app_data).unwrap();
+
+            assert!(!app_data.join(format!("{DATABASE_FILE}-wal")).exists());
+            assert!(!app_data.join(format!("{DATABASE_FILE}-shm")).exists());
+            assert_eq!(records(&database), ["current"]);
+            assert_eq!(
+                fs::read(app_data.join("keep-model.gguf")).unwrap(),
+                b"model"
+            );
+            assert!(source.join(format!("{name}-wal")).exists());
+        }
+    }
+
+    #[test]
+    fn orphan_destination_sidecar_does_not_get_paired_with_a_renamed_database() {
+        let root = tempfile::tempdir().unwrap();
+        let app_data = root.path().join("space.starlight.comet");
+        fs::create_dir_all(&app_data).unwrap();
+        let old_database = app_data.join(crate::legacy_names::database_file());
+        fs::write(&old_database, b"legacy database").unwrap();
+        let orphan = app_data.join(format!("{DATABASE_FILE}-wal"));
+        fs::write(&orphan, b"unrelated WAL").unwrap();
+
+        assert_eq!(
+            migrate_app_data(&app_data).unwrap_err().kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(fs::read(old_database).unwrap(), b"legacy database");
+        assert_eq!(fs::read(orphan).unwrap(), b"unrelated WAL");
+        assert!(!app_data.join(DATABASE_FILE).exists());
+    }
+
+    #[test]
+    fn orphan_sidecars_block_legacy_merge_before_a_database_is_imported() {
+        for name in [
+            crate::legacy_names::database_file(),
+            DATABASE_FILE.to_string(),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let app_data = root.path().join("space.starlight.comet");
+            let legacy = root.path().join(crate::legacy_names::app_identifier());
+            fs::create_dir_all(&app_data).unwrap();
+            fs::create_dir_all(&legacy).unwrap();
+            copy_database_with_wal(&legacy, &name);
+            let orphan = app_data.join(format!("{name}-wal"));
+            fs::write(&orphan, b"unrelated WAL").unwrap();
+
+            assert_eq!(
+                migrate_app_data(&app_data).unwrap_err().kind(),
+                io::ErrorKind::AlreadyExists
+            );
+
+            assert_eq!(fs::read(orphan).unwrap(), b"unrelated WAL");
+            assert!(!app_data.join(DATABASE_FILE).exists());
+            assert!(!app_data.join(crate::legacy_names::database_file()).exists());
+            assert!(legacy.join(format!("{name}-wal")).exists());
+            assert_eq!(records(&legacy.join(name)), ["legacy-main", "legacy-wal"]);
+        }
+    }
+
+    #[test]
+    fn renamed_legacy_database_replays_its_own_pending_wal() {
+        let root = tempfile::tempdir().unwrap();
+        let app_data = root.path().join("space.starlight.comet");
+        let legacy = root.path().join(crate::legacy_names::app_identifier());
+        fs::create_dir_all(&legacy).unwrap();
+        copy_database_with_wal(&legacy, &crate::legacy_names::database_file());
+
+        migrate_app_data(&app_data).unwrap();
+
+        assert!(app_data.join(format!("{DATABASE_FILE}-wal")).exists());
+        assert!(app_data.join(format!("{DATABASE_FILE}-shm")).exists());
+        assert_eq!(
+            records(&app_data.join(DATABASE_FILE)),
+            ["legacy-main", "legacy-wal"]
+        );
+    }
 
     #[test]
     fn moves_legacy_directory_and_database_without_losing_entries() {

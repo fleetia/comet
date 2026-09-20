@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, Select } from "@fleetia/lagrange";
+import { Button, FormField, Inline, Select } from "@fleetia/lagrange";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { CharacterCollection, InstalledCharacterPack } from "../../types";
 import * as ui from "../../lagrange.css";
@@ -84,11 +84,9 @@ export function CharacterPackSelector({
   }
 
   return (
-    <section className={s.section} aria-label="캐릭터 팩 선택">
-      <h2 className={s.subheading}>캐릭터 팩 선택</h2>
+    <section className={s.packSelector} aria-label="캐릭터 팩 선택">
       <p className={ui.quiet}>
-        설치한 팩의 친구들로 한 번에 바꿔요. 지금 함께 지내는 친구들은 쉬고, 기록과 친밀도는 그대로
-        남아요.
+        팩을 선택한 뒤 순서를 확인하고 적용해 주세요. 선택만으로 함께 지내는 친구가 바뀌지 않아요.
       </p>
       {error && (
         <p className={ui.error} role="alert">
@@ -116,14 +114,14 @@ export function CharacterPackSelector({
         ))}
       {packs?.length === 0 && (
         <p className={ui.quiet}>
-          설치한 캐릭터 팩이 없어요. 공유 탭에서 파일을 가져오면 여기서 선택할 수 있어요.
+          설치한 캐릭터 팩이 없어요. 캐릭터 목록의 가져오기로 파일을 설치하면 여기서 선택할 수
+          있어요.
         </p>
       )}
       {packs && packs.length > 0 && (
         <>
-          <div className={ui.row}>
-            <label className={ui.field}>
-              설치한 캐릭터 팩
+          <Inline wrap align="end" gap="md" className={s.packControls}>
+            <FormField className={s.packField} label="설치한 캐릭터 팩">
               <Select
                 value={selected?.id ?? ""}
                 disabled={busy}
@@ -140,7 +138,7 @@ export function CharacterPackSelector({
                   </option>
                 ))}
               </Select>
-            </label>
+            </FormField>
             <Button
               variant="primary"
               disabled={busy || !selected || isApplied}
@@ -148,7 +146,7 @@ export function CharacterPackSelector({
             >
               {pending ? "전환 중…" : isApplied ? "함께 지내는 중" : "이 팩으로 함께 지내기"}
             </Button>
-          </div>
+          </Inline>
           {selected && (
             <p className={ui.quiet}>
               함께 지낼 순서:{" "}
@@ -158,6 +156,7 @@ export function CharacterPackSelector({
                     characters.installed.find((character) => character.id === id)?.definition.name,
                 )
                 .join(" → ")}
+              <span className={s.packHint}>기록과 친밀도는 그대로 남아요.</span>
             </p>
           )}
           {hasUnsavedChanges && (

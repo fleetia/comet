@@ -3,225 +3,365 @@ import { listen } from "@tauri-apps/api/event";
 import {
   Button,
   Checkbox,
+  Dialog,
   FormField,
-  Rule,
+  Inline,
+  SaveStatus,
+  StatusMarker,
+  Text,
+  VisuallyHidden,
   Tab,
   TabList,
   TabPanel,
   Tabs,
   TextField,
 } from "@fleetia/lagrange";
+import { version } from "../../../package.json";
+import cometIcon from "../../../src-tauri/icons/source.svg";
 import type { Snapshot } from "../../types";
-import { errorText, isDesktop } from "../../hooks/useSnapshot";
+import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { DesktopPreferences } from "../DesktopPreferences/DesktopPreferences";
 import { UpdatePanel } from "../UpdatePanel/UpdatePanel";
-import { useSettingsDraft } from "../../hooks/useSettingsDraft";
+import { useSettingsDraft, type SettingsDraft } from "../../hooks/useSettingsDraft";
 import { MemorySettings } from "../MemorySettings/MemorySettings";
 import { ModelSettings } from "../ModelSettings/ModelSettings";
 import { TalkPackPanel } from "../TalkPackPanel/TalkPackPanel";
 import { WordbookPanel } from "../WordbookPanel/WordbookPanel";
+import { CharacterManager } from "../CharacterManager/CharacterManager";
+import { WidgetManager } from "../../widgets/WidgetManager/WidgetManager";
 import { WindowHeader } from "../WindowHeader/WindowHeader";
+import { SETTINGS_SECTIONS, useSettingsNavigation } from "./useSettingsNavigation";
 import * as s from "../../lagrange.css";
 import * as d from "../../desktop.css";
+import * as styles from "./settings.css";
 
-type Props = { snapshot: Snapshot; preview?: boolean };
-export function SettingsPanel({ snapshot, preview = false }: Props): JSX.Element {
-  const [navigationError, setNavigationError] = useState<string | null>(null);
-  const [section, setSection] = useState(
-    new URLSearchParams(window.location.search).get("section") === "updates"
-      ? "updates"
-      : "general",
+type Props = { snapshot: Snapshot; preview?: boolean; initialSection?: string };
+function DraftActions({
+  draft,
+  label,
+  valid = true,
+}: {
+  draft: SettingsDraft;
+  label: string;
+  valid?: boolean;
+}): JSX.Element {
+  return (
+    <footer className={styles.saveBar}>
+      <SaveStatus
+        state={
+          draft.pending === "save_settings"
+            ? "saving"
+            : draft.error
+              ? "error"
+              : draft.notice
+                ? "saved"
+                : "idle"
+        }
+        message={
+          draft.error ??
+          draft.notice ??
+          (draft.hasChanges ? "저장하지 않은 변경이 있어요." : "저장된 설정이에요.")
+        }
+        action={
+          <Inline gap="sm">
+            <Button
+              variant="quiet"
+              disabled={!!draft.pending || !draft.hasChanges}
+              onClick={draft.reset}
+            >
+              변경 취소
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!!draft.pending || !draft.hasChanges || !valid}
+              onClick={() => void draft.run("save_settings")}
+            >
+              {label} 저장
+            </Button>
+          </Inline>
+        }
+      />
+      {!valid && (
+        <p className={s.error} role="alert">
+          이야기 간격을 1~60분으로 입력해 주세요.
+        </p>
+      )}
+    </footer>
   );
+}
+export function SettingsPanel({ snapshot, preview = false, initialSection }: Props): JSX.Element {
+  const { section, visited, navigate, navigationError } = useSettingsNavigation(initialSection);
+  const automatic = useSettingsDraft(snapshot.settings, "automatic");
+  const model = useSettingsDraft(snapshot.settings, "model");
+  const [widgetsDirty, setWidgetsDirty] = useState(false);
+  const [charactersDirty, setCharactersDirty] = useState(false);
+  const [wordbookDirty, setWordbookDirty] = useState(false);
+  const [memoryDirty, setMemoryDirty] = useState(false);
+  const [generalDirty, setGeneralDirty] = useState(false);
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [confirmExit, setConfirmExit] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const dirty = {
+    characters: charactersDirty,
+    widgets: widgetsDirty,
+    automatic: automatic.hasChanges,
+    wordbook: wordbookDirty,
+    talk: false,
+    memory: memoryDirty,
+    model: model.hasChanges,
+    general: generalDirty,
+  };
+  const hasChanges = Object.values(dirty).some(Boolean);
+  useEffect(() => {
+    if (isDesktop())
+      void command("set_settings_dirty", { dirty: hasChanges }).catch((cause: unknown) =>
+        setActionError(errorText(cause)),
+      );
+  }, [hasChanges]);
   useEffect(() => {
     if (!isDesktop()) return;
     let disposed = false;
-    let cleanup: (() => void) | undefined;
-    void listen("open-updates", () => setSection("updates"))
-      .then((unlisten) => {
-        if (disposed) unlisten();
-        else cleanup = unlisten;
+    let unlisten: (() => void) | undefined;
+    void listen("confirm-settings-exit", () => setConfirmExit(true))
+      .then((cleanup) => {
+        if (disposed) cleanup();
+        else unlisten = cleanup;
       })
-      .catch((cause: unknown) => {
-        if (!disposed) setNavigationError(errorText(cause));
-      });
+      .catch((cause: unknown) => setActionError(errorText(cause)));
     return () => {
       disposed = true;
-      cleanup?.();
+      unlisten?.();
     };
   }, []);
-  const draft = useSettingsDraft(snapshot.settings);
-  const { settings, pending, error, notice, hasChanges, validInterval, change, run, reset } = draft;
-  const isSettingsSection = section === "general" || section === "model";
+  async function act(name: string, args?: Record<string, unknown>): Promise<void> {
+    setActionError(null);
+    try {
+      await command(name, args);
+    } catch (cause) {
+      setActionError(errorText(cause));
+    }
+  }
+  const current = SETTINGS_SECTIONS.find((item) => item.id === section)!;
   const Container = preview ? "section" : "main";
   return (
-    <Container className={`${s.settings} ${preview ? s.previewSettings : ""}`}>
-      <WindowHeader className={d.pageHeader} label="설정 닫기" preview={preview}>
-        <div>
-          <p className={s.eyebrow}>comet</p>
-          <h1 className={s.settingsTitle}>설정</h1>
-          <p className={s.quiet}>함께 지내는 방식과 나만의 대사를 정해요.</p>
+    <Container className={`${styles.window} ${preview ? styles.preview : ""}`}>
+      <WindowHeader className={styles.header} label="설정 닫기" preview={preview}>
+        <div className={styles.title}>
+          <img src={cometIcon} alt="" width={16} height={16} draggable={false} />
+          <Text as="span" weight="strong" tone="accent">
+            comet
+          </Text>
+          <Text as="span" variant="caption" tone="muted">
+            설정
+          </Text>
         </div>
       </WindowHeader>
-      {navigationError && (
-        <p className={s.error} role="alert">{navigationError}</p>
-      )}
-      <Tabs value={section} onValueChange={setSection} className={d.tabs}>
-        <TabList aria-label="설정 항목" className={d.tabList}>
-          <Tab value="general">기본 동작</Tab>
-          <Tab value="model">대화 모델</Tab>
-          <Tab value="wordbook">개인 단어장</Tab>
-          <Tab value="talk">대화팩</Tab>
-          <Tab value="memory">기억</Tab>
-          <Tab value="updates">업데이트</Tab>
-        </TabList>
-        <TabPanel value="general" className={d.tabPanel}>
-          <p className={d.info}>
-            모델을 설치하지 않아도 인사와 자동 잡담, 등록한 대사를 사용할 수 있어요.
-          </p>
-          <fieldset className={d.fieldset} disabled={!!pending}>
-            <legend className={s.sectionTitle}>먼저 이야기하기</legend>
-            <Checkbox
-              className={s.row}
-              checked={settings.autonomousEnabled}
-              onChange={(event) => change("autonomousEnabled", event.target.checked)}
-            >
-              바탕화면에서 먼저 이야기하기
-            </Checkbox>
-            <p className={s.quiet}>
-              끄면 먼저 시작하는 대화를 멈춰요. 직접 말을 거는 것은 그대로 사용할 수 있어요.
-            </p>
-            <div className={d.subsettings}>
-              <FormField
-                className={s.field}
-                label="이야기 간격"
-                description="1~60분. 실제 간격은 조금씩 달라져요."
-              >
-                <TextField
-                  className={d.shortInput}
-                  type="number"
-                  min={1}
-                  max={60}
-                  value={settings.idleMinutes}
-                  onChange={(event) => change("idleMinutes", Number(event.target.value))}
-                />
-              </FormField>
-              <Checkbox
-                className={s.row}
-                disabled={!settings.autonomousEnabled}
-                checked={settings.localIdleEnabled}
-                onChange={(event) => change("localIdleEnabled", event.target.checked)}
-              >
-                로컬 모델로 새 잡담 만들기
-              </Checkbox>
-              <Checkbox
-                className={s.row}
-                disabled={!settings.autonomousEnabled}
-                checked={settings.apiIdleEnabled}
-                onChange={(event) => change("apiIdleEnabled", event.target.checked)}
-              >
-                API로 새 잡담 만들기
-              </Checkbox>
-              <p className={s.quiet}>
-                선택한 대화 방식이 준비되면 사용해요. API 잡담은 기본으로 꺼져 있으며, 켜면 자동
-                요청과 비용이 발생할 수 있어요.
-              </p>
-            </div>
-          </fieldset>
-          {snapshot.runtime.paused && (
-            <div className={s.section}>
-              <p className={s.quiet}>
-                지금은 자동 잡담을 잠시 쉬고 있어요. 저장한 설정과 별도로 일시정지된 상태예요.
-              </p>
-              <Button
-                variant="secondary"
-                disabled={!!pending}
-                onClick={() => void run("set_paused", { paused: false })}
-              >
-                자동 잡담 다시 시작
-              </Button>
-            </div>
-          )}
-          <details className={d.disclosure}>
-            <summary className={d.disclosureSummary}>표시와 종료</summary>
-            <p className={s.quiet}>
-              캐릭터를 숨겨도 위젯을 사용할 수 있어요. 메뉴 막대나 알림 영역에서 각각 다시 열 수 있어요.
-            </p>
-            <div className={s.row}>
-              <Button
-                variant="secondary"
-                disabled={!!pending}
-                onClick={() => void run("hide_boxes")}
-              >
-                상자 숨기기
-              </Button>
-              <Button variant="quiet" disabled={!!pending} onClick={() => void run("quit_app")}>
-                앱 종료
-              </Button>
-            </div>
-          </details>
-          <DesktopPreferences hidden={snapshot.runtime.hidden} />
-        </TabPanel>
-        <TabPanel value="updates" className={d.tabPanel}>
-          <UpdatePanel />
-        </TabPanel>
-        <TabPanel value="model" className={d.tabPanel}>
-          <ModelSettings snapshot={snapshot} draft={draft} />
-        </TabPanel>
-        <TabPanel value="wordbook" className={d.tabPanel}>
-          <WordbookPanel
-            entries={snapshot.wordbook}
-            title="개인 단어장"
-            description="캐릭터를 바꿔도 A/B 자리에 적용되는 나만의 대사예요. 키워드가 포함되면 모델 없이 그대로 재생해요."
-          />
-        </TabPanel>
-        <TabPanel value="talk" className={d.tabPanel}>
-          <TalkPackPanel />
-        </TabPanel>
-        <TabPanel value="memory" className={d.tabPanel}>
-          <MemorySettings memories={snapshot.memories} />
-        </TabPanel>
-      </Tabs>
-      {isSettingsSection ? (
-        <footer className={d.saveBar}>
-          <Rule variant="structural" />
-          <div className={d.saveActions}>
-            <Button
-              variant="primary"
-              disabled={!!pending || !hasChanges || !validInterval}
-              onClick={() => void run("save_settings")}
-            >
-              {pending === "save_settings" ? "저장 중…" : "설정 저장"}
-            </Button>
-            {hasChanges && (
-              <Button variant="quiet" disabled={!!pending} onClick={reset}>
-                변경 취소
-              </Button>
-            )}
-            <span className={d.saveStatus} role="status">
-              {hasChanges ? "기본 동작·대화 모델의 변경을 함께 저장해요." : "저장된 설정이에요."}
+      <Tabs
+        value={section}
+        onValueChange={navigate}
+        orientation="vertical"
+        className={styles.layout}
+      >
+        <aside className={styles.sidebar}>
+          <TabList aria-label="설정 항목" className={styles.navigation}>
+            {SETTINGS_SECTIONS.map((item, index) => (
+              <div key={item.id}>
+                {(index === 0 || SETTINGS_SECTIONS[index - 1]?.group !== item.group) && (
+                  <p className={styles.groupLabel}>{item.group}</p>
+                )}
+                <Tab value={item.id} className={styles.navigationItem}>
+                  {item.label}
+                  {dirty[item.id] && (
+                    <StatusMarker shape="square" tone="accent">
+                      <VisuallyHidden>저장하지 않은 변경</VisuallyHidden>
+                    </StatusMarker>
+                  )}
+                </Tab>
+              </div>
+            ))}
+          </TabList>
+          <Text variant="caption" tone="muted" className={styles.sidebarNote}>
+            comet · {version}
+          </Text>
+        </aside>
+        <div className={styles.workspace}>
+          <div className={styles.pageHeading}>
+            <h1>{current.label}</h1>
+            <span className={s.quiet}>
+              {dirty[section]
+                ? "미저장 변경 있음"
+                : section === "widgets"
+                  ? "설정은 여기서 · 작업은 별도 창에서"
+                  : ""}
             </span>
           </div>
-          {!validInterval && (
+          {(navigationError || actionError) && (
             <p className={s.error} role="alert">
-              기본 동작에서 이야기 간격을 1~60분으로 입력해 주세요.
+              {navigationError || actionError}
             </p>
           )}
-          {error && (
-            <p className={s.error} role="alert">
-              {error}
+          {updateBusy && (
+            <p className={s.quiet} role="status">
+              업데이트를 준비하는 동안 편집을 잠시 멈춰요.
             </p>
           )}
-          {notice && (
-            <p className={s.success} role="status">
-              {notice}
-            </p>
+          <fieldset className={styles.scrollArea} disabled={updateBusy} aria-label="설정 내용">
+            <TabPanel value="characters" className={styles.panel}>
+              {visited.has("characters") && (
+                <CharacterManager snapshot={snapshot} embedded onDirtyChange={setCharactersDirty} />
+              )}
+            </TabPanel>
+            <TabPanel value="widgets" className={styles.panel}>
+              {visited.has("widgets") && (
+                <WidgetManager
+                  embedded
+                  active={section === "widgets"}
+                  onDirtyChange={setWidgetsDirty}
+                />
+              )}
+            </TabPanel>
+            <TabPanel value="automatic" className={styles.panel}>
+              <fieldset className={d.fieldset} disabled={!!automatic.pending}>
+                <legend className={s.sectionTitle}>먼저 이야기하기</legend>
+                <Checkbox
+                  className={s.row}
+                  checked={automatic.settings.autonomousEnabled}
+                  onChange={(event) => automatic.change("autonomousEnabled", event.target.checked)}
+                >
+                  바탕화면에서 먼저 이야기하기
+                </Checkbox>
+                <p className={s.quiet}>
+                  끄면 자동 대화를 멈춰요. 직접 말을 걸거나 단어장 대사를 재생할 수 있어요.
+                </p>
+                <FormField
+                  className={s.field}
+                  label="이야기 간격 (분)"
+                  description="1~60분. 실제 간격은 조금씩 달라져요."
+                >
+                  <TextField
+                    className={d.shortInput}
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={automatic.settings.idleMinutes}
+                    onChange={(event) =>
+                      automatic.change("idleMinutes", Number(event.target.value))
+                    }
+                  />
+                </FormField>
+                <h2 className={s.sectionTitle}>새 잡담 생성</h2>
+                <Checkbox
+                  className={s.row}
+                  disabled={!automatic.settings.autonomousEnabled}
+                  checked={automatic.settings.localIdleEnabled}
+                  onChange={(event) => automatic.change("localIdleEnabled", event.target.checked)}
+                >
+                  로컬 모델로 새 잡담 만들기
+                </Checkbox>
+                <Checkbox
+                  className={s.row}
+                  disabled={!automatic.settings.autonomousEnabled}
+                  checked={automatic.settings.apiIdleEnabled}
+                  onChange={(event) => automatic.change("apiIdleEnabled", event.target.checked)}
+                >
+                  API로 새 잡담 만들기
+                </Checkbox>
+                <p className={s.quiet}>
+                  AI 연결에서 저장한 방식이 준비되면 사용해요. API 잡담은 자동 요청과 제공자 비용이
+                  발생할 수 있어요.
+                </p>
+                {snapshot.runtime.paused && (
+                  <div className={s.row}>
+                    <span>자동 잡담 일시정지 중</span>
+                    <Button
+                      variant="secondary"
+                      onClick={() => void automatic.run("set_paused", { paused: false })}
+                    >
+                      자동 잡담 다시 시작
+                    </Button>
+                  </div>
+                )}
+              </fieldset>
+            </TabPanel>
+            <TabPanel value="model" className={styles.panel}>
+              {visited.has("model") && <ModelSettings snapshot={snapshot} draft={model} />}
+            </TabPanel>
+            <TabPanel value="wordbook" className={styles.panel}>
+              {visited.has("wordbook") && (
+                <WordbookPanel
+                  entries={snapshot.wordbook}
+                  title="개인 단어장"
+                  description="키워드가 포함되면 등록한 대사를 모델 없이 그대로 재생해요. 캐릭터를 바꿔도 유지돼요."
+                  onDirtyChange={setWordbookDirty}
+                />
+              )}
+            </TabPanel>
+            <TabPanel value="talk" className={styles.panel}>
+              {visited.has("talk") && <TalkPackPanel />}
+            </TabPanel>
+            <TabPanel value="memory" className={styles.panel}>
+              {visited.has("memory") && (
+                <MemorySettings memories={snapshot.memories} onDirtyChange={setMemoryDirty} />
+              )}
+            </TabPanel>
+            <TabPanel value="general" className={styles.panel}>
+              {visited.has("general") && (
+                <>
+                  <section>
+                    <h2 className={s.sectionTitle}>표시와 종료</h2>
+                    <div className={s.row}>
+                      <Button
+                        variant="secondary"
+                        onClick={() =>
+                          void act(snapshot.runtime.hidden ? "show_characters" : "hide_boxes")
+                        }
+                      >
+                        {snapshot.runtime.hidden ? "캐릭터 표시" : "캐릭터 숨기기"}
+                      </Button>
+                      <Button
+                        variant="quiet"
+                        onClick={() => (hasChanges ? setConfirmExit(true) : void act("quit_app"))}
+                      >
+                        앱 종료
+                      </Button>
+                      <span className={s.quiet}>
+                        창을 닫으면 작성 중인 내용을 유지한 채 숨겨요.
+                      </span>
+                    </div>
+                  </section>
+                  <DesktopPreferences
+                    hidden={snapshot.runtime.hidden}
+                    onDirtyChange={setGeneralDirty}
+                  />
+                  <UpdatePanel onBusyChange={setUpdateBusy} hasUnsavedChanges={hasChanges} />
+                </>
+              )}
+            </TabPanel>
+          </fieldset>
+          {section === "automatic" && (
+            <DraftActions draft={automatic} label="자동 대화" valid={automatic.validInterval} />
           )}
-        </footer>
-      ) : hasChanges ? (
-        <p className={s.quiet}>
-          기본 동작·대화 모델에 저장하지 않은 변경이 있어요. 해당 탭에서 저장할 수 있어요.
-        </p>
-      ) : null}
+          {section === "model" && <DraftActions draft={model} label="AI 연결" />}
+        </div>
+      </Tabs>
+      <Dialog
+        isOpen={confirmExit}
+        onOpenChange={setConfirmExit}
+        title="저장하지 않고 종료할까요?"
+        size="small"
+        footer={
+          <Inline gap="sm">
+            <Button variant="secondary" onClick={() => setConfirmExit(false)}>
+              계속 편집
+            </Button>
+            <Button variant="primary" onClick={() => void act("quit_app", { force: true })}>
+              변경을 버리고 종료
+            </Button>
+          </Inline>
+        }
+      >
+        <p>저장하지 않은 설정과 편집 내용을 버리고 comet을 종료해요.</p>
+      </Dialog>
     </Container>
   );
 }

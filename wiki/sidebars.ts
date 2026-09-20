@@ -10,6 +10,7 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: [
         "product/desktop",
+        "product/settings",
         "product/characters",
         "product/character-gallery",
         "product/conversation",

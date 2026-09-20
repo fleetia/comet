@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Button, Checkbox } from "@fleetia/lagrange";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
@@ -12,12 +12,36 @@ const toys = [
   { id: "pet", name: "펫" },
 ];
 
-export function DesktopPreferences({ hidden }: { hidden: boolean }): JSX.Element {
+export function DesktopPreferences({
+  hidden,
+  onDirtyChange,
+}: {
+  hidden: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
+}): JSX.Element {
   const [preferences, setPreferences] = useState<Preferences>({
     charactersVisible: !hidden,
     pranksEnabled: false,
     allowedToys: toys.map((toy) => toy.id),
   });
+  const [loaded, setLoaded] = useState(!isDesktop());
+  const [dirty, setDirty] = useState(false);
+  const dirtyFields = useRef(new Set<"pranksEnabled" | "allowedToys">());
+  const saved = useRef(preferences);
+  function edit(next: Preferences): void {
+    if (!loaded || pending) return;
+    setPreferences(next);
+    for (const key of ["pranksEnabled", "allowedToys"] as const) {
+      if (JSON.stringify(next[key]) === JSON.stringify(saved.current[key]))
+        dirtyFields.current.delete(key);
+      else dirtyFields.current.add(key);
+    }
+    setDirty(dirtyFields.current.size > 0);
+    setNotice(null);
+  }
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -28,7 +52,14 @@ export function DesktopPreferences({ hidden }: { hidden: boolean }): JSX.Element
     let unlisten: (() => void) | undefined;
     void listen<Preferences>("desktop-preferences", (event) => {
       received = true;
-      if (active) setPreferences(event.payload);
+      if (active) {
+        setLoaded(true);
+        saved.current = event.payload;
+        setPreferences((previous) => ({
+          ...event.payload,
+          ...Object.fromEntries([...dirtyFields.current].map((key) => [key, previous[key]])),
+        }));
+      }
     })
       .then(async (cleanup) => {
         if (!active) {
@@ -37,7 +68,14 @@ export function DesktopPreferences({ hidden }: { hidden: boolean }): JSX.Element
         }
         unlisten = cleanup;
         const value = await command<Preferences>("get_desktop_preferences");
-        if (active && !received) setPreferences(value);
+        if (active && !received) {
+          setLoaded(true);
+          saved.current = value;
+          setPreferences((previous) => ({
+            ...value,
+            ...Object.fromEntries([...dirtyFields.current].map((key) => [key, previous[key]])),
+          }));
+        }
       })
       .catch((cause: unknown) => {
         if (active) setError(errorText(cause));
@@ -46,8 +84,9 @@ export function DesktopPreferences({ hidden }: { hidden: boolean }): JSX.Element
       active = false;
       unlisten?.();
     };
-  }, [hidden]);
+  }, []);
   async function save(): Promise<void> {
+    if (!loaded || pending) return;
     setPending(true);
     setError(null);
     setNotice(null);
@@ -55,6 +94,9 @@ export function DesktopPreferences({ hidden }: { hidden: boolean }): JSX.Element
       await command("set_desktop_preferences", {
         preferences: { ...preferences, charactersVisible: !hidden },
       });
+      saved.current = preferences;
+      dirtyFields.current.clear();
+      setDirty(false);
       setNotice("장난 설정을 저장했어요.");
     } catch (cause) {
       setError(errorText(cause));
@@ -71,10 +113,8 @@ export function DesktopPreferences({ hidden }: { hidden: boolean }): JSX.Element
       </p>
       <Checkbox
         checked={preferences.pranksEnabled}
-        disabled={pending}
-        onChange={(event) =>
-          setPreferences((value) => ({ ...value, pranksEnabled: event.target.checked }))
-        }
+        disabled={pending || !loaded}
+        onChange={(event) => edit({ ...preferences, pranksEnabled: event.target.checked })}
       >
         장난 모드
       </Checkbox>
@@ -83,14 +123,14 @@ export function DesktopPreferences({ hidden }: { hidden: boolean }): JSX.Element
           <Checkbox
             key={toy.id}
             checked={preferences.allowedToys.includes(toy.id)}
-            disabled={pending}
+            disabled={pending || !loaded}
             onChange={(event) =>
-              setPreferences((value) => ({
-                ...value,
+              edit({
+                ...preferences,
                 allowedToys: event.target.checked
-                  ? [...value.allowedToys, toy.id]
-                  : value.allowedToys.filter((id) => id !== toy.id),
-              }))
+                  ? [...preferences.allowedToys, toy.id]
+                  : preferences.allowedToys.filter((id) => id !== toy.id),
+              })
             }
           >
             {toy.name}
@@ -98,12 +138,23 @@ export function DesktopPreferences({ hidden }: { hidden: boolean }): JSX.Element
         ))}
       </div>
       <div className={s.row}>
-        <Button variant="secondary" disabled={pending} onClick={() => void save()}>
+        <Button
+          variant="secondary"
+          disabled={pending || !loaded || !dirty}
+          onClick={() => void save()}
+        >
           장난 설정 저장
         </Button>
         <Button
           variant="quiet"
-          disabled={pending}
+          disabled={pending || !loaded || !dirty}
+          onClick={() => edit(saved.current)}
+        >
+          변경 취소
+        </Button>
+        <Button
+          variant="quiet"
+          disabled={pending || !loaded}
           onClick={() => {
             void command("clear_desktop_toys").catch((cause: unknown) =>
               setError(errorText(cause)),

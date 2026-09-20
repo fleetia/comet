@@ -14,15 +14,27 @@ import {
 } from "../widgetAppearance";
 import * as s from "./widgetAppearance.css";
 
-export function WidgetAppearance({ widget }: { widget: WidgetView }): ReactElement {
-  const [draft, setDraft] = useState<WidgetAppearance>(() => getWidgetAppearance(widget.data));
+export function WidgetAppearance({
+  widget,
+  onDirtyChange,
+}: {
+  widget: WidgetView;
+  onDirtyChange?: (dirty: boolean) => void;
+}): ReactElement {
+  const [edited, setEdited] = useState<WidgetAppearance | null>(null);
+  const baseline = getWidgetAppearance(widget.data);
+  const draft = edited ?? baseline;
+  const dirty = JSON.stringify(draft) !== JSON.stringify(baseline);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null),
     [saved, setSaved] = useState(false);
   useEffect(() => {
-    setDraft(getWidgetAppearance(widget.data));
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+  function change(value: Partial<WidgetAppearance>): void {
+    setEdited({ ...draft, ...value });
     setSaved(false);
-  }, [widget.data, widget.revision]);
+  }
   const imageUrl = widgetBackgroundUrl(widget);
 
   async function save(): Promise<void> {
@@ -42,6 +54,7 @@ export function WidgetAppearance({ widget }: { widget: WidgetView }): ReactEleme
         expectedRevision: widget.revision,
         input: appearanceInput(draft),
       });
+      setEdited(null);
       setSaved(true);
     } catch (cause: unknown) {
       setError(errorText(cause));
@@ -73,7 +86,7 @@ export function WidgetAppearance({ widget }: { widget: WidgetView }): ReactEleme
   }
 
   function setPlacement(key: "backgroundPosition" | "textPosition", value: Placement): void {
-    setDraft((current) => ({ ...current, [key]: value }));
+    change({ [key]: value });
     setSaved(false);
   }
 
@@ -109,16 +122,14 @@ export function WidgetAppearance({ widget }: { widget: WidgetView }): ReactEleme
           <ColorField
             value={draft.backgroundColor}
             disabled={busy}
-            onValueChange={(value) =>
-              setDraft((current) => ({ ...current, backgroundColor: value }))
-            }
+            onValueChange={(value) => change({ backgroundColor: value })}
           />
         </FormField>
         <FormField label="글자 색상">
           <ColorField
             value={draft.textColor}
             disabled={busy}
-            onValueChange={(value) => setDraft((current) => ({ ...current, textColor: value }))}
+            onValueChange={(value) => change({ textColor: value })}
           />
         </FormField>
       </div>
@@ -155,9 +166,21 @@ export function WidgetAppearance({ widget }: { widget: WidgetView }): ReactEleme
             이미지 제거
           </Button>
         )}
-        <Button variant="primary" disabled={busy} onClick={() => void save()}>
+        <Button variant="primary" disabled={busy || !dirty} onClick={() => void save()}>
           표시 설정 저장
         </Button>
+        {dirty && (
+          <Button
+            variant="quiet"
+            disabled={busy}
+            onClick={() => {
+              setEdited(null);
+              setSaved(false);
+            }}
+          >
+            표시 변경 취소
+          </Button>
+        )}
       </div>
       {error && (
         <p className={s.error} role="alert">

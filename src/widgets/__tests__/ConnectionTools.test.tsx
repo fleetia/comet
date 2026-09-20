@@ -50,8 +50,108 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
+it("requests Apple access only from the explicit button and connects only selected calendars", async () => {
+  vi.mocked(command)
+    .mockResolvedValueOnce("prompt")
+    .mockResolvedValueOnce({
+      supported: true,
+      authorization: "full-access",
+      calendars: [
+        { id: "apple-personal", name: "개인", sourceName: "iCloud" },
+        { id: "mac-google", name: "Google 일정", sourceName: "Google" },
+      ],
+    });
+  render(
+    <CalendarTool
+      mode="settings"
+      widget={widget("calendar", { connections: [], events: [] })}
+      act={act}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText("연결 방식"), { target: { value: "apple" } });
+  expect(command).not.toHaveBeenCalledWith("list_apple_calendars", expect.anything());
+  expect(screen.getByText(/macOS는 조회에도 전체 접근 권한/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "macOS 권한 확인하고 캘린더 목록 읽기" }));
+  await screen.findByLabelText("개인 · iCloud");
+  expect(command).toHaveBeenCalledWith("list_apple_calendars", {
+    id: "calendar",
+    requestAccess: true,
+  });
+  expect(screen.getByLabelText("개인 · iCloud")).toHaveProperty("checked", false);
+  expect(screen.getByLabelText("Google 일정 · Google")).toHaveProperty("checked", false);
+  fireEvent.change(screen.getByLabelText(/^연결 이름/), { target: { value: "Mac 일정" } });
+  fireEvent.click(screen.getByLabelText("개인 · iCloud"));
+  fireEvent.click(screen.getByRole("button", { name: "선택한 Apple 캘린더 연결" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("connect_calendar_apple", {
+      id: "calendar",
+      input: { name: "Mac 일정", calendarIds: ["apple-personal"] },
+    }),
+  );
+});
+it("keeps an Apple permission denial recoverable without connecting or clearing cached schedules", async () => {
+  vi.mocked(command).mockResolvedValue({ supported: true, authorization: "denied", calendars: [] });
+  render(
+    <CalendarTool
+      mode="settings"
+      widget={widget("calendar", {
+        connections: [
+          {
+            id: "saved",
+            name: "기존 연결",
+            provider: "apple",
+            status: "auth-error",
+            selectedCalendarIds: ["a"],
+            lastSuccessAt: Date.now(),
+          },
+        ],
+        events: [],
+      })}
+      act={act}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "다시 연결·캘린더 선택" }));
+  fireEvent.click(screen.getByRole("button", { name: "macOS 권한 확인하고 캘린더 목록 읽기" }));
+  await screen.findByText(/캘린더 읽기 권한이 없습니다/);
+  expect(screen.getByRole("button", { name: "선택한 Apple 캘린더 연결" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  expect(screen.getByText("기존 연결")).toBeTruthy();
+  expect(command).not.toHaveBeenCalledWith("connect_calendar_apple", expect.anything());
+  expect(command).not.toHaveBeenCalledWith("disconnect_calendar", expect.anything());
+});
+it("reconnects under the same connection id while keeping the submitted draft on failure", async () => {
+  vi.mocked(command).mockRejectedValue("연결할 수 없습니다.");
+  render(
+    <CalendarTool
+      mode="settings"
+      widget={widget("calendar", {
+        connections: [{ id: "original-id", name: "기존 구독", provider: "ics", status: "offline" }],
+        events: [],
+      })}
+      act={act}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "다시 연결·캘린더 선택" }));
+  fireEvent.change(screen.getByLabelText(/^ICS \/ webcal 구독 주소/), {
+    target: { value: "https://example.com/calendar.ics" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "구독 주소 연결" }));
+  await screen.findAllByText("연결할 수 없습니다.");
+  expect(command).toHaveBeenCalledWith("connect_calendar_ics", {
+    id: "calendar",
+    connectionId: "original-id",
+    input: { name: "기존 구독", url: "https://example.com/calendar.ics" },
+  });
+  expect(screen.getByLabelText(/^ICS \/ webcal 구독 주소/)).toHaveProperty(
+    "value",
+    "https://example.com/calendar.ics",
+  );
+  expect(command).not.toHaveBeenCalledWith("disconnect_calendar", expect.anything());
+});
 it("does not query private sources before opting in to the selected music provider", async () => {
-  render(<ConnectionTool widget={widget("music", EMPTY)} />);
+  render(<ConnectionTool mode="settings" widget={widget("music", EMPTY)} />);
   expect(command).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText("음악 앱"), { target: { value: "spotify" } });
   fireEvent.click(screen.getByRole("button", { name: "곡 정보 조회 허용하고 연결" }));
@@ -73,7 +173,7 @@ it("configures weather only from an explicit selected search result", async () =
       admin1: "서울특별시",
     },
   ]);
-  render(<ConnectionTool widget={widget("weather", EMPTY)} />);
+  render(<ConnectionTool mode="settings" widget={widget("weather", EMPTY)} />);
   expect(command).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText(/^지역 이름\s*\*?$/), { target: { value: "서울" } });
   fireEvent.click(screen.getByRole("button", { name: "지역 검색" }));
@@ -121,8 +221,14 @@ it("preserves the last observation as stale on failure and distinguishes no batt
   expect(screen.queryByText(/0%/)).toBeNull();
 });
 it("clears the private ICS URL only after successful connection", async () => {
-  render(<CalendarTool act={act} widget={widget("calendar", { connections: [], events: [] })} />);
-  expect(command).not.toHaveBeenCalled();
+  render(
+    <CalendarTool
+      mode="settings"
+      act={act}
+      widget={widget("calendar", { connections: [], events: [] })}
+    />,
+  );
+  expect(command).not.toHaveBeenCalledWith("connect_calendar_ics", expect.anything());
   fireEvent.change(screen.getByLabelText(/^연결 이름\s*\*?$/), { target: { value: "개인" } });
   fireEvent.change(screen.getByLabelText(/^ICS \/ webcal 구독 주소\s*\*?$/), {
     target: { value: "https://example.com/private-token.ics" },
@@ -168,7 +274,7 @@ it("shows an upcoming event once in the agenda and keeps it available in the fre
 it("opens only stored meeting links and confirms disconnect while preserving preparation", async () => {
   const start = new Date("2026-09-15T10:00").getTime(),
     end = new Date("2026-09-15T11:00").getTime();
-  render(
+  const view = render(
     <CalendarTool
       act={act}
       widget={widget("calendar", {
@@ -196,6 +302,19 @@ it("opens only stored meeting links and confirms disconnect while preserving pre
       id: "calendar",
       url: "https://meet.example.com/one",
     }),
+  );
+  expect(screen.queryByRole("button", { name: "연결 해제" })).toBeNull();
+  view.rerender(
+    <CalendarTool
+      mode="settings"
+      act={act}
+      widget={widget("calendar", {
+        connections: [
+          { id: "conn", name: "개인", provider: "ics", status: "ready", lastSuccessAt: Date.now() },
+        ],
+        events: [],
+      })}
+    />,
   );
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "연결 해제" })).toHaveProperty("disabled", false),
@@ -246,9 +365,15 @@ it("merges overlapping connected calendar intervals and excludes cancelled event
 });
 
 it("saves reminder opt-in only on explicit form submission", async () => {
-  render(<CalendarTool act={act} widget={widget("calendar", { connections: [], events: [] })} />);
-  expect(screen.getByLabelText("일정 알림 켜기")).toHaveProperty("checked", false);
-  fireEvent.click(screen.getByLabelText("일정 알림 켜기"));
+  render(
+    <CalendarTool
+      mode="settings"
+      act={act}
+      widget={widget("calendar", { connections: [], events: [] })}
+    />,
+  );
+  expect(screen.getByLabelText("일정·할 일 기한 알림 켜기")).toHaveProperty("checked", false);
+  fireEvent.click(screen.getByLabelText("일정·할 일 기한 알림 켜기"));
   expect(act).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "알림 설정 저장" }));
   await waitFor(() =>
@@ -258,6 +383,14 @@ it("saves reminder opt-in only on explicit form submission", async () => {
       includeAllDay: false,
       quietStart: "22:00",
       quietEnd: "08:00",
+      characterEnabled: true,
+      osEnabled: false,
+      moodDayStart: false,
+      moodFocusStart: false,
+      moodBreak: false,
+      moodDayEnd: false,
+      dayStart: "09:00",
+      dayEnd: "21:00",
     }),
   );
 });
