@@ -220,7 +220,28 @@ fn recurrent(
                 {
                     return Err(invalid("종일 일정에 시각 반복을 적용할 수 없습니다."));
                 }
-                let rule = value
+                let definition = value
+                    .split(';')
+                    .map(|part| {
+                        let Some(until) = part.strip_prefix("UNTIL=") else {
+                            return Ok(part.to_owned());
+                        };
+                        let date_only =
+                            until.len() == 8 && until.bytes().all(|b| b.is_ascii_digit());
+                        if start.all_day != date_only {
+                            return Err(invalid("ICS 반복 종료 날짜의 형식이 원본과 다릅니다."));
+                        }
+                        if !start.all_day {
+                            return Ok(part.to_owned());
+                        }
+                        let day = NaiveDate::parse_from_str(until, "%Y%m%d")
+                            .map_err(|_| invalid("ICS 반복 종료 날짜 오류"))?;
+                        // DATE values use UTC midnight internally; rrule otherwise parses UNTIL as local time.
+                        Ok(format!("UNTIL={}T000000Z", day.format("%Y%m%d")))
+                    })
+                    .collect::<Result<Vec<_>, CalendarError>>()?
+                    .join(";");
+                let rule = definition
                     .parse::<rrule::RRule<rrule::Unvalidated>>()
                     .map_err(|_| invalid("지원하지 않거나 잘못된 ICS 반복 규칙입니다."))?
                     .validate(start.at)
@@ -472,6 +493,61 @@ mod tests {
         assert_eq!(events[0].end_date.as_deref(), Some("2026-09-17"));
         assert!(events[0].start_at.is_none());
         assert_eq!(events[0].title, "가족과 여행");
+    }
+    #[test]
+    fn all_day_until_includes_last_date_and_preserves_exclusions() {
+        let source = cal(concat!(
+            "BEGIN:VEVENT\r\nUID:all-day-until\r\n",
+            "DTSTART;VALUE=DATE:20260915\r\nDTEND;VALUE=DATE:20260917\r\n",
+            "RRULE:FREQ=DAILY;UNTIL=20260918\r\n",
+            "EXDATE;VALUE=DATE:20260916\r\nEND:VEVENT\r\n",
+        ));
+        let events = parse_ics(&source, "c", now()).unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event.start_date.as_deref())
+                .collect::<Vec<_>>(),
+            [Some("2026-09-15"), Some("2026-09-17"), Some("2026-09-18")]
+        );
+        assert_eq!(events[2].end_date.as_deref(), Some("2026-09-20"));
+        assert!(events
+            .iter()
+            .all(|event| event.all_day && event.start_at.is_none()));
+    }
+    #[test]
+    fn monthly_all_day_until_and_timed_utc_until_preserve_boundaries() {
+        let source = cal(concat!(
+            "BEGIN:VEVENT\r\nUID:monthly\r\n",
+            "DTSTART;VALUE=DATE:20260526\r\nDTEND;VALUE=DATE:20260527\r\n",
+            "RRULE:FREQ=MONTHLY;UNTIL=20260926\r\nEND:VEVENT\r\n",
+            "BEGIN:VEVENT\r\nUID:timed\r\n",
+            "DTSTART;TZID=Asia/Seoul:20260915T090000\r\n",
+            "DTEND;TZID=Asia/Seoul:20260915T100000\r\n",
+            "RRULE:FREQ=DAILY;UNTIL=20260916T000000Z\r\nEND:VEVENT\r\n",
+        ));
+        let events = parse_ics(&source, "c", now()).unwrap();
+        let dates: Vec<_> = events
+            .iter()
+            .filter_map(|event| event.start_date.as_deref())
+            .collect();
+        assert_eq!(dates, ["2026-08-26", "2026-09-26"]);
+        let timed: Vec<_> = events.iter().filter_map(|event| event.start_at).collect();
+        assert_eq!(timed, [now(), now() + DAY_MS]);
+    }
+    #[test]
+    fn recurrence_until_rejects_mismatched_or_invalid_dates() {
+        for fields in [
+            "DTSTART;VALUE=DATE:20260915\r\nRRULE:FREQ=DAILY;UNTIL=20260918T000000Z\r\n",
+            "DTSTART:20260915T090000Z\r\nRRULE:FREQ=DAILY;UNTIL=20260918\r\n",
+            "DTSTART;VALUE=DATE:20260915\r\nRRULE:FREQ=DAILY;UNTIL=20260931\r\n",
+            "DTSTART;VALUE=DATE:20260915\r\nRRULE:FREQ=DAILY;UNTIL=20260914\r\n",
+        ] {
+            let source = cal(&format!(
+                "BEGIN:VEVENT\r\nUID:invalid-until\r\n{fields}END:VEVENT\r\n"
+            ));
+            assert!(parse_ics(&source, "c", now()).is_err());
+        }
     }
     #[test]
     fn dst_recurrence_keeps_local_wall_clock() {

@@ -69,10 +69,10 @@ export const row = style({
   selectors: {
     '&[data-selected="true"]': {
       background: vars.color.selection.surface,
-      boxShadow: `inset 2px 0 ${vars.color.selection.indicator}`,
     },
   },
 });
+export const installCheckbox = style({ alignItems: "center" });
 export const selectEntry = style({
   display: "flex",
   justifyContent: "space-between",

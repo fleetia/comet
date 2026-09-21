@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -32,6 +33,8 @@ pub struct Connection {
     pub next_refresh_at: i64,
     #[serde(default)]
     pub selected_calendar_ids: Vec<String>,
+    #[serde(default)]
+    pub calendar_names: BTreeMap<String, String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -84,6 +87,7 @@ pub struct Connected {
 }
 pub struct Refreshed {
     pub events: Vec<CalendarEvent>,
+    pub calendar_names: BTreeMap<String, String>,
     credential: Option<Credential>,
 }
 #[derive(Deserialize)]
@@ -103,6 +107,7 @@ fn connection(name: String, provider: &str) -> Connection {
         failure_count: 0,
         next_refresh_at: 0,
         selected_calendar_ids: vec![],
+        calendar_names: BTreeMap::new(),
     }
 }
 fn validate_name(name: &str) -> Result<(), CalendarError> {
@@ -122,12 +127,80 @@ fn validate_calendar_ids(ids: &[String]) -> Result<(), CalendarError> {
     Ok(())
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CalendarColorInput {
+    connection_id: String,
+    calendar_id: String,
+    color: String,
+}
+
+pub fn set_calendar_color(data: &Value, input: &Value) -> Result<super::WidgetEffect, String> {
+    let input: CalendarColorInput = serde_json::from_value(input.clone())
+        .map_err(|_| "캘린더 색상 입력 형식이 올바르지 않습니다.")?;
+    if input.color.len() != 7
+        || !input.color.starts_with('#')
+        || !input.color.as_bytes()[1..]
+            .iter()
+            .all(u8::is_ascii_hexdigit)
+    {
+        return Err("캘린더 색상은 #rrggbb 형식으로 입력해 주세요.".into());
+    }
+    let connections: Vec<Connection> = serde_json::from_value(data["connections"].clone())
+        .map_err(|_| "저장된 캘린더 연결을 읽지 못했습니다.")?;
+    let connection = connections
+        .iter()
+        .find(|connection| connection.id == input.connection_id)
+        .ok_or("캘린더 연결을 찾을 수 없습니다.")?;
+    let selected = match connection.provider.as_str() {
+        "ics" => input.calendar_id.is_empty(),
+        "apple" | "google" if connection.selected_calendar_ids.is_empty() => {
+            !input.calendar_id.is_empty()
+                && data["events"].as_array().is_some_and(|events| {
+                    events.iter().any(|event| {
+                        event["connectionId"].as_str() == Some(input.connection_id.as_str())
+                            && event["sourceId"].as_str() == Some(input.calendar_id.as_str())
+                    })
+                })
+        }
+        "apple" | "google" => connection
+            .selected_calendar_ids
+            .contains(&input.calendar_id),
+        _ => false,
+    };
+    if !selected {
+        return Err("이 연결에서 조회하도록 선택한 캘린더만 색상을 바꿀 수 있습니다.".into());
+    }
+    let mut colors: BTreeMap<String, BTreeMap<String, String>> = serde_json::from_value(
+        data.get("calendarColors")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({})),
+    )
+    .map_err(|_| "저장된 캘린더 색상을 읽지 못했습니다.")?;
+    colors
+        .entry(input.connection_id)
+        .or_default()
+        .insert(input.calendar_id, input.color.to_ascii_lowercase());
+    let mut next = data.clone();
+    next["calendarColors"] = serde_json::to_value(colors).map_err(|error| error.to_string())?;
+    Ok(super::WidgetEffect {
+        data: next,
+        events: vec![],
+    })
+}
+
 pub fn reconnect(connected: &mut Connected, previous: &Connection) -> Result<(), CalendarError> {
     if connected.connection.provider != previous.provider {
         return Err(invalid("같은 제공자의 캘린더만 다시 연결할 수 있습니다."));
     }
     connected.connection.id = previous.id.clone();
     connected.connection.last_success_at = previous.last_success_at;
+    connected.connection.calendar_names = previous
+        .calendar_names
+        .iter()
+        .filter(|(id, _)| connected.connection.selected_calendar_ids.contains(id))
+        .map(|(id, name)| (id.clone(), name.clone()))
+        .collect();
     connected.credential.connection_id = previous.id.clone();
     Ok(())
 }
@@ -354,6 +427,16 @@ pub fn success(connection: &Connection, now: i64) -> Connection {
     next.next_refresh_at = now.saturating_add(REFRESH_INTERVAL_MS);
     next
 }
+
+pub fn refreshed_connection(
+    connection: &Connection,
+    refreshed: &Refreshed,
+    now: i64,
+) -> Connection {
+    let mut next = success(connection, now);
+    next.calendar_names.extend(refreshed.calendar_names.clone());
+    next
+}
 pub fn failed(connection: &Connection, failure: &CalendarError, now: i64) -> Connection {
     let mut next = connection.clone();
     next.status = failure.status.clone();
@@ -441,7 +524,7 @@ async fn refresh_credential(
     mut credential: Credential,
     now: i64,
 ) -> Result<Refreshed, CalendarError> {
-    let events = if connection.provider == "ics" {
+    let mut refreshed = if connection.provider == "ics" {
         let mut url = subscription_url(
             credential
                 .url
@@ -480,7 +563,11 @@ async fn refresh_credential(
         }
         let bytes = result.ok_or_else(|| invalid("구독 응답이 없습니다."))?;
         let text = String::from_utf8(bytes).map_err(|_| invalid("UTF-8 캘린더만 지원합니다."))?;
-        parse_ics(&text, &connection.id, now)?
+        Refreshed {
+            events: parse_ics(&text, &connection.id, now)?,
+            calendar_names: BTreeMap::new(),
+            credential: None,
+        }
     } else if connection.provider == "google" {
         oauth::refresh_token(&mut credential, now).await?;
         google_events(&credential, now).await?
@@ -489,14 +576,10 @@ async fn refresh_credential(
     } else {
         return Err(invalid("지원하지 않는 캘린더 연결입니다."));
     };
-    Ok(Refreshed {
-        events,
-        credential: if connection.provider == "google" {
-            Some(credential)
-        } else {
-            None
-        },
-    })
+    if connection.provider == "google" {
+        refreshed.credential = Some(credential);
+    }
+    Ok(refreshed)
 }
 fn safe_url(value: Option<&str>) -> Option<String> {
     let value = value?;
@@ -585,10 +668,7 @@ fn google_event(
     }
     Ok(event)
 }
-async fn google_events(
-    credential: &Credential,
-    now: i64,
-) -> Result<Vec<CalendarEvent>, CalendarError> {
+async fn google_events(credential: &Credential, now: i64) -> Result<Refreshed, CalendarError> {
     let client = client()?;
     let start = DateTime::<Utc>::from_timestamp_millis(now.saturating_sub(30 * DAY_MS))
         .ok_or_else(|| invalid("조회 시각 오류"))?
@@ -601,6 +681,7 @@ async fn google_events(
         .as_deref()
         .ok_or_else(|| error("auth-error", "다시 연결해 주세요."))?;
     let mut events = vec![];
+    let mut calendar_names = BTreeMap::new();
     for calendar in &credential.calendar_ids {
         let mut url = reqwest::Url::parse("https://www.googleapis.com/calendar/v3/calendars/")
             .map_err(|_| invalid("API 주소 오류"))?;
@@ -628,6 +709,9 @@ async fn google_events(
                     .map_err(|_| error("offline", "Google Calendar에 연결할 수 없습니다."))?,
             )
             .await?;
+            if let Some(name) = result["summary"].as_str().filter(|name| !name.is_empty()) {
+                calendar_names.insert(calendar.clone(), name.chars().take(1000).collect());
+            }
             let items = result["items"]
                 .as_array()
                 .ok_or_else(|| invalid("Google 일정 응답 오류"))?;
@@ -648,7 +732,11 @@ async fn google_events(
             }
         }
     }
-    Ok(events)
+    Ok(Refreshed {
+        events,
+        calendar_names,
+        credential: None,
+    })
 }
 
 #[cfg(test)]
@@ -683,8 +771,64 @@ mod tests {
         let old = serde_json::to_value(connection("old".into(), "google")).unwrap();
         let mut old = old.as_object().unwrap().clone();
         old.remove("selectedCalendarIds");
+        old.remove("calendarNames");
         let restored: Connection = serde_json::from_value(Value::Object(old)).unwrap();
         assert!(restored.selected_calendar_ids.is_empty());
+        assert!(restored.calendar_names.is_empty());
+    }
+    #[test]
+    fn refreshed_names_update_selected_calendars_and_survive_missing_metadata() {
+        let mut current = connection("Google".into(), "google");
+        current.selected_calendar_ids = vec!["primary".into(), "work".into()];
+        current.calendar_names = [
+            ("primary".into(), "개인".into()),
+            ("work".into(), "옛 이름".into()),
+        ]
+        .into();
+        let refreshed = Refreshed {
+            events: vec![],
+            calendar_names: [("work".into(), "회사".into())].into(),
+            credential: None,
+        };
+        let updated = refreshed_connection(&current, &refreshed, 123);
+        assert_eq!(updated.calendar_names["primary"], "개인");
+        assert_eq!(updated.calendar_names["work"], "회사");
+        assert_eq!(updated.status, "ready");
+        assert_eq!(updated.last_success_at, Some(123));
+        assert_eq!(current.calendar_names["work"], "옛 이름");
+    }
+    #[test]
+    fn legacy_calendar_colors_use_only_own_cached_sources_until_selection_is_known() {
+        for provider in ["apple", "google"] {
+            let current = connection("기존 연결".into(), provider);
+            let mut serialized = serde_json::to_value(&current).unwrap();
+            serialized
+                .as_object_mut()
+                .unwrap()
+                .remove("selectedCalendarIds");
+            let mut data = serde_json::json!({
+                "connections": [serialized],
+                "events": [
+                    {"connectionId": current.id, "sourceId": "cached"},
+                    {"connectionId": "another-connection", "sourceId": "unrelated"}
+                ]
+            });
+            let input = |calendar_id: &str| {
+                serde_json::json!({
+                    "connectionId": current.id, "calendarId": calendar_id, "color": "#123456"
+                })
+            };
+            let effect = set_calendar_color(&data, &input("cached")).unwrap();
+            assert_eq!(
+                effect.data["calendarColors"][&current.id]["cached"],
+                "#123456"
+            );
+            assert!(set_calendar_color(&data, &input("unrelated")).is_err());
+            assert!(set_calendar_color(&data, &input("")).is_err());
+            data["connections"][0]["selectedCalendarIds"] = serde_json::json!(["selected"]);
+            assert!(set_calendar_color(&data, &input("cached")).is_err());
+            assert!(set_calendar_color(&data, &input("selected")).is_ok());
+        }
     }
     #[test]
     fn secrets_never_enter_public_connection_or_errors() {

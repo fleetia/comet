@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
-import { Button, IconButton, Rule, Select, TextArea } from "@fleetia/lagrange";
+import { Button, IconButton, Select, TextArea } from "@fleetia/lagrange";
 import type { Dispatch, Persona, Snapshot } from "../../types";
 import { command, errorText } from "../../hooks/useSnapshot";
 import { useBalloonSizing } from "../../hooks/useBalloonSizing";
@@ -182,7 +182,6 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
                 지난 대화
               </Button>
             </div>
-            <Rule variant="weak" />
             <div className={s.menuGroup} role="group" aria-label="관리">
               <Button
                 variant="quiet"
@@ -206,7 +205,6 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
                 설정
               </Button>
             </div>
-            <Rule variant="weak" />
             <div className={s.menuGroup} role="group" aria-label="자동 잡담과 표시">
               <Button
                 variant="quiet"

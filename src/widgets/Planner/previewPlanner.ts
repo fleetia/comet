@@ -1,7 +1,7 @@
 import { getWidgetPreview } from "../previewWidgets";
 import { localDay, type DataRecord } from "../toolData";
 import type { WidgetSnapshot, WidgetView } from "../types";
-import { periodAnchor } from "./plannerData";
+import { moveDay, periodAnchor } from "./plannerData";
 
 export function getPlannerPreview(): WidgetSnapshot {
   const snapshot = getWidgetPreview(),
@@ -73,24 +73,51 @@ export function getPlannerPreview(): WidgetSnapshot {
             connections: [
               {
                 id: "google",
-                name: "Google · 개인",
+                name: "Google",
+                selectedCalendarIds: ["work"],
+                calendarNames: { work: "업무" },
                 provider: "google",
                 status: "ready",
                 lastSuccessAt: now,
               },
               {
                 id: "apple",
-                name: "Apple · 개인·모임",
+                name: "Apple",
+                selectedCalendarIds: ["personal", "family"],
+                calendarNames: { personal: "개인", family: "가족" },
                 provider: "apple",
                 status: "ready",
                 lastSuccessAt: now,
               },
             ],
+            calendarColors: {
+              google: { work: "#3478d4" },
+              apple: { personal: "#2f8b57", family: "#e87820" },
+            },
             events: [
+              {
+                id: "trip",
+                title: "가족 여행",
+                connectionId: "apple",
+                sourceId: "family",
+                allDay: true,
+                startDate: moveDay(day, 2),
+                endDate: moveDay(day, 5),
+              },
+              {
+                id: "deadline",
+                title: "원고 마감",
+                connectionId: "google",
+                sourceId: "work",
+                allDay: true,
+                startDate: moveDay(day, 3),
+                endDate: moveDay(day, 4),
+              },
               {
                 id: "class",
                 title: "온라인 강의",
                 connectionId: "google",
+                sourceId: "work",
                 startAt: at(10),
                 endAt: at(10, 30),
                 allDay: false,
@@ -99,6 +126,7 @@ export function getPlannerPreview(): WidgetSnapshot {
                 id: "books",
                 title: "책 모임",
                 connectionId: "apple",
+                sourceId: "personal",
                 startAt: at(14),
                 endAt: at(15),
                 allDay: false,
@@ -107,6 +135,7 @@ export function getPlannerPreview(): WidgetSnapshot {
                 id: "dinner",
                 title: "저녁 약속",
                 connectionId: "apple",
+                sourceId: "personal",
                 startAt: at(18, 30),
                 endAt: at(19, 30),
                 allDay: false,

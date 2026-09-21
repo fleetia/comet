@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { localDay, record, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
+import { CalendarColors } from "../Planner/CalendarColors";
 import { PlannerAlerts } from "../PlannerAlerts/PlannerAlerts";
 import { useConnectionCommand } from "../useConnectionCommand";
 import type { WidgetView } from "../types";
@@ -79,7 +80,7 @@ export function CalendarTool({
   const events = rows(d.events).filter(
     (event) => event.cancelled !== true && connectedIds.has(text(event.connectionId)),
   );
-  const { busy, error, run } = useConnectionCommand();
+  const { busy, error, clearError, run } = useConnectionCommand();
   const [now, setNow] = useState(Date.now()),
     [day, setDay] = useState(localDay()),
     [free, setFree] = useState(false);
@@ -117,6 +118,7 @@ export function CalendarTool({
     [],
   );
   async function loadAppleCalendars(): Promise<void> {
+    clearError();
     if (!isDesktop()) {
       setAppleError("Apple 캘린더 연결은 macOS 데스크톱 앱에서 사용할 수 있어요.");
       return;
@@ -143,6 +145,7 @@ export function CalendarTool({
     }
   }
   function resetConnection(): void {
+    clearError();
     appleRequest.current += 1;
     setAppleCalendars(null);
     setAppleIds([]);
@@ -336,6 +339,14 @@ export function CalendarTool({
                     : "아직 없음"}
                 </p>
                 {text(connection.error) && <p className={c.error}>{text(connection.error)}</p>}
+                <CalendarColors
+                  connections={connections}
+                  events={rows(d.events)}
+                  colors={record(d.calendarColors)}
+                  connectionId={text(connection.id)}
+                  disabled={busy || appleBusy}
+                  onChange={(input) => void act("set-calendar-color", input)}
+                />
                 <div className={s.row}>
                   <Button
                     variant="secondary"
@@ -406,6 +417,7 @@ export function CalendarTool({
                   value={provider}
                   disabled={editingConnectionId !== null}
                   onChange={(e) => {
+                    clearError();
                     setProvider(e.target.value);
                     setAppleError(null);
                   }}

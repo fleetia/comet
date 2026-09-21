@@ -20,6 +20,8 @@ struct CalendarState {
     last_success_at: Option<i64>,
     #[serde(default)]
     attempts: std::collections::BTreeMap<String, i64>,
+    #[serde(default)]
+    calendar_colors: std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
     #[serde(flatten)]
     extra: std::collections::BTreeMap<String, Value>,
 }
@@ -157,6 +159,19 @@ fn merge_calendar(
         .filter_map(|x| x.last_success_at)
         .max();
 }
+fn remove_calendar(data: &mut CalendarState, connection_id: &str) {
+    data.connections
+        .retain(|connection| connection.id != connection_id);
+    data.events
+        .retain(|event| event.connection_id != connection_id);
+    data.attempts.remove(connection_id);
+    data.calendar_colors.remove(connection_id);
+    data.last_success_at = data
+        .connections
+        .iter()
+        .filter_map(|connection| connection.last_success_at)
+        .max();
+}
 fn open_browser(url: &str) -> Result<(), String> {
     let parsed = reqwest::Url::parse(url).map_err(|_| "링크 주소가 올바르지 않습니다.")?;
     if !["http", "https"].contains(&parsed.scheme())
@@ -215,7 +230,7 @@ async fn connect_result(
                 .cloned();
             let (connection, events) = match &result {
                 Ok(refreshed) => (
-                    calendar::success(&connected.connection, timestamp()),
+                    calendar::refreshed_connection(&connected.connection, refreshed, timestamp()),
                     Some(refreshed.events.clone()),
                 ),
                 Err(failure) => (
@@ -440,7 +455,7 @@ async fn refresh_calendar_inner(
                 Ok(refreshed) => {
                     merge_calendar(
                         &mut data,
-                        calendar::success(&connection, timestamp()),
+                        calendar::refreshed_connection(&connection, refreshed, timestamp()),
                         Some(refreshed.events.clone()),
                     );
                     calendar::commit_refresh(refreshed).map_err(|x| x.message)?;
@@ -494,14 +509,7 @@ pub(crate) fn disconnect_calendar(
             job.store(true, Ordering::SeqCst);
         }
         calendar::disconnect(&connection).map_err(|x| x.message)?;
-        data.connections.retain(|x| x.id != connection_id);
-        data.events.retain(|x| x.connection_id != connection_id);
-        data.attempts.remove(&connection_id);
-        data.last_success_at = data
-            .connections
-            .iter()
-            .filter_map(|x| x.last_success_at)
-            .max();
+        remove_calendar(&mut data, &connection_id);
         store_calendar(&db, &instance, data)?;
     }
     publish_widgets(&app, &state);
@@ -762,6 +770,7 @@ mod tests {
         let source =
             json!({"connections":[],"events":[],"lastSuccessAt":null,"reminders":{"enabled":true}});
         let decoded = decode_calendar(&source).unwrap();
+        assert!(decoded.calendar_colors.is_empty());
         assert_eq!(
             serde_json::to_value(decoded).unwrap()["reminders"],
             source["reminders"]
@@ -784,8 +793,18 @@ mod tests {
             events: vec![],
             last_success_at: None,
             attempts: Default::default(),
+            calendar_colors: Default::default(),
             extra: Default::default(),
         };
+        data.calendar_colors.insert(
+            first.connection.id.clone(),
+            [(String::new(), "#112233".into())].into(),
+        );
+        data.calendar_colors.insert(
+            second.connection.id.clone(),
+            [(String::new(), "#445566".into())].into(),
+        );
+        let colors = data.calendar_colors.clone();
         let source="BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:a\r\nDTSTART;VALUE=DATE:20260915\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
         let now = chrono::DateTime::parse_from_rfc3339("2026-09-15T00:00:00Z")
             .unwrap()
@@ -799,8 +818,25 @@ mod tests {
         merge_calendar(&mut data, first.connection.clone(), Some(vec![]));
         assert_eq!(data.events.len(), 1);
         assert_eq!(data.events[0].connection_id, second.connection.id);
-        merge_calendar(&mut data, second.connection, None);
+        merge_calendar(&mut data, second.connection.clone(), None);
         assert_eq!(data.events.len(), 1);
+        assert_eq!(data.calendar_colors, colors);
+        let mut replacement = calendar::connect_ics(calendar::IcsConnectInput {
+            name: "renamed".into(),
+            url: "https://example.com/reconnected".into(),
+        })
+        .unwrap();
+        calendar::reconnect(&mut replacement, &second.connection).unwrap();
+        merge_calendar(&mut data, replacement.connection, Some(events));
+        assert_eq!(data.calendar_colors, colors);
+        remove_calendar(&mut data, &second.connection.id);
+        assert_eq!(data.connections.len(), 1);
+        assert!(data.events.is_empty());
+        assert_eq!(data.calendar_colors.len(), 1);
+        assert_eq!(
+            data.calendar_colors[&first.connection.id],
+            colors[&first.connection.id]
+        );
     }
     #[test]
     fn failure_keeps_observation_and_last_success_and_event_urls_are_allowlisted() {
