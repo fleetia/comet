@@ -1,6 +1,7 @@
 use super::background::{begin_background, expire_idle_recall, reserve_api_idle};
 use super::conversation::{
-    ensure_retry_characters, generate_turn, remaining_retry, reply_id, route_message, turn_prompt,
+    ensure_retry_characters, generate_turn, remaining_retry, reply_id, resolve_targets,
+    route_message, turn_prompt,
 };
 use super::lifecycle::{flush_positions, prepare_exit};
 use super::scene::{
@@ -32,6 +33,10 @@ pub(crate) fn state() -> AppState {
         runtime: Mutex::new(RuntimeStatus::default()),
         playback: Mutex::new(None),
         panel: Mutex::new(None),
+        launcher: Mutex::new(super::launcher::Runtime::default()),
+        launcher_open: AtomicBool::new(false),
+        launcher_session: AtomicU64::new(0),
+        launcher_gate: tokio::sync::Mutex::new(()),
         settings_section: Mutex::new(windows::SettingsSection::default()),
         settings_dirty: AtomicBool::new(false),
         settings_exit_confirmed: AtomicBool::new(false),
@@ -951,7 +956,9 @@ fn shared_character_pack_uses_authored_keyword_order_after_personal_entries() {
     })
     .unwrap();
     let db = lock(&state.db).unwrap();
-    let lines = route_message(&state, &db, "별사탕").unwrap().unwrap();
+    let lines = route_message(&state, &db, "별사탕", &characters::active_ids(&db).unwrap())
+        .unwrap()
+        .unwrap();
     assert_eq!(
         serde_json::to_value(lines).unwrap(),
         serde_json::to_value(characters::resolve_lines(&db, &pack.wordbook[0].lines).unwrap())
@@ -977,7 +984,10 @@ fn shared_character_pack_uses_authored_keyword_order_after_personal_entries() {
     };
     wordbook::save(&db, &local).unwrap();
     assert_eq!(
-        route_message(&state, &db, "별사탕").unwrap().unwrap()[0].text,
+        route_message(&state, &db, "별사탕", &characters::active_ids(&db).unwrap())
+            .unwrap()
+            .unwrap()[0]
+            .text,
         local.lines[0].text
     );
     let automatic = character_script(&db, 1).unwrap();
@@ -1016,14 +1026,25 @@ fn keyword_route_works_without_a_model_and_preserves_authored_lines() {
         use_for_idle: false,
     };
     wordbook::save(&db, &entry).unwrap();
-    let lines = route_message(&state, &db, "오늘 수박 먹었어")
-        .unwrap()
-        .unwrap();
+    let lines = route_message(
+        &state,
+        &db,
+        "오늘 수박 먹었어",
+        &characters::active_ids(&db).unwrap(),
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(
         serde_json::to_value(lines).unwrap(),
         serde_json::to_value(characters::resolve_lines(&db, &entry.lines).unwrap()).unwrap()
     );
-    assert!(route_message(&state, &db, "새로운 주제로 이야기해 줘").is_err());
+    assert!(route_message(
+        &state,
+        &db,
+        "새로운 주제로 이야기해 줘",
+        &characters::active_ids(&db).unwrap()
+    )
+    .is_err());
     store::save_settings(
         &db,
         &Settings {
@@ -1033,8 +1054,8 @@ fn keyword_route_works_without_a_model_and_preserves_authored_lines() {
         },
     )
     .unwrap();
-    assert!(route_message(&state, &db, "수박").unwrap().is_some());
-    assert!(route_message(&state, &db, "다른 말").is_err());
+    assert!(route_message(&state, &db, "수박", &characters::active_ids(&db).unwrap()).unwrap().is_some());
+    assert!(route_message(&state, &db, "다른 말", &characters::active_ids(&db).unwrap()).is_err());
     store::save_settings(
         &db,
         &Settings {
@@ -1045,7 +1066,7 @@ fn keyword_route_works_without_a_model_and_preserves_authored_lines() {
         },
     )
     .unwrap();
-    assert!(route_message(&state, &db, "다른 말").unwrap().is_none());
+    assert!(route_message(&state, &db, "다른 말", &characters::active_ids(&db).unwrap()).unwrap().is_none());
     store::save_settings(
         &db,
         &Settings {
@@ -1056,7 +1077,128 @@ fn keyword_route_works_without_a_model_and_preserves_authored_lines() {
         },
     )
     .unwrap();
-    assert!(route_message(&state, &db, "다른 말").is_err());
+    assert!(route_message(&state, &db, "다른 말", &characters::active_ids(&db).unwrap()).is_err());
+}
+
+#[test]
+fn single_recipient_keyword_routes_filter_whole_scenes_before_matching() {
+    for source in ["personal", "character", "pair"] {
+        let mut state = state();
+        let directory = tempfile::tempdir().unwrap();
+        state.app_data = directory.path().to_path_buf();
+        let db = lock(&state.db).unwrap();
+        let ids = characters::active_ids(&db).unwrap();
+        let entry = |keyword: &str, lines: &[(&str, &str)]| WordbookEntry {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: keyword.into(),
+            keywords: vec![keyword.into()],
+            lines: lines
+                .iter()
+                .map(|(persona, text)| SceneLine {
+                    motion: Default::default(),
+                    persona: (*persona).into(),
+                    expression: "평온".into(),
+                    text: (*text).into(),
+                })
+                .collect(),
+            enabled: true,
+            use_for_idle: false,
+        };
+        let mixed = if source == "character" {
+            entry("HELLO there", &[("a", "  A의 인사\n  ")])
+        } else {
+            entry(
+                "HELLO there",
+                &[("b", "  먼저 B\n"), ("a", "A도 말해"), ("b", "B 마무리  ")],
+            )
+        };
+        let allowed = entry("hello", &[("b", "  첫 줄\n\n  "), ("b", "둘째 줄  ")]);
+        let tied = entry("HELLO", &[("b", "나중에 등록한 동률 대사")]);
+        let outside = entry("outside", &[("a", "A에게만 등록된 말")]);
+        match source {
+            "personal" => {
+                for value in [&mixed, &allowed, &tied, &outside] {
+                    wordbook::save(&db, value).unwrap();
+                }
+            }
+            "character" => {
+                // A personal match must not prevent an eligible character-owned match.
+                wordbook::save(&db, &mixed).unwrap();
+                characters::save_dialogue(
+                    &db,
+                    &ids[..1],
+                    &characters::CharacterDialogue {
+                        pair_scenes: vec![],
+                        wordbook: vec![mixed.clone(), outside.clone()],
+                    },
+                )
+                .unwrap();
+                let owned = [allowed.clone(), tied.clone()]
+                    .into_iter()
+                    .map(|mut value| {
+                        for line in &mut value.lines {
+                            line.persona = "a".into();
+                        }
+                        value
+                    })
+                    .collect();
+                characters::save_dialogue(
+                    &db,
+                    &ids[1..2],
+                    &characters::CharacterDialogue {
+                        pair_scenes: vec![],
+                        wordbook: owned,
+                    },
+                )
+                .unwrap();
+            }
+            _ => {
+                characters::save_dialogue(
+                    &db,
+                    &ids,
+                    &characters::CharacterDialogue {
+                        pair_scenes: vec![],
+                        wordbook: vec![
+                            mixed.clone(),
+                            allowed.clone(),
+                            tied.clone(),
+                            outside.clone(),
+                        ],
+                    },
+                )
+                .unwrap();
+            }
+        }
+        for target in ["b", ids[1].as_str()] {
+            let targets = resolve_targets(&db, target).unwrap();
+            let lines = route_message(&state, &db, "HeLLo ThErE", &targets)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                serde_json::to_value(lines).unwrap(),
+                serde_json::to_value(characters::resolve_lines(&db, &allowed.lines).unwrap())
+                    .unwrap(),
+                "{source}: {target}"
+            );
+            assert!(
+                route_message(&state, &db, "outside", &targets).is_err(),
+                "{source}"
+            );
+            assert!(store::messages(&db, 100).unwrap().is_empty(), "{source}");
+        }
+        for target in ["all", "both"] {
+            let targets = resolve_targets(&db, target).unwrap();
+            let lines = route_message(&state, &db, "HeLLo ThErE", &targets)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                serde_json::to_value(lines).unwrap(),
+                serde_json::to_value(characters::resolve_lines(&db, &mixed.lines).unwrap())
+                    .unwrap(),
+                "{source}: {target}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -1072,11 +1214,11 @@ fn fresh_single_character_wordbook_routes_without_models() {
     state.app_data = directory.path().to_path_buf();
     let db = lock(&state.db).unwrap();
     let id = characters::active_ids(&db).unwrap().remove(0);
-    let greeting = route_message(&state, &db, "안녕").unwrap().unwrap();
+    let greeting = route_message(&state, &db, "안녕", &characters::active_ids(&db).unwrap()).unwrap().unwrap();
     assert_eq!(greeting.len(), 1);
     assert_eq!(greeting[0].persona, id);
     assert_eq!(greeting[0].text, "안녕! 잠깐 이야기할까?");
-    assert!(route_message(&state, &db, "쉬자").unwrap().is_some());
+    assert!(route_message(&state, &db, "쉬자", &characters::active_ids(&db).unwrap()).unwrap().is_some());
 }
 
 #[test]
@@ -1111,7 +1253,7 @@ fn unavailable_wordbook_winner_is_reported_before_shorter_or_later_matches() {
     later.lines[0].persona = "a".into();
     wordbook::save(&db, &later).unwrap();
     let before = serde_json::to_value(wordbook::entries(&db).unwrap()).unwrap();
-    let error = route_message(&state, &db, "테스트키워드").unwrap_err();
+    let error = route_message(&state, &db, "테스트키워드", &characters::active_ids(&db).unwrap()).unwrap_err();
     assert!(error.contains("먼저 등록한 긴 항목"));
     assert!(error.contains("화자"));
     assert_eq!(
@@ -1121,13 +1263,13 @@ fn unavailable_wordbook_winner_is_reported_before_shorter_or_later_matches() {
     first.enabled = false;
     wordbook::save(&db, &first).unwrap();
     assert_eq!(
-        route_message(&state, &db, "테스트키워드").unwrap().unwrap()[0].text,
+        route_message(&state, &db, "테스트키워드", &characters::active_ids(&db).unwrap()).unwrap().unwrap()[0].text,
         later.lines[0].text
     );
     later.enabled = false;
     wordbook::save(&db, &later).unwrap();
     assert_eq!(
-        route_message(&state, &db, "테스트키워드").unwrap().unwrap()[0].text,
+        route_message(&state, &db, "테스트키워드", &characters::active_ids(&db).unwrap()).unwrap().unwrap()[0].text,
         short.lines[0].text
     );
 }
@@ -2215,6 +2357,7 @@ fn unprepared_model_keeps_new_original_and_rule_based_affinity() {
         &db,
         "고마워",
         "a",
+        &["a".to_string()],
         "new-without-llm"
     )
     .is_err());

@@ -321,8 +321,20 @@ pub fn idle_scene(conn: &Connection, index: usize) -> Result<Vec<SceneLine>> {
     }
     Ok(lines)
 }
-pub fn keyword_scene(conn: &Connection, input: &str) -> Result<Option<Vec<SceneLine>>> {
+pub fn keyword_scene(
+    conn: &Connection,
+    input: &str,
+    targets: &[String],
+) -> Result<Option<Vec<SceneLine>>> {
     let ids = active_ids(conn)?;
-    let entries = dialogue(conn, &ids)?.wordbook;
+    let entries: Vec<_> = dialogue(conn, &ids)?
+        .wordbook
+        .into_iter()
+        .filter(|entry| {
+            targets.len() != 1
+                || super::resolve_lines(conn, &entry.lines)
+                    .is_ok_and(|lines| lines.iter().all(|line| targets.contains(&line.persona)))
+        })
+        .collect();
     Ok(crate::wordbook::match_entry(&entries, input).map(|entry| entry.lines.clone()))
 }

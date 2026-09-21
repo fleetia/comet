@@ -243,6 +243,7 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
     let runtime = lock(&state.runtime)?.clone();
     let epoch = state.epoch.load(Ordering::SeqCst);
     let blocked = crate::unavailable(state)
+        || state.launcher_open.load(Ordering::SeqCst)
         || runtime.hidden
         || runtime.paused
         || fullscreen

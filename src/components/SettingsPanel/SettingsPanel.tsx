@@ -19,6 +19,7 @@ import {
 import { version } from "../../../package.json";
 import type { Snapshot } from "../../types";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
+import { LauncherSettings } from "../Launcher/LauncherSettings";
 import { DesktopPreferences } from "../DesktopPreferences/DesktopPreferences";
 import { AutostartSettings } from "../AutostartSettings/AutostartSettings";
 import { UpdatePanel } from "../UpdatePanel/UpdatePanel";
@@ -330,6 +331,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                       </span>
                     </div>
                   </section>
+                  <LauncherSettings />
                   <DesktopPreferences
                     hidden={snapshot.runtime.hidden}
                     onDirtyChange={setGeneralDirty}

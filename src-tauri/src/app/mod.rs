@@ -3,6 +3,7 @@ mod background;
 mod chat;
 pub(crate) mod conversation;
 mod history;
+pub(crate) mod launcher;
 pub(crate) mod lifecycle;
 pub(crate) mod scene;
 mod settings;
@@ -36,6 +37,10 @@ pub(crate) struct AppState {
     pub(crate) runtime: Mutex<RuntimeStatus>,
     pub(crate) playback: Mutex<Option<Playback>>,
     pub(crate) panel: Mutex<Option<PanelState>>,
+    pub(crate) launcher: Mutex<launcher::Runtime>,
+    pub(crate) launcher_open: AtomicBool,
+    pub(crate) launcher_session: AtomicU64,
+    pub(crate) launcher_gate: tokio::sync::Mutex<()>,
     pub(crate) settings_section: Mutex<windows::SettingsSection>,
     pub(crate) settings_dirty: AtomicBool,
     pub(crate) settings_exit_confirmed: AtomicBool,

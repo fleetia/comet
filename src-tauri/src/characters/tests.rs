@@ -390,11 +390,15 @@ fn swapped_pair_maps_exact_text_and_replacement_disables_pack_content() {
     let idle = idle_scene(&conn, 0).unwrap();
     assert_eq!(idle[0].persona, "b");
     assert_eq!(idle[0].text, "  원문\n그대로  ");
-    let matched = keyword_scene(&conn, "hello!").unwrap().unwrap();
+    let matched = keyword_scene(&conn, "hello!", &active_ids(&conn).unwrap())
+        .unwrap()
+        .unwrap();
     assert_eq!(matched[0].persona, "a");
     assert_eq!(matched[0].text, "  안녕\n반가워  ");
     assign(&conn, "a", "builtin-a").unwrap();
-    assert!(keyword_scene(&conn, "hello").unwrap().is_none());
+    assert!(keyword_scene(&conn, "hello", &active_ids(&conn).unwrap())
+        .unwrap()
+        .is_none());
     assert!(!idle_scene(&conn, 0)
         .unwrap()
         .iter()
@@ -879,14 +883,18 @@ fn pair_dialogue_override_survives_swap_export_and_empty_deletion() {
     edited.wordbook[0].lines[0].text = "  편집한 원문\n ".into();
     save_dialogue(&conn, &ids, &edited).unwrap();
     apply_pair(&conn, [ids[1].clone(), ids[0].clone()]).unwrap();
-    let found = keyword_scene(&conn, "hello").unwrap().unwrap();
+    let found = keyword_scene(&conn, "hello", &active_ids(&conn).unwrap())
+        .unwrap()
+        .unwrap();
     assert_eq!(found[0].persona, "a");
     assert_eq!(found[0].text, "  편집한 원문\n ");
     let exported = export_pack(&conn, &[ids[1].clone(), ids[0].clone()], &[]).unwrap();
     assert_eq!(exported.wordbook[0].lines[0].persona, "a");
     assert_eq!(exported.wordbook[0].lines[0].text, found[0].text);
     save_dialogue(&conn, &ids, &CharacterDialogue::default()).unwrap();
-    assert!(keyword_scene(&conn, "hello").unwrap().is_none());
+    assert!(keyword_scene(&conn, "hello", &active_ids(&conn).unwrap())
+        .unwrap()
+        .is_none());
     assert!(export_pack(&conn, &ids, &[]).unwrap().wordbook.is_empty());
     let original = pack_record(&conn, imported[0].pack_id.as_ref().unwrap())
         .unwrap()
@@ -916,7 +924,10 @@ fn single_override_follows_character_in_mixed_pair_without_pair_leak() {
     );
     apply_pair(&conn, ["builtin-b".into(), first.id.clone()]).unwrap();
     assert_eq!(
-        keyword_scene(&conn, "hello").unwrap().unwrap()[0].persona,
+        keyword_scene(&conn, "hello", &active_ids(&conn).unwrap())
+            .unwrap()
+            .unwrap()[0]
+            .persona,
         "b"
     );
     let ids = [first.id.clone(), second.id.clone()];
@@ -924,16 +935,24 @@ fn single_override_follows_character_in_mixed_pair_without_pair_leak() {
     pair.wordbook[0].lines[0].text = "pair only".into();
     save_dialogue(&conn, &ids, &pair).unwrap();
     assert_ne!(
-        keyword_scene(&conn, "hello").unwrap().unwrap()[0].text,
+        keyword_scene(&conn, "hello", &active_ids(&conn).unwrap())
+            .unwrap()
+            .unwrap()[0]
+            .text,
         "pair only"
     );
     apply_pair(&conn, ids.clone()).unwrap();
     assert_eq!(
-        keyword_scene(&conn, "hello").unwrap().unwrap()[0].text,
+        keyword_scene(&conn, "hello", &active_ids(&conn).unwrap())
+            .unwrap()
+            .unwrap()[0]
+            .text,
         "pair only"
     );
     save_dialogue(&conn, &ids, &CharacterDialogue::default()).unwrap();
-    assert!(keyword_scene(&conn, "hello").unwrap().is_none());
+    assert!(keyword_scene(&conn, "hello", &active_ids(&conn).unwrap())
+        .unwrap()
+        .is_none());
     assert_eq!(
         dialogue(&conn, std::slice::from_ref(&first.id))
             .unwrap()
@@ -1031,7 +1050,10 @@ fn keyword_ties_follow_install_order_not_slot_order() {
     let second = import_pack(&conn, &source).unwrap();
     apply_pair(&conn, [second[0].id.clone(), first[0].id.clone()]).unwrap();
     assert_eq!(
-        keyword_scene(&conn, "hello").unwrap().unwrap()[0].text,
+        keyword_scene(&conn, "hello", &active_ids(&conn).unwrap())
+            .unwrap()
+            .unwrap()[0]
+            .text,
         "  안녕\n반가워  "
     );
 }

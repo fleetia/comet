@@ -14,6 +14,7 @@ description: 현재 Tauri 앱의 코드 소유권과 생활 도구·외부 위�
 | `src/App.tsx`, `src/components/<Component>/<Component>.tsx` | 창별 화면 선택, 본체·말풍선·입력과 보조 화면. 화면 컴포넌트는 컴포넌트별 디렉터리에 둔다. |
 | `src/components/SettingsPanel/SettingsPanel.tsx`, `ModelSettings/ModelSettings.tsx` | 8개 직접 탐색, 자동 대화·AI 연결의 독립 저장, 미저장 편집 집계와 종료 확인, 모델/API 설정 |
 | `src/components/UserSettings/`, `MemorySettings/`, `CharacterMemorySettings/`, `CharacterHistory/` | 최초 이름 등록·사용자 변경, 캐릭터별 기억 편집·잊기·개별 내보내기, 원문 페이지 조회. 검색 모델 설정은 AI 연결 안에서 독립 저장한다. |
+| `src/components/Launcher/Launcher.tsx`, `search.ts`, `LauncherSettings.tsx` | 런처 입력·초안·대상 ID 고정·드롭다운 미리보기와 단축키 설정. 이름·별칭 검색은 프런트엔드에서 수행하고 LLM을 호출하지 않는다. |
 | `src/components/SettingsPanel/useSettingsNavigation.ts` | 통합 탭 선택·방문한 패널 유지, 앱 실행 중 마지막 영역 기록, 네이티브 목적지 이벤트와 최초 조회의 경합 처리 |
 | `src/hooks/useSettingsDraft.ts` | `automatic`·`model` scope별 설정·API 키 초안, 변경 여부와 snapshot 동기화, 명령 잠금·저장·취소 |
 | `src/components/CharacterManager/CharacterManager.tsx`, `src/components/AnimationEditor/` | 캐릭터별 정의·애니메이션 자산 초안과 공통 저장·취소, 늦은 파일 선택 무효화. 편집기는 프레임·속도·상황 연결과 미리보기를 담당한다. |
@@ -34,6 +35,7 @@ description: 현재 Tauri 앱의 코드 소유권과 생활 도구·외부 위�
 | `src-tauri/src/app/background.rs` | 자동 동작 루프·기억 분석·LLM 장면 준비와 API 예산 |
 | `src-tauri/src/app/settings.rs` | 최신 저장값에 scope별 필드를 병합하는 설정 저장, 모델·단어장·기억 관련 앱 명령 |
 | `src-tauri/src/app/users.rs`, `app/history.rs`, `memory_commands.rs` | 사용자 변경의 취소·저장 경계, 캐릭터별 실시간·보관용 원문 페이지 조회, 기억 편집·잊기·분석 재시도 명령 |
+| `src-tauri/src/app/launcher.rs` | 단일 `launcher` 창, 전역 단축키 등록·저장·실패 복구, 현재 호출 세션의 명령 실행·닫기와 기존 창으로 포커스 복귀 |
 | `src-tauri/src/app/windows.rs` | 단일 설정창·마지막 목적지·미저장 상태, 종료 확인, 패널·말풍선·본체 표시/숨김·일시정지 명령 |
 | `src-tauri/src/planner_windows.rs` | 단일 `planner` 실행 창과 탭 목적지, 통합 설정의 해당 위젯으로 이동 |
 | `src-tauri/src/widgets/planning.rs`, `widgets/planning/recurrence.rs` | 내장 할 일·기간 계획·반복·횟수·선택 이월의 입력 검증과 상태 전이, 날짜·시간대 계산, 기존 JSON 호환 |
@@ -83,6 +85,10 @@ NLP 보조 실행기·FTS·벡터 캐시·발화별 분석 작업의 책임과 �
 통합 설정의 `save_settings`는 `scope: automatic`에서 `autonomousEnabled`·`localIdleEnabled`·`apiIdleEnabled`·`idleMinutes`를, `scope: model`에서 `mode`·`localModel`·`localModelPath`·`baseUrl`·`apiModel`·`apiTokenParameter`를 저장한다. `action`과 DB transaction 안에서 최신 설정을 읽고 해당 필드만 합치므로 다른 영역의 오래된 snapshot이 최신 저장을 덮어쓰지 않는다. 검증과 API 키 적용도 해당 scope에 한정하며 revision 갱신 후 기존 `interrupt`·`gate` 경계를 따른다. scope 생략은 기존 전체 저장 호출의 호환 경로이고 새 설정 UI는 명시적인 scope를 전달한다.
 
 `get_settings_section`·`set_settings_section`은 앱 실행 중 마지막 영역을 공유한다. 네이티브 바로가기는 같은 `settings` 창에 `open-settings-section` 이벤트를 보내며 초기 목적지는 `characters`, 업데이트 목적지는 `general`이다. `set_settings_dirty`는 저장 데이터와 별개인 미저장 편집 신호다. `quit_app`과 네이티브 `ExitRequested`는 이 신호가 있으면 설정창을 보여 주고 `confirm-settings-exit`로 확인을 요청한다. 명시적인 `force: true`만 미저장 내용을 버리고 종료한다. 업데이트는 다운로드 전과 실제 설치 직전에 미저장 상태를 검사한다. UI 탐색·종료·저장 계약의 원본은 [통합 설정창](../product/settings.md)이다.
+
+런처의 `app/launcher.rs`는 시작 시 숨긴 `launcher` 창 하나를 만들고 전역 단축키와 트레이 요청으로 재사용한다. 단축키 문자열은 기존 SQLite `kv`의 `launcher_shortcut`에 저장하며, 값이 없으면 기본값을 사용하고 빈 문자열은 사용 안 함을 뜻한다. 설정 초안이나 대화 저장소를 별도로 만들지 않는다. 프런트엔드는 로컬 이름·별칭과 위젯 snapshot으로 후보·실행 미리보기를 만들고, 사용자가 선택한 동작만 `execute_launcher`로 전달한다. 검색에 LLM을 호출하지 않으며 설정·위젯·대화는 각 기존 명령의 책임을 유지한다.
+
+`open_launcher`는 기존 자동 작업을 중단하고 `launcher_open` 동안 자동 생성·재생을 막는다. `session_id`와 `launcher_gate`는 현재 호출의 열기·실행을 구분하며 지난 세션의 실행과 중복 제출을 거절한다. 닫기는 비동기 실행 gate를 기다리지 않고 `action`과 세션 검사를 통해 준비 중인 작업을 취소한다. 창 숨김과 포커스 복원을 같은 `action` 경계에서 마치므로 이전 닫기가 새 창의 포커스를 빼앗지 않는다. 입력은 전송하지 않으며 다음 자동 수다를 다시 예약한다. 위젯 실행은 선택 시점 revision과 현재 세션을 재검사하고 대화는 선택한 캐릭터 ID를 기존 직접 입력으로 전달한다. 제품 계약과 실제 검증 범위는 [런처 사양](../product/desktop.md#command-palette)과 [상태표](../status.md#command-palette)를 따른다.
 
 대화와 자동 작업은 서로 다른 경계를 함께 사용한다. 모듈을 나눠도 아래 역할과 확인 순서는 유지한다.
 

@@ -7,6 +7,7 @@ import { DesktopPreview } from "./components/DesktopPreview/DesktopPreview";
 import { DesktopToy } from "./components/DesktopToy/DesktopToy";
 import { SettingsPanel } from "./components/SettingsPanel/SettingsPanel";
 import { WidgetTool } from "./widgets/WidgetTool/WidgetTool";
+import { Launcher } from "./components/Launcher/Launcher";
 import { Planner } from "./widgets/Planner/Planner";
 import { WidgetDisplay } from "./widgets/WidgetDisplay/WidgetDisplay";
 import { MemoNote } from "./widgets/MemoNote/MemoNote";
@@ -32,16 +33,21 @@ export function App(): JSX.Element {
           <WindowHeader
             label="창 닫기"
             title={
-              view === "settings"
-                ? "설정"
-                : view === "characters"
-                  ? "캐릭터"
-                  : view === "widgets"
-                    ? "위젯"
-                    : undefined
+              view === "launcher"
+                ? "빠른 실행"
+                : view === "settings"
+                  ? "설정"
+                  : view === "characters"
+                    ? "캐릭터"
+                    : view === "widgets"
+                      ? "위젯"
+                      : undefined
             }
             onClose={
-              view === "settings" || view === "characters" || view === "widgets"
+              view === "settings" ||
+              view === "characters" ||
+              view === "widgets" ||
+              view === "launcher"
                 ? undefined
                 : () => command(view === "balloon" ? "skip_talk" : "hide_boxes")
             }
@@ -63,6 +69,7 @@ export function App(): JSX.Element {
       </main>
     );
   }
+  if (view === "launcher") return <Launcher snapshot={snapshot} />;
   if (view === "settings" || view === "characters" || view === "widgets") {
     return (
       <SettingsPanel snapshot={snapshot} initialSection={view === "settings" ? undefined : view} />

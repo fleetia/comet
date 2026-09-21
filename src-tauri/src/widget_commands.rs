@@ -414,35 +414,62 @@ pub(crate) async fn open_widget(
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
 ) -> Result<(), String> {
-    if crate::unavailable(&state) {
-        return Err("앱을 정리하고 있어요.".into());
-    }
-    let instance = storage::get(&*lock(&state.db)?, &id)?;
+    open_widget_inner(&app, &state, &id, None).await
+}
+
+pub(crate) async fn open_widget_for_launcher(
+    app: tauri::AppHandle,
+    state: &Arc<AppState>,
+    id: String,
+    expected_revision: i64,
+    session_id: u64,
+) -> Result<(), String> {
+    open_widget_inner(&app, state, &id, Some((expected_revision, session_id))).await
+}
+
+fn validate_open_widget(
+    state: &AppState,
+    instance: &widgets::WidgetInstance,
+    launcher: Option<(i64, u64)>,
+) -> Result<(), String> {
     if !instance.installed || !instance.enabled {
         return Err("위젯을 설치하고 켜 주세요.".into());
     }
-    uuid::Uuid::parse_str(&id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
-    if matches!(instance.kind.as_str(), "todo" | "calendar") {
-        return crate::planner_windows::open(
-            &app,
-            if instance.kind == "calendar" {
-                "calendar"
-            } else {
-                "today"
-            },
-        );
+    if let Some((revision, session)) = launcher {
+        crate::app::launcher::validate_session(state, session)?;
+        if instance.revision != revision {
+            return Err(
+                "위젯 상태가 바뀌었어요. 최신 검색 결과를 확인하고 다시 실행해 주세요.".into(),
+            );
+        }
     }
+    Ok(())
+}
+
+async fn open_widget_inner(
+    app: &tauri::AppHandle,
+    state: &Arc<AppState>,
+    id: &str,
+    launcher: Option<(i64, u64)>,
+) -> Result<(), String> {
+    uuid::Uuid::parse_str(id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
+    let instance = change(state, |db| {
+        let instance = storage::get(db, id)?;
+        validate_open_widget(state, &instance, launcher)?;
+        Ok(instance)
+    })?;
     if crate::behavior::TOYS.contains(&instance.kind.as_str()) {
-        let token = crate::desktop_toys::launch_token(&app, &id)?;
-        let geometry = crate::desktop_toys::current_geometry(&app).await?;
-        return change(&state, |db| {
-            let current = storage::get(db, &id)?;
-            if !current.installed || !current.enabled {
-                return Err("장난감을 설치하고 켜 주세요.".into());
+        let token = crate::desktop_toys::launch_token(app, id)?;
+        let geometry = crate::desktop_toys::current_geometry(app).await?;
+        return change(state, |db| {
+            let current = storage::get(db, id)?;
+            validate_open_widget(state, &current, launcher)?;
+            crate::desktop_toys::validate_launch(app, id, token)?;
+            if let Some((_, session)) = launcher {
+                crate::app::launcher::accept_execution(state, session)?;
             }
-            crate::desktop_toys::validate_launch(&app, &id, token)?;
             crate::desktop_toys::open(
-                &app,
+                app,
                 &current.id,
                 &current.kind,
                 None,
@@ -454,17 +481,32 @@ pub(crate) async fn open_widget(
         });
     }
     if crate::widget_connections::spotify_widget(&instance) {
-        let _ =
-            crate::widget_connections::prepare_music_widget(&app, state.inner(), &id, true).await;
+        let _ = crate::widget_connections::prepare_music_widget(app, state, id, true).await;
     }
     // The widget may have been disabled or removed while the OS was launching Spotify.
     let _action = lock(&state.action)?;
-    if crate::unavailable(&state) {
+    if crate::unavailable(state) {
         return Err("앱을 정리하고 있어요.".into());
     }
-    let current = storage::get(&*lock(&state.db)?, &id)?;
-    if !current.installed || !current.enabled {
-        return Err("위젯을 설치하고 켜 주세요.".into());
+    let current = {
+        let db = lock(&state.db)?;
+        current_events(state, &db)?;
+        let current = storage::get(&db, id)?;
+        validate_open_widget(state, &current, launcher)?;
+        current
+    };
+    if let Some((_, session)) = launcher {
+        crate::app::launcher::accept_execution(state, session)?;
+    }
+    if matches!(current.kind.as_str(), "todo" | "calendar") {
+        return crate::planner_windows::open(
+            app,
+            if current.kind == "calendar" {
+                "calendar"
+            } else {
+                "today"
+            },
+        );
     }
     let label = format!("widget-{id}");
     if let Some(window) = app.get_webview_window(&label) {
@@ -472,29 +514,17 @@ pub(crate) async fn open_widget(
         return window.set_focus().map_err(|error| error.to_string());
     }
     tauri::WebviewWindowBuilder::new(
-        &app,
+        app,
         label,
         tauri::WebviewUrl::App(format!("index.html?view=widget&id={id}").into()),
     )
     .title(format!(
         "comet · {}",
-        widgets::manifest(&instance.kind)?.name
+        widgets::manifest(&current.kind)?.name
     ))
     .inner_size(
-        if instance.kind == "music" {
-            440.0
-        } else if instance.kind == "todo" {
-            480.0
-        } else {
-            360.0
-        },
-        if instance.kind == "music" {
-            340.0
-        } else if instance.kind == "todo" {
-            336.0
-        } else {
-            480.0
-        },
+        if current.kind == "music" { 440.0 } else { 360.0 },
+        if current.kind == "music" { 340.0 } else { 480.0 },
     )
     .min_inner_size(296.0, 320.0)
     .decorations(false)
@@ -571,7 +601,11 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
         let alerted =
             widgets::reminders::advance(db, &mut *lock(&state.widget_clocks)?, timestamp)?;
         let runtime = lock(&state.runtime)?;
-        if runtime.hidden || runtime.paused || !store::settings(db)?.autonomous_enabled {
+        if state.launcher_open.load(Ordering::SeqCst)
+            || runtime.hidden
+            || runtime.paused
+            || !store::settings(db)?.autonomous_enabled
+        {
             storage::discard_pending(db)?;
         }
         drop(runtime);
@@ -605,7 +639,11 @@ pub(crate) fn play_widget_reaction(
         let status = lock(&state.runtime)?.clone();
         let db = lock(&state.db)?;
         current_events(state, &db)?;
-        if status.hidden || status.paused || !store::settings(&db)?.autonomous_enabled {
+        if state.launcher_open.load(Ordering::SeqCst)
+            || status.hidden
+            || status.paused
+            || !store::settings(&db)?.autonomous_enabled
+        {
             storage::discard_pending(&db)?;
             return Ok(false);
         }
@@ -694,6 +732,28 @@ fn fallback_reaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn launcher_widget_dispatch_rejects_changed_or_disabled_preview() {
+        let state = crate::app::tests::state();
+        let instance = widgets::WidgetInstance {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind: "ball".into(),
+            version: 1,
+            installed: true,
+            enabled: true,
+            revision: 3,
+            data: serde_json::json!({}),
+            error: None,
+        };
+        state.launcher_open.store(true, Ordering::SeqCst);
+        assert!(validate_open_widget(&state, &instance, Some((3, 0))).is_ok());
+        assert!(validate_open_widget(&state, &instance, Some((2, 0))).is_err());
+        assert!(validate_open_widget(&state, &instance, Some((3, 1))).is_err());
+        let mut disabled = instance;
+        disabled.enabled = false;
+        assert!(validate_open_widget(&state, &disabled, Some((3, 0))).is_err());
+    }
 
     #[test]
     fn addon_pair_skips_raw_widget_notifications_while_default_and_custom_keep_fallback() {

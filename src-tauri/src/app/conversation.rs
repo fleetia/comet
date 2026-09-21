@@ -22,8 +22,17 @@ pub(crate) fn route_message(
     state: &AppState,
     db: &Connection,
     content: &str,
+    targets: &[String],
 ) -> Result<Option<Vec<SceneLine>>, String> {
-    let entries = wordbook::entries(db)?;
+    let entries: Vec<_> = wordbook::entries(db)?
+        .into_iter()
+        .filter(|entry| {
+            targets.len() != 1
+                || characters::resolve_lines(db, &entry.lines).map_or(true, |lines| {
+                    lines.iter().all(|line| targets.contains(&line.persona))
+                })
+        })
+        .collect();
     if let Some(entry) = wordbook::match_entry(&entries, content) {
         let lines = characters::resolve_lines(db, &entry.lines).map_err(|error| {
             format!(
@@ -33,7 +42,7 @@ pub(crate) fn route_message(
         })?;
         return Ok(Some(lines));
     }
-    if let Some(lines) = characters::keyword_scene(db, content)? {
+    if let Some(lines) = characters::keyword_scene(db, content, targets)? {
         return Ok(Some(characters::resolve_lines(db, &lines)?));
     }
     let settings = store::settings(db)?;
@@ -53,6 +62,7 @@ pub(crate) fn record_input_and_route(
     db: &Connection,
     content: &str,
     target: &str,
+    targets: &[String],
     message_id: &str,
 ) -> Result<Option<Vec<SceneLine>>, String> {
     store::insert_message(
@@ -67,7 +77,7 @@ pub(crate) fn record_input_and_route(
             status: "complete".into(),
         },
     )?;
-    route_message(state, db, content)
+    route_message(state, db, content, targets)
 }
 
 #[tauri::command]
@@ -124,7 +134,8 @@ pub(crate) async fn send_message(
         if session.participants != targets {
             store::set_conversation_participants(&db, &session.id, &targets)?;
         }
-        let registered = record_input_and_route(&state, &db, content, &target, &client_message_id);
+        let registered =
+            record_input_and_route(&state, &db, content, &target, &targets, &client_message_id);
         let token = super::tasks::reserve(&state, super::tasks::Kind::Conversation, false)?;
         if registered.is_err() {
             lock(&state.tasks)?.active = None;
@@ -206,13 +217,13 @@ pub(crate) fn retry_turn(
                 return Err("이 대화의 이어하기에서 다시 요청해 주세요.".into());
             }
         }
-        let registered = route_message(&state, &db, &latest.content)?;
         let original = store::message_targets(&db, &message_id)?;
         let requested = if target == "all" {
             original.clone()
         } else {
             resolve_targets(&db, &target)?
         };
+        let registered = route_message(&state, &db, &latest.content, &requested)?;
         let targets = requested
             .into_iter()
             .filter(|id| {

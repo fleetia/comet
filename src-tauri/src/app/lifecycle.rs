@@ -1,8 +1,8 @@
 use super::interrupt;
 use super::windows::{hide_boxes, show_boxes, skip_talk};
 use super::{
-    background::background_loop, conversation, lock, now, open_session, settings, snapshot,
-    windows, AppState,
+    background::background_loop, conversation, launcher, lock, now, open_session, settings,
+    snapshot, windows, AppState,
 };
 use super::{publish, schedule_idle, unavailable};
 use crate::widget_backgrounds::{self, SCHEME as WIDGET_BACKGROUND_SCHEME};
@@ -177,6 +177,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(crate::character_collision_host::Runtime::default())
         .manage(crate::planner_windows::Navigation::default())
+        .plugin(launcher::plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -210,6 +211,10 @@ pub fn run() {
                 runtime: Mutex::new(RuntimeStatus::default()),
                 playback: Mutex::new(None),
                 panel: Mutex::new(None),
+                launcher: Mutex::new(launcher::Runtime::default()),
+                launcher_open: AtomicBool::new(false),
+                launcher_session: AtomicU64::new(0),
+                launcher_gate: tokio::sync::Mutex::new(()),
                 settings_section: Mutex::new(windows::SettingsSection::default()),
                 settings_dirty: AtomicBool::new(false),
                 settings_exit_confirmed: AtomicBool::new(false),
@@ -247,6 +252,7 @@ pub fn run() {
             crate::character_reaction_host::install(app.handle(), state.clone());
             app.manage(desktop_toys::Runtime::default());
             app.manage(updater::UpdateState::default());
+            launcher::initialize(app.handle(), &state).map_err(std::io::Error::other)?;
             crate::memo_notes::schedule_sync(app.handle());
             lock(&state.runtime).map_err(std::io::Error::other)?.hidden =
                 !behavior::preferences(&*lock(&state.db).map_err(std::io::Error::other)?)
@@ -290,6 +296,10 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == "launcher" {
+                launcher::window_event(window, event);
+                return;
+            }
             if window.label() == "settings" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
@@ -384,6 +394,12 @@ pub fn run() {
             super::users::assign_legacy_memories,
             super::users::forget_character_memories,
             super::users::count_character_memories,
+            launcher::get_launcher_state,
+            launcher::open_launcher,
+            launcher::close_launcher,
+            launcher::resize_launcher,
+            launcher::set_launcher_shortcut,
+            launcher::execute_launcher,
             behavior::get_desktop_preferences,
             behavior::set_desktop_preferences,
             behavior::clear_desktop_toys,

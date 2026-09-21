@@ -14,6 +14,7 @@ comet은 바탕화면에 작은 A/B 본체와 잠깐 나타나는 말풍선을 �
 | 현재 구현과 검증·미검증 범위 | [구현 상태](docs/status.md) |
 | 모듈 책임과 취소·저장 경계 | [구조와 책임](docs/development/architecture.md) |
 | 기능별 계약 | [제품 문서](docs/product/) · [위젯 문서](docs/widgets/) |
+| 검색·대화 런처의 입력·대상·단축키 | [런처 사양](docs/product/desktop.md#command-palette) · [구현·검증 상태](docs/status.md#command-palette) |
 | `.talk` 작성과 CLI | [대본 작성](docs/product/talk.md) · [CLI·변수](docs/development/talk-reference.md) |
 | 릴리스·업데이트·CI | [릴리스 안내](docs/development/releases.md) |
 | 문서와 로컬 위키 운영 | [위키 운영](docs/development/wiki.md) |

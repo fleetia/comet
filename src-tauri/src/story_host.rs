@@ -19,6 +19,7 @@ pub fn advance(state: &AppState, at: Instant) -> Result<bool, String> {
     }
     let status = lock(&state.runtime)?.clone();
     if crate::app::unavailable(state)
+        || state.launcher_open.load(Ordering::SeqCst)
         || status.hidden
         || status.paused
         || !matches!(status.phase.as_str(), "idle" | "error")
@@ -75,7 +76,8 @@ pub fn choose_story(
             .ok_or("이미 지나간 이야기예요.")?;
         let status = lock(&state.runtime)?.clone();
         let db = lock(&state.db)?;
-        if status.hidden
+        if state.launcher_open.load(Ordering::SeqCst)
+            || status.hidden
             || status.paused
             || crate::app::unavailable(&state)
             || !crate::store::settings(&db)?.autonomous_enabled

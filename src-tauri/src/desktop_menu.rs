@@ -72,6 +72,7 @@ fn menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
     };
     let menu = Menu::new(app).map_err(|error| error.to_string())?;
     for (id, text) in [
+        ("launcher", "빠른 실행…"),
         ("show", "캐릭터 표시"),
         ("hide", "캐릭터 숨기기"),
         ("characters", "캐릭터 관리"),
@@ -150,6 +151,7 @@ pub(crate) fn create(app: &tauri::AppHandle) -> Result<(), String> {
             tauri::async_runtime::spawn(async move {
                 let state = app.state::<Arc<AppState>>();
                 let result = match id.as_str() {
+                    "launcher" => crate::app::launcher::open_launcher(app.clone(), state).await,
                     "show" => {
                         crate::show_boxes(&app, &state);
                         Ok(())

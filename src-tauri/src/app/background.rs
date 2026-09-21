@@ -122,7 +122,12 @@ pub(crate) fn expire_idle_recall(state: &AppState, at: i64) -> Result<bool, Stri
 pub(crate) fn begin_background(state: &AppState) -> Result<Option<(u64, Arc<AtomicBool>)>, String> {
     let _action = lock(&state.action)?;
     let status = lock(&state.runtime)?.clone();
-    if unavailable(state) || status.hidden || status.paused || lock(&state.panel)?.is_some() {
+    if unavailable(state)
+        || state.launcher_open.load(Ordering::SeqCst)
+        || status.hidden
+        || status.paused
+        || lock(&state.panel)?.is_some()
+    {
         return Ok(None);
     }
     let settings = store::settings(&*lock(&state.db)?)?;
