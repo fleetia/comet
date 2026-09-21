@@ -176,9 +176,7 @@ export function CharacterManager({
   return (
     <section className={embedded ? s.embedded : s.page} aria-label="캐릭터 관리">
       {!embedded && (
-        <WindowHeader className={s.header} label="캐릭터 관리 닫기">
-          <h1 className={s.title}>캐릭터</h1>
-        </WindowHeader>
+        <WindowHeader className={s.header} label="캐릭터 관리 닫기" title="캐릭터" />
       )}
       {(error || notice) && (
         <p className={error ? ui.error : ui.success} role={error ? "alert" : "status"}>

@@ -23,14 +23,6 @@ export const header = style({
   padding: "0 12px",
   borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
 });
-export const title = style({
-  display: "flex",
-  alignItems: "center",
-  gap: vars.space.sm,
-  height: "100%",
-  whiteSpace: "nowrap",
-});
-globalStyle(`${title} img`, { display: "block", flexShrink: 0 });
 export const layout = style({
   display: "grid",
   gridTemplateColumns: "136px minmax(0, 1fr)",

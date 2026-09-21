@@ -8,7 +8,6 @@ export const page = style({
 });
 export const embedded = style({ minWidth: 0 });
 export const header = style({ marginBottom: vars.space.md });
-export const title = style({ fontSize: vars.typography.size.headingSm, margin: 0 });
 export const layout = style({
   display: "grid",
   gridTemplateColumns: "168px minmax(0,1fr)",

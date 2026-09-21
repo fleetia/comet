@@ -67,7 +67,7 @@ fn active_appearance_target(
 fn close_widget_windows(app: &tauri::AppHandle, id: &str) -> Result<(), String> {
     for label in [format!("widget-{id}"), format!("widget-display-{id}")] {
         if let Some(window) = app.get_webview_window(&label) {
-            window.close().map_err(|error| error.to_string())?;
+            window.destroy().map_err(|error| error.to_string())?;
         }
     }
     Ok(())
@@ -517,7 +517,7 @@ pub(crate) async fn open_widget_display(
 pub(crate) fn close_widget(app: tauri::AppHandle, id: String) -> Result<(), String> {
     uuid::Uuid::parse_str(&id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
     if let Some(window) = app.get_webview_window(&format!("widget-{id}")) {
-        window.close().map_err(|error| error.to_string())?;
+        window.destroy().map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -526,7 +526,7 @@ pub(crate) fn close_widget(app: tauri::AppHandle, id: String) -> Result<(), Stri
 pub(crate) fn close_widget_display(app: tauri::AppHandle, id: String) -> Result<(), String> {
     uuid::Uuid::parse_str(&id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
     if let Some(window) = app.get_webview_window(&format!("widget-display-{id}")) {
-        window.close().map_err(|error| error.to_string())?;
+        window.destroy().map_err(|error| error.to_string())?;
     }
     Ok(())
 }

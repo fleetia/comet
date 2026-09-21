@@ -31,6 +31,15 @@ export function App(): JSX.Element {
         <div className={s.loadingHeader}>
           <WindowHeader
             label="창 닫기"
+            title={
+              view === "settings"
+                ? "설정"
+                : view === "characters"
+                  ? "캐릭터"
+                  : view === "widgets"
+                    ? "위젯"
+                    : undefined
+            }
             onClose={
               view === "settings" || view === "characters" || view === "widgets"
                 ? undefined

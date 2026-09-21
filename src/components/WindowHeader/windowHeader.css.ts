@@ -13,6 +13,31 @@ export const title = style({
   minWidth: 0,
   userSelect: "none",
 });
+export const brand = style({
+  display: "flex",
+  alignItems: "center",
+  gap: vars.space.sm,
+  minWidth: 0,
+  height: "100%",
+  whiteSpace: "nowrap",
+});
+export const icon = style({ display: "block", flexShrink: 0 });
+export const brandName = style({
+  flexShrink: 0,
+  color: vars.color.content.accent,
+  fontFamily: vars.typography.family.display,
+  fontSize: vars.typography.size.body,
+  fontWeight: 600,
+  lineHeight: vars.typography.lineHeight.compact,
+});
+export const windowName = style({
+  minWidth: 0,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  color: vars.color.content.secondary,
+  fontSize: vars.typography.size.caption,
+  lineHeight: vars.typography.lineHeight.compact,
+});
 export const grabTarget = style({
   cursor: "grab",
   ":active": { cursor: "grabbing" },

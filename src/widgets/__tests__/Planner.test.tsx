@@ -18,12 +18,14 @@ vi.mock("../../hooks/useSnapshot", async (load) => ({
 }));
 vi.mock("../useWidgets", () => ({ useWidgets: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => undefined) }));
+const native = vi.hoisted(() => ({
+  onCloseRequested: vi.fn(),
+  close: vi.fn(),
+  destroy: vi.fn(),
+  startDragging: vi.fn(),
+}));
 vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({
-    onCloseRequested: vi.fn().mockResolvedValue(() => undefined),
-    close: vi.fn().mockResolvedValue(undefined),
-    startDragging: vi.fn().mockResolvedValue(undefined),
-  }),
+  getCurrentWindow: () => native,
 }));
 
 const TODAY = "2026-09-21";
@@ -90,11 +92,21 @@ function expectAction(action: string, input: DataRecord): void {
   });
 }
 
+it("destroys a clean planner window from the header close button", async () => {
+  await renderPlanner(snapshot([]));
+  fireEvent.click(screen.getByRole("button", { name: "플래너 닫기" }));
+  await waitFor(() => expect(native.destroy).toHaveBeenCalledTimes(1));
+});
+
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(`${TODAY}T12:00:00`));
   vi.mocked(command).mockReset();
   vi.mocked(command).mockResolvedValue("today");
+  native.onCloseRequested.mockReset().mockResolvedValue(() => undefined);
+  native.close.mockReset().mockResolvedValue(undefined);
+  native.destroy.mockReset().mockResolvedValue(undefined);
+  native.startDragging.mockReset().mockResolvedValue(undefined);
   reload.mockReset();
   window.history.replaceState(null, "", "/?view=planner");
   HTMLDialogElement.prototype.showModal = function (): void {

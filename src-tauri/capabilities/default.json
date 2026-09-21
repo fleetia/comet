@@ -2,5 +2,10 @@
   "identifier": "desktop",
   "description": "Local desktop window controls",
   "windows": ["body-*", "face-*", "balloon", "settings", "planner", "widget-*", "desktop-toy-*"],
-  "permissions": ["core:default", "core:window:allow-start-dragging", "core:window:allow-close"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-close",
+    "core:window:allow-destroy"
+  ]
 }

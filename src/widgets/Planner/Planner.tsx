@@ -300,7 +300,7 @@ export function Planner(): ReactElement {
       setConfirmClose(true);
       return;
     }
-    if (isDesktop()) await getCurrentWindow().close();
+    if (isDesktop()) await getCurrentWindow().destroy();
   }
   const shown = items.filter(
     (item) =>
@@ -310,9 +310,7 @@ export function Planner(): ReactElement {
   );
   return (
     <main className={s.window}>
-      <WindowHeader className={s.header} label="플래너 닫기" onClose={closeWindow}>
-        comet · 플래너
-      </WindowHeader>
+      <WindowHeader className={s.header} label="플래너 닫기" title="플래너" onClose={closeWindow} />
       {(loadError || failure) && (
         <div role="alert" className={s.error}>
           {loadError || failure}{" "}

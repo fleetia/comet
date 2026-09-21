@@ -26,11 +26,12 @@ export function WidgetFrame({
   return (
     <main className={`${s.frame[variant]} ${className}`}>
       <div className={s.fixedHeader}>
-        <WindowHeader className={s.header[variant]} label={closeLabel} onClose={onClose}>
-          <h1 className={s.title[variant]} title={title}>
-            {title}
-          </h1>
-        </WindowHeader>
+        <WindowHeader
+          className={s.header[variant]}
+          label={closeLabel}
+          onClose={onClose}
+          title={title}
+        />
       </div>
       <div className={s.content[variant]}>
         {status && <p className={s.status}>{status}</p>}

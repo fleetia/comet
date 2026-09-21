@@ -2,16 +2,18 @@ import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
 import { IconButton } from "@fleetia/lagrange";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { errorText, isDesktop } from "../../hooks/useSnapshot";
+import cometIcon from "../../../src-tauri/icons/source.svg";
 import * as s from "./windowHeader.css";
 import * as ui from "../../lagrange.css";
 
 type Props = {
-  children: ReactNode;
+  children?: ReactNode;
   actions?: ReactNode;
   className?: string;
   label: string;
   preview?: boolean;
   onClose?: () => Promise<void>;
+  title?: string;
 };
 
 export function WindowHeader({
@@ -21,6 +23,7 @@ export function WindowHeader({
   label,
   preview = false,
   onClose,
+  title,
 }: Props): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const headerRef = useRef<HTMLElement>(null);
@@ -108,7 +111,24 @@ export function WindowHeader({
     <>
       <header ref={headerRef} className={className}>
         <div className={s.header}>
-          <div className={s.title}>{children}</div>
+          <div className={s.title}>
+            {title ? (
+              <div className={s.brand} title={title}>
+                <img
+                  className={s.icon}
+                  src={cometIcon}
+                  alt=""
+                  width={16}
+                  height={16}
+                  draggable={false}
+                />
+                <span className={s.brandName}>comet</span>
+                <span className={s.windowName}>{title}</span>
+              </div>
+            ) : (
+              children
+            )}
+          </div>
           <div ref={actionsRef} className={s.actions}>
             {actions}
             <IconButton
@@ -117,6 +137,8 @@ export function WindowHeader({
               size="compact"
               label={label}
               disabled={!enabled}
+              onMouseDown={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
               onClick={() => void close()}
             >
               ×

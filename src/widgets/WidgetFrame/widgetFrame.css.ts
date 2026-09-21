@@ -27,26 +27,6 @@ export const header = styleVariants({
     borderBottom: `1px solid ${vars.color.border.subtle}`,
   },
 });
-export const title = styleVariants({
-  tool: {
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    color: vars.color.content.accent,
-    fontFamily: vars.typography.family.display,
-    fontSize: vars.typography.size.body,
-    lineHeight: vars.typography.lineHeight.compact,
-  },
-  note: {
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    fontSize: vars.typography.size.caption,
-    fontWeight: "normal",
-    lineHeight: "28px",
-    color: vars.color.content.secondary,
-  },
-});
 export const status = style({
   marginBottom: vars.space.sm,
   color: vars.color.content.secondary,

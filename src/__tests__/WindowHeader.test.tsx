@@ -45,6 +45,11 @@ it("drags the title with a single left press and keeps actions separate", async 
   expect(native.startDragging).toHaveBeenCalledTimes(1);
 });
 
+it("renders the shared icon and window title when a title is provided", () => {
+  render(<WindowHeader label="설정 닫기" title="설정" />);
+  expect(screen.getByTitle("설정").textContent).toBe("comet설정");
+});
+
 it("drags from the window origin and outer padding only above the visible header bottom", () => {
   render(<WindowHeader label="설정 닫기">설정</WindowHeader>);
   for (const [clientX, clientY] of [

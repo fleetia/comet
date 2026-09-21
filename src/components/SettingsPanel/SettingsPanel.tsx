@@ -17,7 +17,6 @@ import {
   TextField,
 } from "@fleetia/lagrange";
 import { version } from "../../../package.json";
-import cometIcon from "../../../src-tauri/icons/source.svg";
 import type { Snapshot } from "../../types";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { DesktopPreferences } from "../DesktopPreferences/DesktopPreferences";
@@ -145,17 +144,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
   const Container = preview ? "section" : "main";
   return (
     <Container className={`${styles.window} ${preview ? styles.preview : ""}`}>
-      <WindowHeader className={styles.header} label="설정 닫기" preview={preview}>
-        <div className={styles.title}>
-          <img src={cometIcon} alt="" width={16} height={16} draggable={false} />
-          <Text as="span" weight="strong" tone="accent">
-            comet
-          </Text>
-          <Text as="span" variant="caption" tone="muted">
-            설정
-          </Text>
-        </div>
-      </WindowHeader>
+      <WindowHeader className={styles.header} label="설정 닫기" title="설정" preview={preview} />
       <Tabs
         value={section}
         onValueChange={navigate}

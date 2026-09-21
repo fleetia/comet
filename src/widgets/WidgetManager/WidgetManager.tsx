@@ -206,11 +206,8 @@ export function WidgetManager({
           className={styles.header}
           label="위젯 관리 닫기"
           onClose={() => command("close_widgets")}
-        >
-          <Heading level={1} variant="subsection">
-            위젯
-          </Heading>
-        </WindowHeader>
+          title="위젯"
+        />
       )}
       <header className={embedded ? styles.catalogSummary : styles.sectionHeader}>
         {!embedded && (
