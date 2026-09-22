@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "scope": "Actual release helper, public fixture queries; not Windows reference hardware",
+  "host": {
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "logicalCpu": 14,
+    "cpu": "Apple M4 Pro"
+  },
+  "models": [
+    "Kiwi 0.24.0 CoNg default dictionary (multi/typo disabled)",
+    "E5 CPU U8S8"
+  ],
+  "helperSha256": "6e3e3ba652f55657c0d3249cd45635ad884f321e4161c447d03f1c222fba2f86",
+  "execution": {
+    "cpuThreads": 1,
+    "sequential": true,
+    "spinning": false,
+    "cpuArena": false,
+    "memoryPattern": false
+  },
+  "workload": {
+    "publicFixtureQueries": 90,
+    "longQueriesNear2000Characters": 10
+  },
+  "queries": 100,
+  "coldStartSeconds": 2.600740124937147,
+  "nativeQueryP50Ms": 3.829000052064657,
+  "nativeQueryP95Ms": 141.5653747972101,
+  "sampledPeakRssBytes": 910819328,
+  "rssSamplingIntervalMs": 50,
+  "idleObservationSeconds": 3.000963957980275,
+  "idleCpuSeconds": 0.0,
+  "gracefulExitMs": 176.47266713902354,
+  "exitCode": 0,
+  "limitations": [
+    "RSS is sampled and can miss shorter spikes.",
+    "Does not include SQLite search/application RSS.",
+    "Does not validate the 8GB/4CPU Windows target."
+  ]
+}

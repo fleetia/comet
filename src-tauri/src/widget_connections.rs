@@ -520,6 +520,11 @@ pub(crate) fn configure_connection_widget(
         let instance = storage::get(&db, &id)?;
         active(&instance, None)?;
         let mut data = connections::configure(&instance.kind, &instance.data, &input)?;
+        if instance.kind == "music"
+            && data["config"]["provider"] != instance.data["config"]["provider"]
+        {
+            crate::music_bridge::revoke(&id);
+        }
         data["failureCount"] = json!(0);
         data["nextRefreshAt"] = json!(0);
         if let Some(job) = lock(&state.widget_jobs)?.remove(&id) {
@@ -568,6 +573,300 @@ fn calendar_due(connection: &calendar::Connection, now: i64) -> bool {
     }
     calendar::refresh_due(&connection, now)
 }
+async fn refresh_observation(
+    instance: &WidgetInstance,
+    now: i64,
+) -> Result<Value, connections::ConnectionError> {
+    if instance.kind != "music" || instance.data["config"]["provider"] != "spicetify" {
+        return connections::refresh(&instance.kind, &instance.data, now).await;
+    }
+    let mut observation = crate::music_bridge::request(&instance.id, "observe", Value::Null)
+        .await
+        .map_err(|message| connections::ConnectionError {
+            status: "offline".into(),
+            message,
+        })?;
+    observation["observedAt"] = json!(timestamp());
+    observation["provider"] = json!("spicetify");
+    observation["source"] = json!("Spotify · Spicetify");
+    let mut data = instance.data.clone();
+    data["observation"] = observation;
+    data["lastSuccessAt"] = json!(timestamp());
+    data["status"] = json!("ready");
+    data["error"] = Value::Null;
+    Ok(data)
+}
+
+fn music_gate() -> &'static tokio::sync::Mutex<()> {
+    static GATE: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    GATE.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
+fn check_music_request(
+    instance: &WidgetInstance,
+    revision: i64,
+    action: &str,
+    now: i64,
+) -> Result<(), String> {
+    active(instance, Some("music"))?;
+    if instance.revision != revision {
+        return Err("음악 상태가 바뀌었어요. 최신 상태에서 다시 눌러 주세요.".into());
+    }
+    if instance.data["configured"] != true {
+        return Err("음악 연결을 먼저 설정해 주세요.".into());
+    }
+    if ![
+        "observe",
+        "play",
+        "pause",
+        "next",
+        "previous",
+        "seek",
+        "volume",
+        "shuffle",
+        "repeat",
+        "playUri",
+        "playlists",
+        "playlistTracks",
+        "playRandom",
+        "queue",
+        "enqueue",
+        "like",
+    ]
+    .contains(&action)
+    {
+        return Err("지원하지 않는 음악 명령입니다.".into());
+    }
+    let query = ["observe", "playlists", "playlistTracks", "queue"].contains(&action);
+    if !query {
+        let observation = &instance.data["observation"];
+        if !matches!(instance.data["status"].as_str(), Some("ready" | "syncing"))
+            || !observation["observedAt"]
+                .as_i64()
+                .is_some_and(|at| now >= at && now - at <= 30_000)
+        {
+            return Err("현재 재생 상태를 다시 조회한 뒤 조작해 주세요.".into());
+        }
+        let capability = action;
+        if observation["capabilities"][capability] != true {
+            return Err("선택한 앱에서 지원하지 않는 재생 기능입니다.".into());
+        }
+    }
+    Ok(())
+}
+
+fn music_job_current(state: &AppState, job: &Job) -> Result<(), String> {
+    let _action = lock(&state.action)?;
+    let current = storage::get(&*lock(&state.db)?, &job.instance.id)?;
+    if !is_current(state, job, &current)? {
+        return Err("설정이 바뀌어 음악 명령을 취소했습니다.".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn music_request(
+    app: AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    expected_revision: i64,
+    action: String,
+    value: Value,
+) -> Result<Value, String> {
+    let _gate = music_gate()
+        .try_lock()
+        .map_err(|_| "다른 음악 명령을 처리하고 있어요. 잠시 후 다시 눌러 주세요.")?;
+    let job = begin(&state, &id, Some("music"), |instance| {
+        check_music_request(instance, expected_revision, &action, timestamp())?;
+        Ok(None)
+    })?;
+    let query = ["playlists", "playlistTracks", "queue"].contains(&action.as_str());
+    let result = execute(&job, async {
+        music_job_current(&state, &job)?;
+        let provider = job.instance.data["config"]["provider"]
+            .as_str()
+            .unwrap_or("");
+        let result = if action == "observe" {
+            Value::Null
+        } else if provider == "spicetify" {
+            crate::music_bridge::request(&id, &action, value).await?
+        } else {
+            if query {
+                return Err("플레이리스트와 대기열은 Spotify 확장 연결이 필요해요.".into());
+            }
+            let observation = &job.instance.data["observation"];
+            let provider = if provider == "auto" {
+                observation["provider"].as_str().unwrap_or("")
+            } else {
+                provider
+            };
+            let input = if action == "playUri" {
+                value["uri"].clone()
+            } else {
+                value
+            };
+            crate::widgets::music_native::control_source(
+                provider,
+                observation["sourceId"].as_str(),
+                &action,
+                input,
+                job.cancel.clone(),
+            )
+            .await
+            .map_err(|failure| failure.message)?;
+            Value::Null
+        };
+        music_job_current(&state, &job)?;
+        let refreshed = if query {
+            None
+        } else {
+            Some(refresh_observation(&job.instance, timestamp()).await)
+        };
+        Ok((result, refreshed))
+    })
+    .await;
+    let outcome = match result {
+        Ok((value, refreshed)) => finish(&state, &job, |db, current| {
+            if let Some(refreshed) = refreshed {
+                let mut data = match &refreshed {
+                    Ok(data) => data.clone(),
+                    Err(error) => information_failure(
+                        &current.data,
+                        error,
+                        timestamp(),
+                        connections::min_interval("music"),
+                    ),
+                };
+                if refreshed.is_ok() {
+                    data["failureCount"] = json!(0);
+                    data["nextRefreshAt"] = json!(timestamp() + connections::min_interval("music"));
+                }
+                storage::commit_data(db, &id, current.revision, data, vec![], timestamp())?;
+                refreshed.map_err(|error| error.message)?;
+            }
+            Ok(())
+        })
+        .map(|_| value),
+        Err(error) => {
+            abandon(&state, &job);
+            Err(error)
+        }
+    };
+    publish_widgets(&app, &state);
+    outcome
+}
+
+#[tauri::command]
+pub(crate) fn music_bridge_status(
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+) -> Result<Value, String> {
+    let _action = lock(&state.action)?;
+    let instance = storage::get(&*lock(&state.db)?, &id)?;
+    active(&instance, Some("music"))?;
+    Ok(crate::music_bridge::pairing_status(&id))
+}
+
+#[tauri::command]
+pub(crate) async fn export_music_extension(app: AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (send, receive) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Comet Spicetify 확장 파일 저장")
+        .set_file_name("comet.js")
+        .add_filter("Spicetify 확장", &["js"])
+        .save_file(move |path| {
+            let _ = send.send(path);
+        });
+    let Some(path) = receive.await.map_err(|_| "파일 저장을 취소했어요.")? else {
+        return Ok(None);
+    };
+    let path = path.into_path().map_err(|error| error.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::write(&path, include_str!("../../integrations/spicetify/comet.js"))
+            .map_err(|error| format!("확장 파일을 저장하지 못했어요: {error}"))?;
+        Ok(Some(path.to_string_lossy().into_owned()))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub(crate) fn music_bridge_disconnect(
+    app: AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    expected_revision: i64,
+) -> Result<(), String> {
+    {
+        let _action = lock(&state.action)?;
+        let db = lock(&state.db)?;
+        let instance = storage::get(&db, &id)?;
+        active(&instance, Some("music"))?;
+        if instance.revision != expected_revision {
+            return Err("음악 설정이 바뀌었어요. 다시 확인해 주세요.".into());
+        }
+        crate::music_bridge::revoke(&id);
+        if let Some(job) = lock(&state.widget_jobs)?.remove(&id) {
+            job.store(true, Ordering::SeqCst);
+        }
+        let mut data = instance.data.clone();
+        data["status"] = json!("offline");
+        data["error"] = json!("Spotify 확장 연결을 해제했어요.");
+        data["observation"] = Value::Null;
+        data["nextRefreshAt"] = json!(i64::MAX);
+        storage::commit_data(&db, &id, instance.revision, data, vec![], timestamp())?;
+    }
+    publish_widgets(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn music_bridge_pair(
+    app: AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    expected_revision: i64,
+) -> Result<Value, String> {
+    let _gate = music_gate()
+        .try_lock()
+        .map_err(|_| "다른 음악 명령을 처리하고 있어요.")?;
+    let job = begin(&state, &id, Some("music"), |instance| {
+        if instance.revision != expected_revision
+            || instance.data["config"]["provider"] != "spicetify"
+        {
+            return Err("Spotify 확장 연결 설정을 저장한 뒤 연결해 주세요.".into());
+        }
+        Ok(None)
+    })?;
+    let result = execute(&job, async {
+        music_job_current(&state, &job)?;
+        crate::music_bridge::start(&id).await
+    })
+    .await;
+    let outcome = match result {
+        Ok(value) => finish(&state, &job, |db, current| {
+            let mut data = current.data.clone();
+            data["status"] = json!("stale");
+            data["error"] = Value::Null;
+            data["failureCount"] = json!(0);
+            data["nextRefreshAt"] = json!(0);
+            storage::commit_data(db, &id, current.revision, data, vec![], timestamp())
+        })
+        .map(|_| value),
+        Err(error) => {
+            abandon(&state, &job);
+            Err(error)
+        }
+    };
+    if outcome.is_err() {
+        crate::music_bridge::revoke(&id);
+    }
+    publish_widgets(&app, &state);
+    outcome
+}
+
 async fn refresh_information(
     app: &AppHandle,
     state: &Arc<AppState>,
@@ -606,7 +905,7 @@ async fn refresh_information(
     })?;
     publish_widgets(app, state);
     let result = execute(&job, async {
-        Ok(connections::refresh(&job.instance.kind, &job.instance.data, time).await)
+        Ok(refresh_observation(&job.instance, time).await)
     })
     .await;
     let outcome = match result {
@@ -746,6 +1045,65 @@ pub(crate) fn start_due_widget_refreshes(app: &AppHandle, state: &Arc<AppState>)
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn music_instance(now: i64) -> WidgetInstance {
+        WidgetInstance {
+            id: "music-test".into(),
+            kind: "music".into(),
+            version: 1,
+            installed: true,
+            enabled: true,
+            revision: 7,
+            error: None,
+            data: json!({"configured":true,"status":"ready","config":{"provider":"spotify"},
+                "observation":{"observedAt":now,"capabilities":{"play":true,"seek":false}}}),
+        }
+    }
+    #[test]
+    fn music_commands_require_current_revision_freshness_and_provider_capability() {
+        let now = 1_000_000;
+        let mut instance = music_instance(now);
+        assert!(check_music_request(&instance, 7, "play", now).is_ok());
+        assert!(check_music_request(&instance, 6, "play", now).is_err());
+        assert!(check_music_request(&instance, 7, "seek", now).is_err());
+        assert!(check_music_request(&instance, 7, "play", now + 30_001).is_err());
+        assert!(check_music_request(&instance, 7, "play", now - 1).is_err());
+        assert!(check_music_request(&instance, 7, "executeScript", now).is_err());
+        instance.data["status"] = json!("offline");
+        assert!(check_music_request(&instance, 7, "play", now).is_err());
+        assert!(check_music_request(&instance, 7, "observe", now).is_ok());
+        instance.enabled = false;
+        assert!(check_music_request(&instance, 7, "observe", now).is_err());
+    }
+    #[test]
+    fn music_job_is_invalid_after_provider_change_or_disable_and_cannot_commit() {
+        let state = crate::lifecycle_tests::state();
+        let directory = tempfile::tempdir().unwrap();
+        let id = {
+            let db = lock(&state.db).unwrap();
+            storage::install(&db, directory.path(), &["music".into()]).unwrap();
+            storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|widget| widget.kind == "music")
+                .unwrap()
+                .id
+        };
+        let job = begin(&state, &id, Some("music"), |_| Ok(None)).unwrap();
+        assert!(music_job_current(&state, &job).is_ok());
+        {
+            let db = lock(&state.db).unwrap();
+            let instance = storage::get(&db, &id).unwrap();
+            let data =
+                connections::configure("music", &instance.data, &json!({"provider":"spotify"}))
+                    .unwrap();
+            storage::commit_data(&db, &id, instance.revision, data, vec![], 10).unwrap();
+        }
+        assert!(music_job_current(&state, &job).is_err());
+        assert!(finish(&state, &job, |_, _| panic!("stale commit executed")).is_err());
+        let job = begin(&state, &id, Some("music"), |_| Ok(None)).unwrap();
+        crate::widget_commands::cancel_widget_jobs(&state, Some(&id)).unwrap();
+        assert!(music_job_current(&state, &job).is_err());
+    }
     #[test]
     fn restart_retries_orphaned_sync_and_merge_preserves_calendar_preferences() {
         let mut connection = calendar::connect_ics(calendar::IcsConnectInput {

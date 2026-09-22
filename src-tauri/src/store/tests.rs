@@ -518,3 +518,493 @@ fn user_input_invalidates_prepared_scene_and_pending_tracking_is_bounded() {
     insert_message(&conn, &message("u2", "user", "다시 안녕")).unwrap();
     assert_eq!(pending_user_messages(&conn).unwrap()[0].id, "u2");
 }
+
+#[test]
+fn memory_search_uses_full_current_sources_and_never_pads_unrelated_results() {
+    let conn = open(Path::new(":memory:")).unwrap();
+    insert_message(&conn, &message("tea", "user", "나는 녹차를 좋아해 🍵")).unwrap();
+    insert_message(&conn, &message("home", "user", "나는 서울에서 살아")).unwrap();
+    apply(
+        &conn,
+        vec![
+            fact("tea", "나는 녹차를 좋아해 🍵"),
+            fact("home", "나는 서울에서 살아"),
+        ],
+        vec![],
+    );
+    let hits = search_memories(&conn, "녹차", &[], None).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].memory.content, "나는 녹차를 좋아해 🍵");
+    assert_eq!(hits[0].memory.source_message_id, "tea");
+    assert!(search_memories(&conn, "우주선", &[], None)
+        .unwrap()
+        .is_empty());
+    assert!(search_memories(&conn, "\" OR * ()", &[], None)
+        .unwrap()
+        .is_empty());
+    let id = &hits[0].memory.id;
+    edit_memory(&conn, id, "이제 홍차를 좋아해 🍵").unwrap();
+    assert!(revalidate_search_hits(&conn, &hits).unwrap().is_empty());
+    assert!(search_memories(&conn, "녹차", &[], None)
+        .unwrap()
+        .is_empty());
+    let updated = search_memories(&conn, "홍차", &[], None).unwrap();
+    assert_eq!(updated[0].content_version, 2);
+    assert_eq!(updated[0].memory.content, "이제 홍차를 좋아해 🍵");
+    delete_memory(&conn, id).unwrap();
+    assert!(search_memories(&conn, "홍차", &[], None)
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn derived_memory_indices_reject_edited_deleted_and_replaced_profiles() {
+    let conn = open(Path::new(":memory:")).unwrap();
+    insert_message(&conn, &message("tea", "user", "나는 차를 좋아해")).unwrap();
+    apply(&conn, vec![fact("tea", "나는 차를 좋아해")], vec![]);
+    set_search_profile(&conn, "kiwi", Some("kiwi-v1")).unwrap();
+    set_search_profile(&conn, "semantic", Some("e5-v1")).unwrap();
+    let item = next_memory_for_index(&conn, "semantic", "e5-v1")
+        .unwrap()
+        .unwrap();
+    let mut vector = vec![0.0; 384];
+    vector[0] = 1.0;
+    let windows = [MemoryEmbedding {
+        window_start: 0,
+        window_end: item.content.len(),
+        vector: vector.clone(),
+    }];
+    assert!(save_vector_index(&conn, &item.id, item.content_version, "e5-v1", &windows).unwrap());
+    assert!(save_kiwi_index(
+        &conn,
+        &item.id,
+        item.content_version,
+        "kiwi-v1",
+        "녹차 음료"
+    )
+    .unwrap());
+    assert_eq!(pending_index_count(&conn, "semantic", "e5-v1").unwrap(), 0);
+    assert!(search_memories(&conn, "녹차", &[], None)
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        search_memories(&conn, "", &[], Some(("e5-v1", &vector, 0.9)))
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        search_memories(&conn, "녹차", &["음료".into()], None)
+            .unwrap()
+            .len(),
+        1
+    );
+    edit_memory(&conn, &item.id, "이제 커피를 좋아해").unwrap();
+    assert!(!save_vector_index(&conn, &item.id, item.content_version, "e5-v1", &windows).unwrap());
+    assert!(!save_kiwi_index(&conn, &item.id, item.content_version, "kiwi-v1", "녹차").unwrap());
+    assert!(
+        search_memories(&conn, "", &[], Some(("e5-v1", &vector, 0.9)))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(search_memories(&conn, "녹차", &[], None)
+        .unwrap()
+        .is_empty());
+    let current = next_memory_for_index(&conn, "semantic", "e5-v1")
+        .unwrap()
+        .unwrap();
+    set_search_profile(&conn, "semantic", Some("e5-v2")).unwrap();
+    assert!(!save_vector_index(
+        &conn,
+        &current.id,
+        current.content_version,
+        "e5-v1",
+        &windows
+    )
+    .unwrap());
+    assert!(save_vector_index(
+        &conn,
+        &current.id,
+        current.content_version,
+        "e5-v2",
+        &windows
+    )
+    .unwrap());
+    clear_search_index(&conn, "semantic").unwrap();
+    assert!(!save_vector_index(
+        &conn,
+        &current.id,
+        current.content_version,
+        "e5-v2",
+        &windows
+    )
+    .unwrap());
+    assert_eq!(memories(&conn).unwrap().len(), 1);
+    delete_memory(&conn, &item.id).unwrap();
+    assert!(!save_kiwi_index(
+        &conn,
+        &current.id,
+        current.content_version,
+        "kiwi-v1",
+        "커피"
+    )
+    .unwrap());
+}
+
+#[test]
+fn memory_pages_are_bounded_and_revision_tracks_memory_changes_only() {
+    let conn = open(Path::new(":memory:")).unwrap();
+    let before = memory_revision(&conn).unwrap();
+    insert_message(&conn, &message("input", "user", "안녕")).unwrap();
+    assert_eq!(memory_revision(&conn).unwrap(), before);
+    for index in 0..53 {
+        conn.execute(
+            "INSERT INTO memories(id,content,source,updated) VALUES(?1,?2,?1,?3)",
+            params![
+                format!("id-{index:02}"),
+                format!("공통 기억 {index}"),
+                index
+            ],
+        )
+        .unwrap();
+    }
+    let page = memory_page(&conn, 0, 1000).unwrap();
+    assert_eq!(page.total, 53);
+    assert_eq!(page.items.len(), 50);
+    assert_eq!(page.next_offset, Some(50));
+    assert_eq!(page.revision, before + 53);
+    let tail = memory_page(&conn, 50, 50).unwrap();
+    assert_eq!(tail.items.len(), 3);
+    assert_eq!(tail.next_offset, None);
+    let hits = search_memories(&conn, "공통", &[], None).unwrap();
+    assert_eq!(hits.len(), 8);
+}
+
+#[test]
+fn analysis_completes_only_submitted_sources_and_rejects_other_source_ids() {
+    let conn = open(Path::new(":memory:")).unwrap();
+    for id in ["one", "two", "three"] {
+        insert_message(&conn, &message(id, "user", "나는 녹차를 좋아해")).unwrap();
+    }
+    let revision = revision(&conn).unwrap();
+    let bad =
+        json!({"revision":revision,"memories":[fact("two","나는 녹차를 좋아해")],"events":[]});
+    assert!(analyze_apply_batch(&conn, &bad, &["one".into()]).is_err());
+    assert_eq!(analysis_status(&conn).unwrap().pending, 3);
+    let good =
+        json!({"revision":revision,"memories":[fact("one","나는 녹차를 좋아해")],"events":[]});
+    analyze_apply_batch(&conn, &good, &["one".into()]).unwrap();
+    assert_eq!(
+        pending_user_messages(&conn)
+            .unwrap()
+            .iter()
+            .map(|message| message.id.as_str())
+            .collect::<Vec<_>>(),
+        ["two", "three"]
+    );
+    assert!(analyze_apply_batch(&conn, &good, &["two".into()]).is_err());
+    assert_eq!(analysis_status(&conn).unwrap().pending, 2);
+}
+
+#[test]
+fn analysis_failure_rolls_back_memory_fts_and_job_completion_together() {
+    let conn = open(Path::new(":memory:")).unwrap();
+    insert_message(&conn, &message("one", "user", "나는 녹차를 좋아해")).unwrap();
+    let before = revision(&conn).unwrap();
+    conn.execute_batch("CREATE TRIGGER fail_completion BEFORE UPDATE OF state ON memory_analysis_jobs WHEN new.state='done' BEGIN SELECT RAISE(ABORT,'injected storage failure'); END;").unwrap();
+    let result =
+        json!({"revision":before,"memories":[fact("one","나는 녹차를 좋아해")],"events":[]});
+    assert!(analyze_apply_batch(&conn, &result, &["one".into()]).is_err());
+    assert!(memories(&conn).unwrap().is_empty());
+    assert!(search_memories(&conn, "녹차", &[], None)
+        .unwrap()
+        .is_empty());
+    assert_eq!(analysis_status(&conn).unwrap().pending, 1);
+    assert_eq!(memory_revision(&conn).unwrap(), 0);
+    assert_eq!(revision(&conn).unwrap(), before);
+}
+
+#[test]
+fn analysis_retries_back_off_then_require_manual_retry() {
+    let conn = open(Path::new(":memory:")).unwrap();
+    insert_message(&conn, &message("one", "user", "나는 녹차를 좋아해")).unwrap();
+    for (attempt, delay) in [60000, 300000, 900000, 900000].into_iter().enumerate() {
+        analysis_failure(&conn, &["one".into()], 100).unwrap();
+        let (count,next,state):(usize,i64,String) = conn.query_row("SELECT attempts,next_attempt_at,state FROM memory_analysis_jobs WHERE message_id='one'",[],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?))).unwrap();
+        assert_eq!(count, attempt + 1);
+        assert_eq!(next, 100 + delay);
+        assert_eq!(state, if attempt == 3 { "deferred" } else { "pending" });
+    }
+    assert!(pending_user_messages(&conn).unwrap().is_empty());
+    assert_eq!(retry_deferred_analysis(&conn).unwrap(), 1);
+    assert_eq!(analysis_status(&conn).unwrap().pending, 1);
+}
+
+#[test]
+fn analysis_migration_preserves_legacy_cursor_without_replaying_affinity() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("legacy.sqlite");
+    let conn = open(&path).unwrap();
+    insert_message(&conn, &message("before", "user", "고마워")).unwrap();
+    insert_message(&conn, &message("after", "user", "나는 녹차를 좋아해")).unwrap();
+    put(&conn, "last_analysis_id", &"before").unwrap();
+    conn.execute_batch("DROP TABLE memory_analysis_jobs; DELETE FROM character_affinity; DELETE FROM kv WHERE key='memory_analysis_jobs_v1';").unwrap();
+    drop(conn);
+    let conn = open(&path).unwrap();
+    assert_eq!(analysis_status(&conn).unwrap().legacy_unverified, 1);
+    assert_eq!(pending_user_messages(&conn).unwrap()[0].id, "after");
+    assert_eq!(relationships(&conn).unwrap()[0].score, 20);
+    assert_eq!(messages(&conn, 10).unwrap().len(), 2);
+    drop(conn);
+    let conn = open(&path).unwrap();
+    assert_eq!(analysis_status(&conn).unwrap().legacy_unverified, 1);
+    assert_eq!(relationships(&conn).unwrap()[0].score, 20);
+}
+
+#[test]
+fn direct_affinity_requires_no_model_and_only_applies_new_inputs() {
+    let conn = open(Path::new(":memory:")).unwrap();
+    let thanks = message("thanks", "user", "고마워!");
+    insert_message(&conn, &thanks).unwrap();
+    assert_eq!(relationships(&conn).unwrap()[0].score, 21);
+    assert_eq!(relationships(&conn).unwrap()[1].score, 20);
+    insert_message(&conn, &thanks).unwrap();
+    insert_message(&conn, &message("quoted", "user", "친구가 고마워라고 했어")).unwrap();
+    insert_message(
+        &conn,
+        &message("not-thanks", "user", "고마워라고 생각하지 않아"),
+    )
+    .unwrap();
+    assert_eq!(relationships(&conn).unwrap()[0].score, 21);
+}
+
+#[test]
+#[ignore = "diagnostic benchmark; run explicitly with --ignored --nocapture --test-threads=1"]
+fn memory_retrieval_diagnostic_benchmark() {
+    use std::time::Instant;
+    let percentile = |samples: &mut Vec<f64>, percentile: usize| {
+        samples.sort_by(f64::total_cmp);
+        samples[(samples.len() - 1) * percentile / 100]
+    };
+    for count in [100, 1000, 10_000] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("benchmark.sqlite");
+        let conn = open(&path).unwrap();
+        set_search_profile(&conn, "semantic", Some("synthetic-384-normalized")).unwrap();
+        let mut query_vector = vec![0.0_f32; 384];
+        query_vector[0] = 1.0;
+        let started = Instant::now();
+        let tx = conn.unchecked_transaction().unwrap();
+        for index in 0..count {
+            let id = format!("memory-{index:05}");
+            let content = format!("내 취미{index} 기록은 주말에 책을 읽고 차를 마시는 것이다.");
+            tx.execute(
+                "INSERT INTO memories(id,content,source,updated) VALUES(?1,?2,?1,?3)",
+                params![id, content, index],
+            )
+            .unwrap();
+            let mut vector = vec![0.0_f32; 384];
+            vector[index as usize % 384] = 1.0;
+            let bytes: Vec<_> = vector
+                .iter()
+                .flat_map(|value| value.to_le_bytes())
+                .collect();
+            tx.execute(
+                "INSERT INTO memory_vectors VALUES(?1,1,'synthetic-384-normalized',0,?2,?3)",
+                params![id, content.len() as i64, bytes],
+            )
+            .unwrap();
+        }
+        tx.commit().unwrap();
+        let population_ms = started.elapsed().as_secs_f64() * 1000.0;
+        drop(conn);
+        let started = Instant::now();
+        let conn = open(&path).unwrap();
+        let page = memory_page(&conn, 0, 50).unwrap();
+        let initial_page_ms = started.elapsed().as_secs_f64() * 1000.0;
+        assert_eq!(page.items.len(), 50);
+        assert_eq!(page.total, count as usize);
+        let mut lexical = Vec::new();
+        let mut semantic = Vec::new();
+        for _ in 0..30 {
+            let started = Instant::now();
+            let _ = search_memories(&conn, "취미42", &[], None).unwrap();
+            lexical.push(started.elapsed().as_secs_f64() * 1000.0);
+            let started = Instant::now();
+            let _ = search_memories(
+                &conn,
+                "취미42",
+                &[],
+                Some(("synthetic-384-normalized", &query_vector, 0.9)),
+            )
+            .unwrap();
+            semantic.push(started.elapsed().as_secs_f64() * 1000.0);
+        }
+        let bytes: i64 = conn
+            .query_row(
+                "SELECT SUM(length(vector)) FROM memory_vectors",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        println!(
+            "{}",
+            json!({"memories":count,"build":if cfg!(debug_assertions) {"debug"} else {"release"},"populationMs":population_ms,"initialPageMs":initial_page_ms,"lexicalP50Ms":percentile(&mut lexical,50),"lexicalP95Ms":percentile(&mut lexical,95),"vectorScanP50Ms":percentile(&mut semantic,50),"vectorScanP95Ms":percentile(&mut semantic,95),"vectorCacheBytes":bytes,"note":"Synthetic vectors; no NLP model, tokenizer, child-process startup, or device support guarantee."})
+        );
+    }
+}
+
+#[test]
+fn grammatical_query_words_cannot_retrieve_unrelated_memories() {
+    let conn = open(Path::new(":memory:")).unwrap();
+    for (id, content) in [
+        ("hiking", "나는 주말마다 등산을 한다."),
+        ("cat", "내가 키우는 고양이의 이름은 별이다."),
+        ("birthday", "내 생일은 팔월이다."),
+        ("accent", "My favorite place is Café Étoile."),
+    ] {
+        conn.execute(
+            "INSERT INTO memories(id,content,source,updated) VALUES(?1,?2,?1,0)",
+            params![id, content],
+        )
+        .unwrap();
+    }
+    for query in [
+        "나는",
+        "내가 뭘 기억하니",
+        "내 혈액형은 뭐야?",
+        "내 고양이 생일은 언제야?",
+    ] {
+        assert!(
+            search_memories(&conn, query, &[], None).unwrap().is_empty(),
+            "{query}"
+        );
+    }
+    for terms in [
+        vec!["나", "혈액형", "뭐"],
+        vec!["고양이", "생일"],
+        vec!["고양이", "입양", "날짜"],
+    ] {
+        let terms = terms.into_iter().map(str::to_string).collect::<Vec<_>>();
+        assert!(search_memories(&conn, "사용자 질문", &terms, None)
+            .unwrap()
+            .is_empty());
+    }
+    assert_eq!(
+        search_memories(&conn, "cafe etoile", &[], None).unwrap()[0]
+            .memory
+            .id,
+        "accent"
+    );
+    assert_eq!(
+        search_memories(&conn, "등산", &[], None).unwrap()[0]
+            .memory
+            .id,
+        "hiking"
+    );
+    assert_eq!(
+        search_memories(&conn, "고양이 이름 알려줘", &[], None).unwrap()[0]
+            .memory
+            .id,
+        "cat"
+    );
+    assert_eq!(
+        search_memories(
+            &conn,
+            "고양이의 이름은 뭐지",
+            &["고양이".into(), "이름".into()],
+            None
+        )
+        .unwrap()[0]
+            .memory
+            .id,
+        "cat"
+    );
+}
+
+#[test]
+fn lexical_coverage_does_not_override_independent_semantic_candidates() {
+    let conn = open(Path::new(":memory:")).unwrap();
+    let content = "나는 주말에 산길을 걷는다.";
+    conn.execute(
+        "INSERT INTO memories(id,content,source,updated) VALUES('outdoors',?1,'source',0)",
+        [content],
+    )
+    .unwrap();
+    set_search_profile(&conn, "semantic", Some("coverage-regression")).unwrap();
+    let mut vector = vec![0.0; 384];
+    vector[0] = 1.0;
+    save_vector_index(
+        &conn,
+        "outdoors",
+        1,
+        "coverage-regression",
+        &[MemoryEmbedding {
+            window_start: 0,
+            window_end: content.len(),
+            vector: vector.clone(),
+        }],
+    )
+    .unwrap();
+    let hits = search_memories(
+        &conn,
+        "휴일 등산 취미",
+        &[],
+        Some(("coverage-regression", &vector, 0.9)),
+    )
+    .unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].methods, ["semantic"]);
+    vector[0] = 0.0;
+    vector[1] = 1.0;
+    assert!(search_memories(
+        &conn,
+        "내 혈액형은 뭐야",
+        &[],
+        Some(("coverage-regression", &vector, 0.9))
+    )
+    .unwrap()
+    .is_empty());
+}
+
+#[test]
+fn morphology_still_recovers_particle_and_irregular_inflection_queries() {
+    let conn = open(Path::new(":memory:")).unwrap();
+    set_search_profile(&conn, "kiwi", Some("morphology-regression")).unwrap();
+    for (id, content, tokens) in [
+        ("pet", "고양이의 이름은 별이다.", "고양이 이름 별"),
+        (
+            "taste",
+            "매운 음식보다 순한 음식을 좋아한다.",
+            "맵 음식 순하 음식 좋아하",
+        ),
+    ] {
+        conn.execute(
+            "INSERT INTO memories(id,content,source,updated) VALUES(?1,?2,?1,0)",
+            params![id, content],
+        )
+        .unwrap();
+        save_kiwi_index(&conn, id, 1, "morphology-regression", tokens).unwrap();
+    }
+    assert_eq!(
+        search_memories(
+            &conn,
+            "고양이는 이름이 뭐야?",
+            &["고양이".into(), "이름".into()],
+            None
+        )
+        .unwrap()[0]
+            .memory
+            .id,
+        "pet"
+    );
+    let hits = search_memories(
+        &conn,
+        "맵거나 순한 음식?",
+        &["맵".into(), "순하".into(), "음식".into()],
+        None,
+    )
+    .unwrap();
+    assert_eq!(hits[0].memory.id, "taste");
+    assert!(hits[0].methods.iter().any(|method| method == "kiwi"));
+}

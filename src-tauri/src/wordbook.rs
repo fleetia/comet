@@ -21,7 +21,8 @@ pub(crate) fn initialize(conn: &Connection) -> Result<()> {
             })
             .map_err(|e| e.to_string())?;
         if empty {
-            for entry in samples() {
+            let single_character = crate::characters::active_ids(&tx)?.len() < 2;
+            for entry in samples(single_character) {
                 save(&tx, &entry)?;
             }
         }
@@ -114,8 +115,15 @@ pub fn match_entry<'a>(entries: &'a [WordbookEntry], input: &str) -> Option<&'a 
     best
 }
 
-fn samples() -> Vec<WordbookEntry> {
-    serde_json::from_str(r#"[{"id":"8c6b2810-721c-4e02-b4c4-6ab19f428e01","title":"가벼운 인사","keywords":["안녕"],"lines":[{"persona":"a","expression":"기쁨","text":"안녕! 잠깐 이야기할까?"},{"persona":"b","expression":"평온","text":"반가워. 편하게 말 걸어 줘."}],"enabled":true,"useForIdle":false},{"id":"8c6b2810-721c-4e02-b4c4-6ab19f428e02","title":"잠깐 쉬기","keywords":["쉬자"],"lines":[{"persona":"a","expression":"평온","text":"좋아, 잠깐 쉬자."},{"persona":"b","expression":"평온","text":"말없이 있어도 괜찮아."},{"persona":"a","expression":"기쁨","text":"그럼 우리도 잠깐 조용히 있을게."}],"enabled":true,"useForIdle":false}]"#).expect("valid factory wordbook")
+fn samples(single_character: bool) -> Vec<WordbookEntry> {
+    let mut entries: Vec<WordbookEntry> = serde_json::from_str(r#"[{"id":"8c6b2810-721c-4e02-b4c4-6ab19f428e01","title":"가벼운 인사","keywords":["안녕"],"lines":[{"persona":"a","expression":"기쁨","text":"안녕! 잠깐 이야기할까?"},{"persona":"b","expression":"평온","text":"반가워. 편하게 말 걸어 줘."}],"enabled":true,"useForIdle":false},{"id":"8c6b2810-721c-4e02-b4c4-6ab19f428e02","title":"잠깐 쉬기","keywords":["쉬자"],"lines":[{"persona":"a","expression":"평온","text":"좋아, 잠깐 쉬자."},{"persona":"b","expression":"평온","text":"말없이 있어도 괜찮아."},{"persona":"a","expression":"기쁨","text":"그럼 우리도 잠깐 조용히 있을게."}],"enabled":true,"useForIdle":false}]"#).expect("valid factory wordbook");
+    if single_character {
+        // Only create compatible factory examples; never adapt saved user dialogue.
+        for entry in &mut entries {
+            entry.lines.truncate(1);
+        }
+    }
+    entries
 }
 
 #[cfg(test)]
@@ -162,6 +170,46 @@ mod tests {
         delete(&conn, &edited.id).unwrap();
         initialize(&conn).unwrap();
         assert!(entries(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn new_single_character_samples_are_playable_and_not_reseeded() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE kv(key TEXT PRIMARY KEY,value TEXT NOT NULL);")
+            .unwrap();
+        crate::characters::initialize(&conn).unwrap();
+        assert_eq!(crate::characters::active_ids(&conn).unwrap().len(), 1);
+        initialize(&conn).unwrap();
+        let initial = entries(&conn).unwrap();
+        assert_eq!(initial.len(), 2);
+        assert_eq!(initial[0].lines[0].text, "안녕! 잠깐 이야기할까?");
+        assert_eq!(initial[1].lines[0].text, "좋아, 잠깐 쉬자.");
+        for entry in &initial {
+            assert_eq!(entry.lines.len(), 1);
+            assert_eq!(entry.lines[0].persona, "a");
+            assert!(crate::characters::resolve_lines(&conn, &entry.lines).is_ok());
+        }
+        delete(&conn, &initial[0].id).unwrap();
+        let mut edited = initial[1].clone();
+        edited.lines[0].text = "  내가 쓴 대사\n그대로  ".into();
+        save(&conn, &edited).unwrap();
+        initialize(&conn).unwrap();
+        assert_eq!(
+            serde_json::to_value(entries(&conn).unwrap()).unwrap(),
+            serde_json::to_value(vec![edited]).unwrap()
+        );
+    }
+
+    #[test]
+    fn reducing_roster_does_not_rewrite_existing_pair_samples() {
+        let conn = crate::store::open(Path::new(":memory:")).unwrap();
+        let initial = serde_json::to_value(entries(&conn).unwrap()).unwrap();
+        crate::characters::apply_roster(&conn, vec!["builtin-a".into()]).unwrap();
+        initialize(&conn).unwrap();
+        assert_eq!(
+            serde_json::to_value(entries(&conn).unwrap()).unwrap(),
+            initial
+        );
     }
 
     #[test]

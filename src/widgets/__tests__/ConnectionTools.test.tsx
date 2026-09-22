@@ -154,11 +154,18 @@ it("does not query private sources before opting in to the selected music provid
   render(<ConnectionTool mode="settings" widget={widget("music", EMPTY)} />);
   expect(command).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText("음악 앱"), { target: { value: "spotify" } });
-  fireEvent.click(screen.getByRole("button", { name: "곡 정보 조회 허용하고 연결" }));
+  fireEvent.click(screen.getByRole("button", { name: "곡 정보 조회·재생 제어 허용하고 연결" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("configure_connection_widget", {
       id: "music",
-      input: { provider: "spotify" },
+      input: {
+        provider: "spotify",
+        allowedProviders: ["music", "spotify"],
+        showArtwork: true,
+        showLyrics: true,
+        hideMissing: true,
+        allowTalk: true,
+      },
     }),
   );
 });

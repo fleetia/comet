@@ -49,7 +49,7 @@ pub fn advance(state: &AppState, at: Instant) -> Result<bool, String> {
             *lock(&state.story)? = Some(request);
             lock(&state.story_clock)?.elapsed = Duration::ZERO;
             let mut runtime = lock(&state.runtime)?;
-            runtime.phase = "story".into();
+            runtime.phase = crate::types::RuntimePhase::Story;
             runtime.persona = Some(persona);
             runtime.error = None;
             return Ok(true);
@@ -126,7 +126,14 @@ pub fn defer_story(
         );
         epoch
     };
-    crate::app::phase(&app, &state, epoch, "idle", None, None);
+    crate::app::phase(
+        &app,
+        &state,
+        epoch,
+        crate::types::RuntimePhase::Idle,
+        None,
+        None,
+    );
     Ok(())
 }
 

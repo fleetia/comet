@@ -44,9 +44,22 @@ struct WeatherConfig {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct MusicConfig {
     provider: String,
+    #[serde(default)]
+    allowed_providers: Vec<String>,
+    #[serde(default = "enabled")]
+    show_artwork: bool,
+    #[serde(default = "enabled")]
+    show_lyrics: bool,
+    #[serde(default = "enabled")]
+    hide_missing: bool,
+    #[serde(default = "enabled")]
+    allow_talk: bool,
+}
+fn enabled() -> bool {
+    true
 }
 
 #[derive(Deserialize)]
@@ -87,8 +100,17 @@ fn weather_config(input: &Value) -> Result<WeatherConfig, String> {
 fn music_config(input: &Value) -> Result<MusicConfig, String> {
     let config: MusicConfig =
         serde_json::from_value(input.clone()).map_err(|_| "음악 정보 제공 앱을 선택해 주세요.")?;
-    if !["music", "spotify"].contains(&config.provider.as_str()) {
-        return Err("Music 또는 Spotify를 선택해 주세요.".into());
+    if !["auto", "music", "spotify", "system", "spicetify"].contains(&config.provider.as_str()) {
+        return Err("지원되는 음악 연결을 선택해 주세요.".into());
+    }
+    if config.allowed_providers.len() > 3
+        || config
+            .allowed_providers
+            .iter()
+            .any(|provider| !["music", "spotify", "system"].contains(&provider.as_str()))
+        || (config.provider == "auto" && config.allowed_providers.is_empty())
+    {
+        return Err("자동 선택에서 조회를 허용할 앱을 선택해 주세요.".into());
     }
     Ok(config)
 }
@@ -357,87 +379,60 @@ async fn run_read_command(program: &str, args: &[&str]) -> Result<String, Connec
         .map_err(|_| failure("offline", "기기 정보 조회 시간이 초과됐어요."))?
 }
 
-#[cfg(target_os = "macos")]
-const MUSIC_SCRIPT: &str = r#"const app = Application('com.apple.Music');
-if (!app.running()) { JSON.stringify({running:false,playing:false,title:null,artist:null,album:null}); }
-else if (app.playerState() !== 'playing') { JSON.stringify({running:true,playing:false,title:null,artist:null,album:null}); }
-else { const track = app.currentTrack(); JSON.stringify({running:true,playing:true,title:track.name(),artist:track.artist(),album:track.album()}); }"#;
-
-#[cfg(target_os = "macos")]
-const SPOTIFY_SCRIPT: &str = r#"const app = Application('com.spotify.client');
-if (!app.running()) { JSON.stringify({running:false,playing:false,title:null,artist:null,album:null}); }
-else if (app.playerState() !== 'playing') { JSON.stringify({running:true,playing:false,title:null,artist:null,album:null}); }
-else { const track = app.currentTrack(); JSON.stringify({running:true,playing:true,title:track.name(),artist:track.artist(),album:track.album()}); }"#;
-
-#[derive(Deserialize, Serialize)]
-struct MusicObservation {
-    running: bool,
-    playing: bool,
-    title: Option<String>,
-    artist: Option<String>,
-    album: Option<String>,
+fn select_music(candidates: Vec<Value>, previous: &Value) -> Option<Value> {
+    let previous_source = previous["sourceId"].as_str();
+    let previous_provider = previous["provider"].as_str();
+    let same = |item: &Value| {
+        item["provider"].as_str() == previous_provider
+            && item["sourceId"].as_str() == previous_source
+    };
+    let selected = candidates
+        .iter()
+        .find(|item| item["playing"] == true && same(item))
+        .or_else(|| candidates.iter().find(|item| item["playing"] == true))
+        .or_else(|| {
+            candidates
+                .iter()
+                .find(|item| item["running"] == true && same(item))
+        })
+        .or_else(|| candidates.iter().find(|item| item["running"] == true))
+        .or_else(|| candidates.first());
+    selected.cloned()
 }
 
-fn parse_music(output: &str, provider: &str, now: i64) -> Result<Value, ConnectionError> {
-    let mut track: MusicObservation = serde_json::from_str(output)
-        .map_err(|_| failure("offline", "현재 곡 정보를 읽지 못했어요."))?;
-    if track.playing
-        && (!track.running
-            || track
-                .title
-                .as_ref()
-                .is_none_or(|title| title.trim().is_empty()))
-    {
-        return Err(failure(
-            "offline",
-            "재생 중인 곡의 제목을 확인하지 못했어요.",
-        ));
+async fn music(config: &MusicConfig, previous: &Value, now: i64) -> Result<Value, ConnectionError> {
+    if config.provider != "auto" {
+        return super::music_native::observe_source(&config.provider, None, now).await;
     }
-    if !track.playing {
-        track.title = None;
-        track.artist = None;
-        track.album = None;
-    }
-    for text in [&track.title, &track.artist, &track.album]
+    // A fixed order makes the first selection deterministic; a playing selection stays pinned.
+    let providers = ["music", "spotify", "system"]
         .into_iter()
-        .flatten()
-    {
-        if text.chars().count() > 1000 {
-            return Err(failure("offline", "곡 정보가 너무 길어요."));
+        .filter(|provider| {
+            config
+                .allowed_providers
+                .iter()
+                .any(|allowed| allowed == provider)
+        });
+    let results = futures_util::future::join_all(
+        providers.map(|provider| super::music_native::observe_source(provider, None, now)),
+    )
+    .await;
+    let mut candidates = vec![];
+    let mut error = None;
+    for result in results {
+        match result {
+            Ok(value) => candidates.push(value),
+            Err(failure) => error = Some(failure),
         }
     }
-    let mut value =
-        serde_json::to_value(track).map_err(|_| failure("offline", "곡 정보를 읽지 못했어요."))?;
-    value["provider"] = json!(provider);
-    value["source"] = json!(if provider == "music" {
-        "Apple Music"
-    } else {
-        "Spotify"
-    });
-    value["observedAt"] = json!(now);
-    Ok(value)
-}
-
-async fn music(config: &MusicConfig, now: i64) -> Result<Value, ConnectionError> {
-    #[cfg(target_os = "macos")]
-    {
-        let script = if config.provider == "music" {
-            MUSIC_SCRIPT
-        } else {
-            SPOTIFY_SCRIPT
-        };
-        let output =
-            run_read_command("/usr/bin/osascript", &["-l", "JavaScript", "-e", script]).await?;
-        parse_music(&output, &config.provider, now)
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (config, now);
-        Err(failure(
-            "unsupported",
-            "현재 음악 정보 연결은 macOS의 Music·Spotify를 지원해요.",
-        ))
-    }
+    select_music(candidates, previous).ok_or_else(|| {
+        error.unwrap_or_else(|| {
+            failure(
+                "permission-needed",
+                "조회가 허용된 음악 앱을 선택해 주세요.",
+            )
+        })
+    })
 }
 
 fn parse_macos_battery(output: &str, now: i64) -> Result<Value, ConnectionError> {
@@ -578,6 +573,7 @@ pub async fn refresh(kind: &str, data: &Value, now: i64) -> Result<Value, Connec
             music(
                 &music_config(&state.config)
                     .map_err(|message| failure("permission-needed", &message))?,
+                state.observation.as_ref().unwrap_or(&Value::Null),
                 now,
             )
             .await?
@@ -679,30 +675,36 @@ mod tests {
     }
 
     #[test]
-    fn music_empty_and_paused_states_never_retain_a_current_song() {
-        let closed = parse_music(
-            r#"{"running":false,"playing":false,"title":null,"artist":null,"album":null}"#,
-            "music",
-            100,
-        )
-        .unwrap();
-        assert_eq!(closed["running"], false);
-        assert!(closed["title"].is_null());
-        let paused = parse_music(r#"{"running":true,"playing":false,"title":"Old song","artist":"Artist","album":"Album"}"#, "spotify", 100).unwrap();
-        assert!(paused["title"].is_null());
-        let playing = parse_music(
-            r#"{"running":true,"playing":true,"title":"한 줄\n다음 줄","artist":"A","album":"B"}"#,
-            "music",
-            100,
-        )
-        .unwrap();
-        assert_eq!(playing["title"], "한 줄\n다음 줄");
-        assert!(parse_music(
-            r#"{"running":false,"playing":true,"title":"Old song"}"#,
-            "music",
-            100
-        )
-        .is_err());
+    fn automatic_music_selection_keeps_a_playing_source_and_only_uses_candidates() {
+        let apple = json!({"provider":"music","sourceId":"music","running":true,"playing":true});
+        let spotify =
+            json!({"provider":"spotify","sourceId":"spotify","running":true,"playing":true});
+        assert_eq!(
+            select_music(vec![apple.clone(), spotify.clone()], &spotify),
+            Some(spotify.clone())
+        );
+        assert_eq!(
+            select_music(vec![apple.clone()], &spotify),
+            Some(apple.clone())
+        );
+        assert_eq!(
+            select_music(vec![apple.clone(), spotify], &Value::Null),
+            Some(apple)
+        );
+        assert!(select_music(vec![], &Value::Null).is_none());
+    }
+
+    #[test]
+    fn music_config_requires_explicit_auto_sources_and_preserves_legacy_provider() {
+        assert!(music_config(&json!({"provider":"auto"})).is_err());
+        assert!(music_config(&json!({"provider":"auto","allowedProviders":["unknown"]})).is_err());
+        assert!(
+            music_config(&json!({"provider":"auto","allowedProviders":["music","spotify"]}))
+                .is_ok()
+        );
+        let legacy = music_config(&json!({"provider":"spotify"})).unwrap();
+        assert!(legacy.allowed_providers.is_empty());
+        assert!(legacy.allow_talk);
     }
 
     #[test]

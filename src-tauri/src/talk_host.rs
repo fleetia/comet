@@ -163,7 +163,7 @@ pub(crate) fn watch(app: tauri::AppHandle, state: Arc<AppState>) {
                         let token = interrupt(&state, automatic)?;
                         state.widget_epoch.store(token.0, Ordering::SeqCst);
                         let mut runtime = lock(&state.runtime)?;
-                        runtime.phase = "idle".into();
+                        runtime.phase = crate::types::RuntimePhase::Idle;
                         runtime.persona = None;
                     }
                     Ok(changed && playing)

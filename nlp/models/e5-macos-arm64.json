@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "model": "intfloat/multilingual-e5-small",
+  "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+  "license": "MIT",
+  "profile": "e5-cpu-u8s8-ort1.22.0-tokenizer0.21.4-query-passage-mean-mask-l2-d384-w480-o32-v1",
+  "threshold": null,
+  "files": [
+    {
+      "name": "model.onnx",
+      "url": null,
+      "size": 118308811,
+      "sha256": "739c8f25bbe6d8a6001cd2f048701da9879140cc67d4e9327716111e869dd717"
+    },
+    {
+      "name": "tokenizer.json",
+      "url": null,
+      "size": 17082730,
+      "sha256": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39"
+    }
+  ]
+}

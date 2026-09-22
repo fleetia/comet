@@ -221,7 +221,7 @@ fn cancel_automatic_reaction(state: &AppState) -> Result<(), String> {
         let (epoch, _) = crate::interrupt(state, false)?;
         state.widget_epoch.store(epoch, Ordering::SeqCst);
         let mut runtime = lock(&state.runtime)?;
-        runtime.phase = "idle".into();
+        runtime.phase = crate::types::RuntimePhase::Idle;
         runtime.persona = None;
     }
     Ok(())
@@ -398,7 +398,7 @@ mod tests {
                 line_index: 0,
                 line_count: 2,
             });
-            lock(&state.runtime).unwrap().phase = "playing".into();
+            lock(&state.runtime).unwrap().phase = crate::types::RuntimePhase::Playing;
             cancel_automatic_reaction(&state).unwrap();
             let should_cancel = kind == Some(("desktop.ball.stopped", true));
             assert_eq!(cancel.load(Ordering::SeqCst), should_cancel);

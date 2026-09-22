@@ -108,6 +108,37 @@ export type Message = {
   status: string;
 };
 export type Memory = { id: string; content: string; sourceMessageId: string; updatedAt: number };
+export type MemoryPage = {
+  items: Memory[];
+  total: number;
+  offset: number;
+  nextOffset: number | null;
+  revision: number;
+};
+export type MemoryAnalysisStatus = { pending: number; deferred: number; legacyUnverified: number };
+export type NlpModel = "kiwi" | "semantic";
+export type MemorySearchSettings = { kiwiEnabled: boolean; semanticEnabled: boolean };
+export type NlpModelStatus = {
+  installed: boolean;
+  enabled: boolean;
+  state: string;
+  downloadedBytes: number;
+  totalBytes: number;
+  error: string | null;
+  profile: string | null;
+};
+export type MemorySearchStatus = {
+  nlp: {
+    settings: MemorySearchSettings;
+    kiwi: NlpModelStatus;
+    semantic: NlpModelStatus;
+    running: boolean;
+    busy: boolean;
+    activeMethods: string[];
+  };
+  analysis: MemoryAnalysisStatus;
+  index: { kiwiPending: number; semanticPending: number };
+};
 export type TalkPack = {
   id: string;
   name: string;
@@ -117,8 +148,18 @@ export type TalkPack = {
   defaultInstalled: boolean;
 };
 export type Relationship = { persona: string; score: number };
+export type RuntimePhase =
+  | "idle"
+  | "loading"
+  | "generating"
+  | "playing"
+  | "waiting"
+  | "analyzing"
+  | "preparing"
+  | "story"
+  | "error";
 export type RuntimeStatus = {
-  phase: string;
+  phase: RuntimePhase;
   persona: string | null;
   error: string | null;
   download: {
@@ -140,7 +181,8 @@ export type Snapshot = {
   panel: PanelState | null;
   wordbook: WordbookEntry[];
   messages: Message[];
-  memories: Memory[];
+  memoryCount: number;
+  memoryRevision: number;
   relationships: Relationship[];
   preparedCount: number;
   runtime: RuntimeStatus;

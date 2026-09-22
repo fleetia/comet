@@ -1,7 +1,7 @@
 use super::lifecycle::flush_positions;
 use super::scene::{next_scene, run_scene};
 use super::unavailable;
-use super::{interrupt, is_current, lock, now, phase, schedule_idle, AppState};
+use super::{is_current, lock, now, phase, schedule_idle, tasks, AppState};
 use crate::behavior;
 use crate::{
     characters, domain, inference, models, resources, store, story,
@@ -29,7 +29,24 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         if state.update_installing.load(Ordering::SeqCst) {
             continue;
         }
-        let _ = behavior::tick(&app, &state).await;
+        tasks::reap(&state).await;
+        let maintenance_app = app.clone();
+        let maintenance_state = state.clone();
+        let _ = tasks::spawn_maintenance(&state, async move {
+            maintenance_state.nlp.maintain();
+            let _ = behavior::tick(&maintenance_app, &maintenance_state).await;
+            if let Ok(_gate) = maintenance_state.gate.try_lock() {
+                let idle = lock(&maintenance_state.runtime)
+                    .map(|runtime| {
+                        matches!(runtime.phase, RuntimePhase::Idle | RuntimePhase::Error)
+                    })
+                    .unwrap_or(false);
+                if idle && now() - maintenance_state.last_foreground.load(Ordering::SeqCst) >= 120 {
+                    inference::stop_local(&maintenance_state.inference).await;
+                }
+            }
+            let _ = crate::memory_commands::index_next(&maintenance_state).await;
+        });
         let _ = flush_positions(&state, false);
         let _ = advance_widgets(&app, &state);
         start_due_widget_refreshes(&app, &state);
@@ -53,21 +70,39 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         if play_widget_reaction(&app, &state).unwrap_or(false) {
             continue;
         }
-        let Ok(_guard) = state.gate.try_lock() else {
-            continue;
-        };
         let _ = expire_idle_recall(&state, chrono::Utc::now().timestamp_millis());
-        if now() - state.last_foreground.load(Ordering::SeqCst) >= 120 {
-            inference::stop_local(&state.inference).await;
-        }
         if let Ok(Some((epoch, cancel))) = begin_background(&state) {
-            let result = run_background(&app, &state, epoch, cancel.clone()).await;
-            if is_current(&state, epoch, &cancel) {
-                if let Err(error) = result {
-                    eprintln!("Automatic preparation deferred: {error}");
-                }
-                phase(&app, &state, epoch, "idle", None, None);
-            }
+            let worker_app = app.clone();
+            let worker_state = state.clone();
+            let _ = tasks::spawn(
+                app.clone(),
+                state.clone(),
+                tasks::Kind::Background,
+                epoch,
+                async move {
+                    let Some(_guard) =
+                        tasks::acquire_gate(&worker_state, epoch, cancel.clone()).await
+                    else {
+                        return;
+                    };
+                    let result =
+                        run_background(&worker_app, &worker_state, epoch, cancel.clone()).await;
+                    if is_current(&worker_state, epoch, &cancel) {
+                        if result.is_err() {
+                            // User content and model responses are deliberately omitted.
+                            eprintln!("Automatic preparation deferred");
+                        }
+                        phase(
+                            &worker_app,
+                            &worker_state,
+                            epoch,
+                            RuntimePhase::Idle,
+                            None,
+                            None,
+                        );
+                    }
+                },
+            );
         }
     }
 }
@@ -98,7 +133,7 @@ pub(crate) fn begin_background(state: &AppState) -> Result<Option<(u64, Arc<Atom
         return Ok(None);
     }
     state.last_background_check.store(now(), Ordering::SeqCst);
-    Ok(Some(interrupt(state, true)?))
+    Ok(Some(tasks::reserve(state, tasks::Kind::Background, true)?))
 }
 
 pub(crate) async fn run_background(
@@ -111,11 +146,8 @@ pub(crate) async fn run_background(
         let db = lock(&state.db)?;
         (
             store::settings(&db)?,
-            store::pending_user_messages(&db)?
-                .into_iter()
-                .take(8)
-                .collect::<Vec<_>>(),
-            store::memories(&db)?,
+            store::pending_user_messages(&db)?,
+            store::memory_page(&db, 0, 8)?.items,
             store::relationships(&db)?,
             store::revision(&db)?,
             store::prepared_scenes(&db)?,
@@ -161,16 +193,27 @@ pub(crate) async fn run_background(
         };
         if ready && now() - state.last_preparation.load(Ordering::SeqCst) >= 15 {
             state.last_preparation.store(now(), Ordering::SeqCst);
-            phase(app, state, epoch, "analyzing", None, None);
-            let mut prompt = domain::analysis_prompt(&pending, &memories, revision);
-            let targets = {
+            phase(
+                app,
+                state,
+                epoch,
+                crate::types::RuntimePhase::Analyzing,
+                None,
+                None,
+            );
+            let batch = domain::analysis_batch(&pending, &memories, revision);
+            {
+                let _action = lock(&state.action)?;
                 let db = lock(&state.db)?;
-                pending.iter().map(|message| Ok(serde_json::json!({"messageId":message.id,"targets":store::message_targets(&db,&message.id)?}))).collect::<Result<Vec<_>,String>>()?
-            };
-            prompt.push(ChatMessage {
-                role: "user".into(),
-                content: serde_json::json!({"recordedTargets":targets}).to_string(),
-            });
+                if !is_current(state, epoch, &cancel) || store::revision(&db)? != batch.revision {
+                    return Ok(());
+                }
+                store::defer_analysis(&db, &batch.deferred_ids, "source_budget")?;
+            }
+            if batch.submitted_ids.is_empty() {
+                return Ok(());
+            }
+            let prompt = batch.messages;
             let result = background_generate(
                 state,
                 &settings,
@@ -179,15 +222,33 @@ pub(crate) async fn run_background(
                 768,
                 cancel.clone(),
             )
-            .await?;
+            .await;
             let _action = lock(&state.action)?;
             let db = lock(&state.db)?;
-            if !is_current(state, epoch, &cancel) || store::revision(&db)? != revision {
+            if !is_current(state, epoch, &cancel) || store::revision(&db)? != batch.revision {
                 return Ok(());
             }
-            store::analyze_apply(&db, &result)?;
-            if let Some(last) = pending.last() {
-                store::set_last_analysis_id(&db, &last.id)?;
+            match result {
+                Ok(value) => {
+                    if let Err(error) =
+                        store::analyze_apply_batch(&db, &value, &batch.submitted_ids)
+                    {
+                        store::analysis_failure(
+                            &db,
+                            &batch.submitted_ids,
+                            chrono::Utc::now().timestamp_millis(),
+                        )?;
+                        return Err(error);
+                    }
+                }
+                Err(error) => {
+                    store::analysis_failure(
+                        &db,
+                        &batch.submitted_ids,
+                        chrono::Utc::now().timestamp_millis(),
+                    )?;
+                    return Err(error);
+                }
             }
             return Ok(());
         }
@@ -229,7 +290,14 @@ pub(crate) async fn run_background(
             return Ok(());
         }
     }
-    phase(app, state, epoch, "preparing", None, None);
+    phase(
+        app,
+        state,
+        epoch,
+        crate::types::RuntimePhase::Preparing,
+        None,
+        None,
+    );
     let result = background_generate(
         state,
         &settings,

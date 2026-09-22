@@ -13,17 +13,19 @@
     "macOSPrivateApi": true,
     "windows": [],
     "security": {
-      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost sprite: http://sprite.localhost widget: http://widget.localhost data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost sprite: http://sprite.localhost widget: http://widget.localhost data: https://*.scdn.co https://*.spotifycdn.com https://*.mzstatic.com; style-src 'self' 'unsafe-inline'; script-src 'self'"
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
     "externalBin": [
-      "binaries/llama-server"
+      "binaries/llama-server",
+      "binaries/comet-nlp"
     ],
     "resources": {
-      "binaries/runtime/": "runtime/"
+      "binaries/runtime/": "runtime/",
+      "binaries/nlp-runtime/": "nlp-runtime/"
     },
     "icon": [
       "icons/32x32.png",

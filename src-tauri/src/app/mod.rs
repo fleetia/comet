@@ -3,6 +3,7 @@ mod conversation;
 pub(crate) mod lifecycle;
 pub(crate) mod scene;
 mod settings;
+mod tasks;
 #[cfg(test)]
 pub(crate) mod tests;
 pub(crate) mod windows;
@@ -26,6 +27,7 @@ use tauri::Emitter;
 pub(crate) struct AppState {
     pub(crate) db: Mutex<Connection>,
     pub(crate) inference: inference::Inference,
+    pub(crate) nlp: crate::nlp::NlpService,
     pub(crate) app_data: PathBuf,
     pub(crate) runtime: Mutex<RuntimeStatus>,
     pub(crate) playback: Mutex<Option<Playback>>,
@@ -33,6 +35,7 @@ pub(crate) struct AppState {
     pub(crate) settings_section: Mutex<windows::SettingsSection>,
     pub(crate) settings_dirty: AtomicBool,
     pub(crate) settings_exit_confirmed: AtomicBool,
+    pub(crate) tasks: Mutex<tasks::Registry>,
     pub(crate) cancellation: Mutex<Option<Arc<AtomicBool>>>,
     pub(crate) download_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub(crate) gate: tokio::sync::Mutex<()>,
@@ -98,7 +101,8 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
         local_models: models::model_statuses(&state.app_data),
         settings,
         messages: store::messages(&db, 100)?,
-        memories: store::memories(&db)?,
+        memory_count: store::memory_count(&db)?,
+        memory_revision: store::memory_revision(&db)?,
         relationships: store::relationships(&db)?,
         prepared_count: store::prepared_scenes(&db)?.len(),
         runtime: lock(&state.runtime)?.clone(),
@@ -113,6 +117,14 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
 
 pub(crate) fn publish(app: &tauri::AppHandle, state: &AppState) {
     if let Ok(data) = snapshot(state) {
+        if let Ok(_action) = lock(&state.action) {
+            if let Ok(runtime) = lock(&state.runtime) {
+                state.nlp.pause_indexing(
+                    unavailable(state)
+                        || !matches!(runtime.phase, RuntimePhase::Idle | RuntimePhase::Error),
+                );
+            }
+        }
         desktop::sync_boxes(app, state, &data);
         desktop::sync_balloon(app, &data);
         let _ = app.emit("app-state", data);
@@ -122,7 +134,7 @@ pub(crate) fn phase(
     app: &tauri::AppHandle,
     state: &AppState,
     epoch: u64,
-    value: &str,
+    value: RuntimePhase,
     persona: Option<String>,
     error: Option<String>,
 ) {
@@ -133,7 +145,7 @@ pub(crate) fn phase(
 pub(crate) fn set_phase_if_current(
     state: &AppState,
     epoch: u64,
-    value: &str,
+    value: RuntimePhase,
     persona: Option<String>,
     error: Option<String>,
 ) -> Result<bool, String> {
@@ -141,11 +153,14 @@ pub(crate) fn set_phase_if_current(
     if state.epoch.load(Ordering::SeqCst) != epoch {
         return Ok(false);
     }
-    if matches!(value, "idle" | "error") {
+    if matches!(value, RuntimePhase::Idle | RuntimePhase::Error) {
         *lock(&state.talk_playback)? = None;
     }
+    state.nlp.pause_indexing(
+        unavailable(state) || !matches!(value, RuntimePhase::Idle | RuntimePhase::Error),
+    );
     let mut status = lock(&state.runtime)?;
-    status.phase = value.into();
+    status.phase = value;
     status.persona = persona;
     status.error = error;
     Ok(true)
@@ -156,6 +171,7 @@ pub(crate) fn interrupt(
     state: &AppState,
     automatic: bool,
 ) -> Result<(u64, Arc<AtomicBool>), String> {
+    lock(&state.tasks)?.active = None;
     state.automatic.store(automatic, Ordering::SeqCst);
     let mut active = lock(&state.cancellation)?;
     if let Some(cancel) = active.take() {
@@ -169,6 +185,22 @@ pub(crate) fn interrupt(
     *lock(&state.talk_playback)? = None;
     *lock(&state.story)? = None;
     Ok((epoch, cancel))
+}
+
+pub(crate) fn cancel_model_test(state: &AppState) -> Result<Option<u64>, String> {
+    let _action = lock(&state.action)?;
+    if !lock(&state.tasks)?
+        .active
+        .is_some_and(|(kind, _)| kind == tasks::Kind::ModelTest)
+    {
+        return Ok(None);
+    }
+    let (epoch, _) = interrupt(state, false)?;
+    let mut runtime = lock(&state.runtime)?;
+    runtime.phase = RuntimePhase::Idle;
+    runtime.persona = None;
+    runtime.error = None;
+    Ok(Some(epoch))
 }
 
 pub(crate) fn is_current(state: &AppState, epoch: u64, cancel: &AtomicBool) -> bool {

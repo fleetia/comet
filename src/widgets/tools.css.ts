@@ -27,6 +27,8 @@ export const body = style({
   margin: 0,
   minWidth: 0,
 });
+export const musicContent = style({ display: "flex", flexDirection: "column", overflow: "hidden" });
+export const musicBody = style([body, { flex: 1, minHeight: 0 }]);
 export const row = style({
   display: "flex",
   gap: vars.space.sm,

@@ -2,6 +2,7 @@ pub(crate) mod appearance;
 pub(crate) mod backgrounds;
 pub(crate) mod calendar;
 pub(crate) mod connections;
+pub(crate) mod music_native;
 pub(crate) mod planning;
 pub(crate) mod reminders;
 pub(crate) mod storage;

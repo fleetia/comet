@@ -71,7 +71,15 @@ pub(crate) fn open_panel(
         state.last_input.store(now(), Ordering::SeqCst);
         token
     };
-    phase(&app, &state, epoch, "idle", None, None);
+    phase(
+        &app,
+        &state,
+        epoch,
+        crate::types::RuntimePhase::Idle,
+        None,
+        None,
+    );
+    state.nlp.warmup();
     if let Some(window) = app.get_webview_window("balloon") {
         window.show().map_err(|error| error.to_string())?;
         window.set_focus().map_err(|error| error.to_string())?;
@@ -108,7 +116,14 @@ pub(crate) fn skip_talk(
         schedule_idle(&state, settings.idle_minutes);
         token
     };
-    phase(&app, &state, epoch, "idle", None, None);
+    phase(
+        &app,
+        &state,
+        epoch,
+        crate::types::RuntimePhase::Idle,
+        None,
+        None,
+    );
     Ok(())
 }
 
@@ -131,7 +146,7 @@ pub(crate) fn talk_now(
         if unavailable(&state) {
             return Ok(());
         }
-        let token = interrupt(&state, false)?;
+        let token = super::tasks::reserve(&state, super::tasks::Kind::Scene, false)?;
         *lock(&state.panel)? = None;
         state.last_input.store(now(), Ordering::SeqCst);
         let settings = store::settings(&*lock(&state.db)?)?;
@@ -225,7 +240,14 @@ pub(crate) async fn hide_boxes(
         interrupt(&state, false)?
     };
     desktop_toys::clear_automatic(&app);
-    phase(&app, &state, epoch, "idle", None, None);
+    phase(
+        &app,
+        &state,
+        epoch,
+        crate::types::RuntimePhase::Idle,
+        None,
+        None,
+    );
     let _gate = state.gate.lock().await;
     if is_current(&state, epoch, &cancel) {
         inference::stop_local(&state.inference).await;
@@ -245,7 +267,14 @@ pub(crate) fn set_paused(
         desktop_toys::clear_automatic(&app);
     }
     if let Some((epoch, _)) = token {
-        phase(&app, &state, epoch, "idle", None, None);
+        phase(
+            &app,
+            &state,
+            epoch,
+            crate::types::RuntimePhase::Idle,
+            None,
+            None,
+        );
     } else {
         publish(&app, &state);
     }

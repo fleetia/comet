@@ -240,6 +240,12 @@ pub fn insert_message_with_source(
             .map_err(err)?;
         }
         if message.role == "user" {
+            tx.execute(
+                "INSERT INTO memory_analysis_jobs(message_id,state) VALUES(?1,'pending')",
+                [&message.id],
+            )
+            .map_err(err)?;
+            super::memory::apply_direct_affinity(&tx, message)?;
             forget_expired_messages(&tx, message.created_at)?;
             extend_generated_recall(&tx, message.created_at)?;
             bump_revision(&tx)?;

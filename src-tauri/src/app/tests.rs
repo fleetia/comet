@@ -13,6 +13,12 @@ pub(crate) fn state() -> AppState {
     AppState {
         db: Mutex::new(store::open(std::path::Path::new(":memory:")).unwrap()),
         inference: inference::Inference::new(PathBuf::new(), PathBuf::new(), PathBuf::new()),
+        nlp: crate::nlp::NlpService::new(
+            std::env::temp_dir().join(format!("comet-nlp-test-{}", uuid::Uuid::new_v4())),
+            PathBuf::new(),
+            PathBuf::new(),
+        )
+        .unwrap(),
         app_data: PathBuf::new(),
         runtime: Mutex::new(RuntimeStatus::default()),
         playback: Mutex::new(None),
@@ -20,6 +26,7 @@ pub(crate) fn state() -> AppState {
         settings_section: Mutex::new(windows::SettingsSection::default()),
         settings_dirty: AtomicBool::new(false),
         settings_exit_confirmed: AtomicBool::new(false),
+        tasks: Mutex::new(super::tasks::Registry::default()),
         cancellation: Mutex::new(None),
         download_cancel: Mutex::new(None),
         gate: tokio::sync::Mutex::new(()),
@@ -928,6 +935,78 @@ fn keyword_route_works_without_a_model_and_preserves_authored_lines() {
 }
 
 #[test]
+fn fresh_single_character_wordbook_routes_without_models() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("fresh.sqlite");
+    // Seed the production roster before the legacy A/B test fixture opens it.
+    let db = rusqlite::Connection::open(&path).unwrap();
+    characters::initialize(&db).unwrap();
+    drop(db);
+    let mut state = state();
+    state.db = Mutex::new(store::open(&path).unwrap());
+    state.app_data = directory.path().to_path_buf();
+    let db = lock(&state.db).unwrap();
+    let id = characters::active_ids(&db).unwrap().remove(0);
+    let greeting = route_message(&state, &db, "안녕").unwrap().unwrap();
+    assert_eq!(greeting.len(), 1);
+    assert_eq!(greeting[0].persona, id);
+    assert_eq!(greeting[0].text, "안녕! 잠깐 이야기할까?");
+    assert!(route_message(&state, &db, "쉬자").unwrap().is_some());
+}
+
+#[test]
+fn unavailable_wordbook_winner_is_reported_before_shorter_or_later_matches() {
+    let state = state();
+    let db = lock(&state.db).unwrap();
+    characters::apply_roster(&db, vec!["builtin-a".into()]).unwrap();
+    let short = WordbookEntry {
+        id: uuid::Uuid::new_v4().to_string(),
+        title: "짧은 항목".into(),
+        keywords: vec!["테스트".into()],
+        lines: vec![SceneLine {
+            persona: "a".into(),
+            expression: "평온".into(),
+            text: "  짧은 대사\n그대로  ".into(),
+        }],
+        enabled: true,
+        use_for_idle: false,
+    };
+    wordbook::save(&db, &short).unwrap();
+    let mut first = short.clone();
+    first.id = uuid::Uuid::new_v4().to_string();
+    first.title = "먼저 등록한 긴 항목".into();
+    first.keywords = vec!["테스트키워드".into()];
+    first.lines[0].persona = "b".into();
+    first.lines[0].text = "  없는 화자의 대사\n보존  ".into();
+    wordbook::save(&db, &first).unwrap();
+    let mut later = first.clone();
+    later.id = uuid::Uuid::new_v4().to_string();
+    later.title = "나중에 등록한 긴 항목".into();
+    later.lines[0].persona = "a".into();
+    wordbook::save(&db, &later).unwrap();
+    let before = serde_json::to_value(wordbook::entries(&db).unwrap()).unwrap();
+    let error = route_message(&state, &db, "테스트키워드").unwrap_err();
+    assert!(error.contains("먼저 등록한 긴 항목"));
+    assert!(error.contains("화자"));
+    assert_eq!(
+        serde_json::to_value(wordbook::entries(&db).unwrap()).unwrap(),
+        before
+    );
+    first.enabled = false;
+    wordbook::save(&db, &first).unwrap();
+    assert_eq!(
+        route_message(&state, &db, "테스트키워드").unwrap().unwrap()[0].text,
+        later.lines[0].text
+    );
+    later.enabled = false;
+    wordbook::save(&db, &later).unwrap();
+    assert_eq!(
+        route_message(&state, &db, "테스트키워드").unwrap().unwrap()[0].text,
+        short.lines[0].text
+    );
+}
+
+#[test]
 fn playback_cancellation_rejects_old_lines_and_old_timers_without_erasing_history() {
     let state = state();
     let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
@@ -1000,7 +1079,7 @@ fn idle_recall_expires_while_hidden_and_paused_but_not_during_playback() {
     assert!(!expire_idle_recall(&state, at).unwrap());
     {
         let mut runtime = lock(&state.runtime).unwrap();
-        runtime.phase = "idle".into();
+        runtime.phase = crate::types::RuntimePhase::Idle;
         runtime.hidden = true;
         runtime.paused = true;
     }
@@ -1023,7 +1102,7 @@ fn automatic_chatter_recovers_from_errors_and_obeys_interaction_boundaries() {
     let (lines, source) = next_scene(&state).unwrap();
     assert_eq!(source, "script");
     assert_eq!(lines[0].text, "테스트 인사 a");
-    lock(&state.runtime).unwrap().phase = "error".into();
+    lock(&state.runtime).unwrap().phase = crate::types::RuntimePhase::Error;
     assert!(begin_background(&state).unwrap().is_some());
     lock(&state.runtime).unwrap().paused = true;
     assert!(begin_background(&state).unwrap().is_none());
@@ -1152,7 +1231,7 @@ fn model_change_preserves_history_and_invalidates_previous_work() {
     };
     let current = apply_settings(&state, &selected, Some(SettingsScope::Model), None).unwrap();
     assert!(old.1.load(Ordering::SeqCst));
-    assert!(!set_phase_if_current(&state, old.0, "idle", None, None).unwrap());
+    assert!(!set_phase_if_current(&state, old.0, RuntimePhase::Idle, None, None).unwrap());
     assert!(is_current(&state, current.0, &current.1));
     assert!(begin_background(&state).unwrap().is_none());
     drop(state);
@@ -1336,17 +1415,29 @@ fn new_submission_cancels_old_work_and_rejects_its_status_updates() {
         let _action = lock(&state.action).unwrap();
         interrupt(&state, true).unwrap()
     };
-    set_phase_if_current(&state, old.0, "analyzing", None, None).unwrap();
+    set_phase_if_current(&state, old.0, RuntimePhase::Analyzing, None, None).unwrap();
     let current = {
         let _action = lock(&state.action).unwrap();
         interrupt(&state, false).unwrap()
     };
-    set_phase_if_current(&state, current.0, "generating", Some("a".into()), None).unwrap();
+    set_phase_if_current(
+        &state,
+        current.0,
+        RuntimePhase::Generating,
+        Some("a".into()),
+        None,
+    )
+    .unwrap();
     assert!(old.1.load(Ordering::SeqCst));
     assert!(!is_current(&state, old.0, &old.1));
-    assert!(
-        !set_phase_if_current(&state, old.0, "error", None, Some("stale failure".into())).unwrap()
-    );
+    assert!(!set_phase_if_current(
+        &state,
+        old.0,
+        RuntimePhase::Error,
+        None,
+        Some("stale failure".into())
+    )
+    .unwrap());
     assert_eq!(lock(&state.runtime).unwrap().phase, "generating");
     assert!(!should_cancel_for_pause(
         true,
@@ -1733,4 +1824,179 @@ fn single_member_roster_keeps_snapshot_and_scripts_working() {
     assert_eq!(source, "script");
     assert!(!lines.is_empty());
     assert!(lines.iter().all(|line| line.persona == "a"));
+}
+
+#[test]
+fn background_reserves_busy_state_before_any_task_is_spawned() {
+    let state = state();
+    state.next_idle.store(now() - 1, Ordering::SeqCst);
+    let first = begin_background(&state).unwrap().unwrap();
+    assert_eq!(lock(&state.runtime).unwrap().phase, RuntimePhase::Loading);
+    assert_eq!(
+        lock(&state.tasks).unwrap().active,
+        Some((tasks::Kind::Background, first.0))
+    );
+    assert!(begin_background(&state).unwrap().is_none());
+    let current = {
+        let _action = lock(&state.action).unwrap();
+        tasks::reserve(&state, tasks::Kind::Conversation, false).unwrap()
+    };
+    assert!(first.1.load(Ordering::SeqCst));
+    assert!(!set_phase_if_current(
+        &state,
+        first.0,
+        RuntimePhase::Error,
+        None,
+        Some("old".into())
+    )
+    .unwrap());
+    assert_eq!(
+        lock(&state.tasks).unwrap().active,
+        Some((tasks::Kind::Conversation, current.0))
+    );
+    assert_eq!(lock(&state.runtime).unwrap().phase, RuntimePhase::Loading);
+}
+
+#[test]
+fn model_test_is_single_and_uses_input_settings_hide_and_exit_cancellation() {
+    for cause in ["input", "settings", "hide", "exit"] {
+        let state = state();
+        let tested = super::settings::begin_model_test(&state).unwrap();
+        assert!(super::settings::begin_model_test(&state).is_err());
+        match cause {
+            "input" => {
+                let _action = lock(&state.action).unwrap();
+                tasks::reserve(&state, tasks::Kind::Conversation, false).unwrap();
+            }
+            "settings" => {
+                apply_settings(
+                    &state,
+                    &Settings::default(),
+                    Some(SettingsScope::Automatic),
+                    None,
+                )
+                .unwrap();
+            }
+            "hide" => {
+                let _action = lock(&state.action).unwrap();
+                lock(&state.runtime).unwrap().hidden = true;
+                interrupt(&state, false).unwrap();
+            }
+            "exit" => prepare_exit(&state).unwrap(),
+            _ => unreachable!(),
+        }
+        assert!(
+            tested.1.load(Ordering::SeqCst),
+            "{cause} must cancel model tests"
+        );
+        assert!(!set_phase_if_current(&state, tested.0, RuntimePhase::Idle, None, None).unwrap());
+    }
+}
+
+#[tokio::test]
+async fn cancelled_work_leaves_gate_queue_without_waiting_for_another_generation() {
+    let state = state();
+    let old = {
+        let _action = lock(&state.action).unwrap();
+        tasks::reserve(&state, tasks::Kind::ModelTest, false).unwrap()
+    };
+    let _busy = state.gate.lock().await;
+    {
+        let _action = lock(&state.action).unwrap();
+        tasks::reserve(&state, tasks::Kind::Conversation, false).unwrap();
+    }
+    let acquired = tokio::time::timeout(
+        Duration::from_millis(200),
+        tasks::acquire_gate(&state, old.0, old.1),
+    )
+    .await
+    .expect("cancelled test must leave the queue while gate is held");
+    assert!(acquired.is_none());
+}
+
+#[test]
+fn unprepared_model_keeps_new_original_and_rule_based_affinity() {
+    let state = state();
+    let db = lock(&state.db).unwrap();
+    let persona = characters::active_character(&db, "a").unwrap().id;
+    let before = store::relationships(&db)
+        .unwrap()
+        .into_iter()
+        .find(|relation| relation.persona == persona)
+        .unwrap()
+        .score;
+    assert!(super::conversation::record_input_and_route(
+        &state,
+        &db,
+        "고마워",
+        "a",
+        "new-without-llm"
+    )
+    .is_err());
+    let original = store::messages(&db, 20)
+        .unwrap()
+        .into_iter()
+        .find(|message| message.id == "new-without-llm")
+        .unwrap();
+    assert_eq!(original.content, "고마워");
+    assert!(store::pending_user_messages(&db)
+        .unwrap()
+        .iter()
+        .any(|message| message.id == original.id));
+    let after = store::relationships(&db)
+        .unwrap()
+        .into_iter()
+        .find(|relation| relation.persona == persona)
+        .unwrap()
+        .score;
+    assert_eq!(after, before + 1);
+}
+
+#[test]
+fn independent_search_settings_cancel_only_an_active_model_test() {
+    let state = state();
+    let tested = super::settings::begin_model_test(&state).unwrap();
+    assert!(cancel_model_test(&state).unwrap().is_some());
+    assert!(tested.1.load(Ordering::SeqCst));
+    let direct = {
+        let _action = lock(&state.action).unwrap();
+        tasks::reserve(&state, tasks::Kind::Conversation, false).unwrap()
+    };
+    assert!(cancel_model_test(&state).unwrap().is_none());
+    assert!(!direct.1.load(Ordering::SeqCst));
+}
+
+#[test]
+fn api_and_local_model_tests_share_duplicate_and_preemption_boundaries() {
+    let state = state();
+    *lock(&state.download_cancel).unwrap() = Some(Arc::new(AtomicBool::new(false)));
+    assert!(super::settings::begin_model_test(&state).is_err());
+    let api = super::settings::begin_test(&state, false).unwrap();
+    assert!(super::settings::begin_test(&state, false).is_err());
+    *lock(&state.download_cancel).unwrap() = None;
+    assert!(super::settings::begin_model_test(&state).is_err());
+    assert!(cancel_model_test(&state).unwrap().is_some());
+    assert!(api.1.load(Ordering::SeqCst));
+    assert!(super::settings::begin_model_test(&state).is_ok());
+}
+
+#[tokio::test]
+async fn a_late_test_result_cannot_commit_over_a_new_conversation() {
+    let state = state();
+    let tested = super::settings::begin_test(&state, false).unwrap();
+    let newer = {
+        let _action = lock(&state.action).unwrap();
+        tasks::reserve(&state, tasks::Kind::Conversation, false).unwrap()
+    };
+    let (send, receive) = tokio::sync::oneshot::channel();
+    assert!(
+        !super::settings::finish_test(&state, tested.0, &tested.1, Ok("old success"), send)
+            .unwrap()
+    );
+    assert!(receive.await.unwrap().is_err());
+    assert_eq!(
+        lock(&state.tasks).unwrap().active,
+        Some((tasks::Kind::Conversation, newer.0))
+    );
+    assert_eq!(lock(&state.runtime).unwrap().phase, RuntimePhase::Loading);
 }

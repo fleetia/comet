@@ -10,6 +10,7 @@ type Props = {
   onClose: () => Promise<void>;
   variant?: "tool" | "note";
   className?: string;
+  contentClassName?: string;
   children: ReactNode;
 };
 
@@ -21,6 +22,7 @@ export function WidgetFrame({
   onClose,
   variant = "tool",
   className = "",
+  contentClassName = "",
   children,
 }: Props): ReactElement {
   return (
@@ -33,7 +35,7 @@ export function WidgetFrame({
           title={title}
         />
       </div>
-      <div className={s.content[variant]}>
+      <div className={`${s.content[variant]} ${contentClassName}`}>
         {status && <p className={s.status}>{status}</p>}
         {children}
       </div>

@@ -101,6 +101,7 @@ comet의 중심 경험은 큰 채팅 패널이나 상시 대시보드가 아니�
 | --- | --- |
 | 바탕화면 본체·말풍선·자동 수다 | [바탕화면 상주 경험](docs/product/desktop.md) · [대화와 기억](docs/product/conversation.md) |
 | 캐릭터 편집·1~8명 조합·공유 | [캐릭터 교체와 공유](docs/product/characters.md) |
+| 음악 위젯·로컬 재생 제어 | [음악 계약](docs/product/music.md) · [Lagrange 음악 디자인](https://www.figma.com/design/vKl8h9uoXUUljJ5yEAcNpr?node-id=199-9948) · [Spicetify 연결](docs/development/spicetify.md) |
 | 생활 도구·메모·할 일·캘린더 | [할 일과 캘린더](docs/product/planning.md) · [장난감과 작은 도구](docs/product/toys.md) |
 | 공식 위젯 설치·수명·카탈로그 | [카탈로그](docs/widgets/catalog.md) · [설치](docs/widgets/installation.md) · [수명주기](docs/widgets/lifecycle.md) |
 | 대본 작성·상태·검사 | [대본 작성](docs/product/talk.md) · [대본 범위](docs/development/talk-coverage.md) |
@@ -145,3 +146,7 @@ git diff --check
 프로그램 소스는 [GNU AGPL-3.0-only](LICENSE)입니다. 별꼬리 캐릭터와 이미지는 별도 이용 조건을 따르므로 [라이선스 파일](examples/character-packs/byulkkori.LICENSE.txt)을 함께 확인하세요.
 
 llama.cpp sidecar의 고지는 [`llama.cpp-LICENSE.txt`](src-tauri/binaries/runtime/llama.cpp-LICENSE.txt)에 있습니다. 내려받은 GGUF 모델과 외부 의존성은 각 upstream 라이선스를 따르며, 직접 지정한 모델 파일은 사용자가 배포 조건을 확인해야 합니다.
+
+## 선택 기억 검색
+
+기본 기억 검색은 모델 없이 동작합니다. Kiwi 한국어 분석은 기억 설정에서 선택 설치하며 생성 LLM 설정과 독립적입니다. E5 의미 검색은 실행 경로를 구현했지만 품질 기준 미달과 배포 파일 미게시로 아직 다운로드·사용할 수 없습니다. [제품 계약](docs/product/memory-search.md), [NLP 실행·모델 배포](docs/development/nlp.md)와 [현재 검증 상태](docs/status.md)를 함께 확인하세요.

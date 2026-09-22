@@ -1,6 +1,6 @@
 use super::scene::{present_line, start_scene, wait_for_line};
 use super::unavailable;
-use super::{interrupt, is_current, lock, now, phase, publish, schedule_idle, AppState};
+use super::{is_current, lock, now, phase, publish, schedule_idle, AppState};
 use crate::{characters, domain, inference, models, store, story, types::*, wordbook};
 use rusqlite::Connection;
 use std::sync::{
@@ -23,12 +23,15 @@ pub(crate) fn route_message(
     db: &Connection,
     content: &str,
 ) -> Result<Option<Vec<SceneLine>>, String> {
-    let entries: Vec<_> = wordbook::entries(db)?
-        .into_iter()
-        .filter(|entry| characters::resolve_lines(db, &entry.lines).is_ok())
-        .collect();
+    let entries = wordbook::entries(db)?;
     if let Some(entry) = wordbook::match_entry(&entries, content) {
-        return Ok(Some(characters::resolve_lines(db, &entry.lines)?));
+        let lines = characters::resolve_lines(db, &entry.lines).map_err(|error| {
+            format!(
+                "일치한 단어장 ‘{}’의 화자를 확인해 주세요. {error}",
+                entry.title
+            )
+        })?;
+        return Ok(Some(lines));
     }
     if let Some(lines) = characters::keyword_scene(db, content)? {
         return Ok(Some(characters::resolve_lines(db, &lines)?));
@@ -43,6 +46,28 @@ pub(crate) fn route_message(
         return Err("설정에서 API 연결을 먼저 완료해 주세요.".into());
     }
     Ok(None)
+}
+
+pub(crate) fn record_input_and_route(
+    state: &AppState,
+    db: &Connection,
+    content: &str,
+    target: &str,
+    message_id: &str,
+) -> Result<Option<Vec<SceneLine>>, String> {
+    store::insert_message(
+        db,
+        &Message {
+            id: message_id.into(),
+            role: "user".into(),
+            persona: Some(target.into()),
+            content: content.into(),
+            expression: None,
+            created_at: now() * 1000,
+            status: "complete".into(),
+        },
+    )?;
+    route_message(state, db, content)
 }
 
 #[tauri::command]
@@ -77,24 +102,29 @@ pub(crate) async fn send_message(
         if exists {
             return Ok(());
         }
-        let registered = route_message(&state, &db, content)?;
-        store::insert_message(
-            &db,
-            &Message {
-                id: client_message_id.clone(),
-                role: "user".into(),
-                persona: Some(target.clone()),
-                content: content.into(),
-                expression: None,
-                created_at: now() * 1000,
-                status: "complete".into(),
-            },
-        )?;
-        let token = interrupt(&state, false)?;
+        let registered = record_input_and_route(&state, &db, content, &target, &client_message_id);
+        let token = super::tasks::reserve(&state, super::tasks::Kind::Conversation, false)?;
+        if registered.is_err() {
+            lock(&state.tasks)?.active = None;
+        }
         *lock(&state.panel)? = None;
         state.last_input.store(now(), Ordering::SeqCst);
         schedule_idle(&state, settings.idle_minutes);
         (token, registered, targets)
+    };
+    let registered = match registered {
+        Ok(registered) => registered,
+        Err(error) => {
+            phase(
+                &app,
+                &state,
+                token.0,
+                RuntimePhase::Error,
+                targets.first().cloned(),
+                Some(error.clone()),
+            );
+            return Err(error);
+        }
     };
     if let Some(lines) = registered {
         start_scene(
@@ -162,7 +192,7 @@ pub(crate) fn retry_turn(
             return Ok(());
         }
         store::resume_conversation(&db, chrono::Utc::now().timestamp_millis())?;
-        let token = interrupt(&state, false)?;
+        let token = super::tasks::reserve(&state, super::tasks::Kind::Conversation, false)?;
         *lock(&state.panel)? = None;
         state.last_input.store(now(), Ordering::SeqCst);
         schedule_idle(&state, store::settings(&db)?.idle_minutes);
@@ -244,40 +274,95 @@ pub(crate) fn start_turn(
         &app,
         &state,
         epoch,
-        "loading",
+        crate::types::RuntimePhase::Loading,
         targets.first().cloned(),
         None,
     );
-    tauri::async_runtime::spawn(async move {
-        let _guard = state.gate.lock().await;
-        if !is_current(&state, epoch, &cancel) {
-            return;
-        }
-        let result = run_turn(&app, &state, &targets, &message_id, epoch, cancel.clone()).await;
-        if !is_current(&state, epoch, &cancel) {
-            return;
-        }
-        state.last_foreground.store(now(), Ordering::SeqCst);
-        match result {
-            Ok(()) => phase(&app, &state, epoch, "idle", None, None),
-            Err(error) => phase(
+    let owner = state.clone();
+    let owner_app = app.clone();
+    let _ = super::tasks::spawn(
+        owner_app,
+        owner,
+        super::tasks::Kind::Conversation,
+        epoch,
+        async move {
+            let memories = tokio::select! {
+                _ = models::cancelled(cancel.clone()) => return,
+                result = crate::memory_commands::search_for_turn(&state, &message_id) => match result {
+                    Ok(memories) => memories,
+                    Err(error) => {
+                        phase(&app, &state, epoch, RuntimePhase::Error, targets.first().cloned(), Some(error));
+                        return;
+                    }
+                },
+            };
+            let Some(_guard) = super::tasks::acquire_gate(&state, epoch, cancel.clone()).await
+            else {
+                return;
+            };
+            if !is_current(&state, epoch, &cancel) {
+                return;
+            }
+            let result = run_turn(
                 &app,
                 &state,
+                &targets,
+                &message_id,
                 epoch,
-                "error",
-                targets.first().cloned(),
-                Some(error),
-            ),
-        }
-    });
+                cancel.clone(),
+                &memories,
+            )
+            .await;
+            if !is_current(&state, epoch, &cancel) {
+                return;
+            }
+            state.last_foreground.store(now(), Ordering::SeqCst);
+            match result {
+                Ok(()) => phase(
+                    &app,
+                    &state,
+                    epoch,
+                    crate::types::RuntimePhase::Idle,
+                    None,
+                    None,
+                ),
+                Err(error) => phase(
+                    &app,
+                    &state,
+                    epoch,
+                    crate::types::RuntimePhase::Error,
+                    targets.first().cloned(),
+                    Some(error),
+                ),
+            }
+        },
+    );
 }
 
+#[cfg(test)]
 pub(crate) fn turn_prompt(
     db: &Connection,
     targets: &[String],
     message_id: &str,
 ) -> Result<Vec<ChatMessage>, String> {
-    let memories = store::memories(db)?;
+    let query = store::messages(db, 100)?
+        .into_iter()
+        .find(|message| message.id == message_id && message.role == "user")
+        .ok_or("대화의 근거가 변경되었어요. 새 메시지로 말해 주세요.")?
+        .content;
+    let memories: Vec<Memory> = store::search_memories(db, &query, &[], None)?
+        .into_iter()
+        .map(|hit| hit.memory)
+        .collect();
+    turn_prompt_with_memories(db, targets, message_id, &memories)
+}
+
+pub(crate) fn turn_prompt_with_memories(
+    db: &Connection,
+    targets: &[String],
+    message_id: &str,
+    memories: &[Memory],
+) -> Result<Vec<ChatMessage>, String> {
     let relationships = store::relationships(db)?;
     match targets {
         [a, b] => {
@@ -304,7 +389,7 @@ pub(crate) fn turn_prompt(
                 Ok(domain::pair_prompt_messages(
                     &[members[0].definition.clone(), members[1].definition.clone()],
                     &histories,
-                    &memories,
+                    memories,
                     &relationships,
                     latest,
                 ))
@@ -312,7 +397,7 @@ pub(crate) fn turn_prompt(
                 Ok(domain::roster_pair_prompt(
                     &members,
                     &histories,
-                    &memories,
+                    memories,
                     &relationships,
                     latest,
                 ))
@@ -340,7 +425,7 @@ pub(crate) fn turn_prompt(
                 persona,
                 &story::profile(db, member.clone())?,
                 &messages,
-                &memories,
+                memories,
                 &Relationship {
                     persona: persona.clone(),
                     score,
@@ -351,17 +436,34 @@ pub(crate) fn turn_prompt(
     }
 }
 
+#[cfg(test)]
 pub(crate) async fn generate_turn(
     state: &AppState,
     targets: &[String],
     message_id: &str,
     cancel: Arc<AtomicBool>,
 ) -> Result<(Vec<SceneLine>, i64), String> {
+    let memories = crate::memory_commands::search_for_turn(state, message_id).await?;
+    generate_turn_with_memories(state, targets, message_id, cancel, &memories).await
+}
+
+pub(crate) async fn generate_turn_with_memories(
+    state: &AppState,
+    targets: &[String],
+    message_id: &str,
+    cancel: Arc<AtomicBool>,
+    memories: &[store::MemorySearchHit],
+) -> Result<(Vec<SceneLine>, i64), String> {
     let (settings, prompt, revision) = {
         let db = lock(&state.db)?;
         (
             store::settings(&db)?,
-            turn_prompt(&db, targets, message_id)?,
+            turn_prompt_with_memories(
+                &db,
+                targets,
+                message_id,
+                &store::revalidate_search_hits(&db, memories)?,
+            )?,
             store::revision(&db)?,
         )
     };
@@ -401,6 +503,7 @@ pub(crate) async fn run_turn(
     message_id: &str,
     epoch: u64,
     cancel: Arc<AtomicBool>,
+    memories: &[store::MemorySearchHit],
 ) -> Result<(), String> {
     if !is_current(state, epoch, &cancel) {
         return Ok(());
@@ -409,7 +512,7 @@ pub(crate) async fn run_turn(
         app,
         state,
         epoch,
-        "generating",
+        crate::types::RuntimePhase::Generating,
         targets.first().cloned(),
         None,
     );
@@ -423,7 +526,9 @@ pub(crate) async fn run_turn(
         if !is_current(state, epoch, &cancel) {
             return Ok(());
         }
-        let (lines, revision) = generate_turn(state, &group, message_id, cancel.clone()).await?;
+        let (lines, revision) =
+            generate_turn_with_memories(state, &group, message_id, cancel.clone(), memories)
+                .await?;
         for line in &lines {
             if !present_line(
                 state,

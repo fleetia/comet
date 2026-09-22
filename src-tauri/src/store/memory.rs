@@ -1,8 +1,9 @@
-use super::{bump_revision, err, get, put, revision, Result};
+use super::{bump_revision, err, revision, Result};
 use crate::types::{Memory, Message, Relationship};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 
+#[allow(dead_code)] // Retained for tests and developer smoke examples; app UI uses memory_page.
 pub fn memories(conn: &Connection) -> Result<Vec<Memory>> {
     let mut stmt=conn.prepare("SELECT id,content,source,updated FROM memories WHERE deleted=0 ORDER BY updated DESC,id").map_err(err)?;
     let rows = stmt
@@ -55,21 +56,6 @@ pub fn relationships(conn: &Connection) -> Result<Vec<Relationship>> {
         })
         .collect()
 }
-fn last_analysis_id(conn: &Connection) -> Result<Option<String>> {
-    get(conn, "last_analysis_id")
-}
-pub fn set_last_analysis_id(conn: &Connection, id: &str) -> Result<()> {
-    put(conn, "last_analysis_id", &id)
-}
-pub fn pending_user_messages(conn: &Connection) -> Result<Vec<Message>> {
-    let last = last_analysis_id(conn)?.unwrap_or_default();
-    let mut stmt=conn.prepare("SELECT data FROM messages WHERE role='user' AND seq>COALESCE((SELECT seq FROM messages WHERE id=?),0) ORDER BY seq LIMIT 12").map_err(err)?;
-    let rows = stmt
-        .query_map([last], |r| r.get::<_, String>(0))
-        .map_err(err)?;
-    rows.map(|r| serde_json::from_str(&r.map_err(err)?).map_err(err))
-        .collect()
-}
 fn field<'a>(v: &'a Value, key: &str) -> &'a str {
     v.get(key).and_then(Value::as_str).unwrap_or("")
 }
@@ -92,10 +78,62 @@ fn evidence(conn: &Connection, item: &Value) -> Result<Option<Message>> {
     Ok(Some(message))
 }
 
+#[cfg(test)]
 pub fn analyze_apply(conn: &Connection, value: &Value) -> Result<()> {
+    let ids = ["memories", "events"]
+        .iter()
+        .flat_map(|key| {
+            value
+                .get(key)
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+        })
+        .map(|item| field(item, "sourceMessageId").to_string())
+        .collect::<Vec<_>>();
+    apply(conn, value, &ids, false)
+}
+
+pub fn analyze_apply_batch(
+    conn: &Connection,
+    value: &Value,
+    submitted_ids: &[String],
+) -> Result<()> {
+    apply(conn, value, submitted_ids, true)
+}
+
+fn apply(
+    conn: &Connection,
+    value: &Value,
+    submitted_ids: &[String],
+    complete_jobs: bool,
+) -> Result<()> {
     let tx = conn.unchecked_transaction().map_err(err)?;
     if value.get("revision").and_then(Value::as_i64) != Some(revision(&tx)?) {
         return Err("대화나 기억이 바뀌어 분석 결과를 버렸습니다.".into());
+    }
+    let facts = value
+        .get("memories")
+        .and_then(Value::as_array)
+        .ok_or("기억 분석 응답 형식이 올바르지 않습니다.")?;
+    let events = value
+        .get("events")
+        .and_then(Value::as_array)
+        .ok_or("기억 분석 응답 형식이 올바르지 않습니다.")?;
+    if facts.iter().chain(events).any(|item| {
+        !submitted_ids
+            .iter()
+            .any(|id| id == field(item, "sourceMessageId"))
+    }) {
+        return Err("분석에 전달하지 않은 원문이 포함되어 결과를 버렸습니다.".into());
+    }
+    if complete_jobs {
+        for id in submitted_ids {
+            let pending: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM memory_analysis_jobs WHERE message_id=?1 AND state='pending')", [id], |row| row.get(0)).map_err(err)?;
+            if !pending {
+                return Err("분석 작업이 바뀌어 결과를 버렸습니다.".into());
+            }
+        }
     }
     let mut changed = false;
     if let Some(items) = value.get("memories").and_then(Value::as_array) {
@@ -149,64 +187,42 @@ pub fn analyze_apply(conn: &Connection, value: &Value) -> Result<()> {
                 > 0;
         }
     }
-    if let Some(items) = value.get("events").and_then(Value::as_array) {
-        for item in items.iter().take(24) {
-            let persona = field(item, "persona");
-            if item.get("certain").and_then(Value::as_bool) != Some(true) {
-                continue;
-            }
-            let Some(source) = evidence(&tx, item)? else {
-                continue;
-            };
-            if source.persona.as_deref() != Some(persona)
-                && !matches!(source.persona.as_deref(), Some("both" | "all"))
-            {
-                continue;
-            }
-            let character_id: Option<String> = tx.query_row(
-                "SELECT character_id FROM message_characters WHERE message_id=?1 AND persona=?2",
-                params![source.id,persona], |r|r.get(0)).optional().map_err(err)?;
-            let Some(character_id) = character_id else {
-                continue;
-            };
-            let quote = field(item, "evidence").trim();
-            // Conservative complete-utterance allowlist: ambiguous free speech never changes score.
-            let normalized = source.content.trim().trim_end_matches(['!', '.', '~', ' ']);
-            let delta = match (field(item, "kind"), normalized) {
-                ("thanks", "고마워" | "고마워요" | "감사합니다") => 1,
-                ("insult", "꺼져" | "멍청이") => -1,
-                _ => continue,
-            };
-            if quote != source.content.trim() {
-                continue;
-            }
-            let day = chrono::DateTime::from_timestamp_millis(source.created_at)
-                .ok_or("잘못된 메시지 시간")?
-                .date_naive()
-                .to_string();
-            let spent: i32 = tx
-                .query_row(
-                    "SELECT COALESCE(SUM(ABS(delta)),0) FROM character_affinity WHERE character_id=?1 AND day=?2 AND source NOT LIKE 'story:%'",
-                    params![character_id, day],
-                    |r| r.get(0),
-                )
-                .map_err(err)?;
-            let fingerprint = field(item, "kind");
-            let repeated:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM character_affinity WHERE character_id=?1 AND day=?2 AND fingerprint=?3 AND source NOT LIKE 'story:%')",params![character_id,day,fingerprint],|r|r.get(0)).map_err(err)?;
-            if spent >= 3 || repeated {
-                continue;
-            }
-            changed |= tx
-                .execute(
-                    "INSERT OR IGNORE INTO character_affinity VALUES(?1,?2,?3,?4,?5)",
-                    params![source.id, character_id, day, delta, fingerprint],
-                )
-                .map_err(err)?
-                > 0;
+    if complete_jobs {
+        for id in submitted_ids {
+            tx.execute("UPDATE memory_analysis_jobs SET state='done',reason=NULL,next_attempt_at=0 WHERE message_id=?1 AND state='pending'", [id]).map_err(err)?;
         }
     }
     if changed {
         bump_revision(&tx)?;
     }
     tx.commit().map_err(err)
+}
+
+// Called only for a newly inserted input, after immutable target identities are saved.
+pub(super) fn apply_direct_affinity(conn: &Connection, source: &Message) -> Result<()> {
+    if source.role != "user" || source.status != "complete" {
+        return Ok(());
+    }
+    let normalized = source.content.trim().trim_end_matches(['!', '.', '~', ' ']);
+    let (kind, delta) = match normalized {
+        "고마워" | "고마워요" | "감사합니다" => ("thanks", 1),
+        "꺼져" | "멍청이" => ("insult", -1),
+        _ => return Ok(()),
+    };
+    let day = chrono::DateTime::from_timestamp_millis(source.created_at)
+        .ok_or("잘못된 메시지 시간")?
+        .date_naive()
+        .to_string();
+    for character_id in super::messages::message_targets(conn, &source.id)? {
+        let spent:i32 = conn.query_row("SELECT COALESCE(SUM(ABS(delta)),0) FROM character_affinity WHERE character_id=?1 AND day=?2 AND source NOT LIKE 'story:%'",params![character_id,day],|row|row.get(0)).map_err(err)?;
+        let repeated:bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM character_affinity WHERE character_id=?1 AND day=?2 AND fingerprint=?3 AND source NOT LIKE 'story:%')",params![character_id,day,kind],|row|row.get(0)).map_err(err)?;
+        if spent < 3 && !repeated {
+            conn.execute(
+                "INSERT OR IGNORE INTO character_affinity VALUES(?1,?2,?3,?4,?5)",
+                params![source.id, character_id, day, delta, kind],
+            )
+            .map_err(err)?;
+        }
+    }
+    Ok(())
 }

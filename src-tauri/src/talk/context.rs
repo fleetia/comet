@@ -495,8 +495,19 @@ fn project(snapshot: &WidgetSnapshot, now: i64) -> (BTreeMap<String, Value>, BTr
                 set("name", o["name"].clone());
             }
             "music" => {
-                for field in ["running", "playing", "title", "artist"] {
+                if d["config"]["allowTalk"] == false {
+                    set("ready", json!(false));
+                    set("status", json!("disabled"));
+                    available.remove(kind);
+                    continue;
+                }
+                for field in ["running", "playing"] {
                     set(field, d["observation"][field].clone());
+                }
+                if d["observation"]["playing"] == true {
+                    for field in ["title", "artist"] {
+                        set(field, d["observation"][field].clone());
+                    }
                 }
             }
             "device" => {
@@ -725,9 +736,20 @@ mod tests {
     }
 
     #[test]
+    fn music_talk_permission_does_not_expose_screen_metadata() {
+        let now = 1_000_000;
+        let data = json!({"status":"ready","lastSuccessAt":now,"config":{"allowTalk":false},
+            "observation":{"running":true,"playing":true,"title":"Song","artist":"Artist"}});
+        let (values, available) = project(&snapshot("music", data), now);
+        assert_eq!(values["music.ready"], false);
+        assert_eq!(values["music.status"], "disabled");
+        assert_eq!(values["music.title"], Value::Null);
+        assert!(!available.contains("music"));
+    }
+    #[test]
     fn elapsed_freshness_invalidates_successful_cache() {
         let now = 1_000_000;
-        let data = json!({"status":"ready","lastSuccessAt":now,"observation":{"playing":false,"running":true,"title":null}});
+        let data = json!({"status":"ready","lastSuccessAt":now,"observation":{"playing":false,"running":true,"title":"Paused song","artist":"Paused artist"}});
         let (ready, _) = project(&snapshot("music", data.clone()), now);
         assert_eq!(ready["music.playing"], false);
         assert_eq!(ready["music.title"], Value::Null);

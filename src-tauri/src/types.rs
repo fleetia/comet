@@ -73,7 +73,7 @@ impl Default for Settings {
             api_model: String::new(),
             api_token_parameter: "max_completion_tokens".into(),
             autonomous_enabled: true,
-            local_idle_enabled: true,
+            local_idle_enabled: false,
             api_idle_enabled: false,
             idle_minutes: 2,
         }
@@ -178,10 +178,47 @@ pub struct DownloadProgress {
     pub status: String,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RuntimePhase {
+    #[default]
+    Idle,
+    Loading,
+    Generating,
+    Playing,
+    Waiting,
+    Analyzing,
+    Preparing,
+    Story,
+    Error,
+}
+
+impl RuntimePhase {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Loading => "loading",
+            Self::Generating => "generating",
+            Self::Playing => "playing",
+            Self::Waiting => "waiting",
+            Self::Analyzing => "analyzing",
+            Self::Preparing => "preparing",
+            Self::Story => "story",
+            Self::Error => "error",
+        }
+    }
+}
+
+impl PartialEq<&str> for RuntimePhase {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeStatus {
-    pub phase: String,
+    pub phase: RuntimePhase,
     pub persona: Option<String>,
     pub error: Option<String>,
     pub download: Option<DownloadProgress>,
@@ -192,7 +229,7 @@ pub struct RuntimeStatus {
 impl Default for RuntimeStatus {
     fn default() -> Self {
         Self {
-            phase: "idle".into(),
+            phase: RuntimePhase::Idle,
             persona: None,
             error: None,
             download: None,
@@ -209,7 +246,8 @@ pub struct Snapshot {
     pub message_identities: Vec<crate::store::MessageIdentity>,
     pub settings: Settings,
     pub messages: Vec<Message>,
-    pub memories: Vec<Memory>,
+    pub memory_count: usize,
+    pub memory_revision: i64,
     pub relationships: Vec<Relationship>,
     pub prepared_count: usize,
     pub runtime: RuntimeStatus,
@@ -226,6 +264,37 @@ pub struct Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn runtime_phase_wire_values_and_existing_autogeneration_choices_are_preserved() {
+        for phase in [
+            RuntimePhase::Idle,
+            RuntimePhase::Loading,
+            RuntimePhase::Generating,
+            RuntimePhase::Playing,
+            RuntimePhase::Waiting,
+            RuntimePhase::Analyzing,
+            RuntimePhase::Preparing,
+            RuntimePhase::Story,
+            RuntimePhase::Error,
+        ] {
+            assert_eq!(serde_json::to_value(phase).unwrap(), phase.as_str());
+            assert_eq!(
+                serde_json::from_value::<RuntimePhase>(serde_json::json!(phase.as_str())).unwrap(),
+                phase
+            );
+        }
+        assert!(serde_json::from_value::<RuntimePhase>(serde_json::json!("unknown")).is_err());
+        assert!(!Settings::default().local_idle_enabled);
+        assert!(Settings::default().autonomous_enabled);
+        let mut saved = serde_json::to_value(Settings::default()).unwrap();
+        saved["localIdleEnabled"] = serde_json::json!(true);
+        assert!(
+            serde_json::from_value::<Settings>(saved)
+                .unwrap()
+                .local_idle_enabled
+        );
+    }
 
     #[test]
     fn legacy_settings_default_to_four_b_and_selection_survives_reopen() {

@@ -24,6 +24,7 @@ pub(crate) fn save_wordbook_entry(
         let _action = lock(&state.action)?;
         wordbook::save(&*lock(&state.db)?, &entry)?;
     }
+    super::cancel_model_test(&state)?;
     publish(&app, &state);
     Ok(())
 }
@@ -38,6 +39,7 @@ pub(crate) fn delete_wordbook_entry(
         let _action = lock(&state.action)?;
         wordbook::delete(&*lock(&state.db)?, &id)?;
     }
+    super::cancel_model_test(&state)?;
     publish(&app, &state);
     Ok(())
 }
@@ -56,7 +58,14 @@ pub(crate) async fn save_settings(
     if is_current(&state, epoch, &cancel) {
         inference::stop_local(&state.inference).await;
     }
-    phase(&app, &state, epoch, "idle", None, None);
+    phase(
+        &app,
+        &state,
+        epoch,
+        crate::types::RuntimePhase::Idle,
+        None,
+        None,
+    );
     Ok(())
 }
 
@@ -144,7 +153,7 @@ pub(crate) fn apply_settings(
     let token = interrupt(state, false)?;
     schedule_idle(state, settings.idle_minutes);
     let mut runtime = lock(&state.runtime)?;
-    runtime.phase = "loading".into();
+    runtime.phase = crate::types::RuntimePhase::Loading;
     runtime.persona = None;
     runtime.error = None;
     Ok(token)
@@ -152,10 +161,41 @@ pub(crate) fn apply_settings(
 
 #[tauri::command]
 pub(crate) async fn test_connection(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
     settings: Settings,
     api_key: Option<String>,
 ) -> Result<String, String> {
-    inference::test_connection(&settings, api_key).await
+    let (epoch, cancel) = begin_test(&state, false)?;
+    publish(&app, &state);
+    let (send, receive) = tokio::sync::oneshot::channel();
+    let worker = state.inner().clone();
+    let worker_app = app.clone();
+    super::tasks::spawn(
+        app,
+        state.inner().clone(),
+        super::tasks::Kind::ModelTest,
+        epoch,
+        async move {
+            let Some(_gate) = super::tasks::acquire_gate(&worker, epoch, cancel.clone()).await
+            else {
+                let _ = send.send(Err("API 연결 테스트가 취소됐어요.".into()));
+                return;
+            };
+            let result = tokio::select! {
+                _ = models::cancelled(cancel.clone()) => Err("API 연결 테스트가 취소됐어요.".into()),
+                result = tokio::time::timeout(Duration::from_secs(120), inference::test_connection(&settings, api_key)) => {
+                    result.unwrap_or_else(|_| Err("API 연결 테스트 시간이 초과됐어요.".into()))
+                }
+            };
+            if finish_test(&worker, epoch, &cancel, result, send).unwrap_or(false) {
+                publish(&worker_app, &worker);
+            }
+        },
+    )?;
+    receive
+        .await
+        .map_err(|_| "API 연결 테스트가 중단됐어요.".to_string())?
 }
 
 #[tauri::command]
@@ -233,7 +273,14 @@ pub(crate) fn edit_memory(
         store::edit_memory(&*lock(&state.db)?, &id, &content)?;
         interrupt(&state, false)?
     };
-    phase(&app, &state, epoch, "idle", None, None);
+    phase(
+        &app,
+        &state,
+        epoch,
+        crate::types::RuntimePhase::Idle,
+        None,
+        None,
+    );
     Ok(())
 }
 #[tauri::command]
@@ -247,7 +294,14 @@ pub(crate) fn delete_memory(
         store::delete_memory(&*lock(&state.db)?, &id)?;
         interrupt(&state, false)?
     };
-    phase(&app, &state, epoch, "idle", None, None);
+    phase(
+        &app,
+        &state,
+        epoch,
+        crate::types::RuntimePhase::Idle,
+        None,
+        None,
+    );
     Ok(())
 }
 
@@ -262,45 +316,109 @@ pub(crate) fn clear_api_key(
         inference::clear_api_key(&settings)?;
         interrupt(&state, false)?
     };
-    phase(&app, &state, epoch, "idle", None, None);
+    phase(
+        &app,
+        &state,
+        epoch,
+        crate::types::RuntimePhase::Idle,
+        None,
+        None,
+    );
     Ok(())
+}
+
+pub(crate) fn finish_test<T>(
+    state: &AppState,
+    epoch: u64,
+    cancel: &AtomicBool,
+    result: Result<T, String>,
+    reply: tokio::sync::oneshot::Sender<Result<T, String>>,
+) -> Result<bool, String> {
+    let _action = lock(&state.action)?;
+    let current = is_current(state, epoch, cancel);
+    if current {
+        let mut runtime = lock(&state.runtime)?;
+        runtime.phase = RuntimePhase::Idle;
+        runtime.persona = None;
+        runtime.error = None;
+        state.nlp.pause_indexing(false);
+    }
+    let _ = reply.send(if current {
+        result
+    } else {
+        Err("모델 테스트가 취소됐어요.".into())
+    });
+    Ok(current)
+}
+
+pub(crate) fn begin_model_test(state: &AppState) -> Result<(u64, Arc<AtomicBool>), String> {
+    begin_test(state, true)
+}
+
+pub(crate) fn begin_test(state: &AppState, local: bool) -> Result<(u64, Arc<AtomicBool>), String> {
+    let _action = lock(&state.action)?;
+    if unavailable(state) {
+        return Err("앱을 종료하고 있어요.".into());
+    }
+    if super::tasks::model_test_running(state)? {
+        return Err("이미 모델을 테스트하고 있어요.".into());
+    }
+    if local && lock(&state.download_cancel)?.is_some() {
+        return Err("모델 다운로드가 끝난 뒤에 테스트할 수 있어요.".into());
+    }
+    if !matches!(
+        lock(&state.runtime)?.phase,
+        RuntimePhase::Idle | RuntimePhase::Error
+    ) {
+        return Err("진행 중인 대화가 끝난 뒤에 테스트할 수 있어요.".into());
+    }
+    super::tasks::reserve(state, super::tasks::Kind::ModelTest, false)
 }
 
 #[tauri::command]
 pub(crate) async fn test_local_model(
+    app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     settings: Settings,
 ) -> Result<LocalModelTest, String> {
-    if unavailable(&state) {
-        return Err("앱을 종료하고 있어요.".into());
-    }
-    if lock(&state.download_cancel)?.is_some() {
-        return Err("모델 다운로드가 끝난 뒤에 테스트할 수 있어요.".into());
-    }
-    let _gate = state.gate.lock().await;
-    if unavailable(&state) {
-        return Err("앱을 종료하고 있어요.".into());
-    }
-    let result = tokio::time::timeout(
-        Duration::from_secs(120),
-        inference::test_local(
-            &state.inference,
-            &settings,
-            Arc::new(AtomicBool::new(false)),
-        ),
-    )
-    .await
-    .unwrap_or_else(|_| {
-        Err("모델 테스트 시간이 초과되었어요. 더 작은 모델을 시도해 보세요.".into())
-    });
-    let saved = store::settings(&*lock(&state.db)?)?;
-    if result.is_err()
-        || models::selected_path(&state.app_data, &saved)
-            != models::selected_path(&state.app_data, &settings)
-    {
-        inference::stop_local(&state.inference).await;
-    }
-    result
+    let (epoch, cancel) = begin_model_test(&state)?;
+    publish(&app, &state);
+    let (send, receive) = tokio::sync::oneshot::channel();
+    let worker = state.inner().clone();
+    let worker_app = app.clone();
+    super::tasks::spawn(
+        app,
+        state.inner().clone(),
+        super::tasks::Kind::ModelTest,
+        epoch,
+        async move {
+            let Some(_gate) = super::tasks::acquire_gate(&worker, epoch, cancel.clone()).await
+            else {
+                let _ = send.send(Err("모델 테스트가 취소됐어요.".into()));
+                return;
+            };
+            let result = tokio::select! {
+                _ = models::cancelled(cancel.clone()) => Err("모델 테스트가 취소됐어요.".into()),
+                result = tokio::time::timeout(Duration::from_secs(120), inference::test_local(&worker.inference, &settings, cancel.clone())) => {
+                    result.unwrap_or_else(|_| Err("모델 테스트 시간이 초과되었어요. 더 작은 모델을 시도해 보세요.".into()))
+                }
+            };
+            let saved = lock(&worker.db).and_then(|db| store::settings(&db));
+            let changed = saved.as_ref().map_or(true, |saved| {
+                models::selected_path(&worker.app_data, saved)
+                    != models::selected_path(&worker.app_data, &settings)
+            });
+            if result.is_err() || changed {
+                inference::stop_local(&worker.inference).await;
+            }
+            if finish_test(&worker, epoch, &cancel, result, send).unwrap_or(false) {
+                publish(&worker_app, &worker);
+            }
+        },
+    )?;
+    receive
+        .await
+        .map_err(|_| "모델 테스트가 중단됐어요.".to_string())?
 }
 
 #[tauri::command]

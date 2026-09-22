@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "model": "Kiwi CoNg base",
+  "revision": "v0.24.0",
+  "license": "Apache-2.0",
+  "profile": "kiwi-0.24.0-cong-defaultdict-top1-no-typo-utf8-contentpos-v2",
+  "threshold": null,
+  "files": [
+    {
+      "name": "kiwi.tgz",
+      "url": "https://github.com/bab2min/Kiwi/releases/download/v0.24.0/kiwi_model_v0.24.0_base.tgz",
+      "size": 87967233,
+      "sha256": "33188ba932bba4717bad5244bbec0ef8b1c9cbb47e26e68394a7976d8d779083"
+    }
+  ],
+  "installedFiles": [
+    {
+      "name": "models/cong/base/combiningRule.txt",
+      "url": null,
+      "size": 3611,
+      "sha256": "4f78771daa3dd8a52aa0b5c8824396578ece8e8bbaa11cf3add82721b046bc15"
+    },
+    {
+      "name": "models/cong/base/cong.mdl",
+      "url": null,
+      "size": 75854705,
+      "sha256": "5f64105e45f04e5313f41c0ff1db5fe629780c8076c4a6fd3b1b2cf78c2cc934"
+    },
+    {
+      "name": "models/cong/base/default.dict",
+      "url": null,
+      "size": 3090954,
+      "sha256": "d4293e44b2588d0c3aabbce607a0f41ad3534abd31b34139847b127254e01549"
+    },
+    {
+      "name": "models/cong/base/dialect.dict",
+      "url": null,
+      "size": 644,
+      "sha256": "bb6f0ab37dbfcc0fd33dc679121218d24725ae438f31bb362f9b24703e93cda2"
+    },
+    {
+      "name": "models/cong/base/extract.mdl",
+      "url": null,
+      "size": 17370,
+      "sha256": "a0c92ffc051e43ae497845cdb8d4c8b9e2f359893cb55c67279c76d1d531ee17"
+    },
+    {
+      "name": "models/cong/base/multi.dict",
+      "url": null,
+      "size": 12064440,
+      "sha256": "e9eff7712d163b214c750333a5d388ab77b50ec386ae55b360babcd24c0c3195"
+    },
+    {
+      "name": "models/cong/base/nounchr.mdl",
+      "url": null,
+      "size": 9734234,
+      "sha256": "4b687e36836dd60dcb7addcfcf369ac082b339bab76549574ac1ce2b7ccd6836"
+    },
+    {
+      "name": "models/cong/base/sj.morph",
+      "url": null,
+      "size": 8462892,
+      "sha256": "d0af27b3863799cc2058f66c8058cb2bc0d16e8ae0daaf42c7739b4e375523d7"
+    },
+    {
+      "name": "models/cong/base/typo.dict",
+      "url": null,
+      "size": 395,
+      "sha256": "aa15e48fcd32886441fc1ff9719a3109d3192e91d4b67efbd64260610d68322d"
+    }
+  ]
+}

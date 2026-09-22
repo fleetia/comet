@@ -1,0 +1,731 @@
+{
+  "version": 1,
+  "license": "CC0-1.0",
+  "description": "공개 배포 가능한 합성 한국어 사용자 기억 검색 검증셋. 실제 사용자의 개인정보가 아니다.",
+  "memories": [
+    {
+      "id": "drink",
+      "content": "나는 카페인을 피하려고 커피 대신 보리차를 마신다."
+    },
+    {
+      "id": "temperature",
+      "content": "나는 한겨울에도 미지근한 물보다 차가운 물을 좋아한다."
+    },
+    {
+      "id": "home",
+      "content": "예전에는 서울에 살았지만 지금은 대전으로 이사해서 살고 있다."
+    },
+    {
+      "id": "commute",
+      "content": "출근할 때 지하철 안에서 전자책을 읽는다."
+    },
+    {
+      "id": "focus",
+      "content": "나는 아침보다 밤에 집중이 잘 된다."
+    },
+    {
+      "id": "food-allergy",
+      "content": "나는 땅콩 알레르기가 있어서 땅콩이 들어간 음식은 먹지 않는다."
+    },
+    {
+      "id": "cat",
+      "content": "내가 키우는 고양이 이름은 구름이다. 🐈"
+    },
+    {
+      "id": "knitting",
+      "content": "쉬는 날에는 대바늘로 목도리나 양말을 뜬다."
+    },
+    {
+      "id": "books",
+      "content": "나는 우주 탐사를 다룬 공상과학 소설을 즐겨 읽는다."
+    },
+    {
+      "id": "cafe",
+      "content": "사람이 붐비는 대형 카페보다 조용하고 작은 찻집을 좋아한다."
+    },
+    {
+      "id": "travel",
+      "content": "여행할 때 비행기보다 창밖을 볼 수 있는 기차를 선호한다."
+    },
+    {
+      "id": "spice",
+      "content": "매운 음식을 잘 먹지 못해서 주문할 때 가장 순한 맛을 고른다."
+    },
+    {
+      "id": "remote-work",
+      "content": "나는 매주 화요일과 목요일에 집에서 일한다."
+    },
+    {
+      "id": "birthday",
+      "content": "내 생일은 3월 14일이다."
+    },
+    {
+      "id": "cooking",
+      "content": "평일 점심은 일요일에 미리 만들어 둔 도시락으로 해결한다."
+    },
+    {
+      "id": "music",
+      "content": "일할 때는 노랫말이 없는 피아노 연주곡을 듣는다."
+    },
+    {
+      "id": "exercise",
+      "content": "무릎에 부담이 덜해서 달리기 대신 수영을 운동으로 골랐다."
+    },
+    {
+      "id": "language",
+      "content": "매일 잠들기 전에 십 분씩 일본어 단어를 복습한다."
+    },
+    {
+      "id": "plants",
+      "content": "베란다 화분에 물을 주는 날은 매주 일요일이다."
+    },
+    {
+      "id": "sleep",
+      "content": "나는 밤 11시에 자려고 10시 30분에 휴대폰을 내려놓는다."
+    },
+    {
+      "id": "quotation",
+      "content": "글쓰기 연습에 쓴 문장은 “나는 커피를 좋아해”지만 내 실제 취향은 보리차다."
+    },
+    {
+      "id": "dog",
+      "content": "나는 개를 키우지 않는다. 고양이 한 마리와 지낸다."
+    },
+    {
+      "id": "display",
+      "content": "눈이 덜 피로해서 편집기에서는 밝은 배경보다 어두운 배경을 쓴다."
+    },
+    {
+      "id": "trip-change",
+      "content": "올해 여행지는 부산에서 강릉으로 바꿨다. 지난번 부산 계획은 취소했다."
+    }
+  ],
+  "queries": [
+    {
+      "id": "calibration-related-01",
+      "split": "calibration",
+      "text": "각성 성분이 든 음료를 피할 때 내가 대신 마시는 건 뭐였지?",
+      "relevant": [
+        "drink"
+      ]
+    },
+    {
+      "id": "calibration-related-02",
+      "split": "calibration",
+      "text": "내가 물 마실 때 선호하는 온도를 기억해?",
+      "relevant": [
+        "temperature"
+      ]
+    },
+    {
+      "id": "calibration-related-03",
+      "split": "calibration",
+      "text": "이사한 뒤 내가 사는 도시는 어디야?",
+      "relevant": [
+        "home"
+      ]
+    },
+    {
+      "id": "calibration-related-04",
+      "split": "calibration",
+      "text": "출퇴근 중 독서하는 습관이 있었지?",
+      "relevant": [
+        "commute"
+      ]
+    },
+    {
+      "id": "calibration-related-05",
+      "split": "calibration",
+      "text": "나한테 몰입이 잘 되는 시간대는 언제야?",
+      "relevant": [
+        "focus"
+      ]
+    },
+    {
+      "id": "calibration-related-06",
+      "split": "calibration",
+      "text": "먹으면 알레르기가 생기는 재료를 알려 줬었나?",
+      "relevant": [
+        "food-allergy"
+      ]
+    },
+    {
+      "id": "calibration-related-07",
+      "split": "calibration",
+      "text": "함께 사는 반려묘 이름이 뭐였더라? 🐾",
+      "relevant": [
+        "cat"
+      ]
+    },
+    {
+      "id": "calibration-related-08",
+      "split": "calibration",
+      "text": "실과 바늘로 무언가 만드는 내 취미가 뭐야?",
+      "relevant": [
+        "knitting"
+      ]
+    },
+    {
+      "id": "calibration-related-09",
+      "split": "calibration",
+      "text": "내가 즐겨 보는 책의 장르는 뭐지?",
+      "relevant": [
+        "books"
+      ]
+    },
+    {
+      "id": "calibration-related-10",
+      "split": "calibration",
+      "text": "차 마실 장소를 고를 때 나는 어떤 분위기를 좋아해?",
+      "relevant": [
+        "cafe"
+      ]
+    },
+    {
+      "id": "calibration-related-11",
+      "split": "calibration",
+      "text": "멀리 갈 때 선호하는 교통수단이 뭐였어?",
+      "relevant": [
+        "travel"
+      ]
+    },
+    {
+      "id": "calibration-related-12",
+      "split": "calibration",
+      "text": "내 매운맛 취향을 기억해?",
+      "relevant": [
+        "spice"
+      ]
+    },
+    {
+      "id": "calibration-related-13",
+      "split": "calibration",
+      "text": "사무실에 안 가고 근무하는 요일은?",
+      "relevant": [
+        "remote-work"
+      ]
+    },
+    {
+      "id": "calibration-related-14",
+      "split": "calibration",
+      "text": "내 생일 날짜를 알고 있어?",
+      "relevant": [
+        "birthday"
+      ]
+    },
+    {
+      "id": "calibration-related-15",
+      "split": "calibration",
+      "text": "점심 준비를 한꺼번에 해 두는 날이 언제지?",
+      "relevant": [
+        "cooking"
+      ]
+    },
+    {
+      "id": "calibration-related-16",
+      "split": "calibration",
+      "text": "업무 중 배경으로 틀어 놓는 음악은 어떤 종류야?",
+      "relevant": [
+        "music"
+      ]
+    },
+    {
+      "id": "calibration-related-17",
+      "split": "calibration",
+      "text": "내가 조깅 대신 선택한 운동은?",
+      "relevant": [
+        "exercise"
+      ]
+    },
+    {
+      "id": "calibration-related-18",
+      "split": "calibration",
+      "text": "잠들기 전에 하는 외국어 공부가 뭐였어?",
+      "relevant": [
+        "language"
+      ]
+    },
+    {
+      "id": "calibration-related-19",
+      "split": "calibration",
+      "text": "식물에 물을 주는 내 주기를 기억하니?",
+      "relevant": [
+        "plants"
+      ]
+    },
+    {
+      "id": "calibration-related-20",
+      "split": "calibration",
+      "text": "휴대폰을 멀리 두고 취침 준비를 시작하는 시각은?",
+      "relevant": [
+        "sleep"
+      ]
+    },
+    {
+      "id": "calibration-related-21",
+      "split": "calibration",
+      "text": "커피를 좋아한다는 문장은 실제 내 기호였어, 작문에 쓴 인용이었어?",
+      "relevant": [
+        "quotation"
+      ]
+    },
+    {
+      "id": "calibration-related-22",
+      "split": "calibration",
+      "text": "나는 강아지와 같이 살고 있나?",
+      "relevant": [
+        "dog"
+      ]
+    },
+    {
+      "id": "calibration-related-23",
+      "split": "calibration",
+      "text": "내 편집기 화면 배경은 밝게 해 둘까, 어둡게 해 둘까?",
+      "relevant": [
+        "display"
+      ]
+    },
+    {
+      "id": "calibration-related-24",
+      "split": "calibration",
+      "text": "취소한 여행 계획 대신 정한 올해 목적지가 어디야?",
+      "relevant": [
+        "trip-change"
+      ]
+    },
+    {
+      "id": "calibration-unrelated-01",
+      "split": "calibration",
+      "text": "내 신발 사이즈는 얼마야?",
+      "relevant": []
+    },
+    {
+      "id": "calibration-unrelated-02",
+      "split": "calibration",
+      "text": "내가 다니는 회사 이름은?",
+      "relevant": []
+    },
+    {
+      "id": "calibration-unrelated-03",
+      "split": "calibration",
+      "text": "내 휴대폰 기종을 알려 줘.",
+      "relevant": []
+    },
+    {
+      "id": "calibration-unrelated-04",
+      "split": "calibration",
+      "text": "내가 태어난 병원은 어디야?",
+      "relevant": []
+    },
+    {
+      "id": "calibration-unrelated-05",
+      "split": "calibration",
+      "text": "내 자동차 번호판이 뭐지?",
+      "relevant": []
+    },
+    {
+      "id": "calibration-unrelated-06",
+      "split": "calibration",
+      "text": "내 혈액형은 뭐였지?",
+      "relevant": []
+    },
+    {
+      "id": "calibration-unrelated-07",
+      "split": "calibration",
+      "text": "내 노트북 비밀번호를 기억하니?",
+      "relevant": []
+    },
+    {
+      "id": "calibration-unrelated-08",
+      "split": "calibration",
+      "text": "내가 졸업한 대학교는 어디야?",
+      "relevant": []
+    },
+    {
+      "id": "calibration-unrelated-09",
+      "split": "calibration",
+      "text": "내가 가장 좋아하는 영화 감독은?",
+      "relevant": []
+    },
+    {
+      "id": "calibration-unrelated-10",
+      "split": "calibration",
+      "text": "내 여권 만료일은 언제야?",
+      "relevant": []
+    },
+    {
+      "id": "calibration-unrelated-11",
+      "split": "calibration",
+      "text": "내가 응원하는 야구팀은 어디야?",
+      "relevant": []
+    },
+    {
+      "id": "calibration-unrelated-12",
+      "split": "calibration",
+      "text": "내가 좋아하는 향수는 어떤 제품이지?",
+      "relevant": []
+    },
+    {
+      "id": "calibration-unrelated-13",
+      "split": "calibration",
+      "text": "내 결혼기념일은 언제야?",
+      "relevant": []
+    },
+    {
+      "id": "calibration-unrelated-14",
+      "split": "calibration",
+      "text": "내 고양이를 입양한 날짜는?",
+      "relevant": []
+    },
+    {
+      "id": "calibration-unrelated-15",
+      "split": "calibration",
+      "text": "내가 쓰는 뜨개바늘 브랜드는?",
+      "relevant": []
+    },
+    {
+      "id": "calibration-unrelated-16",
+      "split": "calibration",
+      "text": "내가 사는 집의 상세 주소는?",
+      "relevant": []
+    },
+    {
+      "id": "calibration-unrelated-17",
+      "split": "calibration",
+      "text": "내가 마시는 보리차 제품 이름은?",
+      "relevant": []
+    },
+    {
+      "id": "calibration-unrelated-18",
+      "split": "calibration",
+      "text": "내가 다니는 수영장 이름은?",
+      "relevant": []
+    },
+    {
+      "id": "calibration-unrelated-19",
+      "split": "calibration",
+      "text": "내 전자책 단말기를 산 가격은?",
+      "relevant": []
+    },
+    {
+      "id": "calibration-unrelated-20",
+      "split": "calibration",
+      "text": "내가 쓰는 일본어 교재 제목은?",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-related-01",
+      "split": "evaluation",
+      "text": "내가 평소 커피를 멀리하는 이유와 대체 음료를 말해 줘.",
+      "relevant": [
+        "drink"
+      ]
+    },
+    {
+      "id": "evaluation-related-02",
+      "split": "evaluation",
+      "text": "겨울에 내가 마실 물을 준비하면 차갑게 해야 할까?",
+      "relevant": [
+        "temperature"
+      ]
+    },
+    {
+      "id": "evaluation-related-03",
+      "split": "evaluation",
+      "text": "서울은 이전 거주지였지? 현재 사는 곳을 다시 알려 줘.",
+      "relevant": [
+        "home"
+      ]
+    },
+    {
+      "id": "evaluation-related-04",
+      "split": "evaluation",
+      "text": "지하철로 이동하는 자투리 시간에 나는 뭘 읽어?",
+      "relevant": [
+        "commute"
+      ]
+    },
+    {
+      "id": "evaluation-related-05",
+      "split": "evaluation",
+      "text": "중요한 생각을 할 시간을 잡으려는데 나는 새벽형보다 야행성에 가까웠나?",
+      "relevant": [
+        "focus"
+      ]
+    },
+    {
+      "id": "evaluation-related-06",
+      "split": "evaluation",
+      "text": "내 식사에서 반드시 빼야 하는 견과류가 있었어?",
+      "relevant": [
+        "food-allergy"
+      ]
+    },
+    {
+      "id": "evaluation-related-07",
+      "split": "evaluation",
+      "text": "우리 집 야옹이 이름을 불러 줄래? 😺",
+      "relevant": [
+        "cat"
+      ]
+    },
+    {
+      "id": "evaluation-related-08",
+      "split": "evaluation",
+      "text": "내가 휴일에 손으로 만드는 방한용품은 뭐야?",
+      "relevant": [
+        "knitting"
+      ]
+    },
+    {
+      "id": "evaluation-related-09",
+      "split": "evaluation",
+      "text": "우주선과 탐험 이야기를 좋아한다고 했는데 어떤 읽을거리를 말한 거였지?",
+      "relevant": [
+        "books"
+      ]
+    },
+    {
+      "id": "evaluation-related-10",
+      "split": "evaluation",
+      "text": "내가 번잡한 커피숍과 아담한 차 가게 중 어디를 고를 것 같아?",
+      "relevant": [
+        "cafe"
+      ]
+    },
+    {
+      "id": "evaluation-related-11",
+      "split": "evaluation",
+      "text": "창밖 풍경을 보며 이동하고 싶어 하는 나는 여행길에 무엇을 타지?",
+      "relevant": [
+        "travel"
+      ]
+    },
+    {
+      "id": "evaluation-related-12",
+      "split": "evaluation",
+      "text": "음식 맵기를 선택할 때 나한테 제일 약한 단계가 맞지?",
+      "relevant": [
+        "spice"
+      ]
+    },
+    {
+      "id": "evaluation-related-13",
+      "split": "evaluation",
+      "text": "내 재택근무 일정은 한 주에 어느 두 날이야?",
+      "relevant": [
+        "remote-work"
+      ]
+    },
+    {
+      "id": "evaluation-related-14",
+      "split": "evaluation",
+      "text": "나는 몇 월 며칠에 태어났다고 했어?",
+      "relevant": [
+        "birthday"
+      ]
+    },
+    {
+      "id": "evaluation-related-15",
+      "split": "evaluation",
+      "text": "주중에 먹는 점심을 전날마다 요리해, 주말에 몰아서 만들어?",
+      "relevant": [
+        "cooking"
+      ]
+    },
+    {
+      "id": "evaluation-related-16",
+      "split": "evaluation",
+      "text": "집중할 때 가사가 있는 노래와 건반 독주 중 내가 듣는 쪽은?",
+      "relevant": [
+        "music"
+      ]
+    },
+    {
+      "id": "evaluation-related-17",
+      "split": "evaluation",
+      "text": "관절 부담을 생각해서 내가 고른 물속 운동을 기억해?",
+      "relevant": [
+        "exercise"
+      ]
+    },
+    {
+      "id": "evaluation-related-18",
+      "split": "evaluation",
+      "text": "하루 십 분씩 어휘를 되새기는 건 어느 나라 말이었지?",
+      "relevant": [
+        "language"
+      ]
+    },
+    {
+      "id": "evaluation-related-19",
+      "split": "evaluation",
+      "text": "베란다 식물에 주말마다 물을 챙겨 주는 날은 토요일이야 일요일이야?",
+      "relevant": [
+        "plants"
+      ]
+    },
+    {
+      "id": "evaluation-related-20",
+      "split": "evaluation",
+      "text": "내가 목표로 삼은 취침 시간과 화면을 끄는 시간은?",
+      "relevant": [
+        "sleep"
+      ]
+    },
+    {
+      "id": "evaluation-related-21",
+      "split": "evaluation",
+      "text": "작문 속 “커피가 좋다”를 내 음료 선호로 저장하면 잘못이겠지? 실제 취향은?",
+      "relevant": [
+        "quotation",
+        "drink"
+      ]
+    },
+    {
+      "id": "evaluation-related-22",
+      "split": "evaluation",
+      "text": "멍멍이는 키우지 않는다고 했었지? 우리 집 반려동물 구성을 말해 줘.",
+      "relevant": [
+        "dog",
+        "cat"
+      ]
+    },
+    {
+      "id": "evaluation-related-23",
+      "split": "evaluation",
+      "text": "내 코딩 도구 테마를 라이트 모드로 바꿔도 편안해할까?",
+      "relevant": [
+        "display"
+      ]
+    },
+    {
+      "id": "evaluation-related-24",
+      "split": "evaluation",
+      "text": "부산행 예약을 알아보면 예전 계획인 거지? 변경한 행선지는?",
+      "relevant": [
+        "trip-change"
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-01",
+      "split": "evaluation",
+      "text": "내 모자 치수는 몇 호였어?",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-unrelated-02",
+      "split": "evaluation",
+      "text": "내 직장 상사의 이름이 뭐야?",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-unrelated-03",
+      "split": "evaluation",
+      "text": "내 인터넷 회선 속도를 알고 있어?",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-unrelated-04",
+      "split": "evaluation",
+      "text": "내 출생 시각은 몇 시 몇 분이지?",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-unrelated-05",
+      "split": "evaluation",
+      "text": "내 운전면허 취득일을 알려 줘.",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-unrelated-06",
+      "split": "evaluation",
+      "text": "내 키와 몸무게를 기억해?",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-unrelated-07",
+      "split": "evaluation",
+      "text": "내 와이파이 이름을 알려 줄 수 있어?",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-unrelated-08",
+      "split": "evaluation",
+      "text": "내 고등학교 동창 중 제일 친한 사람은?",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-unrelated-09",
+      "split": "evaluation",
+      "text": "내가 마지막으로 본 영화의 제목은?",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-unrelated-10",
+      "split": "evaluation",
+      "text": "내 해외여행 비자 유효기간은?",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-unrelated-11",
+      "split": "evaluation",
+      "text": "내가 좋아하는 축구 선수는 누구야?",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-unrelated-12",
+      "split": "evaluation",
+      "text": "내가 쓰는 샴푸 브랜드를 말해 줘.",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-unrelated-13",
+      "split": "evaluation",
+      "text": "내 형제자매는 몇 명이야?",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-unrelated-14",
+      "split": "evaluation",
+      "text": "우리 고양이 생일이 언제야?",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-unrelated-15",
+      "split": "evaluation",
+      "text": "내가 쓰는 목도리 실의 색 번호는?",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-unrelated-16",
+      "split": "evaluation",
+      "text": "내 집 현관 도어록 비밀번호는?",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-unrelated-17",
+      "split": "evaluation",
+      "text": "내가 보리차를 산 마트 이름은?",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-unrelated-18",
+      "split": "evaluation",
+      "text": "내 수영 강습 담당 선생님은 누구야?",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-unrelated-19",
+      "split": "evaluation",
+      "text": "내가 전자책 구독에 매달 내는 금액은?",
+      "relevant": []
+    },
+    {
+      "id": "evaluation-unrelated-20",
+      "split": "evaluation",
+      "text": "내 일본어 시험 점수는 몇 점이지?",
+      "relevant": []
+    }
+  ]
+}

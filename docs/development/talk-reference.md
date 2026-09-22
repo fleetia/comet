@@ -331,6 +331,8 @@ A[평온]: 오늘 기온을 한번 확인했어.
 
 ### music · 음악
 
+음악 위젯의 `캐릭터가 현재 곡 이야기하기`를 끄면 이 projection은 disabled 상태이며 곡 변수를 노출하지 않는다. 화면이 일시정지 곡을 보존해도 `music.title`·`music.artist`는 현재 재생 중인 곡만 제공한다.
+
 | 변수 | 타입 | null 허용 | owner | 의미 |
 | --- | --- | --- | --- | --- |
 | `music.artist` | `string` | 예 | `music` | 현재 재생 중인 곡의 아티스트. 비재생 시 null |

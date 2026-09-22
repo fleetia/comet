@@ -210,6 +210,7 @@ export function WidgetTool({ id }: { id: string }): ReactElement {
   return (
     <WidgetFrame
       className={s.host}
+      contentClassName={widget?.kind === "music" ? s.musicContent : undefined}
       title={name}
       closeLabel="위젯 닫기"
       onClose={() => command("close_widget", { id })}
@@ -230,7 +231,7 @@ export function WidgetTool({ id }: { id: string }): ReactElement {
       {!isDesktop() && (
         <p className={s.previewNote}>예시 데이터 미리보기 · 입력한 내용은 저장하지 않아요.</p>
       )}
-      <fieldset className={s.body} disabled={busy}>
+      <fieldset className={widget?.kind === "music" ? s.musicBody : s.body} disabled={busy}>
         {content}
       </fieldset>
       {busy && <p role="status">처리 중…</p>}

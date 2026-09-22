@@ -80,10 +80,12 @@ jobs:
         env:
           EXPECTED_ARCH: ${{ matrix.arch }}
         run: node -e "if (process.arch !== process.env.EXPECTED_ARCH) throw new Error('Unsupported runner architecture ' + process.arch)"
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.85.0
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: 'src-tauri -> target'
+          workspaces: |
+            src-tauri -> target
+            crates/comet-nlp -> target
           shared-key: desktop-${{ matrix.runner }}-${{ matrix.arch }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: pnpm install --frozen-lockfile
@@ -93,9 +95,12 @@ jobs:
         id: sidecar-cache
         with:
           path: src-tauri/binaries
-          key: sidecar-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/prepare-sidecar.mjs') }}
+          key: sidecar-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/prepare-sidecar.mjs', 'scripts/prepare-nlp.mjs', 'crates/comet-nlp/Cargo.*', 'crates/comet-nlp/src/**') }}
       - run: pnpm prepare:sidecar
         if: steps.sidecar-cache.outputs.cache-hit != 'true'
+      - run: pnpm prepare:nlp
+        if: steps.sidecar-cache.outputs.cache-hit != 'true'
+      - run: cargo test --locked --manifest-path crates/comet-nlp/Cargo.toml
       - uses: actions/cache/save@v4
         if: steps.sidecar-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
         with:

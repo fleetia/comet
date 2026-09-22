@@ -284,7 +284,7 @@ it("shows connection settings in place without running the widget", () => {
   });
   render(<WidgetManager embedded />);
   expect(screen.getByLabelText("음악 앱")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "곡 정보 조회 허용하고 연결" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "곡 정보 조회·재생 제어 허용하고 연결" })).toBeTruthy();
   expect(command).not.toHaveBeenCalled();
 });
 
@@ -347,6 +347,8 @@ it("tracks and retains separate widget setting drafts across selection and snaps
   fireEvent.click(screen.getByRole("button", { name: "알림 변경 취소" }));
   await waitFor(() => expect(dirty).toHaveBeenLastCalledWith(false));
   expect(
-    vi.mocked(command).mock.calls.filter(([name]) => name !== "get_planner_notification_permission"),
+    vi
+      .mocked(command)
+      .mock.calls.filter(([name]) => name !== "get_planner_notification_permission"),
   ).toEqual([]);
 });

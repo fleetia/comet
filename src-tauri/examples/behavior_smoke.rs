@@ -98,17 +98,12 @@ async fn run(runtime: &inference::Inference) -> Result<(), String> {
         let message = user(id, text, target);
         store::insert_message(&conn, &message)?;
         let old = store::memories(&conn)?;
-        let result = generate(
-            runtime,
-            id,
-            &domain::analysis_prompt(
-                std::slice::from_ref(&message),
-                &old,
-                store::revision(&conn)?,
-            ),
-            domain::analysis_schema(),
-        )
-        .await?;
+        let batch = domain::analysis_batch(
+            std::slice::from_ref(&message),
+            &old,
+            store::revision(&conn)?,
+        );
+        let result = generate(runtime, id, &batch.messages, domain::analysis_schema()).await?;
         let grounded = ["memories", "events"].iter().all(|key| {
             result[*key].as_array().is_some_and(|items| {
                 items.iter().all(|item| {
@@ -124,7 +119,7 @@ async fn run(runtime: &inference::Inference) -> Result<(), String> {
             &format!("{id} exact source evidence"),
             grounded,
         );
-        store::analyze_apply(&conn, &result)?;
+        store::analyze_apply_batch(&conn, &result, &batch.submitted_ids)?;
         let memories = store::memories(&conn)?;
         check(
             &mut issues,

@@ -29,17 +29,21 @@ comet은 나니카·우카가카처럼 바탕화면에 머물며 먼저 말을 �
 
 2026-09-20 [플래너](product/planning.md)는 오늘 일정·할 일, 주·월·연·언젠가 계획, 주간·월간 캘린더와 템플릿을 같은 실행 창에서 제공한다. 오늘 선택과 기한을 분리하고 날짜·완료 기준 반복과 주간 횟수를 저장한다. Google·macOS Apple·ICS 읽기 연결, 캐릭터·OS 알림과 무드메이커는 통합 설정에서 관리한다. 소스 구현과 실제 계정 권한·OS 알림 검증은 [상태표](status.md)에서 구분한다.
 
+2026-09-21 [음악 정보 확장](product/music.md)은 재생 앱이 제공하는 전체 선택 메타데이터·출처 선택과 작은 위젯·상세·가사 화면을 확정했다. **확정 · 개발 예정 / Figma 디자인**이며 현재 macOS Music·Spotify 연결의 소스 구현과 실제 검증 범위는 아직 확장하지 않았다.
+
 ## 읽는 순서
 
 | 목적 | 문서 |
 | --- | --- |
 | 관리 화면을 변경하는가 | [통합 설정창과 기능 계약](product/settings.md) |
+| 기억 검색·선택 NLP를 바꾸는가 | [기억 검색](product/memory-search.md), [NLP 실행과 배포](development/nlp.md) |
 | 어떤 앱을 만드는가 | [바탕화면 경험](product/desktop.md), [대화·단어장·친밀도](product/conversation.md) |
 | 위젯 상태로 대본을 작성하는가 | [`.talk` 작성](product/talk.md), [CLI·변수](development/talk-reference.md), [기본 대본 범위](development/talk-coverage.md) |
 | 캐릭터를 바꾸고 공유하는가 | [캐릭터팩·1~8명 조합·내보내기](product/characters.md) |
 | 캐릭터팩을 내려받으려면 | [캐릭터팩 갤러리](product/character-gallery.md) |
 | 앱을 배포하고 업데이트하려면 | [앱 릴리스와 업데이트](development/releases.md) |
 | 어떤 도구를 만드는가 | [토이 목록](product/toys.md), [내장 투두와 캘린더](product/planning.md) |
+| 음악의 조회 항목·출처 선택·상세·가사 화면을 바꾸는가 | [음악 정보 확장 계약과 Figma 디자인](product/music.md) |
 | 계획·기한·반복·캘린더 연결·생활 알림을 바꾸는가 | [플래너 제품 계약](product/planning.md), [플래너 실행·저장·알림 경계](development/architecture.md#planner-boundaries) |
 | 무엇을 선택해서 설치하는가 | [전체 위젯 카탈로그](widgets/catalog.md), [선택 설치·추가·제거](widgets/installation.md) |
 | 위젯은 어떻게 참여하는가 | [외부 위젯 개요](widgets/overview.md), [연결 계약](widgets/contract.md) |

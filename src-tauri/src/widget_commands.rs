@@ -163,7 +163,7 @@ pub(crate) fn cancel_widget_scene(app: &tauri::AppHandle, state: &AppState) -> R
             let token = interrupt(state, true)?;
             state.widget_epoch.store(token.0, Ordering::SeqCst);
             let mut runtime = lock(&state.runtime)?;
-            runtime.phase = "idle".into();
+            runtime.phase = crate::types::RuntimePhase::Idle;
             runtime.persona = None;
         }
     }
@@ -172,6 +172,11 @@ pub(crate) fn cancel_widget_scene(app: &tauri::AppHandle, state: &AppState) -> R
 }
 
 pub(crate) fn cancel_widget_jobs(state: &AppState, id: Option<&str>) -> Result<(), String> {
+    if let Some(id) = id {
+        crate::music_bridge::revoke(id);
+    } else {
+        crate::music_bridge::revoke_all();
+    }
     let mut jobs = lock(&state.widget_jobs)?;
     if let Some(id) = id {
         if let Some(cancel) = jobs.remove(id) {
@@ -452,12 +457,16 @@ pub(crate) async fn open_widget(
         widgets::manifest(&instance.kind)?.name
     ))
     .inner_size(
-        if instance.kind == "todo" {
+        if instance.kind == "music" {
+            440.0
+        } else if instance.kind == "todo" {
             480.0
         } else {
             360.0
         },
-        if instance.kind == "todo" {
+        if instance.kind == "music" {
+            340.0
+        } else if instance.kind == "todo" {
             336.0
         } else {
             480.0
@@ -685,4 +694,34 @@ mod tests {
         assert_eq!(lines[0].persona, "a");
         assert_eq!(lines[0].text, event.event.text);
     }
+}
+
+#[tauri::command]
+pub(crate) fn set_music_expanded(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    expanded: bool,
+) -> Result<(), String> {
+    change(&state, |db| {
+        let instance = storage::get(db, &id)?;
+        if instance.kind != "music" || !instance.installed || !instance.enabled {
+            return Err("음악 위젯을 먼저 켜 주세요.".into());
+        }
+        let window = app
+            .get_webview_window(&format!("widget-{id}"))
+            .ok_or("음악 창을 찾을 수 없어요.")?;
+        window
+            .set_min_size(Some(tauri::LogicalSize::new(
+                440.0,
+                if expanded { 520.0 } else { 340.0 },
+            )))
+            .map_err(|error| error.to_string())?;
+        window
+            .set_size(tauri::LogicalSize::new(
+                if expanded { 720.0 } else { 440.0 },
+                if expanded { 730.0 } else { 340.0 },
+            ))
+            .map_err(|error| error.to_string())
+    })
 }

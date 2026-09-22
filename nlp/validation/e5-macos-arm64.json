@@ -1,0 +1,2504 @@
+{
+  "schema": 1,
+  "scoring": "f32 product and sequential f32 sum, matching Rust store",
+  "fixture": "nlp/fixtures/korean-retrieval.json",
+  "threshold": 0.8433828949928284,
+  "releaseQualityGate": false,
+  "calibration": {
+    "recallAt5": 0.75,
+    "unrelatedFalsePositiveRate": 0.05,
+    "relatedQueries": 24,
+    "unrelatedQueries": 20,
+    "falsePositives": 1
+  },
+  "evaluation": {
+    "recallAt5": 0.6666666666666666,
+    "unrelatedFalsePositiveRate": 0.1,
+    "relatedQueries": 24,
+    "unrelatedQueries": 20,
+    "falsePositives": 2
+  },
+  "coldStartSeconds": 0.9018574580550194,
+  "nativeRequestP50Ms": 3.871042048558593,
+  "nativeRequestP95Ms": 103.21708302944899,
+  "limitations": [
+    "Public fixture is small and synthetic.",
+    "Latency is this host/helper only, not reference Windows performance."
+  ],
+  "queries": [
+    {
+      "id": "calibration-related-01",
+      "split": "calibration",
+      "relevant": [
+        "drink"
+      ],
+      "top5": [
+        {
+          "id": "drink",
+          "score": 0.8380202651023865
+        },
+        {
+          "id": "spice",
+          "score": 0.8182580471038818
+        },
+        {
+          "id": "food-allergy",
+          "score": 0.8122713565826416
+        },
+        {
+          "id": "focus",
+          "score": 0.8118789792060852
+        },
+        {
+          "id": "quotation",
+          "score": 0.8118153214454651
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-02",
+      "split": "calibration",
+      "relevant": [
+        "temperature"
+      ],
+      "top5": [
+        {
+          "id": "temperature",
+          "score": 0.8477948904037476
+        },
+        {
+          "id": "spice",
+          "score": 0.8201001882553101
+        },
+        {
+          "id": "focus",
+          "score": 0.8056542277336121
+        },
+        {
+          "id": "sleep",
+          "score": 0.7952402830123901
+        },
+        {
+          "id": "drink",
+          "score": 0.792543351650238
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-03",
+      "split": "calibration",
+      "relevant": [
+        "home"
+      ],
+      "top5": [
+        {
+          "id": "home",
+          "score": 0.8433828949928284
+        },
+        {
+          "id": "remote-work",
+          "score": 0.7989525198936462
+        },
+        {
+          "id": "commute",
+          "score": 0.7849910855293274
+        },
+        {
+          "id": "trip-change",
+          "score": 0.7795007824897766
+        },
+        {
+          "id": "cafe",
+          "score": 0.7794727087020874
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-04",
+      "split": "calibration",
+      "relevant": [
+        "commute"
+      ],
+      "top5": [
+        {
+          "id": "commute",
+          "score": 0.868215799331665
+        },
+        {
+          "id": "quotation",
+          "score": 0.8406297564506531
+        },
+        {
+          "id": "focus",
+          "score": 0.8314054608345032
+        },
+        {
+          "id": "language",
+          "score": 0.830748438835144
+        },
+        {
+          "id": "remote-work",
+          "score": 0.8234413266181946
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-05",
+      "split": "calibration",
+      "relevant": [
+        "focus"
+      ],
+      "top5": [
+        {
+          "id": "focus",
+          "score": 0.8381854295730591
+        },
+        {
+          "id": "sleep",
+          "score": 0.8272510766983032
+        },
+        {
+          "id": "remote-work",
+          "score": 0.8130196332931519
+        },
+        {
+          "id": "spice",
+          "score": 0.8121131658554077
+        },
+        {
+          "id": "birthday",
+          "score": 0.8119546175003052
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-06",
+      "split": "calibration",
+      "relevant": [
+        "food-allergy"
+      ],
+      "top5": [
+        {
+          "id": "food-allergy",
+          "score": 0.869559109210968
+        },
+        {
+          "id": "spice",
+          "score": 0.8160992860794067
+        },
+        {
+          "id": "dog",
+          "score": 0.8024148941040039
+        },
+        {
+          "id": "quotation",
+          "score": 0.8005834817886353
+        },
+        {
+          "id": "focus",
+          "score": 0.7945556044578552
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-07",
+      "split": "calibration",
+      "relevant": [
+        "cat"
+      ],
+      "top5": [
+        {
+          "id": "cat",
+          "score": 0.8608859777450562
+        },
+        {
+          "id": "dog",
+          "score": 0.8313602209091187
+        },
+        {
+          "id": "drink",
+          "score": 0.8081291317939758
+        },
+        {
+          "id": "home",
+          "score": 0.8037248253822327
+        },
+        {
+          "id": "quotation",
+          "score": 0.7974904775619507
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-08",
+      "split": "calibration",
+      "relevant": [
+        "knitting"
+      ],
+      "top5": [
+        {
+          "id": "quotation",
+          "score": 0.8265863656997681
+        },
+        {
+          "id": "knitting",
+          "score": 0.8162542581558228
+        },
+        {
+          "id": "display",
+          "score": 0.8115516304969788
+        },
+        {
+          "id": "focus",
+          "score": 0.8108049631118774
+        },
+        {
+          "id": "spice",
+          "score": 0.8100510239601135
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-09",
+      "split": "calibration",
+      "relevant": [
+        "books"
+      ],
+      "top5": [
+        {
+          "id": "books",
+          "score": 0.8596550822257996
+        },
+        {
+          "id": "quotation",
+          "score": 0.8234750032424927
+        },
+        {
+          "id": "commute",
+          "score": 0.8217843174934387
+        },
+        {
+          "id": "dog",
+          "score": 0.8057332038879395
+        },
+        {
+          "id": "spice",
+          "score": 0.800338625907898
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-10",
+      "split": "calibration",
+      "relevant": [
+        "cafe"
+      ],
+      "top5": [
+        {
+          "id": "cafe",
+          "score": 0.8586993217468262
+        },
+        {
+          "id": "spice",
+          "score": 0.8540080189704895
+        },
+        {
+          "id": "temperature",
+          "score": 0.8489723205566406
+        },
+        {
+          "id": "drink",
+          "score": 0.8370530605316162
+        },
+        {
+          "id": "quotation",
+          "score": 0.8314087986946106
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-11",
+      "split": "calibration",
+      "relevant": [
+        "travel"
+      ],
+      "top5": [
+        {
+          "id": "travel",
+          "score": 0.8406553268432617
+        },
+        {
+          "id": "commute",
+          "score": 0.8100977540016174
+        },
+        {
+          "id": "spice",
+          "score": 0.7941480875015259
+        },
+        {
+          "id": "cafe",
+          "score": 0.7930368781089783
+        },
+        {
+          "id": "exercise",
+          "score": 0.7846896052360535
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-12",
+      "split": "calibration",
+      "relevant": [
+        "spice"
+      ],
+      "top5": [
+        {
+          "id": "spice",
+          "score": 0.8540107607841492
+        },
+        {
+          "id": "quotation",
+          "score": 0.8285685777664185
+        },
+        {
+          "id": "temperature",
+          "score": 0.8095874190330505
+        },
+        {
+          "id": "food-allergy",
+          "score": 0.8075971603393555
+        },
+        {
+          "id": "focus",
+          "score": 0.8054066300392151
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-13",
+      "split": "calibration",
+      "relevant": [
+        "remote-work"
+      ],
+      "top5": [
+        {
+          "id": "remote-work",
+          "score": 0.8456358313560486
+        },
+        {
+          "id": "music",
+          "score": 0.831790566444397
+        },
+        {
+          "id": "commute",
+          "score": 0.8280914425849915
+        },
+        {
+          "id": "cooking",
+          "score": 0.8133992552757263
+        },
+        {
+          "id": "spice",
+          "score": 0.8069585561752319
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-14",
+      "split": "calibration",
+      "relevant": [
+        "birthday"
+      ],
+      "top5": [
+        {
+          "id": "birthday",
+          "score": 0.872995138168335
+        },
+        {
+          "id": "remote-work",
+          "score": 0.8079911470413208
+        },
+        {
+          "id": "commute",
+          "score": 0.7943635582923889
+        },
+        {
+          "id": "focus",
+          "score": 0.7926673293113708
+        },
+        {
+          "id": "sleep",
+          "score": 0.7884612679481506
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-15",
+      "split": "calibration",
+      "relevant": [
+        "cooking"
+      ],
+      "top5": [
+        {
+          "id": "cooking",
+          "score": 0.8563660979270935
+        },
+        {
+          "id": "knitting",
+          "score": 0.8279250860214233
+        },
+        {
+          "id": "remote-work",
+          "score": 0.8210077881813049
+        },
+        {
+          "id": "spice",
+          "score": 0.817654013633728
+        },
+        {
+          "id": "plants",
+          "score": 0.8139334917068481
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-16",
+      "split": "calibration",
+      "relevant": [
+        "music"
+      ],
+      "top5": [
+        {
+          "id": "music",
+          "score": 0.827475905418396
+        },
+        {
+          "id": "display",
+          "score": 0.8055663108825684
+        },
+        {
+          "id": "travel",
+          "score": 0.7928088307380676
+        },
+        {
+          "id": "commute",
+          "score": 0.7859640717506409
+        },
+        {
+          "id": "spice",
+          "score": 0.7849109172821045
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-17",
+      "split": "calibration",
+      "relevant": [
+        "exercise"
+      ],
+      "top5": [
+        {
+          "id": "exercise",
+          "score": 0.8667895197868347
+        },
+        {
+          "id": "quotation",
+          "score": 0.8043365478515625
+        },
+        {
+          "id": "focus",
+          "score": 0.8007093667984009
+        },
+        {
+          "id": "temperature",
+          "score": 0.8004021048545837
+        },
+        {
+          "id": "drink",
+          "score": 0.7994691729545593
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-18",
+      "split": "calibration",
+      "relevant": [
+        "language"
+      ],
+      "top5": [
+        {
+          "id": "language",
+          "score": 0.8626155257225037
+        },
+        {
+          "id": "focus",
+          "score": 0.8186682462692261
+        },
+        {
+          "id": "quotation",
+          "score": 0.8176929950714111
+        },
+        {
+          "id": "music",
+          "score": 0.8153696060180664
+        },
+        {
+          "id": "commute",
+          "score": 0.8107023239135742
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-19",
+      "split": "calibration",
+      "relevant": [
+        "plants"
+      ],
+      "top5": [
+        {
+          "id": "temperature",
+          "score": 0.8479917049407959
+        },
+        {
+          "id": "spice",
+          "score": 0.8268723487854004
+        },
+        {
+          "id": "plants",
+          "score": 0.8252677321434021
+        },
+        {
+          "id": "dog",
+          "score": 0.8190454840660095
+        },
+        {
+          "id": "food-allergy",
+          "score": 0.8170156478881836
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-20",
+      "split": "calibration",
+      "relevant": [
+        "sleep"
+      ],
+      "top5": [
+        {
+          "id": "sleep",
+          "score": 0.8529701232910156
+        },
+        {
+          "id": "commute",
+          "score": 0.8226549029350281
+        },
+        {
+          "id": "cooking",
+          "score": 0.8214160799980164
+        },
+        {
+          "id": "knitting",
+          "score": 0.816014289855957
+        },
+        {
+          "id": "spice",
+          "score": 0.8120181560516357
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-21",
+      "split": "calibration",
+      "relevant": [
+        "quotation"
+      ],
+      "top5": [
+        {
+          "id": "quotation",
+          "score": 0.9065054059028625
+        },
+        {
+          "id": "drink",
+          "score": 0.8523927330970764
+        },
+        {
+          "id": "temperature",
+          "score": 0.8227922916412354
+        },
+        {
+          "id": "focus",
+          "score": 0.8160953521728516
+        },
+        {
+          "id": "spice",
+          "score": 0.8157334923744202
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-22",
+      "split": "calibration",
+      "relevant": [
+        "dog"
+      ],
+      "top5": [
+        {
+          "id": "dog",
+          "score": 0.8441142439842224
+        },
+        {
+          "id": "home",
+          "score": 0.8334372043609619
+        },
+        {
+          "id": "cat",
+          "score": 0.822898805141449
+        },
+        {
+          "id": "remote-work",
+          "score": 0.8189576864242554
+        },
+        {
+          "id": "temperature",
+          "score": 0.8094286322593689
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-23",
+      "split": "calibration",
+      "relevant": [
+        "display"
+      ],
+      "top5": [
+        {
+          "id": "display",
+          "score": 0.8840682506561279
+        },
+        {
+          "id": "focus",
+          "score": 0.7935682535171509
+        },
+        {
+          "id": "commute",
+          "score": 0.7920334339141846
+        },
+        {
+          "id": "travel",
+          "score": 0.7918058633804321
+        },
+        {
+          "id": "quotation",
+          "score": 0.7899631857872009
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-24",
+      "split": "calibration",
+      "relevant": [
+        "trip-change"
+      ],
+      "top5": [
+        {
+          "id": "trip-change",
+          "score": 0.8857601881027222
+        },
+        {
+          "id": "travel",
+          "score": 0.8168257474899292
+        },
+        {
+          "id": "commute",
+          "score": 0.7933602333068848
+        },
+        {
+          "id": "drink",
+          "score": 0.789336085319519
+        },
+        {
+          "id": "cooking",
+          "score": 0.7878652811050415
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-01",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "sleep",
+          "score": 0.7867305874824524
+        },
+        {
+          "id": "birthday",
+          "score": 0.7851927280426025
+        },
+        {
+          "id": "focus",
+          "score": 0.7778156995773315
+        },
+        {
+          "id": "dog",
+          "score": 0.7773838639259338
+        },
+        {
+          "id": "display",
+          "score": 0.7744552493095398
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-02",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "remote-work",
+          "score": 0.8098886609077454
+        },
+        {
+          "id": "birthday",
+          "score": 0.8056626319885254
+        },
+        {
+          "id": "cat",
+          "score": 0.8036456108093262
+        },
+        {
+          "id": "quotation",
+          "score": 0.7962124347686768
+        },
+        {
+          "id": "commute",
+          "score": 0.7928593754768372
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-03",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "sleep",
+          "score": 0.8270323276519775
+        },
+        {
+          "id": "cat",
+          "score": 0.8269582390785217
+        },
+        {
+          "id": "dog",
+          "score": 0.8213316798210144
+        },
+        {
+          "id": "travel",
+          "score": 0.8182905912399292
+        },
+        {
+          "id": "commute",
+          "score": 0.8132453560829163
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-04",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "birthday",
+          "score": 0.811932384967804
+        },
+        {
+          "id": "home",
+          "score": 0.7943409085273743
+        },
+        {
+          "id": "sleep",
+          "score": 0.7863785624504089
+        },
+        {
+          "id": "remote-work",
+          "score": 0.782992959022522
+        },
+        {
+          "id": "cat",
+          "score": 0.7793404459953308
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-05",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "travel",
+          "score": 0.8125753402709961
+        },
+        {
+          "id": "commute",
+          "score": 0.8049694299697876
+        },
+        {
+          "id": "sleep",
+          "score": 0.7890276312828064
+        },
+        {
+          "id": "drink",
+          "score": 0.78849196434021
+        },
+        {
+          "id": "quotation",
+          "score": 0.7872246503829956
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-06",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "birthday",
+          "score": 0.8015555739402771
+        },
+        {
+          "id": "exercise",
+          "score": 0.7975744605064392
+        },
+        {
+          "id": "dog",
+          "score": 0.7957702279090881
+        },
+        {
+          "id": "focus",
+          "score": 0.7944682836532593
+        },
+        {
+          "id": "quotation",
+          "score": 0.7925900816917419
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-07",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "commute",
+          "score": 0.8059437870979309
+        },
+        {
+          "id": "sleep",
+          "score": 0.7906373143196106
+        },
+        {
+          "id": "quotation",
+          "score": 0.785231351852417
+        },
+        {
+          "id": "focus",
+          "score": 0.7804980278015137
+        },
+        {
+          "id": "food-allergy",
+          "score": 0.7745879292488098
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-08",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "home",
+          "score": 0.7940245866775513
+        },
+        {
+          "id": "birthday",
+          "score": 0.7880600094795227
+        },
+        {
+          "id": "focus",
+          "score": 0.7846540808677673
+        },
+        {
+          "id": "remote-work",
+          "score": 0.7830552458763123
+        },
+        {
+          "id": "quotation",
+          "score": 0.7818583846092224
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-09",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "quotation",
+          "score": 0.8129881024360657
+        },
+        {
+          "id": "focus",
+          "score": 0.8071935772895813
+        },
+        {
+          "id": "books",
+          "score": 0.8070935606956482
+        },
+        {
+          "id": "temperature",
+          "score": 0.8048847913742065
+        },
+        {
+          "id": "birthday",
+          "score": 0.8006595373153687
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-10",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "birthday",
+          "score": 0.814014732837677
+        },
+        {
+          "id": "remote-work",
+          "score": 0.7829784750938416
+        },
+        {
+          "id": "knitting",
+          "score": 0.7753956913948059
+        },
+        {
+          "id": "focus",
+          "score": 0.772782564163208
+        },
+        {
+          "id": "plants",
+          "score": 0.7723474502563477
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-11",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "drink",
+          "score": 0.7876139879226685
+        },
+        {
+          "id": "quotation",
+          "score": 0.787372887134552
+        },
+        {
+          "id": "remote-work",
+          "score": 0.7810112833976746
+        },
+        {
+          "id": "focus",
+          "score": 0.7795493006706238
+        },
+        {
+          "id": "cat",
+          "score": 0.7793933153152466
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-12",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "spice",
+          "score": 0.8217061161994934
+        },
+        {
+          "id": "quotation",
+          "score": 0.8213436603546143
+        },
+        {
+          "id": "temperature",
+          "score": 0.8170153498649597
+        },
+        {
+          "id": "cat",
+          "score": 0.8020931482315063
+        },
+        {
+          "id": "cafe",
+          "score": 0.8010632395744324
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-13",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "birthday",
+          "score": 0.8256945610046387
+        },
+        {
+          "id": "knitting",
+          "score": 0.7898959517478943
+        },
+        {
+          "id": "cooking",
+          "score": 0.7842870354652405
+        },
+        {
+          "id": "remote-work",
+          "score": 0.7816645503044128
+        },
+        {
+          "id": "spice",
+          "score": 0.7752435207366943
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-14",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "dog",
+          "score": 0.8103238940238953
+        },
+        {
+          "id": "cat",
+          "score": 0.806801438331604
+        },
+        {
+          "id": "birthday",
+          "score": 0.8034205436706543
+        },
+        {
+          "id": "remote-work",
+          "score": 0.7746147513389587
+        },
+        {
+          "id": "knitting",
+          "score": 0.7743636965751648
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-15",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "knitting",
+          "score": 0.8008331656455994
+        },
+        {
+          "id": "dog",
+          "score": 0.7950894236564636
+        },
+        {
+          "id": "spice",
+          "score": 0.7944109439849854
+        },
+        {
+          "id": "quotation",
+          "score": 0.7902830243110657
+        },
+        {
+          "id": "temperature",
+          "score": 0.7847307920455933
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-16",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "home",
+          "score": 0.8136933445930481
+        },
+        {
+          "id": "remote-work",
+          "score": 0.8057749271392822
+        },
+        {
+          "id": "birthday",
+          "score": 0.799295961856842
+        },
+        {
+          "id": "cat",
+          "score": 0.7910606861114502
+        },
+        {
+          "id": "commute",
+          "score": 0.7851592302322388
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-17",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "drink",
+          "score": 0.8675178289413452
+        },
+        {
+          "id": "quotation",
+          "score": 0.8379011154174805
+        },
+        {
+          "id": "spice",
+          "score": 0.8011401891708374
+        },
+        {
+          "id": "food-allergy",
+          "score": 0.8004396557807922
+        },
+        {
+          "id": "cat",
+          "score": 0.7889911532402039
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-18",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "cat",
+          "score": 0.8146451115608215
+        },
+        {
+          "id": "exercise",
+          "score": 0.8045479655265808
+        },
+        {
+          "id": "temperature",
+          "score": 0.7992412447929382
+        },
+        {
+          "id": "dog",
+          "score": 0.7904040813446045
+        },
+        {
+          "id": "home",
+          "score": 0.784164547920227
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-19",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "commute",
+          "score": 0.835934042930603
+        },
+        {
+          "id": "sleep",
+          "score": 0.7927478551864624
+        },
+        {
+          "id": "quotation",
+          "score": 0.7868332862854004
+        },
+        {
+          "id": "display",
+          "score": 0.7847458720207214
+        },
+        {
+          "id": "focus",
+          "score": 0.7809926867485046
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-20",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "language",
+          "score": 0.8429571986198425
+        },
+        {
+          "id": "quotation",
+          "score": 0.7970095872879028
+        },
+        {
+          "id": "books",
+          "score": 0.784393310546875
+        },
+        {
+          "id": "commute",
+          "score": 0.7792540192604065
+        },
+        {
+          "id": "birthday",
+          "score": 0.7790296077728271
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-01",
+      "split": "evaluation",
+      "relevant": [
+        "drink"
+      ],
+      "top5": [
+        {
+          "id": "drink",
+          "score": 0.8766441345214844
+        },
+        {
+          "id": "quotation",
+          "score": 0.8625340461730957
+        },
+        {
+          "id": "focus",
+          "score": 0.8519389629364014
+        },
+        {
+          "id": "spice",
+          "score": 0.8409411907196045
+        },
+        {
+          "id": "temperature",
+          "score": 0.8382753729820251
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-02",
+      "split": "evaluation",
+      "relevant": [
+        "temperature"
+      ],
+      "top5": [
+        {
+          "id": "temperature",
+          "score": 0.8506343364715576
+        },
+        {
+          "id": "drink",
+          "score": 0.8273959159851074
+        },
+        {
+          "id": "spice",
+          "score": 0.8266222476959229
+        },
+        {
+          "id": "focus",
+          "score": 0.8076844811439514
+        },
+        {
+          "id": "sleep",
+          "score": 0.8061510920524597
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-03",
+      "split": "evaluation",
+      "relevant": [
+        "home"
+      ],
+      "top5": [
+        {
+          "id": "home",
+          "score": 0.8534052968025208
+        },
+        {
+          "id": "commute",
+          "score": 0.8050196766853333
+        },
+        {
+          "id": "remote-work",
+          "score": 0.8008652329444885
+        },
+        {
+          "id": "spice",
+          "score": 0.7956787347793579
+        },
+        {
+          "id": "focus",
+          "score": 0.7895089387893677
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-04",
+      "split": "evaluation",
+      "relevant": [
+        "commute"
+      ],
+      "top5": [
+        {
+          "id": "commute",
+          "score": 0.8878618478775024
+        },
+        {
+          "id": "books",
+          "score": 0.8458693623542786
+        },
+        {
+          "id": "sleep",
+          "score": 0.8380506038665771
+        },
+        {
+          "id": "quotation",
+          "score": 0.8358168005943298
+        },
+        {
+          "id": "drink",
+          "score": 0.832610011100769
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-05",
+      "split": "evaluation",
+      "relevant": [
+        "focus"
+      ],
+      "top5": [
+        {
+          "id": "focus",
+          "score": 0.8670924305915833
+        },
+        {
+          "id": "sleep",
+          "score": 0.8550679087638855
+        },
+        {
+          "id": "quotation",
+          "score": 0.8408244848251343
+        },
+        {
+          "id": "temperature",
+          "score": 0.8399187326431274
+        },
+        {
+          "id": "dog",
+          "score": 0.8397667407989502
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-06",
+      "split": "evaluation",
+      "relevant": [
+        "food-allergy"
+      ],
+      "top5": [
+        {
+          "id": "spice",
+          "score": 0.8254287838935852
+        },
+        {
+          "id": "food-allergy",
+          "score": 0.8202087879180908
+        },
+        {
+          "id": "cooking",
+          "score": 0.8160138130187988
+        },
+        {
+          "id": "commute",
+          "score": 0.7922820448875427
+        },
+        {
+          "id": "focus",
+          "score": 0.7880992293357849
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-07",
+      "split": "evaluation",
+      "relevant": [
+        "cat"
+      ],
+      "top5": [
+        {
+          "id": "cat",
+          "score": 0.8321859240531921
+        },
+        {
+          "id": "dog",
+          "score": 0.8061663508415222
+        },
+        {
+          "id": "quotation",
+          "score": 0.8056831955909729
+        },
+        {
+          "id": "remote-work",
+          "score": 0.8052995204925537
+        },
+        {
+          "id": "focus",
+          "score": 0.8037621378898621
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-08",
+      "split": "evaluation",
+      "relevant": [
+        "knitting"
+      ],
+      "top5": [
+        {
+          "id": "cooking",
+          "score": 0.8358904719352722
+        },
+        {
+          "id": "spice",
+          "score": 0.8231968879699707
+        },
+        {
+          "id": "sleep",
+          "score": 0.8196653723716736
+        },
+        {
+          "id": "focus",
+          "score": 0.8175740242004395
+        },
+        {
+          "id": "remote-work",
+          "score": 0.8174148797988892
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-09",
+      "split": "evaluation",
+      "relevant": [
+        "books"
+      ],
+      "top5": [
+        {
+          "id": "books",
+          "score": 0.8903554677963257
+        },
+        {
+          "id": "quotation",
+          "score": 0.8548005819320679
+        },
+        {
+          "id": "commute",
+          "score": 0.8293612003326416
+        },
+        {
+          "id": "dog",
+          "score": 0.8256444931030273
+        },
+        {
+          "id": "focus",
+          "score": 0.8245611190795898
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-10",
+      "split": "evaluation",
+      "relevant": [
+        "cafe"
+      ],
+      "top5": [
+        {
+          "id": "drink",
+          "score": 0.861469030380249
+        },
+        {
+          "id": "cafe",
+          "score": 0.839654803276062
+        },
+        {
+          "id": "quotation",
+          "score": 0.8385646939277649
+        },
+        {
+          "id": "spice",
+          "score": 0.833554208278656
+        },
+        {
+          "id": "commute",
+          "score": 0.8198693990707397
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-11",
+      "split": "evaluation",
+      "relevant": [
+        "travel"
+      ],
+      "top5": [
+        {
+          "id": "travel",
+          "score": 0.8791322112083435
+        },
+        {
+          "id": "drink",
+          "score": 0.8279672265052795
+        },
+        {
+          "id": "display",
+          "score": 0.8276983499526978
+        },
+        {
+          "id": "temperature",
+          "score": 0.8260902762413025
+        },
+        {
+          "id": "books",
+          "score": 0.8250121474266052
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-12",
+      "split": "evaluation",
+      "relevant": [
+        "spice"
+      ],
+      "top5": [
+        {
+          "id": "spice",
+          "score": 0.8596704602241516
+        },
+        {
+          "id": "food-allergy",
+          "score": 0.8210420608520508
+        },
+        {
+          "id": "focus",
+          "score": 0.8206782341003418
+        },
+        {
+          "id": "sleep",
+          "score": 0.8164117932319641
+        },
+        {
+          "id": "cooking",
+          "score": 0.8120042681694031
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-13",
+      "split": "evaluation",
+      "relevant": [
+        "remote-work"
+      ],
+      "top5": [
+        {
+          "id": "remote-work",
+          "score": 0.8330828547477722
+        },
+        {
+          "id": "cooking",
+          "score": 0.8145731091499329
+        },
+        {
+          "id": "commute",
+          "score": 0.8131778836250305
+        },
+        {
+          "id": "plants",
+          "score": 0.8106898069381714
+        },
+        {
+          "id": "language",
+          "score": 0.8051255941390991
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-14",
+      "split": "evaluation",
+      "relevant": [
+        "birthday"
+      ],
+      "top5": [
+        {
+          "id": "birthday",
+          "score": 0.8485049605369568
+        },
+        {
+          "id": "sleep",
+          "score": 0.8262224793434143
+        },
+        {
+          "id": "dog",
+          "score": 0.819390594959259
+        },
+        {
+          "id": "focus",
+          "score": 0.8164185285568237
+        },
+        {
+          "id": "cat",
+          "score": 0.8116966485977173
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-15",
+      "split": "evaluation",
+      "relevant": [
+        "cooking"
+      ],
+      "top5": [
+        {
+          "id": "cooking",
+          "score": 0.8736259341239929
+        },
+        {
+          "id": "remote-work",
+          "score": 0.8380890488624573
+        },
+        {
+          "id": "spice",
+          "score": 0.8364517688751221
+        },
+        {
+          "id": "focus",
+          "score": 0.8281884789466858
+        },
+        {
+          "id": "knitting",
+          "score": 0.8156226277351379
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-16",
+      "split": "evaluation",
+      "relevant": [
+        "music"
+      ],
+      "top5": [
+        {
+          "id": "music",
+          "score": 0.8403263092041016
+        },
+        {
+          "id": "focus",
+          "score": 0.8357303738594055
+        },
+        {
+          "id": "quotation",
+          "score": 0.8186748027801514
+        },
+        {
+          "id": "spice",
+          "score": 0.814333438873291
+        },
+        {
+          "id": "language",
+          "score": 0.8104322552680969
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-17",
+      "split": "evaluation",
+      "relevant": [
+        "exercise"
+      ],
+      "top5": [
+        {
+          "id": "exercise",
+          "score": 0.860659122467041
+        },
+        {
+          "id": "temperature",
+          "score": 0.8258501291275024
+        },
+        {
+          "id": "focus",
+          "score": 0.8178609013557434
+        },
+        {
+          "id": "quotation",
+          "score": 0.8070988655090332
+        },
+        {
+          "id": "drink",
+          "score": 0.8069427609443665
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-18",
+      "split": "evaluation",
+      "relevant": [
+        "language"
+      ],
+      "top5": [
+        {
+          "id": "language",
+          "score": 0.8471304178237915
+        },
+        {
+          "id": "music",
+          "score": 0.7999860048294067
+        },
+        {
+          "id": "sleep",
+          "score": 0.7939257025718689
+        },
+        {
+          "id": "focus",
+          "score": 0.7822054028511047
+        },
+        {
+          "id": "commute",
+          "score": 0.7739716172218323
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-19",
+      "split": "evaluation",
+      "relevant": [
+        "plants"
+      ],
+      "top5": [
+        {
+          "id": "plants",
+          "score": 0.9118674993515015
+        },
+        {
+          "id": "cooking",
+          "score": 0.8406438231468201
+        },
+        {
+          "id": "knitting",
+          "score": 0.8233304619789124
+        },
+        {
+          "id": "remote-work",
+          "score": 0.8181371092796326
+        },
+        {
+          "id": "spice",
+          "score": 0.8110693693161011
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-20",
+      "split": "evaluation",
+      "relevant": [
+        "sleep"
+      ],
+      "top5": [
+        {
+          "id": "sleep",
+          "score": 0.846036970615387
+        },
+        {
+          "id": "focus",
+          "score": 0.8241106867790222
+        },
+        {
+          "id": "remote-work",
+          "score": 0.8225119709968567
+        },
+        {
+          "id": "language",
+          "score": 0.817746639251709
+        },
+        {
+          "id": "cooking",
+          "score": 0.8171447515487671
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-21",
+      "split": "evaluation",
+      "relevant": [
+        "quotation",
+        "drink"
+      ],
+      "top5": [
+        {
+          "id": "quotation",
+          "score": 0.8973158001899719
+        },
+        {
+          "id": "drink",
+          "score": 0.8423432111740112
+        },
+        {
+          "id": "display",
+          "score": 0.8343709707260132
+        },
+        {
+          "id": "spice",
+          "score": 0.8335734605789185
+        },
+        {
+          "id": "focus",
+          "score": 0.8315982818603516
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-22",
+      "split": "evaluation",
+      "relevant": [
+        "dog",
+        "cat"
+      ],
+      "top5": [
+        {
+          "id": "dog",
+          "score": 0.864727258682251
+        },
+        {
+          "id": "cat",
+          "score": 0.8424082398414612
+        },
+        {
+          "id": "food-allergy",
+          "score": 0.8263586163520813
+        },
+        {
+          "id": "focus",
+          "score": 0.8175233602523804
+        },
+        {
+          "id": "quotation",
+          "score": 0.8172317147254944
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-23",
+      "split": "evaluation",
+      "relevant": [
+        "display"
+      ],
+      "top5": [
+        {
+          "id": "display",
+          "score": 0.8356082439422607
+        },
+        {
+          "id": "quotation",
+          "score": 0.8228749632835388
+        },
+        {
+          "id": "focus",
+          "score": 0.8091626167297363
+        },
+        {
+          "id": "drink",
+          "score": 0.8088669776916504
+        },
+        {
+          "id": "commute",
+          "score": 0.8078764081001282
+        }
+      ]
+    },
+    {
+      "id": "evaluation-related-24",
+      "split": "evaluation",
+      "relevant": [
+        "trip-change"
+      ],
+      "top5": [
+        {
+          "id": "trip-change",
+          "score": 0.8508796095848083
+        },
+        {
+          "id": "travel",
+          "score": 0.784780740737915
+        },
+        {
+          "id": "knitting",
+          "score": 0.78409343957901
+        },
+        {
+          "id": "cooking",
+          "score": 0.7745926380157471
+        },
+        {
+          "id": "spice",
+          "score": 0.7724689841270447
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-01",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "focus",
+          "score": 0.7983328104019165
+        },
+        {
+          "id": "dog",
+          "score": 0.7974467277526855
+        },
+        {
+          "id": "quotation",
+          "score": 0.7865965962409973
+        },
+        {
+          "id": "birthday",
+          "score": 0.7844722867012024
+        },
+        {
+          "id": "display",
+          "score": 0.783804178237915
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-02",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "cat",
+          "score": 0.8046644330024719
+        },
+        {
+          "id": "quotation",
+          "score": 0.7940325736999512
+        },
+        {
+          "id": "birthday",
+          "score": 0.7933298349380493
+        },
+        {
+          "id": "remote-work",
+          "score": 0.7907392978668213
+        },
+        {
+          "id": "commute",
+          "score": 0.7883774042129517
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-03",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "commute",
+          "score": 0.803547739982605
+        },
+        {
+          "id": "focus",
+          "score": 0.7946359515190125
+        },
+        {
+          "id": "sleep",
+          "score": 0.7897141575813293
+        },
+        {
+          "id": "remote-work",
+          "score": 0.7818120121955872
+        },
+        {
+          "id": "music",
+          "score": 0.7760676145553589
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-04",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "birthday",
+          "score": 0.8266634941101074
+        },
+        {
+          "id": "sleep",
+          "score": 0.8056882619857788
+        },
+        {
+          "id": "display",
+          "score": 0.8029159307479858
+        },
+        {
+          "id": "focus",
+          "score": 0.8027762770652771
+        },
+        {
+          "id": "language",
+          "score": 0.8003267049789429
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-05",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "birthday",
+          "score": 0.8384700417518616
+        },
+        {
+          "id": "focus",
+          "score": 0.8262179493904114
+        },
+        {
+          "id": "remote-work",
+          "score": 0.8239157199859619
+        },
+        {
+          "id": "commute",
+          "score": 0.8168484568595886
+        },
+        {
+          "id": "sleep",
+          "score": 0.8153415322303772
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-06",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "focus",
+          "score": 0.821873128414154
+        },
+        {
+          "id": "dog",
+          "score": 0.8110472559928894
+        },
+        {
+          "id": "exercise",
+          "score": 0.8088839650154114
+        },
+        {
+          "id": "cat",
+          "score": 0.8087405562400818
+        },
+        {
+          "id": "sleep",
+          "score": 0.80711430311203
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-07",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "cat",
+          "score": 0.8002740144729614
+        },
+        {
+          "id": "commute",
+          "score": 0.7888493537902832
+        },
+        {
+          "id": "sleep",
+          "score": 0.7880479693412781
+        },
+        {
+          "id": "birthday",
+          "score": 0.7730736136436462
+        },
+        {
+          "id": "quotation",
+          "score": 0.7713578939437866
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-08",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "spice",
+          "score": 0.7885545492172241
+        },
+        {
+          "id": "birthday",
+          "score": 0.7881708145141602
+        },
+        {
+          "id": "focus",
+          "score": 0.7859026193618774
+        },
+        {
+          "id": "quotation",
+          "score": 0.7858512997627258
+        },
+        {
+          "id": "home",
+          "score": 0.7817857265472412
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-09",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "dog",
+          "score": 0.7672982215881348
+        },
+        {
+          "id": "display",
+          "score": 0.7661289572715759
+        },
+        {
+          "id": "birthday",
+          "score": 0.7626710534095764
+        },
+        {
+          "id": "books",
+          "score": 0.7620813250541687
+        },
+        {
+          "id": "sleep",
+          "score": 0.7606821060180664
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-10",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "trip-change",
+          "score": 0.7942651510238647
+        },
+        {
+          "id": "travel",
+          "score": 0.7936784625053406
+        },
+        {
+          "id": "birthday",
+          "score": 0.7935373187065125
+        },
+        {
+          "id": "music",
+          "score": 0.7850685119628906
+        },
+        {
+          "id": "sleep",
+          "score": 0.778674304485321
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-11",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "quotation",
+          "score": 0.815616250038147
+        },
+        {
+          "id": "temperature",
+          "score": 0.8105664849281311
+        },
+        {
+          "id": "dog",
+          "score": 0.8006792068481445
+        },
+        {
+          "id": "cat",
+          "score": 0.7983720302581787
+        },
+        {
+          "id": "birthday",
+          "score": 0.7974445819854736
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-12",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "dog",
+          "score": 0.8417976498603821
+        },
+        {
+          "id": "quotation",
+          "score": 0.8384510278701782
+        },
+        {
+          "id": "drink",
+          "score": 0.8364187479019165
+        },
+        {
+          "id": "cat",
+          "score": 0.830669105052948
+        },
+        {
+          "id": "focus",
+          "score": 0.8281610012054443
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-13",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "birthday",
+          "score": 0.8000059723854065
+        },
+        {
+          "id": "dog",
+          "score": 0.7738171815872192
+        },
+        {
+          "id": "remote-work",
+          "score": 0.7728159427642822
+        },
+        {
+          "id": "sleep",
+          "score": 0.7714135646820068
+        },
+        {
+          "id": "home",
+          "score": 0.763135552406311
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-14",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "birthday",
+          "score": 0.8277361989021301
+        },
+        {
+          "id": "cat",
+          "score": 0.8256021738052368
+        },
+        {
+          "id": "dog",
+          "score": 0.8121065497398376
+        },
+        {
+          "id": "remote-work",
+          "score": 0.7931318879127502
+        },
+        {
+          "id": "plants",
+          "score": 0.7863759398460388
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-15",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "knitting",
+          "score": 0.8087631464004517
+        },
+        {
+          "id": "quotation",
+          "score": 0.7909022569656372
+        },
+        {
+          "id": "dog",
+          "score": 0.7874325513839722
+        },
+        {
+          "id": "sleep",
+          "score": 0.7870502471923828
+        },
+        {
+          "id": "display",
+          "score": 0.786105751991272
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-16",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "commute",
+          "score": 0.8046085238456726
+        },
+        {
+          "id": "remote-work",
+          "score": 0.7996596693992615
+        },
+        {
+          "id": "music",
+          "score": 0.7937724590301514
+        },
+        {
+          "id": "quotation",
+          "score": 0.7918239831924438
+        },
+        {
+          "id": "birthday",
+          "score": 0.7876245975494385
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-17",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "drink",
+          "score": 0.8360233902931213
+        },
+        {
+          "id": "quotation",
+          "score": 0.8099603056907654
+        },
+        {
+          "id": "spice",
+          "score": 0.8007190227508545
+        },
+        {
+          "id": "dog",
+          "score": 0.7960665822029114
+        },
+        {
+          "id": "cat",
+          "score": 0.7928276658058167
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-18",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "exercise",
+          "score": 0.8238073587417603
+        },
+        {
+          "id": "birthday",
+          "score": 0.79039067029953
+        },
+        {
+          "id": "quotation",
+          "score": 0.7861932516098022
+        },
+        {
+          "id": "language",
+          "score": 0.7830809950828552
+        },
+        {
+          "id": "dog",
+          "score": 0.7723919153213501
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-19",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "commute",
+          "score": 0.849173903465271
+        },
+        {
+          "id": "remote-work",
+          "score": 0.8202574253082275
+        },
+        {
+          "id": "quotation",
+          "score": 0.8048542737960815
+        },
+        {
+          "id": "books",
+          "score": 0.8034582734107971
+        },
+        {
+          "id": "focus",
+          "score": 0.8005374073982239
+        }
+      ]
+    },
+    {
+      "id": "evaluation-unrelated-20",
+      "split": "evaluation",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "language",
+          "score": 0.846001386642456
+        },
+        {
+          "id": "quotation",
+          "score": 0.7862648367881775
+        },
+        {
+          "id": "commute",
+          "score": 0.7817338109016418
+        },
+        {
+          "id": "focus",
+          "score": 0.7805832624435425
+        },
+        {
+          "id": "music",
+          "score": 0.7757795453071594
+        }
+      ]
+    }
+  ]
+}

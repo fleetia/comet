@@ -32,8 +32,11 @@ aes-gcm = "0.10.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 tokio = { version = "1", features = ["full"] }
 futures-util = "0.3"
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
 sha2 = "0.10"
 hex = "0.4"
+flate2 = "1"
+tar = "0.4"
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -46,6 +49,8 @@ objc2-event-kit = { version = "0.3.2", default-features = false, features = ["st
 objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["std", "block2", "UNUserNotificationCenter", "UNNotificationSettings", "UNNotificationContent", "UNNotificationRequest", "UNNotificationTrigger", "UNNotification", "UNNotificationResponse", "UNNotificationAction", "UNNotificationCategory"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61.3", features = ["Media_Control", "Foundation", "Foundation_Collections", "Storage_Streams"] }
+windows-future = { version = "0.2.1", features = ["std"] }
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }
 
 [dev-dependencies]

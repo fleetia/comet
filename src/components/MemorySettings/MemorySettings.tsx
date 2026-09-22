@@ -1,16 +1,108 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import { Button, FormField, TextArea } from "@fleetia/lagrange";
-import type { Memory } from "../../types";
-import { command, errorText } from "../../hooks/useSnapshot";
+import type { Memory, MemoryPage } from "../../types";
+import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import * as s from "../../lagrange.css";
 import * as layout from "../SettingsPanel/settings.css";
+import { MemorySearchSettings } from "./MemorySearchSettings";
+import { memoryList } from "./memory.css";
+
+export function MemorySettings({
+  memoryCount,
+  memoryRevision,
+  onDirtyChange,
+}: {
+  memoryCount: number;
+  memoryRevision: number;
+  onDirtyChange?: (dirty: boolean) => void;
+}): JSX.Element {
+  const [page, setPage] = useState<MemoryPage | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [dirty, setDirty] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+  useEffect(() => {
+    // An inserted memory can move the edited row onto a different offset page.
+    // Keep this page stable until all its drafts have been saved or discarded.
+    if (!isDesktop() || dirty) return;
+    let active = true;
+    setLoading(true);
+    setError(null);
+    void command<MemoryPage>("list_memories", { offset, limit: 50 })
+      .then((result) => {
+        if (!active) return;
+        if (offset > 0 && result.items.length === 0) {
+          setOffset(Math.max(0, offset - 50));
+        } else {
+          setPage(result);
+        }
+      })
+      .catch((cause: unknown) => {
+        if (active) setError(errorText(cause));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [offset, memoryRevision, refresh, dirty]);
+  return (
+    <>
+      <MemoryEditor memories={page?.items ?? []} disabled={loading} onDirtyChange={setDirty} />
+      <div className={s.row} aria-label="기억 페이지">
+        <Button
+          variant="quiet"
+          disabled={loading || dirty || offset === 0}
+          onClick={() => setOffset(Math.max(0, offset - 50))}
+        >
+          이전 기억
+        </Button>
+        <span className={s.quiet}>
+          전체 {page?.total ?? memoryCount}개
+          {page && page.items.length > 0
+            ? ` · ${page.offset + 1}–${page.offset + page.items.length}`
+            : ""}
+        </span>
+        <Button
+          variant="quiet"
+          disabled={loading || dirty || page?.nextOffset == null}
+          onClick={() => {
+            if (page?.nextOffset != null) setOffset(page.nextOffset);
+          }}
+        >
+          다음 기억
+        </Button>
+      </div>
+      {dirty && (
+        <p className={s.quiet}>편집한 기억을 저장하거나 취소하면 다른 페이지를 볼 수 있어요.</p>
+      )}
+      {loading && <p role="status">기억을 불러오고 있어요.</p>}
+      {error && (
+        <div role="alert" className={s.error}>
+          {error}
+          <Button variant="quiet" onClick={() => setRefresh((value) => value + 1)}>
+            다시 불러오기
+          </Button>
+        </div>
+      )}
+      <MemorySearchSettings />
+    </>
+  );
+}
 
 type Draft = { content: string; dirty: boolean };
-export function MemorySettings({
+export function MemoryEditor({
   memories,
+  disabled = false,
   onDirtyChange,
 }: {
   memories: Memory[];
+  disabled?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
 }): JSX.Element {
   const [selected, setSelected] = useState(memories[0]?.id);
@@ -71,18 +163,18 @@ export function MemorySettings({
   return (
     <section aria-label="함께 기억하는 것">
       <p className={s.quiet}>
-        함께 기억하는 것 {list.length}개 · 대화에서 남긴 기억을 선택해 고치거나 지울 수 있어요.
+        이 페이지의 기억 {list.length}개 · 대화에서 남긴 기억을 선택해 고치거나 지울 수 있어요.
       </p>
       {current ? (
         <div className={layout.listEditor}>
-          <aside className={layout.list} aria-label="기억 목록">
+          <aside className={memoryList} aria-label="기억 목록">
             {list.map((memory) => (
               <Button
                 key={memory.id}
                 variant="quiet"
                 className={layout.listRow}
                 aria-pressed={current.id === memory.id}
-                disabled={pending}
+                disabled={pending || disabled}
                 onClick={() => {
                   setSelected(memory.id);
                   setConfirmDelete(false);
@@ -95,7 +187,7 @@ export function MemorySettings({
               </Button>
             ))}
           </aside>
-          <fieldset className={layout.editor} disabled={pending}>
+          <fieldset className={layout.editor} disabled={pending || disabled}>
             <FormField className={s.field} label="기억 내용">
               <TextArea
                 rows={8}

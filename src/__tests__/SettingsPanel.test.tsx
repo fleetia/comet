@@ -1,14 +1,16 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SettingsPanel } from "../components/SettingsPanel/SettingsPanel";
-import { PREVIEW_SNAPSHOT, command } from "../hooks/useSnapshot";
+import { PREVIEW_SNAPSHOT, command, isDesktop } from "../hooks/useSnapshot";
 
 vi.mock("../hooks/useSnapshot", async (load) => ({
   ...(await load<typeof import("../hooks/useSnapshot")>()),
   command: vi.fn(),
+  isDesktop: vi.fn(() => false),
 }));
 afterEach(cleanup);
 beforeEach(() => {
+  vi.mocked(isDesktop).mockReturnValue(false);
   vi.mocked(command).mockReset();
   vi.mocked(command).mockResolvedValue(undefined);
 });
@@ -89,7 +91,19 @@ it("invalid automatic interval does not block AI edits and cancel restores lates
   expect(screen.getByLabelText(/이야기 간격/)).toHaveProperty("value", "7");
 });
 
-it("preserves personal wordbook whitespace and memory drafts across management tabs", () => {
+it("preserves personal wordbook whitespace and memory drafts across management tabs", async () => {
+  vi.mocked(isDesktop).mockReturnValue(true);
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "list_memories"
+      ? {
+          items: [{ id: "memory", content: "기존 기억", sourceMessageId: "source", updatedAt: 1 }],
+          total: 1,
+          offset: 0,
+          nextOffset: null,
+          revision: 1,
+        }
+      : undefined,
+  );
   const snapshot = {
     ...PREVIEW_SNAPSHOT,
     wordbook: [
@@ -102,20 +116,17 @@ it("preserves personal wordbook whitespace and memory drafts across management t
         lines: [{ persona: "a" as const, expression: "평온", text: "안녕" }],
       },
     ],
-    memories: [{ id: "memory", content: "기존 기억", sourceMessageId: "source", updatedAt: 1 }],
+    memoryCount: 1,
+    memoryRevision: 1,
   };
   const { rerender } = render(<SettingsPanel snapshot={snapshot} initialSection="wordbook" />);
   fireEvent.change(screen.getByLabelText("대사 1"), {
     target: { value: "  쓰던 말\n\n다음 줄  " },
   });
   fireEvent.click(screen.getByRole("tab", { name: /기억/ }));
-  fireEvent.change(screen.getByLabelText("기억 내용"), { target: { value: "쓰던 기억" } });
+  fireEvent.change(await screen.findByLabelText("기억 내용"), { target: { value: "쓰던 기억" } });
   fireEvent.click(screen.getByRole("tab", { name: "위젯" }));
-  rerender(
-    <SettingsPanel
-      snapshot={{ ...snapshot, wordbook: [...snapshot.wordbook], memories: [...snapshot.memories] }}
-    />,
-  );
+  rerender(<SettingsPanel snapshot={{ ...snapshot, wordbook: [...snapshot.wordbook] }} />);
   fireEvent.click(screen.getByRole("tab", { name: /개인 단어장/ }));
   expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "  쓰던 말\n\n다음 줄  ");
   fireEvent.click(screen.getByRole("tab", { name: /기억/ }));

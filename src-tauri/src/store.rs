@@ -1,12 +1,23 @@
+#[path = "store/analysis.rs"]
+mod analysis;
 #[path = "store/memory.rs"]
 mod memory;
 #[path = "store/messages.rs"]
 mod messages;
+#[path = "store/search.rs"]
+mod search;
 
-pub use memory::{
-    analyze_apply, delete_memory, edit_memory, memories, pending_user_messages, relationships,
-    set_last_analysis_id,
+#[cfg(test)]
+pub use analysis::set_last_analysis_id;
+pub use analysis::{
+    analysis_failure, analysis_status, defer_analysis, pending_user_messages,
+    retry_deferred_analysis, AnalysisStatus,
 };
+#[cfg(test)]
+pub use memory::analyze_apply;
+#[allow(unused_imports)] // Developer smoke examples still inspect the complete memory list.
+pub use memory::memories;
+pub use memory::{analyze_apply_batch, delete_memory, edit_memory, relationships};
 #[cfg(test)]
 pub use messages::insert_message_with_talk;
 pub use messages::{
@@ -15,6 +26,11 @@ pub use messages::{
     MessageIdentity,
 };
 use messages::{initialize_identities, initialize_message_context};
+pub use search::{
+    clear_search_index, memory_count, memory_page, memory_revision, next_memory_for_index,
+    pending_index_count, revalidate_search_hits, save_kiwi_index, save_vector_index,
+    search_memories, set_search_profile, IndexMemory, MemoryEmbedding, MemoryPage, MemorySearchHit,
+};
 
 use crate::types::*;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -38,15 +54,17 @@ CREATE TABLE IF NOT EXISTS scenes(id TEXT PRIMARY KEY,revision INTEGER NOT NULL,
 CREATE TABLE IF NOT EXISTS affinity(source TEXT NOT NULL,persona TEXT NOT NULL,day TEXT NOT NULL,delta INTEGER NOT NULL,fingerprint TEXT NOT NULL,PRIMARY KEY(source,persona));
 CREATE TABLE IF NOT EXISTS talk_history(scene_key TEXT PRIMARY KEY,shown_at INTEGER NOT NULL);
 INSERT OR IGNORE INTO kv VALUES('revision','0');").map_err(err)?;
-    crate::wordbook::initialize(&conn)?;
     // Regression tests were written against the A/B factory roster; production seeds the
     // Byulkkori default. Both paths share the same one-time `character_seed` guard.
     #[cfg(not(test))]
     crate::characters::initialize(&conn)?;
     #[cfg(test)]
     crate::characters::initialize_for_tests(&conn)?;
+    crate::wordbook::initialize(&conn)?;
     initialize_identities(&conn)?;
     initialize_message_context(&conn)?;
+    search::initialize(&conn)?;
+    analysis::initialize(&conn)?;
     crate::widgets::storage::initialize(&conn)?;
     Ok(conn)
 }

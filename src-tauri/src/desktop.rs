@@ -578,7 +578,7 @@ mod tests {
             )
         };
         *crate::app::lock(&state.story).unwrap() = Some(request);
-        crate::app::lock(&state.runtime).unwrap().phase = "story".into();
+        crate::app::lock(&state.runtime).unwrap().phase = crate::types::RuntimePhase::Story;
         assert!(crate::app::lock(&state.playback).unwrap().is_none());
         assert_eq!(
             owner(&crate::app::snapshot(&state).unwrap()),

@@ -1,9 +1,11 @@
-import { FormField, Button, Select, TextField } from "@fleetia/lagrange";
+import { FormField, Button, TextField } from "@fleetia/lagrange";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { record, rows, text, number, type DataRecord } from "../toolData";
 import { useConnectionCommand } from "../useConnectionCommand";
 import type { WidgetValue, WidgetView } from "../types";
+import { MusicTool } from "../MusicTool/MusicTool";
+import { MusicSettings } from "../MusicTool/MusicSettings";
 import * as c from "../../lagrange.css";
 import * as s from "../tools.css";
 function stamp(value: WidgetValue | undefined): string {
@@ -33,27 +35,29 @@ function weatherLabel(code: number): string {
   }
   return "뇌우";
 }
-export function ConnectionTool({
-  widget,
-  mode = "tool",
-  onDirtyChange,
-}: {
+type Props = {
   widget: WidgetView;
   mode?: "settings" | "tool";
   onDirtyChange?: (dirty: boolean) => void;
-}): ReactElement {
+};
+export function ConnectionTool(props: Props): ReactElement {
+  if (props.widget.kind === "music") {
+    return props.mode === "settings" ? (
+      <MusicSettings widget={props.widget} onDirtyChange={props.onDirtyChange} />
+    ) : (
+      <MusicTool widget={props.widget} />
+    );
+  }
+  return <InformationConnectionTool {...props} />;
+}
+function InformationConnectionTool({ widget, mode = "tool", onDirtyChange }: Props): ReactElement {
   const d = record(widget.data),
-    observation = record(d.observation),
-    config = record(d.config);
+    observation = record(d.observation);
   const { busy, error, run } = useConnectionCommand();
-  const storedProvider = text(config.provider) || "music";
-  const [providerDraft, setProvider] = useState<string | null>(null);
-  const provider = providerDraft ?? storedProvider;
   const [regionDirty, setRegionDirty] = useState(false);
-  const dirty = regionDirty || (providerDraft !== null && providerDraft !== storedProvider);
   useEffect(() => {
-    onDirtyChange?.(mode === "settings" && dirty);
-  }, [dirty, mode, onDirtyChange]);
+    onDirtyChange?.(mode === "settings" && regionDirty);
+  }, [regionDirty, mode, onDirtyChange]);
   const stale = d.status !== "ready";
   return (
     <fieldset className={s.body} disabled={busy}>
@@ -82,24 +86,6 @@ export function ConnectionTool({
               <p className={c.quiet}>
                 {text(observation.attribution) || "Weather data by Open-Meteo (CC BY 4.0)"}
               </p>
-            </>
-          )}
-          {widget.kind === "music" && (
-            <>
-              {observation.playing === true ? (
-                <>
-                  <h2 className={s.prose}>{text(observation.title)}</h2>
-                  <p>{text(observation.artist)}</p>
-                  <p className={c.quiet}>{text(observation.album)}</p>
-                </>
-              ) : (
-                <p>
-                  {observation.running === true
-                    ? "재생 중인 곡이 없어요."
-                    : "음악 앱이 실행 중이 아니에요."}
-                </p>
-              )}
-              <p className={c.quiet}>{text(observation.source)}</p>
             </>
           )}
           {widget.kind === "device" && (
@@ -155,41 +141,6 @@ export function ConnectionTool({
         <section className={s.section} aria-label="날씨 지역 설정">
           <h2 className={s.sectionTitle}>{d.configured === true ? "지역 변경" : "지역 선택"}</h2>
           <WeatherRegion id={widget.id} run={run} onDirtyChange={setRegionDirty} />
-        </section>
-      )}
-      {mode === "settings" && widget.kind === "music" && (
-        <section className={s.section} aria-label="음악 앱 연결 설정">
-          <h2 className={s.sectionTitle}>음악 앱 연결 설정</h2>
-          <form
-            className={s.composer}
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (await run("configure_connection_widget", { id: widget.id, input: { provider } }))
-                setProvider(null);
-            }}
-          >
-            <p>
-              허용한 음악 앱의 현재 곡 제목·가수·앨범만 읽습니다. 재생이나 목록을 변경하지 않아요.
-            </p>
-            <p className={c.quiet}>
-              현재 연결은 macOS의 Apple Music과 Spotify를 지원합니다. 시스템 자동화 권한을 요청할 수
-              있어요.
-            </p>
-            <FormField className={c.field} label="음악 앱">
-              <Select value={provider} onChange={(e) => setProvider(e.target.value)}>
-                <option value="music">Apple Music</option>
-                <option value="spotify">Spotify</option>
-              </Select>
-            </FormField>
-            <Button type="submit" variant="secondary">
-              곡 정보 조회 허용하고 연결
-            </Button>
-            {dirty && (
-              <Button variant="quiet" type="button" onClick={() => setProvider(null)}>
-                연결 변경 취소
-              </Button>
-            )}
-          </form>
         </section>
       )}
       {mode === "settings" && widget.kind === "device" && d.configured !== true && (

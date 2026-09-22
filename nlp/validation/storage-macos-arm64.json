@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "date": "2026-09-21",
+  "host": "macOS arm64, Apple M4 Pro, 14 logical CPUs",
+  "build": "Rust 1.85.0 debug",
+  "source": "store::tests::memory_retrieval_diagnostic_benchmark",
+  "samplesPerSize": 30,
+  "valuesRounded": true,
+  "measurements": [
+    {"memories":100,"initialPageMs":1.52,"lexicalP95Ms":0.183,"vectorScanP95Ms":1.25,"vectorCacheBytes":153600},
+    {"memories":1000,"initialPageMs":2.04,"lexicalP95Ms":0.421,"vectorScanP95Ms":11.44,"vectorCacheBytes":1536000},
+    {"memories":10000,"initialPageMs":8.15,"lexicalP95Ms":0.889,"vectorScanP95Ms":113.72,"vectorCacheBytes":15360000}
+  ],
+  "limitations": [
+    "Synthetic normalized 384-dimensional vectors, not semantic model quality.",
+    "Initial page includes database reopen and first 50 memories, not desktop app startup.",
+    "No NLP process startup, inference, RSS, or Windows reference-device measurement."
+  ]
+}

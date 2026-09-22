@@ -68,7 +68,7 @@ pub(crate) fn present_line(
         line_count,
     });
     let mut runtime = lock(&state.runtime)?;
-    runtime.phase = "playing".into();
+    runtime.phase = crate::types::RuntimePhase::Playing;
     runtime.persona = Some(line.persona.clone());
     runtime.error = None;
     Ok(true)
@@ -97,7 +97,7 @@ pub(crate) async fn wait_for_line(
             if let Some(line) = lock(&state.playback)?.as_mut() {
                 line.ends_at = chrono::Utc::now().timestamp_millis() + 30_000;
             }
-            lock(&state.runtime)?.phase = "waiting".into();
+            lock(&state.runtime)?.phase = crate::types::RuntimePhase::Waiting;
         }
         publish(app, state);
         tokio::select! {
@@ -173,30 +173,55 @@ pub(crate) fn start_scene(
     message_id: Option<String>,
 ) {
     let (epoch, cancel) = token;
-    phase(&app, &state, epoch, "playing", None, None);
-    tauri::async_runtime::spawn(async move {
-        let _guard = state.gate.lock().await;
-        if !is_current(&state, epoch, &cancel) {
-            return;
-        }
-        let direct_reply = message_id.is_some();
-        let prefix = message_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let result = run_scene(
-            &app,
-            &state,
-            &lines,
-            source,
-            &prefix,
-            direct_reply,
-            epoch,
-            cancel.clone(),
-        )
-        .await;
-        if !is_current(&state, epoch, &cancel) {
-            return;
-        }
-        phase(&app, &state, epoch, "idle", None, result.err());
-    });
+    phase(
+        &app,
+        &state,
+        epoch,
+        crate::types::RuntimePhase::Playing,
+        None,
+        None,
+    );
+    let owner = state.clone();
+    let owner_app = app.clone();
+    let _ = super::tasks::spawn(
+        owner_app,
+        owner,
+        super::tasks::Kind::Scene,
+        epoch,
+        async move {
+            let Some(_guard) = super::tasks::acquire_gate(&state, epoch, cancel.clone()).await
+            else {
+                return;
+            };
+            if !is_current(&state, epoch, &cancel) {
+                return;
+            }
+            let direct_reply = message_id.is_some();
+            let prefix = message_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            let result = run_scene(
+                &app,
+                &state,
+                &lines,
+                source,
+                &prefix,
+                direct_reply,
+                epoch,
+                cancel.clone(),
+            )
+            .await;
+            if !is_current(&state, epoch, &cancel) {
+                return;
+            }
+            phase(
+                &app,
+                &state,
+                epoch,
+                crate::types::RuntimePhase::Idle,
+                None,
+                result.err(),
+            );
+        },
+    );
 }
 
 pub(crate) fn next_scene(state: &AppState) -> Result<(Vec<SceneLine>, &'static str), String> {

@@ -290,7 +290,11 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
             </TabPanel>
             <TabPanel value="memory" className={styles.panel}>
               {visited.has("memory") && (
-                <MemorySettings memories={snapshot.memories} onDirtyChange={setMemoryDirty} />
+                <MemorySettings
+                  memoryCount={snapshot.memoryCount}
+                  memoryRevision={snapshot.memoryRevision}
+                  onDirtyChange={setMemoryDirty}
+                />
               )}
             </TabPanel>
             <TabPanel value="general" className={styles.panel}>

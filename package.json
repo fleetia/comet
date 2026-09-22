@@ -16,14 +16,15 @@
     "tauri": "tauri",
     "desktop": "tauri dev",
     "prepare:sidecar": "node scripts/prepare-sidecar.mjs",
-    "build:desktop": "corepack pnpm prepare:sidecar && tauri build",
+    "build:desktop": "corepack pnpm prepare:sidecar && corepack pnpm prepare:nlp && tauri build",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "docs:install": "corepack pnpm --dir wiki install --frozen-lockfile",
     "docs:dev": "corepack pnpm --dir wiki start",
     "docs:check": "corepack pnpm --dir wiki typecheck",
     "docs:build": "corepack pnpm --dir wiki build",
     "docs:serve": "corepack pnpm --dir wiki serve",
-    "talk": "cargo run --manifest-path src-tauri/Cargo.toml --example talk --"
+    "talk": "cargo run --manifest-path src-tauri/Cargo.toml --example talk --",
+    "prepare:nlp": "node scripts/prepare-nlp.mjs"
   },
   "dependencies": {
     "@fleetia/lagrange": "0.2.2",

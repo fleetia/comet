@@ -184,7 +184,7 @@ fn mutate_inner<T>(
         state.last_input.store(now(), Ordering::SeqCst);
         state.next_idle.store(now() + 5, Ordering::SeqCst);
         let mut runtime = lock(&state.runtime)?;
-        runtime.phase = "idle".into();
+        runtime.phase = crate::types::RuntimePhase::Idle;
         runtime.persona = None;
         runtime.error = None;
     }

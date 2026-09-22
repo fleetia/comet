@@ -201,6 +201,8 @@ pub fn run() {
                     open_session(&app_data.join(DATABASE_FILE)).map_err(std::io::Error::other)?,
                 ),
                 inference: inference::Inference::new(app_data.clone(), sidecar, runtime),
+                nlp: crate::memory_commands::new_nlp(app.handle(), &app_data)
+                    .map_err(std::io::Error::other)?,
                 app_data,
                 runtime: Mutex::new(RuntimeStatus::default()),
                 playback: Mutex::new(None),
@@ -208,6 +210,7 @@ pub fn run() {
                 settings_section: Mutex::new(windows::SettingsSection::default()),
                 settings_dirty: AtomicBool::new(false),
                 settings_exit_confirmed: AtomicBool::new(false),
+                tasks: Mutex::new(super::tasks::Registry::default()),
                 cancellation: Mutex::new(None),
                 download_cancel: Mutex::new(None),
                 gate: tokio::sync::Mutex::new(()),
@@ -388,6 +391,12 @@ pub fn run() {
             widget_connections::refresh_calendar,
             widget_connections::disconnect_calendar,
             widget_connections::configure_connection_widget,
+            widget_connections::music_request,
+            widget_connections::music_bridge_pair,
+            widget_connections::music_bridge_status,
+            widget_connections::music_bridge_disconnect,
+            widget_connections::export_music_extension,
+            widget_commands::set_music_expanded,
             widget_connections::refresh_connection_widget,
             widget_connections::search_weather_regions,
             widget_connections::open_widget_link,
@@ -431,6 +440,13 @@ pub fn run() {
             settings::cancel_download,
             settings::edit_memory,
             settings::delete_memory,
+            crate::memory_commands::list_memories,
+            crate::memory_commands::get_nlp_status,
+            crate::memory_commands::set_memory_search_settings,
+            crate::memory_commands::download_nlp_model,
+            crate::memory_commands::cancel_nlp_download,
+            crate::memory_commands::remove_nlp_model,
+            crate::memory_commands::retry_memory_analysis,
             windows::open_settings,
             windows::get_settings_section,
             windows::set_settings_section,
@@ -466,8 +482,7 @@ pub fn run() {
                     api.prevent_exit();
                     let app = app.clone();
                     tauri::async_runtime::spawn(async move {
-                        let _gate = state.gate.lock().await;
-                        inference::stop_local(&state.inference).await;
+                        stop_owned_work(&state).await;
                         let exit_app = app.clone();
                         if let Err(error) = app.run_on_main_thread(move || {
                             exit_app.cleanup_before_exit();
@@ -483,11 +498,18 @@ pub fn run() {
                 if let Some(state) = app.try_state::<Arc<AppState>>() {
                     let _ = prepare_exit(&state);
                     // Native macOS termination can skip ExitRequested. Finish before returning to Cocoa.
-                    tauri::async_runtime::block_on(inference::stop_local(&state.inference));
+                    tauri::async_runtime::block_on(stop_owned_work(&state));
                 }
             }
             _ => {}
         });
+}
+
+pub(crate) async fn stop_owned_work(state: &AppState) {
+    // Cancelling tasks first releases gate and any inference state guards. The
+    // total grace period is shared; no standard mutex guard crosses an await.
+    let _ = tokio::join!(state.nlp.shutdown(), super::tasks::shutdown(state),);
+    inference::stop_local(&state.inference).await;
 }
 
 pub(crate) fn prepare_exit(state: &AppState) -> Result<(), String> {
@@ -530,7 +552,7 @@ pub(crate) async fn prepare_update_install(app: &tauri::AppHandle) -> Result<(),
         state.update_installing.store(true, Ordering::SeqCst);
         interrupt(&state, false)?;
         *lock(&state.panel)? = None;
-        lock(&state.runtime)?.phase = "idle".into();
+        lock(&state.runtime)?.phase = crate::types::RuntimePhase::Idle;
         if let Some(cancel) = lock(&state.download_cancel)?.as_ref() {
             cancel.store(true, Ordering::SeqCst);
         }
@@ -539,8 +561,9 @@ pub(crate) async fn prepare_update_install(app: &tauri::AppHandle) -> Result<(),
     desktop_toys::clear(app);
     flush_positions(&state, true)?;
     publish(app, &state);
-    let _gate = state.gate.lock().await;
+    let (nlp, ()) = tokio::join!(state.nlp.suspend(), super::tasks::shutdown(&state));
     inference::stop_local(&state.inference).await;
+    nlp?;
     lock(&state.db)?
         .execute_batch("PRAGMA wal_checkpoint(FULL);")
         .map_err(|error| error.to_string())?;
@@ -562,6 +585,7 @@ pub(crate) fn restore_update_install(app: &tauri::AppHandle) -> Result<(), Strin
     {
         let _action = lock(&state.action)?;
         state.update_installing.store(false, Ordering::SeqCst);
+        state.nlp.resume();
         schedule_idle(&state, store::settings(&*lock(&state.db)?)?.idle_minutes);
     }
     publish(app, &state);

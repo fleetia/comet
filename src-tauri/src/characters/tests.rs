@@ -146,7 +146,7 @@ fn initialization_preserves_existing_addon_characters_and_personal_data() {
         .unwrap();
     }
     conn.execute_batch(
-        "INSERT INTO memories VALUES('memory','기억 원문','source',123,0,0);
+        "INSERT INTO memories(id,content,source,updated,deleted,locked) VALUES('memory','기억 원문','source',123,0,0);
         INSERT INTO character_affinity VALUES('source','builtin-a','2026-09-20',5,'fingerprint');
         ",
     )
