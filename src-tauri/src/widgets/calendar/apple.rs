@@ -62,7 +62,7 @@ pub async fn refresh(
     connection: &Connection,
     calendar_ids: Vec<String>,
     now: i64,
-) -> Result<Vec<CalendarEvent>, CalendarError> {
+) -> Result<Refreshed, CalendarError> {
     validate_calendar_ids(&calendar_ids)?;
     let id = connection.id.clone();
     native_work(20, move || native::events(&id, &calendar_ids, now)).await
@@ -188,20 +188,39 @@ mod native {
         Ok(value.round() as i64)
     }
 
-    fn local_date(date: &NSDate, zone: &NSTimeZone) -> Result<String, CalendarError> {
+    fn local_date(date: &NSDate, zone: &NSTimeZone) -> Result<chrono::NaiveDate, CalendarError> {
         let offset = i64::try_from(zone.secondsFromGMTForDate(date))
             .map_err(|_| invalid("Apple 일정 시간대 오류"))?;
         let local =
             DateTime::<Utc>::from_timestamp_millis(millis(date)?.saturating_add(offset * 1000))
                 .ok_or_else(|| invalid("Apple 종일 일정 날짜 오류"))?;
-        Ok(local.format("%Y-%m-%d").to_string())
+        Ok(local.date_naive())
+    }
+
+    fn all_day_dates(
+        start: &NSDate,
+        end: &NSDate,
+        zone: &NSTimeZone,
+    ) -> Result<(String, String), CalendarError> {
+        if millis(end)? < millis(start)? {
+            return Err(invalid("Apple 종일 일정 종료 날짜 오류"));
+        }
+        let start_date = local_date(start, zone)?;
+        // EventKit ends all-day events at 23:59:59 on their last included day.
+        let end_date = local_date(end, zone)?
+            .succ_opt()
+            .ok_or_else(|| invalid("Apple 종일 일정 종료 날짜 오류"))?;
+        if end_date <= start_date {
+            return Err(invalid("Apple 종일 일정 종료 날짜 오류"));
+        }
+        Ok((start_date.to_string(), end_date.to_string()))
     }
 
     pub fn events(
         connection_id: &str,
         ids: &[String],
         now: i64,
-    ) -> Result<Vec<CalendarEvent>, CalendarError> {
+    ) -> Result<Refreshed, CalendarError> {
         autoreleasepool(|_| {
             if authorization() != EKAuthorizationStatus::FullAccess {
                 return Err(error("auth-error", "Apple 캘린더 읽기 권한이 필요합니다. 연결 설정에서 macOS 권한을 확인해 주세요."));
@@ -217,6 +236,15 @@ mod native {
             if selected.len() != ids.len() {
                 return Err(error("auth-error", "선택했던 Apple 캘린더 일부를 찾을 수 없습니다. 캘린더 선택을 다시 확인해 주세요."));
             }
+            let calendar_names = selected
+                .iter()
+                .map(|calendar| unsafe {
+                    (
+                        calendar.calendarIdentifier().to_string(),
+                        calendar.title().to_string().chars().take(1000).collect(),
+                    )
+                })
+                .collect();
             let calendars = NSArray::from_retained_slice(&selected);
             let start = NSDate::dateWithTimeIntervalSince1970(
                 now.saturating_sub(30 * DAY_MS) as f64 / 1000.0,
@@ -280,11 +308,9 @@ mod native {
                     meeting_url: None,
                 };
                 if all_day {
-                    item.start_date = Some(local_date(&start, &zone)?);
-                    item.end_date = Some(local_date(&end, &zone)?);
-                    if item.end_date <= item.start_date {
-                        return Err(invalid("Apple 종일 일정 종료 날짜 오류"));
-                    }
+                    let (start_date, end_date) = all_day_dates(&start, &end, &zone)?;
+                    item.start_date = Some(start_date);
+                    item.end_date = Some(end_date);
                 } else {
                     item.start_at = Some(millis(&start)?);
                     item.end_at = Some(millis(&end)?);
@@ -294,17 +320,45 @@ mod native {
                 }
                 result.push(item);
             }
-            Ok(result)
+            Ok(Refreshed {
+                events: result,
+                calendar_names,
+                credential: None,
+            })
         })
     }
 
     #[cfg(test)]
     mod tests {
         use super::*;
+        use objc2_event_kit::EKEvent;
         use objc2_foundation::NSString;
 
         #[test]
-        fn all_day_dates_use_local_calendar_boundaries_across_dst() {
+        fn all_day_eventkit_end_becomes_an_exclusive_date() {
+            autoreleasepool(|_| {
+                let store = unsafe { EKEventStore::new() };
+                let event = unsafe { EKEvent::eventWithEventStore(&store) };
+                let date = NSDate::dateWithTimeIntervalSince1970(1_790_029_800.0);
+                unsafe {
+                    event.setStartDate(Some(&date));
+                    event.setEndDate(Some(&date));
+                    event.setAllDay(true);
+                }
+                let zone = NSTimeZone::defaultTimeZone();
+                let start = unsafe { event.startDate() };
+                let end = unsafe { event.endDate() };
+                let date = local_date(&start, &zone).unwrap();
+                assert_eq!(local_date(&end, &zone).unwrap(), date);
+                assert_eq!(
+                    all_day_dates(&start, &end, &zone).unwrap(),
+                    (date.to_string(), date.succ_opt().unwrap().to_string())
+                );
+            });
+        }
+
+        #[test]
+        fn all_day_dates_preserve_last_day_and_dst_boundaries() {
             autoreleasepool(|_| {
                 let zone =
                     NSTimeZone::timeZoneWithName(&NSString::from_str("America/New_York")).unwrap();
@@ -313,14 +367,34 @@ mod native {
                         DateTime::parse_from_rfc3339(value).unwrap().timestamp() as f64,
                     )
                 };
-                let start = date("2026-03-08T05:00:00Z");
-                let end = date("2026-03-09T04:00:00Z");
-                assert_eq!(local_date(&start, &zone).unwrap(), "2026-03-08");
-                assert_eq!(local_date(&end, &zone).unwrap(), "2026-03-09");
-                assert_eq!(
-                    millis(&end).unwrap() - millis(&start).unwrap(),
-                    23 * 60 * 60 * 1000
-                );
+                for (start, end, expected_start, expected_end) in [
+                    (
+                        "2026-03-08T05:00:00Z",
+                        "2026-03-09T03:59:59Z",
+                        "2026-03-08",
+                        "2026-03-09",
+                    ),
+                    (
+                        "2026-03-07T05:00:00Z",
+                        "2026-03-09T03:59:59Z",
+                        "2026-03-07",
+                        "2026-03-09",
+                    ),
+                    (
+                        "2026-11-01T04:00:00Z",
+                        "2026-11-02T04:59:59Z",
+                        "2026-11-01",
+                        "2026-11-02",
+                    ),
+                ] {
+                    let start = date(start);
+                    let end = date(end);
+                    assert_eq!(
+                        all_day_dates(&start, &end, &zone).unwrap(),
+                        (expected_start.to_string(), expected_end.to_string())
+                    );
+                    assert!(all_day_dates(&end, &start, &zone).is_err());
+                }
             });
         }
     }
@@ -336,7 +410,7 @@ mod native {
             calendars: vec![],
         })
     }
-    pub fn events(_: &str, _: &[String], _: i64) -> Result<Vec<CalendarEvent>, CalendarError> {
+    pub fn events(_: &str, _: &[String], _: i64) -> Result<Refreshed, CalendarError> {
         Err(error(
             "unsupported",
             "Apple 캘린더 직접 연결은 macOS에서 사용할 수 있습니다.",

@@ -117,9 +117,54 @@ it("keeps an Apple permission denial recoverable without connecting or clearing 
     "disabled",
     true,
   );
-  expect(screen.getByText("기존 연결")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "기존 연결" })).toBeTruthy();
   expect(command).not.toHaveBeenCalledWith("connect_calendar_apple", expect.anything());
   expect(command).not.toHaveBeenCalledWith("disconnect_calendar", expect.anything());
+});
+it("clears an earlier ICS command error during Apple setup while preserving the failed connection status", async () => {
+  const message = "ICS 반복 규칙 검증에 실패했습니다.";
+  vi.mocked(command).mockResolvedValueOnce("prompt").mockRejectedValueOnce(message);
+  render(
+    <CalendarTool
+      mode="settings"
+      widget={widget("calendar", {
+        connections: [
+          { id: "ics-saved", name: "기존 구독", provider: "ics", status: "stale", error: message },
+        ],
+        events: [],
+      })}
+      act={act}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "다시 조회" }));
+  expect((await screen.findByRole("alert")).textContent).toBe(message);
+  fireEvent.change(screen.getByLabelText("연결 방식"), { target: { value: "apple" } });
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getAllByText(message)).toHaveLength(1);
+
+  vi.mocked(command).mockRejectedValueOnce(message);
+  fireEvent.click(screen.getByRole("button", { name: "다시 조회" }));
+  expect((await screen.findByRole("alert")).textContent).toBe(message);
+  vi.mocked(command).mockResolvedValueOnce({
+    supported: true,
+    authorization: "full-access",
+    calendars: [{ id: "apple-personal", name: "개인", sourceName: "iCloud" }],
+  });
+  fireEvent.click(screen.getByRole("button", { name: "macOS 권한 확인하고 캘린더 목록 읽기" }));
+  await screen.findByLabelText("개인 · iCloud");
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getAllByText(message)).toHaveLength(1);
+  fireEvent.change(screen.getByLabelText(/^연결 이름/), { target: { value: "Mac 일정" } });
+  fireEvent.click(screen.getByLabelText("개인 · iCloud"));
+  fireEvent.click(screen.getByRole("button", { name: "선택한 Apple 캘린더 연결" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("connect_calendar_apple", {
+      id: "calendar",
+      input: { name: "Mac 일정", calendarIds: ["apple-personal"] },
+    }),
+  );
+  expect(command).not.toHaveBeenCalledWith("connect_calendar_ics", expect.anything());
+  expect(screen.getByRole("heading", { name: "기존 구독" })).toBeTruthy();
 });
 it("reconnects under the same connection id while keeping the submitted draft on failure", async () => {
   vi.mocked(command).mockRejectedValue("연결할 수 없습니다.");
@@ -149,6 +194,9 @@ it("reconnects under the same connection id while keeping the submitted draft on
     "https://example.com/calendar.ics",
   );
   expect(command).not.toHaveBeenCalledWith("disconnect_calendar", expect.anything());
+  fireEvent.click(screen.getByRole("button", { name: "연결 입력 지우기" }));
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByLabelText(/^ICS \/ webcal 구독 주소/)).toHaveProperty("value", "");
 });
 it("does not query private sources before opting in to the selected music provider", async () => {
   render(<ConnectionTool mode="settings" widget={widget("music", EMPTY)} />);

@@ -109,7 +109,11 @@ export function eventsOn(events: DataRecord[], day: string): DataRecord[] {
   const start = new Date(`${day}T00:00:00`).getTime(),
     end = new Date(`${moveDay(day, 1)}T00:00:00`).getTime();
   return events
-    .filter((e) => eventStart(e) < end && eventEnd(e) > start)
+    .filter((event) => {
+      const begin = eventStart(event),
+        finish = eventEnd(event);
+      return begin < end && (finish > start || (begin === finish && begin >= start));
+    })
     .sort((a, b) => eventStart(a) - eventStart(b));
 }
 export function clockLabel(at: number): string {

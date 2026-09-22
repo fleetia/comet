@@ -443,9 +443,13 @@ it("keeps overnight event segments inside the visible weekly time range", () => 
       side={null}
     />,
   );
+  fireEvent.click(screen.getByRole("button", { name: "주" }));
   expect(screen.getByText("00", { exact: true })).toBeTruthy();
-  expect(screen.getByText("23", { exact: true })).toBeTruthy();
-  const segments = screen.getAllByRole("button", { name: "23:00–01:00 밤 이동" });
+  expect(screen.getAllByText("23", { exact: true }).length).toBeGreaterThan(0);
+  const segments = within(screen.getByRole("region", { name: "주간 캘린더" })).getAllByRole(
+    "button",
+    { name: "23:00–01:00 밤 이동" },
+  );
   expect(segments).toHaveLength(2);
   for (const segment of segments) {
     const top = Number.parseFloat(segment.style.top);
@@ -528,7 +532,9 @@ it("keeps cached external events readable without exposing task completion or ca
       ],
     ),
   );
-  expect(screen.getByText("캐시된 독서 모임")).toBeTruthy();
+  expect(
+    within(screen.getByRole("tabpanel", { name: "오늘" })).getByText("캐시된 독서 모임"),
+  ).toBeTruthy();
   expect(screen.queryByRole("checkbox", { name: /캐시된 독서 모임/ })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "원본 일정 ↗" }));
   await waitFor(() =>
@@ -663,4 +669,138 @@ it("resets the displayed weekly count while retaining historical frequency recor
   expect(frequencyRecords(goal, "2026-09-28").map((entry) => entry.id)).toEqual(["next"]);
   expect(inPeriod(goal, "week", "2026-09-28")).toBe(true);
   expect(inPeriod(goal, "week", "2026-09-14")).toBe(false);
+});
+
+it("shows colored all-day spans and selects the actual event in a month cell", () => {
+  const setDay = vi.fn(),
+    onSelect = vi.fn();
+  const holiday = {
+    id: "holiday",
+    connectionId: "c",
+    sourceId: "uid-holiday",
+    title: "추석 연휴",
+    allDay: true,
+    startDate: "2026-09-24",
+    endDate: "2026-09-27",
+  };
+  const birthday = {
+    id: "birthday",
+    connectionId: "c",
+    sourceId: "uid-birthday",
+    title: "생일",
+    allDay: true,
+    startDate: "2026-09-26",
+    endDate: "2026-09-27",
+  };
+  render(
+    <PlannerCalendar
+      day={TODAY}
+      setDay={setDay}
+      events={[holiday, birthday]}
+      selected=""
+      onSelect={onSelect}
+      connections={[{ id: "c", name: "가족", provider: "ics" }]}
+      colors={{ c: { "": "#3478d4" } }}
+      side={null}
+    />,
+  );
+  const month = within(screen.getByRole("region", { name: "월간 캘린더" }));
+  const holidayBar = month.getByRole("button", { name: "종일 추석 연휴" });
+  const birthdayBar = month.getByRole("button", { name: "종일 생일" });
+  expect(holidayBar.style.gridColumn).toBe("4 / span 3");
+  expect(birthdayBar.style.gridColumn).toBe("6 / span 1");
+  expect(holidayBar.style.getPropertyValue("--calendar-color")).toBe("#3478d4");
+  expect(birthdayBar.style.getPropertyValue("--calendar-color")).toBe("#3478d4");
+  fireEvent.click(birthdayBar);
+  expect(setDay).toHaveBeenCalledWith("2026-09-26");
+  expect(onSelect).toHaveBeenCalledWith(birthday);
+});
+
+it("reveals overflow on the selected date without selecting a different day's first event", () => {
+  const setDay = vi.fn(),
+    onSelect = vi.fn();
+  const events = Array.from({ length: 5 }, (_, index) => ({
+    id: `meeting-${index}`,
+    title: `약속 ${index}`,
+    connectionId: "c",
+    startAt: new Date(`2026-09-24T${10 + index}:00:00`).getTime(),
+    endAt: new Date(`2026-09-24T${10 + index}:30:00`).getTime(),
+  }));
+  render(
+    <PlannerCalendar
+      day={TODAY}
+      setDay={setDay}
+      events={events}
+      selected=""
+      onSelect={onSelect}
+      connections={[{ id: "c", provider: "ics" }]}
+      side={null}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "2026-09-24 일정 5개 모두 보기" }));
+  expect(setDay).toHaveBeenCalledWith("2026-09-24");
+  expect(onSelect).toHaveBeenCalledWith(events[3]);
+});
+
+it("saves calendar colors through the calendar widget revision instead of the todo widget", async () => {
+  await renderPlanner(
+    snapshot(
+      [],
+      [
+        widget("calendar", {
+          connections: [
+            {
+              id: "family",
+              name: "가족",
+              provider: "apple",
+              selectedCalendarIds: ["home"],
+              calendarNames: { home: "집" },
+            },
+          ],
+          events: [],
+          calendarColors: { family: { home: "#3478d4" } },
+        }),
+      ],
+    ),
+  );
+  fireEvent.click(screen.getByRole("tab", { name: "캘린더" }));
+  fireEvent.click(screen.getByRole("button", { name: "가족 · 집 색상 변경" }));
+  fireEvent.click(screen.getByRole("button", { name: "보라" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("execute_widget", {
+      request: expect.objectContaining({
+        instanceId: "calendar-id",
+        expectedRevision: 7,
+        action: "set-calendar-color",
+        input: { connectionId: "family", calendarId: "home", color: "#8854b8" },
+      }),
+    }),
+  );
+});
+
+it("keeps the displayed month when selecting an all-day event that started in the previous month", () => {
+  const setDay = vi.fn(),
+    onSelect = vi.fn();
+  const event = {
+    id: "cross-month",
+    title: "이어지는 일정",
+    connectionId: "c",
+    allDay: true,
+    startDate: "2026-08-31",
+    endDate: "2026-09-04",
+  };
+  render(
+    <PlannerCalendar
+      day={TODAY}
+      setDay={setDay}
+      events={[event]}
+      selected=""
+      onSelect={onSelect}
+      connections={[{ id: "c", provider: "ics" }]}
+      side={null}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "종일 이어지는 일정" }));
+  expect(setDay).toHaveBeenCalledWith("2026-09-01");
+  expect(onSelect).toHaveBeenCalledWith(event);
 });

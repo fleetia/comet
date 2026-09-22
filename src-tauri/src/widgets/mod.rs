@@ -128,7 +128,7 @@ pub fn initial(kind: &str) -> Result<Value, String> {
         "completion-jar" => json!({"completed": []}),
         "journal" => json!({}),
         "calendar" => {
-            json!({"connections": [], "events": [], "lastSuccessAt": null,"reminders":reminders::initial()})
+            json!({"connections": [], "events": [], "lastSuccessAt": null,"calendarColors":{},"reminders":reminders::initial()})
         }
         "weather" | "music" | "device" => connections::initial(kind),
         _ => toys::initial(kind),
@@ -166,6 +166,9 @@ pub fn act(
             entropy,
         ),
         "completion-jar" | "journal" => Err("이 위젯은 실제 사건을 모아 보여 줘요.".into()),
+        "calendar" if request.action == "set-calendar-color" => {
+            calendar::set_calendar_color(&instance.data, &request.input)
+        }
         "calendar"
             if matches!(
                 request.action.as_str(),

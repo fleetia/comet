@@ -42,6 +42,103 @@ fn act(db: &Connection, kind: &str, action: &str, input: Value, now: i64, entrop
 }
 
 #[test]
+fn calendar_colors_are_scoped_atomic_and_preserved_by_reminder_changes() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    install(&db, directory.path(), &["calendar"]);
+    let calendar = instance(&db, "calendar");
+    let connected = super::calendar::connect_ics(super::calendar::IcsConnectInput {
+        name: "구독".into(),
+        url: "https://example.com/feed.ics".into(),
+    })
+    .unwrap();
+    let ics = connected.connection;
+    let mut google = ics.clone();
+    google.id = uuid::Uuid::new_v4().to_string();
+    google.provider = "google".into();
+    google.selected_calendar_ids = vec!["primary".into(), "work".into()];
+    let mut apple = google.clone();
+    apple.id = uuid::Uuid::new_v4().to_string();
+    apple.provider = "apple".into();
+    apple.selected_calendar_ids = vec!["local".into()];
+    let mut data = calendar.data.clone();
+    data["connections"] = json!([ics, google, apple]);
+    // Existing installations have no color preferences yet.
+    data.as_object_mut().unwrap().remove("calendarColors");
+    storage::commit_data(&db, &calendar.id, calendar.revision, data, vec![], 1).unwrap();
+    let chosen = request(
+        &db,
+        "calendar",
+        "set-calendar-color",
+        json!({
+            "connectionId": google.id, "calendarId": "work", "color": "#A1B2C3"
+        }),
+    );
+    storage::execute(&db, &chosen, 2, 1).unwrap();
+    let saved = instance(&db, "calendar");
+    assert_eq!(saved.data["calendarColors"][&google.id]["work"], "#a1b2c3");
+    storage::execute(&db, &chosen, 3, 2).unwrap();
+    assert_eq!(instance(&db, "calendar").revision, saved.revision);
+    let mut stale = chosen.clone();
+    stale.request_id = uuid::Uuid::new_v4().to_string();
+    stale.input["color"] = json!("#ffffff");
+    assert!(storage::execute(&db, &stale, 4, 3).is_err());
+    for (connection_id, calendar_id) in [(&ics.id, ""), (&apple.id, "local")] {
+        act(
+            &db,
+            "calendar",
+            "set-calendar-color",
+            json!({
+                "connectionId": connection_id, "calendarId": calendar_id, "color": "#123456"
+            }),
+            5,
+            4,
+        );
+    }
+    let before_invalid = instance(&db, "calendar");
+    for (connection_id, calendar_id, color) in [
+        (&ics.id, "event-uid", "#123456"),
+        (&google.id, "unselected", "#123456"),
+        (&apple.id, "", "#123456"),
+        (&google.id, "work", "red"),
+        (&google.id, "work", "#12345g"),
+        (&google.id, "work", "#12345678"),
+        (&String::from("missing"), "", "#123456"),
+    ] {
+        let invalid = request(
+            &db,
+            "calendar",
+            "set-calendar-color",
+            json!({
+                "connectionId": connection_id, "calendarId": calendar_id, "color": color
+            }),
+        );
+        assert!(storage::execute(&db, &invalid, 6, 5).is_err());
+        assert_eq!(instance(&db, "calendar").data, before_invalid.data);
+        assert_eq!(instance(&db, "calendar").revision, before_invalid.revision);
+    }
+    act(
+        &db,
+        "calendar",
+        "configure-alerts",
+        json!({"enabled":true}),
+        7,
+        6,
+    );
+    let updated = instance(&db, "calendar");
+    assert_eq!(
+        updated.data["calendarColors"],
+        before_invalid.data["calendarColors"]
+    );
+    assert_eq!(
+        updated.data["connections"],
+        before_invalid.data["connections"]
+    );
+    assert_eq!(updated.data["events"], before_invalid.data["events"]);
+    assert_eq!(updated.data["reminders"]["enabled"], true);
+}
+
+#[test]
 fn planner_batch_is_atomic_and_frequency_records_drive_completion_jar() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();

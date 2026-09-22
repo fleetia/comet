@@ -291,6 +291,7 @@ export function WidgetManager({
                     {!view?.installed ? (
                       <Checkbox
                         aria-label={`${item.name} 설치 선택`}
+                        className={styles.installCheckbox}
                         checked={selected.includes(item.id)}
                         disabled={busy}
                         onChange={() => chooseInstallation(item.id)}

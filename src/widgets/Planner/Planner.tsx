@@ -677,6 +677,11 @@ export function Planner(): ReactElement {
               selected={text(event?.id)}
               onSelect={(value) => setSelectedEvent(text(value.id))}
               connections={connections}
+              colors={record(record(calendar?.data).calendarColors)}
+              busy={busy}
+              onColorChange={
+                calendar ? (input) => void act("set-calendar-color", input, calendar) : undefined
+              }
               side={
                 <>
                   {calendar ? (
