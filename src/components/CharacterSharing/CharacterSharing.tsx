@@ -125,8 +125,9 @@ export function CharacterSharing({
     <section className={s.section} aria-label="캐릭터 공유">
       {full && <h2 className={s.subheading}>캐릭터 공유</h2>}
       <p className={s.notice}>
-        이름·성격·표정과 표정 이미지·등록 대사만 공유해요. 대화 기록·기억·친밀도·API 키·모델 파일은
-        포함하지 않아요. 직접 적은 소개나 대사에 개인정보가 없는지도 확인해 주세요.
+        이름·성격·지침·캐릭터 간 관계·표정과 표정 이미지·등록 대사를 공유해요. 관계는 함께 내보내는
+        캐릭터 사이의 설정만 포함해요. 대화 기록·기억·친밀도·API 키·모델 파일은 포함하지 않아요.
+        직접 적은 소개·지침·관계·대사에 개인정보가 없는지도 확인해 주세요.
       </p>
       <fieldset className={s.fieldset} disabled={pending || disabled}>
         {packId && (full || action === "attribution") && (

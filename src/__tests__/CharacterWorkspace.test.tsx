@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { CharacterManager } from "../components/CharacterManager/CharacterManager";
+import { CharacterEditor } from "../components/CharacterEditor/CharacterEditor";
 import { command, PREVIEW_SNAPSHOT } from "../hooks/useSnapshot";
 import type { Snapshot } from "../types";
 
@@ -61,6 +62,16 @@ it("retains exact per-character drafts across selection and snapshot changes aft
     <CharacterManager embedded snapshot={snapshot} onDirtyChange={onDirtyChange} />,
   );
   fireEvent.change(screen.getByLabelText("이름"), { target: { value: "쓰던 이름" } });
+  fireEvent.change(screen.getByLabelText("캐릭터 지침"), {
+    target: { value: "  짧게 답해요.\n모르면 물어봐요.  " },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "관계 추가" }));
+  fireEvent.change(screen.getByLabelText("관계 1 대상"), {
+    target: { value: extra.id },
+  });
+  fireEvent.change(screen.getByLabelText("관계 1 설명"), {
+    target: { value: "  오래된 친구.\n편하게 장난쳐요.  " },
+  });
   fireEvent.click(screen.getByRole("button", { name: "인사 편집" }));
   fireEvent.change(screen.getByLabelText("인사 1 대사"), {
     target: { value: "  안녕.\n반가워.  " },
@@ -75,6 +86,15 @@ it("retains exact per-character drafts across selection and snapshot changes aft
     />,
   );
   choose(/^쓰던 이름/);
+  expect(screen.getByLabelText("캐릭터 지침")).toHaveProperty(
+    "value",
+    "  짧게 답해요.\n모르면 물어봐요.  ",
+  );
+  expect(screen.getByLabelText("관계 1 대상")).toHaveProperty("value", extra.id);
+  expect(screen.getByLabelText("관계 1 설명")).toHaveProperty(
+    "value",
+    "  오래된 친구.\n편하게 장난쳐요.  ",
+  );
   expect(screen.getByLabelText("인사 1 대사")).toHaveProperty("value", "  안녕.\n반가워.  ");
   vi.mocked(command).mockImplementation(async (name) => {
     if (name === "save_character") {
@@ -89,6 +109,8 @@ it("retains exact per-character drafts across selection and snapshot changes aft
     id: "builtin-a",
     definition: expect.objectContaining({
       name: "쓰던 이름",
+      instructions: "  짧게 답해요.\n모르면 물어봐요.  ",
+      relationships: [{ targetId: extra.id, description: "  오래된 친구.\n편하게 장난쳐요.  " }],
       greeting: [
         { ...snapshot.characters.installed[0].definition.greeting[0], text: "  안녕.\n반가워.  " },
         ...snapshot.characters.installed[0].definition.greeting.slice(1),
@@ -96,10 +118,156 @@ it("retains exact per-character drafts across selection and snapshot changes aft
     }),
   });
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 수정 취소" }));
+  expect(screen.getByLabelText("캐릭터 지침")).toHaveProperty("value", "");
+  expect(screen.queryByLabelText("관계 1 설명")).toBeNull();
   expect(onDirtyChange).toHaveBeenLastCalledWith(true);
   choose(/^B/);
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 수정 취소" }));
   expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+});
+
+it("keeps instructions and directional relationships on their owner while a save is pending", async () => {
+  let finish: () => void = () => {};
+  vi.mocked(command).mockImplementation((name) =>
+    name === "save_character"
+      ? new Promise<void>((resolve) => {
+          finish = resolve;
+        })
+      : Promise.resolve({ pairScenes: [], wordbook: [] }),
+  );
+  render(<CharacterManager embedded snapshot={snapshot} />);
+  fireEvent.change(screen.getByLabelText("캐릭터 지침"), {
+    target: { value: "한 문장으로 답해요." },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "관계 추가" }));
+  expect(screen.getByLabelText("관계 1 대상")).toHaveProperty("value", "builtin-b");
+  expect(screen.getByRole("button", { name: "캐릭터 저장" })).toHaveProperty("disabled", true);
+  fireEvent.change(screen.getByLabelText("관계 1 설명"), { target: { value: "  \n " } });
+  expect(screen.getByRole("button", { name: "캐릭터 저장" })).toHaveProperty("disabled", true);
+  fireEvent.change(screen.getByLabelText("관계 1 설명"), {
+    target: { value: "존경하는 선배예요." },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "캐릭터 저장" }));
+  expect(screen.getByLabelText("캐릭터 지침").closest("fieldset")).toHaveProperty("disabled", true);
+  expect(screen.getByLabelText("관계 1 대상").closest("fieldset")).toHaveProperty("disabled", true);
+  choose(/^B/);
+  expect(screen.getByLabelText("캐릭터 지침")).toHaveProperty("value", "");
+  expect(screen.queryByLabelText("관계 1 설명")).toBeNull();
+  fireEvent.change(screen.getByLabelText("캐릭터 지침"), {
+    target: { value: "차분하게 대답해요." },
+  });
+  finish();
+  await screen.findByText("A 캐릭터를 저장했어요.");
+  expect(screen.getByLabelText("캐릭터 지침")).toHaveProperty("value", "차분하게 대답해요.");
+  expect(command).toHaveBeenCalledWith("save_character", {
+    id: "builtin-a",
+    definition: expect.objectContaining({
+      instructions: "한 문장으로 답해요.",
+      relationships: [{ targetId: "builtin-b", description: "존경하는 선배예요." }],
+    }),
+  });
+});
+
+it("offers other installed identities once and distinguishes duplicate names", () => {
+  const duplicate = { ...extra, id: "another-friend" };
+  render(
+    <CharacterManager
+      embedded
+      snapshot={{
+        ...snapshot,
+        characters: {
+          ...snapshot.characters,
+          installed: [...snapshot.characters.installed, duplicate],
+        },
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "관계 추가" }));
+  const first = within(screen.getByLabelText("관계 1 대상"));
+  expect(first.queryByRole("option", { name: "A" })).toBeNull();
+  expect(first.getByRole("option", { name: "모래 · g-friend" })).toHaveProperty("value", extra.id);
+  expect(first.getByRole("option", { name: "모래 · r-friend" })).toHaveProperty(
+    "value",
+    duplicate.id,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "관계 추가" }));
+  expect(screen.getByLabelText("관계 2 대상")).toHaveProperty("value", extra.id);
+  expect(
+    within(screen.getByLabelText("관계 2 대상")).queryByRole("option", { name: "B" }),
+  ).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "관계 1 삭제" }));
+  expect(screen.getByLabelText("관계 1 대상")).toHaveProperty("value", extra.id);
+  expect(
+    within(screen.getByLabelText("관계 1 대상")).getByRole("option", { name: "B" }),
+  ).toBeTruthy();
+});
+
+it("preserves deleted relationship targets while blocking new missing, self and duplicate targets", () => {
+  const original = snapshot.characters.installed[0];
+  const character = {
+    ...original,
+    definition: {
+      ...original.definition,
+      relationships: [{ targetId: "removed-friend", description: "옛 친구" }],
+    },
+  };
+  const onChange = vi.fn();
+  const props = {
+    character,
+    installed: snapshot.characters.installed,
+    onChange,
+    onSave: vi.fn(),
+    pending: false,
+    dirty: true,
+  };
+  const { rerender } = render(<CharacterEditor {...props} definition={character.definition} />);
+  expect(screen.getByRole("option", { name: "삭제된 캐릭터 · d-friend" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "캐릭터 저장" })).toHaveProperty("disabled", false);
+  fireEvent.click(screen.getByRole("button", { name: "관계 1 삭제" }));
+  expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ relationships: [] }));
+  for (const relationships of [
+    [{ targetId: "new-missing", description: "미등록" }],
+    [{ targetId: original.id, description: "자기 자신" }],
+    [
+      { targetId: extra.id, description: "첫 설명" },
+      { targetId: extra.id, description: "두 번째 설명" },
+    ],
+  ]) {
+    rerender(
+      <CharacterEditor {...props} definition={{ ...character.definition, relationships }} />,
+    );
+    expect(screen.getByRole("button", { name: "캐릭터 저장" })).toHaveProperty("disabled", true);
+  }
+});
+
+it("allows saving imported emoji instructions and relationships within the character limits", async () => {
+  const original = snapshot.characters.installed[0];
+  const definition = {
+    ...original.definition,
+    instructions: "🙂".repeat(2000),
+    relationships: [{ targetId: extra.id, description: "🌟".repeat(500) }],
+  };
+  render(
+    <CharacterManager
+      embedded
+      snapshot={{
+        ...snapshot,
+        characters: {
+          ...snapshot.characters,
+          installed: [{ ...original, definition }, ...snapshot.characters.installed.slice(1)],
+        },
+      }}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText("이름"), { target: { value: "이름 수정" } });
+  expect(screen.getByRole("button", { name: "캐릭터 저장" })).toHaveProperty("disabled", false);
+  fireEvent.click(screen.getByRole("button", { name: "캐릭터 저장" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("save_character", {
+      id: original.id,
+      definition: { ...definition, name: "이름 수정" },
+    }),
+  );
 });
 
 it("applies a saved character once and enforces the final-member and eight-member limits", async () => {

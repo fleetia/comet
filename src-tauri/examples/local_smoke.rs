@@ -92,6 +92,7 @@ async fn main() -> Result<(), String> {
             persona: "a".into(),
             score: 20,
         },
+        &[],
     );
     for pass in ["cold", "warm"] {
         let at = Instant::now();

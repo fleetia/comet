@@ -184,6 +184,7 @@ async fn run(runtime: &inference::Inference) -> Result<(), String> {
             &store::context_messages_for(&conn, 20, persona)?,
             &store::memories(&conn)?,
             &relationship,
+            &characters::collection(&conn)?.installed,
         );
         let reply = match generate(
             runtime,
@@ -243,6 +244,7 @@ async fn run(runtime: &inference::Inference) -> Result<(), String> {
             &store::memories(&conn)?,
             &store::relationships(&conn)?,
             false,
+            &characters::collection(&conn)?.installed,
         ),
         domain::scene_schema_for(&targets, 2, 4),
     )

@@ -31,6 +31,8 @@ struct State {
     error: Option<String>,
     config: Value,
     observation: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    spicetify_pairing_id: Option<String>,
     #[serde(default)]
     appearance: appearance::Appearance,
 }
@@ -132,6 +134,9 @@ pub fn configure(kind: &str, data: &Value, input: &Value) -> Result<Value, Strin
         .map_err(|_| "저장된 정보 연결 설정을 읽지 못했어요.")?;
     if state.configured && state.config == config {
         return Ok(data.clone());
+    }
+    if kind == "music" && state.config["provider"] != config["provider"] {
+        state.spicetify_pairing_id = None;
     }
     state.config = config;
     state.configured = true;
@@ -601,6 +606,29 @@ pub async fn refresh(kind: &str, data: &Value, now: i64) -> Result<Value, Connec
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn music_pairing_survives_preferences_but_not_provider_changes_or_input_injection() {
+        let pair = uuid::Uuid::new_v4().to_string();
+        let mut data =
+            configure("music", &initial("music"), &json!({"provider":"spicetify"})).unwrap();
+        data["spicetifyPairingId"] = json!(pair);
+        let changed = configure(
+            "music",
+            &data,
+            &json!({"provider":"spicetify","showArtwork":false}),
+        )
+        .unwrap();
+        assert_eq!(changed["spicetifyPairingId"], pair);
+        let other = configure("music", &changed, &json!({"provider":"spotify"})).unwrap();
+        assert!(other["spicetifyPairingId"].is_null());
+        assert!(configure(
+            "music",
+            &initial("music"),
+            &json!({"provider":"spicetify","spicetifyPairingId":pair})
+        )
+        .is_err());
+    }
 
     #[test]
     fn explicit_region_config_rejects_invalid_coordinates_and_resets_old_region_cache() {

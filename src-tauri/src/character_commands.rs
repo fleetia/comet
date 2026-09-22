@@ -11,7 +11,8 @@ use crate::{
     },
     store, wordbook,
 };
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{atomic::Ordering, Arc};
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
@@ -156,6 +157,32 @@ pub(crate) fn mutate<T>(
     mutate_inner(state, false, change)
 }
 
+fn referenced_character_names(
+    conn: &Connection,
+    members: &[InstalledCharacter],
+) -> Result<BTreeMap<String, String>, String> {
+    let targets: BTreeSet<_> = members
+        .iter()
+        .flat_map(|member| &member.definition.relationships)
+        .map(|relationship| relationship.target_id.as_str())
+        .collect();
+    let mut names = BTreeMap::new();
+    for target in targets {
+        let name: Option<String> = conn
+            .query_row(
+                "SELECT json_extract(data,'$.name') FROM characters WHERE id=?",
+                [target],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        if let Some(name) = name {
+            names.insert(target.into(), name);
+        }
+    }
+    Ok(names)
+}
+
 fn mutate_inner<T>(
     state: &AppState,
     dialogue_changed: bool,
@@ -170,9 +197,12 @@ fn mutate_inner<T>(
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
     let before = characters::active_members(&tx)?;
+    let before_targets = referenced_character_names(&tx, &before)?;
     let result = change(&tx)?;
     let after = characters::active_members(&tx)?;
-    let changed = dialogue_changed || before != after;
+    let changed = dialogue_changed
+        || before != after
+        || before_targets != referenced_character_names(&tx, &after)?;
     if changed {
         store::bump_revision(&tx)?;
     }

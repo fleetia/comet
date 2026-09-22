@@ -1,7 +1,12 @@
-//! Explicitly paired, memory-only connection to the optional Spotify extension.
+//! Explicit pairing and remembered local connections to the optional Spotify extension.
+mod credentials;
+
+use aes_gcm::aead::{rand_core::RngCore, OsRng};
 use futures_util::{SinkExt, StreamExt};
+use hmac::{Hmac, Mac};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::Sha256;
 use std::{
     collections::HashMap,
     sync::{
@@ -30,7 +35,8 @@ const MAX_MESSAGE: usize = 128 * 1024;
 const MAX_PENDING: usize = 8;
 const PAIRING_MS: i64 = 180_000;
 const REQUEST_MS: i64 = 20_000;
-const DISCONNECTED: &str = "Spotify 확장 연결이 끊겼어요. 새 연결 코드로 다시 연결해 주세요.";
+const DISCONNECTED: &str =
+    "Spotify 연결을 기다리고 있어요. 처음 연결하거나 연결을 해제했다면 설정에서 페어링해 주세요.";
 
 struct Pending {
     action: String,
@@ -38,14 +44,23 @@ struct Pending {
 }
 #[derive(Default)]
 struct Connection {
+    generation: u64,
+    stop: Option<watch::Sender<bool>>,
     sender: Option<mpsc::Sender<Value>>,
     pending: HashMap<String, Pending>,
 }
+struct Authentication {
+    code: Option<String>,
+    secret: Option<String>,
+}
 struct Session {
     owner: String,
-    code: String,
+    pairing_id: String,
     expires_at: i64,
+    authentication: Mutex<Authentication>,
     revoked: AtomicBool,
+    forgotten: AtomicBool,
+    cancel: Arc<AtomicBool>,
     shutdown: watch::Sender<bool>,
     connection: Mutex<Connection>,
 }
@@ -62,23 +77,41 @@ fn session(owner: &str) -> Option<Arc<Session>> {
         .lock()
         .unwrap()
         .as_ref()
-        .filter(|s| s.owner == owner && !s.revoked.load(Ordering::SeqCst))
+        .filter(|s| s.owner == owner && !s.stopped())
         .cloned()
 }
 impl Session {
-    fn revoke(&self) {
-        self.revoked.store(true, Ordering::SeqCst);
-        self.shutdown.send_replace(true);
+    fn stopped(&self) -> bool {
+        self.revoked.load(Ordering::SeqCst) || self.cancel.load(Ordering::SeqCst)
+    }
+    fn disconnect_transport(&self, generation: u64) {
         let mut connection = self.connection.lock().unwrap();
+        if connection.generation != generation {
+            return;
+        }
+        if let Some(stop) = connection.stop.take() {
+            stop.send_replace(true);
+        }
         connection.sender = None;
         for (_, pending) in connection.pending.drain() {
             let _ = pending.reply.send(Err(DISCONNECTED.into()));
         }
     }
+    fn revoke(&self) {
+        self.revoked.store(true, Ordering::SeqCst);
+        self.shutdown.send_replace(true);
+        let generation = self.connection.lock().unwrap().generation;
+        self.disconnect_transport(generation);
+    }
 }
-/// Call synchronously inside the widget action boundary on disable/remove/configuration changes.
+/// Runtime suspension preserves the remembered identity for the next app launch.
 pub fn revoke(owner: &str) {
     if let Some(session) = session(owner) {
+        session.revoke();
+    }
+}
+pub fn revoke_pairing(owner: &str, pairing_id: &str) {
+    if let Some(session) = session(owner).filter(|s| s.pairing_id == pairing_id) {
         session.revoke();
     }
 }
@@ -87,23 +120,65 @@ pub fn revoke_all() {
         session.revoke();
     }
 }
+/// Call after removing the authoritative widget marker; deletion failure cannot restore it.
+pub fn forget(owner: &str, pairing_id: &str) -> Result<(), String> {
+    if let Some(session) = sessions()
+        .lock()
+        .unwrap()
+        .as_ref()
+        .filter(|s| s.owner == owner && s.pairing_id == pairing_id)
+        .cloned()
+    {
+        session.forgotten.store(true, Ordering::SeqCst);
+        session.revoke();
+    }
+    credentials::delete(owner, pairing_id)
+}
 
 pub fn pairing_status(owner: &str) -> Value {
     let Some(session) = session(owner) else {
-        return json!({"port":PORT,"code":null,"connected":false,"expiresAt":null,"pairing":false,"enabled":false});
+        return json!({"port":PORT,"code":null,"connected":false,"expiresAt":null,"pairing":false,"enabled":false,"remembered":false});
     };
     let connected = session.connection.lock().unwrap().sender.is_some();
-    let pairing = !connected && now() < session.expires_at;
-    json!({"port":PORT,"code":if pairing {Some(&session.code)}else{None},"connected":connected,"expiresAt":if pairing{Some(session.expires_at)}else{None},"pairing":pairing,"enabled":connected||pairing})
+    let authentication = session.authentication.lock().unwrap();
+    let pairing = authentication.code.is_some() && now() < session.expires_at;
+    let remembered = authentication.secret.is_some();
+    json!({"port":PORT,"code":if pairing {authentication.code.as_ref()}else{None},"connected":connected,"expiresAt":if pairing{Some(session.expires_at)}else{None},"pairing":pairing,"enabled":connected||pairing||remembered,"remembered":remembered})
 }
-
-/// Starting is an explicit user action. Only one widget can own the bridge.
-pub async fn start(owner: &str) -> Result<Value, String> {
-    let _start = START.lock().await;
+fn is_hex(value: &str, length: usize) -> bool {
+    value.len() == length
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+}
+fn random_hex(bytes: usize) -> Result<String, String> {
+    let mut value = vec![0; bytes];
+    OsRng
+        .try_fill_bytes(&mut value)
+        .map_err(|_| "음악 연결용 난수를 만들지 못했어요.")?;
+    Ok(hex::encode(value))
+}
+fn validate_identity(owner: &str, pairing_id: &str) -> Result<(), String> {
+    uuid::Uuid::parse_str(owner).map_err(|_| "음악 위젯 식별자가 올바르지 않아요.")?;
+    uuid::Uuid::parse_str(pairing_id).map_err(|_| "음악 연결 식별자가 올바르지 않아요.")?;
+    Ok(())
+}
+async fn bind_session(
+    owner: &str,
+    pairing_id: &str,
+    authentication: Authentication,
+    cancel: Arc<AtomicBool>,
+) -> Result<Value, String> {
+    validate_identity(owner, pairing_id)?;
+    if cancel.load(Ordering::SeqCst) {
+        return Err("음악 연결 준비를 취소했어요.".into());
+    }
     revoke_all();
-    // An old listener observes shutdown before a replacement binds the same port.
     let deadline = Instant::now() + Duration::from_secs(1);
     let listener = loop {
+        if cancel.load(Ordering::SeqCst) {
+            return Err("음악 연결 준비를 취소했어요.".into());
+        }
         match TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, PORT)).await {
             Ok(listener) => break listener,
             Err(_) if Instant::now() < deadline => {
@@ -112,12 +187,18 @@ pub async fn start(owner: &str) -> Result<Value, String> {
             Err(_) => return Err("로컬 음악 연결 포트 18743을 사용할 수 없어요.".into()),
         }
     };
+    if cancel.load(Ordering::SeqCst) {
+        return Err("음악 연결 준비를 취소했어요.".into());
+    }
     let (shutdown, _) = watch::channel(false);
     let session = Arc::new(Session {
         owner: owner.into(),
-        code: uuid::Uuid::new_v4().simple().to_string(),
+        pairing_id: pairing_id.into(),
         expires_at: now() + PAIRING_MS,
+        authentication: Mutex::new(authentication),
         revoked: AtomicBool::new(false),
+        forgotten: AtomicBool::new(false),
+        cancel,
         shutdown,
         connection: Mutex::new(Connection::default()),
     });
@@ -125,18 +206,77 @@ pub async fn start(owner: &str) -> Result<Value, String> {
     tokio::spawn(listen(listener, session));
     Ok(pairing_status(owner))
 }
+/// The caller reserves a fresh pairing ID inside the widget action boundary.
+pub async fn start(
+    owner: &str,
+    pairing_id: &str,
+    cancel: Arc<AtomicBool>,
+) -> Result<Value, String> {
+    let _start = START.lock().await;
+    bind_session(
+        owner,
+        pairing_id,
+        Authentication {
+            code: Some(random_hex(16)?),
+            secret: None,
+        },
+        cancel,
+    )
+    .await
+}
+/// Restore only an ID still referenced by an installed, enabled Spotify widget.
+pub async fn resume(
+    owner: &str,
+    pairing_id: &str,
+    cancel: Arc<AtomicBool>,
+) -> Result<Value, String> {
+    let _start = START.lock().await;
+    validate_identity(owner, pairing_id)?;
+    if let Some(current) = session(owner).filter(|s| s.pairing_id == pairing_id) {
+        return Ok(pairing_status(&current.owner));
+    }
+    if sessions()
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|s| !s.stopped())
+    {
+        return Err("다른 음악 위젯이 Spotify 연결을 사용하고 있어요.".into());
+    }
+    let owner_for_store = owner.to_string();
+    let id_for_store = pairing_id.to_string();
+    let credential = timeout(
+        Duration::from_secs(5),
+        tokio::task::spawn_blocking(move || credentials::load(&owner_for_store, &id_for_store)),
+    )
+    .await
+    .map_err(|_| "저장된 음악 연결을 읽는 시간이 초과됐어요.")?
+    .map_err(|_| "저장된 음악 연결을 읽지 못했어요.")??
+    .ok_or("저장된 음악 연결이 없어요. 설정에서 한 번 페어링해 주세요.")?;
+    bind_session(
+        owner,
+        pairing_id,
+        Authentication {
+            code: None,
+            secret: Some(credential.secret),
+        },
+        cancel,
+    )
+    .await
+}
 
 async fn listen(listener: TcpListener, session: Arc<Session>) {
     let mut shutdown = session.shutdown.subscribe();
     let attempts = Arc::new(Semaphore::new(4));
     loop {
-        if *shutdown.borrow() {
+        if session.stopped() || *shutdown.borrow() {
+            session.revoke();
             break;
         }
         tokio::select! {
             _ = shutdown.changed() => break,
             _ = tokio::time::sleep(Duration::from_secs(1)) => {
-                if now() >= session.expires_at && session.connection.lock().unwrap().sender.is_none() {session.revoke();break;}
+                if now() >= session.expires_at && session.authentication.lock().unwrap().secret.is_none() {session.revoke();break;}
             },
             accepted = listener.accept() => {
                 let Ok((stream, address)) = accepted else { break; };
@@ -149,7 +289,7 @@ async fn listen(listener: TcpListener, session: Arc<Session>) {
     }
 }
 
-#[allow(clippy::result_large_err)] // Tungstenite requires an HTTP response as the callback error.
+#[allow(clippy::result_large_err)]
 fn check_upgrade(request: &Request, response: Response) -> Result<Response, ErrorResponse> {
     let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok());
     if request.uri().path() != "/comet/v1"
@@ -164,31 +304,51 @@ fn check_upgrade(request: &Request, response: Response) -> Result<Response, Erro
     Ok(response)
 }
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct Hello {
     #[serde(rename = "type")]
     kind: String,
     version: u32,
-    code: String,
+    mode: String,
+    client_nonce: String,
+    pairing_id: Option<String>,
 }
-fn authenticates(text: &str, session: &Session) -> bool {
-    let Ok(hello) = serde_json::from_str::<Hello>(text) else {
-        return false;
-    };
-    if hello.kind != "hello"
-        || hello.version != 1
-        || hello.code.len() != session.code.len()
-        || now() >= session.expires_at
-        || session.revoked.load(Ordering::SeqCst)
-    {
-        return false;
-    }
-    hello
-        .code
-        .bytes()
-        .zip(session.code.bytes())
-        .fold(0u8, |difference, (a, b)| difference | (a ^ b))
-        == 0
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Proof {
+    #[serde(rename = "type")]
+    kind: String,
+    proof: String,
+}
+fn proof_mac(
+    key: &str,
+    role: &str,
+    mode: &str,
+    pairing_id: &str,
+    client_nonce: &str,
+    server_nonce: &str,
+) -> Option<Hmac<Sha256>> {
+    let key = hex::decode(key).ok()?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(&key).ok()?;
+    mac.update(
+        format!("comet:music:v2:{role}:{mode}:{pairing_id}:{client_nonce}:{server_nonce}")
+            .as_bytes(),
+    );
+    Some(mac)
+}
+fn proof_hex(
+    key: &str,
+    role: &str,
+    mode: &str,
+    pairing_id: &str,
+    client_nonce: &str,
+    server_nonce: &str,
+) -> Option<String> {
+    Some(hex::encode(
+        proof_mac(key, role, mode, pairing_id, client_nonce, server_nonce)?
+            .finalize()
+            .into_bytes(),
+    ))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -220,36 +380,142 @@ async fn serve(stream: TcpStream, session: Arc<Session>) {
     let Ok(Some(Ok(Message::Text(hello)))) = hello else {
         return;
     };
-    if !authenticates(&hello, &session) {
+    let Ok(hello) = serde_json::from_str::<Hello>(&hello) else {
+        return;
+    };
+    if hello.kind != "hello"
+        || hello.version != 2
+        || !is_hex(&hello.client_nonce, 64)
+        || session.stopped()
+    {
         return;
     }
-    let (sender, mut receiver) = mpsc::channel(MAX_PENDING * 2);
+    let key = {
+        let authentication = session.authentication.lock().unwrap();
+        match hello.mode.as_str() {
+            "pair" if hello.pairing_id.is_none() && now() < session.expires_at => {
+                authentication.code.clone()
+            }
+            "resume" if hello.pairing_id.as_deref() == Some(&session.pairing_id) => {
+                authentication.secret.clone()
+            }
+            _ => None,
+        }
+    };
+    let Some(key) = key else {
+        return;
+    };
+    let Ok(server_nonce) = random_hex(32) else {
+        return;
+    };
+    let Some(proof) = proof_hex(
+        &key,
+        "server",
+        &hello.mode,
+        &session.pairing_id,
+        &hello.client_nonce,
+        &server_nonce,
+    ) else {
+        return;
+    };
+    if socket.send(Message::Text(json!({"type":"challenge","version":2,"pairingId":session.pairing_id,"serverNonce":server_nonce,"proof":proof}).to_string().into())).await.is_err() {return;}
+    let response = tokio::select! {_ = shutdown.changed() => return, value = timeout(Duration::from_secs(3),socket.next())=>value};
+    let Ok(Some(Ok(Message::Text(response)))) = response else {
+        return;
+    };
+    let Ok(response) = serde_json::from_str::<Proof>(&response) else {
+        return;
+    };
+    if response.kind != "authenticate" || !is_hex(&response.proof, 64) || session.stopped() {
+        return;
+    }
+    let Some(mac) = proof_mac(
+        &key,
+        "client",
+        &hello.mode,
+        &session.pairing_id,
+        &hello.client_nonce,
+        &server_nonce,
+    ) else {
+        return;
+    };
+    if mac
+        .verify_slice(&hex::decode(&response.proof).unwrap_or_default())
+        .is_err()
     {
+        return;
+    }
+    let credential = if hello.mode == "pair" {
+        let session_for_store = session.clone();
+        let stored = tokio::task::spawn_blocking(move || {
+            {
+                let mut authentication = session_for_store.authentication.lock().unwrap();
+                if session_for_store.stopped()
+                    || authentication.code.is_none()
+                    || now() >= session_for_store.expires_at
+                {
+                    return Err("페어링이 만료됐어요.".to_string());
+                }
+                // Consume once, without blocking status reads on a possible OS credential dialog.
+                authentication.code = None;
+            }
+            let secret = random_hex(32)?;
+            credentials::save(
+                &session_for_store.owner,
+                &session_for_store.pairing_id,
+                &secret,
+                || !session_for_store.stopped(),
+            )?;
+            if session_for_store.stopped() {
+                return Err(DISCONNECTED.into());
+            }
+            let mut authentication = session_for_store.authentication.lock().unwrap();
+            authentication.secret = Some(secret.clone());
+            Ok(json!({"id":session_for_store.pairing_id,"secret":secret}))
+        })
+        .await;
+        let Ok(Ok(credential)) = stored else {
+            return;
+        };
+        Some(credential)
+    } else {
+        None
+    };
+    let (sender, mut receiver) = mpsc::channel(MAX_PENDING * 2);
+    let (stop, mut disconnected) = watch::channel(false);
+    let generation = {
         let mut connection = session.connection.lock().unwrap();
-        if session.revoked.load(Ordering::SeqCst) || connection.sender.is_some() {
+        if session.stopped() || connection.sender.is_some() {
             return;
         }
+        connection.generation = connection.generation.wrapping_add(1);
         connection.sender = Some(sender);
-    }
+        connection.stop = Some(stop);
+        connection.generation
+    };
+    let ready = if let Some(credential) = credential {
+        json!({"type":"ready","version":2,"credential":credential})
+    } else {
+        json!({"type":"ready","version":2})
+    };
     if socket
-        .send(Message::Text(
-            json!({"type":"ready","version":1}).to_string().into(),
-        ))
+        .send(Message::Text(ready.to_string().into()))
         .await
         .is_err()
     {
-        session.revoke();
+        session.disconnect_transport(generation);
         return;
     }
     let mut heartbeat = tokio::time::interval(Duration::from_secs(5));
     let mut last_seen = Instant::now();
     loop {
-        if session.revoked.load(Ordering::SeqCst) {
+        if session.stopped() {
             break;
         }
         tokio::select! {
             biased;
             _ = shutdown.changed() => break,
+            _ = disconnected.changed() => break,
             _ = heartbeat.tick() => {
                 if last_seen.elapsed()>Duration::from_secs(15) {break;}
                 if socket.send(Message::Ping(Vec::new().into())).await.is_err() {break;}
@@ -266,6 +532,17 @@ async fn serve(stream: TcpStream, session: Arc<Session>) {
                 last_seen=Instant::now();
                 match incoming {
                     Some(Ok(Message::Text(text))) => {
+                        if text == "{\"type\":\"disconnect\"}" || serde_json::from_str::<Value>(&text).is_ok_and(|value| value == json!({"type":"disconnect"})) {
+                            // The extension retains a pending revoke until this persistent deletion succeeds.
+                            let owner = session.owner.clone(); let pairing_id = session.pairing_id.clone();
+                            let deleted = tokio::task::spawn_blocking(move || credentials::delete(&owner, &pairing_id)).await;
+                            if matches!(deleted, Ok(Ok(()))) {
+                                session.forgotten.store(true, Ordering::SeqCst);
+                                session.revoke();
+                                let _ = socket.send(Message::Text(json!({"type":"disconnected","version":2}).to_string().into())).await;
+                            }
+                            break;
+                        }
                         let Ok(reply) = serde_json::from_str::<Reply>(&text) else {break;};
                         if reply.kind!="response" || reply.id.len()>64 {break;}
                         let pending = session.connection.lock().unwrap().pending.remove(&reply.id);
@@ -281,7 +558,16 @@ async fn serve(stream: TcpStream, session: Arc<Session>) {
             }
         }
     }
-    session.revoke();
+    session.disconnect_transport(generation);
+    if session.forgotten.load(Ordering::SeqCst) {
+        let _ = timeout(
+            Duration::from_millis(200),
+            socket.send(Message::Text(
+                json!({"type":"revoked","version":2}).to_string().into(),
+            )),
+        )
+        .await;
+    }
     let _ = timeout(Duration::from_millis(200), socket.close(None)).await;
 }
 
@@ -338,12 +624,15 @@ fn valid_action(action: &str, value: &Value) -> bool {
 struct RequestGuard {
     session: Arc<Session>,
     id: String,
+    generation: u64,
 }
 impl Drop for RequestGuard {
     fn drop(&mut self) {
-        let must_revoke = {
+        let must_disconnect = {
             let mut connection = self.session.connection.lock().unwrap();
-            if connection.pending.remove(&self.id).is_some() {
+            if connection.generation == self.generation
+                && connection.pending.remove(&self.id).is_some()
+            {
                 connection.sender.as_ref().is_some_and(|sender| {
                     sender
                         .try_send(json!({"type":"cancel","id":self.id}))
@@ -353,8 +642,8 @@ impl Drop for RequestGuard {
                 false
             }
         };
-        if must_revoke {
-            self.session.revoke();
+        if must_disconnect {
+            self.session.disconnect_transport(self.generation);
         }
     }
 }
@@ -373,9 +662,9 @@ async fn request_with_timeout(
     let session = session(owner).ok_or(DISCONNECTED)?;
     let id = uuid::Uuid::new_v4().simple().to_string();
     let (reply, receiver) = oneshot::channel();
-    {
+    let generation = {
         let mut connection = session.connection.lock().unwrap();
-        if session.revoked.load(Ordering::SeqCst) {
+        if session.stopped() {
             return Err(DISCONNECTED.into());
         }
         if connection.pending.len() >= MAX_PENDING {
@@ -390,16 +679,18 @@ async fn request_with_timeout(
             },
         );
         if sender.try_send(json!({"type":"request","id":id,"action":action,"value":value,"expiresAt":now()+timeout_ms})).is_err(){connection.pending.remove(&id);return Err(DISCONNECTED.into());}
-    }
+        connection.generation
+    };
     let _guard = RequestGuard {
         session: session.clone(),
         id,
+        generation,
     };
     let reply = timeout(Duration::from_millis(timeout_ms as u64), receiver)
         .await
         .map_err(|_| "음악 요청이 만료됐어요.".to_string())?
         .map_err(|_| DISCONNECTED.to_string())??;
-    if session.revoked.load(Ordering::SeqCst) {
+    if session.stopped() || session.connection.lock().unwrap().generation != generation {
         return Err(DISCONNECTED.into());
     }
     Ok(reply)
@@ -587,7 +878,8 @@ mod tests {
         );
         assert!(sanitize_reply("queue", json!({"items":vec![json!({});101]})).is_err());
     }
-    async fn client(code: &str) -> WebSocketStream<TcpStream> {
+    type Client = WebSocketStream<TcpStream>;
+    async fn socket() -> Client {
         let stream = TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, PORT))
             .await
             .unwrap();
@@ -597,18 +889,9 @@ mod tests {
         request
             .headers_mut()
             .insert("Origin", "https://xpui.app.spotify.com".parse().unwrap());
-        let (mut client, _) = client_async(request, stream).await.unwrap();
-        client
-            .send(Message::Text(
-                json!({"type":"hello","version":1,"code":code})
-                    .to_string()
-                    .into(),
-            ))
-            .await
-            .unwrap();
-        client
+        client_async(request, stream).await.unwrap().0
     }
-    async fn text_frame(client: &mut WebSocketStream<TcpStream>) -> Value {
+    async fn text_frame(client: &mut Client) -> Value {
         loop {
             match timeout(Duration::from_secs(2), client.next())
                 .await
@@ -622,65 +905,242 @@ mod tests {
             }
         }
     }
-    #[tokio::test]
-    async fn pairing_requests_timeout_cancellation_and_revocation_are_session_scoped() {
-        let owner = "music-bridge-test";
-        let status = start(owner).await.unwrap();
-        let code = status["code"].as_str().unwrap();
-        assert!(pairing_status("another-widget")["code"].is_null());
-        let mut rejected = client("00000000000000000000000000000000").await;
-        assert!(timeout(Duration::from_secs(2), rejected.next())
+    async fn begin_handshake(mode: &str, pairing_id: &str, client_nonce: &str) -> (Client, Value) {
+        let mut client = socket().await;
+        let mut hello = json!({"type":"hello","version":2,"mode":mode,"clientNonce":client_nonce});
+        if mode == "resume" {
+            hello["pairingId"] = json!(pairing_id);
+        }
+        client
+            .send(Message::Text(hello.to_string().into()))
+            .await
+            .unwrap();
+        let challenge = text_frame(&mut client).await;
+        assert_eq!(challenge["type"], "challenge");
+        assert_eq!(challenge["pairingId"], pairing_id);
+        (client, challenge)
+    }
+    async fn client(mode: &str, pairing_id: &str, key: &str) -> (Client, Value) {
+        let client_nonce = random_hex(32).unwrap();
+        let (mut client, challenge) = begin_handshake(mode, pairing_id, &client_nonce).await;
+        let server_nonce = challenge["serverNonce"].as_str().unwrap();
+        assert_eq!(
+            challenge["proof"],
+            proof_hex(key, "server", mode, pairing_id, &client_nonce, server_nonce).unwrap()
+        );
+        let proof =
+            proof_hex(key, "client", mode, pairing_id, &client_nonce, server_nonce).unwrap();
+        client
+            .send(Message::Text(
+                json!({"type":"authenticate","proof":proof})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+        let ready = text_frame(&mut client).await;
+        assert_eq!(ready["type"], "ready");
+        (client, ready)
+    }
+    async fn disconnected(owner: &str) {
+        timeout(Duration::from_secs(2), async {
+            while pairing_status(owner)["connected"] == true {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+    async fn rejected(client: &mut Client) {
+        assert!(timeout(Duration::from_secs(2), client.next())
             .await
             .unwrap()
-            .is_none_or(|v| v.is_err()));
-        let mut client = client(code).await;
-        assert_eq!(text_frame(&mut client).await["type"], "ready");
+            .is_none_or(|frame| frame.is_err() || matches!(frame, Ok(Message::Close(_)))));
+    }
+    fn cancel_token() -> Arc<AtomicBool> {
+        Arc::new(AtomicBool::new(false))
+    }
+
+    #[test]
+    fn mutual_proofs_bind_roles_mode_identity_and_both_nonces() {
+        let key = "11".repeat(32);
+        let proof = proof_hex(&key, "server", "resume", "id", "client", "server").unwrap();
+        for (role, mode, id, client, server) in [
+            ("client", "resume", "id", "client", "server"),
+            ("server", "pair", "id", "client", "server"),
+            ("server", "resume", "other", "client", "server"),
+            ("server", "resume", "id", "other", "server"),
+            ("server", "resume", "id", "client", "other"),
+        ] {
+            assert!(proof_mac(&key, role, mode, id, client, server)
+                .unwrap()
+                .verify_slice(&hex::decode(&proof).unwrap())
+                .is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn remembered_pairing_restarts_without_replaying_requests_and_explicit_unlink_revokes_it()
+    {
+        let owner = "11111111-1111-4111-8111-111111111111";
+        let pairing_id = "22222222-2222-4222-8222-222222222222";
+        let status = start(owner, pairing_id, cancel_token()).await.unwrap();
+        let code = status["code"].as_str().unwrap();
+        assert_eq!(pairing_status(owner)["remembered"], false);
+        assert!(pairing_status("another-widget")["code"].is_null());
+
+        // A reflected server proof must not authenticate a client.
+        let nonce = random_hex(32).unwrap();
+        let (mut wrong, challenge) = begin_handshake("pair", pairing_id, &nonce).await;
+        wrong
+            .send(Message::Text(
+                json!({"type":"authenticate","proof":challenge["proof"]})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+        rejected(&mut wrong).await;
+        assert!(!pairing_status(owner).to_string().contains("secret"));
+
+        let (mut connection, ready) = client("pair", pairing_id, code).await;
+        let secret = ready["credential"]["secret"].as_str().unwrap().to_string();
+        assert!(is_hex(&secret, 64));
         assert_eq!(pairing_status(owner)["connected"], true);
+        assert_eq!(pairing_status(owner)["remembered"], true);
         assert!(pairing_status(owner)["code"].is_null());
+        assert!(session(owner)
+            .unwrap()
+            .authentication
+            .lock()
+            .unwrap()
+            .code
+            .is_none());
         let work = tokio::spawn(request(owner, "observe", Value::Null));
-        let message = text_frame(&mut client).await;
-        client.send(Message::Text(json!({"type":"response","id":message["id"],"ok":true,"value":{"playing":true,"title":"Song","token":"not forwarded"}}).to_string().into())).await.unwrap();
+        let message = text_frame(&mut connection).await;
+        connection.send(Message::Text(json!({"type":"response","id":message["id"],"ok":true,"value":{"playing":true,"title":"Song","token":"not forwarded"}}).to_string().into())).await.unwrap();
         let observation = work.await.unwrap().unwrap();
         assert_eq!(observation["title"], "Song");
         assert!(observation.get("token").is_none());
         let work = tokio::spawn(request_with_timeout(owner, "next", Value::Null, 50));
-        let message = text_frame(&mut client).await;
+        let message = text_frame(&mut connection).await;
         assert!(work.await.unwrap().unwrap_err().contains("만료"));
-        let canceled = text_frame(&mut client).await;
-        assert_eq!(canceled, json!({"type":"cancel","id":message["id"]}));
+        assert_eq!(
+            text_frame(&mut connection).await,
+            json!({"type":"cancel","id":message["id"]})
+        );
         let work = tokio::spawn(request(
             owner,
             "playRandom",
             json!({"uri":"spotify:playlist:0000000000000000000000"}),
         ));
-        let message = text_frame(&mut client).await;
+        let message = text_frame(&mut connection).await;
         work.abort();
         let _ = work.await;
         assert_eq!(
-            text_frame(&mut client).await,
+            text_frame(&mut connection).await,
             json!({"type":"cancel","id":message["id"]})
         );
+
         let mut pending = Vec::new();
         for _ in 0..MAX_PENDING {
             pending.push(tokio::spawn(request(owner, "observe", Value::Null)));
-            text_frame(&mut client).await;
+            text_frame(&mut connection).await;
         }
         assert!(request(owner, "observe", Value::Null)
             .await
             .unwrap_err()
             .contains("이전 음악 요청"));
-        revoke(owner);
+        let old_session = session(owner).unwrap();
+        let old_generation = old_session.connection.lock().unwrap().generation;
+        connection.close(None).await.unwrap();
+        disconnected(owner).await;
         for work in pending {
             assert!(work.await.unwrap().is_err());
         }
-        assert_eq!(pairing_status(owner)["enabled"], false);
+        assert_eq!(pairing_status(owner)["remembered"], true);
         assert!(request(owner, "play", Value::Null).await.is_err());
-        let new_status = start(owner).await.unwrap();
-        assert_ne!(new_status["code"], status["code"]);
-        assert!(!authenticates(
-            &json!({"type":"hello","version":1,"code":code}).to_string(),
-            &session(owner).unwrap()
-        ));
-        revoke(owner);
+        let (mut connection, ready) = client("resume", pairing_id, &secret).await;
+        assert!(ready.get("credential").is_none());
+        old_session.disconnect_transport(old_generation);
+        assert_eq!(pairing_status(owner)["connected"], true);
+        // No prior request is replayed into the new socket.
+        assert!(timeout(Duration::from_millis(100), async {
+            loop {
+                match connection.next().await {
+                    Some(Ok(Message::Ping(bytes))) => {
+                        connection.send(Message::Pong(bytes)).await.unwrap()
+                    }
+                    Some(Ok(Message::Text(_))) => return,
+                    _ => panic!("resume transport closed"),
+                }
+            }
+        })
+        .await
+        .is_err());
+        connection.close(None).await.unwrap();
+        disconnected(owner).await;
+
+        // Reusing the nonce does not make an old proof valid for a fresh server challenge.
+        let nonce = random_hex(32).unwrap();
+        let (mut first, first_challenge) = begin_handshake("resume", pairing_id, &nonce).await;
+        let old_proof = proof_hex(
+            &secret,
+            "client",
+            "resume",
+            pairing_id,
+            &nonce,
+            first_challenge["serverNonce"].as_str().unwrap(),
+        )
+        .unwrap();
+        first.close(None).await.unwrap();
+        let (mut replay, second_challenge) = begin_handshake("resume", pairing_id, &nonce).await;
+        assert_ne!(
+            first_challenge["serverNonce"],
+            second_challenge["serverNonce"]
+        );
+        replay
+            .send(Message::Text(
+                json!({"type":"authenticate","proof":old_proof})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+        rejected(&mut replay).await;
+
+        // App exit drops transport only; a new listener loads the OS-store identity.
+        revoke_all();
+        assert!(credentials::load(owner, pairing_id).unwrap().is_some());
+        let restored = resume(owner, pairing_id, cancel_token()).await.unwrap();
+        assert_eq!(restored["remembered"], true);
+        assert!(restored["code"].is_null());
+        let (mut connection, _) = client("resume", pairing_id, &secret).await;
+        connection
+            .send(Message::Text(
+                json!({"type":"disconnect"}).to_string().into(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(text_frame(&mut connection).await["type"], "disconnected");
+        assert!(credentials::load(owner, pairing_id).unwrap().is_none());
+        assert!(resume(owner, pairing_id, cancel_token()).await.is_err());
+
+        // A replacement identity cannot be revoked by delayed cleanup of the old one.
+        let replacement = "33333333-3333-4333-8333-333333333333";
+        let status = start(owner, replacement, cancel_token()).await.unwrap();
+        let (_connection, _) = client("pair", replacement, status["code"].as_str().unwrap()).await;
+        forget(owner, pairing_id).unwrap();
+        assert_eq!(pairing_status(owner)["remembered"], true);
+        forget(owner, replacement).unwrap();
+        assert!(resume(owner, replacement, cancel_token()).await.is_err());
+
+        // Cancellation cannot create a remembered key or revive the listener.
+        let canceled = cancel_token();
+        canceled.store(true, Ordering::SeqCst);
+        assert!(start(owner, replacement, canceled).await.is_err());
+        assert!(credentials::save(owner, replacement, &secret, || false).is_err());
+        assert!(credentials::load(owner, replacement).unwrap().is_none());
+        revoke_all();
     }
 }

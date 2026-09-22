@@ -24,6 +24,8 @@ pub(super) fn validate_definition(definition: &CharacterDefinition) -> Result<()
         || !bounded(&definition.name, 40, true)
         || !bounded(&definition.description, 500, false)
         || !bounded(&definition.personality, 500, false)
+        || !bounded(&definition.instructions, 2000, false)
+        || definition.relationships.len() > 32
         || !(1..=24).contains(&definition.expressions.len())
         || !definition.expressions.contains_key(DEFAULT_EXPRESSION)
         || !SPRITE_SIZE_RANGE.contains(&definition.sprite_size)
@@ -35,6 +37,15 @@ pub(super) fn validate_definition(definition: &CharacterDefinition) -> Result<()
         || !(1..=32).contains(&definition.idle_lines.len())
     {
         return Err("캐릭터 이름·정의·표정·대사 개수를 확인해 주세요.".into());
+    }
+    let mut targets = HashSet::new();
+    for relationship in &definition.relationships {
+        if !bounded(&relationship.target_id, 128, true)
+            || !bounded(&relationship.description, 500, true)
+            || !targets.insert(&relationship.target_id)
+        {
+            return Err("캐릭터 관계는 서로 다른 상대와 1~500자의 설명으로 설정해 주세요.".into());
+        }
     }
     for line in definition.greeting.iter().chain(&definition.idle_lines) {
         validate_line(&line.expression, &line.text)?;
@@ -91,6 +102,14 @@ pub(super) fn validate_pack(pack: &CharacterPack) -> Result<()> {
         validate_definition(definition)?;
         if !sources.insert(&definition.source_id) {
             return Err("팩 내부 캐릭터 sourceId가 중복됩니다.".into());
+        }
+    }
+    for definition in &pack.characters {
+        if definition.relationships.iter().any(|relationship| {
+            relationship.target_id == definition.source_id
+                || !sources.contains(&relationship.target_id)
+        }) {
+            return Err("캐릭터 관계의 상대는 팩에 포함된 다른 캐릭터여야 합니다.".into());
         }
     }
     for scene in &pack.pair_scenes {

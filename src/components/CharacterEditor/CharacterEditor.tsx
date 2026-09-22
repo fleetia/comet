@@ -6,10 +6,12 @@ import * as s from "../characters.css";
 
 export const EXPRESSIONS = ["평온", "기쁨", "호기심", "생각중", "걱정", "장난"];
 const MAX_EXPRESSIONS = 24;
+const MAX_RELATIONSHIPS = 32;
 
 type Props = {
   definition: CharacterDefinition;
   character?: InstalledCharacter;
+  installed?: InstalledCharacter[];
   onChange: (definition: CharacterDefinition) => void;
   onSave: () => void;
   onCancel?: () => void;
@@ -326,6 +328,7 @@ function Expressions({
 export function CharacterEditor({
   definition,
   character,
+  installed = [],
   onChange,
   onSave,
   onCancel,
@@ -342,8 +345,39 @@ export function CharacterEditor({
   }
   const expressionKeys = Object.keys(definition.expressions);
   const portrait = spriteUrl(character, DEFAULT_EXPRESSION);
+  const relationshipTargets = installed.filter((candidate) => candidate.id !== character?.id);
+  const nextTarget = relationshipTargets.find(
+    (candidate) => !definition.relationships.some(({ targetId }) => targetId === candidate.id),
+  );
+  function targetName(target: InstalledCharacter): string {
+    const sameName = installed.filter(
+      (candidate) => candidate.definition.name === target.definition.name,
+    );
+    if (sameName.length < 2) {
+      return target.definition.name;
+    }
+    const suffix = target.id.slice(-8);
+    const hasSharedSuffix = sameName.some(
+      (candidate) => candidate.id !== target.id && candidate.id.endsWith(suffix),
+    );
+    return `${target.definition.name} · ${hasSharedSuffix ? target.id : suffix}`;
+  }
+  const validRelationships =
+    definition.relationships.length <= MAX_RELATIONSHIPS &&
+    new Set(definition.relationships.map(({ targetId }) => targetId)).size ===
+      definition.relationships.length &&
+    definition.relationships.every(
+      ({ targetId, description }) =>
+        targetId !== character?.id &&
+        (relationshipTargets.some((target) => target.id === targetId) ||
+          character?.definition.relationships.some((saved) => saved.targetId === targetId)) &&
+        Boolean(description.trim()) &&
+        Array.from(description).length <= 500,
+    );
   const valid =
     Boolean(definition.name.trim()) &&
+    Array.from(definition.instructions).length <= 2000 &&
+    validRelationships &&
     DEFAULT_EXPRESSION in definition.expressions &&
     Number.isInteger(definition.spriteSize) &&
     definition.spriteSize >= 32 &&
@@ -392,7 +426,119 @@ export function CharacterEditor({
                 onChange={(event) => change("personality", event.target.value)}
               />
             </FormField>
+            <FormField className={s.personalityField} label="지침">
+              <TextArea
+                aria-label="캐릭터 지침"
+                className={s.textarea}
+                rows={3}
+                maxLength={2000}
+                placeholder="예: 먼저 짧게 답하고, 모르는 사실은 지어내지 않아요."
+                value={definition.instructions}
+                onChange={(event) => change("instructions", event.target.value)}
+              />
+            </FormField>
           </div>
+          <p className={s.small}>
+            지침은 LLM 대화 생성에 사용해요. 긴 지침·관계는 일부만 전달될 수 있으니 중요한 내용부터
+            적어 주세요. 등록 대사는 원문 그대로 재생해요.
+          </p>
+        </section>
+        <section className={s.section} aria-label="다른 캐릭터와의 관계">
+          <h3 className={s.subheading}>다른 캐릭터와의 관계</h3>
+          <p className={s.small}>
+            이 캐릭터가 상대를 어떻게 생각하고 대하는지 적어요. 상대의 관점은 상대 캐릭터에서 따로
+            설정해요.
+          </p>
+          {definition.relationships.map((relationship, index) => {
+            const missingTarget = !relationshipTargets.some(
+              (target) => target.id === relationship.targetId,
+            );
+            return (
+              <div className={s.relationshipRow} key={index}>
+                <div className={s.relationshipControls}>
+                  <Select
+                    aria-label={`관계 ${index + 1} 대상`}
+                    value={relationship.targetId}
+                    onChange={(event) =>
+                      change(
+                        "relationships",
+                        definition.relationships.map((value, i) =>
+                          i === index ? { ...value, targetId: event.target.value } : value,
+                        ),
+                      )
+                    }
+                  >
+                    {missingTarget && (
+                      <option value={relationship.targetId} disabled>
+                        삭제된 캐릭터 · {relationship.targetId.slice(-8)}
+                      </option>
+                    )}
+                    {relationshipTargets
+                      .filter(
+                        (target) =>
+                          target.id === relationship.targetId ||
+                          !definition.relationships.some(({ targetId }) => targetId === target.id),
+                      )
+                      .map((target) => (
+                        <option key={target.id} value={target.id}>
+                          {targetName(target)}
+                        </option>
+                      ))}
+                  </Select>
+                  <Button
+                    variant="quiet"
+                    size="compact"
+                    type="button"
+                    aria-label={`관계 ${index + 1} 삭제`}
+                    onClick={() =>
+                      change(
+                        "relationships",
+                        definition.relationships.filter((_, i) => i !== index),
+                      )
+                    }
+                  >
+                    삭제
+                  </Button>
+                </div>
+                <TextArea
+                  aria-label={`관계 ${index + 1} 설명`}
+                  className={s.textarea}
+                  rows={2}
+                  maxLength={500}
+                  required
+                  placeholder="예: 오래된 친구라 편하게 장난치지만 힘들어하면 먼저 챙겨요."
+                  value={relationship.description}
+                  onChange={(event) =>
+                    change(
+                      "relationships",
+                      definition.relationships.map((value, i) =>
+                        i === index ? { ...value, description: event.target.value } : value,
+                      ),
+                    )
+                  }
+                />
+              </div>
+            );
+          })}
+          <Button
+            variant="secondary"
+            size="compact"
+            type="button"
+            disabled={!nextTarget || definition.relationships.length >= MAX_RELATIONSHIPS}
+            onClick={() => {
+              if (nextTarget) {
+                change("relationships", [
+                  ...definition.relationships,
+                  { targetId: nextTarget.id, description: "" },
+                ]);
+              }
+            }}
+          >
+            관계 추가
+          </Button>
+          {relationshipTargets.length === 0 && (
+            <p className={s.small}>다른 캐릭터를 추가하면 관계를 설정할 수 있어요.</p>
+          )}
         </section>
         <Expressions
           definition={definition}

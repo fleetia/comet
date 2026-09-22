@@ -3,6 +3,13 @@ function run(argv) {
   ObjC.import("AppKit");
   const spotify = input.provider === "spotify";
   const running = $.NSRunningApplication.runningApplicationsWithBundleIdentifier(input.appId).count > 0;
+  if (input.action === "launch") {
+    if (!running) {
+      const url = $.NSWorkspace.sharedWorkspace.URLForApplicationWithBundleIdentifier(input.appId);
+      if (!url || url.isNil() || !$.NSWorkspace.sharedWorkspace.openURL(url)) throw new Error("LAUNCH_FAILED");
+    }
+    return JSON.stringify({ running: true });
+  }
   if (!running) {
     if (input.action !== "observe") throw new Error("APP_CLOSED");
     return JSON.stringify({ running: false });

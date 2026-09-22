@@ -76,7 +76,19 @@ it("previews a pack before install and keeps assignment an explicit separate act
 it("preserves all pack preview content, initial disclosure states, and verbatim dialogue", async () => {
   const previewPack: CharacterPack = {
     ...pack,
-    characters: [...pack.characters, PREVIEW_SNAPSHOT.characters.installed[1].definition],
+    characters: [
+      {
+        ...pack.characters[0],
+        instructions: "  짧게 답해요.\n차분하게 말해요.  ",
+        relationships: [
+          {
+            targetId: PREVIEW_SNAPSHOT.characters.installed[1].definition.sourceId,
+            description: "  믿고 의지하는 친구예요.  ",
+          },
+        ],
+      },
+      PREVIEW_SNAPSHOT.characters.installed[1].definition,
+    ],
     pairScenes: [
       [
         { persona: "a", expression: "호기심", text: "  어디로 갈까?\n천천히.  " },
@@ -98,6 +110,14 @@ it("preserves all pack preview content, initial disclosure states, and verbatim 
   render(<CharacterSharing snapshot={snapshot} selectedId="local-third" disabled={false} />);
   fireEvent.click(screen.getByRole("button", { name: "공유 파일 가져오기" }));
   const preview = within(await screen.findByLabelText("가져오기 미리보기"));
+  for (const text of [
+    "지침:   짧게 답해요.\n차분하게 말해요.  ",
+    "모래 → B:   믿고 의지하는 친구예요.  ",
+  ]) {
+    expect(
+      preview.getByText((_, element) => element?.tagName === "P" && element.textContent === text),
+    ).toBeTruthy();
+  }
   expect(preview.getByText(`제작자: ${pack.author} · 형식 버전 1`)).toBeTruthy();
   expect(preview.getByText(`배포 조건: ${pack.license}`)).toBeTruthy();
   for (const character of previewPack.characters) {

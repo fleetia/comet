@@ -140,6 +140,16 @@ export const expressionAdd = style({
   marginTop: vars.space.xs,
 });
 export const personalityField = style([inlineField, { gridColumn: "1 / -1" }]);
+export const relationshipRow = style({
+  display: "grid",
+  gap: vars.space.xs,
+  margin: `${vars.space.sm} 0`,
+});
+export const relationshipControls = style({
+  display: "grid",
+  gridTemplateColumns: "minmax(0,1fr) auto",
+  gap: vars.space.sm,
+});
 export const appearanceLayout = style({
   display: "grid",
   gridTemplateColumns: "minmax(0,1.6fr) minmax(160px,1fr)",

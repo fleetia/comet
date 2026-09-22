@@ -53,7 +53,9 @@ fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
                 characters.active.iter().any(|active| active == id)
             } else if let Some(id) = label.strip_prefix(FACE_PREFIX) {
                 characters.active.iter().any(|active| active == id)
-                    && characters.installed.iter().any(|character| character.id == id && has_body_sprite(character) && character.definition.face_icon)
+                    && characters.installed.iter().any(|character| character.id == id
+                        && has_visible_sprite(character, &characters.active, playback.as_ref())
+                        && character.definition.face_icon)
             } else { false };
             if !wanted { return; }
             drop((db, runtime, panel, playback, story));
@@ -269,16 +271,38 @@ fn character_by_id<'a>(snapshot: &'a Snapshot, id: &str) -> Option<&'a Installed
         .find(|character| character.id == id)
 }
 
-fn has_body_sprite(character: &InstalledCharacter) -> bool {
-    character
-        .sprites
-        .keys()
-        .any(|key| key != crate::characters::BALLOON_SPRITE)
+fn has_visible_sprite(
+    character: &InstalledCharacter,
+    active: &[String],
+    playback: Option<&crate::types::Playback>,
+) -> bool {
+    let expression = playback
+        .filter(|line| {
+            let speaker = active.iter().find(|id| **id == line.persona).or_else(|| {
+                crate::characters::slot_index(&line.persona)
+                    .ok()
+                    .and_then(|index| active.get(index))
+            });
+            speaker.is_some_and(|id| *id == character.id)
+        })
+        .map(|line| line.expression.as_str())
+        .filter(|expression| character.definition.expressions.contains_key(*expression))
+        .unwrap_or(crate::characters::DEFAULT_EXPRESSION);
+    character.sprites.contains_key(expression)
+        || character
+            .sprites
+            .contains_key(crate::characters::DEFAULT_EXPRESSION)
 }
 
-fn body_size(character: Option<&InstalledCharacter>) -> (f64, f64) {
+fn body_size(snapshot: &Snapshot, character: Option<&InstalledCharacter>) -> (f64, f64) {
     match character {
-        Some(character) if has_body_sprite(character) => {
+        Some(character)
+            if has_visible_sprite(
+                character,
+                &snapshot.characters.active,
+                snapshot.playback.as_ref(),
+            ) =>
+        {
             let side = f64::from(character.definition.sprite_size) + SPRITE_PADDING;
             (side, side)
         }
@@ -288,8 +312,14 @@ fn body_size(character: Option<&InstalledCharacter>) -> (f64, f64) {
 
 fn face_wanted(snapshot: &Snapshot, character: Option<&InstalledCharacter>) -> bool {
     !snapshot.runtime.hidden
-        && character
-            .is_some_and(|character| has_body_sprite(character) && character.definition.face_icon)
+        && character.is_some_and(|character| {
+            character.definition.face_icon
+                && has_visible_sprite(
+                    character,
+                    &snapshot.characters.active,
+                    snapshot.playback.as_ref(),
+                )
+        })
 }
 
 fn set_logical_size(window: &WebviewWindow, (width, height): (f64, f64)) -> Result<(), String> {
@@ -364,7 +394,7 @@ fn reconcile(app: &AppHandle, state: &AppState, snapshot: &Snapshot) -> Result<(
     for (index, id) in roster.iter().enumerate() {
         let character = character_by_id(snapshot, id);
         let title = character.map_or(id.as_str(), |character| character.definition.name.as_str());
-        let size = body_size(character);
+        let size = body_size(snapshot, character);
         match app.get_webview_window(&body_label(id)) {
             Some(window) => {
                 set_logical_size(&window, size)?;
@@ -562,6 +592,89 @@ pub(crate) fn resize_balloon(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_body_and_face_follow_the_displayed_expression() {
+        let mut data = crate::app::snapshot(&crate::app::tests::state()).unwrap();
+        let character = &mut data.characters.installed[0];
+        character.definition.face_icon = true;
+        character.definition.sprite_size = 32;
+        character.sprites.insert(
+            "기쁨".into(),
+            crate::character_sprites::SpriteInfo {
+                mime: "image/png".into(),
+                updated_at: 1,
+            },
+        );
+        let id = character.id.clone();
+        assert_eq!(body_size(&data, character_by_id(&data, &id)), BODY_SIZE);
+        assert!(!face_wanted(&data, character_by_id(&data, &id)));
+
+        data.playback = Some(crate::types::Playback {
+            id: "expression-test".into(),
+            persona: id.clone(),
+            expression: "기쁨".into(),
+            text: "안녕".into(),
+            source: "script".into(),
+            ends_at: 1,
+            line_index: 0,
+            line_count: 1,
+        });
+        for persona in [id.as_str(), "a"] {
+            data.playback.as_mut().unwrap().persona = persona.into();
+            assert_eq!(body_size(&data, character_by_id(&data, &id)), (40.0, 40.0));
+            assert!(face_wanted(&data, character_by_id(&data, &id)));
+        }
+        data.runtime.hidden = true;
+        assert!(!face_wanted(&data, character_by_id(&data, &id)));
+        data.runtime.hidden = false;
+        data.playback.as_mut().unwrap().persona = "b".into();
+        assert_eq!(body_size(&data, character_by_id(&data, &id)), BODY_SIZE);
+        assert!(!face_wanted(&data, character_by_id(&data, &id)));
+        data.playback = None;
+        assert_eq!(body_size(&data, character_by_id(&data, &id)), BODY_SIZE);
+        assert!(!face_wanted(&data, character_by_id(&data, &id)));
+    }
+
+    #[test]
+    fn native_sprite_fallback_ignores_balloon_and_undeclared_expressions() {
+        let mut data = crate::app::snapshot(&crate::app::tests::state()).unwrap();
+        let character = &mut data.characters.installed[0];
+        character.definition.face_icon = true;
+        character.definition.sprite_size = 128;
+        let sprite = crate::character_sprites::SpriteInfo {
+            mime: "image/png".into(),
+            updated_at: 1,
+        };
+        character.sprites.insert("$balloon".into(), sprite.clone());
+        character.sprites.insert("미등록".into(), sprite.clone());
+        let id = character.id.clone();
+        data.playback = Some(crate::types::Playback {
+            id: "fallback-test".into(),
+            persona: id.clone(),
+            expression: "미등록".into(),
+            text: "안녕".into(),
+            source: "script".into(),
+            ends_at: 1,
+            line_index: 0,
+            line_count: 1,
+        });
+        assert_eq!(body_size(&data, character_by_id(&data, &id)), BODY_SIZE);
+        assert!(!face_wanted(&data, character_by_id(&data, &id)));
+        data.characters.installed[0]
+            .sprites
+            .insert("평온".into(), sprite);
+        assert_eq!(
+            body_size(&data, character_by_id(&data, &id)),
+            (136.0, 136.0)
+        );
+        assert!(face_wanted(&data, character_by_id(&data, &id)));
+        data.playback = None;
+        assert_eq!(
+            body_size(&data, character_by_id(&data, &id)),
+            (136.0, 136.0)
+        );
+    }
 
     #[test]
     fn pending_story_owns_native_balloon_and_interruption_removes_it() {

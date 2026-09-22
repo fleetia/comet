@@ -25,6 +25,18 @@ export function CharacterPackPreview({ pack }: Props): JSX.Element {
           <div className={s.preview}>
             <p>{character.description}</p>
             <p>성격과 말투: {character.personality}</p>
+            {character.instructions && <p>지침: {character.instructions}</p>}
+            {character.relationships.map((relationship) => {
+              const target = pack.characters.find(
+                (candidate) => candidate.sourceId === relationship.targetId,
+              );
+              return (
+                <p key={relationship.targetId}>
+                  {character.name} → {target?.name ?? relationship.targetId}:{" "}
+                  {relationship.description}
+                </p>
+              );
+            })}
             <p>
               {Object.entries(character.expressions)
                 .map(([key, value]) => `${key} [${value}]`)

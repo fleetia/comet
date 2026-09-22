@@ -1,12 +1,15 @@
 export type Persona = string;
 export const CHARACTER_SLOTS = ["a", "b", "c", "d", "e", "f", "g", "h"] as const;
 export type CharacterLine = { expression: string; text: string };
+export type CharacterRelationship = { targetId: string; description: string };
 export type CharacterDefinition = {
   sourceId: string;
   version: number;
   name: string;
   description: string;
   personality: string;
+  instructions: string;
+  relationships: CharacterRelationship[];
   expressions: Record<string, string>;
   faceIcon: boolean;
   spriteSize: number;

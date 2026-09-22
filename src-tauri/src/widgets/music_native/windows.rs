@@ -68,6 +68,35 @@ fn is_spotify_source(source: &str) -> bool {
     source == "spotify.exe" || source.starts_with("spotifyab.spotifymusic_")
 }
 
+pub(super) async fn launch_spotify(cancel: &AtomicBool) -> Result<(), ConnectionError> {
+    // A Spotify process can exist without a media session. Only open the URI when it is absent.
+    let mut child = dispatch_if_active(cancel, || {
+        tokio::process::Command::new("powershell.exe")
+            .args([
+                "-NoProfile", "-NonInteractive", "-Command",
+                "if (-not (Get-Process -Name Spotify -ErrorAction SilentlyContinue)) { Start-Process 'spotify:' -ErrorAction Stop }",
+            ])
+            .creation_flags(0x08000000)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|_| failure("offline", "Spotify를 실행하지 못했어요. 앱 설치 상태를 확인해 주세요."))
+    })?;
+    let status = tokio::time::timeout(Duration::from_secs(8), child.wait())
+        .await
+        .map_err(|_| failure("offline", "Spotify 실행 대기 시간이 초과됐어요."))?
+        .map_err(|_| failure("offline", "Spotify 실행을 확인하지 못했어요."))?;
+    if !status.success() {
+        return Err(failure(
+            "offline",
+            "Spotify를 실행하지 못했어요. 앱 설치 상태를 확인해 주세요.",
+        ));
+    }
+    Ok(())
+}
+
 fn capabilities(controls: &Controls) -> Value {
     json!({
         "play":controls.IsPlayEnabled().unwrap_or(false),

@@ -268,6 +268,10 @@ pub fn run() {
             tauri::async_runtime::spawn(story_host::run_clock(handle.clone(), state.clone()));
             desktop_toys::start(handle.clone());
             updater::start(handle.clone());
+            tauri::async_runtime::spawn(crate::widget_connections::restore_music_bridges(
+                handle.clone(),
+                state.clone(),
+            ));
             tauri::async_runtime::spawn(background_loop(handle, state));
             Ok(())
         })

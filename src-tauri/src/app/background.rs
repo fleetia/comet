@@ -142,7 +142,7 @@ pub(crate) async fn run_background(
     epoch: u64,
     cancel: Arc<AtomicBool>,
 ) -> Result<(), String> {
-    let (settings, pending, memories, relationships, revision, scenes, characters) = {
+    let (settings, pending, memories, relationships, revision, scenes, characters, installed) = {
         let db = lock(&state.db)?;
         (
             store::settings(&db)?,
@@ -158,6 +158,7 @@ pub(crate) async fn run_background(
                     Ok(member)
                 })
                 .collect::<Result<Vec<_>, String>>()?,
+            characters::collection(&db)?.installed,
         )
     };
     if settings.autonomous_enabled && now() >= state.next_idle.load(Ordering::SeqCst) {
@@ -301,7 +302,7 @@ pub(crate) async fn run_background(
     let result = background_generate(
         state,
         &settings,
-        &domain::roster_scene_prompt(&characters, &memories, &relationships, question),
+        &domain::roster_scene_prompt(&characters, &memories, &relationships, question, &installed),
         domain::scene_schema_for(
             &targets,
             if targets.len() == 1 { 1 } else { 2 },

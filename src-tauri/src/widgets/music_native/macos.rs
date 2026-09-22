@@ -86,6 +86,11 @@ async fn run(input: Value, cancel: Option<&AtomicBool>) -> Result<Value, Connect
                     failure("permission-needed", "시스템 설정의 개인정보 보호 및 보안 → 자동화에서 comet의 음악 앱 접근을 허용해 주세요.")
                 } else if message.contains("APP_CLOSED") {
                     failure("offline", "선택한 음악 앱을 먼저 실행해 주세요.")
+                } else if message.contains("LAUNCH_FAILED") {
+                    failure(
+                        "offline",
+                        "Spotify를 실행하지 못했어요. 앱 설치 상태를 확인해 주세요.",
+                    )
                 } else if message.contains("UNSUPPORTED_CONTROL") {
                     failure(
                         "unsupported",
@@ -121,6 +126,15 @@ pub(super) async fn observe(
     }
     observation["sourceId"] = json!(id);
     Ok(observation)
+}
+
+pub(super) async fn launch_spotify(cancel: &AtomicBool) -> Result<(), ConnectionError> {
+    run(
+        json!({"appId":"com.spotify.client","provider":"spotify","action":"launch"}),
+        Some(cancel),
+    )
+    .await
+    .map(|_| ())
 }
 
 pub(super) async fn control(

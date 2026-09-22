@@ -528,17 +528,23 @@ pub(crate) fn configure_connection_widget(
         let instance = storage::get(&db, &id)?;
         active(&instance, None)?;
         let mut data = connections::configure(&instance.kind, &instance.data, &input)?;
-        if instance.kind == "music"
+        let old_pairing = if instance.kind == "music"
             && data["config"]["provider"] != instance.data["config"]["provider"]
         {
-            crate::music_bridge::revoke(&id);
-        }
+            pairing_id(&instance.data).map(str::to_owned)
+        } else {
+            None
+        };
         data["failureCount"] = json!(0);
         data["nextRefreshAt"] = json!(0);
         if let Some(job) = lock(&state.widget_jobs)?.remove(&id) {
             job.store(true, Ordering::SeqCst);
         }
         storage::commit_data(&db, &id, instance.revision, data, vec![], timestamp())?;
+        if let Some(pairing) = old_pairing {
+            crate::music_bridge::revoke_pairing(&id, &pairing);
+            forget_music_credential(id.clone(), pairing);
+        }
     }
     publish_widgets(&app, &state);
     Ok(())
@@ -564,6 +570,18 @@ fn information_failure(
     next
 }
 fn information_due(instance: &WidgetInstance, now: i64) -> bool {
+    let reconnected = spotify_widget(instance)
+        && instance.data["config"]["provider"] == "spicetify"
+        && instance.data["status"] == "offline"
+        && crate::music_bridge::pairing_status(&instance.id)["connected"] == true;
+    information_due_with_connection(instance, now, reconnected)
+}
+fn information_due_with_connection(instance: &WidgetInstance, now: i64, reconnected: bool) -> bool {
+    if reconnected {
+        return instance.data["lastAttemptAt"]
+            .as_i64()
+            .is_none_or(|last| now.saturating_sub(last) >= connections::min_interval("music"));
+    }
     instance.data["configured"] == true
         && instance.data["failureCount"].as_u64().unwrap_or(0) < 5
         && (instance.data["status"] == "syncing"
@@ -572,6 +590,192 @@ fn information_due(instance: &WidgetInstance, now: i64) -> bool {
             instance.data["status"].as_str(),
             Some("permission-needed" | "unsupported" | "auth-error")
         )
+}
+
+fn pairing_id(data: &Value) -> Option<&str> {
+    data["spicetifyPairingId"]
+        .as_str()
+        .filter(|value| value.len() == 36 && uuid::Uuid::parse_str(value).is_ok())
+}
+
+pub(crate) fn spotify_widget(instance: &WidgetInstance) -> bool {
+    instance.kind == "music"
+        && instance.installed
+        && instance.enabled
+        && instance.data["configured"] == true
+        && matches!(
+            instance.data["config"]["provider"].as_str(),
+            Some("spotify" | "spicetify")
+        )
+}
+
+fn forget_music_credential(owner: String, pairing: String) {
+    // OS credential dialogs must not hold the action/DB locks or delay application shutdown.
+    std::thread::spawn(move || {
+        if crate::music_bridge::forget(&owner, &pairing).is_err() {
+            eprintln!("해제한 음악 연결의 저장된 인증 정보를 삭제하지 못했습니다.");
+        }
+    });
+}
+
+pub(crate) fn clear_music_pairing(db: &rusqlite::Connection, id: &str) -> Result<(), String> {
+    clear_music_pairing_with(db, id, forget_music_credential)
+}
+
+fn clear_music_pairing_with(
+    db: &rusqlite::Connection,
+    id: &str,
+    forget: impl FnOnce(String, String),
+) -> Result<(), String> {
+    let instance = storage::get(db, id)?;
+    if instance.kind != "music"
+        || (instance.data["config"]["provider"] != "spicetify"
+            && instance.data["spicetifyPairingId"].is_null())
+    {
+        return Ok(());
+    }
+    let old_pairing = pairing_id(&instance.data).map(str::to_owned);
+    let mut data = instance.data.clone();
+    if let Some(object) = data.as_object_mut() {
+        object.remove("spicetifyPairingId");
+    }
+    data["status"] = json!("offline");
+    data["error"] = json!("Spotify 확장 연결을 해제했어요.");
+    data["observation"] = Value::Null;
+    data["nextRefreshAt"] = json!(i64::MAX);
+    storage::commit_data(db, id, instance.revision, data, vec![], timestamp())?;
+    crate::music_bridge::revoke(id);
+    if let Some(pairing) = old_pairing {
+        forget(id.into(), pairing);
+    }
+    Ok(())
+}
+
+pub(crate) async fn prepare_music_widget(
+    app: &AppHandle,
+    state: &Arc<AppState>,
+    id: &str,
+    launch: bool,
+) -> Result<(), String> {
+    let original = storage::get(&*lock(&state.db)?, id)?;
+    let restored = if original.data["config"]["provider"] == "spicetify"
+        && pairing_id(&original.data).is_some()
+    {
+        resume_music_widget(app, state, id).await
+    } else {
+        Ok(())
+    };
+    if !launch {
+        return restored;
+    }
+    // The resume job is finished before launch gets its own cancellation token. A subsequent
+    // playback command may cancel launching, but must not cancel the established listener.
+    let job = begin(state, id, Some("music"), |current| {
+        if !spotify_widget(current)
+            || current.data["config"]["provider"] != original.data["config"]["provider"]
+            || pairing_id(&current.data) != pairing_id(&original.data)
+        {
+            return Err("설정이 바뀌어 Spotify 실행을 취소했어요.".into());
+        }
+        Ok(None)
+    })?;
+    let result = execute(&job, async {
+        music_job_current(state, &job)?;
+        crate::widgets::music_native::launch_spotify(job.cancel.clone())
+            .await
+            .map_err(|error| error.message)?;
+        restored
+    })
+    .await;
+    let outcome = finish_music_preparation(state, &job, &result);
+    publish_widgets(app, state);
+    outcome.and(result)
+}
+
+fn finish_music_preparation(
+    state: &AppState,
+    job: &Job,
+    result: &Result<(), String>,
+) -> Result<(), String> {
+    finish(state, job, |db, current| {
+        let mut data = current.data.clone();
+        match result {
+            Ok(()) => {
+                data["status"] = json!("stale");
+                data["error"] = Value::Null;
+                data["failureCount"] = json!(0);
+                data["nextRefreshAt"] = json!(0);
+            }
+            Err(message) => {
+                data["status"] = json!("offline");
+                data["error"] = json!(message);
+                data["nextRefreshAt"] = json!(i64::MAX);
+            }
+        }
+        storage::commit_data(db, &current.id, current.revision, data, vec![], timestamp())
+    })
+}
+
+async fn resume_music_widget(
+    app: &AppHandle,
+    state: &Arc<AppState>,
+    id: &str,
+) -> Result<(), String> {
+    let job = begin(state, id, Some("music"), |instance| {
+        if !spotify_widget(instance) {
+            return Err("Spotify를 사용하는 음악 위젯이 아닙니다.".into());
+        }
+        Ok(None)
+    })?;
+    let pairing = pairing_id(&job.instance.data).map(str::to_owned);
+    let result = execute(&job, async {
+        music_job_current(state, &job)?;
+        let restored = if job.instance.data["config"]["provider"] == "spicetify" {
+            if let Some(pairing) = pairing.as_deref() {
+                crate::music_bridge::resume(id, pairing, job.cancel.clone())
+                    .await
+                    .map(|_| ())
+            } else {
+                Ok(())
+            }
+        } else {
+            Ok(())
+        };
+        music_job_current(state, &job)?;
+        restored
+    })
+    .await;
+    let outcome = finish_music_preparation(state, &job, &result);
+    if outcome.is_err() {
+        job.cancel.store(true, Ordering::SeqCst);
+        if let Some(pairing) = pairing {
+            let allowed = lock(&state.db)
+                .and_then(|db| storage::get(&db, id))
+                .is_ok_and(|current| {
+                    spotify_widget(&current) && pairing_id(&current.data) == Some(pairing.as_str())
+                });
+            if !allowed {
+                crate::music_bridge::revoke_pairing(id, &pairing);
+            }
+        }
+    }
+    publish_widgets(app, state);
+    outcome.and(result)
+}
+
+pub(crate) async fn restore_music_bridges(app: AppHandle, state: Arc<AppState>) {
+    let instances = match lock(&state.db).and_then(|db| storage::instances(&db)) {
+        Ok(instances) => instances,
+        Err(_) => return,
+    };
+    for instance in instances {
+        if spotify_widget(&instance)
+            && instance.data["config"]["provider"] == "spicetify"
+            && pairing_id(&instance.data).is_some()
+        {
+            let _ = prepare_music_widget(&app, &state, &instance.id, false).await;
+        }
+    }
 }
 fn calendar_due(connection: &calendar::Connection, now: i64) -> bool {
     let mut connection = connection.clone();
@@ -815,16 +1019,10 @@ pub(crate) fn music_bridge_disconnect(
         if instance.revision != expected_revision {
             return Err("음악 설정이 바뀌었어요. 다시 확인해 주세요.".into());
         }
-        crate::music_bridge::revoke(&id);
         if let Some(job) = lock(&state.widget_jobs)?.remove(&id) {
             job.store(true, Ordering::SeqCst);
         }
-        let mut data = instance.data.clone();
-        data["status"] = json!("offline");
-        data["error"] = json!("Spotify 확장 연결을 해제했어요.");
-        data["observation"] = Value::Null;
-        data["nextRefreshAt"] = json!(i64::MAX);
-        storage::commit_data(&db, &id, instance.revision, data, vec![], timestamp())?;
+        clear_music_pairing(&db, &id)?;
     }
     publish_widgets(&app, &state);
     Ok(())
@@ -840,17 +1038,26 @@ pub(crate) async fn music_bridge_pair(
     let _gate = music_gate()
         .try_lock()
         .map_err(|_| "다른 음악 명령을 처리하고 있어요.")?;
+    let pairing = uuid::Uuid::new_v4().to_string();
+    let mut previous_pairing = None;
     let job = begin(&state, &id, Some("music"), |instance| {
         if instance.revision != expected_revision
             || instance.data["config"]["provider"] != "spicetify"
         {
             return Err("Spotify 확장 연결 설정을 저장한 뒤 연결해 주세요.".into());
         }
-        Ok(None)
+        previous_pairing = pairing_id(&instance.data).map(str::to_owned);
+        let mut data = instance.data.clone();
+        data["spicetifyPairingId"] = json!(pairing);
+        Ok(Some(data))
     })?;
+    if let Some(previous) = previous_pairing {
+        crate::music_bridge::revoke_pairing(&id, &previous);
+        forget_music_credential(id.clone(), previous);
+    }
     let result = execute(&job, async {
         music_job_current(&state, &job)?;
-        crate::music_bridge::start(&id).await
+        crate::music_bridge::start(&id, &pairing, job.cancel.clone()).await
     })
     .await;
     let outcome = match result {
@@ -869,7 +1076,16 @@ pub(crate) async fn music_bridge_pair(
         }
     };
     if outcome.is_err() {
-        crate::music_bridge::revoke(&id);
+        job.cancel.store(true, Ordering::SeqCst);
+        crate::music_bridge::revoke_pairing(&id, &pairing);
+        // Never let an old failed pairing remove a newer reservation.
+        let _action = lock(&state.action)?;
+        let db = lock(&state.db)?;
+        if storage::get(&db, &id)
+            .is_ok_and(|current| pairing_id(&current.data) == Some(pairing.as_str()))
+        {
+            clear_music_pairing(&db, &id)?;
+        }
     }
     publish_widgets(&app, &state);
     outcome
@@ -1065,6 +1281,90 @@ mod tests {
             data: json!({"configured":true,"status":"ready","config":{"provider":"spotify"},
                 "observation":{"observedAt":now,"capabilities":{"play":true,"seek":false}}}),
         }
+    }
+    #[test]
+    fn only_configured_enabled_spotify_widgets_can_launch_and_restore() {
+        let mut instance = music_instance(1);
+        assert!(spotify_widget(&instance));
+        instance.data["config"]["provider"] = json!("spicetify");
+        assert!(spotify_widget(&instance));
+        for provider in ["auto", "music", "system"] {
+            instance.data["config"]["provider"] = json!(provider);
+            assert!(!spotify_widget(&instance));
+        }
+        instance.data["config"]["provider"] = json!("spicetify");
+        instance.data["configured"] = json!(false);
+        assert!(!spotify_widget(&instance));
+        instance.data["configured"] = json!(true);
+        instance.enabled = false;
+        assert!(!spotify_widget(&instance));
+        instance.enabled = true;
+        instance.installed = false;
+        assert!(!spotify_widget(&instance));
+    }
+    #[test]
+    fn reconnected_bridge_resumes_stopped_polling_without_busy_retries() {
+        let mut instance = music_instance(1);
+        instance.data["config"]["provider"] = json!("spicetify");
+        instance.data["status"] = json!("offline");
+        instance.data["failureCount"] = json!(5);
+        instance.data["nextRefreshAt"] = json!(i64::MAX);
+        instance.data["lastAttemptAt"] = json!(100);
+        assert!(!information_due_with_connection(&instance, 15_100, false));
+        assert!(!information_due_with_connection(&instance, 15_099, true));
+        assert!(information_due_with_connection(&instance, 15_100, true));
+    }
+    #[test]
+    fn completed_resume_token_is_not_cancelled_by_launch_or_playback_jobs() {
+        let state = crate::lifecycle_tests::state();
+        let directory = tempfile::tempdir().unwrap();
+        let id = {
+            let db = lock(&state.db).unwrap();
+            storage::install(&db, directory.path(), &["music".into()]).unwrap();
+            storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|item| item.kind == "music")
+                .unwrap()
+                .id
+        };
+        let resume = begin(&state, &id, Some("music"), |_| Ok(None)).unwrap();
+        finish_music_preparation(&state, &resume, &Ok(())).unwrap();
+        let launch = begin(&state, &id, Some("music"), |_| Ok(None)).unwrap();
+        let _playback = begin(&state, &id, Some("music"), |_| Ok(None)).unwrap();
+        assert!(launch.cancel.load(Ordering::SeqCst));
+        assert!(!resume.cancel.load(Ordering::SeqCst));
+        assert!(finish_music_preparation(&state, &launch, &Ok(())).is_err());
+    }
+    #[test]
+    fn unlink_removes_restore_authority_before_credential_cleanup_and_disable_preserves_it() {
+        let state = crate::lifecycle_tests::state();
+        let directory = tempfile::tempdir().unwrap();
+        let db = lock(&state.db).unwrap();
+        storage::install(&db, directory.path(), &["music".into()]).unwrap();
+        let instance = storage::instances(&db)
+            .unwrap()
+            .into_iter()
+            .find(|item| item.kind == "music")
+            .unwrap();
+        let pair = uuid::Uuid::new_v4().to_string();
+        let mut data =
+            connections::configure("music", &instance.data, &json!({"provider":"spicetify"}))
+                .unwrap();
+        data["spicetifyPairingId"] = json!(pair);
+        storage::commit_data(&db, &instance.id, instance.revision, data, vec![], 1).unwrap();
+        clear_music_pairing_with(&db, &instance.id, |owner, removed| {
+            assert_eq!(owner, instance.id);
+            assert_eq!(removed, pair);
+            assert!(pairing_id(&storage::get(&db, &owner).unwrap().data).is_none());
+            // Even a failed OS deletion leaves no DB permission to restore the orphan.
+        })
+        .unwrap();
+        storage::set_enabled(&db, &instance.id, false).unwrap();
+        storage::set_enabled(&db, &instance.id, true).unwrap();
+        assert!(pairing_id(&storage::get(&db, &instance.id).unwrap().data).is_none());
+        storage::remove(&db, directory.path(), &instance.id, false).unwrap();
+        assert!(pairing_id(&storage::get(&db, &instance.id).unwrap().data).is_none());
     }
     #[test]
     fn music_commands_require_current_revision_freshness_and_provider_capability() {

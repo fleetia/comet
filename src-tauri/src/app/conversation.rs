@@ -364,6 +364,7 @@ pub(crate) fn turn_prompt_with_memories(
     memories: &[Memory],
 ) -> Result<Vec<ChatMessage>, String> {
     let relationships = store::relationships(db)?;
+    let installed = characters::collection(db)?.installed;
     match targets {
         [a, b] => {
             let histories = [
@@ -392,6 +393,7 @@ pub(crate) fn turn_prompt_with_memories(
                     memories,
                     &relationships,
                     latest,
+                    &installed,
                 ))
             } else {
                 Ok(domain::roster_pair_prompt(
@@ -400,6 +402,7 @@ pub(crate) fn turn_prompt_with_memories(
                     memories,
                     &relationships,
                     latest,
+                    &installed,
                 ))
             }
         }
@@ -430,6 +433,7 @@ pub(crate) fn turn_prompt_with_memories(
                     persona: persona.clone(),
                     score,
                 },
+                &installed,
             ))
         }
         _ => Err("대화 상대를 선택해 주세요.".into()),

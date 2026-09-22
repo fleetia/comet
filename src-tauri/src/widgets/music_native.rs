@@ -292,6 +292,26 @@ pub async fn observe_source(
     }
 }
 
+pub async fn launch_spotify(cancel: Arc<AtomicBool>) -> Result<(), ConnectionError> {
+    ensure_active(&cancel)?;
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        #[cfg(target_os = "macos")]
+        let launch = macos::launch_spotify(&cancel);
+        #[cfg(target_os = "windows")]
+        let launch = windows::launch_spotify(&cancel);
+        tokio::select! {
+            _ = crate::models::cancelled(cancel.clone()) => Err(failure("stale", "Spotify 실행을 취소했어요.")),
+            result = launch => { result?; ensure_active(&cancel) }
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    Err(failure(
+        "unsupported",
+        "이 운영체제에서는 Spotify 자동 실행을 지원하지 않아요.",
+    ))
+}
+
 pub async fn control_source(
     provider: &str,
     source_id: Option<&str>,

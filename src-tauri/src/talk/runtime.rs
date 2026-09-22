@@ -22,6 +22,22 @@ pub struct ActiveProgram {
 }
 
 impl ActiveProgram {
+    pub fn remove_pack(&mut self, id: &str, directory: &Path) {
+        self.generation += 1;
+        let Some(program) = self.program.as_mut() else {
+            return;
+        };
+        let program = Arc::make_mut(program);
+        program.packs.remove(id);
+        program.scenes.retain(|scene| {
+            scene.pack.as_deref() != Some(id) && !Path::new(&scene.span.path).starts_with(directory)
+        });
+        program.files.retain(|path| !path.starts_with(directory));
+        program
+            .sources
+            .retain(|path, _| !path.starts_with(directory));
+    }
+
     pub fn apply(&mut self, result: Result<Program, Vec<Diagnostic>>) -> bool {
         match result {
             Ok(program) => {
@@ -383,7 +399,7 @@ pub fn install_bundled_pack(root: &Path, id: &str) -> Result<(), String> {
 }
 
 /// Deletes `<root>/packs/<id>/`. The removal is final: restarts do not reinstall it.
-pub fn remove_pack(root: &Path, id: &str) -> Result<(), String> {
+pub fn remove_pack(root: &Path, id: &str) -> Result<PathBuf, String> {
     if !super::parser::valid_pack_id(id) {
         return Err("대화팩 ID가 잘못됐어요.".into());
     }
@@ -392,7 +408,9 @@ pub fn remove_pack(root: &Path, id: &str) -> Result<(), String> {
     if !metadata.is_dir() {
         return Err("대화팩 폴더가 아니에요.".into());
     }
-    fs::remove_dir_all(&target).map_err(|error| error.to_string())
+    let canonical = fs::canonicalize(&target).map_err(|error| error.to_string())?;
+    fs::remove_dir_all(&target).map_err(|error| error.to_string())?;
+    Ok(canonical)
 }
 
 fn migrate_encryption(root: &Path) {

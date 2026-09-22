@@ -412,6 +412,284 @@ fn edit_preserves_identity_and_increments_host_version() {
     assert!(assign(&conn, "b", &created.id).is_err());
     assert_eq!(active_character(&conn, "b").unwrap().id, "builtin-b");
 }
+
+#[test]
+fn legacy_character_json_defaults_to_empty_instructions_and_relationships() {
+    for version in [1, 2] {
+        let mut legacy = pack();
+        legacy.format_version = version;
+        let mut value: serde_json::Value =
+            serde_json::from_str(&pack_json(&legacy).unwrap()).unwrap();
+        for definition in value["characters"].as_array_mut().unwrap() {
+            let fields = definition.as_object_mut().unwrap();
+            fields.remove("instructions");
+            fields.remove("relationships");
+        }
+        let parsed = parse_pack(&value.to_string()).unwrap();
+        assert!(parsed.characters.iter().all(|definition| {
+            definition.instructions.is_empty() && definition.relationships.is_empty()
+        }));
+        let conn = database();
+        let installed = import_pack(&conn, &parsed).unwrap();
+        assert!(installed.iter().all(|character| {
+            character.definition.instructions.is_empty()
+                && character.definition.relationships.is_empty()
+        }));
+    }
+}
+
+#[test]
+fn authored_instructions_and_directional_relationships_preserve_local_identity() {
+    let conn = crate::store::open(std::path::Path::new(":memory:")).unwrap();
+    conn.execute_batch(
+        "INSERT INTO memories(id,content,source,updated,deleted,locked) VALUES('memory','기억 원문','source',123,0,0);
+        INSERT INTO character_affinity VALUES('source','builtin-a','2026-09-22',5,'fingerprint');",
+    )
+    .unwrap();
+    crate::store::insert_message(
+        &conn,
+        &crate::types::Message {
+            id: "message".into(),
+            role: "assistant".into(),
+            persona: Some("a".into()),
+            content: "  이전 대화\n원문  ".into(),
+            expression: Some("평온".into()),
+            created_at: 123,
+            status: "complete".into(),
+        },
+    )
+    .unwrap();
+    let original = get(&conn, "builtin-a").unwrap();
+    let mut definition = original.definition.clone();
+    definition.instructions = "  질문부터 듣고\n짧게 답한다.  ".into();
+    definition.relationships = vec![CharacterRelationship {
+        target_id: "builtin-b".into(),
+        description: "  B는 오래된 친구.\n가끔 장난친다.  ".into(),
+    }];
+    save(&conn, &original.id, &definition).unwrap();
+    apply_pair(&conn, ["builtin-b".into(), "builtin-a".into()]).unwrap();
+    let saved = active_character(&conn, "b").unwrap();
+    assert_eq!(saved.id, original.id);
+    assert_eq!(saved.definition.source_id, original.definition.source_id);
+    assert_eq!(saved.definition.version, original.definition.version + 1);
+    assert_eq!(saved.definition.instructions, definition.instructions);
+    assert_eq!(saved.definition.relationships, definition.relationships);
+    assert!(get(&conn, "builtin-b")
+        .unwrap()
+        .definition
+        .relationships
+        .is_empty());
+    initialize_for_tests(&conn).unwrap();
+    assert_eq!(
+        get(&conn, "builtin-a").unwrap().definition,
+        saved.definition
+    );
+    assert_eq!(crate::store::relationships(&conn).unwrap()[1].score, 25);
+    assert_eq!(
+        crate::store::messages(&conn, 10).unwrap()[0].content,
+        "  이전 대화\n원문  "
+    );
+    assert_eq!(
+        crate::store::message_identities(&conn, 10).unwrap()[0].character_id,
+        original.id
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT content FROM memories WHERE id='memory'",
+            [],
+            |row| { row.get::<_, String>(0) }
+        )
+        .unwrap(),
+        "기억 원문"
+    );
+}
+
+#[test]
+fn local_relationship_validation_rejects_new_missing_self_and_duplicate_targets() {
+    let conn = database();
+    let original = get(&conn, "builtin-a").unwrap().definition;
+    let mut invalid = original.clone();
+    invalid.instructions = "가".repeat(2001);
+    assert!(save(&conn, "builtin-a", &invalid).is_err());
+    invalid = original.clone();
+    invalid.relationships = vec![CharacterRelationship {
+        target_id: "missing".into(),
+        description: "친구".into(),
+    }];
+    assert!(create(&conn, &invalid).is_err());
+    assert!(save(&conn, "builtin-a", &invalid).is_err());
+    invalid.relationships[0].target_id = "builtin-a".into();
+    assert!(save(&conn, "builtin-a", &invalid).is_err());
+    invalid.relationships[0].target_id = "builtin-b".into();
+    invalid.relationships[0].description = " \n ".into();
+    assert!(save(&conn, "builtin-a", &invalid).is_err());
+    invalid.relationships[0].description = "가".repeat(501);
+    assert!(save(&conn, "builtin-a", &invalid).is_err());
+    invalid.relationships[0].description = "친구".into();
+    invalid.relationships.push(invalid.relationships[0].clone());
+    assert!(save(&conn, "builtin-a", &invalid).is_err());
+    assert_eq!(get(&conn, "builtin-a").unwrap().definition, original);
+    let mut valid = original;
+    valid.instructions = "가".repeat(2000);
+    valid.relationships = vec![CharacterRelationship {
+        target_id: "builtin-b".into(),
+        description: "가".repeat(500),
+    }];
+    save(&conn, "builtin-a", &valid).unwrap();
+    assert_eq!(
+        get(&conn, "builtin-a").unwrap().definition.instructions,
+        valid.instructions
+    );
+    let targets: Vec<_> = (0..33)
+        .map(|_| create(&conn, &builtin("b")).unwrap())
+        .collect();
+    valid.relationships = targets[..32]
+        .iter()
+        .map(|target| CharacterRelationship {
+            target_id: target.id.clone(),
+            description: "친구".into(),
+        })
+        .collect();
+    save(&conn, "builtin-a", &valid).unwrap();
+    valid.relationships.push(CharacterRelationship {
+        target_id: targets[32].id.clone(),
+        description: "친구".into(),
+    });
+    assert!(save(&conn, "builtin-a", &valid).is_err());
+    assert_eq!(
+        get(&conn, "builtin-a")
+            .unwrap()
+            .definition
+            .relationships
+            .len(),
+        32
+    );
+}
+
+#[test]
+fn removed_relationship_targets_remain_editable_and_clones_keep_outgoing_relations() {
+    let conn = database();
+    let target = clone_character(&conn, "builtin-b").unwrap();
+    let mut definition = builtin("a");
+    definition.instructions = "천천히 말한다.".into();
+    definition.relationships = vec![CharacterRelationship {
+        target_id: target.id.clone(),
+        description: "아끼는 동생".into(),
+    }];
+    save(&conn, "builtin-a", &definition).unwrap();
+    let cloned = clone_character(&conn, "builtin-a").unwrap();
+    assert_eq!(cloned.definition.relationships, definition.relationships);
+    assert_eq!(cloned.definition.instructions, definition.instructions);
+    remove(&conn, &target.id).unwrap();
+    definition.name = "이름을 바꾼 A".into();
+    save(&conn, "builtin-a", &definition).unwrap();
+    assert_eq!(
+        get(&conn, "builtin-a").unwrap().definition.relationships,
+        definition.relationships
+    );
+    let cloned_missing = clone_character(&conn, "builtin-a").unwrap();
+    assert_eq!(
+        cloned_missing.definition.relationships,
+        definition.relationships
+    );
+    assert!(create(&conn, &definition).is_err());
+    definition.relationships.clear();
+    save(&conn, "builtin-a", &definition).unwrap();
+    assert!(get(&conn, "builtin-a")
+        .unwrap()
+        .definition
+        .relationships
+        .is_empty());
+}
+
+#[test]
+fn relationship_pack_roundtrip_remaps_local_ids_without_crossing_reimports() {
+    let conn = database();
+    let first = clone_character(&conn, "builtin-a").unwrap();
+    let second = clone_character(&conn, "builtin-a").unwrap();
+    let mut first_definition = first.definition.clone();
+    first_definition.instructions = "  지침\n원문  ".into();
+    first_definition.relationships = vec![
+        CharacterRelationship {
+            target_id: second.id.clone(),
+            description: "둘째에게만 다정하다.".into(),
+        },
+        CharacterRelationship {
+            target_id: "builtin-b".into(),
+            description: "팩 밖 친구".into(),
+        },
+    ];
+    save(&conn, &first.id, &first_definition).unwrap();
+    let mut second_definition = second.definition.clone();
+    second_definition.relationships = vec![CharacterRelationship {
+        target_id: first.id.clone(),
+        description: "첫째를 존경한다.".into(),
+    }];
+    save(&conn, &second.id, &second_definition).unwrap();
+    let exported = export_pack(&conn, &[second.id.clone(), first.id.clone()], &[]).unwrap();
+    assert_eq!(exported.characters[0].source_id, "character-1");
+    assert_eq!(
+        exported.characters[0].relationships[0].target_id,
+        "character-2"
+    );
+    assert_eq!(exported.characters[1].relationships.len(), 1);
+    assert_eq!(
+        exported.characters[1].relationships[0].target_id,
+        "character-1"
+    );
+    let single = export_pack(&conn, std::slice::from_ref(&first.id), &[]).unwrap();
+    assert!(single.characters[0].relationships.is_empty());
+    let mut parsed = parse_pack(&pack_json(&exported).unwrap()).unwrap();
+    parsed.characters.reverse();
+    let imported = import_pack(&conn, &parsed).unwrap();
+    let reimported = import_pack(&conn, &parsed).unwrap();
+    assert_eq!(
+        imported[0].definition.instructions,
+        first_definition.instructions
+    );
+    for members in [&imported, &reimported] {
+        assert_eq!(
+            members[0].definition.relationships[0].target_id,
+            members[1].id
+        );
+        assert_eq!(
+            members[1].definition.relationships[0].target_id,
+            members[0].id
+        );
+    }
+    assert_ne!(imported[0].id, reimported[0].id);
+    assert_eq!(
+        get(&conn, &first.id).unwrap().definition.relationships,
+        first_definition.relationships
+    );
+}
+
+#[test]
+fn relationship_packs_reject_missing_self_unknown_and_excessive_relationships() {
+    let conn = database();
+    let mut content = pack();
+    content.characters[0].relationships = vec![CharacterRelationship {
+        target_id: "not-in-pack".into(),
+        description: "친구".into(),
+    }];
+    assert!(import_pack(&conn, &content).is_err());
+    content.characters[0].relationships[0].target_id = content.characters[0].source_id.clone();
+    assert!(import_pack(&conn, &content).is_err());
+    content.characters[0].relationships[0].target_id = content.characters[1].source_id.clone();
+    let valid = pack_json(&content).unwrap();
+    let mut unknown: serde_json::Value = serde_json::from_str(&valid).unwrap();
+    unknown["characters"][0]["relationships"][0]["unexpected"] = serde_json::json!(true);
+    assert!(parse_pack(&unknown.to_string()).is_err());
+    content.characters[0].relationships = (0..33)
+        .map(|index| CharacterRelationship {
+            target_id: format!("target-{index}"),
+            description: "친구".into(),
+        })
+        .collect();
+    assert!(import_pack(&conn, &content).is_err());
+    assert_eq!(collection(&conn).unwrap().installed.len(), 2);
+}
+
 #[test]
 fn canonical_export_roundtrip_preserves_talk_scope_and_story_activation() {
     let conn = crate::store::open(std::path::Path::new(":memory:")).unwrap();

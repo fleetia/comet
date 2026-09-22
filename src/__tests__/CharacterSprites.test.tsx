@@ -98,6 +98,29 @@ it("keeps the text face for characters without sprites and outside the desktop a
   expect(screen.getByText("[기쁨]")).toBeTruthy();
 });
 
+it("returns to the text body when only another expression has an image", () => {
+  const partial: Snapshot = {
+    ...snapshot,
+    characters: {
+      ...snapshot.characters,
+      installed: [
+        { ...byulkkori, sprites: { 기쁨: byulkkori.sprites.기쁨 } },
+        snapshot.characters.installed[1],
+      ],
+    },
+  };
+  const { rerender } = render(
+    <CompanionBox id="byul" snapshot={{ ...partial, playback: playing("기쁨") }} />,
+  );
+  expect(bodyImage()).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "캐릭터 숨기기" })).toBeNull();
+  rerender(<CompanionBox id="byul" snapshot={partial} />);
+  expect(bodyImage()).toBeNull();
+  expect(screen.getByText("[기본]")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "캐릭터 숨기기" })).toBeTruthy();
+  expect(document.documentElement.className).toBe("");
+});
+
 it("sizes the sprite from the character, drops the box controls, and clears the transparent root on unmount", () => {
   render(<CompanionBox id="byul" snapshot={{ ...snapshot, playback: playing("기쁨") }} />);
   expect(bodyImage()?.style.width).toBe("128px");

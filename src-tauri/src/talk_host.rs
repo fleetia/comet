@@ -145,31 +145,104 @@ pub(crate) fn initialize(app_data: &std::path::Path) -> talk::runtime::ActivePro
     active
 }
 
+pub(crate) fn remove_pack(state: &AppState, id: &str) -> Result<bool, String> {
+    let _action = lock(&state.action)?;
+    if crate::unavailable(state) {
+        return Err("앱을 종료하고 있어요.".into());
+    }
+    let directory = talk::runtime::remove_pack(&talk::runtime::root(&state.app_data), id)?;
+    let (previous_generation, generation, program) = {
+        let mut active = lock(&state.talk)?;
+        let previous_generation = active.generation;
+        active.remove_pack(id, &directory);
+        (
+            previous_generation,
+            active.generation,
+            active.program.clone(),
+        )
+    };
+    let Some(program) = program else {
+        return Ok(false);
+    };
+    let stop = {
+        let mut playback = lock(&state.talk_playback)?;
+        if let Some(prepared) = playback.as_mut() {
+            if !program
+                .scenes
+                .iter()
+                .any(|scene| scene.key == prepared.selection.key)
+            {
+                true
+            } else {
+                if prepared.generation == previous_generation {
+                    prepared.generation = generation;
+                    prepared.program = program;
+                }
+                false
+            }
+        } else {
+            false
+        }
+    };
+    if stop {
+        stop_playback(state)?;
+    }
+    Ok(stop)
+}
+
+fn stop_playback(state: &AppState) -> Result<(), String> {
+    let automatic = state.automatic.load(Ordering::SeqCst);
+    let token = interrupt(state, automatic)?;
+    state.widget_epoch.store(token.0, Ordering::SeqCst);
+    let mut runtime = lock(&state.runtime)?;
+    runtime.phase = crate::types::RuntimePhase::Idle;
+    runtime.persona = None;
+    Ok(())
+}
+
+fn apply_reload(
+    state: &AppState,
+    generation: u64,
+    result: Result<talk::Program, Vec<talk::Diagnostic>>,
+) -> Result<Option<bool>, String> {
+    let _action = lock(&state.action)?;
+    let changed = {
+        let mut active = lock(&state.talk)?;
+        // An explicit removal can finish while the watcher reads the previous file tree.
+        if active.generation != generation {
+            return Ok(None);
+        }
+        active.apply(result)
+    };
+    let playing = lock(&state.talk_playback)?.is_some();
+    if changed && playing {
+        stop_playback(state)?;
+    }
+    Ok(Some(changed && playing))
+}
+
 pub(crate) fn watch(app: tauri::AppHandle, state: Arc<AppState>) {
     tauri::async_runtime::spawn_blocking(move || {
         let mut monitor = talk::runtime::Monitor::new(talk::runtime::root(&state.app_data));
         let registry = talk::context::registry();
         while !state.stopping.load(Ordering::SeqCst) {
+            let generation = match lock(&state.talk) {
+                Ok(active) => active.generation,
+                Err(error) => {
+                    eprintln!(".talk 재로딩 실패: {error}");
+                    break;
+                }
+            };
             if let Some(result) = monitor.poll(&registry, Instant::now()) {
                 if let Err(errors) = &result {
                     log_diagnostics(errors);
                 }
-                let updated = (|| -> Result<bool, String> {
-                    let _action = lock(&state.action)?;
-                    let changed = lock(&state.talk)?.apply(result);
-                    let playing = lock(&state.talk_playback)?.is_some();
-                    if changed && playing {
-                        let automatic = state.automatic.load(Ordering::SeqCst);
-                        let token = interrupt(&state, automatic)?;
-                        state.widget_epoch.store(token.0, Ordering::SeqCst);
-                        let mut runtime = lock(&state.runtime)?;
-                        runtime.phase = crate::types::RuntimePhase::Idle;
-                        runtime.persona = None;
-                    }
-                    Ok(changed && playing)
-                })();
+                let updated = apply_reload(&state, generation, result);
                 match updated {
-                    Ok(true) => publish(&app, &state),
+                    Ok(Some(true)) => publish(&app, &state),
+                    Ok(None) => {
+                        monitor = talk::runtime::Monitor::new(talk::runtime::root(&state.app_data));
+                    }
                     Err(error) => eprintln!(".talk 재로딩 실패: {error}"),
                     _ => {}
                 }
@@ -183,7 +256,274 @@ pub(crate) fn watch(app: tauri::AppHandle, state: Arc<AppState>) {
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::path::Path;
+    use std::{fs, path::Path};
+
+    const FIRST_PACK: &str =
+        "format: 1\nscene: first\non: idle\n---\nA: 첫 대사\nB: 다음 대사\n===\n";
+
+    fn state_with_packs() -> (tempfile::TempDir, AppState) {
+        let directory = tempfile::tempdir().unwrap();
+        let mut state = crate::app::tests::state();
+        state.app_data = directory.path().to_path_buf();
+        let root = talk::runtime::root(&state.app_data);
+        for (id, source) in [
+            ("first", FIRST_PACK),
+            ("other", "format: 1\nscene: other\non: idle\nwhen: character.count > 2\n---\nA: 다른 팩\n===\n"),
+        ] {
+            let folder = root.join("packs").join(id);
+            fs::create_dir_all(&folder).unwrap();
+            fs::write(folder.join("index.talk"), source).unwrap();
+        }
+        fs::write(root.join("index.talk"), "format: 1\n").unwrap();
+        lock(&state.talk)
+            .unwrap()
+            .apply(talk::load_bundle(&root, &talk::context::registry()));
+        (directory, state)
+    }
+
+    #[test]
+    fn removed_pack_stops_prepared_and_displayed_lines_despite_an_unrelated_reload_error() {
+        for displayed in [false, true] {
+            let (_directory, state) = state_with_packs();
+            let token = interrupt(&state, true).unwrap();
+            let (lines, revision) = {
+                let db = lock(&state.db).unwrap();
+                (
+                    prepare(&state, &db, None).unwrap().unwrap(),
+                    crate::store::revision(&db).unwrap(),
+                )
+            };
+            if displayed {
+                assert!(crate::app::scene::present_line(
+                    &state,
+                    &lines[0],
+                    "talk",
+                    "before-removal",
+                    0,
+                    2,
+                    revision,
+                    token.0,
+                    &token.1,
+                    false,
+                )
+                .unwrap());
+            }
+            let root = talk::runtime::root(&state.app_data);
+            fs::write(root.join("index.talk"), "format: 9\n").unwrap();
+            let invalid = talk::load_bundle(&root, &talk::context::registry());
+            assert!(invalid.is_err());
+            assert!(!lock(&state.talk).unwrap().apply(invalid));
+
+            assert!(remove_pack(&state, "first").unwrap());
+            assert!(token.1.load(Ordering::SeqCst));
+            assert!(lock(&state.playback).unwrap().is_none());
+            assert!(lock(&state.talk_playback).unwrap().is_none());
+            assert!(!crate::app::scene::present_line(
+                &state,
+                &lines[1],
+                "talk",
+                "after-removal",
+                1,
+                2,
+                revision,
+                token.0,
+                &token.1,
+                false,
+            )
+            .unwrap());
+            {
+                let mut active = lock(&state.talk).unwrap();
+                assert!(!active.apply(talk::load_bundle(&root, &talk::context::registry())));
+                assert!(!active.diagnostics.is_empty());
+                let program = active.program.as_ref().unwrap();
+                assert_eq!(
+                    program.packs,
+                    std::collections::BTreeSet::from(["other".into()])
+                );
+                assert!(program
+                    .scenes
+                    .iter()
+                    .all(|scene| scene.pack.as_deref() == Some("other")));
+            }
+            let db = lock(&state.db).unwrap();
+            assert!(prepare(&state, &db, None).unwrap().is_none());
+            assert_eq!(
+                crate::store::messages(&db, 10).unwrap().len(),
+                usize::from(displayed)
+            );
+            assert_eq!(
+                fs::read_to_string(root.join("index.talk")).unwrap(),
+                "format: 9\n"
+            );
+        }
+    }
+
+    #[test]
+    fn removed_pack_also_revokes_scenes_imported_through_the_user_entry() {
+        for has_pack_entry in [true, false] {
+            let (_directory, state) = state_with_packs();
+            let root = talk::runtime::root(&state.app_data);
+            let folder = root.join("packs/first");
+            let removed_directory = fs::canonicalize(&folder).unwrap();
+            let name = if has_pack_entry {
+                "index.talk"
+            } else {
+                "part.talk"
+            };
+            fs::write(
+                folder.join("index.talk"),
+                FIRST_PACK.replace("on: idle", "on: idle\ncooldown: 1h"),
+            )
+            .unwrap();
+            if !has_pack_entry {
+                fs::rename(folder.join("index.talk"), folder.join(name)).unwrap();
+            }
+            let source = format!("format: 1\nimport \"./packs/first/{name}\"\n");
+            fs::write(root.join("index.talk"), &source).unwrap();
+            let program = talk::load_bundle(&root, &talk::context::registry()).unwrap();
+            let imported = program
+                .scenes
+                .iter()
+                .find(|scene| scene.pack.is_none())
+                .unwrap()
+                .key
+                .clone();
+            {
+                let db = lock(&state.db).unwrap();
+                for scene in program
+                    .scenes
+                    .iter()
+                    .filter(|scene| scene.pack.as_deref() == Some("first"))
+                {
+                    db.execute(
+                        "INSERT INTO talk_history(scene_key,shown_at) VALUES(?1,?2)",
+                        rusqlite::params![scene.key, chrono::Utc::now().timestamp_millis()],
+                    )
+                    .unwrap();
+                }
+            }
+            lock(&state.talk).unwrap().apply(Ok(program));
+            let token = interrupt(&state, true).unwrap();
+            assert!(prepare(&state, &lock(&state.db).unwrap(), None)
+                .unwrap()
+                .is_some());
+            assert_eq!(
+                lock(&state.talk_playback)
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .selection
+                    .key,
+                imported
+            );
+
+            assert!(remove_pack(&state, "first").unwrap());
+            assert!(token.1.load(Ordering::SeqCst));
+            let failed_reload = talk::load_bundle(&root, &talk::context::registry());
+            assert!(failed_reload.is_err());
+            {
+                let mut active = lock(&state.talk).unwrap();
+                assert!(!active.apply(failed_reload));
+                let program = active.program.as_ref().unwrap();
+                assert!(!program
+                    .scenes
+                    .iter()
+                    .any(|scene| Path::new(&scene.span.path).starts_with(&removed_directory)));
+                assert_eq!(program.scenes.len(), 1);
+                assert_eq!(program.scenes[0].pack.as_deref(), Some("other"));
+            }
+            assert!(prepare(&state, &lock(&state.db).unwrap(), None)
+                .unwrap()
+                .is_none());
+            assert_eq!(fs::read_to_string(root.join("index.talk")).unwrap(), source);
+        }
+    }
+
+    #[test]
+    fn removed_other_pack_preserves_last_good_playback_and_a_failed_removal_changes_nothing() {
+        let (_directory, state) = state_with_packs();
+        let token = interrupt(&state, true).unwrap();
+        let (lines, revision) = {
+            let db = lock(&state.db).unwrap();
+            (
+                prepare(&state, &db, None).unwrap().unwrap(),
+                crate::store::revision(&db).unwrap(),
+            )
+        };
+        let root = talk::runtime::root(&state.app_data);
+        fs::write(root.join("index.talk"), "format: 9\n").unwrap();
+        assert!(!lock(&state.talk)
+            .unwrap()
+            .apply(talk::load_bundle(&root, &talk::context::registry())));
+
+        assert!(!remove_pack(&state, "other").unwrap());
+        assert!(!token.1.load(Ordering::SeqCst));
+        assert_eq!(state.epoch.load(Ordering::SeqCst), token.0);
+        assert!(current(&state, &lock(&state.db).unwrap()).unwrap());
+        let generation = lock(&state.talk).unwrap().generation;
+        assert!(remove_pack(&state, "other").is_err());
+        assert_eq!(lock(&state.talk).unwrap().generation, generation);
+        assert!(crate::app::scene::present_line(
+            &state,
+            &lines[1],
+            "talk",
+            "unrelated-continues",
+            1,
+            2,
+            revision,
+            token.0,
+            &token.1,
+            false,
+        )
+        .unwrap());
+        assert!(!lock(&state.talk).unwrap().diagnostics.is_empty());
+    }
+
+    #[test]
+    fn removed_pack_cannot_be_restored_by_an_older_reload_but_can_be_reinstalled() {
+        for active_missing in [false, true] {
+            let (_directory, state) = state_with_packs();
+            if active_missing {
+                *lock(&state.talk).unwrap() = talk::runtime::ActiveProgram::default();
+            }
+            let root = talk::runtime::root(&state.app_data);
+            let old_generation = lock(&state.talk).unwrap().generation;
+            let stale = talk::load_bundle(&root, &talk::context::registry()).unwrap();
+            assert!(!remove_pack(&state, "first").unwrap());
+            assert!(apply_reload(&state, old_generation, Ok(stale))
+                .unwrap()
+                .is_none());
+            assert!(!lock(&state.talk)
+                .unwrap()
+                .program
+                .as_ref()
+                .is_some_and(|program| program.packs.contains("first")));
+
+            let folder = root.join("packs/first");
+            fs::create_dir(&folder).unwrap();
+            fs::write(folder.join("index.talk"), FIRST_PACK).unwrap();
+            let generation = lock(&state.talk).unwrap().generation;
+            assert_eq!(
+                apply_reload(
+                    &state,
+                    generation,
+                    talk::load_bundle(&root, &talk::context::registry())
+                )
+                .unwrap(),
+                Some(false)
+            );
+            assert!(lock(&state.talk)
+                .unwrap()
+                .program
+                .as_ref()
+                .unwrap()
+                .packs
+                .contains("first"));
+            assert!(prepare(&state, &lock(&state.db).unwrap(), None)
+                .unwrap()
+                .is_some());
+        }
+    }
 
     #[test]
     fn core_weather_revision_change_cancels_even_when_condition_and_text_still_match() {

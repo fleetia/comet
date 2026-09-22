@@ -39,12 +39,22 @@ pub struct CharacterLine {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CharacterRelationship {
+    pub target_id: String,
+    pub description: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CharacterDefinition {
     pub source_id: String,
     pub version: u32,
     pub name: String,
     pub description: String,
     pub personality: String,
+    #[serde(default)]
+    pub instructions: String,
+    #[serde(default)]
+    pub relationships: Vec<CharacterRelationship>,
     pub expressions: BTreeMap<String, String>,
     #[serde(default)]
     pub face_icon: bool,
@@ -455,6 +465,7 @@ pub fn assign(conn: &Connection, slot: &str, id: &str) -> Result<()> {
 pub fn save(conn: &Connection, id: &str, definition: &CharacterDefinition) -> Result<()> {
     validate_definition(definition)?;
     let old = get(conn, id)?;
+    validate_local_relationships(conn, id, definition, &old.definition.relationships)?;
     let mut edited = definition.clone();
     edited.source_id = old.definition.source_id;
     edited.version = old
@@ -479,6 +490,7 @@ pub fn save(conn: &Connection, id: &str, definition: &CharacterDefinition) -> Re
 pub fn create(conn: &Connection, definition: &CharacterDefinition) -> Result<InstalledCharacter> {
     validate_definition(definition)?;
     let id = uuid::Uuid::new_v4().to_string();
+    validate_local_relationships(conn, &id, definition, &[])?;
     conn.execute(
         "INSERT INTO characters(id,pack_id,data) VALUES(?1,NULL,?2)",
         params![
@@ -489,18 +501,58 @@ pub fn create(conn: &Connection, definition: &CharacterDefinition) -> Result<Ins
     .map_err(|e| e.to_string())?;
     get(conn, &id)
 }
+fn validate_local_relationships(
+    conn: &Connection,
+    id: &str,
+    definition: &CharacterDefinition,
+    previous: &[CharacterRelationship],
+) -> Result<()> {
+    for relationship in &definition.relationships {
+        if relationship.target_id == id {
+            return Err("자기 자신과의 관계는 설정할 수 없습니다.".into());
+        }
+        let exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM characters WHERE id=?)",
+                [&relationship.target_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        // Removing another character must not prevent editing or removing an existing relation.
+        if !exists
+            && !previous
+                .iter()
+                .any(|item| item.target_id == relationship.target_id)
+        {
+            return Err("관계를 설정할 캐릭터를 찾을 수 없습니다.".into());
+        }
+    }
+    Ok(())
+}
 pub fn clone_character(conn: &Connection, id: &str) -> Result<InstalledCharacter> {
     with_transaction(conn, |tx| {
-        let original = get(tx, id)?;
+        let mut original = get(tx, id)?;
+        let relationships = std::mem::take(&mut original.definition.relationships);
         let mut pack = export_pack(tx, &[id.to_string()], &[])?;
         for sprite in &mut pack.sprites {
             sprite.source_id = original.definition.source_id.clone();
         }
         pack.characters[0] = original.definition;
-        import_pack(tx, &pack)?
+        let mut cloned = import_pack(tx, &pack)?
             .into_iter()
             .next()
-            .ok_or_else(|| "캐릭터를 복제하지 못했습니다.".into())
+            .ok_or("캐릭터를 복제하지 못했습니다.")?;
+        // A local duplicate keeps outgoing links even though single-character exports omit them.
+        cloned.definition.relationships = relationships;
+        tx.execute(
+            "UPDATE characters SET data=?1 WHERE id=?2",
+            params![
+                serde_json::to_string(&cloned.definition).map_err(|error| error.to_string())?,
+                cloned.id
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(cloned)
     })
 }
 pub fn remove(conn: &Connection, id: &str) -> Result<()> {
@@ -551,12 +603,21 @@ pub fn import_pack(conn: &Connection, pack: &CharacterPack) -> Result<Vec<Instal
         )
         .map_err(|e| e.to_string())?;
         for (id, definition) in ids.iter().zip(&pack.characters) {
+            let mut local_definition = definition.clone();
+            for relationship in &mut local_definition.relationships {
+                let index = pack
+                    .characters
+                    .iter()
+                    .position(|target| target.source_id == relationship.target_id)
+                    .ok_or("팩에 없는 캐릭터와의 관계입니다.")?;
+                relationship.target_id = ids[index].clone();
+            }
             tx.execute(
                 "INSERT INTO characters(id,pack_id,data) VALUES(?1,?2,?3)",
                 params![
                     id,
                     pack_id,
-                    serde_json::to_string(definition).map_err(|e| e.to_string())?
+                    serde_json::to_string(&local_definition).map_err(|e| e.to_string())?
                 ],
             )
             .map_err(|e| e.to_string())?;
@@ -626,6 +687,25 @@ pub fn export_pack(
         } else {
             definition.source_id = format!("character-{}", index + 1);
         }
+    }
+    let sources: Vec<_> = pack
+        .characters
+        .iter()
+        .map(|definition| definition.source_id.clone())
+        .collect();
+    for definition in &mut pack.characters {
+        definition.relationships = definition
+            .relationships
+            .iter()
+            .filter_map(|relationship| {
+                ids.iter()
+                    .position(|id| id == &relationship.target_id)
+                    .map(|index| CharacterRelationship {
+                        target_id: sources[index].clone(),
+                        description: relationship.description.clone(),
+                    })
+            })
+            .collect();
     }
     for (definition, character) in pack.characters.iter().zip(&installed) {
         for (expression, sprite) in sprites::all(conn, &character.id)? {

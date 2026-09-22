@@ -110,6 +110,9 @@ pub(crate) async fn set_widget_enabled(
     enabled: bool,
 ) -> Result<(), String> {
     let mutation = |db: &rusqlite::Connection| {
+        if !enabled {
+            crate::widget_connections::clear_music_pairing(db, &id)?;
+        }
         storage::set_enabled(db, &id, enabled)?;
         if !enabled {
             cancel_widget_jobs(&state, Some(&id))?;
@@ -139,6 +142,7 @@ pub(crate) async fn remove_widget(
     delete_data: bool,
 ) -> Result<(), String> {
     crate::memo_notes::with_flushed_notes(&app, &state, &id, |db| {
+        crate::widget_connections::clear_music_pairing(db, &id)?;
         storage::remove(db, &state.app_data, &id, delete_data)?;
         cancel_widget_jobs(&state, Some(&id))
     })
@@ -441,6 +445,19 @@ pub(crate) async fn open_widget(
             )?;
             Ok(())
         });
+    }
+    if crate::widget_connections::spotify_widget(&instance) {
+        let _ =
+            crate::widget_connections::prepare_music_widget(&app, state.inner(), &id, true).await;
+    }
+    // The widget may have been disabled or removed while the OS was launching Spotify.
+    let _action = lock(&state.action)?;
+    if crate::unavailable(&state) {
+        return Err("앱을 정리하고 있어요.".into());
+    }
+    let current = storage::get(&*lock(&state.db)?, &id)?;
+    if !current.installed || !current.enabled {
+        return Err("위젯을 설치하고 켜 주세요.".into());
     }
     let label = format!("widget-{id}");
     if let Some(window) = app.get_webview_window(&label) {

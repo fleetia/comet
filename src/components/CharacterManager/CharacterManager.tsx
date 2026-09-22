@@ -27,6 +27,8 @@ function newDefinition(): CharacterDefinition {
     name: "",
     description: "",
     personality: "",
+    instructions: "",
+    relationships: [],
     expressions: Object.fromEntries(EXPRESSIONS.map((value) => [value, value])),
     faceIcon: false,
     spriteSize: 64,
@@ -357,6 +359,7 @@ export function CharacterManager({
             <CharacterEditor
               definition={definition}
               character={selected}
+              installed={installed}
               onChange={(value) => setDrafts((values) => ({ ...values, [selectedId]: value }))}
               onSprite={(expression, remove) =>
                 void run(async () => {

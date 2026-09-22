@@ -64,6 +64,7 @@ export const sprite = style({
   userSelect: "none",
 });
 export const spriteBody = style({
+  minHeight: 0,
   padding: 4,
   gap: 0,
   border: 0,

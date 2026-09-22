@@ -17,12 +17,20 @@ type Config = {
 };
 type BridgeStatus = {
   connected: boolean;
+  remembered: boolean;
   pairing: boolean;
   enabled: boolean;
   port: number;
   code?: string;
   expiresAt?: number;
 };
+
+function bridgeStatusText(bridge: BridgeStatus | null, failed: boolean): string {
+  if (bridge?.connected) return "Spotify 확장과 연결되었어요.";
+  if (failed) return "로컬 연결 상태를 확인하지 못했어요.";
+  if (bridge?.remembered) return "Spotify 확장의 자동 재연결을 기다리고 있어요.";
+  return "Spotify 확장 연결을 기다리고 있어요.";
+}
 
 function configFrom(widget: WidgetView): Config {
   const data = record(record(widget.data).config);
@@ -224,19 +232,14 @@ export function MusicSettings({
             Spotify의 Comet 메뉴를 열어 주세요.
           </p>
           <p className={c.quiet}>
-            Spotify 로그인 정보는 Comet에 전달하지 않습니다. Spotify가 연결을 종료하면 다시 연결해야
-            해요.
+            처음 한 번 연결하면 Spotify나 Comet을 다시 실행해도 자동으로 연결됩니다. 음악 위젯을
+            열면 종료된 Spotify도 실행됩니다. 재생은 재생 버튼을 눌러 시작해 주세요. Spotify 로그인
+            정보는 Comet에 전달하지 않습니다.
           </p>
           {!bridgeEnabled && <p>먼저 위의 연결 설정을 저장해 주세요.</p>}
           {bridgeEnabled && (
             <>
-              <p role="status">
-                {bridge?.connected
-                  ? "Spotify 확장과 연결되었어요."
-                  : bridgeError
-                    ? "로컬 연결 상태를 확인하지 못했어요."
-                    : "Spotify 확장 연결을 기다리고 있어요."}
-              </p>
+              <p role="status">{bridgeStatusText(bridge, bridgeError)}</p>
               {bridge?.code && bridge.pairing && (
                 <div className={s.pairingCode}>
                   <span className={c.quiet}>Spotify의 Comet 메뉴에 입력할 연결 코드</span>
@@ -251,7 +254,7 @@ export function MusicSettings({
               <Button type="button" variant="secondary" onClick={() => void pair()}>
                 {bridge?.connected ? "새 연결 코드 발급" : "연결 코드 만들기"}
               </Button>
-              {(bridge?.connected || bridge?.pairing) && (
+              {(bridge?.connected || bridge?.pairing || bridge?.remembered) && (
                 <Button type="button" variant="quiet" onClick={() => void disconnect()}>
                   로컬 연결 해제
                 </Button>

@@ -558,7 +558,11 @@ fn inactive_character_installs_preserve_playback_but_active_definition_edits_can
         before_playback
     );
     let mut edited = definition;
-    edited.name = "편집한 A".into();
+    edited.instructions = "서두르지 않고 짧게 답한다.".into();
+    edited.relationships = vec![characters::CharacterRelationship {
+        target_id: "builtin-b".into(),
+        description: "가끔 장난을 거는 오랜 친구".into(),
+    }];
     character_commands::mutate(&state, |db| characters::save(db, "builtin-a", &edited)).unwrap();
     assert!(state.epoch.load(Ordering::SeqCst) > epoch);
     assert!(cancel.load(Ordering::SeqCst));
@@ -577,6 +581,83 @@ fn inactive_character_installs_preserve_playback_but_active_definition_edits_can
         false,
     )
     .unwrap());
+}
+
+#[test]
+fn inactive_relationship_target_rename_and_removal_cancel_stale_character_context() {
+    let state = state();
+    let target = {
+        let db = lock(&state.db).unwrap();
+        let target = characters::clone_character(&db, "builtin-b").unwrap();
+        let mut definition = characters::active_character(&db, "a").unwrap().definition;
+        definition.relationships = vec![characters::CharacterRelationship {
+            target_id: target.id.clone(),
+            description: "함께 자란 친구".into(),
+        }];
+        characters::save(&db, "builtin-a", &definition).unwrap();
+        target
+    };
+    for remove_target in [false, true] {
+        let (epoch, cancel) = interrupt(&state, false).unwrap();
+        let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
+        let line = SceneLine {
+            persona: "a".into(),
+            expression: "평온".into(),
+            text: "친구 이야기를 하고 있었어.".into(),
+        };
+        assert!(present_line(
+            &state,
+            &line,
+            "llm",
+            &format!("target-context-{remove_target}"),
+            0,
+            1,
+            revision,
+            epoch,
+            &cancel,
+            false,
+        )
+        .unwrap());
+        if !remove_target {
+            character_commands::mutate(&state, |db| {
+                let mut definition = target.definition.clone();
+                definition.instructions = "쉬는 동안 바꾼 지침".into();
+                characters::save(db, &target.id, &definition)
+            })
+            .unwrap();
+            assert!(!cancel.load(Ordering::SeqCst));
+            assert_eq!(
+                store::revision(&lock(&state.db).unwrap()).unwrap(),
+                revision
+            );
+        }
+        character_commands::mutate(&state, |db| {
+            if remove_target {
+                characters::remove(db, &target.id)
+            } else {
+                let mut definition = target.definition.clone();
+                definition.name = "새 이름의 친구".into();
+                characters::save(db, &target.id, &definition)
+            }
+        })
+        .unwrap();
+        assert!(cancel.load(Ordering::SeqCst));
+        assert!(store::revision(&lock(&state.db).unwrap()).unwrap() > revision);
+        assert!(lock(&state.playback).unwrap().is_none());
+        assert!(!present_line(
+            &state,
+            &line,
+            "llm",
+            "stale-target-context",
+            0,
+            1,
+            revision,
+            epoch,
+            &cancel,
+            false,
+        )
+        .unwrap());
+    }
 }
 
 #[test]

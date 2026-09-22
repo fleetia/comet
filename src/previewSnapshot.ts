@@ -6,7 +6,13 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
     installed: CHARACTER_PACK.characters.map((definition, index) => ({
       id: index === 0 ? "builtin-a" : "builtin-b",
       packId: null,
-      definition: { ...definition, faceIcon: false, spriteSize: 64 },
+      definition: {
+        ...definition,
+        instructions: "",
+        relationships: [],
+        faceIcon: false,
+        spriteSize: 64,
+      },
       sprites: {},
     })),
     active: ["builtin-a", "builtin-b"],
