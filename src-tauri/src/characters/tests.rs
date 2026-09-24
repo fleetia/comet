@@ -394,23 +394,103 @@ fn swapped_pair_maps_exact_text_and_replacement_disables_pack_content() {
         .any(|l| l.text.contains("원문")));
 }
 #[test]
-fn edit_preserves_identity_and_increments_host_version() {
+fn edit_preserves_identity_without_saving_a_version() {
     let conn = database();
     let created = clone_character(&conn, "builtin-a").unwrap();
     assign(&conn, "a", &created.id).unwrap();
     let mut edited = created.definition.clone();
     edited.name = "새 이름".into();
-    edited.version = 900;
     edited.source_id = "steal".into();
     save(&conn, &created.id, &edited).unwrap();
     let current = active_character(&conn, "a").unwrap();
     assert_eq!(current.id, created.id);
-    assert_eq!(current.definition.version, created.definition.version + 1);
+    assert_eq!(current.definition.name, "새 이름");
+    assert!(serde_json::to_value(&current.definition)
+        .unwrap()
+        .get("version")
+        .is_none());
     assert_eq!(current.definition.source_id, "builtin-a");
     let copy = clone_character(&conn, &created.id).unwrap();
     assert_ne!(copy.id, created.id);
     assert!(assign(&conn, "b", &created.id).is_err());
     assert_eq!(active_character(&conn, "b").unwrap().id, "builtin-b");
+}
+
+#[test]
+fn legacy_pack_versions_are_discarded_without_relaxing_field_validation() {
+    for format_version in [1, 2] {
+        let mut expected = pack();
+        expected.format_version = format_version;
+        let mut value: serde_json::Value =
+            serde_json::from_str(&pack_json(&expected).unwrap()).unwrap();
+        for definition in value["characters"].as_array_mut().unwrap() {
+            definition["version"] = serde_json::json!(u32::MAX);
+        }
+        let parsed = parse_pack(&value.to_string()).unwrap();
+        assert_eq!(
+            serde_json::to_value(&parsed).unwrap(),
+            serde_json::to_value(&expected).unwrap()
+        );
+        let exported: serde_json::Value =
+            serde_json::from_str(&pack_json(&parsed).unwrap()).unwrap();
+        assert!(exported["characters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|definition| definition.get("version").is_none()));
+        value["characters"][0]["versionHistory"] = serde_json::json!([]);
+        assert!(parse_pack(&value.to_string()).is_err());
+        value["characters"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("versionHistory");
+        value["characters"][0]["version"] = serde_json::json!("invalid");
+        assert!(parse_pack(&value.to_string()).is_err());
+    }
+}
+
+#[test]
+fn installed_legacy_versions_allow_reopen_edit_and_pack_export() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("legacy.sqlite");
+    let conn = Connection::open(&path).unwrap();
+    initialize_for_tests(&conn).unwrap();
+    let imported = import_pack(&conn, &pack()).unwrap();
+    let ids: Vec<_> = imported
+        .iter()
+        .map(|character| character.id.clone())
+        .collect();
+    apply_roster(&conn, ids.clone()).unwrap();
+    conn.execute_batch(
+        "UPDATE characters SET data=json_set(data,'$.version',4294967295);
+         UPDATE character_packs SET data=json_set(data,'$.characters[0].version',4294967295,'$.characters[1].version',5);",
+    )
+    .unwrap();
+    drop(conn);
+
+    let conn = Connection::open(&path).unwrap();
+    initialize_for_tests(&conn).unwrap();
+    assert_eq!(active_members(&conn).unwrap(), imported);
+    assert_eq!(installed_packs(&conn).unwrap()[0].character_ids, ids);
+    let mut edited = imported[0].definition.clone();
+    edited.name = "수정한 이름".into();
+    save(&conn, &ids[0], &edited).unwrap();
+    assert_eq!(active_character(&conn, "a").unwrap().definition, edited);
+    let stored: String = conn
+        .query_row("SELECT data FROM characters WHERE id=?", [&ids[0]], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert!(serde_json::from_str::<serde_json::Value>(&stored)
+        .unwrap()
+        .get("version")
+        .is_none());
+    let exported = export_pack(&conn, &ids, &[]).unwrap();
+    assert_eq!(exported.characters[0].name, edited.name);
+    assert_eq!(
+        serde_json::to_value(parse_pack(&pack_json(&exported).unwrap()).unwrap()).unwrap(),
+        serde_json::to_value(&exported).unwrap()
+    );
 }
 
 #[test]
@@ -471,7 +551,6 @@ fn authored_instructions_and_directional_relationships_preserve_local_identity()
     let saved = active_character(&conn, "b").unwrap();
     assert_eq!(saved.id, original.id);
     assert_eq!(saved.definition.source_id, original.definition.source_id);
-    assert_eq!(saved.definition.version, original.definition.version + 1);
     assert_eq!(saved.definition.instructions, definition.instructions);
     assert_eq!(saved.definition.relationships, definition.relationships);
     assert!(get(&conn, "builtin-b")

@@ -47,7 +47,14 @@ pub struct CharacterRelationship {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CharacterDefinition {
     pub source_id: String,
-    pub version: u32,
+    // Accept the retired field in installed data and older packs without retaining it.
+    #[serde(
+        default,
+        rename = "version",
+        skip_serializing,
+        deserialize_with = "discard_legacy_version"
+    )]
+    legacy_version: (),
     pub name: String,
     pub description: String,
     pub personality: String,
@@ -62,6 +69,11 @@ pub struct CharacterDefinition {
     pub sprite_size: u32,
     pub greeting: Vec<CharacterLine>,
     pub idle_lines: Vec<CharacterLine>,
+}
+fn discard_legacy_version<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<(), D::Error> {
+    u32::deserialize(deserializer).map(|_| ())
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -468,11 +480,6 @@ pub fn save(conn: &Connection, id: &str, definition: &CharacterDefinition) -> Re
     validate_local_relationships(conn, id, definition, &old.definition.relationships)?;
     let mut edited = definition.clone();
     edited.source_id = old.definition.source_id;
-    edited.version = old
-        .definition
-        .version
-        .checked_add(1)
-        .ok_or("캐릭터 버전 한도를 초과했습니다.")?;
     with_transaction(conn, |tx| {
         tx.execute(
             "UPDATE characters SET data=?1 WHERE id=?2",

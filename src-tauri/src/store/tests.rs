@@ -253,7 +253,6 @@ fn historical_identity_survives_rename_reinsert_and_slot_move() {
     insert_message(&conn, &message("new-reply", "assistant", "다시 안녕!")).unwrap();
     let latest = message_identities(&conn, 1).unwrap();
     assert_eq!(latest[0].name, "새 이름");
-    assert!(latest[0].version > old[0].version);
     crate::characters::apply_pair(&conn, ["builtin-b".into(), "builtin-a".into()]).unwrap();
     let context = context_messages_for(&conn, 10, "b").unwrap();
     assert_eq!(context.len(), 2);
@@ -266,6 +265,81 @@ fn historical_identity_survives_rename_reinsert_and_slot_move() {
     );
     assert_eq!(message_identities(&conn, 10).unwrap()[0], old[0]);
 }
+#[test]
+fn dropping_identity_versions_preserves_history_memory_and_affinity_on_reopen() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("versioned.sqlite");
+    let conn = open(&path).unwrap();
+    let original = message("original", "assistant", "  이전 대화\n원문  ");
+    insert_message(&conn, &original).unwrap();
+    let user = message("user", "user", "나는 차를 좋아해. 고마워");
+    insert_message(&conn, &user).unwrap();
+    apply(
+        &conn,
+        vec![fact("user", &user.content)],
+        vec![
+            json!({"sourceMessageId":"user","evidence":"고마워","kind":"thanks","certain":true,"persona":"a"}),
+        ],
+    );
+    let identities = message_identities(&conn, 100).unwrap();
+    let memory = serde_json::to_value(memories(&conn).unwrap()).unwrap();
+    let affinity = serde_json::to_value(relationships(&conn).unwrap()).unwrap();
+    let roster = crate::characters::active_ids(&conn).unwrap();
+    let raw = serde_json::to_string_pretty(&original).unwrap();
+    conn.execute("UPDATE messages SET data=? WHERE id='original'", [&raw])
+        .unwrap();
+    conn.execute_batch(
+        "ALTER TABLE message_characters ADD COLUMN version INTEGER NOT NULL DEFAULT 12;",
+    )
+    .unwrap();
+    drop(conn);
+
+    for _ in 0..2 {
+        let conn = open(&path).unwrap();
+        let version_columns: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('message_characters') WHERE name='version'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(version_columns, 0);
+        assert_eq!(message_identities(&conn, 100).unwrap(), identities);
+        let stored: String = conn
+            .query_row("SELECT data FROM messages WHERE id='original'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(stored, raw);
+        assert_eq!(
+            serde_json::to_value(memories(&conn).unwrap()).unwrap(),
+            memory
+        );
+        assert_eq!(
+            serde_json::to_value(relationships(&conn).unwrap()).unwrap(),
+            affinity
+        );
+        assert_eq!(crate::characters::active_ids(&conn).unwrap(), roster);
+    }
+
+    let conn = open(&path).unwrap();
+    let character = crate::characters::active_character(&conn, "a").unwrap();
+    let mut edited = character.definition;
+    edited.name = "바뀐 이름".into();
+    crate::characters::save(&conn, &character.id, &edited).unwrap();
+    insert_message(&conn, &message("new", "assistant", "새 대화")).unwrap();
+    let latest = message_identities(&conn, 1).unwrap();
+    assert_eq!(latest[0].name, edited.name);
+    assert!(serde_json::to_value(&latest[0])
+        .unwrap()
+        .get("version")
+        .is_none());
+    assert_eq!(
+        &message_identities(&conn, 100).unwrap()[..identities.len()],
+        identities
+    );
+}
+
 #[test]
 fn legacy_migration_preserves_raw_history_and_affinity_once() {
     let directory = tempfile::tempdir().unwrap();

@@ -121,9 +121,7 @@ it("preserves all pack preview content, initial disclosure states, and verbatim 
   expect(preview.getByText(`제작자: ${pack.author} · 형식 버전 1`)).toBeTruthy();
   expect(preview.getByText(`배포 조건: ${pack.license}`)).toBeTruthy();
   for (const character of previewPack.characters) {
-    const details = preview
-      .getByText(`${character.name} · 버전 ${character.version}`)
-      .closest("details");
+    const details = preview.getByText(character.name, { selector: "summary" }).closest("details");
     expect(details).toHaveProperty("open", true);
     if (!details) {
       throw new Error("Character disclosure is missing");
@@ -296,7 +294,6 @@ it("renders installed names and custom expressions while keeping historical spea
             persona: "a",
             characterId: "old-character",
             name: "예전 친구",
-            version: 1,
           },
         ],
       }}

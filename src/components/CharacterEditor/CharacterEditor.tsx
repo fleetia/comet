@@ -571,7 +571,7 @@ export function CharacterEditor({
         <span className={s.small}>
           {dirty
             ? "● 캐릭터 변경 · 키워드와 조합 대사는 별도 저장"
-            : `저장된 버전 ${definition.version} · 키워드와 조합 대사는 별도 저장`}
+            : "키워드와 조합 대사는 별도 저장"}
         </span>
         <div className={s.compactActions}>
           {dirty && onCancel && (

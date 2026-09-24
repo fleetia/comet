@@ -20,7 +20,6 @@ fn validate_line(expression: &str, text: &str) -> Result<()> {
 }
 pub(super) fn validate_definition(definition: &CharacterDefinition) -> Result<()> {
     if !bounded(&definition.source_id, 128, true)
-        || definition.version == 0
         || !bounded(&definition.name, 40, true)
         || !bounded(&definition.description, 500, false)
         || !bounded(&definition.personality, 500, false)

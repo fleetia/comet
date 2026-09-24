@@ -9,6 +9,19 @@ description: 공식 위젯과 보조 화면의 소스 구현, 실제 검증 범�
 
 기존 작은 A/B·내장 인사·단어장·기록·기억·친밀도는 유지한다. 캐릭터 관리·JSON 공유의 0.3.0 검증은 [기존 기록](VALIDATION-0.3.0.md), 0.2 기능과 당시 실측은 [제품 사양](PRODUCT.md)과 [0.2 기록](VALIDATION-0.2.0.md)에 보존한다. 과거의 네이티브 관찰·테스트 수·모델 성능을 새 위젯 결과로 재사용하지 않는다.
 
+## 2026-09-23 캐릭터 저장 버전 제거
+
+[캐릭터 저장 계약](product/characters.md)에 따라 편집기의 저장 버전 표시, 공유 미리보기의 캐릭터 버전, 정의의 자동 버전 증가와 대화 화자 버전 저장을 제거했다. 일반 저장·수정 취소·공유는 유지하고 동봉·예제 캐릭터 JSON에서도 정의 버전을 제외한다. 앱 업데이트 버전·팩의 `formatVersion`과 내부 revision·epoch 경계는 유지한다.
+
+코드 검토에서 정의의 필수 `version`과 `deny_unknown_fields`, 메시지 표의 `version NOT NULL`이 기존 데이터 읽기·새 메시지 저장과 연결된 것을 확인했다. 이전 정의의 `version`만 호환 입력으로 소비하고 새 직렬화에서는 제외하며 다른 알 수 없는 필드는 계속 거절한다. 기존 `message_characters.version` 열은 초기화 transaction에서 존재할 때만 제거한다. 원문 대화·당시 화자 이름과 로컬 ID·기억·친밀도는 유지한다. 과거 검증 기록의 버전 관련 관찰은 당시 결과로 보존한다.
+
+현재 소스로 프런트엔드 39개 파일·229개 테스트, Rust lib 430개 테스트를 통과했다. Rust의 NLP 평가·benchmark 2개는 기존 명시적 제외 상태다. 구형 v1/v2 팩과 설치 DB 읽기·편집·내보내기, 미등록 필드 거부, 메시지 표 migration 이후 두 차례 재오픈과 신규 대화 저장, 원문·기억·친밀도 보존을 회귀 검사한다. TypeScript·Oxlint·변경 파일 formatting·프런트엔드 production build·위키 타입 검사와 정적 build·diff 검사를 통과했다.
+
+macOS의 별도 `space.starlight.comet.version-removal-qa` 프로필에서 기존 QA DB를 SQLite backup으로 복사해 새 앱을 실행했다. 캐릭터의 저장 버전 표시 제거, 소개 편집·일반 저장, 공유 파일 내보내기, 이전 `version`이 있는 팩의 미리보기·설치, 정상 종료와 재시작 후 저장값·설치 캐릭터 유지까지 실제 화면에서 확인했다. 읽기 전용 DB·내보낸 파일 조회로 새 정의에 `version`이 없고 화자 표의 버전 열이 제거된 것을 확인했다. 기존 대화 28건과 화자 ID·이름, 캐릭터 2명과 팩 2개·이미지 18개·활성 구성을 보존했고 DB 무결성은 `ok`였다. 이 QA DB의 기억·친밀도는 비어 있으므로 해당 내용 보존의 근거는 값을 넣은 Rust 회귀 테스트다.
+
+최신 번들은 `src-tauri/target/debug/bundle/macos/Comet Version Removal QA.app`이며 실행 파일 SHA-256은 `1943d6150f182a1f4ce90f39a3bbbc7a3771c9ba8f16d5cfcda7d7390ac1df9e`다. `codesign --verify --deep --strict`와 identifier 확인을 통과했다. 새 앱 실행 확인 뒤 이전 `Comet Character Tabs QA.app`을 정상 종료하고 휴지통으로 옮겨 저장소 bundle에는 최신 QA 앱만 남겼다. 사용자 설치본·DB는 교체하지 않았고 사용자 데이터·설정·팩·모델·빌드 캐시는 보존했다. Windows·notarization·외부 계정·모델 의미 품질은 이번 검증 범위가 아니다.
+
+
 ## 2026-09-22 캐릭터 표시와 대화팩 제거
 
 [캐릭터 표시](product/characters.md)는 현재 화자의 표정과 `평온` fallback에 실제 이미지가 있을 때만 이미지 크기의 본체·분리 표정 창을 사용하도록 수정했다. 일부 표정에만 이미지가 있는 캐릭터가 문자 표시로 돌아오면 네이티브 창도 문자 크기로 돌아간다. 32px 이미지에는 문자 본체의 최소 높이가 적용되지 않도록 했다.

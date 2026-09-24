@@ -23,7 +23,6 @@ function moved(ids: string[], from: number, to: number): string[] {
 function newDefinition(): CharacterDefinition {
   return {
     sourceId: crypto.randomUUID(),
-    version: 1,
     name: "",
     description: "",
     personality: "",

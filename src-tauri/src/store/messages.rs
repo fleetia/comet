@@ -38,14 +38,24 @@ pub struct MessageIdentity {
     pub persona: String,
     pub character_id: String,
     pub name: String,
-    pub version: u32,
 }
 
 pub(super) fn initialize_identities(conn: &Connection) -> Result<()> {
     let tx = conn.unchecked_transaction().map_err(err)?;
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS message_characters(message_id TEXT NOT NULL,persona TEXT NOT NULL,character_id TEXT NOT NULL,name TEXT NOT NULL,version INTEGER NOT NULL,PRIMARY KEY(message_id,persona));
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS message_characters(message_id TEXT NOT NULL,persona TEXT NOT NULL,character_id TEXT NOT NULL,name TEXT NOT NULL,PRIMARY KEY(message_id,persona));
 CREATE TABLE IF NOT EXISTS character_affinity(source TEXT NOT NULL,character_id TEXT NOT NULL,day TEXT NOT NULL,delta INTEGER NOT NULL,fingerprint TEXT NOT NULL,PRIMARY KEY(source,character_id));
 CREATE TABLE IF NOT EXISTS message_targets(message_id TEXT PRIMARY KEY,ids TEXT NOT NULL);").map_err(err)?;
+    let has_version: bool = tx
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('message_characters') WHERE name='version')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(err)?;
+    if has_version {
+        tx.execute_batch("ALTER TABLE message_characters DROP COLUMN version")
+            .map_err(err)?;
+    }
     if get::<bool>(&tx, "character_identity_v1")? != Some(true) {
         let originals: Vec<Message> = {
             let mut stmt = tx
@@ -58,13 +68,12 @@ CREATE TABLE IF NOT EXISTS message_targets(message_id TEXT PRIMARY KEY,ids TEXT 
         for message in originals {
             for slot in message_slots(&message) {
                 tx.execute(
-                    "INSERT OR IGNORE INTO message_characters VALUES(?1,?2,?3,?4,?5)",
+                    "INSERT OR IGNORE INTO message_characters(message_id,persona,character_id,name) VALUES(?1,?2,?3,?4)",
                     params![
                         message.id,
                         slot,
                         format!("builtin-{slot}"),
-                        slot.to_uppercase(),
-                        1_u32
+                        slot.to_uppercase()
                     ],
                 )
                 .map_err(err)?;
@@ -85,7 +94,7 @@ fn message_slots(message: &Message) -> Vec<&str> {
     }
 }
 pub fn message_identities(conn: &Connection, limit: usize) -> Result<Vec<MessageIdentity>> {
-    let mut stmt = conn.prepare("SELECT i.message_id,i.persona,i.character_id,i.name,i.version FROM message_characters i JOIN messages m ON m.id=i.message_id WHERE m.seq IN (SELECT seq FROM messages ORDER BY seq DESC LIMIT ?) ORDER BY m.seq,i.persona").map_err(err)?;
+    let mut stmt = conn.prepare("SELECT i.message_id,i.persona,i.character_id,i.name FROM message_characters i JOIN messages m ON m.id=i.message_id WHERE m.seq IN (SELECT seq FROM messages ORDER BY seq DESC LIMIT ?) ORDER BY m.seq,i.persona").map_err(err)?;
     let rows = stmt
         .query_map([limit.min(1000) as i64], |r| {
             Ok(MessageIdentity {
@@ -93,7 +102,6 @@ pub fn message_identities(conn: &Connection, limit: usize) -> Result<Vec<Message
                 persona: r.get(1)?,
                 character_id: r.get(2)?,
                 name: r.get(3)?,
-                version: r.get(4)?,
             })
         })
         .map_err(err)?;
@@ -221,13 +229,12 @@ pub fn insert_message_with_source(
             let character = crate::characters::active_character(&tx, &slot)?;
             target_ids.push(character.id.clone());
             tx.execute(
-                "INSERT INTO message_characters VALUES(?1,?2,?3,?4,?5)",
+                "INSERT INTO message_characters(message_id,persona,character_id,name) VALUES(?1,?2,?3,?4)",
                 params![
                     message.id,
                     slot,
                     character.id,
-                    character.definition.name,
-                    character.definition.version
+                    character.definition.name
                 ],
             )
             .map_err(err)?;

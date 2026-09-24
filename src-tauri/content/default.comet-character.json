@@ -6,7 +6,6 @@
   "characters": [
     {
       "sourceId": "builtin-a",
-      "version": 1,
       "name": "A",
       "description": "Comet 기본 캐릭터",
       "personality": "호기심이 많고 다정하며 먼저 말을 건넨다.",
@@ -33,7 +32,6 @@
     },
     {
       "sourceId": "builtin-b",
-      "version": 1,
       "name": "B",
       "description": "Comet 기본 캐릭터",
       "personality": "차분하고 간결하며 가끔 부드러운 농담을 한다.",

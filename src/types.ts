@@ -4,7 +4,6 @@ export type CharacterLine = { expression: string; text: string };
 export type CharacterRelationship = { targetId: string; description: string };
 export type CharacterDefinition = {
   sourceId: string;
-  version: number;
   name: string;
   description: string;
   personality: string;
@@ -43,7 +42,6 @@ export type MessageIdentity = {
   persona: Persona;
   characterId: string;
   name: string;
-  version: number;
 };
 export type SceneLine = { persona: Persona; expression: string; text: string };
 export type WordbookEntry = {

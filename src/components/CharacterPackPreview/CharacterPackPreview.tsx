@@ -19,9 +19,7 @@ export function CharacterPackPreview({ pack }: Props): JSX.Element {
       {pack.sourceUrl && <p className={s.preview}>출처: {pack.sourceUrl}</p>}
       {pack.characters.map((character, index) => (
         <details key={`${character.sourceId}:${index}`} open>
-          <summary className={s.disclosureSummary}>
-            {character.name} · 버전 {character.version}
-          </summary>
+          <summary className={s.disclosureSummary}>{character.name}</summary>
           <div className={s.preview}>
             <p>{character.description}</p>
             <p>성격과 말투: {character.personality}</p>
