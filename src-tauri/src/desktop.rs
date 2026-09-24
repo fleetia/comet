@@ -4,7 +4,7 @@ use crate::{
     types::{Snapshot, WindowPosition},
     AppState,
 };
-use std::sync::Arc;
+use std::sync::{atomic::Ordering, Arc, Mutex};
 use tauri::{AppHandle, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewWindow};
 
 const BODY_SIZE: (f64, f64) = (112.0, 88.0);
@@ -142,9 +142,9 @@ fn clamp_position(x: f64, y: f64, width: f64, height: f64, area: Rect) -> (f64, 
     )
 }
 
-fn balloon_rect(body: Rect, area: Rect, scale: f64, height: f64) -> Rect {
-    let width = (320.0 * scale).min(area.width);
-    let height = (height.clamp(110.0, 520.0) * scale).min(area.height);
+fn balloon_rect(body: Rect, area: Rect, scale: f64, size: (f64, f64)) -> Rect {
+    let width = (size.0.clamp(48.0, 320.0) * scale).min(area.width);
+    let height = (size.1.clamp(32.0, 520.0) * scale).min(area.height);
     let gap = 8.0 * scale;
     let above = body.y - height - gap;
     let y = if above >= area.y {
@@ -276,6 +276,14 @@ fn has_visible_sprite(
     active: &[String],
     playback: Option<&crate::types::Playback>,
 ) -> bool {
+    if character
+        .definition
+        .animation
+        .as_ref()
+        .is_some_and(|animation| !animation.clips.is_empty())
+    {
+        return true;
+    }
     let expression = playback
         .filter(|line| {
             let speaker = active.iter().find(|id| **id == line.persona).or_else(|| {
@@ -486,6 +494,84 @@ fn owner_id<'a>(
         .map(String::as_str)
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct BalloonTarget {
+    key: String,
+    owner: String,
+    epoch: u64,
+}
+
+fn balloon_target(
+    runtime: &crate::types::RuntimeStatus,
+    panel: Option<&crate::types::PanelState>,
+    story: Option<&crate::story::Request>,
+    playback: Option<&crate::types::Playback>,
+    active: &[String],
+    epoch: u64,
+) -> Option<BalloonTarget> {
+    let owner = owner_id(runtime, panel, story, playback, active)?.to_owned();
+    let key = if let Some(panel) = panel {
+        format!("panel:{}:{}", panel.persona, panel.mode)
+    } else if let Some(story) = story {
+        format!("story:{}", story.id)
+    } else if let Some(playback) = playback {
+        format!("playback:{}", playback.id)
+    } else {
+        format!(
+            "runtime:{}:{}",
+            runtime.phase.as_str(),
+            runtime.persona.as_deref().unwrap_or_default()
+        )
+    };
+    Some(BalloonTarget { key, owner, epoch })
+}
+
+#[derive(Default)]
+struct BalloonLayout {
+    target: Option<BalloonTarget>,
+    size: Option<(f64, f64)>,
+}
+
+impl BalloonLayout {
+    fn sync(&mut self, target: Option<BalloonTarget>) -> Option<(f64, f64)> {
+        let same_content =
+            self.target
+                .as_ref()
+                .zip(target.as_ref())
+                .is_some_and(|(previous, current)| {
+                    previous.key == current.key && previous.owner == current.owner
+                });
+        if !same_content {
+            self.size = None;
+        }
+        self.target = target;
+        self.size
+    }
+
+    fn measured(&mut self, target: BalloonTarget, key: &str, size: (f64, f64)) -> bool {
+        if target.key != key {
+            return false;
+        }
+        self.sync(Some(target));
+        self.size = Some(size);
+        true
+    }
+}
+
+fn balloon_layout(app: &AppHandle) -> tauri::State<'_, Mutex<BalloonLayout>> {
+    if app.try_state::<Mutex<BalloonLayout>>().is_none() {
+        app.manage(Mutex::new(BalloonLayout::default()));
+    }
+    app.state::<Mutex<BalloonLayout>>()
+}
+
+fn measured_balloon_size(width: f64, height: f64) -> Result<(f64, f64), String> {
+    if !width.is_finite() || !height.is_finite() {
+        return Err("말풍선 크기가 올바르지 않습니다.".into());
+    }
+    Ok((width.clamp(48.0, 320.0), height.clamp(32.0, 520.0)))
+}
+
 fn get_balloon(app: &AppHandle) -> Result<WebviewWindow, String> {
     if let Some(window) = app.get_webview_window("balloon") {
         return Ok(window);
@@ -514,7 +600,7 @@ fn position_balloon(
     app: &AppHandle,
     window: &WebviewWindow,
     id: &str,
-    height: f64,
+    size: (f64, f64),
 ) -> Result<(), String> {
     let body = app
         .get_webview_window(&body_label(id))
@@ -525,17 +611,17 @@ fn position_balloon(
         .or(body.primary_monitor().map_err(|e| e.to_string())?)
         .ok_or("화면 영역을 확인할 수 없습니다.")?;
     let position = body.outer_position().map_err(|e| e.to_string())?;
-    let size = body.outer_size().map_err(|e| e.to_string())?;
+    let body_size = body.outer_size().map_err(|e| e.to_string())?;
     let rect = balloon_rect(
         Rect {
             x: position.x as f64,
             y: position.y as f64,
-            width: size.width as f64,
-            height: size.height as f64,
+            width: body_size.width as f64,
+            height: body_size.height as f64,
         },
         work_area(&monitor),
         monitor.scale_factor(),
-        height,
+        size,
     );
     window
         .set_position(PhysicalPosition::new(
@@ -551,42 +637,189 @@ fn position_balloon(
         .map_err(|e| e.to_string())
 }
 
-pub(crate) fn sync_balloon(app: &AppHandle, snapshot: &Snapshot) {
-    let Some(id) = owner(snapshot) else {
-        if let Some(window) = app.get_webview_window("balloon") {
-            let _ = hide_ambient(&window);
+fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
+    let state = app.state::<Arc<AppState>>();
+    // A worker may be waiting on this thread, so retry contended state without blocking the UI.
+    let Ok(_action) = state.action.try_lock() else {
+        return Ok(false);
+    };
+    let (Ok(db), Ok(runtime), Ok(panel), Ok(mut playback), Ok(mut story)) = (
+        state.db.try_lock(),
+        state.runtime.try_lock(),
+        state.panel.try_lock(),
+        state.playback.try_lock(),
+        state.story.try_lock(),
+    ) else {
+        return Ok(false);
+    };
+    let characters = crate::characters::collection(&db)?;
+    let target = if super::unavailable(&state) {
+        None
+    } else {
+        balloon_target(
+            &runtime,
+            panel.as_ref(),
+            story.as_ref(),
+            playback.as_ref(),
+            &characters.active,
+            state.epoch.load(Ordering::SeqCst),
+        )
+    };
+    let focus_panel = panel.is_some();
+    drop((runtime, panel));
+    let layout = balloon_layout(app);
+    let Ok(mut layout) = layout.try_lock() else {
+        return Ok(false);
+    };
+    let size = layout.sync(target.clone());
+    drop(layout);
+    let Some(window) = app.get_webview_window("balloon") else {
+        return Ok(true);
+    };
+    let (Some(target), Some(size)) = (target, size) else {
+        window.hide().map_err(|error| error.to_string())?;
+        #[cfg(target_os = "windows")]
+        if let Ok(handle) = window.hwnd() {
+            unsafe {
+                windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(
+                    handle.0 as _,
+                    windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE,
+                );
+            }
         }
-        return;
+        return Ok(true);
     };
-    let Ok(window) = get_balloon(app) else {
+    let was_visible = window.is_visible().unwrap_or(false);
+    position_balloon(app, &window, &target.owner, size)?;
+    #[cfg(target_os = "macos")]
+    {
+        let pointer = window.ns_window().map_err(|error| error.to_string())?;
+        unsafe {
+            let native = &*(pointer as *mut objc2::runtime::AnyObject);
+            let _: () =
+                objc2::msg_send![native, orderFront: std::ptr::null::<objc2::runtime::AnyObject>()];
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let handle = window.hwnd().map_err(|error| error.to_string())?;
+        unsafe {
+            windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(
+                handle.0 as _,
+                windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNOACTIVATE,
+            );
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    window.show().map_err(|error| error.to_string())?;
+    if focus_panel && !was_visible {
+        window.set_focus().map_err(|error| error.to_string())?;
+    }
+    let mut first_display = false;
+    let mut displayed_message = None;
+    if let Some(line) = playback.as_mut() {
+        if target.key == format!("playback:{}", line.id) {
+            first_display =
+                crate::app::scene::mark_line_displayed(line, chrono::Utc::now().timestamp_millis());
+            if first_display {
+                displayed_message = Some(line.id.clone());
+            }
+        }
+    }
+    if let Some(request) = story.as_mut() {
+        if target.key == format!("story:{}", request.id) && request.display_started_at.is_none() {
+            request.display_started_at = Some(chrono::Utc::now().timestamp_millis());
+            first_display = true;
+        }
+    }
+    drop((playback, story));
+    if let Some(id) = displayed_message {
+        store::mark_message_displayed(&db, &id, chrono::Utc::now().timestamp_millis())?;
+    }
+    drop((db, _action));
+    if first_display {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let state = app.state::<Arc<AppState>>();
+            super::publish(&app, &state);
+        });
+    }
+    Ok(true)
+}
+
+fn sync_measured_balloon(
+    app: &AppHandle,
+) -> Result<tokio::sync::oneshot::Receiver<Result<bool, String>>, String> {
+    let (send, receive) = tokio::sync::oneshot::channel();
+    let app = app.clone();
+    let scheduler = app.clone();
+    scheduler
+        .run_on_main_thread(move || {
+            let _ = send.send(apply_measured_balloon(&app));
+        })
+        .map_err(|error| error.to_string())?;
+    Ok(receive)
+}
+
+async fn await_balloon_sync(
+    app: &AppHandle,
+    mut pending: tokio::sync::oneshot::Receiver<Result<bool, String>>,
+) -> Result<(), String> {
+    for attempt in 0..50 {
+        if pending.await.map_err(|error| error.to_string())?? {
+            return Ok(());
+        }
+        if attempt == 49 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        pending = sync_measured_balloon(app)?;
+    }
+    Err("말풍선 크기 반영을 기다리지 못했습니다.".into())
+}
+
+pub(crate) fn sync_balloon(app: &AppHandle, snapshot: &Snapshot) {
+    let _ = balloon_layout(app);
+    if owner(snapshot).is_some() && get_balloon(app).is_err() {
         return;
-    };
-    let height = window
-        .inner_size()
-        .ok()
-        .zip(window.scale_factor().ok())
-        .map(|(size, scale)| size.height as f64 / scale)
-        .unwrap_or(180.0);
-    if position_balloon(app, &window, id, height).is_ok() {
-        let _ = show_passive(app, &window);
+    }
+    if let Ok(pending) = sync_measured_balloon(app) {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = await_balloon_sync(&app, pending).await;
+        });
     }
 }
 
-pub(crate) fn resize_balloon(
+pub(crate) async fn resize_balloon(
     app: &AppHandle,
-    snapshot: &Snapshot,
+    width: f64,
     height: f64,
+    content_key: &str,
 ) -> Result<(), String> {
-    if !height.is_finite() {
-        return Err("말풍선 높이가 올바르지 않습니다.".into());
+    let size = measured_balloon_size(width, height)?;
+    let state = app.state::<Arc<AppState>>();
+    {
+        let _action = super::lock(&state.action)?;
+        if super::unavailable(&state) {
+            return Ok(());
+        }
+        let snapshot = super::snapshot(&state)?;
+        let Some(target) = balloon_target(
+            &snapshot.runtime,
+            snapshot.panel.as_ref(),
+            snapshot.story.as_ref(),
+            snapshot.playback.as_ref(),
+            &snapshot.characters.active,
+            state.epoch.load(Ordering::SeqCst),
+        ) else {
+            return Ok(());
+        };
+        if !super::lock(&balloon_layout(app))?.measured(target, content_key, size) {
+            return Ok(());
+        }
     }
-    let Some(id) = owner(snapshot) else {
-        return Ok(());
-    };
-    if let Some(window) = app.get_webview_window("balloon") {
-        position_balloon(app, &window, id, height)?;
-    }
-    Ok(())
+    await_balloon_sync(app, sync_measured_balloon(app)?).await
 }
 
 #[cfg(test)]
@@ -617,6 +850,8 @@ mod tests {
             text: "안녕".into(),
             source: "script".into(),
             ends_at: 1,
+            text_speed: 0,
+            display_started_at: None,
             line_index: 0,
             line_count: 1,
         });
@@ -656,6 +891,8 @@ mod tests {
             text: "안녕".into(),
             source: "script".into(),
             ends_at: 1,
+            text_speed: 0,
+            display_started_at: None,
             line_index: 0,
             line_count: 1,
         });
@@ -727,6 +964,135 @@ mod tests {
     }
 
     #[test]
+    fn balloon_waits_for_current_content_measurement_and_keeps_size_while_moving() {
+        let mut layout = BalloonLayout::default();
+        let first = BalloonTarget {
+            key: "playback:first".into(),
+            owner: "one".into(),
+            epoch: 1,
+        };
+        let second = BalloonTarget {
+            key: "playback:second".into(),
+            ..first.clone()
+        };
+        assert_eq!(layout.sync(Some(first.clone())), None);
+        assert!(layout.measured(first.clone(), &first.key, (108.0, 56.0)));
+        assert_eq!(layout.sync(Some(first.clone())), Some((108.0, 56.0)));
+        assert_eq!(layout.sync(Some(second.clone())), None);
+        assert!(!layout.measured(second.clone(), &first.key, (320.0, 180.0)));
+        assert_eq!(layout.sync(Some(second.clone())), None);
+        assert!(layout.measured(second.clone(), &second.key, (212.0, 93.0)));
+        assert_eq!(layout.sync(Some(second)), Some((212.0, 93.0)));
+        assert_eq!(layout.sync(None), None);
+        assert_eq!(layout.sync(Some(first.clone())), None);
+        assert!(layout.measured(first.clone(), &first.key, (108.0, 56.0)));
+        let restarted = BalloonTarget { epoch: 2, ..first };
+        assert_eq!(layout.sync(Some(restarted.clone())), Some((108.0, 56.0)));
+        assert_eq!(layout.target.as_ref().unwrap().epoch, 2);
+        assert_eq!(
+            layout.sync(Some(BalloonTarget {
+                owner: "two".into(),
+                ..restarted
+            })),
+            None
+        );
+    }
+
+    #[test]
+    fn balloon_keys_follow_panel_story_playback_and_runtime_ownership() {
+        let state = crate::app::tests::state();
+        let mut data = crate::app::snapshot(&state).unwrap();
+        let id = data.characters.active[0].clone();
+        let target = |data: &Snapshot| {
+            balloon_target(
+                &data.runtime,
+                data.panel.as_ref(),
+                data.story.as_ref(),
+                data.playback.as_ref(),
+                &data.characters.active,
+                7,
+            )
+        };
+        assert_eq!(target(&data), None);
+        data.runtime.phase = crate::types::RuntimePhase::Generating;
+        data.runtime.persona = Some(id.clone());
+        assert_eq!(
+            target(&data).unwrap().key,
+            format!("runtime:generating:{id}")
+        );
+        data.playback = Some(crate::types::Playback {
+            id: "line-1".into(),
+            persona: id.clone(),
+            expression: "평온".into(),
+            text: "안녕".into(),
+            source: "script".into(),
+            ends_at: 1,
+            text_speed: 0,
+            display_started_at: None,
+            line_index: 0,
+            line_count: 1,
+        });
+        assert_eq!(target(&data).unwrap().key, "playback:line-1");
+        data.story = Some(crate::story::Request {
+            id: "story-1".into(),
+            user_id: "legacy-user".into(),
+            display_started_at: None,
+            persona: id.clone(),
+            title: "제목".into(),
+            prompt: "본문".into(),
+            choices: vec![],
+            character_id: id.clone(),
+            epoch: 7,
+            scene: crate::story::Scene {
+                id: "scene-1".into(),
+                chapter: 1,
+                title: "제목".into(),
+                prompt: "본문".into(),
+                choices: vec![],
+            },
+        });
+        assert_eq!(target(&data).unwrap().key, "story:story-1");
+        data.panel = Some(crate::types::PanelState {
+            persona: "a".into(),
+            mode: "input".into(),
+        });
+        assert_eq!(target(&data).unwrap().key, "panel:a:input");
+        assert_eq!(target(&data).unwrap().owner, id);
+        data.runtime.hidden = true;
+        assert_eq!(target(&data), None);
+    }
+
+    #[test]
+    fn reopening_the_visible_panel_keeps_its_measurement_but_closing_invalidates_it() {
+        let mut layout = BalloonLayout::default();
+        let panel = BalloonTarget {
+            key: "panel:a:input".into(),
+            owner: "one".into(),
+            epoch: 1,
+        };
+        assert!(layout.measured(panel.clone(), &panel.key, (320.0, 240.0)));
+        let reopened = BalloonTarget { epoch: 2, ..panel };
+        assert_eq!(layout.sync(Some(reopened.clone())), Some((320.0, 240.0)));
+        assert_eq!(layout.target.as_ref().unwrap().epoch, 2);
+        assert_eq!(layout.sync(None), None);
+        assert_eq!(layout.sync(Some(reopened)), None);
+    }
+
+    #[test]
+    fn balloon_measurements_reject_nonfinite_dimensions_and_clamp_both_axes() {
+        for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(measured_balloon_size(invalid, 50.0).is_err());
+            assert!(measured_balloon_size(100.0, invalid).is_err());
+        }
+        assert_eq!(measured_balloon_size(-10.0, 0.0).unwrap(), (48.0, 32.0));
+        assert_eq!(
+            measured_balloon_size(1000.0, 1000.0).unwrap(),
+            (320.0, 520.0)
+        );
+        assert_eq!(measured_balloon_size(82.5, 39.5).unwrap(), (82.5, 39.5));
+    }
+
+    #[test]
     fn balloon_stays_in_work_area_across_scale_and_screen_edges() {
         for (area, scale) in [
             (
@@ -761,7 +1127,8 @@ mod tests {
                     width: 112.0 * scale,
                     height: 88.0 * scale,
                 };
-                let bubble = balloon_rect(body, area, scale, 180.0);
+                let bubble = balloon_rect(body, area, scale, (126.0, 180.0));
+                assert_eq!(bubble.width, 126.0 * scale);
                 assert!(bubble.x >= area.x && bubble.y >= area.y);
                 assert!(bubble.x + bubble.width <= area.x + area.width);
                 assert!(bubble.y + bubble.height <= area.y + area.height);
@@ -791,7 +1158,7 @@ mod tests {
             },
             area,
             2.0,
-            900.0,
+            (900.0, 900.0),
         );
         assert_eq!(bubble.height, 400.0);
         assert_eq!((bubble.x, bubble.y), (-500.0, 20.0));

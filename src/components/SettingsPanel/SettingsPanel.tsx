@@ -22,7 +22,7 @@ import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { DesktopPreferences } from "../DesktopPreferences/DesktopPreferences";
 import { UpdatePanel } from "../UpdatePanel/UpdatePanel";
 import { useSettingsDraft, type SettingsDraft } from "../../hooks/useSettingsDraft";
-import { MemorySettings } from "../MemorySettings/MemorySettings";
+import { UserSettings } from "../UserSettings/UserSettings";
 import { ModelSettings } from "../ModelSettings/ModelSettings";
 import { TalkPackPanel } from "../TalkPackPanel/TalkPackPanel";
 import { WordbookPanel } from "../WordbookPanel/WordbookPanel";
@@ -89,13 +89,15 @@ function DraftActions({
   );
 }
 export function SettingsPanel({ snapshot, preview = false, initialSection }: Props): JSX.Element {
-  const { section, visited, navigate, navigationError } = useSettingsNavigation(initialSection);
+  const { section, visited, navigate, navigationError, memoryTabRequest } = useSettingsNavigation(
+    snapshot.user ? initialSection : "user",
+  );
   const automatic = useSettingsDraft(snapshot.settings, "automatic");
   const model = useSettingsDraft(snapshot.settings, "model");
   const [widgetsDirty, setWidgetsDirty] = useState(false);
   const [charactersDirty, setCharactersDirty] = useState(false);
   const [wordbookDirty, setWordbookDirty] = useState(false);
-  const [memoryDirty, setMemoryDirty] = useState(false);
+  const [userDirty, setUserDirty] = useState(false);
   const [generalDirty, setGeneralDirty] = useState(false);
   const [updateBusy, setUpdateBusy] = useState(false);
   const [confirmExit, setConfirmExit] = useState(false);
@@ -106,7 +108,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
     automatic: automatic.hasChanges,
     wordbook: wordbookDirty,
     talk: false,
-    memory: memoryDirty,
+    user: userDirty,
     model: model.hasChanges,
     general: generalDirty,
   };
@@ -195,9 +197,14 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
             </p>
           )}
           <fieldset className={styles.scrollArea} disabled={updateBusy} aria-label="설정 내용">
-            <TabPanel value="characters" className={styles.panel}>
+            <TabPanel value="characters" className={`${styles.panel} ${styles.characterPanel}`}>
               {visited.has("characters") && (
-                <CharacterManager snapshot={snapshot} embedded onDirtyChange={setCharactersDirty} />
+                <CharacterManager
+                  snapshot={snapshot}
+                  embedded
+                  onDirtyChange={setCharactersDirty}
+                  memoryTabRequest={memoryTabRequest}
+                />
               )}
             </TabPanel>
             <TabPanel value="widgets" className={styles.panel}>
@@ -288,13 +295,9 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
             <TabPanel value="talk" className={styles.panel}>
               {visited.has("talk") && <TalkPackPanel />}
             </TabPanel>
-            <TabPanel value="memory" className={styles.panel}>
-              {visited.has("memory") && (
-                <MemorySettings
-                  memoryCount={snapshot.memoryCount}
-                  memoryRevision={snapshot.memoryRevision}
-                  onDirtyChange={setMemoryDirty}
-                />
+            <TabPanel value="user" className={styles.panel}>
+              {visited.has("user") && (
+                <UserSettings snapshot={snapshot} onDirtyChange={setUserDirty} />
               )}
             </TabPanel>
             <TabPanel value="general" className={styles.panel}>

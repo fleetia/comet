@@ -1,11 +1,13 @@
 mod background;
-mod conversation;
+pub(crate) mod conversation;
+mod history;
 pub(crate) mod lifecycle;
 pub(crate) mod scene;
 mod settings;
 mod tasks;
 #[cfg(test)]
 pub(crate) mod tests;
+mod users;
 pub(crate) mod windows;
 
 use crate::{
@@ -100,6 +102,8 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
         model_ready: models::selected_ready(&state.app_data, &settings),
         local_models: models::model_statuses(&state.app_data),
         settings,
+        user: store::current_user(&db)?,
+        legacy_memory_count: store::legacy_memory_count(&db)?,
         messages: store::messages(&db, 100)?,
         memory_count: store::memory_count(&db)?,
         memory_revision: store::memory_revision(&db)?,
@@ -112,6 +116,7 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
         wordbook: wordbook::entries(&db)?,
         characters: characters::collection(&db)?,
         message_identities: store::message_identities(&db, 100)?,
+        message_user_names: store::message_user_names(&db, 100)?,
     })
 }
 

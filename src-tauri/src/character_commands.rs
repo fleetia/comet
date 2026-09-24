@@ -4,6 +4,7 @@ use crate::{
         windows::{open_settings_section, SettingsSection},
         AppState,
     },
+    character_animation::{self, AnimationAsset},
     character_files, character_sprites,
     characters::{
         self, CharacterDefinition, CharacterDialogue, CharacterPack, InstalledCharacter,
@@ -68,15 +69,29 @@ pub(crate) fn serve_sprite(
         .and_then(|mut segments| segments.next())
         .unwrap_or("")
         .to_string();
-    let Some(expression) = url
+    let expression = url
         .query_pairs()
         .find(|(key, _)| key == "expression")
-        .map(|(_, value)| value.into_owned())
-    else {
-        return sprite_response(400, "text/plain", Vec::new(), origin, dev_url);
-    };
+        .map(|(_, value)| value.into_owned());
+    let asset = url
+        .query_pairs()
+        .find(|(key, _)| key == "asset")
+        .map(|(_, value)| value.into_owned());
     let state = ctx.app_handle().state::<Arc<AppState>>();
-    let found = lock(&state.db).and_then(|db| characters::sprite(&db, &id, &expression));
+    let found = match (expression, asset) {
+        (Some(expression), None) => {
+            lock(&state.db).and_then(|db| characters::sprite(&db, &id, &expression))
+        }
+        (None, Some(asset)) => lock(&state.db)
+            .and_then(|db| character_animation::get(&db, &id, &asset))
+            .map(|value| {
+                value.map(|asset| character_sprites::Sprite {
+                    mime: asset.info.mime,
+                    data: asset.bytes,
+                })
+            }),
+        _ => return sprite_response(400, "text/plain", Vec::new(), origin, dev_url),
+    };
     match found {
         Ok(Some(sprite)) => sprite_response(200, &sprite.mime, sprite.data, origin, dev_url),
         Ok(None) => sprite_response(404, "text/plain", Vec::new(), origin, dev_url),
@@ -148,6 +163,32 @@ pub(crate) fn remove_character_sprite(
     write_sprite(&app, &state, |db| {
         characters::remove_sprite(db, &id, &expression)
     })
+}
+
+#[tauri::command]
+pub(crate) async fn choose_animation_assets(
+    app: tauri::AppHandle,
+) -> Result<Vec<AnimationAsset>, String> {
+    let (send, receive) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("PNG·APNG 프레임 또는 시트 선택")
+        .add_filter("PNG·APNG 이미지", &["png", "apng"])
+        .pick_files(move |paths| {
+            let _ = send.send(paths);
+        });
+    let Some(paths) = receive.await.map_err(|_| "파일 선택이 중단됐어요.")? else {
+        return Ok(Vec::new());
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths = paths
+            .into_iter()
+            .map(|path| path.into_path().map_err(|error| error.to_string()))
+            .collect::<Result<Vec<_>, _>>()?;
+        character_animation::read_files(&paths)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 pub(crate) fn mutate<T>(
@@ -222,23 +263,39 @@ fn mutate_inner<T>(
 }
 
 #[tauri::command]
-pub(crate) fn create_character(
+pub(crate) async fn create_character(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     definition: CharacterDefinition,
+    animation_assets: Option<Vec<AnimationAsset>>,
 ) -> Result<InstalledCharacter, String> {
-    let character = mutate(&state, |db| characters::create(db, &definition))?;
+    let assets = tauri::async_runtime::spawn_blocking(move || {
+        character_animation::prepare_assets(animation_assets.unwrap_or_default())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    let character = mutate(&state, |db| {
+        characters::create_with_assets(db, &definition, &assets)
+    })?;
     publish(&app, &state);
     Ok(character)
 }
 #[tauri::command]
-pub(crate) fn save_character(
+pub(crate) async fn save_character(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
     definition: CharacterDefinition,
+    animation_assets: Option<Vec<AnimationAsset>>,
 ) -> Result<(), String> {
-    mutate(&state, |db| characters::save(db, &id, &definition))?;
+    let assets = tauri::async_runtime::spawn_blocking(move || {
+        character_animation::prepare_assets(animation_assets.unwrap_or_default())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    mutate(&state, |db| {
+        characters::save_with_assets(db, &id, &definition, &assets)
+    })?;
     publish(&app, &state);
     Ok(())
 }
@@ -309,8 +366,10 @@ pub(crate) fn save_character_dialogue(
     Ok(())
 }
 #[tauri::command]
-pub(crate) fn preview_character_pack(json: String) -> Result<CharacterPack, String> {
-    characters::parse_pack(&json)
+pub(crate) async fn preview_character_pack(json: String) -> Result<CharacterPack, String> {
+    tauri::async_runtime::spawn_blocking(move || characters::parse_pack(&json))
+        .await
+        .map_err(|error| error.to_string())?
 }
 #[tauri::command]
 pub(crate) async fn choose_character_pack(
@@ -319,12 +378,15 @@ pub(crate) async fn choose_character_pack(
     character_files::choose(app).await
 }
 #[tauri::command]
-pub(crate) fn import_character_pack(
+pub(crate) async fn import_character_pack(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     pack: CharacterPack,
 ) -> Result<Vec<InstalledCharacter>, String> {
-    let imported = mutate(&state, |db| characters::import_pack(db, &pack))?;
+    let prepared = tauri::async_runtime::spawn_blocking(move || characters::prepare_pack(pack))
+        .await
+        .map_err(|error| error.to_string())??;
+    let imported = mutate(&state, |db| characters::import_prepared_pack(db, &prepared))?;
     publish(&app, &state);
     Ok(imported)
 }
@@ -334,8 +396,9 @@ pub(crate) async fn save_character_pack(
     state: tauri::State<'_, Arc<AppState>>,
     ids: Vec<String>,
     wordbook_ids: Vec<String>,
+    options: Option<characters::ExportOptions>,
 ) -> Result<Option<String>, String> {
-    let json = {
+    let pack = {
         let db = lock(&state.db)?;
         let entries = wordbook::entries(&db)?;
         if wordbook_ids.len() > 100 {
@@ -351,9 +414,11 @@ pub(crate) async fn save_character_pack(
                     .ok_or_else(|| "선택한 개인 단어장을 찾지 못했어요.".to_string())
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let pack = characters::export_pack(&db, &ids, &selected)?;
-        characters::pack_json(&pack)?
+        characters::export_pack_with_options(&db, &ids, &selected, &options.unwrap_or_default())?
     };
+    let json = tauri::async_runtime::spawn_blocking(move || characters::pack_json(&pack))
+        .await
+        .map_err(|error| error.to_string())??;
     character_files::save(app, json).await
 }
 #[tauri::command]

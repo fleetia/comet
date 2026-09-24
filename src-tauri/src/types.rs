@@ -92,13 +92,38 @@ pub struct Message {
     pub status: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Memory {
+    #[serde(default)]
+    pub character_id: String,
+    #[serde(default)]
+    pub user_id: String,
+    #[serde(default)]
+    pub user_name: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub source_text: String,
+    #[serde(default)]
+    pub source_created_at: i64,
+    #[serde(default)]
+    pub retired_at: Option<i64>,
+    #[serde(default)]
+    pub recall_weight: f64,
     pub id: String,
     pub content: String,
     pub source_message_id: String,
     pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UserIdentity {
+    pub id: String,
+    pub name: String,
+    pub started_at: i64,
+    pub ended_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,6 +160,10 @@ pub struct Playback {
     pub expression: String,
     pub text: String,
     pub source: String,
+    #[serde(default)]
+    pub text_speed: u32,
+    #[serde(default)]
+    pub display_started_at: Option<i64>,
     pub ends_at: i64,
     pub line_index: usize,
     pub line_count: usize,
@@ -242,6 +271,12 @@ impl Default for RuntimeStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
+    #[serde(default)]
+    pub user: Option<UserIdentity>,
+    #[serde(default)]
+    pub legacy_memory_count: usize,
+    #[serde(default)]
+    pub message_user_names: std::collections::BTreeMap<String, String>,
     pub characters: crate::characters::CharacterCollection,
     pub message_identities: Vec<crate::store::MessageIdentity>,
     pub settings: Settings,
@@ -264,6 +299,25 @@ pub struct Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_playback_defaults_to_instant_text_without_changing_content_or_deadline() {
+        let value = serde_json::json!({
+            "id": "line",
+            "persona": "builtin-a",
+            "expression": "평온",
+            "text": "  원문\n그대로  ",
+            "source": "wordbook",
+            "endsAt": 12345,
+            "lineIndex": 0,
+            "lineCount": 1
+        });
+        let playback: Playback = serde_json::from_value(value).unwrap();
+        assert_eq!(playback.text_speed, 0);
+        assert_eq!(playback.display_started_at, None);
+        assert_eq!(playback.text, "  원문\n그대로  ");
+        assert_eq!(playback.ends_at, 12345);
+    }
 
     #[test]
     fn runtime_phase_wire_values_and_existing_autogeneration_choices_are_preserved() {

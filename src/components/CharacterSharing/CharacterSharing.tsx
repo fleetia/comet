@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import { Button, Checkbox, Dialog, Select, TextField } from "@fleetia/lagrange";
 import { command, errorText } from "../../hooks/useSnapshot";
-import type { CharacterPack, InstalledCharacter, Snapshot } from "../../types";
+import type {
+  CharacterExportOptions,
+  CharacterPack,
+  InstalledCharacter,
+  Snapshot,
+} from "../../types";
 import { CharacterPackPreview } from "../CharacterPackPreview/CharacterPackPreview";
 import * as ui from "../../lagrange.css";
 import * as s from "../characters.css";
@@ -19,6 +24,7 @@ type Props = {
   action?: SharingAction | null;
   onActionChange?: (action: SharingAction | null) => void;
   contentDirty?: boolean;
+  exportScope?: "selected" | "pair";
 };
 export function CharacterSharing({
   snapshot,
@@ -29,8 +35,25 @@ export function CharacterSharing({
   action,
   onActionChange,
   contentDirty = false,
+  exportScope,
 }: Props): JSX.Element {
   const [scope, setScope] = useState("selected");
+  const [options, setOptions] = useState<CharacterExportOptions>({
+    includeSprites: true,
+    includeMemories: false,
+    includeAffinity: false,
+    includeMessages: false,
+  });
+  useEffect(() => {
+    if (action === "export") {
+      setOptions({
+        includeSprites: true,
+        includeMemories: false,
+        includeAffinity: false,
+        includeMessages: false,
+      });
+    }
+  }, [action, selectedId]);
   const [attributions, setAttributions] = useState<Record<string, AttributionDraft>>({});
   const [wordbookIds, setWordbookIds] = useState<string[]>([]);
   const [pack, setPack] = useState<CharacterPack | null>(null);
@@ -92,7 +115,12 @@ export function CharacterSharing({
       void choosePack();
     }
   }, [action]);
-  const ids = scope === "pair" && active.length > 1 ? active : selectedId ? [selectedId] : [];
+  const ids =
+    (exportScope ?? scope) === "pair" && active.length > 1
+      ? active
+      : selectedId
+        ? [selectedId]
+        : [];
   const joining = installed.map((character) => character.id).filter((id) => !active.includes(id));
   async function run(action: () => Promise<void>): Promise<void> {
     if (lock.current || disabled) return;
@@ -125,9 +153,9 @@ export function CharacterSharing({
     <section className={s.section} aria-label="캐릭터 공유">
       {full && <h2 className={s.subheading}>캐릭터 공유</h2>}
       <p className={s.notice}>
-        이름·성격·지침·캐릭터 간 관계·표정과 표정 이미지·등록 대사를 공유해요. 관계는 함께 내보내는
-        캐릭터 사이의 설정만 포함해요. 대화 기록·기억·친밀도·API 키·모델 파일은 포함하지 않아요.
-        직접 적은 소개·지침·관계·대사에 개인정보가 없는지도 확인해 주세요.
+        이름·성격·지침·캐릭터 간 관계·표정·등록 대사를 공유해요. 관계는 함께 내보내는 캐릭터 사이의
+        설정만 포함해요. 기억·친밀도·대화 기록은 선택한 경우에만 포함해요. API 키와 모델 파일은
+        포함하지 않아요.
       </p>
       <fieldset className={s.fieldset} disabled={pending || disabled}>
         {packId && (full || action === "attribution") && (
@@ -200,15 +228,17 @@ export function CharacterSharing({
         )}
         {(full || action === "export") && (
           <div>
-            <label className={ui.field}>
-              내보낼 대상
-              <Select value={scope} onChange={(event) => setScope(event.target.value)}>
-                <option value="selected">선택한 캐릭터 하나</option>
-                <option value="pair" disabled={active.length < 2}>
-                  함께 지내는 친구들의 조합
-                </option>
-              </Select>
-            </label>
+            {!exportScope && (
+              <label className={ui.field}>
+                내보낼 대상
+                <Select value={scope} onChange={(event) => setScope(event.target.value)}>
+                  <option value="selected">선택한 캐릭터 하나</option>
+                  <option value="pair" disabled={active.length < 2}>
+                    함께 지내는 친구들의 조합
+                  </option>
+                </Select>
+              </label>
+            )}
             <p className={ui.quiet}>
               {ids
                 .map(
@@ -219,6 +249,69 @@ export function CharacterSharing({
                 .join(" + ")}{" "}
               · 저장된 내용으로 내보내요.
             </p>
+            <div className={ui.row} role="group" aria-label="내보내기 구성">
+              <Button
+                variant="secondary"
+                aria-pressed={
+                  !options.includeMemories && !options.includeAffinity && !options.includeMessages
+                }
+                onClick={() =>
+                  setOptions((value) => ({
+                    ...value,
+                    includeMemories: false,
+                    includeAffinity: false,
+                    includeMessages: false,
+                  }))
+                }
+              >
+                캐릭터만 내보내기
+              </Button>
+              <Button
+                variant="secondary"
+                aria-pressed={
+                  options.includeMemories && !options.includeAffinity && !options.includeMessages
+                }
+                onClick={() =>
+                  setOptions((value) => ({
+                    ...value,
+                    includeMemories: true,
+                    includeAffinity: false,
+                    includeMessages: false,
+                  }))
+                }
+              >
+                기억을 포함해 내보내기
+              </Button>
+            </div>
+            <fieldset className={s.fieldset} aria-label="포함할 데이터">
+              {(
+                [
+                  ["includeSprites", "스프라이트 포함"],
+                  ["includeMemories", "기억 포함"],
+                  ["includeAffinity", "친밀도 포함"],
+                  ["includeMessages", "대화 기록 포함"],
+                ] as const
+              ).map(([key, label]) => (
+                <Checkbox
+                  key={key}
+                  checked={options[key]}
+                  onChange={(event) =>
+                    setOptions((value) => ({ ...value, [key]: event.target.checked }))
+                  }
+                >
+                  {label}
+                </Checkbox>
+              ))}
+            </fieldset>
+            <p className={ui.quiet}>
+              스프라이트는 표정·말풍선 이미지와 애니메이션을 포함해요. 기억에는 유저명과 근거가 함께
+              담겨요. 받는 사람과의 관계는 새로 시작해요.
+            </p>
+            {(options.includeMemories || options.includeAffinity || options.includeMessages) && (
+              <p className={ui.quiet}>
+                함께 지낸 사람의 정보가 들어 있어요. 공유할 내용을 확인해 주세요.
+              </p>
+            )}
             <details className={s.section}>
               <summary className={s.disclosureSummary}>
                 개인 단어장 선택해서 포함하기 ({wordbookIds.length}개)
@@ -266,6 +359,7 @@ export function CharacterSharing({
                     const path = await command<string | null>("save_character_pack", {
                       ids,
                       wordbookIds,
+                      options,
                     });
                     if (path) setNotice(`공유 파일을 저장했어요. ${path}`);
                   })
@@ -364,7 +458,7 @@ export function CharacterSharing({
     <>
       <div className={s.attributionSummary}>
         <span>팩 정보</span>
-        <span className={s.small}>
+        <span className={`${s.small} ${s.lineSummary}`}>
           {packId
             ? `${author || "제작자 미등록"}${currentAttributionDirty ? " · 미저장" : ""}`
             : "직접 만든 캐릭터"}
@@ -378,7 +472,7 @@ export function CharacterSharing({
           정보·출처 편집
         </Button>
         <span>출처</span>
-        <span className={s.small}>{sourceUrl || "등록된 출처 없음"}</span>
+        <span className={`${s.small} ${s.lineSummary}`}>{sourceUrl || "등록된 출처 없음"}</span>
       </div>
       <Dialog
         closeLabel="닫기"

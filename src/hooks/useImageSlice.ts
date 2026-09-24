@@ -1,23 +1,31 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { centerSlice, type Slice } from "../components/characterIdentity";
 
-export function useImageSlice(url: string | null): Slice | null {
-  const [slice, setSlice] = useState<{ url: string; slice: Slice } | null>(null);
+export function useImageSlice(url: string | null): { slice: Slice | null; ready: boolean } {
+  const [loaded, setLoaded] = useState<{ url: string; slice: Slice | null } | null>(null);
   useEffect(() => {
     if (!url) return;
     let active = true;
     const image = new Image();
     image.onload = () => {
       if (active && image.naturalWidth > 0 && image.naturalHeight > 0) {
-        setSlice({ url, slice: centerSlice(image.naturalWidth, image.naturalHeight) });
+        setLoaded({ url, slice: centerSlice(image.naturalWidth, image.naturalHeight) });
+      } else if (active) {
+        setLoaded({ url, slice: null });
       }
+    };
+    image.onerror = () => {
+      if (active) setLoaded({ url, slice: null });
     };
     image.src = url;
     return () => {
       active = false;
     };
   }, [url]);
-  return url && slice?.url === url ? slice.slice : null;
+  return {
+    slice: url && loaded?.url === url ? loaded.slice : null,
+    ready: !url || loaded?.url === url,
+  };
 }
 
 export function skinStyle(url: string, slice: Slice): CSSProperties {

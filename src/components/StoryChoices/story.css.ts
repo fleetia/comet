@@ -1,7 +1,7 @@
 import { style } from "@vanilla-extract/css";
 import { semanticVars as vars } from "@fleetia/lagrange/theme";
 
-export const story = style({ padding: `${vars.space.md} 0`, maxHeight: 410, overflowY: "auto" });
+export const story = style({ padding: "8px 32px 8px 12px", maxHeight: 410, overflowY: "auto" });
 export const prompt = style({
   whiteSpace: "pre-wrap",
   lineHeight: vars.typography.lineHeight.body,

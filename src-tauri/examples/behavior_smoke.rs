@@ -1,4 +1,7 @@
 #[allow(dead_code, unused_imports)]
+#[path = "../src/character_animation.rs"]
+mod character_animation;
+#[allow(dead_code, unused_imports)]
 #[path = "../src/character_sprites.rs"]
 mod character_sprites;
 #[allow(dead_code, unused_imports)]
@@ -98,10 +101,11 @@ async fn run(runtime: &inference::Inference) -> Result<(), String> {
         let message = user(id, text, target);
         store::insert_message(&conn, &message)?;
         let old = store::memories(&conn)?;
-        let batch = domain::analysis_batch(
+        let batch = domain::analysis_batch_for_conversations(
             std::slice::from_ref(&message),
             &old,
             store::revision(&conn)?,
+            &[],
         );
         let result = generate(runtime, id, &batch.messages, domain::analysis_schema()).await?;
         let grounded = ["memories", "events"].iter().all(|key| {

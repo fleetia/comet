@@ -2,6 +2,8 @@ import type { LocalModel, Snapshot } from "./types";
 import CHARACTER_PACK from "../src-tauri/content/default.comet-character.json";
 
 export const PREVIEW_SNAPSHOT: Snapshot = {
+  user: { id: "preview-user", name: "여행자", startedAt: 0, endedAt: null },
+  legacyMemoryCount: 0,
   characters: {
     installed: CHARACTER_PACK.characters.map((definition, index) => ({
       id: index === 0 ? "builtin-a" : "builtin-b",
@@ -17,6 +19,7 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
     })),
     active: ["builtin-a", "builtin-b"],
   },
+  messageUserNames: {},
   messageIdentities: [],
   playback: null,
   story: null,

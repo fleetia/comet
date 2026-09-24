@@ -6,6 +6,8 @@ mod memory;
 mod messages;
 #[path = "store/search.rs"]
 mod search;
+#[path = "store/users.rs"]
+mod users;
 
 #[cfg(test)]
 pub use analysis::set_last_analysis_id;
@@ -17,19 +19,34 @@ pub use analysis::{
 pub use memory::analyze_apply;
 #[allow(unused_imports)] // Developer smoke examples still inspect the complete memory list.
 pub use memory::memories;
-pub use memory::{analyze_apply_batch, delete_memory, edit_memory, relationships};
+pub use memory::{
+    analysis_memories, analyze_apply_batch, assign_legacy_memories, completed_conversation_sources,
+    copy_recall, delete_memory_for, edit_memory_for, forget_character_memories, idle_memories,
+    inherit_recall, insert_experience, legacy_memory_count, legacy_memory_page, recall_valid,
+    record_recall, relationships, scoped_memory_page,
+};
+#[cfg(test)]
+pub use memory::{delete_memory, edit_memory};
 #[cfg(test)]
 pub use messages::insert_message_with_talk;
 pub use messages::{
     context_messages, context_messages_for, expire_generated_recall, insert_message,
-    insert_message_with_source, message_identities, message_targets, messages, resume_conversation,
-    MessageIdentity,
+    insert_message_with_source, mark_message_displayed, message_identities, message_targets,
+    messages, resume_conversation, MessageIdentity,
 };
 use messages::{initialize_identities, initialize_message_context};
 pub use search::{
-    clear_search_index, memory_count, memory_page, memory_revision, next_memory_for_index,
-    pending_index_count, revalidate_search_hits, save_kiwi_index, save_vector_index,
-    search_memories, set_search_profile, IndexMemory, MemoryEmbedding, MemoryPage, MemorySearchHit,
+    clear_search_index, memory_count, memory_revision, next_memory_for_index, pending_index_count,
+    revalidate_search_hits, save_kiwi_index, save_vector_index, search_memories_for,
+    set_search_profile, IndexMemory, MemoryEmbedding, MemoryPage, MemorySearchHit,
+};
+#[cfg(test)]
+pub use search::{memory_page, search_memories};
+#[cfg(test)]
+pub use users::require_user;
+pub use users::{
+    active_user_id, current_user, effective_memory_time, expire_memories, message_user_id,
+    message_user_names, set_user_name, user_identity, MEMORY_LIFETIME_MILLIS,
 };
 
 use crate::types::*;
@@ -65,6 +82,7 @@ INSERT OR IGNORE INTO kv VALUES('revision','0');").map_err(err)?;
     initialize_message_context(&conn)?;
     search::initialize(&conn)?;
     analysis::initialize(&conn)?;
+    users::initialize(&conn)?;
     crate::widgets::storage::initialize(&conn)?;
     Ok(conn)
 }
@@ -143,3 +161,7 @@ pub fn set_window_position(conn: &Connection, label: &str, pos: &WindowPosition)
 #[cfg(test)]
 #[path = "store/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "store/identity_tests.rs"]
+mod identity_tests;

@@ -41,6 +41,9 @@ beforeEach(() => {
   props.onApplied.mockReset();
   props.onPendingChange.mockReset();
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "count_character_memories") return 0;
+    if (name === "list_memories")
+      return { items: [], total: 0, offset: 0, nextOffset: null, revision: 0 };
     if (name === "get_character_pack_attribution") {
       return { author: "", sourceUrl: "" };
     }
@@ -57,6 +60,9 @@ beforeEach(() => {
 it("previews the selected installation and replaces the roster only after applying once", async () => {
   let finish: () => void = () => {};
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "count_character_memories") return 0;
+    if (name === "list_memories")
+      return { items: [], total: 0, offset: 0, nextOffset: null, revision: 0 };
     if (name === "get_character_pack_attribution") {
       return { author: "", sourceUrl: "" };
     }
@@ -108,6 +114,9 @@ it("treats a mixed or reordered roster as different from the pack order", async 
 
 it("retains the selection on apply failure and allows a retry without claiming success", async () => {
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "count_character_memories") return 0;
+    if (name === "list_memories")
+      return { items: [], total: 0, offset: 0, nextOffset: null, revision: 0 };
     if (name === "get_character_pack_attribution") {
       return { author: "", sourceUrl: "" };
     }
@@ -207,6 +216,9 @@ it("blocks pack application for a draft on another character and unlocks after c
 it("locks character and dialogue edits during an unresolved pack switch", async () => {
   let finish: () => void = () => {};
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "count_character_memories") return 0;
+    if (name === "list_memories")
+      return { items: [], total: 0, offset: 0, nextOffset: null, revision: 0 };
     if (name === "get_character_pack_attribution") {
       return { author: "", sourceUrl: "" };
     }
@@ -221,6 +233,7 @@ it("locks character and dialogue edits during an unresolved pack switch", async 
     return { pairScenes: [], wordbook: [] };
   });
   render(<CharacterManager embedded snapshot={{ ...PREVIEW_SNAPSHOT, characters }} />);
+  fireEvent.click(screen.getByRole("tab", { name: "대사" }));
   await screen.findByRole("button", { name: "키워드 대사 편집" });
   fireEvent.click(screen.getByRole("button", { name: "설치한 팩으로 바꾸기" }));
   fireEvent.change(await screen.findByLabelText("설치한 캐릭터 팩"), {

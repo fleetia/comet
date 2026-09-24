@@ -36,6 +36,7 @@ tokio-tungstenite = { version = "0.28", default-features = false, features = ["h
 sha2 = "0.10"
 hmac = "0.12"
 hex = "0.4"
+png = "0.18.1"
 flate2 = "1"
 tar = "0.4"
 keyring = { version = "3", features = ["apple-native", "windows-native"] }

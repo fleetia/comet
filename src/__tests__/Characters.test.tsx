@@ -52,7 +52,7 @@ it("previews a pack before install and keeps assignment an explicit separate act
   fireEvent.click(screen.getByRole("button", { name: "공유 파일 가져오기" }));
   await screen.findByRole("heading", { name: "별 친구" });
   expect(vi.mocked(command).mock.calls.map(([name]) => name)).toEqual(["choose_character_pack"]);
-  expect(screen.getByText(/대화 기록·기억·친밀도·API 키·모델 파일은 포함하지 않아요/)).toBeTruthy();
+  expect(screen.getByText(/기억·친밀도·대화 기록은 선택한 경우에만 포함해요/)).toBeTruthy();
   expect(
     screen.getByText(
       (_, element) =>
@@ -170,6 +170,12 @@ it("exports the current pair without private wordbook selection and treats dialo
     expect(command).toHaveBeenCalledWith("save_character_pack", {
       ids: ["builtin-a", "builtin-b"],
       wordbookIds: [],
+      options: {
+        includeSprites: true,
+        includeMemories: false,
+        includeAffinity: false,
+        includeMessages: false,
+      },
     }),
   );
   await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
@@ -204,6 +210,12 @@ it("exports only the personal wordbook entries explicitly selected for sharing",
     expect(command).toHaveBeenCalledWith("save_character_pack", {
       ids: ["local-third"],
       wordbookIds: ["personal-0"],
+      options: {
+        includeSprites: true,
+        includeMemories: false,
+        includeAffinity: false,
+        includeMessages: false,
+      },
     }),
   );
 });

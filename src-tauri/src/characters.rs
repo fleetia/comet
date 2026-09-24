@@ -1,15 +1,23 @@
+#[path = "characters/archive.rs"]
+pub mod archive;
 #[path = "characters/dialogue.rs"]
 mod dialogue;
 #[path = "characters/validation.rs"]
 mod validation;
+pub use archive::ExportOptions;
 
+use crate::character_animation::{
+    self as animation, Animation, AssetInfo, PackAnimationAsset, PreparedAsset,
+};
 use crate::character_sprites::{self as sprites, SpriteInfo};
 use dialogue::remap;
 pub use dialogue::{dialogue, greeting, idle_scene, keyword_scene, save_dialogue};
 use validation::decode_sprite;
 pub(crate) use validation::sprite_slot_allowed;
+use validation::validate_definition;
+#[cfg(test)]
+use validation::validate_pack;
 pub use validation::{pack_json, parse_pack};
-use validation::{validate_definition, validate_pack};
 
 use crate::domain::EXPRESSIONS;
 use crate::types::{SceneLine, WordbookEntry};
@@ -25,6 +33,7 @@ pub const DEFAULT_SPRITE_SIZE: u32 = 64;
 // Reserved sprite key for the balloon skin; expression names may not start with '$'.
 pub const BALLOON_SPRITE: &str = "$balloon";
 pub const SPRITE_SIZE_RANGE: std::ops::RangeInclusive<u32> = 32..=512;
+pub const BALLOON_FONT_SIZE_RANGE: std::ops::RangeInclusive<u32> = 12..=40;
 pub const MAX_ROSTER: usize = 8;
 pub const SLOTS: [&str; 8] = ["a", "b", "c", "d", "e", "f", "g", "h"];
 fn default_sprite_size() -> u32 {
@@ -42,6 +51,24 @@ pub struct CharacterLine {
 pub struct CharacterRelationship {
     pub target_id: String,
     pub description: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct BalloonStyle {
+    pub font_size: u32,
+    pub font_family: String,
+    pub text_color: Option<String>,
+    pub text_speed: u32,
+}
+impl Default for BalloonStyle {
+    fn default() -> Self {
+        Self {
+            font_size: 19,
+            font_family: String::new(),
+            text_color: None,
+            text_speed: 0,
+        }
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -67,6 +94,10 @@ pub struct CharacterDefinition {
     pub face_icon: bool,
     #[serde(default = "default_sprite_size")]
     pub sprite_size: u32,
+    #[serde(default)]
+    pub balloon_style: BalloonStyle,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animation: Option<Animation>,
     pub greeting: Vec<CharacterLine>,
     pub idle_lines: Vec<CharacterLine>,
 }
@@ -83,6 +114,8 @@ pub struct InstalledCharacter {
     pub definition: CharacterDefinition,
     #[serde(default)]
     pub sprites: BTreeMap<String, SpriteInfo>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub animation_assets: BTreeMap<String, AssetInfo>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -121,6 +154,36 @@ pub struct CharacterPack {
     pub wordbook: Vec<WordbookEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sprites: Vec<PackSprite>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub animation_assets: Vec<PackAnimationAsset>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive: Option<archive::CharacterArchive>,
+}
+
+pub struct PreparedCharacterPack {
+    pack: CharacterPack,
+    animation_assets: BTreeMap<String, Vec<PreparedAsset>>,
+}
+
+pub fn prepare_pack(pack: CharacterPack) -> Result<PreparedCharacterPack> {
+    validation::validate_pack_metadata(&pack)?;
+    let mut animation_assets = BTreeMap::new();
+    for definition in &pack.characters {
+        let assets = pack
+            .animation_assets
+            .iter()
+            .filter(|asset| asset.source_id == definition.source_id)
+            .map(PackAnimationAsset::asset)
+            .collect();
+        animation_assets.insert(
+            definition.source_id.clone(),
+            animation::prepare_assets(assets)?,
+        );
+    }
+    Ok(PreparedCharacterPack {
+        pack,
+        animation_assets,
+    })
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -259,6 +322,8 @@ fn initialize_with(
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     tx.execute_batch("CREATE TABLE IF NOT EXISTS characters(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,pack_id TEXT,data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS character_seed(version INTEGER PRIMARY KEY); CREATE TABLE IF NOT EXISTS character_roster(position INTEGER PRIMARY KEY,character_id TEXT NOT NULL UNIQUE); CREATE TABLE IF NOT EXISTS character_packs(id TEXT PRIMARY KEY,data TEXT NOT NULL,members TEXT NOT NULL); CREATE TABLE IF NOT EXISTS character_dialogues(members TEXT PRIMARY KEY,data TEXT NOT NULL);").map_err(|e| e.to_string())?;
     sprites::initialize(&tx)?;
+    animation::initialize(&tx)?;
+    archive::initialize(&tx)?;
     migrate_slots(&tx)?;
     let initialized: bool = tx
         .query_row(
@@ -321,7 +386,7 @@ fn migrate_slots(conn: &Connection) -> Result<()> {
     }
     write_roster(conn, &ids)
 }
-fn get(conn: &Connection, id: &str) -> Result<InstalledCharacter> {
+pub(crate) fn get(conn: &Connection, id: &str) -> Result<InstalledCharacter> {
     let row: Option<(Option<String>, String)> = conn
         .query_row(
             "SELECT pack_id,data FROM characters WHERE id=?",
@@ -336,6 +401,7 @@ fn get(conn: &Connection, id: &str) -> Result<InstalledCharacter> {
         pack_id,
         definition: serde_json::from_str(&data).map_err(|e| e.to_string())?,
         sprites: sprites::list(conn, id)?,
+        animation_assets: animation::list(conn, id)?,
     })
 }
 pub fn set_sprite(conn: &Connection, id: &str, expression: &str, bytes: &[u8]) -> Result<()> {
@@ -474,13 +540,23 @@ pub fn assign(conn: &Connection, slot: &str, id: &str) -> Result<()> {
     }
     apply_roster(conn, ids)
 }
+#[cfg(test)]
 pub fn save(conn: &Connection, id: &str, definition: &CharacterDefinition) -> Result<()> {
+    save_with_assets(conn, id, definition, &[])
+}
+pub fn save_with_assets(
+    conn: &Connection,
+    id: &str,
+    definition: &CharacterDefinition,
+    assets: &[PreparedAsset],
+) -> Result<()> {
     validate_definition(definition)?;
     let old = get(conn, id)?;
     validate_local_relationships(conn, id, definition, &old.definition.relationships)?;
     let mut edited = definition.clone();
     edited.source_id = old.definition.source_id;
     with_transaction(conn, |tx| {
+        save_animation_assets(tx, id, &edited, assets)?;
         tx.execute(
             "UPDATE characters SET data=?1 WHERE id=?2",
             params![
@@ -494,19 +570,52 @@ pub fn save(conn: &Connection, id: &str, definition: &CharacterDefinition) -> Re
         sprites::retain(tx, id, &kept)
     })
 }
+#[cfg(test)]
 pub fn create(conn: &Connection, definition: &CharacterDefinition) -> Result<InstalledCharacter> {
+    create_with_assets(conn, definition, &[])
+}
+pub fn create_with_assets(
+    conn: &Connection,
+    definition: &CharacterDefinition,
+    assets: &[PreparedAsset],
+) -> Result<InstalledCharacter> {
     validate_definition(definition)?;
     let id = uuid::Uuid::new_v4().to_string();
     validate_local_relationships(conn, &id, definition, &[])?;
-    conn.execute(
-        "INSERT INTO characters(id,pack_id,data) VALUES(?1,NULL,?2)",
-        params![
-            id,
-            serde_json::to_string(definition).map_err(|e| e.to_string())?
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-    get(conn, &id)
+    with_transaction(conn, |tx| {
+        tx.execute(
+            "INSERT INTO characters(id,pack_id,data) VALUES(?1,NULL,?2)",
+            params![
+                id,
+                serde_json::to_string(definition).map_err(|e| e.to_string())?
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+        save_animation_assets(tx, &id, definition, assets)?;
+        get(tx, &id)
+    })
+}
+
+fn save_animation_assets(
+    conn: &Connection,
+    id: &str,
+    definition: &CharacterDefinition,
+    assets: &[PreparedAsset],
+) -> Result<()> {
+    let keep = animation::referenced_assets(definition.animation.as_ref());
+    let mut known = animation::list(conn, id)?;
+    let mut additions = BTreeSet::new();
+    for asset in assets {
+        if !keep.contains(asset.asset_id.as_str()) || !additions.insert(asset.asset_id.as_str()) {
+            return Err("애니메이션에서 사용하지 않거나 중복된 이미지가 있어요.".into());
+        }
+        known.insert(asset.asset_id.clone(), asset.info.clone());
+    }
+    animation::validate_references(definition.animation.as_ref(), &known)?;
+    for asset in assets {
+        animation::put(conn, id, asset)?;
+    }
+    animation::retain(conn, id, definition.animation.as_ref())
 }
 fn validate_local_relationships(
     conn: &Connection,
@@ -544,8 +653,19 @@ pub fn clone_character(conn: &Connection, id: &str) -> Result<InstalledCharacter
         for sprite in &mut pack.sprites {
             sprite.source_id = original.definition.source_id.clone();
         }
+        for asset in &mut pack.animation_assets {
+            asset.source_id = original.definition.source_id.clone();
+        }
+        let assets = animation::all(tx, id)?;
+        let animation_assets = BTreeMap::from([(original.definition.source_id.clone(), assets)]);
         pack.characters[0] = original.definition;
-        let mut cloned = import_pack(tx, &pack)?
+        // Installed assets have already been decoded and validated at their import boundary.
+        validation::validate_pack_metadata(&pack)?;
+        let prepared = PreparedCharacterPack {
+            pack,
+            animation_assets,
+        };
+        let mut cloned = import_prepared_pack(tx, &prepared)?
             .into_iter()
             .next()
             .ok_or("캐릭터를 복제하지 못했습니다.")?;
@@ -577,6 +697,7 @@ pub fn remove(conn: &Connection, id: &str) -> Result<()> {
         tx.execute("DELETE FROM characters WHERE id=?", [id])
             .map_err(|e| e.to_string())?;
         sprites::remove_all(tx, id)?;
+        animation::retain(tx, id, None)?;
         if changed {
             write_roster(tx, &ids)?;
         }
@@ -587,7 +708,13 @@ pub fn remove(conn: &Connection, id: &str) -> Result<()> {
     })
 }
 pub fn import_pack(conn: &Connection, pack: &CharacterPack) -> Result<Vec<InstalledCharacter>> {
-    validate_pack(pack)?;
+    import_prepared_pack(conn, &prepare_pack(pack.clone())?)
+}
+pub fn import_prepared_pack(
+    conn: &Connection,
+    prepared: &PreparedCharacterPack,
+) -> Result<Vec<InstalledCharacter>> {
+    let pack = &prepared.pack;
     with_transaction(conn, |tx| {
         let pack_id = uuid::Uuid::new_v4().to_string();
         let ids: Vec<String> = pack
@@ -598,6 +725,8 @@ pub fn import_pack(conn: &Connection, pack: &CharacterPack) -> Result<Vec<Instal
         // Sprites live in their own table; the stored pack record keeps only text content.
         let record = CharacterPack {
             sprites: Vec::new(),
+            animation_assets: Vec::new(),
+            archive: None,
             ..pack.clone()
         };
         tx.execute(
@@ -635,6 +764,21 @@ pub fn import_pack(conn: &Connection, pack: &CharacterPack) -> Result<Vec<Instal
             {
                 sprites::put(tx, id, &sprite.expression, &decode_sprite(sprite)?)?;
             }
+            let assets = prepared
+                .animation_assets
+                .get(&definition.source_id)
+                .map(Vec::as_slice)
+                .unwrap_or_default();
+            save_animation_assets(tx, id, &local_definition, assets)?;
+        }
+        if let Some(archive) = &pack.archive {
+            let mapping = pack
+                .characters
+                .iter()
+                .zip(&ids)
+                .map(|(definition, id)| (definition.source_id.clone(), id.clone()))
+                .collect();
+            archive::import(tx, archive, &mapping)?;
         }
         let installed = ids.iter().map(|id| get(tx, id)).collect::<Result<_>>()?;
         Ok(installed)
@@ -658,6 +802,15 @@ pub fn export_pack(
     ids: &[String],
     selected_wordbook: &[WordbookEntry],
 ) -> Result<CharacterPack> {
+    export_pack_with_options(conn, ids, selected_wordbook, &ExportOptions::default())
+}
+
+pub fn export_pack_with_options(
+    conn: &Connection,
+    ids: &[String],
+    selected_wordbook: &[WordbookEntry],
+    options: &ExportOptions,
+) -> Result<CharacterPack> {
     if !(1..=MAX_ROSTER).contains(&ids.len())
         || ids.iter().collect::<HashSet<_>>().len() != ids.len()
     {
@@ -668,7 +821,14 @@ pub fn export_pack(
         .map(|id| get(conn, id))
         .collect::<Result<Vec<_>>>()?;
     let mut pack = CharacterPack {
-        format_version: 2,
+        format_version: if installed
+            .iter()
+            .any(|character| character.definition.animation.is_some())
+        {
+            3
+        } else {
+            2
+        },
         name: installed
             .iter()
             .map(|c| c.definition.name.as_str())
@@ -684,6 +844,8 @@ pub fn export_pack(
         pair_scenes: Vec::new(),
         wordbook: Vec::new(),
         sprites: Vec::new(),
+        animation_assets: Vec::new(),
+        archive: None,
     };
     let mut canonical_sources = HashSet::new();
     for (index, definition) in pack.characters.iter_mut().enumerate() {
@@ -715,6 +877,9 @@ pub fn export_pack(
             .collect();
     }
     for (definition, character) in pack.characters.iter().zip(&installed) {
+        if !options.include_sprites {
+            continue;
+        }
         for (expression, sprite) in sprites::all(conn, &character.id)? {
             pack.sprites.push(PackSprite {
                 source_id: definition.source_id.clone(),
@@ -723,6 +888,33 @@ pub fn export_pack(
                 data: base64::engine::general_purpose::STANDARD.encode(sprite.data),
             });
         }
+        for asset in animation::all(conn, &character.id)? {
+            let payload = asset.payload();
+            pack.animation_assets.push(PackAnimationAsset {
+                source_id: definition.source_id.clone(),
+                asset_id: payload.asset_id,
+                mime: payload.mime,
+                width: payload.width,
+                height: payload.height,
+                data: payload.data,
+            });
+        }
+    }
+    if !options.include_sprites {
+        for definition in &mut pack.characters {
+            definition.animation = None;
+        }
+        pack.format_version = 2;
+    }
+    if options.includes_archive() {
+        pack.format_version = 4;
+        let mapping = ids.iter().cloned().zip(sources).collect();
+        pack.archive = Some(archive::export(
+            conn,
+            &mapping,
+            options,
+            chrono::Utc::now().timestamp_millis(),
+        )?);
     }
     let mut seen = HashSet::new();
     for character in &installed {
@@ -754,10 +946,16 @@ pub fn export_pack(
         entry.id = uuid::Uuid::new_v4().to_string();
         pack.wordbook.push(entry);
     }
-    validate_pack(&pack)?;
+    validation::validate_pack_metadata(&pack)?;
     Ok(pack)
 }
 
+#[cfg(test)]
+#[path = "characters/animation_tests.rs"]
+mod animation_tests;
+#[cfg(test)]
+#[path = "characters/archive_tests.rs"]
+mod archive_tests;
 #[cfg(test)]
 #[path = "characters/tests.rs"]
 mod tests;
@@ -796,7 +994,7 @@ pub fn save_pack_attribution(
     let (mut pack, _) = pack_record(conn, pack_id)?;
     pack.author = value.author.clone();
     pack.source_url = value.source_url.clone();
-    validate_pack(&pack)?;
+    validation::validate_attribution(&value.author, &value.source_url)?;
     let data = serde_json::to_string(&pack).map_err(|e| e.to_string())?;
     conn.execute(
         "UPDATE character_packs SET data=?1 WHERE id=?2",

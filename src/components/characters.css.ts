@@ -1,4 +1,4 @@
-import { style } from "@vanilla-extract/css";
+import { globalStyle, style } from "@vanilla-extract/css";
 import { semanticVars as vars } from "@fleetia/lagrange/theme";
 
 export const page = style({
@@ -6,10 +6,18 @@ export const page = style({
   background: vars.color.surface.canvas,
   minHeight: "100dvh",
 });
-export const embedded = style({ minWidth: 0 });
+export const embedded = style({
+  display: "flex",
+  flexDirection: "column",
+  minWidth: 0,
+  height: "100%",
+  minHeight: 0,
+});
 export const header = style({ marginBottom: vars.space.md });
 export const layout = style({
   display: "grid",
+  flex: 1,
+  minHeight: 0,
   gridTemplateColumns: "168px minmax(0,1fr)",
   alignItems: "start",
   gap: vars.space.lg,
@@ -21,9 +29,10 @@ export const list = style({
   display: "flex",
   flexDirection: "column",
   gap: vars.space.xs,
-  position: "sticky",
-  top: 0,
+  alignSelf: "stretch",
   minWidth: 0,
+  minHeight: 0,
+  overflowY: "auto",
 });
 export const libraryHeading = style({
   display: "flex",
@@ -74,12 +83,33 @@ export const libraryActions = style({
   margin: `${vars.space.sm} 0`,
 });
 export const detail = style({
+  display: "flex",
+  flexDirection: "column",
+  alignSelf: "stretch",
   minWidth: 0,
+  minHeight: 0,
   paddingLeft: vars.space.lg,
   borderLeft: `1px solid ${vars.color.border.subtle}`,
   "@media": { "(max-width: 680px)": { paddingLeft: vars.space.sm } },
 });
-export const editor = style({ minWidth: 0 });
+export const editor = style({
+  display: "flex",
+  flexDirection: "column",
+  flex: 1,
+  minWidth: 0,
+  minHeight: 0,
+});
+export const editorHeader = style({
+  flexShrink: 0,
+  background: vars.color.surface.canvas,
+});
+export const editorPanel = style({
+  flex: 1,
+  minHeight: 0,
+  overflowY: "auto",
+  scrollbarGutter: "stable",
+  paddingTop: vars.space.md,
+});
 export const fieldset = style({ border: 0, padding: 0, margin: 0, minWidth: 0 });
 export const section = style({
   margin: `${vars.space.md} 0 0`,
@@ -217,6 +247,17 @@ export const balloonSetting = style({
   flexWrap: "wrap",
   gap: vars.space.xs,
 });
+export const balloonColorInput = style({
+  width: 48,
+  padding: vars.space.xxs,
+});
+export const balloonTextPreview = style({
+  margin: 0,
+  padding: vars.space.sm,
+  border: `1px solid ${vars.color.border.subtle}`,
+  lineHeight: 1.6,
+  overflowWrap: "anywhere",
+});
 export const compactActions = style({
   display: "flex",
   alignItems: "center",
@@ -258,9 +299,7 @@ export const scopeField = style({
   color: vars.color.content.secondary,
 });
 export const saveBar = style({
-  position: "sticky",
-  bottom: 0,
-  zIndex: 1,
+  flexShrink: 0,
   background: vars.color.surface.canvas,
   borderTop: `3px double ${vars.color.border.strong}`,
   padding: `${vars.space.xs} 0`,
@@ -272,6 +311,7 @@ export const saveBar = style({
   flexWrap: "wrap",
 });
 export const attributionSummary = style({
+  flexShrink: 0,
   display: "grid",
   gridTemplateColumns: "64px minmax(0,1fr) auto",
   alignItems: "center",
@@ -303,3 +343,5 @@ export const disclosureSummary = style({
   fontSize: vars.typography.size.label,
   cursor: "pointer",
 });
+
+globalStyle(`${saveBar}[hidden]`, { display: "none" });

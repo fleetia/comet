@@ -36,7 +36,7 @@ comet은 나니카·우카가카처럼 바탕화면에 머물며 먼저 말을 �
 | 목적 | 문서 |
 | --- | --- |
 | 관리 화면을 변경하는가 | [통합 설정창과 기능 계약](product/settings.md) |
-| 기억 검색·선택 NLP를 바꾸는가 | [기억 검색](product/memory-search.md), [NLP 실행과 배포](development/nlp.md) |
+| 캐릭터 기억·사용자·선택 NLP를 바꾸는가 | [기억 검색](product/memory-search.md), [NLP 실행과 배포](development/nlp.md) |
 | 어떤 앱을 만드는가 | [바탕화면 경험](product/desktop.md), [대화·단어장·친밀도](product/conversation.md) |
 | 위젯 상태로 대본을 작성하는가 | [`.talk` 작성](product/talk.md), [CLI·변수](development/talk-reference.md), [기본 대본 범위](development/talk-coverage.md) |
 | 캐릭터를 바꾸고 공유하는가 | [캐릭터팩·1~8명 조합·내보내기](product/characters.md) |

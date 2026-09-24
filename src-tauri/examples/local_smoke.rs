@@ -1,4 +1,7 @@
 #[allow(dead_code, unused_imports)]
+#[path = "../src/character_animation.rs"]
+mod character_animation;
+#[allow(dead_code, unused_imports)]
 #[path = "../src/character_sprites.rs"]
 mod character_sprites;
 #[allow(dead_code, unused_imports)]

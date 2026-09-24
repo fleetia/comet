@@ -1,11 +1,12 @@
 use super::{
-    slot_index, CharacterDefinition, CharacterPack, PackSprite, Result, BALLOON_SPRITE,
-    DEFAULT_EXPRESSION, MAX_PACK_BYTES, MAX_ROSTER, SLOTS, SPRITE_SIZE_RANGE,
+    slot_index, CharacterDefinition, CharacterPack, PackSprite, Result, BALLOON_FONT_SIZE_RANGE,
+    BALLOON_SPRITE, DEFAULT_EXPRESSION, MAX_PACK_BYTES, MAX_ROSTER, SLOTS, SPRITE_SIZE_RANGE,
 };
+use crate::character_animation as animation;
 use crate::character_sprites as sprites;
 use crate::types::{SceneLine, WordbookEntry};
 use base64::Engine;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 fn bounded(value: &str, max: usize, required: bool) -> bool {
     (!required || !value.trim().is_empty()) && value.chars().count() <= max
@@ -37,6 +38,19 @@ pub(super) fn validate_definition(definition: &CharacterDefinition) -> Result<()
     {
         return Err("캐릭터 이름·정의·표정·대사 개수를 확인해 주세요.".into());
     }
+    let style = &definition.balloon_style;
+    if !BALLOON_FONT_SIZE_RANGE.contains(&style.font_size)
+        || style.text_speed > 100
+        || !bounded(&style.font_family, 100, false)
+        || style.font_family.chars().any(char::is_control)
+        || style.text_color.as_ref().is_some_and(|color| {
+            color.len() != 7
+                || !color.starts_with('#')
+                || !color.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit)
+        })
+    {
+        return Err("말풍선 글자 크기는 12~40, 폰트 이름은 제어문자 없는 100자 이하, 글자색은 #RRGGBB 형식, 출력 속도는 0~100이어야 합니다.".into());
+    }
     let mut targets = HashSet::new();
     for relationship in &definition.relationships {
         if !bounded(&relationship.target_id, 128, true)
@@ -48,6 +62,9 @@ pub(super) fn validate_definition(definition: &CharacterDefinition) -> Result<()
     }
     for line in definition.greeting.iter().chain(&definition.idle_lines) {
         validate_line(&line.expression, &line.text)?;
+    }
+    if let Some(animation) = &definition.animation {
+        animation::validate_animation(animation, &definition.expressions)?;
     }
     Ok(())
 }
@@ -79,7 +96,10 @@ pub(super) fn validate_wordbook(entry: &WordbookEntry, members: usize) -> Result
     validate_scene(&entry.lines, members)
 }
 pub(super) fn validate_pack(pack: &CharacterPack) -> Result<()> {
-    if ![1, 2].contains(&pack.format_version)
+    super::prepare_pack(pack.clone()).map(|_| ())
+}
+pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
+    if ![1, 2, 3, 4].contains(&pack.format_version)
         || !(1..=if pack.format_version == 1 {
             2
         } else {
@@ -96,12 +116,27 @@ pub(super) fn validate_pack(pack: &CharacterPack) -> Result<()> {
     {
         return Err("지원하지 않는 팩 버전 또는 잘못된 팩 구성입니다.".into());
     }
+    if pack.archive.is_some() != (pack.format_version == 4) {
+        return Err("개인 기록이 포함된 캐릭터팩은 버전 4여야 합니다.".into());
+    }
+    if pack.format_version < 3
+        && (!pack.animation_assets.is_empty()
+            || pack
+                .characters
+                .iter()
+                .any(|definition| definition.animation.is_some()))
+    {
+        return Err("애니메이션이 포함된 캐릭터팩은 버전 3이어야 합니다.".into());
+    }
     let mut sources = HashSet::new();
     for definition in &pack.characters {
         validate_definition(definition)?;
         if !sources.insert(&definition.source_id) {
             return Err("팩 내부 캐릭터 sourceId가 중복됩니다.".into());
         }
+    }
+    if let Some(archive) = &pack.archive {
+        super::archive::validate(archive, &sources)?;
     }
     for definition in &pack.characters {
         if definition.relationships.iter().any(|relationship| {
@@ -139,6 +174,38 @@ pub(super) fn validate_pack(pack: &CharacterPack) -> Result<()> {
             return Err("표정 이미지의 형식과 내용이 다릅니다.".into());
         }
     }
+    let mut owners = BTreeMap::<&str, BTreeMap<String, animation::AssetInfo>>::new();
+    for asset in &pack.animation_assets {
+        if !sources.contains(&asset.source_id)
+            || asset.data.len() > animation::MAX_ASSET_BYTES * 4 / 3 + 4
+        {
+            return Err("팩에 없는 캐릭터의 이미지이거나 애니메이션 이미지가 너무 커요.".into());
+        }
+        let assets = owners.entry(&asset.source_id).or_default();
+        if assets
+            .insert(
+                asset.asset_id.clone(),
+                animation::AssetInfo {
+                    mime: asset.mime.clone(),
+                    width: asset.width,
+                    height: asset.height,
+                },
+            )
+            .is_some()
+        {
+            return Err("같은 애니메이션 이미지가 중복됩니다.".into());
+        }
+    }
+    for definition in &pack.characters {
+        let assets = owners
+            .remove(definition.source_id.as_str())
+            .unwrap_or_default();
+        let referenced = animation::referenced_assets(definition.animation.as_ref());
+        if assets.len() != referenced.len() {
+            return Err("애니메이션에서 사용하지 않는 이미지가 있거나 이미지가 빠졌어요.".into());
+        }
+        animation::validate_references(definition.animation.as_ref(), &assets)?;
+    }
     if serde_json::to_vec(pack).map_err(|e| e.to_string())?.len() > MAX_PACK_BYTES {
         return Err("캐릭터팩은 32 MiB 이하여야 합니다.".into());
     }
@@ -161,7 +228,7 @@ pub fn parse_pack(json: &str) -> Result<CharacterPack> {
     }
     let mut value: serde_json::Value =
         serde_json::from_str(json).map_err(|_| "캐릭터팩 JSON을 읽을 수 없습니다.")?;
-    if value["formatVersion"] == 2 {
+    if matches!(value["formatVersion"].as_u64(), Some(2..=4)) {
         convert_pack_speakers(&mut value, false)?;
     }
     if let Some(scenes) = value.get("pairScenes").and_then(|v| v.as_array()) {
@@ -280,7 +347,7 @@ fn convert_pack_speakers(value: &mut serde_json::Value, exporting: bool) -> Resu
 pub fn pack_json(pack: &CharacterPack) -> Result<String> {
     validate_pack(pack)?;
     let mut value = serde_json::to_value(pack).map_err(|e| e.to_string())?;
-    if pack.format_version == 2 {
+    if pack.format_version >= 2 {
         convert_pack_speakers(&mut value, true)?;
     }
     let json = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
@@ -292,4 +359,14 @@ pub fn pack_json(pack: &CharacterPack) -> Result<String> {
 
 pub(crate) fn sprite_slot_allowed(definition: &CharacterDefinition, key: &str) -> bool {
     key == BALLOON_SPRITE || definition.expressions.contains_key(key)
+}
+
+pub(super) fn validate_attribution(author: &str, source_url: &str) -> Result<()> {
+    if !bounded(author, 120, false)
+        || !bounded(source_url, 2048, false)
+        || (!source_url.is_empty() && !source_url.starts_with("https://"))
+    {
+        return Err("제작자와 출처 URL을 확인해 주세요.".into());
+    }
+    Ok(())
 }

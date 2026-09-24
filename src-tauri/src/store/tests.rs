@@ -265,6 +265,7 @@ fn historical_identity_survives_rename_reinsert_and_slot_move() {
     );
     assert_eq!(message_identities(&conn, 10).unwrap()[0], old[0]);
 }
+
 #[test]
 fn dropping_identity_versions_preserves_history_memory_and_affinity_on_reopen() {
     let directory = tempfile::tempdir().unwrap();
@@ -527,7 +528,7 @@ fn story_rewards_do_not_consume_direct_affinity_budget_or_fingerprints() {
     assert_eq!(relationships(&conn).unwrap()[0].score, 26);
     for (source, delta) in [("earlier-positive", 1), ("earlier-negative", -1)] {
         conn.execute(
-            "INSERT INTO character_affinity VALUES(?1,?2,?3,?4,?1)",
+            "INSERT INTO character_affinity(source,character_id,day,delta,fingerprint) VALUES(?1,?2,?3,?4,?1)",
             params![source, imported[0].id, date, delta],
         )
         .unwrap();
@@ -561,7 +562,7 @@ fn daily_cap_counts_absolute_changes() {
         .to_string();
     for (source, delta) in [("old1", 1), ("old2", -1), ("old3", 1)] {
         conn.execute(
-            "INSERT INTO character_affinity VALUES(?1,'builtin-a',?2,?3,?1)",
+            "INSERT INTO character_affinity(source,character_id,day,delta,fingerprint) VALUES(?1,'builtin-a',?2,?3,?1)",
             params![source, date, delta],
         )
         .unwrap();

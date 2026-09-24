@@ -90,6 +90,9 @@ pub(crate) async fn send_message(
             return Err("앱을 종료하고 있어요.".into());
         }
         let db = lock(&state.db)?;
+        if store::current_user(&db)?.is_none() {
+            return Err("설정의 사용자에서 이름을 먼저 입력해 주세요.".into());
+        }
         let settings = store::settings(&db)?;
         let targets = resolve_targets(&db, &target)?;
         let exists: bool = db
@@ -160,6 +163,7 @@ pub(crate) fn retry_turn(
             return Err("앱을 종료하고 있어요.".into());
         }
         let db = lock(&state.db)?;
+        ensure_current_user_message(&db, &message_id)?;
         let history = store::messages(&db, 100)?;
         let latest = history
             .iter()
@@ -215,6 +219,13 @@ pub(crate) fn retry_turn(
 
 pub(crate) fn reply_id(message_id: &str, persona: &str) -> String {
     format!("reply:{message_id}:{persona}")
+}
+
+pub(crate) fn ensure_current_user_message(db: &Connection, message_id: &str) -> Result<(), String> {
+    if store::message_user_id(db, message_id)? != store::active_user_id(db)? {
+        return Err("사용자가 바뀌었어요. 새 메시지로 말해 주세요.".into());
+    }
+    Ok(())
 }
 pub(crate) fn ensure_retry_characters(
     db: &Connection,
@@ -357,20 +368,33 @@ pub(crate) fn turn_prompt(
     turn_prompt_with_memories(db, targets, message_id, &memories)
 }
 
+#[cfg(test)]
 pub(crate) fn turn_prompt_with_memories(
     db: &Connection,
     targets: &[String],
     message_id: &str,
     memories: &[Memory],
 ) -> Result<Vec<ChatMessage>, String> {
+    prompt_with_history(db, targets, message_id, memories).map(|(prompt, _)| prompt)
+}
+
+fn prompt_with_history(
+    db: &Connection,
+    targets: &[String],
+    message_id: &str,
+    memories: &[Memory],
+) -> Result<(Vec<ChatMessage>, Vec<String>), String> {
+    let mut history_ids = Vec::new();
+    ensure_current_user_message(db, message_id)?;
     let relationships = store::relationships(db)?;
     let installed = characters::collection(db)?.installed;
-    match targets {
+    let prompt: Result<Vec<ChatMessage>, String> = match targets {
         [a, b] => {
             let histories = [
                 story::prompt_history(db, a, store::context_messages_for(db, 24, a)?)?,
                 story::prompt_history(db, b, store::context_messages_for(db, 24, b)?)?,
             ];
+            history_ids.extend(histories.iter().flatten().map(|message| message.id.clone()));
             let latest = histories[0]
                 .iter()
                 .find(|m| {
@@ -420,6 +444,7 @@ pub(crate) fn turn_prompt_with_memories(
                 }
             }
             let messages = story::prompt_history(db, persona, messages)?;
+            history_ids.extend(messages.iter().map(|message| message.id.clone()));
             let score = relationships
                 .iter()
                 .find(|r| r.persona == member.id)
@@ -437,7 +462,11 @@ pub(crate) fn turn_prompt_with_memories(
             ))
         }
         _ => Err("대화 상대를 선택해 주세요.".into()),
-    }
+    };
+    Ok((
+        domain::with_user_context(prompt?, store::current_user(db)?.as_ref()),
+        history_ids,
+    ))
 }
 
 #[cfg(test)]
@@ -460,16 +489,19 @@ pub(crate) async fn generate_turn_with_memories(
 ) -> Result<(Vec<SceneLine>, i64), String> {
     let (settings, prompt, revision) = {
         let db = lock(&state.db)?;
-        (
-            store::settings(&db)?,
-            turn_prompt_with_memories(
+        ensure_current_user_message(&db, message_id)?;
+        let memories = store::revalidate_search_hits(&db, memories)?;
+        let (prompt, history_ids) = prompt_with_history(&db, targets, message_id, &memories)?;
+        for target in targets {
+            store::record_recall(
                 &db,
-                targets,
-                message_id,
-                &store::revalidate_search_hits(&db, memories)?,
-            )?,
-            store::revision(&db)?,
-        )
+                &reply_id(message_id, target),
+                &memories,
+                chrono::Utc::now().timestamp_millis(),
+            )?;
+            store::inherit_recall(&db, &reply_id(message_id, target), &history_ids)?;
+        }
+        (store::settings(&db)?, prompt, store::revision(&db)?)
     };
     let paired = targets.len() == 2;
     let value = inference::generate(
@@ -550,7 +582,7 @@ pub(crate) async fn run_turn(
             }
             shown += 1;
             publish(app, state);
-            wait_for_line(app, state, epoch, cancel.clone(), &line.text).await?;
+            wait_for_line(app, state, epoch, cancel.clone()).await?;
         }
     }
 

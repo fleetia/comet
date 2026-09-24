@@ -17,6 +17,27 @@ export function CharacterPackPreview({ pack }: Props): JSX.Element {
         배포 조건: {pack.license || "미지정 — 재배포 조건을 제작자에게 확인해 주세요."}
       </p>
       {pack.sourceUrl && <p className={s.preview}>출처: {pack.sourceUrl}</p>}
+      {pack.archive && (
+        <section className={s.preview} aria-label="포함된 기억과 기록">
+          <p>
+            기억 {pack.archive.memories.length}개 · 친밀도 {pack.archive.affinity.length}개 · 대화
+            기록 {pack.archive.messages.length}개
+          </p>
+          <p>함께 지낸 사람: {pack.archive.people.map((person) => person.name).join(", ")}</p>
+          <p>가져온 기억은 그 사람과의 경험으로 간직해요. 당신과의 관계는 새로 시작해요.</p>
+          {pack.archive.memories.length > 0 && (
+            <details>
+              <summary>기억 내용 확인</summary>
+              {pack.archive.memories.map((memory) => (
+                <p key={memory.id}>
+                  {pack.archive?.people.find((person) => person.id === memory.personId)?.name} ·{" "}
+                  {memory.content}
+                </p>
+              ))}
+            </details>
+          )}
+        </section>
+      )}
       {pack.characters.map((character, index) => (
         <details key={`${character.sourceId}:${index}`} open>
           <summary className={s.disclosureSummary}>{character.name}</summary>

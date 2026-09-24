@@ -1,13 +1,13 @@
-import { useRef, useState, type JSX } from "react";
+import { useRef, useState, type CSSProperties, type JSX } from "react";
 import { Button } from "@fleetia/lagrange";
 import type { Dispatch, StoryRequest } from "../../types";
 import { errorText } from "../../hooks/useSnapshot";
 import * as s from "./story.css";
 import * as ui from "../../lagrange.css";
 
-type Props = { story: StoryRequest; dispatch: Dispatch };
+type Props = { story: StoryRequest; dispatch: Dispatch; textStyle?: CSSProperties };
 
-export function StoryChoices({ story, dispatch }: Props): JSX.Element {
+export function StoryChoices({ story, dispatch, textStyle }: Props): JSX.Element {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lock = useRef(false);
@@ -31,7 +31,7 @@ export function StoryChoices({ story, dispatch }: Props): JSX.Element {
   return (
     <div className={s.story}>
       <p className={ui.quiet}>{story.title}</p>
-      <p className={s.prompt} aria-live="polite">
+      <p className={s.prompt} style={textStyle} aria-live="polite">
         {story.prompt}
       </p>
       <div className={s.choices} role="group" aria-label="이야기 선택지">

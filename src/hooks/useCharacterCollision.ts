@@ -17,10 +17,16 @@ type Options = {
   size: number;
   dispatch: Dispatch;
   onError: (message: string) => void;
+  animation?: {
+    key: string;
+    frames: readonly HTMLCanvasElement[];
+    frame: number | null;
+  };
 };
 type Refs = {
   bodyRef: RefObject<HTMLButtonElement | null>;
   imageRef: RefObject<HTMLImageElement | null>;
+  canvasRef: RefObject<HTMLCanvasElement | null>;
 };
 
 // A webview has one character body. Keep revisions increasing across StrictMode remounts too.
@@ -40,6 +46,16 @@ function bounds(element: HTMLElement): Pick<CollisionMask, "x" | "y" | "width" |
     return null;
   }
   return { x, y, width, height };
+}
+
+function alphaBits(data: Uint8ClampedArray, cells: number): number[] {
+  const bits = Array<number>(Math.ceil(cells / 8)).fill(0);
+  for (let index = 0; index < cells; index += 1) {
+    if (data[index * 4 + 3] > 0) {
+      bits[Math.floor(index / 8)] |= 1 << (index % 8);
+    }
+  }
+  return bits;
 }
 
 function imageMask(image: HTMLImageElement): CollisionMask | null {
@@ -68,19 +84,43 @@ function imageMask(image: HTMLImageElement): CollisionMask | null {
     height * (rows / rect.height),
   );
   const { data } = context.getImageData(0, 0, columns, rows);
-  const bits = Array<number>(Math.ceil((columns * rows) / 8)).fill(0);
-  for (let index = 0; index < columns * rows; index += 1) {
-    if (data[index * 4 + 3] > 0) {
-      bits[Math.floor(index / 8)] |= 1 << (index % 8);
-    }
-  }
-  return { ...rect, columns, rows, bits };
+  return { ...rect, columns, rows, bits: alphaBits(data, columns * rows) };
 }
 
-export function useCharacterCollision({ enabled, source, size, dispatch, onError }: Options): Refs {
+function canvasMask(
+  canvas: HTMLCanvasElement,
+  rect: NonNullable<ReturnType<typeof bounds>>,
+): CollisionMask {
+  const columns = canvas.width;
+  const rows = canvas.height;
+  if (columns < 1 || columns > 512 || rows < 1 || rows > 512) {
+    throw new Error("캐릭터 동작의 충돌 프레임 크기가 올바르지 않아요.");
+  }
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) {
+    throw new Error("캐릭터 동작의 충돌 영역을 읽지 못했어요.");
+  }
+  const { data } = context.getImageData(0, 0, columns, rows);
+  return { ...rect, columns, rows, bits: alphaBits(data, columns * rows) };
+}
+
+export function useCharacterCollision({
+  enabled,
+  source,
+  size,
+  dispatch,
+  onError,
+  animation,
+}: Options): Refs {
   const bodyRef = useRef<HTMLButtonElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const latestReport = useRef(0);
+  const latestFrame = useRef(animation?.frame ?? null);
+  const selectFrame = useRef<(() => void) | null>(null);
+  const animationKey = animation?.key;
+  const animationFrames = animation?.frames;
+  const animationFrame = animation?.frame ?? null;
 
   useEffect(() => {
     if (!enabled) {
@@ -89,35 +129,119 @@ export function useCharacterCollision({ enabled, source, size, dispatch, onError
     let active = true;
     const body = bodyRef.current;
     const image = imageRef.current;
+    const canvas = canvasRef.current;
+    let cacheRevision = 0;
+    let cacheReady = false;
+    let lastLayout = "";
+    let selectedFrame: number | null | undefined;
+    function fail(cause: unknown, revision: number): void {
+      if (active && latestReport.current === revision) {
+        onError(errorText(cause));
+      }
+    }
     function report(mask: CollisionMask | null): void {
       const revision = ++reportRevision;
       latestReport.current = revision;
       try {
         void Promise.resolve(dispatch("set_character_collision", { revision, mask })).catch(
           (cause: unknown) => {
-            if (active && latestReport.current === revision) {
-              onError(errorText(cause));
-            }
+            fail(cause, revision);
           },
         );
       } catch (cause) {
-        if (active && latestReport.current === revision) {
-          onError(errorText(cause));
+        fail(cause, revision);
+      }
+    }
+    selectFrame.current = () => {
+      if (!active || !cacheReady || selectedFrame === latestFrame.current) {
+        return;
+      }
+      selectedFrame = latestFrame.current;
+      const revision = ++reportRevision;
+      latestReport.current = revision;
+      try {
+        void Promise.resolve(
+          dispatch("select_character_collision_frame", {
+            revision,
+            cacheRevision,
+            frame: selectedFrame,
+          }),
+        ).catch((cause: unknown) => fail(cause, revision));
+      } catch (cause) {
+        fail(cause, revision);
+      }
+    };
+    function register(masks: CollisionMask[], fallback: CollisionMask | null): void {
+      const revision = ++reportRevision;
+      latestReport.current = revision;
+      cacheRevision = revision;
+      cacheReady = false;
+      selectedFrame = undefined;
+      const rejected = (cause: unknown): void => {
+        if (!active || cacheRevision !== revision) {
+          return;
         }
+        report(fallback);
+        onError(errorText(cause));
+      };
+      try {
+        void Promise.resolve(
+          dispatch("set_character_collision_animation", { revision, masks, fallback }),
+        )
+          .then(() => {
+            if (!active || cacheRevision !== revision) {
+              return;
+            }
+            cacheReady = true;
+            selectFrame.current?.();
+          })
+          .catch(rejected);
+      } catch (cause) {
+        rejected(cause);
       }
     }
     function update(): void {
       if (!active) {
         return;
       }
+      let fallback: CollisionMask | null = null;
       try {
+        const loaded = Boolean(
+          image &&
+          image.complete &&
+          image.getAttribute("src") === source &&
+          (!image.currentSrc || image.currentSrc === source),
+        );
+        if (animationFrames?.length && canvas) {
+          if (animationFrames.length > 64) {
+            throw new Error("캐릭터 동작의 충돌 프레임은 1~64개여야 해요.");
+          }
+          const rect = bounds(canvas);
+          if (!rect) {
+            return;
+          }
+          let fallbackRect = body && bounds(body);
+          if (source) {
+            fallbackRect = loaded && image ? bounds(image) : null;
+          }
+          const layout = JSON.stringify([rect, fallbackRect, loaded]);
+          if (layout === lastLayout) {
+            return;
+          }
+          lastLayout = layout;
+          if (source && loaded && image) {
+            fallback = imageMask(image);
+          } else if (!source && fallbackRect) {
+            fallback = { ...fallbackRect, columns: 1, rows: 1, bits: [1] };
+          }
+          register(
+            animationFrames.map((frame) => canvasMask(frame, rect)),
+            fallback,
+          );
+          return;
+        }
         if (source) {
-          if (
-            !image ||
-            !image.complete ||
-            image.getAttribute("src") !== source ||
-            (image.currentSrc && image.currentSrc !== source)
-          ) {
+          if (!loaded || !image) {
             return;
           }
           report(imageMask(image));
@@ -126,13 +250,21 @@ export function useCharacterCollision({ enabled, source, size, dispatch, onError
         const rect = body && bounds(body);
         report(rect ? { ...rect, columns: 1, rows: 1, bits: [1] } : null);
       } catch (cause) {
-        report(null);
+        cacheReady = false;
+        cacheRevision = 0;
+        report(fallback);
         onError(errorText(cause));
       }
     }
     function imageFailed(): void {
       if (active) {
+        cacheReady = false;
+        cacheRevision = 0;
+        lastLayout = "";
         report(null);
+        if (animationFrames?.length) {
+          update();
+        }
       }
     }
     report(null);
@@ -145,15 +277,25 @@ export function useCharacterCollision({ enabled, source, size, dispatch, onError
     if (image) {
       observer?.observe(image);
     }
+    if (canvas) {
+      observer?.observe(canvas);
+    }
     update();
     return () => {
       active = false;
+      cacheReady = false;
+      selectFrame.current = null;
       observer?.disconnect();
       image?.removeEventListener("load", update);
       image?.removeEventListener("error", imageFailed);
       report(null);
     };
-  }, [enabled, source, size, dispatch, onError]);
+  }, [enabled, source, size, dispatch, onError, animationKey, animationFrames]);
 
-  return { bodyRef, imageRef };
+  useEffect(() => {
+    latestFrame.current = animationFrame;
+    selectFrame.current?.();
+  }, [animationFrame]);
+
+  return { bodyRef, imageRef, canvasRef };
 }

@@ -1,3 +1,4 @@
+use super::memory::{eligible_memory, memory_row, recall_weight, MEMORY_FIELDS};
 use super::{err, get, put, Result};
 use crate::types::Memory;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -91,9 +92,11 @@ pub(super) fn initialize(conn: &Connection) -> Result<()> {
 }
 
 pub fn memory_count(conn: &Connection) -> Result<usize> {
-    conn.query_row("SELECT COUNT(*) FROM memories WHERE deleted=0", [], |row| {
-        row.get(0)
-    })
+    conn.query_row(
+        "SELECT COUNT(*) FROM memories WHERE deleted=0 AND expired=0",
+        [],
+        |row| row.get(0),
+    )
     .map_err(err)
 }
 
@@ -101,20 +104,12 @@ pub fn memory_revision(conn: &Connection) -> Result<i64> {
     Ok(get(conn, "memory_revision")?.unwrap_or(0))
 }
 
-fn memory_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Memory> {
-    Ok(Memory {
-        id: row.get(0)?,
-        content: row.get(1)?,
-        source_message_id: row.get(2)?,
-        updated_at: row.get(3)?,
-    })
-}
-
+#[cfg(test)]
 pub fn memory_page(conn: &Connection, offset: usize, limit: usize) -> Result<MemoryPage> {
     let limit = limit.clamp(1, 50);
     let total = memory_count(conn)?;
     let offset = offset.min(total);
-    let mut statement = conn.prepare("SELECT id,content,source,updated FROM memories WHERE deleted=0 ORDER BY updated DESC,id LIMIT ?1 OFFSET ?2").map_err(err)?;
+    let mut statement = conn.prepare(&format!("SELECT {MEMORY_FIELDS} FROM memories m WHERE deleted=0 AND expired=0 ORDER BY updated DESC,id LIMIT ?1 OFFSET ?2")).map_err(err)?;
     let items = statement
         .query_map(params![limit as i64, offset as i64], memory_row)
         .map_err(err)?
@@ -175,7 +170,7 @@ pub fn pending_index_count(conn: &Connection, kind: &str, profile: &str) -> Resu
     } else {
         "memory_vectors"
     };
-    conn.query_row(&format!("SELECT COUNT(*) FROM memories m WHERE deleted=0 AND NOT EXISTS
+    conn.query_row(&format!("SELECT COUNT(*) FROM memories m WHERE deleted=0 AND expired=0 AND NOT EXISTS
         (SELECT 1 FROM {table} i WHERE i.memory_id=m.id AND i.content_version=m.content_version AND i.profile=?1)"),
         [profile], |row|row.get(0)).map_err(err)
 }
@@ -193,7 +188,7 @@ pub fn next_memory_for_index(
     } else {
         "memory_vectors"
     };
-    conn.query_row(&format!("SELECT id,content,content_version FROM memories m WHERE deleted=0 AND NOT EXISTS
+    conn.query_row(&format!("SELECT id,content,content_version FROM memories m WHERE deleted=0 AND expired=0 AND NOT EXISTS
         (SELECT 1 FROM {table} i WHERE i.memory_id=m.id AND i.content_version=m.content_version AND i.profile=?1)
         ORDER BY updated DESC,id LIMIT 1"), [profile], |row| Ok(IndexMemory {id:row.get(0)?,content:row.get(1)?,content_version:row.get(2)?}))
         .optional().map_err(err)
@@ -206,7 +201,7 @@ fn index_matches(
     kind: &str,
     profile: &str,
 ) -> Result<bool> {
-    Ok(profile_matches(conn, kind, profile)? && conn.query_row("SELECT EXISTS(SELECT 1 FROM memories WHERE id=?1 AND content_version=?2 AND deleted=0)", params![id,version], |row| row.get::<_,bool>(0)).map_err(err)?)
+    Ok(profile_matches(conn, kind, profile)? && conn.query_row("SELECT EXISTS(SELECT 1 FROM memories WHERE id=?1 AND content_version=?2 AND deleted=0 AND expired=0)", params![id,version], |row| row.get::<_,bool>(0)).map_err(err)?)
 }
 
 pub fn save_kiwi_index(
@@ -511,23 +506,72 @@ fn candidates_with_term_coverage(
 }
 
 pub fn revalidate_search_hits(conn: &Connection, hits: &[MemorySearchHit]) -> Result<Vec<Memory>> {
+    let at = super::effective_memory_time(conn, chrono::Utc::now().timestamp_millis())?;
     let mut memories = Vec::new();
+    let mut counts = BTreeMap::<String, usize>::new();
     for hit in hits.iter().take(8) {
-        let memory = conn.query_row("SELECT id,content,source,updated FROM memories WHERE id=?1 AND content_version=?2 AND deleted=0",
-            params![hit.memory.id,hit.content_version], memory_row).optional().map_err(err)?;
-        if let Some(memory) = memory {
+        let memory=conn.query_row(&format!("SELECT {MEMORY_FIELDS} FROM memories m WHERE id=?1 AND content_version=?2 AND deleted=0 AND expired=0"),params![hit.memory.id,hit.content_version],memory_row).optional().map_err(err)?;
+        if let Some(mut memory) = memory {
+            if !eligible_memory(conn, &memory, at)? {
+                continue;
+            }
+            memory.recall_weight = recall_weight(memory.retired_at, at);
+            let count = counts.entry(memory.user_id.clone()).or_default();
+            if *count >= (8.0 * memory.recall_weight).ceil() as usize {
+                continue;
+            }
+            *count += 1;
             memories.push(memory);
         }
     }
     Ok(memories)
 }
 
+pub fn search_memories_for(
+    conn: &Connection,
+    query: &str,
+    kiwi: &[String],
+    semantic: Option<(&str, &[f32], f32)>,
+    character_ids: &[String],
+    at: i64,
+) -> Result<Vec<MemorySearchHit>> {
+    super::expire_memories(conn, at)?;
+    search_scoped(
+        conn,
+        query,
+        kiwi,
+        semantic,
+        Some(character_ids),
+        super::effective_memory_time(conn, at)?,
+    )
+}
+
+#[cfg(test)]
 pub fn search_memories(
     conn: &Connection,
     query: &str,
     kiwi: &[String],
     semantic: Option<(&str, &[f32], f32)>,
 ) -> Result<Vec<MemorySearchHit>> {
+    search_scoped(
+        conn,
+        query,
+        kiwi,
+        semantic,
+        None,
+        super::effective_memory_time(conn, chrono::Utc::now().timestamp_millis())?,
+    )
+}
+
+fn search_scoped(
+    conn: &Connection,
+    query: &str,
+    kiwi: &[String],
+    semantic: Option<(&str, &[f32], f32)>,
+    scope: Option<&[String]>,
+    at: i64,
+) -> Result<Vec<MemorySearchHit>> {
+    let scope = serde_json::to_string(&scope).map_err(err)?;
     let mut ranks: BTreeMap<String, (f64, BTreeSet<String>)> = BTreeMap::new();
     let raw_terms = query_terms(search_words(query));
     let kiwi_terms = query_terms(kiwi.iter().flat_map(|term| search_words(term)));
@@ -546,9 +590,11 @@ pub fn search_memories(
         clauses.push(format!("({})", expression(&kiwi_terms)));
     }
     if !clauses.is_empty() {
-        let mut statement = conn.prepare("SELECT memory_id FROM memory_fts JOIN memories m ON m.id=memory_id WHERE memory_fts MATCH ?1 AND m.deleted=0 ORDER BY bm25(memory_fts),m.id LIMIT 20").map_err(err)?;
+        let mut statement = conn.prepare("SELECT memory_id FROM memory_fts JOIN memories m ON m.id=memory_id WHERE memory_fts MATCH ?1 AND m.deleted=0 AND m.expired=0 AND (?2='null' OR m.character_id IN (SELECT value FROM json_each(?2))) ORDER BY bm25(memory_fts),m.id LIMIT 20").map_err(err)?;
         let lexical = statement
-            .query_map([clauses.join(" OR ")], |row| row.get::<_, String>(0))
+            .query_map(params![clauses.join(" OR "), scope], |row| {
+                row.get::<_, String>(0)
+            })
             .map_err(err)?
             .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(err)?;
@@ -575,9 +621,9 @@ pub fn search_memories(
             && threshold.is_finite()
             && profile_matches(conn, "semantic", profile)?
         {
-            let mut statement = conn.prepare("SELECT i.memory_id,i.vector FROM memory_vectors i JOIN memories m ON m.id=i.memory_id WHERE m.deleted=0 AND m.content_version=i.content_version AND i.profile=?1").map_err(err)?;
+            let mut statement = conn.prepare("SELECT i.memory_id,i.vector FROM memory_vectors i JOIN memories m ON m.id=i.memory_id WHERE m.deleted=0 AND m.expired=0 AND m.content_version=i.content_version AND i.profile=?1 AND (?2='null' OR m.character_id IN (SELECT value FROM json_each(?2)))").map_err(err)?;
             let rows = statement
-                .query_map([profile], |row| {
+                .query_map(params![profile, scope], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
                 })
                 .map_err(err)?;
@@ -614,19 +660,34 @@ pub fn search_memories(
             }
         }
     }
-    let mut candidates: Vec<_> = ranks.into_iter().collect();
+    let mut candidates = Vec::new();
+    for (id, (rank, methods)) in ranks {
+        let hit=conn.query_row(&format!("SELECT {MEMORY_FIELDS},m.content_version FROM memories m WHERE id=?1 AND deleted=0 AND expired=0"),[id],|row|Ok(MemorySearchHit{memory:memory_row(row)?,content_version:row.get(11)?,methods:methods.into_iter().collect()})).optional().map_err(err)?;
+        if let Some(mut hit) = hit {
+            if !eligible_memory(conn, &hit.memory, at)? {
+                continue;
+            }
+            hit.memory.recall_weight = recall_weight(hit.memory.retired_at, at);
+            candidates.push((rank * hit.memory.recall_weight, hit));
+        }
+    }
     candidates.sort_by(|left, right| {
         right
-            .1
-             .0
-            .total_cmp(&left.1 .0)
-            .then_with(|| left.0.cmp(&right.0))
+            .0
+            .total_cmp(&left.0)
+            .then_with(|| left.1.memory.id.cmp(&right.1.memory.id))
     });
     let mut result = Vec::new();
-    for (id, (_, methods)) in candidates.into_iter().take(8) {
-        let hit = conn.query_row("SELECT id,content,source,updated,content_version FROM memories WHERE id=?1 AND deleted=0",[id],|row|Ok(MemorySearchHit {memory:memory_row(row)?,content_version:row.get(4)?,methods:methods.into_iter().collect()})).optional().map_err(err)?;
-        if let Some(hit) = hit {
-            result.push(hit);
+    let mut counts = BTreeMap::<String, usize>::new();
+    for (_, hit) in candidates {
+        let count = counts.entry(hit.memory.user_id.clone()).or_default();
+        if *count >= (8.0 * hit.memory.recall_weight).ceil() as usize {
+            continue;
+        }
+        *count += 1;
+        result.push(hit);
+        if result.len() == 8 {
+            break;
         }
     }
     Ok(result)

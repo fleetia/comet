@@ -3,7 +3,10 @@ use super::conversation::{
     ensure_retry_characters, generate_turn, remaining_retry, reply_id, route_message, turn_prompt,
 };
 use super::lifecycle::{flush_positions, prepare_exit};
-use super::scene::{character_script, clear_line_if_current, next_scene, present_line};
+use super::scene::{
+    character_script, clear_line_if_current, mark_line_displayed, next_scene, present_line,
+    wait_for_displayed_line,
+};
 use super::settings::{apply_settings, begin_download, SettingsScope};
 use super::windows::{apply_pause, should_cancel_for_pause};
 use super::*;
@@ -746,7 +749,7 @@ fn pack_switch_cancels_stale_playback_and_restores_the_same_characters_and_perso
         edited.name = "나의 친구".into();
         characters::save(&db, &imported[0].id, &edited).unwrap();
         db.execute(
-            "INSERT INTO character_affinity VALUES('before-pack-switch',?1,'2026-09-20',7,'pack-switch')",
+            "INSERT INTO character_affinity(source,character_id,day,delta,fingerprint) VALUES('before-pack-switch',?1,'2026-09-20',7,'pack-switch')",
             [&imported[0].id],
         ).unwrap();
         db.execute(
@@ -1085,6 +1088,139 @@ fn unavailable_wordbook_winner_is_reported_before_shorter_or_later_matches() {
         route_message(&state, &db, "테스트키워드").unwrap().unwrap()[0].text,
         short.lines[0].text
     );
+}
+
+#[test]
+fn presenting_a_line_captures_its_characters_text_speed_and_complete_original() {
+    let state = state();
+    let mut character = {
+        let db = lock(&state.db).unwrap();
+        let mut character = characters::active_character(&db, "a").unwrap();
+        character.definition.balloon_style.text_speed = 3;
+        characters::save(&db, &character.id, &character.definition).unwrap();
+        character
+    };
+    let token = interrupt(&state, false).unwrap();
+    let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
+    let line = SceneLine {
+        persona: "a".into(),
+        expression: "평온".into(),
+        text: "  가😀\n원문 그대로  ".into(),
+    };
+    assert!(present_line(
+        &state,
+        &line,
+        "wordbook",
+        "slow-line",
+        0,
+        1,
+        revision,
+        token.0,
+        &token.1,
+        false,
+    )
+    .unwrap());
+    let captured = lock(&state.playback).unwrap().clone().unwrap();
+    let duration = playback::line_duration_millis(&line.text, 3);
+    assert_eq!(captured.text_speed, 3);
+    assert_eq!(captured.text, line.text);
+    assert_eq!(captured.display_started_at, None);
+    assert_eq!(captured.ends_at, 0);
+    {
+        let db = lock(&state.db).unwrap();
+        character.definition.balloon_style.text_speed = 100;
+        characters::save(&db, &character.id, &character.definition).unwrap();
+        assert_eq!(store::messages(&db, 10).unwrap()[0].content, line.text);
+    }
+    assert_eq!(
+        lock(&state.playback).unwrap().as_ref().unwrap().text_speed,
+        3
+    );
+    {
+        let mut playback = lock(&state.playback).unwrap();
+        let playback = playback.as_mut().unwrap();
+        let first_display = 60_000;
+        assert!(mark_line_displayed(playback, first_display));
+        assert_eq!(playback.display_started_at, Some(first_display));
+        assert_eq!(playback.ends_at, first_display + duration);
+        assert!(!mark_line_displayed(playback, first_display + 5_000));
+        assert_eq!(playback.display_started_at, Some(first_display));
+        assert_eq!(playback.ends_at, first_display + duration);
+    }
+    let other = SceneLine {
+        persona: "b".into(),
+        ..line
+    };
+    assert!(present_line(
+        &state,
+        &other,
+        "script",
+        "instant-line",
+        0,
+        1,
+        revision,
+        token.0,
+        &token.1,
+        false,
+    )
+    .unwrap());
+    assert_eq!(
+        lock(&state.playback).unwrap().as_ref().unwrap().text_speed,
+        0
+    );
+}
+
+#[tokio::test]
+async fn undisplayed_lines_wait_for_native_readiness_and_cancel_without_following_replacements() {
+    for cancelled in [false, true] {
+        let state = state();
+        let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
+        let token = interrupt(&state, false).unwrap();
+        let line = &test_lines()[0];
+        assert!(present_line(
+            &state, line, "question", "pending", 0, 1, revision, token.0, &token.1, false,
+        )
+        .unwrap());
+        let mut waiting = Box::pin(wait_for_displayed_line(&state, token.0, token.1.clone()));
+        assert!(futures_util::poll!(waiting.as_mut()).is_pending());
+        if cancelled {
+            let next = interrupt(&state, false).unwrap();
+            assert!(present_line(
+                &state,
+                line,
+                "script",
+                "replacement",
+                0,
+                1,
+                revision,
+                next.0,
+                &next.1,
+                false,
+            )
+            .unwrap());
+        }
+        mark_line_displayed(lock(&state.playback).unwrap().as_mut().unwrap(), 60_000);
+        let displayed = tokio::time::timeout(Duration::from_secs(1), waiting)
+            .await
+            .unwrap()
+            .unwrap();
+        if cancelled {
+            assert!(displayed.is_none());
+            assert_eq!(
+                lock(&state.playback).unwrap().as_ref().unwrap().id,
+                "replacement"
+            );
+        } else {
+            let displayed = displayed.unwrap();
+            assert_eq!(displayed.id, "pending");
+            assert_eq!(displayed.source, "question");
+            assert_eq!(displayed.display_started_at, Some(60_000));
+            assert_eq!(
+                displayed.ends_at,
+                60_000 + playback::reading_millis(&line.text)
+            );
+        }
+    }
 }
 
 #[test]

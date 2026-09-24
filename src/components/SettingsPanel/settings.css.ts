@@ -97,6 +97,7 @@ export const panel = style({
   padding: "0 16px 12px",
 });
 globalStyle(`${panel}[hidden]`, { display: "none" });
+export const characterPanel = style({ overflow: "hidden" });
 export const saveBar = style({
   flexShrink: 0,
   borderTop: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,

@@ -70,7 +70,9 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         if play_widget_reaction(&app, &state).unwrap_or(false) {
             continue;
         }
-        let _ = expire_idle_recall(&state, chrono::Utc::now().timestamp_millis());
+        if expire_idle_recall(&state, chrono::Utc::now().timestamp_millis()).unwrap_or(false) {
+            super::publish(&app, &state);
+        }
         if let Ok(Some((epoch, cancel))) = begin_background(&state) {
             let worker_app = app.clone();
             let worker_state = state.clone();
@@ -112,7 +114,9 @@ pub(crate) fn expire_idle_recall(state: &AppState, at: i64) -> Result<bool, Stri
     if unavailable(state) || !["idle", "error"].contains(&lock(&state.runtime)?.phase.as_str()) {
         return Ok(false);
     }
-    store::expire_generated_recall(&*lock(&state.db)?, at)
+    let db = lock(&state.db)?;
+    let expired = store::expire_memories(&db, at)?;
+    Ok(store::expire_generated_recall(&db, at)? || expired)
 }
 
 pub(crate) fn begin_background(state: &AppState) -> Result<Option<(u64, Arc<AtomicBool>)>, String> {
@@ -147,7 +151,7 @@ pub(crate) async fn run_background(
         (
             store::settings(&db)?,
             store::pending_user_messages(&db)?,
-            store::memory_page(&db, 0, 8)?.items,
+            store::idle_memories(&db, chrono::Utc::now().timestamp_millis())?,
             store::relationships(&db)?,
             store::revision(&db)?,
             store::prepared_scenes(&db)?,
@@ -202,7 +206,15 @@ pub(crate) async fn run_background(
                 None,
                 None,
             );
-            let batch = domain::analysis_batch(&pending, &memories, revision);
+            let batch = {
+                let db = lock(&state.db)?;
+                domain::analysis_batch_for_conversations(
+                    &pending,
+                    &store::analysis_memories(&db, &pending)?,
+                    revision,
+                    &store::completed_conversation_sources(&db, &pending)?,
+                )
+            };
             {
                 let _action = lock(&state.action)?;
                 let db = lock(&state.db)?;
@@ -259,7 +271,8 @@ pub(crate) async fn run_background(
     } else {
         settings.local_idle_enabled
     };
-    if !settings.autonomous_enabled
+    if store::current_user(&*lock(&state.db)?)?.is_none()
+        || !settings.autonomous_enabled
         || !generate_enabled
         || scenes.len() >= 3
         || now() - state.last_preparation.load(Ordering::SeqCst)
@@ -299,10 +312,37 @@ pub(crate) async fn run_background(
         None,
         None,
     );
+    let scene_id = format!(
+        "{}{}",
+        if question { "question:" } else { "" },
+        uuid::Uuid::new_v4()
+    );
+    let prompt = {
+        let db = lock(&state.db)?;
+        if !is_current(state, epoch, &cancel) || store::revision(&db)? != revision {
+            return Ok(());
+        }
+        store::record_recall(
+            &db,
+            &scene_id,
+            &memories,
+            chrono::Utc::now().timestamp_millis(),
+        )?;
+        domain::with_user_context(
+            domain::roster_scene_prompt(
+                &characters,
+                &memories,
+                &relationships,
+                question,
+                &installed,
+            ),
+            store::current_user(&db)?.as_ref(),
+        )
+    };
     let result = background_generate(
         state,
         &settings,
-        &domain::roster_scene_prompt(&characters, &memories, &relationships, question, &installed),
+        &prompt,
         domain::scene_schema_for(
             &targets,
             if targets.len() == 1 { 1 } else { 2 },
@@ -321,17 +361,16 @@ pub(crate) async fn run_background(
     )?;
     let _action = lock(&state.action)?;
     let db = lock(&state.db)?;
-    if !is_current(state, epoch, &cancel) || store::revision(&db)? != revision {
+    if !is_current(state, epoch, &cancel)
+        || store::revision(&db)? != revision
+        || !store::recall_valid(&db, &scene_id, chrono::Utc::now().timestamp_millis())?
+    {
         return Ok(());
     }
     store::add_scene(
         &db,
         &PreparedScene {
-            id: format!(
-                "{}{}",
-                if question { "question:" } else { "" },
-                uuid::Uuid::new_v4()
-            ),
+            id: scene_id,
             revision,
             lines,
         },

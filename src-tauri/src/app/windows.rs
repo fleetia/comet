@@ -1,7 +1,7 @@
 use super::lifecycle::flush_positions;
 use super::scene::{next_scene, start_scene};
 use super::unavailable;
-use super::{interrupt, is_current, lock, now, phase, publish, schedule_idle, snapshot, AppState};
+use super::{interrupt, is_current, lock, now, phase, publish, schedule_idle, AppState};
 use crate::{behavior, characters, desktop_toys};
 use crate::{desktop, inference, store, types::PanelState, widgets};
 use std::sync::{
@@ -21,6 +21,7 @@ pub(crate) enum SettingsSection {
     Wordbook,
     Talk,
     Memory,
+    User,
     Model,
     #[serde(alias = "updates")]
     General,
@@ -36,6 +37,7 @@ impl SettingsSection {
             Self::Wordbook => "wordbook",
             Self::Talk => "talk",
             Self::Memory => "memory",
+            Self::User => "user",
             Self::Model => "model",
         }
     }
@@ -80,10 +82,6 @@ pub(crate) fn open_panel(
         None,
     );
     state.nlp.warmup();
-    if let Some(window) = app.get_webview_window("balloon") {
-        window.show().map_err(|error| error.to_string())?;
-        window.set_focus().map_err(|error| error.to_string())?;
-    }
     Ok(())
 }
 
@@ -128,12 +126,13 @@ pub(crate) fn skip_talk(
 }
 
 #[tauri::command]
-pub(crate) fn resize_balloon(
+pub(crate) async fn resize_balloon(
     app: tauri::AppHandle,
-    state: tauri::State<'_, Arc<AppState>>,
+    width: f64,
     height: f64,
+    content_key: String,
 ) -> Result<(), String> {
-    desktop::resize_balloon(&app, &snapshot(&state)?, height)
+    desktop::resize_balloon(&app, width, height, &content_key).await
 }
 
 #[tauri::command]

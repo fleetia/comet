@@ -266,11 +266,12 @@ pub(crate) fn edit_memory(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
+    character_id: String,
     content: String,
 ) -> Result<(), String> {
     let (epoch, _) = {
         let _action = lock(&state.action)?;
-        store::edit_memory(&*lock(&state.db)?, &id, &content)?;
+        store::edit_memory_for(&*lock(&state.db)?, &character_id, &id, &content)?;
         interrupt(&state, false)?
     };
     phase(
@@ -288,10 +289,11 @@ pub(crate) fn delete_memory(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
+    character_id: String,
 ) -> Result<(), String> {
     let (epoch, _) = {
         let _action = lock(&state.action)?;
-        store::delete_memory(&*lock(&state.db)?, &id)?;
+        store::delete_memory_for(&*lock(&state.db)?, &character_id, &id)?;
         interrupt(&state, false)?
     };
     phase(

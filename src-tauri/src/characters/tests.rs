@@ -38,6 +38,8 @@ fn pack() -> CharacterPack {
             use_for_idle: false,
         }],
         sprites: Vec::new(),
+        animation_assets: Vec::new(),
+        archive: None,
     }
 }
 #[test]
@@ -147,7 +149,7 @@ fn initialization_preserves_existing_addon_characters_and_personal_data() {
     }
     conn.execute_batch(
         "INSERT INTO memories(id,content,source,updated,deleted,locked) VALUES('memory','기억 원문','source',123,0,0);
-        INSERT INTO character_affinity VALUES('source','builtin-a','2026-09-20',5,'fingerprint');
+        INSERT INTO character_affinity(source,character_id,day,delta,fingerprint) VALUES('source','builtin-a','2026-09-20',5,'fingerprint');
         ",
     )
     .unwrap();
@@ -494,7 +496,7 @@ fn installed_legacy_versions_allow_reopen_edit_and_pack_export() {
 }
 
 #[test]
-fn legacy_character_json_defaults_to_empty_instructions_and_relationships() {
+fn legacy_character_json_defaults_to_empty_authored_context_and_default_balloon_style() {
     for version in [1, 2] {
         let mut legacy = pack();
         legacy.format_version = version;
@@ -504,16 +506,20 @@ fn legacy_character_json_defaults_to_empty_instructions_and_relationships() {
             let fields = definition.as_object_mut().unwrap();
             fields.remove("instructions");
             fields.remove("relationships");
+            fields.remove("balloonStyle");
         }
         let parsed = parse_pack(&value.to_string()).unwrap();
         assert!(parsed.characters.iter().all(|definition| {
-            definition.instructions.is_empty() && definition.relationships.is_empty()
+            definition.instructions.is_empty()
+                && definition.relationships.is_empty()
+                && definition.balloon_style == BalloonStyle::default()
         }));
         let conn = database();
         let installed = import_pack(&conn, &parsed).unwrap();
         assert!(installed.iter().all(|character| {
             character.definition.instructions.is_empty()
                 && character.definition.relationships.is_empty()
+                && character.definition.balloon_style == BalloonStyle::default()
         }));
     }
 }
@@ -523,7 +529,7 @@ fn authored_instructions_and_directional_relationships_preserve_local_identity()
     let conn = crate::store::open(std::path::Path::new(":memory:")).unwrap();
     conn.execute_batch(
         "INSERT INTO memories(id,content,source,updated,deleted,locked) VALUES('memory','기억 원문','source',123,0,0);
-        INSERT INTO character_affinity VALUES('source','builtin-a','2026-09-22',5,'fingerprint');",
+        INSERT INTO character_affinity(source,character_id,day,delta,fingerprint) VALUES('source','builtin-a','2026-09-22',5,'fingerprint');",
     )
     .unwrap();
     crate::store::insert_message(
@@ -546,6 +552,12 @@ fn authored_instructions_and_directional_relationships_preserve_local_identity()
         target_id: "builtin-b".into(),
         description: "  B는 오래된 친구.\n가끔 장난친다.  ".into(),
     }];
+    definition.balloon_style = BalloonStyle {
+        font_size: 24,
+        font_family: "Apple SD Gothic Neo".into(),
+        text_color: Some("#123aBc".into()),
+        text_speed: 24,
+    };
     save(&conn, &original.id, &definition).unwrap();
     apply_pair(&conn, ["builtin-b".into(), "builtin-a".into()]).unwrap();
     let saved = active_character(&conn, "b").unwrap();
@@ -553,6 +565,11 @@ fn authored_instructions_and_directional_relationships_preserve_local_identity()
     assert_eq!(saved.definition.source_id, original.definition.source_id);
     assert_eq!(saved.definition.instructions, definition.instructions);
     assert_eq!(saved.definition.relationships, definition.relationships);
+    assert_eq!(saved.definition.balloon_style, definition.balloon_style);
+    assert_eq!(
+        get(&conn, "builtin-b").unwrap().definition.balloon_style,
+        BalloonStyle::default()
+    );
     assert!(get(&conn, "builtin-b")
         .unwrap()
         .definition
@@ -841,7 +858,7 @@ fn malformed_unknown_nested_fields_and_oversize_are_rejected() {
         assert!(parse_pack(&value.to_string()).is_err(), "{path}");
     }
     let mut invalid = pack();
-    invalid.format_version = 3;
+    invalid.format_version = 4;
     assert!(validate_pack(&invalid).is_err());
     invalid = pack();
     invalid.characters.truncate(1);
@@ -1054,6 +1071,116 @@ fn expressions_are_dynamic_but_keep_the_default_key() {
     .unwrap();
     assert_eq!(legacy.sprite_size, DEFAULT_SPRITE_SIZE);
     assert!(!legacy.face_icon);
+}
+
+#[test]
+fn balloon_style_reopens_and_follows_clone_and_pack_roundtrip() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.db");
+    let style = BalloonStyle {
+        font_size: 32,
+        font_family: "나눔손글씨 펜".into(),
+        text_color: Some("#Ab12Ef".into()),
+        text_speed: 8,
+    };
+    {
+        let conn = Connection::open(&path).unwrap();
+        initialize_for_tests(&conn).unwrap();
+        let mut definition = get(&conn, "builtin-a").unwrap().definition;
+        definition.balloon_style = style.clone();
+        save(&conn, "builtin-a", &definition).unwrap();
+    }
+    let conn = Connection::open(&path).unwrap();
+    initialize_for_tests(&conn).unwrap();
+    assert_eq!(
+        get(&conn, "builtin-a").unwrap().definition.balloon_style,
+        style
+    );
+    let copy = clone_character(&conn, "builtin-a").unwrap();
+    assert_eq!(copy.definition.balloon_style, style);
+    let exported = export_pack(&conn, &["builtin-a".into(), "builtin-b".into()], &[]).unwrap();
+    let imported =
+        import_pack(&conn, &parse_pack(&pack_json(&exported).unwrap()).unwrap()).unwrap();
+    assert_eq!(imported[0].definition.balloon_style, style);
+    assert_eq!(
+        imported[1].definition.balloon_style,
+        BalloonStyle::default()
+    );
+    let mut edited = imported[0].definition.clone();
+    edited.balloon_style = BalloonStyle::default();
+    save(&conn, &imported[0].id, &edited).unwrap();
+    assert_eq!(
+        get(&conn, "builtin-a").unwrap().definition.balloon_style,
+        style
+    );
+    assert_eq!(
+        get(&conn, &copy.id).unwrap().definition.balloon_style,
+        style
+    );
+}
+
+#[test]
+fn balloon_style_validation_rejects_invalid_saves_and_pack_fields() {
+    let conn = database();
+    let original = get(&conn, "builtin-a").unwrap().definition;
+    for style in [
+        serde_json::json!({ "fontSize": 11 }),
+        serde_json::json!({ "fontSize": 41 }),
+        serde_json::json!({ "fontSize": 19.5 }),
+        serde_json::json!({ "textSpeed": 101 }),
+        serde_json::json!({ "textSpeed": -1 }),
+        serde_json::json!({ "textSpeed": 1.5 }),
+        serde_json::json!({ "fontFamily": "가".repeat(101) }),
+        serde_json::json!({ "fontFamily": "font\nname" }),
+        serde_json::json!({ "fontFamily": "font\u{7f}name" }),
+        serde_json::json!({ "textColor": "#abc" }),
+        serde_json::json!({ "textColor": "#12345G" }),
+        serde_json::json!({ "textColor": "1234567" }),
+        serde_json::json!({ "textColor": "" }),
+        serde_json::json!({ "unknown": true }),
+    ] {
+        let mut value = serde_json::to_value(pack()).unwrap();
+        value["characters"][0]["balloonStyle"] = style.clone();
+        assert!(parse_pack(&value.to_string()).is_err(), "{style}");
+        if let Ok(balloon_style) = serde_json::from_value(style) {
+            let mut invalid = original.clone();
+            invalid.balloon_style = balloon_style;
+            assert!(save(&conn, "builtin-a", &invalid).is_err());
+        }
+    }
+    assert_eq!(get(&conn, "builtin-a").unwrap().definition, original);
+    for (font_size, text_speed) in [(12, 0), (40, 100)] {
+        let mut valid = original.clone();
+        valid.balloon_style = BalloonStyle {
+            font_size,
+            font_family: "가".repeat(100),
+            text_color: Some("#aBc123".into()),
+            text_speed,
+        };
+        save(&conn, "builtin-a", &valid).unwrap();
+        assert_eq!(
+            get(&conn, "builtin-a").unwrap().definition.balloon_style,
+            valid.balloon_style
+        );
+    }
+    let mut value = serde_json::to_value(pack()).unwrap();
+    value["characters"][0]["balloonStyle"] = serde_json::json!({});
+    assert_eq!(
+        parse_pack(&value.to_string()).unwrap().characters[0].balloon_style,
+        BalloonStyle::default()
+    );
+    value["characters"][0]["balloonStyle"] = serde_json::json!({
+        "fontSize": 24,
+        "fontFamily": "Apple SD Gothic Neo",
+        "textColor": "#abcdef"
+    });
+    let legacy_style = parse_pack(&value.to_string()).unwrap().characters[0]
+        .balloon_style
+        .clone();
+    assert_eq!(legacy_style.font_size, 24);
+    assert_eq!(legacy_style.font_family, "Apple SD Gothic Neo");
+    assert_eq!(legacy_style.text_color.as_deref(), Some("#abcdef"));
+    assert_eq!(legacy_style.text_speed, 0);
 }
 
 #[test]

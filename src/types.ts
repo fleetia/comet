@@ -2,6 +2,31 @@ export type Persona = string;
 export const CHARACTER_SLOTS = ["a", "b", "c", "d", "e", "f", "g", "h"] as const;
 export type CharacterLine = { expression: string; text: string };
 export type CharacterRelationship = { targetId: string; description: string };
+export type BalloonStyle = {
+  fontSize: number;
+  fontFamily: string;
+  textColor: string | null;
+  textSpeed?: number;
+};
+export type AnimationFrame = {
+  assetId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+export type AnimationClip = { id: string; name: string; fps: number; frames: AnimationFrame[] };
+export type AnimationBinding = { clipId: string; repeat: boolean; intervalMs: number };
+export type AnimationBindings = Partial<
+  Record<"idle" | "speaking" | "click", AnimationBinding | null>
+>;
+export type CharacterAnimation = {
+  clips: AnimationClip[];
+  bindings: AnimationBindings;
+  overrides: Record<string, Partial<Record<"idle" | "speaking", AnimationBinding | null>>>;
+};
+export type AnimationAssetInfo = { mime: string; width: number; height: number };
+export type AnimationAsset = AnimationAssetInfo & { assetId: string; data: string };
 export type CharacterDefinition = {
   sourceId: string;
   name: string;
@@ -12,6 +37,8 @@ export type CharacterDefinition = {
   expressions: Record<string, string>;
   faceIcon: boolean;
   spriteSize: number;
+  balloonStyle?: BalloonStyle;
+  animation?: CharacterAnimation | null;
   greeting: CharacterLine[];
   idleLines: CharacterLine[];
 };
@@ -21,13 +48,42 @@ export type InstalledCharacter = {
   packId: string | null;
   definition: CharacterDefinition;
   sprites: Record<string, SpriteInfo>;
+  animationAssets?: Record<string, AnimationAssetInfo>;
 };
 export type CharacterCollection = { installed: InstalledCharacter[]; active: string[] };
 export type InstalledCharacterPack = { id: string; name: string; characterIds: string[] };
 export type CharacterDialogue = { pairScenes: SceneLine[][]; wordbook: WordbookEntry[] };
 export type PackSprite = { sourceId: string; expression: string; mime: string; data: string };
+export type CharacterArchive = {
+  exportedAt: number;
+  people: UserIdentity[];
+  memories: {
+    id: string;
+    characterSourceId: string;
+    personId: string;
+    kind: string;
+    content: string;
+    sourceId: string;
+    sourceText: string;
+    sourceCreatedAt: number;
+    updatedAt: number;
+    requiredChapter?: number | null;
+  }[];
+  affinity: { characterSourceId: string; personId: string; score: number }[];
+  messages: {
+    id: string;
+    personId: string;
+    role: string;
+    content: string;
+    expression: string | null;
+    createdAt: number;
+    status: string;
+    sourceKind: string;
+    characters: { sourceId: string; name: string }[];
+  }[];
+};
 export type CharacterPack = {
-  formatVersion: 1 | 2;
+  formatVersion: 1 | 2 | 3 | 4;
   name: string;
   author: string;
   sourceUrl?: string;
@@ -36,6 +92,8 @@ export type CharacterPack = {
   pairScenes: SceneLine[][];
   wordbook: WordbookEntry[];
   sprites?: PackSprite[];
+  animationAssets?: (AnimationAsset & { sourceId: string })[];
+  archive?: CharacterArchive | null;
 };
 export type MessageIdentity = {
   messageId: string;
@@ -56,11 +114,14 @@ export type Playback = SceneLine & {
   id: string;
   source: "script" | "llm" | "wordbook" | "widget" | "talk" | "story" | "question";
   endsAt: number;
+  textSpeed?: number;
+  displayStartedAt?: number | null;
   lineIndex: number;
   lineCount: number;
 };
 export type StoryRequest = {
   id: string;
+  displayStartedAt?: number | null;
   persona: Persona;
   title: string;
   prompt: string;
@@ -108,7 +169,27 @@ export type Message = {
   createdAt: number;
   status: string;
 };
-export type Memory = { id: string; content: string; sourceMessageId: string; updatedAt: number };
+export type UserIdentity = { id: string; name: string; startedAt: number; endedAt: number | null };
+export type CharacterExportOptions = {
+  includeSprites: boolean;
+  includeMemories: boolean;
+  includeAffinity: boolean;
+  includeMessages: boolean;
+};
+export type Memory = {
+  id: string;
+  characterId: string;
+  userId: string;
+  userName: string;
+  kind: "user_fact" | "experience";
+  content: string;
+  sourceMessageId: string;
+  sourceText: string;
+  sourceCreatedAt: number;
+  updatedAt: number;
+  retiredAt: number | null;
+  recallWeight: number;
+};
 export type MemoryPage = {
   items: Memory[];
   total: number;
@@ -174,8 +255,11 @@ export type RuntimeStatus = {
   paused: boolean;
 };
 export type Snapshot = {
+  user: UserIdentity | null;
+  legacyMemoryCount: number;
   characters: CharacterCollection;
   messageIdentities: MessageIdentity[];
+  messageUserNames: Record<string, string>;
   settings: Settings;
   playback: Playback | null;
   story: StoryRequest | null;

@@ -79,10 +79,16 @@ pub(crate) fn search_terms(tokens: &[crate::nlp::protocol::Token]) -> Vec<String
 #[tauri::command]
 pub(crate) fn list_memories(
     state: tauri::State<'_, Arc<AppState>>,
+    character_id: String,
     offset: Option<usize>,
     limit: Option<usize>,
 ) -> Result<store::MemoryPage, String> {
-    store::memory_page(&*lock(&state.db)?, offset.unwrap_or(0), limit.unwrap_or(50))
+    store::scoped_memory_page(
+        &*lock(&state.db)?,
+        &character_id,
+        offset.unwrap_or(0),
+        limit.unwrap_or(50),
+    )
 }
 
 #[tauri::command]
@@ -191,6 +197,7 @@ pub(crate) async fn search_for_turn(
 ) -> Result<Vec<store::MemorySearchHit>, String> {
     let query = {
         let db = lock(&state.db)?;
+        crate::app::conversation::ensure_current_user_message(&db, message_id)?;
         db.query_row(
             "SELECT data FROM messages WHERE id=?1 AND role='user'",
             [message_id],
@@ -204,6 +211,7 @@ pub(crate) async fn search_for_turn(
     let _action = lock(&state.action)?;
     let status = state.nlp.status();
     let db = lock(&state.db)?;
+    crate::app::conversation::ensure_current_user_message(&db, message_id)?;
     sync_profiles(&db, &status)?;
     let tokens = result
         .as_ref()
@@ -228,7 +236,15 @@ pub(crate) async fn search_for_turn(
                 state.nlp.semantic_threshold()?,
             ))
         });
-    store::search_memories(&db, &message.content, &tokens, semantic)
+    let targets = store::message_targets(&db, message_id)?;
+    store::search_memories_for(
+        &db,
+        &message.content,
+        &tokens,
+        semantic,
+        &targets,
+        chrono::Utc::now().timestamp_millis(),
+    )
 }
 
 /// Called from the single maintenance worker; never holds action, DB or gate while awaiting native work.

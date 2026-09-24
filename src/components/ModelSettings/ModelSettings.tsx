@@ -1,3 +1,4 @@
+import { MemorySearchSettings } from "../MemorySettings/MemorySearchSettings";
 import type { JSX } from "react";
 import { Button, FormField, Select, TextField } from "@fleetia/lagrange";
 import type { LocalModel, Settings, Snapshot } from "../../types";
@@ -255,6 +256,7 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
           </section>
         </div>
       </fieldset>
+      <MemorySearchSettings />
       {snapshot.runtime.error && (
         <p className={s.error} role="alert">
           {snapshot.runtime.error}

@@ -11,6 +11,18 @@ struct Pose {
     scale: f64,
 }
 
+#[derive(Clone, Copy)]
+struct ReportToken {
+    instance: u64,
+    visibility_generation: u64,
+}
+
+struct AnimationCache {
+    revision: u64,
+    frames: Vec<Arc<Shape>>,
+    fallback: Option<Arc<Shape>>,
+}
+
 #[derive(Default)]
 struct Entry {
     revision: u64,
@@ -20,6 +32,8 @@ struct Entry {
     shape: Option<Arc<Shape>>,
     pose: Option<Pose>,
     suppressed: bool,
+    animation: Option<AnimationCache>,
+    pending_animation: Option<u64>,
 }
 
 #[derive(Default)]
@@ -43,9 +57,18 @@ impl Registry {
 
     fn visibility(&mut self, label: &str, shown: bool) {
         let entry = self.change(label);
-        entry.visibility_generation = entry.generation;
+        // Every snapshot may re-show an already visible window. Only hide invalidates
+        // pending geometry work; an ordinary show must not discard its cache upload.
+        if !shown {
+            entry.visibility_generation = entry.generation;
+        }
         entry.suppressed = !shown;
         entry.pose = None;
+        if !shown && (entry.animation.is_some() || entry.pending_animation.is_some()) {
+            entry.animation = None;
+            entry.pending_animation = None;
+            entry.shape = None;
+        }
     }
 
     fn show_token(&mut self, label: &str) -> u64 {
@@ -75,22 +98,25 @@ impl Registry {
         Some(self.change(label).generation)
     }
 
-    fn begin_report(&mut self, label: &str) -> u64 {
-        self.change(label).instance
+    fn begin_report(&mut self, label: &str) -> ReportToken {
+        let entry = self.change(label);
+        ReportToken {
+            instance: entry.instance,
+            visibility_generation: entry.visibility_generation,
+        }
     }
 
     fn finish_report(
         &mut self,
         label: &str,
-        instance: u64,
+        token: ReportToken,
         revision: u64,
         shape: Option<Arc<Shape>>,
     ) {
-        if self
-            .entries
-            .get(label)
-            .is_some_and(|entry| entry.instance == instance)
-        {
+        if self.entries.get(label).is_some_and(|entry| {
+            entry.instance == token.instance
+                && entry.visibility_generation == token.visibility_generation
+        }) {
             self.report(label, revision, shape);
         }
     }
@@ -104,6 +130,69 @@ impl Registry {
             return;
         }
         let entry = self.change(label);
+        entry.revision = revision;
+        entry.shape = shape;
+        entry.animation = None;
+        entry.pending_animation = None;
+    }
+
+    fn begin_animation(&mut self, label: &str, revision: u64) -> Option<ReportToken> {
+        if self
+            .entries
+            .get(label)
+            .is_some_and(|entry| entry.revision >= revision)
+        {
+            return None;
+        }
+        let token = self.begin_report(label);
+        let entry = self.entries.get_mut(label)?;
+        entry.revision = revision;
+        entry.pending_animation = Some(revision);
+        entry.animation = None;
+        entry.shape = None;
+        Some(token)
+    }
+
+    fn finish_animation(&mut self, label: &str, token: ReportToken, cache: AnimationCache) {
+        let Some(entry) = self.entries.get_mut(label) else {
+            return;
+        };
+        if entry.instance != token.instance
+            || entry.visibility_generation != token.visibility_generation
+            || entry.pending_animation != Some(cache.revision)
+            || entry.revision != cache.revision
+        {
+            return;
+        }
+        entry.pending_animation = None;
+        entry.shape = cache.fallback.clone();
+        entry.animation = Some(cache);
+    }
+
+    fn select_frame(
+        &mut self,
+        label: &str,
+        revision: u64,
+        cache_revision: u64,
+        frame: Option<usize>,
+    ) {
+        let Some(entry) = self.entries.get_mut(label) else {
+            return;
+        };
+        let Some(cache) = &entry.animation else {
+            return;
+        };
+        if entry.suppressed || entry.revision >= revision || cache.revision != cache_revision {
+            return;
+        }
+        let shape = if let Some(frame) = frame {
+            let Some(shape) = cache.frames.get(frame) else {
+                return;
+            };
+            Some(shape.clone())
+        } else {
+            cache.fallback.clone()
+        };
         entry.revision = revision;
         entry.shape = shape;
     }
@@ -286,6 +375,70 @@ pub(crate) async fn set_character_collision(
     Ok(())
 }
 
+fn build_animation(
+    revision: u64,
+    masks: Vec<Mask>,
+    fallback: Option<Mask>,
+) -> Result<AnimationCache, String> {
+    if !(1..=64).contains(&masks.len()) {
+        return Err("캐릭터 동작의 충돌 프레임은 1~64개여야 해요.".into());
+    }
+    let frames = masks
+        .into_iter()
+        .map(|mask| Shape::from_mask(mask).map(Arc::new))
+        .collect::<Result<Vec<_>, _>>()?;
+    let fallback = fallback.map(Shape::from_mask).transpose()?.map(Arc::new);
+    Ok(AnimationCache {
+        revision,
+        frames,
+        fallback,
+    })
+}
+
+#[tauri::command]
+pub(crate) async fn set_character_collision_animation(
+    window: WebviewWindow,
+    revision: u64,
+    masks: Vec<Mask>,
+    fallback: Option<Mask>,
+) -> Result<(), String> {
+    if !crate::desktop::is_body(window.label()) {
+        return Err("캐릭터 본체에서만 충돌 영역을 갱신할 수 있어요.".into());
+    }
+    // Check the invocation's native window before reserving this label's cache revision.
+    window.inner_position().map_err(|error| error.to_string())?;
+    let runtime = window.state::<Runtime>();
+    let Some(token) = crate::lock(&runtime.0)?.begin_animation(window.label(), revision) else {
+        return Ok(());
+    };
+    let cache =
+        tauri::async_runtime::spawn_blocking(move || build_animation(revision, masks, fallback))
+            .await
+            .map_err(|error| error.to_string())??;
+    crate::lock(&runtime.0)?.finish_animation(window.label(), token, cache);
+    refresh(window.app_handle(), window.label());
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn select_character_collision_frame(
+    window: WebviewWindow,
+    revision: u64,
+    cache_revision: u64,
+    frame: Option<usize>,
+) -> Result<(), String> {
+    if !crate::desktop::is_body(window.label()) {
+        return Err("캐릭터 본체에서만 충돌 영역을 갱신할 수 있어요.".into());
+    }
+    crate::lock(&window.state::<Runtime>().0)?.select_frame(
+        window.label(),
+        revision,
+        cache_revision,
+        frame,
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -395,5 +548,152 @@ mod tests {
         registry.show_token("body-a");
         registry.finish_report("body-a", old, 2, Some(shape()));
         assert!(registry.entries["body-a"].shape.is_none());
+    }
+
+    fn frame_mask(hole: bool) -> Mask {
+        Mask {
+            x: 0.0,
+            y: 0.0,
+            width: 30.0,
+            height: 30.0,
+            columns: 3,
+            rows: 3,
+            bits: vec![if hole { 0xef } else { 0xff }, 1],
+        }
+    }
+
+    fn animation(revision: u64) -> AnimationCache {
+        build_animation(
+            revision,
+            vec![frame_mask(true), frame_mask(false)],
+            Some(frame_mask(false)),
+        )
+        .unwrap()
+    }
+
+    fn edge_count(shape: &Shape) -> usize {
+        let mut edges = Vec::new();
+        shape.append_edges(
+            (0.0, 0.0),
+            1.0,
+            crate::desktop_geometry::Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 30.0,
+                height: 30.0,
+            },
+            &mut edges,
+        );
+        edges.len()
+    }
+
+    #[test]
+    fn cached_frames_select_independent_holes_and_static_fallback_without_rebuilding() {
+        let mut registry = Registry::default();
+        registry.visibility("body-a", true);
+        let token = registry.begin_animation("body-a", 1).unwrap();
+        let cache = animation(1);
+        let ring = cache.frames[0].clone();
+        let solid = cache.frames[1].clone();
+        let fallback = cache.fallback.clone().unwrap();
+        registry.finish_animation("body-a", token, cache);
+        registry.select_frame("body-a", 2, 1, Some(0));
+        let selected = registry.entries["body-a"].shape.as_ref().unwrap();
+        assert!(Arc::ptr_eq(selected, &ring));
+        assert_eq!(edge_count(selected), 8);
+        registry.select_frame("body-a", 3, 1, Some(1));
+        let selected = registry.entries["body-a"].shape.as_ref().unwrap();
+        assert!(Arc::ptr_eq(selected, &solid));
+        assert_eq!(edge_count(selected), 4);
+        registry.select_frame("body-a", 4, 1, None);
+        assert!(Arc::ptr_eq(
+            registry.entries["body-a"].shape.as_ref().unwrap(),
+            &fallback
+        ));
+    }
+
+    #[test]
+    fn clearing_or_replacing_cache_rejects_pending_registration_and_old_frame_selections() {
+        let mut registry = Registry::default();
+        registry.visibility("body-a", true);
+        let old = registry.begin_animation("body-a", 1).unwrap();
+        let current = registry.begin_animation("body-a", 2).unwrap();
+        registry.finish_animation("body-a", old, animation(1));
+        assert!(registry.entries["body-a"].animation.is_none());
+        registry.finish_animation("body-a", current, animation(2));
+        registry.select_frame("body-a", 3, 2, Some(0));
+        let shape = registry.entries["body-a"].shape.clone().unwrap();
+        for (revision, cache_revision, frame) in [(2, 2, 1), (4, 1, 1), (4, 2, 64)] {
+            registry.select_frame("body-a", revision, cache_revision, Some(frame));
+            assert!(Arc::ptr_eq(
+                registry.entries["body-a"].shape.as_ref().unwrap(),
+                &shape
+            ));
+        }
+        assert!(registry.begin_animation("body-a", 2).is_none());
+        let pending = registry.begin_animation("body-a", 5).unwrap();
+        registry.report("body-a", 6, None);
+        registry.finish_animation("body-a", pending, animation(5));
+        registry.select_frame("body-a", 7, 2, Some(0));
+        assert!(registry.entries["body-a"].shape.is_none());
+        assert!(registry.entries["body-a"].animation.is_none());
+    }
+
+    #[test]
+    fn hidden_or_recreated_windows_discard_pending_cache_and_frame_updates() {
+        let mut registry = Registry::default();
+        registry.visibility("body-a", true);
+        let hidden = registry.begin_animation("body-a", 1).unwrap();
+        registry.visibility("body-a", false);
+        registry.visibility("body-a", true);
+        registry.finish_animation("body-a", hidden, animation(1));
+        assert!(registry.entries["body-a"].animation.is_none());
+        let destroyed = registry.begin_animation("body-a", 2).unwrap();
+        registry.entries.remove("body-a");
+        registry.visibility("body-a", true);
+        registry.finish_animation("body-a", destroyed, animation(2));
+        assert!(registry.entries["body-a"].animation.is_none());
+        let current = registry.begin_animation("body-a", 3).unwrap();
+        registry.finish_animation("body-a", current, animation(3));
+        registry.visibility("body-a", false);
+        registry.select_frame("body-a", 4, 3, Some(0));
+        registry.visibility("body-a", true);
+        registry.select_frame("body-a", 5, 3, Some(0));
+        assert!(registry.entries["body-a"].shape.is_none());
+    }
+
+    #[test]
+    fn animation_cache_enforces_frame_count_and_each_frames_mask_bounds() {
+        assert!(build_animation(1, vec![], None).is_err());
+        assert!(build_animation(1, (0..65).map(|_| frame_mask(false)).collect(), None).is_err());
+        let mut oversized = frame_mask(false);
+        oversized.width = 521.0;
+        assert!(build_animation(1, vec![frame_mask(false), oversized], None).is_err());
+        assert!(build_animation(1, (0..64).map(|_| frame_mask(false)).collect(), None).is_ok());
+    }
+
+    #[test]
+    fn static_decode_started_before_hide_cannot_restore_shape_after_show() {
+        let mut registry = Registry::default();
+        registry.visibility("body-a", true);
+        let token = registry.begin_report("body-a");
+        registry.visibility("body-a", false);
+        registry.visibility("body-a", true);
+        registry.finish_report("body-a", token, 1, Some(shape()));
+        assert!(registry.entries["body-a"].shape.is_none());
+    }
+
+    #[test]
+    fn normal_snapshot_reshow_keeps_pending_animation_registration_valid() {
+        let mut registry = Registry::default();
+        let pending = registry.begin_animation("body-a", 1).unwrap();
+        registry.visibility("body-a", true);
+        registry.visibility("body-a", true);
+        registry.finish_animation("body-a", pending, animation(1));
+        registry.select_frame("body-a", 2, 1, Some(0));
+        assert_eq!(
+            edge_count(registry.entries["body-a"].shape.as_ref().unwrap()),
+            8
+        );
     }
 }

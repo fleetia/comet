@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS message_targets(message_id TEXT PRIMARY KEY,ids TEXT 
                 .map_err(err)?;
             }
         }
-        tx.execute("INSERT OR IGNORE INTO character_affinity SELECT source,'builtin-'||persona,day,delta,fingerprint FROM affinity WHERE persona IN ('a','b')", []).map_err(err)?;
+        tx.execute("INSERT OR IGNORE INTO character_affinity(source,character_id,day,delta,fingerprint) SELECT source,'builtin-'||persona,day,delta,fingerprint FROM affinity WHERE persona IN ('a','b')", []).map_err(err)?;
         put(&tx, "character_identity_v1", &true)?;
     }
     tx.commit().map_err(err)
@@ -133,40 +133,52 @@ fn context_for_character(
 ) -> Result<Vec<Message>> {
     let ids = crate::characters::active_ids(conn)?;
     let roster_json = serde_json::to_string(&ids).map_err(err)?;
+    let user_id = super::active_user_id(conn)?;
     let mut stmt = conn.prepare("SELECT data FROM (
         SELECT seq,data FROM messages AS message
-        WHERE EXISTS (SELECT 1 FROM message_characters i WHERE i.message_id=message.id AND i.character_id IN (SELECT value FROM json_each(?2)) AND (?3 IS NULL OR i.character_id=?3))
+        WHERE EXISTS (SELECT 1 FROM message_characters i WHERE i.message_id=message.id AND i.character_id IN (SELECT value FROM json_each(?2)) AND (?3 IS NULL OR i.character_id=?3)
+            AND NOT EXISTS(SELECT 1 FROM memory_exclusions e WHERE e.source=message.id AND e.character_id=i.character_id AND e.user_id=?4))
+        AND EXISTS(SELECT 1 FROM message_users mu WHERE mu.message_id=message.id AND mu.user_id=?4)
         AND NOT EXISTS (SELECT 1 FROM message_context c WHERE c.message_id=message.id AND (c.forgotten=1 OR c.source='story'))
-        AND (message.role!='user' OR NOT EXISTS (
-            SELECT 1 FROM memories AS memory WHERE memory.source=message.id AND (memory.deleted=1 OR memory.locked=1)
-        )) ORDER BY seq DESC LIMIT ?1) ORDER BY seq").map_err(err)?;
+        ORDER BY seq DESC LIMIT ?1) ORDER BY seq").map_err(err)?;
     let rows = stmt
         .query_map(
-            params![limit.min(1000) as i64, roster_json, character],
+            params![limit.min(1000) as i64, roster_json, character, user_id],
             |row| row.get::<_, String>(0),
         )
         .map_err(err)?;
     let mut identity = conn
         .prepare("SELECT character_id FROM message_characters WHERE message_id=? AND persona=?")
         .map_err(err)?;
-    rows.map(|row| {
-        let mut message: Message = serde_json::from_str(&row.map_err(err)?).map_err(err)?;
-        if let Some(slot @ ("a" | "b")) = message.persona.as_deref() {
-            let id: String = identity
-                .query_row(params![message.id, slot], |r| r.get(0))
-                .map_err(err)?;
-            message.persona = Some(if character.is_some_and(|value| value == id) {
-                id
-            } else {
-                ids.iter()
-                    .position(|value| value == &id)
-                    .map(|index| crate::characters::SLOTS[index].to_string())
-                    .unwrap_or(id)
-            });
-        }
-        Ok(message)
-    })
-    .collect()
+    let candidates = rows
+        .map(|row| {
+            let mut message: Message = serde_json::from_str(&row.map_err(err)?).map_err(err)?;
+            if let Some(slot @ ("a" | "b")) = message.persona.as_deref() {
+                let id: String = identity
+                    .query_row(params![message.id, slot], |r| r.get(0))
+                    .map_err(err)?;
+                message.persona = Some(if character.is_some_and(|value| value == id) {
+                    id
+                } else {
+                    ids.iter()
+                        .position(|value| value == &id)
+                        .map(|index| crate::characters::SLOTS[index].to_string())
+                        .unwrap_or(id)
+                });
+            }
+            Ok(message)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    candidates
+        .into_iter()
+        .filter_map(|message| {
+            match super::recall_valid(conn, &message.id, chrono::Utc::now().timestamp_millis()) {
+                Ok(true) => Some(Ok(message)),
+                Ok(false) => None,
+                Err(error) => Some(Err(error)),
+            }
+        })
+        .collect()
 }
 pub fn insert_message(conn: &Connection, message: &Message) -> Result<()> {
     insert_message_with_talk(conn, message, None)
@@ -203,6 +215,11 @@ pub fn insert_message_with_source(
         )
         .map_err(err)?;
     if changed > 0 {
+        tx.execute(
+            "INSERT INTO message_users VALUES(?1,?2)",
+            params![message.id, super::active_user_id(&tx)?],
+        )
+        .map_err(err)?;
         let source = if message.role == "user" {
             "user"
         } else {
@@ -281,8 +298,8 @@ fn forget_expired_messages(conn: &Connection, at: i64) -> Result<bool> {
 fn extend_generated_recall(conn: &Connection, at: i64) -> Result<()> {
     conn.execute(
         "UPDATE message_context SET expires_at=MAX(expires_at,?1)
-         WHERE forgotten=0 AND expires_at IS NOT NULL",
-        [at.saturating_add(GENERATED_RECALL_MILLIS)],
+         WHERE forgotten=0 AND expires_at IS NOT NULL AND message_id IN (SELECT message_id FROM message_users WHERE user_id=?2)",
+        params![at.saturating_add(GENERATED_RECALL_MILLIS),super::active_user_id(conn)?],
     )
     .map_err(err)?;
     Ok(())
@@ -328,4 +345,9 @@ pub fn message_targets(conn: &Connection, message_id: &str) -> Result<Vec<String
         .collect::<rusqlite::Result<Vec<String>>>()
         .map_err(err)?;
     Ok(result)
+}
+
+pub fn mark_message_displayed(conn: &Connection, id: &str, at: i64) -> Result<()> {
+    conn.execute("INSERT OR IGNORE INTO message_presentations SELECT id,?2 FROM messages WHERE id=?1 AND role='assistant'",params![id,at]).map_err(err)?;
+    Ok(())
 }

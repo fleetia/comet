@@ -394,6 +394,8 @@ mod tests {
                 expression: "평온".into(),
                 text: "재생중".into(),
                 source: "widget".into(),
+                text_speed: 0,
+                display_started_at: None,
                 ends_at: 30000,
                 line_index: 0,
                 line_count: 2,

@@ -4,15 +4,18 @@ import type { Memory, MemoryPage } from "../../types";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import * as s from "../../lagrange.css";
 import * as layout from "../SettingsPanel/settings.css";
-import { MemorySearchSettings } from "./MemorySearchSettings";
 import { memoryList } from "./memory.css";
 
 export function MemorySettings({
-  memoryCount,
+  characterId,
+  memoryCount = 0,
+  active = true,
   memoryRevision,
   onDirtyChange,
 }: {
-  memoryCount: number;
+  characterId: string;
+  memoryCount?: number;
+  active?: boolean;
   memoryRevision: number;
   onDirtyChange?: (dirty: boolean) => void;
 }): JSX.Element {
@@ -28,13 +31,13 @@ export function MemorySettings({
   useEffect(() => {
     // An inserted memory can move the edited row onto a different offset page.
     // Keep this page stable until all its drafts have been saved or discarded.
-    if (!isDesktop() || dirty) return;
-    let active = true;
+    if (!isDesktop() || dirty || !active) return;
+    let live = true;
     setLoading(true);
     setError(null);
-    void command<MemoryPage>("list_memories", { offset, limit: 50 })
+    void command<MemoryPage>("list_memories", { characterId, offset, limit: 50 })
       .then((result) => {
-        if (!active) return;
+        if (!live) return;
         if (offset > 0 && result.items.length === 0) {
           setOffset(Math.max(0, offset - 50));
         } else {
@@ -42,18 +45,24 @@ export function MemorySettings({
         }
       })
       .catch((cause: unknown) => {
-        if (active) setError(errorText(cause));
+        if (live) setError(errorText(cause));
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (live) setLoading(false);
       });
     return () => {
-      active = false;
+      live = false;
     };
-  }, [offset, memoryRevision, refresh, dirty]);
+  }, [characterId, offset, memoryRevision, refresh, dirty, active]);
   return (
     <>
-      <MemoryEditor memories={page?.items ?? []} disabled={loading} onDirtyChange={setDirty} />
+      <MemoryEditor
+        characterId={characterId}
+        memories={page?.items ?? []}
+        disabled={loading}
+        onDirtyChange={setDirty}
+        onSaved={() => setRefresh((value) => value + 1)}
+      />
       <div className={s.row} aria-label="기억 페이지">
         <Button
           variant="quiet"
@@ -90,18 +99,21 @@ export function MemorySettings({
           </Button>
         </div>
       )}
-      <MemorySearchSettings />
     </>
   );
 }
 
 type Draft = { content: string; dirty: boolean };
 export function MemoryEditor({
+  characterId,
   memories,
+  onSaved,
   disabled = false,
   onDirtyChange,
 }: {
+  characterId: string;
   memories: Memory[];
+  onSaved?: () => void;
   disabled?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
 }): JSX.Element {
@@ -142,7 +154,7 @@ export function MemoryEditor({
     try {
       await command(
         remove ? "delete_memory" : "edit_memory",
-        remove ? { id } : { id, content: value.trim() },
+        remove ? { id, characterId } : { id, characterId, content: value.trim() },
       );
       setDrafts((previous) => {
         const next = { ...previous };
@@ -152,6 +164,7 @@ export function MemoryEditor({
       });
       if (remove) setRemoved((previous) => [...previous, id]);
       setConfirmDelete(false);
+      onSaved?.();
       setNotice(remove ? "기억을 지웠어요." : "기억을 저장했어요.");
     } catch (cause) {
       setError(errorText(cause));
@@ -161,7 +174,7 @@ export function MemoryEditor({
     }
   }
   return (
-    <section aria-label="함께 기억하는 것">
+    <section aria-label="캐릭터의 기억">
       <p className={s.quiet}>
         이 페이지의 기억 {list.length}개 · 대화에서 남긴 기억을 선택해 고치거나 지울 수 있어요.
       </p>
@@ -188,6 +201,18 @@ export function MemoryEditor({
             ))}
           </aside>
           <fieldset className={layout.editor} disabled={pending || disabled}>
+            <p className={s.quiet}>
+              {current.userName} · {new Date(current.updatedAt).toLocaleDateString("ko-KR")}
+            </p>
+            <details>
+              <summary>기억의 근거</summary>
+              <p className={s.quiet}>
+                {new Date(current.sourceCreatedAt).toLocaleDateString("ko-KR")}
+              </p>
+              <p style={{ whiteSpace: "pre-wrap" }}>
+                {current.sourceText || "근거 원문이 없어요."}
+              </p>
+            </details>
             <FormField className={s.field} label="기억 내용">
               <TextArea
                 rows={8}
@@ -242,9 +267,9 @@ export function MemoryEditor({
             )}
           </fieldset>
         </div>
-      ) : (
+      ) : !disabled ? (
         <p className={s.emptyHint}>아직 기억이 없어요. 이야기를 나누며 하나씩 쌓아 갈게요.</p>
-      )}
+      ) : null}
       {error && (
         <p role="alert" className={s.error}>
           {error}

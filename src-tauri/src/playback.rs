@@ -2,6 +2,16 @@ pub fn reading_millis(text: &str) -> i64 {
     (2_000 + text.chars().count() as i64 * 65).clamp(2_800, 16_000)
 }
 
+pub fn line_duration_millis(text: &str, text_speed: u32) -> i64 {
+    let reveal_millis = if text_speed == 0 {
+        0
+    } else {
+        // Scalar counts keep the lifetime conservative when the UI reveals whole graphemes.
+        (text.chars().count() as u64 * 1_000).div_ceil(u64::from(text_speed)) as i64
+    };
+    reveal_millis + reading_millis(text)
+}
+
 pub fn next_idle_at(now: i64, minutes: u32, entropy: u64) -> i64 {
     let seconds = i64::from(minutes.clamp(1, 60)) * 60;
     now + seconds * (80 + (entropy % 41) as i64) / 100
@@ -20,6 +30,16 @@ pub fn idle_source(sequence: u64, has_wordbook: bool, has_generated: bool) -> &'
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_reveal_finishes_before_the_full_reading_interval() {
+        let text = "가😀";
+        assert_eq!(line_duration_millis(text, 0), reading_millis(text));
+        assert_eq!(line_duration_millis(text, 3), reading_millis(text) + 667);
+        assert_eq!(line_duration_millis(text, 100), reading_millis(text) + 20);
+        assert_eq!(line_duration_millis("가", 1), reading_millis("가") + 2_000);
+        assert_eq!(line_duration_millis(&"가".repeat(500), 1), 516_000);
+    }
 
     #[test]
     fn idle_talk_has_a_readable_end_and_bounded_variable_spacing() {

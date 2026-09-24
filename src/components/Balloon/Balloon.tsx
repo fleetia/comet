@@ -1,19 +1,16 @@
-import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
 import { Button, IconButton, Select, TextArea } from "@fleetia/lagrange";
 import type { Dispatch, Persona, Snapshot } from "../../types";
 import { command, errorText } from "../../hooks/useSnapshot";
 import { useBalloonSizing } from "../../hooks/useBalloonSizing";
+import { useTypewriter } from "../../hooks/useTypewriter";
 import * as s from "../companion.css";
 import * as ui from "../../lagrange.css";
+import { CharacterHistory } from "../CharacterHistory/CharacterHistory";
 import { StoryChoices } from "../StoryChoices/StoryChoices";
-import {
-  activeCharacter,
-  BALLOON_SPRITE,
-  characterName,
-  spriteSource,
-  spriteUrl,
-} from "../characterIdentity";
+import { activeCharacter, BALLOON_SPRITE, characterName, spriteUrl } from "../characterIdentity";
 import { skinStyle, useImageSlice } from "../../hooks/useImageSlice";
+import { balloonTextStyle } from "../balloonTypography";
 
 type Props = { snapshot: Snapshot; preview?: boolean; dispatch?: Dispatch };
 
@@ -54,13 +51,12 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
   const mode = snapshot.panel?.mode;
   const name = characterName(snapshot, persona);
   const character = activeCharacter(snapshot, persona);
-  const speakerLabel =
-    snapshot.playback && spriteSource(character, snapshot.playback.expression) ? "" : name;
+  const textStyle = balloonTextStyle(character?.definition.balloonStyle);
   const skin = spriteUrl(character, BALLOON_SPRITE);
-  const slice = useImageSlice(skin);
+  const { slice, ready: imageReady } = useImageSlice(skin);
   const skinned = skin && slice ? skinStyle(skin, slice) : undefined;
-  const transparent = Boolean(skinned) && !preview;
-  useEffect(() => {
+  const transparent = !preview;
+  useLayoutEffect(() => {
     if (!transparent) return;
     document.documentElement.classList.add(s.transparentDocument);
     return () => document.documentElement.classList.remove(s.transparentDocument);
@@ -74,11 +70,19 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const responding = ["loading", "generating"].includes(snapshot.runtime.phase);
   const latestUser = snapshot.messages.filter((message) => message.role === "user").at(-1);
-  const canRetry = (mode === "input" || !mode) && snapshot.runtime.phase === "error" && latestUser;
+  const canRetry =
+    snapshot.user &&
+    (mode === "input" || !mode) &&
+    snapshot.runtime.phase === "error" &&
+    latestUser;
   const visibleError = error || (mode === "input" || !mode ? snapshot.runtime.error : null);
   useEffect(() => {
     setTarget(persona);
   }, [persona]);
+  useEffect(() => {
+    setInput("");
+    setError(null);
+  }, [snapshot.user?.id]);
   useEffect(() => {
     if (mode === "input") {
       inputRef.current?.focus();
@@ -87,7 +91,28 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
   useEffect(() => {
     setError(null);
   }, [mode, persona]);
-  const balloonRef = useBalloonSizing(preview, setError);
+  const contentKey = snapshot.panel
+    ? `panel:${snapshot.panel.persona}:${snapshot.panel.mode}`
+    : snapshot.story
+      ? `story:${snapshot.story.id}`
+      : snapshot.playback
+        ? `playback:${snapshot.playback.id}`
+        : `runtime:${snapshot.runtime.phase}:${snapshot.runtime.persona ?? ""}`;
+  const { elementRef: balloonRef, ready } = useBalloonSizing(
+    preview,
+    contentKey,
+    imageReady,
+    `${textStyle.fontSize}:${textStyle.fontFamily ?? ""}`,
+    setError,
+  );
+  const fullText = snapshot.playback?.text ?? "";
+  const revealedText = useTypewriter(
+    snapshot.playback?.id ?? "",
+    fullText,
+    snapshot.playback?.textSpeed ?? 0,
+    ready && !mode && !snapshot.story,
+  );
+  const revealing = revealedText !== fullText;
   async function perform(name: string, args?: Record<string, unknown>): Promise<void> {
     setError(null);
     try {
@@ -108,7 +133,7 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
     return () => window.removeEventListener("keydown", close);
   }, [closeCommand, dispatch]);
   async function send(): Promise<void> {
-    if (!input.trim() || submitting.current || responding) {
+    if (!snapshot.user || !input.trim() || submitting.current || responding) {
       return;
     }
     submitting.current = true;
@@ -132,30 +157,42 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
   return (
     <section
       ref={balloonRef}
-      className={`${s.balloon} ${preview ? s.balloonPreview : ""} ${skinned ? s.balloonSkinned : ""}`}
+      className={`${s.balloon} ${mode ? s.balloonPanel : ""} ${preview ? s.balloonPreview : ""} ${skin && (!imageReady || slice) ? s.balloonSkinned : ""}`}
       style={skinned}
       aria-label={mode ? labels[mode] : "말풍선"}
     >
-      <header className={s.balloonHeader}>
-        {(mode === "input" || mode === "history") && (
-          <Button
-            variant="quiet"
+      {mode ? (
+        <header className={s.balloonHeader}>
+          {(mode === "input" || mode === "history") && (
+            <Button
+              variant="quiet"
+              size="compact"
+              onClick={() => void perform("open_panel", { persona, mode: "menu" })}
+            >
+              메뉴로
+            </Button>
+          )}
+          <span>{labels[mode]}</span>
+          <IconButton
             size="compact"
-            onClick={() => void perform("open_panel", { persona, mode: "menu" })}
+            variant="quiet"
+            label={snapshot.panel ? "패널 닫기" : "이야기 닫기"}
+            onClick={() => void perform(closeCommand)}
           >
-            메뉴로
-          </Button>
-        )}
-        <span>{mode ? labels[mode] : speakerLabel}</span>
+            ×
+          </IconButton>
+        </header>
+      ) : (
         <IconButton
+          className={s.balloonClose}
           size="compact"
           variant="quiet"
-          label={snapshot.panel ? "패널 닫기" : "이야기 닫기"}
+          label="이야기 닫기"
           onClick={() => void perform(closeCommand)}
         >
           ×
         </IconButton>
-      </header>
+      )}
       {mode === "menu" && (
         <>
           <nav className={s.menu} aria-label="캐릭터 메뉴">
@@ -241,6 +278,21 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
             void send();
           }}
         >
+          {!snapshot.user && (
+            <div className={s.row}>
+              <span className={ui.quiet}>함께 이야기하기 전에 이름을 알려 주세요.</span>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  void dispatch("set_settings_section", { section: "user" })
+                    .then(() => dispatch("open_settings"))
+                    .catch((cause: unknown) => setError(errorText(cause)));
+                }}
+              >
+                이름 설정
+              </Button>
+            </div>
+          )}
           <div className={s.row}>
             <label className={ui.quiet}>
               받는 친구{" "}
@@ -262,6 +314,7 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
             aria-label={target === "all" ? "모두에게 할 말" : `${name}에게 할 말`}
             value={input}
             rows={3}
+            disabled={!snapshot.user}
             maxLength={2000}
             placeholder="하고 싶은 이야기를 적어 줘."
             onChange={(event) => setInput(event.target.value)}
@@ -282,7 +335,10 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
             <span className={ui.quiet} role="status">
               {responding && <WaitingDots />}
             </span>
-            <Button type="submit" disabled={!input.trim() || responding || pending}>
+            <Button
+              type="submit"
+              disabled={!snapshot.user || !input.trim() || responding || pending}
+            >
               {pending ? "전송 중" : "보내기"}
             </Button>
           </div>
@@ -290,28 +346,7 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
       )}
       {mode === "history" && (
         <>
-          <div className={s.history}>
-            {snapshot.messages.length === 0 ? (
-              <p className={ui.quiet}>아직 나눈 이야기가 없어요.</p>
-            ) : (
-              [...snapshot.messages]
-                .sort((left, right) => left.createdAt - right.createdAt)
-                .map((message) => (
-                  <p className={s.historyMessage} key={message.id}>
-                    <span className={s.historyName}>
-                      {message.role === "user"
-                        ? "나"
-                        : (snapshot.messageIdentities.find(
-                            (identity) => identity.messageId === message.id,
-                          )?.name ??
-                          message.persona?.toUpperCase() ??
-                          "친구")}
-                    </span>
-                    {message.content}
-                  </p>
-                ))
-            )}
-          </div>
+          <CharacterHistory key={persona} snapshot={snapshot} characterId={persona} />
           <div className={s.footer}>
             {snapshot.relationships.map((relationship) => (
               <span key={relationship.persona}>
@@ -322,11 +357,34 @@ export function Balloon({ snapshot, preview = false, dispatch = command }: Props
         </>
       )}
       {!mode && snapshot.story && (
-        <StoryChoices key={snapshot.story.id} story={snapshot.story} dispatch={dispatch} />
+        <StoryChoices
+          key={snapshot.story.id}
+          story={snapshot.story}
+          dispatch={dispatch}
+          textStyle={textStyle}
+        />
       )}
       {!mode && !snapshot.story && (
-        <div className={s.speech} aria-live="polite">
-          {snapshot.playback?.text ?? (responding ? <WaitingDots /> : "")}
+        <div
+          className={s.speech}
+          style={textStyle}
+          aria-live="polite"
+          aria-label={fullText || undefined}
+        >
+          {snapshot.playback ? (
+            <span className={s.speechText}>
+              <span style={{ visibility: revealing ? "hidden" : undefined }}>{fullText}</span>
+              {revealing && (
+                <span className={s.speechReveal} aria-hidden="true">
+                  {revealedText}
+                </span>
+              )}
+            </span>
+          ) : responding ? (
+            <WaitingDots />
+          ) : (
+            ""
+          )}
         </div>
       )}
       {(visibleError || canRetry || responding) && (

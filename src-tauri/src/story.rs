@@ -24,12 +24,15 @@ pub struct Choice {
 #[serde(rename_all = "camelCase")]
 pub struct Request {
     pub id: String,
+    pub display_started_at: Option<i64>,
     pub persona: String,
     pub title: String,
     pub prompt: String,
     pub choices: Vec<Choice>,
     #[serde(skip)]
     pub character_id: String,
+    #[serde(skip)]
+    pub user_id: String,
     #[serde(skip)]
     pub scene: Scene,
     #[serde(skip)]
@@ -185,7 +188,18 @@ pub fn load(app_data: &Path) -> Result<Vec<Scene>> {
 
 pub fn initialize(db: &Connection) -> Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS story_answers(request_id TEXT PRIMARY KEY,character_id TEXT NOT NULL,scene_id TEXT NOT NULL,chapter INTEGER NOT NULL,choice_id TEXT NOT NULL); CREATE INDEX IF NOT EXISTS story_character ON story_answers(character_id);")
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    let has_user: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('story_answers') WHERE name='user_id')",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if !has_user {
+        db.execute_batch("ALTER TABLE story_answers ADD COLUMN user_id TEXT NOT NULL DEFAULT 'legacy-user'; CREATE INDEX IF NOT EXISTS story_user ON story_answers(character_id,user_id)").map_err(|e|e.to_string())?;
+    }
+    Ok(())
 }
 
 pub fn catalog() -> Result<Vec<Scene>> {
@@ -196,7 +210,7 @@ pub fn catalog() -> Result<Vec<Scene>> {
 pub fn disclosure_level(db: &Connection, character_id: &str, score: i32) -> Result<u8> {
     initialize(db)?;
     let completed = |chapter: u8| -> Result<i32> {
-        db.query_row("SELECT COUNT(DISTINCT scene_id) FROM story_answers WHERE character_id=?1 AND chapter=?2", params![character_id,chapter], |row| row.get(0)).map_err(|e| e.to_string())
+        db.query_row("SELECT COUNT(DISTINCT scene_id) FROM story_answers WHERE character_id=?1 AND chapter=?2 AND user_id=?3", params![character_id,chapter,crate::store::active_user_id(db)?], |row| row.get(0)).map_err(|e| e.to_string())
     };
     if score < 40 || completed(0)? < 5 {
         return Ok(0);
@@ -238,8 +252,8 @@ pub fn prepare_from_catalog(
     for scene in &scenes {
         let seen: bool = db
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM story_answers WHERE character_id=?1 AND scene_id=?2)",
-                params![character.id, scene.id],
+                "SELECT EXISTS(SELECT 1 FROM story_answers WHERE character_id=?1 AND scene_id=?2 AND user_id=?3)",
+                params![character.id, scene.id,crate::store::active_user_id(db)?],
                 |r| r.get(0),
             )
             .map_err(|e| e.to_string())?;
@@ -258,6 +272,7 @@ pub fn prepare_from_catalog(
     let scene = candidates[seed as usize % candidates.len()].clone();
     Ok(Some(Request {
         id: uuid::Uuid::new_v4().to_string(),
+        display_started_at: None,
         persona: persona.into(),
         title: scene.title.clone(),
         prompt: scene.prompt.clone(),
@@ -270,6 +285,7 @@ pub fn prepare_from_catalog(
             })
             .collect(),
         character_id: character.id,
+        user_id: crate::store::active_user_id(db)?,
         scene,
         epoch,
     }))
@@ -277,6 +293,7 @@ pub fn prepare_from_catalog(
 
 pub fn answer(db: &Connection, request: &Request, choice_id: &str, epoch: u64) -> Result<String> {
     if epoch != request.epoch
+        || crate::store::active_user_id(db)? != request.user_id
         || crate::characters::active_character(db, &request.persona)?.id != request.character_id
     {
         return Err("이미 지나간 이야기예요.".into());
@@ -290,8 +307,8 @@ pub fn answer(db: &Connection, request: &Request, choice_id: &str, epoch: u64) -
     let tx = db.unchecked_transaction().map_err(|e| e.to_string())?;
     let raw_score: i32 = tx
         .query_row(
-            "SELECT 20+COALESCE(SUM(delta),0) FROM character_affinity WHERE character_id=?",
-            [&request.character_id],
+            "SELECT 20+COALESCE(SUM(delta),0) FROM character_affinity WHERE character_id=?1 AND user_id=?2",
+            params![request.character_id,request.user_id],
             |r| r.get(0),
         )
         .map_err(|e| e.to_string())?;
@@ -301,11 +318,15 @@ pub fn answer(db: &Connection, request: &Request, choice_id: &str, epoch: u64) -
         return Err("이 이야기는 다음에 이어갈게요.".into());
     }
     let delta = (raw_score.clamp(0, 100) + choice.delta).clamp(0, 100) - raw_score;
-    let changed = tx.execute("INSERT OR IGNORE INTO story_answers(request_id,character_id,scene_id,chapter,choice_id) VALUES(?1,?2,?3,?4,?5)", params![request.id, request.character_id, request.scene.id, request.scene.chapter, choice_id]).map_err(|e| e.to_string())?;
+    let changed = tx.execute("INSERT OR IGNORE INTO story_answers(request_id,character_id,scene_id,chapter,choice_id,user_id) VALUES(?1,?2,?3,?4,?5,?6)", params![request.id, request.character_id, request.scene.id, request.scene.chapter, choice_id,request.user_id]).map_err(|e| e.to_string())?;
     if changed == 0 {
         return Err("이미 답한 이야기예요.".into());
     }
-    tx.execute("INSERT INTO character_affinity(source,character_id,day,delta,fingerprint) VALUES(?1,?2,?3,?4,?5)", params![format!("story:{}",request.id),request.character_id,chrono::Utc::now().format("%Y-%m-%d").to_string(),delta,request.scene.id]).map_err(|e| e.to_string())?;
+    tx.execute("INSERT INTO character_affinity(source,character_id,day,delta,fingerprint,user_id) VALUES(?1,?2,?3,?4,?5,?6)", params![format!("story:{}",request.id),request.character_id,chrono::Utc::now().format("%Y-%m-%d").to_string(),delta,request.scene.id,request.user_id]).map_err(|e| e.to_string())?;
+    crate::store::insert_experience(&tx,&request.character_id,&request.user_id,&format!("story:{}",request.id),
+        &format!("{}: {}",request.scene.title,choice.label),
+        &serde_json::json!({"title":request.scene.title,"prompt":request.scene.prompt,"choice":choice.label,"response":choice.response}).to_string(),
+        chrono::Utc::now().timestamp_millis(),Some(request.scene.chapter))?;
     crate::store::bump_revision(&tx)?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(choice.response.clone())
@@ -321,8 +342,8 @@ pub fn profile(
     }
     let score: i32 = db
         .query_row(
-            "SELECT 20+COALESCE(SUM(delta),0) FROM character_affinity WHERE character_id=?",
-            [&character.id],
+            "SELECT 20+COALESCE(SUM(delta),0) FROM character_affinity WHERE character_id=?1 AND user_id=?2",
+            params![character.id,crate::store::active_user_id(db)?],
             |r| r.get(0),
         )
         .map_err(|e| e.to_string())?;
@@ -352,8 +373,8 @@ pub fn prompt_history(
         }
         let score: i32 = db
             .query_row(
-                "SELECT 20+COALESCE(SUM(delta),0) FROM character_affinity WHERE character_id=?",
-                [&character.id],
+                "SELECT 20+COALESCE(SUM(delta),0) FROM character_affinity WHERE character_id=?1 AND user_id=?2",
+                params![character.id,crate::store::active_user_id(db)?],
                 |r| r.get(0),
             )
             .map_err(|e| e.to_string())?;
@@ -484,7 +505,7 @@ mod tests {
         }
         assert!(get().description.contains("리치"));
         db.execute(
-            "INSERT INTO character_affinity VALUES('drop',?1,'today',-40,'test')",
+            "INSERT INTO character_affinity(source,character_id,day,delta,fingerprint) VALUES('drop',?1,'today',-40,'test')",
             [&nadir],
         )
         .unwrap();
@@ -550,13 +571,13 @@ mod tests {
         let secret = prepare(&db, "a", 7, 0).unwrap().unwrap();
         assert_eq!(secret.scene.chapter, 2);
         db.execute(
-            "INSERT INTO character_affinity VALUES('drop',?1,'today',-1,'test')",
+            "INSERT INTO character_affinity(source,character_id,day,delta,fingerprint) VALUES('drop',?1,'today',-1,'test')",
             [&nadir],
         )
         .unwrap();
         assert!(answer(&db, &secret, "listen", 7).is_err());
         db.execute(
-            "INSERT INTO character_affinity VALUES('rise',?1,'today',31,'test')",
+            "INSERT INTO character_affinity(source,character_id,day,delta,fingerprint) VALUES('rise',?1,'today',31,'test')",
             [&nadir],
         )
         .unwrap();
@@ -621,5 +642,53 @@ mod tests {
         crate::characters::apply_roster(&db, vec![nadir.clone()]).unwrap();
         assert!(prompt_history(&db, &nadir, messages).unwrap().is_empty());
         assert_eq!(prepare(&db, "a", 7, 0).unwrap().unwrap().scene.chapter, 1);
+    }
+}
+
+#[cfg(test)]
+mod user_memory_tests {
+    use super::*;
+
+    #[test]
+    fn new_user_restarts_story_and_cannot_recall_previous_users_private_chapters() {
+        let db = crate::store::open(Path::new(":memory:")).unwrap();
+        let imported =
+            crate::characters::import_pack(&db, &crate::characters::nadir_pack()).unwrap();
+        crate::characters::apply_pair(&db, [imported[0].id.clone(), imported[1].id.clone()])
+            .unwrap();
+        initialize(&db).unwrap();
+        let at = chrono::Utc::now().timestamp_millis();
+        crate::store::set_user_name(&db, "민수", at).unwrap();
+        let user = crate::store::active_user_id(&db).unwrap();
+        let character = crate::characters::active_character(&db, "a").unwrap().id;
+        db.execute("INSERT INTO character_affinity(source,character_id,day,delta,fingerprint,user_id) VALUES('earned',?1,'today',60,'earned',?2)",params![character,user]).unwrap();
+        for chapter in 0..2 {
+            for index in 0..5 {
+                let id = format!("past-{chapter}-{index}");
+                db.execute("INSERT INTO story_answers(request_id,character_id,scene_id,chapter,choice_id,user_id) VALUES(?1,?2,?1,?3,'listen',?4)",params![id,character,chapter,user]).unwrap();
+            }
+        }
+        let request = prepare(&db, "a", 7, 0).unwrap().unwrap();
+        assert_eq!(request.scene.chapter, 2);
+        let choice = request.scene.choices[0].id.clone();
+        answer(&db, &request, &choice, 7).unwrap();
+        let memories = crate::store::scoped_memory_page(&db, &character, 0, 50).unwrap();
+        assert_eq!(memories.total, 1);
+        assert_eq!(memories.items[0].kind, "experience");
+        let stale = prepare(&db, "a", 8, 0).unwrap().unwrap();
+        crate::store::set_user_name(&db, "지연", at + 1).unwrap();
+        assert_eq!(disclosure_level(&db, &character, 20).unwrap(), 0);
+        assert!(answer(&db, &stale, &stale.scene.choices[0].id, 8).is_err());
+        assert_eq!(crate::store::relationships(&db).unwrap()[0].score, 20);
+        assert!(crate::store::idle_memories(&db, at + 1).unwrap().is_empty());
+        assert_eq!(
+            crate::store::scoped_memory_page(&db, &character, 0, 50)
+                .unwrap()
+                .total,
+            1
+        );
+        assert_eq!(prepare(&db, "a", 9, 0).unwrap().unwrap().scene.chapter, 0);
+        crate::store::set_user_name(&db, "민수", at + 2).unwrap();
+        assert_eq!(disclosure_level(&db, &character, 20).unwrap(), 0);
     }
 }

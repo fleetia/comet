@@ -11,6 +11,16 @@ vi.mock("../hooks/useSnapshot", async (load) => ({
   isDesktop: () => true,
 }));
 afterEach(cleanup);
+const identity = {
+  characterId: "builtin-a",
+  userId: "person",
+  userName: "민수",
+  kind: "user_fact" as const,
+  sourceText: "원문",
+  sourceCreatedAt: 1,
+  retiredAt: null,
+  recallWeight: 1,
+};
 const model = {
   installed: true,
   enabled: true,
@@ -86,7 +96,9 @@ it("allows cancelling an active model download while its request is still pendin
 
 it("loads only one page, keeps a draft during revisions, and blocks paging until it is resolved", async () => {
   const first: MemoryPage = {
-    items: [{ id: "first", content: "첫 기억", sourceMessageId: "source", updatedAt: 1 }],
+    items: [
+      { ...identity, id: "first", content: "첫 기억", sourceMessageId: "source", updatedAt: 1 },
+    ],
     total: 51,
     offset: 0,
     nextOffset: 50,
@@ -104,10 +116,12 @@ it("loads only one page, keeps a draft during revisions, and blocks paging until
           }
         : first;
   });
-  const { rerender } = render(<MemorySettings memoryCount={51} memoryRevision={1} />);
+  const { rerender } = render(
+    <MemorySettings characterId="builtin-a" memoryCount={51} memoryRevision={1} />,
+  );
   fireEvent.change(await screen.findByLabelText("기억 내용"), { target: { value: "수정 중" } });
   expect(screen.getByRole("button", { name: "다음 기억" })).toHaveProperty("disabled", true);
-  rerender(<MemorySettings memoryCount={51} memoryRevision={2} />);
+  rerender(<MemorySettings characterId="builtin-a" memoryCount={51} memoryRevision={2} />);
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "변경 취소" }).closest("fieldset")).toHaveProperty(
       "disabled",
@@ -121,7 +135,11 @@ it("loads only one page, keeps a draft during revisions, and blocks paging until
   );
   fireEvent.click(screen.getByRole("button", { name: "다음 기억" }));
   await screen.findByRole("button", { name: "마지막 기억" });
-  expect(command).toHaveBeenCalledWith("list_memories", { offset: 50, limit: 50 });
+  expect(command).toHaveBeenCalledWith("list_memories", {
+    characterId: "builtin-a",
+    offset: 50,
+    limit: 50,
+  });
 });
 
 it("pins an edited page when new memories would move the draft onto the next page", async () => {
@@ -145,13 +163,15 @@ it("pins an edited page when new memories would move the draft onto the next pag
         revision: shifted ? 2 : 1,
       };
   });
-  const { rerender } = render(<MemorySettings memoryCount={50} memoryRevision={1} />);
+  const { rerender } = render(
+    <MemorySettings characterId="builtin-a" memoryCount={50} memoryRevision={1} />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "기억 49" }));
   fireEvent.change(screen.getByLabelText("기억 내용"), {
     target: { value: "페이지 밖으로 밀리면 안 되는 초안" },
   });
   shifted = true;
-  rerender(<MemorySettings memoryCount={51} memoryRevision={2} />);
+  rerender(<MemorySettings characterId="builtin-a" memoryCount={51} memoryRevision={2} />);
   expect(screen.getByLabelText("기억 내용")).toHaveProperty(
     "value",
     "페이지 밖으로 밀리면 안 되는 초안",

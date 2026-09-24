@@ -98,9 +98,13 @@ globalStyle(
   { background: "transparent" },
 );
 export const balloon = style({
-  width: "100%",
+  position: "relative",
+  boxSizing: "border-box",
+  width: "max-content",
+  minWidth: 48,
+  maxWidth: 320,
   height: "auto",
-  minHeight: 110,
+  minHeight: 32,
   maxHeight: 520,
   background: vars.color.surface.raised,
   border: `${vars.border.width.hairline} solid ${vars.color.border.strong}`,
@@ -109,10 +113,15 @@ export const balloon = style({
   flexDirection: "column",
   overflow: "hidden",
 });
-export const balloonSkinned = style({ imageRendering: "pixelated" });
+export const balloonPanel = style({ width: 320, minHeight: 110 });
+export const balloonSkinned = style({
+  imageRendering: "pixelated",
+  background: "transparent",
+  borderColor: "transparent",
+});
+export const balloonClose = style({ position: "absolute", top: 2, right: 2, zIndex: 1 });
 export const balloonPreview = style({
-  width: 320,
-  maxWidth: "100%",
+  maxWidth: "min(320px, 100%)",
 });
 export const balloonHeader = style({
   display: "flex",
@@ -126,7 +135,7 @@ export const balloonHeader = style({
 });
 export const speech = style({
   maxHeight: 400,
-  padding: "18px 20px",
+  padding: "8px 32px 8px 12px",
   fontSize: 19,
   lineHeight: 1.65,
   letterSpacing: "-0.025em",
@@ -136,6 +145,8 @@ export const speech = style({
   flex: 1,
   minHeight: 0,
 });
+export const speechText = style({ display: "block", position: "relative" });
+export const speechReveal = style({ position: "absolute", inset: 0 });
 const waitingPulse = keyframes({
   "0%, 80%, 100%": { opacity: 0.3 },
   "40%": { opacity: 1 },

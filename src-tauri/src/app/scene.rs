@@ -27,8 +27,17 @@ pub(crate) fn present_line(
     if !is_current(state, epoch, cancel) || store::revision(&db)? != revision {
         return Ok(false);
     }
+    if matches!(source, "llm" | "question")
+        && !store::recall_valid(&db, id, chrono::Utc::now().timestamp_millis())?
+    {
+        return Ok(false);
+    }
     let resolved = characters::resolve_lines(&db, std::slice::from_ref(line))?;
     let line = &resolved[0];
+    let text_speed = characters::active_character(&db, &line.persona)?
+        .definition
+        .balloon_style
+        .text_speed;
     if source == "widget" && !widget_commands::widget_event_current(state, &db)? {
         return Ok(false);
     }
@@ -63,7 +72,9 @@ pub(crate) fn present_line(
         expression: line.expression.clone(),
         text: line.text.clone(),
         source: source.into(),
-        ends_at: chrono::Utc::now().timestamp_millis() + playback::reading_millis(&line.text),
+        text_speed,
+        display_started_at: None,
+        ends_at: 0,
         line_index,
         line_count,
     });
@@ -74,21 +85,94 @@ pub(crate) fn present_line(
     Ok(true)
 }
 
+pub(crate) fn mark_line_displayed(line: &mut Playback, now: i64) -> bool {
+    if line.display_started_at.is_some() {
+        return false;
+    }
+    line.display_started_at = Some(now);
+    line.ends_at = now + playback::line_duration_millis(&line.text, line.text_speed);
+    true
+}
+
+pub(crate) async fn wait_for_displayed_line(
+    state: &AppState,
+    epoch: u64,
+    cancel: Arc<AtomicBool>,
+) -> Result<Option<Playback>, String> {
+    wait_for_displayed_line_until(
+        state,
+        epoch,
+        cancel,
+        tokio::time::Instant::now() + Duration::from_secs(30),
+    )
+    .await
+}
+
+async fn wait_for_displayed_line_until(
+    state: &AppState,
+    epoch: u64,
+    cancel: Arc<AtomicBool>,
+    deadline: tokio::time::Instant,
+) -> Result<Option<Playback>, String> {
+    let line_id = {
+        let _action = lock(&state.action)?;
+        if !is_current(state, epoch, &cancel) {
+            return Ok(None);
+        }
+        let playback = lock(&state.playback)?;
+        let Some(line) = playback.as_ref() else {
+            return Ok(None);
+        };
+        line.id.clone()
+    };
+    loop {
+        let displayed = {
+            let _action = lock(&state.action)?;
+            if !is_current(state, epoch, &cancel) {
+                return Ok(None);
+            }
+            let mut playback = lock(&state.playback)?;
+            let Some(line) = playback.as_ref().filter(|line| line.id == line_id) else {
+                return Ok(None);
+            };
+            if line.display_started_at.is_some() {
+                Some(line.clone())
+            } else if tokio::time::Instant::now() >= deadline {
+                *playback = None;
+                return Err(
+                    "말풍선 표시 준비가 30초 안에 끝나지 않았어요. 다시 시도해 주세요.".into(),
+                );
+            } else {
+                None
+            }
+        };
+        if let Some(displayed) = displayed {
+            return Ok(Some(displayed));
+        }
+        tokio::select! {
+            _ = models::cancelled(cancel.clone()) => return Ok(None),
+            _ = tokio::time::sleep(Duration::from_millis(20)) => {}
+            _ = tokio::time::sleep_until(deadline) => {}
+        }
+    }
+}
+
 pub(crate) async fn wait_for_line(
     app: &tauri::AppHandle,
     state: &AppState,
     epoch: u64,
     cancel: Arc<AtomicBool>,
-    text: &str,
 ) -> Result<(), String> {
-    tokio::select! {
-        _ = models::cancelled(cancel.clone()) => return Ok(()),
-        _ = tokio::time::sleep(Duration::from_millis(playback::reading_millis(text) as u64)) => {}
+    let Some(line) = wait_for_displayed_line(state, epoch, cancel.clone()).await? else {
+        return Ok(());
+    };
+    if !wait_for_valid_line(state, &line, line.ends_at, epoch, cancel.clone()).await? {
+        if clear_line_if_current(state, epoch, &cancel)? {
+            publish(app, state);
+        }
+        return Ok(());
     }
-    let question = lock(&state.playback)?
-        .as_ref()
-        .is_some_and(|line| line.source == "question");
-    if question {
+    if line.source == "question" {
         {
             let _action = lock(&state.action)?;
             if !is_current(state, epoch, &cancel) {
@@ -100,15 +184,41 @@ pub(crate) async fn wait_for_line(
             lock(&state.runtime)?.phase = crate::types::RuntimePhase::Waiting;
         }
         publish(app, state);
-        tokio::select! {
-            _ = models::cancelled(cancel.clone()) => return Ok(()),
-            _ = tokio::time::sleep(Duration::from_secs(30)) => {}
-        }
+        let until = chrono::Utc::now().timestamp_millis() + 30_000;
+        let _ = wait_for_valid_line(state, &line, until, epoch, cancel.clone()).await?;
     }
     if clear_line_if_current(state, epoch, &cancel)? {
         publish(app, state);
     }
     Ok(())
+}
+
+async fn wait_for_valid_line(
+    state: &AppState,
+    line: &Playback,
+    until: i64,
+    epoch: u64,
+    cancel: Arc<AtomicBool>,
+) -> Result<bool, String> {
+    loop {
+        if !is_current(state, epoch, &cancel) {
+            return Ok(false);
+        }
+        let at = chrono::Utc::now().timestamp_millis();
+        if matches!(line.source.as_str(), "llm" | "question")
+            && !store::recall_valid(&*lock(&state.db)?, &line.id, at)?
+        {
+            return Ok(false);
+        }
+        if at >= until {
+            return Ok(true);
+        }
+        let remaining = until.saturating_sub(at).min(250) as u64;
+        tokio::select! {
+            _ = models::cancelled(cancel.clone()) => return Ok(false),
+            _ = tokio::time::sleep(Duration::from_millis(remaining)) => {}
+        }
+    }
 }
 
 pub(crate) fn clear_line_if_current(
@@ -137,11 +247,15 @@ pub(crate) async fn run_scene(
 ) -> Result<(), String> {
     let revision = store::revision(&*lock(&state.db)?)?;
     for (index, line) in lines.iter().enumerate() {
+        let message_id = format!("scene:{prefix}:{index}");
+        if matches!(source, "llm" | "question") {
+            store::copy_recall(&*lock(&state.db)?, "active-scene", &message_id)?;
+        }
         if !present_line(
             state,
             line,
             source,
-            &format!("scene:{prefix}:{index}"),
+            &message_id,
             index,
             lines.len(),
             revision,
@@ -152,7 +266,7 @@ pub(crate) async fn run_scene(
             return Ok(());
         }
         publish(app, state);
-        wait_for_line(app, state, epoch, cancel.clone(), &line.text).await?;
+        wait_for_line(app, state, epoch, cancel.clone()).await?;
         if !is_current(state, epoch, &cancel) {
             return Ok(());
         }
@@ -246,7 +360,14 @@ pub(crate) fn next_scene(state: &AppState) -> Result<(Vec<SceneLine>, &'static s
                 && characters::resolve_lines(&db, &entry.lines).is_ok()
         })
         .collect();
-    let scenes = store::prepared_scenes(&db)?;
+    let mut scenes = Vec::new();
+    for scene in store::prepared_scenes(&db)? {
+        if store::recall_valid(&db, &scene.id, chrono::Utc::now().timestamp_millis())? {
+            scenes.push(scene);
+        } else {
+            store::delete_scene(&db, &scene.id)?;
+        }
+    }
     let source = playback::idle_source(sequence, !registered.is_empty(), !scenes.is_empty());
     match source {
         "wordbook" => Ok((
@@ -257,6 +378,7 @@ pub(crate) fn next_scene(state: &AppState) -> Result<(Vec<SceneLine>, &'static s
         )),
         "llm" => {
             let scene = &scenes[0];
+            store::copy_recall(&db, &scene.id, "active-scene")?;
             store::delete_scene(&db, &scene.id)?;
             Ok((
                 scene.lines.clone(),
@@ -281,4 +403,55 @@ pub(crate) fn character_script(db: &Connection, sequence: u64) -> Result<Vec<Sce
         return Ok(greeting);
     }
     characters::idle_scene(db, sequence as usize)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn display_preparation_timeout_clears_only_unshown_playback_and_keeps_raw_history() {
+        for displayed in [false, true] {
+            let state = super::super::tests::state();
+            let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
+            let token = super::super::interrupt(&state, false).unwrap();
+            let line = SceneLine {
+                persona: "a".into(),
+                expression: "평온".into(),
+                text: "  표시할 원문\n그대로  ".into(),
+            };
+            assert!(present_line(
+                &state, &line, "script", "waiting", 0, 1, revision, token.0, &token.1, false,
+            )
+            .unwrap());
+            if displayed {
+                mark_line_displayed(lock(&state.playback).unwrap().as_mut().unwrap(), 60_000);
+            }
+            let result = wait_for_displayed_line_until(
+                &state,
+                token.0,
+                token.1,
+                tokio::time::Instant::now(),
+            )
+            .await;
+            if displayed {
+                let playback = result.unwrap().unwrap();
+                assert_eq!(
+                    playback.ends_at,
+                    60_000 + playback::reading_millis(&line.text)
+                );
+                assert_eq!(
+                    lock(&state.playback).unwrap().as_ref().unwrap().id,
+                    "waiting"
+                );
+            } else {
+                assert!(result.unwrap_err().contains("30초"));
+                assert!(lock(&state.playback).unwrap().is_none());
+            }
+            assert_eq!(
+                store::messages(&lock(&state.db).unwrap(), 10).unwrap()[0].content,
+                line.text
+            );
+        }
+    }
 }

@@ -102,7 +102,9 @@ it("preserves personal wordbook whitespace and memory drafts across management t
           nextOffset: null,
           revision: 1,
         }
-      : undefined,
+      : name === "count_character_memories"
+        ? 0
+        : undefined,
   );
   const snapshot = {
     ...PREVIEW_SNAPSHOT,
@@ -123,12 +125,14 @@ it("preserves personal wordbook whitespace and memory drafts across management t
   fireEvent.change(screen.getByLabelText("대사 1"), {
     target: { value: "  쓰던 말\n\n다음 줄  " },
   });
-  fireEvent.click(screen.getByRole("tab", { name: /기억/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /캐릭터/ }));
+  fireEvent.click(screen.getByRole("tab", { name: "기억" }));
   fireEvent.change(await screen.findByLabelText("기억 내용"), { target: { value: "쓰던 기억" } });
   fireEvent.click(screen.getByRole("tab", { name: "위젯" }));
   rerender(<SettingsPanel snapshot={{ ...snapshot, wordbook: [...snapshot.wordbook] }} />);
   fireEvent.click(screen.getByRole("tab", { name: /개인 단어장/ }));
   expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "  쓰던 말\n\n다음 줄  ");
-  fireEvent.click(screen.getByRole("tab", { name: /기억/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /캐릭터/ }));
+  fireEvent.click(screen.getByRole("tab", { name: "기억" }));
   expect(screen.getByLabelText("기억 내용")).toHaveProperty("value", "쓰던 기억");
 });

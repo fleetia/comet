@@ -55,7 +55,7 @@ pub fn pending_user_messages(conn: &Connection) -> Result<Vec<Message>> {
     let mut stmt = conn
         .prepare(
             "SELECT m.data FROM memory_analysis_jobs j JOIN messages m ON m.id=j.message_id
-        WHERE j.state='pending' AND j.next_attempt_at<=?1 ORDER BY m.seq LIMIT 12",
+        WHERE j.state='pending' AND j.next_attempt_at<=?1 AND (SELECT user_id FROM message_users WHERE message_id=m.id)=(SELECT mu.user_id FROM memory_analysis_jobs first JOIN messages fm ON fm.id=first.message_id JOIN message_users mu ON mu.message_id=fm.id WHERE first.state='pending' AND first.next_attempt_at<=?1 ORDER BY fm.seq LIMIT 1) ORDER BY m.seq LIMIT 12",
         )
         .map_err(err)?;
     let rows = stmt
@@ -103,6 +103,6 @@ pub fn analysis_failure(conn: &Connection, ids: &[String], now: i64) -> Result<(
 }
 
 pub fn retry_deferred_analysis(conn: &Connection) -> Result<usize> {
-    conn.execute("UPDATE memory_analysis_jobs SET state='pending',attempts=0,next_attempt_at=0,reason=NULL WHERE state='deferred'", [])
+    conn.execute("UPDATE memory_analysis_jobs SET state='pending',attempts=0,next_attempt_at=0,reason=NULL WHERE state='deferred' AND COALESCE(reason,'')!='former_user_expired'", [])
         .map_err(err)
 }

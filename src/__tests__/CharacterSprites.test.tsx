@@ -7,6 +7,7 @@ import { CharacterEditor } from "../components/CharacterEditor/CharacterEditor";
 import { PREVIEW_SNAPSHOT, command, isDesktop } from "../hooks/useSnapshot";
 import type { InstalledCharacter, Playback, Snapshot } from "../types";
 import { centerSlice } from "../components/characterIdentity";
+import * as companion from "../components/companion.css";
 
 vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string, protocol: string) => `${protocol}://localhost/${path}`,
@@ -160,9 +161,10 @@ it("skins the balloon with the speaker's balloon image once its size is known", 
     naturalHeight = 7;
     onload: (() => void) | null = null;
     set src(_value: string) {
-      queueMicrotask(() => this.onload?.());
+      finishLoading = () => this.onload?.();
     }
   }
+  let finishLoading: (() => void) | undefined;
   vi.stubGlobal("Image", FakeImage);
   try {
     const skinned: InstalledCharacter = {
@@ -182,27 +184,87 @@ it("skins the balloon with the speaker's balloon image once its size is known", 
       />,
     );
     const balloon = screen.getByLabelText("말풍선");
+    expect(balloon.classList.contains(companion.balloonSkinned)).toBe(true);
+    expect(document.documentElement.classList.contains(companion.transparentDocument)).toBe(true);
+    finishLoading?.();
     await waitFor(() => expect(balloon.style.borderImageSlice).toBe("3 4 3 4 fill"));
     expect([balloon.style.borderTopWidth, balloon.style.borderRightWidth]).toEqual(["3px", "4px"]);
     expect(balloon.style.borderImageSource).toContain("expression=%24balloon&v=5");
     rerender(<Balloon snapshot={{ ...snapshot, playback: playing("평온", "b") }} />);
     expect(screen.getByLabelText("말풍선").style.borderImageSource).toBe("");
+    expect(screen.getByLabelText("말풍선").classList.contains(companion.balloonSkinned)).toBe(
+      false,
+    );
   } finally {
     vi.unstubAllGlobals();
   }
 });
 
-it("drops the speaker name from the balloon while a sprite is showing", () => {
-  const { rerender } = render(<Balloon snapshot={{ ...snapshot, playback: playing("기쁨") }} />);
+it("removes the whole speech header for image and text characters while keeping close and panel controls", async () => {
+  const dispatch = vi.fn().mockResolvedValue(undefined);
+  const { rerender } = render(
+    <Balloon dispatch={dispatch} snapshot={{ ...snapshot, playback: playing("기쁨") }} />,
+  );
   expect(screen.queryByText("별꼬리")).toBeNull();
+  expect(screen.getByLabelText("말풍선").querySelector("header")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "이야기 닫기" }));
+  await waitFor(() => expect(dispatch).toHaveBeenCalledWith("skip_talk", undefined));
   rerender(<Balloon snapshot={{ ...snapshot, playback: playing("평온", "b") }} />);
-  expect(screen.getByText(PREVIEW_SNAPSHOT.characters.installed[1].definition.name)).toBeTruthy();
+  expect(screen.queryByText(PREVIEW_SNAPSHOT.characters.installed[1].definition.name)).toBeNull();
+  expect(screen.getByLabelText("말풍선").querySelector("header")).toBeNull();
   rerender(
     <Balloon
       snapshot={{ ...snapshot, playback: playing("기쁨"), panel: { persona: "a", mode: "menu" } }}
     />,
   );
   expect(screen.getByText("무엇을 할까?")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "패널 닫기" })).toBeTruthy();
+});
+
+it("uses each speaker's saved typography for speech and story prompts and restores legacy defaults", () => {
+  const styled: Snapshot = {
+    ...snapshot,
+    characters: {
+      ...snapshot.characters,
+      installed: snapshot.characters.installed.map((character, index) => ({
+        ...character,
+        definition: {
+          ...character.definition,
+          balloonStyle:
+            index === 0
+              ? { fontSize: 28, fontFamily: "Apple SD Gothic Neo", textColor: "#125678" }
+              : { fontSize: 14, fontFamily: "Georgia", textColor: "#993366" },
+        },
+      })),
+    },
+    playback: { ...playing("평온"), text: " 첫 줄\n\n둘째 줄 " },
+  };
+  const { rerender } = render(<Balloon snapshot={styled} />);
+  const speech = screen
+    .getByLabelText("말풍선")
+    .querySelector<HTMLElement>('[aria-live="polite"]')!;
+  expect(speech.textContent).toBe(" 첫 줄\n\n둘째 줄 ");
+  expect(speech.style.fontSize).toBe("28px");
+  expect(speech.style.color).toBe("rgb(18, 86, 120)");
+  expect(speech.style.fontFamily).toContain('"Apple SD Gothic Neo"');
+  rerender(<Balloon snapshot={{ ...styled, playback: playing("평온", "b") }} />);
+  expect(speech.style.fontSize).toBe("14px");
+  expect(speech.style.color).toBe("rgb(153, 51, 102)");
+  expect(speech.style.fontFamily).toContain('"Georgia"');
+  rerender(<Balloon snapshot={{ ...snapshot, playback: playing("평온") }} />);
+  expect(speech.style.fontSize).toBe("19px");
+  expect(speech.style.color).toBe("");
+  expect(speech.style.fontFamily).toBe("");
+  rerender(
+    <Balloon
+      snapshot={{
+        ...styled,
+        story: { id: "story", persona: "b", title: "이야기", prompt: "이야기 원문", choices: [] },
+      }}
+    />,
+  );
+  expect(screen.getByText("이야기 원문").style.fontSize).toBe("14px");
+  expect(screen.getByText("이야기 원문").style.fontFamily).toContain('"Georgia"');
 });
 
 it("adds and removes expressions, protects the default one, and gates images on a saved character", () => {
@@ -218,6 +280,7 @@ it("adds and removes expressions, protects the default one, and gates images on 
       dirty={false}
     />,
   );
+  fireEvent.click(screen.getByRole("tab", { name: "모습·표정" }));
   expect(screen.queryByRole("button", { name: "평온 표정 삭제" })).toBeNull();
   expect(screen.getByText("캐릭터를 먼저 저장하면 표정마다 이미지를 넣을 수 있어요.")).toBeTruthy();
   for (const button of screen.getAllByRole("button", { name: /^(?!말풍선).* 이미지 선택$/ })) {
@@ -260,9 +323,12 @@ it("adds and removes expressions, protects the default one, and gates images on 
   expect(onSprite).toHaveBeenLastCalledWith("슬픔", false);
   fireEvent.click(screen.getAllByRole("button", { name: /^(?!말풍선).* 이미지 제거$/ })[1]);
   expect(onSprite).toHaveBeenLastCalledWith("기쁨", true);
+  fireEvent.click(screen.getByRole("tab", { name: "말풍선" }));
   expect(screen.getByLabelText("말풍선 이미지").textContent).toBe("기본");
   fireEvent.click(screen.getByRole("button", { name: "말풍선 이미지 선택" }));
   expect(onSprite).toHaveBeenLastCalledWith("$balloon", false);
   expect(screen.queryByRole("button", { name: "말풍선 이미지 제거" })).toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "대사" }));
+  fireEvent.click(screen.getByRole("button", { name: "인사 편집" }));
   expect(screen.getByLabelText("인사 1 표정")).toBeTruthy();
 });

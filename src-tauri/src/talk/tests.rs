@@ -67,11 +67,13 @@ fn source_scoped_pair_follows_imported_character_identity_when_slots_swap() {
     let imported = crate::characters::import_pack(
         &db,
         &crate::characters::CharacterPack {
+        archive: None,
             format_version: 1,
             name: "identity test".into(),
             author: "test".into(),
             source_url: String::new(),
             sprites: Vec::new(),
+            animation_assets: Vec::new(),
             license: "CC0".into(),
             characters: vec![nadir, companion],
             pair_scenes: vec![],

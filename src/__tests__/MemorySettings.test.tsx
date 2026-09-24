@@ -8,19 +8,33 @@ vi.mock("../hooks/useSnapshot", async (load) => ({
   command: vi.fn(),
 }));
 afterEach(cleanup);
+const identity = {
+  characterId: "builtin-a",
+  userId: "person",
+  userName: "민수",
+  kind: "user_fact" as const,
+  sourceText: "원문",
+  sourceCreatedAt: 1,
+  retiredAt: null,
+  recallWeight: 1,
+};
 beforeEach(() => vi.mocked(command).mockReset().mockResolvedValue(undefined));
 const memories = [
-  { id: "one", content: "첫 기억", sourceMessageId: "message-one", updatedAt: 1 },
-  { id: "two", content: "둘째 기억", sourceMessageId: "message-two", updatedAt: 2 },
+  { ...identity, id: "one", content: "첫 기억", sourceMessageId: "message-one", updatedAt: 1 },
+  { ...identity, id: "two", content: "둘째 기억", sourceMessageId: "message-two", updatedAt: 2 },
 ];
 
 it("keeps drafts by memory ID across selection and snapshots, and cancels only the selected memory", () => {
   const onDirtyChange = vi.fn();
-  const { rerender } = render(<MemoryEditor memories={memories} onDirtyChange={onDirtyChange} />);
+  const { rerender } = render(
+    <MemoryEditor characterId="builtin-a" memories={memories} onDirtyChange={onDirtyChange} />,
+  );
   fireEvent.change(screen.getByLabelText("기억 내용"), { target: { value: "첫 초안" } });
   fireEvent.click(screen.getByRole("button", { name: "둘째 기억" }));
   const latest = memories.map((memory) => ({ ...memory, content: `${memory.content} 최신` }));
-  rerender(<MemoryEditor memories={latest} onDirtyChange={onDirtyChange} />);
+  rerender(
+    <MemoryEditor characterId="builtin-a" memories={latest} onDirtyChange={onDirtyChange} />,
+  );
   expect(screen.getByLabelText("기억 내용")).toHaveProperty("value", "둘째 기억 최신");
   fireEvent.change(screen.getByLabelText("기억 내용"), { target: { value: "둘째 초안" } });
   fireEvent.click(screen.getByRole("button", { name: "첫 기억 최신 · 미저장" }));
@@ -38,14 +52,19 @@ it("keeps drafts by memory ID across selection and snapshots, and cancels only t
 it("keeps a draft after deletion fails and removes it only after a successful retry", async () => {
   const onDirtyChange = vi.fn();
   vi.mocked(command).mockRejectedValueOnce(new Error("삭제 실패"));
-  render(<MemoryEditor memories={memories} onDirtyChange={onDirtyChange} />);
+  render(
+    <MemoryEditor characterId="builtin-a" memories={memories} onDirtyChange={onDirtyChange} />,
+  );
   fireEvent.change(screen.getByLabelText("기억 내용"), {
     target: { value: "아직 저장하지 않은 기억" },
   });
   fireEvent.click(screen.getByRole("button", { name: "이 기억 지우기" }));
   fireEvent.click(screen.getByRole("button", { name: "기억 삭제 확인" }));
   await screen.findByRole("alert");
-  expect(command).toHaveBeenLastCalledWith("delete_memory", { id: "one" });
+  expect(command).toHaveBeenLastCalledWith("delete_memory", {
+    id: "one",
+    characterId: "builtin-a",
+  });
   expect(screen.getByLabelText("기억 내용")).toHaveProperty("value", "아직 저장하지 않은 기억");
   expect(onDirtyChange).toHaveBeenLastCalledWith(true);
   fireEvent.click(screen.getByRole("button", { name: "기억 삭제 확인" }));

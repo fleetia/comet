@@ -253,7 +253,16 @@ pub fn run() {
             if let Err(error) = device_wake::install(app.handle()) {
                 eprintln!("기기 복귀 알림 연결 실패: {error}");
             }
-            if !widgets::storage::snapshot(&*lock(&state.db).map_err(std::io::Error::other)?)
+            if store::current_user(&*lock(&state.db).map_err(std::io::Error::other)?)
+                .map_err(std::io::Error::other)?
+                .is_none()
+            {
+                windows::open_settings_section(
+                    app.handle().clone(),
+                    windows::SettingsSection::User,
+                )
+                .map_err(std::io::Error::other)?;
+            } else if !widgets::storage::snapshot(&*lock(&state.db).map_err(std::io::Error::other)?)
                 .map_err(std::io::Error::other)?
                 .onboarding_done
             {
@@ -352,11 +361,19 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             super::get_snapshot,
+            super::history::list_character_history,
+            super::users::set_user_name,
+            super::users::list_legacy_memories,
+            super::users::assign_legacy_memories,
+            super::users::forget_character_memories,
+            super::users::count_character_memories,
             behavior::get_desktop_preferences,
             behavior::set_desktop_preferences,
             behavior::clear_desktop_toys,
             desktop_toys::desktop_toy_action,
             crate::character_collision_host::set_character_collision,
+            crate::character_collision_host::set_character_collision_animation,
+            crate::character_collision_host::select_character_collision_frame,
             updater::get_update_status,
             updater::check_app_update,
             updater::install_app_update,
@@ -424,6 +441,7 @@ pub fn run() {
             crate::talk_commands::install_talk_pack,
             crate::talk_commands::remove_talk_pack,
             character_commands::choose_character_sprite,
+            character_commands::choose_animation_assets,
             character_commands::remove_character_sprite,
             windows::open_panel,
             windows::close_panel,

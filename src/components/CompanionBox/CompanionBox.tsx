@@ -3,6 +3,8 @@ import { IconButton } from "@fleetia/lagrange";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWindowDrag } from "../../hooks/useWindowDrag";
 import { useCharacterCollision } from "../../hooks/useCharacterCollision";
+import { useCharacterAnimation } from "../../hooks/useCharacterAnimation";
+import { AnimationFrameView } from "../AnimationFrameView/AnimationFrameView";
 import type { Dispatch, Snapshot } from "../../types";
 import * as s from "../companion.css";
 import {
@@ -29,13 +31,24 @@ export function CompanionBox({
   const expression = expressionLabel(character, expressionKey);
   const sprite = spriteSource(character, expressionKey);
   const size = character?.definition.spriteSize ?? 64;
-  const transparent = Boolean(sprite) && !preview;
-  const { bodyRef, imageRef } = useCharacterCollision({
+  const animation = useCharacterAnimation(
+    character,
+    snapshot,
+    expressionKey,
+    !preview && persona !== null,
+  );
+  const imageBody = Boolean(sprite) || animation.hasAnimation;
+  const transparent = imageBody && !preview;
+  const animated = animation.frameIndex !== null && animation.frames !== null;
+  const { bodyRef, imageRef, canvasRef } = useCharacterCollision({
     enabled: isDesktop() && !preview && persona !== null && !snapshot.runtime.hidden,
     source: sprite,
     size,
     dispatch,
     onError: setError,
+    animation: animation.frames
+      ? { key: animation.cacheKey, frames: animation.frames, frame: animation.frameIndex }
+      : undefined,
   });
   useEffect(() => {
     if (!transparent) return;
@@ -56,13 +69,14 @@ export function CompanionBox({
       <button
         ref={bodyRef}
         className={
-          sprite
+          imageBody
             ? `${s.body} ${s.spriteBody}`
             : `${s.body} ${s.tone[snapshot.characters.active.indexOf(id) % 2 === 1 ? "b" : "a"]}`
         }
         aria-label={persona ? `${name} 메뉴 열기` : name}
         title={
           error ??
+          animation.error ??
           (persona
             ? "클릭: 메뉴 · 두 번 클릭: 말 걸기 · 끌기: 이동"
             : "끌기: 이동 · 이 친구의 대화는 준비 중이에요")
@@ -73,6 +87,7 @@ export function CompanionBox({
           if (drag.dragged()) {
             return;
           }
+          animation.click();
           void open("menu");
         }}
         onDoubleClick={() => {
@@ -92,24 +107,35 @@ export function CompanionBox({
           }
         }}
       >
+        {imageBody && (
+          <AnimationFrameView
+            frames={animation.frames}
+            index={animation.frameIndex}
+            size={size}
+            label={`${name} ${expression} 동작`}
+            canvasRef={canvasRef}
+            className={s.sprite}
+            style={{ position: "absolute" }}
+          />
+        )}
         {sprite ? (
           <img
             ref={imageRef}
             className={s.sprite}
-            style={{ width: size, height: size }}
+            style={{ width: size, height: size, visibility: animated ? "hidden" : "visible" }}
             crossOrigin="anonymous"
             src={sprite}
             alt={`${name} ${expression}`}
             draggable={false}
           />
         ) : (
-          <>
+          <span style={{ visibility: animated ? "hidden" : "visible", display: "contents" }}>
             <span className={s.bodyName}>{name}</span>
             <span className={s.face}>[{expression}]</span>
-          </>
+          </span>
         )}
       </button>
-      {!sprite && (
+      {!imageBody && (
         <IconButton
           className={s.bodyClose}
           variant="quiet"
