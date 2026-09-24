@@ -233,7 +233,7 @@ it("locks character and dialogue edits during an unresolved pack switch", async 
     return { pairScenes: [], wordbook: [] };
   });
   render(<CharacterManager embedded snapshot={{ ...PREVIEW_SNAPSHOT, characters }} />);
-  fireEvent.click(screen.getByRole("tab", { name: "대사" }));
+  fireEvent.click(screen.getByRole("tab", { name: "대사·반응" }));
   await screen.findByRole("button", { name: "키워드 대사 편집" });
   fireEvent.click(screen.getByRole("button", { name: "설치한 팩으로 바꾸기" }));
   fireEvent.change(await screen.findByLabelText("설치한 캐릭터 팩"), {

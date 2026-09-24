@@ -844,6 +844,7 @@ mod tests {
         assert!(!face_wanted(&data, character_by_id(&data, &id)));
 
         data.playback = Some(crate::types::Playback {
+            motion: Default::default(),
             id: "expression-test".into(),
             persona: id.clone(),
             expression: "기쁨".into(),
@@ -885,6 +886,7 @@ mod tests {
         character.sprites.insert("미등록".into(), sprite.clone());
         let id = character.id.clone();
         data.playback = Some(crate::types::Playback {
+            motion: Default::default(),
             id: "fallback-test".into(),
             persona: id.clone(),
             expression: "미등록".into(),
@@ -1021,6 +1023,7 @@ mod tests {
             format!("runtime:generating:{id}")
         );
         data.playback = Some(crate::types::Playback {
+            motion: Default::default(),
             id: "line-1".into(),
             persona: id.clone(),
             expression: "평온".into(),

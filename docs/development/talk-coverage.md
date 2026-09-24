@@ -71,6 +71,8 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib talk::defaults
 
 ## 자동 검증이 보장하는 범위
 
+줄별 모션 문법은 `talk::tests::line_motion_` 테스트로 `none`·`inherit`·클립 ID, 반복 간격, JSON 문자열 ID와 잘못된 옵션을 검사한다. 기존 분기·변수 치환·여러 줄 공백·본문의 모션처럼 보이는 문자열은 그대로 보존한다. `talk_host::tests::invalid_motion_candidate_does_not_block_an_unrelated_playable_scene`은 실제 캐릭터 정의에 없는 클립의 후보만 제외하고 정상 장면을 선택하는지, 준비 이후 모션 변경을 감지하는지 확인한다. 이 테스트는 프레임의 네이티브 표시를 대신하지 않는다.
+
 정규화한 fixture만 검사하지 않는다. 번들 검증 6개와 DB 경로 검증 8개는 서로 다른 경계를 확인한다.
 
 | 검증 | 확인하는 내용 |

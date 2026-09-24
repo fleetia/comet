@@ -53,6 +53,103 @@ fn parse(source: &str) -> Program {
 }
 
 #[test]
+fn line_motion_annotations_preserve_branches_interpolation_multiline_and_plain_text() {
+    use crate::character_reactions::MotionOverride;
+    let program = parse(concat!(
+        r#"format: 1
+scene: motions
+on: idle
+---
+@if weather.ready
+"#,
+        "A[기쁨]{motion=\"손 흔들기:}\" repeat=true interval=2s}:   ${todo.title}: 그대로  \n",
+        r#"
+@else
+A{motion=inherit}: 다른 분기
+@endif
+B{motion=none}: """
+  ${todo.title}
+
+@if 문자 그대로
+"""
+A[평온]: 본문 {motion=wave} 그대로
+A{motion=wave}: 한 번
+A{motion="none"}: 예약어와 같은 클립 ID
+===
+"#,
+    ));
+    let lines = simulate(&program, &context(), &History::new())
+        .selected
+        .unwrap()
+        .lines;
+    assert_eq!(lines[0].text, "  산책: 그대로  ");
+    assert_eq!(lines[0].expression, "기쁨");
+    assert_eq!(
+        lines[0].motion,
+        MotionOverride::Clip {
+            clip_id: "손 흔들기:}".into(),
+            repeat: true,
+            interval_ms: 2000
+        }
+    );
+    assert_eq!(lines[1].text, "  산책\n\n@if 문자 그대로");
+    assert_eq!(lines[1].expression, "평온");
+    assert_eq!(lines[1].motion, MotionOverride::Static);
+    assert_eq!(lines[2].text, "본문 {motion=wave} 그대로");
+    assert!(lines[2].motion.is_inherit());
+    assert_eq!(
+        lines[3].motion,
+        MotionOverride::Clip {
+            clip_id: "wave".into(),
+            repeat: false,
+            interval_ms: 0
+        }
+    );
+    assert_eq!(
+        lines[4].motion,
+        MotionOverride::Clip {
+            clip_id: "none".into(),
+            repeat: false,
+            interval_ms: 0
+        }
+    );
+    let mut other = context();
+    other.values.insert("weather.ready".into(), json!(false));
+    let selection = simulate(&program, &other, &History::new())
+        .selected
+        .unwrap();
+    assert_eq!(selection.lines[0].text, "다른 분기");
+    assert!(selection.lines[0].motion.is_inherit());
+}
+
+#[test]
+fn line_motion_syntax_rejects_unknown_duplicate_and_out_of_range_options() {
+    for annotation in [
+        "motion=wave repeat=yes",
+        "motion=wave repeat=\"true\"",
+        "motion=wave interval=60001ms",
+        "motion=wave interval=-1s",
+        "motion=wave interval=0.5s",
+        "motion=wave interval=10",
+        "motion=wave interval=\"1s\"",
+        "motion=wave extra=true",
+        "motion=wave motion=other",
+        "repeat=true",
+        "motion=none repeat=false",
+        "motion=inherit interval=0",
+        "motion=\" \"",
+        "motion=\"wave\"repeat=true",
+        "motion=\"wave\\n\"",
+    ] {
+        let source =
+            format!("format: 1\nscene: invalid\non: idle\n---\nA{{{annotation}}}: 대사\n===\n");
+        let errors = validate_source(Path::new("motion.talk"), &source, &registry()).unwrap_err();
+        assert_eq!(errors[0].code, "MOTION", "{annotation}");
+        assert_eq!(errors[0].line, 5);
+    }
+}
+
+#[test]
 fn source_scoped_pair_follows_imported_character_identity_when_slots_swap() {
     let db = crate::store::open(Path::new(":memory:")).unwrap();
     let mut nadir = crate::characters::active_character(&db, "a")
@@ -67,7 +164,7 @@ fn source_scoped_pair_follows_imported_character_identity_when_slots_swap() {
     let imported = crate::characters::import_pack(
         &db,
         &crate::characters::CharacterPack {
-        archive: None,
+            archive: None,
             format_version: 1,
             name: "identity test".into(),
             author: "test".into(),

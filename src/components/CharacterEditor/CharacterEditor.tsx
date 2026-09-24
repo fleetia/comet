@@ -13,6 +13,7 @@ import {
 } from "@fleetia/lagrange";
 import type {
   AnimationAsset,
+  AnimationClip,
   CharacterAnimation,
   CharacterDefinition,
   CharacterLine,
@@ -22,6 +23,9 @@ import { BALLOON_SPRITE, DEFAULT_EXPRESSION, spriteUrl } from "../characterIdent
 import { balloonTextStyle, DEFAULT_BALLOON_STYLE } from "../balloonTypography";
 import { AnimationEditor } from "../AnimationEditor/AnimationEditor";
 import { animationError } from "../AnimationEditor/helpers";
+import { MotionSelect, motionError } from "../MotionSelect/MotionSelect";
+import { ReactionEditor } from "../ReactionEditor/ReactionEditor";
+import { reactionError } from "../ReactionEditor/reactionValidation";
 import * as s from "../characters.css";
 
 export const EXPRESSIONS = ["평온", "기쁨", "호기심", "생각중", "걱정", "장난"];
@@ -53,12 +57,14 @@ function Lines({
   lines,
   limit,
   expressions,
+  clips,
   onChange,
 }: {
   title: string;
   lines: CharacterLine[];
   limit: number;
   expressions: string[];
+  clips: AnimationClip[];
   onChange: (lines: CharacterLine[]) => void;
 }): JSX.Element {
   const [editing, setEditing] = useState(false);
@@ -135,6 +141,14 @@ function Lines({
                     i === index ? { ...value, text: event.target.value } : value,
                   ),
                 )
+              }
+            />
+            <MotionSelect
+              label={`${title} ${index + 1}`}
+              value={line.motion}
+              clips={clips}
+              onChange={(motion) =>
+                onChange(lines.map((value, i) => (i === index ? { ...value, motion } : value)))
               }
             />
           </div>
@@ -535,11 +549,17 @@ export function CharacterEditor({
     textSpeed <= 100 &&
     Array.from(balloonStyle.fontFamily).length <= 100 &&
     (balloonStyle.textColor === null || /^#[0-9a-f]{6}$/i.test(balloonStyle.textColor));
+  const dialogueError =
+    reactionError(definition) ??
+    [...definition.greeting, ...definition.idleLines]
+      .map((line) => motionError(line.motion, definition.animation?.clips ?? []))
+      .find(Boolean);
   const valid =
     Boolean(definition.name.trim()) &&
     Array.from(definition.instructions).length <= 2000 &&
     validRelationships &&
     validBalloonStyle &&
+    !dialogueError &&
     !animationError(definition.animation, {
       ...character?.animationAssets,
       ...Object.fromEntries(animationAssets.map((asset) => [asset.assetId, asset])),
@@ -567,7 +587,7 @@ export function CharacterEditor({
           <Tab value="profile">프로필</Tab>
           <Tab value="appearance">모습·표정</Tab>
           <Tab value="balloon">말풍선</Tab>
-          <Tab value="dialogue">대사</Tab>
+          <Tab value="dialogue">대사·반응</Tab>
           <Tab value="memory">기억</Tab>
           <Tab value="settings">설정</Tab>
         </TabList>
@@ -780,6 +800,7 @@ export function CharacterEditor({
               lines={definition.greeting}
               limit={8}
               expressions={expressionKeys}
+              clips={definition.animation?.clips ?? []}
               onChange={(lines) => change("greeting", lines)}
             />
             <Lines
@@ -787,11 +808,22 @@ export function CharacterEditor({
               lines={definition.idleLines}
               limit={32}
               expressions={expressionKeys}
+              clips={definition.animation?.clips ?? []}
               onChange={(lines) => change("idleLines", lines)}
             />
           </fieldset>
           {children}
         </section>
+        <fieldset className={s.fieldset} disabled={pending}>
+          <ReactionEditor
+            key={`${character?.id ?? "new"}:${animationVersion}`}
+            definition={definition}
+            character={character}
+            assets={animationAssets}
+            visible={tab === "dialogue"}
+            onChange={(reactions) => change("reactions", reactions)}
+          />
+        </fieldset>
       </TabPanel>
       <TabPanel value="memory" className={s.editorPanel}>
         {memoryContent ?? (
@@ -803,9 +835,11 @@ export function CharacterEditor({
       </TabPanel>
       <footer className={s.saveBar} hidden={tab === "memory" || tab === "settings"}>
         <span className={s.small}>
-          {dirty
-            ? "● 캐릭터 변경 · 키워드와 조합 대사는 별도 저장"
-            : "키워드와 조합 대사는 별도 저장"}
+          {dialogueError
+            ? `대사·반응: ${dialogueError}`
+            : dirty
+              ? "● 캐릭터 변경 · 키워드와 조합 대사는 별도 저장"
+              : "키워드와 조합 대사는 별도 저장"}
         </span>
         <div className={s.compactActions}>
           {dirty && onCancel && (

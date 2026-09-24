@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CompanionBox } from "../components/CompanionBox/CompanionBox";
 import { Balloon } from "../components/Balloon/Balloon";
 import { PREVIEW_SNAPSHOT, command, isDesktop } from "../hooks/useSnapshot";
@@ -9,19 +9,54 @@ vi.mock("../hooks/useSnapshot", async (load) => ({
   command: vi.fn(),
   isDesktop: vi.fn(() => false),
 }));
-afterEach(cleanup);
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ listen: vi.fn().mockResolvedValue(() => {}) }),
+}));
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 beforeEach(() => {
-  vi.mocked(command).mockReset();
+  vi.mocked(command)
+    .mockReset()
+    .mockImplementation(async (name) =>
+      name === "get_character_gesture_settings" ? { doubleClickMs: 500 } : undefined,
+    );
   vi.mocked(isDesktop).mockReturnValue(false);
 });
 
 it("hides the characters from the internal X without opening their menu", async () => {
   vi.mocked(isDesktop).mockReturnValue(true);
-  vi.mocked(command).mockResolvedValue(undefined);
   render(<CompanionBox id="builtin-a" snapshot={PREVIEW_SNAPSHOT} />);
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 숨기기" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("hide_boxes"));
-  expect(vi.mocked(command).mock.calls.filter(([name]) => name !== "set_character_collision")).toHaveLength(1);
+  expect(command).not.toHaveBeenCalledWith("open_panel", expect.anything());
+  expect(command).not.toHaveBeenCalledWith("trigger_character_reaction");
+});
+
+it("waits to confirm a click reaction and routes right click to menu and double click to input", async () => {
+  vi.useFakeTimers();
+  vi.mocked(isDesktop).mockReturnValue(true);
+  render(<CompanionBox id="builtin-a" snapshot={PREVIEW_SNAPSHOT} />);
+  await act(async () => {});
+  const body = screen.getByRole("button", { name: / 반응$/ });
+  fireEvent.click(body, { detail: 1 });
+  act(() => vi.advanceTimersByTime(499));
+  expect(command).not.toHaveBeenCalledWith("trigger_character_reaction");
+  act(() => vi.advanceTimersByTime(1));
+  expect(command).toHaveBeenCalledWith("trigger_character_reaction");
+  expect(command).not.toHaveBeenCalledWith("open_panel", expect.anything());
+
+  fireEvent.contextMenu(body);
+  expect(command).toHaveBeenCalledWith("open_panel", { persona: "builtin-a", mode: "menu" });
+  fireEvent.click(body, { detail: 1 });
+  fireEvent.click(body, { detail: 2 });
+  fireEvent.doubleClick(body, { detail: 2 });
+  act(() => vi.advanceTimersByTime(500));
+  expect(command).toHaveBeenCalledWith("open_panel", { persona: "builtin-a", mode: "input" });
+  expect(
+    vi.mocked(command).mock.calls.filter(([name]) => name === "trigger_character_reaction"),
+  ).toHaveLength(1);
 });
 function compose(): HTMLTextAreaElement {
   render(<Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "a", mode: "input" } }} />);
@@ -184,7 +219,7 @@ it("keeps resting bodies free of old dialogue and changes only the active actor 
   expect(
     screen.getByText(`[${PREVIEW_SNAPSHOT.characters.installed[1].definition.expressions.평온}]`),
   ).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: /메뉴 열기/ }));
+  fireEvent.contextMenu(screen.getByRole("button", { name: / 반응$/ }));
   expect(command).toHaveBeenCalledWith("open_panel", { persona: "builtin-b", mode: "menu" });
 });
 
@@ -314,7 +349,7 @@ it("opens the third character by identity and can address the full roster", asyn
     },
   };
   const body = render(<CompanionBox id={third.id} snapshot={snapshot} />);
-  fireEvent.click(screen.getByRole("button", { name: "셋째 메뉴 열기" }));
+  fireEvent.contextMenu(screen.getByRole("button", { name: "셋째 반응" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("open_panel", { persona: third.id, mode: "menu" }),
   );

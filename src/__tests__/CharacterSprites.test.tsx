@@ -19,9 +19,20 @@ vi.mock("../hooks/useSnapshot", async (load) => ({
   command: vi.fn(),
   isDesktop: vi.fn(() => true),
 }));
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({
+    listen: vi.fn().mockResolvedValue(() => {}),
+    startDragging: vi.fn(),
+    close: vi.fn(),
+  }),
+}));
 afterEach(cleanup);
 beforeEach(() => {
-  vi.mocked(command).mockReset();
+  vi.mocked(command)
+    .mockReset()
+    .mockImplementation(async (name) =>
+      name === "get_character_gesture_settings" ? { doubleClickMs: 500 } : undefined,
+    );
   vi.mocked(isDesktop).mockReturnValue(true);
 });
 
@@ -60,7 +71,7 @@ const snapshot: Snapshot = {
   },
 };
 function bodyImage(): HTMLImageElement | null {
-  return screen.getByRole("button", { name: "별꼬리 메뉴 열기" }).querySelector("img");
+  return screen.getByRole("button", { name: "별꼬리 반응" }).querySelector("img");
 }
 
 it("shows the sprite for the spoken expression and falls back to the default sprite", () => {
@@ -86,7 +97,7 @@ it("keeps the text face for characters without sprites and outside the desktop a
   expect(
     screen
       .getByRole("button", {
-        name: `${PREVIEW_SNAPSHOT.characters.installed[1].definition.name} 메뉴 열기`,
+        name: `${PREVIEW_SNAPSHOT.characters.installed[1].definition.name} 반응`,
       })
       .querySelector("img"),
   ).toBeNull();
@@ -328,7 +339,7 @@ it("adds and removes expressions, protects the default one, and gates images on 
   fireEvent.click(screen.getByRole("button", { name: "말풍선 이미지 선택" }));
   expect(onSprite).toHaveBeenLastCalledWith("$balloon", false);
   expect(screen.queryByRole("button", { name: "말풍선 이미지 제거" })).toBeNull();
-  fireEvent.click(screen.getByRole("tab", { name: "대사" }));
+  fireEvent.click(screen.getByRole("tab", { name: "대사·반응" }));
   fireEvent.click(screen.getByRole("button", { name: "인사 편집" }));
   expect(screen.getByLabelText("인사 1 표정")).toBeTruthy();
 });

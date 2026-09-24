@@ -1,6 +1,19 @@
 export type Persona = string;
 export const CHARACTER_SLOTS = ["a", "b", "c", "d", "e", "f", "g", "h"] as const;
-export type CharacterLine = { expression: string; text: string };
+export type MotionOverride =
+  | { mode: "inherit" }
+  | { mode: "static" }
+  | { mode: "clip"; clipId: string; repeat: boolean; intervalMs: number };
+export type ReactionVariant = { id: string; text?: string; expression?: string; motion?: MotionOverride };
+export type ReactionRule = { id: string; event: string; variants: ReactionVariant[]; cooldownMs: number };
+export type CharacterReactionRun = {
+  id: string;
+  event: string;
+  expression?: string;
+  motion: MotionOverride;
+};
+export type ReactionPreview = { selection: { ruleId: string; variant: ReactionVariant; speechAllowed: boolean } | null; speechReason: string | null };
+export type CharacterLine = { expression: string; text: string; motion?: MotionOverride };
 export type CharacterRelationship = { targetId: string; description: string };
 export type BalloonStyle = {
   fontSize: number;
@@ -39,6 +52,7 @@ export type CharacterDefinition = {
   spriteSize: number;
   balloonStyle?: BalloonStyle;
   animation?: CharacterAnimation | null;
+  reactions?: ReactionRule[];
   greeting: CharacterLine[];
   idleLines: CharacterLine[];
 };
@@ -83,7 +97,7 @@ export type CharacterArchive = {
   }[];
 };
 export type CharacterPack = {
-  formatVersion: 1 | 2 | 3 | 4;
+  formatVersion: 1 | 2 | 3 | 4 | 5;
   name: string;
   author: string;
   sourceUrl?: string;
@@ -101,7 +115,7 @@ export type MessageIdentity = {
   characterId: string;
   name: string;
 };
-export type SceneLine = { persona: Persona; expression: string; text: string };
+export type SceneLine = CharacterLine & { persona: Persona };
 export type WordbookEntry = {
   id: string;
   title: string;
@@ -112,7 +126,7 @@ export type WordbookEntry = {
 };
 export type Playback = SceneLine & {
   id: string;
-  source: "script" | "llm" | "wordbook" | "widget" | "talk" | "story" | "question";
+  source: "script" | "llm" | "wordbook" | "widget" | "talk" | "story" | "question" | "reaction";
   endsAt: number;
   textSpeed?: number;
   displayStartedAt?: number | null;
@@ -255,6 +269,7 @@ export type RuntimeStatus = {
   paused: boolean;
 };
 export type Snapshot = {
+  reactions?: Record<string, CharacterReactionRun>;
   user: UserIdentity | null;
   legacyMemoryCount: number;
   characters: CharacterCollection;

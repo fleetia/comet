@@ -17,6 +17,8 @@ description: 현재 Tauri 앱의 코드 소유권과 생활 도구·외부 위�
 | `src/components/SettingsPanel/useSettingsNavigation.ts` | 통합 탭 선택·방문한 패널 유지, 앱 실행 중 마지막 영역 기록, 네이티브 목적지 이벤트와 최초 조회의 경합 처리 |
 | `src/hooks/useSettingsDraft.ts` | `automatic`·`model` scope별 설정·API 키 초안, 변경 여부와 snapshot 동기화, 명령 잠금·저장·취소 |
 | `src/components/CharacterManager/CharacterManager.tsx`, `src/components/AnimationEditor/` | 캐릭터별 정의·애니메이션 자산 초안과 공통 저장·취소, 늦은 파일 선택 무효화. 편집기는 프레임·속도·상황 연결과 미리보기를 담당한다. |
+| `src/components/ReactionEditor/`, `MotionSelect/` | 캐릭터 반응 후보·쿨다운 초안, 실제 화자의 동작 선택, 부작용 없는 Rust 미리보기와 늦은 응답 취소 |
+| `src/hooks/useCharacterGestures.ts` | OS 더블클릭 간격에 따른 클릭 후보·입력 분리, 우클릭·키보드 메뉴, 끌기 요청. 실제 시작·놓기는 네이티브 사건으로 확인 |
 | `src/hooks/useAnimationFrames.ts`, `useAnimationPlayer.ts`, `useCharacterAnimation.ts`, `src/components/AnimationFrameView/` | 프레임 준비·고정 크기 렌더, 경과 시간 기반 재생, 본체의 상황 우선순위·중단. 편집기와 본체가 프레임 준비·재생 로직을 공유한다. |
 | `src/widgets/WidgetManager/WidgetManager.tsx`, `src/widgets/WidgetTool/WidgetTool.tsx` | 통합 설정 안의 설치·활성·표시·연결 관리와 별도 실행 창의 실제 위젯 작업을 분리 |
 | `src/widgets/Planner/`, `src/widgets/PlannerAlerts/` | 플래너의 오늘·기간 계획·주간/월간 캘린더·템플릿·회차 편집과 생활 알림 설정. 화면은 위젯 snapshot을 읽고 호스트 명령으로 저장한다. |
@@ -44,8 +46,10 @@ description: 현재 Tauri 앱의 코드 소유권과 생활 도구·외부 위�
 | `src/hooks/useCharacterCollision.ts`, `src-tauri/src/character_collision.rs`, `character_collision_host.rs` | 본체 이미지·애니메이션 프레임의 alpha 판독과 외곽 캐시 선택, 외곽 선분의 인접 조회, 네이티브 위치·숨김·보고 세대에 따른 충돌 캐시 수명 |
 | `src-tauri/src/updater.rs` | 업데이트 확인·서명 검증·설치, 설치 전 작업 중단과 앱 소유 프로세스 정리 |
 | `src-tauri/src/store.rs`, `store/` | `store.rs`는 DB 초기화·설정·창 위치·revision·준비 장면과 기존 함수 진입점을 유지한다. `messages.rs`는 원문·당시 정체성·생성 대사 회상과 삽입 transaction, `memory.rs`는 기억 편집·분석 적용·회상 의존성과 캐릭터 × 사용자 관계, `users.rs`는 사용자 정체성과 기억 시계, `search.rs`는 소유권·수명을 적용한 검색을 담당한다. |
-| `src-tauri/src/characters.rs`, `characters/` | `characters.rs`는 타입·설치·활성 자리·기본 정의 이전·팩 입출력과 기존 함수 진입점을 유지한다. `validation.rs`는 정의·대사·팩 JSON 검증, `dialogue.rs`는 소유 대사·자리 변환·인사·수다·키워드 선택, `archive.rs`는 선택한 개인 자료의 v4 내보내기·가져오기와 재식별을 담당한다. |
+| `src-tauri/src/characters.rs`, `characters/` | `characters.rs`는 타입·설치·활성 자리·기본 정의 이전·팩 입출력과 기존 함수 진입점을 유지한다. `validation.rs`는 정의·대사·팩 JSON 검증, `dialogue.rs`는 소유 대사·자리 변환·인사·수다·키워드 선택, `archive.rs`는 선택한 개인 자료의 v4/v5 archive 내보내기·가져오기와 재식별을 담당한다. |
 | `src-tauri/src/character_commands.rs`, `character_files.rs` | 캐릭터 변경의 직렬화·트랜잭션·취소, 네이티브 파일 선택과 검증 후 저장 |
+| `src-tauri/src/character_gestures.rs`, `character_gestures/macos.rs`, `character_gestures/windows.rs` | 캐릭터별 조작 세션과 네이티브 시작·종료·취소, 창·세대 검사. 본체 이동과 반응 사건을 분리 |
+| `src-tauri/src/character_reactions.rs`, `character_reaction_host.rs` | 반응·대사 동작 스키마, 사건 목록·후보 선택, 발화 허용·쿨다운, 실행·완료·취소와 미리보기. 네이티브 사건은 큐에서 순서대로 처리 |
 | `src-tauri/src/character_animation.rs`, `character_animation/import.rs` | 애니메이션 정의·이미지 검증과 자산 저장·조회, APNG 프레임 합성 및 정지 PNG 시퀀스 변환. 디코딩은 DB·action 잠금 밖에서 수행한다. |
 | `src-tauri/src/talk/` | `.talk` 파서·조건 평가·공개 상태 projection·재로딩·재언급 간격. 앱과 CLI가 같은 평가기 사용 |
 | `src-tauri/src/talk_host.rs` | 실제 사건·상태 대본을 기존 재생기로 연결하고 프로그램·캐릭터·원본 revision을 재검사 |
@@ -64,9 +68,9 @@ Rust가 저장 상태를 관리하고 프론트엔드가 상태와 재생 이벤
 
 앱 식별자 이전은 `app/lifecycle.rs::migrate_app_data`가 DB를 열기 전에 수행한다. SQLite 본체와 WAL/SHM는 같은 출처의 한 묶음으로 취급한다. 현재 위치에 DB가 있으면 이전 위치의 DB·보조 파일을 병합하지 않고, 옛 이름을 바꾸는 경우에만 그 본체의 보조 파일을 함께 이동한다. 본체 없는 보조 파일이나 이전 대상의 충돌을 발견하면 임의로 조합하지 않고 중단한다. 모델 등 DB 외 파일의 기존 병합은 유지한다.
 
-캐릭터 데이터 이전은 원문 메시지 JSON과 기존 친밀도 표를 보존하며 별도 정체성·친밀도 표를 사용한다. 캐릭터 변경은 기존 작업 취소와 준비 대사 무효화를 동반한다. 공유 파일은 캐릭터 정의·소유 대사와 선택한 이미지·동작으로 구성하며 개인 단어장은 명시적으로 선택한 항목만 포함한다. 기억·친밀도·대화 기록도 각각 선택한 경우에만 v4 archive에 포함하고 가져온 사람을 현재 사용자와 병합하지 않는다. 상세 규격은 [캐릭터 교체와 공유](../product/characters.md)를 따른다. 당시 흐름과 데이터 보존 검증은 [0.3.0 검증 기록](../VALIDATION-0.3.0.md)에 남기며 최신 검증 범위는 [상태표](../status.md)에서 구분한다.
+캐릭터 데이터 이전은 원문 메시지 JSON과 기존 친밀도 표를 보존하며 별도 정체성·친밀도 표를 사용한다. 캐릭터 변경은 기존 작업 취소와 준비 대사 무효화를 동반한다. 공유 파일은 캐릭터 정의·소유 대사와 선택한 이미지·동작으로 구성하며 개인 단어장은 명시적으로 선택한 항목만 포함한다. 기억·친밀도·대화 기록도 각각 선택한 경우에만 v4/v5 archive에 포함하고 가져온 사람을 현재 사용자와 병합하지 않는다. 상세 규격은 [캐릭터 교체와 공유](../product/characters.md)를 따른다. 당시 흐름과 데이터 보존 검증은 [0.3.0 검증 기록](../VALIDATION-0.3.0.md)에 남기며 최신 검증 범위는 [상태표](../status.md)에서 구분한다.
 
-애니메이션 파일 선택은 저장하지 않고 검증된 프레임 자산을 초안으로 돌려준다. 캐릭터 저장 시 정의와 참조 자산 추가·미참조 자산 정리를 한 transaction에 묶고, snapshot에는 메타데이터만 보내며 이미지 바이트는 `sprite://`로 조회한다. 재생과 프레임별 충돌 캐시 선택은 전체 snapshot 발행·DB 저장 없이 진행한다. v3·v4의 애니메이션 공유 형식과 APNG의 균일 fps 변환 계약은 [상황별 스프라이트 재생](../product/characters.md#상황별-스프라이트-재생)을 따른다.
+애니메이션 파일 선택은 저장하지 않고 검증된 프레임 자산을 초안으로 돌려준다. 캐릭터 저장 시 정의와 참조 자산 추가·미참조 자산 정리를 한 transaction에 묶고, snapshot에는 메타데이터만 보내며 이미지 바이트는 `sprite://`로 조회한다. 재생과 프레임별 충돌 캐시 선택은 전체 snapshot 발행·DB 저장 없이 진행한다. v3~v5의 애니메이션 공유 형식과 APNG의 균일 fps 변환 계약은 [상황별 스프라이트 재생](../product/characters.md#상황별-스프라이트-재생)을 따른다.
 
 `.talk`는 위젯 상태를 [공개 변수](talk-reference.md)로 정규화한 뒤 대본을 평가하고 `SceneLine` 배열을 기존 재생 경로에 전달한다. 자동 `.talk` 차례와 기존 일반 수다 차례를 번갈아 사용하며, 실제 사건은 기존 사건 대기열을 통과한다. 파서·평가기·CLI는 위젯 쓰기 명령이나 외부 코드를 실행하지 않는다. `talk/files.rs`는 앱 런타임의 안전한 파일 읽기·재로딩과 초기화 중 암호화 전환을 담당하고, `story.rs`는 선택지 story catalog를 읽고 검증한다. 원문 작성·편집·암호화 저장은 앱 밖의 별도 talk editor가 맡는다. 파일 변경 시 runtime generation과 last-good 경계를 지키며, 검사 실패 시 기존 파일을 유지한다. 외부 Widget SDK는 제공하지 않는다.
 
@@ -92,6 +96,16 @@ NLP 보조 실행기·FTS·벡터 캐시·발화별 분석 작업의 책임과 �
 | 대본 파일 최신성 | 읽은 대본의 revision·generation이 바뀌면 오래된 재생 결과를 무효화하고 last-good 파일을 유지한다. 원문 저장 충돌은 별도 talk editor의 책임이다. |
 
 `present_line`은 최신성 검사를 통과한 뒤 기록과 재생 상태를 함께 갱신한다. 대본 파서가 성공하거나 모델이 응답했다는 사실만으로 말풍선을 표시하지 않는다. 자동 생성과 자동 재생의 조건은 함께 검토하며, 앱 종료와 취소는 앱이 소유한 추론 프로세스만 정리한다.
+
+## 캐릭터 조작·반응의 실행 경계
+
+`useCharacterGestures`는 클릭 후보·더블클릭·메뉴와 6px 이동 임계값만 판정한다. `character_gestures`는 로컬 캐릭터 ID·세션 ID·세대·창 인스턴스·정의·활성 구성에 네이티브 사건을 연결한다. 확인된 시작·종료는 순서가 보존된 큐로 `character_reaction_host`에 전달하고, 창 재생성·숨김·정의나 구성 변경 뒤에는 이전 세대의 사건을 거절한다. 기존 `behavior.rs`의 자동 놀이 상태는 별도로 유지한다.
+
+macOS의 `start_dragging`/AppKit 요청은 Window Server에 이동을 맡긴 뒤 반환할 수 있다. `character_gestures/macos.rs`는 이 반환과 독립적으로 `NSWindowWillMoveNotification`, Escape 감시와 common run loop의 버튼 상태 관찰을 유지한다. 실제 시작 뒤 버튼 해제만 정상 놓기이며 시작 전 해제·3초 시작 제한·세션 무효화는 취소다. watcher는 해당 조작 종료에 해제한다. Escape는 로컬 모니터가 수신한 경우 취소하지만 AppKit의 창 끌기 tracking loop가 키를 소비하면 전달되지 않을 수 있어 취소를 보장하지 않는다. 이 경로는 네이티브 미검증이며 숨김·일시정지·창·정의 세대 무효화는 별도의 취소 경계다. Windows adapter는 `WM_ENTERSIZEMOVE`·`WM_EXITSIZEMOVE`와 메시지·capture 상태로 정상 종료와 취소를 구분한다. 이 경로의 존재는 각 OS에서 실행 검증을 완료했다는 뜻이 아니다.
+
+`character_reaction_host`는 action 경계에서 선택한 후보와 발화 허용을 판정한다. 직접 대화·선택지·메뉴 등으로 바쁘면 시각 반응만 실행하고 말은 대기열에 남기지 않는다. 대사를 실제 표시한 영수증이 쿨다운을 소비하며 grab 종료는 그 반응이 소유한 대사만 취소한다. 위젯 사건은 저장된 사건의 revision·만료·자동 실행 조건을 유지하고, 명시적으로 연결한 반응만 기존 `.talk` 사건 대사를 대체한다. `source: reaction` 대사는 기존 장면 재생 경로로 기록하되 사용자 사실·친밀도 분석 작업을 만들지 않는다.
+
+프런트엔드는 `snapshot.reactions`와 실제 표시된 대사의 동작을 렌더링하고, 프레임 준비·완료·실패를 실행 ID와 함께 보고한다. 로딩 전에는 재생 시간을 소모하지 않으며 1,500ms 일시 반응의 마감도 최초 준비 시점에 고정한다. 관계없는 snapshot 갱신은 프레임을 초기화하지 않는다. 숨김·일시정지·캐릭터 교체·정의 변경·재시작에는 조작·반응을 복원하지 않는다. 정적·반복·우선순위·팩 v5와 수동 미리보기의 제품 계약은 [캐릭터 행동과 반응](../product/character-reactions.md)을 따른다.
 
 ## 플래너의 실행·저장·알림 경계 {#planner-boundaries}
 
@@ -190,4 +204,4 @@ Cargo workspace는 여러 Rust 패키지의 명령·의존성 관리를 묶으�
 
 `app/users.rs`의 이름 변경은 action과 DB transaction을 지나 epoch를 바꾸고 열린 스토리·재생·생성을 취소한다. `app/conversation.rs`와 `memory_commands.rs`는 원문 당시 사용자를 재검사하며 `app/background.rs`의 지연 분석은 원문 당시 소유권으로 저장한다. 직접 답변과 준비 장면의 `recall_contexts`·`recall_dependencies`·`recall_sources`는 기억 삭제·만료·소유자 전환과 최근 답변을 통한 재유입을 함께 차단한다. 보수적인 의존성 검사로 공동 발화를 참고한 파생 답변이 무효화될 수 있지만 다른 캐릭터의 독립 기억은 남는다.
 
-`characters/archive.rs`는 v4 개인 자료를 저장 transaction 안에서 재식별하고 팩 메타데이터에서 분리한다. `character_archived_messages`는 원문 보관 전용이며 분석 큐에 연결하지 않는다. `app/history.rs`는 실시간·가져온 원문을 캐릭터 범위로 함께 페이지 조회하며 당시 사용자 이름을 보여 준다. 공유 규칙은 [캐릭터팩](../product/characters.md#개인-데이터를-포함한-공유), 화면·망각 규칙은 [캐릭터 기억](../product/memory-search.md)이 기준이다.
+`characters/archive.rs`는 v4/v5 archive의 개인 자료를 저장 transaction 안에서 재식별하고 팩 메타데이터에서 분리한다. `character_archived_messages`는 원문 보관 전용이며 분석 큐에 연결하지 않는다. `app/history.rs`는 실시간·가져온 원문을 캐릭터 범위로 함께 페이지 조회하며 당시 사용자 이름을 보여 준다. 공유 규칙은 [캐릭터팩](../product/characters.md#개인-데이터를-포함한-공유), 화면·망각 규칙은 [캐릭터 기억](../product/memory-search.md)이 기준이다.

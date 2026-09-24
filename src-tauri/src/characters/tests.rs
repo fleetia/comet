@@ -18,11 +18,13 @@ fn pack() -> CharacterPack {
                 persona: "a".into(),
                 expression: "평온".into(),
                 text: "  원문\n그대로  ".into(),
+                motion: Default::default(),
             },
             SceneLine {
                 persona: "b".into(),
                 expression: "장난".into(),
                 text: "응.".into(),
+                motion: Default::default(),
             },
         ]],
         wordbook: vec![WordbookEntry {
@@ -33,6 +35,7 @@ fn pack() -> CharacterPack {
                 persona: "b".into(),
                 expression: "기쁨".into(),
                 text: "  안녕\n반가워  ".into(),
+                motion: Default::default(),
             }],
             enabled: true,
             use_for_idle: false,
@@ -123,10 +126,12 @@ fn addon_keeps_public_profiles_and_greeting_alternatives_after_import() {
         CharacterLine {
             expression: "평온".into(),
             text: "첫 줄".into(),
+            motion: Default::default(),
         },
         CharacterLine {
             expression: "평온".into(),
             text: "둘째 줄".into(),
+            motion: Default::default(),
         },
     ];
     save(&conn, &imported[0].id, &edited).unwrap();
@@ -1416,11 +1421,13 @@ fn v2_eight_member_pack_uses_source_ids_and_survives_definition_reordering() {
                 persona: "h".into(),
                 expression: "평온".into(),
                 text: "  마지막 친구\n원문  ".into(),
+                motion: Default::default(),
             },
             SceneLine {
                 persona: "c".into(),
                 expression: "기쁨".into(),
                 text: "셋째".into(),
+                motion: Default::default(),
             },
         ]],
         wordbook: vec![],

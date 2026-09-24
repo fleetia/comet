@@ -12,6 +12,7 @@ const sidebars: SidebarsConfig = {
         "product/desktop",
         "product/settings",
         "product/characters",
+        "product/character-reactions",
         "product/character-gallery",
         "product/conversation",
         "product/memory-search",

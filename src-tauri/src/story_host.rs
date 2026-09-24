@@ -93,6 +93,7 @@ pub fn choose_story(
         crate::app::schedule_idle(&state, crate::store::settings(&db)?.idle_minutes);
         (
             crate::types::SceneLine {
+                motion: Default::default(),
                 persona: request.persona,
                 expression: "평온".into(),
                 text,

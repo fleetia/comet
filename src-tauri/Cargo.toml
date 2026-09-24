@@ -45,7 +45,7 @@ keyring = { version = "3", features = ["apple-native", "windows-native"] }
 objc2 = "0.6.4"
 block2 = "0.6.2"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSWorkspace"] }
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSNotification", "NSOperation", "NSString", "NSGeometry", "block2"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSNotification", "NSOperation", "NSString", "NSGeometry", "NSRunLoop", "NSTimer", "NSDate", "NSObjCRuntime", "block2"] }
 objc2-core-foundation = "0.3.2"
 objc2-event-kit = { version = "0.3.2", default-features = false, features = ["std", "EKCalendar", "EKCalendarItem", "EKEvent", "EKEventStore", "EKObject", "EKSource", "EKTypes", "block2"] }
 objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["std", "block2", "UNUserNotificationCenter", "UNNotificationSettings", "UNNotificationContent", "UNNotificationRequest", "UNNotificationTrigger", "UNNotification", "UNNotificationResponse", "UNNotificationAction", "UNNotificationCategory"] }

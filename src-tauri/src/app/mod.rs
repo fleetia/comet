@@ -64,6 +64,7 @@ pub(crate) struct AppState {
     pub(crate) stopping: AtomicBool,
     pub(crate) update_installing: AtomicBool,
     pub(crate) behavior: Mutex<behavior::Machine>,
+    pub(crate) reactions: Mutex<crate::character_reaction_host::Runtime>,
     pub(crate) positions: Mutex<HashMap<String, (WindowPosition, Instant)>>,
 }
 
@@ -102,6 +103,7 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
         model_ready: models::selected_ready(&state.app_data, &settings),
         local_models: models::model_statuses(&state.app_data),
         settings,
+        reactions: lock(&state.reactions)?.views(),
         user: store::current_user(&db)?,
         legacy_memory_count: store::legacy_memory_count(&db)?,
         messages: store::messages(&db, 100)?,
@@ -121,6 +123,7 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
 }
 
 pub(crate) fn publish(app: &tauri::AppHandle, state: &AppState) {
+    let _ = crate::character_reaction_host::reconcile(app, state);
     if let Ok(data) = snapshot(state) {
         if let Ok(_action) = lock(&state.action) {
             if let Ok(runtime) = lock(&state.runtime) {
@@ -176,6 +179,7 @@ pub(crate) fn interrupt(
     state: &AppState,
     automatic: bool,
 ) -> Result<(u64, Arc<AtomicBool>), String> {
+    crate::character_reaction_host::forget_speech(state)?;
     lock(&state.tasks)?.active = None;
     state.automatic.store(automatic, Ordering::SeqCst);
     let mut active = lock(&state.cancellation)?;

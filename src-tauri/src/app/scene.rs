@@ -38,7 +38,9 @@ pub(crate) fn present_line(
         .definition
         .balloon_style
         .text_speed;
-    if source == "widget" && !widget_commands::widget_event_current(state, &db)? {
+    if (source == "widget" || (source == "reaction" && lock(&state.widget_playback)?.is_some()))
+        && !widget_commands::widget_event_current(state, &db)?
+    {
         return Ok(false);
     }
     if source == "talk" && !talk_host::current(state, &db)? {
@@ -71,6 +73,7 @@ pub(crate) fn present_line(
         persona: line.persona.clone(),
         expression: line.expression.clone(),
         text: line.text.clone(),
+        motion: line.motion.clone(),
         source: source.into(),
         text_speed,
         display_started_at: None,
@@ -310,7 +313,7 @@ pub(crate) fn start_scene(
             if !is_current(&state, epoch, &cancel) {
                 return;
             }
-            let direct_reply = message_id.is_some();
+            let direct_reply = message_id.is_some() && source != "reaction";
             let prefix = message_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
             let result = run_scene(
                 &app,
@@ -417,6 +420,7 @@ mod tests {
             let token = super::super::interrupt(&state, false).unwrap();
             let line = SceneLine {
                 persona: "a".into(),
+                motion: Default::default(),
                 expression: "평온".into(),
                 text: "  표시할 원문\n그대로  ".into(),
             };

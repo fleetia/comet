@@ -201,9 +201,16 @@ pub(crate) fn widget_event_current(
     let Some(event) = lock(&state.widget_playback)?.clone() else {
         return Ok(false);
     };
+    event_current(db, &event)
+}
+
+pub(crate) fn event_current(
+    db: &rusqlite::Connection,
+    event: &WidgetEvent,
+) -> Result<bool, String> {
     let all = storage::instances(db)?;
     Ok(event.expires_at > chrono::Utc::now().timestamp_millis()
-        && widgets::reminders::event_current(db, &event)?
+        && widgets::reminders::event_current(db, event)?
         && all.iter().any(|instance| {
             instance.id == event.instance_id
                 && instance.installed
@@ -614,6 +621,21 @@ pub(crate) fn play_widget_reaction(
             if !widgets::reminders::event_current(&db, &event)? {
                 return Ok(false);
             }
+            if let Some(character_id) =
+                crate::character_reaction_host::widget_character(&db, &event)?
+            {
+                let epoch = state.epoch.load(Ordering::SeqCst);
+                drop(db);
+                drop(_action);
+                crate::character_reaction_host::trigger_widget(
+                    app,
+                    state.clone(),
+                    &character_id,
+                    &event,
+                    epoch,
+                )?;
+                return Ok(true);
+            }
             let token = interrupt(state, true)?;
             state.widget_epoch.store(token.0, Ordering::SeqCst);
             *lock(&state.widget_playback)? = Some(event.clone());
@@ -662,6 +684,7 @@ fn fallback_reaction(
         return Ok(None);
     }
     Ok(Some(vec![SceneLine {
+        motion: Default::default(),
         persona: "a".into(),
         expression: "평온".into(),
         text: event.event.text.clone(),

@@ -1,7 +1,7 @@
 import { useEffect, useState, type JSX } from "react";
 import { IconButton } from "@fleetia/lagrange";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
-import { useWindowDrag } from "../../hooks/useWindowDrag";
+import { useCharacterGestures } from "../../hooks/useCharacterGestures";
 import { useCharacterCollision } from "../../hooks/useCharacterCollision";
 import { useCharacterAnimation } from "../../hooks/useCharacterAnimation";
 import { AnimationFrameView } from "../AnimationFrameView/AnimationFrameView";
@@ -23,11 +23,12 @@ export function CompanionBox({
   dispatch = command,
 }: Props): JSX.Element {
   const [error, setError] = useState<string | null>(null);
-  const drag = useWindowDrag(!preview, setError);
   const character = characterById(snapshot, id);
   const persona = personaOf(snapshot, id);
   const name = character?.definition.name ?? persona?.toUpperCase() ?? "친구";
-  const expressionKey = currentExpression(snapshot, persona);
+  const reaction =
+    !snapshot.runtime.hidden && !snapshot.runtime.paused ? snapshot.reactions?.[id] : undefined;
+  const expressionKey = reaction?.expression ?? currentExpression(snapshot, persona);
   const expression = expressionLabel(character, expressionKey);
   const sprite = spriteSource(character, expressionKey);
   const size = character?.definition.spriteSize ?? 64;
@@ -36,6 +37,7 @@ export function CompanionBox({
     snapshot,
     expressionKey,
     !preview && persona !== null,
+    dispatch,
   );
   const imageBody = Boolean(sprite) || animation.hasAnimation;
   const transparent = imageBody && !preview;
@@ -64,6 +66,29 @@ export function CompanionBox({
       setError(errorText(cause));
     }
   }
+  const gestures = useCharacterGestures({
+    enabled: !preview && persona !== null,
+    resetKey: JSON.stringify([
+      id,
+      character?.definition,
+      snapshot.runtime.hidden,
+      snapshot.runtime.paused,
+    ]),
+    onClick: () => {
+      setError(null);
+      void dispatch("trigger_character_reaction").catch((cause: unknown) =>
+        setError(errorText(cause)),
+      );
+    },
+    onDoubleClick: () => {
+      void open("input");
+    },
+    onMenu: () => {
+      void open("menu");
+    },
+    onError: setError,
+    dispatch,
+  });
   return (
     <div className={`${s.bodyFrame} ${preview ? s.bodyPreview : ""}`}>
       <button
@@ -73,39 +98,15 @@ export function CompanionBox({
             ? `${s.body} ${s.spriteBody}`
             : `${s.body} ${s.tone[snapshot.characters.active.indexOf(id) % 2 === 1 ? "b" : "a"]}`
         }
-        aria-label={persona ? `${name} 메뉴 열기` : name}
+        aria-label={persona ? `${name} 반응` : name}
         title={
           error ??
           animation.error ??
           (persona
-            ? "클릭: 메뉴 · 두 번 클릭: 말 걸기 · 끌기: 이동"
+            ? "클릭: 반응 · 우클릭: 메뉴 · 두 번 클릭: 말 걸기 · 끌기: 이동"
             : "끌기: 이동 · 이 친구의 대화는 준비 중이에요")
         }
-        onPointerDown={drag.onPointerDown}
-        onPointerMove={drag.onPointerMove}
-        onClick={() => {
-          if (drag.dragged()) {
-            return;
-          }
-          animation.click();
-          void open("menu");
-        }}
-        onDoubleClick={() => {
-          if (!drag.dragged()) {
-            void open("input");
-          }
-        }}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          void open("menu");
-        }}
-        onKeyDown={(event) => {
-          drag.reset();
-          if ((event.shiftKey && event.key === "F10") || event.key === "ContextMenu") {
-            event.preventDefault();
-            void open("menu");
-          }
-        }}
+        {...gestures}
       >
         {imageBody && (
           <AnimationFrameView

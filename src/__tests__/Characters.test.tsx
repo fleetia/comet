@@ -282,7 +282,7 @@ it("renders installed names and custom expressions while keeping historical spea
     },
   };
   const { rerender } = render(<CompanionBox id="local-third" snapshot={custom} />);
-  expect(screen.getByRole("button", { name: "모래 메뉴 열기" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "모래 반응" })).toBeTruthy();
   expect(screen.getByText("[활짝]")).toBeTruthy();
   rerender(
     <Balloon

@@ -237,9 +237,11 @@ pub fn run() {
                 stopping: AtomicBool::new(false),
                 update_installing: AtomicBool::new(false),
                 behavior: Mutex::new(behavior::Machine::default()),
+                reactions: Mutex::new(crate::character_reaction_host::Runtime::default()),
                 positions: Mutex::new(HashMap::new()),
             });
             app.manage(state.clone());
+            crate::character_reaction_host::install(app.handle(), state.clone());
             app.manage(desktop_toys::Runtime::default());
             app.manage(updater::UpdateState::default());
             crate::memo_notes::schedule_sync(app.handle());
@@ -316,6 +318,10 @@ pub fn run() {
                         window.label(),
                     ),
                     WindowEvent::Destroyed => {
+                        crate::character_gestures::cancel_window(
+                            window.app_handle(),
+                            window.label(),
+                        );
                         crate::character_collision_host::remove(window.app_handle(), window.label())
                     }
                     _ => {}
@@ -360,6 +366,12 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            crate::character_gestures::get_character_gesture_settings,
+            crate::character_gestures::begin_character_drag,
+            crate::character_reaction_host::trigger_character_reaction,
+            crate::character_reaction_host::acknowledge_character_reaction,
+            crate::character_reaction_host::get_character_reaction_events,
+            crate::character_reaction_host::preview_character_reaction,
             super::get_snapshot,
             super::history::list_character_history,
             super::users::set_user_name,

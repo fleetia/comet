@@ -56,6 +56,7 @@ pub(crate) fn state() -> AppState {
         stopping: AtomicBool::new(false),
         update_installing: AtomicBool::new(false),
         behavior: Mutex::new(behavior::Machine::default()),
+        reactions: Mutex::new(crate::character_reaction_host::Runtime::default()),
         positions: Mutex::new(HashMap::new()),
     }
 }
@@ -64,6 +65,7 @@ fn test_lines() -> Vec<SceneLine> {
         .into_iter()
         .enumerate()
         .map(|(index, persona)| SceneLine {
+            motion: Default::default(),
             persona: persona.into(),
             expression: "평온".into(),
             text: format!("재생 검증 대사 {index}"),
@@ -79,6 +81,7 @@ fn use_neutral_characters(db: &Connection) {
         character.definition.description = "테스트 캐릭터".into();
         character.definition.personality = "간단히 대답합니다.".into();
         character.definition.greeting = vec![characters::CharacterLine {
+            motion: Default::default(),
             expression: "평온".into(),
             text: format!("테스트 인사 {slot}"),
         }];
@@ -430,6 +433,7 @@ fn widget_lines_stop_after_source_change_or_user_cancellation() {
             token
         };
         let line = SceneLine {
+            motion: Default::default(),
             persona: "a".into(),
             expression: "normal".into(),
             text: "이미 표시한 결과".into(),
@@ -516,6 +520,7 @@ fn inactive_character_installs_preserve_playback_but_active_definition_edits_can
         )
     };
     let line = SceneLine {
+        motion: Default::default(),
         persona: "a".into(),
         expression: "평온".into(),
         text: "아직 하고 있는 이야기야.".into(),
@@ -604,6 +609,7 @@ fn inactive_relationship_target_rename_and_removal_cancel_stale_character_contex
         let (epoch, cancel) = interrupt(&state, false).unwrap();
         let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
         let line = SceneLine {
+            motion: Default::default(),
             persona: "a".into(),
             expression: "평온".into(),
             text: "친구 이야기를 하고 있었어.".into(),
@@ -689,6 +695,7 @@ fn character_change_cancels_old_playback_and_retry_preserving_the_transcript() {
     };
     let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
     let line = SceneLine {
+        motion: Default::default(),
         persona: "a".into(),
         expression: "평온".into(),
         text: "이전 캐릭터의 대답".into(),
@@ -765,6 +772,7 @@ fn pack_switch_cancels_stale_playback_and_restores_the_same_characters_and_perso
     };
     let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
     let line = SceneLine {
+        motion: Default::default(),
         persona: "a".into(),
         expression: "평온".into(),
         text: "  팩을 바꾸기 전의 대사\n그대로  ".into(),
@@ -855,6 +863,7 @@ fn authored_idle_wordbook_overrides_the_character_pair_fallback() {
     let state = state();
     let db = lock(&state.db).unwrap();
     let lines = vec![SceneLine {
+        motion: Default::default(),
         persona: "b".into(),
         expression: "장난".into(),
         text: "내가 등록한 자동 수다.".into(),
@@ -921,6 +930,7 @@ fn shared_character_pack_uses_authored_keyword_order_after_personal_entries() {
         title: "테스트 별사탕".into(),
         keywords: vec!["별사탕".into()],
         lines: vec![SceneLine {
+            motion: Default::default(),
             persona: "a".into(),
             expression: "평온".into(),
             text: "  등록한 별사탕 대사\n그대로  ".into(),
@@ -951,6 +961,7 @@ fn shared_character_pack_uses_authored_keyword_order_after_personal_entries() {
         title: "개인 대사".into(),
         keywords: vec!["별".into()],
         lines: vec![SceneLine {
+            motion: Default::default(),
             persona: "b".into(),
             expression: "장난".into(),
             text: "  내가 적은 말부터.\n\n  ".into(),
@@ -983,11 +994,13 @@ fn keyword_route_works_without_a_model_and_preserves_authored_lines() {
         keywords: vec!["수박".into()],
         lines: vec![
             SceneLine {
+                motion: Default::default(),
                 persona: "b".into(),
                 expression: "장난".into(),
                 text: "  그대로\n\n말할게.  ".into(),
             },
             SceneLine {
+                motion: Default::default(),
                 persona: "b".into(),
                 expression: "평온".into(),
                 text: "순서도 그대로.".into(),
@@ -1048,6 +1061,7 @@ fn unavailable_wordbook_winner_is_reported_before_shorter_or_later_matches() {
         title: "짧은 항목".into(),
         keywords: vec!["테스트".into()],
         lines: vec![SceneLine {
+            motion: Default::default(),
             persona: "a".into(),
             expression: "평온".into(),
             text: "  짧은 대사\n그대로  ".into(),
@@ -1103,6 +1117,7 @@ fn presenting_a_line_captures_its_characters_text_speed_and_complete_original() 
     let token = interrupt(&state, false).unwrap();
     let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
     let line = SceneLine {
+        motion: Default::default(),
         persona: "a".into(),
         expression: "평온".into(),
         text: "  가😀\n원문 그대로  ".into(),
@@ -1434,6 +1449,7 @@ fn model_change_preserves_history_and_invalidates_previous_work() {
                 id: "previous-model-scene".into(),
                 revision: store::revision(&db).unwrap(),
                 lines: vec![SceneLine {
+                    motion: Default::default(),
                     persona: "a".into(),
                     expression: "평온".into(),
                     text: "안녕".into(),

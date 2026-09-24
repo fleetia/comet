@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import { Button, Checkbox, FormField, Rule, Select, TextArea, TextField } from "@fleetia/lagrange";
 import { command, errorText } from "../../hooks/useSnapshot";
-import type { SceneLine, WordbookEntry } from "../../types";
+import type { InstalledCharacter, SceneLine, WordbookEntry } from "../../types";
+import { MotionSelect, motionError, motionOwner } from "../MotionSelect/MotionSelect";
 import * as s from "../../lagrange.css";
 import * as w from "./WordbookPanel.css";
 
@@ -43,6 +44,7 @@ type Props = {
   speakerCount?: number;
   onDirtyChange?: (dirty: boolean) => void;
   initialEntryId?: string;
+  owners?: (InstalledCharacter | undefined)[];
 };
 export function WordbookPanel({
   title = "단어장",
@@ -54,6 +56,7 @@ export function WordbookPanel({
   speakerCount = 8,
   onDirtyChange,
   initialEntryId,
+  owners = [],
 }: Props): JSX.Element {
   const [initial] = useState(() => {
     const entry = entries.find((item) => item.id === initialEntryId) ?? entries[0];
@@ -95,7 +98,14 @@ export function WordbookPanel({
     keywords.length > 0 &&
     keywords.length <= 20 &&
     keywords.every((keyword) => keyword.length <= 80) &&
-    current.entry.lines.every((line) => line.text.trim().length > 0);
+    current.entry.lines.every(
+      (line) =>
+        line.text.trim().length > 0 &&
+        !motionError(
+          line.motion,
+          motionOwner(line.persona, owners)?.definition.animation?.clips ?? [],
+        ),
+    );
   function update(entry: WordbookEntry, keywordText = current.keywords): void {
     setConfirmDelete(false);
     setDrafts((previous) => ({
@@ -266,6 +276,7 @@ export function WordbookPanel({
                         changeLine(index, {
                           ...line,
                           persona: event.target.value,
+                          motion: line.motion?.mode === "clip" ? undefined : line.motion,
                         })
                       }
                     >
@@ -285,7 +296,17 @@ export function WordbookPanel({
                         changeLine(index, { ...line, expression: event.target.value })
                       }
                     >
-                      {EXPRESSIONS.map((expression) => (
+                      {[
+                        ...new Set([
+                          ...Object.keys(
+                            motionOwner(line.persona, owners)?.definition.expressions ??
+                              Object.fromEntries(
+                                EXPRESSIONS.map((expression) => [expression, expression]),
+                              ),
+                          ),
+                          line.expression,
+                        ]),
+                      ].map((expression) => (
                         <option key={expression} value={expression}>
                           {expression}
                         </option>
@@ -331,6 +352,12 @@ export function WordbookPanel({
                   maxLength={500}
                   value={line.text}
                   onChange={(event) => changeLine(index, { ...line, text: event.target.value })}
+                />
+                <MotionSelect
+                  label={`${index + 1}번 대사`}
+                  value={line.motion}
+                  clips={motionOwner(line.persona, owners)?.definition.animation?.clips ?? []}
+                  onChange={(motion) => changeLine(index, { ...line, motion })}
                 />
               </div>
             ))}

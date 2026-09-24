@@ -1,4 +1,5 @@
 use super::{expr, Diagnostic, Program, Registry, Scene, Span, Statement, TextPart};
+use crate::character_reactions::MotionOverride;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -620,10 +621,8 @@ impl Reader<'_> {
                     span: self.finish_span(location),
                 });
             } else {
-                let (label, text) = line.split_once(':').ok_or_else(|| {
-                    vec![location.error("DIALOGUE", "A[표정]: 대사 형식이 필요해요.")]
-                })?;
-                let label = label.trim();
+                let (label, motion, text) =
+                    dialogue_label(&line, &location).map_err(|error| vec![error])?;
                 let speaker = match label.chars().next() {
                     Some(letter @ 'A'..='H') => (letter as u8 - b'A') as usize,
                     _ => return Err(vec![location.error("SPEAKER", "화자는 A~H여야 해요.")]),
@@ -673,6 +672,7 @@ impl Reader<'_> {
                 body.push(Statement::Line {
                     speaker,
                     expression: expression.into(),
+                    motion,
                     parts,
                     span: self.finish_span(location),
                 });
@@ -681,6 +681,101 @@ impl Reader<'_> {
         Ok(body)
     }
 }
+fn dialogue_label<'a>(
+    line: &'a str,
+    location: &Span,
+) -> Result<(&'a str, MotionOverride, &'a str), Diagnostic> {
+    let fail = |message| location.error("MOTION", message);
+    let (label, text) = line
+        .split_once(':')
+        .ok_or_else(|| location.error("DIALOGUE", "A[표정]: 대사 형식이 필요해요."))?;
+    // Preserve existing labels (including braces inside expression names) and all body text.
+    if !label.contains('{') || label.trim_end().ends_with(']') {
+        return Ok((label.trim(), MotionOverride::Inherit, text));
+    }
+    let (label, mut rest) = line
+        .split_once('{')
+        .ok_or_else(|| fail("모션은 {motion=ID}로 작성해 주세요."))?;
+    let mut options = BTreeMap::new();
+    loop {
+        rest = rest.trim_start();
+        if let Some(tail) = rest.strip_prefix('}') {
+            rest = tail;
+            break;
+        }
+        let (key, tail) = rest
+            .split_once('=')
+            .ok_or_else(|| fail("모션 옵션은 이름=값으로 작성해 주세요."))?;
+        if !["motion", "repeat", "interval"].contains(&key) || options.contains_key(key) {
+            return Err(fail(
+                "모션 옵션은 motion·repeat·interval을 각각 한 번만 사용할 수 있어요.",
+            ));
+        }
+        let quoted = tail.starts_with('"');
+        let (value, tail) = if quoted {
+            json_string(tail).map_err(|error| location.error("MOTION", error))?
+        } else {
+            let end = tail
+                .find(|character: char| character.is_whitespace() || character == '}')
+                .unwrap_or(tail.len());
+            (tail[..end].to_owned(), &tail[end..])
+        };
+        if !tail.is_empty() && !tail.starts_with('}') && !tail.starts_with(char::is_whitespace) {
+            return Err(fail("모션 옵션 사이는 공백으로 구분해 주세요."));
+        }
+        options.insert(key, (value, quoted));
+        rest = tail;
+    }
+    let text = rest
+        .trim_start()
+        .strip_prefix(':')
+        .ok_or_else(|| fail("모션 뒤에는 대사를 여는 콜론이 필요해요."))?;
+    let (id, quoted) = options
+        .get("motion")
+        .ok_or_else(|| fail("motion 옵션이 필요해요."))?;
+    let motion = match (id.as_str(), quoted) {
+        ("none", false) | ("inherit", false) => {
+            if options.len() != 1 {
+                return Err(fail("none·inherit에는 반복 옵션을 붙일 수 없어요."));
+            }
+            if id == "none" {
+                MotionOverride::Static
+            } else {
+                MotionOverride::Inherit
+            }
+        }
+        _ => {
+            if id.trim().is_empty()
+                || id.trim() != id
+                || id.chars().count() > 64
+                || id.chars().any(char::is_control)
+            {
+                return Err(fail("모션 ID는 앞뒤 공백과 제어문자 없는 1~64자여야 해요."));
+            }
+            let repeat = match options.get("repeat") {
+                None => false,
+                Some((value, false)) if value == "true" => true,
+                Some((value, false)) if value == "false" => false,
+                _ => return Err(fail("repeat는 true 또는 false로 작성해 주세요.")),
+            };
+            let interval_ms = match options.get("interval") {
+                None => 0,
+                Some((value, false)) => duration(value)
+                    .filter(|value| (0..=60_000).contains(value))
+                    .ok_or_else(|| fail("interval은 0 또는 단위가 붙은 0~60000ms여야 해요."))?
+                    as u32,
+                _ => return Err(fail("interval은 따옴표 없이 시간 단위로 작성해 주세요.")),
+            };
+            MotionOverride::Clip {
+                clip_id: id.clone(),
+                repeat,
+                interval_ms,
+            }
+        }
+    };
+    Ok((label.trim(), motion, text))
+}
+
 fn duration(source: &str) -> Option<i64> {
     if source == "0" {
         return Some(0);

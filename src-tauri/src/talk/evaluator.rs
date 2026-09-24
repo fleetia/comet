@@ -7,10 +7,22 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 pub fn simulate(program: &Program, context: &EvalContext, history: &History) -> Simulation {
+    simulate_with_validation(program, context, history, |_| Ok(()))
+}
+
+pub(crate) fn simulate_with_validation(
+    program: &Program,
+    context: &EvalContext,
+    history: &History,
+    validate_lines: impl Fn(&[SceneLine]) -> Result<(), String>,
+) -> Simulation {
     let mut candidates = Vec::new();
     let mut playable = Vec::new();
     for scene in &program.scenes {
-        match eligible(scene, context, history, &context.values) {
+        match eligible(scene, context, history, &context.values).and_then(|selection| {
+            validate_lines(&selection.lines).map_err(|error| format!("motion_error: {error}"))?;
+            Ok(selection)
+        }) {
             Ok(selection) => {
                 candidates.push(Candidate {
                     key: scene.key.clone(),
@@ -201,6 +213,7 @@ fn render(
             Statement::Line {
                 speaker,
                 expression,
+                motion,
                 parts,
                 ..
             } => {
@@ -244,6 +257,7 @@ fn render(
                     *speaker
                 };
                 lines.push(SceneLine {
+                    motion: motion.clone(),
                     persona: crate::characters::SLOTS
                         .get(mapped)
                         .filter(|_| context.active.get(mapped).is_some())

@@ -23,6 +23,8 @@ comet은 나니카·우카가카처럼 바탕화면에 머물며 먼저 말을 �
 
 **공식 위젯 상태·사건을 읽는 `.talk` 대본과 CLI를 구현했다.** 파일 기반 재로딩, 대화팩 설치·제거와 1~8명 대본 재생은 [대본 작성](product/talk.md), 이번 macOS 실행과 검증 제한은 [대본 검증 기록](VALIDATION-TALK.md)을 따른다. 대본 원문 편집은 앱 밖의 별도 talk editor가 맡으며, 외부 Widget SDK는 후속 범위다.
 
+2026-09-24 [캐릭터 행동과 반응](product/character-reactions.md)은 클릭·잡기·놓기와 지원 위젯 사건에 대사·표정·동작을 연결하고 대사별 동작과 팩 v5를 지원한다. 본체 한 번 클릭은 반응, 우클릭은 메뉴다. 새 소스의 실제 실행 검증은 [상태표](status.md)에서 확인한다.
+
 캐릭터 편집·교체·소유 대사·JSON 공유의 기존 검증은 [0.3.0 검증 기록](VALIDATION-0.3.0.md)에 보존한다. [0.2 제품 사양](PRODUCT.md)과 [0.2.0 검증 기록](VALIDATION-0.2.0.md)은 당시 기준이며 새 위젯 검증으로 재사용하지 않는다.
 
 2026-09-20 승인한 [통합 설정창 R2](product/settings.md)는 캐릭터·위젯·대화·앱 설정을 8개 영역으로 직접 탐색하고 각 책임별로 저장한다. 위젯의 설정은 통합하되 실제 작업은 별도 실행 창에서 수행한다. 새 소스의 구현·통합 검증은 [상태표](status.md#2026-09-20-통합-설정창-재설계)에서 확인한다.
@@ -40,6 +42,7 @@ comet은 나니카·우카가카처럼 바탕화면에 머물며 먼저 말을 �
 | 어떤 앱을 만드는가 | [바탕화면 경험](product/desktop.md), [대화·단어장·친밀도](product/conversation.md) |
 | 위젯 상태로 대본을 작성하는가 | [`.talk` 작성](product/talk.md), [CLI·변수](development/talk-reference.md), [기본 대본 범위](development/talk-coverage.md) |
 | 캐릭터를 바꾸고 공유하는가 | [캐릭터팩·1~8명 조합·내보내기](product/characters.md) |
+| 행동 대사·잡기·클릭 반응을 변경하는가 | [캐릭터 행동과 반응](product/character-reactions.md) · 소스 구현, 네이티브 QA 진행 |
 | 캐릭터팩을 내려받으려면 | [캐릭터팩 갤러리](product/character-gallery.md) |
 | 앱을 배포하고 업데이트하려면 | [앱 릴리스와 업데이트](development/releases.md) |
 | 어떤 도구를 만드는가 | [토이 목록](product/toys.md), [내장 투두와 캘린더](product/planning.md) |

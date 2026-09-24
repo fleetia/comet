@@ -2,19 +2,22 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useCharacterAnimation } from "../hooks/useCharacterAnimation";
 import { PREVIEW_SNAPSHOT } from "../previewSnapshot";
-import type { InstalledCharacter, Snapshot, AnimationClip } from "../types";
+import type { InstalledCharacter, Snapshot, AnimationClip, CharacterReactionRun } from "../types";
 
 vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (id: string) => `sprite://${id}`,
   isTauri: () => true,
 }));
+const loaded = vi.hoisted(() => ({ ready: true, error: null as string | null }));
+const frameSets = new Map<string, HTMLCanvasElement[]>();
 vi.mock("../hooks/useAnimationFrames", () => ({
   useAnimationFrames: (clip: AnimationClip | undefined) => ({
-    frames: clip ? [] : null,
-    ready: Boolean(clip),
-    error: null,
+    frames: clip && loaded.ready && !loaded.error ? frameSets.get(clip.id) : null,
+    ready: Boolean(clip) && loaded.ready && !loaded.error,
+    error: clip ? loaded.error : null,
   }),
 }));
+const dispatch = vi.fn().mockResolvedValue(undefined);
 const clip = (id: string): AnimationClip => ({
   id,
   name: id,
@@ -28,13 +31,18 @@ let character: InstalledCharacter;
 let snapshot: Snapshot;
 beforeEach(() => {
   vi.useFakeTimers();
+  loaded.ready = true;
+  loaded.error = null;
+  dispatch.mockReset().mockResolvedValue(undefined);
+  for (const id of ["idle", "talk", "click", "happy"]) {
+    frameSets.set(id, [document.createElement("canvas"), document.createElement("canvas")]);
+  }
   character = structuredClone(PREVIEW_SNAPSHOT.characters.installed[0]);
   character.definition.animation = {
     clips: [clip("idle"), clip("talk"), clip("click"), clip("happy")],
     bindings: {
       idle: { clipId: "idle", repeat: true, intervalMs: 0 },
       speaking: { clipId: "talk", repeat: true, intervalMs: 0 },
-      click: { clipId: "click", repeat: false, intervalMs: 0 },
     },
     overrides: {
       기쁨: { speaking: { clipId: "happy", repeat: true, intervalMs: 0 } },
@@ -47,6 +55,7 @@ beforeEach(() => {
     playback: null,
     panel: null,
     story: null,
+    reactions: {},
   };
 });
 afterEach(() => {
@@ -71,13 +80,36 @@ function talking(): Snapshot {
     },
   };
 }
-
-it("keeps talking animation through instant text, applies expression overrides and excludes panels", () => {
-  const { result, rerender } = renderHook(
-    ({ state, expression }) => useCharacterAnimation(character, state, expression, true),
-    { initialProps: { state: talking(), expression: "기쁨" } },
+function reaction(id: string, event = "click"): CharacterReactionRun {
+  return {
+    id,
+    event,
+    motion: { mode: "clip", clipId: "click", repeat: event === "grab-start", intervalMs: 0 },
+  };
+}
+function withReaction(state: Snapshot, run: CharacterReactionRun): Snapshot {
+  return { ...state, reactions: { [character.id]: run } };
+}
+function setup(state: Snapshot, expression = "평온") {
+  return renderHook(
+    ({ state, expression }) =>
+      useCharacterAnimation(state.characters.installed[0], state, expression, true, dispatch),
+    { initialProps: { state, expression } },
   );
-  expect(result.current.key).toContain("happy");
+}
+function acknowledgements(): unknown[] {
+  return dispatch.mock.calls
+    .filter(([name]) => name === "acknowledge_character_reaction")
+    .map(([, args]) => args);
+}
+
+it("uses shown dialogue and expression overrides, preserving time across unrelated snapshots", () => {
+  const notShown = talking();
+  notShown.playback!.displayStartedAt = null;
+  const { result, rerender } = setup(notShown, "기쁨");
+  expect(result.current.frames).toBe(frameSets.get("idle"));
+  rerender({ state: talking(), expression: "기쁨" });
+  expect(result.current.frames).toBe(frameSets.get("happy"));
   act(() => vi.advanceTimersByTime(500));
   rerender({ state: structuredClone(talking()), expression: "기쁨" });
   expect(result.current.frameIndex).toBe(1);
@@ -87,7 +119,7 @@ it("keeps talking animation through instant text, applies expression overrides a
     state: { ...talking(), panel: { persona: character.id, mode: "menu" } },
     expression: "평온",
   });
-  expect(result.current.key).toContain('"idle"');
+  expect(result.current.frames).toBe(frameSets.get("idle"));
   rerender({
     state: {
       ...snapshot,
@@ -102,80 +134,149 @@ it("keeps talking animation through instant text, applies expression overrides a
     },
     expression: "평온",
   });
-  expect(result.current.key).toContain("speaking:story");
+  expect(result.current.frames).toBe(frameSets.get("talk"));
 });
 
-it("restarts clicks without queuing, returns to latest state, cancels on hide and definition change", () => {
-  const { result, rerender } = renderHook(
-    ({ state, person }) => useCharacterAnimation(person, state, "평온", true),
-    { initialProps: { state: talking(), person: character } },
-  );
-  act(() => result.current.click());
-  expect(result.current.key).toContain("click:1");
+it("restarts replaced host reactions, continues across menu and expression changes, then uses latest speech", () => {
+  const first = reaction("first");
+  const second = reaction("second");
+  const { result, rerender } = setup(withReaction(talking(), first));
+  expect(result.current.frames).toBe(frameSets.get("click"));
   act(() => vi.advanceTimersByTime(500));
-  act(() => result.current.click());
+  rerender({ state: withReaction(talking(), second), expression: "평온" });
+  expect(result.current.frameIndex).toBe(0);
+  act(() => vi.advanceTimersByTime(500));
+  rerender({
+    state: withReaction({ ...snapshot, panel: { persona: character.id, mode: "menu" } }, second),
+    expression: "기쁨",
+  });
+  expect(result.current.frameIndex).toBe(1);
+  rerender({ state: withReaction(talking(), second), expression: "기쁨" });
+  act(() => vi.advanceTimersByTime(500));
+  expect(result.current.frames).toBe(frameSets.get("happy"));
+  expect(acknowledgements()).toEqual([
+    { runId: "first", phase: "ready" },
+    { runId: "second", phase: "ready" },
+    { runId: "second", phase: "finished" },
+  ]);
+});
+
+it("plays a per-line motion once, resumes speech and resets for a new line or static override", () => {
+  const first = talking();
+  first.playback!.motion = { mode: "clip", clipId: "click", repeat: false, intervalMs: 0 };
+  const { result, rerender } = setup(first, "기쁨");
+  expect(result.current.frames).toBe(frameSets.get("click"));
+  act(() => vi.advanceTimersByTime(1000));
+  expect(result.current.frames).toBe(frameSets.get("happy"));
+  const second = structuredClone(first);
+  second.playback!.id = "two";
+  rerender({ state: second, expression: "기쁨" });
+  expect(result.current.frames).toBe(frameSets.get("click"));
+  expect(result.current.frameIndex).toBe(0);
+  const third = structuredClone(second);
+  third.playback!.id = "three";
+  third.playback!.motion = { mode: "static" };
+  rerender({ state: third, expression: "기쁨" });
+  expect(result.current.frames).toBeNull();
+  expect(result.current.frameIndex).toBeNull();
+  expect(acknowledgements()).toEqual([]);
+});
+
+it("acknowledges only the current loaded run and reports a loading failure once", () => {
+  loaded.ready = false;
+  const { result, rerender } = setup(withReaction(snapshot, reaction("old")));
+  expect(acknowledgements()).toEqual([]);
+  const state = withReaction(snapshot, reaction("new"));
+  rerender({ state, expression: "평온" });
+  loaded.ready = true;
+  rerender({ state: structuredClone(state), expression: "평온" });
+  expect(acknowledgements()).toEqual([{ runId: "new", phase: "ready" }]);
+  loaded.error = "프레임을 읽지 못했어요.";
+  rerender({ state: structuredClone(state), expression: "평온" });
+  expect(result.current.frames).toBeNull();
+  expect(result.current.error).toBe(loaded.error);
+  rerender({ state: structuredClone(state), expression: "기쁨" });
+  expect(acknowledgements()).toEqual([
+    { runId: "new", phase: "ready" },
+    { runId: "new", phase: "failed" },
+  ]);
+});
+
+it("keeps a static hold through snapshot updates and cancels stale completion timers", () => {
+  const run = { ...reaction("static"), motion: { mode: "static" as const } };
+  const state = withReaction(snapshot, run);
+  const { result, rerender } = setup(state);
+  expect(result.current.frames).toBeNull();
+  act(() => vi.advanceTimersByTime(750));
+  rerender({ state: structuredClone(state), expression: "기쁨" });
+  act(() => vi.advanceTimersByTime(750));
+  expect(acknowledgements()).toContainEqual({ runId: "static", phase: "finished" });
+  rerender({ state: withReaction(snapshot, { ...run, id: "old" }), expression: "평온" });
+  act(() => vi.advanceTimersByTime(1000));
+  rerender({ state: withReaction(snapshot, { ...run, id: "new" }), expression: "평온" });
+  act(() => vi.advanceTimersByTime(500));
+  expect(acknowledgements()).not.toContainEqual({ runId: "old", phase: "finished" });
+  expect(acknowledgements()).not.toContainEqual({ runId: "new", phase: "finished" });
+  act(() => vi.advanceTimersByTime(1000));
+  expect(acknowledgements()).toContainEqual({ runId: "new", phase: "finished" });
+});
+
+it("finishes an inherited reaction 1500ms after ready even when its base clip ends or snapshots change", () => {
+  character.definition.animation!.clips[0].fps = 4;
+  character.definition.animation!.bindings.idle!.repeat = false;
+  const run = { ...reaction("inherit"), motion: { mode: "inherit" as const } };
+  const state = withReaction(snapshot, run);
+  const { result, rerender } = setup(state);
+  expect(acknowledgements()).toEqual([{ runId: "inherit", phase: "ready" }]);
+  act(() => vi.advanceTimersByTime(500));
+  expect(result.current.frameIndex).toBeNull();
+  act(() => vi.advanceTimersByTime(250));
+  rerender({ state: structuredClone(state), expression: "평온" });
+  act(() => vi.advanceTimersByTime(749));
+  expect(acknowledgements()).not.toContainEqual({ runId: "inherit", phase: "finished" });
+  act(() => vi.advanceTimersByTime(1));
+  expect(acknowledgements()).toEqual([
+    { runId: "inherit", phase: "ready" },
+    { runId: "inherit", phase: "finished" },
+  ]);
+});
+
+it("holds a grab loop until release then finishes the drop and resumes the latest speaking state", () => {
+  const grabbing = withReaction(talking(), reaction("grab", "grab-start"));
+  const { result, rerender } = setup(grabbing);
+  act(() => vi.advanceTimersByTime(3500));
+  expect(result.current.frameIndex).toBe(1);
+  rerender({ state: structuredClone(grabbing), expression: "기쁨" });
+  expect(result.current.frameIndex).toBe(1);
+  expect(acknowledgements()).toEqual([{ runId: "grab", phase: "ready" }]);
+  rerender({ state: withReaction(talking(), reaction("drop", "release")), expression: "기쁨" });
   expect(result.current.frameIndex).toBe(0);
   act(() => vi.advanceTimersByTime(1000));
-  expect(result.current.key).toContain("speaking:one");
-  act(() => result.current.click());
-  rerender({
-    state: { ...snapshot, runtime: { ...snapshot.runtime, hidden: true } },
-    person: character,
-  });
-  expect(result.current.frameIndex).toBeNull();
-  expect(vi.getTimerCount()).toBe(0);
-  rerender({ state: snapshot, person: character });
-  expect(result.current.key).not.toContain("click:");
-  act(() => result.current.click());
-  rerender({
-    state: snapshot,
-    person: { ...character, definition: { ...character.definition, name: "바뀐 이름" } },
-  });
-  expect(result.current.key).not.toContain("click:");
+  expect(result.current.frames).toBe(frameSets.get("happy"));
+  expect(acknowledgements()).toContainEqual({ runId: "drop", phase: "finished" });
 });
 
-it("does not start before display or while paused, and respects reduced motion", () => {
-  const state = talking();
-  state.playback!.displayStartedAt = null;
-  const { result, rerender } = renderHook(
-    ({ state }) => useCharacterAnimation(character, state, "평온", true),
-    { initialProps: { state } },
-  );
-  expect(result.current.key).not.toContain("speaking:");
-  rerender({ state: { ...talking(), runtime: { ...snapshot.runtime, paused: true } } });
-  expect(result.current.frameIndex).toBeNull();
+it("uses static timing with reduced motion and cancels completion when hidden or paused", () => {
   vi.stubGlobal("matchMedia", () => ({
     matches: true,
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   }));
-  const reduced = renderHook(() => useCharacterAnimation(character, talking(), "평온", true));
-  act(() => reduced.result.current.click());
-  expect(reduced.result.current.frameIndex).toBeNull();
-});
-
-it("finishes a click without restarting when the menu interrupts speech and changes expression", () => {
-  const { result, rerender } = renderHook(
-    ({ state, expression }) => useCharacterAnimation(character, state, expression, true),
-    { initialProps: { state: talking(), expression: "기쁨" } },
-  );
-  act(() => result.current.click());
-  act(() => vi.advanceTimersByTime(500));
-  expect(result.current.frameIndex).toBe(1);
-  const clickKey = result.current.key;
-
-  // Opening the native menu interrupts playback and resets the displayed expression.
-  rerender({
-    state: { ...snapshot, panel: { persona: character.id, mode: "menu" } },
-    expression: "평온",
-  });
-  expect(result.current.key).toBe(clickKey);
-  expect(result.current.frameIndex).toBe(1);
-  act(() => vi.advanceTimersByTime(499));
-  expect(result.current.key).toBe(clickKey);
-  act(() => vi.advanceTimersByTime(1));
-  expect(result.current.key).not.toContain("click:");
-  expect(result.current.key).toContain('"idle"');
-  expect(result.current.key).not.toContain("speaking:");
-  expect(result.current.frameIndex).toBe(0);
+  const { result, rerender } = setup(withReaction(snapshot, reaction("reduced")));
+  expect(result.current.frameIndex).toBeNull();
+  expect(result.current.frames).toBeNull();
+  expect(acknowledgements()).toEqual([{ runId: "reduced", phase: "ready" }]);
+  act(() => vi.advanceTimersByTime(1500));
+  expect(acknowledgements()).toContainEqual({ runId: "reduced", phase: "finished" });
+  for (const flag of ["hidden", "paused"] as const) {
+    const state = withReaction(snapshot, reaction(flag));
+    rerender({ state, expression: "평온" });
+    act(() => vi.advanceTimersByTime(500));
+    rerender({
+      state: { ...state, runtime: { ...state.runtime, [flag]: true } },
+      expression: "평온",
+    });
+    act(() => vi.advanceTimersByTime(2000));
+    expect(acknowledgements()).not.toContainEqual({ runId: flag, phase: "finished" });
+  }
 });

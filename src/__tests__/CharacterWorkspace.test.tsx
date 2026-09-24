@@ -48,7 +48,7 @@ it("separates six editing tabs and keeps the selected tab when changing characte
     "프로필",
     "모습·표정",
     "말풍선",
-    "대사",
+    "대사·반응",
     "기억",
     "설정",
   ]);
@@ -70,13 +70,13 @@ it("separates six editing tabs and keeps the selected tab when changing characte
     within(screen.getByRole("tabpanel", { name: "말풍선" })).getByLabelText("말풍선 글자 크기(px)"),
   ).toBeTruthy();
   fireEvent.keyDown(balloon, { key: "ArrowRight" });
-  const dialogue = tabs.getByRole("tab", { name: "대사", selected: true });
+  const dialogue = tabs.getByRole("tab", { name: "대사·반응", selected: true });
   expect(document.activeElement).toBe(dialogue);
   expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
   await screen.findByRole("button", { name: "키워드 대사 편집" });
   choose(/^B/);
-  expect(tabs.getByRole("tab", { name: "대사", selected: true })).toBeTruthy();
-  expect(screen.getByRole("tabpanel", { name: "대사" })).toBeTruthy();
+  expect(tabs.getByRole("tab", { name: "대사·반응", selected: true })).toBeTruthy();
+  expect(screen.getByRole("tabpanel", { name: "대사·반응" })).toBeTruthy();
   fireEvent.keyDown(dialogue, { key: "ArrowLeft" });
   expect(tabs.getByRole("tab", { name: "말풍선", selected: true })).toBeTruthy();
   fireEvent.keyDown(balloon, { key: "Home" });
@@ -120,7 +120,7 @@ it("retains exact per-character drafts across selection and snapshot changes aft
   fireEvent.change(screen.getByLabelText("관계 1 설명"), {
     target: { value: "  오래된 친구.\n편하게 장난쳐요.  " },
   });
-  selectTab("대사");
+  selectTab("대사·반응");
   fireEvent.click(screen.getByRole("button", { name: "인사 편집" }));
   fireEvent.change(screen.getByLabelText("인사 1 대사"), {
     target: { value: "  안녕.\n반가워.  " },
@@ -163,7 +163,7 @@ it("retains exact per-character drafts across selection and snapshot changes aft
     "value",
     "  오래된 친구.\n편하게 장난쳐요.  ",
   );
-  selectTab("대사");
+  selectTab("대사·반응");
   expect(screen.getByRole("textbox", { name: "인사 1 대사" })).toHaveProperty(
     "value",
     "  안녕.\n반가워.  ",
@@ -460,7 +460,7 @@ it("applies a saved character once and enforces the final-member and eight-membe
 it("preserves separate keyword drafts when switching characters or visiting a new character", async () => {
   const onDirtyChange = vi.fn();
   render(<CharacterManager embedded snapshot={snapshot} onDirtyChange={onDirtyChange} />);
-  selectTab("대사");
+  selectTab("대사·반응");
   fireEvent.click(await screen.findByRole("button", { name: "키워드 대사 편집" }));
   fireEvent.change(screen.getByRole("textbox", { name: "제목" }), {
     target: { value: "첫 친구 인사" },
@@ -474,7 +474,7 @@ it("preserves separate keyword drafts when switching characters or visiting a ne
   closeDialog();
   selectTab("프로필");
   selectTab("말풍선");
-  selectTab("대사");
+  selectTab("대사·반응");
   choose(/^B/);
   fireEvent.click(await screen.findByRole("button", { name: "키워드 대사 편집" }));
   fireEvent.change(screen.getByRole("textbox", { name: "제목" }), {

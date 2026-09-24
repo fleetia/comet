@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import { Button, Dialog, Select, TextArea } from "@fleetia/lagrange";
 import { command, errorText } from "../../hooks/useSnapshot";
-import type { CharacterDialogue, SceneLine, WordbookEntry } from "../../types";
+import type { CharacterDialogue, InstalledCharacter, SceneLine, WordbookEntry } from "../../types";
+import { MotionSelect, motionError, motionOwner } from "../MotionSelect/MotionSelect";
 import { WordbookPanel } from "../WordbookPanel/WordbookPanel";
 import { EXPRESSIONS } from "../CharacterEditor/CharacterEditor";
 import * as ui from "../../lagrange.css";
@@ -13,6 +14,7 @@ type Props = {
   onDirtyChange: (dirty: boolean) => void;
   onPendingChange?: (pending: boolean) => void;
   compact?: boolean;
+  owners?: (InstalledCharacter | undefined)[];
 };
 export function CharacterDialogueEditor({
   ids,
@@ -20,6 +22,7 @@ export function CharacterDialogueEditor({
   onDirtyChange,
   onPendingChange,
   compact = false,
+  owners = [],
 }: Props): JSX.Element {
   const [editorOpen, setEditorOpen] = useState(false);
   const [scenesOpen, setScenesOpen] = useState(false);
@@ -105,6 +108,7 @@ export function CharacterDialogueEditor({
       title={ids.length === 1 ? "이 캐릭터의 키워드 대사" : "현재 친구들의 키워드 대사"}
       description="개인 단어장 다음에 찾는 캐릭터 소유 대사예요. 항목별로 저장하며 캐릭터 저장과는 별개예요."
       entries={dialogue.wordbook}
+      owners={owners}
       singleCharacter={ids.length === 1}
       speakerCount={ids.length}
       saveEntry={saveEntry}
@@ -198,7 +202,14 @@ export function CharacterDialogueEditor({
                           changeScene(
                             sceneIndex,
                             lines.map((value, i) =>
-                              i === index ? { ...value, persona: event.target.value } : value,
+                              i === index
+                                ? {
+                                    ...value,
+                                    persona: event.target.value,
+                                    motion:
+                                      value.motion?.mode === "clip" ? undefined : value.motion,
+                                  }
+                                : value,
                             ),
                           )
                         }
@@ -266,6 +277,17 @@ export function CharacterDialogueEditor({
                         )
                       }
                     />
+                    <MotionSelect
+                      label={`장면 ${sceneIndex + 1} 대사 ${index + 1}`}
+                      value={line.motion}
+                      clips={motionOwner(line.persona, owners)?.definition.animation?.clips ?? []}
+                      onChange={(motion) =>
+                        changeScene(
+                          sceneIndex,
+                          lines.map((value, i) => (i === index ? { ...value, motion } : value)),
+                        )
+                      }
+                    />
                   </div>
                 ))}
                 <Button
@@ -299,7 +321,19 @@ export function CharacterDialogueEditor({
               </Button>
               <Button
                 variant="primary"
-                disabled={!dirty || scenes.some((lines) => lines.some((line) => !line.text.trim()))}
+                disabled={
+                  !dirty ||
+                  scenes.some((lines) =>
+                    lines.some(
+                      (line) =>
+                        !line.text.trim() ||
+                        motionError(
+                          line.motion,
+                          motionOwner(line.persona, owners)?.definition.animation?.clips ?? [],
+                        ),
+                    ),
+                  )
+                }
                 onClick={() => {
                   setError(null);
                   void save({ ...dialogue, pairScenes: scenes })

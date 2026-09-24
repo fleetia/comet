@@ -9,12 +9,13 @@ pub use archive::ExportOptions;
 use crate::character_animation::{
     self as animation, Animation, AssetInfo, PackAnimationAsset, PreparedAsset,
 };
+use crate::character_reactions::{MotionOverride, ReactionRule};
 use crate::character_sprites::{self as sprites, SpriteInfo};
 use dialogue::remap;
 pub use dialogue::{dialogue, greeting, idle_scene, keyword_scene, save_dialogue};
 use validation::decode_sprite;
 pub(crate) use validation::sprite_slot_allowed;
-use validation::validate_definition;
+pub(crate) use validation::validate_definition;
 #[cfg(test)]
 use validation::validate_pack;
 pub use validation::{pack_json, parse_pack};
@@ -45,6 +46,8 @@ fn default_sprite_size() -> u32 {
 pub struct CharacterLine {
     pub expression: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "MotionOverride::is_inherit")]
+    pub motion: MotionOverride,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -98,6 +101,8 @@ pub struct CharacterDefinition {
     pub balloon_style: BalloonStyle,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub animation: Option<Animation>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reactions: Vec<ReactionRule>,
     pub greeting: Vec<CharacterLine>,
     pub idle_lines: Vec<CharacterLine>,
 }
@@ -555,6 +560,16 @@ pub fn save_with_assets(
     validate_local_relationships(conn, id, definition, &old.definition.relationships)?;
     let mut edited = definition.clone();
     edited.source_id = old.definition.source_id;
+    if old.definition.animation.as_ref().is_some_and(|previous| {
+        previous.clips.iter().any(|clip| {
+            !edited
+                .animation
+                .as_ref()
+                .is_some_and(|current| current.clips.iter().any(|kept| kept.id == clip.id))
+        })
+    }) {
+        dialogue::validate_replaced_motions(conn, id, &edited)?;
+    }
     with_transaction(conn, |tx| {
         save_animation_assets(tx, id, &edited, assets)?;
         tx.execute(
@@ -821,14 +836,7 @@ pub fn export_pack_with_options(
         .map(|id| get(conn, id))
         .collect::<Result<Vec<_>>>()?;
     let mut pack = CharacterPack {
-        format_version: if installed
-            .iter()
-            .any(|character| character.definition.animation.is_some())
-        {
-            3
-        } else {
-            2
-        },
+        format_version: 2,
         name: installed
             .iter()
             .map(|c| c.definition.name.as_str())
@@ -900,14 +908,7 @@ pub fn export_pack_with_options(
             });
         }
     }
-    if !options.include_sprites {
-        for definition in &mut pack.characters {
-            definition.animation = None;
-        }
-        pack.format_version = 2;
-    }
     if options.includes_archive() {
-        pack.format_version = 4;
         let mapping = ids.iter().cloned().zip(sources).collect();
         pack.archive = Some(archive::export(
             conn,
@@ -946,6 +947,48 @@ pub fn export_pack_with_options(
         entry.id = uuid::Uuid::new_v4().to_string();
         pack.wordbook.push(entry);
     }
+    if !options.include_sprites {
+        for definition in &mut pack.characters {
+            definition.animation = None;
+            for line in definition
+                .greeting
+                .iter_mut()
+                .chain(&mut definition.idle_lines)
+            {
+                line.motion = line.motion.without_images();
+            }
+            for rule in &mut definition.reactions {
+                for variant in &mut rule.variants {
+                    variant.motion = variant.motion.without_images();
+                }
+                rule.variants.retain(|variant| variant.has_effect());
+            }
+            definition
+                .reactions
+                .retain(|rule| !rule.variants.is_empty());
+        }
+        for line in pack
+            .pair_scenes
+            .iter_mut()
+            .flatten()
+            .chain(pack.wordbook.iter_mut().flat_map(|entry| &mut entry.lines))
+        {
+            line.motion = line.motion.without_images();
+        }
+    }
+    pack.format_version = if validation::has_reactions_or_motion(&pack) {
+        5
+    } else if pack.archive.is_some() {
+        4
+    } else if pack
+        .characters
+        .iter()
+        .any(|definition| definition.animation.is_some())
+    {
+        3
+    } else {
+        2
+    };
     validation::validate_pack_metadata(&pack)?;
     Ok(pack)
 }
@@ -957,6 +1000,9 @@ mod animation_tests;
 #[path = "characters/archive_tests.rs"]
 mod archive_tests;
 #[cfg(test)]
+#[path = "characters/reaction_tests.rs"]
+mod reaction_tests;
+#[cfg(test)]
 #[path = "characters/tests.rs"]
 mod tests;
 
@@ -964,10 +1010,13 @@ pub fn resolve_lines(conn: &Connection, lines: &[SceneLine]) -> Result<Vec<Scene
     lines
         .iter()
         .map(|line| {
+            let owner = active_character(conn, &line.persona)?;
+            crate::character_reactions::validate_motion(&line.motion, &owner.definition, false)?;
             Ok(SceneLine {
-                persona: active_character(conn, &line.persona)?.id,
+                persona: owner.id,
                 expression: line.expression.clone(),
                 text: line.text.clone(),
+                motion: line.motion.clone(),
             })
         })
         .collect()

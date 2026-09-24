@@ -85,6 +85,12 @@ fn validate(entry: &WordbookEntry) -> Result<()> {
 
 pub fn save(conn: &Connection, entry: &WordbookEntry) -> Result<()> {
     validate(entry)?;
+    for line in &entry.lines {
+        if !line.motion.is_inherit() {
+            let owner = crate::characters::active_character(conn, &line.persona)?;
+            crate::character_reactions::validate_motion(&line.motion, &owner.definition, false)?;
+        }
+    }
     let data = serde_json::to_string(entry).map_err(|e| e.to_string())?;
     conn.execute("INSERT INTO wordbook(id,data) VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET data=excluded.data", params![entry.id, data]).map_err(|e| e.to_string())?;
     Ok(())
@@ -137,6 +143,7 @@ mod tests {
             title: "예시".into(),
             keywords: vec![keyword.into()],
             lines: vec![SceneLine {
+                motion: Default::default(),
                 persona: "a".into(),
                 expression: "평온".into(),
                 text: "  그대로\n말할게.  ".into(),

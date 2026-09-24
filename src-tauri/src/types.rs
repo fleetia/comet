@@ -139,6 +139,11 @@ pub struct SceneLine {
     pub persona: String,
     pub expression: String,
     pub text: String,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::character_reactions::MotionOverride::is_inherit"
+    )]
+    pub motion: crate::character_reactions::MotionOverride,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,6 +164,11 @@ pub struct Playback {
     pub persona: String,
     pub expression: String,
     pub text: String,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::character_reactions::MotionOverride::is_inherit"
+    )]
+    pub motion: crate::character_reactions::MotionOverride,
     pub source: String,
     #[serde(default)]
     pub text_speed: u32,
@@ -271,6 +281,9 @@ impl Default for RuntimeStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
+    #[serde(default)]
+    pub(crate) reactions:
+        std::collections::BTreeMap<String, crate::character_reactions::ReactionRun>,
     #[serde(default)]
     pub user: Option<UserIdentity>,
     #[serde(default)]

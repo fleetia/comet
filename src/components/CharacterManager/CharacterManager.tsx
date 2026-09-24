@@ -572,6 +572,9 @@ export function CharacterManager({
                         <CharacterDialogueEditor
                           key={`${owner.key}:${dialogueVersions[owner.key] ?? 0}`}
                           ids={owner.ids}
+                          owners={owner.ids.map((id) =>
+                            installed.find((character) => character.id === id),
+                          )}
                           expressions={[
                             ...new Set(
                               owner.ids.flatMap((id) =>

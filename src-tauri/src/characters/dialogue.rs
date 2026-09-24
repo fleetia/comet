@@ -1,7 +1,8 @@
 use super::validation::{validate_scene, validate_wordbook};
 use super::{
     active_character, active_ids, factory_pack, get, nadir_pack, pack_record, slot_index,
-    CharacterDialogue, CharacterPack, Result, MAX_PACK_BYTES, MAX_ROSTER, SLOTS,
+    CharacterDefinition, CharacterDialogue, CharacterPack, Result, MAX_PACK_BYTES, MAX_ROSTER,
+    SLOTS,
 };
 use crate::types::SceneLine;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -21,6 +22,7 @@ pub(super) fn remap(
                 persona: SLOTS[index].into(),
                 expression: line.expression.clone(),
                 text: line.text.clone(),
+                motion: line.motion.clone(),
             })
         })
         .collect()
@@ -65,6 +67,7 @@ pub fn greeting(conn: &Connection, slot: &str) -> Result<Vec<SceneLine>> {
             persona: slot.into(),
             expression: line.expression,
             text: line.text,
+            motion: line.motion,
         })
         .collect())
 }
@@ -196,18 +199,19 @@ pub fn dialogue(conn: &Connection, ids: &[String]) -> Result<CharacterDialogue> 
 }
 pub fn save_dialogue(conn: &Connection, ids: &[String], content: &CharacterDialogue) -> Result<()> {
     let (members, key) = canonical_members(ids)?;
-    for id in ids {
-        get(conn, id)?;
-    }
+    let definitions = ids
+        .iter()
+        .map(|id| get(conn, id).map(|character| character.definition))
+        .collect::<Result<Vec<_>>>()?;
     if content.pair_scenes.len() > 64 || content.wordbook.len() > 100 {
         return Err("장면은 최대 64개, 단어장은 최대 100개까지 저장할 수 있습니다.".into());
     }
     for scene in &content.pair_scenes {
-        validate_scene(scene, ids.len())?;
+        validate_scene(scene, &definitions)?;
     }
     let mut seen = HashSet::new();
     for entry in &content.wordbook {
-        validate_wordbook(entry, ids.len())?;
+        validate_wordbook(entry, &definitions)?;
         if !seen.insert(&entry.id) {
             return Err("단어장 ID가 중복됩니다.".into());
         }
@@ -218,6 +222,76 @@ pub fn save_dialogue(conn: &Connection, ids: &[String], content: &CharacterDialo
         return Err("캐릭터 대사 묶음은 1 MiB 이하여야 합니다.".into());
     }
     conn.execute("INSERT INTO character_dialogues(members,data) VALUES(?1,?2) ON CONFLICT(members) DO UPDATE SET data=excluded.data",params![key,data]).map_err(|e|e.to_string())?;
+    Ok(())
+}
+
+pub(super) fn validate_replaced_motions(
+    conn: &Connection,
+    id: &str,
+    definition: &CharacterDefinition,
+) -> Result<()> {
+    let mut statement = conn
+        .prepare("SELECT members FROM character_dialogues")
+        .map_err(|error| error.to_string())?;
+    let mut scopes = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|error| error.to_string())?
+        .map(|row| {
+            serde_json::from_str::<Vec<String>>(&row.map_err(|error| error.to_string())?)
+                .map_err(|error| error.to_string())
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if let Some(pack_id) = get(conn, id)?.pack_id {
+        scopes.push(pack_record(conn, &pack_id)?.1);
+    }
+    let installed: HashSet<_> = super::collection(conn)?
+        .installed
+        .into_iter()
+        .map(|character| character.id)
+        .collect();
+    for members in scopes {
+        if !members.iter().any(|member| member == id)
+            || members.iter().any(|member| !installed.contains(member))
+        {
+            continue;
+        }
+        let content = dialogue(conn, &members)?;
+        for line in content
+            .pair_scenes
+            .iter()
+            .flatten()
+            .chain(content.wordbook.iter().flat_map(|entry| &entry.lines))
+        {
+            if members
+                .get(slot_index(&line.persona)?)
+                .is_some_and(|member| member == id)
+            {
+                crate::character_reactions::validate_motion(&line.motion, definition, false)
+                    .map_err(|_| "대사 묶음에서 사용 중인 모션이에요. 해당 대사의 모션을 바꾼 뒤 삭제해 주세요.".to_string())?;
+            }
+        }
+    }
+    let has_wordbook: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='wordbook')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if has_wordbook {
+        let active = active_ids(conn)?;
+        for entry in crate::wordbook::entries(conn)? {
+            for line in entry.lines {
+                if active
+                    .get(slot_index(&line.persona)?)
+                    .is_some_and(|member| member == id)
+                {
+                    crate::character_reactions::validate_motion(&line.motion, definition, false)
+                        .map_err(|_| "개인 단어장에서 사용 중인 모션이에요. 해당 대사의 모션을 바꾼 뒤 삭제해 주세요.".to_string())?;
+                }
+            }
+        }
+    }
     Ok(())
 }
 pub fn idle_scene(conn: &Connection, index: usize) -> Result<Vec<SceneLine>> {
@@ -242,6 +316,7 @@ pub fn idle_scene(conn: &Connection, index: usize) -> Result<Vec<SceneLine>> {
             persona: (*slot).into(),
             expression: line.expression.clone(),
             text: line.text.clone(),
+            motion: line.motion.clone(),
         });
     }
     Ok(lines)

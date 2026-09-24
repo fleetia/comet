@@ -389,6 +389,7 @@ mod tests {
             });
             *lock(&state.widget_playback).unwrap() = current;
             *lock(&state.playback).unwrap() = Some(crate::types::Playback {
+                motion: Default::default(),
                 id: "line".into(),
                 persona: "a".into(),
                 expression: "평온".into(),

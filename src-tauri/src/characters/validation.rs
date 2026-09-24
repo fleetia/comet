@@ -3,6 +3,7 @@ use super::{
     BALLOON_SPRITE, DEFAULT_EXPRESSION, MAX_PACK_BYTES, MAX_ROSTER, SLOTS, SPRITE_SIZE_RANGE,
 };
 use crate::character_animation as animation;
+use crate::character_reactions as reactions;
 use crate::character_sprites as sprites;
 use crate::types::{SceneLine, WordbookEntry};
 use base64::Engine;
@@ -19,7 +20,7 @@ fn validate_line(expression: &str, text: &str) -> Result<()> {
     }
     Ok(())
 }
-pub(super) fn validate_definition(definition: &CharacterDefinition) -> Result<()> {
+pub(crate) fn validate_definition(definition: &CharacterDefinition) -> Result<()> {
     if !bounded(&definition.source_id, 128, true)
         || !bounded(&definition.name, 40, true)
         || !bounded(&definition.description, 500, false)
@@ -62,26 +63,30 @@ pub(super) fn validate_definition(definition: &CharacterDefinition) -> Result<()
     }
     for line in definition.greeting.iter().chain(&definition.idle_lines) {
         validate_line(&line.expression, &line.text)?;
+        reactions::validate_motion(&line.motion, definition, false)?;
     }
     if let Some(animation) = &definition.animation {
         animation::validate_animation(animation, &definition.expressions)?;
     }
+    reactions::validate(definition)?;
     Ok(())
 }
-pub(super) fn validate_scene(lines: &[SceneLine], members: usize) -> Result<()> {
+pub(super) fn validate_scene(lines: &[SceneLine], members: &[CharacterDefinition]) -> Result<()> {
     if !(1..=8).contains(&lines.len()) {
         return Err("장면은 1~8줄이어야 합니다.".into());
     }
     for line in lines {
         let index = slot_index(&line.persona)?;
-        if index >= members {
-            return Err("팩에 없는 캐릭터의 대사입니다.".into());
-        }
+        let definition = members.get(index).ok_or("팩에 없는 캐릭터의 대사입니다.")?;
         validate_line(&line.expression, &line.text)?;
+        reactions::validate_motion(&line.motion, definition, false)?;
     }
     Ok(())
 }
-pub(super) fn validate_wordbook(entry: &WordbookEntry, members: usize) -> Result<()> {
+pub(super) fn validate_wordbook(
+    entry: &WordbookEntry,
+    members: &[CharacterDefinition],
+) -> Result<()> {
     let mut seen = HashSet::new();
     if uuid::Uuid::parse_str(&entry.id).is_err()
         || !bounded(&entry.title, 80, true)
@@ -99,7 +104,7 @@ pub(super) fn validate_pack(pack: &CharacterPack) -> Result<()> {
     super::prepare_pack(pack.clone()).map(|_| ())
 }
 pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
-    if ![1, 2, 3, 4].contains(&pack.format_version)
+    if ![1, 2, 3, 4, 5].contains(&pack.format_version)
         || !(1..=if pack.format_version == 1 {
             2
         } else {
@@ -116,8 +121,15 @@ pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
     {
         return Err("지원하지 않는 팩 버전 또는 잘못된 팩 구성입니다.".into());
     }
-    if pack.archive.is_some() != (pack.format_version == 4) {
-        return Err("개인 기록이 포함된 캐릭터팩은 버전 4여야 합니다.".into());
+    if (pack.archive.is_some() && pack.format_version < 4)
+        || (pack.format_version == 4 && pack.archive.is_none())
+    {
+        return Err("개인 기록이 포함된 캐릭터팩은 버전 4 이상이어야 합니다.".into());
+    }
+    if pack.format_version < 5 && has_reactions_or_motion(pack) {
+        return Err(
+            "상황별 반응이나 대사 모션이 포함된 캐릭터팩은 버전 5 이상이어야 합니다.".into(),
+        );
     }
     if pack.format_version < 3
         && (!pack.animation_assets.is_empty()
@@ -147,11 +159,11 @@ pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
         }
     }
     for scene in &pack.pair_scenes {
-        validate_scene(scene, pack.characters.len())?;
+        validate_scene(scene, &pack.characters)?;
     }
     let mut ids = HashSet::new();
     for entry in &pack.wordbook {
-        validate_wordbook(entry, pack.characters.len())?;
+        validate_wordbook(entry, &pack.characters)?;
         if !ids.insert(&entry.id) {
             return Err("팩 단어장 ID가 중복됩니다.".into());
         }
@@ -213,10 +225,12 @@ pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
 }
 fn strict_scene(value: &serde_json::Value) -> Result<()> {
     let fields = value.as_object().ok_or("대사 형식이 올바르지 않습니다.")?;
-    if fields.len() != 3
+    if !["persona", "expression", "text"]
+        .iter()
+        .all(|key| fields.contains_key(*key))
         || !fields
             .keys()
-            .all(|k| ["persona", "expression", "text"].contains(&k.as_str()))
+            .all(|k| ["persona", "expression", "text", "motion"].contains(&k.as_str()))
     {
         return Err("대사에 알 수 없는 필드가 있습니다.".into());
     }
@@ -228,7 +242,7 @@ pub fn parse_pack(json: &str) -> Result<CharacterPack> {
     }
     let mut value: serde_json::Value =
         serde_json::from_str(json).map_err(|_| "캐릭터팩 JSON을 읽을 수 없습니다.")?;
-    if matches!(value["formatVersion"].as_u64(), Some(2..=4)) {
+    if matches!(value["formatVersion"].as_u64(), Some(2..=5)) {
         convert_pack_speakers(&mut value, false)?;
     }
     if let Some(scenes) = value.get("pairScenes").and_then(|v| v.as_array()) {
@@ -298,10 +312,12 @@ fn convert_pack_speakers(value: &mut serde_json::Value, exporting: bool) -> Resu
         } else {
             ("speaker", "persona")
         };
-        if fields.len() != 3
-            || !fields.contains_key("expression")
+        if !fields.contains_key("expression")
             || !fields.contains_key("text")
             || !fields.contains_key(from)
+            || !fields
+                .keys()
+                .all(|key| [from, "expression", "text", "motion"].contains(&key.as_str()))
         {
             return Err("대사의 필드가 올바르지 않습니다.".into());
         }
@@ -342,6 +358,22 @@ fn convert_pack_speakers(value: &mut serde_json::Value, exporting: bool) -> Resu
         }
     }
     Ok(())
+}
+
+pub(super) fn has_reactions_or_motion(pack: &CharacterPack) -> bool {
+    pack.characters.iter().any(|definition| {
+        !definition.reactions.is_empty()
+            || definition
+                .greeting
+                .iter()
+                .chain(&definition.idle_lines)
+                .any(|line| !line.motion.is_inherit())
+    }) || pack
+        .pair_scenes
+        .iter()
+        .flatten()
+        .chain(pack.wordbook.iter().flat_map(|entry| &entry.lines))
+        .any(|line| !line.motion.is_inherit())
 }
 
 pub fn pack_json(pack: &CharacterPack) -> Result<String> {

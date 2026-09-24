@@ -286,6 +286,9 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
               {visited.has("wordbook") && (
                 <WordbookPanel
                   entries={snapshot.wordbook}
+                  owners={snapshot.characters.active.map((id) =>
+                    snapshot.characters.installed.find((character) => character.id === id),
+                  )}
                   title="개인 단어장"
                   description="키워드가 포함되면 등록한 대사를 모델 없이 그대로 재생해요. 캐릭터를 바꿔도 유지돼요."
                   onDirtyChange={setWordbookDirty}

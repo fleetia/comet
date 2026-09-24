@@ -38,8 +38,18 @@ pub(crate) fn prepare(
         chrono::Utc::now().timestamp_millis(),
         uuid::Uuid::new_v4().as_u128() as u64,
     )?;
-    let Some(selection) = talk::simulate(&program, &context, &talk::runtime::history(db)?).selected
-    else {
+    let simulation =
+        talk::simulate_with_validation(&program, &context, &talk::runtime::history(db)?, |lines| {
+            validate_motions(db, lines)
+        });
+    for candidate in simulation
+        .candidates
+        .iter()
+        .filter(|candidate| candidate.reason.starts_with("motion_error:"))
+    {
+        eprintln!("talk scene {}: {}", candidate.scene_id, candidate.reason);
+    }
+    let Some(selection) = simulation.selected else {
         return Ok(None);
     };
     let mut dependencies = selection.dependencies.clone();
@@ -75,6 +85,13 @@ pub(crate) fn prepare(
         seed: context.seed,
     });
     Ok(Some(lines))
+}
+
+fn validate_motions(db: &Connection, lines: &[crate::types::SceneLine]) -> Result<(), String> {
+    if lines.iter().any(|line| !line.motion.is_inherit()) {
+        crate::characters::resolve_lines(db, lines)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String> {
@@ -113,12 +130,14 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
     );
     Ok(context.active == prepared.active
         && rendered.is_some_and(|rendered| {
-            rendered.lines.len() == prepared.selection.lines.len()
+            validate_motions(db, &rendered.lines).is_ok()
+                && rendered.lines.len() == prepared.selection.lines.len()
                 && rendered.lines.iter().zip(&prepared.selection.lines).all(
                     |(current, original)| {
                         current.persona == original.persona
                             && current.expression == original.expression
                             && current.text == original.text
+                            && current.motion == original.motion
                     },
                 )
         }))
@@ -586,5 +605,39 @@ mod tests {
             }
             assert!(current(&state, &db).unwrap(), "variant {seed}");
         }
+    }
+
+    #[test]
+    fn invalid_motion_candidate_does_not_block_an_unrelated_playable_scene() {
+        let state = crate::app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let program = talk::validate_source(
+            Path::new("motion.talk"),
+            "format: 1\nscene: invalid\non: idle\n---\nA{motion=missing}: 없는 모션\n===\nscene: valid\non: idle\n---\nB{motion=none}: 계속할 수 있는 대사\n===\n",
+            &talk::context::registry(),
+        ).unwrap();
+        let context = talk::context::build(&db, None, 1000, 0).unwrap();
+        let simulated =
+            talk::simulate_with_validation(&program, &context, &talk::History::new(), |lines| {
+                validate_motions(&db, lines)
+            });
+        assert!(simulated.candidates[0].reason.starts_with("motion_error:"));
+        assert_eq!(simulated.selected.unwrap().scene_id, "valid");
+        lock(&state.talk).unwrap().apply(Ok(program));
+        let lines = prepare(&state, &db, None).unwrap().unwrap();
+        assert_eq!(lines[0].persona, "b");
+        assert_eq!(
+            lines[0].motion,
+            crate::character_reactions::MotionOverride::Static
+        );
+        assert!(current(&state, &db).unwrap());
+        lock(&state.talk_playback)
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .selection
+            .lines[0]
+            .motion = crate::character_reactions::MotionOverride::Inherit;
+        assert!(!current(&state, &db).unwrap());
     }
 }
