@@ -9,6 +9,22 @@ import * as layout from "../SettingsPanel/settings.css";
 
 type Props = { snapshot: Snapshot; draft: SettingsDraft };
 
+function isKeylessApiUrl(baseUrl: string): boolean {
+  try {
+    const url = new URL(baseUrl.trim());
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) &&
+      !url.username &&
+      !url.password &&
+      !url.href.includes("?") &&
+      !url.href.includes("#")
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
   const { settings, apiKey, setApiKey, pending, change, run } = draft;
   const activeDownload = snapshot.runtime.download;
@@ -26,6 +42,8 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
   const canTestLocal = customModel
     ? settings.localModelPath.trim().length > 0
     : selectedModel?.ready === true;
+  const keylessApi = isKeylessApiUrl(settings.baseUrl);
+  const hasSavedApiKey = snapshot.hasApiKey && settings.baseUrl === snapshot.settings.baseUrl;
   let downloadLabel = received > 0 ? "이어받기" : "모델 내려받기";
   if (selectedModel?.ready) {
     downloadLabel = "모델 준비 완료";
@@ -195,7 +213,7 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
             <FormField
               className={s.field}
               label="API 키"
-              description="키는 운영체제 보안 저장소에 보관해요. 저장하면 입력란을 비워요."
+              description="이 기기의 localhost·127.0.0.1·[::1] 주소는 키 없이 연결할 수 있어요. 입력한 키는 운영체제 보안 저장소에 보관해요."
             >
               <TextField
                 type="password"
@@ -203,9 +221,11 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
                 placeholder={
-                  snapshot.hasApiKey
+                  hasSavedApiKey
                     ? "저장된 키 사용 · 변경할 때만 입력"
-                    : "API 키를 입력해 주세요"
+                    : keylessApi
+                      ? "키 없이 연결 가능"
+                      : "API 키를 입력해 주세요"
                 }
               />
             </FormField>
@@ -245,7 +265,7 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
                   !!pending ||
                   !settings.baseUrl ||
                   !settings.apiModel ||
-                  (!apiKey && !snapshot.hasApiKey)
+                  (!apiKey.trim() && !hasSavedApiKey && !keylessApi)
                 }
                 onClick={() => void run("test_connection")}
               >

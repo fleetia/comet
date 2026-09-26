@@ -86,14 +86,7 @@ fn validate_settings(
         return Err("설정값을 확인해 주세요.".into());
     }
     if settings.mode == "api" {
-        let url = reqwest::Url::parse(&settings.base_url)
-            .map_err(|_| "API 주소를 확인해 주세요.".to_string())?;
-        if url.scheme() != "https"
-            && !(url.scheme() == "http"
-                && matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]")))
-        {
-            return Err("외부 API에는 HTTPS 주소를 사용해 주세요.".into());
-        }
+        inference::endpoint(settings)?;
         if settings.api_model.trim().is_empty() {
             return Err("API 모델명을 입력해 주세요.".into());
         }

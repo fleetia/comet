@@ -41,7 +41,7 @@ pub(crate) fn route_message(
         return Err(inference::not_ready_message(&settings));
     }
     if settings.mode == "api"
-        && (settings.api_model.trim().is_empty() || !inference::has_api_key(&settings))
+        && (settings.api_model.trim().is_empty() || !inference::api_credentials_ready(&settings))
     {
         return Err("설정에서 API 연결을 먼저 완료해 주세요.".into());
     }

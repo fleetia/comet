@@ -194,7 +194,7 @@ pub(crate) async fn run_background(
         let ready = if settings.mode == "local" {
             inference::is_local_running(&state.inference, &settings).await
         } else {
-            inference::has_api_key(&settings) && !settings.api_model.is_empty()
+            inference::api_credentials_ready(&settings) && !settings.api_model.is_empty()
         };
         if ready && now() - state.last_preparation.load(Ordering::SeqCst) >= 15 {
             state.last_preparation.store(now(), Ordering::SeqCst);
@@ -284,7 +284,7 @@ pub(crate) async fn run_background(
     let ready = if settings.mode == "local" {
         models::selected_ready(&state.app_data, &settings)
     } else {
-        !settings.api_model.is_empty() && inference::has_api_key(&settings)
+        !settings.api_model.is_empty() && inference::api_credentials_ready(&settings)
     };
     if !ready {
         return Ok(());

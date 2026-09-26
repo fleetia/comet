@@ -42,14 +42,17 @@ impl Inference {
     }
 }
 
-fn endpoint(settings: &Settings) -> Result<String, String> {
-    let url = reqwest::Url::parse(settings.base_url.trim())
-        .map_err(|_| "API 주소가 올바르지 않습니다.")?;
-    let local = matches!(
+fn is_loopback_api_url(url: &reqwest::Url) -> bool {
+    matches!(
         url.host_str(),
         Some("localhost" | "127.0.0.1" | "[::1]" | "::1")
-    );
-    if (url.scheme() != "https" && !(url.scheme() == "http" && local))
+    )
+}
+
+fn validated_api_url(settings: &Settings) -> Result<reqwest::Url, String> {
+    let url = reqwest::Url::parse(settings.base_url.trim())
+        .map_err(|_| "API 주소가 올바르지 않습니다.")?;
+    if (url.scheme() != "https" && !(url.scheme() == "http" && is_loopback_api_url(&url)))
         || !url.username().is_empty()
         || url.password().is_some()
         || url.query().is_some()
@@ -60,7 +63,16 @@ fn endpoint(settings: &Settings) -> Result<String, String> {
                 .into(),
         );
     }
+    Ok(url)
+}
+
+pub(crate) fn endpoint(settings: &Settings) -> Result<String, String> {
+    let url = validated_api_url(settings)?;
     Ok(url.as_str().trim_end_matches('/').to_string())
+}
+
+fn allows_keyless_api(settings: &Settings) -> bool {
+    validated_api_url(settings).is_ok_and(|url| is_loopback_api_url(&url))
 }
 
 const API_SERVICE: &str = "space.starlight.comet.api";
@@ -83,6 +95,28 @@ fn legacy_credential(settings: &Settings) -> Result<keyring::Entry, String> {
 }
 pub fn has_api_key(settings: &Settings) -> bool {
     saved_key(settings).ok().flatten().is_some()
+}
+pub fn api_credentials_ready(settings: &Settings) -> bool {
+    allows_keyless_api(settings) || has_api_key(settings)
+}
+fn api_key_for_request(
+    settings: &Settings,
+    supplied: Option<String>,
+) -> Result<Option<String>, String> {
+    let local = allows_keyless_api(settings);
+    let key = match supplied
+        .map(|key| key.trim().to_string())
+        .filter(|key| !key.is_empty())
+    {
+        Some(key) => Some(key),
+        None if local => saved_key(settings).ok().flatten(),
+        None => saved_key(settings)?,
+    }
+    .filter(|key| !key.trim().is_empty());
+    if key.is_none() && !local {
+        return Err("설정에서 API 키를 입력해 주세요.".into());
+    }
+    Ok(key)
 }
 pub fn set_api_key(settings: &Settings, key: &str) -> Result<(), String> {
     if key.trim().is_empty() || key.len() > 8192 || key.contains(['\r', '\n']) {
@@ -125,13 +159,15 @@ fn saved_key(settings: &Settings) -> Result<Option<String>, String> {
         Err(_) => Err("시스템 자격 증명 저장소에서 API 키를 읽을 수 없습니다.".into()),
     }
 }
-fn client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
+fn client(url: &str) -> Result<reqwest::Client, String> {
+    let mut builder = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(15))
-        .timeout(Duration::from_secs(180))
-        .build()
-        .map_err(|_| "HTTP 초기화 실패".into())
+        .timeout(Duration::from_secs(180));
+    if reqwest::Url::parse(url).is_ok_and(|url| is_loopback_api_url(&url)) {
+        builder = builder.no_proxy();
+    }
+    builder.build().map_err(|_| "HTTP 초기화 실패".into())
 }
 
 pub fn not_ready_message(settings: &Settings) -> String {
@@ -222,7 +258,7 @@ async fn local_endpoint(
     let mut child = command.spawn().map_err(|_| {
         "로컬 실행기를 시작하지 못했습니다. 실행 파일과 라이브러리를 확인해 주세요."
     })?;
-    let http = client()?;
+    let http = client(&url)?;
     for _ in 0..240 {
         if cancel.load(Ordering::Acquire) {
             let _ = child.kill().await;
@@ -267,7 +303,7 @@ pub async fn is_local_running(inference: &Inference, settings: &Settings) -> boo
     {
         return false;
     }
-    let Ok(http) = client() else {
+    let Ok(http) = client(&server.url) else {
         return false;
     };
     let Ok(response) = http
@@ -335,7 +371,7 @@ async fn completion_request(
     max_tokens: u32,
     cancel: Arc<AtomicBool>,
 ) -> Result<Value, String> {
-    let http = client()?;
+    let http = client(url)?;
     let token_parameter = match settings.api_token_parameter.as_str() {
         "max_tokens" => "max_tokens",
         "max_completion_tokens" => "max_completion_tokens",
@@ -418,7 +454,11 @@ pub async fn generate(
         configured.api_token_parameter = "max_tokens".into();
         (format!("{url}/v1"), Some(key), configured)
     } else {
-        (endpoint(settings)?, saved_key(settings)?, settings.clone())
+        (
+            endpoint(settings)?,
+            api_key_for_request(settings, None)?,
+            settings.clone(),
+        )
     };
     let result = tokio::select! {
         _ = models::cancelled(cancel.clone()) => Err("취소됨".into()),
@@ -435,10 +475,7 @@ pub async fn test_connection(settings: &Settings, key: Option<String>) -> Result
     if settings.api_model.trim().is_empty() {
         return Err("API 모델 이름을 입력해 주세요.".into());
     }
-    let selected_key = match key {
-        Some(value) => Some(value),
-        None => saved_key(settings)?,
-    };
+    let selected_key = api_key_for_request(settings, key)?;
     let messages = vec![ChatMessage {
         role: "user".into(),
         content: "Return only this JSON object: {\"ok\":true}".into(),
@@ -590,6 +627,94 @@ mod tests {
             ..Settings::default()
         };
         assert_eq!(endpoint(&settings).unwrap(), "http://127.0.0.1:1234/v1");
+    }
+    #[test]
+    fn keyless_api_only_accepts_valid_loopback_urls() {
+        for base_url in [
+            "http://localhost:11434/v1",
+            "http://127.0.0.1:1234/v1",
+            "http://[::1]:1234/v1",
+            "https://localhost/v1",
+        ] {
+            let settings = Settings {
+                base_url: base_url.into(),
+                ..Settings::default()
+            };
+            assert!(allows_keyless_api(&settings), "{base_url}");
+        }
+        for base_url in [
+            "https://example.com/v1",
+            "https://192.168.1.2/v1",
+            "https://localhost.example.com/v1",
+            "http://127.0.0.2:1234/v1",
+            "http://localhost@evil.example/v1",
+            "http://evil.example@localhost/v1",
+            "http://localhost/v1?key=secret",
+            "http://localhost/v1?",
+            "http://localhost/v1#secret",
+            "http://localhost/v1#",
+        ] {
+            let settings = Settings {
+                base_url: base_url.into(),
+                ..Settings::default()
+            };
+            assert!(!allows_keyless_api(&settings), "{base_url}");
+        }
+    }
+    #[test]
+    fn remote_api_requires_a_key_before_request() {
+        let settings = Settings {
+            base_url: format!("https://{}.invalid/v1", uuid::Uuid::new_v4()),
+            ..Settings::default()
+        };
+        assert!(api_key_for_request(&settings, None).is_err());
+        assert_eq!(
+            api_key_for_request(&settings, Some(" draft-key ".into())).unwrap(),
+            Some("draft-key".into())
+        );
+    }
+    #[tokio::test]
+    async fn keyless_loopback_connection_sends_no_authorization() {
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                let mut chunk = [0; 1024];
+                let count = socket.read(&mut chunk).await.unwrap();
+                assert!(count > 0 && request.len() + count <= 8192);
+                request.extend_from_slice(&chunk[..count]);
+            }
+            let headers = String::from_utf8_lossy(&request).to_ascii_lowercase();
+            assert!(!headers.contains("authorization:"));
+            let body = r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#;
+            socket
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+        });
+        let settings = Settings {
+            mode: "api".into(),
+            base_url: format!("http://{address}/{}/v1", uuid::Uuid::new_v4()),
+            api_model: "local-model".into(),
+            ..Settings::default()
+        };
+        assert_eq!(
+            test_connection(&settings, None).await.unwrap(),
+            "API 연결과 JSON 응답을 확인했습니다."
+        );
+        server.await.unwrap();
     }
     #[tokio::test]
     async fn http_errors_are_redacted_and_pre_cancelled_requests_stop() {

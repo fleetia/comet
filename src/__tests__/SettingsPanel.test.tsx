@@ -72,6 +72,69 @@ it("retains separate model and automatic drafts and only saves the chosen scope"
   expect(screen.getByLabelText("API 주소")).toHaveProperty("value", "https://example.com/v1");
 });
 
+it("allows keyless loopback API tests but requires a key for remote or spoofed addresses", async () => {
+  render(
+    <SettingsPanel snapshot={{ ...PREVIEW_SNAPSHOT, hasApiKey: false }} initialSection="model" />,
+  );
+  const address = screen.getByLabelText("API 주소");
+  const testButton = screen.getByRole("button", { name: "연결 테스트" });
+  fireEvent.change(screen.getByLabelText("모델 이름"), { target: { value: "local-model" } });
+  for (const baseUrl of [
+    "http://localhost:11434/v1",
+    "http://127.0.0.1:1234/v1",
+    "http://[::1]:1234/v1",
+  ]) {
+    fireEvent.change(address, { target: { value: baseUrl } });
+    expect(testButton).toHaveProperty("disabled", false);
+  }
+  fireEvent.click(testButton);
+  await waitFor(() =>
+    expect(command).toHaveBeenLastCalledWith("test_connection", {
+      settings: {
+        ...PREVIEW_SNAPSHOT.settings,
+        baseUrl: "http://[::1]:1234/v1",
+        apiModel: "local-model",
+        mode: "api",
+      },
+      apiKey: null,
+    }),
+  );
+  for (const baseUrl of [
+    "https://example.com/v1",
+    "https://192.168.1.2/v1",
+    "https://localhost.example.com/v1",
+    "http://evil.example@localhost/v1",
+    "http://localhost/v1?",
+    "http://localhost/v1#",
+  ]) {
+    fireEvent.change(address, { target: { value: baseUrl } });
+    expect(testButton).toHaveProperty("disabled", true);
+  }
+});
+
+it("does not reuse a saved API key for a different draft address", () => {
+  render(
+    <SettingsPanel
+      snapshot={{
+        ...PREVIEW_SNAPSHOT,
+        hasApiKey: true,
+        settings: {
+          ...PREVIEW_SNAPSHOT.settings,
+          baseUrl: "https://saved.example/v1",
+          apiModel: "remote-model",
+        },
+      }}
+      initialSection="model"
+    />,
+  );
+  const testButton = screen.getByRole("button", { name: "연결 테스트" });
+  expect(testButton).toHaveProperty("disabled", false);
+  fireEvent.change(screen.getByLabelText("API 주소"), {
+    target: { value: "https://other.example/v1" },
+  });
+  expect(testButton).toHaveProperty("disabled", true);
+});
+
 it("invalid automatic interval does not block AI edits and cancel restores latest saved values", () => {
   const { rerender } = render(
     <SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="automatic" />,

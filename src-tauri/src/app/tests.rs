@@ -1029,6 +1029,28 @@ fn keyword_route_works_without_a_model_and_preserves_authored_lines() {
     .unwrap();
     assert!(route_message(&state, &db, "수박").unwrap().is_some());
     assert!(route_message(&state, &db, "다른 말").is_err());
+    store::save_settings(
+        &db,
+        &Settings {
+            mode: "api".into(),
+            base_url: "http://127.0.0.1:11434/v1".into(),
+            api_model: "local-model".into(),
+            ..Settings::default()
+        },
+    )
+    .unwrap();
+    assert!(route_message(&state, &db, "다른 말").unwrap().is_none());
+    store::save_settings(
+        &db,
+        &Settings {
+            mode: "api".into(),
+            base_url: "https://example.com/v1".into(),
+            api_model: "remote-model".into(),
+            ..Settings::default()
+        },
+    )
+    .unwrap();
+    assert!(route_message(&state, &db, "다른 말").is_err());
 }
 
 #[test]
@@ -1535,6 +1557,30 @@ fn scoped_settings_saves_preserve_other_sections_newer_values() {
         .unwrap()
     );
     assert_eq!(store::revision(&lock(&state.db).unwrap()).unwrap(), 3);
+}
+
+#[test]
+fn api_settings_use_request_url_validation() {
+    let state = state();
+    for base_url in [
+        "http://evil.example@localhost/v1",
+        "https://localhost/v1?key=secret",
+    ] {
+        let settings = Settings {
+            mode: "api".into(),
+            base_url: base_url.into(),
+            api_model: "local-model".into(),
+            ..Settings::default()
+        };
+        assert!(apply_settings(&state, &settings, Some(SettingsScope::Model), None).is_err());
+    }
+    let settings = Settings {
+        mode: "api".into(),
+        base_url: "http://localhost:11434/v1".into(),
+        api_model: "local-model".into(),
+        ..Settings::default()
+    };
+    assert!(apply_settings(&state, &settings, Some(SettingsScope::Model), None).is_ok());
 }
 
 #[test]

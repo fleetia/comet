@@ -13,13 +13,21 @@ description: 공식 위젯과 보조 화면의 소스 구현, 실제 검증 범�
 
 추가로 진행 중인 창·캐릭터·음악·모델·공식 업데이트의 실제 인수와 캐릭터 구성 적용 중 정지 문제는 [Windows 검증 기록](VALIDATION-WINDOWS.md)에 구분해 기록한다.
 
-Windows 11 Home x64 기기(Ryzen 7 5800X3D, 8코어/16스레드, RAM 64GB, RTX 3080, 모니터 2대)에서 현재 소스를 release 모드로 빌드하고 NSIS 설치 파일을 생성했다. `space.starlight.comet.windows-qa` 식별자의 별도 QA 앱을 현재 사용자 범위에 설치했다. 설치 파일은 `src-tauri/target/release/bundle/nsis/Comet Windows QA_0.6.0_x64-setup.exe`이고 SHA-256은 `28c04917eaa788184da0873185e46276f35a20f2cb18211e3bb9daca9569959d`다. 설치 경로의 실행 파일과 동봉 `comet-nlp.exe`, `llama-server.exe`, Kiwi·ONNX Runtime·VC++ DLL을 확인했고 앱이 정상 실행됐다. 기존 일반 Comet 사용자 데이터와 모델은 사용하지 않았다.
+Windows 11 Home x64 기기(Ryzen 7 5800X3D, 8코어/16스레드, RAM 64GB, RTX 3080, 모니터 2대)에서 소스를 release 모드로 빌드하고 NSIS 설치 파일을 생성했다. `space.starlight.comet.windows-qa` 식별자의 별도 QA 앱을 현재 사용자 범위에 설치했다. 첫 QA 설치 파일은 `src-tauri/target/release/bundle/nsis/Comet Windows QA_0.6.0_x64-setup.exe` 경로에 있었고 SHA-256은 `28c04917eaa788184da0873185e46276f35a20f2cb18211e3bb9daca9569959d`였다. 설치 경로의 실행 파일과 동봉 `comet-nlp.exe`, `llama-server.exe`, Kiwi·ONNX Runtime·VC++ DLL을 확인했고 앱이 정상 실행됐다. 기존 일반 Comet 사용자 데이터와 모델은 사용하지 않았다.
 
 새 QA 데이터에서 이름 저장 → 위젯 없이 시작하기 → 별꼬리 한 명의 바탕화면 본체와 자동 인사 `왔네. 오늘도 여기서 같이 지내자.`를 확인했다. 우클릭 메뉴에서 `혼잣말 들어 보기`를 실행한 뒤 `지난 대화`에 인사와 혼잣말 2건이 표시됐다. 자동 대화 설정은 먼저 이야기하기 켜짐, 로컬 모델·API 자동 생성 꺼짐이었다. 공식 22개 중 메모 하나를 설치·실행해 본문 자동 저장을 확인했다. 앱 화면의 `앱 종료`로 정상 종료하고 재실행했을 때 온보딩이 다시 열리지 않았고 이름·대화 기록·설치 상태·메모 내용이 화면에서 유지됐다. 설정의 캐릭터 숨기기·다시 표시하기로 본체와 표정 창이 사라졌다가 복귀하는 것도 확인했다. QA DB의 읽기 전용 `PRAGMA integrity_check` 결과는 `ok`였다.
 
 현재 소스의 프런트엔드 검사·production build와 Vitest 47개 파일·283개 테스트를 통과했다. Windows release Rust 라이브러리 테스트는 483개 통과, 기존 3개 제외, 실패 0개였다. 이번 빌드 과정에서 Windows 음악 아트워크 스트림의 비전송 참조가 `await`를 넘지 않도록 고쳤고, 복귀 감시를 앱 수명 동안 유지되는 말풍선 창에 연결했다. NSIS 빌드와 위 기본 동작을 수정 후 설치본에서 확인했으며 실제 Windows 미디어 세션의 아트워크와 절전·복귀 알림은 아직 조작하지 않았다.
 
 이번 실기는 메모 한 종류와 기본 대화·재시작 범위다. 자동화 드래그는 설정창 좌표를 이동시키지 못했으므로 두 모니터 사이 실제 마우스 이동의 근거로 쓰지 않는다. 22개 위젯 전수, 실제 음악·배터리·절전 복귀, 두 모니터 사이 창 이동과 서로 다른 DPI, 8GB/4CPU 환경의 자원 사용, 장시간 실행, 접근성 전수, 외부 계정 OAuth, 공식 릴리스 설치·업데이트와 모델 의미 품질은 남아 있다.
+
+이후 Windows 추론기의 backend DLL 탐색 경로를 고쳐 다시 빌드·설치했다. 해당 단계의 QA 설치 파일 SHA-256은 `8edad68cde74a3ff80227a8b224eec66af8363dd71ebf092fc9a2f2d06ab5b83`이며, release Rust 라이브러리 485개 통과·3개 제외와 strict Clippy를 확인했다. 설치본의 직접 지정 GGUF `테스트하기`에서 Qwen3.8 2B가 5.1초에 응답했고 테스트 후 sidecar가 종료됐다. 별도 harness의 6종 36응답 중 35개가 유효 JSON이다. Kiwi는 실제 설정 UI에서 내려받아 켰고, 재시작 후에도 `기본 검색 · 한국어 분석`으로 표시됐다. 모델의 의미 품질과 E5 출시 기준, 저사양 Windows 성능은 아직 통과하지 못했다. 상세 근거와 범위는 [Windows 검증 기록](VALIDATION-WINDOWS.md)에 둔다.
+
+사용자 결정으로 OpenAI 호환 API 모드의 검증된 loopback 주소(`localhost`·`127.0.0.1`·`[::1]`)는 키 없이 연결 테스트·직접 대화·허용된 자동 생성을 사용할 수 있게 했다. 원격 HTTPS API는 키를 계속 요구하고 URL 사용자 정보·query·fragment는 저장 단계에서 거절한다. 로컬 API와 앱 소유 sidecar 요청은 시스템 프록시를 거치지 않게 했다. 프런트엔드 285개, Rust 직렬 489개 통과·3개 제외, 전체 target strict Clippy, 가짜 프록시를 둔 로컬 연결 회귀와 위키 빌드를 확인했다.
+
+최종 QA NSIS SHA-256은 `032652a90dcfdda9baebc3b492a1e613feb2cc5e2185beb8a83aeb0b6f02b123`이다. 일반 Comet이 실행 중이어서 QA 설치 폴더의 실행 파일만 최종 빌드로 교체했다. 이 프록시 보완 실행 파일의 실제 화면에서 합성 loopback 서버에 키 없는 연결과 직접 대화가 성공했다. 보류 원문 분석과 QA 앱 재시작을 거쳐 합성 `user_fact` 한 건(`b83ecdc8-83de-41e6-83c5-aa9f6e00014f`)의 Kiwi 색인과 다음 대화 프롬프트의 해당 ID 전달을 확인했다. mock 요청 5건에는 모두 Authorization 헤더가 없었다. 모델 연결 방식과 선택은 원래 로컬 Qwen3.5 4B로, 자동 설정의 두 idle flag는 `false`로 다시 저장했고 QA 프로필의 Gemma `.part` 3,255,917,307 bytes는 보존했다. 이 합성 API·기억 QA 종료 후 DB의 기존 메시지 54건은 `(id, role, data)`와 순서가 그대로이고 당시 총 74건·합성 기억 1건·무결성 `ok`였다. 백업·당시 `settings` JSON과 Kiwi 설정 파일은 각각 완전히 같았다. 당시 종료 점검에서 QA·소유 자식·mock 프로세스는 남지 않았다. 고정된 mock 응답은 모델 의미 품질의 근거가 아니다. 이번 NSIS 자체의 재설치와 실제 Ollama·LM Studio 서버 연결·응답, 원격 제공자의 인증 동작은 미검증이다. 상세 근거는 [Windows 검증 기록](VALIDATION-WINDOWS.md)을 따른다.
+
+별도로 동봉 `llama-server.exe`와 검증된 Qwen3.8 2B GGUF를 키 없는 `127.0.0.1:18765/v1` API 서버로 실행했다. 최신 QA 앱의 첫 연결 테스트는 기존 `max_completion_tokens`에서 필수 JSON 누락 오류를 냈고 `max_tokens`로 바꾼 재시도는 성공했다. API 모드로 보낸 합성 입력 `QA 실제 모델 시험이야. 오늘 기분을 한국어 한 문장으로 말해줘.`에 실제 모델 답변 `QA 시험을 준비하는 날, 기분이 평온합니다.`가 `지난 대화`에 표시됐다. 동봉 llama.cpp의 한 건에 한정되며 실제 Ollama·LM Studio 연결이나 일반적 의미 품질은 미검증이다. 이 추가 시험 뒤 QA 앱은 정상 종료하고 소유 서버를 멈췄으며 일반 Comet만 남았다. 최종 DB는 백업 54건 대비 메시지 82건, 첫 54건의 `(id, role, data)`·순서 보존, 합성 기억·Kiwi 색인 1건, 무결성 `ok`다. 백업·최종 `settings` JSON과 `nlp/memory-search.json`은 각각 완전히 같고 Gemma `.part` 3,255,917,307 bytes도 남았다. 위 74건은 실제 GGUF API 시험 전의 중간 점검값이다.
 
 ## 2026-09-24 캐릭터 행동 반응과 대사별 동작
 
@@ -203,7 +211,7 @@ macOS arm64 release QA 앱을 별도 식별자로 빌드·실행했다. 모델 �
 
 **의미 검색 출시 조건은 미완료다.** 공식 FP32 원본에서 macOS U8S8·Windows U8U8 INT8 E5 파일을 두 번 변환해 SHA-256 재현성을 확인했다. 공개 CC0 검증셋(기억 24건, 질문 88개)의 calibration에서 관련도 후보 0.8433828949928284는 Recall@5 75%·무관 질문 오탐률 5%였고, 독립 evaluation에서는 실제 Rust FTS·Kiwi·RRF를 포함해 66.67%·10%로 목표 90%·5%를 만족하지 못했다. 긴 의미 변형 질문에서 FTS/Kiwi 단독 회수율도 낮다. 무관한 최신 기억을 추가하거나 평가 질문으로 기준값을 조정하지 않았다. E5 공개 URL과 출시 threshold는 미설정이므로 현재 제품의 의미 검색 다운로드·사용은 준비 중 상태다.
 
-Windows 8GB·4논리 CPU 기준 기기의 성능·설치·실행, 두 OS 업데이트 시나리오, 실제 생성 LLM과 타이머 완료·OS 알림의 동시 인수는 남아 있다. Windows ORT용 VC++ DLL 동봉 경로는 구현했으나 실제 Windows 패키징은 미검증이다. 전체 계획이나 배포 준비가 완료됐다고 표시하지 않는다.
+Windows x64 QA 설치·실행과 VC++ DLL 동봉, Kiwi 다운로드·활성화·재시작은 2026-09-26에 확인했다. 이후 합성 `user_fact` 한 건의 Kiwi 색인과 다음 대화 프롬프트 전달도 확인했다. 8GB·4논리 CPU 기준 기기의 성능, 다양한 기억·규모의 Windows 검색 정확성과 NLP 실패·취소·업데이트 시나리오, 실제 생성 LLM과 타이머 완료·OS 알림의 동시 인수는 남아 있다. 전체 계획이나 배포 준비가 완료됐다고 표시하지 않는다.
 
 ## 2026-09-21 음악 위젯과 로컬 재생 제어
 
@@ -438,7 +446,7 @@ Figma에는 기존 Lagrange 프레임과 글꼴을 유지해 [장난 설정](htt
 | 읽기 연결 취소·중복 방지 | 호스트 작업 token·revision 재검사, 동시 조회 2개, 실패 backoff, OS 자격 증명 저장소 | [수명주기](widgets/lifecycle.md) |
 | 캐릭터 행동 반응 | 클릭·잡기·놓기와 지원 위젯 사건의 대사·표정·동작, 대사별 동작과 v5 공유 구현·macOS QA 검증 완료. 취소 회귀와 OS별 제한은 검증 기록 참조 | [반응 계약](product/character-reactions.md), [이번 검증 범위](#2026-09-24-캐릭터-행동-반응과-대사별-동작) |
 | `.talk` 대본 | 상태·사건별 파일 대본, 조건·변수 보간·조합 ID·재로딩·CLI 구현. 새 반응이 없는 사건은 기존 대본·대체 경로 사용 | [대본 작성](product/talk.md), [검증 기록](VALIDATION-TALK.md) |
-| 로컬 모델 비교 목록·직접 지정 GGUF·테스트하기 | 2026-09-17 소스 구현. 고정 목록에 Qwen3.8 Distill 2B·4B·9B, Gemma 4 E4B·12B, Ministral 3 8B 추가(URL·크기·SHA-256 고정), `custom` 선택과 절대 경로 GGUF 연결, 저장 전 선택도 불러와 응답·소요 시간을 보여 주는 테스트. 자동 테스트만 통과했으며 각 모델의 실제 실행·응답 품질은 미검증 | [제품 사양](PRODUCT.md#선택적인-llm과-자원-사용) |
+| 로컬 모델 비교 목록·직접 지정 GGUF·테스트하기 | 2026-09-17 소스 구현. 고정 목록에 Qwen3.8 Distill 2B·4B·9B, Gemma 4 E4B·12B, Ministral 3 8B 추가(URL·크기·SHA-256 고정), `custom` 선택과 절대 경로 GGUF 연결, 저장 전 선택도 불러와 응답·소요 시간을 보여 주는 테스트. Windows 별도 harness에서 6종 36응답 중 35개 유효 JSON, 설치본 UI에서 Qwen 2B 직접 지정 테스트를 확인했다. 여섯 모델의 앱 UI 전수와 실제 대화 의미 품질은 미검증 | [제품 사양](PRODUCT.md#선택적인-llm과-자원-사용) |
 | 캐릭터 표정 이미지 | 2026-09-16 소스 구현. 캐릭터별 표정 추가·삭제, 표정별 SVG·PNG·GIF·WebP·JPEG 이미지, 없는 표정의 `평온` 대체, 이미지 크기에 맞춘 투명 본체 창, 따로 끌어 옮기는 텍스트 표정 창, 정중앙 1px 9-slice 말풍선 이미지, 팩 JSON 공유. 자동 테스트만 통과했으며 네이티브 실행 검증은 미완료 | [표정과 표정 이미지](product/characters.md#표정과-표정-이미지) |
 
 동봉 manifest의 바이트 수는 실행 코드나 메모리 크기가 아니다. 기능은 공용 Rust 호스트에 컴파일되어 있으며 위젯 제거로 앱 바이너리가 줄지 않는다. 신규 릴리스 버전·배포 완료를 이 상태표에서 선언하지 않는다.
