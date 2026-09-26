@@ -1,6 +1,6 @@
 [package]
 name = "comet"
-version = "0.6.0"
+version = "0.7.0"
 description = "Two quiet desktop companions"
 license = "AGPL-3.0-only"
 edition = "2021"
