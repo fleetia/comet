@@ -3,7 +3,7 @@ use chrono::{Local, NaiveDate, NaiveTime, TimeZone, Timelike};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::{cmp::Ordering, collections::BTreeMap};
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
@@ -125,12 +125,10 @@ fn minute(value: &str) -> Result<u32, String> {
 fn quiet(settings: &ReminderSettings, local_minute: u32) -> Result<bool, String> {
     let start = minute(&settings.quiet_start)?;
     let end = minute(&settings.quiet_end)?;
-    Ok(if start < end {
-        local_minute >= start && local_minute < end
-    } else if start > end {
-        local_minute >= start || local_minute < end
-    } else {
-        false
+    Ok(match start.cmp(&end) {
+        Ordering::Less => local_minute >= start && local_minute < end,
+        Ordering::Greater => local_minute >= start || local_minute < end,
+        Ordering::Equal => false,
     })
 }
 
@@ -379,9 +377,9 @@ pub fn advance(
             && instance.enabled
             && continuous
             && !quiet(&settings, local.hour() * 60 + local.minute())?
-            && !instance.data["alertState"]["mutedUntil"]
+            && instance.data["alertState"]["mutedUntil"]
                 .as_i64()
-                .is_some_and(|at| at > now);
+                .is_none_or(|at| at <= now);
         let mut mood = timer_moods(clocks, &instance.id, &timers, now, allowed, &settings);
         if !allowed {
             continue;

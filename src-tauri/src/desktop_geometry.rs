@@ -350,7 +350,7 @@ mod platform {
         data: LPARAM,
     ) -> BOOL {
         if !bounds.is_null() {
-            (&mut *(data as *mut Vec<Rect>)).push(rect(*bounds));
+            (*(data as *mut Vec<Rect>)).push(rect(*bounds));
         }
         1
     }

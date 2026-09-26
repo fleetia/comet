@@ -113,9 +113,9 @@ pub fn defer_story(
 ) -> Result<(), String> {
     let epoch = {
         let _action = lock(&state.action)?;
-        if !lock(&state.story)?
+        if lock(&state.story)?
             .as_ref()
-            .is_some_and(|r| r.id == request_id)
+            .is_none_or(|r| r.id != request_id)
         {
             return Ok(());
         }

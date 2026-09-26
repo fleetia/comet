@@ -7,7 +7,7 @@ description: 두 운영체제의 서명된 업데이트 파일, GitHub Releases�
 
 Comet 앱을 macOS Apple Silicon과 Windows x64에 함께 배포하는 절차입니다. 앱은 시작할 때와 실행 중 24시간마다 새 버전을 확인하며, 사용자가 `설치하고 다시 시작`을 선택해야 내려받기와 설치를 진행합니다. 캐릭터팩은 [갤러리](../product/character-gallery.md)에서 수동으로 설치하며 앱 업데이트에 종속된 원격 갱신 기능은 제공하지 않습니다.
 
-2026-09-19에 첫 signed updater 릴리스 [v0.5.0](https://github.com/fleetia/comet/releases/tag/v0.5.0)을 공개했습니다. macOS DMG·Windows EXE의 비로그인 접근과 공개 `latest.json`의 두 OS 다운로드 주소를 확인했습니다. 공식 GitHub 배포 채널을 통한 이전 버전에서 새 버전으로의 업데이트 설치와 Windows 실제 설치·실행은 아직 인수 전입니다. 별도 macOS QA 앱에서 전용 키·loopback 서버를 통한 0.4.0→0.4.1 설치와 오류 처리를 확인한 기록과 제한은 [구현 상태](../status.md)를 따릅니다. 키가 없는 별도 개발 빌드는 업데이트 확인 대신 설정되지 않았다는 상태를 표시합니다.
+2026-09-19에 첫 signed updater 릴리스 [v0.5.0](https://github.com/fleetia/comet/releases/tag/v0.5.0)을 공개했습니다. macOS DMG·Windows EXE의 비로그인 접근과 공개 `latest.json`의 두 OS 다운로드 주소를 확인했습니다. 공식 GitHub 배포본의 Windows 설치와 이전 버전에서 새 버전으로의 업데이트 설치는 아직 인수 전입니다. 로컬 Windows QA 앱의 NSIS 설치·첫 실행 범위와 별도 macOS QA 앱에서 전용 키·loopback 서버를 통한 0.4.0→0.4.1 설치·오류 처리의 범위는 [구현 상태](../status.md)를 따릅니다. 키가 없는 별도 개발 빌드는 업데이트 확인 대신 설정되지 않았다는 상태를 표시합니다.
 
 ## 서명과 배포 대상
 

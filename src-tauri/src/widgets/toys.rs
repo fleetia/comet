@@ -371,12 +371,10 @@ pub fn act(
                     let b = entropy.rotate_left(32) % 6 + 1;
                     state.a = a.to_string();
                     state.b = b.to_string();
-                    state.result = if a > b {
-                        "A 승리"
-                    } else if a < b {
-                        "B 승리"
-                    } else {
-                        "무승부"
+                    state.result = match a.cmp(&b) {
+                        std::cmp::Ordering::Greater => "A 승리",
+                        std::cmp::Ordering::Less => "B 승리",
+                        std::cmp::Ordering::Equal => "무승부",
                     }
                     .into();
                 }

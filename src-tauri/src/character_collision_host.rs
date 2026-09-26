@@ -76,10 +76,10 @@ impl Registry {
     }
 
     fn did_show(&mut self, label: &str, token: u64) -> bool {
-        if !self
+        if self
             .entries
             .get(label)
-            .is_some_and(|entry| entry.visibility_generation == token)
+            .is_none_or(|entry| entry.visibility_generation != token)
         {
             return false;
         }
@@ -88,11 +88,7 @@ impl Registry {
     }
 
     fn begin_refresh(&mut self, label: &str) -> Option<u64> {
-        if !self
-            .entries
-            .get(label)
-            .is_some_and(|entry| !entry.suppressed)
-        {
+        if self.entries.get(label).is_none_or(|entry| entry.suppressed) {
             return None;
         }
         Some(self.change(label).generation)

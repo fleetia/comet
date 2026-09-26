@@ -216,7 +216,9 @@ async fn local_endpoint(
         );
     }
     #[cfg(target_os = "windows")]
-    command.creation_flags(0x08000000);
+    command
+        .current_dir(&inference.runtime_dir)
+        .creation_flags(0x08000000);
     let mut child = command.spawn().map_err(|_| {
         "로컬 실행기를 시작하지 못했습니다. 실행 파일과 라이브러리를 확인해 주세요."
     })?;

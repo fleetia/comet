@@ -113,22 +113,23 @@ fn capabilities(controls: &Controls) -> Value {
 async fn artwork(
     properties: &::windows::Media::Control::GlobalSystemMediaTransportControlsSessionMediaProperties,
 ) -> Option<String> {
-    let stream = properties
-        .Thumbnail()
-        .ok()?
-        .OpenReadAsync()
-        .ok()?
-        .await
-        .ok()?;
-    let size = stream.Size().ok()?;
-    if size == 0 || size > 524_288 {
-        return None;
-    }
-    let mime = stream.ContentType().ok()?.to_string();
-    if !["image/png", "image/jpeg", "image/webp"].contains(&mime.as_str()) {
-        return None;
-    }
-    let reader = DataReader::CreateDataReader(&stream.GetInputStreamAt(0).ok()?).ok()?;
+    let (size, mime, reader) = {
+        let open = {
+            let thumbnail = properties.Thumbnail().ok()?;
+            thumbnail.OpenReadAsync().ok()?
+        };
+        let stream = open.await.ok()?;
+        let size = stream.Size().ok()?;
+        if size == 0 || size > 524_288 {
+            return None;
+        }
+        let mime = stream.ContentType().ok()?.to_string();
+        if !["image/png", "image/jpeg", "image/webp"].contains(&mime.as_str()) {
+            return None;
+        }
+        let reader = DataReader::CreateDataReader(&stream.GetInputStreamAt(0).ok()?).ok()?;
+        (size, mime, reader)
+    };
     if reader.LoadAsync(size as u32).ok()?.await.ok()? != size as u32 {
         return None;
     }

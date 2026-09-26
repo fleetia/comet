@@ -154,7 +154,7 @@ pub(crate) async fn choose_character_sprite(
     Ok(true)
 }
 #[tauri::command]
-pub(crate) fn remove_character_sprite(
+pub(crate) async fn remove_character_sprite(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
@@ -300,7 +300,7 @@ pub(crate) async fn save_character(
     Ok(())
 }
 #[tauri::command]
-pub(crate) fn clone_character(
+pub(crate) async fn clone_character(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
@@ -316,7 +316,7 @@ pub(crate) fn get_character_packs(
     characters::installed_packs(&*lock(&state.db)?)
 }
 #[tauri::command]
-pub(crate) fn apply_character_pack(
+pub(crate) async fn apply_character_pack(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     pack_id: String,
@@ -326,7 +326,7 @@ pub(crate) fn apply_character_pack(
     Ok(())
 }
 #[tauri::command]
-pub(crate) fn apply_character_roster(
+pub(crate) async fn apply_character_roster(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     ids: Vec<String>,
@@ -336,7 +336,7 @@ pub(crate) fn apply_character_roster(
     Ok(())
 }
 #[tauri::command]
-pub(crate) fn remove_character(
+pub(crate) async fn remove_character(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
@@ -353,7 +353,7 @@ pub(crate) fn get_character_dialogue(
     characters::dialogue(&*lock(&state.db)?, &ids)
 }
 #[tauri::command]
-pub(crate) fn save_character_dialogue(
+pub(crate) async fn save_character_dialogue(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     ids: Vec<String>,
@@ -434,7 +434,7 @@ pub(crate) fn get_character_pack_attribution(
     characters::pack_attribution(&*lock(&state.db)?, &pack_id)
 }
 #[tauri::command]
-pub(crate) fn save_character_pack_attribution(
+pub(crate) async fn save_character_pack_attribution(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     pack_id: String,

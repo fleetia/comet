@@ -80,6 +80,9 @@ fn merge_missing_entries(source: &Path, destination: &Path) -> io::Result<()> {
 }
 
 pub(crate) fn migrate_app_data(app_data: &Path) -> io::Result<()> {
+    if app_data.file_name() != Some(std::ffi::OsStr::new("space.starlight.comet")) {
+        return Ok(());
+    }
     let Some(parent) = app_data.parent() else {
         return Ok(());
     };
@@ -629,6 +632,42 @@ pub(crate) fn restore_update_install(app: &tauri::AppHandle) -> Result<(), Strin
 #[cfg(test)]
 mod migration_tests {
     use super::*;
+
+    #[test]
+    fn qa_profile_does_not_import_or_move_legacy_data() {
+        let root = tempfile::tempdir().unwrap();
+        let qa = root.path().join("space.starlight.comet.windows-qa");
+        let legacy = root.path().join(crate::legacy_names::app_identifier());
+        fs::create_dir_all(&qa).unwrap();
+        fs::create_dir_all(legacy.join("models")).unwrap();
+        fs::create_dir_all(legacy.join("talk")).unwrap();
+        fs::write(qa.join(DATABASE_FILE), b"qa database").unwrap();
+        fs::write(
+            legacy.join(crate::legacy_names::database_file()),
+            b"legacy database",
+        )
+        .unwrap();
+        fs::write(legacy.join("models").join("model.gguf"), b"legacy model").unwrap();
+        fs::write(legacy.join("talk").join("index.talk"), b"legacy talk").unwrap();
+
+        migrate_app_data(&qa).unwrap();
+
+        assert_eq!(fs::read(qa.join(DATABASE_FILE)).unwrap(), b"qa database");
+        assert!(!qa.join("models").exists());
+        assert!(!qa.join("talk").exists());
+        assert_eq!(
+            fs::read(legacy.join(crate::legacy_names::database_file())).unwrap(),
+            b"legacy database"
+        );
+        assert_eq!(
+            fs::read(legacy.join("models").join("model.gguf")).unwrap(),
+            b"legacy model"
+        );
+        assert_eq!(
+            fs::read(legacy.join("talk").join("index.talk")).unwrap(),
+            b"legacy talk"
+        );
+    }
 
     fn copy_database_with_wal(destination: &Path, name: &str) {
         let source = tempfile::tempdir().unwrap();

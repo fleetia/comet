@@ -327,7 +327,8 @@ pub(crate) fn begin_character_drag(
             serde_json::to_string(&members.iter().map(|member| &member.id).collect::<Vec<_>>())
                 .map_err(|error| error.to_string())?;
         let runtime = window.state::<Runtime>();
-        let session = lock(&runtime.registry)?.begin(Session {
+        let mut registry = lock(&runtime.registry)?;
+        registry.begin(Session {
             character_id,
             session_id,
             generation: 0,
@@ -335,8 +336,7 @@ pub(crate) fn begin_character_drag(
             native_handle,
             definition_key,
             roster_key,
-        })?;
-        session
+        })?
     };
     if let Err(error) = native::begin(&window, session.clone()) {
         notify(&window, &session, Phase::Cancelled);

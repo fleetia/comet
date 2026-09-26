@@ -135,6 +135,32 @@ fn work_area(monitor: &Monitor) -> Rect {
     }
 }
 
+fn monitor_bounds(monitor: &Monitor) -> Rect {
+    let position = monitor.position();
+    let size = monitor.size();
+    Rect {
+        x: position.x as f64,
+        y: position.y as f64,
+        width: size.width as f64,
+        height: size.height as f64,
+    }
+}
+
+fn monitor_at_saved_position<'a, T>(
+    monitors: &'a [T],
+    saved: Option<&WindowPosition>,
+    bounds: impl Fn(&T) -> Rect,
+) -> Option<&'a T> {
+    let saved = saved.filter(|position| position.x.is_finite() && position.y.is_finite())?;
+    monitors.iter().find(|monitor| {
+        let area = bounds(monitor);
+        saved.x >= area.x
+            && saved.y >= area.y
+            && saved.x < area.x + area.width
+            && saved.y < area.y + area.height
+    })
+}
+
 fn clamp_position(x: f64, y: f64, width: f64, height: f64, area: Rect) -> (f64, f64) {
     (
         x.clamp(area.x, (area.x + area.width - width).max(area.x)),
@@ -217,19 +243,7 @@ fn create_body(app: &AppHandle, state: &AppState, spec: BodySpec) -> Result<(), 
     .map_err(|e| e.to_string())?;
     let monitors = window.available_monitors().map_err(|e| e.to_string())?;
     let saved = saved_body_position(state, index, &label)?;
-    let saved_monitor = saved
-        .as_ref()
-        .filter(|p| p.x.is_finite() && p.y.is_finite())
-        .and_then(|p| {
-            monitors.iter().find(|monitor| {
-                let position = monitor.position();
-                let size = monitor.size();
-                p.x >= position.x as f64
-                    && p.y >= position.y as f64
-                    && p.x < position.x as f64 + size.width as f64
-                    && p.y < position.y as f64 + size.height as f64
-            })
-        });
+    let saved_monitor = monitor_at_saved_position(&monitors, saved.as_ref(), monitor_bounds);
     let primary = window.primary_monitor().map_err(|e| e.to_string())?;
     if let Some(monitor) = saved_monitor.or(primary.as_ref()).or(monitors.first()) {
         let scale = monitor.scale_factor();
@@ -367,13 +381,16 @@ fn create_face(app: &AppHandle, id: &str, title: &str) -> Result<(), String> {
     .map_err(|e| e.to_string())?;
     let state = app.state::<Arc<AppState>>();
     let saved = store::window_position(&*super::lock(&state.db)?, &label)?;
-    let monitor = body
-        .current_monitor()
-        .map_err(|e| e.to_string())?
-        .or(body.primary_monitor().map_err(|e| e.to_string())?)
+    let monitors = window.available_monitors().map_err(|e| e.to_string())?;
+    let saved_monitor = monitor_at_saved_position(&monitors, saved.as_ref(), monitor_bounds);
+    let body_monitor = body.current_monitor().map_err(|e| e.to_string())?;
+    let primary = body.primary_monitor().map_err(|e| e.to_string())?;
+    let monitor = saved_monitor
+        .or(body_monitor.as_ref())
+        .or(primary.as_ref())
         .ok_or("화면 영역을 확인할 수 없습니다.")?;
     let scale = monitor.scale_factor();
-    let area = work_area(&monitor);
+    let area = work_area(monitor);
     let (width, height) = (FACE_SIZE.0 * scale, FACE_SIZE.1 * scale);
     let (x, y) = match saved.filter(|p| p.x.is_finite() && p.y.is_finite()) {
         Some(saved) => clamp_position(saved.x, saved.y, width, height, area),
@@ -572,7 +589,7 @@ fn measured_balloon_size(width: f64, height: f64) -> Result<(f64, f64), String> 
     Ok((width.clamp(48.0, 320.0), height.clamp(32.0, 520.0)))
 }
 
-fn get_balloon(app: &AppHandle) -> Result<WebviewWindow, String> {
+pub(crate) fn get_balloon(app: &AppHandle) -> Result<WebviewWindow, String> {
     if let Some(window) = app.get_webview_window("balloon") {
         return Ok(window);
     }
@@ -825,6 +842,38 @@ pub(crate) async fn resize_balloon(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_face_position_uses_its_own_monitor() {
+        let monitors = [
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1920.0,
+                height: 1080.0,
+            },
+            Rect {
+                x: -2560.0,
+                y: 0.0,
+                width: 2560.0,
+                height: 1440.0,
+            },
+        ];
+        let saved = WindowPosition {
+            x: -2000.0,
+            y: 600.0,
+        };
+        let selected = monitor_at_saved_position(&monitors, Some(&saved), |monitor| *monitor)
+            .expect("saved face monitor should be available");
+        assert_eq!(selected.x, -2560.0);
+        assert_eq!(
+            clamp_position(saved.x, saved.y, 120.0, 36.0, *selected),
+            (-2000.0, 600.0)
+        );
+        assert!(
+            monitor_at_saved_position(&monitors[..1], Some(&saved), |monitor| *monitor).is_none()
+        );
+    }
 
     #[test]
     fn native_body_and_face_follow_the_displayed_expression() {

@@ -138,7 +138,6 @@ mod native {
         atomic::{AtomicBool, Ordering},
         Arc,
     };
-    use tauri::Manager;
     use windows_sys::Win32::{
         Foundation::{HWND, LPARAM, LRESULT, WPARAM},
         System::Threading::GetCurrentThreadId,
@@ -215,14 +214,12 @@ mod native {
     }
 
     pub fn install(app: &tauri::AppHandle) -> Result<Observer, String> {
-        let window = app
-            .get_webview_window("a")
-            .ok_or("캐릭터 창을 찾지 못했어요.")?;
+        let window = crate::desktop::get_balloon(app)?;
         let hwnd = window.hwnd().map_err(|error| error.to_string())?.0 as HWND;
         let message_name: Vec<u16> = "Comet.DeviceWakeObserver.Release.v1\0"
             .encode_utf16()
             .collect();
-        // install runs after create_boxes on the Tauri setup thread, which owns this HWND.
+        // The persistent balloon is created on the Tauri setup thread, which owns this HWND.
         unsafe {
             if GetWindowThreadProcessId(hwnd, std::ptr::null_mut()) != GetCurrentThreadId() {
                 return Err("절전 복귀 관찰자는 창의 실행 스레드에서 설치해야 해요.".into());

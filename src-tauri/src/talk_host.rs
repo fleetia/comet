@@ -576,11 +576,15 @@ mod tests {
     fn revalidation_uses_the_prepared_variant_for_every_line() {
         let state = crate::app::tests::state();
         let db = lock(&state.db).unwrap();
-        let branches = (0..5)
-            .map(|variant| {
-                format!("@if dialogue.variant == {variant}\nA: 변형 {variant}\n@endif\n")
-            })
-            .collect::<String>();
+        use std::fmt::Write as _;
+        let mut branches = String::new();
+        for variant in 0..5 {
+            write!(
+                branches,
+                "@if dialogue.variant == {variant}\nA: 변형 {variant}\n@endif\n"
+            )
+            .unwrap();
+        }
         let program = talk::validate_source(
             Path::new("variant.talk"),
             &format!("format: 1\nscene: variant\non: idle\n---\n{branches}===\n"),

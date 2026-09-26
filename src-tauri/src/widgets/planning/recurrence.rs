@@ -74,7 +74,7 @@ fn validate(rule: &RepeatRule) -> Result<(), String> {
         }
         if mode == "nth-weekday"
             && (!rule.nth.is_some_and(|n| n == -1 || (1..=5).contains(&n))
-                || !rule.weekday.is_some_and(|day| day <= 6))
+                || rule.weekday.is_none_or(|day| day > 6))
         {
             return Err("반복할 주차와 요일을 선택해 주세요.".into());
         }

@@ -440,6 +440,7 @@ async fn music(config: &MusicConfig, previous: &Value, now: i64) -> Result<Value
     })
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn parse_macos_battery(output: &str, now: i64) -> Result<Value, ConnectionError> {
     let first = output.lines().next().unwrap_or_default();
     let power = if first.contains("'AC Power'") {
