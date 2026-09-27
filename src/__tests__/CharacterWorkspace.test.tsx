@@ -40,6 +40,10 @@ function selectTab(name: string): void {
     within(screen.getByRole("tablist", { name: "캐릭터 편집" })).getByRole("tab", { name }),
   );
 }
+function selectPanel(name: string): ReturnType<typeof within> {
+  selectTab(name);
+  return within(screen.getByRole("tabpanel", { name }));
+}
 
 it("separates six editing tabs and keeps the selected tab when changing characters without changing the roster", async () => {
   render(<CharacterManager embedded snapshot={snapshot} />);
@@ -99,43 +103,44 @@ it("retains exact per-character drafts across selection and snapshot changes aft
   const { rerender } = render(
     <CharacterManager embedded snapshot={snapshot} onDirtyChange={onDirtyChange} />,
   );
-  fireEvent.change(screen.getByLabelText("이름"), { target: { value: "쓰던 이름" } });
-  selectTab("말풍선");
-  fireEvent.change(screen.getByLabelText("말풍선 글자 크기(px)"), { target: { value: "27" } });
-  fireEvent.change(screen.getByLabelText("말풍선 글자 색"), { target: { value: "#3467ab" } });
-  fireEvent.change(screen.getByLabelText("말풍선 폰트"), {
+  let panel = within(screen.getByRole("tabpanel", { name: "프로필" }));
+  fireEvent.change(panel.getByLabelText("이름"), { target: { value: "쓰던 이름" } });
+  panel = selectPanel("말풍선");
+  fireEvent.change(panel.getByLabelText("말풍선 글자 크기(px)"), { target: { value: "27" } });
+  fireEvent.change(panel.getByLabelText("말풍선 글자 색"), { target: { value: "#3467ab" } });
+  fireEvent.change(panel.getByLabelText("말풍선 폰트"), {
     target: { value: "Apple SD Gothic Neo" },
   });
-  fireEvent.change(screen.getByLabelText("글자 출력 속도 (초당 글자 수)"), {
+  fireEvent.change(panel.getByLabelText("글자 출력 속도 (초당 글자 수)"), {
     target: { value: "12" },
   });
-  selectTab("프로필");
-  fireEvent.change(screen.getByLabelText("캐릭터 지침"), {
+  panel = selectPanel("프로필");
+  fireEvent.change(panel.getByLabelText("캐릭터 지침"), {
     target: { value: "  짧게 답해요.\n모르면 물어봐요.  " },
   });
-  fireEvent.click(screen.getByRole("button", { name: "관계 추가" }));
-  fireEvent.change(screen.getByLabelText("관계 1 대상"), {
+  fireEvent.click(panel.getByRole("button", { name: "관계 추가" }));
+  fireEvent.change(panel.getByLabelText("관계 1 대상"), {
     target: { value: extra.id },
   });
-  fireEvent.change(screen.getByLabelText("관계 1 설명"), {
+  fireEvent.change(panel.getByLabelText("관계 1 설명"), {
     target: { value: "  오래된 친구.\n편하게 장난쳐요.  " },
   });
-  selectTab("대사·반응");
-  fireEvent.click(screen.getByRole("button", { name: "인사 편집" }));
-  fireEvent.change(screen.getByLabelText("인사 1 대사"), {
+  panel = selectPanel("대사·반응");
+  fireEvent.click(panel.getByRole("button", { name: "인사 편집" }));
+  fireEvent.change(panel.getByLabelText("인사 1 대사"), {
     target: { value: "  안녕.\n반가워.  " },
   });
   choose(/^B/);
-  selectTab("말풍선");
-  expect(screen.getByLabelText("말풍선 글자 크기(px)")).toHaveProperty("value", "19");
-  expect(screen.getByLabelText("말풍선 폰트")).toHaveProperty("value", "");
-  expect(screen.getByLabelText("글자 출력 속도 (초당 글자 수)")).toHaveProperty("value", "0");
-  fireEvent.change(screen.getByLabelText("말풍선 폰트"), { target: { value: "Georgia" } });
-  fireEvent.change(screen.getByLabelText("글자 출력 속도 (초당 글자 수)"), {
+  panel = selectPanel("말풍선");
+  expect(panel.getByLabelText("말풍선 글자 크기(px)")).toHaveProperty("value", "19");
+  expect(panel.getByLabelText("말풍선 폰트")).toHaveProperty("value", "");
+  expect(panel.getByLabelText("글자 출력 속도 (초당 글자 수)")).toHaveProperty("value", "0");
+  fireEvent.change(panel.getByLabelText("말풍선 폰트"), { target: { value: "Georgia" } });
+  fireEvent.change(panel.getByLabelText("글자 출력 속도 (초당 글자 수)"), {
     target: { value: "35" },
   });
-  selectTab("프로필");
-  fireEvent.change(screen.getByLabelText("성격과 말투"), { target: { value: "느긋한 말투" } });
+  panel = selectPanel("프로필");
+  fireEvent.change(panel.getByLabelText("성격과 말투"), { target: { value: "느긋한 말투" } });
   rerender(
     <CharacterManager
       embedded
@@ -144,27 +149,27 @@ it("retains exact per-character drafts across selection and snapshot changes aft
     />,
   );
   choose(/^쓰던 이름/);
-  selectTab("말풍선");
-  expect(screen.getByLabelText("말풍선 글자 크기(px)")).toHaveProperty("value", "27");
-  expect(screen.getByLabelText("말풍선 글자 색")).toHaveProperty("value", "#3467ab");
-  expect(screen.getByLabelText("말풍선 폰트")).toHaveProperty("value", "Apple SD Gothic Neo");
-  expect(screen.getByLabelText("글자 출력 속도 (초당 글자 수)")).toHaveProperty("value", "12");
-  const preview = screen.getByLabelText("말풍선 글자 미리보기");
+  panel = selectPanel("말풍선");
+  expect(panel.getByLabelText("말풍선 글자 크기(px)")).toHaveProperty("value", "27");
+  expect(panel.getByLabelText("말풍선 글자 색")).toHaveProperty("value", "#3467ab");
+  expect(panel.getByLabelText("말풍선 폰트")).toHaveProperty("value", "Apple SD Gothic Neo");
+  expect(panel.getByLabelText("글자 출력 속도 (초당 글자 수)")).toHaveProperty("value", "12");
+  const preview = panel.getByLabelText("말풍선 글자 미리보기");
   expect(preview.style.fontSize).toBe("27px");
   expect(preview.style.color).toBe("rgb(52, 103, 171)");
   expect(preview.style.fontFamily).toContain("Apple SD Gothic Neo");
-  selectTab("프로필");
-  expect(screen.getByLabelText("캐릭터 지침")).toHaveProperty(
+  panel = selectPanel("프로필");
+  expect(panel.getByLabelText("캐릭터 지침")).toHaveProperty(
     "value",
     "  짧게 답해요.\n모르면 물어봐요.  ",
   );
-  expect(screen.getByLabelText("관계 1 대상")).toHaveProperty("value", extra.id);
-  expect(screen.getByLabelText("관계 1 설명")).toHaveProperty(
+  expect(panel.getByLabelText("관계 1 대상")).toHaveProperty("value", extra.id);
+  expect(panel.getByLabelText("관계 1 설명")).toHaveProperty(
     "value",
     "  오래된 친구.\n편하게 장난쳐요.  ",
   );
-  selectTab("대사·반응");
-  expect(screen.getByRole("textbox", { name: "인사 1 대사" })).toHaveProperty(
+  panel = selectPanel("대사·반응");
+  expect(panel.getByRole("textbox", { name: "인사 1 대사" })).toHaveProperty(
     "value",
     "  안녕.\n반가워.  ",
   );
@@ -176,8 +181,8 @@ it("retains exact per-character drafts across selection and snapshot changes aft
   });
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 저장" }));
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "저장 실패");
-  selectTab("프로필");
-  expect(screen.getByLabelText("이름")).toHaveProperty("value", "쓰던 이름");
+  panel = selectPanel("프로필");
+  expect(panel.getByLabelText("이름")).toHaveProperty("value", "쓰던 이름");
   expect(command).toHaveBeenCalledWith("save_character", {
     id: "builtin-a",
     definition: expect.objectContaining({
@@ -197,19 +202,19 @@ it("retains exact per-character drafts across selection and snapshot changes aft
     }),
   });
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 수정 취소" }));
-  selectTab("말풍선");
-  expect(screen.getByLabelText("말풍선 글자 크기(px)")).toHaveProperty("value", "19");
-  expect(screen.getByLabelText("말풍선 폰트")).toHaveProperty("value", "");
-  expect(screen.getByRole("button", { name: "기본색" })).toHaveProperty("disabled", true);
-  expect(screen.getByLabelText("글자 출력 속도 (초당 글자 수)")).toHaveProperty("value", "0");
-  selectTab("프로필");
-  expect(screen.getByLabelText("캐릭터 지침")).toHaveProperty("value", "");
-  expect(screen.queryByLabelText("관계 1 설명")).toBeNull();
+  panel = selectPanel("말풍선");
+  expect(panel.getByLabelText("말풍선 글자 크기(px)")).toHaveProperty("value", "19");
+  expect(panel.getByLabelText("말풍선 폰트")).toHaveProperty("value", "");
+  expect(panel.getByRole("button", { name: "기본색" })).toHaveProperty("disabled", true);
+  expect(panel.getByLabelText("글자 출력 속도 (초당 글자 수)")).toHaveProperty("value", "0");
+  panel = selectPanel("프로필");
+  expect(panel.getByLabelText("캐릭터 지침")).toHaveProperty("value", "");
+  expect(panel.queryByLabelText("관계 1 설명")).toBeNull();
   expect(onDirtyChange).toHaveBeenLastCalledWith(true);
   choose(/^B/);
-  selectTab("말풍선");
-  expect(screen.getByLabelText("말풍선 폰트")).toHaveProperty("value", "Georgia");
-  expect(screen.getByLabelText("글자 출력 속도 (초당 글자 수)")).toHaveProperty("value", "35");
+  panel = selectPanel("말풍선");
+  expect(panel.getByLabelText("말풍선 폰트")).toHaveProperty("value", "Georgia");
+  expect(panel.getByLabelText("글자 출력 속도 (초당 글자 수)")).toHaveProperty("value", "35");
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 수정 취소" }));
   expect(onDirtyChange).toHaveBeenLastCalledWith(false);
 });

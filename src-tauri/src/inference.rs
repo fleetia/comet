@@ -141,21 +141,25 @@ pub fn clear_api_key(settings: &Settings) -> Result<(), String> {
     }
 }
 fn saved_key(settings: &Settings) -> Result<Option<String>, String> {
-    match credential(settings)?.get_password() {
+    let current = credential(settings)?;
+    match current.get_password() {
         Ok(key) => Ok(Some(key)),
-        Err(keyring::Error::NoEntry) => match legacy_credential(settings)?.get_password() {
-            Ok(key) => {
-                if let Ok(entry) = credential(settings) {
-                    let _ = entry.set_password(&key);
-                }
-                if let Ok(entry) = legacy_credential(settings) {
-                    let _ = entry.delete_credential();
-                }
-                Ok(Some(key))
+        Err(keyring::Error::NoEntry) => migrate_legacy_key(&current, &legacy_credential(settings)?),
+        Err(_) => Err("시스템 자격 증명 저장소에서 API 키를 읽을 수 없습니다.".into()),
+    }
+}
+fn migrate_legacy_key(
+    current: &keyring::Entry,
+    legacy: &keyring::Entry,
+) -> Result<Option<String>, String> {
+    match legacy.get_password() {
+        Ok(key) => {
+            if current.set_password(&key).is_ok() {
+                let _ = legacy.delete_credential();
             }
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(_) => Err("시스템 자격 증명 저장소에서 API 키를 읽을 수 없습니다.".into()),
-        },
+            Ok(Some(key))
+        }
+        Err(keyring::Error::NoEntry) => Ok(None),
         Err(_) => Err("시스템 자격 증명 저장소에서 API 키를 읽을 수 없습니다.".into()),
     }
 }
@@ -530,6 +534,59 @@ pub async fn test_local(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn legacy_api_key_moves_only_after_the_current_store_saves_it() {
+        let current =
+            keyring::Entry::new_with_credential(Box::new(keyring::mock::MockCredential::default()));
+        let legacy =
+            keyring::Entry::new_with_credential(Box::new(keyring::mock::MockCredential::default()));
+        legacy.set_password("synthetic-api-key").unwrap();
+
+        assert_eq!(
+            migrate_legacy_key(&current, &legacy).unwrap().as_deref(),
+            Some("synthetic-api-key")
+        );
+        assert_eq!(current.get_password().unwrap(), "synthetic-api-key");
+        assert!(matches!(
+            legacy.get_password(),
+            Err(keyring::Error::NoEntry)
+        ));
+    }
+    #[test]
+    fn legacy_api_key_survives_a_failed_save_and_migrates_on_retry() {
+        let current =
+            keyring::Entry::new_with_credential(Box::new(keyring::mock::MockCredential::default()));
+        let legacy =
+            keyring::Entry::new_with_credential(Box::new(keyring::mock::MockCredential::default()));
+        legacy.set_password("synthetic-api-key").unwrap();
+        current
+            .get_credential()
+            .downcast_ref::<keyring::mock::MockCredential>()
+            .unwrap()
+            .set_error(keyring::Error::PlatformFailure(Box::new(
+                std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+            )));
+
+        assert_eq!(
+            migrate_legacy_key(&current, &legacy).unwrap().as_deref(),
+            Some("synthetic-api-key")
+        );
+        assert!(matches!(
+            current.get_password(),
+            Err(keyring::Error::NoEntry)
+        ));
+        assert_eq!(legacy.get_password().unwrap(), "synthetic-api-key");
+
+        assert_eq!(
+            migrate_legacy_key(&current, &legacy).unwrap().as_deref(),
+            Some("synthetic-api-key")
+        );
+        assert_eq!(current.get_password().unwrap(), "synthetic-api-key");
+        assert!(matches!(
+            legacy.get_password(),
+            Err(keyring::Error::NoEntry)
+        ));
+    }
     #[cfg(unix)]
     #[tokio::test]
     async fn reuses_only_the_requested_model_and_stops_old_process() {
