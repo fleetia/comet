@@ -7,7 +7,9 @@ description: 두 운영체제의 서명된 업데이트 파일, GitHub Releases�
 
 Comet 앱을 macOS Apple Silicon과 Windows x64에 함께 배포하는 절차입니다. 앱은 시작할 때와 실행 중 24시간마다 새 버전을 확인하며, 사용자가 `설치하고 다시 시작`을 선택해야 내려받기와 설치를 진행합니다. 캐릭터팩은 [갤러리](../product/character-gallery.md)에서 수동으로 설치하며 앱 업데이트에 종속된 원격 갱신 기능은 제공하지 않습니다.
 
-2026-09-19에 첫 signed updater 릴리스 [v0.5.0](https://github.com/fleetia/comet/releases/tag/v0.5.0)을 공개했습니다. macOS DMG·Windows EXE의 비로그인 접근과 공개 `latest.json`의 두 OS 다운로드 주소를 확인했습니다. 공식 v0.5.0의 Windows 설치·첫 실행은 [2026-09-26 Windows 기록](../VALIDATION-WINDOWS.md)에 있으며, 공식 이전 버전에서 새 버전으로의 업데이트 설치·재시작·데이터 이전은 두 OS 모두 인수 전입니다. 로컬 Windows QA 앱의 NSIS 설치·첫 실행 범위와 별도 macOS QA 앱에서 전용 키·loopback 서버를 통한 0.4.0→0.4.1 설치·오류 처리의 범위는 [구현 상태](../status.md)를 따릅니다. 키가 없는 별도 개발 빌드는 업데이트 확인 대신 설정되지 않았다는 상태를 표시합니다.
+2026-09-27에 [v0.7.0](https://github.com/fleetia/comet/releases/tag/v0.7.0)을 공개했습니다. [공식 Release 실행](https://github.com/fleetia/comet/actions/runs/36309959443)과 [같은 소스의 main Verify](https://github.com/fleetia/comet/actions/runs/36309747116)가 모두 성공했고, macOS·Windows 공개 설치 파일과 `latest.json`을 비로그인으로 내려받아 주소·SHA-256·서명 문자열을 대조했습니다. macOS에서는 첫 signed 버전인 공식 v0.5.0 앱에서 v0.7.0 설치·자동 재시작과 새 앱 식별자를 확인했습니다. 사용자가 최신 버전 화면과 완전 종료 후 재실행을 확인했고, 새 프로세스·실행 파일도 대조했습니다. 자동 관찰과 사용자 확인의 구분은 [구현 상태](../status.md#2026-09-27-v070-공식-공개와-macos-업데이트)를 따릅니다.
+
+Windows의 공식 v0.5.0 설치·첫 실행 결과와 v0.7.0 업데이트 후속 순서는 [Windows 기록](../VALIDATION-WINDOWS.md#2026-09-27-사용자-후속-검증)에 있습니다. Windows 실제 업데이트는 사용자가 별도로 진행합니다. 이번 v1 이전 검증은 사용자 승인으로 기존 데이터 보존을 인수 조건에서 제외했으며 배포 앱이 데이터를 자동 초기화한다는 뜻은 아닙니다. 이전 별도 QA 앱에서 전용 키·loopback 서버로 진행한 0.4.0→0.4.1 설치·오류 처리는 [당시 구현 상태 기록](../status.md)에 보존합니다. 키가 없는 별도 개발 빌드는 업데이트 확인 대신 설정되지 않았다는 상태를 표시합니다.
 
 ## 서명과 배포 대상
 

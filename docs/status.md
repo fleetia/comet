@@ -9,6 +9,28 @@ description: 공식 위젯과 보조 화면의 소스 구현, 실제 검증 범�
 
 기존 작은 A/B·내장 인사·단어장·기록·기억·친밀도는 유지한다. 캐릭터 관리·JSON 공유의 0.3.0 검증은 [기존 기록](VALIDATION-0.3.0.md), 0.2 기능과 당시 실측은 [제품 사양](PRODUCT.md)과 [0.2 기록](VALIDATION-0.2.0.md)에 보존한다. 과거의 네이티브 관찰·테스트 수·모델 성능을 새 위젯 결과로 재사용하지 않는다.
 
+## 2026-09-27 v0.7.0 공식 공개와 macOS 업데이트
+
+사용자 공개 승인 후 [Release desktop 36309959443](https://github.com/fleetia/comet/actions/runs/36309959443)이 성공했고, 18:50:56 KST에 [v0.7.0](https://github.com/fleetia/comet/releases/tag/v0.7.0)을 공개했다. 고정 태그의 소스는 `d828e9b545aa662ac722ba8ff42ef7d6cd858dac`이다. 같은 소스의 [main Verify 36309747116](https://github.com/fleetia/comet/actions/runs/36309747116)도 프런트엔드 48개 파일·290개 테스트, macOS Rust 517개·Windows Rust 501개(각 5개 명시적 제외), 두 OS 설치물 생성·업로드를 통과했다.
+
+공개 DMG·EXE·updater archive·서명·manifest를 로그인 없이 내려받고 GitHub asset의 SHA-256과 크기를 대조했다. 공개 `latest.json`은 `0.7.0`이며 Mac과 Windows 항목은 같은 태그의 실제 updater 파일·서명을 가리킨다. Windows 파일별 근거와 실제 설치·재시작 인계는 [Windows 기록](VALIDATION-WINDOWS.md#2026-09-27-사용자-후속-검증)에 있다.
+
+macOS에서는 공식 v0.5.0 DMG로 설치한 `/Applications/comet.app`에서 새 버전 표시를 확인하고 `설치하고 다시 시작`을 직접 눌렀다. 앱을 수동으로 다시 열기 전에 프로세스가 PID `63323`에서 `63388`로 바뀐 것을 관찰했다. 새 프로세스는 같은 설치 경로에서 `0.7.0`, `space.starlight.comet`으로 실행됐다. 출발 앱의 identifier는 `space.starlight.nanika-box`였다. 설치본의 일반 파일 25개가 공개 `.app.tar.gz`와 모두 일치하고 `codesign --verify --deep --strict`, 공개 DMG의 `hdiutil verify`도 통과했다.
+
+| 산출물 | SHA-256 |
+| --- | --- |
+| 공식 v0.5 출발 실행 파일 | `a4b36158d01f313533fcb69afdb79691f6ffea957602ac6480767a6c96043743` |
+| 업데이트 후 v0.7 실행 파일 | `72d5f4d1f17c6cfd4d0d7623805077a186c3f2803ae09b80d0e0759346deb4b0` |
+| v0.7 macOS updater archive | `142ad3aa37983515eba124729a9f8359bfe5da74f86d9734b097238b42fdab89` |
+| v0.7 macOS DMG | `3271340605efad6b40db1898386320333056be8df7522c118d67d767907fa907` |
+| 공개 latest.json | `ca54ee88b335a6a84a63e0a408c3528fb334faa1dfbcb55b811a735d066cb2a5` |
+
+업데이트 뒤 화면 조작 도구가 교체 전 식별자를 계속 조회해 연결하지 못해 후속 화면 확인은 사용자에게 맡겼다. 사용자가 설정의 최신 버전 표시를 확인했고, 트레이의 `완전 종료` 뒤 다시 열었다고 확인했다. 프로세스 기록에서도 19:02:18 KST에 Comet이 사라진 뒤 19:02:27에 새 PID `64739`로 같은 v0.7.0 설치본이 실행됐으며 실행 파일 SHA-256이 같았다. 새 프로필의 `comet.sqlite` 무결성은 `ok`였다. 따라서 공식 updater 설치·자동 재시작과 정상 종료 후 재실행을 확인했으며, 최신 버전 화면은 사용자 확인 결과로 구분한다. 도구 재연결을 위한 LaunchServices·Spotlight 갱신은 자동 재시작을 관찰한 뒤 수행했으며 설치본 파일은 바꾸지 않았다.
+
+이전 Release Readiness QA의 설치·빌드 번들, 공식 v0.5 설치 파일과 도구 재연결용 임시 앱 복사본은 사용 프로세스가 없는 것을 확인하고 휴지통으로 옮겼다. `/Applications/comet.app`의 공식 v0.7.0과 `~/Downloads/Comet-v0.7.0/`의 최신 Mac·Windows 설치 파일·서명·manifest를 남겼으며 이 산출물 정리에서는 사용자 데이터와 빌드 캐시를 변경하지 않았다.
+
+사용자가 승인한 v1 이전 로컬 데이터 초기화 후 진행했다. 원래 사용자 데이터·설정·모델은 검증 전에 휴지통으로 옮기고 지정한 Comet Keychain 서비스 항목을 정리했다. 이번 인수에서 기존 사용자 데이터 보존을 주장하지 않으며, 배포 앱에 자동 초기화 기능을 추가한 것도 아니다. Windows 실기는 사용자가 별도로 진행한다. Apple notarization·Windows Authenticode·외부 계정·모델 의미 품질은 이번 배포 검증 범위가 아니다.
+
 ## 2026-09-27 릴리스 준비와 API 키 이전 보완
 
 ### 음악 연결 종료 보완
@@ -21,7 +43,7 @@ main의 [Windows CI 36307379114](https://github.com/fleetia/comet/actions/runs/3
 
 현재 소스로 `space.starlight.comet.release-readiness-qa` debug 앱을 다시 빌드하고 번들·설치본의 `codesign --verify --deep --strict`를 통과했다. `/Applications/Comet Release Readiness QA.app`의 설정에서 QA 음악 위젯과 연결 코드를 만들고 합성 loopback 클라이언트를 인증했다. 화면의 연결 성공, 합성 조회 응답 한 건, `disconnect`와 추가 Pong 이후 `disconnected`·`revoked`·Close 왕복·정상 TCP EOF를 확인했다. 새 listener에서도 해제된 이전 연결의 인증이 거부됐다. 검증용 연결·코드·위젯을 정리하고 ⌘Q로 종료한 뒤 Comet 프로세스와 음악 Keychain 항목이 없으며 QA DB 무결성은 `ok`임을 확인했다. Spotify 실계정이나 Windows 실제 앱을 실행한 결과는 아니다.
 
-이 최종 QA 실행 파일 SHA-256은 `fee1f3f3082614f8f57e48135fe3155934635ae9b2bc27a294c7600a878729da`이며, 원본 번들은 `/Users/tracycho/Dev/fleetia/comet/src-tauri/target/debug/bundle/macos/Comet Release Readiness QA.app`이다. 이전 API 키 QA 설치 번들은 휴지통으로 옮겼고 같은 경로의 최신 번들을 유지한다. 아래 API 키 검증의 hash는 해당 검증 당시 실행 파일을 가리킨다.
+이 최종 QA 실행 파일 SHA-256은 `fee1f3f3082614f8f57e48135fe3155934635ae9b2bc27a294c7600a878729da`이며, 원본 번들은 `/Users/tracycho/Dev/fleetia/comet/src-tauri/target/debug/bundle/macos/Comet Release Readiness QA.app`이다. 이전 API 키 QA 설치 번들은 먼저 휴지통으로 옮겼다. 이후 공식 v0.7.0 설치·자동 재시작을 확인하고 이 QA 번들도 정리했다. 아래 API 키 검증의 hash는 해당 검증 당시 실행 파일을 가리킨다.
 
 ### API 키 이전과 프런트엔드 검사
 
@@ -31,7 +53,7 @@ API 키를 이전 서비스에서 새 서비스로 복사하지 못했는데도 
 
 macOS에서는 별도 `space.starlight.comet.release-readiness-qa` debug 앱을 빌드하고 번들·설치본 서명을 확인했다. `/Applications/Comet Release Readiness QA.app`의 실제 설정 화면에서 고유한 localhost 주소에 연결된 합성 legacy 키로 요청을 보냈으며 서버에서 인증 일치를 확인했다. 새 Keychain 항목 생성·이전 항목 제거 뒤 정상 종료·재실행했고, 저장된 주소·모델·키로 두 번째 연결에 성공했다. 재시작 전후 설정·캐릭터·단어장 행이 같고 DB 무결성은 `ok`였다. 검증용 키와 로컬 서버는 정리했으며 사용자 키·프로필은 변경하지 않았다. 실행 파일 SHA-256은 `8ed08403c57b59bca3a64aa22c841a2ff2cf895f39844b7483bd7f68072d1b43`이다.
 
-저장 실패는 격리된 keyring mock으로 검증했다. 위 네이티브 결과는 공식 v0.5.0에서 새 공식 버전으로 updater 설치·재시작·앱 식별자 데이터 이전을 수행한 결과가 아니다. 공식 macOS 업데이트 인수와 공개 릴리스는 아직 남아 있다. Windows 실기 업데이트는 2026-09-27 사용자 지시에 따라 [별도 확인 순서](VALIDATION-WINDOWS.md#2026-09-27-사용자-후속-검증)로 인계했으며, 이번 v1 이전 검증의 기존 데이터 보존은 인수 조건에서 제외했다. 모델 의미 품질은 이번 범위에 포함하지 않는다.
+저장 실패는 격리된 keyring mock으로 검증했다. 위 네이티브 결과는 공식 v0.5.0에서 새 공식 버전으로 updater 설치·재시작·앱 식별자 데이터 이전을 수행한 결과가 아니다. 이후 공식 v0.7.0 공개와 macOS updater 결과는 위 공식 공개 기록에 구분했다. Windows 실기 업데이트는 2026-09-27 사용자 지시에 따라 [별도 확인 순서](VALIDATION-WINDOWS.md#2026-09-27-사용자-후속-검증)로 인계했으며, 이번 v1 이전 검증의 기존 데이터 보존은 인수 조건에서 제외했다. 모델 의미 품질은 이번 범위에 포함하지 않는다.
 
 ## 2026-09-27 공통 데스크톱 인수
 
@@ -39,9 +61,9 @@ macOS에서는 별도 `space.starlight.comet.release-readiness-qa` debug 앱을 
 
 실제 앱의 검색·공개 단계·과거 대화 경로에서 Qwen3.5 4B·9B와 Qwen3.8 4B를 비교했다. 수정 후 세 모델의 7개 사례는 모두 구조 검사를 통과했으나 주체 혼동·동명이인 오기억·반복이 남아 의미 품질은 미통과다. 별도 1~8명·자동 대화 샘플과 고유명 비교에서도 지침 누출과 말투·관계 방향 문제가 남았다. 프롬프트 전달과 파싱의 통과를 의미 품질 완료로 표시하지 않는다.
 
-최종 Rust 라이브러리 513개·전체 target strict Clippy, 별도 QA release 앱 빌드·서명 검증을 통과했다. macOS의 실제 동작과 자원 관찰은 위 인수 기록의 빌드별 범위를 따른다. Windows 절전·다중 모니터·음악, Google 실계정 OAuth, 공식 두 OS 업데이트와 전체 모델 의미 품질은 아직 남아 있다.
+최종 Rust 라이브러리 513개·전체 target strict Clippy, 별도 QA release 앱 빌드·서명 검증을 통과했다. macOS의 실제 동작과 자원 관찰은 위 인수 기록의 빌드별 범위를 따른다. Windows 절전·다중 모니터·음악, Google 실계정 OAuth와 전체 모델 의미 품질은 아직 남아 있다. 이후 공식 업데이트 인수 결과는 위 v0.7.0 공개 기록을 따른다.
 
-이 공통 인수의 QA 산출물은 `src-tauri/target/release/bundle/macos/Comet Common QA.app`과 같은 빌드의 `/Applications/Comet Common QA.app`이었다. 이후 위 릴리스 준비 QA의 정상 실행·재시작을 확인하고 사용이 끝난 Common QA 번들 두 개도 휴지통으로 옮겼다. 현재는 `src-tauri/target/debug/bundle/macos/Comet Release Readiness QA.app`과 같은 빌드의 `/Applications/Comet Release Readiness QA.app`을 유지한다. 아래 개별 기능 기록의 Autostart·Toy Stats QA 경로 역시 당시 검증 산출물이다. 사용자 설치본·데이터·모델·빌드 캐시는 보존했다.
+이 공통 인수의 QA 산출물은 `src-tauri/target/release/bundle/macos/Comet Common QA.app`과 같은 빌드의 `/Applications/Comet Common QA.app`이었다. 이후 위 릴리스 준비 QA의 정상 실행·재시작을 확인하고 사용이 끝난 Common QA 번들 두 개도 휴지통으로 옮겼다. 이후 공식 v0.7.0 설치·자동 재시작을 확인한 뒤 Release Readiness QA 번들도 정리했다. 현재 유지하는 설치본은 `/Applications/comet.app`의 공식 v0.7.0이다. 아래 개별 기능 기록의 Autostart·Toy Stats QA 경로 역시 당시 검증 산출물이다. 사용자 설치본·데이터·모델·빌드 캐시는 보존했다.
 
 ## 2026-09-27 장난감 통계 제거
 

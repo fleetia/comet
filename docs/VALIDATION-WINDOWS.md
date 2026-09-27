@@ -1,11 +1,11 @@
 ---
 title: Windows 실제 검증
-description: 2026-09-26 Windows QA의 실행 환경, 재현한 문제와 남은 인수 항목
+description: Windows QA 기록, 공식 v0.7.0 배포 파일의 출처와 사용자 후속 인수 절차
 ---
 
 # Windows 실제 검증
 
-2026-09-26 Windows에서 수행한 검증 기록이다. 코드 검사, 실제 데스크톱 조작, 모델의 의미 품질과 공식 업데이트를 구분한다. 전체 인수는 진행 중이며 아래 미완료 항목은 자동 테스트 통과로 대체하지 않는다.
+2026-09-26 Windows에서 수행한 검증과 2026-09-27 공식 v0.7.0 배포 파일 확인 기록이다. 코드 검사, 실제 데스크톱 조작, 모델의 의미 품질과 공식 업데이트를 구분한다. 전체 인수는 진행 중이며 아래 미완료 항목은 자동 테스트 통과로 대체하지 않는다.
 
 ## 환경과 데이터
 
@@ -124,16 +124,30 @@ QA 앱을 정상 종료한 뒤 합성 기억 생성 전 백업과 당시 DB를 �
 
 공개된 [v0.5.0](https://github.com/fleetia/comet/releases/tag/v0.5.0)의 Windows 설치 파일, updater 서명 파일과 `latest.json`을 내려받았다. 설치 파일 SHA-256은 `f23f9adb2a8c67a82f3396923f55675d6137e4eaa97c4ef9f82b43f65b021b73`이다. NSIS 설치가 종료 코드 0으로 끝났고, 17:25 KST의 첫 실행에서 위젯 온보딩과 나디르·텍스트 별꼬리 본체를 확인했다. 이 버전은 이전 식별자 `space.starlight.nanika-box`에 새 합성 데이터를 만들었다.
 
-공식 v0.5.0 설치 과정에서 같은 실행 파일 이름의 QA 앱도 종료됐다. 그 전에 시작한 1시간 스토리 계측은 인수 근거로 쓰지 않는다. v0.6.0은 Windows 아트워크 코드의 `Send` 오류로 빌드에 실패한 초안이다. 고정된 태그를 옮기지 않고 새 버전을 배포해야 하며, 현재 버전 PR은 [v0.7.0 #12](https://github.com/fleetia/comet/pull/12)다. 더 높은 signed 버전이 공개된 후에 공식 업데이트 설치·재시작과 데이터 이전을 검증할 수 있다.
+공식 v0.5.0 설치 과정에서 같은 실행 파일 이름의 QA 앱도 종료됐다. 그 전에 시작한 1시간 스토리 계측은 인수 근거로 쓰지 않는다. v0.6.0은 Windows 아트워크 코드의 `Send` 오류로 빌드에 실패한 미공개 초안이다. 이 태그는 옮기지 않았으며 [버전 PR #12](https://github.com/fleetia/comet/pull/12)로 준비한 v0.7.0을 아래와 같이 공개했다.
+
+### 2026-09-27 v0.7.0 공개 파일 확인
+
+[공식 v0.7.0 Release](https://github.com/fleetia/comet/releases/tag/v0.7.0)는 2026-09-27 18:50:56 KST에 공개됐다. 태그는 `d828e9b545aa662ac722ba8ff42ef7d6cd858dac`에 고정돼 있으며, 같은 소스의 [main Verify 36309747116](https://github.com/fleetia/comet/actions/runs/36309747116)과 [Release 36309959443](https://github.com/fleetia/comet/actions/runs/36309959443)는 모두 성공했다.
+
+18:53 KST에 다음 세 파일을 인증 헤더·로그인 없이 내려받아 HTTP 200, 파일 크기와 SHA-256을 확인했다. 세 해시는 GitHub Release API의 각 asset `digest`와도 일치했다.
+
+| 파일과 공개 출처 | 크기(bytes) | SHA-256 |
+| --- | ---: | --- |
+| [comet_0.7.0_x64-setup.exe](https://github.com/fleetia/comet/releases/download/v0.7.0/comet_0.7.0_x64-setup.exe) | 21,698,616 | `13376772b0c23c40224da46f846bef9c22d468babefc34df7d4a98087563dbaf` |
+| [comet_0.7.0_x64-setup.exe.sig](https://github.com/fleetia/comet/releases/download/v0.7.0/comet_0.7.0_x64-setup.exe.sig) | 416 | `716461548929de88350e8452d8adc0079f66063e7ee4643df8d1d7661545ae86` |
+| [latest.json](https://github.com/fleetia/comet/releases/download/v0.7.0/latest.json) | 7,704 | `ca54ee88b335a6a84a63e0a408c3528fb334faa1dfbcb55b811a735d066cb2a5` |
+
+앱이 사용하는 [최신 manifest 주소](https://github.com/fleetia/comet/releases/latest/download/latest.json)도 비로그인 다운로드에 성공했고 위 태그의 `latest.json`과 바이트 단위로 같았다. manifest 버전은 `0.7.0`이며 `windows-x86_64`와 `windows-x86_64-nsis` 모두 위 EXE를 가리킨다. 두 대상의 비어 있지 않은 `signature`는 내려받은 `.exe.sig`의 문자열과 일치했다. 이 확인 범위는 공개 파일의 접근·동일성이며, Windows updater의 서명 검증·설치·자동 재시작은 아래 사용자 실기에서 확인한다.
 
 ### 2026-09-27 사용자 후속 검증
 
 사용자 지시에 따라 Windows의 공식 업데이트 실기 검증은 사용자가 별도로 수행한다. 아래는 실행할 순서이며 아직 통과한 결과가 아니다. v1 이전 이번 검증에서는 사용자가 Comet 로컬 데이터 초기화를 허용했으므로 기존 데이터 보존은 인수 조건에서 제외한다. 공개 앱의 자동 데이터 삭제 기능을 추가한 것은 아니다.
 
-v0.7.0 공개 후 다음 순서로 확인한다.
+공개된 v0.7.0을 대상으로 다음 순서로 확인한다.
 
-1. [공식 Release](https://github.com/fleetia/comet/releases)와 [latest.json](https://github.com/fleetia/comet/releases/latest/download/latest.json)의 버전이 `0.7.0`인지 확인한다. Windows 다운로드 주소가 같은 태그의 NSIS `.exe`를 가리키고 비어 있지 않은 `signature`와 `.exe.sig`가 있는지 대조한다. Release·Actions URL, EXE·SIG·manifest의 파일명과 SHA-256을 기록한다.
-2. 실행 중인 Comet과 QA 앱을 정상 종료하고 공식 v0.5.0을 실행한다. 위 설치 파일 SHA-256과 실제 실행 파일의 버전·경로를 확인한다.
+1. [공식 Release](https://github.com/fleetia/comet/releases/tag/v0.7.0)와 [latest.json](https://github.com/fleetia/comet/releases/latest/download/latest.json)의 버전이 `0.7.0`인지 확인한다. Windows 다운로드 주소가 같은 태그의 NSIS `.exe`를 가리키고 비어 있지 않은 `signature`와 `.exe.sig`가 있는지 대조한다. 위 공개 파일 표와 내려받은 파일의 SHA-256을 비교하고 실행일의 Release·Actions URL과 함께 기록한다.
+2. 실행 중인 Comet과 QA 앱을 정상 종료하고 공식 v0.5.0을 실행한다. 이 절 첫 문단에 기록한 v0.5.0 설치 파일 SHA-256과 실제 실행 파일의 버전·경로를 확인한다.
 3. **설정 → 업데이트 → 업데이트 확인**에서 `0.7.0`을 확인한 뒤 **설치하고 다시 시작**을 누른다. 다운로드·설치 오류, 이전 프로세스 종료와 자동 재실행을 관찰한다. 새 EXE를 직접 실행한 수동 설치는 updater 통과로 기록하지 않는다.
 4. 재시작한 `comet.exe`의 실제 버전이 `0.7.0`인지 확인하고 트레이·본체·설정을 연다. 자동 재시작이 안 되면 실패 시각·메시지·프로세스 상태와 수동 실행 결과를 구분해 기록한다.
 5. 트레이에서 정상 종료한 뒤 같은 설치본을 다시 실행한다. 버전·본체·설정과 업데이트 화면의 최신 상태를 다시 확인한다.
