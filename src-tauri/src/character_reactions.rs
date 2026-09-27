@@ -19,7 +19,6 @@ pub const EVENTS: &[(&str, &str)] = &[
     ("interaction.touch", "교감 위젯"),
     ("ball.stopped", "위젯 공 멈춤"),
     ("paper-plane.landed", "위젯 종이비행기 착지"),
-    ("bubbles.streak", "비눗방울 연속 기록"),
     ("small-match.result", "작은 승부 결과"),
     ("guessing.attempt", "맞히기 결과"),
     ("fishing.bite", "낚시 입질"),
@@ -185,7 +184,8 @@ pub fn select(
 }
 
 pub fn valid_event(event: &str) -> bool {
-    EVENTS.iter().any(|(key, _)| *key == event)
+    // Keep saved reactions readable without offering the retired counter event.
+    event == "bubbles.streak" || EVENTS.iter().any(|(key, _)| *key == event)
 }
 
 fn valid_id(value: &str) -> bool {
@@ -356,5 +356,7 @@ mod tests {
             assert!(!label.is_empty());
             assert!(valid_event(event));
         }
+        assert!(valid_event("bubbles.streak"));
+        assert!(!events.contains(&"bubbles.streak"));
     }
 }

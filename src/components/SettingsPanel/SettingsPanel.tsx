@@ -20,6 +20,7 @@ import { version } from "../../../package.json";
 import type { Snapshot } from "../../types";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { DesktopPreferences } from "../DesktopPreferences/DesktopPreferences";
+import { AutostartSettings } from "../AutostartSettings/AutostartSettings";
 import { UpdatePanel } from "../UpdatePanel/UpdatePanel";
 import { useSettingsDraft, type SettingsDraft } from "../../hooks/useSettingsDraft";
 import { UserSettings } from "../UserSettings/UserSettings";
@@ -306,6 +307,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
             <TabPanel value="general" className={styles.panel}>
               {visited.has("general") && (
                 <>
+                  <AutostartSettings active={section === "general"} />
                   <section>
                     <h2 className={s.sectionTitle}>표시와 종료</h2>
                     <div className={s.row}>

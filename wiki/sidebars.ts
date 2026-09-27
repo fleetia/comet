@@ -58,6 +58,7 @@ const sidebars: SidebarsConfig = {
         "VALIDATION-WIDGETS",
         "VALIDATION-TALK",
         "VALIDATION-WINDOWS",
+        "VALIDATION-COMMON",
       ],
     },
   ],

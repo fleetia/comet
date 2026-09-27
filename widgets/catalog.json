@@ -11,7 +11,7 @@
   {"id":"device","name":"기기 소식","description":"배터리와 절전에서 돌아온 기기의 소식","category":"connections","version":1,"required":[],"connection":"device"},
   {"id":"interaction","name":"캐릭터 교감","description":"쓰다듬고 콕 찌르고 간식을 나눠요","category":"play","version":1,"required":[],"connection":null},
   {"id":"ball","name":"공","description":"던지고 튀기는 작은 공","category":"play","version":1,"required":[],"connection":null},
-  {"id":"paper-plane","name":"종이비행기","description":"드래그로 날리고 비행 기록을 남겨요","category":"play","version":1,"required":[],"connection":null},
+  {"id":"paper-plane","name":"종이비행기","description":"드래그로 날리고 착지하는 종이비행기","category":"play","version":1,"required":[],"connection":null},
   {"id":"bubbles","name":"비눗방울","description":"비눗방울을 만들고 톡톡 터뜨려요","category":"play","version":1,"required":[],"connection":null},
   {"id":"small-match","name":"작은 승부","description":"주사위·동전·가위바위보 한 판","category":"play","version":1,"required":[],"connection":null},
   {"id":"guessing","name":"맞히기 놀이","description":"컵 속 위치와 숨겨진 숫자를 찾아요","category":"play","version":1,"required":[],"connection":null},

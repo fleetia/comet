@@ -76,8 +76,8 @@ unsafe extern "C-unwind" fn first_mouse(_: &AnyObject, _: Sel, _: *mut AnyObject
     Bool::YES
 }
 
-fn callbacks(view: &AnyObject, action: &str) {
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+fn callbacks(view: &AnyObject, action: &str) -> bool {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let target = PANELS.with(|panels| {
             panels
                 .borrow()
@@ -85,15 +85,17 @@ fn callbacks(view: &AnyObject, action: &str) {
                 .find(|(_, panel)| std::ptr::eq(&*panel.view, view))
                 .map(|(id, panel)| (id.clone(), panel.app.clone(), panel.frame.kind))
         });
-        if let Some((id, app, kind)) = target {
-            let action = if action == "grab" && kind == Kind::Bubbles {
-                "pop"
-            } else {
-                action
-            };
-            let _ = super::perform_action(&app, &id, action);
-        }
-    }));
+        let Some((id, app, kind)) = target else {
+            return false;
+        };
+        let action = if action == "grab" && kind == Kind::Bubbles {
+            "pop"
+        } else {
+            action
+        };
+        super::perform_action(&app, &id, action).is_ok()
+    }))
+    .unwrap_or(false)
 }
 unsafe extern "C-unwind" fn down(view: &AnyObject, _: Sel, _: *mut AnyObject) {
     callbacks(view, "grab");
@@ -103,6 +105,13 @@ unsafe extern "C-unwind" fn up(view: &AnyObject, _: Sel, _: *mut AnyObject) {
 }
 unsafe extern "C-unwind" fn right_down(view: &AnyObject, _: Sel, _: *mut AnyObject) {
     callbacks(view, "dismiss");
+}
+unsafe extern "C-unwind" fn accessibility_press(view: &AnyObject, _: Sel) -> Bool {
+    if callbacks(view, "pop") {
+        Bool::YES
+    } else {
+        Bool::NO
+    }
 }
 unsafe extern "C-unwind" fn dragged(_: &AnyObject, _: Sel, _: *mut AnyObject) {}
 
@@ -267,6 +276,10 @@ fn view_class() -> &'static AnyClass {
         class.add_method(
             sel!(rightMouseDown:),
             right_down as unsafe extern "C-unwind" fn(_, _, _),
+        );
+        class.add_method(
+            sel!(accessibilityPerformPress),
+            accessibility_press as unsafe extern "C-unwind" fn(_, _) -> _,
         );
         class.register()
     })

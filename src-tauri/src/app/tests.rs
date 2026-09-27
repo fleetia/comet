@@ -12,6 +12,12 @@ use super::windows::{apply_pause, should_cancel_for_pause};
 use super::*;
 use crate::{character_commands, story_host};
 use std::time::Duration;
+#[path = "model_quality_smoke.rs"]
+mod model_quality_smoke;
+
+#[path = "model_roster_smoke.rs"]
+mod model_roster_smoke;
+
 pub(crate) fn state() -> AppState {
     AppState {
         db: Mutex::new(store::open(std::path::Path::new(":memory:")).unwrap()),

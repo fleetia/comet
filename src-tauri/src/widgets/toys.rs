@@ -19,9 +19,12 @@ struct Motion {
     moving: bool,
     flying: bool,
     last_at: i64,
-    bounces: u32,
-    distance: f64,
-    best: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bounces: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    distance: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    best: Option<f64>,
     start_x: f64,
     start_y: f64,
 }
@@ -36,8 +39,10 @@ struct Bubble {
 struct Bubbles {
     bubbles: Vec<Bubble>,
     next_id: u32,
-    streak: u32,
-    best: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    streak: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    best: Option<u32>,
 }
 #[derive(Serialize, Deserialize)]
 struct Match {
@@ -88,7 +93,8 @@ struct Pet {
     x: f64,
     y: f64,
     food: Option<Point>,
-    arrivals: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    arrivals: Option<u32>,
     last_at: i64,
 }
 #[derive(Serialize, Deserialize)]
@@ -214,9 +220,9 @@ pub fn initial(kind: &str) -> Value {
     match kind {
         "interaction" => json!({"snacks":6,"touches":0,"lastReactionAt":null}),
         "ball" | "paper-plane" => {
-            json!({"x":50.0,"y":50.0,"vx":0.0,"vy":0.0,"moving":false,"flying":false,"lastAt":0,"bounces":0,"distance":0.0,"best":0.0,"startX":50.0,"startY":50.0})
+            json!({"x":50.0,"y":50.0,"vx":0.0,"vy":0.0,"moving":false,"flying":false,"lastAt":0,"startX":50.0,"startY":50.0})
         }
-        "bubbles" => json!({"bubbles":[],"nextId":1,"streak":0,"best":0}),
+        "bubbles" => json!({"bubbles":[],"nextId":1}),
         "small-match" => json!({"game":"","a":"","b":"","result":"","rounds":0}),
         "guessing" => {
             json!({"mode":"cups","answer":0,"playing":false,"attempts":0,"hint":"놀이를 시작해 주세요."})
@@ -224,7 +230,7 @@ pub fn initial(kind: &str) -> Value {
         "fishing" => json!({"phase":"idle","biteAt":0,"expiresAt":0,"lastCatch":null,"catches":0}),
         "fortune" => json!({"text":"가상 장난 운세입니다.","draws":0,"fictional":true}),
         "plant" => json!({"stage":0,"water":0,"updatedAt":0}),
-        "pet" => json!({"x":10.0,"y":50.0,"food":null,"arrivals":0,"lastAt":0}),
+        "pet" => json!({"x":10.0,"y":50.0,"food":null,"lastAt":0}),
         "collection" => json!({"items":[],"decorations":[],"nextId":1}),
         _ => Value::Null,
     }
@@ -312,13 +318,11 @@ pub fn act(
             state.last_at = now;
             state.moving = kind == "ball";
             state.flying = kind == "paper-plane";
-            state.distance = 0.0;
-            state.bounces = 0;
             effect(state, vec![])
         }
         "bubbles" => {
             let mut state: Bubbles = decode(data)?;
-            let events = match action {
+            match action {
                 "make" => {
                     empty(input)?;
                     if state.bubbles.len() >= 30 {
@@ -331,7 +335,6 @@ pub fn act(
                         x: (entropy % 91 + 5) as f64,
                         y: (entropy.rotate_left(21) % 81 + 10) as f64,
                     });
-                    vec![]
                 }
                 "pop" => {
                     let args: Id = decode(input)?;
@@ -341,26 +344,14 @@ pub fn act(
                         .position(|bubble| bubble.id == args.id)
                         .ok_or("이미 사라진 방울이에요.")?;
                     state.bubbles.remove(index);
-                    state.streak = state.streak.saturating_add(1);
-                    state.best = state.best.max(state.streak);
-                    if state.streak % 10 == 0 {
-                        vec![event(
-                            "bubbles.streak",
-                            format!("연속 {}개를 터뜨렸어요.", state.streak),
-                        )]
-                    } else {
-                        vec![]
-                    }
                 }
                 "reset" => {
                     empty(input)?;
                     state.bubbles.clear();
-                    state.streak = 0;
-                    vec![]
                 }
                 _ => return Err("알 수 없는 방울 동작입니다.".into()),
-            };
-            effect(state, events)
+            }
+            effect(state, vec![])
         }
         "small-match" => {
             let mut state: Match = decode(data)?;
@@ -669,37 +660,25 @@ pub fn tick(kind: &str, data: &Value, now: i64) -> Result<Option<WidgetEffect>, 
             let dt = elapsed / steps.max(1) as f64;
             let mut events = vec![];
             for _ in 0..steps {
-                let old_x = state.x;
-                let old_y = state.y;
                 state.x += state.vx * dt;
                 state.y += state.vy * dt;
                 if kind == "paper-plane" {
                     state.vy += 12.0 * dt;
                     state.x = state.x.clamp(0.0, 100.0);
                     state.y = state.y.clamp(0.0, 100.0);
-                    state.distance += (state.x - old_x).hypot(state.y - old_y);
                     if state.x <= 0.0 || state.x >= 100.0 || state.y <= 0.0 || state.y >= 100.0 {
                         state.flying = false;
-                        state.best = state.best.max(state.distance);
-                        events.push(event(
-                            "paper-plane.landed",
-                            format!(
-                                "{:.1}만큼 날아 착지했어요. 최고 기록 {:.1}.",
-                                state.distance, state.best
-                            ),
-                        ));
+                        events.push(event("paper-plane.landed", "종이비행기가 착지했어요."));
                         break;
                     }
                 } else {
                     if state.x < 0.0 || state.x > 100.0 {
                         state.x = state.x.clamp(0.0, 100.0);
                         state.vx *= -0.7;
-                        state.bounces = state.bounces.saturating_add(1);
                     }
                     if state.y < 0.0 || state.y > 100.0 {
                         state.y = state.y.clamp(0.0, 100.0);
                         state.vy *= -0.7;
-                        state.bounces = state.bounces.saturating_add(1);
                     }
                     let friction = (-1.2 * dt).exp();
                     state.vx *= friction;
@@ -708,10 +687,7 @@ pub fn tick(kind: &str, data: &Value, now: i64) -> Result<Option<WidgetEffect>, 
                         state.moving = false;
                         state.vx = 0.0;
                         state.vy = 0.0;
-                        events.push(event(
-                            "ball.stopped",
-                            format!("공이 ({:.0}, {:.0})에 멈췄어요.", state.x, state.y),
-                        ));
+                        events.push(event("ball.stopped", "공이 멈췄어요."));
                         break;
                     }
                 }
@@ -782,7 +758,6 @@ pub fn tick(kind: &str, data: &Value, now: i64) -> Result<Option<WidgetEffect>, 
                 state.x = food.x;
                 state.y = food.y;
                 state.food = None;
-                state.arrivals = state.arrivals.saturating_add(1);
                 vec![event("pet.arrived", "펫이 먹이에 도착했어요.")]
             } else {
                 state.x += (food.x - state.x) / distance * travel;
@@ -921,7 +896,10 @@ mod tests {
         assert_eq!(moving.data["x"], 13.0);
         assert!(moving.events.is_empty());
         let arrived = tick("pet", &moving.data, 900_000).unwrap().unwrap();
-        assert_eq!(arrived.data["arrivals"], 1);
+        assert_eq!(arrived.data["x"], 90.0);
+        assert!(arrived.data["food"].is_null());
+        assert!(arrived.data.get("arrivals").is_none());
+        assert_eq!(arrived.events[0].kind, "pet.arrived");
         assert!(tick("pet", &arrived.data, 999_000).unwrap().is_none());
     }
     #[test]
@@ -942,8 +920,57 @@ mod tests {
             let ended = tick(kind, &launched.data, 30_100).unwrap().unwrap();
             assert_eq!(ended.data[flag], false);
             assert_eq!(ended.events.len(), 1);
+            for field in ["bounces", "distance", "best"] {
+                assert!(ended.data.get(field).is_none());
+            }
+            if kind == "paper-plane" {
+                assert_eq!(ended.events[0].text, "종이비행기가 착지했어요.");
+            }
             assert!(tick(kind, &ended.data, 40_000).unwrap().is_none());
         }
+    }
+    #[test]
+    fn legacy_toy_statistics_are_preserved_without_further_counting() {
+        for (kind, action) in [("ball", "throw"), ("paper-plane", "launch")] {
+            let mut data = initial(kind);
+            data["bounces"] = json!(4);
+            data["distance"] = json!(20.0);
+            data["best"] = json!(80.0);
+            let launched = act(
+                kind,
+                &data,
+                action,
+                &json!({"x":90,"y":50,"vx":90,"vy":0}),
+                100,
+                0,
+            )
+            .unwrap();
+            let moved = tick(kind, &launched.data, 300).unwrap().unwrap();
+            if kind == "ball" {
+                assert!(moved.data["vx"].as_f64().unwrap() < 0.0);
+            }
+            let ended = tick(kind, &launched.data, 30_100).unwrap().unwrap();
+            for field in ["bounces", "distance", "best"] {
+                assert_eq!(ended.data[field], data[field]);
+            }
+        }
+
+        let mut bubbles = initial("bubbles");
+        bubbles["streak"] = json!(9);
+        bubbles["best"] = json!(12);
+        let made = act("bubbles", &bubbles, "make", &json!({}), 0, 10).unwrap();
+        let popped = act("bubbles", &made.data, "pop", &json!({"id":1}), 0, 0).unwrap();
+        assert!(popped.events.is_empty());
+        let reset = act("bubbles", &popped.data, "reset", &json!({}), 0, 0).unwrap();
+        assert_eq!(reset.data["streak"], 9);
+        assert_eq!(reset.data["best"], 12);
+
+        let mut pet = initial("pet");
+        pet["arrivals"] = json!(7);
+        let fed = act("pet", &pet, "feed", &json!({"x":90,"y":50}), 100, 0).unwrap();
+        let arrived = tick("pet", &fed.data, 900_000).unwrap().unwrap();
+        assert_eq!(arrived.data["arrivals"], 7);
+        assert_eq!(arrived.events[0].kind, "pet.arrived");
     }
     #[test]
     fn collection_cannot_mint_items_or_duplicate_decorations() {
@@ -988,7 +1015,10 @@ mod tests {
         assert_eq!(won.data["result"], "사용자 승리");
         let made = act("bubbles", &initial("bubbles"), "make", &json!({}), 0, 10).unwrap();
         let popped = act("bubbles", &made.data, "pop", &json!({"id":1}), 0, 0).unwrap();
-        assert_eq!(popped.data["streak"], 1);
+        assert!(popped.data["bubbles"].as_array().unwrap().is_empty());
+        assert!(popped.data.get("streak").is_none());
+        assert!(popped.data.get("best").is_none());
+        assert!(popped.events.is_empty());
         assert!(act("bubbles", &popped.data, "pop", &json!({"id":1}), 0, 0).is_err());
     }
     #[test]

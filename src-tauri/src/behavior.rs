@@ -283,18 +283,12 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
         if !instance.installed || !instance.enabled || instance.revision != outcome.revision {
             continue;
         }
-        let payload = serde_json::json!({"actorId":outcome.actor_id,"distanceUnit":"desktop-logical-points","distance":outcome.distance,"bounces":outcome.bounces,"popped":outcome.popped,"automatic":outcome.automatic,"owner":outcome.owner});
+        let payload = serde_json::json!({"actorId":outcome.actor_id,"popped":outcome.popped,"automatic":outcome.automatic,"owner":outcome.owner});
         let (kind, text) = match outcome.kind {
-            desktop_toys::Kind::Ball => (
-                "desktop.ball.stopped",
-                format!("바탕화면 공이 {}번 튕긴 뒤 멈췄어요.", outcome.bounces),
-            ),
+            desktop_toys::Kind::Ball => ("desktop.ball.stopped", "공이 멈췄어요.".into()),
             desktop_toys::Kind::PaperPlane => (
                 "desktop.paper-plane.landed",
-                format!(
-                    "종이비행기가 {:.0} 화면 포인트를 날아 착지했어요.",
-                    outcome.distance
-                ),
+                "종이비행기가 착지했어요.".into(),
             ),
             desktop_toys::Kind::Bubbles => (
                 "desktop.bubbles.popped",

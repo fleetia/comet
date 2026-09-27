@@ -108,12 +108,12 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         (_, "snacks") => "남은 간식 조각 수(0~6)",
         (_, "touches") => "누적 교감 횟수",
         ("ball", "moving") => "공이 현재 이동 중인지 여부",
-        (_, "bounces") => "이번 공 던지기에서 벽에 튕긴 횟수",
+        (_, "bounces") => "호환용 이전 공 충돌 통계. 현재는 항상 null",
         (_, "flying") => "종이비행기가 현재 비행 중인지 여부",
-        (_, "distance") => "이번 종이비행기의 이동 거리(위젯 좌표 단위)",
-        (_, "best") => "종이비행기 최고 비행 거리(위젯 좌표 단위)",
+        (_, "distance") => "호환용 이전 종이비행기 이동 거리. 현재는 항상 null",
+        (_, "best") => "호환용 이전 종이비행기 최고 기록. 현재는 항상 null",
         ("bubbles", "count") => "현재 화면에 남은 비눗방울 수",
-        (_, "streak") => "초기화 이후 연속으로 터뜨린 비눗방울 수",
+        (_, "streak") => "호환용 이전 비눗방울 연속 통계. 현재는 항상 null",
         (_, "game") => "최근 작은 승부 종류: 빈 문자열, dice, coin, rps",
         (_, "result") => "최근 작은 승부의 기존 한국어 결과 문자열. 사건 판정은 event.outcome 사용",
         (_, "rounds") => "작은 승부 누적 판 수",
@@ -129,7 +129,7 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         (_, "stage") => "화분 성장 단계: 0 씨앗, 1 새싹, 2 잎, 3 꽃",
         (_, "water") => "화분에 남은 물(0~3)",
         ("pet", "moving") => "펫이 놓인 먹이를 향해 이동 중인지 여부",
-        (_, "arrivals") => "펫이 먹이에 도착한 누적 횟수",
+        (_, "arrivals") => "호환용 이전 펫 도착 통계. 현재는 항상 null",
         ("collection", "count") => "수집함에 있는 서로 다른 물건 종류 수. 총 수량이 아님",
         (_, "decorationCount") => "현재 꺼내 배치한 소품 수",
         ("journal", "count") => "켜 둔 사건 일지에 실제로 보관한 사건 수",
@@ -381,6 +381,15 @@ fn project(snapshot: &WidgetSnapshot, now: i64) -> (BTreeMap<String, Value>, BTr
             .chain(strings.split_whitespace())
             .chain(booleans.split_whitespace())
         {
+            if matches!(
+                (prefix, field),
+                ("ball", "bounces")
+                    | ("plane", "distance" | "best")
+                    | ("bubbles", "streak")
+                    | ("pet", "arrivals")
+            ) {
+                continue;
+            }
             set(field, d[field].clone());
         }
         match kind {
@@ -733,6 +742,38 @@ mod tests {
         let (failed, _) = project(&snapshot("weather", data), now);
         assert_eq!(failed["weather.temperature"], Value::Null);
         assert_eq!(failed["weather.status"], "offline");
+    }
+
+    #[test]
+    fn retired_toy_statistics_stay_null_even_with_saved_legacy_values() {
+        for (kind, prefix, stats, state, expected) in [
+            ("ball", "ball", vec!["bounces"], "moving", json!(true)),
+            (
+                "paper-plane",
+                "plane",
+                vec!["distance", "best"],
+                "flying",
+                json!(true),
+            ),
+            ("bubbles", "bubbles", vec!["streak"], "count", json!(1)),
+            ("pet", "pet", vec!["arrivals"], "moving", json!(true)),
+        ] {
+            let mut data =
+                json!({"moving":true,"flying":true,"bubbles":[{"id":1}],"food":{"x":50,"y":50}});
+            for field in &stats {
+                data[*field] = json!(123);
+            }
+            let snapshot = snapshot(kind, data.clone());
+            let (values, available) = project(&snapshot, 1_000_000);
+            assert!(available.contains(kind));
+            assert_eq!(values[&format!("{prefix}.{state}")], expected);
+            for field in stats {
+                let name = format!("{prefix}.{field}");
+                assert_eq!(values[&name], Value::Null, "{name}");
+                assert!(registry().variables.contains_key(&name));
+            }
+            assert_eq!(snapshot.widgets[0].instance.data, data);
+        }
     }
 
     #[test]

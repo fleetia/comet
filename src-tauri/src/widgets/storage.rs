@@ -382,13 +382,34 @@ pub fn verify_packages(db: &Connection, directory: &Path) -> Result<()> {
     for mut instance in instances(db)?.into_iter().filter(|entry| entry.installed) {
         let valid = (|| -> Result<bool> {
             let path = package_path(directory, &instance.kind)?;
-            let expected = serde_json::to_vec(&super::manifest(&instance.kind)?).map_err(err)?;
+            let mut definition = super::manifest(&instance.kind)?;
+            let expected = serde_json::to_vec(&definition).map_err(err)?;
+            let previous = if instance.kind == "paper-plane" {
+                definition.description = "드래그로 날리고 비행 기록을 남겨요".into();
+                Some(serde_json::to_vec(&definition).map_err(err)?)
+            } else {
+                None
+            };
             let manifest = path.join("manifest.json");
-            Ok(manifest.symlink_metadata().is_ok_and(|metadata| {
+            if !manifest.symlink_metadata().is_ok_and(|metadata| {
                 metadata.is_file()
                     && !metadata.file_type().is_symlink()
-                    && metadata.len() == expected.len() as u64
-            }) && std::fs::read(manifest).is_ok_and(|bytes| bytes == expected))
+                    && (metadata.len() == expected.len() as u64
+                        || previous
+                            .as_ref()
+                            .is_some_and(|bytes| metadata.len() == bytes.len() as u64))
+            }) {
+                return Ok(false);
+            }
+            let installed = std::fs::read(manifest).map_err(err)?;
+            if installed == expected {
+                return Ok(true);
+            }
+            if previous.as_ref() == Some(&installed) {
+                write_package(&path, &instance.kind)?;
+                return Ok(true);
+            }
+            Ok(false)
         })()
         .unwrap_or(false);
         if !valid {
@@ -691,6 +712,32 @@ pub fn discard_pending(db: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn without_toy_statistics(mut event: WidgetEvent) -> WidgetEvent {
+    let text = match event.event.kind.as_str() {
+        "ball.stopped" | "desktop.ball.stopped" => Some("공이 멈췄어요."),
+        "paper-plane.landed" | "desktop.paper-plane.landed" => Some("종이비행기가 착지했어요."),
+        "bubbles.streak" => Some("비눗방울을 터뜨렸어요."),
+        "desktop.bubbles.popped" | "pet.arrived" | "desktop.pet.rested" => None,
+        _ => return event,
+    };
+    if let Some(text) = text {
+        event.event.text = text.into();
+    }
+    if let Some(payload) = event.event.payload.as_object_mut() {
+        for field in [
+            "bounces",
+            "distance",
+            "distanceUnit",
+            "best",
+            "streak",
+            "arrivals",
+        ] {
+            payload.remove(field);
+        }
+    }
+    event
+}
+
 pub fn take_reaction(db: &Connection, now: i64) -> Result<Option<WidgetEvent>> {
     let mut statement = db.prepare("SELECT data FROM widget_events WHERE pending=1 ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END,seq DESC LIMIT 8").map_err(err)?;
     let events = statement
@@ -717,7 +764,7 @@ pub fn take_reaction(db: &Connection, now: i64) -> Result<Option<WidgetEvent>> {
             })
     });
     discard_pending(db)?;
-    Ok(result)
+    Ok(result.map(without_toy_statistics))
 }
 
 pub fn journal(db: &Connection, before: Option<i64>) -> Result<Vec<(i64, WidgetEvent)>> {
@@ -729,7 +776,10 @@ pub fn journal(db: &Connection, before: Option<i64>) -> Result<Vec<(i64, WidgetE
         .map_err(err)?;
     rows.map(|row| {
         let (sequence, data) = row.map_err(err)?;
-        Ok((sequence, serde_json::from_str(&data).map_err(err)?))
+        Ok((
+            sequence,
+            without_toy_statistics(serde_json::from_str(&data).map_err(err)?),
+        ))
     })
     .collect()
 }

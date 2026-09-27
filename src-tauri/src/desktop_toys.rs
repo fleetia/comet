@@ -62,8 +62,6 @@ pub(crate) struct Outcome {
     pub kind: Kind,
     pub owner: Option<String>,
     pub automatic: bool,
-    pub distance: f64,
-    pub bounces: u32,
     pub popped: bool,
 }
 #[derive(Clone, Copy, Debug)]
@@ -85,8 +83,6 @@ struct Actor {
     bubble_color: u8,
     scale: f64,
     angle: f64,
-    distance: f64,
-    bounces: u32,
     dragging: bool,
     drag_offset: (f64, f64),
     moving: bool,
@@ -176,10 +172,16 @@ fn outcome(actor: &Actor, popped: bool) -> Outcome {
         kind: actor.kind,
         owner: actor.owner.clone(),
         automatic: actor.automatic,
-        distance: actor.distance,
-        bounces: actor.bounces,
         popped,
     }
+}
+fn pop_bubble(actor: &mut Actor) -> Option<Outcome> {
+    if actor.reported {
+        return None;
+    }
+    actor.reported = true;
+    actor.expires = Some(Instant::now());
+    Some(outcome(actor, true))
 }
 fn initial_velocity(kind: Kind, scale: f64) -> (f64, f64) {
     match kind {
@@ -463,8 +465,6 @@ fn open_one(
         bubble_color: appearance.color,
         scale,
         angle: 0.0,
-        distance: 0.0,
-        bounces: 0,
         dragging: false,
         drag_offset: (0.0, 0.0),
         moving: true,
@@ -699,8 +699,6 @@ fn begin_grab(actor: &mut Actor, x: f64, y: f64) {
     actor.moving = true;
     actor.reported = false;
     actor.resting = 0.0;
-    actor.distance = 0.0;
-    actor.bounces = 0;
     actor.drag_offset = (actor.motion.x - x, actor.motion.y - y);
     actor.motion.vx = 0.0;
     actor.motion.vy = 0.0;
@@ -732,7 +730,7 @@ fn perform_action(app: &AppHandle, id: &str, action: &str) -> Result<Frame, Stri
             actor.motion.vy = 0.0;
         }
         "pop" if actor.kind == Kind::Bubbles => {
-            popped = Some(outcome(actor, true));
+            popped = pop_bubble(actor);
         }
         "dismiss" => {}
         _ => return Err("알 수 없는 장난감 조작이에요.".into()),
@@ -931,7 +929,6 @@ fn step(actor: &mut Actor, geometry: &Geometry, dt: f64) -> Option<Outcome> {
     resolve_overlap(&mut actor.motion, &geometry.edges, actor.scale);
     append_character_edges(actor.motion, geometry, 0.0, &mut character_edges);
     resolve_overlap(&mut actor.motion, &character_edges, actor.scale);
-    let old = (actor.motion.x, actor.motion.y);
     match actor.kind {
         Kind::Ball => {
             actor.motion.vy += 780.0 * actor.scale * dt;
@@ -977,13 +974,9 @@ fn step(actor: &mut Actor, geometry: &Geometry, dt: f64) -> Option<Outcome> {
     if actor.kind == Kind::Pet && hits > 0 && actor.motion.vx.abs() < 1.0 {
         actor.motion.vx = -incoming_vx;
     }
-    if actor.kind == Kind::Bubbles && hits > 0 && !actor.reported {
-        actor.reported = true;
-        actor.expires = Some(Instant::now());
-        return Some(outcome(actor, true));
+    if actor.kind == Kind::Bubbles && hits > 0 {
+        return pop_bubble(actor);
     }
-    actor.bounces = actor.bounces.saturating_add(hits);
-    actor.distance += (actor.motion.x - old.0).hypot(actor.motion.y - old.1) / actor.scale;
     if actor.kind == Kind::PaperPlane {
         actor.angle = actor.motion.vy.atan2(actor.motion.vx).to_degrees();
     }
@@ -1385,8 +1378,6 @@ mod tests {
             bubble_color: 0,
             scale: 1.0,
             angle: 0.0,
-            distance: 0.0,
-            bounces: 0,
             dragging: false,
             drag_offset: (0.0, 0.0),
             moving: true,
@@ -1549,14 +1540,10 @@ mod tests {
         assert!((actor.motion.y - y).abs() >= actor.motion.radius);
     }
     #[test]
-    fn grabbing_starts_a_new_throw_without_accumulating_earlier_results() {
+    fn grabbing_allows_a_new_throw_result() {
         let mut actor = resting_ball();
-        actor.distance = 700.0;
-        actor.bounces = 21;
         actor.reported = true;
         begin_grab(&mut actor, 45.0, 75.0);
-        assert_eq!(actor.distance, 0.0);
-        assert_eq!(actor.bounces, 0);
         assert!(!actor.reported && actor.dragging);
         assert_eq!(actor.drag_offset, (5.0, 5.0));
     }
@@ -1674,7 +1661,6 @@ mod tests {
             actor.kind = kind;
             actor.motion.vx = 1000.0;
             step(&mut actor, &geometry, 0.1);
-            assert!(actor.bounces > 0);
             assert!(actor.motion.x < 90.0);
             assert!(actor.motion.vx < 0.0);
         }
@@ -1696,13 +1682,12 @@ mod tests {
         actor.motion.y = -40.0;
         actor.motion.vy = 1000.0;
         step(&mut actor, &geometry, 0.1);
-        assert_eq!(actor.bounces, 0);
         assert_eq!(actor.motion.x, 160.0);
         assert!(actor.motion.y > 0.0);
     }
 
     #[test]
-    fn bubble_pops_on_the_character_contour() {
+    fn bubble_collision_then_click_reports_one_pop() {
         let geometry = character_geometry(
             &["#"],
             Rect {
@@ -1718,6 +1703,29 @@ mod tests {
         assert!(result.popped);
         assert!(actor.reported);
         assert!(actor.expires.is_some());
+        assert!(pop_bubble(&mut actor).is_none());
+    }
+
+    #[test]
+    fn bubble_click_then_collision_or_another_click_reports_one_pop() {
+        let geometry = character_geometry(
+            &["#"],
+            Rect {
+                x: 0.0,
+                y: 40.0,
+                width: 200.0,
+                height: 20.0,
+            },
+        );
+        let mut actor = resting_ball();
+        actor.kind = Kind::Bubbles;
+        let result = pop_bubble(&mut actor).expect("first click pops the bubble");
+        assert!(result.popped);
+        assert_eq!(result.actor_id, actor.id);
+        assert!(actor.reported);
+        assert!(actor.expires.is_some());
+        assert!(step(&mut actor, &geometry, 0.4).is_none());
+        assert!(pop_bubble(&mut actor).is_none());
     }
 
     #[test]
@@ -1758,7 +1766,7 @@ mod tests {
         actor.motion.radius = 3.0;
         actor.motion.vx = 200.0;
         step(&mut actor, &geometry, 0.2);
-        assert!(actor.bounces >= 2);
+        assert!(actor.motion.vx > 0.0);
         assert!((53.0..=67.0).contains(&actor.motion.x));
     }
 }

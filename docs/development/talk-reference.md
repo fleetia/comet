@@ -377,9 +377,11 @@ A[평온]: 오늘 기온을 한번 확인했어.
 
 ### ball · 공
 
+공의 충돌 수, 비행기의 거리·최고 기록, 비눗방울 연속 수, 펫 도착 수는 더 이상 수집하거나 대사에 전달하지 않는다. 아래 호환용 변수는 기존 사용자 대본의 문법 검사를 위해 이름만 유지하고 저장된 과거 값이 있어도 항상 `null`을 전달한다. `null`을 수치의 대소 비교나 본문 치환에 사용하는 장면은 선택되지 않으며 다른 정상 장면은 계속 재생된다. 사용자 대본 원문과 이미 설치된 대화팩은 자동으로 덮어쓰지 않는다.
+
 | 변수 | 타입 | null 허용 | owner | 의미 |
 | --- | --- | --- | --- | --- |
-| `ball.bounces` | `number` | 예 | `ball` | 이번 공 던지기에서 벽에 튕긴 횟수 |
+| `ball.bounces` | `number` | 예 | `ball` | 호환용 이전 공 충돌 통계. 현재는 항상 `null` |
 | `ball.moving` | `boolean` | 예 | `ball` | 공이 현재 이동 중인지 여부 |
 | `ball.ready` | `boolean` | 아니요 | `ball` | 설치·활성·의존성과 데이터 최신성 검사를 통과했는지 여부 |
 | `ball.status` | `string` | 아니요 | `ball` | 설치 상태 또는 연결 상태. unavailable·실패·stale은 성공한 빈 값과 구분 |
@@ -388,8 +390,8 @@ A[평온]: 오늘 기온을 한번 확인했어.
 
 | 변수 | 타입 | null 허용 | owner | 의미 |
 | --- | --- | --- | --- | --- |
-| `plane.best` | `number` | 예 | `paper-plane` | 종이비행기 최고 비행 거리(위젯 좌표 단위) |
-| `plane.distance` | `number` | 예 | `paper-plane` | 이번 종이비행기의 이동 거리(위젯 좌표 단위) |
+| `plane.best` | `number` | 예 | `paper-plane` | 호환용 이전 종이비행기 최고 기록. 현재는 항상 `null` |
+| `plane.distance` | `number` | 예 | `paper-plane` | 호환용 이전 종이비행기 이동 거리. 현재는 항상 `null` |
 | `plane.flying` | `boolean` | 예 | `paper-plane` | 종이비행기가 현재 비행 중인지 여부 |
 | `plane.ready` | `boolean` | 아니요 | `paper-plane` | 설치·활성·의존성과 데이터 최신성 검사를 통과했는지 여부 |
 | `plane.status` | `string` | 아니요 | `paper-plane` | 설치 상태 또는 연결 상태. unavailable·실패·stale은 성공한 빈 값과 구분 |
@@ -401,7 +403,7 @@ A[평온]: 오늘 기온을 한번 확인했어.
 | `bubbles.count` | `number` | 예 | `bubbles` | 현재 화면에 남은 비눗방울 수 |
 | `bubbles.ready` | `boolean` | 아니요 | `bubbles` | 설치·활성·의존성과 데이터 최신성 검사를 통과했는지 여부 |
 | `bubbles.status` | `string` | 아니요 | `bubbles` | 설치 상태 또는 연결 상태. unavailable·실패·stale은 성공한 빈 값과 구분 |
-| `bubbles.streak` | `number` | 예 | `bubbles` | 초기화 이후 연속으로 터뜨린 비눗방울 수 |
+| `bubbles.streak` | `number` | 예 | `bubbles` | 호환용 이전 비눗방울 연속 통계. 현재는 항상 `null` |
 
 ### match · 작은 승부
 
@@ -456,7 +458,7 @@ A[평온]: 오늘 기온을 한번 확인했어.
 
 | 변수 | 타입 | null 허용 | owner | 의미 |
 | --- | --- | --- | --- | --- |
-| `pet.arrivals` | `number` | 예 | `pet` | 펫이 먹이에 도착한 누적 횟수 |
+| `pet.arrivals` | `number` | 예 | `pet` | 호환용 이전 펫 도착 통계. 현재는 항상 `null` |
 | `pet.moving` | `boolean` | 예 | `pet` | 펫이 놓인 먹이를 향해 이동 중인지 여부 |
 | `pet.ready` | `boolean` | 아니요 | `pet` | 설치·활성·의존성과 데이터 최신성 검사를 통과했는지 여부 |
 | `pet.status` | `string` | 아니요 | `pet` | 설치 상태 또는 연결 상태. unavailable·실패·stale은 성공한 빈 값과 구분 |
@@ -506,7 +508,7 @@ A[평온]: 오늘 기온을 한번 확인했어.
 | `interaction.touch` | `interaction` | 쓰다듬기·찌르기·간식 주기 |
 | `ball.stopped` | `ball` | 공의 이동이 멈춤 |
 | `paper-plane.landed` | `paper-plane` | 종이비행기가 착지함 |
-| `bubbles.streak` | `bubbles` | 연속 비눗방울 터뜨리기 사건 |
+| `bubbles.streak` | `bubbles` | 이전 대본의 문법 호환용. 새 연속 기록 사건은 생성하지 않음 |
 | `small-match.result` | `small-match` | 주사위·동전·가위바위보 결과 |
 | `guessing.attempt` | `guessing` | 맞히기 시도의 공개 결과 |
 | `fishing.bite` | `fishing` | 입질이 옴 |

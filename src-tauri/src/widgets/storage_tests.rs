@@ -210,8 +210,8 @@ fn desktop_outcomes_preserve_legacy_data_and_reject_removed_revisions() {
     let original = instance(&db, "ball");
     let draft = || super::EventDraft {
         kind: "desktop.ball.stopped".into(),
-        text: "공이 멈췄어요.".into(),
-        payload: json!({"distanceUnit":"desktop-logical-points","distance":250.0}),
+        text: "바탕화면 공이 8번 튕긴 뒤 멈췄어요.".into(),
+        payload: json!({"distanceUnit":"desktop-logical-points","distance":250.0,"bounces":8,"actorId":"ball-actor","automatic":false}),
     };
     assert!(storage::record_desktop_result(
         &db,
@@ -224,10 +224,21 @@ fn desktop_outcomes_preserve_legacy_data_and_reject_removed_revisions() {
     .unwrap());
     assert_eq!(instance(&db, "ball").data, original.data);
     assert_eq!(instance(&db, "ball").revision, original.revision);
+    let journal = storage::journal(&db, None).unwrap();
+    assert_eq!(journal[0].1.event.text, "공이 멈췄어요.");
     assert_eq!(
-        storage::journal(&db, None).unwrap()[0].1.event.payload["distance"],
-        250.0
+        journal[0].1.event.payload,
+        json!({"actorId":"ball-actor","automatic":false})
     );
+    let reaction = storage::take_reaction(&db, 1001).unwrap().unwrap();
+    assert_eq!(reaction.event.text, journal[0].1.event.text);
+    assert_eq!(reaction.event.payload, journal[0].1.event.payload);
+    let stored: String = db
+        .query_row("SELECT data FROM desktop_toy_results", [], |row| row.get(0))
+        .unwrap();
+    let stored: super::WidgetEvent = serde_json::from_str(&stored).unwrap();
+    assert_eq!(stored.event.text, draft().text);
+    assert_eq!(stored.event.payload, draft().payload);
     storage::set_enabled(&db, &original.id, false).unwrap();
     assert!(!storage::record_desktop_result(
         &db,
@@ -574,6 +585,41 @@ fn event_cleanup_preserves_opted_in_journal_and_request_deduplication() {
     assert_eq!(storage::journal(&db, None).unwrap().len(), 1);
     storage::execute(&db, &old, 600_001, 99).unwrap();
     assert_eq!(instance(&db, "small-match").data["rounds"], 2);
+}
+
+#[test]
+fn retired_plane_description_upgrades_only_the_known_manifest_and_preserves_enabled_state() {
+    for (enabled, tampered) in [(true, false), (false, false), (true, true)] {
+        let db = database();
+        let directory = tempfile::tempdir().unwrap();
+        install(&db, directory.path(), &["paper-plane"]);
+        let before = instance(&db, "paper-plane");
+        storage::set_enabled(&db, &before.id, enabled).unwrap();
+        let mut old = super::manifest("paper-plane").unwrap();
+        old.description = "드래그로 날리고 비행 기록을 남겨요".into();
+        if tampered {
+            old.required.push("music".into());
+        }
+        let path = directory.path().join("widgets/paper-plane/manifest.json");
+        std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        storage::verify_packages(&db, directory.path()).unwrap();
+        let after = instance(&db, "paper-plane");
+        assert_eq!(after.enabled, enabled && !tampered);
+        assert_eq!(after.error.is_some(), tampered);
+        assert_eq!(after.id, before.id);
+        for field in ["x", "y", "vx", "vy", "startX", "startY"] {
+            assert_eq!(after.data[field], before.data[field]);
+        }
+        let expected = if tampered {
+            old
+        } else {
+            super::manifest("paper-plane").unwrap()
+        };
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            serde_json::to_vec(&expected).unwrap()
+        );
+    }
 }
 
 #[test]

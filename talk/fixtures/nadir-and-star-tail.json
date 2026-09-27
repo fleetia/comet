@@ -1032,7 +1032,6 @@
         "plane.ready": true,
         "plane.status": "enabled",
         "event.kind": "paper-plane.landed",
-        "plane.distance": 42,
         "character.a.sourceId": "nadir",
         "character.b.sourceId": "star-tail",
         "character.nadir.affinity": 20,
@@ -2294,30 +2293,6 @@
         "dialogue.variant": 0
       },
       "expectedScene": "interaction.snack"
-    },
-    {
-      "id": "bubbles.streak",
-      "path": "widgets/bubbles.talk",
-      "state": "streak",
-      "trigger": "bubbles.streak",
-      "available": [
-        "bubbles"
-      ],
-      "active": [
-        "fixture-a",
-        "fixture-b"
-      ],
-      "values": {
-        "bubbles.ready": true,
-        "bubbles.status": "enabled",
-        "event.kind": "bubbles.streak",
-        "bubbles.streak": 5,
-        "character.a.sourceId": "nadir",
-        "character.b.sourceId": "star-tail",
-        "character.nadir.affinity": 20,
-        "dialogue.variant": 0
-      },
-      "expectedScene": "bubbles.streak"
     },
     {
       "id": "weather.fog",

@@ -1,3 +1,4 @@
+mod autostart;
 mod background;
 pub(crate) mod conversation;
 mod history;

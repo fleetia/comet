@@ -45,12 +45,14 @@ keyring = { version = "3", features = ["apple-native", "windows-native"] }
 objc2 = "0.6.4"
 block2 = "0.6.2"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSWorkspace"] }
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSNotification", "NSOperation", "NSString", "NSGeometry", "NSRunLoop", "NSTimer", "NSDate", "NSObjCRuntime", "block2"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSBundle", "NSNotification", "NSOperation", "NSString", "NSGeometry", "NSRunLoop", "NSTimer", "NSDate", "NSObjCRuntime", "block2"] }
 objc2-core-foundation = "0.3.2"
+objc2-service-management = { version = "0.3.2", default-features = false, features = ["std", "SMAppService", "objc2", "objc2-foundation"] }
 objc2-event-kit = { version = "0.3.2", default-features = false, features = ["std", "EKCalendar", "EKCalendarItem", "EKEvent", "EKEventStore", "EKObject", "EKSource", "EKTypes", "block2"] }
 objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["std", "block2", "UNUserNotificationCenter", "UNNotificationSettings", "UNNotificationContent", "UNNotificationRequest", "UNNotificationTrigger", "UNNotification", "UNNotificationResponse", "UNNotificationAction", "UNNotificationCategory"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+winreg = "0.55"
 windows = { version = "0.61.3", features = ["Media_Control", "Foundation", "Foundation_Collections", "Storage_Streams"] }
 windows-future = { version = "0.2.1", features = ["std"] }
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }

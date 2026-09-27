@@ -1336,7 +1336,6 @@
       ],
       "values": {
         "ball.moving": false,
-        "ball.bounces": 0,
         "ball.ready": true,
         "ball.status": "enabled"
       },
@@ -1354,7 +1353,6 @@
       ],
       "values": {
         "ball.moving": true,
-        "ball.bounces": 2,
         "ball.ready": true,
         "ball.status": "enabled"
       },
@@ -1374,7 +1372,6 @@
         "event.kind": "ball.stopped",
         "event.widget": "ball",
         "ball.moving": false,
-        "ball.bounces": 3,
         "ball.ready": true,
         "ball.status": "enabled"
       },
@@ -1392,8 +1389,6 @@
       ],
       "values": {
         "plane.flying": false,
-        "plane.distance": 0,
-        "plane.best": 120,
         "plane.ready": true,
         "plane.status": "enabled"
       },
@@ -1411,15 +1406,13 @@
       ],
       "values": {
         "plane.flying": true,
-        "plane.distance": 40,
-        "plane.best": 120,
         "plane.ready": true,
         "plane.status": "enabled"
       },
       "expectedScene": "plane.flying"
     },
     {
-      "id": "plane.landed.best",
+      "id": "plane.landed",
       "path": "widgets/paper-plane.talk",
       "trigger": "paper-plane.landed",
       "available": [
@@ -1432,29 +1425,6 @@
         "event.kind": "paper-plane.landed",
         "event.widget": "paper-plane",
         "plane.flying": false,
-        "plane.distance": 150,
-        "plane.best": 150,
-        "plane.ready": true,
-        "plane.status": "enabled"
-      },
-      "expectedScene": "plane.landed"
-    },
-    {
-      "id": "plane.landed.normal",
-      "path": "widgets/paper-plane.talk",
-      "trigger": "paper-plane.landed",
-      "available": [
-        "paper-plane"
-      ],
-      "active": [
-        "fixture-a"
-      ],
-      "values": {
-        "event.kind": "paper-plane.landed",
-        "event.widget": "paper-plane",
-        "plane.flying": false,
-        "plane.distance": 80,
-        "plane.best": 150,
         "plane.ready": true,
         "plane.status": "enabled"
       },
@@ -1472,7 +1442,6 @@
       ],
       "values": {
         "bubbles.count": 0,
-        "bubbles.streak": 0,
         "bubbles.ready": true,
         "bubbles.status": "enabled"
       },
@@ -1490,31 +1459,10 @@
       ],
       "values": {
         "bubbles.count": 5,
-        "bubbles.streak": 1,
         "bubbles.ready": true,
         "bubbles.status": "enabled"
       },
       "expectedScene": "bubbles.floating"
-    },
-    {
-      "id": "bubbles.streak",
-      "path": "widgets/bubbles.talk",
-      "trigger": "bubbles.streak",
-      "available": [
-        "bubbles"
-      ],
-      "active": [
-        "fixture-a"
-      ],
-      "values": {
-        "event.kind": "bubbles.streak",
-        "event.widget": "bubbles",
-        "bubbles.count": 2,
-        "bubbles.streak": 4,
-        "bubbles.ready": true,
-        "bubbles.status": "enabled"
-      },
-      "expectedScene": "bubbles.streak"
     },
     {
       "id": "match.new",
@@ -2200,7 +2148,6 @@
       ],
       "values": {
         "pet.moving": false,
-        "pet.arrivals": 3,
         "pet.ready": true,
         "pet.status": "enabled"
       },
@@ -2218,7 +2165,6 @@
       ],
       "values": {
         "pet.moving": true,
-        "pet.arrivals": 3,
         "pet.ready": true,
         "pet.status": "enabled"
       },
@@ -2238,7 +2184,6 @@
         "event.kind": "pet.arrived",
         "event.widget": "pet",
         "pet.moving": false,
-        "pet.arrivals": 4,
         "pet.ready": true,
         "pet.status": "enabled"
       },

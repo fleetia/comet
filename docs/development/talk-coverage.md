@@ -1,6 +1,6 @@
 ---
 title: 대사 분기 검증표
-description: 22종 위젯의 실제 상태·이벤트와 번들 대사를 연결하는 180개 입력 사례 및 DB 경로 검증 범위
+description: 22종 위젯의 실제 상태·이벤트와 번들 대사를 연결하는 입력 사례 및 DB 경로 검증 범위
 ---
 
 # 대사 분기 검증표
@@ -15,20 +15,22 @@ description: 22종 위젯의 실제 상태·이벤트와 번들 대사를 연결
 | --- | ---: | ---: |
 | 기본 설치 | 예 | 아니요 |
 | `.talk` 파일 | 28 | 26 |
-| 고유 장면 | 111 | 144 |
-| 입력 사례 | 129 | 180 |
-| 화자 범위 | 공통 범위 + `speakers: random`. 혼자 17, 둘 6, 셋 4, 넷 2 장면과 위젯 82 장면 | `pair("source:nadir", "source:star-tail")` |
+| 고유 장면 | 110 | 143 |
+| 입력 사례 | 127 | 179 |
+| 화자 범위 | 공통 범위 + `speakers: random`. 혼자 17, 둘 6, 셋 4, 넷 2 장면과 위젯 81 장면 | `pair("source:nadir", "source:star-tail")` |
 | 억제·잘못된 입력 사례 | 4 | 7 |
 
 기본 대화팩의 fixture는 혼자 있는 `fixture-a`를 기본으로 두고, 둘·셋·넷 장면과 B 자리를 향한 교감 사건만 필요한 인원을 넣는다. 화자 검증은 무작위 순서를 고정하지 않고 "현재 인원 안의 서로 다른 자리"인지와 같은 seed에서 같은 순서가 나오는지를 검사한다. 8명을 넣은 시뮬레이션에서 2~4명 장면이 열리되 8명이 한 번에 말하는 장면이 없다는 것도 테스트로 확인한다. 위젯별 조건은 두 팩이 같은 초기 상태 장면 ID(`todo.empty`, `calendar.unconfigured` 등 22개)를 공유하므로 22개 위젯 초기 상태 검사를 두 팩에 모두 실행한다.
 
-아래 위젯·상황별 표는 나디르·별꼬리 팩을 기준으로 작성한 2026-09-19 기록이다. 기본 대화팩의 장면 목록과 입력은 `talk/fixtures/byulkkori.json`의 `cases[].id`·`path`가 원본이며, 같은 위젯 파일 이름과 비슷한 상태 이름을 쓴다.
+아래 위젯·상황별 표는 나디르·별꼬리 팩을 기준으로 한다. 기본 대화팩의 장면 목록과 입력은 `talk/fixtures/byulkkori.json`의 `cases[].id`·`path`가 원본이며, 같은 위젯 파일 이름과 비슷한 상태 이름을 쓴다.
 
-144개 장면 모두에 최소 하나의 선택 사례가 있다. 기존 위젯·상황 130개에 위젯 설치와 독립적인 시간대 4개와 기본 날씨 10개를 더했다. 각 조건은 `dialogue.variant` 0~4에 따라 서로 다른 대사 5개를 제공한다. 교감의 나디르 반응은 친밀도 40 미만·이상에 각각 5개이며 별꼬리 대상도 5개다. 테스트는 친밀도 20·50·80 각각에서 다섯 변주의 렌더링 결과가 서로 다른지 검사한다.
+143개 장면 모두에 최소 하나의 선택 사례가 있다. 위젯·상황 129개와 위젯 설치와 독립적인 시간대 4개, 기본 날씨 10개로 구성된다. 각 조건은 `dialogue.variant` 0~4에 따라 서로 다른 대사 5개를 제공한다. 교감의 나디르 반응은 친밀도 40 미만·이상에 각각 5개이며 별꼬리 대상도 5개다. 테스트는 친밀도 20·50·80 각각에서 다섯 변주의 렌더링 결과가 서로 다른지 검사한다.
+
+2026-09-27에 공 충돌 수·비행 거리와 최고 기록·비눗방울 연속 수·펫 도착 수를 말하는 동봉 대사를 제거했다. 정지·착지·도착 반응은 숫자 없이 유지하며 비눗방울 연속 기록 장면은 제거했다. fixture는 폐기한 숫자 없이 이 장면들이 재생되는지 검사한다. `context::tests::retired_toy_statistics_stay_null_even_with_saved_legacy_values`는 과거 저장값을 보존하면서도 대사 입력에는 `null`이 전달되고 이동·비행·먹이·현재 방울 상태가 유지되는지 검사한다. 이미 설치된 대화팩과 사용자 원문은 자동 변경하지 않으며, 과거 통계에 의존하는 장면은 `null` 처리 규칙에 따라 보류한다.
 
 실제 사건을 받는 `on != idle` 장면은 `cooldown: 0s`를 사용한다. 같은 사용자 동작이 새 사건으로 전달되면 이전 대사의 표시 이력이 다음 반응을 막지 않는다. `idle` 장면은 기존 `30m` 간격을 유지한다. 같은 사건 ID의 중복 소비·만료·취소는 호스트 경계가 처리하며 대본 cooldown으로 대신하지 않는다.
 
-180개 사례가 가능한 입력값의 모든 조합을 뜻하지는 않는다. 비어 있음과 값이 있음, 실행·일시정지·종료, 성공·실패·무승부, 최초 조회·오래된 정보·연결 실패처럼 **대사가 달라져야 하는 의미 있는 분기**를 대상으로 한다. 기온 0도·28도와 배터리 20% 등의 값은 이 번들 대사가 정한 분기 경계다.
+179개 사례가 가능한 입력값의 모든 조합을 뜻하지는 않는다. 비어 있음과 값이 있음, 실행·일시정지·종료, 성공·실패·무승부, 최초 조회·오래된 정보·연결 실패처럼 **대사가 달라져야 하는 의미 있는 분기**를 대상으로 한다. 기온 0도·28도와 배터리 20% 등의 값은 이 번들 대사가 정한 분기 경계다.
 
 원본은 다음 세 곳이다.
 
@@ -115,12 +117,12 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
-| `todo.empty` | `empty` | `idle` | `todo.empty` | 5 |
-| `todo.open` | `open` | `idle` | `todo.open` | 29 |
-| `todo.overdue` | `overdue` | `idle` | `todo.overdue` | 53 |
-| `todo.cleared` | `cleared` | `idle` | `todo.cleared` | 76 |
-| `todo.completed` | `completed` | `todo-completed` | `todo.completed` | 100 |
-| `todo.undone` | `undone` | `todo-undone` | `todo.undone` | 123 |
+| `todo.empty` | `empty` | `idle` | `todo.empty` | 6 |
+| `todo.open` | `open` | `idle` | `todo.open` | 30 |
+| `todo.overdue` | `overdue` | `idle` | `todo.overdue` | 54 |
+| `todo.cleared` | `cleared` | `idle` | `todo.cleared` | 77 |
+| `todo.completed` | `completed` | `todo-completed` | `todo.completed` | 101 |
+| `todo.undone` | `undone` | `todo-undone` | `todo.undone` | 124 |
 
 ### 캘린더
 
@@ -128,17 +130,17 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
-| `calendar.empty` | `empty` | `idle` | `calendar.empty` | 146 |
-| `calendar.timed` | `timed` | `idle` | `calendar.timed` | 169 |
-| `calendar.all-day` | `all-day` | `idle` | `calendar.all-day` | 194 |
-| `calendar.reminder` | `reminder` | `calendar-reminder` | `calendar.reminder` | 219 |
+| `calendar.empty` | `empty` | `idle` | `calendar.empty` | 147 |
+| `calendar.timed` | `timed` | `idle` | `calendar.timed` | 170 |
+| `calendar.all-day` | `all-day` | `idle` | `calendar.all-day` | 195 |
+| `calendar.reminder` | `reminder` | `calendar-reminder` | `calendar.reminder` | 220 |
 | `calendar.no-next` | `no-next` | `idle` | `calendar.no-next` | 1971 |
 | `calendar.unconfigured` | `unconfigured` | `idle` | `calendar.unconfigured` | 1995 |
 | `calendar.stale` | `stale` | `idle` | `calendar.stale` | 2017 |
-| `calendar.unavailable` | `connection failed` | `idle` | `calendar.unavailable` | 3366 |
-| `calendar.syncing` | `syncing` | `idle` | `calendar.syncing` | 3388 |
-| `calendar.unavailable.auth-error` | `connection failed / auth-error` | `idle` | `calendar.unavailable` | 3642 |
-| `calendar.unavailable.partial-permission-error` | `connection failed / partial-permission-error` | `idle` | `calendar.unavailable` | 3664 |
+| `calendar.unavailable` | `connection failed` | `idle` | `calendar.unavailable` | 3342 |
+| `calendar.syncing` | `syncing` | `idle` | `calendar.syncing` | 3364 |
+| `calendar.unavailable.auth-error` | `connection failed / auth-error` | `idle` | `calendar.unavailable` | 3618 |
+| `calendar.unavailable.partial-permission-error` | `connection failed / partial-permission-error` | `idle` | `calendar.unavailable` | 3640 |
 
 ### 집중 타이머
 
@@ -146,19 +148,19 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
-| `timer.idle` | `idle` | `idle` | `timer.idle` | 242 |
-| `timer.focus` | `focus` | `idle` | `timer.focus` | 265 |
-| `timer.rest` | `rest` | `idle` | `timer.rest` | 289 |
-| `timer.paused` | `paused` | `idle` | `timer.paused` | 313 |
-| `timer.finished-focus` | `finished-focus` | `timer-finished` | `timer.finished-focus` | 336 |
-| `timer.finished-rest` | `finished-rest` | `timer-finished` | `timer.finished-rest` | 360 |
+| `timer.idle` | `idle` | `idle` | `timer.idle` | 243 |
+| `timer.focus` | `focus` | `idle` | `timer.focus` | 266 |
+| `timer.rest` | `rest` | `idle` | `timer.rest` | 290 |
+| `timer.paused` | `paused` | `idle` | `timer.paused` | 314 |
+| `timer.finished-focus` | `finished-focus` | `timer-finished` | `timer.finished-focus` | 337 |
+| `timer.finished-rest` | `finished-rest` | `timer-finished` | `timer.finished-rest` | 361 |
 | `timer.finished` | `finished` | `idle` | `timer.finished` | 2083 |
-| `timer.idle.focus` | `idle / focus` | `idle` | `timer.idle` | 2442 |
-| `timer.idle.rest` | `idle / rest` | `idle` | `timer.idle` | 2466 |
-| `timer.paused.focus` | `paused / focus` | `idle` | `timer.paused` | 2490 |
-| `timer.paused.rest` | `paused / rest` | `idle` | `timer.paused` | 2514 |
-| `timer.finished.focus` | `finished / focus` | `idle` | `timer.finished` | 2754 |
-| `timer.finished.rest` | `finished / rest` | `idle` | `timer.finished` | 2778 |
+| `timer.idle.focus` | `idle / focus` | `idle` | `timer.idle` | 2418 |
+| `timer.idle.rest` | `idle / rest` | `idle` | `timer.idle` | 2442 |
+| `timer.paused.focus` | `paused / focus` | `idle` | `timer.paused` | 2466 |
+| `timer.paused.rest` | `paused / rest` | `idle` | `timer.paused` | 2490 |
+| `timer.finished.focus` | `finished / focus` | `idle` | `timer.finished` | 2730 |
+| `timer.finished.rest` | `finished / rest` | `idle` | `timer.finished` | 2754 |
 
 ### 준비 봉투
 
@@ -166,9 +168,9 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
-| `preparation.empty` | `empty` | `idle` | `preparation.empty` | 384 |
-| `preparation.unchecked` | `unchecked` | `idle` | `preparation.unchecked` | 407 |
-| `preparation.checked` | `checked` | `idle` | `preparation.checked` | 431 |
+| `preparation.empty` | `empty` | `idle` | `preparation.empty` | 385 |
+| `preparation.unchecked` | `unchecked` | `idle` | `preparation.unchecked` | 408 |
+| `preparation.checked` | `checked` | `idle` | `preparation.checked` | 432 |
 | `preparation.no-checks` | `no-checks` | `idle` | `preparation.no-checks` | 2106 |
 
 ### 완료 구슬병
@@ -177,8 +179,8 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
-| `jar.empty` | `empty` | `idle` | `jar.empty` | 456 |
-| `jar.filled` | `filled` | `idle` | `jar.filled` | 479 |
+| `jar.empty` | `empty` | `idle` | `jar.empty` | 457 |
+| `jar.filled` | `filled` | `idle` | `jar.filled` | 480 |
 
 ### 시계·기념일
 
@@ -186,9 +188,9 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
-| `clock.no-anniversary` | `no-anniversary` | `idle` | `clock.no-anniversary` | 502 |
-| `clock.today` | `today` | `idle` | `clock.today` | 525 |
-| `clock.upcoming` | `upcoming` | `idle` | `clock.upcoming` | 549 |
+| `clock.no-anniversary` | `no-anniversary` | `idle` | `clock.no-anniversary` | 503 |
+| `clock.today` | `today` | `idle` | `clock.today` | 526 |
+| `clock.upcoming` | `upcoming` | `idle` | `clock.upcoming` | 550 |
 | `clock.past` | `past` | `idle` | `clock.past` | 2130 |
 
 ### 메모
@@ -197,8 +199,8 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
-| `memo.empty` | `empty` | `idle` | `memo.empty` | 573 |
-| `memo.written` | `written` | `idle` | `memo.written` | 596 |
+| `memo.empty` | `empty` | `idle` | `memo.empty` | 574 |
+| `memo.written` | `written` | `idle` | `memo.written` | 597 |
 
 ### 날씨
 
@@ -206,23 +208,23 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
-| `weather.freezing` | `freezing` | `idle` | `weather.freezing` | 619 |
-| `weather.mild` | `mild` | `idle` | `weather.mild` | 642 |
-| `weather.hot` | `hot` | `idle` | `weather.hot` | 666 |
+| `weather.freezing` | `freezing` | `idle` | `weather.freezing` | 620 |
+| `weather.mild` | `mild` | `idle` | `weather.mild` | 643 |
+| `weather.hot` | `hot` | `idle` | `weather.hot` | 667 |
 | `weather.unconfigured` | `unconfigured` | `idle` | `weather.unconfigured` | 2039 |
 | `weather.stale` | `stale` | `idle` | `weather.stale` | 2061 |
-| `weather.fog` | `fog` | `idle` | `weather.fog` | 2322 |
-| `weather.rain` | `rain` | `idle` | `weather.rain` | 2346 |
-| `weather.snow` | `snow` | `idle` | `weather.snow` | 2370 |
-| `weather.showers` | `showers` | `idle` | `weather.showers` | 2394 |
-| `weather.storm` | `storm` | `idle` | `weather.storm` | 2418 |
-| `weather.offline` | `weather.offline` | `idle` | `weather.offline` | 2802 |
-| `weather.unsupported` | `weather.unsupported` | `idle` | `weather.unsupported` | 2824 |
-| `weather.error` | `weather.error` | `idle` | `weather.error` | 2846 |
-| `weather.syncing` | `syncing` | `idle` | `weather.syncing` | 3410 |
-| `weather.unclassified` | `unclassified` | `idle` | `weather.unclassified` | 3499 |
-| `weather.freezing.zero` | `freezing / zero` | `idle` | `weather.freezing` | 3522 |
-| `weather.hot.threshold` | `hot / threshold` | `idle` | `weather.hot` | 3545 |
+| `weather.fog` | `fog` | `idle` | `weather.fog` | 2298 |
+| `weather.rain` | `rain` | `idle` | `weather.rain` | 2322 |
+| `weather.snow` | `snow` | `idle` | `weather.snow` | 2346 |
+| `weather.showers` | `showers` | `idle` | `weather.showers` | 2370 |
+| `weather.storm` | `storm` | `idle` | `weather.storm` | 2394 |
+| `weather.offline` | `weather.offline` | `idle` | `weather.offline` | 2778 |
+| `weather.unsupported` | `weather.unsupported` | `idle` | `weather.unsupported` | 2800 |
+| `weather.error` | `weather.error` | `idle` | `weather.error` | 2822 |
+| `weather.syncing` | `syncing` | `idle` | `weather.syncing` | 3386 |
+| `weather.unclassified` | `unclassified` | `idle` | `weather.unclassified` | 3475 |
+| `weather.freezing.zero` | `freezing / zero` | `idle` | `weather.freezing` | 3498 |
+| `weather.hot.threshold` | `hot / threshold` | `idle` | `weather.hot` | 3521 |
 
 ### 음악 정보
 
@@ -230,15 +232,15 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
-| `music.stopped` | `stopped` | `idle` | `music.stopped` | 690 |
-| `music.paused` | `paused` | `idle` | `music.paused` | 713 |
-| `music.playing` | `playing` | `idle` | `music.playing` | 737 |
-| `music.offline` | `music.offline` | `idle` | `music.offline` | 2868 |
-| `music.unsupported` | `music.unsupported` | `idle` | `music.unsupported` | 2890 |
-| `music.error` | `music.error` | `idle` | `music.error` | 2912 |
-| `music.stale` | `music.stale` | `idle` | `music.stale` | 2934 |
-| `music.permission-needed` | `music.permission-needed` | `idle` | `music.permission-needed` | 2956 |
-| `music.syncing` | `syncing` | `idle` | `music.syncing` | 3432 |
+| `music.stopped` | `stopped` | `idle` | `music.stopped` | 691 |
+| `music.paused` | `paused` | `idle` | `music.paused` | 714 |
+| `music.playing` | `playing` | `idle` | `music.playing` | 738 |
+| `music.offline` | `music.offline` | `idle` | `music.offline` | 2844 |
+| `music.unsupported` | `music.unsupported` | `idle` | `music.unsupported` | 2866 |
+| `music.error` | `music.error` | `idle` | `music.error` | 2888 |
+| `music.stale` | `music.stale` | `idle` | `music.stale` | 2910 |
+| `music.permission-needed` | `music.permission-needed` | `idle` | `music.permission-needed` | 2932 |
+| `music.syncing` | `syncing` | `idle` | `music.syncing` | 3408 |
 
 ### 기기 소식
 
@@ -246,21 +248,21 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
-| `device.no-battery` | `no-battery` | `idle` | `device.no-battery` | 761 |
-| `device.low` | `low` | `idle` | `device.low` | 784 |
-| `device.charging` | `charging` | `idle` | `device.charging` | 809 |
-| `device.enough` | `enough` | `idle` | `device.enough` | 833 |
+| `device.no-battery` | `no-battery` | `idle` | `device.no-battery` | 762 |
+| `device.low` | `low` | `idle` | `device.low` | 785 |
+| `device.charging` | `charging` | `idle` | `device.charging` | 810 |
+| `device.enough` | `enough` | `idle` | `device.enough` | 834 |
 | `device.charged` | `charged` | `idle` | `device.charged` | 2154 |
 | `device.unknown` | `unknown` | `idle` | `device.unknown` | 2178 |
-| `device.offline` | `device.offline` | `idle` | `device.offline` | 2978 |
-| `device.unsupported` | `device.unsupported` | `idle` | `device.unsupported` | 3000 |
-| `device.error` | `device.error` | `idle` | `device.error` | 3022 |
-| `device.stale` | `device.stale` | `idle` | `device.stale` | 3044 |
-| `device.permission-needed` | `device.permission-needed` | `idle` | `device.permission-needed` | 3066 |
-| `device.woke` | `device.woke` | `device-woke` | `device.woke` | 3088 |
-| `device.syncing` | `syncing` | `idle` | `device.syncing` | 3454 |
-| `device.not-charging` | `not-charging` | `idle` | `device.not-charging` | 3476 |
-| `device.low.threshold` | `low / threshold` | `idle` | `device.low` | 3569 |
+| `device.offline` | `device.offline` | `idle` | `device.offline` | 2954 |
+| `device.unsupported` | `device.unsupported` | `idle` | `device.unsupported` | 2976 |
+| `device.error` | `device.error` | `idle` | `device.error` | 2998 |
+| `device.stale` | `device.stale` | `idle` | `device.stale` | 3020 |
+| `device.permission-needed` | `device.permission-needed` | `idle` | `device.permission-needed` | 3042 |
+| `device.woke` | `device.woke` | `device-woke` | `device.woke` | 3064 |
+| `device.syncing` | `syncing` | `idle` | `device.syncing` | 3430 |
+| `device.not-charging` | `not-charging` | `idle` | `device.not-charging` | 3452 |
+| `device.low.threshold` | `low / threshold` | `idle` | `device.low` | 3545 |
 
 ### 캐릭터 교감
 
@@ -268,14 +270,14 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
-| `interaction.snacks` | `snacks` | `idle` | `interaction.snacks` | 858 |
-| `interaction.empty` | `empty` | `idle` | `interaction.empty` | 881 |
+| `interaction.snacks` | `snacks` | `idle` | `interaction.snacks` | 859 |
+| `interaction.empty` | `empty` | `idle` | `interaction.empty` | 882 |
 | `interaction.stroke` | `stroke` | `interaction.touch` | `interaction.stroke` | 2226 |
 | `interaction.poke` | `poke` | `interaction.touch` | `interaction.poke` | 2250 |
 | `interaction.snack` | `snack` | `interaction.touch` | `interaction.snack` | 2274 |
-| `interaction.stroke.target-b` | `stroke / target B` | `interaction.touch` | `interaction.stroke` | 3810 |
-| `interaction.poke.target-b` | `poke / target B` | `interaction.touch` | `interaction.poke` | 3834 |
-| `interaction.snack.target-b` | `snack / target B` | `interaction.touch` | `interaction.snack` | 3858 |
+| `interaction.stroke.target-b` | `stroke / target B` | `interaction.touch` | `interaction.stroke` | 3786 |
+| `interaction.poke.target-b` | `poke / target B` | `interaction.touch` | `interaction.poke` | 3810 |
+| `interaction.snack.target-b` | `snack / target B` | `interaction.touch` | `interaction.snack` | 3834 |
 
 ### 공
 
@@ -283,9 +285,9 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
-| `ball.still` | `still` | `idle` | `ball.still` | 904 |
-| `ball.moving` | `moving` | `idle` | `ball.moving` | 927 |
-| `ball.stopped` | `stopped` | `ball.stopped` | `ball.stopped` | 950 |
+| `ball.still` | `still` | `idle` | `ball.still` | 905 |
+| `ball.moving` | `moving` | `idle` | `ball.moving` | 928 |
+| `ball.stopped` | `stopped` | `ball.stopped` | `ball.stopped` | 951 |
 
 ### 종이비행기
 
@@ -293,9 +295,9 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
-| `plane.ready` | `ready` | `idle` | `plane.ready` | 973 |
-| `plane.flying` | `flying` | `idle` | `plane.flying` | 996 |
-| `plane.landed` | `landed` | `paper-plane.landed` | `plane.landed` | 1019 |
+| `plane.ready` | `ready` | `idle` | `plane.ready` | 974 |
+| `plane.flying` | `flying` | `idle` | `plane.flying` | 997 |
+| `plane.landed` | `landed` | `paper-plane.landed` | `plane.landed` | 1020 |
 
 ### 비눗방울
 
@@ -305,7 +307,6 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 | --- | --- | --- | --- | ---: |
 | `bubbles.empty` | `empty` | `idle` | `bubbles.empty` | 1043 |
 | `bubbles.floating` | `floating` | `idle` | `bubbles.floating` | 1066 |
-| `bubbles.streak` | `streak` | `bubbles.streak` | `bubbles.streak` | 2298 |
 
 ### 작은 승부
 
@@ -322,10 +323,10 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 | `match.winner-character` | `winner-character` | `small-match.result` | `match.winner-character` | 1227 |
 | `match.correct` | `correct` | `small-match.result` | `match.correct` | 1250 |
 | `match.miss` | `miss` | `small-match.result` | `match.miss` | 1273 |
-| `match.played.dice` | `played / dice` | `idle` | `match.played` | 2538 |
-| `match.played.coin` | `played / coin` | `idle` | `match.played` | 2562 |
-| `match.played.rps` | `played / rps` | `idle` | `match.played` | 2586 |
-| `match.new.initial` | `new / initial` | `idle` | `match.new` | 3711 |
+| `match.played.dice` | `played / dice` | `idle` | `match.played` | 2514 |
+| `match.played.coin` | `played / coin` | `idle` | `match.played` | 2538 |
+| `match.played.rps` | `played / rps` | `idle` | `match.played` | 2562 |
+| `match.new.initial` | `new / initial` | `idle` | `match.new` | 3687 |
 
 ### 맞히기 놀이
 
@@ -342,7 +343,7 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 | `guessing.higher` | `higher` | `guessing.attempt` | `guessing.higher` | 1437 |
 | `guessing.lower` | `lower` | `guessing.attempt` | `guessing.lower` | 1460 |
 | `guessing.between-rounds` | `between-rounds` | `idle` | `guessing.between-rounds` | 2202 |
-| `guessing.idle.initial-cups` | `idle / initial-cups` | `idle` | `guessing.idle` | 3686 |
+| `guessing.idle.initial-cups` | `idle / initial-cups` | `idle` | `guessing.idle` | 3662 |
 
 ### 낚시
 
@@ -355,9 +356,9 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 | `fishing.bite` | `bite` | `idle` | `fishing.bite` | 1529 |
 | `fishing.bite-event` | `bite-event` | `fishing.bite` | `fishing.bite-event` | 1552 |
 | `fishing.missed` | `missed` | `fishing.missed` | `fishing.missed` | 1575 |
-| `fishing.caught.fish` | `successful catch / fish` | `item-acquired` | `fishing.caught` | 3735 |
-| `fishing.caught.sock` | `successful catch / sock` | `item-acquired` | `fishing.caught` | 3760 |
-| `fishing.caught.stone` | `successful catch / stone` | `item-acquired` | `fishing.caught` | 3785 |
+| `fishing.caught.fish` | `successful catch / fish` | `item-acquired` | `fishing.caught` | 3711 |
+| `fishing.caught.sock` | `successful catch / sock` | `item-acquired` | `fishing.caught` | 3736 |
+| `fishing.caught.stone` | `successful catch / stone` | `item-acquired` | `fishing.caught` | 3761 |
 
 ### 장난 운세
 
@@ -379,14 +380,14 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 | `plant.watered` | `watered` | `idle` | `plant.watered` | 1692 |
 | `plant.grown` | `grown` | `idle` | `plant.grown` | 1716 |
 | `plant.growth` | `growth` | `plant.growth` | `plant.growth` | 1739 |
-| `plant.dry.stage-0` | `dry / stage 0` | `idle` | `plant.dry` | 2610 |
-| `plant.dry.stage-1` | `dry / stage 1` | `idle` | `plant.dry` | 2634 |
-| `plant.dry.stage-2` | `dry / stage 2` | `idle` | `plant.dry` | 2658 |
-| `plant.watered.stage-0` | `watered / stage 0` | `idle` | `plant.watered` | 2682 |
-| `plant.watered.stage-1` | `watered / stage 1` | `idle` | `plant.watered` | 2706 |
-| `plant.watered.stage-2` | `watered / stage 2` | `idle` | `plant.watered` | 2730 |
-| `plant.grown.watered` | `grown / watered` | `idle` | `plant.grown` | 3594 |
-| `plant.grown.dry` | `grown / dry` | `idle` | `plant.grown` | 3618 |
+| `plant.dry.stage-0` | `dry / stage 0` | `idle` | `plant.dry` | 2586 |
+| `plant.dry.stage-1` | `dry / stage 1` | `idle` | `plant.dry` | 2610 |
+| `plant.dry.stage-2` | `dry / stage 2` | `idle` | `plant.dry` | 2634 |
+| `plant.watered.stage-0` | `watered / stage 0` | `idle` | `plant.watered` | 2658 |
+| `plant.watered.stage-1` | `watered / stage 1` | `idle` | `plant.watered` | 2682 |
+| `plant.watered.stage-2` | `watered / stage 2` | `idle` | `plant.watered` | 2706 |
+| `plant.grown.watered` | `grown / watered` | `idle` | `plant.grown` | 3570 |
+| `plant.grown.dry` | `grown / dry` | `idle` | `plant.grown` | 3594 |
 
 ### 작은 펫
 
@@ -424,8 +425,8 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
-| `situation.quiet-focus` | `situation.quiet-focus` | `idle` | `situation.quiet-focus` | 3112 |
-| `situation.little-shelf` | `situation.little-shelf` | `idle` | `situation.little-shelf` | 3139 |
+| `situation.quiet-focus` | `situation.quiet-focus` | `idle` | `situation.quiet-focus` | 3088 |
+| `situation.little-shelf` | `situation.little-shelf` | `idle` | `situation.little-shelf` | 3115 |
 
 ### 나디르·별꼬리 조합
 
@@ -433,8 +434,8 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
-| `pair.quiet-focus` | `pair.quiet-focus` | `idle` | `pair.quiet-focus` | 3165 |
-| `pair.little-shelf` | `pair.little-shelf` | `idle` | `pair.little-shelf` | 3191 |
+| `pair.quiet-focus` | `pair.quiet-focus` | `idle` | `pair.quiet-focus` | 3141 |
+| `pair.little-shelf` | `pair.little-shelf` | `idle` | `pair.little-shelf` | 3167 |
 
 ### 위젯 없이 동작하는 시간·날씨
 
@@ -446,20 +447,20 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 | case ID | 상태 분기 | trigger | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | ---: |
-| `time.morning` | `morning` | `idle` | `time.morning` | 3882 |
-| `time.afternoon` | `afternoon` | `idle` | `time.afternoon` | 3899 |
-| `time.evening` | `evening` | `idle` | `time.evening` | 3916 |
-| `time.night` | `night` | `idle` | `time.night` | 3933 |
-| `base-weather.unknown` | `unknown` | `idle` | `base-weather.unknown` | 3950 |
-| `base-weather.freezing` | `freezing` | `idle` | `base-weather.freezing` | 3967 |
-| `base-weather.mild` | `mild` | `idle` | `base-weather.mild` | 3985 |
-| `base-weather.hot` | `hot` | `idle` | `base-weather.hot` | 4004 |
-| `base-weather.fog` | `fog` | `idle` | `base-weather.fog` | 4023 |
-| `base-weather.rain` | `rain` | `idle` | `base-weather.rain` | 4042 |
-| `base-weather.snow` | `snow` | `idle` | `base-weather.snow` | 4061 |
-| `base-weather.showers` | `showers` | `idle` | `base-weather.showers` | 4080 |
-| `base-weather.storm` | `storm` | `idle` | `base-weather.storm` | 4099 |
-| `base-weather.unclassified` | `unclassified` | `idle` | `base-weather.unclassified` | 4118 |
+| `time.morning` | `morning` | `idle` | `time.morning` | 3858 |
+| `time.afternoon` | `afternoon` | `idle` | `time.afternoon` | 3875 |
+| `time.evening` | `evening` | `idle` | `time.evening` | 3892 |
+| `time.night` | `night` | `idle` | `time.night` | 3909 |
+| `base-weather.unknown` | `unknown` | `idle` | `base-weather.unknown` | 3926 |
+| `base-weather.freezing` | `freezing` | `idle` | `base-weather.freezing` | 3943 |
+| `base-weather.mild` | `mild` | `idle` | `base-weather.mild` | 3961 |
+| `base-weather.hot` | `hot` | `idle` | `base-weather.hot` | 3980 |
+| `base-weather.fog` | `fog` | `idle` | `base-weather.fog` | 3999 |
+| `base-weather.rain` | `rain` | `idle` | `base-weather.rain` | 4018 |
+| `base-weather.snow` | `snow` | `idle` | `base-weather.snow` | 4037 |
+| `base-weather.showers` | `showers` | `idle` | `base-weather.showers` | 4056 |
+| `base-weather.storm` | `storm` | `idle` | `base-weather.storm` | 4075 |
+| `base-weather.unclassified` | `unclassified` | `idle` | `base-weather.unclassified` | 4094 |
 
 ## 억제·잘못된 입력 사례
 
@@ -467,13 +468,13 @@ DB 경로 테스트는 임시 저장소에 실제 위젯을 설치하고 `storag
 
 | case ID | 상태 분기 | trigger | 대사 파일 | 기대 장면 | JSON 행 |
 | --- | --- | --- | --- | --- | ---: |
-| `negative.incomplete-context` | `missing source identity and core environment` | `idle` | `talk/index.talk` | 선택 없음 | 3216 |
-| `negative.disabled-todo` | `disabled with old values` | `idle` | `talk/widgets/todo.talk` | 선택 없음 | 3229 |
-| `negative.null-weather` | `ready with absent temperature and code` | `idle` | `talk/widgets/weather.talk` | 선택 없음 | 3250 |
-| `negative.stale-values` | `stale observation cannot produce playback claim` | `idle` | `talk/widgets/music.talk` | `music.stale` | 3274 |
-| `negative.event-mismatch` | `wrong event cannot play result` | `idle` | `talk/widgets/guessing.talk` | 선택 없음 | 3298 |
-| `negative.unknown-result` | `absent structured result` | `small-match.result` | `talk/widgets/small-match.talk` | 선택 없음 | 3320 |
-| `negative.empty-preparation` | `empty envelope is not a completed checklist` | `idle` | `talk/widgets/preparation.talk` | `preparation.no-checks` | 3342 |
+| `negative.incomplete-context` | `missing source identity and core environment` | `idle` | `talk/index.talk` | 선택 없음 | 3192 |
+| `negative.disabled-todo` | `disabled with old values` | `idle` | `talk/widgets/todo.talk` | 선택 없음 | 3205 |
+| `negative.null-weather` | `ready with absent temperature and code` | `idle` | `talk/widgets/weather.talk` | 선택 없음 | 3226 |
+| `negative.stale-values` | `stale observation cannot produce playback claim` | `idle` | `talk/widgets/music.talk` | `music.stale` | 3250 |
+| `negative.event-mismatch` | `wrong event cannot play result` | `idle` | `talk/widgets/guessing.talk` | 선택 없음 | 3274 |
+| `negative.unknown-result` | `absent structured result` | `small-match.result` | `talk/widgets/small-match.talk` | 선택 없음 | 3296 |
+| `negative.empty-preparation` | `empty envelope is not a completed checklist` | `idle` | `talk/widgets/preparation.talk` | `preparation.no-checks` | 3318 |
 
 `negative.incomplete-context`는 `values: {}`인 불완전 context이며 나디르·별꼬리 source identity와 core 환경값도 없다. 이 사례의 선택 없음은 실제 앱에서 위젯 없이 대화가 안 나온다는 뜻이 아니다. 실제 기본 대본의 위젯 독립성은 위의 시간·날씨 14개 양성 사례로 구분해 확인한다.
 

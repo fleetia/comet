@@ -369,6 +369,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            super::autostart::get_autostart_enabled,
+            super::autostart::set_autostart_enabled,
             crate::character_gestures::get_character_gesture_settings,
             crate::character_gestures::begin_character_drag,
             crate::character_reaction_host::trigger_character_reaction,
