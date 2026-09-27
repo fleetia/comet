@@ -304,6 +304,8 @@ pub struct Snapshot {
     pub local_models: Vec<LocalModelStatus>,
     pub playback: Option<Playback>,
     pub panel: Option<PanelState>,
+    #[serde(default)]
+    pub conversation: Option<crate::store::ConversationView>,
     pub wordbook: Vec<WordbookEntry>,
     #[serde(default, skip_deserializing)]
     pub story: Option<crate::story::Request>,

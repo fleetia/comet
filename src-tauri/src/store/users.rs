@@ -128,6 +128,7 @@ pub fn set_user_name(conn: &Connection, name: &str, at: i64) -> Result<bool> {
         if current.name == name {
             return Ok(false);
         }
+        super::pause_conversations(&tx)?;
         tx.execute(
             "UPDATE user_identities SET ended_at=?2 WHERE id=?1 AND ended_at IS NULL",
             params![current.id, at],

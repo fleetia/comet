@@ -183,6 +183,24 @@ export type Message = {
   createdAt: number;
   status: string;
 };
+export type ConversationSession = {
+  id: string;
+  userId: string;
+  participants: string[];
+  status: "active" | "paused" | "ended";
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  draft: string;
+  continuedFrom: string | null;
+};
+export type ConversationMessages = {
+  messages: Message[];
+  nextBefore: number | null;
+  characterNames?: Record<string, string>;
+  userNames?: Record<string, string>;
+};
+export type ConversationView = ConversationMessages & { session: ConversationSession };
 export type UserIdentity = { id: string; name: string; startedAt: number; endedAt: number | null };
 export type CharacterExportOptions = {
   includeSprites: boolean;
@@ -279,6 +297,7 @@ export type Snapshot = {
   playback: Playback | null;
   story: StoryRequest | null;
   panel: PanelState | null;
+  conversation?: ConversationView | null;
   wordbook: WordbookEntry[];
   messages: Message[];
   memoryCount: number;

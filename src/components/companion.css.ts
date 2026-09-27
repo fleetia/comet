@@ -133,6 +133,13 @@ export const balloonHeader = style({
   flexShrink: 0,
   borderBottom: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
 });
+globalStyle(`${balloonHeader} > span`, {
+  minWidth: 0,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+});
+globalStyle(`${balloonHeader} > button`, { flexShrink: 0 });
 export const speech = style({
   maxHeight: 400,
   padding: "8px 32px 8px 12px",
@@ -146,6 +153,84 @@ export const speech = style({
   minHeight: 0,
 });
 export const speechText = style({ display: "block", position: "relative" });
+export const replySpeech = style({
+  display: "block",
+  width: "100%",
+  padding: 0,
+  border: 0,
+  background: "transparent",
+  color: "inherit",
+  font: "inherit",
+  letterSpacing: "inherit",
+  lineHeight: "inherit",
+  whiteSpace: "pre-wrap",
+  textAlign: "left",
+  cursor: "pointer",
+  ":focus-visible": { outline: `2px solid ${vars.color.interaction.focus}`, outlineOffset: 2 },
+});
+export const conversationSpeech = style([
+  speech,
+  { padding: "10px 14px", maxHeight: 150, flex: "1 1 auto", minHeight: 38 },
+]);
+export const conversationDetails = style({
+  margin: "0 14px",
+  maxHeight: 160,
+  minHeight: 26,
+  flexShrink: 1,
+  overflowY: "auto",
+  fontSize: 11,
+  borderBottom: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
+});
+export const conversationSummary = style({
+  padding: "6px 0",
+  cursor: "pointer",
+  color: vars.color.content.secondary,
+});
+export const conversationLog = style({
+  overflowY: "auto",
+  minHeight: 0,
+  maxHeight: 360,
+  flex: "1 1 auto",
+  padding: "0 14px 8px",
+});
+globalStyle(`${conversationDetails} ${conversationLog}`, {
+  padding: "0 0 8px",
+  overflow: "visible",
+  maxHeight: "none",
+});
+export const historyToolbar = style({
+  display: "flex",
+  justifyContent: "space-between",
+  padding: "6px 12px",
+  gap: 4,
+  flexShrink: 0,
+});
+export const conversationTitle = style({
+  margin: "4px 14px",
+  fontSize: 12,
+  overflowWrap: "anywhere",
+});
+export const conversationMeta = style({
+  margin: "3px 0",
+  fontSize: 10,
+  color: vars.color.content.secondary,
+});
+export const conversationItem = style({
+  width: "100%",
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+  padding: "12px 0",
+  background: "transparent",
+  border: 0,
+  borderBottom: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
+  textAlign: "left",
+  color: vars.color.content.primary,
+  fontSize: 12,
+  overflowWrap: "anywhere",
+  cursor: "pointer",
+  ":focus-visible": { outline: `2px solid ${vars.color.interaction.focus}`, outlineOffset: -2 },
+});
 export const speechReveal = style({ position: "absolute", inset: 0 });
 const waitingPulse = keyframes({
   "0%, 80%, 100%": { opacity: 0.3 },
@@ -209,7 +294,7 @@ export const form = style({
   display: "flex",
   flexDirection: "column",
   gap: 10,
-  flex: 1,
+  flex: "0 0 auto",
   minHeight: 0,
   overflowY: "auto",
 });
@@ -221,6 +306,7 @@ export const row = style({
   justifyContent: "space-between",
   alignItems: "center",
 });
+export const recipientRow = style([row, { flexWrap: "wrap", gap: 4 }]);
 export const history = style({
   maxHeight: 360,
   padding: "8px 15px 16px",

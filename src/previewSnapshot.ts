@@ -24,6 +24,7 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
   playback: null,
   story: null,
   panel: null,
+  conversation: null,
   wordbook: [],
   settings: {
     mode: "local",

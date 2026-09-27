@@ -93,7 +93,7 @@ describe("message composer", () => {
     const input = compose();
     fireEvent.keyDown(input, { key: "Enter" });
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(command).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(command).toHaveBeenCalledTimes(1));
     rejectRequest(new Error("연결에 실패했어요"));
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "연결에 실패했어요");
     expect(input.value).toBe("안녕하세요");
@@ -269,6 +269,7 @@ it("prioritizes the input panel over playback and keeps shared history chronolog
       }}
     />,
   );
+  fireEvent.click(screen.getByRole("button", { name: "이전 기록" }));
   expect(
     screen.getByText("먼저").compareDocumentPosition(screen.getByText("나중")) &
       Node.DOCUMENT_POSITION_FOLLOWING,

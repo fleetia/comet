@@ -48,7 +48,19 @@ pub(crate) fn cancel_generation(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    skip_talk(app, state)
+    let epoch = {
+        let _action = lock(&state.action)?;
+        interrupt(&state, false)?.0
+    };
+    phase(
+        &app,
+        &state,
+        epoch,
+        crate::types::RuntimePhase::Idle,
+        None,
+        None,
+    );
+    Ok(())
 }
 
 #[tauri::command]
@@ -68,11 +80,25 @@ pub(crate) fn open_panel(
         if unavailable(&state) {
             return Ok(());
         }
+        let db = lock(&state.db)?;
+        if mode == "input" && store::current_user(&db)?.is_some() {
+            let id = characters::active_character(&db, &persona)?.id;
+            store::create_conversation(
+                &db,
+                &[id],
+                None,
+                None,
+                chrono::Utc::now().timestamp_millis(),
+            )?;
+        } else {
+            store::pause_conversations(&db)?;
+        }
         let token = interrupt(&state, false)?;
         *lock(&state.panel)? = Some(PanelState { persona, mode });
         state.last_input.store(now(), Ordering::SeqCst);
         token
     };
+    desktop::request_balloon_focus(&app)?;
     phase(
         &app,
         &state,
@@ -89,15 +115,32 @@ pub(crate) fn open_panel(
 pub(crate) fn close_panel(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
+    session_id: Option<String>,
 ) -> Result<(), String> {
-    {
+    let epoch = {
         let _action = lock(&state.action)?;
+        let db = lock(&state.db)?;
+        if let Some(id) = session_id {
+            if store::active_conversation(&db)?.is_none_or(|session| session.id != id) {
+                return Ok(());
+            }
+        }
+        store::pause_conversations(&db)?;
+        let epoch = interrupt(&state, false)?.0;
         *lock(&state.panel)? = None;
         state.last_input.store(now(), Ordering::SeqCst);
-        let settings = store::settings(&*lock(&state.db)?)?;
+        let settings = store::settings(&db)?;
         schedule_idle(&state, settings.idle_minutes);
-    }
-    publish(&app, &state);
+        epoch
+    };
+    phase(
+        &app,
+        &state,
+        epoch,
+        crate::types::RuntimePhase::Idle,
+        None,
+        None,
+    );
     Ok(())
 }
 
@@ -108,6 +151,7 @@ pub(crate) fn skip_talk(
 ) -> Result<(), String> {
     let (epoch, _) = {
         let _action = lock(&state.action)?;
+        store::pause_conversations(&*lock(&state.db)?)?;
         let token = interrupt(&state, false)?;
         *lock(&state.panel)? = None;
         let settings = store::settings(&*lock(&state.db)?)?;
@@ -145,6 +189,7 @@ pub(crate) fn talk_now(
         if unavailable(&state) {
             return Ok(());
         }
+        store::pause_conversations(&*lock(&state.db)?)?;
         let token = super::tasks::reserve(&state, super::tasks::Kind::Scene, false)?;
         *lock(&state.panel)? = None;
         state.last_input.store(now(), Ordering::SeqCst);
@@ -228,6 +273,7 @@ pub(crate) async fn hide_boxes(
         let mut preferences = behavior::preferences(&db)?;
         preferences.characters_visible = false;
         behavior::save(&db, &preferences)?;
+        store::pause_conversations(&db)?;
         drop(db);
         lock(&state.runtime)?.hidden = true;
         *lock(&state.panel)? = None;

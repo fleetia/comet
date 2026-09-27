@@ -1,5 +1,7 @@
 #[path = "store/analysis.rs"]
 mod analysis;
+#[path = "store/conversations.rs"]
+mod conversations;
 #[path = "store/memory.rs"]
 mod memory;
 #[path = "store/messages.rs"]
@@ -14,6 +16,13 @@ pub use analysis::set_last_analysis_id;
 pub use analysis::{
     analysis_failure, analysis_status, defer_analysis, pending_user_messages,
     retry_deferred_analysis, AnalysisStatus,
+};
+pub use conversations::{
+    active_conversation, attach_conversation_message, conversation, conversation_context,
+    conversation_for_message, conversation_message_allowed, conversation_messages,
+    conversation_view, conversations, create_conversation, pause_conversations,
+    record_conversation_disclosure, save_conversation_draft, set_conversation_participants,
+    set_conversation_status, ConversationMessages, ConversationSession, ConversationView,
 };
 #[cfg(test)]
 pub use memory::analyze_apply;
@@ -83,6 +92,7 @@ INSERT OR IGNORE INTO kv VALUES('revision','0');").map_err(err)?;
     search::initialize(&conn)?;
     analysis::initialize(&conn)?;
     users::initialize(&conn)?;
+    conversations::initialize_conversations(&conn)?;
     crate::widgets::storage::initialize(&conn)?;
     Ok(conn)
 }

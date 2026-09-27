@@ -516,6 +516,7 @@ struct BalloonTarget {
     key: String,
     owner: String,
     epoch: u64,
+    input: bool,
 }
 
 fn balloon_target(
@@ -528,7 +529,12 @@ fn balloon_target(
 ) -> Option<BalloonTarget> {
     let owner = owner_id(runtime, panel, story, playback, active)?.to_owned();
     let key = if let Some(panel) = panel {
-        format!("panel:{}:{}", panel.persona, panel.mode)
+        let base = format!("panel:{}:{}", panel.persona, panel.mode);
+        if let Some(line) = playback.filter(|_| panel.mode == "input") {
+            format!("{base}:playback:{}", line.id)
+        } else {
+            base
+        }
     } else if let Some(story) = story {
         format!("story:{}", story.id)
     } else if let Some(playback) = playback {
@@ -540,13 +546,20 @@ fn balloon_target(
             runtime.persona.as_deref().unwrap_or_default()
         )
     };
-    Some(BalloonTarget { key, owner, epoch })
+    Some(BalloonTarget {
+        key,
+        owner,
+        epoch,
+        input: panel.is_some_and(|panel| panel.mode == "input"),
+    })
 }
 
 #[derive(Default)]
 struct BalloonLayout {
     target: Option<BalloonTarget>,
     size: Option<(f64, f64)>,
+    focus_requested: bool,
+    keep_visible_during_measurement: bool,
 }
 
 impl BalloonLayout {
@@ -559,10 +572,25 @@ impl BalloonLayout {
                     previous.key == current.key && previous.owner == current.owner
                 });
         if !same_content {
+            self.keep_visible_during_measurement = !self.focus_requested
+                && (self.size.is_some() || self.keep_visible_during_measurement)
+                && self.target.as_ref().is_some_and(|previous| previous.input)
+                && target.as_ref().is_some_and(|current| current.input);
             self.size = None;
+        }
+        if target.is_none() {
+            self.focus_requested = false;
+            self.keep_visible_during_measurement = false;
         }
         self.target = target;
         self.size
+    }
+
+    fn take_focus_request(&mut self) -> bool {
+        if self.target.is_none() || self.size.is_none() {
+            return false;
+        }
+        std::mem::take(&mut self.focus_requested)
     }
 
     fn measured(&mut self, target: BalloonTarget, key: &str, size: (f64, f64)) -> bool {
@@ -571,6 +599,7 @@ impl BalloonLayout {
         }
         self.sync(Some(target));
         self.size = Some(size);
+        self.keep_visible_during_measurement = false;
         true
     }
 }
@@ -580,6 +609,11 @@ fn balloon_layout(app: &AppHandle) -> tauri::State<'_, Mutex<BalloonLayout>> {
         app.manage(Mutex::new(BalloonLayout::default()));
     }
     app.state::<Mutex<BalloonLayout>>()
+}
+
+pub(crate) fn request_balloon_focus(app: &AppHandle) -> Result<(), String> {
+    super::lock(&balloon_layout(app))?.focus_requested = true;
+    Ok(())
 }
 
 fn measured_balloon_size(width: f64, height: f64) -> Result<(f64, f64), String> {
@@ -682,17 +716,22 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
             state.epoch.load(Ordering::SeqCst),
         )
     };
-    let focus_panel = panel.is_some();
     drop((runtime, panel));
     let layout = balloon_layout(app);
     let Ok(mut layout) = layout.try_lock() else {
         return Ok(false);
     };
     let size = layout.sync(target.clone());
-    drop(layout);
     let Some(window) = app.get_webview_window("balloon") else {
         return Ok(true);
     };
+    if target.is_some()
+        && size.is_none()
+        && layout.keep_visible_during_measurement
+        && window.is_visible().unwrap_or(false)
+    {
+        return Ok(true);
+    }
     let (Some(target), Some(size)) = (target, size) else {
         window.hide().map_err(|error| error.to_string())?;
         #[cfg(target_os = "windows")]
@@ -706,7 +745,6 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
         }
         return Ok(true);
     };
-    let was_visible = window.is_visible().unwrap_or(false);
     position_balloon(app, &window, &target.owner, size)?;
     #[cfg(target_os = "macos")]
     {
@@ -729,13 +767,18 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     window.show().map_err(|error| error.to_string())?;
-    if focus_panel && !was_visible {
+    if layout.take_focus_request() {
         window.set_focus().map_err(|error| error.to_string())?;
     }
+    drop(layout);
     let mut first_display = false;
     let mut displayed_message = None;
     if let Some(line) = playback.as_mut() {
-        if target.key == format!("playback:{}", line.id) {
+        if target.key == format!("playback:{}", line.id)
+            || target
+                .key
+                .ends_with(&format!(":input:playback:{}", line.id))
+        {
             first_display =
                 crate::app::scene::mark_line_displayed(line, chrono::Utc::now().timestamp_millis());
             if first_display {
@@ -1021,6 +1064,7 @@ mod tests {
             key: "playback:first".into(),
             owner: "one".into(),
             epoch: 1,
+            input: false,
         };
         let second = BalloonTarget {
             key: "playback:second".into(),
@@ -1108,6 +1152,9 @@ mod tests {
             persona: "a".into(),
             mode: "input".into(),
         });
+        assert!(target(&data).unwrap().input);
+        assert_eq!(target(&data).unwrap().key, "panel:a:input:playback:line-1");
+        data.playback = None;
         assert_eq!(target(&data).unwrap().key, "panel:a:input");
         assert_eq!(target(&data).unwrap().owner, id);
         data.runtime.hidden = true;
@@ -1121,6 +1168,7 @@ mod tests {
             key: "panel:a:input".into(),
             owner: "one".into(),
             epoch: 1,
+            input: true,
         };
         assert!(layout.measured(panel.clone(), &panel.key, (320.0, 240.0)));
         let reopened = BalloonTarget { epoch: 2, ..panel };
@@ -1128,6 +1176,130 @@ mod tests {
         assert_eq!(layout.target.as_ref().unwrap().epoch, 2);
         assert_eq!(layout.sync(None), None);
         assert_eq!(layout.sync(Some(reopened)), None);
+    }
+
+    #[test]
+    fn explicit_focus_waits_for_measurement_and_does_not_repeat_for_responses_or_resize() {
+        let mut layout = BalloonLayout::default();
+        let panel = BalloonTarget {
+            key: "panel:a:input".into(),
+            owner: "one".into(),
+            epoch: 1,
+            input: true,
+        };
+        layout.focus_requested = true;
+        assert_eq!(layout.sync(Some(panel.clone())), None);
+        assert!(!layout.take_focus_request());
+        assert!(!layout.measured(panel.clone(), "playback:old", (120.0, 80.0)));
+        assert!(!layout.take_focus_request());
+        assert!(layout.measured(panel.clone(), &panel.key, (320.0, 240.0)));
+        assert!(layout.take_focus_request());
+        assert!(!layout.take_focus_request());
+
+        let response = BalloonTarget {
+            key: "panel:a:input:playback:reply".into(),
+            ..panel
+        };
+        assert_eq!(layout.sync(Some(response.clone())), None);
+        assert!(layout.measured(response.clone(), &response.key, (320.0, 300.0)));
+        assert!(!layout.take_focus_request());
+        assert!(layout.measured(response.clone(), &response.key, (320.0, 400.0)));
+        assert!(!layout.take_focus_request());
+    }
+
+    #[test]
+    fn explicit_reopen_focuses_visible_panel_and_closing_cancels_pending_focus() {
+        let mut layout = BalloonLayout::default();
+        let panel = BalloonTarget {
+            key: "panel:a:input".into(),
+            owner: "one".into(),
+            epoch: 1,
+            input: true,
+        };
+        assert!(layout.measured(panel.clone(), &panel.key, (320.0, 240.0)));
+        assert!(!layout.take_focus_request());
+        layout.focus_requested = true;
+        let reopened = BalloonTarget { epoch: 2, ..panel };
+        assert_eq!(layout.sync(Some(reopened.clone())), Some((320.0, 240.0)));
+        assert!(layout.take_focus_request());
+
+        layout.focus_requested = true;
+        assert_eq!(layout.sync(None), None);
+        assert!(!layout.take_focus_request());
+        assert!(layout.measured(reopened.clone(), &reopened.key, (320.0, 240.0)));
+        assert!(!layout.take_focus_request());
+    }
+
+    #[test]
+    fn ongoing_input_stays_visible_while_new_reply_and_owner_wait_for_measurement() {
+        let mut layout = BalloonLayout::default();
+        let panel = BalloonTarget {
+            key: "panel:a:input".into(),
+            owner: "one".into(),
+            epoch: 1,
+            input: true,
+        };
+        assert!(layout.measured(panel.clone(), &panel.key, (320.0, 240.0)));
+        let response = BalloonTarget {
+            key: "panel:a:input:playback:reply".into(),
+            owner: "two".into(),
+            ..panel.clone()
+        };
+        assert_eq!(layout.sync(Some(response.clone())), None);
+        assert!(layout.keep_visible_during_measurement);
+        assert_eq!(layout.sync(Some(response.clone())), None);
+        assert!(layout.keep_visible_during_measurement);
+        assert!(!layout.measured(response.clone(), &panel.key, (320.0, 240.0)));
+        assert!(layout.keep_visible_during_measurement);
+        assert!(!layout.take_focus_request());
+
+        let next_response = BalloonTarget {
+            key: "panel:a:input:playback:next".into(),
+            ..response
+        };
+        assert_eq!(layout.sync(Some(next_response.clone())), None);
+        assert!(layout.keep_visible_during_measurement);
+        assert!(layout.measured(next_response.clone(), &next_response.key, (320.0, 300.0)));
+        assert!(!layout.keep_visible_during_measurement);
+        assert_eq!(layout.sync(Some(next_response)), Some((320.0, 300.0)));
+    }
+
+    #[test]
+    fn new_input_close_and_other_targets_do_not_keep_unmeasured_panel_visible() {
+        let mut layout = BalloonLayout::default();
+        let panel = BalloonTarget {
+            key: "panel:a:input".into(),
+            owner: "one".into(),
+            epoch: 1,
+            input: true,
+        };
+        assert_eq!(layout.sync(Some(panel.clone())), None);
+        assert!(!layout.keep_visible_during_measurement);
+        assert!(layout.measured(panel.clone(), &panel.key, (320.0, 240.0)));
+        let response = BalloonTarget {
+            key: "panel:a:input:playback:reply".into(),
+            ..panel.clone()
+        };
+        assert_eq!(layout.sync(Some(response.clone())), None);
+        assert!(layout.keep_visible_during_measurement);
+        assert_eq!(layout.sync(None), None);
+        assert!(!layout.keep_visible_during_measurement);
+        assert_eq!(layout.sync(Some(response.clone())), None);
+        assert!(!layout.keep_visible_during_measurement);
+
+        assert!(layout.measured(response.clone(), &response.key, (320.0, 300.0)));
+        layout.focus_requested = true;
+        assert_eq!(layout.sync(Some(panel.clone())), None);
+        assert!(!layout.keep_visible_during_measurement);
+        assert!(layout.measured(panel.clone(), &panel.key, (320.0, 240.0)));
+        assert!(layout.take_focus_request());
+        let menu = BalloonTarget {
+            key: "panel:a:menu".into(),
+            input: false,
+            ..panel
+        };
+        assert_eq!(layout.sync(Some(menu)), None);
+        assert!(!layout.keep_visible_during_measurement);
     }
 
     #[test]

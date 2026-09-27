@@ -81,6 +81,14 @@ pub(crate) fn present_line(
         line_index,
         line_count,
     });
+    if direct_reply {
+        if let Some(panel) = lock(&state.panel)?
+            .as_mut()
+            .filter(|panel| panel.mode == "input")
+        {
+            panel.persona.clone_from(&line.persona);
+        }
+    }
     let mut runtime = lock(&state.runtime)?;
     runtime.phase = crate::types::RuntimePhase::Playing;
     runtime.persona = Some(line.persona.clone());

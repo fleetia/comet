@@ -1,5 +1,6 @@
 mod autostart;
 mod background;
+mod chat;
 pub(crate) mod conversation;
 mod history;
 pub(crate) mod lifecycle;
@@ -115,6 +116,9 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
         runtime: lock(&state.runtime)?.clone(),
         playback: lock(&state.playback)?.clone(),
         panel: lock(&state.panel)?.clone(),
+        conversation: store::active_conversation(&db)?
+            .map(|session| store::conversation_view(&db, &session.id))
+            .transpose()?,
         story: lock(&state.story)?.clone(),
         wordbook: wordbook::entries(&db)?,
         characters: characters::collection(&db)?,

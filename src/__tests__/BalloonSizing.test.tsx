@@ -96,7 +96,11 @@ it("waits for fonts and discards a previous content measurement before acknowled
     expect(container.querySelector("section")?.style.visibility).toBe("hidden");
     rerender(<Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "b", mode: "menu" } }} />);
     await act(async () => fontsReady());
-    await waitFor(() => expect(command).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(
+        vi.mocked(command).mock.calls.filter(([name]) => name === "resize_balloon"),
+      ).toHaveLength(1),
+    );
     expect(command).toHaveBeenCalledWith("resize_balloon", {
       width: 140,
       height: 48,

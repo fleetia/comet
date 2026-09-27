@@ -311,6 +311,7 @@ it("renders installed names and custom expressions while keeping historical spea
       }}
     />,
   );
+  fireEvent.click(screen.getByRole("button", { name: "이전 기록" }));
   expect(screen.getByText("예전 친구")).toBeTruthy();
   rerender(<Balloon snapshot={{ ...custom, panel: { persona: "a", mode: "menu" } }} />);
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 관리" }));

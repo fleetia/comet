@@ -77,6 +77,7 @@ pub(crate) async fn send_message(
     content: String,
     target: String,
     client_message_id: String,
+    session_id: Option<String>,
 ) -> Result<(), String> {
     let content = content.trim();
     if content.is_empty() || content.chars().count() > 2000 {
@@ -94,7 +95,8 @@ pub(crate) async fn send_message(
             return Err("설정의 사용자에서 이름을 먼저 입력해 주세요.".into());
         }
         let settings = store::settings(&db)?;
-        let targets = resolve_targets(&db, &target)?;
+        let active_session = store::active_conversation(&db)?;
+        let targets = session_targets(&db, &target, active_session.as_ref())?;
         let exists: bool = db
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM messages WHERE id=?1)",
@@ -105,12 +107,32 @@ pub(crate) async fn send_message(
         if exists {
             return Ok(());
         }
+        let session = match active_session {
+            Some(session) => session,
+            None if session_id.is_none() => store::create_conversation(
+                &db,
+                &targets,
+                None,
+                None,
+                chrono::Utc::now().timestamp_millis(),
+            )?,
+            None => return Err("대화가 접혔어요. 이어하기로 다시 열어 주세요.".into()),
+        };
+        if session_id.as_ref().is_some_and(|id| *id != session.id) {
+            return Err("현재 대화가 바뀌었어요. 입력한 내용을 확인해 주세요.".into());
+        }
+        if session.participants != targets {
+            store::set_conversation_participants(&db, &session.id, &targets)?;
+        }
         let registered = record_input_and_route(&state, &db, content, &target, &client_message_id);
         let token = super::tasks::reserve(&state, super::tasks::Kind::Conversation, false)?;
         if registered.is_err() {
             lock(&state.tasks)?.active = None;
         }
-        *lock(&state.panel)? = None;
+        *lock(&state.panel)? = Some(PanelState {
+            persona: targets[0].clone(),
+            mode: "input".into(),
+        });
         state.last_input.store(now(), Ordering::SeqCst);
         schedule_idle(&state, settings.idle_minutes);
         (token, registered, targets)
@@ -164,7 +186,11 @@ pub(crate) fn retry_turn(
         }
         let db = lock(&state.db)?;
         ensure_current_user_message(&db, &message_id)?;
-        let history = store::messages(&db, 100)?;
+        let original_session = store::conversation_for_message(&db, &message_id)?;
+        let history = match &original_session {
+            Some(session) => store::conversation_messages(&db, &session.id, None)?.messages,
+            None => store::messages(&db, 100)?,
+        };
         let latest = history
             .iter()
             .rev()
@@ -174,6 +200,12 @@ pub(crate) fn retry_turn(
             return Err("가장 최근 대화만 다시 요청할 수 있어요.".into());
         }
         ensure_retry_characters(&db, &message_id, &target)?;
+        if let Some(session) = store::conversation_for_message(&db, &message_id)? {
+            let active = store::active_conversation(&db)?;
+            if active.as_ref().is_none_or(|active| active.id != session.id) {
+                return Err("이 대화의 이어하기에서 다시 요청해 주세요.".into());
+            }
+        }
         let registered = route_message(&state, &db, &latest.content)?;
         let original = store::message_targets(&db, &message_id)?;
         let requested = if target == "all" {
@@ -197,7 +229,12 @@ pub(crate) fn retry_turn(
         }
         store::resume_conversation(&db, chrono::Utc::now().timestamp_millis())?;
         let token = super::tasks::reserve(&state, super::tasks::Kind::Conversation, false)?;
-        *lock(&state.panel)? = None;
+        if let Some(session) = store::active_conversation(&db)? {
+            *lock(&state.panel)? = Some(PanelState {
+                persona: session.participants[0].clone(),
+                mode: "input".into(),
+            });
+        }
         state.last_input.store(now(), Ordering::SeqCst);
         schedule_idle(&state, store::settings(&db)?.idle_minutes);
         (targets, token, registered)
@@ -232,7 +269,7 @@ pub(crate) fn ensure_retry_characters(
     message_id: &str,
     target: &str,
 ) -> Result<(), String> {
-    let identities = store::message_identities(db, 100)?;
+    let original = store::message_targets(db, message_id)?;
     let targets = if target == "all" {
         store::message_targets(db, message_id)?
     } else {
@@ -243,10 +280,7 @@ pub(crate) fn ensure_retry_characters(
         if !active.contains(&id) {
             return Err("대화 상대가 바뀌었어요. 새 메시지로 말해 주세요.".into());
         }
-        if !identities
-            .iter()
-            .any(|identity| identity.message_id == message_id && identity.character_id == id)
-        {
+        if !original.contains(&id) {
             return Err("대화 상대가 바뀌었어요. 현재 캐릭터에게 새 메시지로 말해 주세요.".into());
         }
     }
@@ -378,6 +412,20 @@ pub(crate) fn turn_prompt_with_memories(
     prompt_with_history(db, targets, message_id, memories).map(|(prompt, _)| prompt)
 }
 
+fn conversation_history(
+    db: &Connection,
+    persona: &str,
+    message_id: &str,
+) -> Result<Vec<Message>, String> {
+    if let Some(session) = store::conversation_for_message(db, message_id)? {
+        // The explicitly selected dialogue is quoted history, never new canon or user facts.
+        // Storage revalidates identity, deleted evidence and story-source exclusions.
+        store::conversation_context(db, &session.id, persona)
+    } else {
+        story::prompt_history(db, persona, store::context_messages_for(db, 24, persona)?)
+    }
+}
+
 fn prompt_with_history(
     db: &Connection,
     targets: &[String],
@@ -391,8 +439,8 @@ fn prompt_with_history(
     let prompt: Result<Vec<ChatMessage>, String> = match targets {
         [a, b] => {
             let histories = [
-                story::prompt_history(db, a, store::context_messages_for(db, 24, a)?)?,
-                story::prompt_history(db, b, store::context_messages_for(db, 24, b)?)?,
+                conversation_history(db, a, message_id)?,
+                conversation_history(db, b, message_id)?,
             ];
             history_ids.extend(histories.iter().flatten().map(|message| message.id.clone()));
             let latest = histories[0]
@@ -432,18 +480,30 @@ fn prompt_with_history(
         }
         [persona] => {
             let member = characters::active_character(db, persona)?;
-            let mut messages = store::context_messages_for(db, 24, persona)?;
+            let mut messages = conversation_history(db, persona, message_id)?;
+            if !messages
+                .iter()
+                .any(|message| message.id == message_id && message.role == "user")
+            {
+                return Err("대화의 근거가 변경되었어요. 새 메시지로 말해 주세요.".into());
+            }
             // Earlier replies in this same turn are reference data, never the user's words.
             for reply in store::context_messages(db, 100)?.into_iter().filter(|m| {
                 m.role == "assistant"
                     && m.id.starts_with(&format!("reply:{message_id}:"))
                     && m.status == "complete"
             }) {
-                if !messages.iter().any(|m| m.id == reply.id) {
+                if !messages.iter().any(|m| m.id == reply.id)
+                    && store::conversation_message_allowed(db, &reply, persona)?
+                {
                     messages.push(reply);
                 }
             }
-            let messages = story::prompt_history(db, persona, messages)?;
+            let messages = if store::conversation_for_message(db, message_id)?.is_some() {
+                messages
+            } else {
+                story::prompt_history(db, persona, messages)?
+            };
             history_ids.extend(messages.iter().map(|message| message.id.clone()));
             let score = relationships
                 .iter()
@@ -600,4 +660,86 @@ pub(crate) fn resolve_targets(db: &Connection, target: &str) -> Result<Vec<Strin
             .collect();
     }
     Ok(vec![characters::active_character(db, target)?.id])
+}
+
+fn session_targets(
+    db: &Connection,
+    target: &str,
+    session: Option<&store::ConversationSession>,
+) -> Result<Vec<String>, String> {
+    if let Some(session) = session {
+        let started = session.continued_from.is_some()
+            || store::conversation_messages(db, &session.id, None)?
+                .messages
+                .iter()
+                .any(|message| message.role == "user");
+        if started {
+            let requested = if target == "all" {
+                session.participants.clone()
+            } else {
+                resolve_targets(db, target)?
+            };
+            let active = characters::active_ids(db)?;
+            if requested != session.participants || requested.iter().any(|id| !active.contains(id))
+            {
+                return Err(
+                    "이 대화는 처음 함께한 친구들과 이어가요. 다른 친구와는 새로 말 걸어 주세요."
+                        .into(),
+                );
+            }
+            return Ok(requested);
+        }
+    }
+    resolve_targets(db, target)
+}
+
+#[cfg(test)]
+mod session_tests {
+    use super::*;
+
+    #[test]
+    fn resumed_all_uses_original_participants_and_retry_survives_other_history() {
+        let db = store::open(std::path::Path::new(":memory:")).unwrap();
+        let session = store::create_conversation(&db, &["a".into()], None, None, 1).unwrap();
+        let input = Message {
+            id: "original".into(),
+            role: "user".into(),
+            persona: Some("all".into()),
+            content: "이야기 이어 가자".into(),
+            expression: None,
+            created_at: 1,
+            status: "complete".into(),
+        };
+        store::insert_message(&db, &input).unwrap();
+        assert_eq!(
+            session_targets(&db, "all", Some(&session)).unwrap(),
+            vec!["builtin-a"]
+        );
+        assert!(session_targets(&db, "b", Some(&session)).is_err());
+        store::pause_conversations(&db).unwrap();
+        for index in 0..105 {
+            store::insert_message(
+                &db,
+                &Message {
+                    id: format!("elsewhere-{index}"),
+                    ..input.clone()
+                },
+            )
+            .unwrap();
+        }
+        assert!(!store::message_identities(&db, 100)
+            .unwrap()
+            .iter()
+            .any(|identity| identity.message_id == input.id));
+        ensure_retry_characters(&db, &input.id, "all").unwrap();
+        assert!(ensure_retry_characters(&db, &input.id, "b").is_err());
+        store::set_conversation_status(&db, &session.id, "ended", 2).unwrap();
+        let continued =
+            store::create_conversation(&db, &session.participants, None, Some(&session.id), 3)
+                .unwrap();
+        assert_eq!(
+            session_targets(&db, "all", Some(&continued)).unwrap(),
+            session.participants
+        );
+    }
 }

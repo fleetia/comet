@@ -246,6 +246,7 @@ fn mutate_inner<T>(
         || before_targets != referenced_character_names(&tx, &after)?;
     if changed {
         store::bump_revision(&tx)?;
+        store::pause_conversations(&tx)?;
     }
     tx.commit().map_err(|error| error.to_string())?;
     if changed {

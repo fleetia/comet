@@ -234,7 +234,10 @@ pub fn insert_message_with_source(
         )
         .map_err(err)?;
         let targets = if message.role == "user" && message.persona.as_deref() == Some("all") {
-            crate::characters::active_ids(&tx)?
+            match super::active_conversation(&tx)? {
+                Some(session) => session.participants,
+                None => crate::characters::active_ids(&tx)?,
+            }
         } else {
             message_slots(message)
                 .into_iter()
@@ -281,6 +284,14 @@ pub fn insert_message_with_source(
                 "INSERT INTO talk_history(scene_key,shown_at) VALUES(?1,?2) ON CONFLICT(scene_key) DO UPDATE SET shown_at=excluded.shown_at",
                 params![key, message.created_at],
             ).map_err(err)?;
+        }
+        if message.role == "assistant" {
+            super::record_conversation_disclosure(&tx, &message.id)?;
+        }
+        if message.role == "user" || direct_reply {
+            if let Some(session) = super::active_conversation(&tx)? {
+                super::attach_conversation_message(&tx, &session.id, &message.id)?;
+            }
         }
     }
     tx.commit().map_err(err)

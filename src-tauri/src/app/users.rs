@@ -12,6 +12,7 @@ pub(crate) fn change_user(state: &AppState, name: &str) -> Result<(bool, bool), 
     let changed = store::set_user_name(&db, name, chrono::Utc::now().timestamp_millis())?;
     if changed {
         interrupt(state, false)?;
+        *lock(&state.panel)? = None;
         let mut runtime = lock(&state.runtime)?;
         runtime.phase = RuntimePhase::Idle;
         runtime.persona = None;
