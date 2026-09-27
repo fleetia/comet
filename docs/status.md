@@ -27,7 +27,7 @@ macOS에서는 별도 `space.starlight.comet.release-readiness-qa` debug 앱을 
 
 최종 Rust 라이브러리 513개·전체 target strict Clippy, 별도 QA release 앱 빌드·서명 검증을 통과했다. macOS의 실제 동작과 자원 관찰은 위 인수 기록의 빌드별 범위를 따른다. Windows 절전·다중 모니터·음악, Google 실계정 OAuth, 공식 두 OS 업데이트와 전체 모델 의미 품질은 아직 남아 있다.
 
-현재 유지하는 QA 산출물은 `src-tauri/target/release/bundle/macos/Comet Common QA.app`과 같은 빌드의 `/Applications/Comet Common QA.app`이다. 아래 개별 기능 기록의 Autostart·Toy Stats QA 경로는 당시 검증 산출물이며, 이후 정상 실행을 확인한 통합 QA로 교체하고 이전 번들은 휴지통으로 옮겼다. 사용자 설치본·데이터·모델·빌드 캐시는 보존했다.
+이 공통 인수의 QA 산출물은 `src-tauri/target/release/bundle/macos/Comet Common QA.app`과 같은 빌드의 `/Applications/Comet Common QA.app`이었다. 이후 위 릴리스 준비 QA의 정상 실행·재시작을 확인하고 사용이 끝난 Common QA 번들 두 개도 휴지통으로 옮겼다. 현재는 `src-tauri/target/debug/bundle/macos/Comet Release Readiness QA.app`과 같은 빌드의 `/Applications/Comet Release Readiness QA.app`을 유지한다. 아래 개별 기능 기록의 Autostart·Toy Stats QA 경로 역시 당시 검증 산출물이다. 사용자 설치본·데이터·모델·빌드 캐시는 보존했다.
 
 ## 2026-09-27 장난감 통계 제거
 
