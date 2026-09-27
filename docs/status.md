@@ -11,13 +11,27 @@ description: 공식 위젯과 보조 화면의 소스 구현, 실제 검증 범�
 
 ## 2026-09-27 릴리스 준비와 API 키 이전 보완
 
+### 음악 연결 종료 보완
+
+main의 [Windows CI 36307379114](https://github.com/fleetia/comet/actions/runs/36307379114)에서 음악 연결 회귀가 `ConnectionReset`으로 실패했다. 같은 소스를 포함한 버전 PR의 [CI 36307488955](https://github.com/fleetia/comet/actions/runs/36307488955)는 두 OS 모두 통과했지만, 실패 로그에 단계 표시가 없어 끊긴 인증·요청·해제 단계를 확정할 수는 없다.
+
+소스 검토에서는 `WebSocketStream::close()`가 Close 프레임 전송만 마친 뒤 반환하는데 음악 브리지가 바로 TCP 연결을 버리던 경계를 확인했다. 기존 200ms 제한 안에서 상대의 Close 응답을 읽고 종료를 마치도록 보완했다. 이 구간은 이미 요청 transport를 해제한 뒤이며 들어오는 음악 명령을 처리하지 않는다. 인증·저장·연결 세대·취소 경계와 기존 0.2 제품 동작은 유지한다. 회귀 테스트의 단계별 오류도 구분해 다음 실패를 정확히 추적할 수 있게 했다.
+
+새 회귀를 이전 send-only 구현에 적용하면 상대의 응답 전에 종료돼 실패한다. 최종 구현에서는 서버가 먼저 닫기·상대가 먼저 닫기·응답 없는 상대의 시간 제한과 명시적 해제의 알림·Close·EOF를 확인했다. 음악 브리지 6개 테스트, 전체 Rust 라이브러리 517개 통과·5개 제외, 전체 target strict Clippy와 rustfmt 검사를 통과했다.
+
+현재 소스로 `space.starlight.comet.release-readiness-qa` debug 앱을 다시 빌드하고 번들·설치본의 `codesign --verify --deep --strict`를 통과했다. `/Applications/Comet Release Readiness QA.app`의 설정에서 QA 음악 위젯과 연결 코드를 만들고 합성 loopback 클라이언트를 인증했다. 화면의 연결 성공, 합성 조회 응답 한 건, `disconnect`와 추가 Pong 이후 `disconnected`·`revoked`·Close 왕복·정상 TCP EOF를 확인했다. 새 listener에서도 해제된 이전 연결의 인증이 거부됐다. 검증용 연결·코드·위젯을 정리하고 ⌘Q로 종료한 뒤 Comet 프로세스와 음악 Keychain 항목이 없으며 QA DB 무결성은 `ok`임을 확인했다. Spotify 실계정이나 Windows 실제 앱을 실행한 결과는 아니다.
+
+이 최종 QA 실행 파일 SHA-256은 `fee1f3f3082614f8f57e48135fe3155934635ae9b2bc27a294c7600a878729da`이며, 원본 번들은 `/Users/tracycho/Dev/fleetia/comet/src-tauri/target/debug/bundle/macos/Comet Release Readiness QA.app`이다. 이전 API 키 QA 설치 번들은 휴지통으로 옮겼고 같은 경로의 최신 번들을 유지한다. 아래 API 키 검증의 hash는 해당 검증 당시 실행 파일을 가리킨다.
+
+### API 키 이전과 프런트엔드 검사
+
 API 키를 이전 서비스에서 새 서비스로 복사하지 못했는데도 원본을 삭제하던 경로를 수정했다. 새 저장이 성공한 경우에만 이전 키를 삭제한다. 저장 실패 시 현재 요청은 기존 키로 처리하고 다음 조회에서 이전을 다시 시도한다. 현재 서비스의 키 우선과 기존 읽기 오류 처리는 유지한다. [배포 문서](development/releases.md)의 데이터 보존 계약을 따르며 기존 0.2 대화·기록·기억·친밀도 계약은 바꾸지 않는다.
 
 `CharacterWorkspace`의 저장 실패 후 초안 보존 테스트와 `AnimationEditor`의 프레임·상황 연결 저장 테스트는 숨긴 패널까지 반복 검색해 CI의 5초 제한을 넘었다. 기존 조작·기대값·비동기 완료 조건·시간 제한을 유지하면서 활성 패널 안으로 검색 범위를 좁혔다. 현재 소스에서 전체 프런트엔드 48개 파일·290개 테스트, TypeScript·Oxlint, 릴리스 자동화 14개 테스트와 버전 일치 검사, inference Rust 테스트 11개와 strict Clippy(`--lib --tests -- -D warnings`)를 통과했다. Rust 회귀에는 키 이전 성공과 저장 실패 후 원본 보존·재시도 성공이 포함된다.
 
 macOS에서는 별도 `space.starlight.comet.release-readiness-qa` debug 앱을 빌드하고 번들·설치본 서명을 확인했다. `/Applications/Comet Release Readiness QA.app`의 실제 설정 화면에서 고유한 localhost 주소에 연결된 합성 legacy 키로 요청을 보냈으며 서버에서 인증 일치를 확인했다. 새 Keychain 항목 생성·이전 항목 제거 뒤 정상 종료·재실행했고, 저장된 주소·모델·키로 두 번째 연결에 성공했다. 재시작 전후 설정·캐릭터·단어장 행이 같고 DB 무결성은 `ok`였다. 검증용 키와 로컬 서버는 정리했으며 사용자 키·프로필은 변경하지 않았다. 실행 파일 SHA-256은 `8ed08403c57b59bca3a64aa22c841a2ff2cf895f39844b7483bd7f68072d1b43`이다.
 
-저장 실패는 격리된 keyring mock으로 검증했다. 위 네이티브 결과는 공식 v0.5.0에서 새 공식 버전으로 updater 설치·재시작·앱 식별자 데이터 이전을 수행한 결과가 아니다. 해당 두 OS 인수와 공개 릴리스는 아직 남아 있으며 모델 의미 품질은 이번 범위에 포함하지 않는다.
+저장 실패는 격리된 keyring mock으로 검증했다. 위 네이티브 결과는 공식 v0.5.0에서 새 공식 버전으로 updater 설치·재시작·앱 식별자 데이터 이전을 수행한 결과가 아니다. 공식 macOS 업데이트 인수와 공개 릴리스는 아직 남아 있다. Windows 실기 업데이트는 2026-09-27 사용자 지시에 따라 [별도 확인 순서](VALIDATION-WINDOWS.md#2026-09-27-사용자-후속-검증)로 인계했으며, 이번 v1 이전 검증의 기존 데이터 보존은 인수 조건에서 제외했다. 모델 의미 품질은 이번 범위에 포함하지 않는다.
 
 ## 2026-09-27 공통 데스크톱 인수
 
