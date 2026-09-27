@@ -568,7 +568,27 @@ async fn serve(stream: TcpStream, session: Arc<Session>) {
         )
         .await;
     }
-    let _ = timeout(Duration::from_millis(200), socket.close(None)).await;
+    let _ = finish_close(&mut socket).await;
+}
+
+async fn finish_close(
+    socket: &mut tokio_tungstenite::WebSocketStream<TcpStream>,
+) -> Result<(), tokio_tungstenite::tungstenite::Error> {
+    timeout(Duration::from_millis(200), async {
+        SinkExt::close(socket).await?;
+        // Complete the peer handshake without processing more application commands.
+        while let Some(frame) = socket.next().await {
+            frame?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|error| {
+        tokio_tungstenite::tungstenite::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            error,
+        ))
+    })?
 }
 
 fn spotify_uri(value: &Value, kind: &str) -> bool {
@@ -891,21 +911,31 @@ mod tests {
             .insert("Origin", "https://xpui.app.spotify.com".parse().unwrap());
         client_async(request, stream).await.unwrap().0
     }
-    async fn text_frame(client: &mut Client) -> Value {
+    async fn text_frame(client: &mut Client, phase: &str) -> Value {
         loop {
             match timeout(Duration::from_secs(2), client.next())
                 .await
-                .unwrap()
-                .unwrap()
-                .unwrap()
+                .unwrap_or_else(|error| panic!("{phase}: frame timed out: {error}"))
+                .unwrap_or_else(|| {
+                    panic!("{phase}: transport ended before the expected text frame")
+                })
+                .unwrap_or_else(|error| panic!("{phase}: transport failed: {error}"))
             {
                 Message::Text(text) => return serde_json::from_str(&text).unwrap(),
-                Message::Ping(bytes) => client.send(Message::Pong(bytes)).await.unwrap(),
-                other => panic!("Unexpected frame: {other:?}"),
+                Message::Ping(bytes) => client
+                    .send(Message::Pong(bytes))
+                    .await
+                    .unwrap_or_else(|error| panic!("{phase}: Pong failed: {error}")),
+                other => panic!("{phase}: unexpected frame: {other:?}"),
             }
         }
     }
-    async fn begin_handshake(mode: &str, pairing_id: &str, client_nonce: &str) -> (Client, Value) {
+    async fn begin_handshake(
+        mode: &str,
+        pairing_id: &str,
+        client_nonce: &str,
+        phase: &str,
+    ) -> (Client, Value) {
         let mut client = socket().await;
         let mut hello = json!({"type":"hello","version":2,"mode":mode,"clientNonce":client_nonce});
         if mode == "resume" {
@@ -915,14 +945,14 @@ mod tests {
             .send(Message::Text(hello.to_string().into()))
             .await
             .unwrap();
-        let challenge = text_frame(&mut client).await;
+        let challenge = text_frame(&mut client, &format!("{phase}: challenge")).await;
         assert_eq!(challenge["type"], "challenge");
         assert_eq!(challenge["pairingId"], pairing_id);
         (client, challenge)
     }
-    async fn client(mode: &str, pairing_id: &str, key: &str) -> (Client, Value) {
+    async fn client(mode: &str, pairing_id: &str, key: &str, phase: &str) -> (Client, Value) {
         let client_nonce = random_hex(32).unwrap();
-        let (mut client, challenge) = begin_handshake(mode, pairing_id, &client_nonce).await;
+        let (mut client, challenge) = begin_handshake(mode, pairing_id, &client_nonce, phase).await;
         let server_nonce = challenge["serverNonce"].as_str().unwrap();
         assert_eq!(
             challenge["proof"],
@@ -938,7 +968,7 @@ mod tests {
             ))
             .await
             .unwrap();
-        let ready = text_frame(&mut client).await;
+        let ready = text_frame(&mut client, &format!("{phase}: ready")).await;
         assert_eq!(ready["type"], "ready");
         (client, ready)
     }
@@ -959,6 +989,91 @@ mod tests {
     }
     fn cancel_token() -> Arc<AtomicBool> {
         Arc::new(AtomicBool::new(false))
+    }
+
+    #[tokio::test]
+    async fn close_handshake_waits_for_peer_and_bounds_an_unresponsive_peer() {
+        use tokio_tungstenite::tungstenite::protocol::Role;
+
+        for responds in [true, false] {
+            let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+                .await
+                .unwrap();
+            let (accepted, connected) = tokio::join!(
+                listener.accept(),
+                TcpStream::connect(listener.local_addr().unwrap())
+            );
+            let mut server =
+                WebSocketStream::from_raw_socket(accepted.unwrap().0, Role::Server, None).await;
+            let mut peer =
+                WebSocketStream::from_raw_socket(connected.unwrap(), Role::Client, None).await;
+            let mut closing = Box::pin(finish_close(&mut server));
+
+            tokio::select! {
+                result = &mut closing => panic!("closed before the peer received Close: {result:?}"),
+                frame = timeout(Duration::from_secs(2), peer.next()) => {
+                    assert!(matches!(frame.unwrap().unwrap().unwrap(), Message::Close(_)));
+                }
+            }
+            assert!(futures_util::poll!(closing.as_mut()).is_pending());
+            if responds {
+                peer.flush().await.unwrap();
+                timeout(Duration::from_secs(2), closing)
+                    .await
+                    .unwrap()
+                    .unwrap();
+            } else {
+                let error = timeout(Duration::from_secs(2), closing)
+                    .await
+                    .unwrap()
+                    .unwrap_err();
+                assert!(
+                    matches!(error, tokio_tungstenite::tungstenite::Error::Io(error)
+                    if error.kind() == std::io::ErrorKind::TimedOut)
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn close_handshake_finishes_after_receiving_peer_close() {
+        use tokio_tungstenite::tungstenite::protocol::Role;
+
+        let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let (accepted, connected) = tokio::join!(
+            listener.accept(),
+            TcpStream::connect(listener.local_addr().unwrap())
+        );
+        let mut server =
+            WebSocketStream::from_raw_socket(accepted.unwrap().0, Role::Server, None).await;
+        let mut peer =
+            WebSocketStream::from_raw_socket(connected.unwrap(), Role::Client, None).await;
+
+        peer.close(None).await.unwrap();
+        assert!(matches!(
+            timeout(Duration::from_secs(2), server.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+            Message::Close(_)
+        ));
+        finish_close(&mut server).await.unwrap();
+        drop(server);
+        assert!(matches!(
+            timeout(Duration::from_secs(2), peer.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+            Message::Close(_)
+        ));
+        assert!(timeout(Duration::from_secs(2), peer.next())
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -991,7 +1106,8 @@ mod tests {
 
         // A reflected server proof must not authenticate a client.
         let nonce = random_hex(32).unwrap();
-        let (mut wrong, challenge) = begin_handshake("pair", pairing_id, &nonce).await;
+        let (mut wrong, challenge) =
+            begin_handshake("pair", pairing_id, &nonce, "reflected proof").await;
         wrong
             .send(Message::Text(
                 json!({"type":"authenticate","proof":challenge["proof"]})
@@ -1003,7 +1119,7 @@ mod tests {
         rejected(&mut wrong).await;
         assert!(!pairing_status(owner).to_string().contains("secret"));
 
-        let (mut connection, ready) = client("pair", pairing_id, code).await;
+        let (mut connection, ready) = client("pair", pairing_id, code, "initial pairing").await;
         let secret = ready["credential"]["secret"].as_str().unwrap().to_string();
         assert!(is_hex(&secret, 64));
         assert_eq!(pairing_status(owner)["connected"], true);
@@ -1017,16 +1133,16 @@ mod tests {
             .code
             .is_none());
         let work = tokio::spawn(request(owner, "observe", Value::Null));
-        let message = text_frame(&mut connection).await;
+        let message = text_frame(&mut connection, "observation request").await;
         connection.send(Message::Text(json!({"type":"response","id":message["id"],"ok":true,"value":{"playing":true,"title":"Song","token":"not forwarded"}}).to_string().into())).await.unwrap();
         let observation = work.await.unwrap().unwrap();
         assert_eq!(observation["title"], "Song");
         assert!(observation.get("token").is_none());
         let work = tokio::spawn(request_with_timeout(owner, "next", Value::Null, 50));
-        let message = text_frame(&mut connection).await;
+        let message = text_frame(&mut connection, "expiring request").await;
         assert!(work.await.unwrap().unwrap_err().contains("만료"));
         assert_eq!(
-            text_frame(&mut connection).await,
+            text_frame(&mut connection, "expired request cancellation").await,
             json!({"type":"cancel","id":message["id"]})
         );
         let work = tokio::spawn(request(
@@ -1034,18 +1150,18 @@ mod tests {
             "playRandom",
             json!({"uri":"spotify:playlist:0000000000000000000000"}),
         ));
-        let message = text_frame(&mut connection).await;
+        let message = text_frame(&mut connection, "aborted request").await;
         work.abort();
         let _ = work.await;
         assert_eq!(
-            text_frame(&mut connection).await,
+            text_frame(&mut connection, "aborted request cancellation").await,
             json!({"type":"cancel","id":message["id"]})
         );
 
         let mut pending = Vec::new();
         for _ in 0..MAX_PENDING {
             pending.push(tokio::spawn(request(owner, "observe", Value::Null)));
-            text_frame(&mut connection).await;
+            text_frame(&mut connection, "pending observation request").await;
         }
         assert!(request(owner, "observe", Value::Null)
             .await
@@ -1060,7 +1176,8 @@ mod tests {
         }
         assert_eq!(pairing_status(owner)["remembered"], true);
         assert!(request(owner, "play", Value::Null).await.is_err());
-        let (mut connection, ready) = client("resume", pairing_id, &secret).await;
+        let (mut connection, ready) =
+            client("resume", pairing_id, &secret, "transport reconnection").await;
         assert!(ready.get("credential").is_none());
         old_session.disconnect_transport(old_generation);
         assert_eq!(pairing_status(owner)["connected"], true);
@@ -1083,7 +1200,8 @@ mod tests {
 
         // Reusing the nonce does not make an old proof valid for a fresh server challenge.
         let nonce = random_hex(32).unwrap();
-        let (mut first, first_challenge) = begin_handshake("resume", pairing_id, &nonce).await;
+        let (mut first, first_challenge) =
+            begin_handshake("resume", pairing_id, &nonce, "original nonce").await;
         let old_proof = proof_hex(
             &secret,
             "client",
@@ -1094,7 +1212,8 @@ mod tests {
         )
         .unwrap();
         first.close(None).await.unwrap();
-        let (mut replay, second_challenge) = begin_handshake("resume", pairing_id, &nonce).await;
+        let (mut replay, second_challenge) =
+            begin_handshake("resume", pairing_id, &nonce, "replayed nonce").await;
         assert_ne!(
             first_challenge["serverNonce"],
             second_challenge["serverNonce"]
@@ -1115,21 +1234,47 @@ mod tests {
         let restored = resume(owner, pairing_id, cancel_token()).await.unwrap();
         assert_eq!(restored["remembered"], true);
         assert!(restored["code"].is_null());
-        let (mut connection, _) = client("resume", pairing_id, &secret).await;
+        let (mut connection, _) = client("resume", pairing_id, &secret, "app restart").await;
         connection
             .send(Message::Text(
                 json!({"type":"disconnect"}).to_string().into(),
             ))
             .await
             .unwrap();
-        assert_eq!(text_frame(&mut connection).await["type"], "disconnected");
+        assert_eq!(
+            text_frame(&mut connection, "explicit disconnect acknowledgement").await["type"],
+            "disconnected"
+        );
+        assert_eq!(
+            text_frame(&mut connection, "credential revocation acknowledgement").await["type"],
+            "revoked"
+        );
+        assert!(matches!(
+            timeout(Duration::from_secs(2), connection.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+            Message::Close(_)
+        ));
+        connection.flush().await.unwrap();
+        assert!(timeout(Duration::from_secs(2), connection.next())
+            .await
+            .unwrap()
+            .is_none());
         assert!(credentials::load(owner, pairing_id).unwrap().is_none());
         assert!(resume(owner, pairing_id, cancel_token()).await.is_err());
 
         // A replacement identity cannot be revoked by delayed cleanup of the old one.
         let replacement = "33333333-3333-4333-8333-333333333333";
         let status = start(owner, replacement, cancel_token()).await.unwrap();
-        let (_connection, _) = client("pair", replacement, status["code"].as_str().unwrap()).await;
+        let (_connection, _) = client(
+            "pair",
+            replacement,
+            status["code"].as_str().unwrap(),
+            "replacement pairing",
+        )
+        .await;
         forget(owner, pairing_id).unwrap();
         assert_eq!(pairing_status(owner)["remembered"], true);
         forget(owner, replacement).unwrap();
