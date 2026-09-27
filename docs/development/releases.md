@@ -7,7 +7,7 @@ description: 두 운영체제의 서명된 업데이트 파일, GitHub Releases�
 
 Comet 앱을 macOS Apple Silicon과 Windows x64에 함께 배포하는 절차입니다. 앱은 시작할 때와 실행 중 24시간마다 새 버전을 확인하며, 사용자가 `설치하고 다시 시작`을 선택해야 내려받기와 설치를 진행합니다. 캐릭터팩은 [갤러리](../product/character-gallery.md)에서 수동으로 설치하며 앱 업데이트에 종속된 원격 갱신 기능은 제공하지 않습니다.
 
-2026-09-19에 첫 signed updater 릴리스 [v0.5.0](https://github.com/fleetia/comet/releases/tag/v0.5.0)을 공개했습니다. macOS DMG·Windows EXE의 비로그인 접근과 공개 `latest.json`의 두 OS 다운로드 주소를 확인했습니다. 공식 GitHub 배포본의 Windows 설치와 이전 버전에서 새 버전으로의 업데이트 설치는 아직 인수 전입니다. 로컬 Windows QA 앱의 NSIS 설치·첫 실행 범위와 별도 macOS QA 앱에서 전용 키·loopback 서버를 통한 0.4.0→0.4.1 설치·오류 처리의 범위는 [구현 상태](../status.md)를 따릅니다. 키가 없는 별도 개발 빌드는 업데이트 확인 대신 설정되지 않았다는 상태를 표시합니다.
+2026-09-19에 첫 signed updater 릴리스 [v0.5.0](https://github.com/fleetia/comet/releases/tag/v0.5.0)을 공개했습니다. macOS DMG·Windows EXE의 비로그인 접근과 공개 `latest.json`의 두 OS 다운로드 주소를 확인했습니다. 공식 v0.5.0의 Windows 설치·첫 실행은 [2026-09-26 Windows 기록](../VALIDATION-WINDOWS.md)에 있으며, 공식 이전 버전에서 새 버전으로의 업데이트 설치·재시작·데이터 이전은 두 OS 모두 인수 전입니다. 로컬 Windows QA 앱의 NSIS 설치·첫 실행 범위와 별도 macOS QA 앱에서 전용 키·loopback 서버를 통한 0.4.0→0.4.1 설치·오류 처리의 범위는 [구현 상태](../status.md)를 따릅니다. 키가 없는 별도 개발 빌드는 업데이트 확인 대신 설정되지 않았다는 상태를 표시합니다.
 
 ## 서명과 배포 대상
 
@@ -37,7 +37,7 @@ macOS는 `app,dmg`, Windows는 `nsis` bundle을 생성합니다. macOS 앱 서�
 
 프론트엔드 검사·테스트는 Ubuntu에서 한 번 실행하고, 성공해야 두 native job을 시작합니다. PR에서는 Ubuntu에서 production 프론트엔드 빌드도 검사합니다. Rust 테스트는 PR을 포함한 모든 실행에서 두 OS 각각 수행합니다. release 모드 컴파일·패키징 비용을 줄이기 위해 PR에서는 설치물 생성을 생략하며, 패키징 오류는 main 또는 수동 실행에서 확인합니다. Tauri의 `beforeBuildCommand`가 프론트엔드를 빌드하므로 native job에서 `pnpm build`를 별도로 반복하지 않습니다. Release는 Ubuntu prepare에서 공통 검사를 마친 뒤 두 OS를 빌드하며, 서명·설치물 검증을 모두 통과해야 공개합니다.
 
-pnpm store 캐시는 lockfile 기준으로 유지합니다. `Swatinem/rust-cache`는 OS·아키텍처·toolchain·Cargo manifest/lock에 맞는 registry와 컴파일된 의존성을 복원하며, Verify와 Release가 같은 키를 사용합니다. Sidecar는 OS·아키텍처·`scripts/prepare-sidecar.mjs` 전체 hash가 같은 경우만 준비된 파일을 복원합니다. 캐시가 없으면 기존 SHA-256 검증·라이선스 동봉 절차로 다시 준비합니다. Rust·sidecar 캐시는 main 실행에서만 저장하여 PR별 대형 캐시가 쌓이지 않게 합니다. PR과 태그 Release는 main 캐시를 읽으며, 서명용 secret·설정 파일과 최종 설치물은 이 캐시에 저장하지 않습니다. Rust 의존성 캐시의 키와 정리 범위는 [공식 action](https://github.com/Swatinem/rust-cache)을 따릅니다.
+pnpm store 캐시는 lockfile 기준으로 유지합니다. `Swatinem/rust-cache`는 OS·아키텍처·toolchain·Cargo manifest/lock에 맞는 registry와 컴파일된 의존성을 복원하며, Verify와 Release가 같은 키를 사용합니다. Sidecar는 OS·아키텍처와 `scripts/prepare-sidecar.mjs`, `scripts/prepare-nlp.mjs`, `crates/comet-nlp/Cargo.*`, `crates/comet-nlp/src/**`의 hash가 같은 경우만 준비된 파일을 복원합니다. 캐시가 없으면 기존 SHA-256 검증·라이선스 동봉 절차로 다시 준비합니다. Rust·sidecar 캐시는 main 실행에서만 저장하여 PR별 대형 캐시가 쌓이지 않게 합니다. PR과 태그 Release는 main 캐시를 읽으며, 서명용 secret·설정 파일과 최종 설치물은 이 캐시에 저장하지 않습니다. Rust 의존성 캐시의 키와 정리 범위는 [공식 action](https://github.com/Swatinem/rust-cache)을 따릅니다.
 
 `Version and release`의 PR 검사는 변경셋·버전·배포 스크립트·workflow 등 관련 경로가 바뀔 때 실행하고 오래된 PR 실행은 취소합니다. main에서는 모든 push를 처리해 버전 PR을 최신 상태로 유지하며, 진행 중인 배포는 취소하지 않습니다. 경로 필터로 생략되는 workflow를 필수 PR check로 등록하면 해당 check가 pending으로 남을 수 있으므로 보호 규칙을 추가할 때 실행 조건도 함께 조정합니다.
 
@@ -79,6 +79,8 @@ GitHub 저장소에는 다음 값을 등록합니다.
 네트워크 오류, 아직 없는 release, 플랫폼 파일 누락과 서명 오류는 설치로 넘어가지 않습니다. 오류 상태에서 사용자가 다시 확인할 수 있으며 빠른 자동 재시도를 하지 않습니다. 확인과 설치는 하나씩만 실행하고, 사용자가 승인한 버전과 준비된 버전이 다르면 재확인을 요구합니다.
 
 앱 작업 중단과 sidecar 정리는 다운로드와 서명 검증이 끝난 뒤 설치 전에 실행합니다. Windows updater는 installer를 실행하면서 현재 프로세스를 직접 종료하므로 종료 event만 기다려 cleanup하지 않습니다. macOS는 설치 후 Tauri restart 경로를 사용합니다. 일반 종료 경로가 restart exit code를 덮어쓰지 않아야 합니다.
+
+이전 앱의 API 키는 새 자격 증명 저장소에 저장한 뒤에만 이전 서비스에서 삭제합니다. 새 저장소 쓰기가 실패하면 이전 키를 보존해 현재 요청에 사용하고, 다음 조회에서 이전을 다시 시도합니다.
 
 서명 키를 바꾸거나 업데이트 주소를 바꾸는 작업은 기존 설치본의 신뢰·이전 경로를 함께 설계합니다. 버전 비교를 꺼서 강제로 downgrade하지 않습니다. 이미 공개한 release에 문제가 있으면 더 높은 수정 버전을 준비하고, 기존 사용자 데이터가 이전 schema로 되돌아간다고 가정하지 않습니다.
 
