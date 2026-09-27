@@ -29,7 +29,9 @@ export function useImageSlice(url: string | null): { slice: Slice | null; ready:
 }
 
 export function skinStyle(url: string, slice: Slice): CSSProperties {
-  const widths = `${slice.top}px ${slice.right}px ${slice.bottom}px ${slice.left}px`;
+  // Source pixels select the artwork; layout borders must leave room for the content.
+  const scale = Math.min(1, 32 / Math.max(1, slice.top, slice.right, slice.bottom, slice.left));
+  const widths = `${slice.top * scale}px ${slice.right * scale}px ${slice.bottom * scale}px ${slice.left * scale}px`;
   return {
     borderStyle: "solid",
     borderWidth: widths,

@@ -7,6 +7,7 @@ import { CharacterEditor } from "../components/CharacterEditor/CharacterEditor";
 import { PREVIEW_SNAPSHOT, command, isDesktop } from "../hooks/useSnapshot";
 import type { InstalledCharacter, Playback, Snapshot } from "../types";
 import { centerSlice } from "../components/characterIdentity";
+import { skinStyle } from "../hooks/useImageSlice";
 import * as companion from "../components/companion.css";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -165,6 +166,18 @@ it("cuts a nine-slice that keeps exactly the centre pixel stretchable", () => {
   expect(centerSlice(8, 8)).toEqual({ top: 3, right: 4, bottom: 4, left: 3 });
   expect(centerSlice(1, 1)).toEqual({ top: 0, right: 0, bottom: 0, left: 0 });
 });
+
+it.each([
+  { width: 641, height: 321, sourceSlice: "160 320 160 320 fill", borders: "16px 32px 16px 32px" },
+  { width: 1, height: 1, sourceSlice: "0 0 0 0 fill", borders: "0px 0px 0px 0px" },
+])(
+  "keeps content space for a $width × $height skin without changing its source slices",
+  ({ width, height, sourceSlice, borders }) => {
+    const style = skinStyle("sprite://balloon", centerSlice(width, height));
+    expect(style.borderWidth).toBe(borders);
+    expect(style.borderImageSlice).toBe(sourceSlice);
+  },
+);
 
 it("skins the balloon with the speaker's balloon image once its size is known", async () => {
   class FakeImage {
