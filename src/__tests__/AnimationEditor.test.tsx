@@ -31,22 +31,27 @@ beforeEach(() => {
     name === "get_character_dialogue" ? { pairScenes: [], wordbook: [] } : undefined,
   );
 });
-function appearance(): void {
+function appearance(): ReturnType<typeof within> {
   fireEvent.click(
     within(screen.getByRole("tablist", { name: "캐릭터 편집" })).getByRole("tab", {
       name: "모습·표정",
     }),
   );
+  return within(screen.getByRole("tabpanel", { name: "모습·표정" }));
 }
 function chooseCharacter(name: RegExp): void {
-  fireEvent.click(within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name }));
-}
-function createClip(): void {
-  appearance();
   fireEvent.click(
-    within(screen.getByLabelText("애니메이션")).getByRole("button", { name: "동작 추가" }),
+    within(screen.getByRole("complementary", { name: "설치된 캐릭터" })).getByRole("button", {
+      name,
+    }),
   );
-  fireEvent.change(screen.getByLabelText("동작 이름"), { target: { value: "깜빡" } });
+}
+function createClip(): ReturnType<typeof within> {
+  const editor = appearance();
+  const animation = within(editor.getByRole("region", { name: "애니메이션" }));
+  fireEvent.click(animation.getByRole("button", { name: "동작 추가" }));
+  fireEvent.change(animation.getByLabelText("동작 이름"), { target: { value: "깜빡" } });
+  return editor;
 }
 function latestSave(): { definition: CharacterDefinition; animationAssets?: AnimationAsset[] } {
   const args = vi
@@ -63,28 +68,28 @@ it("saves ordered frames and situation mappings atomically", async () => {
     if (name === "get_character_dialogue") return { pairScenes: [], wordbook: [] };
   });
   render(<CharacterManager embedded snapshot={PREVIEW_SNAPSHOT} />);
-  createClip();
-  expect(screen.getByLabelText("동작 속도(fps)")).toHaveProperty("value", "8");
+  const editor = createClip();
+  expect(editor.getByLabelText("동작 속도(fps)")).toHaveProperty("value", "8");
   expect(screen.getByText("캐릭터 저장", { selector: "button" })).toHaveProperty("disabled", true);
   fireEvent.click(
-    within(screen.getByLabelText("애니메이션")).getByRole("button", {
+    within(editor.getByRole("region", { name: "애니메이션" })).getByRole("button", {
       name: "PNG/APNG 프레임 추가",
     }),
   );
-  await screen.findByLabelText("3번 프레임 선택");
-  fireEvent.click(screen.getByLabelText("3번 프레임 앞으로"));
-  fireEvent.click(screen.getByLabelText("3번 프레임 삭제"));
-  fireEvent.change(screen.getByLabelText("동작 속도(fps)"), { target: { value: "12" } });
-  const clipId = (screen.getByLabelText("편집할 동작") as HTMLSelectElement).value;
-  fireEvent.change(screen.getByLabelText("평소 동작"), { target: { value: clipId } });
-  expect(screen.getByLabelText("평소 반복 간격(초)")).toHaveProperty("value", "3");
-  fireEvent.change(screen.getByLabelText("평소 반복 간격(초)"), { target: { value: "2.5" } });
-  fireEvent.change(screen.getByLabelText("말하는 동안 동작"), { target: { value: clipId } });
-  expect(screen.getByLabelText("말하는 동안 반복 간격(초)")).toHaveProperty("value", "0");
-  fireEvent.change(screen.getByLabelText("클릭했을 때 동작"), { target: { value: clipId } });
-  fireEvent.change(screen.getByLabelText("기쁨 · 평소 동작"), { target: { value: "$none" } });
-  fireEvent.change(screen.getByLabelText("기쁨 · 말하는 동안 동작"), { target: { value: clipId } });
-  fireEvent.change(screen.getByLabelText("기쁨 · 말하는 동안 동작"), {
+  await editor.findByLabelText("3번 프레임 선택");
+  fireEvent.click(editor.getByLabelText("3번 프레임 앞으로"));
+  fireEvent.click(editor.getByLabelText("3번 프레임 삭제"));
+  fireEvent.change(editor.getByLabelText("동작 속도(fps)"), { target: { value: "12" } });
+  const clipId = (editor.getByLabelText("편집할 동작") as HTMLSelectElement).value;
+  fireEvent.change(editor.getByLabelText("평소 동작"), { target: { value: clipId } });
+  expect(editor.getByLabelText("평소 반복 간격(초)")).toHaveProperty("value", "3");
+  fireEvent.change(editor.getByLabelText("평소 반복 간격(초)"), { target: { value: "2.5" } });
+  fireEvent.change(editor.getByLabelText("말하는 동안 동작"), { target: { value: clipId } });
+  expect(editor.getByLabelText("말하는 동안 반복 간격(초)")).toHaveProperty("value", "0");
+  fireEvent.change(editor.getByLabelText("클릭했을 때 동작"), { target: { value: clipId } });
+  fireEvent.change(editor.getByLabelText("기쁨 · 평소 동작"), { target: { value: "$none" } });
+  fireEvent.change(editor.getByLabelText("기쁨 · 말하는 동안 동작"), { target: { value: clipId } });
+  fireEvent.change(editor.getByLabelText("기쁨 · 말하는 동안 동작"), {
     target: { value: "$inherit" },
   });
   fireEvent.click(screen.getByText("캐릭터 저장", { selector: "button" }));
@@ -125,23 +130,27 @@ it("preserves animation images through character and tab changes, failed save an
   });
   const dirty = vi.fn();
   render(<CharacterManager embedded snapshot={PREVIEW_SNAPSHOT} onDirtyChange={dirty} />);
-  createClip();
+  const editor = createClip();
   fireEvent.click(
-    within(screen.getByLabelText("애니메이션")).getByRole("button", {
+    within(editor.getByRole("region", { name: "애니메이션" })).getByRole("button", {
       name: "PNG/APNG 프레임 추가",
     }),
   );
-  await screen.findByLabelText("1번 프레임 선택");
-  fireEvent.change(screen.getByLabelText("동작 속도(fps)"), { target: { value: "12" } });
+  await editor.findByLabelText("1번 프레임 선택");
+  fireEvent.change(editor.getByLabelText("동작 속도(fps)"), { target: { value: "12" } });
   chooseCharacter(/^B/);
-  expect(screen.getByLabelText("편집할 동작")).toHaveProperty("value", "");
+  expect(editor.getByLabelText("편집할 동작")).toHaveProperty("value", "");
   expect(
-    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: "조합 내보내기" }),
+    within(screen.getByRole("complementary", { name: "설치된 캐릭터" })).getByRole("button", {
+      name: "조합 내보내기",
+    }),
   ).toHaveProperty("disabled", false);
   chooseCharacter(/^A/);
-  expect(screen.getByLabelText("동작 속도(fps)")).toHaveProperty("value", "12");
+  expect(editor.getByLabelText("동작 속도(fps)")).toHaveProperty("value", "12");
   expect(
-    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: "조합 내보내기" }),
+    within(screen.getByRole("complementary", { name: "설치된 캐릭터" })).getByRole("button", {
+      name: "조합 내보내기",
+    }),
   ).toHaveProperty("disabled", true);
   fireEvent.click(
     within(screen.getByRole("tablist", { name: "캐릭터 편집" })).getByRole("tab", {
@@ -149,15 +158,15 @@ it("preserves animation images through character and tab changes, failed save an
     }),
   );
   appearance();
-  expect(screen.getByLabelText("동작 이름")).toHaveProperty("value", "깜빡");
+  expect(editor.getByLabelText("동작 이름")).toHaveProperty("value", "깜빡");
   fireEvent.click(screen.getByText("캐릭터 저장", { selector: "button" }));
   await screen.findByText("디스크에 저장하지 못했어요.");
   expect(latestSave().animationAssets).toEqual([first]);
   expect(latestSave().definition.animation?.clips[0].frames[0].assetId).toBe(first.assetId);
-  expect(screen.getByLabelText("동작 이름")).toHaveProperty("value", "깜빡");
+  expect(editor.getByLabelText("동작 이름")).toHaveProperty("value", "깜빡");
   expect(dirty).toHaveBeenLastCalledWith(true);
   fireEvent.click(screen.getByText("캐릭터 수정 취소", { selector: "button" }));
-  expect(screen.queryByLabelText("동작 이름")).toBeNull();
+  expect(editor.queryByLabelText("동작 이름")).toBeNull();
   expect(dirty).toHaveBeenLastCalledWith(false);
 });
 
@@ -171,16 +180,16 @@ it("rejects stale image selections after character navigation and draft cancella
     if (name === "get_character_dialogue") return { pairScenes: [], wordbook: [] };
   });
   render(<CharacterManager embedded snapshot={PREVIEW_SNAPSHOT} />);
-  createClip();
-  fireEvent.click(screen.getByRole("button", { name: "PNG/APNG 프레임 추가" }));
+  const editor = createClip();
+  fireEvent.click(editor.getByRole("button", { name: "PNG/APNG 프레임 추가" }));
   chooseCharacter(/^B/);
   chooseCharacter(/^A/);
   await act(async () => resolve([first]));
-  expect(screen.queryByRole("button", { name: "1번 프레임 선택" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "PNG/APNG 프레임 추가" }));
+  expect(editor.queryByRole("button", { name: "1번 프레임 선택" })).toBeNull();
+  fireEvent.click(editor.getByRole("button", { name: "PNG/APNG 프레임 추가" }));
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 수정 취소" }));
   await act(async () => resolve([second]));
-  expect(screen.queryByLabelText("동작 이름")).toBeNull();
+  expect(editor.queryByLabelText("동작 이름")).toBeNull();
   expect(screen.getByRole("button", { name: "캐릭터 저장" })).toHaveProperty("disabled", true);
   expect(vi.mocked(command).mock.calls.filter(([name]) => name === "save_character")).toHaveLength(
     0,
@@ -195,24 +204,24 @@ it("imports a sheet in row order and rejects unequal sequence dimensions without
     if (name === "get_character_dialogue") return { pairScenes: [], wordbook: [] };
   });
   render(<CharacterManager embedded snapshot={PREVIEW_SNAPSHOT} />);
-  createClip();
-  fireEvent.change(screen.getByLabelText("시트 칸 너비(px)"), { target: { value: "16" } });
-  fireEvent.change(screen.getByLabelText("시트 칸 높이(px)"), { target: { value: "16" } });
-  fireEvent.change(screen.getByLabelText("시트 프레임 수"), { target: { value: "5" } });
-  fireEvent.click(screen.getByRole("button", { name: "스프라이트 시트 추가" }));
-  await screen.findByRole("button", { name: "5번 프레임 선택" });
-  fireEvent.click(screen.getByRole("button", { name: "다음 프레임" }));
-  expect(screen.getByText("2 / 5 프레임")).toBeTruthy();
+  const editor = createClip();
+  fireEvent.change(editor.getByLabelText("시트 칸 너비(px)"), { target: { value: "16" } });
+  fireEvent.change(editor.getByLabelText("시트 칸 높이(px)"), { target: { value: "16" } });
+  fireEvent.change(editor.getByLabelText("시트 프레임 수"), { target: { value: "5" } });
+  fireEvent.click(editor.getByRole("button", { name: "스프라이트 시트 추가" }));
+  await editor.findByRole("button", { name: "5번 프레임 선택" });
+  fireEvent.click(editor.getByRole("button", { name: "다음 프레임" }));
+  expect(editor.getByText("2 / 5 프레임")).toBeTruthy();
   selected = [asset("wrong-size", 32, 16)];
-  fireEvent.click(screen.getByRole("button", { name: "PNG/APNG 프레임 추가" }));
-  await screen.findByText("한 동작의 모든 프레임은 너비와 높이가 같아야 해요.");
-  expect(screen.queryByRole("button", { name: "6번 프레임 선택" })).toBeNull();
+  fireEvent.click(editor.getByRole("button", { name: "PNG/APNG 프레임 추가" }));
+  await editor.findByText("한 동작의 모든 프레임은 너비와 높이가 같아야 해요.");
+  expect(editor.queryByRole("button", { name: "6번 프레임 선택" })).toBeNull();
   selected = [first, second];
-  fireEvent.click(screen.getByRole("button", { name: "스프라이트 시트 추가" }));
-  await screen.findByText(
+  fireEvent.click(editor.getByRole("button", { name: "스프라이트 시트 추가" }));
+  await editor.findByText(
     "스프라이트 시트는 정지 PNG 한 장만 선택해 주세요. APNG는 프레임 추가로 가져오세요.",
   );
-  expect(screen.queryByRole("button", { name: "6번 프레임 선택" })).toBeNull();
+  expect(editor.queryByRole("button", { name: "6번 프레임 선택" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 저장" }));
   await waitFor(() =>
     expect(vi.mocked(command).mock.calls.some(([name]) => name === "save_character")).toBe(true),
@@ -261,9 +270,9 @@ it("clears deleted clip mappings and prunes expression overrides when the expres
       }}
     />,
   );
-  appearance();
-  fireEvent.click(screen.getByRole("button", { name: "기쁨 표정 삭제" }));
-  fireEvent.click(screen.getByRole("button", { name: "동작 삭제" }));
+  const editor = appearance();
+  fireEvent.click(editor.getByRole("button", { name: "기쁨 표정 삭제" }));
+  fireEvent.click(editor.getByRole("button", { name: "동작 삭제" }));
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 저장" }));
   await waitFor(() =>
     expect(vi.mocked(command).mock.calls.some(([name]) => name === "save_character")).toBe(true),
@@ -315,12 +324,19 @@ it("creates a new character with draft images and ignores image selection finish
   });
   const dirty = vi.fn();
   render(<CharacterManager embedded snapshot={PREVIEW_SNAPSHOT} onDirtyChange={dirty} />);
-  fireEvent.click(screen.getByRole("button", { name: "추가" }));
-  fireEvent.change(screen.getByLabelText("이름"), { target: { value: "새 친구" } });
-  createClip();
-  fireEvent.click(screen.getByRole("button", { name: "PNG/APNG 프레임 추가" }));
-  await screen.findByRole("button", { name: "1번 프레임 선택" });
-  fireEvent.click(screen.getByRole("button", { name: "PNG/APNG 프레임 추가" }));
+  fireEvent.click(
+    within(screen.getByRole("complementary", { name: "설치된 캐릭터" })).getByRole("button", {
+      name: "추가",
+    }),
+  );
+  fireEvent.change(
+    within(screen.getByRole("tabpanel", { name: "프로필" })).getByLabelText("이름"),
+    { target: { value: "새 친구" } },
+  );
+  const editor = createClip();
+  fireEvent.click(editor.getByRole("button", { name: "PNG/APNG 프레임 추가" }));
+  await editor.findByRole("button", { name: "1번 프레임 선택" });
+  fireEvent.click(editor.getByRole("button", { name: "PNG/APNG 프레임 추가" }));
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 저장" }));
   const args = vi.mocked(command).mock.calls.find(([name]) => name === "create_character")?.[1] as {
     definition: CharacterDefinition;
@@ -328,7 +344,7 @@ it("creates a new character with draft images and ignores image selection finish
   };
   expect(args.animationAssets).toEqual([first]);
   await act(async () => resolvePicker([second]));
-  expect(screen.queryByRole("button", { name: "2번 프레임 선택" })).toBeNull();
+  expect(editor.queryByRole("button", { name: "2번 프레임 선택" })).toBeNull();
   await act(async () =>
     resolveCreate({
       id: "new-friend",
@@ -338,7 +354,7 @@ it("creates a new character with draft images and ignores image selection finish
       animationAssets: { first },
     }),
   );
-  expect(screen.getByLabelText("동작 이름")).toHaveProperty("value", "깜빡");
+  expect(editor.getByLabelText("동작 이름")).toHaveProperty("value", "깜빡");
   expect(screen.getByRole("button", { name: "캐릭터 저장" })).toHaveProperty("disabled", true);
   expect(dirty).toHaveBeenLastCalledWith(false);
 });
