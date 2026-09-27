@@ -43,7 +43,6 @@ def main():
     parser.add_argument('--model',type=Path,required=True)
     parser.add_argument('--fixture',type=Path,default=Path('nlp/fixtures/korean-retrieval.json'))
     parser.add_argument('--output',type=Path,required=True)
-    parser.add_argument('--manifest',type=Path)
     parser.add_argument('--kiwi',type=Path)
     parser.add_argument('--export-vectors',type=Path)
     args=parser.parse_args()
@@ -81,7 +80,7 @@ def main():
         calibrated=metrics(calibration,threshold);evaluated=metrics(evaluation,threshold)
         gate=calibrated['recallAt5']>=0.9 and evaluated['recallAt5']>=0.9 and evaluated['unrelatedFalsePositiveRate']<=0.05
         timings=sorted(latencies)
-        report={'schema':1,'scoring':'f32 product and sequential f32 sum, matching Rust store','fixture':str(args.fixture),'threshold':threshold,'releaseQualityGate':gate,
+        report={'schema':2,'scoring':'f32 product and sequential f32 sum, matching Rust store','fixture':str(args.fixture),'threshold':threshold,'semanticOnlyQualityGate':gate,
                 'calibration':calibrated,'evaluation':evaluated,'coldStartSeconds':cold,
                 'nativeRequestP50Ms':timings[len(timings)//2],'nativeRequestP95Ms':timings[math.ceil(len(timings)*.95)-1],
                 'limitations':['Public fixture is small and synthetic.','Latency is this host/helper only, not reference Windows performance.'],
@@ -92,9 +91,6 @@ def main():
                       'memories':[{**row,'analysis':analyses[(row['content'],'index')]} for row in fixture['memories']],
                       'queries':[{**row,'analysis':analyses[(row['text'],'query')]} for row in fixture['queries']]}
             args.export_vectors.write_text(json.dumps(exported,ensure_ascii=False)+'\n')
-        if args.manifest and gate:
-            manifest=json.loads(args.manifest.read_text());manifest['threshold']=threshold
-            args.manifest.write_text(json.dumps(manifest,indent=2)+'\n')
         print(json.dumps({key:value for key,value in report.items() if key!='queries'},indent=2))
     finally:
         process.stdin.close()

@@ -1,0 +1,61 @@
+{
+  "reports": [
+    {
+      "falsePositives": 0,
+      "mode": "lexical",
+      "recallAt5": 0.23333333333333334,
+      "relatedQueries": 30,
+      "split": "calibration",
+      "unrelatedFalsePositiveRate": 0.0,
+      "unrelatedQueries": 30
+    },
+    {
+      "falsePositives": 0,
+      "mode": "lexical",
+      "recallAt5": null,
+      "relatedQueries": 0,
+      "split": "evaluation",
+      "unrelatedFalsePositiveRate": null,
+      "unrelatedQueries": 0
+    },
+    {
+      "falsePositives": 7,
+      "mode": "kiwi",
+      "recallAt5": 0.7,
+      "relatedQueries": 30,
+      "split": "calibration",
+      "unrelatedFalsePositiveRate": 0.23333333333333334,
+      "unrelatedQueries": 30
+    },
+    {
+      "falsePositives": 0,
+      "mode": "kiwi",
+      "recallAt5": null,
+      "relatedQueries": 0,
+      "split": "evaluation",
+      "unrelatedFalsePositiveRate": null,
+      "unrelatedQueries": 0
+    },
+    {
+      "falsePositives": 7,
+      "mode": "combined",
+      "recallAt5": 0.9,
+      "relatedQueries": 30,
+      "split": "calibration",
+      "unrelatedFalsePositiveRate": 0.23333333333333334,
+      "unrelatedQueries": 30
+    },
+    {
+      "falsePositives": 0,
+      "mode": "combined",
+      "recallAt5": null,
+      "relatedQueries": 0,
+      "split": "evaluation",
+      "unrelatedFalsePositiveRate": null,
+      "unrelatedQueries": 0
+    }
+  ],
+  "schema": 1,
+  "source": "Actual Rust store::search_memories, native Kiwi and E5 vectors from public fixture",
+  "threshold": 0.8750746846199036
+}

@@ -32,7 +32,7 @@ The exporter produces separate portable U8S8 (macOS arm64) and U8U8 (Windows x64
 
 ## Evaluate the actual helper and Rust retrieval
 
-[`fixtures/korean-retrieval.json`](fixtures/korean-retrieval.json) is a public CC0 fixture with separate calibration and evaluation queries. The evaluator selects the most restrictive threshold among those maximizing calibration Recall@5 while calibration unrelated-query false positives stay at or below 5%. It only writes a release threshold when the held-out quality gate also passes.
+[`fixtures/korean-retrieval.json`](fixtures/korean-retrieval.json) is a public CC0 fixture with separate calibration and evaluation queries. The evaluator selects the most restrictive threshold among those maximizing calibration Recall@5 while calibration unrelated-query false positives stay at or below 5%. Its quality flag covers semantic vectors only; the evaluator never changes a release manifest. A release threshold also requires the actual Rust combined-search gate to pass.
 
 ```sh
 python3 scripts/evaluate-nlp.py \
@@ -48,7 +48,7 @@ cargo +1.85.0 test --locked --manifest-path src-tauri/Cargo.toml \
   evaluate_combined_search_from_native_fixture_vectors -- --ignored --nocapture
 ```
 
-The ignored Rust evaluation calls the production store's FTS, current memory checks, vector comparison, and RRF with the actual native vectors and Kiwi terms. It reports quality without turning an unmet release target into a passing quality assertion. Fixture-based results are not general Korean-language accuracy claims.
+The ignored Rust evaluation calls the production store's FTS, current memory checks, vector comparison, and RRF with the actual native vectors and Kiwi terms. The JSON report includes failing query IDs and a `combinedSearchQualityGate` value. Set `COMET_NLP_REQUIRE_QUALITY_GATE=1` on that command when validating a release candidate: it writes the report, then fails unless both calibration and evaluation contain related and unrelated questions and each split meets Recall@5 >= 90% and unrelated false-positive rate <= 5%. The default run remains diagnostic. Passing this quality check alone does not establish the memory, latency, Windows, or artifact publication gates. Fixture-based results are not general Korean-language accuracy claims.
 
 ```sh
 python3 scripts/benchmark-nlp.py \

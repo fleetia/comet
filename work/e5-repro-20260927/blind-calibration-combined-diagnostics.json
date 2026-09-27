@@ -1,0 +1,610 @@
+{
+  "diagnostics": [
+    {
+      "id": "calibration-related-03",
+      "mode": "lexical",
+      "relevant": [
+        "map-exhibit"
+      ],
+      "split": "calibration",
+      "text": "시립 박물관에서 보는 전시 주제는?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-04",
+      "mode": "lexical",
+      "relevant": [
+        "braille"
+      ],
+      "split": "calibration",
+      "text": "도서관에서 정기적으로 맡는 일은?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-05",
+      "mode": "lexical",
+      "relevant": [
+        "choir"
+      ],
+      "split": "calibration",
+      "text": "합창단에서 내 성부는 무엇인가?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-07",
+      "mode": "lexical",
+      "relevant": [
+        "kimchi"
+      ],
+      "split": "calibration",
+      "text": "김치를 만들 때 젓갈 대용으로 무엇을 넣지?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-08",
+      "mode": "lexical",
+      "relevant": [
+        "archery"
+      ],
+      "split": "calibration",
+      "text": "양궁장에서 배우며 쓰는 활의 종류는?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-09",
+      "mode": "lexical",
+      "relevant": [
+        "bag-repair"
+      ],
+      "split": "calibration",
+      "text": "가방 손잡이를 수선할 때 사용하는 도구는?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-10",
+      "mode": "lexical",
+      "relevant": [
+        "folding-bike"
+      ],
+      "split": "calibration",
+      "text": "하천길에서 타는 자전거 종류는?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-11",
+      "mode": "lexical",
+      "relevant": [
+        "minutes"
+      ],
+      "split": "calibration",
+      "text": "수요일 오전에 맡는 팀 업무는?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-13",
+      "mode": "lexical",
+      "relevant": [
+        "jazz-lp"
+      ],
+      "split": "calibration",
+      "text": "벼룩시장에서 찾는 음반은 어떤 것인가?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-14",
+      "mode": "lexical",
+      "relevant": [
+        "bread-oil"
+      ],
+      "split": "calibration",
+      "text": "빵 반죽에서 버터 대용으로 쓰는 것은?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-15",
+      "mode": "lexical",
+      "relevant": [
+        "keyboard"
+      ],
+      "split": "calibration",
+      "text": "기계식 키보드 스위치를 어떻게 교체하나?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-16",
+      "mode": "lexical",
+      "relevant": [
+        "shrimp"
+      ],
+      "split": "calibration",
+      "text": "수조에 기르는 생물과 그 수는?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-17",
+      "mode": "lexical",
+      "relevant": [
+        "birdwatch"
+      ],
+      "split": "calibration",
+      "text": "새 관찰에 챙기는 두 물건은?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-19",
+      "mode": "lexical",
+      "relevant": [
+        "small-theater"
+      ],
+      "split": "calibration",
+      "text": "연극을 볼 때 선호하는 좌석은?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-20",
+      "mode": "lexical",
+      "relevant": [
+        "birch-shelf"
+      ],
+      "split": "calibration",
+      "text": "책꽂이를 만들 때 쓰는 나무는?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-21",
+      "mode": "lexical",
+      "relevant": [
+        "blue-ink"
+      ],
+      "split": "calibration",
+      "text": "메모용 만년필의 잉크 색은?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-22",
+      "mode": "lexical",
+      "relevant": [
+        "yellow-raincoat"
+      ],
+      "split": "calibration",
+      "text": "비 올 때 우산 대신 무엇을 입나?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-24",
+      "mode": "lexical",
+      "relevant": [
+        "tango"
+      ],
+      "split": "calibration",
+      "text": "탱고에서 맡는 역할은?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-25",
+      "mode": "lexical",
+      "relevant": [
+        "table-tennis"
+      ],
+      "split": "calibration",
+      "text": "탁구 라켓은 어느 손으로 잡나?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-26",
+      "mode": "lexical",
+      "relevant": [
+        "sea-stamps"
+      ],
+      "split": "calibration",
+      "text": "수집하는 빈티지 우표의 그림 주제는?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-28",
+      "mode": "lexical",
+      "relevant": [
+        "exam-change"
+      ],
+      "split": "calibration",
+      "text": "시험 응시 월을 어디로 바꿨나?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-29",
+      "mode": "lexical",
+      "relevant": [
+        "newsletter"
+      ],
+      "split": "calibration",
+      "text": "지역 소식지에서 편집하는 부분은?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-30",
+      "mode": "lexical",
+      "relevant": [
+        "kayak"
+      ],
+      "split": "calibration",
+      "text": "카약은 몇 인승을 고르나?",
+      "top5": []
+    },
+    {
+      "id": "calibration-unrelated-03",
+      "mode": "kiwi",
+      "relevant": [],
+      "split": "calibration",
+      "text": "시립 박물관 입장료는 얼마인가?",
+      "top5": [
+        {
+          "id": "map-exhibit",
+          "methods": [
+            "kiwi",
+            "lexical"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-04",
+      "mode": "kiwi",
+      "relevant": [
+        "braille"
+      ],
+      "split": "calibration",
+      "text": "도서관에서 정기적으로 맡는 일은?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-05",
+      "mode": "kiwi",
+      "relevant": [
+        "choir"
+      ],
+      "split": "calibration",
+      "text": "합창단에서 내 성부는 무엇인가?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-07",
+      "mode": "kiwi",
+      "relevant": [
+        "kimchi"
+      ],
+      "split": "calibration",
+      "text": "김치를 만들 때 젓갈 대용으로 무엇을 넣지?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-09",
+      "mode": "kiwi",
+      "relevant": [
+        "bag-repair"
+      ],
+      "split": "calibration",
+      "text": "가방 손잡이를 수선할 때 사용하는 도구는?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-11",
+      "mode": "kiwi",
+      "relevant": [
+        "minutes"
+      ],
+      "split": "calibration",
+      "text": "수요일 오전에 맡는 팀 업무는?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-14",
+      "mode": "kiwi",
+      "relevant": [
+        "bread-oil"
+      ],
+      "split": "calibration",
+      "text": "빵 반죽에서 버터 대용으로 쓰는 것은?",
+      "top5": []
+    },
+    {
+      "id": "calibration-unrelated-15",
+      "mode": "kiwi",
+      "relevant": [],
+      "split": "calibration",
+      "text": "교체하는 스위치의 제조사는 어디인가?",
+      "top5": [
+        {
+          "id": "keyboard",
+          "methods": [
+            "kiwi",
+            "lexical"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-18",
+      "mode": "kiwi",
+      "relevant": [],
+      "split": "calibration",
+      "text": "한 해에 담요를 몇 장 기부하나?",
+      "top5": [
+        {
+          "id": "blanket-donation",
+          "methods": [
+            "kiwi",
+            "lexical"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-19",
+      "mode": "kiwi",
+      "relevant": [
+        "small-theater"
+      ],
+      "split": "calibration",
+      "text": "연극을 볼 때 선호하는 좌석은?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-20",
+      "mode": "kiwi",
+      "relevant": [
+        "birch-shelf"
+      ],
+      "split": "calibration",
+      "text": "책꽂이를 만들 때 쓰는 나무는?",
+      "top5": []
+    },
+    {
+      "id": "calibration-unrelated-25",
+      "mode": "kiwi",
+      "relevant": [],
+      "split": "calibration",
+      "text": "탁구 라켓의 브랜드는?",
+      "top5": [
+        {
+          "id": "table-tennis",
+          "methods": [
+            "kiwi",
+            "lexical"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-26",
+      "mode": "kiwi",
+      "relevant": [
+        "sea-stamps"
+      ],
+      "split": "calibration",
+      "text": "수집하는 빈티지 우표의 그림 주제는?",
+      "top5": []
+    },
+    {
+      "id": "calibration-unrelated-26",
+      "mode": "kiwi",
+      "relevant": [],
+      "split": "calibration",
+      "text": "지금까지 모은 우표는 몇 장인가?",
+      "top5": [
+        {
+          "id": "sea-stamps",
+          "methods": [
+            "kiwi",
+            "lexical"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-28",
+      "mode": "kiwi",
+      "relevant": [],
+      "split": "calibration",
+      "text": "무슨 자격증 시험을 신청했나?",
+      "top5": [
+        {
+          "id": "exam-change",
+          "methods": [
+            "kiwi",
+            "lexical"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-29",
+      "mode": "kiwi",
+      "relevant": [],
+      "split": "calibration",
+      "text": "지역 소식지의 구독자는 몇 명인가?",
+      "top5": [
+        {
+          "id": "newsletter",
+          "methods": [
+            "kiwi",
+            "lexical"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-03",
+      "mode": "combined",
+      "relevant": [],
+      "split": "calibration",
+      "text": "시립 박물관 입장료는 얼마인가?",
+      "top5": [
+        {
+          "id": "map-exhibit",
+          "methods": [
+            "kiwi",
+            "lexical"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-04",
+      "mode": "combined",
+      "relevant": [
+        "braille"
+      ],
+      "split": "calibration",
+      "text": "도서관에서 정기적으로 맡는 일은?",
+      "top5": []
+    },
+    {
+      "id": "calibration-related-05",
+      "mode": "combined",
+      "relevant": [
+        "choir"
+      ],
+      "split": "calibration",
+      "text": "합창단에서 내 성부는 무엇인가?",
+      "top5": []
+    },
+    {
+      "id": "calibration-unrelated-15",
+      "mode": "combined",
+      "relevant": [],
+      "split": "calibration",
+      "text": "교체하는 스위치의 제조사는 어디인가?",
+      "top5": [
+        {
+          "id": "keyboard",
+          "methods": [
+            "kiwi",
+            "lexical"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-18",
+      "mode": "combined",
+      "relevant": [],
+      "split": "calibration",
+      "text": "한 해에 담요를 몇 장 기부하나?",
+      "top5": [
+        {
+          "id": "blanket-donation",
+          "methods": [
+            "kiwi",
+            "lexical"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-19",
+      "mode": "combined",
+      "relevant": [
+        "small-theater"
+      ],
+      "split": "calibration",
+      "text": "연극을 볼 때 선호하는 좌석은?",
+      "top5": []
+    },
+    {
+      "id": "calibration-unrelated-25",
+      "mode": "combined",
+      "relevant": [],
+      "split": "calibration",
+      "text": "탁구 라켓의 브랜드는?",
+      "top5": [
+        {
+          "id": "table-tennis",
+          "methods": [
+            "kiwi",
+            "lexical"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-26",
+      "mode": "combined",
+      "relevant": [],
+      "split": "calibration",
+      "text": "지금까지 모은 우표는 몇 장인가?",
+      "top5": [
+        {
+          "id": "sea-stamps",
+          "methods": [
+            "kiwi",
+            "lexical"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-28",
+      "mode": "combined",
+      "relevant": [],
+      "split": "calibration",
+      "text": "무슨 자격증 시험을 신청했나?",
+      "top5": [
+        {
+          "id": "exam-change",
+          "methods": [
+            "kiwi",
+            "lexical"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-29",
+      "mode": "combined",
+      "relevant": [],
+      "split": "calibration",
+      "text": "지역 소식지의 구독자는 몇 명인가?",
+      "top5": [
+        {
+          "id": "newsletter",
+          "methods": [
+            "kiwi",
+            "lexical"
+          ]
+        }
+      ]
+    }
+  ],
+  "reports": [
+    {
+      "falsePositives": 0,
+      "mode": "lexical",
+      "recallAt5": 0.23333333333333334,
+      "relatedQueries": 30,
+      "split": "calibration",
+      "unrelatedFalsePositiveRate": 0.0,
+      "unrelatedQueries": 30
+    },
+    {
+      "falsePositives": 7,
+      "mode": "kiwi",
+      "recallAt5": 0.7,
+      "relatedQueries": 30,
+      "split": "calibration",
+      "unrelatedFalsePositiveRate": 0.23333333333333334,
+      "unrelatedQueries": 30
+    },
+    {
+      "falsePositives": 7,
+      "mode": "combined",
+      "recallAt5": 0.9,
+      "relatedQueries": 30,
+      "split": "calibration",
+      "unrelatedFalsePositiveRate": 0.23333333333333334,
+      "unrelatedQueries": 30
+    }
+  ],
+  "schema": 2,
+  "source": "Actual Rust store::search_memories with supplied native Kiwi and E5 vectors",
+  "threshold": 0.8750746846199036
+}

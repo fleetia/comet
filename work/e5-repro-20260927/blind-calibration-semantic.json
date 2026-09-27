@@ -1,0 +1,1710 @@
+{
+  "schema": 2,
+  "scoring": "f32 product and sequential f32 sum, matching Rust store",
+  "fixture": "work/e5-blind-20260927/calibration.json",
+  "threshold": 0.8750746846199036,
+  "semanticOnlyQualityGate": false,
+  "calibration": {
+    "recallAt5": 0.7666666666666667,
+    "unrelatedFalsePositiveRate": 0.0,
+    "relatedQueries": 30,
+    "unrelatedQueries": 30,
+    "falsePositives": 0
+  },
+  "evaluation": {
+    "recallAt5": 0,
+    "unrelatedFalsePositiveRate": 0,
+    "relatedQueries": 0,
+    "unrelatedQueries": 0,
+    "falsePositives": 0
+  },
+  "coldStartSeconds": 2.448909958009608,
+  "nativeRequestP50Ms": 5.786083987914026,
+  "nativeRequestP95Ms": 438.4698749927338,
+  "limitations": [
+    "Public fixture is small and synthetic.",
+    "Latency is this host/helper only, not reference Windows performance."
+  ],
+  "queries": [
+    {
+      "id": "calibration-related-01",
+      "split": "calibration",
+      "relevant": [
+        "pottery"
+      ],
+      "top5": [
+        {
+          "id": "pottery",
+          "score": 0.9051859974861145
+        },
+        {
+          "id": "minutes",
+          "score": 0.8256554007530212
+        },
+        {
+          "id": "newsletter",
+          "score": 0.8154770135879517
+        },
+        {
+          "id": "choir",
+          "score": 0.8152201175689697
+        },
+        {
+          "id": "birch-shelf",
+          "score": 0.8068745136260986
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-01",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "pottery",
+          "score": 0.8430930376052856
+        },
+        {
+          "id": "archery",
+          "score": 0.7816768884658813
+        },
+        {
+          "id": "tango",
+          "score": 0.7773682475090027
+        },
+        {
+          "id": "birch-shelf",
+          "score": 0.7766608595848083
+        },
+        {
+          "id": "choir",
+          "score": 0.7684769630432129
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-02",
+      "split": "calibration",
+      "relevant": [
+        "darkroom"
+      ],
+      "top5": [
+        {
+          "id": "darkroom",
+          "score": 0.89618319272995
+        },
+        {
+          "id": "blue-ink",
+          "score": 0.822820782661438
+        },
+        {
+          "id": "newsletter",
+          "score": 0.8097327351570129
+        },
+        {
+          "id": "birdwatch",
+          "score": 0.7940560579299927
+        },
+        {
+          "id": "kayak",
+          "score": 0.785575807094574
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-02",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "darkroom",
+          "score": 0.8299038410186768
+        },
+        {
+          "id": "blue-ink",
+          "score": 0.7920578718185425
+        },
+        {
+          "id": "newsletter",
+          "score": 0.78719562292099
+        },
+        {
+          "id": "birdwatch",
+          "score": 0.7860076427459717
+        },
+        {
+          "id": "bag-repair",
+          "score": 0.78493332862854
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-03",
+      "split": "calibration",
+      "relevant": [
+        "map-exhibit"
+      ],
+      "top5": [
+        {
+          "id": "map-exhibit",
+          "score": 0.8654736280441284
+        },
+        {
+          "id": "birdwatch",
+          "score": 0.7957220077514648
+        },
+        {
+          "id": "small-theater",
+          "score": 0.7944656610488892
+        },
+        {
+          "id": "archery",
+          "score": 0.7925095558166504
+        },
+        {
+          "id": "newsletter",
+          "score": 0.789998471736908
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-03",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "map-exhibit",
+          "score": 0.836855947971344
+        },
+        {
+          "id": "birdwatch",
+          "score": 0.7707399129867554
+        },
+        {
+          "id": "archery",
+          "score": 0.7692408561706543
+        },
+        {
+          "id": "choir",
+          "score": 0.7645438313484192
+        },
+        {
+          "id": "small-theater",
+          "score": 0.7641879320144653
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-04",
+      "split": "calibration",
+      "relevant": [
+        "braille"
+      ],
+      "top5": [
+        {
+          "id": "braille",
+          "score": 0.8515722751617432
+        },
+        {
+          "id": "minutes",
+          "score": 0.8185673356056213
+        },
+        {
+          "id": "birch-shelf",
+          "score": 0.8138014078140259
+        },
+        {
+          "id": "choir",
+          "score": 0.7958745956420898
+        },
+        {
+          "id": "tango",
+          "score": 0.7880133390426636
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-04",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "braille",
+          "score": 0.825154185295105
+        },
+        {
+          "id": "birch-shelf",
+          "score": 0.7804856300354004
+        },
+        {
+          "id": "choir",
+          "score": 0.7743415236473083
+        },
+        {
+          "id": "map-exhibit",
+          "score": 0.7671483159065247
+        },
+        {
+          "id": "jazz-lp",
+          "score": 0.758204996585846
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-05",
+      "split": "calibration",
+      "relevant": [
+        "choir"
+      ],
+      "top5": [
+        {
+          "id": "choir",
+          "score": 0.8082733750343323
+        },
+        {
+          "id": "kayak",
+          "score": 0.7892621755599976
+        },
+        {
+          "id": "archery",
+          "score": 0.7822551131248474
+        },
+        {
+          "id": "braille",
+          "score": 0.774478554725647
+        },
+        {
+          "id": "pottery",
+          "score": 0.7713162302970886
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-05",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "choir",
+          "score": 0.7968670129776001
+        },
+        {
+          "id": "tango",
+          "score": 0.7789462208747864
+        },
+        {
+          "id": "archery",
+          "score": 0.7709906101226807
+        },
+        {
+          "id": "kayak",
+          "score": 0.7701605558395386
+        },
+        {
+          "id": "exam-change",
+          "score": 0.76424241065979
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-06",
+      "split": "calibration",
+      "relevant": [
+        "boardgame"
+      ],
+      "top5": [
+        {
+          "id": "boardgame",
+          "score": 0.9185348153114319
+        },
+        {
+          "id": "minutes",
+          "score": 0.7907366156578064
+        },
+        {
+          "id": "pottery",
+          "score": 0.7776869535446167
+        },
+        {
+          "id": "tango",
+          "score": 0.777525007724762
+        },
+        {
+          "id": "table-tennis",
+          "score": 0.7742993831634521
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-06",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "boardgame",
+          "score": 0.8591465950012207
+        },
+        {
+          "id": "choir",
+          "score": 0.7803975939750671
+        },
+        {
+          "id": "minutes",
+          "score": 0.7750410437583923
+        },
+        {
+          "id": "pottery",
+          "score": 0.7743019461631775
+        },
+        {
+          "id": "archery",
+          "score": 0.7700901627540588
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-07",
+      "split": "calibration",
+      "relevant": [
+        "kimchi"
+      ],
+      "top5": [
+        {
+          "id": "kimchi",
+          "score": 0.877308189868927
+        },
+        {
+          "id": "birch-shelf",
+          "score": 0.8062381148338318
+        },
+        {
+          "id": "bread-oil",
+          "score": 0.8055940270423889
+        },
+        {
+          "id": "bag-repair",
+          "score": 0.8032402396202087
+        },
+        {
+          "id": "chard",
+          "score": 0.7969078421592712
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-07",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "kimchi",
+          "score": 0.829972505569458
+        },
+        {
+          "id": "shrimp",
+          "score": 0.7833666801452637
+        },
+        {
+          "id": "bread-oil",
+          "score": 0.7786955237388611
+        },
+        {
+          "id": "chard",
+          "score": 0.7779879570007324
+        },
+        {
+          "id": "pottery",
+          "score": 0.7775250673294067
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-08",
+      "split": "calibration",
+      "relevant": [
+        "archery"
+      ],
+      "top5": [
+        {
+          "id": "archery",
+          "score": 0.8752196431159973
+        },
+        {
+          "id": "tango",
+          "score": 0.7947145104408264
+        },
+        {
+          "id": "pottery",
+          "score": 0.7907207012176514
+        },
+        {
+          "id": "yellow-raincoat",
+          "score": 0.7881551384925842
+        },
+        {
+          "id": "kayak",
+          "score": 0.786260187625885
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-08",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "archery",
+          "score": 0.7816528677940369
+        },
+        {
+          "id": "kayak",
+          "score": 0.7727325558662415
+        },
+        {
+          "id": "fig-jam",
+          "score": 0.771535336971283
+        },
+        {
+          "id": "birdwatch",
+          "score": 0.764983057975769
+        },
+        {
+          "id": "boardgame",
+          "score": 0.7591744661331177
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-09",
+      "split": "calibration",
+      "relevant": [
+        "bag-repair"
+      ],
+      "top5": [
+        {
+          "id": "bag-repair",
+          "score": 0.8750746846199036
+        },
+        {
+          "id": "table-tennis",
+          "score": 0.8334577083587646
+        },
+        {
+          "id": "birch-shelf",
+          "score": 0.8154879212379456
+        },
+        {
+          "id": "birdwatch",
+          "score": 0.8150802254676819
+        },
+        {
+          "id": "keyboard",
+          "score": 0.8114097714424133
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-09",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "bag-repair",
+          "score": 0.8028292059898376
+        },
+        {
+          "id": "birch-shelf",
+          "score": 0.765209436416626
+        },
+        {
+          "id": "jazz-lp",
+          "score": 0.7638373970985413
+        },
+        {
+          "id": "bread-oil",
+          "score": 0.7624949216842651
+        },
+        {
+          "id": "table-tennis",
+          "score": 0.7520487308502197
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-10",
+      "split": "calibration",
+      "relevant": [
+        "folding-bike"
+      ],
+      "top5": [
+        {
+          "id": "folding-bike",
+          "score": 0.8853864073753357
+        },
+        {
+          "id": "yellow-raincoat",
+          "score": 0.7748780846595764
+        },
+        {
+          "id": "chard",
+          "score": 0.7729225754737854
+        },
+        {
+          "id": "table-tennis",
+          "score": 0.7713384628295898
+        },
+        {
+          "id": "kayak",
+          "score": 0.7689820528030396
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-10",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "folding-bike",
+          "score": 0.8211044073104858
+        },
+        {
+          "id": "birdwatch",
+          "score": 0.7739909887313843
+        },
+        {
+          "id": "kayak",
+          "score": 0.7692672610282898
+        },
+        {
+          "id": "pottery",
+          "score": 0.7689491510391235
+        },
+        {
+          "id": "bag-repair",
+          "score": 0.7689160108566284
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-11",
+      "split": "calibration",
+      "relevant": [
+        "minutes"
+      ],
+      "top5": [
+        {
+          "id": "minutes",
+          "score": 0.9044423699378967
+        },
+        {
+          "id": "choir",
+          "score": 0.8399608731269836
+        },
+        {
+          "id": "newsletter",
+          "score": 0.8329304456710815
+        },
+        {
+          "id": "pottery",
+          "score": 0.8231309652328491
+        },
+        {
+          "id": "fig-jam",
+          "score": 0.8093658685684204
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-11",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "minutes",
+          "score": 0.8010212182998657
+        },
+        {
+          "id": "boardgame",
+          "score": 0.7831849455833435
+        },
+        {
+          "id": "tango",
+          "score": 0.7733818888664246
+        },
+        {
+          "id": "choir",
+          "score": 0.7697003483772278
+        },
+        {
+          "id": "kayak",
+          "score": 0.7605058550834656
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-12",
+      "split": "calibration",
+      "relevant": [
+        "chard"
+      ],
+      "top5": [
+        {
+          "id": "chard",
+          "score": 0.9039942026138306
+        },
+        {
+          "id": "shrimp",
+          "score": 0.8074368834495544
+        },
+        {
+          "id": "kimchi",
+          "score": 0.7965470552444458
+        },
+        {
+          "id": "pottery",
+          "score": 0.7946485877037048
+        },
+        {
+          "id": "yellow-raincoat",
+          "score": 0.7910416126251221
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-12",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "chard",
+          "score": 0.8422667384147644
+        },
+        {
+          "id": "kayak",
+          "score": 0.7875804901123047
+        },
+        {
+          "id": "birdwatch",
+          "score": 0.7833886742591858
+        },
+        {
+          "id": "pottery",
+          "score": 0.7802510261535645
+        },
+        {
+          "id": "shrimp",
+          "score": 0.7795767188072205
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-13",
+      "split": "calibration",
+      "relevant": [
+        "jazz-lp"
+      ],
+      "top5": [
+        {
+          "id": "jazz-lp",
+          "score": 0.8612195253372192
+        },
+        {
+          "id": "birch-shelf",
+          "score": 0.780880331993103
+        },
+        {
+          "id": "braille",
+          "score": 0.7804179787635803
+        },
+        {
+          "id": "choir",
+          "score": 0.7759478092193604
+        },
+        {
+          "id": "kayak",
+          "score": 0.7704652547836304
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-13",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "jazz-lp",
+          "score": 0.7971720695495605
+        },
+        {
+          "id": "kayak",
+          "score": 0.7650042176246643
+        },
+        {
+          "id": "braille",
+          "score": 0.7578237652778625
+        },
+        {
+          "id": "tango",
+          "score": 0.7522484660148621
+        },
+        {
+          "id": "birch-shelf",
+          "score": 0.7506119608879089
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-14",
+      "split": "calibration",
+      "relevant": [
+        "bread-oil"
+      ],
+      "top5": [
+        {
+          "id": "bread-oil",
+          "score": 0.8919270038604736
+        },
+        {
+          "id": "kimchi",
+          "score": 0.8011810183525085
+        },
+        {
+          "id": "bag-repair",
+          "score": 0.7935668230056763
+        },
+        {
+          "id": "fig-jam",
+          "score": 0.7894286513328552
+        },
+        {
+          "id": "birch-shelf",
+          "score": 0.78094881772995
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-14",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "bread-oil",
+          "score": 0.801184356212616
+        },
+        {
+          "id": "yellow-raincoat",
+          "score": 0.7688174843788147
+        },
+        {
+          "id": "kimchi",
+          "score": 0.7658525705337524
+        },
+        {
+          "id": "kayak",
+          "score": 0.7559086680412292
+        },
+        {
+          "id": "bag-repair",
+          "score": 0.753221333026886
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-15",
+      "split": "calibration",
+      "relevant": [
+        "keyboard"
+      ],
+      "top5": [
+        {
+          "id": "keyboard",
+          "score": 0.9074915647506714
+        },
+        {
+          "id": "blue-ink",
+          "score": 0.797785222530365
+        },
+        {
+          "id": "bag-repair",
+          "score": 0.7944039106369019
+        },
+        {
+          "id": "exam-change",
+          "score": 0.782203733921051
+        },
+        {
+          "id": "darkroom",
+          "score": 0.7788989543914795
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-15",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "keyboard",
+          "score": 0.845995306968689
+        },
+        {
+          "id": "exam-change",
+          "score": 0.7774412631988525
+        },
+        {
+          "id": "jazz-lp",
+          "score": 0.7654720544815063
+        },
+        {
+          "id": "bag-repair",
+          "score": 0.7584364414215088
+        },
+        {
+          "id": "newsletter",
+          "score": 0.7505067586898804
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-16",
+      "split": "calibration",
+      "relevant": [
+        "shrimp"
+      ],
+      "top5": [
+        {
+          "id": "shrimp",
+          "score": 0.8191378116607666
+        },
+        {
+          "id": "sea-stamps",
+          "score": 0.8030998706817627
+        },
+        {
+          "id": "birdwatch",
+          "score": 0.8022354245185852
+        },
+        {
+          "id": "chard",
+          "score": 0.7984724640846252
+        },
+        {
+          "id": "birch-shelf",
+          "score": 0.792845606803894
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-16",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "shrimp",
+          "score": 0.7890772223472595
+        },
+        {
+          "id": "birch-shelf",
+          "score": 0.7690089344978333
+        },
+        {
+          "id": "chard",
+          "score": 0.7689729928970337
+        },
+        {
+          "id": "sea-stamps",
+          "score": 0.7659580111503601
+        },
+        {
+          "id": "kayak",
+          "score": 0.7608069777488708
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-17",
+      "split": "calibration",
+      "relevant": [
+        "birdwatch"
+      ],
+      "top5": [
+        {
+          "id": "birdwatch",
+          "score": 0.8626570701599121
+        },
+        {
+          "id": "bag-repair",
+          "score": 0.8144063949584961
+        },
+        {
+          "id": "keyboard",
+          "score": 0.7961681485176086
+        },
+        {
+          "id": "kayak",
+          "score": 0.7952373027801514
+        },
+        {
+          "id": "blanket-donation",
+          "score": 0.7919620871543884
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-17",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "birdwatch",
+          "score": 0.816170334815979
+        },
+        {
+          "id": "kayak",
+          "score": 0.7688654065132141
+        },
+        {
+          "id": "darkroom",
+          "score": 0.756046712398529
+        },
+        {
+          "id": "braille",
+          "score": 0.7558225393295288
+        },
+        {
+          "id": "yellow-raincoat",
+          "score": 0.7508630752563477
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-18",
+      "split": "calibration",
+      "relevant": [
+        "blanket-donation"
+      ],
+      "top5": [
+        {
+          "id": "blanket-donation",
+          "score": 0.8968406319618225
+        },
+        {
+          "id": "birdwatch",
+          "score": 0.7864101529121399
+        },
+        {
+          "id": "paper-calendar",
+          "score": 0.7785744667053223
+        },
+        {
+          "id": "pottery",
+          "score": 0.7770370841026306
+        },
+        {
+          "id": "braille",
+          "score": 0.773179292678833
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-18",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "blanket-donation",
+          "score": 0.8723071813583374
+        },
+        {
+          "id": "yellow-raincoat",
+          "score": 0.7902230620384216
+        },
+        {
+          "id": "braille",
+          "score": 0.7896994948387146
+        },
+        {
+          "id": "paper-calendar",
+          "score": 0.7887715697288513
+        },
+        {
+          "id": "kayak",
+          "score": 0.7824680209159851
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-19",
+      "split": "calibration",
+      "relevant": [
+        "small-theater"
+      ],
+      "top5": [
+        {
+          "id": "small-theater",
+          "score": 0.8369052410125732
+        },
+        {
+          "id": "archery",
+          "score": 0.7908720970153809
+        },
+        {
+          "id": "birdwatch",
+          "score": 0.7821682095527649
+        },
+        {
+          "id": "tango",
+          "score": 0.7768247127532959
+        },
+        {
+          "id": "yellow-raincoat",
+          "score": 0.7737875580787659
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-19",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "small-theater",
+          "score": 0.8330474495887756
+        },
+        {
+          "id": "map-exhibit",
+          "score": 0.7570884227752686
+        },
+        {
+          "id": "choir",
+          "score": 0.7545943856239319
+        },
+        {
+          "id": "chard",
+          "score": 0.7442492246627808
+        },
+        {
+          "id": "archery",
+          "score": 0.7438185214996338
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-20",
+      "split": "calibration",
+      "relevant": [
+        "birch-shelf"
+      ],
+      "top5": [
+        {
+          "id": "birch-shelf",
+          "score": 0.8852578401565552
+        },
+        {
+          "id": "blue-ink",
+          "score": 0.8156483769416809
+        },
+        {
+          "id": "bag-repair",
+          "score": 0.8121732473373413
+        },
+        {
+          "id": "braille",
+          "score": 0.8080779314041138
+        },
+        {
+          "id": "birdwatch",
+          "score": 0.797009289264679
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-20",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "birch-shelf",
+          "score": 0.8499054908752441
+        },
+        {
+          "id": "tango",
+          "score": 0.8135860562324524
+        },
+        {
+          "id": "archery",
+          "score": 0.7963085174560547
+        },
+        {
+          "id": "pottery",
+          "score": 0.7901868224143982
+        },
+        {
+          "id": "chard",
+          "score": 0.786505401134491
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-21",
+      "split": "calibration",
+      "relevant": [
+        "blue-ink"
+      ],
+      "top5": [
+        {
+          "id": "blue-ink",
+          "score": 0.8996887803077698
+        },
+        {
+          "id": "darkroom",
+          "score": 0.8142397999763489
+        },
+        {
+          "id": "bag-repair",
+          "score": 0.790149450302124
+        },
+        {
+          "id": "birdwatch",
+          "score": 0.7831225991249084
+        },
+        {
+          "id": "jazz-lp",
+          "score": 0.776801586151123
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-21",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "blue-ink",
+          "score": 0.8303698897361755
+        },
+        {
+          "id": "darkroom",
+          "score": 0.7924198508262634
+        },
+        {
+          "id": "bag-repair",
+          "score": 0.7791506052017212
+        },
+        {
+          "id": "chard",
+          "score": 0.7786605954170227
+        },
+        {
+          "id": "birch-shelf",
+          "score": 0.7733936309814453
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-22",
+      "split": "calibration",
+      "relevant": [
+        "yellow-raincoat"
+      ],
+      "top5": [
+        {
+          "id": "yellow-raincoat",
+          "score": 0.9113152623176575
+        },
+        {
+          "id": "folding-bike",
+          "score": 0.8086423277854919
+        },
+        {
+          "id": "kayak",
+          "score": 0.8072739243507385
+        },
+        {
+          "id": "bread-oil",
+          "score": 0.8030585646629333
+        },
+        {
+          "id": "kimchi",
+          "score": 0.801259458065033
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-22",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "yellow-raincoat",
+          "score": 0.8242132067680359
+        },
+        {
+          "id": "birdwatch",
+          "score": 0.7833653092384338
+        },
+        {
+          "id": "pottery",
+          "score": 0.7766759991645813
+        },
+        {
+          "id": "paper-calendar",
+          "score": 0.7728669047355652
+        },
+        {
+          "id": "darkroom",
+          "score": 0.7682167291641235
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-23",
+      "split": "calibration",
+      "relevant": [
+        "paper-calendar"
+      ],
+      "top5": [
+        {
+          "id": "paper-calendar",
+          "score": 0.9060716032981873
+        },
+        {
+          "id": "kayak",
+          "score": 0.7887177467346191
+        },
+        {
+          "id": "yellow-raincoat",
+          "score": 0.7814310789108276
+        },
+        {
+          "id": "chard",
+          "score": 0.7726191282272339
+        },
+        {
+          "id": "braille",
+          "score": 0.7706061601638794
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-23",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "paper-calendar",
+          "score": 0.8547989726066589
+        },
+        {
+          "id": "kayak",
+          "score": 0.7753614783287048
+        },
+        {
+          "id": "map-exhibit",
+          "score": 0.7721267342567444
+        },
+        {
+          "id": "pottery",
+          "score": 0.7715776562690735
+        },
+        {
+          "id": "braille",
+          "score": 0.7710325717926025
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-24",
+      "split": "calibration",
+      "relevant": [
+        "tango"
+      ],
+      "top5": [
+        {
+          "id": "tango",
+          "score": 0.8823025226593018
+        },
+        {
+          "id": "table-tennis",
+          "score": 0.7705543041229248
+        },
+        {
+          "id": "minutes",
+          "score": 0.7695926427841187
+        },
+        {
+          "id": "pottery",
+          "score": 0.7620559930801392
+        },
+        {
+          "id": "birdwatch",
+          "score": 0.7609955072402954
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-24",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "tango",
+          "score": 0.8184800148010254
+        },
+        {
+          "id": "boardgame",
+          "score": 0.7951701879501343
+        },
+        {
+          "id": "table-tennis",
+          "score": 0.7620443105697632
+        },
+        {
+          "id": "kayak",
+          "score": 0.7620288133621216
+        },
+        {
+          "id": "chard",
+          "score": 0.7614227533340454
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-25",
+      "split": "calibration",
+      "relevant": [
+        "table-tennis"
+      ],
+      "top5": [
+        {
+          "id": "table-tennis",
+          "score": 0.9177126884460449
+        },
+        {
+          "id": "bag-repair",
+          "score": 0.8163148164749146
+        },
+        {
+          "id": "archery",
+          "score": 0.7788731455802917
+        },
+        {
+          "id": "tango",
+          "score": 0.7652468085289001
+        },
+        {
+          "id": "birdwatch",
+          "score": 0.7652177214622498
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-25",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "table-tennis",
+          "score": 0.8565764427185059
+        },
+        {
+          "id": "jazz-lp",
+          "score": 0.754375159740448
+        },
+        {
+          "id": "bag-repair",
+          "score": 0.7530683875083923
+        },
+        {
+          "id": "archery",
+          "score": 0.7450608611106873
+        },
+        {
+          "id": "tango",
+          "score": 0.742760419845581
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-26",
+      "split": "calibration",
+      "relevant": [
+        "sea-stamps"
+      ],
+      "top5": [
+        {
+          "id": "sea-stamps",
+          "score": 0.898483157157898
+        },
+        {
+          "id": "newsletter",
+          "score": 0.8012177348136902
+        },
+        {
+          "id": "map-exhibit",
+          "score": 0.8009728193283081
+        },
+        {
+          "id": "birdwatch",
+          "score": 0.7891978621482849
+        },
+        {
+          "id": "birch-shelf",
+          "score": 0.7890926599502563
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-26",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "sea-stamps",
+          "score": 0.7951472997665405
+        },
+        {
+          "id": "yellow-raincoat",
+          "score": 0.7807502150535583
+        },
+        {
+          "id": "map-exhibit",
+          "score": 0.7711139917373657
+        },
+        {
+          "id": "minutes",
+          "score": 0.7646410465240479
+        },
+        {
+          "id": "braille",
+          "score": 0.7639029026031494
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-27",
+      "split": "calibration",
+      "relevant": [
+        "fig-jam"
+      ],
+      "top5": [
+        {
+          "id": "fig-jam",
+          "score": 0.8923344016075134
+        },
+        {
+          "id": "bread-oil",
+          "score": 0.8204274773597717
+        },
+        {
+          "id": "kimchi",
+          "score": 0.8009331226348877
+        },
+        {
+          "id": "yellow-raincoat",
+          "score": 0.790346622467041
+        },
+        {
+          "id": "birch-shelf",
+          "score": 0.7889746427536011
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-27",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "fig-jam",
+          "score": 0.8359615206718445
+        },
+        {
+          "id": "newsletter",
+          "score": 0.8223719596862793
+        },
+        {
+          "id": "minutes",
+          "score": 0.8159542083740234
+        },
+        {
+          "id": "pottery",
+          "score": 0.8058798313140869
+        },
+        {
+          "id": "choir",
+          "score": 0.7960190176963806
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-28",
+      "split": "calibration",
+      "relevant": [
+        "exam-change"
+      ],
+      "top5": [
+        {
+          "id": "exam-change",
+          "score": 0.9078458547592163
+        },
+        {
+          "id": "newsletter",
+          "score": 0.8025785088539124
+        },
+        {
+          "id": "blue-ink",
+          "score": 0.7910310626029968
+        },
+        {
+          "id": "paper-calendar",
+          "score": 0.7907508015632629
+        },
+        {
+          "id": "braille",
+          "score": 0.7900716662406921
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-28",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "exam-change",
+          "score": 0.867367684841156
+        },
+        {
+          "id": "archery",
+          "score": 0.7741767764091492
+        },
+        {
+          "id": "paper-calendar",
+          "score": 0.7635610699653625
+        },
+        {
+          "id": "birch-shelf",
+          "score": 0.7629157304763794
+        },
+        {
+          "id": "keyboard",
+          "score": 0.7594737410545349
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-29",
+      "split": "calibration",
+      "relevant": [
+        "newsletter"
+      ],
+      "top5": [
+        {
+          "id": "newsletter",
+          "score": 0.8858147859573364
+        },
+        {
+          "id": "minutes",
+          "score": 0.7935810089111328
+        },
+        {
+          "id": "darkroom",
+          "score": 0.7748963236808777
+        },
+        {
+          "id": "blue-ink",
+          "score": 0.7734354138374329
+        },
+        {
+          "id": "blanket-donation",
+          "score": 0.772156298160553
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-29",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "newsletter",
+          "score": 0.8245974779129028
+        },
+        {
+          "id": "minutes",
+          "score": 0.7597878575325012
+        },
+        {
+          "id": "braille",
+          "score": 0.7596294283866882
+        },
+        {
+          "id": "choir",
+          "score": 0.7564586997032166
+        },
+        {
+          "id": "blanket-donation",
+          "score": 0.7519979476928711
+        }
+      ]
+    },
+    {
+      "id": "calibration-related-30",
+      "split": "calibration",
+      "relevant": [
+        "kayak"
+      ],
+      "top5": [
+        {
+          "id": "kayak",
+          "score": 0.9060704708099365
+        },
+        {
+          "id": "chard",
+          "score": 0.7714042067527771
+        },
+        {
+          "id": "darkroom",
+          "score": 0.7593932747840881
+        },
+        {
+          "id": "map-exhibit",
+          "score": 0.756813645362854
+        },
+        {
+          "id": "tango",
+          "score": 0.7558524012565613
+        }
+      ]
+    },
+    {
+      "id": "calibration-unrelated-30",
+      "split": "calibration",
+      "relevant": [],
+      "top5": [
+        {
+          "id": "kayak",
+          "score": 0.8197920322418213
+        },
+        {
+          "id": "jazz-lp",
+          "score": 0.7718176245689392
+        },
+        {
+          "id": "map-exhibit",
+          "score": 0.7636477947235107
+        },
+        {
+          "id": "exam-change",
+          "score": 0.7622732520103455
+        },
+        {
+          "id": "chard",
+          "score": 0.758764922618866
+        }
+      ]
+    }
+  ]
+}

@@ -140,8 +140,17 @@ fn evaluate_combined_search_from_native_fixture_vectors() {
         assert!(store::save_vector_index(&db, id, 1, semantic_profile, &vectors).unwrap());
     }
     let mut reports = Vec::new();
+    let mut diagnostics = Vec::new();
     for mode in ["lexical", "kiwi", "combined"] {
         for split in ["calibration", "evaluation"] {
+            if !data["queries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|query| query["split"] == split)
+            {
+                continue;
+            }
             let (mut recall, mut positives, mut negatives, mut false_positives) = (0.0, 0, 0, 0);
             for query in data["queries"]
                 .as_array()
@@ -168,11 +177,12 @@ fn evaluate_combined_search_from_native_fixture_vectors() {
                     store::search_memories(&db, query["text"].as_str().unwrap(), &terms, semantic)
                         .unwrap();
                 let relevant = query["relevant"].as_array().unwrap();
-                if relevant.is_empty() {
+                let incomplete = if relevant.is_empty() {
                     negatives += 1;
                     if !hits.is_empty() {
                         false_positives += 1;
                     }
+                    !hits.is_empty()
                 } else {
                     positives += 1;
                     let found = hits
@@ -181,17 +191,52 @@ fn evaluate_combined_search_from_native_fixture_vectors() {
                         .filter(|hit| relevant.iter().any(|id| id == &hit.memory.id))
                         .count();
                     recall += found as f64 / relevant.len() as f64;
+                    found < relevant.len()
+                };
+                if incomplete {
+                    diagnostics.push(serde_json::json!({
+                        "mode": mode,
+                        "split": split,
+                        "id": query["id"],
+                        "relevant": relevant,
+                        "top5": hits.iter().take(5).map(|hit| serde_json::json!({
+                            "id": hit.memory.id,
+                            "methods": hit.methods,
+                        })).collect::<Vec<_>>(),
+                    }));
                 }
             }
-            reports.push(serde_json::json!({"mode":mode,"split":split,"recallAt5":recall/positives as f64,
-                "unrelatedFalsePositiveRate":false_positives as f64/negatives as f64,"relatedQueries":positives,"unrelatedQueries":negatives,"falsePositives":false_positives}));
+            let recall_at_5 = (positives > 0).then_some(recall / positives as f64);
+            let false_positive_rate =
+                (negatives > 0).then_some(false_positives as f64 / negatives as f64);
+            reports.push(serde_json::json!({"mode":mode,"split":split,"recallAt5":recall_at_5,
+                "unrelatedFalsePositiveRate":false_positive_rate,"relatedQueries":positives,"unrelatedQueries":negatives,"falsePositives":false_positives}));
         }
     }
-    let report = serde_json::json!({"schema":1,"threshold":threshold,"source":"Actual Rust store::search_memories, native Kiwi and E5 vectors from public fixture","reports":reports});
+    let combined = reports
+        .iter()
+        .filter(|result| result["mode"] == "combined")
+        .collect::<Vec<_>>();
+    let combined_search_quality_gate = (combined.len() == 2).then(|| {
+        combined.iter().all(|result| {
+            result["recallAt5"].as_f64().is_some_and(|value| value >= 0.9)
+                && result["unrelatedFalsePositiveRate"]
+                    .as_f64()
+                    .is_some_and(|value| value <= 0.05)
+        })
+    });
+    let report = serde_json::json!({"schema":2,"threshold":threshold,"source":"Actual Rust store::search_memories with supplied native Kiwi and E5 vectors","combinedSearchQualityGate":combined_search_quality_gate,"reports":reports,"diagnostics":diagnostics});
     let json = serde_json::to_string_pretty(&report).unwrap();
-    println!("{json}");
+    println!("{}", serde_json::json!({"reports": report["reports"]}));
     if let Ok(path) = std::env::var("COMET_NLP_EVAL_RESULT") {
         std::fs::write(path, format!("{json}\n")).unwrap();
+    }
+    if std::env::var("COMET_NLP_REQUIRE_QUALITY_GATE").as_deref() == Ok("1") {
+        assert_eq!(
+            combined_search_quality_gate,
+            Some(true),
+            "Combined search must meet Recall@5 >= 90% and unrelated FPR <= 5% in both splits"
+        );
     }
 }
 
