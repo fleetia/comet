@@ -534,6 +534,21 @@ async fn open_widget_inner(
     Ok(())
 }
 
+fn reveal_widget_display(
+    state: &AppState,
+    id: &str,
+    expected_revision: i64,
+    reveal: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    let _action = lock(&state.action)?;
+    if crate::unavailable(state) {
+        return Err("앱을 정리하고 있어요.".into());
+    }
+    let current = storage::get(&*lock(&state.db)?, id)?;
+    active_appearance_target(&current, expected_revision)?;
+    reveal()
+}
+
 #[tauri::command]
 pub(crate) async fn open_widget_display(
     app: tauri::AppHandle,
@@ -550,10 +565,13 @@ pub(crate) async fn open_widget_display(
     uuid::Uuid::parse_str(&id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
     let label = format!("widget-display-{id}");
     if let Some(window) = app.get_webview_window(&label) {
-        window.show().map_err(|error| error.to_string())?;
-        return window.set_focus().map_err(|error| error.to_string());
+        return reveal_widget_display(&state, &id, instance.revision, || {
+            window.show().map_err(|error| error.to_string())?;
+            window.set_focus().map_err(|error| error.to_string())
+        });
     }
-    tauri::WebviewWindowBuilder::new(
+    // Building waits for the UI thread, so keep it outside the lifecycle lock and hidden.
+    let window = tauri::WebviewWindowBuilder::new(
         &app,
         label,
         tauri::WebviewUrl::App(format!("index.html?view=widget-display&id={id}").into()),
@@ -571,9 +589,18 @@ pub(crate) async fn open_widget_display(
     .maximizable(false)
     .always_on_top(true)
     .skip_taskbar(true)
+    .focused(false)
+    .visible(false)
     .build()
     .map_err(|error| error.to_string())?;
-    Ok(())
+    let result = reveal_widget_display(&state, &id, instance.revision, || {
+        window.show().map_err(|error| error.to_string())?;
+        window.set_focus().map_err(|error| error.to_string())
+    });
+    if result.is_err() {
+        let _ = window.destroy();
+    }
+    result
 }
 
 #[tauri::command]
@@ -753,6 +780,76 @@ mod tests {
         let mut disabled = instance;
         disabled.enabled = false;
         assert!(validate_open_widget(&state, &disabled, Some((3, 0))).is_err());
+    }
+
+    #[test]
+    fn display_reveal_rejects_disabled_removed_and_reinstalled_widgets() {
+        for mutation in ["disable", "remove", "delete", "reenable", "reinstall"] {
+            let directory = tempfile::tempdir().unwrap();
+            let mut state = crate::app::tests::state();
+            state.app_data = directory.path().into();
+            let instance = change(&state, |db| {
+                storage::install(db, &state.app_data, &["clock".into()])?;
+                Ok(storage::instances(db)?.remove(0))
+            })
+            .unwrap();
+            change(&state, |db| {
+                match mutation {
+                    "disable" => storage::set_enabled(db, &instance.id, false)?,
+                    "remove" => storage::remove(db, &state.app_data, &instance.id, false)?,
+                    "delete" => storage::remove(db, &state.app_data, &instance.id, true)?,
+                    "reenable" => {
+                        storage::set_enabled(db, &instance.id, false)?;
+                        storage::set_enabled(db, &instance.id, true)?;
+                    }
+                    "reinstall" => {
+                        storage::remove(db, &state.app_data, &instance.id, false)?;
+                        storage::install(db, &state.app_data, &["clock".into()])?;
+                    }
+                    _ => unreachable!(),
+                }
+                Ok(())
+            })
+            .unwrap();
+            let mut revealed = false;
+            let result = reveal_widget_display(&state, &instance.id, instance.revision, || {
+                revealed = true;
+                Ok(())
+            });
+            assert!(result.is_err(), "{mutation}");
+            assert!(!revealed, "{mutation}");
+        }
+    }
+
+    #[test]
+    fn display_reveal_queues_visibility_inside_the_lifecycle_boundary() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut state = crate::app::tests::state();
+        state.app_data = directory.path().into();
+        let instance = change(&state, |db| {
+            storage::install(db, &state.app_data, &["clock".into()])?;
+            Ok(storage::instances(db)?.remove(0))
+        })
+        .unwrap();
+        let mut revealed = false;
+        reveal_widget_display(&state, &instance.id, instance.revision, || {
+            assert!(matches!(
+                state.action.try_lock(),
+                Err(std::sync::TryLockError::WouldBlock)
+            ));
+            assert!(state.db.try_lock().is_ok());
+            revealed = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(revealed);
+        state.stopping.store(true, Ordering::SeqCst);
+        assert!(
+            reveal_widget_display(&state, &instance.id, instance.revision, || {
+                panic!("an exiting app must not reveal a display")
+            })
+            .is_err()
+        );
     }
 
     #[test]

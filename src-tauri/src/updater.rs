@@ -216,12 +216,14 @@ pub(crate) async fn install_app_update(
         )
         .await
         .map_err(|error| report_failure(&app, failure_message(&error).into()))?;
-    if let Err(error) = super::prepare_update_install(&app).await {
-        let _ = super::restore_update_install(&app);
-        return Err(report_failure(&app, error));
-    }
+    let mut notes = super::prepare_update_install(&app)
+        .await
+        .map_err(|error| report_failure(&app, error))?;
     status.phase = "installing";
-    publish(&app, status)?;
+    if let Err(error) = publish(&app, status) {
+        let _ = super::restore_update_install(&app);
+        return Err(error);
+    }
     if let Err(error) = update.install(bytes) {
         let recovery = super::restore_update_install(&app);
         let message = match recovery {
@@ -231,6 +233,7 @@ pub(crate) async fn install_app_update(
         return Err(report_failure(&app, message));
     }
     // Windows exits inside install; macOS needs an explicit restart.
+    notes.keep_locked();
     app.request_restart();
     Ok(())
 }

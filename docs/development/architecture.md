@@ -84,7 +84,11 @@ NLP 보조 실행기·FTS·벡터 캐시·발화별 분석 작업의 책임과 �
 
 통합 설정의 `save_settings`는 `scope: automatic`에서 `autonomousEnabled`·`localIdleEnabled`·`apiIdleEnabled`·`idleMinutes`를, `scope: model`에서 `mode`·`localModel`·`localModelPath`·`baseUrl`·`apiModel`·`apiTokenParameter`를 저장한다. `action`과 DB transaction 안에서 최신 설정을 읽고 해당 필드만 합치므로 다른 영역의 오래된 snapshot이 최신 저장을 덮어쓰지 않는다. 검증과 API 키 적용도 해당 scope에 한정하며 revision 갱신 후 기존 `interrupt`·`gate` 경계를 따른다. scope 생략은 기존 전체 저장 호출의 호환 경로이고 새 설정 UI는 명시적인 scope를 전달한다.
 
-`get_settings_section`·`set_settings_section`은 앱 실행 중 마지막 영역을 공유한다. 네이티브 바로가기는 같은 `settings` 창에 `open-settings-section` 이벤트를 보내며 초기 목적지는 `characters`, 업데이트 목적지는 `general`이다. `set_settings_dirty`는 저장 데이터와 별개인 미저장 편집 신호다. `quit_app`과 네이티브 `ExitRequested`는 이 신호가 있으면 설정창을 보여 주고 `confirm-settings-exit`로 확인을 요청한다. 명시적인 `force: true`만 미저장 내용을 버리고 종료한다. 업데이트는 다운로드 전과 실제 설치 직전에 미저장 상태를 검사한다. UI 탐색·종료·저장 계약의 원본은 [통합 설정창](../product/settings.md)이다.
+`get_settings_section`·`set_settings_section`은 앱 실행 중 마지막 영역을 공유한다. 네이티브 바로가기는 같은 `settings` 창에 `open-settings-section` 이벤트를 보내며 초기 목적지는 `characters`, 업데이트 목적지는 `general`이다. `set_settings_dirty`는 저장 데이터와 별개인 미저장 편집 신호다. `quit_app`과 네이티브 `ExitRequested`는 이 신호가 있으면 설정창을 보여 주고 `confirm-settings-exit`로 확인을 요청한다. 명시적인 `force: true`는 설정 초안을 버리는 확인이며 메모 저장 실패를 무시하지 않는다. 업데이트는 다운로드 전과 실제 설치 직전에 미저장 상태를 검사한다. UI 탐색·종료·저장 계약의 원본은 [통합 설정창](../product/settings.md)이다.
+
+일반 종료와 업데이트 설치는 `memo_notes::flush_notes`로 열린 낱장의 저장 응답을 먼저 기다린다. 위젯 끄기·제거와 같은 비동기 잠금과 창별 request ID를 사용하며, 기다리는 동안 `action`을 점유하지 않는다. 모든 응답 뒤 `action` 안에서 실제 창·DB의 열린 메모·설정 상태를 다시 확인한 다음 종료 또는 업데이트 상태로 전환한다. 실패·10초 timeout·창 변경은 작업을 취소하고 guard 해제로 편집을 다시 허용한다. 정상 종료는 `isOpen`을 유지한다. 창 생성은 잠금 밖에서 숨긴 상태로 진행하고, 표시 직전에 종료 상태와 현재 메모 열림 상태를 잠금 안에서 확인해 늦은 창 표시를 막는다.
+
+macOS 기본 `performClose:`는 제목 표시줄 없는 창을 닫지 못하므로 `desktop_menu.rs`가 기본 Close Window 항목을 같은 이름·위치의 `Cmd+W` 항목으로 대체한다. 현재 초점을 가진 webview의 `close()`를 호출해 기존 `CloseRequested` 처리로 전달하며, 메모 저장·설정 숨김·본체 숨김 경계를 우회하지 않는다.
 
 런처의 `app/launcher.rs`는 시작 시 숨긴 `launcher` 창 하나를 만들고 전역 단축키와 트레이 요청으로 재사용한다. 단축키 문자열은 기존 SQLite `kv`의 `launcher_shortcut`에 저장하며, 값이 없으면 기본값을 사용하고 빈 문자열은 사용 안 함을 뜻한다. 설정 초안이나 대화 저장소를 별도로 만들지 않는다. 프런트엔드는 로컬 이름·별칭과 위젯 snapshot으로 후보·실행 미리보기를 만들고, 사용자가 선택한 동작만 `execute_launcher`로 전달한다. 검색에 LLM을 호출하지 않으며 설정·위젯·대화는 각 기존 명령의 책임을 유지한다.
 

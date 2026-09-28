@@ -36,6 +36,31 @@ fn label(id: &str, note_id: &str) -> String {
     format!("widget-{id}-note-{note_id}")
 }
 
+fn reveal_note(
+    state: &AppState,
+    id: &str,
+    note_id: &str,
+    reveal: impl FnOnce() -> Result<(), String>,
+) -> Result<bool, String> {
+    let _action = lock(&state.action)?;
+    if crate::unavailable(state) {
+        return Ok(false);
+    }
+    let current = storage::get(&*lock(&state.db)?, id)?;
+    if !current.installed
+        || !current.enabled
+        || !current.data["notes"].as_array().is_some_and(|notes| {
+            notes
+                .iter()
+                .any(|note| note["id"] == note_id && note["isOpen"] == true)
+        })
+    {
+        return Ok(false);
+    }
+    reveal()?;
+    Ok(true)
+}
+
 fn reconcile(app: &tauri::AppHandle, focus: Option<&str>) -> Result<(), String> {
     let state = app.state::<Arc<AppState>>();
     let instances = {
@@ -94,23 +119,22 @@ fn reconcile(app: &tauri::AppHandle, focus: Option<&str>) -> Result<(), String> 
                             close_window.emit_to(close_window.label(), "memo-close-request", ());
                     }
                 });
-                let current = storage::get(&*lock(&state.db)?, &instance.id)?;
-                let still_open = current.installed
-                    && current.enabled
-                    && current.data["notes"].as_array().is_some_and(|notes| {
-                        notes
-                            .iter()
-                            .any(|note| note["id"] == note_id && note["isOpen"] == true)
-                    });
-                if still_open {
+                let revealed = reveal_note(&state, &instance.id, note_id, || {
                     window.show().map_err(|error| error.to_string())?;
-                } else {
-                    window.destroy().map_err(|error| error.to_string())?;
+                    if focus == Some(window_label.as_str()) {
+                        window.set_focus().map_err(|error| error.to_string())?;
+                    }
+                    Ok(())
+                });
+                if !matches!(revealed, Ok(true)) {
+                    let _ = window.destroy();
                 }
-            }
-            if focus == Some(window_label.as_str()) {
+                revealed?;
+            } else if focus == Some(window_label.as_str()) {
                 if let Some(window) = app.get_webview_window(&window_label) {
-                    window.set_focus().map_err(|error| error.to_string())?;
+                    reveal_note(&state, &instance.id, note_id, || {
+                        window.set_focus().map_err(|error| error.to_string())
+                    })?;
                 }
             }
         }
@@ -280,32 +304,112 @@ async fn wait_for_flush(
     Ok(())
 }
 
-fn note_windows(app: &tauri::AppHandle, id: &str) -> Vec<tauri::WebviewWindow> {
-    let prefix = format!("widget-{id}-note-");
+fn note_windows(app: &tauri::AppHandle, id: Option<&str>) -> Vec<tauri::WebviewWindow> {
+    let prefix = id.map(|id| format!("widget-{id}-note-"));
     app.webview_windows()
         .into_iter()
-        .filter(|(label, _)| label.starts_with(&prefix))
+        .filter(|(label, _)| match &prefix {
+            Some(prefix) => label.starts_with(prefix),
+            None => label.starts_with("widget-") && label.contains("-note-"),
+        })
         .map(|(_, window)| window)
         .collect()
 }
 
-pub(crate) async fn with_flushed_notes<T>(
+fn open_notes(db: &rusqlite::Connection, id: Option<&str>) -> Result<BTreeSet<String>, String> {
+    let mut notes = BTreeSet::new();
+    for instance in storage::instances(db)?.into_iter().filter(|instance| {
+        instance.kind == "memo"
+            && instance.installed
+            && instance.enabled
+            && id.is_none_or(|id| instance.id == id)
+    }) {
+        if let Some(items) = instance.data["notes"].as_array() {
+            notes.extend(
+                items
+                    .iter()
+                    .filter(|note| note["isOpen"] == true)
+                    .filter_map(|note| {
+                        note["id"]
+                            .as_str()
+                            .map(|note_id| label(&instance.id, note_id))
+                    }),
+            );
+        }
+    }
+    Ok(notes)
+}
+
+pub(crate) struct FlushedNotes {
+    windows: Vec<tauri::WebviewWindow>,
+    labels: BTreeSet<String>,
+    open_notes: BTreeSet<String>,
+    id: Option<String>,
+    payload: Value,
+    release: bool,
+    _operation: tokio::sync::MutexGuard<'static, ()>,
+}
+
+impl FlushedNotes {
+    // The caller holds action until its lifecycle mutation has committed.
+    pub(crate) fn ensure_current(
+        &self,
+        app: &tauri::AppHandle,
+        db: &rusqlite::Connection,
+    ) -> Result<(), String> {
+        let current: BTreeSet<String> = note_windows(app, self.id.as_deref())
+            .iter()
+            .map(|window| window.label().into())
+            .collect();
+        if self.labels != current || self.open_notes != open_notes(db, self.id.as_deref())? {
+            return Err("열린 메모가 바뀌었어요. 다시 시도해 주세요.".into());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn keep_locked(&mut self) {
+        self.release = false;
+    }
+}
+
+impl Drop for FlushedNotes {
+    fn drop(&mut self) {
+        if self.release {
+            for window in &self.windows {
+                let _ = window.emit_to(window.label(), "memo-flush-release", self.payload.clone());
+            }
+        }
+    }
+}
+
+pub(crate) async fn flush_notes(
     app: &tauri::AppHandle,
     state: &AppState,
-    id: &str,
-    action: impl FnOnce(&rusqlite::Connection) -> Result<T, String>,
-) -> Result<T, String> {
-    if storage::get(&*lock(&state.db)?, id)?.kind != "memo" {
-        return change(state, action);
-    }
+    id: Option<&str>,
+) -> Result<FlushedNotes, String> {
     static LIFECYCLE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-    let _operation = LIFECYCLE.lock().await;
-    let windows = note_windows(app, id);
+    let operation = LIFECYCLE.lock().await;
+    let (windows, open_notes) = {
+        let _action = lock(&state.action)?;
+        if crate::unavailable(state) {
+            return Err("앱을 정리하고 있어요.".into());
+        }
+        (note_windows(app, id), open_notes(&*lock(&state.db)?, id)?)
+    };
     let labels: BTreeSet<String> = windows.iter().map(|window| window.label().into()).collect();
     let request_id = uuid::Uuid::new_v4().to_string();
-    let payload = json!({"requestId":request_id});
+    let flushed = FlushedNotes {
+        windows,
+        labels,
+        open_notes,
+        id: id.map(str::to_owned),
+        payload: json!({"requestId":request_id}),
+        release: true,
+        _operation: operation,
+    };
     let (send, mut receive) = tokio::sync::mpsc::unbounded_channel();
-    let listeners: Vec<_> = windows
+    let listeners: Vec<_> = flushed
+        .windows
         .iter()
         .map(|window| {
             let send = send.clone();
@@ -321,41 +425,49 @@ pub(crate) async fn with_flushed_notes<T>(
         .collect();
     drop(send);
     let result = async {
-        for window in &windows {
+        for window in &flushed.windows {
             window
-                .emit_to(window.label(), "memo-flush-request", payload.clone())
+                .emit_to(
+                    window.label(),
+                    "memo-flush-request",
+                    flushed.payload.clone(),
+                )
                 .map_err(|error| error.to_string())?;
         }
         tokio::time::timeout(
             std::time::Duration::from_secs(10),
-            wait_for_flush(&mut receive, labels.clone()),
+            wait_for_flush(&mut receive, flushed.labels.clone()),
         )
         .await
         .map_err(|_| {
             "메모 저장 확인 시간이 초과됐어요. 열린 메모를 확인한 뒤 다시 시도해 주세요."
                 .to_string()
-        })??;
-        change(state, |db| {
-            let current: BTreeSet<String> = note_windows(app, id)
-                .iter()
-                .map(|window| window.label().into())
-                .collect();
-            if current != labels {
-                return Err("열린 메모가 바뀌었어요. 다시 시도해 주세요.".into());
-            }
-            action(db)
-        })
+        })?
     }
     .await;
     for (window, listener) in listeners {
         window.unlisten(listener);
     }
-    if result.is_err() {
-        for window in &windows {
-            let _ = window.emit_to(window.label(), "memo-flush-release", payload.clone());
-        }
+    result?;
+    Ok(flushed)
+}
+
+pub(crate) async fn with_flushed_notes<T>(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    id: &str,
+    action: impl FnOnce(&rusqlite::Connection) -> Result<T, String>,
+) -> Result<T, String> {
+    if storage::get(&*lock(&state.db)?, id)?.kind != "memo" {
+        return change(state, action);
     }
-    result
+    let mut flushed = flush_notes(app, state, Some(id)).await?;
+    let result = change(state, |db| {
+        flushed.ensure_current(app, db)?;
+        action(db)
+    })?;
+    flushed.keep_locked();
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -375,6 +487,74 @@ mod tests {
             .as_array()
             .unwrap()
             .clone()
+    }
+
+    #[test]
+    fn pending_note_reveal_rechecks_shutdown_and_open_intent() {
+        for mutation in ["exit", "update", "close", "disable", "remove", "delete"] {
+            let (db, directory, id) = database();
+            execute(&db, &id, "add", json!({"isOpen":true})).unwrap();
+            let note_id = notes(&db, &id)[0]["id"].as_str().unwrap().to_owned();
+            let state = crate::app::tests::state();
+            *lock(&state.db).unwrap() = db;
+            {
+                let _action = lock(&state.action).unwrap();
+                match mutation {
+                    "exit" => crate::app::lifecycle::prepare_exit_locked(&state).unwrap(),
+                    "update" => {
+                        crate::app::lifecycle::prepare_update_install_locked(&state).unwrap()
+                    }
+                    "close" => {
+                        execute(
+                            &lock(&state.db).unwrap(),
+                            &id,
+                            "update",
+                            json!({"id":note_id,"isOpen":false}),
+                        )
+                        .unwrap();
+                    }
+                    "disable" => {
+                        storage::set_enabled(&lock(&state.db).unwrap(), &id, false).unwrap()
+                    }
+                    "remove" | "delete" => storage::remove(
+                        &lock(&state.db).unwrap(),
+                        directory.path(),
+                        &id,
+                        mutation == "delete",
+                    )
+                    .unwrap(),
+                    _ => unreachable!(),
+                }
+            }
+            let result = reveal_note(&state, &id, &note_id, || {
+                panic!("a stale pending note must not become visible: {mutation}")
+            });
+            assert!(!matches!(result, Ok(true)), "{mutation}");
+            if matches!(mutation, "exit" | "update") {
+                assert_eq!(notes(&lock(&state.db).unwrap(), &id)[0]["isOpen"], true);
+            }
+        }
+    }
+
+    #[test]
+    fn note_reveal_queues_visibility_inside_the_lifecycle_boundary() {
+        let (db, _directory, id) = database();
+        execute(&db, &id, "add", json!({"isOpen":true})).unwrap();
+        let note_id = notes(&db, &id)[0]["id"].as_str().unwrap().to_owned();
+        let state = crate::app::tests::state();
+        *lock(&state.db).unwrap() = db;
+        let mut revealed = false;
+        assert!(reveal_note(&state, &id, &note_id, || {
+            assert!(matches!(
+                state.action.try_lock(),
+                Err(std::sync::TryLockError::WouldBlock)
+            ));
+            assert!(state.db.try_lock().is_ok());
+            revealed = true;
+            Ok(())
+        })
+        .unwrap());
+        assert!(revealed);
     }
 
     #[test]

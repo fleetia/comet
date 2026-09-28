@@ -25,6 +25,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{Manager, WindowEvent};
+use tauri_plugin_dialog::DialogExt;
 
 pub(crate) fn resource_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
     if cfg!(debug_assertions) {
@@ -535,22 +536,14 @@ pub fn run() {
                 if code == Some(tauri::RESTART_EXIT_CODE) {
                     return;
                 }
-                desktop_toys::clear(app);
-                device_wake::shutdown(app);
                 if let Some(state) = app.try_state::<Arc<AppState>>() {
-                    let _ = prepare_exit(&state);
-                    let state = state.inner().clone();
                     api.prevent_exit();
+                    if unavailable(&state) {
+                        return;
+                    }
                     let app = app.clone();
                     tauri::async_runtime::spawn(async move {
-                        stop_owned_work(&state).await;
-                        let exit_app = app.clone();
-                        if let Err(error) = app.run_on_main_thread(move || {
-                            exit_app.cleanup_before_exit();
-                            std::process::exit(0);
-                        }) {
-                            eprintln!("Failed to finish shutdown on the main thread: {error}");
-                        }
+                        request_exit(&app).await;
                     });
                 }
             }
@@ -573,18 +566,78 @@ pub(crate) async fn stop_owned_work(state: &AppState) {
     inference::stop_local(&state.inference).await;
 }
 
-pub(crate) fn prepare_exit(state: &AppState) -> Result<(), String> {
+async fn request_exit(app: &tauri::AppHandle) {
+    static EXIT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let Ok(_operation) = EXIT.try_lock() else {
+        return;
+    };
+    let state = app.state::<Arc<AppState>>();
+    let result = async {
+        let mut notes = prepare_after_notes(
+            &state,
+            crate::memo_notes::flush_notes(app, &state, None),
+            |notes| {
+                if windows::settings_exit_needs_confirmation(&state) {
+                    return Err("저장하지 않은 설정을 확인한 뒤 다시 종료해 주세요.".into());
+                }
+                notes.ensure_current(app, &*lock(&state.db)?)?;
+                prepare_exit_locked(&state)
+            },
+        )
+        .await?;
+        desktop_toys::clear(app);
+        device_wake::shutdown(app);
+        stop_owned_work(&state).await;
+        let exit_app = app.clone();
+        app.run_on_main_thread(move || {
+            exit_app.cleanup_before_exit();
+            std::process::exit(0);
+        })
+        .map_err(|error| error.to_string())?;
+        notes.keep_locked();
+        Ok::<(), String>(())
+    }
+    .await;
+    if let Err(error) = result {
+        state.settings_exit_confirmed.store(false, Ordering::SeqCst);
+        app.dialog()
+            .message(error)
+            .title("comet · 종료하지 못했어요")
+            .show(|_| {});
+    }
+}
+
+pub(crate) async fn prepare_after_notes<T>(
+    state: &AppState,
+    flush: impl std::future::Future<Output = Result<T, String>>,
+    prepare: impl FnOnce(&T) -> Result<(), String>,
+) -> Result<T, String> {
+    let notes = flush.await?;
     {
         let _action = lock(&state.action)?;
-        state.stopping.store(true, Ordering::SeqCst);
-        lock(&state.runtime)?.hidden = true;
-        interrupt(state, false)?;
+        if unavailable(state) {
+            return Err("앱을 정리하고 있어요.".into());
+        }
+        prepare(&notes)?;
     }
+    Ok(notes)
+}
+
+pub(crate) fn prepare_exit(state: &AppState) -> Result<(), String> {
+    let _action = lock(&state.action)?;
+    prepare_exit_locked(state)
+}
+
+pub(crate) fn prepare_exit_locked(state: &AppState) -> Result<(), String> {
+    flush_positions(state, true)?;
+    interrupt(state, false)?;
     if let Some(cancel) = lock(&state.download_cancel)?.as_ref() {
         cancel.store(true, Ordering::SeqCst);
     }
     cancel_widget_jobs(state, None)?;
-    flush_positions(state, true)
+    lock(&state.runtime)?.hidden = true;
+    state.stopping.store(true, Ordering::SeqCst);
+    Ok(())
 }
 
 pub(crate) fn flush_positions(state: &AppState, all: bool) -> Result<(), String> {
@@ -602,32 +655,49 @@ pub(crate) fn flush_positions(state: &AppState, all: bool) -> Result<(), String>
     Ok(())
 }
 
-pub(crate) async fn prepare_update_install(app: &tauri::AppHandle) -> Result<(), String> {
+pub(crate) async fn prepare_update_install(
+    app: &tauri::AppHandle,
+) -> Result<crate::memo_notes::FlushedNotes, String> {
     let state = app.state::<Arc<AppState>>();
-    {
-        let _action = lock(&state.action)?;
-        if unavailable(&state) {
-            return Err("앱을 정리하고 있어요.".into());
-        }
-        ensure_settings_saved_for_update(&state)?;
-        state.update_installing.store(true, Ordering::SeqCst);
-        interrupt(&state, false)?;
-        *lock(&state.panel)? = None;
-        lock(&state.runtime)?.phase = crate::types::RuntimePhase::Idle;
-        if let Some(cancel) = lock(&state.download_cancel)?.as_ref() {
-            cancel.store(true, Ordering::SeqCst);
-        }
-        cancel_widget_jobs(&state, None)?;
-    }
+    let notes = prepare_after_notes(
+        &state,
+        crate::memo_notes::flush_notes(app, &state, None),
+        |notes| {
+            notes.ensure_current(app, &*lock(&state.db)?)?;
+            prepare_update_install_locked(&state)
+        },
+    )
+    .await?;
     desktop_toys::clear(app);
-    flush_positions(&state, true)?;
     publish(app, &state);
-    let (nlp, ()) = tokio::join!(state.nlp.suspend(), super::tasks::shutdown(&state));
-    inference::stop_local(&state.inference).await;
-    nlp?;
-    lock(&state.db)?
-        .execute_batch("PRAGMA wal_checkpoint(FULL);")
-        .map_err(|error| error.to_string())?;
+    let result = async {
+        let (nlp, ()) = tokio::join!(state.nlp.suspend(), super::tasks::shutdown(&state));
+        inference::stop_local(&state.inference).await;
+        nlp?;
+        lock(&state.db)?
+            .execute_batch("PRAGMA wal_checkpoint(FULL);")
+            .map_err(|error| error.to_string())?;
+        Ok::<(), String>(())
+    }
+    .await;
+    if let Err(error) = result {
+        let _ = restore_update_install(app);
+        return Err(error);
+    }
+    Ok(notes)
+}
+
+pub(crate) fn prepare_update_install_locked(state: &AppState) -> Result<(), String> {
+    ensure_settings_saved_for_update(state)?;
+    flush_positions(state, true)?;
+    interrupt(state, false)?;
+    *lock(&state.panel)? = None;
+    lock(&state.runtime)?.phase = crate::types::RuntimePhase::Idle;
+    if let Some(cancel) = lock(&state.download_cancel)?.as_ref() {
+        cancel.store(true, Ordering::SeqCst);
+    }
+    cancel_widget_jobs(state, None)?;
+    state.update_installing.store(true, Ordering::SeqCst);
     Ok(())
 }
 

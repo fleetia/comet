@@ -127,29 +127,26 @@ export function WidgetDisplay({ id }: { id: string }): ReactElement {
   const imageUrl = widget ? widgetBackgroundUrl(widget) : null;
   const drag = useWindowDrag(isDesktop(), setDragError);
 
-  if (!snapshot || !widget) {
-    return (
-      <main className={s.loading} role="status">
-        {error || "표시를 불러오고 있어요."}
-      </main>
-    );
-  }
   const alignment = placementAlignment(appearance.textPosition);
   return (
     <main
-      className={s.frame}
+      className={widget ? s.frame : `${s.frame} ${s.loading}`}
       aria-label={entry?.name ?? "위젯 표시"}
       onPointerDown={drag.onPointerDown}
       onPointerMove={drag.onPointerMove}
       onPointerUp={drag.reset}
       onPointerCancel={drag.reset}
-      style={{
-        backgroundColor: appearance.backgroundColor,
-        backgroundImage: imageUrl ? `url("${imageUrl}")` : undefined,
-        backgroundPosition: backgroundPosition(appearance.backgroundPosition),
-        color: appearance.textColor,
-        ...alignment,
-      }}
+      style={
+        widget
+          ? {
+              backgroundColor: appearance.backgroundColor,
+              backgroundImage: imageUrl ? `url("${imageUrl}")` : undefined,
+              backgroundPosition: backgroundPosition(appearance.backgroundPosition),
+              color: appearance.textColor,
+              ...alignment,
+            }
+          : undefined
+      }
     >
       <IconButton
         className={s.close}
@@ -166,10 +163,16 @@ export function WidgetDisplay({ id }: { id: string }): ReactElement {
       >
         ×
       </IconButton>
-      <div className={s.content}>
-        <DisplayContent widget={widget} now={now} />
-      </div>
-      {(dragError || error) && <p className={s.error}>{dragError || error}</p>}
+      {widget ? (
+        <div className={s.content}>
+          <DisplayContent widget={widget} now={now} />
+        </div>
+      ) : (
+        <p role={error ? "alert" : "status"}>
+          {error || (snapshot ? "사용할 수 없는 위젯이에요." : "표시를 불러오고 있어요.")}
+        </p>
+      )}
+      {(dragError || (widget && error)) && <p className={s.error}>{dragError || error}</p>}
     </main>
   );
 }

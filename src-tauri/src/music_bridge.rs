@@ -116,6 +116,12 @@ pub fn revoke_pairing(owner: &str, pairing_id: &str) {
     }
 }
 pub fn revoke_all() {
+    // App tests exit their own state while the bridge test owns the process-wide session.
+    #[cfg(test)]
+    let _session = tests::session_guard();
+    revoke_sessions();
+}
+fn revoke_sessions() {
     if let Some(session) = sessions().lock().unwrap().as_ref() {
         session.revoke();
     }
@@ -173,7 +179,7 @@ async fn bind_session(
     if cancel.load(Ordering::SeqCst) {
         return Err("음악 연결 준비를 취소했어요.".into());
     }
-    revoke_all();
+    revoke_sessions();
     let deadline = Instant::now() + Duration::from_secs(1);
     let listener = loop {
         if cancel.load(Ordering::SeqCst) {
@@ -842,6 +848,12 @@ mod tests {
         client_async, tungstenite::client::IntoClientRequest, WebSocketStream,
     };
 
+    static SESSION_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    pub(super) fn session_guard() -> std::sync::MutexGuard<'static, ()> {
+        SESSION_TEST.lock().unwrap_or_else(|error| error.into_inner())
+    }
+
     fn upgrade(origin: &str, host: &str) -> Request {
         Request::builder()
             .uri("/comet/v1")
@@ -1095,8 +1107,10 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn remembered_pairing_restarts_without_replaying_requests_and_explicit_unlink_revokes_it()
     {
+        let _session = session_guard();
         let owner = "11111111-1111-4111-8111-111111111111";
         let pairing_id = "22222222-2222-4222-8222-222222222222";
         let status = start(owner, pairing_id, cancel_token()).await.unwrap();
@@ -1229,7 +1243,7 @@ mod tests {
         rejected(&mut replay).await;
 
         // App exit drops transport only; a new listener loads the OS-store identity.
-        revoke_all();
+        revoke_sessions();
         assert!(credentials::load(owner, pairing_id).unwrap().is_some());
         let restored = resume(owner, pairing_id, cancel_token()).await.unwrap();
         assert_eq!(restored["remembered"], true);
@@ -1286,6 +1300,6 @@ mod tests {
         assert!(start(owner, replacement, canceled).await.is_err());
         assert!(credentials::save(owner, replacement, &secret, || false).is_err());
         assert!(credentials::load(owner, replacement).unwrap().is_none());
-        revoke_all();
+        revoke_sessions();
     }
 }

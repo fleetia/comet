@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { command, isDesktop } from "../../hooks/useSnapshot";
 import { WidgetDisplay } from "../WidgetDisplay/WidgetDisplay";
 import { PREVIEW_WIDGETS, useWidgets } from "../useWidgets";
@@ -42,6 +42,28 @@ beforeEach(() => {
   vi.mocked(isDesktop).mockReturnValue(true);
 });
 afterEach(cleanup);
+
+it.each([
+  [null, null, "표시를 불러오고 있어요."],
+  [null, "위젯을 불러오지 못했어요.", "위젯을 불러오지 못했어요."],
+  [{ ...PREVIEW_WIDGETS, widgets: [] }, null, "사용할 수 없는 위젯이에요."],
+])("keeps the display closable without widget data (%s, %s)", (snapshot, error, message) => {
+  vi.mocked(useWidgets).mockReturnValue({ snapshot, error, reload: vi.fn() });
+  render(<WidgetDisplay id="clock" />);
+
+  expect(screen.getByText(message)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "바탕화면 위젯 닫기" }));
+  expect(command).toHaveBeenCalledExactlyOnceWith("close_widget_display", { id: "clock" });
+});
+
+it("shows a close failure while the display is still loading", async () => {
+  vi.mocked(useWidgets).mockReturnValue({ snapshot: null, error: null, reload: vi.fn() });
+  vi.mocked(command).mockRejectedValue(new Error("창을 닫지 못했어요."));
+  render(<WidgetDisplay id="clock" />);
+
+  fireEvent.click(screen.getByRole("button", { name: "바탕화면 위젯 닫기" }));
+  expect(await screen.findByText("창을 닫지 못했어요.")).toBeTruthy();
+});
 
 it("shows configured anniversary D-day values in the detached display", () => {
   vi.spyOn(Date, "now").mockReturnValue(new Date("2026-09-20T12:00:00+09:00").getTime());

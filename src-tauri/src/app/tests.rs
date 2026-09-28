@@ -2114,6 +2114,119 @@ fn exit_preparation_cancels_owned_work_and_flushes_before_shutdown() {
     assert!(lock(&state.action).is_ok());
     assert!(lock(&state.positions).unwrap().is_empty());
 }
+#[tokio::test]
+async fn shutdown_and_update_save_note_drafts_before_becoming_unavailable() {
+    for update in [false, true] {
+        let state = state();
+        let directory = tempfile::tempdir().unwrap();
+        let id = {
+            let db = lock(&state.db).unwrap();
+            crate::widgets::storage::install(&db, directory.path(), &["memo".into()]).unwrap();
+            crate::widgets::storage::instances(&db).unwrap()[0]
+                .id
+                .clone()
+        };
+        let (send, receive) = tokio::sync::oneshot::channel();
+        let preparation = super::lifecycle::prepare_after_notes(
+            &state,
+            async {
+                receive.await.map_err(|error| error.to_string())?;
+                crate::widget_commands::change(&state, |db| {
+                    let instance = crate::widgets::storage::get(db, &id)?;
+                    crate::widgets::storage::execute(
+                        db,
+                        &crate::widgets::WidgetRequest {
+                            request_id: uuid::Uuid::new_v4().to_string(),
+                            instance_id: id.clone(),
+                            expected_revision: instance.revision,
+                            action: "add".into(),
+                            input: serde_json::json!({"body":"  마지막 입력\n ","fontSize":20,"isOpen":true}),
+                        },
+                        1,
+                        1,
+                    )?;
+                    Ok(())
+                })
+            },
+            |_| {
+                if update {
+                    super::lifecycle::prepare_update_install_locked(&state)
+                } else {
+                    super::lifecycle::prepare_exit_locked(&state)
+                }
+            },
+        );
+        tokio::pin!(preparation);
+        tokio::select! {
+            result = &mut preparation => panic!("shutdown ran before notes acknowledged: {result:?}"),
+            _ = tokio::task::yield_now() => {}
+        }
+        assert!(!unavailable(&state));
+        assert!(state.action.try_lock().is_ok());
+        send.send(()).unwrap();
+        preparation.await.unwrap();
+        assert!(unavailable(&state));
+        assert_eq!(state.update_installing.load(Ordering::SeqCst), update);
+        assert_eq!(state.stopping.load(Ordering::SeqCst), !update);
+        let instance = crate::widgets::storage::get(&lock(&state.db).unwrap(), &id).unwrap();
+        assert_eq!(instance.data["notes"][0]["body"], "  마지막 입력\n ");
+        assert_eq!(instance.data["notes"][0]["fontSize"], 20);
+        assert_eq!(instance.data["notes"][0]["isOpen"], true);
+    }
+}
+
+#[tokio::test]
+async fn failed_note_flush_keeps_shutdown_and_update_editable() {
+    for update in [false, true] {
+        let state = state();
+        let result = super::lifecycle::prepare_after_notes(
+            &state,
+            async { Err::<(), String>("메모 저장 실패".into()) },
+            |_| {
+                if update {
+                    super::lifecycle::prepare_update_install_locked(&state)
+                } else {
+                    super::lifecycle::prepare_exit_locked(&state)
+                }
+            },
+        )
+        .await;
+        assert_eq!(result.unwrap_err(), "메모 저장 실패");
+        assert!(!unavailable(&state));
+        assert!(!lock(&state.runtime).unwrap().hidden);
+        assert!(crate::widget_commands::change(&state, |_| Ok(())).is_ok());
+    }
+}
+
+#[tokio::test]
+async fn shutdown_rechecks_lifecycle_and_settings_after_note_acknowledgements() {
+    let state = state();
+    let result = super::lifecycle::prepare_after_notes(
+        &state,
+        async {
+            state.update_installing.store(true, Ordering::SeqCst);
+            Ok(())
+        },
+        |_| super::lifecycle::prepare_exit_locked(&state),
+    )
+    .await;
+    assert!(result.is_err());
+    assert!(!state.stopping.load(Ordering::SeqCst));
+
+    state.update_installing.store(false, Ordering::SeqCst);
+    let result = super::lifecycle::prepare_after_notes(
+        &state,
+        async {
+            state.settings_dirty.store(true, Ordering::SeqCst);
+            Ok(())
+        },
+        |_| super::lifecycle::prepare_update_install_locked(&state),
+    )
+    .await;
+    assert!(result.unwrap_err().contains("저장하지 않은 설정"));
+    assert!(!unavailable(&state));
+}
+
 #[test]
 fn quit_flushes_positions_inside_the_debounce_window() {
     let state = state();

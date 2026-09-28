@@ -1,4 +1,3 @@
-use super::lifecycle::flush_positions;
 use super::scene::{next_scene, start_scene};
 use super::unavailable;
 use super::{interrupt, is_current, lock, now, phase, publish, schedule_idle, AppState};
@@ -355,7 +354,6 @@ pub(crate) async fn quit_app(
     if !force.unwrap_or(false) && confirm_settings_exit(&app, &state)? {
         return Ok(());
     }
-    flush_positions(&state, true)?;
     if force.unwrap_or(false) {
         state.settings_exit_confirmed.store(true, Ordering::SeqCst);
     }
