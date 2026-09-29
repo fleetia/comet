@@ -1,6 +1,6 @@
 import { MemorySearchSettings } from "../MemorySettings/MemorySearchSettings";
 import type { JSX } from "react";
-import { Button, FormField, Select, TextField } from "@fleetia/lagrange";
+import { Button, Checkbox, FormField, Select, TextField } from "@fleetia/lagrange";
 import type { LocalModel, Settings, Snapshot } from "../../types";
 import type { SettingsDraft } from "../../hooks/useSettingsDraft";
 import * as s from "../../lagrange.css";
@@ -130,6 +130,17 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
               자유롭게 대화하고 싶을 때 모델을 내려받으세요. 기본 인사와 등록 대사는 설치 없이도
               사용할 수 있어요. 모델을 불러올 때는 잠깐 기다릴 수 있어요.
             </p>
+            <Checkbox
+              className={s.row}
+              checked={settings.localReasoningEnabled}
+              onChange={(event) => change("localReasoningEnabled", event.target.checked)}
+            >
+              로컬 추론 모드
+            </Checkbox>
+            <p className={s.quiet}>
+              지원하는 모델이 답변 전에 더 생각하도록 해요. 응답이 느려질 수 있어요. 로컬 모델로
+              위젯을 만들거나 수정할 때는 이 설정과 관계없이 추론 모드를 켜요.
+            </p>
             <div className={s.row}>
               {!customModel && (
                 <Button
@@ -159,7 +170,7 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
             </div>
             <p className={s.quiet}>
               테스트는 선택한 모델을 불러와 짧은 인사에 답하게 하고, 걸린 시간과 답을 아래에 보여
-              줘요. 저장하지 않은 선택도 테스트할 수 있어요.
+              줘요. 저장하지 않은 모델 선택과 추론 모드도 테스트할 수 있어요.
             </p>
             {downloading && !download && (
               <p className={s.quiet}>

@@ -95,6 +95,19 @@ pub struct WidgetEvent {
     pub event: EventDraft,
 }
 
+pub const RETIRED_KINDS: &[&str] = &[
+    "completion-jar",
+    "device",
+    "guessing",
+    "fishing",
+    "plant",
+    "pet",
+];
+
+pub fn is_retired(kind: &str) -> bool {
+    RETIRED_KINDS.contains(&kind)
+}
+
 pub fn catalog() -> Result<Vec<WidgetManifest>, String> {
     let entries: Vec<WidgetManifest> =
         serde_json::from_str(include_str!("../../../widgets/catalog.json"))
@@ -146,6 +159,7 @@ pub fn act(
     now: i64,
     entropy: u64,
 ) -> Result<WidgetEffect, String> {
+    manifest(&instance.kind)?;
     if request.action.len() > 64
         || !request.input.is_object()
         || serde_json::to_vec(&request.input)
@@ -196,6 +210,9 @@ pub fn act(
 }
 
 pub fn tick(instance: &WidgetInstance, now: i64) -> Result<Option<WidgetEffect>, String> {
+    if is_retired(&instance.kind) {
+        return Ok(None);
+    }
     match instance.kind.as_str() {
         "todo" | "focus-timer" | "preparation" | "clock" | "memo" => {
             planning::tick(&instance.kind, &instance.data, now)
@@ -326,7 +343,7 @@ mod projection_tests {
 
     #[test]
     fn connection_failures_reach_manager_without_changing_stored_data() {
-        for kind in ["weather", "music", "device"] {
+        for kind in ["weather", "music"] {
             let source = instance(
                 kind,
                 json!({"configured":true,"status":"offline",

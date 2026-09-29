@@ -292,7 +292,7 @@ fn project(snapshot: &WidgetSnapshot, now: i64) -> (BTreeMap<String, Value>, BTr
         let widget = snapshot
             .widgets
             .iter()
-            .find(|item| item.instance.kind == kind);
+            .find(|item| item.instance.kind == kind && !widgets::is_retired(kind));
         let mut set = |field: &str, value: Value| {
             values.insert(format!("{prefix}.{field}"), value);
         };
@@ -584,6 +584,7 @@ pub fn build(
             values.insert("journal.recentKind".into(), json!(kind));
         }
     }
+    let event = event.filter(|event| !widgets::is_retired(&event.widget_kind));
     if let Some(event) = event {
         values.insert("event.kind".into(), json!(event.event.kind));
         values.insert("event.widget".into(), json!(event.widget_kind));
@@ -756,7 +757,6 @@ mod tests {
                 json!(true),
             ),
             ("bubbles", "bubbles", vec!["streak"], "count", json!(1)),
-            ("pet", "pet", vec!["arrivals"], "moving", json!(true)),
         ] {
             let mut data =
                 json!({"moving":true,"flying":true,"bubbles":[{"id":1}],"food":{"x":50,"y":50}});
@@ -821,12 +821,18 @@ mod tests {
             ),
             0,
         );
-        assert_eq!(values["guessing.hint"], "더 큰 숫자예요.");
+        assert_eq!(values["guessing.hint"], Value::Null);
         assert!(!values
             .keys()
             .any(|key| key.contains("answer") || key.contains("Token")));
         assert!(!serde_json::to_string(&values).unwrap().contains("secret"));
-        assert_eq!(FIELDS.len(), widgets::catalog().unwrap().len());
+        assert_eq!(
+            FIELDS
+                .iter()
+                .filter(|(_, kind, _, _, _)| !widgets::is_retired(kind))
+                .count(),
+            widgets::catalog().unwrap().len()
+        );
     }
 
     #[test]
@@ -883,7 +889,7 @@ mod tests {
             },
         };
         let context = build(&db, Some(&event), 100, 5).unwrap();
-        assert_eq!(context.available.len(), 22);
+        assert_eq!(context.available.len(), 16);
         assert_eq!(context.values["event.action"], "poke");
         assert_eq!(context.values["journal.count"], 0);
         assert_eq!(context.values["todo.openCount"], 0);
@@ -910,14 +916,14 @@ mod tests {
             ),
             1500,
         );
-        assert_eq!(wake["device.woke"], true);
+        assert_eq!(wake["device.woke"], Value::Null);
         assert_eq!(wake["device.ready"], false);
         assert_eq!(wake["device.percent"], Value::Null);
     }
     #[test]
     fn initial_refresh_is_loading_and_weather_age_uses_observation_time() {
         let now = 10_000_000;
-        for kind in ["weather", "music", "device"] {
+        for kind in ["weather", "music"] {
             let (values, _) = project(
                 &snapshot(
                     kind,
@@ -957,7 +963,7 @@ mod tests {
             assert_eq!(values["weather.temperature"], Value::Null);
             assert!(!available.contains("weather"));
         }
-        for kind in ["weather", "music", "device"] {
+        for kind in ["weather", "music"] {
             let (values, _) = project(
                 &snapshot(
                     kind,

@@ -13,7 +13,7 @@
     "macOSPrivateApi": true,
     "windows": [],
     "security": {
-      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost sprite: http://sprite.localhost widget: http://widget.localhost data: https://*.scdn.co https://*.spotifycdn.com https://*.mzstatic.com; style-src 'self' 'unsafe-inline'; script-src 'self'"
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost sprite: http://sprite.localhost widget: http://widget.localhost data: https://*.scdn.co https://*.spotifycdn.com https://*.mzstatic.com; style-src 'self' 'unsafe-inline'; script-src 'self' blob: 'sha256-fFL/ZftddjzVuHfKF+sGLW/W0kTQE6hYABVQE2h9qyw='; worker-src blob:; frame-src 'self' blob: data:"
     }
   },
   "bundle": {

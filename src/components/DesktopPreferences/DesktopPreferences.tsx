@@ -9,7 +9,6 @@ const toys = [
   { id: "ball", name: "공" },
   { id: "paper-plane", name: "종이비행기" },
   { id: "bubbles", name: "비눗방울" },
-  { id: "pet", name: "펫" },
 ];
 
 export function DesktopPreferences({

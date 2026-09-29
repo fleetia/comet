@@ -21,9 +21,46 @@ use tokio::{
 
 struct LocalServer {
     path: PathBuf,
+    context_tokens: u32,
     child: Child,
     url: String,
     key: String,
+}
+
+pub(crate) const LOCAL_WIDGET_CONTEXT_TOKENS: u32 = 16384;
+pub(crate) const LOCAL_WIDGET_REASONING_TOKENS: u32 = 4096;
+pub(crate) const LOCAL_WIDGET_OUTPUT_TOKENS: u32 = 4096;
+
+#[derive(Clone, Copy)]
+struct GenerationBudget {
+    context_tokens: u32,
+    output_tokens: u32,
+    reasoning_tokens: u32,
+    timeout: Duration,
+}
+
+impl GenerationBudget {
+    fn conversation(settings: &Settings, output_tokens: u32) -> Self {
+        let reasoning = settings.mode == "local" && settings.local_reasoning_enabled;
+        Self {
+            context_tokens: if reasoning { 8192 } else { 4096 },
+            output_tokens: output_tokens.min(2048),
+            reasoning_tokens: if reasoning { 2048 } else { 0 },
+            timeout: Duration::from_secs(if reasoning { 300 } else { 180 }),
+        }
+    }
+
+    fn widget(settings: &Settings, output_tokens: u32) -> Self {
+        if settings.mode != "local" {
+            return Self::conversation(settings, output_tokens);
+        }
+        Self {
+            context_tokens: LOCAL_WIDGET_CONTEXT_TOKENS,
+            output_tokens: output_tokens.min(LOCAL_WIDGET_OUTPUT_TOKENS),
+            reasoning_tokens: LOCAL_WIDGET_REASONING_TOKENS,
+            timeout: Duration::from_secs(600),
+        }
+    }
 }
 pub struct Inference {
     pub app_data: PathBuf,
@@ -185,13 +222,17 @@ pub fn not_ready_message(settings: &Settings) -> String {
 async fn local_endpoint(
     inference: &Inference,
     settings: &Settings,
+    context_tokens: u32,
     cancel: Arc<AtomicBool>,
 ) -> Result<(String, String), String> {
     let mut state = inference.local.lock().await;
     let path = models::selected_path(&inference.app_data, settings)
         .filter(|_| models::selected_ready(&inference.app_data, settings));
     if let Some(server) = state.as_mut() {
-        if path.as_ref() == Some(&server.path) && matches!(server.child.try_wait(), Ok(None)) {
+        if path.as_ref() == Some(&server.path)
+            && context_tokens == server.context_tokens
+            && matches!(server.child.try_wait(), Ok(None))
+        {
             return Ok((server.url.clone(), server.key.clone()));
         }
         let _ = server.child.kill().await;
@@ -223,14 +264,16 @@ async fn local_endpoint(
             "--port",
             &port.to_string(),
             "--ctx-size",
-            "4096",
+            &context_tokens.to_string(),
             "--parallel",
             "1",
             "--sleep-idle-seconds",
             "120",
             "--jinja",
+            "--reasoning-format",
+            "deepseek",
             "--reasoning-budget",
-            "0",
+            "-1",
             "--cache-ram",
             "0",
             "--no-webui",
@@ -285,6 +328,7 @@ async fn local_endpoint(
         if ready {
             *state = Some(LocalServer {
                 path,
+                context_tokens,
                 child,
                 url: url.clone(),
                 key: key.clone(),
@@ -354,7 +398,7 @@ async fn completion(
     settings: &Settings,
     messages: &[ChatMessage],
     schema: Value,
-    max_tokens: u32,
+    budget: GenerationBudget,
     cancel: Arc<AtomicBool>,
 ) -> Result<Value, String> {
     if cancel.load(Ordering::Acquire) {
@@ -362,7 +406,7 @@ async fn completion(
     }
     tokio::select! {
         _ = models::cancelled(cancel.clone()) => Err("취소됨".into()),
-        result = completion_request(url, key, settings, messages, schema, max_tokens, cancel.clone()) => result,
+        result = completion_request(url, key, settings, messages, schema, budget, cancel.clone()) => result,
     }
 }
 
@@ -372,7 +416,7 @@ async fn completion_request(
     settings: &Settings,
     messages: &[ChatMessage],
     schema: Value,
-    max_tokens: u32,
+    budget: GenerationBudget,
     cancel: Arc<AtomicBool>,
 ) -> Result<Value, String> {
     let http = client(url)?;
@@ -387,12 +431,17 @@ async fn completion_request(
         0.7
     };
     let mut payload = json!({"model":settings.api_model,"messages":messages,"stream":false,"temperature":temperature,"response_format":{"type":"json_schema","json_schema":{"name":"response","strict":true,"schema":schema}}});
-    payload[token_parameter] = json!(max_tokens);
+    payload[token_parameter] = json!(budget.output_tokens + budget.reasoning_tokens);
     if settings.mode == "local" {
-        payload["chat_template_kwargs"] = json!({"enable_thinking":false});
+        payload["chat_template_kwargs"] = json!({"enable_thinking":budget.reasoning_tokens > 0});
+        payload["reasoning_format"] = json!("deepseek");
+        payload["reasoning_budget_tokens"] = json!(budget.reasoning_tokens);
     }
     for attempt in 0..2 {
-        let mut request = http.post(format!("{url}/chat/completions")).json(&payload);
+        let mut request = http
+            .post(format!("{url}/chat/completions"))
+            .timeout(budget.timeout)
+            .json(&payload);
         if let Some(value) = key.filter(|s| !s.is_empty()) {
             request = request.bearer_auth(value);
         }
@@ -421,6 +470,14 @@ async fn completion_request(
         if cancel.load(Ordering::Acquire) {
             return Err("취소됨".into());
         }
+        if settings.mode == "local"
+            && body
+                .pointer("/choices/0/finish_reason")
+                .and_then(Value::as_str)
+                == Some("length")
+        {
+            return Err("모델 응답이 토큰 한도에 도달했습니다. 요청을 더 작게 나눠 주세요.".into());
+        }
         let content = body
             .pointer("/choices/0/message/content")
             .and_then(Value::as_str)
@@ -447,12 +504,51 @@ pub async fn generate(
     max_tokens: u32,
     cancel: Arc<AtomicBool>,
 ) -> Result<Value, String> {
+    generate_with_budget(
+        inference,
+        settings,
+        messages,
+        schema,
+        GenerationBudget::conversation(settings, max_tokens),
+        cancel,
+    )
+    .await
+}
+
+pub async fn generate_widget(
+    inference: &Inference,
+    settings: &Settings,
+    messages: &[ChatMessage],
+    schema: Value,
+    max_tokens: u32,
+    cancel: Arc<AtomicBool>,
+) -> Result<Value, String> {
+    generate_with_budget(
+        inference,
+        settings,
+        messages,
+        schema,
+        GenerationBudget::widget(settings, max_tokens),
+        cancel,
+    )
+    .await
+}
+
+async fn generate_with_budget(
+    inference: &Inference,
+    settings: &Settings,
+    messages: &[ChatMessage],
+    schema: Value,
+    budget: GenerationBudget,
+    cancel: Arc<AtomicBool>,
+) -> Result<Value, String> {
     if cancel.load(Ordering::Acquire) {
         return Err("취소됨".into());
     }
     let local = settings.mode == "local";
     let (url, key, configured) = if local {
-        let (url, key) = local_endpoint(inference, settings, cancel.clone()).await?;
+        let (url, key) =
+            local_endpoint(inference, settings, budget.context_tokens, cancel.clone()).await?;
         let mut configured = settings.clone();
         configured.api_model = "local".into();
         configured.api_token_parameter = "max_tokens".into();
@@ -466,7 +562,7 @@ pub async fn generate(
     };
     let result = tokio::select! {
         _ = models::cancelled(cancel.clone()) => Err("취소됨".into()),
-        result = completion(&url, key.as_deref(), &configured, messages, schema, max_tokens.min(2048), cancel.clone()) => result,
+        result = completion(&url, key.as_deref(), &configured, messages, schema, budget, cancel.clone()) => result,
     };
     if local && cancel.load(Ordering::Acquire) {
         stop_local(inference).await;
@@ -484,7 +580,7 @@ pub async fn test_connection(settings: &Settings, key: Option<String>) -> Result
         role: "user".into(),
         content: "Return only this JSON object: {\"ok\":true}".into(),
     }];
-    let value = completion(&url, selected_key.as_deref(), settings, &messages, json!({"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}), 32, Arc::new(AtomicBool::new(false))).await?;
+    let value = completion(&url, selected_key.as_deref(), settings, &messages, json!({"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}), GenerationBudget::conversation(settings, 32), Arc::new(AtomicBool::new(false))).await?;
     if value.get("ok").and_then(Value::as_bool) != Some(true) {
         return Err("API 연결은 되었지만 JSON 응답 검증에 실패했습니다.".into());
     }
@@ -534,6 +630,195 @@ pub async fn test_local(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn captured_completion(
+        settings: &Settings,
+        budget: GenerationBudget,
+        body: Value,
+    ) -> (Result<Value, String>, Value) {
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let (header_end, content_length) = loop {
+                let mut chunk = [0; 4096];
+                let count = socket.read(&mut chunk).await.unwrap();
+                assert!(count > 0 && request.len() + count <= 65536);
+                request.extend_from_slice(&chunk[..count]);
+                if let Some(index) = request.windows(4).position(|part| part == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&request[..index]).to_ascii_lowercase();
+                    let length = headers
+                        .lines()
+                        .find_map(|line| line.strip_prefix("content-length: "))
+                        .unwrap()
+                        .parse::<usize>()
+                        .unwrap();
+                    if request.len() >= index + 4 + length {
+                        break (index + 4, length);
+                    }
+                }
+            };
+            let payload: Value =
+                serde_json::from_slice(&request[header_end..header_end + content_length]).unwrap();
+            let body = body.to_string();
+            socket
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            payload
+        });
+        let result = completion(
+            &format!("http://{address}"),
+            None,
+            settings,
+            &[],
+            json!({"type":"object","properties":{"ok":{"type":"boolean"}}}),
+            budget,
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await;
+        (result, server.await.unwrap())
+    }
+
+    #[tokio::test]
+    async fn local_reasoning_setting_and_widget_override_reserve_separate_output_budget() {
+        for (enabled, widget, expected_reasoning, expected_context) in [
+            (false, false, 0, 4096),
+            (true, false, 2048, 8192),
+            (false, true, 4096, 16384),
+            (true, true, 4096, 16384),
+        ] {
+            let settings = Settings {
+                local_reasoning_enabled: enabled,
+                api_token_parameter: "max_tokens".into(),
+                ..Settings::default()
+            };
+            let budget = if widget {
+                GenerationBudget::widget(&settings, 4096)
+            } else {
+                GenerationBudget::conversation(&settings, 128)
+            };
+            let (result, payload) = captured_completion(
+                &settings,
+                budget,
+                json!({"choices":[{"message":{"content":"{\"ok\":true}","reasoning_content":"{\"ok\":false}"},"finish_reason":"stop"}]}),
+            )
+            .await;
+            assert_eq!(result.unwrap(), json!({"ok":true}));
+            assert_eq!(
+                payload["chat_template_kwargs"]["enable_thinking"],
+                expected_reasoning > 0
+            );
+            assert_eq!(payload["reasoning_budget_tokens"], expected_reasoning);
+            assert_eq!(payload["reasoning_format"], "deepseek");
+            assert_eq!(
+                payload["max_tokens"],
+                expected_reasoning + if widget { 4096 } else { 128 }
+            );
+            assert_eq!(payload["response_format"]["type"], "json_schema");
+            assert_eq!(budget.context_tokens, expected_context);
+            assert_eq!(settings.local_reasoning_enabled, enabled);
+        }
+    }
+
+    #[tokio::test]
+    async fn api_widget_requests_keep_provider_parameters_and_token_cap_unchanged() {
+        let settings = Settings {
+            mode: "api".into(),
+            local_reasoning_enabled: true,
+            api_token_parameter: "max_completion_tokens".into(),
+            ..Settings::default()
+        };
+        let (result, payload) = captured_completion(
+            &settings,
+            GenerationBudget::widget(&settings, 4096),
+            json!({"choices":[{"message":{"content":"{\"ok\":true}"}}]}),
+        )
+        .await;
+        assert_eq!(result.unwrap(), json!({"ok":true}));
+        assert_eq!(payload["max_completion_tokens"], 2048);
+        for key in [
+            "chat_template_kwargs",
+            "reasoning_budget_tokens",
+            "reasoning_format",
+            "max_tokens",
+        ] {
+            assert!(payload.get(key).is_none(), "unexpected API field: {key}");
+        }
+    }
+
+    #[tokio::test]
+    async fn reasoning_is_never_used_as_final_json_and_truncated_local_output_is_rejected() {
+        let settings = Settings {
+            local_reasoning_enabled: true,
+            ..Settings::default()
+        };
+        for message in [
+            json!({"reasoning_content":"{\"ok\":true}","content":""}),
+            json!({"reasoning_content":"{\"ok\":true}","content":null}),
+            json!({"content":"<think>{\"ok\":true}</think>"}),
+        ] {
+            let (result, _) = captured_completion(
+                &settings,
+                GenerationBudget::conversation(&settings, 128),
+                json!({"choices":[{"message":message,"finish_reason":"stop"}]}),
+            )
+            .await;
+            assert!(result.is_err());
+        }
+        let (result, _) = captured_completion(
+            &settings,
+            GenerationBudget::widget(&settings, 4096),
+            json!({"choices":[{"message":{"content":"{\"ok\":true}"},"finish_reason":"length"}]}),
+        )
+        .await;
+        assert!(result.unwrap_err().contains("토큰 한도"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn context_profile_change_stops_only_the_owned_local_server() {
+        let directory = tempfile::tempdir().unwrap();
+        let custom_file = directory.path().join("mine.gguf");
+        std::fs::write(&custom_file, b"stub").unwrap();
+        let settings = Settings {
+            local_model: LocalModel::Custom,
+            local_model_path: custom_file.display().to_string(),
+            ..Settings::default()
+        };
+        let runtime = Inference::new(directory.path().into(), PathBuf::new(), PathBuf::new());
+        let child = Command::new("/bin/sleep")
+            .arg("30")
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        *runtime.local.lock().await = Some(LocalServer {
+            path: custom_file,
+            context_tokens: 4096,
+            child,
+            url: "http://127.0.0.1:2".into(),
+            key: "test".into(),
+        });
+        let result = local_endpoint(&runtime, &settings, 4096, Arc::new(AtomicBool::new(false)))
+            .await
+            .unwrap();
+        assert_eq!(result.0, "http://127.0.0.1:2");
+        let result =
+            local_endpoint(&runtime, &settings, 8192, Arc::new(AtomicBool::new(false))).await;
+        assert!(result.unwrap_err().contains("실행기가 없습니다"));
+        assert!(runtime.local.lock().await.is_none());
+    }
     #[test]
     fn legacy_api_key_moves_only_after_the_current_store_saves_it() {
         let current =
@@ -607,6 +892,7 @@ mod tests {
             .unwrap();
         *runtime.local.lock().await = Some(LocalServer {
             path: four_path.clone(),
+            context_tokens: 4096,
             child,
             url: "http://127.0.0.1:1".into(),
             key: "test".into(),
@@ -615,7 +901,7 @@ mod tests {
         // The stub file is not a verified download, so the running server is replaced instead of reused.
         let result = tokio::time::timeout(
             Duration::from_secs(2),
-            local_endpoint(&runtime, &four, Arc::new(AtomicBool::new(false))),
+            local_endpoint(&runtime, &four, 4096, Arc::new(AtomicBool::new(false))),
         )
         .await
         .unwrap();
@@ -635,11 +921,12 @@ mod tests {
             .unwrap();
         *runtime.local.lock().await = Some(LocalServer {
             path: custom_file.clone(),
+            context_tokens: 4096,
             child,
             url: "http://127.0.0.1:2".into(),
             key: "test".into(),
         });
-        let result = local_endpoint(&runtime, &custom, Arc::new(AtomicBool::new(false)))
+        let result = local_endpoint(&runtime, &custom, 4096, Arc::new(AtomicBool::new(false)))
             .await
             .unwrap();
         assert_eq!(result.0, "http://127.0.0.1:2");
@@ -649,7 +936,7 @@ mod tests {
         };
         let result = tokio::time::timeout(
             Duration::from_secs(2),
-            local_endpoint(&runtime, &missing, Arc::new(AtomicBool::new(false))),
+            local_endpoint(&runtime, &missing, 4096, Arc::new(AtomicBool::new(false))),
         )
         .await
         .unwrap();
@@ -794,7 +1081,7 @@ mod tests {
             &settings,
             &[],
             json!({}),
-            32,
+            GenerationBudget::conversation(&settings, 32),
             Arc::new(AtomicBool::new(false)),
         )
         .await;
@@ -851,7 +1138,7 @@ mod tests {
             &settings,
             &[],
             json!({}),
-            32,
+            GenerationBudget::conversation(&settings, 32),
             Arc::new(AtomicBool::new(false)),
         )
         .await
@@ -885,13 +1172,17 @@ mod tests {
                     .is_err()
             );
         });
+        let settings = Settings {
+            local_reasoning_enabled: true,
+            ..Settings::default()
+        };
         let result = completion(
             &format!("http://{address}"),
             None,
-            &Settings::default(),
+            &settings,
             &[],
             json!({}),
-            32,
+            GenerationBudget::conversation(&settings, 32),
             Arc::new(AtomicBool::new(false)),
         )
         .await;
@@ -934,7 +1225,7 @@ mod tests {
                 &settings,
                 &[],
                 json!({}),
-                32,
+                GenerationBudget::conversation(&settings, 32),
                 cancel.clone(),
             );
             let cancel_after_headers = async {

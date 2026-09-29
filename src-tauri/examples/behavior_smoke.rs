@@ -14,12 +14,15 @@ mod characters;
 #[path = "../src/domain.rs"]
 mod domain;
 #[allow(dead_code)]
+#[path = "../src/generated_widgets.rs"]
+mod generated_widgets;
+#[allow(dead_code)]
 #[path = "../src/inference.rs"]
 mod inference;
 #[allow(dead_code)]
 #[path = "../src/legacy_names.rs"]
 mod legacy_names;
-#[allow(dead_code)]
+#[allow(dead_code, unused_imports)]
 #[path = "../src/models.rs"]
 mod models;
 #[allow(dead_code, unused_imports)]

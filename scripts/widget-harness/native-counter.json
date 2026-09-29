@@ -1,0 +1,6 @@
+{
+  "name": "위젯 실행 검증",
+  "description": "모델을 호출하지 않는 합성 QA 위젯: tick과 입력, 상태 저장, 조건 대사 확인",
+  "initialState": { "count": 0, "note": "", "ticks": 0 },
+  "source": "function render(s){return [{type:'number',label:'횟수',value:s.count},{type:'input',label:'메모',value:s.note,action:'note'},{type:'button',label:'하나 더',action:'increment'},{type:'number',label:'실행 횟수',value:s.ticks}]} function reduce(s,a){if(a.type==='increment')return {...s,count:s.count+1};if(a.type==='note')return {...s,note:a.value};if(a.type==='tick')return {...s,ticks:s.ticks+1};return s}"
+}

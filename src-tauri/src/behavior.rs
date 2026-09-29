@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::{atomic::Ordering, Arc};
 use tauri::{Emitter, Manager};
 
-pub(crate) const TOYS: [&str; 4] = ["ball", "paper-plane", "bubbles", "pet"];
+pub(crate) const TOYS: [&str; 3] = ["ball", "paper-plane", "bubbles"];
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
@@ -36,7 +36,13 @@ pub(crate) fn preferences(db: &Connection) -> Result<Preferences, String> {
     value
         .map(|value| serde_json::from_str(&value).map_err(|error| error.to_string()))
         .transpose()
-        .map(Option::unwrap_or_default)
+        .map(|value: Option<Preferences>| {
+            let mut preferences = value.unwrap_or_default();
+            preferences
+                .allowed_toys
+                .retain(|kind| TOYS.contains(&kind.as_str()));
+            preferences
+        })
 }
 
 pub(crate) fn save(db: &Connection, preferences: &Preferences) -> Result<(), String> {
@@ -470,5 +476,26 @@ mod tests {
         );
         config.allowed_toys.push("music".into());
         assert!(save(&db, &config).is_err());
+    }
+    #[test]
+    fn legacy_pet_permission_is_inert_without_resetting_saved_preferences() {
+        let db = store::open(std::path::Path::new(":memory:")).unwrap();
+        let original = serde_json::json!({"charactersVisible":false,"pranksEnabled":true,"allowedToys":["ball","pet"]}).to_string();
+        db.execute(
+            "INSERT INTO kv VALUES('desktop_preferences',?1)",
+            [&original],
+        )
+        .unwrap();
+        let loaded = preferences(&db).unwrap();
+        assert!(!loaded.characters_visible && loaded.pranks_enabled);
+        assert_eq!(loaded.allowed_toys, vec!["ball"]);
+        let stored: String = db
+            .query_row(
+                "SELECT value FROM kv WHERE key='desktop_preferences'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, original);
     }
 }

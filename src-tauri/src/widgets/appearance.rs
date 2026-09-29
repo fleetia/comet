@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const SUPPORTED_KINDS: [&str; 3] = ["clock", "weather", "device"];
+pub const SUPPORTED_KINDS: [&str; 2] = ["clock", "weather"];
 
 const PLACEMENTS: [&str; 9] = [
     "top-left",

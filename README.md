@@ -16,6 +16,7 @@ comet은 바탕화면에 작은 A/B 본체와 잠깐 나타나는 말풍선을 �
 | 기능별 계약 | [제품 문서](docs/product/) · [위젯 문서](docs/widgets/) |
 | 검색·대화 런처의 입력·대상·단축키 | [런처 사양](docs/product/desktop.md#command-palette) · [구현·검증 상태](docs/status.md#command-palette) |
 | `.talk` 작성과 CLI | [대본 작성](docs/product/talk.md) · [CLI·변수](docs/development/talk-reference.md) |
+| AI로 위젯 제작·수정·가져오기와 상태별 대사 | [AI 위젯 제작](docs/widgets/ai-creation.md) · [JSON·코드 작성 형식](docs/widgets/authoring.md) |
 | 릴리스·업데이트·CI | [릴리스 안내](docs/development/releases.md) |
 | 문서와 로컬 위키 운영 | [위키 운영](docs/development/wiki.md) |
 
@@ -90,11 +91,12 @@ comet의 중심 경험은 큰 채팅 패널이나 상시 대시보드가 아니�
 
 - **기본 대화**: 모델·API 없이 내장 인사와 자동 수다가 동작합니다. 설정·대화 기록·기억·친밀도는 보조 화면에서 관리합니다.
 - **단어장**: 활성 키워드를 모델 준비보다 먼저 찾습니다. 가장 긴 키워드, 동률이면 먼저 등록한 항목을 선택하고 등록한 본문·공백·줄바꿈·화자 순서를 그대로 재생합니다.
-- **대본**: 앱은 암호화된 `.talk` 대본을 읽고 재생합니다. 원문 작성·검사·저장은 앱과 분리된 talk editor의 책임이며, Comet 안에 대본 편집 화면은 두지 않습니다.
-- **위젯**: 공식 위젯 22개는 사용자가 선택해 설치·추가·중지·제거합니다. 기능 코드는 앱에 포함되고 manifest를 등록하는 방식입니다.
+- **대본**: 앱은 암호화된 `.talk` 대본을 읽고 재생합니다. `.talk` 원문 작성·검사·저장은 앱과 분리된 talk editor의 책임입니다. 새 상태별 대사 메뉴는 위젯 조건에 연결된 대사·표정·동작을 편집합니다.
+- **공식 위젯**: 16개 도구를 선택해 설치·추가·중지·제거합니다. 기능 코드는 앱에 포함되고 manifest를 등록합니다. 완료 구슬병·기기 소식·맞히기 놀이·낚시·화분·작은 펫은 공식 실행 경로에서 제거하고 과거 데이터는 보존합니다.
+- **AI 위젯**: 선택한 로컬 모델이나 OpenAI 호환 API가 필요한 도구를 만들고 고칩니다. 다른 AI가 만든 JSON도 가져올 수 있습니다. 한 번 만든 위젯은 AI 없이 실행하며, 자동 제작은 별도 토글과 상위 자동 생성 설정을 따릅니다. [제작·실행·내부 컨텍스트 계약](docs/widgets/ai-creation.md)을 확인하세요.
 - **LLM**: 로컬 모델과 OpenAI 호환 외부 API는 선택 기능입니다. 모델·API 설정을 바꿔도 기존 대화·기억·친밀도·단어장을 초기화하지 않습니다.
 
-외부 Widget SDK, 임의 HTML/CSS/JavaScript·native/WASM 실행, 원격 위젯 패키지 배포와 캐릭터팩 마켓은 현재 제공하지 않습니다. 각 기능의 조건과 후속 범위는 [사양 안내](docs/index.md)에서 확인하세요.
+AI 위젯은 앱에 포함된 실행환경에서 제한된 JavaScript 함수와 자체 JSON 상태를 사용합니다. 임의 HTML/CSS·native/WASM·외부 package 실행, 범용 외부 Widget SDK, 원격 위젯 배포와 캐릭터팩 마켓은 제공하지 않습니다. 외부 runtime 설치가 필요한 기능을 추가할 때는 구체적인 패키지·출처·크기·권한을 보여 주고 사용자 동의를 받아야 합니다. 소스 구현과 실제 데스크톱·모델 품질 검증은 [구현 상태](docs/status.md)에서 구분합니다.
 
 ## 기능별 문서
 
@@ -105,6 +107,7 @@ comet의 중심 경험은 큰 채팅 패널이나 상시 대시보드가 아니�
 | 음악 위젯·로컬 재생 제어 | [음악 계약](docs/product/music.md) · [Lagrange 음악 디자인](https://www.figma.com/design/vKl8h9uoXUUljJ5yEAcNpr?node-id=199-9948) · [Spicetify 연결](docs/development/spicetify.md) |
 | 생활 도구·메모·할 일·캘린더 | [할 일과 캘린더](docs/product/planning.md) · [장난감과 작은 도구](docs/product/toys.md) |
 | 공식 위젯 설치·수명·카탈로그 | [카탈로그](docs/widgets/catalog.md) · [설치](docs/widgets/installation.md) · [수명주기](docs/widgets/lifecycle.md) |
+| AI 제작·상태별 대사·ex-brain | [사용 흐름과 실행 범위](docs/widgets/ai-creation.md) · [작성 형식](docs/widgets/authoring.md) · [공통 계약](docs/widgets/contract.md) |
 | 대본 작성·상태·검사 | [대본 작성](docs/product/talk.md) · [대본 범위](docs/development/talk-coverage.md) |
 | 다음 구현과 인수 기준 | [개발 순서](docs/development/roadmap.md) · [구현 상태](docs/status.md) |
 
@@ -120,7 +123,7 @@ comet의 중심 경험은 큰 채팅 패널이나 상시 대시보드가 아니�
 | Windows 데이터 폴더 | `%APPDATA%/space.starlight.comet/` |
 | 로컬 모델 폴더 | 각 데이터 폴더의 `models/` |
 
-대화·기억·관계·단어장·설정·위젯 상태는 SQLite에 저장합니다. API 키는 SQLite나 브라우저 저장소가 아니라 macOS Keychain 또는 Windows Credential Manager에 저장합니다. 백업하려면 앱을 종료한 뒤 데이터 폴더를 복사하세요.
+대화·기억·관계·단어장·설정·위젯 정의·상태·상태 대사 규칙은 SQLite에 저장합니다. AI 제작의 제한된 작업 기록은 앱 데이터의 `ex-brain/`에 보관하며 전역 Fleet나 KnowledgeBase를 복사하지 않습니다. API 키는 SQLite나 브라우저 저장소가 아니라 macOS Keychain 또는 Windows Credential Manager에 저장합니다. 백업하려면 앱을 종료한 뒤 데이터 폴더를 복사하세요.
 
 화면은 Rust 상태를 표시하고, 취소된 생성 결과와 오래된 준비 작업은 저장하거나 재생하지 않습니다. 모듈 책임과 `action`·`gate`·epoch·revision 경계는 [구조와 책임](docs/development/architecture.md)이 기준입니다.
 
@@ -147,6 +150,8 @@ git diff --check
 프로그램 소스는 [GNU AGPL-3.0-only](LICENSE)입니다. 별꼬리 캐릭터와 이미지는 별도 이용 조건을 따르므로 [라이선스 파일](examples/character-packs/byulkkori.LICENSE.txt)을 함께 확인하세요.
 
 llama.cpp sidecar의 고지는 [`llama.cpp-LICENSE.txt`](src-tauri/binaries/runtime/llama.cpp-LICENSE.txt)에 있습니다. 내려받은 GGUF 모델과 외부 의존성은 각 upstream 라이선스를 따르며, 직접 지정한 모델 파일은 사용자가 배포 조건을 확인해야 합니다.
+
+내장 `fleetia/ex-brain`의 원본과 Comet 적용 차이는 [adapter 계약](resources/ex-brain/ADAPTER.md), 원본 revision·파일 hash는 [provenance](resources/ex-brain/provenance.json), GPLv3 고지는 [원본 LICENSE](resources/ex-brain/LICENSE)에 보존합니다.
 
 ## 선택 기억 검색
 

@@ -38,7 +38,6 @@ fn parse_kind(kind: &str) -> Result<Kind, String> {
         "ball" => Ok(Kind::Ball),
         "paper-plane" => Ok(Kind::PaperPlane),
         "bubbles" => Ok(Kind::Bubbles),
-        "pet" => Ok(Kind::Pet),
         _ => Err("바탕화면에서 꺼낼 수 없는 장난감이에요.".into()),
     }
 }

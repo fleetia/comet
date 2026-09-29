@@ -215,7 +215,7 @@ export function launcherResults(
     const instance = widgets.widgets.find((candidate) => candidate.kind === entry.id);
     const needsSetup = instance?.installed && instance.enabled && instance.status === "setup";
     const available = instance?.installed && instance.enabled && !needsSetup;
-    const toy = ["ball", "paper-plane", "bubbles", "pet"].includes(entry.id);
+    const toy = ["ball", "paper-plane", "bubbles"].includes(entry.id);
     candidates.push({
       rank,
       result: {

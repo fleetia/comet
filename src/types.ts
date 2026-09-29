@@ -167,6 +167,7 @@ export type Settings = {
   autonomousEnabled: boolean;
   localModel: LocalModel;
   localModelPath: string;
+  localReasoningEnabled: boolean;
   baseUrl: string;
   apiModel: string;
   apiTokenParameter: "max_tokens" | "max_completion_tokens";

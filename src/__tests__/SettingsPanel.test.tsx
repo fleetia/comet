@@ -37,6 +37,7 @@ it("retains separate model and automatic drafts and only saves the chosen scope"
   fireEvent.change(screen.getByLabelText(/이야기 간격/), { target: { value: "12" } });
   fireEvent.click(screen.getByRole("tab", { name: "AI 연결" }));
   expect(screen.getByLabelText("로컬 모델")).toBeTruthy();
+  fireEvent.click(screen.getByRole("checkbox", { name: "로컬 추론 모드" }));
   fireEvent.change(screen.getByLabelText("API 주소"), {
     target: { value: "https://example.com/v1" },
   });
@@ -45,7 +46,11 @@ it("retains separate model and automatic drafts and only saves the chosen scope"
   fireEvent.click(screen.getByRole("button", { name: "AI 연결 저장" }));
   await screen.findByText("저장 실패");
   expect(command).toHaveBeenLastCalledWith("save_settings", {
-    settings: { ...PREVIEW_SNAPSHOT.settings, baseUrl: "https://example.com/v1" },
+    settings: {
+      ...PREVIEW_SNAPSHOT.settings,
+      baseUrl: "https://example.com/v1",
+      localReasoningEnabled: true,
+    },
     scope: "model",
     apiKey: "draft-key",
   });
@@ -70,6 +75,49 @@ it("retains separate model and automatic drafts and only saves the chosen scope"
   fireEvent.click(screen.getByRole("tab", { name: /AI 연결/ }));
   expect(screen.getByLabelText("API 키")).toHaveProperty("value", " draft-key ");
   expect(screen.getByLabelText("API 주소")).toHaveProperty("value", "https://example.com/v1");
+  expect(screen.getByRole("checkbox", { name: "로컬 추론 모드" })).toHaveProperty("checked", true);
+});
+
+it("tests and saves the local reasoning draft and restores the saved toggle on cancel", async () => {
+  const snapshot = {
+    ...PREVIEW_SNAPSHOT,
+    settings: {
+      ...PREVIEW_SNAPSHOT.settings,
+      localModel: "custom" as const,
+      localModelPath: "/models/example.gguf",
+    },
+  };
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "test_local_model" ? { elapsedMs: 1500, reply: "안녕" } : undefined,
+  );
+  const { rerender } = render(<SettingsPanel snapshot={snapshot} initialSection="model" />);
+  const toggle = screen.getByRole("checkbox", { name: "로컬 추론 모드" });
+  expect(toggle).toHaveProperty("checked", false);
+  fireEvent.click(toggle);
+  fireEvent.click(screen.getByRole("button", { name: "테스트하기" }));
+  await screen.findByText("1.5초 · 안녕");
+  expect(command).toHaveBeenCalledExactlyOnceWith("test_local_model", {
+    settings: { ...snapshot.settings, localReasoningEnabled: true },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "AI 연결 저장" }));
+  await screen.findByText("AI 연결을 저장했어요.");
+  expect(command).toHaveBeenLastCalledWith("save_settings", {
+    settings: { ...snapshot.settings, localReasoningEnabled: true },
+    scope: "model",
+    apiKey: null,
+  });
+  rerender(
+    <SettingsPanel
+      snapshot={{
+        ...snapshot,
+        settings: { ...snapshot.settings, localReasoningEnabled: true },
+      }}
+    />,
+  );
+  fireEvent.click(toggle);
+  expect(toggle).toHaveProperty("checked", false);
+  fireEvent.click(screen.getByRole("button", { name: "변경 취소" }));
+  expect(toggle).toHaveProperty("checked", true);
 });
 
 it("allows keyless loopback API tests but requires a key for remote or spoofed addresses", async () => {

@@ -50,38 +50,21 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-it("executes one explicit intent with the observed revision and never exposes a guessing answer", async () => {
-  vi.mocked(useWidgets).mockReturnValue({
-    snapshot: {
-      ...PREVIEW_WIDGETS,
-      widgets: [
-        widget("guessing", {
-          mode: "cups",
-          answer: 2,
-          playing: true,
-          hint: "골라 보세요",
-          attempts: 0,
-        }),
-      ],
-    },
-    error: null,
-    reload: vi.fn(),
-  });
-  render(<WidgetTool id="guessing" />);
-  expect(screen.queryByText(/정답.*2/)).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "1번 컵" }));
-  await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("execute_widget", {
-      request: {
-        requestId: expect.any(String),
-        instanceId: "guessing",
-        expectedRevision: 8,
-        action: "guess",
-        input: { value: 1 },
-      },
-    }),
-  );
-});
+it.each(["completion-jar", "device", "guessing", "fishing", "plant", "pet"])(
+  "does not reopen the retired %s tool from a stale snapshot",
+  (kind) => {
+    vi.mocked(useWidgets).mockReturnValue({
+      snapshot: { ...PREVIEW_WIDGETS, widgets: [widget(kind, { answer: 2 })] },
+      error: null,
+      reload: vi.fn(),
+    });
+    render(<WidgetTool id={kind} />);
+    expect(screen.getByText(/설치되지 않았거나 제거한 도구/)).toBeTruthy();
+    expect(screen.queryByText(/정답.*2/)).toBeNull();
+    expect(command).not.toHaveBeenCalled();
+  },
+);
+
 it("keeps local dates separate from datetime and shows retained settings after saving", async () => {
   render(
     <TodoTool
@@ -140,7 +123,7 @@ it("only completes a linked todo after an explicit completion click", async () =
   fireEvent.click(screen.getByRole("button", { name: "읽기 완료하기" }));
   expect(act).toHaveBeenCalledWith("complete", { id: "task" }, todo);
 });
-it.each(["ball", "paper-plane", "bubbles", "pet"])(
+it.each(["ball", "paper-plane", "bubbles"])(
   "opens and clears %s on the desktop without a panel playground",
   async (kind) => {
     vi.mocked(useWidgets).mockReturnValue({

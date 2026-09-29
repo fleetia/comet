@@ -114,6 +114,7 @@ pub(crate) async fn set_widget_enabled(
             crate::widget_connections::clear_music_pairing(db, &id)?;
         }
         storage::set_enabled(db, &id, enabled)?;
+        crate::generated_widget_commands::reset_rule_baseline(db, &id)?;
         if !enabled {
             cancel_widget_jobs(&state, Some(&id))?;
         }
@@ -144,6 +145,7 @@ pub(crate) async fn remove_widget(
     crate::memo_notes::with_flushed_notes(&app, &state, &id, |db| {
         crate::widget_connections::clear_music_pairing(db, &id)?;
         storage::remove(db, &state.app_data, &id, delete_data)?;
+        crate::generated_widget_commands::reset_rule_baseline(db, &id)?;
         cancel_widget_jobs(&state, Some(&id))
     })
     .await?;
@@ -208,6 +210,9 @@ pub(crate) fn event_current(
     db: &rusqlite::Connection,
     event: &WidgetEvent,
 ) -> Result<bool, String> {
+    if event.widget_kind == "state-rule" {
+        return crate::generated_widget_commands::event_current(db, event);
+    }
     let all = storage::instances(db)?;
     Ok(event.expires_at > chrono::Utc::now().timestamp_millis()
         && widgets::reminders::event_current(db, event)?
@@ -523,8 +528,16 @@ async fn open_widget_inner(
         widgets::manifest(&current.kind)?.name
     ))
     .inner_size(
-        if current.kind == "music" { 440.0 } else { 360.0 },
-        if current.kind == "music" { 340.0 } else { 480.0 },
+        if current.kind == "music" {
+            440.0
+        } else {
+            360.0
+        },
+        if current.kind == "music" {
+            340.0
+        } else {
+            480.0
+        },
     )
     .min_inner_size(296.0, 320.0)
     .decorations(false)

@@ -49,6 +49,9 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         });
         let _ = flush_positions(&state, false);
         let _ = advance_widgets(&app, &state);
+        if crate::generated_widget_commands::advance_reactions(&app, &state).unwrap_or(false) {
+            continue;
+        }
         start_due_widget_refreshes(&app, &state);
         let Ok(status) = lock(&state.runtime).map(|runtime| runtime.clone()) else {
             continue;
@@ -270,6 +273,11 @@ pub(crate) async fn run_background(
             }
             return Ok(());
         }
+    }
+    if crate::generated_widget_commands::maybe_create(app, state, &settings, epoch, cancel.clone())
+        .await?
+    {
+        return Ok(());
     }
     let generate_enabled = if settings.mode == "api" {
         settings.api_idle_enabled

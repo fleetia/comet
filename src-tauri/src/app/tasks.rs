@@ -14,6 +14,7 @@ pub(crate) enum Kind {
     Scene,
     Background,
     ModelTest,
+    WidgetGeneration,
     Maintenance,
 }
 

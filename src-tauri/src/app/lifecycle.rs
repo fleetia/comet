@@ -193,6 +193,9 @@ pub fn run() {
             let app_data = app.path().app_data_dir()?;
             migrate_app_data(&app_data)?;
             std::fs::create_dir_all(&app_data)?;
+            if crate::exbrain::initialize(&app_data).is_err() {
+                eprintln!("Widget context initialization deferred");
+            }
             let (sidecar, runtime) = resource_paths(app.handle()).map_err(std::io::Error::other)?;
             let talk = talk_host::initialize(&app_data);
             if let Err(error) = story::initialize_files(&app_data) {
@@ -297,6 +300,31 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label().starts_with("generated-widget-") {
+                match event {
+                    WindowEvent::CloseRequested { .. } => {
+                        let _ = crate::generated_widget_commands::cancel_for_window(
+                            window.app_handle(),
+                            window.label(),
+                            None,
+                        );
+                    }
+                    WindowEvent::Destroyed => {
+                        let app = window.app_handle().clone();
+                        let label = window.label().to_string();
+                        let epoch = window.state::<Arc<AppState>>().epoch.load(Ordering::SeqCst);
+                        tauri::async_runtime::spawn(async move {
+                            let _ = crate::generated_widget_commands::cancel_for_window(
+                                &app,
+                                &label,
+                                Some(epoch),
+                            );
+                        });
+                    }
+                    _ => {}
+                }
+                return;
+            }
             if window.label() == "launcher" {
                 launcher::window_event(window, event);
                 return;
@@ -380,6 +408,25 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            crate::generated_widget_commands::get_generated_widgets,
+            crate::generated_widget_commands::open_widget_workshop,
+            crate::generated_widget_commands::close_widget_workshop,
+            crate::generated_widget_commands::open_widget_state_rules,
+            crate::generated_widget_commands::close_widget_state_rules,
+            crate::generated_widget_commands::get_widget_rule_editor,
+            crate::generated_widget_commands::get_generated_widget,
+            crate::generated_widget_commands::set_widget_creation_automatic,
+            crate::generated_widget_commands::generate_widget,
+            crate::generated_widget_commands::cancel_widget_generation,
+            crate::generated_widget_commands::import_generated_widget,
+            crate::generated_widget_commands::update_generated_state,
+            crate::generated_widget_commands::report_generated_result,
+            crate::generated_widget_commands::set_generated_widget_enabled,
+            crate::generated_widget_commands::remove_generated_widget,
+            crate::generated_widget_commands::open_generated_widget,
+            crate::generated_widget_commands::close_generated_widget,
+            crate::generated_widget_commands::get_widget_state_rules,
+            crate::generated_widget_commands::save_widget_state_rules,
             super::autostart::get_autostart_enabled,
             super::autostart::set_autostart_enabled,
             crate::character_gestures::get_character_gesture_settings,

@@ -7,7 +7,7 @@ pub(crate) mod launcher;
 pub(crate) mod lifecycle;
 pub(crate) mod scene;
 mod settings;
-mod tasks;
+pub(crate) mod tasks;
 #[cfg(test)]
 pub(crate) mod tests;
 mod users;

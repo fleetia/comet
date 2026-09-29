@@ -768,33 +768,27 @@ mod pipeline_tests {
         selected
     }
 
-    const INITIAL_STATES: [&str; 22] = [
+    const INITIAL_STATES: [&str; 16] = [
         "todo.empty",
         "calendar.unconfigured",
         "timer.idle",
         "preparation.empty",
-        "jar.empty",
         "clock.no-anniversary",
         "memo.empty",
         "weather.unconfigured",
         "music.permission-needed",
-        "device.permission-needed",
         "interaction.snacks",
         "ball.still",
         "plane.ready",
         "bubbles.empty",
         "match.new",
-        "guessing.idle",
-        "fishing.idle",
         "fortune.fresh",
-        "plant.dry",
-        "pet.resting",
         "collection.empty",
         "journal.empty",
     ];
 
     #[test]
-    fn all_twenty_two_installed_widget_initial_states_reach_a_shipped_scene() {
+    fn all_current_installed_widget_initial_states_reach_a_shipped_scene() {
         let catalog = widgets::catalog().unwrap();
         let kinds = catalog
             .iter()
@@ -804,7 +798,7 @@ mod pipeline_tests {
         let (db, _directory) = nadir_database(&kinds);
         let program = program(NADIR_AND_STAR_TAIL);
         let context = context::build(&db, None, 1_000, 0).unwrap();
-        assert_eq!(context.available.len(), 22);
+        assert_eq!(context.available.len(), 16);
         for scene in INITIAL_STATES {
             idle_scene(&db, &program, scene, 1_000);
         }
@@ -911,83 +905,6 @@ mod pipeline_tests {
             texts.insert(selected.lines[0].text.clone());
         }
         assert_eq!(texts.len(), 4);
-    }
-
-    #[test]
-    fn actual_guessing_results_keep_hidden_answers_out_of_context() {
-        let (db, _directory) = nadir_database(&["guessing"]);
-        let program = program(NADIR_AND_STAR_TAIL);
-        act(&db, "guessing", "start", json!({"mode":"cups"}), 1_000, 0);
-        idle_scene(&db, &program, "guessing.cups", 1_000);
-        act(&db, "guessing", "guess", json!({"value":2}), 1_001, 0);
-        reaction(&db, &program, 1_001, "guessing.empty");
-        act(&db, "guessing", "guess", json!({"value":1}), 1_002, 0);
-        reaction(&db, &program, 1_002, "guessing.correct");
-        idle_scene(&db, &program, "guessing.between-rounds", 1_002);
-        act(
-            &db,
-            "guessing",
-            "start",
-            json!({"mode":"number"}),
-            2_000,
-            49,
-        );
-        idle_scene(&db, &program, "guessing.number", 2_000);
-        for (value, now, outcome) in [
-            (25, 2_001, "higher"),
-            (75, 2_002, "lower"),
-            (50, 2_003, "correct"),
-        ] {
-            act(&db, "guessing", "guess", json!({"value":value}), now, 0);
-            let (context, _) = reaction(&db, &program, now, &format!("guessing.{outcome}"));
-            assert_eq!(context.values["event.mode"], "number");
-            assert!(!context.values.contains_key("guessing.answer"));
-        }
-        act(
-            &db,
-            "guessing",
-            "start",
-            json!({"mode":"number"}),
-            3_000,
-            49,
-        );
-        for index in 1..=100 {
-            act(
-                &db,
-                "guessing",
-                "guess",
-                json!({"value":1}),
-                3_000 + index,
-                0,
-            );
-        }
-        let (context, _) = reaction(&db, &program, 3_100, "guessing.exhausted");
-        assert_eq!(context.values["guessing.attempts"], 100);
-        assert_eq!(context.values["guessing.playing"], false);
-    }
-
-    #[test]
-    fn actual_fishing_catch_names_work_without_optional_collection() {
-        let (db, _directory) = nadir_database(&["fishing"]);
-        let program = program(NADIR_AND_STAR_TAIL);
-        for (index, name) in ["파란 물고기", "금빛 물고기", "양말", "동그란 돌"]
-            .into_iter()
-            .enumerate()
-        {
-            let now = 1_000 + index as i64 * 10_000;
-            act(&db, "fishing", "cast", json!({}), now, 0);
-            idle_scene(&db, &program, "fishing.waiting", now);
-            act(&db, "fishing", "reel", json!({}), now + 2_000, index as u64);
-            let (context, selected) = reaction(&db, &program, now + 2_000, "fishing.caught");
-            assert_eq!(context.values["event.itemName"], name);
-            assert_eq!(context.values["event.widget"], "fishing");
-            assert_eq!(context.values["fishing.lastCatch"], name);
-            assert!(selected.lines[0].text.contains(name));
-            assert!(!context.available.contains("collection"));
-        }
-        act(&db, "fishing", "cast", json!({}), 50_000, 0);
-        act(&db, "fishing", "reel", json!({}), 50_001, 0);
-        reaction(&db, &program, 50_001, "fishing.missed");
     }
 
     #[test]

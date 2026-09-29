@@ -37,16 +37,16 @@ description: 클릭·잡기·놓기와 위젯 사건의 대사·표정·동작 �
 | `todo-completed`, `todo-undone` | 할 일 완료, 완료 취소 |
 | `timer-finished` | 타이머 종료 |
 | `calendar-reminder`, `planner-reminder`, `planner-mood` | 캘린더 알림, 일정 알림, 일정 분위기 변화 |
-| `device-woke` | 기기 잠자기 해제 |
 | `interaction.touch` | 교감 위젯 |
 | `ball.stopped`, `paper-plane.landed` | 위젯 공 멈춤, 종이비행기 착지 |
-| `small-match.result`, `guessing.attempt` | 작은 승부 결과, 맞히기 결과 |
-| `fishing.bite`, `fishing.missed` | 낚시 입질, 놓침 |
-| `item-acquired`, `fortune.draw`, `plant.growth`, `pet.arrived` | 아이템 획득, 운세 뽑기, 화분 성장, 위젯 펫 도착 |
+| `small-match.result` | 작은 승부 결과 |
+| `item-acquired`, `fortune.draw` | 아이템 획득, 운세 뽑기 |
 | `desktop.ball.stopped`, `desktop.paper-plane.landed` | 바탕화면 공 멈춤, 종이비행기 착지 |
-| `desktop.bubbles.popped`, `desktop.pet.rested` | 바탕화면 비눗방울 터짐, 펫 휴식 |
+| `desktop.bubbles.popped` | 바탕화면 비눗방울 터짐 |
 
 이전 `bubbles.streak`는 저장된 반응의 읽기 호환만 유지한다. 연속 횟수 사건은 새로 발생하지 않으며 반응 추가 목록에서도 제외한다.
+
+제거한 기기 소식·맞히기 놀이·낚시·화분·작은 펫의 `device-woke`, `guessing.attempt`, `fishing.bite`, `fishing.missed`, `plant.growth`, `pet.arrived`, `desktop.pet.rested`도 기존 캐릭터팩을 읽기 위해 보존한다. 새 반응 목록에 제공하거나 저장된 반응을 재생하지 않는다.
 
 위젯 반응은 기존 사건의 revision·만료·중복 억제와 실행 가능 조건을 사용한다. 해당 위젯 사건에 새 캐릭터 반응을 명시적으로 등록하면 기존 `.talk` 사건 대본보다 우선하며 둘을 함께 실행하지 않는다. 등록하지 않은 사건은 기존 [`.talk` 선택과 대체 대사](talk.md)를 그대로 사용한다. 음악 상태를 위한 새 사건이나 범용 조건식은 제공하지 않는다.
 

@@ -1657,6 +1657,7 @@ fn scoped_settings_saves_preserve_other_sections_newer_values() {
         api_model: "selected-model".into(),
         local_model: LocalModel::Qwen35_9B,
         local_model_path: "/models/kept.gguf".into(),
+        local_reasoning_enabled: true,
         api_token_parameter: "max_tokens".into(),
         ..original.clone()
     };
@@ -1691,6 +1692,7 @@ fn scoped_settings_saves_preserve_other_sections_newer_values() {
     );
     let next_model = Settings {
         api_model: "new-selected-model".into(),
+        local_reasoning_enabled: false,
         // The model draft predates the automatic save and its interval is incomplete.
         idle_minutes: 0,
         ..model
@@ -1700,6 +1702,7 @@ fn scoped_settings_saves_preserve_other_sections_newer_values() {
         serde_json::to_value(store::settings(&lock(&state.db).unwrap()).unwrap()).unwrap(),
         serde_json::to_value(Settings {
             api_model: "new-selected-model".into(),
+            local_reasoning_enabled: false,
             ..expected
         })
         .unwrap()

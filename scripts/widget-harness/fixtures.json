@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "state": { "count": 3, "goal": 8, "note": "fixture memo" },
+  "repair": {
+    "name": "Fixture counter",
+    "description": "Deterministic repair fixture, not a model response",
+    "initialState": { "count": 0, "goal": 8, "note": "" },
+    "source": "function render(state) { return [{type:'number',label:'Count',value:state.count},{type:'text',label:'Memo',value:state.note}]; } function reduce(state,action) { return action.type === 'increment' ? {...state,count:state.count+1} : state; }"
+  },
+  "failures": [
+    {
+      "id": "filename-as-source",
+      "provenance": "The source value source.js was observed during isolated water-widget native QA. No user data or model transcript is included.",
+      "source": "source.js",
+      "action": null,
+      "diagnosticIncludes": "source"
+    },
+    {
+      "id": "missing-reduce",
+      "provenance": "Synthetic minimal reproduction of a missing required function, not an exact model response.",
+      "source": "function render(state) { return [{type:'number',value:state.count}]; }",
+      "action": null,
+      "diagnosticIncludes": "render와 reduce"
+    },
+    {
+      "id": "array-state",
+      "provenance": "Synthetic reproduction of output accepted by JavaScript but rejected by persisted-state validation.",
+      "source": "function render(state) { return []; } function reduce(state,action) { return [state.count+1]; }",
+      "action": { "type": "increment" },
+      "diagnosticIncludes": "JSON 객체"
+    },
+    {
+      "id": "unsafe-number-state",
+      "provenance": "Synthetic reproduction of a numeric value outside the Rust persistence contract.",
+      "source": "function render(state) { return []; } function reduce(state,action) { return {...state,count:1e30}; }",
+      "action": { "type": "increment" },
+      "diagnosticIncludes": "안전한 숫자"
+    }
+  ]
+}

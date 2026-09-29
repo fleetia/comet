@@ -54,6 +54,7 @@ pub(crate) async fn save_settings(
 ) -> Result<(), String> {
     let (epoch, cancel) = apply_settings(&state, &settings, scope, api_key.as_deref())?;
     publish(&app, &state);
+    crate::generated_widget_commands::publish(&app);
     let _gate = state.gate.lock().await;
     if is_current(&state, epoch, &cancel) {
         inference::stop_local(&state.inference).await;
@@ -127,6 +128,7 @@ pub(crate) fn apply_settings(
             mode: settings.mode.clone(),
             local_model: settings.local_model,
             local_model_path: settings.local_model_path.clone(),
+            local_reasoning_enabled: settings.local_reasoning_enabled,
             base_url: settings.base_url.clone(),
             api_model: settings.api_model.clone(),
             api_token_parameter: settings.api_token_parameter.clone(),
@@ -392,9 +394,14 @@ pub(crate) async fn test_local_model(
                 let _ = send.send(Err("모델 테스트가 취소됐어요.".into()));
                 return;
             };
+            let timeout = Duration::from_secs(if settings.local_reasoning_enabled {
+                300
+            } else {
+                120
+            });
             let result = tokio::select! {
                 _ = models::cancelled(cancel.clone()) => Err("모델 테스트가 취소됐어요.".into()),
-                result = tokio::time::timeout(Duration::from_secs(120), inference::test_local(&worker.inference, &settings, cancel.clone())) => {
+                result = tokio::time::timeout(timeout, inference::test_local(&worker.inference, &settings, cancel.clone())) => {
                     result.unwrap_or_else(|_| Err("모델 테스트 시간이 초과되었어요. 더 작은 모델을 시도해 보세요.".into()))
                 }
             };
@@ -402,6 +409,7 @@ pub(crate) async fn test_local_model(
             let changed = saved.as_ref().map_or(true, |saved| {
                 models::selected_path(&worker.app_data, saved)
                     != models::selected_path(&worker.app_data, &settings)
+                    || saved.local_reasoning_enabled != settings.local_reasoning_enabled
             });
             if result.is_err() || changed {
                 inference::stop_local(&worker.inference).await;

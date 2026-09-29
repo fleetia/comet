@@ -110,6 +110,18 @@ export const detailHeader = style({
   alignItems: "start",
   gap: vars.space.md,
 });
+export const detailContent = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: vars.space.sm,
+});
+export const editRequest = style({
+  width: "100%",
+  minHeight: 80,
+  boxSizing: "border-box",
+  font: "inherit",
+  resize: "vertical",
+});
 export const group = style({
   display: "grid",
   gap: vars.space.sm,

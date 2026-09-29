@@ -139,10 +139,10 @@ fn calendar_colors_are_scoped_atomic_and_preserved_by_reminder_changes() {
 }
 
 #[test]
-fn planner_batch_is_atomic_and_frequency_records_drive_completion_jar() {
+fn planner_batch_is_atomic_and_frequency_records_are_idempotent() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["todo", "completion-jar"]);
+    install(&db, directory.path(), &["todo"]);
     let before = instance(&db, "todo");
     let invalid = request(
         &db,
@@ -173,9 +173,9 @@ fn planner_batch_is_atomic_and_frequency_records_drive_completion_jar() {
         .timestamp_millis();
     storage::execute(&db, &record, now, 2).unwrap();
     storage::execute(&db, &record, now + 1, 3).unwrap();
-    let jar = instance(&db, "completion-jar").data;
-    assert_eq!(jar["completed"].as_array().unwrap().len(), 1);
-    let record_id = jar["completed"][0]["id"].clone();
+    let records = instance(&db, "todo").data["items"][0]["frequencyRecords"].clone();
+    assert_eq!(records.as_array().unwrap().len(), 1);
+    let record_id = records[0]["id"].clone();
     act(
         &db,
         "todo",
@@ -184,7 +184,7 @@ fn planner_batch_is_atomic_and_frequency_records_drive_completion_jar() {
         now + 2,
         4,
     );
-    assert!(instance(&db, "completion-jar").data["completed"]
+    assert!(instance(&db, "todo").data["items"][0]["frequencyRecords"]
         .as_array()
         .unwrap()
         .is_empty());
@@ -194,7 +194,7 @@ fn planner_batch_is_atomic_and_frequency_records_drive_completion_jar() {
 fn first_run_can_skip_without_installing_packages() {
     let db = database();
     let before = storage::snapshot(&db).unwrap();
-    assert_eq!(before.catalog.len(), 22);
+    assert_eq!(before.catalog.len(), 16);
     assert!(before.widgets.is_empty());
     assert!(!before.onboarding_done);
     storage::finish_onboarding(&db).unwrap();
@@ -412,73 +412,6 @@ fn duplicate_request_is_noop_but_changed_replay_and_stale_revision_fail() {
 }
 
 #[test]
-fn guessing_snapshot_hides_answer_until_the_actual_win() {
-    let db = database();
-    let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["guessing"]);
-    act(&db, "guessing", "start", json!({"mode":"number"}), 100, 49);
-    assert_eq!(instance(&db, "guessing").data["answer"], 50);
-    assert!(storage::snapshot(&db).unwrap().widgets[0]
-        .instance
-        .data
-        .get("answer")
-        .is_none());
-    act(&db, "guessing", "guess", json!({"value":20}), 200, 99);
-    assert!(storage::snapshot(&db).unwrap().widgets[0]
-        .instance
-        .data
-        .get("answer")
-        .is_none());
-    act(&db, "guessing", "guess", json!({"value":50}), 300, 0);
-    let finished = storage::snapshot(&db).unwrap();
-    assert_eq!(finished.widgets[0].instance.data["playing"], false);
-    assert_eq!(finished.widgets[0].instance.data["answer"], 50);
-}
-
-#[test]
-fn only_successful_fishing_awards_reach_enabled_collection_once() {
-    let db = database();
-    let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["fishing", "collection", "journal"]);
-    act(&db, "fishing", "cast", json!({}), 100, 0);
-    act(&db, "fishing", "reel", json!({}), 101, 2);
-    assert!(instance(&db, "collection").data["items"]
-        .as_array()
-        .unwrap()
-        .is_empty());
-    act(&db, "fishing", "cast", json!({}), 1000, 0);
-    let reel = request(&db, "fishing", "reel", json!({}));
-    storage::execute(&db, &reel, 3000, 2).unwrap();
-    storage::execute(&db, &reel, 3100, 2).unwrap();
-    assert_eq!(
-        instance(&db, "collection").data["items"],
-        json!([{"itemId":"sock","name":"양말","quantity":1}])
-    );
-    assert_eq!(
-        storage::journal(&db, None)
-            .unwrap()
-            .iter()
-            .filter(|(_, event)| event.event.kind == "item-acquired")
-            .count(),
-        1
-    );
-
-    storage::set_enabled(&db, &instance(&db, "collection").id, false).unwrap();
-    act(&db, "fishing", "cast", json!({}), 10_000, 0);
-    act(&db, "fishing", "reel", json!({}), 12_000, 2);
-    storage::set_enabled(&db, &instance(&db, "collection").id, true).unwrap();
-    assert_eq!(instance(&db, "collection").data["items"][0]["quantity"], 1);
-    assert_eq!(
-        storage::journal(&db, None)
-            .unwrap()
-            .iter()
-            .filter(|(_, event)| event.event.kind == "item-acquired")
-            .count(),
-        2
-    );
-}
-
-#[test]
 fn missing_dependency_is_explicit_and_never_silently_installed() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
@@ -664,10 +597,10 @@ fn timely_calendar_and_timer_alerts_survive_a_burst_of_ordinary_events() {
             "paper-plane",
             "bubbles",
             "small-match",
-            "guessing",
-            "fishing",
+            "memo",
+            "clock",
             "fortune",
-            "plant",
+            "collection",
         ];
         let mut kinds = ordinary.to_vec();
         kinds.push(kind);
@@ -703,36 +636,76 @@ fn timely_calendar_and_timer_alerts_survive_a_burst_of_ordinary_events() {
 fn changing_a_source_discards_its_prepared_reaction() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["guessing"]);
-    act(&db, "guessing", "start", json!({"mode":"number"}), 100, 49);
-    act(&db, "guessing", "guess", json!({"value":20}), 200, 0);
-    act(&db, "guessing", "start", json!({"mode":"cups"}), 201, 2);
+    install(&db, directory.path(), &["small-match"]);
+    act(&db, "small-match", "dice", json!({}), 100, 49);
+    let current = instance(&db, "small-match");
+    storage::commit_data(
+        &db,
+        &current.id,
+        current.revision,
+        json!({"rounds":0}),
+        vec![],
+        201,
+    )
+    .unwrap();
     assert!(storage::take_reaction(&db, 202).unwrap().is_none());
 }
 
 #[test]
-fn reenabled_plant_does_not_grow_for_the_time_it_was_disabled() {
+fn retired_widgets_keep_saved_data_but_cannot_resume_or_reinstall() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["plant"]);
-    let plant = instance(&db, "plant");
-    storage::set_enabled(&db, &plant.id, false).unwrap();
-    db.execute(
-        "UPDATE widget_instances SET data=? WHERE id=?",
-        rusqlite::params![
-            json!({"stage":1,"water":2,"updatedAt":100}).to_string(),
-            plant.id,
-        ],
-    )
-    .unwrap();
-    storage::set_enabled(&db, &plant.id, true).unwrap();
-    storage::advance(&db, chrono::Utc::now().timestamp_millis()).unwrap();
-    let resumed = instance(&db, "plant");
-    assert_eq!(resumed.data["stage"], 1);
-    assert_eq!(resumed.data["water"], 2);
-    assert!(
-        storage::take_reaction(&db, chrono::Utc::now().timestamp_millis())
-            .unwrap()
-            .is_none()
+    let data = json!({"userData":"보존", "completed":[{"title":"기존 기록"}], "phase":"bite", "food":{"x":4}, "configured":true});
+    for kind in super::RETIRED_KINDS {
+        db.execute(
+            "INSERT INTO widget_instances VALUES(?1,?1,1,1,1,7,?2,NULL)",
+            rusqlite::params![kind, data.to_string()],
+        )
+        .unwrap();
+        let event = super::WidgetEvent {
+            id: format!("event-{kind}"),
+            instance_id: (*kind).into(),
+            widget_kind: (*kind).into(),
+            revision: 7,
+            created_at: 0,
+            expires_at: 30_000,
+            event: super::EventDraft {
+                kind: "legacy-event".into(),
+                text: "기록".into(),
+                payload: json!({}),
+            },
+        };
+        db.execute(
+            "INSERT INTO widget_events(id,instance_id,data,pending) VALUES(?1,?2,?3,1)",
+            rusqlite::params![event.id, kind, serde_json::to_string(&event).unwrap()],
+        )
+        .unwrap();
+        db.execute("INSERT INTO widget_journal VALUES(?1)", [event.id])
+            .unwrap();
+        assert!(storage::install(&db, directory.path(), &[(*kind).into()]).is_err());
+        assert!(storage::set_enabled(&db, kind, true).is_err());
+        assert!(storage::commit_data(&db, kind, 7, json!({}), vec![], 1).is_err());
+        assert!(storage::execute(&db, &request(&db, kind, "start", json!({})), 1, 0).is_err());
+    }
+    assert!(storage::snapshot(&db).unwrap().widgets.is_empty());
+    assert!(!storage::advance(&db, 1).unwrap());
+    assert!(storage::take_reaction(&db, 1).unwrap().is_none());
+    storage::initialize(&db).unwrap();
+    storage::verify_packages(&db, directory.path()).unwrap();
+    for kind in super::RETIRED_KINDS {
+        let saved = instance(&db, kind);
+        assert!(!saved.installed && !saved.enabled);
+        assert_eq!(saved.revision, 8);
+        assert_eq!(saved.data, data);
+    }
+    assert_eq!(
+        storage::journal(&db, None).unwrap().len(),
+        super::RETIRED_KINDS.len()
     );
+    assert!(storage::snapshot(&db).unwrap().widgets.is_empty());
+    storage::initialize(&db).unwrap();
+    assert!(storage::instances(&db)
+        .unwrap()
+        .iter()
+        .all(|saved| saved.revision == 8));
 }

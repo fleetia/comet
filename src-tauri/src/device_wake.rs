@@ -1,44 +1,6 @@
-use crate::{
-    app::{lock, AppState},
-    widget_commands::publish_widgets,
-    widgets::{storage, EventDraft},
-};
-use rusqlite::Connection;
-use serde_json::json;
-use std::sync::{atomic::Ordering, Arc, Mutex};
+use crate::app::{lock, AppState};
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
-
-fn record_wake(db: &Connection, stopping: bool, now: i64) -> Result<bool, String> {
-    if stopping {
-        return Ok(false);
-    }
-    let Some(instance) = storage::instances(db)?.into_iter().find(|entry| {
-        entry.kind == "device"
-            && entry.installed
-            && entry.enabled
-            && entry.data["configured"] == true
-    }) else {
-        return Ok(false);
-    };
-    if instance.data["lastWakeAt"].as_i64() == Some(now) {
-        return Ok(false);
-    }
-    let mut data = instance.data;
-    data["lastWakeAt"] = json!(now);
-    storage::commit_data(
-        db,
-        &instance.id,
-        instance.revision,
-        data,
-        vec![EventDraft {
-            kind: "device-woke".into(),
-            text: "기기가 절전에서 돌아왔어요.".into(),
-            payload: json!({"observedAt":now}),
-        }],
-        now,
-    )?;
-    Ok(true)
-}
 
 fn receive_wake(app: &tauri::AppHandle) {
     // Native callbacks must never unwind through Objective-C or the window procedure.
@@ -50,17 +12,6 @@ fn receive_wake(app: &tauri::AppHandle) {
         // A wake callback resets reminder cursors even after a short sleep. No missed
         // threshold, snooze, or mood transition should be replayed on resume.
         lock(&state.widget_clocks)?.clear();
-        let changed = {
-            let db = lock(&state.db)?;
-            record_wake(
-                &db,
-                state.stopping.load(Ordering::SeqCst),
-                chrono::Utc::now().timestamp_millis(),
-            )?
-        };
-        if changed {
-            publish_widgets(app, &state);
-        }
         Ok(())
     }));
 }
@@ -253,47 +204,5 @@ mod native {
     pub struct Observer;
     pub fn install(_: &tauri::AppHandle) -> Result<Observer, String> {
         Err("이 운영체제에서는 절전 복귀 관찰을 지원하지 않아요.".into())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::widgets::connections;
-
-    #[test]
-    fn wake_is_only_recorded_for_an_explicitly_enabled_device_connection() {
-        let db = Connection::open_in_memory().unwrap();
-        storage::initialize(&db).unwrap();
-        let directory = tempfile::tempdir().unwrap();
-        assert!(!record_wake(&db, false, 100).unwrap());
-        storage::install(&db, directory.path(), &["device".into(), "journal".into()]).unwrap();
-        assert!(!record_wake(&db, false, 200).unwrap());
-        let instance = storage::instances(&db)
-            .unwrap()
-            .into_iter()
-            .find(|entry| entry.kind == "device")
-            .unwrap();
-        let data = connections::configure("device", &instance.data, &json!({})).unwrap();
-        storage::commit_data(&db, &instance.id, instance.revision, data, vec![], 250).unwrap();
-        assert!(!record_wake(&db, true, 300).unwrap());
-        assert!(record_wake(&db, false, 300).unwrap());
-        assert!(!record_wake(&db, false, 300).unwrap());
-        assert_eq!(storage::journal(&db, None).unwrap().len(), 1);
-        assert_eq!(
-            storage::get(&db, &instance.id).unwrap().data["lastWakeAt"],
-            300
-        );
-        storage::set_enabled(&db, &instance.id, false).unwrap();
-        assert!(!record_wake(&db, false, 400).unwrap());
-        storage::set_enabled(&db, &instance.id, true).unwrap();
-        assert_eq!(storage::journal(&db, None).unwrap().len(), 1);
-        assert!(storage::take_reaction(&db, 401).unwrap().is_none());
-        assert!(record_wake(&db, false, 500).unwrap());
-        let event = storage::take_reaction(&db, 501).unwrap().unwrap();
-        assert_eq!(event.event.kind, "device-woke");
-        assert_eq!(event.event.payload["observedAt"], 500);
-        storage::remove(&db, directory.path(), &instance.id, false).unwrap();
-        assert!(!record_wake(&db, false, 600).unwrap());
     }
 }

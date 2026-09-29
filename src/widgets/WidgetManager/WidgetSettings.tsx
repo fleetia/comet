@@ -8,8 +8,8 @@ import type { ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import * as styles from "./widgetManager.css";
 
-export const CONFIGURABLE_WIDGETS = ["calendar", "weather", "music", "device", "clock"];
-export const DISPLAY_KINDS = ["clock", "weather", "device"];
+export const CONFIGURABLE_WIDGETS = ["calendar", "weather", "music", "clock"];
+export const DISPLAY_KINDS = ["clock", "weather"];
 
 export function WidgetSettings({
   widget,
@@ -40,7 +40,7 @@ export function WidgetSettings({
           onDirtyChange={setConnectionDirty}
         />
       )}
-      {["weather", "music", "device"].includes(widget.kind) && (
+      {["weather", "music"].includes(widget.kind) && (
         <ConnectionTool widget={widget} mode="settings" onDirtyChange={setConnectionDirty} />
       )}
       {widget.kind === "clock" && <ClockSettings widget={widget} act={configure} />}

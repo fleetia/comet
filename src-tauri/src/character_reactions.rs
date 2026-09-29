@@ -15,22 +15,15 @@ pub const EVENTS: &[(&str, &str)] = &[
     ("calendar-reminder", "캘린더 알림"),
     ("planner-reminder", "일정 알림"),
     ("planner-mood", "일정 분위기 변화"),
-    ("device-woke", "기기 잠자기 해제"),
     ("interaction.touch", "교감 위젯"),
     ("ball.stopped", "위젯 공 멈춤"),
     ("paper-plane.landed", "위젯 종이비행기 착지"),
     ("small-match.result", "작은 승부 결과"),
-    ("guessing.attempt", "맞히기 결과"),
-    ("fishing.bite", "낚시 입질"),
-    ("fishing.missed", "낚시 놓침"),
     ("item-acquired", "아이템 획득"),
     ("fortune.draw", "운세 뽑기"),
-    ("plant.growth", "화분 성장"),
-    ("pet.arrived", "위젯 펫 도착"),
     ("desktop.ball.stopped", "바탕화면 공 멈춤"),
     ("desktop.paper-plane.landed", "바탕화면 종이비행기 착지"),
     ("desktop.bubbles.popped", "바탕화면 비눗방울 터짐"),
-    ("desktop.pet.rested", "바탕화면 펫 휴식"),
 ];
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -161,6 +154,9 @@ pub fn select(
     previous: Option<&ReactionHistory>,
     entropy: u64,
 ) -> Option<ReactionSelection> {
+    if RETIRED_EVENTS.contains(&event) {
+        return None;
+    }
     let rule = rules.iter().find(|rule| rule.event == event)?;
     let previous_id = previous.and_then(|history| history.variant_id.as_deref());
     let candidates: Vec<_> = rule
@@ -183,9 +179,21 @@ pub fn select(
     })
 }
 
+const RETIRED_EVENTS: &[&str] = &[
+    "device-woke",
+    "guessing.attempt",
+    "fishing.bite",
+    "fishing.missed",
+    "plant.growth",
+    "pet.arrived",
+    "desktop.pet.rested",
+];
+
 pub fn valid_event(event: &str) -> bool {
-    // Keep saved reactions readable without offering the retired counter event.
-    event == "bubbles.streak" || EVENTS.iter().any(|(key, _)| *key == event)
+    // Saved character packs keep their old rules without offering or replaying retired events.
+    event == "bubbles.streak"
+        || RETIRED_EVENTS.contains(&event)
+        || EVENTS.iter().any(|(key, _)| *key == event)
 }
 
 fn valid_id(value: &str) -> bool {
@@ -358,5 +366,17 @@ mod tests {
         }
         assert!(valid_event("bubbles.streak"));
         assert!(!events.contains(&"bubbles.streak"));
+    }
+    #[test]
+    fn retired_widget_reactions_remain_importable_but_never_play() {
+        for event in RETIRED_EVENTS {
+            let mut definition = crate::characters::factory_pack().characters.remove(0);
+            let mut saved = rule();
+            saved.event = (*event).into();
+            definition.reactions = vec![saved];
+            validate(&definition).unwrap();
+            assert!(!EVENTS.iter().any(|(current, _)| current == event));
+            assert!(select(&definition.reactions, event, 1_000, None, 0).is_none());
+        }
     }
 }

@@ -6,6 +6,7 @@ import { WidgetTool } from "../WidgetTool/WidgetTool";
 import { MemoNote } from "../MemoNote/MemoNote";
 import { useWidgets } from "../useWidgets";
 import type { WidgetView } from "../types";
+import catalog from "../../../widgets/catalog.json";
 
 vi.mock("../../hooks/useSnapshot", () => ({
   command: vi.fn(),
@@ -41,7 +42,7 @@ beforeEach(() => {
   vi.mocked(listen).mockReset();
   vi.mocked(listen).mockResolvedValue(vi.fn());
   vi.mocked(useWidgets).mockReturnValue({
-    snapshot: { catalog: [], widgets: [widget], onboardingDone: true },
+    snapshot: { catalog, widgets: [widget], onboardingDone: true },
     error: null,
     reload: vi.fn(),
   });

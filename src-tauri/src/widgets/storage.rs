@@ -23,12 +23,32 @@ CREATE TABLE IF NOT EXISTS widget_preferences(key TEXT PRIMARY KEY,value TEXT NO
 CREATE TABLE IF NOT EXISTS desktop_toy_results(id TEXT PRIMARY KEY,widget_id TEXT NOT NULL,kind TEXT NOT NULL,created_at INTEGER NOT NULL,data TEXT NOT NULL);",
     )
     .map_err(err)?;
+    retire_removed_widgets(db)?;
     super::backgrounds::initialize(db)
+}
+
+fn retire_removed_widgets(db: &Connection) -> Result<()> {
+    let tx = db.unchecked_transaction().map_err(err)?;
+    for kind in super::RETIRED_KINDS {
+        tx.execute(
+            "UPDATE widget_instances SET installed=0,enabled=0,revision=revision+1,error=NULL WHERE kind=?1 AND (installed=1 OR enabled=1)",
+            [kind],
+        ).map_err(err)?;
+        tx.execute(
+            "UPDATE widget_events SET pending=0 WHERE instance_id IN (SELECT id FROM widget_instances WHERE kind=?1)",
+            [kind],
+        ).map_err(err)?;
+    }
+    tx.commit().map_err(err)
 }
 
 pub fn bump_revision(db: &Connection, id: &str, expected_revision: i64) -> Result<WidgetInstance> {
     let mut instance = get(db, id)?;
-    if !instance.installed || !instance.enabled || instance.revision != expected_revision {
+    if super::is_retired(&instance.kind)
+        || !instance.installed
+        || !instance.enabled
+        || instance.revision != expected_revision
+    {
         return Err(
             "다른 화면에서 위젯이 변경됐어요. 최신 상태를 확인하고 다시 시도해 주세요.".into(),
         );
@@ -103,6 +123,7 @@ pub fn snapshot(db: &Connection) -> Result<WidgetSnapshot> {
         catalog: super::catalog()?,
         widgets: all
             .iter()
+            .filter(|instance| !super::is_retired(&instance.kind))
             .cloned()
             .map(|instance| {
                 let background_updated_at = super::backgrounds::info(db, &instance.id)?
@@ -175,7 +196,7 @@ fn write_package(path: &Path, kind: &str) -> Result<()> {
 }
 
 pub fn install(db: &Connection, directory: &Path, kinds: &[String]) -> Result<()> {
-    if kinds.is_empty() || kinds.len() > 22 {
+    if kinds.is_empty() || kinds.len() > super::catalog()?.len() {
         return Err("설치할 위젯을 선택해 주세요.".into());
     }
     let before = instances(db)?;
@@ -253,7 +274,6 @@ pub fn install(db: &Connection, directory: &Path, kinds: &[String]) -> Result<()
             instance.revision += 1;
             put(&tx, &instance)?;
         }
-        synchronize_jar(&tx)?;
         discard_pending(&tx)?;
         finish_onboarding(&tx)?;
         tx.commit().map_err(err)
@@ -312,6 +332,7 @@ fn suspend(instance: &mut WidgetInstance, now: i64, restarting: bool) {
 pub fn set_enabled(db: &Connection, id: &str, enabled: bool) -> Result<()> {
     let tx = db.unchecked_transaction().map_err(err)?;
     let mut instance = get(&tx, id)?;
+    super::manifest(&instance.kind)?;
     if !instance.installed {
         return Err("위젯을 먼저 설치해 주세요.".into());
     }
@@ -325,7 +346,6 @@ pub fn set_enabled(db: &Connection, id: &str, enabled: bool) -> Result<()> {
     instance.revision += 1;
     put(&tx, &instance)?;
     discard_pending(&tx)?;
-    synchronize_jar(&tx)?;
     tx.commit().map_err(err)
 }
 
@@ -358,7 +378,6 @@ pub fn remove(db: &Connection, directory: &Path, id: &str, delete_data: bool) ->
         }
         put(&tx, &instance)?;
         discard_pending(&tx)?;
-        synchronize_jar(&tx)?;
         tx.commit().map_err(err)
     })();
     if result.is_err() {
@@ -379,6 +398,7 @@ pub fn remove(db: &Connection, directory: &Path, id: &str, delete_data: bool) ->
 }
 
 pub fn verify_packages(db: &Connection, directory: &Path) -> Result<()> {
+    retire_removed_widgets(db)?;
     for mut instance in instances(db)?.into_iter().filter(|entry| entry.installed) {
         let valid = (|| -> Result<bool> {
             let path = package_path(directory, &instance.kind)?;
@@ -432,7 +452,7 @@ pub fn verify_packages(db: &Connection, directory: &Path) -> Result<()> {
 fn active_data(db: &Connection) -> Result<BTreeMap<String, Value>> {
     Ok(instances(db)?
         .into_iter()
-        .filter(|entry| entry.installed && entry.enabled)
+        .filter(|entry| entry.installed && entry.enabled && !super::is_retired(&entry.kind))
         .map(|entry| (entry.kind, entry.data))
         .collect())
 }
@@ -541,9 +561,6 @@ fn apply_effect(
             collect_item(db, &event.event)?;
         }
     }
-    if instance.kind == "todo" {
-        synchronize_jar(db)?;
-    }
     db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND (json_extract(data,'$.expiresAt')<=?1 OR NOT EXISTS(SELECT 1 FROM widget_instances i WHERE i.id=widget_events.instance_id AND i.installed=1 AND i.enabled=1 AND i.revision=json_extract(widget_events.data,'$.revision')))",[now]).map_err(err)?;
     db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND seq NOT IN (SELECT seq FROM widget_events WHERE pending=1 ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END,seq DESC LIMIT 8)",[]).map_err(err)?;
     Ok(())
@@ -559,7 +576,11 @@ pub fn commit_data(
 ) -> Result<()> {
     let tx = db.unchecked_transaction().map_err(err)?;
     let instance = get(&tx, id)?;
-    if !instance.installed || !instance.enabled || instance.revision != expected_revision {
+    if super::is_retired(&instance.kind)
+        || !instance.installed
+        || !instance.enabled
+        || instance.revision != expected_revision
+    {
         return Err("이미 변경되거나 중지된 위젯의 결과는 적용하지 않았어요.".into());
     }
     apply_effect(&tx, instance, WidgetEffect { data, events }, now)?;
@@ -576,7 +597,11 @@ pub(crate) fn record_desktop_result(
 ) -> Result<bool> {
     let tx = db.unchecked_transaction().map_err(err)?;
     let instance = get(&tx, id)?;
-    if !instance.installed || !instance.enabled || instance.revision != revision {
+    if super::is_retired(&instance.kind)
+        || !instance.installed
+        || !instance.enabled
+        || instance.revision != revision
+    {
         return Ok(false);
     }
     let event = WidgetEvent {
@@ -640,44 +665,12 @@ fn collect_item(db: &Connection, event: &EventDraft) -> Result<()> {
     put(db, &collection)
 }
 
-fn synchronize_jar(db: &Connection) -> Result<()> {
-    let all = instances(db)?;
-    let Some(mut jar) = all
-        .iter()
-        .find(|entry| entry.kind == "completion-jar")
-        .cloned()
-    else {
-        return Ok(());
-    };
-    // The todo owner remains authoritative even while its presentation is disabled.
-    let completed = all.iter().find(|entry| entry.kind == "todo")
-        .and_then(|entry| entry.data["items"].as_array())
-        .map(|items| items.iter().flat_map(|item| {
-            let mut completed = vec![];
-            if item["completedAt"].is_number() {
-                completed.push(json!({"id":item["id"],"title":item["title"],"completedAt":item["completedAt"]}));
-            }
-            for record in item["frequencyRecords"].as_array().into_iter().flatten() {
-                completed.push(json!({"id":record["id"],"title":item["title"],"completedAt":record["createdAt"]}));
-            }
-            completed
-        }).collect::<Vec<_>>())
-        .unwrap_or_default();
-    let data = json!({"completed":completed});
-    if jar.data != data {
-        jar.data = data;
-        jar.revision += 1;
-        put(db, &jar)?;
-    }
-    Ok(())
-}
-
 pub fn advance(db: &Connection, now: i64) -> Result<bool> {
     let tx = db.unchecked_transaction().map_err(err)?;
     let mut changed = false;
     for instance in instances(&tx)?
         .into_iter()
-        .filter(|entry| entry.installed && entry.enabled)
+        .filter(|entry| entry.installed && entry.enabled && !super::is_retired(&entry.kind))
     {
         match super::tick(&instance, now) {
             Ok(Some(effect)) => {

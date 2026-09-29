@@ -11,8 +11,13 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+#[path = "models/widget_policy.rs"]
+mod widget_policy;
+pub use widget_policy::{widget_generation_eligibility, WidgetGenerationEligibility};
+
 struct ModelSpec {
     name: &'static str,
+    parameter_billions: f64,
     description: &'static str,
     file: &'static str,
     size: u64,
@@ -34,41 +39,49 @@ const CATALOG: [LocalModel; 8] = [
 fn spec(model: LocalModel) -> Option<ModelSpec> {
     Some(match model {
         LocalModel::Qwen35_4B => ModelSpec {
+            parameter_billions: 4.,
             name: "Qwen3.5-4B", description: "기본 · 가벼운 모델", file: "Qwen3.5-4B-Q4_K_M.gguf", size: 2_740_937_888,
             sha256: "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
             url: "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/e87f176479d0855a907a41277aca2f8ee7a09523/Qwen3.5-4B-Q4_K_M.gguf",
         },
         LocalModel::Qwen35_9B => ModelSpec {
+            parameter_billions: 9.,
             name: "Qwen3.5-9B", description: "메모리를 더 사용하는 모델", file: "Qwen3.5-9B-Q4_K_M.gguf", size: 5_680_522_464,
             sha256: "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8",
             url: "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/3885219b6810b007914f3a7950a8d1b469d598a5/Qwen3.5-9B-Q4_K_M.gguf",
         },
         LocalModel::Qwen38_2B => ModelSpec {
+            parameter_billions: 2.,
             name: "Qwen3.8-2B-Distill", description: "가장 가벼운 실험용", file: "Qwen3.8-2B-Q4_K_M.gguf", size: 1_312_164_224,
             sha256: "4aa0fb13c431514262f259d420ecc95a8714df58ac2a2384514e20b93983f0ff",
             url: "https://huggingface.co/empero-ai/Qwen3.8-2B-Distill-GGUF/resolve/f4f73582d0b149595450c719b9a7521a03894f9c/Qwen3.8-2B-Q4_K_M.gguf",
         },
         LocalModel::Qwen38_4B => ModelSpec {
+            parameter_billions: 4.,
             name: "Qwen3.8-4B-Distill", description: "상시 구동 후보", file: "Qwen3.8-4B-Q4_K_M.gguf", size: 2_783_446_304,
             sha256: "dec96e8cf2e11b613bb46513dec485377f9ca5a351e71712ee0e244f287c6790",
             url: "https://huggingface.co/empero-ai/Qwen3.8-4B-Distill-GGUF/resolve/391fc7d103e3942a408def3e4f51c2f85d464417/Qwen3.8-4B-Q4_K_M.gguf",
         },
         LocalModel::Qwen38_9B => ModelSpec {
+            parameter_billions: 9.,
             name: "Qwen3.8-9B-Distill", description: "Qwen 계열 품질 상한", file: "Qwen3.8-9B-Q4_K_M.gguf", size: 5_780_090_176,
             sha256: "df13d66021cef676f82be74053220fd75af6bf2a6a7fb77f5222ab9e50744a7a",
             url: "https://huggingface.co/empero-ai/Qwen3.8-9B-Distill-GGUF/resolve/760121cd70bb4c36b2b5ec58eb765e0df5987efe/Qwen3.8-9B-Q4_K_M.gguf",
         },
         LocalModel::Gemma4E4B => ModelSpec {
+            parameter_billions: 4.,
             name: "Gemma 4 E4B", description: "Qwen 외 4B급 비교용", file: "gemma-4-E4B-it-Q4_K_M.gguf", size: 4_977_171_584,
             sha256: "85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87",
             url: "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/bfc15c382204943c3a8fff0c750b94ae2364d7a3/gemma-4-E4B-it-Q4_K_M.gguf",
         },
         LocalModel::Gemma4_12B => ModelSpec {
+            parameter_billions: 12.,
             name: "Gemma 4 12B", description: "고품질 비교용 · 메모리 많이 사용", file: "gemma-4-12b-it-Q4_K_M.gguf", size: 7_121_861_440,
             sha256: "0a270ec9fe6b34f4a0d33992b6135117b484ebc4766ab76b51d4ae8c457e4c42",
             url: "https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/resolve/fc034cfff751157913579611efad8462ac1be606/gemma-4-12b-it-Q4_K_M.gguf",
         },
         LocalModel::Ministral3_8B => ModelSpec {
+            parameter_billions: 8.,
             name: "Ministral 3 8B", description: "Mistral 계열 비교용", file: "Ministral-3-8B-Instruct-2512-Q4_K_M.gguf", size: 5_198_386_720,
             sha256: "5dbc3647eb563b9f8d3c70ec3d906cce84b86bb35c5e0b8a36e7df3937ab7174",
             url: "https://huggingface.co/unsloth/Ministral-3-8B-Instruct-2512-GGUF/resolve/3731507ec3e867db16d620f73e14d689125758f4/Ministral-3-8B-Instruct-2512-Q4_K_M.gguf",

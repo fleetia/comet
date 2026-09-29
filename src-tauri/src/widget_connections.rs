@@ -1102,7 +1102,7 @@ async fn refresh_information(
         if !manual && lock(&state.widget_jobs)?.contains_key(id) {
             return Err("이미 조회 중입니다.".into());
         }
-        if !["weather", "music", "device"].contains(&instance.kind.as_str()) {
+        if !["weather", "music"].contains(&instance.kind.as_str()) {
             return Err("정보 연결 위젯이 아닙니다.".into());
         }
         if instance.data["configured"] != true {
@@ -1247,7 +1247,7 @@ pub(crate) fn start_due_widget_refreshes(app: &AppHandle, state: &Arc<AppState>)
         } else {
             None
         };
-        let info = ["weather", "music", "device"].contains(&instance.kind.as_str())
+        let info = ["weather", "music"].contains(&instance.kind.as_str())
             && information_due(&instance, now);
         if calendar_id.is_none() && !info {
             continue;

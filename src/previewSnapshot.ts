@@ -31,6 +31,7 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
     autonomousEnabled: true,
     localModel: "qwen3.5-4b",
     localModelPath: "",
+    localReasoningEnabled: false,
     baseUrl: "https://api.openai.com/v1",
     apiModel: "",
     apiTokenParameter: "max_tokens",

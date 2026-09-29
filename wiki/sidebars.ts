@@ -27,6 +27,7 @@ const sidebars: SidebarsConfig = {
       label: "위젯",
       items: [
         "widgets/overview",
+        "widgets/ai-creation",
         "widgets/catalog",
         "widgets/installation",
         "widgets/contract",

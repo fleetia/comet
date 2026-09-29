@@ -49,6 +49,8 @@ pub struct Settings {
     pub local_model: LocalModel,
     #[serde(default)]
     pub local_model_path: String,
+    #[serde(default)]
+    pub local_reasoning_enabled: bool,
     pub base_url: String,
     pub api_model: String,
     pub api_token_parameter: String,
@@ -69,6 +71,7 @@ impl Default for Settings {
             mode: "local".into(),
             local_model: LocalModel::default(),
             local_model_path: String::new(),
+            local_reasoning_enabled: false,
             base_url: "https://api.openai.com/v1".into(),
             api_model: String::new(),
             api_token_parameter: "max_completion_tokens".into(),
@@ -370,16 +373,22 @@ mod tests {
         let mut legacy = serde_json::to_value(Settings::default()).unwrap();
         legacy.as_object_mut().unwrap().remove("localModel");
         legacy.as_object_mut().unwrap().remove("localModelPath");
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("localReasoningEnabled");
         legacy.as_object_mut().unwrap().remove("autonomousEnabled");
         legacy["idleMinutes"] = serde_json::json!(5);
         let settings: Settings = serde_json::from_value(legacy).unwrap();
         assert_eq!(settings.local_model, LocalModel::Qwen35_4B);
         assert_eq!(settings.local_model_path, "");
+        assert!(!settings.local_reasoning_enabled);
         assert!(settings.autonomous_enabled);
         assert_eq!(settings.idle_minutes, 5);
         assert_eq!(Settings::default().idle_minutes, 2);
         let selected = Settings {
             local_model: LocalModel::Qwen35_9B,
+            local_reasoning_enabled: true,
             ..settings
         };
         let directory = tempfile::tempdir().unwrap();
@@ -387,6 +396,7 @@ mod tests {
         std::fs::write(&path, serde_json::to_vec(&selected).unwrap()).unwrap();
         let reopened: Settings = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         assert_eq!(reopened.local_model, LocalModel::Qwen35_9B);
+        assert!(reopened.local_reasoning_enabled);
         assert_eq!(
             serde_json::to_value(reopened).unwrap()["localModel"],
             "qwen3.5-9b"

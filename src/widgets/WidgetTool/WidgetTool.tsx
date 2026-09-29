@@ -92,7 +92,7 @@ export function WidgetTool({ id }: { id: string }): ReactElement {
     ) : (
       <p role="status">도구를 불러오고 있어요.</p>
     );
-  } else if (!widget?.installed) {
+  } else if (!widget?.installed || !entry) {
     content = <p>설치되지 않았거나 제거한 도구입니다. 본체 메뉴의 위젯 관리에서 설치해 주세요.</p>;
   } else if (!widget.enabled) {
     content = <p>꺼진 도구입니다. 본체 메뉴의 위젯 관리에서 켜 주세요.</p>;
@@ -172,7 +172,7 @@ export function WidgetTool({ id }: { id: string }): ReactElement {
         break;
       default:
         content = <ToyTool {...props} />;
-        if (["ball", "paper-plane", "bubbles", "pet"].includes(widget.kind)) {
+        if (["ball", "paper-plane", "bubbles"].includes(widget.kind)) {
           footer = (
             <>
               <Button
