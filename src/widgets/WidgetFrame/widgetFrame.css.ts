@@ -57,7 +57,6 @@ export const footer = styleVariants({
     actionArea,
     {
       padding: `${vars.space.sm} ${vars.space.lg}`,
-      borderTop: `4px double ${vars.color.border.strong}`,
     },
   ],
   note: [actionArea, { padding: `${vars.space.xs} ${vars.space.sm} ${vars.space.sm}` }],
