@@ -5,7 +5,7 @@ description: 현재 Tauri 앱의 코드 소유권과 생활 도구·외부 위�
 
 # 구조와 책임
 
-기존 대화·캐릭터 기능과 공식 위젯 22개의 구조, 후속 외부 SDK의 책임 경계를 설명한다. 파일 경로는 프로젝트 루트를 기준으로 한다. 공식 도구 호스트는 구현했으며 외부 SDK와 Cargo workspace는 후속 설계다. 검증 범위는 [상태표](../status.md)를 따른다.
+기존 대화·캐릭터 기능과 공식 위젯 16개의 구조, 후속 외부 SDK의 책임 경계를 설명한다. 파일 경로는 프로젝트 루트를 기준으로 한다. 공식 도구 호스트는 구현했으며 외부 SDK와 Cargo workspace는 후속 설계다. 검증 범위는 [상태표](../status.md)를 따른다.
 
 ## 현재 코드의 책임
 
@@ -39,7 +39,7 @@ description: 현재 Tauri 앱의 코드 소유권과 생활 도구·외부 위�
 | `src-tauri/src/app/windows.rs` | 단일 설정창·마지막 목적지·미저장 상태, 종료 확인, 패널·말풍선·본체 표시/숨김·일시정지 명령 |
 | `src-tauri/src/planner_windows.rs` | 단일 `planner` 실행 창과 탭 목적지, 통합 설정의 해당 위젯으로 이동 |
 | `src-tauri/src/widgets/planning.rs`, `widgets/planning/recurrence.rs` | 내장 할 일·기간 계획·반복·횟수·선택 이월의 입력 검증과 상태 전이, 날짜·시간대 계산, 기존 JSON 호환 |
-| `src-tauri/src/widgets/storage.rs` | 위젯 JSON의 SQLite 저장, 요청 중복·revision·transaction, 사건 유효기간과 실제 완료·횟수 기록의 구슬병 동기화 |
+| `src-tauri/src/widgets/storage.rs` | 위젯 JSON의 SQLite 저장, 요청 중복·revision·transaction, 사건 유효기간과 실제 완료·횟수 기록의 저장. 제거된 완료 구슬병의 과거 데이터는 보존한다 |
 | `src-tauri/src/widget_connections.rs`, `widgets/calendar.rs`, `widgets/calendar/` | Google OAuth·ICS·macOS EventKit 읽기 연결, 자격 증명·선택 캘린더·조회 범위와 비동기 갱신 결과의 최신성 검사 |
 | `src-tauri/src/widgets/reminders.rs`, `planner_notifications.rs` | 기한·무드 안내 시점과 다시 알림 대상 검증, 캐릭터 사건과 OS 전달 분리, OS 권한·표시·macOS 알림 버튼 |
 | `src-tauri/src/desktop.rs`, `playback.rs` | 네이티브 창 배치와 재생 관련 규칙 |

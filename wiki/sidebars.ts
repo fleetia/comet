@@ -45,6 +45,7 @@ const sidebars: SidebarsConfig = {
         "development/spicetify",
         "development/talk-coverage",
         "development/roadmap",
+        "development/widget-redesign-scope",
         "development/wiki",
         "development/releases",
       ],
