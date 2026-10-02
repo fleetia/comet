@@ -35,6 +35,9 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         {
             super::publish(&app, &state);
         }
+        if crate::character_animation_states::refresh(&app, &state).unwrap_or(false) {
+            super::publish(&app, &state);
+        }
         tasks::reap(&state).await;
         let maintenance_app = app.clone();
         let maintenance_state = state.clone();

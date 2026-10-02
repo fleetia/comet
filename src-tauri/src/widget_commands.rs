@@ -21,6 +21,9 @@ pub(crate) fn publish_widgets(app: &tauri::AppHandle, state: &AppState) {
             let _ = app.emit("widgets-state", snapshot);
         }
     }
+    if crate::character_animation_states::refresh(app, state).unwrap_or(false) {
+        publish(app, state);
+    }
     crate::desktop_menu::refresh(app);
 }
 

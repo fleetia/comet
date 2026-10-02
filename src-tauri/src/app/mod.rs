@@ -72,6 +72,7 @@ pub(crate) struct AppState {
     pub(crate) update_installing: AtomicBool,
     pub(crate) behavior: Mutex<behavior::Machine>,
     pub(crate) reactions: Mutex<crate::character_reaction_host::Runtime>,
+    pub(crate) animation_states: Mutex<crate::character_animation_states::Runtime>,
     pub(crate) positions: Mutex<HashMap<String, (WindowPosition, Instant)>>,
 }
 
@@ -112,6 +113,7 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
         device: crate::device::info(),
         settings,
         reactions: lock(&state.reactions)?.views(),
+        animation_states: lock(&state.animation_states)?.states.clone(),
         user: store::current_user(&db)?,
         legacy_memory_count: store::legacy_memory_count(&db)?,
         messages: store::messages(&db, 100)?,
@@ -134,6 +136,7 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
 }
 
 pub(crate) fn publish(app: &tauri::AppHandle, state: &AppState) {
+    let _ = crate::character_animation_states::refresh(app, state);
     let _ = crate::character_reaction_host::reconcile(app, state);
     if let Ok(data) = snapshot(state) {
         if let Ok(_action) = lock(&state.action) {

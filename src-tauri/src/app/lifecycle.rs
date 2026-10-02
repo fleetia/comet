@@ -250,6 +250,7 @@ pub fn run() {
                 update_installing: AtomicBool::new(false),
                 behavior: Mutex::new(behavior::Machine::default()),
                 reactions: Mutex::new(crate::character_reaction_host::Runtime::default()),
+                animation_states: Mutex::new(crate::character_animation_states::Runtime::default()),
                 positions: Mutex::new(HashMap::new()),
             });
             app.manage(state.clone());
@@ -484,6 +485,7 @@ pub fn run() {
             widget_connections::connect_calendar_apple,
             widget_connections::list_apple_calendars,
             crate::planner_windows::get_planner_tab,
+            crate::planner_windows::set_planner_tab,
             crate::planner_windows::preview_planner_recurrence,
             crate::planner_windows::open_planner_settings,
             crate::planner_windows::get_planner_settings_target,

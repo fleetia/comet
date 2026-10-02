@@ -57,7 +57,10 @@ export function useCharacterAnimation(
   const activeReaction = reaction?.id !== finishedReaction ? reaction : undefined;
   const playback = snapshot.playback;
   const speakingLine =
-    !snapshot.panel &&
+    (!snapshot.panel ||
+      (snapshot.panel.mode === "input" &&
+        snapshot.conversation?.session.status === "active" &&
+        snapshot.conversation.session.userId === snapshot.user?.id)) &&
     !snapshot.story &&
     playback?.displayStartedAt != null &&
     activeCharacter(snapshot, playback.persona)?.id === character?.id;
@@ -74,6 +77,16 @@ export function useCharacterAnimation(
   let trigger = activeReaction ? `reaction:${activeReaction.id}` : "idle";
   if (binding === undefined && speaking)
     binding = animationBinding(animation, expression, "speaking");
+  if (binding === undefined && !speaking && !activeReaction) {
+    // Only opt-in bindings participate; an unassigned higher-priority state falls through.
+    for (const state of ["calendarOpen", "musicPlaying"] as const) {
+      if (snapshot.animationStates?.[state] && animation?.bindings[state]) {
+        binding = animation.bindings[state];
+        trigger = `state:${state}`;
+        break;
+      }
+    }
+  }
   if (binding === undefined) binding = animationBinding(animation, expression, "idle");
   if (!activeReaction && speaking)
     trigger = `speaking:${speakingLine ? playback?.id : snapshot.story?.id}`;

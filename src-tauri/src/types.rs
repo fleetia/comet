@@ -307,6 +307,8 @@ impl Default for RuntimeStatus {
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     #[serde(default)]
+    pub(crate) animation_states: crate::character_animation_states::States,
+    #[serde(default)]
     pub(crate) reactions:
         std::collections::BTreeMap<String, crate::character_reactions::ReactionRun>,
     #[serde(default)]

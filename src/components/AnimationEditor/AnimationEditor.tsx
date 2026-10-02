@@ -27,7 +27,7 @@ import {
 import * as common from "../characters.css";
 import * as s from "./animationEditor.css";
 
-type Situation = "idle" | "speaking" | "click";
+type Situation = "idle" | "speaking" | "click" | "musicPlaying" | "calendarOpen";
 type Props = {
   animation?: CharacterAnimation | null;
   character?: InstalledCharacter;
@@ -596,6 +596,8 @@ export function AnimationEditor({
               ["idle", "평소"],
               ["speaking", "말하는 동안"],
               ["click", "클릭했을 때"],
+              ["calendarOpen", "캘린더를 보고 있는 동안"],
+              ["musicPlaying", "음악을 재생하는 동안"],
             ] as const
           ).map(([situation, label]) => (
             <BindingEditor
@@ -610,7 +612,9 @@ export function AnimationEditor({
             />
           ))}
           <p className={common.small}>
-            클릭 반응이 먼저 재생돼요. 동작이 끝나거나 쉬는 동안에는 현재 표정으로 돌아와요.
+            반응 → 말하는 동안 → 캘린더 → 음악 → 평소 순서로 재생돼요. 캘린더·음악은 동작을 지정해야
+            켜져요. 캘린더 탭을 실제로 연 동안, 음악 연결이 재생을 확인한 동안에만 적용해요. 동작이
+            끝나거나 쉬는 동안에는 현재 표정으로 돌아와요.
           </p>
           <details className={s.expression}>
             <summary>표정마다 다르게 연결</summary>

@@ -87,6 +87,15 @@ it("saves ordered frames and situation mappings atomically", async () => {
   fireEvent.change(editor.getByLabelText("말하는 동안 동작"), { target: { value: clipId } });
   expect(editor.getByLabelText("말하는 동안 반복 간격(초)")).toHaveProperty("value", "0");
   fireEvent.change(editor.getByLabelText("클릭했을 때 동작"), { target: { value: clipId } });
+  expect(editor.getByLabelText("캘린더를 보고 있는 동안 동작")).toHaveProperty("value", "$none");
+  expect(editor.getByLabelText("음악을 재생하는 동안 동작")).toHaveProperty("value", "$none");
+  fireEvent.change(editor.getByLabelText("캘린더를 보고 있는 동안 동작"), {
+    target: { value: clipId },
+  });
+  fireEvent.change(editor.getByLabelText("음악을 재생하는 동안 동작"), {
+    target: { value: clipId },
+  });
+  expect(editor.getByLabelText("음악을 재생하는 동안 반복 간격(초)")).toHaveProperty("value", "0");
   fireEvent.change(editor.getByLabelText("기쁨 · 평소 동작"), { target: { value: "$none" } });
   fireEvent.change(editor.getByLabelText("기쁨 · 말하는 동안 동작"), { target: { value: clipId } });
   fireEvent.change(editor.getByLabelText("기쁨 · 말하는 동안 동작"), {
@@ -117,6 +126,8 @@ it("saves ordered frames and situation mappings atomically", async () => {
       idle: { clipId, repeat: true, intervalMs: 2500 },
       speaking: { clipId, repeat: true, intervalMs: 0 },
       click: { clipId, repeat: false, intervalMs: 0 },
+      calendarOpen: { clipId, repeat: true, intervalMs: 0 },
+      musicPlaying: { clipId, repeat: true, intervalMs: 0 },
     },
     overrides: { 기쁨: { idle: null } },
   });

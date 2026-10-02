@@ -50,6 +50,10 @@ pub struct Bindings {
     pub speaking: Option<Binding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub click: Option<Binding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub music_playing: Option<Binding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar_open: Option<Binding>,
 }
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -174,6 +178,8 @@ pub fn validate_animation(
         &animation.bindings.idle,
         &animation.bindings.speaking,
         &animation.bindings.click,
+        &animation.bindings.music_playing,
+        &animation.bindings.calendar_open,
     ]
     .into_iter()
     .flatten()

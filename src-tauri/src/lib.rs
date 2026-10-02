@@ -1,6 +1,7 @@
 mod app;
 mod behavior;
 mod character_animation;
+mod character_animation_states;
 mod character_collision;
 mod character_collision_host;
 mod character_commands;

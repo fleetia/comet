@@ -31,7 +31,7 @@ export type AnimationFrame = {
 export type AnimationClip = { id: string; name: string; fps: number; frames: AnimationFrame[] };
 export type AnimationBinding = { clipId: string; repeat: boolean; intervalMs: number };
 export type AnimationBindings = Partial<
-  Record<"idle" | "speaking" | "click", AnimationBinding | null>
+  Record<"idle" | "speaking" | "click" | "musicPlaying" | "calendarOpen", AnimationBinding | null>
 >;
 export type CharacterAnimation = {
   clips: AnimationClip[];
@@ -97,7 +97,7 @@ export type CharacterArchive = {
   }[];
 };
 export type CharacterPack = {
-  formatVersion: 1 | 2 | 3 | 4 | 5;
+  formatVersion: 1 | 2 | 3 | 4 | 5 | 6;
   name: string;
   author: string;
   sourceUrl?: string;
@@ -295,6 +295,7 @@ export type RuntimeStatus = {
   pausedUntil: number | null;
 };
 export type Snapshot = {
+  animationStates?: { musicPlaying: boolean; calendarOpen: boolean };
   reactions?: Record<string, CharacterReactionRun>;
   user: UserIdentity | null;
   legacyMemoryCount: number;

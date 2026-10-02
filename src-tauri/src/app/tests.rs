@@ -68,6 +68,7 @@ pub(crate) fn state() -> AppState {
         update_installing: AtomicBool::new(false),
         behavior: Mutex::new(behavior::Machine::default()),
         reactions: Mutex::new(crate::character_reaction_host::Runtime::default()),
+        animation_states: Mutex::new(crate::character_animation_states::Runtime::default()),
         positions: Mutex::new(HashMap::new()),
     }
 }
