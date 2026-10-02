@@ -704,7 +704,9 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
         return Ok(false);
     };
     let characters = crate::characters::collection(&db)?;
-    let target = if super::unavailable(&state) {
+    let target = if super::unavailable(&state)
+        || crate::app::quiet_hours::playback_blocked(&state, &store::settings(&db)?)?
+    {
         None
     } else {
         balloon_target(

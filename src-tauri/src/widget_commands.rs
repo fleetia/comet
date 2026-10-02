@@ -29,7 +29,9 @@ pub(crate) fn publish_widgets(app: &tauri::AppHandle, state: &AppState) {
 
 /// Keeps idle chatter deferred for the whole focus run, so it never fires right after the timer ends.
 pub(crate) fn hold_for_focus(state: &AppState, db: &rusqlite::Connection) -> Result<bool, String> {
-    if !storage::focus_active(db, chrono::Utc::now().timestamp_millis())? {
+    if !storage::focus_active(db, chrono::Utc::now().timestamp_millis())?
+        && !crate::app::quiet_hours::automatic_blocked(state, &store::settings(db)?)?
+    {
         return Ok(false);
     }
     storage::discard_pending_during_focus(db)?;
@@ -223,6 +225,11 @@ pub(crate) fn event_current(
     db: &rusqlite::Connection,
     event: &WidgetEvent,
 ) -> Result<bool, String> {
+    if crate::app::quiet_hours::active(&store::settings(db)?)
+        && !crate::app::quiet_hours::event_allowed(&event.event.kind)
+    {
+        return Ok(false);
+    }
     if event.widget_kind == "state-rule" {
         return crate::generated_widget_commands::event_current(db, event);
     }

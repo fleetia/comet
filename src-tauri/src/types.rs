@@ -59,6 +59,27 @@ pub struct LocalModelTest {
     pub elapsed_ms: u64,
 }
 
+/// Device-local recurring silence. Weekdays use Monday=0 through Sunday=6.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct QuietHours {
+    pub enabled: bool,
+    pub start: String,
+    pub end: String,
+    pub weekdays: Vec<u32>,
+}
+
+impl Default for QuietHours {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            start: "22:00".into(),
+            end: "08:00".into(),
+            weekdays: (0..7).collect(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -77,6 +98,8 @@ pub struct Settings {
     pub local_idle_enabled: bool,
     pub api_idle_enabled: bool,
     pub idle_minutes: u32,
+    #[serde(default)]
+    pub quiet_hours: QuietHours,
 }
 
 fn default_autonomous_enabled() -> bool {
@@ -97,6 +120,7 @@ impl Default for Settings {
             local_idle_enabled: false,
             api_idle_enabled: false,
             idle_minutes: 2,
+            quiet_hours: QuietHours::default(),
         }
     }
 }

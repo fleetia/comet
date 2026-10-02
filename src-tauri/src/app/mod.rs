@@ -5,6 +5,7 @@ pub(crate) mod conversation;
 mod history;
 pub(crate) mod launcher;
 pub(crate) mod lifecycle;
+pub(crate) mod quiet_hours;
 pub(crate) mod scene;
 mod settings;
 pub(crate) mod tasks;
@@ -63,6 +64,7 @@ pub(crate) struct AppState {
     pub(crate) last_foreground: AtomicI64,
     pub(crate) last_scene: AtomicI64,
     pub(crate) next_idle: AtomicI64,
+    pub(crate) quiet_hours: Mutex<quiet_hours::Runtime>,
     pub(crate) last_preparation: AtomicI64,
     pub(crate) last_background_check: AtomicI64,
     pub(crate) idle_sequence: AtomicU64,

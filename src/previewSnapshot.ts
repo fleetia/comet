@@ -38,6 +38,7 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
     localIdleEnabled: false,
     apiIdleEnabled: false,
     idleMinutes: 2,
+    quietHours: { enabled: false, start: "22:00", end: "08:00", weekdays: [0, 1, 2, 3, 4, 5, 6] },
   },
   messages: [],
   memoryCount: 0,

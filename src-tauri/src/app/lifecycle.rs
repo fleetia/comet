@@ -241,6 +241,7 @@ pub fn run() {
                 last_foreground: AtomicI64::new(now()),
                 last_scene: AtomicI64::new(now()),
                 next_idle: AtomicI64::new(now() + 5),
+                quiet_hours: Mutex::new(super::quiet_hours::Runtime::default()),
                 last_preparation: AtomicI64::new(0),
                 last_background_check: AtomicI64::new(0),
                 idle_sequence: AtomicU64::new(0),

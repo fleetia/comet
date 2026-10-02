@@ -285,3 +285,62 @@ it("preserves personal wordbook whitespace and memory drafts across management t
   fireEvent.click(screen.getByRole("tab", { name: "기억" }));
   expect(screen.getByLabelText("기억 내용")).toHaveProperty("value", "쓰던 기억");
 });
+
+it("saves opt-in local quiet hours with starting weekdays and retains the draft across tabs", async () => {
+  render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="automatic" />);
+  const enabled = screen.getByRole("checkbox", { name: "정해진 시간에 자동 잡담 쉬기" });
+  expect(enabled).toHaveProperty("checked", false);
+  expect(screen.getByLabelText("조용한 시간 시작").closest("fieldset")).toHaveProperty(
+    "disabled",
+    true,
+  );
+  fireEvent.click(enabled);
+  fireEvent.change(screen.getByLabelText("조용한 시간 시작"), { target: { value: "23:30" } });
+  fireEvent.change(screen.getByLabelText("조용한 시간 종료"), { target: { value: "07:00" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "일요일" }));
+  expect(screen.getByText(/기기 지역 시각/)).toBeTruthy();
+  expect(screen.getByText(/월요일 22:00~08:00은 화요일 아침까지/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "AI 연결" }));
+  fireEvent.click(screen.getByRole("tab", { name: /자동 대화/ }));
+  expect(screen.getByLabelText("조용한 시간 시작")).toHaveProperty("value", "23:30");
+  fireEvent.click(screen.getByRole("button", { name: "자동 대화 저장" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenLastCalledWith("save_settings", {
+      settings: {
+        ...PREVIEW_SNAPSHOT.settings,
+        quietHours: { enabled: true, start: "23:30", end: "07:00", weekdays: [0, 1, 2, 3, 4, 5] },
+      },
+      scope: "automatic",
+      apiKey: null,
+    }),
+  );
+});
+
+it("validates active quiet hours and cancel restores the latest saved schedule", () => {
+  const { rerender } = render(
+    <SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="automatic" />,
+  );
+  fireEvent.click(screen.getByRole("checkbox", { name: "정해진 시간에 자동 잡담 쉬기" }));
+  fireEvent.change(screen.getByLabelText("조용한 시간 종료"), { target: { value: "22:00" } });
+  expect(screen.getByRole("alert").textContent).toContain("시작과 종료 시각을 다르게");
+  expect(screen.getByRole("button", { name: "자동 대화 저장" })).toHaveProperty("disabled", true);
+  fireEvent.change(screen.getByLabelText("조용한 시간 종료"), { target: { value: "08:00" } });
+  for (const name of ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]) {
+    fireEvent.click(screen.getByRole("checkbox", { name }));
+  }
+  expect(screen.getByRole("alert").textContent).toContain("요일을 하나 이상");
+  expect(screen.getByRole("button", { name: "자동 대화 저장" })).toHaveProperty("disabled", true);
+  const latest = {
+    ...PREVIEW_SNAPSHOT,
+    settings: {
+      ...PREVIEW_SNAPSHOT.settings,
+      quietHours: { enabled: true, start: "21:00", end: "06:00", weekdays: [4] },
+    },
+  };
+  rerender(<SettingsPanel snapshot={latest} />);
+  fireEvent.click(screen.getByRole("button", { name: "변경 취소" }));
+  expect(screen.getByLabelText("조용한 시간 시작")).toHaveProperty("value", "21:00");
+  expect(screen.getByRole("checkbox", { name: "금요일" })).toHaveProperty("checked", true);
+  expect(screen.getByRole("checkbox", { name: "월요일" })).toHaveProperty("checked", false);
+  expect(screen.queryByRole("alert")).toBeNull();
+});

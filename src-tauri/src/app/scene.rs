@@ -24,7 +24,10 @@ pub(crate) fn present_line(
 ) -> Result<bool, String> {
     let _action = lock(&state.action)?;
     let db = lock(&state.db)?;
-    if !is_current(state, epoch, cancel) || store::revision(&db)? != revision {
+    if !is_current(state, epoch, cancel)
+        || super::quiet_hours::playback_blocked(state, &store::settings(&db)?)?
+        || store::revision(&db)? != revision
+    {
         return Ok(false);
     }
     let saved = if direct_reply {

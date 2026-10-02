@@ -167,6 +167,12 @@ export type LocalModelStatus = {
 };
 export type DeviceInfo = { totalMemory: number | null; appleSilicon: boolean };
 export type LocalModelTest = { reply: string; elapsedMs: number };
+export type QuietHours = {
+  enabled: boolean;
+  start: string;
+  end: string;
+  weekdays: number[];
+};
 export type Settings = {
   mode: "local" | "api";
   autonomousEnabled: boolean;
@@ -179,6 +185,7 @@ export type Settings = {
   localIdleEnabled: boolean;
   apiIdleEnabled: boolean;
   idleMinutes: number;
+  quietHours: QuietHours;
 };
 export type Message = {
   id: string;

@@ -253,7 +253,8 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
         || runtime.hidden
         || runtime.paused
         || fullscreen
-        || !store::settings(&db)?.autonomous_enabled;
+        || !store::settings(&db)?.autonomous_enabled
+        || crate::app::quiet_hours::automatic_blocked(state, &store::settings(&db)?)?;
     // Focus ends pranks like a conversation would, without suspending widget reminders.
     let conversation = !matches!(runtime.phase.as_str(), "idle" | "error" | "waiting")
         || lock(&state.panel)?.is_some()
