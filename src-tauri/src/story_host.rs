@@ -91,7 +91,7 @@ pub fn choose_story(
             || status.paused
             || crate::app::unavailable(&state)
             || !crate::store::settings(&db)?.autonomous_enabled
-            || crate::app::quiet_hours::automatic_blocked(state, &crate::store::settings(&db)?)?
+            || crate::app::quiet_hours::automatic_blocked(&state, &crate::store::settings(&db)?)?
         {
             return Err("지금은 이야기가 쉬고 있어요.".into());
         }
