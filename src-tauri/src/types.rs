@@ -327,11 +327,18 @@ impl Default for RuntimeStatus {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterAnimationStates {
+    pub music_playing: bool,
+    pub calendar_open: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     #[serde(default)]
-    pub(crate) animation_states: crate::character_animation_states::States,
+    pub animation_states: CharacterAnimationStates,
     #[serde(default)]
     pub(crate) reactions:
         std::collections::BTreeMap<String, crate::character_reactions::ReactionRun>,

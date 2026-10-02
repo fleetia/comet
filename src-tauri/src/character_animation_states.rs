@@ -3,17 +3,11 @@ use crate::{
     app::{lock, AppState},
     widgets::WidgetInstance,
 };
-use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
 const MUSIC_FRESH_MS: i64 = 30_000;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct States {
-    pub music_playing: bool,
-    pub calendar_open: bool,
-}
+use crate::types::CharacterAnimationStates as States;
 
 pub(crate) struct Runtime {
     // A previous process or disabled connection's observation cannot activate a new run.
