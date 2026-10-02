@@ -20,11 +20,13 @@ description: 공식 위젯과 보조 화면의 소스 구현, 실제 검증 범�
 - 이 Mac에서 skill 파일 4개를 CRLF로 바꾸면 같은 assert로 실패하고, 되돌리면 통과한다.
 - `core.autocrlf=true` clone에서 수정 전에는 CRLF, 수정 후에는 24개 파일 모두 LF로 checkout된다.
 - 이미 만든 Windows checkout은 이 폴더를 지우고 다시 checkout해야 LF로 바뀐다.
-- 수정 후 Windows CI 결과는 이 커밋의 Verify desktop에서 확인한다.
+- 수정 커밋 `952af38`의 [Verify desktop 36985980121](https://github.com/fleetia/comet/actions/runs/36985980121)은 프런트엔드·macOS·Windows 모두 통과했다. Windows `cargo test`는 588개 통과·실패 0개·기존 제외 5개이며, 이 `exbrain` 회귀와 새 위젯 제작 기준 회귀도 통과했다.
 
 **위젯 제작 기준 정리.** 모델 목록의 **위젯 제작 가능** 표시가 위젯 제작 정책의 9B 초과 기준을 복사해 쓰던 것을 같은 함수로 합쳤다. 새 회귀가 모든 카탈로그 모델에서 목록 표시와 제작 허용이 같은지 확인한다.
 
-**검증.** Rust 전체 606개 통과·기존 제외 5개, strict all-target Clippy와 변경 파일 rustfmt를 통과했다. 별도 identifier `space.starlight.comet.verify-qa`로 만든 `src-tauri/target/debug/bundle/macos/Comet Verify QA.app`이 코드 서명 검증을 통과했다. 새 프로필에서 실행 7초 뒤 첫 인사를 저장했고, SIGTERM 뒤 남은 QA 프로세스가 없었다. 이전 `Comet Planning Fresh QA.app`은 다른 작업에서 실행 중이라 종료·삭제하지 않았다.
+**검증.** Rust 전체 606개 통과·기존 제외 5개, strict all-target Clippy와 변경 파일 rustfmt를 통과했다. 별도 identifier `space.starlight.comet.verify-qa`로 만든 `src-tauri/target/debug/bundle/macos/Comet Verify QA.app`이 코드 서명 검증을 통과했다. 새 프로필에서 실행 7초 뒤 첫 인사를 저장했고, SIGTERM 뒤 남은 QA 프로세스가 없었다.
+
+**정리.** 사용자 승인 후 실행 중이던 이전 `Comet Planning Fresh QA.app`을 SIGTERM으로 종료하고 번들을 휴지통으로 옮겼다. 2026-09-21 개발 실행에서 부모 없이 남은 `src-tauri/binaries` llama-server 7개도 종료했다. 이 7개는 SIGTERM이 전달되지 않아 SIGKILL로 끝났다. 남은 앱 빌드 산출물은 `Comet Verify QA.app` 하나다. 사용자 설치본·데이터·QA 프로필·모델과 빌드 캐시는 보존했다.
 
 ## 2026-10-02 단계 0~4b 화면 확인과 첫 인사 지연 수정
 
