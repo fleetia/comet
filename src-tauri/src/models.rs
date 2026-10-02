@@ -198,7 +198,7 @@ pub fn model_statuses(app_data: &Path) -> Vec<LocalModelStatus> {
                 downloaded_bytes,
                 fit: fit(spec.size, device.total_memory),
                 recommended: suggestion == Some(model),
-                widget_creation: spec.parameter_billions > 9.,
+                widget_creation: widget_policy::allows_widget_generation(spec.parameter_billions),
             }
         })
         .collect()
@@ -561,6 +561,22 @@ mod tests {
         assert!(spec(LocalModel::Custom).is_none());
         assert!(model_path(directory.path(), LocalModel::Custom).is_none());
         assert!(!model_ready(directory.path(), LocalModel::Custom));
+    }
+    #[test]
+    fn model_list_marks_widget_creation_by_the_generation_policy() {
+        let directory = tempfile::tempdir().unwrap();
+        for status in model_statuses(directory.path()) {
+            let settings = Settings {
+                local_model: status.id,
+                ..Settings::default()
+            };
+            assert_eq!(
+                status.widget_creation,
+                widget_generation_eligibility(&settings).allowed,
+                "{}",
+                status.name
+            );
+        }
     }
     #[tokio::test]
     async fn custom_model_uses_an_existing_absolute_gguf_file_only() {

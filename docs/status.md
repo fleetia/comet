@@ -9,6 +9,23 @@ description: 공식 위젯과 보조 화면의 소스 구현, 실제 검증 범�
 
 기존 작은 A/B·내장 인사·단어장·기록·기억·친밀도는 유지한다. 캐릭터 관리·JSON 공유의 0.3.0 검증은 [기존 기록](VALIDATION-0.3.0.md), 0.2 기능과 당시 실측은 [제품 사양](PRODUCT.md)과 [0.2 기록](VALIDATION-0.2.0.md)에 보존한다. 과거의 네이티브 관찰·테스트 수·모델 성능을 새 위젯 결과로 재사용하지 않는다.
 
+## 2026-10-02 Windows CI 줄바꿈 실패 수정과 위젯 제작 기준 정리
+
+**Windows CI 결과.** `bada65c`의 [Verify desktop 36980340169](https://github.com/fleetia/comet/actions/runs/36980340169)에서 프런트엔드와 macOS는 통과했다. Windows `cargo test`는 586개 통과·1개 실패·기존 제외 5개였다. 새 메모리 조회 코드는 Windows에서 컴파일되고 `device` 회귀를 통과했다. Windows 네이티브 화면 확인은 남아 있다.
+
+**실패 원인.** 실패한 `exbrain::tests::bounds_unicode_context_and_redacts_known_credentials`는 2026-09-29 `89de1df`의 Windows CI부터 같은 assert로 실패했다. Windows checkout이 `resources/ex-brain`의 문서를 CRLF로 바꾸면, `include_str!`로 넣은 skill 원문을 LF 제목 기준으로 자르는 `exbrain::generation_skill`이 발췌를 찾지 못한다. 이 상태로 만든 Windows 빌드는 AI 위젯 제작 지침에서 skill 발췌 4개가 빠진다. 해당 코드는 v0.7.0 이후에 추가되어 배포본에는 없다.
+
+**수정.** `.gitattributes`에 `resources/ex-brain/** text eol=lf`를 추가했다. 저장소에 저장된 파일 내용은 이미 LF라 바뀌지 않는다.
+
+- 이 Mac에서 skill 파일 4개를 CRLF로 바꾸면 같은 assert로 실패하고, 되돌리면 통과한다.
+- `core.autocrlf=true` clone에서 수정 전에는 CRLF, 수정 후에는 24개 파일 모두 LF로 checkout된다.
+- 이미 만든 Windows checkout은 이 폴더를 지우고 다시 checkout해야 LF로 바뀐다.
+- 수정 후 Windows CI 결과는 이 커밋의 Verify desktop에서 확인한다.
+
+**위젯 제작 기준 정리.** 모델 목록의 **위젯 제작 가능** 표시가 위젯 제작 정책의 9B 초과 기준을 복사해 쓰던 것을 같은 함수로 합쳤다. 새 회귀가 모든 카탈로그 모델에서 목록 표시와 제작 허용이 같은지 확인한다.
+
+**검증.** Rust 전체 606개 통과·기존 제외 5개, strict all-target Clippy와 변경 파일 rustfmt를 통과했다. 별도 identifier `space.starlight.comet.verify-qa`로 만든 `src-tauri/target/debug/bundle/macos/Comet Verify QA.app`이 코드 서명 검증을 통과했다. 새 프로필에서 실행 7초 뒤 첫 인사를 저장했고, SIGTERM 뒤 남은 QA 프로세스가 없었다. 이전 `Comet Planning Fresh QA.app`은 다른 작업에서 실행 중이라 종료·삭제하지 않았다.
+
 ## 2026-10-02 단계 0~4b 화면 확인과 첫 인사 지연 수정
 
 **인사 지연 원인과 수정.** 시작 시 첫 인사는 `now() + 5`로 예약되지만, 이름 미등록 또는 위젯 첫 설정 미완료 상태에서 설정창을 자동으로 열면 `open_settings_section`의 `skip_talk`가 이 예약을 일반 잡담 간격으로 덮어썼다. 기본 2분이면 96~144초, 1분이면 48~72초다. 첫 장면은 여전히 인사이므로 아래의 과거 관찰을 "인사 누락·첫 정기 잡담"으로 해석한 것은 정정한다.
@@ -69,7 +86,7 @@ Windows 메모리 조회 컴파일·네이티브 동작, notarization, 모델 �
 | rustfmt | 변경 파일 통과 |
 | 프런트엔드 | 57개 파일·386개 테스트 통과. 새 회귀 2개: 적합도·추천 표시와 추천 선택, 메모리 부족 모델의 다운로드 확인 |
 
-Windows 메모리 조회 코드는 이 Mac에서 컴파일되지 않는다. Windows CI의 `cargo test`로 확인해야 한다.
+Windows 메모리 조회 코드는 이 Mac에서 컴파일되지 않는다. `bada65c`의 Windows CI `cargo test`에서 컴파일과 `device` 회귀 통과를 확인했다(위 Windows CI 기록). Windows 네이티브 화면은 확인하지 않았다.
 
 **macOS 실행 확인**
 

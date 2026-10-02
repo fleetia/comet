@@ -1,2 +1,4 @@
 *.talk -text
 *.enc -text
+# Embedded with include_str! and split on LF headings, so Windows checkouts must keep LF.
+resources/ex-brain/** text eol=lf

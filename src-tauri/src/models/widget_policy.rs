@@ -54,7 +54,7 @@ pub fn widget_generation_eligibility(settings: &Settings) -> WidgetGenerationEli
             None => ("직접 지정 모델".into(), None, "unknown"),
         }
     };
-    let allowed = parameter_billions.map_or(settings.mode == "api", |size| size > 9.);
+    let allowed = parameter_billions.map_or(settings.mode == "api", allows_widget_generation);
     let reason = match parameter_billions {
         Some(size) if allowed && settings.mode == "api" => format!("API 모델 이름에 {size}B로 표시되어 있어 위젯 제작을 허용해요."),
         Some(size) if allowed => format!("{size}B 모델은 위젯을 제작할 수 있어요."),
@@ -69,6 +69,11 @@ pub fn widget_generation_eligibility(settings: &Settings) -> WidgetGenerationEli
         parameter_billions,
         source,
     }
+}
+
+/// Widget creation and repair need a model above 9B; the local model list shows the same line.
+pub(super) fn allows_widget_generation(size: f64) -> bool {
+    size > 9.
 }
 
 fn api_size_billions(model: &str) -> Option<f64> {
