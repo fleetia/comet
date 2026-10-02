@@ -1,11 +1,13 @@
 import { FormField, Button, Select, TextField } from "@fleetia/lagrange";
 import { useState, type PointerEvent, type ReactElement } from "react";
 import type { WidgetView } from "../types";
-import { number, record, rows, text, type ToolAction } from "../toolData";
+import type { CharacterCollection } from "../../types";
+import { activeTargets } from "../../components/Launcher/search";
+import { number, record, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import * as s from "../tools.css";
 import * as c from "../../lagrange.css";
 
-type Props = { widget: WidgetView; act: ToolAction };
+type Props = { widget: WidgetView; act: ToolAction; characters?: CharacterCollection };
 function point(event: PointerEvent<HTMLElement>): { x: number; y: number } {
   const bounds = event.currentTarget.getBoundingClientRect();
   return {
@@ -25,7 +27,7 @@ function MotionTool({ widget }: { widget: WidgetView }): ReactElement {
     </>
   );
 }
-export function ToyTool({ widget, act }: Props): ReactElement {
+export function ToyTool({ widget, act, characters }: Props): ReactElement {
   const d = record(widget.data);
   const [character, setCharacter] = useState("A");
   const [guess, setGuess] = useState("50");
@@ -37,13 +39,26 @@ export function ToyTool({ widget, act }: Props): ReactElement {
     case "bubbles":
     case "pet":
       return <MotionTool widget={widget} />;
-    case "interaction":
+    case "interaction": {
+      // Only the friends living on the desktop, in roster order; the slot letter stays for scripts.
+      const targets = characters ? activeTargets(characters) : [];
+      const target = targets.find((item) => item.token === character) ?? targets[0];
+      const input: DataRecord = target
+        ? { character: target.token, owner: target.id }
+        : { character: "A" };
       return (
         <>
           <FormField className={c.field} label="함께할 캐릭터">
-            <Select value={character} onChange={(e) => setCharacter(e.target.value)}>
-              <option>A</option>
-              <option>B</option>
+            <Select value={target?.token ?? "A"} onChange={(e) => setCharacter(e.target.value)}>
+              {targets.length ? (
+                targets.map((item) => (
+                  <option key={item.token} value={item.token}>
+                    {item.token} · {item.name}
+                  </option>
+                ))
+              ) : (
+                <option value="A">A</option>
+              )}
             </Select>
           </FormField>
           <p>남은 간식 {number(d.snacks)}조각</p>
@@ -57,7 +72,7 @@ export function ToyTool({ widget, act }: Props): ReactElement {
                 key={action}
                 variant="secondary"
                 disabled={action === "snack" && number(d.snacks) === 0}
-                onClick={() => void act(action, { character })}
+                onClick={() => void act(action, input)}
               >
                 {label}
               </Button>
@@ -69,6 +84,7 @@ export function ToyTool({ widget, act }: Props): ReactElement {
           <p className={c.quiet}>함께한 손길 {number(d.touches)}번</p>
         </>
       );
+    }
     case "small-match":
       return (
         <>
@@ -242,7 +258,7 @@ export function ToyTool({ widget, act }: Props): ReactElement {
             ))}
           </div>
           {rows(d.items).length === 0 && (
-            <p>아직 모은 물건이 없어요. 낚시에서 획득하면 여기에 모입니다.</p>
+            <p>모은 물건이 없어요. 지금은 새로 물건을 얻는 놀이가 없어요.</p>
           )}
           {rows(d.items).map((item) => (
             <div key={text(item.itemId)} className={s.item}>

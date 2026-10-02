@@ -32,6 +32,24 @@ pub struct LocalModelStatus {
     pub size: u64,
     pub ready: bool,
     pub downloaded_bytes: u64,
+    #[serde(default)]
+    pub fit: ModelFit,
+    #[serde(default)]
+    pub recommended: bool,
+    /// Above the 9B line that widget creation and repair require.
+    #[serde(default)]
+    pub widget_creation: bool,
+}
+
+/// An estimate from the file size and this computer's memory, not a measurement.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ModelFit {
+    Fits,
+    Tight,
+    Insufficient,
+    #[default]
+    Unknown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -266,6 +284,9 @@ pub struct RuntimeStatus {
     pub download: Option<DownloadProgress>,
     pub hidden: bool,
     pub paused: bool,
+    /// Milliseconds; `None` for an open-ended pause. Kept in memory like `paused`.
+    #[serde(default)]
+    pub paused_until: Option<i64>,
 }
 
 impl Default for RuntimeStatus {
@@ -277,6 +298,7 @@ impl Default for RuntimeStatus {
             download: None,
             hidden: false,
             paused: false,
+            paused_until: None,
         }
     }
 }
@@ -305,6 +327,8 @@ pub struct Snapshot {
     pub has_api_key: bool,
     pub model_ready: bool,
     pub local_models: Vec<LocalModelStatus>,
+    #[serde(default)]
+    pub device: crate::device::DeviceInfo,
     pub playback: Option<Playback>,
     pub panel: Option<PanelState>,
     #[serde(default)]

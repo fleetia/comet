@@ -9,7 +9,7 @@ use super::scene::{
     wait_for_displayed_line,
 };
 use super::settings::{apply_settings, begin_download, SettingsScope};
-use super::windows::{apply_pause, should_cancel_for_pause};
+use super::windows::{apply_pause, expire_pause, pause_until, should_cancel_for_pause};
 use super::*;
 use crate::{character_commands, story_host};
 use std::time::Duration;
@@ -128,7 +128,7 @@ fn hourly_story_suppression_and_interruption_never_resurrect_a_request() {
         assert_eq!(lock(&state.runtime).unwrap().phase, "story");
         match cause {
             "pause" => {
-                apply_pause(&state, true).unwrap();
+                apply_pause(&state, true, None).unwrap();
             }
             "settings" => {
                 let mut settings = store::settings(&lock(&state.db).unwrap()).unwrap();
@@ -261,7 +261,7 @@ fn talk_remaining_lines_stop_after_each_dependency_and_host_invalidation() {
                 }
             }
             "pause" | "manual-pause" => {
-                apply_pause(&state, true).unwrap();
+                apply_pause(&state, true, None).unwrap();
             }
             "auto-off" => {
                 let mut settings = store::settings(&lock(&state.db).unwrap()).unwrap();
@@ -374,7 +374,7 @@ fn brief_idle_pause_discards_widget_queue_before_a_scheduler_tick() {
         .unwrap();
     }
     assert!(!state.automatic.load(Ordering::SeqCst));
-    assert!(apply_pause(&state, true).unwrap().is_none());
+    assert!(apply_pause(&state, true, None).unwrap().is_none());
     {
         let db = lock(&state.db).unwrap();
         assert!(
@@ -397,7 +397,7 @@ fn brief_idle_pause_discards_widget_queue_before_a_scheduler_tick() {
         )
         .unwrap();
     }
-    assert!(apply_pause(&state, false).unwrap().is_none());
+    assert!(apply_pause(&state, false, None).unwrap().is_none());
     assert!(widgets::storage::take_reaction(
         &lock(&state.db).unwrap(),
         chrono::Utc::now().timestamp_millis()
@@ -482,7 +482,7 @@ fn widget_lines_stop_after_source_change_or_user_cancellation() {
                     .unwrap()
             }
             "pause" => {
-                apply_pause(&state, true).unwrap();
+                apply_pause(&state, true, None).unwrap();
             }
             "auto-off" => {
                 let mut settings = store::settings(&lock(&state.db).unwrap()).unwrap();
@@ -1528,6 +1528,236 @@ fn automatic_chatter_recovers_from_errors_and_obeys_interaction_boundaries() {
     .unwrap();
     assert!(begin_background(&state).unwrap().is_none());
     assert_eq!(next_scene(&state).unwrap().1, "script");
+}
+
+fn set_focus_timer(
+    db: &Connection,
+    directory: &std::path::Path,
+    status: &str,
+    mode: &str,
+    deadline: Option<i64>,
+) {
+    if !widgets::storage::instances(db)
+        .unwrap()
+        .iter()
+        .any(|instance| instance.kind == "focus-timer")
+    {
+        widgets::storage::install(db, directory, &["focus-timer".into()]).unwrap();
+    }
+    let instance = widgets::storage::instances(db)
+        .unwrap()
+        .into_iter()
+        .find(|instance| instance.kind == "focus-timer")
+        .unwrap();
+    let mut data = instance.data.clone();
+    data["status"] = serde_json::json!(status);
+    data["mode"] = serde_json::json!(mode);
+    data["deadline"] = serde_json::json!(deadline);
+    widgets::storage::commit_data(
+        db,
+        &instance.id,
+        instance.revision,
+        data,
+        vec![],
+        chrono::Utc::now().timestamp_millis(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn focus_activity_requires_enabled_running_focus_with_future_deadline() {
+    let state = state();
+    let directory = tempfile::tempdir().unwrap();
+    let db = lock(&state.db).unwrap();
+    let at = chrono::Utc::now().timestamp_millis();
+    assert!(!widgets::storage::focus_active(&db, at).unwrap());
+    for (status, mode, deadline, expected) in [
+        ("idle", "focus", None, false),
+        ("running", "focus", Some(at + 60_000), true),
+        ("running", "rest", Some(at + 60_000), false),
+        ("paused", "focus", None, false),
+        ("running", "focus", Some(at - 1), false),
+        ("finished", "focus", None, false),
+    ] {
+        set_focus_timer(&db, directory.path(), status, mode, deadline);
+        assert_eq!(
+            widgets::storage::focus_active(&db, at).unwrap(),
+            expected,
+            "{status} {mode}"
+        );
+    }
+    set_focus_timer(&db, directory.path(), "running", "focus", Some(at + 60_000));
+    let timer = widgets::storage::instances(&db)
+        .unwrap()
+        .into_iter()
+        .find(|instance| instance.kind == "focus-timer")
+        .unwrap();
+    widgets::storage::set_enabled(&db, &timer.id, false).unwrap();
+    assert!(!widgets::storage::focus_active(&db, at).unwrap());
+}
+
+#[test]
+fn focus_hold_keeps_reminders_and_drops_other_widget_reactions() {
+    let state = state();
+    let directory = tempfile::tempdir().unwrap();
+    let db = lock(&state.db).unwrap();
+    let at = chrono::Utc::now().timestamp_millis();
+    // Installing discards pending events, so both widgets exist before the events.
+    widgets::storage::install(&db, directory.path(), &["small-match".into()]).unwrap();
+    set_focus_timer(&db, directory.path(), "idle", "focus", None);
+    let instance = widgets::storage::instances(&db)
+        .unwrap()
+        .into_iter()
+        .find(|instance| instance.kind == "small-match")
+        .unwrap();
+    let draft = |kind: &str| widgets::EventDraft {
+        kind: kind.into(),
+        text: kind.into(),
+        payload: serde_json::json!({}),
+    };
+    widgets::storage::commit_data(
+        &db,
+        &instance.id,
+        instance.revision,
+        instance.data,
+        vec![
+            draft("small-match.result"),
+            draft("todo-completed"),
+            draft("planner-reminder"),
+            draft("timer-finished"),
+            draft("planner-mood"),
+        ],
+        at,
+    )
+    .unwrap();
+    assert!(!crate::widget_commands::hold_for_focus(&state, &db).unwrap());
+    set_focus_timer(&db, directory.path(), "running", "focus", Some(at + 60_000));
+    state.next_idle.store(now() - 1, Ordering::SeqCst);
+    assert!(crate::widget_commands::hold_for_focus(&state, &db).unwrap());
+    let mut pending = db
+        .prepare("SELECT json_extract(data,'$.kind') FROM widget_events WHERE pending=1")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    pending.sort();
+    assert_eq!(
+        pending,
+        ["planner-mood", "planner-reminder", "timer-finished"]
+    );
+    assert!(state.next_idle.load(Ordering::SeqCst) > now());
+}
+
+#[test]
+fn focus_blocks_background_and_defers_idle_after_cancel() {
+    let state = state();
+    let directory = tempfile::tempdir().unwrap();
+    use_neutral_characters(&lock(&state.db).unwrap());
+    state.last_input.store(now(), Ordering::SeqCst);
+    state.next_idle.store(now() - 1, Ordering::SeqCst);
+    let at = chrono::Utc::now().timestamp_millis();
+    set_focus_timer(
+        &lock(&state.db).unwrap(),
+        directory.path(),
+        "running",
+        "focus",
+        Some(at + 60_000),
+    );
+    assert!(begin_background(&state).unwrap().is_none());
+    set_focus_timer(
+        &lock(&state.db).unwrap(),
+        directory.path(),
+        "idle",
+        "focus",
+        None,
+    );
+    assert!(begin_background(&state).unwrap().is_some());
+
+    set_focus_timer(
+        &lock(&state.db).unwrap(),
+        directory.path(),
+        "running",
+        "focus",
+        Some(at + 60_000),
+    );
+    assert!(crate::widget_commands::hold_for_focus(&state, &lock(&state.db).unwrap()).unwrap());
+    let deferred = state.next_idle.load(Ordering::SeqCst);
+    // The default 2-minute interval never drops below 80% after focus.
+    assert!(deferred >= now() + 96);
+    set_focus_timer(
+        &lock(&state.db).unwrap(),
+        directory.path(),
+        "idle",
+        "focus",
+        None,
+    );
+    assert!(!crate::widget_commands::hold_for_focus(&state, &lock(&state.db).unwrap()).unwrap());
+    assert_eq!(state.next_idle.load(Ordering::SeqCst), deferred);
+}
+
+#[test]
+fn hourly_story_skips_its_turn_during_focus() {
+    let state = state();
+    let directory = tempfile::tempdir().unwrap();
+    {
+        let db = lock(&state.db).unwrap();
+        let imported = characters::import_pack(&db, &characters::nadir_pack()).unwrap();
+        characters::apply_pair(&db, [imported[0].id.clone(), imported[1].id.clone()]).unwrap();
+        set_focus_timer(
+            &db,
+            directory.path(),
+            "running",
+            "focus",
+            Some(chrono::Utc::now().timestamp_millis() + 60_000),
+        );
+    }
+    lock(&state.story_clock).unwrap().elapsed = Duration::from_secs(3600);
+    assert!(!story_host::advance(&state, Instant::now()).unwrap());
+    assert_eq!(lock(&state.story_clock).unwrap().elapsed, Duration::ZERO);
+    assert!(lock(&state.story).unwrap().is_none());
+    set_focus_timer(
+        &lock(&state.db).unwrap(),
+        directory.path(),
+        "idle",
+        "focus",
+        None,
+    );
+    lock(&state.story_clock).unwrap().elapsed = Duration::from_secs(3600);
+    assert!(story_host::advance(&state, Instant::now()).unwrap());
+}
+
+#[test]
+fn timed_pause_expires_once_and_never_overrides_a_newer_pause() {
+    let state = state();
+    let at = chrono::Utc::now().timestamp_millis();
+    assert_eq!(
+        pause_until(true, Some(60), at).unwrap(),
+        Some(at + 3_600_000)
+    );
+    assert_eq!(pause_until(false, Some(60), at).unwrap(), None);
+    assert_eq!(pause_until(true, None, at).unwrap(), None);
+    assert!(pause_until(true, Some(0), at).is_err());
+    assert!(pause_until(true, Some(721), at).is_err());
+
+    apply_pause(&state, true, Some(at + 1_000)).unwrap();
+    assert_eq!(lock(&state.runtime).unwrap().paused_until, Some(at + 1_000));
+    assert!(!expire_pause(&state, at).unwrap());
+    assert!(lock(&state.runtime).unwrap().paused);
+    assert!(expire_pause(&state, at + 1_000).unwrap());
+    {
+        let runtime = lock(&state.runtime).unwrap();
+        assert!(!runtime.paused);
+        assert_eq!(runtime.paused_until, None);
+    }
+    assert!(!expire_pause(&state, at + 2_000).unwrap());
+
+    apply_pause(&state, true, Some(at + 1_000)).unwrap();
+    apply_pause(&state, true, None).unwrap();
+    assert!(!expire_pause(&state, at + 5_000).unwrap());
+    assert!(lock(&state.runtime).unwrap().paused);
+    apply_pause(&state, false, Some(at + 1_000)).unwrap();
+    assert_eq!(lock(&state.runtime).unwrap().paused_until, None);
 }
 
 #[test]

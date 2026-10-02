@@ -120,6 +120,44 @@ it("tests and saves the local reasoning draft and restores the saved toggle on c
   expect(toggle).toHaveProperty("checked", true);
 });
 
+it("shows how the chosen model fits this computer and offers the recommended one", () => {
+  const snapshot = {
+    ...PREVIEW_SNAPSHOT,
+    device: { totalMemory: 16 * 2 ** 30, appleSilicon: true },
+    localModels: PREVIEW_SNAPSHOT.localModels.map((model) => ({
+      ...model,
+      fit: model.id === "gemma-4-12b" ? ("tight" as const) : ("fits" as const),
+      recommended: model.id === "qwen3.5-9b",
+    })),
+  };
+  render(<SettingsPanel snapshot={snapshot} initialSection="model" />);
+  expect(screen.getByText("이 컴퓨터에 알맞아요 · 메모리 16GB, Apple Silicon 기준 추정")).toBeTruthy();
+  expect(screen.getByRole("option", { name: /^Qwen3\.5-9B · .* · 이 컴퓨터 추천$/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "추천 모델 선택" }));
+  expect(screen.getByLabelText("로컬 모델")).toHaveProperty("value", "qwen3.5-9b");
+  expect(screen.queryByRole("button", { name: "추천 모델 선택" })).toBeNull();
+});
+
+it("asks before downloading a model that this computer's memory cannot hold", async () => {
+  const snapshot = {
+    ...PREVIEW_SNAPSHOT,
+    device: { totalMemory: 8 * 2 ** 30, appleSilicon: true },
+    localModels: PREVIEW_SNAPSHOT.localModels.map((model) => ({
+      ...model,
+      fit: "insufficient" as const,
+    })),
+  };
+  render(<SettingsPanel snapshot={snapshot} initialSection="model" />);
+  fireEvent.click(screen.getByRole("button", { name: "모델 내려받기" }));
+  expect(command).not.toHaveBeenCalled();
+  const dialog = screen.getByRole("dialog");
+  expect(dialog.textContent).toContain("메모리로는 실행되지 않거나 매우 느릴 수 있어요");
+  fireEvent.click(within(dialog).getByRole("button", { name: "내려받기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("download_model", { model: "qwen3.5-4b" }),
+  );
+});
+
 it("allows keyless loopback API tests but requires a key for remote or spoofed addresses", async () => {
   render(
     <SettingsPanel snapshot={{ ...PREVIEW_SNAPSHOT, hasApiKey: false }} initialSection="model" />,

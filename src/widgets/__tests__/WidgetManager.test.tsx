@@ -419,8 +419,9 @@ it("includes created and imported widgets in the same list, counts and filters",
   expect(list.getByRole("button", { name: "할 일 켜짐" })).toBeTruthy();
   expect(list.getByRole("button", { name: "단수 세기 켜짐" })).toBeTruthy();
   expect(list.getByRole("button", { name: "물 마시기 실행 검사 대기" })).toBeTruthy();
-  expect(screen.getByText("공식 16개 · AI·가져온 위젯 2개 · 설치됨 3개")).toBeTruthy();
-  expect(screen.getByRole("option", { name: "전체 18" })).toBeTruthy();
+  // Without an existing collection the official list offers 15 of the 16 tools.
+  expect(screen.getByText("공식 15개 · AI·가져온 위젯 2개 · 설치됨 3개")).toBeTruthy();
+  expect(screen.getByRole("option", { name: "전체 17" })).toBeTruthy();
   fireEvent.change(screen.getByRole("combobox", { name: "설치 상태" }), {
     target: { value: "available" },
   });
@@ -645,4 +646,63 @@ it("keeps an installed widget usable when the current model cannot edit it", asy
     expect(command).toHaveBeenCalledWith("open_generated_widget", { id: "generated-counter" }),
   );
   expect(command).not.toHaveBeenCalledWith("generate_widget", expect.anything());
+});
+
+it("suggests todo and the focus timer on first run by selecting them, not installing", () => {
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, onboardingDone: false, widgets: [] },
+    error: null,
+    reload,
+  });
+  render(<WidgetManager embedded />);
+  fireEvent.click(screen.getByRole("button", { name: "같이 쓰기" }));
+  expect(screen.getByLabelText("할 일 설치 선택")).toHaveProperty("checked", true);
+  expect(screen.getByLabelText("집중 타이머 설치 선택")).toHaveProperty("checked", true);
+  expect(screen.queryByRole("region", { name: "할 일과 시간 관리 제안" })).toBeNull();
+  expect(command).not.toHaveBeenCalled();
+});
+
+it("dismisses the first-run suggestion and never shows it after onboarding", () => {
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, onboardingDone: false, widgets: [] },
+    error: null,
+    reload,
+  });
+  render(<WidgetManager embedded />);
+  fireEvent.click(screen.getByRole("button", { name: "나중에" }));
+  expect(screen.queryByRole("region", { name: "할 일과 시간 관리 제안" })).toBeNull();
+  expect(screen.getByLabelText("할 일 설치 선택")).toHaveProperty("checked", false);
+  cleanup();
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, onboardingDone: true, widgets: [] },
+    error: null,
+    reload,
+  });
+  render(<WidgetManager embedded />);
+  expect(screen.queryByRole("region", { name: "할 일과 시간 관리 제안" })).toBeNull();
+});
+
+it("offers the collection only to people who already have one", () => {
+  const others = PREVIEW_WIDGETS.widgets.filter((item) => item.kind !== "collection");
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: others },
+    error: null,
+    reload,
+  });
+  render(<WidgetManager embedded />);
+  expect(screen.queryByLabelText("수집함·소품 설치 선택")).toBeNull();
+  cleanup();
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: {
+      ...PREVIEW_WIDGETS,
+      widgets: [
+        ...others,
+        { ...installed("collection"), installed: false, enabled: false, status: "not-installed" },
+      ],
+    },
+    error: null,
+    reload,
+  });
+  render(<WidgetManager embedded />);
+  expect(screen.getByLabelText("수집함·소품 설치 선택")).toBeTruthy();
 });

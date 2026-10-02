@@ -127,6 +127,9 @@ struct Empty {}
 #[serde(deny_unknown_fields)]
 struct CharacterInput {
     character: String,
+    /// The local character id behind the slot, so reactions follow the person, not the position.
+    #[serde(default)]
+    owner: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -253,8 +256,16 @@ pub fn act(
                 return effect(state, vec![]);
             }
             let args: CharacterInput = decode(input)?;
-            if !["A", "B"].contains(&args.character.as_str()) {
-                return Err("A 또는 B를 선택해 주세요.".into());
+            // Slots follow the roster order shown in the tool, up to the 8-character limit.
+            if !matches!(
+                args.character.as_str(),
+                "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H"
+            ) || args
+                .owner
+                .as_ref()
+                .is_some_and(|owner| owner.is_empty() || owner.len() > 128)
+            {
+                return Err("함께 지내는 캐릭터를 골라 주세요.".into());
             }
             let text = match action {
                 "stroke" => format!("{}를 쓰다듬었어요.", args.character),
@@ -277,10 +288,14 @@ pub fn act(
                 .is_none_or(|last| now.saturating_sub(last) >= 5000)
             {
                 state.last_reaction_at = Some(now);
+                let mut payload = json!({"action":action,"character":args.character});
+                if let Some(owner) = args.owner {
+                    payload["owner"] = json!(owner);
+                }
                 vec![EventDraft {
                     kind: "interaction.touch".into(),
                     text,
-                    payload: json!({"action":action,"character":args.character}),
+                    payload,
                 }]
             } else {
                 vec![]
@@ -838,6 +853,29 @@ mod tests {
             0
         )
         .is_err());
+    }
+    #[test]
+    fn interaction_reaches_any_roster_slot_and_names_its_owner() {
+        let touched = act(
+            "interaction",
+            &initial("interaction"),
+            "stroke",
+            &json!({"character":"C","owner":"third-friend"}),
+            1,
+            0,
+        )
+        .unwrap();
+        assert_eq!(
+            touched.events[0].payload,
+            json!({"action":"stroke","character":"C","owner":"third-friend"})
+        );
+        for input in [
+            json!({"character":"I"}),
+            json!({"character":"c"}),
+            json!({"character":"C","owner":""}),
+        ] {
+            assert!(act("interaction", &initial("interaction"), "poke", &input, 1, 0).is_err());
+        }
     }
     #[test]
     fn hidden_answer_stays_fixed_and_repeated_win_is_rejected() {

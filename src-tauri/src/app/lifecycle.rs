@@ -272,7 +272,7 @@ pub fn run() {
                 .map_err(std::io::Error::other)?
                 .is_none()
             {
-                windows::open_settings_section(
+                windows::show_settings_section(
                     app.handle().clone(),
                     windows::SettingsSection::User,
                 )
@@ -281,7 +281,7 @@ pub fn run() {
                 .map_err(std::io::Error::other)?
                 .onboarding_done
             {
-                windows::open_settings_section(
+                windows::show_settings_section(
                     app.handle().clone(),
                     windows::SettingsSection::Widgets,
                 )

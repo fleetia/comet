@@ -17,6 +17,10 @@ export function text(value: WidgetValue | undefined): string {
 export function number(value: WidgetValue | undefined): number {
   return typeof value === "number" ? value : 0;
 }
+/** Fishing was the only way to get items, so the collection is offered only where one already exists. */
+export function offeredForInstall(kind: string, existing: WidgetView | undefined): boolean {
+  return kind !== "collection" || existing !== undefined;
+}
 export function localDay(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactElement } from "react";
 import { command } from "../../hooks/useSnapshot";
 import { useWidgets } from "../useWidgets";
 import { Planner } from "../Planner/Planner";
@@ -8,7 +9,7 @@ import { PlannerTemplates } from "../Planner/PlannerTemplates";
 import { PlannerCalendar } from "../Planner/PlannerCalendar";
 import { TodoEditor } from "../Planner/TodoEditor";
 import { eventsOn, frequencyRecords, inPeriod, plannedDay } from "../Planner/plannerData";
-import type { DataRecord, ToolAction } from "../toolData";
+import { localDay, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetSnapshot, WidgetView } from "../types";
 
 vi.mock("../../hooks/useSnapshot", async (load) => ({
@@ -803,4 +804,37 @@ it("keeps the displayed month when selecting an all-day event that started in th
   fireEvent.click(screen.getByRole("button", { name: "종일 이어지는 일정" }));
   expect(setDay).toHaveBeenCalledWith("2026-09-01");
   expect(onSelect).toHaveBeenCalledWith(event);
+});
+
+it("shows free time beside the planner calendar only after a fresh read of every connection", () => {
+  const day = localDay();
+  const busy = (id: string, from: string, to: string): DataRecord => ({
+    id,
+    connectionId: "c",
+    title: id,
+    startAt: new Date(`${day}T${from}:00`).getTime(),
+    endAt: new Date(`${day}T${to}:00`).getTime(),
+  });
+  const view = (lastSuccessAt: number): ReactElement => (
+    <PlannerCalendar
+      day={day}
+      setDay={vi.fn()}
+      events={[busy("회의", "09:00", "10:00"), busy("점심", "12:00", "13:00")]}
+      selected=""
+      onSelect={vi.fn()}
+      connections={[{ id: "c", provider: "ics", status: "ready", lastSuccessAt }]}
+      side={null}
+    />
+  );
+  const { rerender } = render(view(Date.now() - 60000));
+  const free = screen.getByRole("region", { name: "선택한 날짜 빈 시간" });
+  expect(within(free).getByText("10:00 – 12:00")).toBeTruthy();
+  expect(within(free).getByText("13:00 – 24:00")).toBeTruthy();
+  rerender(view(Date.now() - 3600000));
+  expect(
+    within(screen.getByRole("region", { name: "선택한 날짜 빈 시간" })).getByText(
+      /새로 조회하기 전에는 빈 시간을 판단하지 않아요/,
+    ),
+  ).toBeTruthy();
+  expect(screen.queryByText("10:00 – 12:00")).toBeNull();
 });

@@ -13,7 +13,7 @@ import { ClockTool, TimerTool } from "../PlanningTools/PlanningTools";
 import { ToyTool } from "../ToyTools/ToyTools";
 import { JournalTool } from "../JournalTool/JournalTool";
 import { PREVIEW_WIDGETS, useWidgets } from "../useWidgets";
-import { command } from "../../hooks/useSnapshot";
+import { PREVIEW_SNAPSHOT, command } from "../../hooks/useSnapshot";
 import type { WidgetValue, WidgetView } from "../types";
 vi.mock("../useWidgets", async (load) => ({
   ...(await load<typeof import("../useWidgets")>()),
@@ -346,4 +346,52 @@ it("directs unavailable tools to the body menu and closes without disabling the 
   fireEvent.click(screen.getByRole("button", { name: "위젯 닫기" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("close_widget", { id: "memo" }));
   expect(vi.mocked(command).mock.calls).toEqual([["close_widget", { id: "memo" }]]);
+});
+it("offers every friend on the desktop as an interaction target and names the person", () => {
+  const third = {
+    ...PREVIEW_SNAPSHOT.characters.installed[0],
+    id: "third-friend",
+    definition: { ...PREVIEW_SNAPSHOT.characters.installed[0].definition, name: "셋째" },
+  };
+  const characters = {
+    installed: [...PREVIEW_SNAPSHOT.characters.installed, third],
+    active: [...PREVIEW_SNAPSHOT.characters.active, third.id],
+  };
+  render(
+    <ToyTool
+      widget={widget("interaction", { snacks: 6, touches: 0 })}
+      act={act}
+      characters={characters}
+    />,
+  );
+  expect(screen.getAllByRole("option")).toHaveLength(3);
+  expect(screen.getByRole("option", { name: "C · 셋째" })).toBeTruthy();
+  fireEvent.change(screen.getByRole("combobox", { name: "함께할 캐릭터" }), {
+    target: { value: "C" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "쓰다듬기" }));
+  expect(act).toHaveBeenLastCalledWith("stroke", { character: "C", owner: "third-friend" });
+});
+it("shows only the one friend living on the desktop as an interaction target", () => {
+  render(
+    <ToyTool
+      widget={widget("interaction", { snacks: 6, touches: 0 })}
+      act={act}
+      characters={{
+        ...PREVIEW_SNAPSHOT.characters,
+        active: PREVIEW_SNAPSHOT.characters.active.slice(0, 1),
+      }}
+    />,
+  );
+  expect(screen.getAllByRole("option")).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "콕 찌르기" }));
+  expect(act).toHaveBeenLastCalledWith("poke", {
+    character: "A",
+    owner: PREVIEW_SNAPSHOT.characters.active[0],
+  });
+});
+it("does not point new users to retired fishing in an empty collection", () => {
+  render(<ToyTool widget={widget("collection", { items: [], decorations: [] })} act={act} />);
+  expect(screen.getByText("모은 물건이 없어요. 지금은 새로 물건을 얻는 놀이가 없어요.")).toBeTruthy();
+  expect(screen.queryByText(/낚시/)).toBeNull();
 });

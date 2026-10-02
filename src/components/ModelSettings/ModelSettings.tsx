@@ -1,7 +1,7 @@
 import { MemorySearchSettings } from "../MemorySettings/MemorySearchSettings";
-import type { JSX } from "react";
-import { Button, Checkbox, FormField, Select, TextField } from "@fleetia/lagrange";
-import type { LocalModel, Settings, Snapshot } from "../../types";
+import { useState, type JSX } from "react";
+import { Button, Checkbox, Dialog, FormField, Inline, Select, TextField } from "@fleetia/lagrange";
+import type { LocalModel, LocalModelStatus, Settings, Snapshot } from "../../types";
 import type { SettingsDraft } from "../../hooks/useSettingsDraft";
 import * as s from "../../lagrange.css";
 import * as d from "../../desktop.css";
@@ -25,8 +25,21 @@ function isKeylessApiUrl(baseUrl: string): boolean {
   }
 }
 
+const FIT_LABELS: Record<LocalModelStatus["fit"], string> = {
+  fits: "이 컴퓨터에 알맞아요",
+  tight: "메모리를 많이 써서 느릴 수 있어요",
+  insufficient: "이 컴퓨터의 메모리로는 실행이 어려울 수 있어요",
+  unknown: "이 컴퓨터의 메모리를 확인하지 못했어요",
+};
+
 export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
   const { settings, apiKey, setApiKey, pending, change, run } = draft;
+  const [confirmDownload, setConfirmDownload] = useState(false);
+  const recommendedModel = snapshot.localModels.find((model) => model.recommended);
+  const memory = snapshot.device.totalMemory;
+  const memoryBasis = memory
+    ? `메모리 ${Math.round(memory / 2 ** 30)}GB, ${snapshot.device.appleSilicon ? "Apple Silicon" : "CPU 실행"} 기준 추정`
+    : null;
   const activeDownload = snapshot.runtime.download;
   const downloading =
     activeDownload !== null && ["downloading", "verifying"].includes(activeDownload.status);
@@ -89,6 +102,7 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
                 {snapshot.localModels.map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.name} · {model.description}
+                    {model.recommended ? " · 이 컴퓨터 추천" : ""}
                   </option>
                 ))}
                 <option value="custom">직접 지정한 GGUF 파일</option>
@@ -117,10 +131,31 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
                 </div>
               </FormField>
             ) : (
-              <p className={d.data}>
-                {selectedModel?.name} Q4_K_M · 다운로드{" "}
-                {((selectedModel?.size ?? 0) / 1_000_000_000).toFixed(2)} GB
-              </p>
+              <>
+                <p className={d.data}>
+                  {selectedModel?.name} Q4_K_M · 다운로드{" "}
+                  {((selectedModel?.size ?? 0) / 1_000_000_000).toFixed(2)} GB
+                </p>
+                {selectedModel && (
+                  <p className={s.quiet}>
+                    {FIT_LABELS[selectedModel.fit]}
+                    {selectedModel.widgetCreation ? " · 위젯 제작 가능" : ""}
+                    {memoryBasis ? ` · ${memoryBasis}` : ""}
+                  </p>
+                )}
+              </>
+            )}
+            {recommendedModel && recommendedModel.id !== settings.localModel && (
+              <div className={s.row}>
+                <span className={s.quiet}>이 컴퓨터 추천: {recommendedModel.name}</span>
+                <Button
+                  variant="secondary"
+                  disabled={!!pending || downloading}
+                  onClick={() => change("localModel", recommendedModel.id)}
+                >
+                  추천 모델 선택
+                </Button>
+              </div>
             )}
             {(settings.localModel !== snapshot.settings.localModel ||
               settings.localModelPath !== snapshot.settings.localModelPath) && (
@@ -146,7 +181,11 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
                 <Button
                   variant="primary"
                   disabled={!!pending || downloading || !selectedModel || selectedModel.ready}
-                  onClick={() => void run("download_model")}
+                  onClick={() =>
+                    selectedModel?.fit === "insufficient"
+                      ? setConfirmDownload(true)
+                      : void run("download_model")
+                  }
                 >
                   {downloadLabel}
                 </Button>
@@ -287,6 +326,31 @@ export function ModelSettings({ snapshot, draft }: Props): JSX.Element {
           </section>
         </div>
       </fieldset>
+      <Dialog
+        isOpen={confirmDownload}
+        onOpenChange={setConfirmDownload}
+        title="그래도 내려받을까요?"
+        size="small"
+        footer={
+          <Inline gap="sm">
+            <Button variant="secondary" onClick={() => setConfirmDownload(false)}>
+              취소
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setConfirmDownload(false);
+                void run("download_model");
+              }}
+            >
+              내려받기
+            </Button>
+          </Inline>
+        }
+      >
+        <p>{selectedModel?.name}: 이 컴퓨터의 메모리로는 실행되지 않거나 매우 느릴 수 있어요.</p>
+        {memoryBasis && <p className={s.quiet}>{memoryBasis}</p>}
+      </Dialog>
       <MemorySearchSettings />
       {snapshot.runtime.error && (
         <p className={s.error} role="alert">

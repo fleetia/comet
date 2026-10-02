@@ -24,6 +24,16 @@ pub(crate) fn publish_widgets(app: &tauri::AppHandle, state: &AppState) {
     crate::desktop_menu::refresh(app);
 }
 
+/// Keeps idle chatter deferred for the whole focus run, so it never fires right after the timer ends.
+pub(crate) fn hold_for_focus(state: &AppState, db: &rusqlite::Connection) -> Result<bool, String> {
+    if !storage::focus_active(db, chrono::Utc::now().timestamp_millis())? {
+        return Ok(false);
+    }
+    storage::discard_pending_during_focus(db)?;
+    crate::app::schedule_idle(state, store::settings(db)?.idle_minutes);
+    Ok(true)
+}
+
 fn current_events(state: &AppState, db: &rusqlite::Connection) -> Result<(), String> {
     let epoch = state.epoch.load(Ordering::SeqCst);
     if state.widget_epoch.load(Ordering::SeqCst) != epoch {
@@ -422,6 +432,53 @@ pub(crate) async fn open_widget(
     open_widget_inner(&app, &state, &id, None).await
 }
 
+/// Checks the launcher session, the widget kind and its revision in the same action section as
+/// the write. A reused request id is a no-op, so a retried Enter never adds a second task.
+pub(crate) fn commit_todo_for_launcher(
+    state: &AppState,
+    session_id: u64,
+    id: &str,
+    expected_revision: i64,
+    title: &str,
+    request_id: &str,
+) -> Result<(), String> {
+    uuid::Uuid::parse_str(request_id).map_err(|_| "요청 식별자가 올바르지 않아요.".to_string())?;
+    change(state, |db| {
+        if storage::get(db, id)?.kind != "todo" {
+            return Err("할 일 위젯에만 적을 수 있어요.".into());
+        }
+        crate::app::launcher::accept_execution(state, session_id)?;
+        storage::execute(
+            db,
+            &WidgetRequest {
+                request_id: request_id.into(),
+                instance_id: id.into(),
+                expected_revision,
+                action: "add".into(),
+                input: serde_json::json!({ "title": title }),
+            },
+            chrono::Utc::now().timestamp_millis(),
+            uuid::Uuid::new_v4().as_u128() as u64,
+        )
+    })
+}
+
+pub(crate) fn add_todo_for_launcher(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    id: &str,
+    expected_revision: i64,
+    title: &str,
+    request_id: &str,
+    session_id: u64,
+) -> Result<(), String> {
+    commit_todo_for_launcher(state, session_id, id, expected_revision, title, request_id)?;
+    crate::memo_notes::schedule_sync(app);
+    cancel_widget_scene(app, state)?;
+    publish_widgets(app, state);
+    Ok(())
+}
+
 pub(crate) async fn open_widget_for_launcher(
     app: tauri::AppHandle,
     state: &Arc<AppState>,
@@ -649,6 +706,7 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
             storage::discard_pending(db)?;
         }
         drop(runtime);
+        hold_for_focus(state, db)?;
         for delivery in alerted.os {
             // OS delivery has its own opt-in and survives a hidden character balloon.
             crate::planner_notifications::deliver(
@@ -694,6 +752,7 @@ pub(crate) fn play_widget_reaction(
         {
             return Ok(false);
         }
+        hold_for_focus(state, &db)?;
         let event = storage::take_reaction(&db, chrono::Utc::now().timestamp_millis())?;
         if let Some(event) = event {
             if !widgets::reminders::event_current(&db, &event)? {

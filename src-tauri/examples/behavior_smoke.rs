@@ -11,6 +11,9 @@ mod character_sprites;
 #[path = "../src/characters.rs"]
 mod characters;
 #[allow(dead_code)]
+#[path = "../src/device.rs"]
+mod device;
+#[allow(dead_code)]
 #[path = "../src/domain.rs"]
 mod domain;
 #[allow(dead_code)]

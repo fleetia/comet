@@ -479,6 +479,15 @@ export function Balloon({
               >
                 {snapshot.runtime.paused ? "자동 잡담 다시 시작" : "자동 잡담 잠시 쉬기"}
               </Button>
+              {!snapshot.runtime.paused && (
+                <Button
+                  variant="quiet"
+                  className={s.menuItem}
+                  onClick={() => void perform("set_paused", { paused: true, minutes: 60 })}
+                >
+                  1시간 조용히
+                </Button>
+              )}
               <Button
                 variant="quiet"
                 className={s.menuItem}
@@ -500,7 +509,13 @@ export function Balloon({
                 ?.score ?? 20}
               /100
             </span>
-            {snapshot.runtime.paused && <span>자동 잡담 쉬는 중</span>}
+            {snapshot.runtime.paused && (
+              <span>
+                {snapshot.runtime.pausedUntil
+                  ? `${new Date(snapshot.runtime.pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}까지 자동 잡담 쉬는 중`
+                  : "자동 잡담 쉬는 중"}
+              </span>
+            )}
           </div>
         </>
       )}

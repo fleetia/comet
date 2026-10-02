@@ -254,9 +254,11 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
         || runtime.paused
         || fullscreen
         || !store::settings(&db)?.autonomous_enabled;
+    // Focus ends pranks like a conversation would, without suspending widget reminders.
     let conversation = !matches!(runtime.phase.as_str(), "idle" | "error" | "waiting")
         || lock(&state.panel)?.is_some()
-        || timestamp - state.last_input.load(Ordering::SeqCst) < 3;
+        || timestamp - state.last_input.load(Ordering::SeqCst) < 3
+        || widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?;
     let mut machine = lock(&state.behavior)?;
     if !preferences.pranks_enabled && machine.actor.take().is_some() {
         desktop_toys::clear_automatic(app);

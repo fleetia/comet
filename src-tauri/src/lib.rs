@@ -14,6 +14,7 @@ mod desktop;
 mod desktop_geometry;
 mod desktop_menu;
 mod desktop_toys;
+mod device;
 mod device_wake;
 mod domain;
 mod exbrain;

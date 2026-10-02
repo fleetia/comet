@@ -266,12 +266,18 @@ export function DesktopPreview({ initial }: { initial: Snapshot }): JSX.Element 
       case "open_characters":
         window.location.assign("?view=characters");
         return;
-      case "set_paused":
+      case "set_paused": {
+        const minutes = typeof args?.minutes === "number" ? args.minutes : null;
         setState((previous) => ({
           ...previous,
-          runtime: { ...previous.runtime, paused: args?.paused === true },
+          runtime: {
+            ...previous.runtime,
+            paused: args?.paused === true,
+            pausedUntil: args?.paused === true && minutes ? Date.now() + minutes * 60_000 : null,
+          },
         }));
         return;
+      }
       case "hide_boxes":
         setLine(null);
         setState((previous) => ({

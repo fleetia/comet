@@ -160,7 +160,12 @@ export type LocalModelStatus = {
   size: number;
   ready: boolean;
   downloadedBytes: number;
+  /** Estimated from the file size and this computer's memory, not measured. */
+  fit: "fits" | "tight" | "insufficient" | "unknown";
+  recommended: boolean;
+  widgetCreation: boolean;
 };
+export type DeviceInfo = { totalMemory: number | null; appleSilicon: boolean };
 export type LocalModelTest = { reply: string; elapsedMs: number };
 export type Settings = {
   mode: "local" | "api";
@@ -286,6 +291,8 @@ export type RuntimeStatus = {
   } | null;
   hidden: boolean;
   paused: boolean;
+  /** Epoch milliseconds of a timed pause; null for an open-ended pause. */
+  pausedUntil: number | null;
 };
 export type Snapshot = {
   reactions?: Record<string, CharacterReactionRun>;
@@ -309,4 +316,5 @@ export type Snapshot = {
   hasApiKey: boolean;
   modelReady: boolean;
   localModels: LocalModelStatus[];
+  device: DeviceInfo;
 };

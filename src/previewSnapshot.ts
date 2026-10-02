@@ -54,6 +54,7 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
     download: null,
     hidden: false,
     paused: false,
+    pausedUntil: null,
   },
   hasApiKey: false,
   modelReady: false,
@@ -75,5 +76,9 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
     size,
     ready: false,
     downloadedBytes: 0,
+    fit: "unknown" as const,
+    recommended: false,
+    widgetCreation: id === "gemma-4-12b",
   })),
+  device: { totalMemory: null, appleSilicon: false },
 };

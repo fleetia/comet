@@ -92,7 +92,7 @@ macOS 기본 `performClose:`는 제목 표시줄 없는 창을 닫지 못하므�
 
 런처의 `app/launcher.rs`는 시작 시 숨긴 `launcher` 창 하나를 만들고 전역 단축키와 트레이 요청으로 재사용한다. 단축키 문자열은 기존 SQLite `kv`의 `launcher_shortcut`에 저장하며, 값이 없으면 기본값을 사용하고 빈 문자열은 사용 안 함을 뜻한다. 설정 초안이나 대화 저장소를 별도로 만들지 않는다. 프런트엔드는 로컬 이름·별칭과 위젯 snapshot으로 후보·실행 미리보기를 만들고, 사용자가 선택한 동작만 `execute_launcher`로 전달한다. 검색에 LLM을 호출하지 않으며 설정·위젯·대화는 각 기존 명령의 책임을 유지한다.
 
-`open_launcher`는 기존 자동 작업을 중단하고 `launcher_open` 동안 자동 생성·재생을 막는다. `session_id`와 `launcher_gate`는 현재 호출의 열기·실행을 구분하며 지난 세션의 실행과 중복 제출을 거절한다. 닫기는 비동기 실행 gate를 기다리지 않고 `action`과 세션 검사를 통해 준비 중인 작업을 취소한다. 창 숨김과 포커스 복원을 같은 `action` 경계에서 마치므로 이전 닫기가 새 창의 포커스를 빼앗지 않는다. 입력은 전송하지 않으며 다음 자동 수다를 다시 예약한다. 위젯 실행은 선택 시점 revision과 현재 세션을 재검사하고 대화는 선택한 캐릭터 ID를 기존 직접 입력으로 전달한다. 제품 계약과 실제 검증 범위는 [런처 사양](../product/desktop.md#command-palette)과 [상태표](../status.md#command-palette)를 따른다.
+`open_launcher`는 기존 자동 작업을 중단하고 `launcher_open` 동안 자동 생성·재생을 막는다. `session_id`와 `launcher_gate`는 현재 호출의 열기·실행을 구분하며 지난 세션의 실행과 중복 제출을 거절한다. 닫기는 비동기 실행 gate를 기다리지 않고 `action`과 세션 검사를 통해 준비 중인 작업을 취소한다. 창 숨김과 포커스 복원을 같은 `action` 경계에서 마치므로 이전 닫기가 새 창의 포커스를 빼앗지 않는다. 입력은 전송하지 않으며 다음 자동 수다를 다시 예약한다. 위젯 실행은 선택 시점 revision과 현재 세션을 재검사하고 대화는 선택한 캐릭터 ID를 기존 직접 입력으로 전달한다. 할 일로 적기는 `widget_commands::commit_todo_for_launcher`가 하나의 `change()` 구간에서 위젯 kind·세션 승인·revision·request ID를 차례로 확인하고 `storage::execute("add")`로 `{title}`만 저장한다. request ID는 프런트엔드가 실행할 때 만들며 같은 세션의 같은 제목 재시도에 다시 사용한다. 제품 계약과 실제 검증 범위는 [런처 사양](../product/desktop.md#command-palette)과 [상태표](../status.md#command-palette)를 따른다.
 
 대화와 자동 작업은 서로 다른 경계를 함께 사용한다. 모듈을 나눠도 아래 역할과 확인 순서는 유지한다.
 

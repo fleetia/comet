@@ -139,6 +139,7 @@ fn menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
     for (id, text) in [
         ("clear-toys", "장난감 모두 정리"),
         ("pause", "자동 행동 정지 / 재개"),
+        ("quiet-hour", "1시간 조용히"),
         ("updates", "업데이트 확인…"),
         ("settings", "설정"),
         ("quit", "완전 종료"),
@@ -203,8 +204,9 @@ pub(crate) fn create(app: &tauri::AppHandle) -> Result<(), String> {
                         let paused = lock(&state.runtime)
                             .map(|runtime| !runtime.paused)
                             .unwrap_or(true);
-                        crate::set_paused(app.clone(), state, paused)
+                        crate::set_paused(app.clone(), state, paused, None)
                     }
+                    "quiet-hour" => crate::set_paused(app.clone(), state, true, Some(60)),
                     "pranks" => {
                         let config = lock(&state.db).and_then(|db| behavior::preferences(&db));
                         match config {

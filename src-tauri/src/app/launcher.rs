@@ -487,6 +487,13 @@ pub(crate) enum LauncherAction {
         target: String,
         client_message_id: String,
     },
+    /// Saves the whole input as one undated inbox task; nothing is parsed from the text.
+    AddTodo {
+        id: String,
+        expected_revision: i64,
+        title: String,
+        request_id: String,
+    },
 }
 
 fn claim_execution(state: &AppState, session_id: u64) -> Result<(), String> {
@@ -517,7 +524,7 @@ pub(crate) async fn execute_launcher(
     let _gate = state.launcher_gate.lock().await;
     claim_execution(&state, request.session_id)?;
     let restore = match &request.action {
-        LauncherAction::Chat { .. } => true,
+        LauncherAction::Chat { .. } | LauncherAction::AddTodo { .. } => true,
         LauncherAction::Widget { id, .. } => lock(&state.db)
             .and_then(|db| widgets::storage::get(&db, id))
             .map(|widget| crate::behavior::TOYS.contains(&widget.kind.as_str()))
@@ -571,6 +578,20 @@ pub(crate) async fn execute_launcher(
                 )
                 .await
             }
+            LauncherAction::AddTodo {
+                id,
+                expected_revision,
+                title,
+                request_id,
+            } => widget_commands::add_todo_for_launcher(
+                &app,
+                &state,
+                &id,
+                expected_revision,
+                &title,
+                &request_id,
+                request.session_id,
+            ),
         }?;
         close_current(&app, &state, request.session_id, restore, false)
     }
@@ -772,5 +793,111 @@ mod tests {
         claim_execution(&state, second).unwrap();
         state.launcher_open.store(false, Ordering::SeqCst);
         assert!(validate_session(&state, second).is_err());
+    }
+
+    fn installed(state: &AppState, kind: &str) -> widgets::WidgetInstance {
+        widgets::storage::instances(&lock(&state.db).unwrap())
+            .unwrap()
+            .into_iter()
+            .find(|instance| instance.kind == kind)
+            .unwrap()
+    }
+
+    fn todo_items(state: &AppState) -> Vec<serde_json::Value> {
+        installed(state, "todo").data["items"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn launcher_todo_requires_current_session_kind_and_revision() {
+        let state = crate::app::tests::state();
+        let directory = tempfile::tempdir().unwrap();
+        widgets::storage::install(
+            &lock(&state.db).unwrap(),
+            directory.path(),
+            &["todo".into(), "memo".into()],
+        )
+        .unwrap();
+        let (todo, memo) = (installed(&state, "todo"), installed(&state, "memo"));
+        let session = {
+            let _action = lock(&state.action).unwrap();
+            begin_session(&state).unwrap()
+        };
+        let commit = |session: u64, id: &str, revision: i64| {
+            crate::widget_commands::commit_todo_for_launcher(
+                &state,
+                session,
+                id,
+                revision,
+                "우유 사기",
+                &uuid::Uuid::new_v4().to_string(),
+            )
+        };
+        assert!(commit(session + 1, &todo.id, todo.revision).is_err());
+        assert!(commit(session, &memo.id, memo.revision).is_err());
+        assert!(commit(session, &todo.id, todo.revision - 1).is_err());
+        widgets::storage::set_enabled(&lock(&state.db).unwrap(), &todo.id, false).unwrap();
+        assert!(commit(session, &todo.id, installed(&state, "todo").revision).is_err());
+        assert!(todo_items(&state).is_empty());
+    }
+
+    #[test]
+    fn launcher_todo_stores_verbatim_inbox_once() {
+        let state = crate::app::tests::state();
+        let directory = tempfile::tempdir().unwrap();
+        widgets::storage::install(
+            &lock(&state.db).unwrap(),
+            directory.path(),
+            &["todo".into()],
+        )
+        .unwrap();
+        let todo = installed(&state, "todo");
+        let session = {
+            let _action = lock(&state.action).unwrap();
+            begin_session(&state).unwrap()
+        };
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let title = "내일 3시 치과 예약 확인";
+        for _ in 0..2 {
+            crate::widget_commands::commit_todo_for_launcher(
+                &state,
+                session,
+                &todo.id,
+                todo.revision,
+                title,
+                &request_id,
+            )
+            .unwrap();
+        }
+        let items = todo_items(&state);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["title"], title);
+        assert_eq!(items[0]["listId"], "default");
+        assert_eq!(items[0]["planPeriod"], "none");
+        // The text is kept as written; no date is inferred from it.
+        for field in ["plannedDate", "dueDate", "dueAt"] {
+            assert!(items[0][field].is_null(), "{field}");
+        }
+    }
+
+    #[test]
+    fn launcher_action_deserializes_add_todo() {
+        let action: LauncherAction = serde_json::from_value(serde_json::json!({
+            "type": "addTodo",
+            "id": "todo-id",
+            "expectedRevision": 3,
+            "title": "우유 사기",
+            "requestId": "request-id"
+        }))
+        .unwrap();
+        assert!(matches!(
+            action,
+            LauncherAction::AddTodo {
+                expected_revision: 3,
+                ..
+            }
+        ));
     }
 }

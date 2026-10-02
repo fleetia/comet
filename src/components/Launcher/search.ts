@@ -1,6 +1,7 @@
 import catalog from "../../../widgets/catalog.json";
 import type { CharacterCollection, Snapshot } from "../../types";
-import type { WidgetSnapshot } from "../../widgets/types";
+import type { WidgetSnapshot, WidgetView } from "../../widgets/types";
+import { offeredForInstall } from "../../widgets/toolData";
 import { SETTINGS_SECTIONS, type SettingsSection } from "../SettingsPanel/useSettingsNavigation";
 
 export const DEFAULT_SHORTCUT = "CommandOrControl+Shift+Space";
@@ -13,17 +14,19 @@ export type LauncherState = {
 export type LauncherAction =
   | { type: "settings"; section: SettingsSection | null }
   | { type: "widget"; id: string; expectedRevision: number }
-  | { type: "chat"; content: string; target: string; clientMessageId: string };
+  | { type: "chat"; content: string; target: string; clientMessageId: string }
+  | { type: "addTodo"; id: string; expectedRevision: number; title: string; requestId: string };
 export type TargetBinding = { token: string; id: string; name: string };
 export type LauncherResult = {
   id: string;
   title: string;
   detail: string;
   preview: string;
-  kind: "settings" | "widget" | "chat" | "target" | "notice";
+  kind: "settings" | "widget" | "chat" | "target" | "notice" | "todo";
   action?:
-    | Exclude<LauncherAction, { type: "chat" }>
-    | Omit<Extract<LauncherAction, { type: "chat" }>, "clientMessageId">;
+    | Exclude<LauncherAction, { type: "chat" } | { type: "addTodo" }>
+    | Omit<Extract<LauncherAction, { type: "chat" }>, "clientMessageId">
+    | Omit<Extract<LauncherAction, { type: "addTodo" }>, "requestId">;
   recipient?: TargetBinding;
 };
 
@@ -122,6 +125,60 @@ const SECTION_ALIASES: Partial<Record<SettingsSection, string[]>> = {
   widgets: ["위젯 관리"],
   general: ["업데이트"],
 };
+function widgetResult(
+  entry: { id: string; name: string; description: string },
+  instance: WidgetView | undefined,
+): LauncherResult {
+  const needsSetup = instance?.installed && instance.enabled && instance.status === "setup";
+  const available = instance?.installed && instance.enabled && !needsSetup;
+  const toy = ["ball", "paper-plane", "bubbles"].includes(entry.id);
+  return {
+    id: `widget:${entry.id}`,
+    title: available
+      ? `${entry.name} ${toy ? "꺼내기" : "열기"}`
+      : needsSetup
+        ? `${entry.name} 설정 열기`
+        : `${entry.name} ${instance?.installed ? "켜기" : "설치"} 설정 열기`,
+    detail: available ? (toy ? "바탕화면 장난감" : "위젯") : "설정 › 위젯",
+    preview: available
+      ? toy
+        ? `${entry.name}을 바탕화면에 꺼내요. 우클릭으로 정리할 수 있어요.`
+        : entry.description
+      : needsSetup
+        ? `${entry.name} 사용 준비가 필요해요. 위젯 설정에서 연결과 설정을 확인해요.`
+        : `${entry.name}을 사용할 수 있도록 위젯 설정으로 이동해요. 자동으로 설치하거나 켜지 않아요.`,
+    kind: "widget",
+    action: available
+      ? { type: "widget", id: instance.id, expectedRevision: instance.revision }
+      : { type: "settings", section: "widgets" },
+  };
+}
+/** Saves the whole input, as typed, to the undated inbox only when this row is chosen. */
+function todoResult(
+  title: string,
+  widgets: WidgetSnapshot | null,
+  shown: LauncherResult[],
+): LauncherResult | null {
+  if (!widgets) return null;
+  const instance = widgets.widgets.find((candidate) => candidate.kind === "todo");
+  if (!instance?.installed || !instance.enabled) {
+    const entry = widgets.catalog.find((candidate) => candidate.id === "todo");
+    return entry && !shown.some((result) => result.id === "widget:todo")
+      ? widgetResult(entry, instance)
+      : null;
+  }
+  const fits = [...title].length <= 500;
+  return {
+    id: "todo:inbox",
+    title: "할 일로 적기",
+    detail: fits ? "할 일 › 수집함(날짜 없음)" : "할 일은 500자 이하로 적어 주세요",
+    preview: `입력한 문장을 그대로 날짜 없는 할 일로 저장해요. ${title}`,
+    kind: "todo",
+    action: fits
+      ? { type: "addTodo", id: instance.id, expectedRevision: instance.revision, title }
+      : undefined,
+  };
+}
 export function launcherResults(
   query: string,
   snapshot: Snapshot,
@@ -213,39 +270,19 @@ export function launcherResults(
       continue;
     }
     const instance = widgets.widgets.find((candidate) => candidate.kind === entry.id);
-    const needsSetup = instance?.installed && instance.enabled && instance.status === "setup";
-    const available = instance?.installed && instance.enabled && !needsSetup;
-    const toy = ["ball", "paper-plane", "bubbles"].includes(entry.id);
-    candidates.push({
-      rank,
-      result: {
-        id: `widget:${entry.id}`,
-        title: available
-          ? `${entry.name} ${toy ? "꺼내기" : "열기"}`
-          : needsSetup
-            ? `${entry.name} 설정 열기`
-            : `${entry.name} ${instance?.installed ? "켜기" : "설치"} 설정 열기`,
-        detail: available ? (toy ? "바탕화면 장난감" : "위젯") : "설정 › 위젯",
-        preview: available
-          ? toy
-            ? `${entry.name}을 바탕화면에 꺼내요. 우클릭으로 정리할 수 있어요.`
-            : entry.description
-          : needsSetup
-            ? `${entry.name} 사용 준비가 필요해요. 위젯 설정에서 연결과 설정을 확인해요.`
-            : `${entry.name}을 사용할 수 있도록 위젯 설정으로 이동해요. 자동으로 설치하거나 켜지 않아요.`,
-        kind: "widget",
-        action: available
-          ? { type: "widget", id: instance.id, expectedRevision: instance.revision }
-          : { type: "settings", section: "widgets" },
-      },
-    });
+    if (!offeredForInstall(entry.id, instance)) continue;
+    candidates.push({ rank, result: widgetResult(entry, instance) });
   }
   const results = candidates
     .sort((a, b) => a.rank - b.rank)
     .slice(0, 5)
     .map(({ result }) => result);
-  if (normalized) results.push(chatResult(normalized, snapshot));
-  else
+  if (normalized) {
+    results.push(chatResult(normalized, snapshot));
+    // Last row, so Enter keeps sending the sentence as conversation.
+    const todo = todoResult(normalized, widgets, results);
+    if (todo) results.push(todo);
+  } else
     results.push({
       id: "target:all",
       title: "친구에게 말 걸기",

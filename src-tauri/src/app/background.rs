@@ -8,6 +8,7 @@ use crate::{
     types::*,
     widget_commands::{advance_widgets, play_widget_reaction},
     widget_connections::start_due_widget_refreshes,
+    widgets::storage,
 };
 use rusqlite::{Connection, OptionalExtension};
 use std::{
@@ -28,6 +29,11 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         }
         if state.update_installing.load(Ordering::SeqCst) {
             continue;
+        }
+        if super::windows::expire_pause(&state, chrono::Utc::now().timestamp_millis())
+            .unwrap_or(false)
+        {
+            super::publish(&app, &state);
         }
         tasks::reap(&state).await;
         let maintenance_app = app.clone();
@@ -133,7 +139,13 @@ pub(crate) fn begin_background(state: &AppState) -> Result<Option<(u64, Arc<Atom
     {
         return Ok(None);
     }
-    let settings = store::settings(&*lock(&state.db)?)?;
+    let settings = {
+        let db = lock(&state.db)?;
+        if storage::focus_active(&db, chrono::Utc::now().timestamp_millis())? {
+            return Ok(None);
+        }
+        store::settings(&db)?
+    };
     let due = settings.autonomous_enabled && now() >= state.next_idle.load(Ordering::SeqCst);
     if status.phase != "idle" && !(status.phase == "error" && due) {
         return Ok(None);
@@ -156,6 +168,10 @@ pub(crate) async fn run_background(
 ) -> Result<(), String> {
     let (settings, pending, memories, relationships, revision, scenes, characters, installed) = {
         let db = lock(&state.db)?;
+        // Focus may start while this task waits for the gate.
+        if storage::focus_active(&db, chrono::Utc::now().timestamp_millis())? {
+            return Ok(());
+        }
         (
             store::settings(&db)?,
             store::pending_user_messages(&db)?,

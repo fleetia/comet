@@ -23,7 +23,7 @@ const PREVIEW_STATE: LauncherState = {
   shortcutRegistered: true,
   shortcutError: null,
 };
-const GLYPHS = { settings: "⚙", widget: "◇", chat: "﹥", target: "◌", notice: "!" };
+const GLYPHS = { settings: "⚙", widget: "◇", chat: "﹥", target: "◌", notice: "!", todo: "＋" };
 export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
   const widgets = useWidgets();
   const [query, setQuery] = useState("");
@@ -34,6 +34,8 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
   const windowRef = useRef<HTMLElement>(null);
   const composing = useRef(false);
   const pendingSession = useRef<number | null>(null);
+  // A retry of the same task in the same session reuses its id, so a lost reply cannot add it twice.
+  const todoRequest = useRef<{ sessionId: number; title: string; requestId: string } | null>(null);
   const [pending, setPending] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -147,10 +149,20 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
     pendingSession.current = sessionId;
     setPending(true);
     setError(null);
-    const action: LauncherAction =
-      result.action.type === "chat"
-        ? { ...result.action, clientMessageId: crypto.randomUUID() }
-        : result.action;
+    let action: LauncherAction;
+    if (result.action.type === "chat") {
+      action = { ...result.action, clientMessageId: crypto.randomUUID() };
+    } else if (result.action.type === "addTodo") {
+      const previous = todoRequest.current;
+      const requestId =
+        previous?.sessionId === sessionId && previous.title === result.action.title
+          ? previous.requestId
+          : crypto.randomUUID();
+      todoRequest.current = { sessionId, title: result.action.title, requestId };
+      action = { ...result.action, requestId };
+    } else {
+      action = result.action;
+    }
     try {
       await command("execute_launcher", { request: { sessionId, action } });
       if (stateRef.current.sessionId === sessionId && !keepDraft) {

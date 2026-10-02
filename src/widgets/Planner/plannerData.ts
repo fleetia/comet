@@ -116,6 +116,62 @@ export function eventsOn(events: DataRecord[], day: string): DataRecord[] {
     })
     .sort((a, b) => eventStart(a) - eventStart(b));
 }
+/** Gaps between the fetched events of `day`; they only reflect the calendars that were read. */
+export function freeTimes(events: DataRecord[], day: string): [number, number][] {
+  const start = new Date(`${day}T00:00:00`).getTime(),
+    end = new Date(`${moveDay(day, 1)}T00:00:00`).getTime();
+  const busy = events
+    .map((event): [number, number] => [
+      Math.max(start, eventStart(event)),
+      Math.min(end, eventEnd(event)),
+    ])
+    .filter(([a, b]) => a < b)
+    .sort((a, b) => a[0] - b[0]);
+  const free: [number, number][] = [];
+  let cursor = start;
+  for (const [a, b] of busy) {
+    if (cursor < a) {
+      free.push([cursor, a]);
+    }
+    cursor = Math.max(cursor, b);
+  }
+  if (cursor < end) {
+    free.push([cursor, end]);
+  }
+  return free;
+}
+const DAY_MS = 86400000;
+export function connectionsOutdated(connections: DataRecord[], now: number): boolean {
+  return connections.some(
+    (connection) =>
+      !["ready", "syncing"].includes(text(connection.status)) ||
+      typeof connection.lastSuccessAt !== "number" ||
+      connection.lastSuccessAt > now ||
+      now - connection.lastSuccessAt > 30 * 60000,
+  );
+}
+/** Free time is judged only when every connection is fresh and its last read covers the whole day. */
+export function freeTimeCoverage(
+  connections: DataRecord[],
+  day: string,
+  now: number,
+): "covered" | "outside" | "stale" {
+  if (day < localDay(new Date(now - 30 * DAY_MS)) || day > localDay(new Date(now + 365 * DAY_MS))) {
+    return "outside";
+  }
+  const start = new Date(`${day}T00:00:00`).getTime(),
+    end = new Date(`${moveDay(day, 1)}T00:00:00`).getTime();
+  return connections.length > 0 &&
+    !connectionsOutdated(connections, now) &&
+    connections.every(
+      (connection) =>
+        typeof connection.lastSuccessAt === "number" &&
+        start >= connection.lastSuccessAt - 30 * DAY_MS &&
+        end <= connection.lastSuccessAt + 365 * DAY_MS,
+    )
+    ? "covered"
+    : "stale";
+}
 export function clockLabel(at: number): string {
   return new Date(at).toLocaleTimeString("ko-KR", {
     hour: "2-digit",

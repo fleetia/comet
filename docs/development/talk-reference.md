@@ -486,7 +486,7 @@ A[평온]: 오늘 기온을 한번 확인했어.
 | 변수 | 타입 | null 허용 | owner | 의미 |
 | --- | --- | --- | --- | --- |
 | `event.action` | `string` | 예 | 없음 | 교감 사건의 실제 사용자 동작: stroke, poke, snack |
-| `event.character` | `string` | 예 | 없음 | 교감 사건의 대상 자리: A 또는 B |
+| `event.character` | `string` | 예 | 없음 | 교감 사건의 대상 자리: 함께 지내는 순서의 A~H |
 | `event.itemName` | `string` | 예 | 없음 | 실제 item-acquired 사건에서 획득한 물건 이름 |
 | `event.kind` | `string` | 예 | 없음 | 현재 전달된 실제 사건의 kind. idle 평가에는 null |
 | `event.mode` | `string` | 예 | 없음 | 사건의 timer 모드, 승부 종류 또는 맞히기 종류 |

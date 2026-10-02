@@ -68,15 +68,27 @@ describe("local command and conversation routing", () => {
       id: expect.any(String),
       expectedRevision: expect.any(Number),
     });
-    expect(results("공 던지기").at(-1)?.kind).toBe("chat");
+    // The conversation alternative stays, followed only by the explicit task row.
+    expect(results("공 던지기").map((result) => result.kind).slice(-2)).toEqual(["chat", "todo"]);
   });
   it.each(["공원 가고 싶다", "설정 바꾸기 귀찮네", "오늘 졸리네"])(
     "keeps the whole sentence %s as a conversation",
     (query) => {
-      expect(results(query)).toHaveLength(1);
+      expect(results(query).map((result) => result.kind)).toEqual(["chat", "todo"]);
       expect(results(query)[0].action).toEqual({ type: "chat", target: "all", content: query });
+      expect(results(query)[1].action).toMatchObject({ type: "addTodo", title: query });
     },
   );
+  it("offers the todo row only for plain input that fits and the todo tool can take", () => {
+    expect(results(">B 오늘 졸리네").some((result) => result.kind === "todo")).toBe(false);
+    expect(results("가".repeat(501)).at(-1)).toMatchObject({ kind: "todo", action: undefined });
+    const withoutTodo = { ...widgets, widgets: widgets.widgets.filter((item) => item.kind !== "todo") };
+    expect(results("우유 사기", withoutTodo).at(-1)).toMatchObject({
+      id: "widget:todo",
+      action: { type: "settings", section: "widgets" },
+    });
+    expect(results("우유 사기", null).some((result) => result.kind === "todo")).toBe(false);
+  });
   it("does not turn a known widget into chat while loading or when not installed", () => {
     expect(results("공던지기", null)[0].kind).toBe("notice");
     expect(results("공던지기", null)[0].action).toBeUndefined();
@@ -90,6 +102,11 @@ describe("local command and conversation routing", () => {
         widgets: widgets.widgets.map((entry) => ({ ...entry, enabled: false })),
       })[0].title,
     ).toContain("켜기 설정");
+  });
+  it("does not offer the collection to someone who never had one", () => {
+    const fresh = { ...widgets, widgets: widgets.widgets.filter((item) => item.kind !== "collection") };
+    expect(results("수집함", fresh).some((result) => result.id === "widget:collection")).toBe(false);
+    expect(results("수집함").some((result) => result.id === "widget:collection")).toBe(true);
   });
   it("routes installed widgets requiring setup to their settings", () => {
     const pendingSetup: WidgetSnapshot = {
@@ -200,6 +217,35 @@ it("retains failed drafts and prevents repeated Enter from dispatching twice", a
   await act(async () => rejectRequest(new Error("모델을 먼저 준비해 주세요.")));
   expect(screen.getByRole("alert").textContent).toContain("모델을 먼저 준비");
   expect(input.value).toBe("오늘 졸리네");
+});
+it("saves a task only when its row is chosen and reuses the request id on retry", async () => {
+  let rejectRequest: (cause: Error) => void = () => {};
+  const input = await compose("우유 사기");
+  vi.mocked(command).mockImplementation((name) =>
+    name === "execute_launcher"
+      ? new Promise((_, reject) => {
+          rejectRequest = reject;
+        })
+      : Promise.resolve(initial),
+  );
+  expect(screen.getByRole("option", { selected: true }).textContent).toContain("모두에게");
+  fireEvent.keyDown(input, { key: "ArrowDown" });
+  expect(screen.getByRole("option", { selected: true }).textContent).toContain("할 일로 적기");
+  fireEvent.keyDown(input, { key: "Enter" });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(executed()).toHaveLength(1);
+  const first = executed()[0][1] as { request: { action: { requestId: string } } };
+  expect(first.request.action).toMatchObject({
+    type: "addTodo",
+    title: "우유 사기",
+    requestId: expect.any(String),
+  });
+  await act(async () => rejectRequest(new Error("다시 시도해 주세요.")));
+  expect(input.value).toBe("우유 사기");
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() => expect(executed()).toHaveLength(2));
+  const retry = executed()[1][1] as { request: { action: { requestId: string } } };
+  expect(retry.request.action.requestId).toBe(first.request.action.requestId);
 });
 it("keeps an abandoned draft when closing and reopening without sending", async () => {
   const input = await compose(">B 오늘 졸리네");

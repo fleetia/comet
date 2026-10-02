@@ -13,6 +13,7 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import { localDay, record, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { CalendarColors } from "../Planner/CalendarColors";
+import { connectionsOutdated, freeTimeCoverage, freeTimes } from "../Planner/plannerData";
 import { PlannerAlerts } from "../PlannerAlerts/PlannerAlerts";
 import { useConnectionCommand } from "../useConnectionCommand";
 import type { WidgetView } from "../types";
@@ -35,31 +36,6 @@ function endOf(event: DataRecord): number {
 }
 function timeLabel(at: number): string {
   return new Date(at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-}
-function freeTimes(events: DataRecord[], day: string): [number, number][] {
-  const start = Date.parse(day + "T00:00:00"),
-    next = new Date(start);
-  next.setDate(next.getDate() + 1);
-  const end = next.getTime();
-  const busy = events
-    .map((event): [number, number] => [
-      Math.max(start, startOf(event)),
-      Math.min(end, endOf(event)),
-    ])
-    .filter(([a, b]) => a < b)
-    .sort((a, b) => a[0] - b[0]);
-  const free: [number, number][] = [];
-  let cursor = start;
-  for (const [a, b] of busy) {
-    if (cursor < a) {
-      free.push([cursor, a]);
-    }
-    cursor = Math.max(cursor, b);
-  }
-  if (cursor < end) {
-    free.push([cursor, end]);
-  }
-  return free;
 }
 export function CalendarTool({
   widget,
@@ -189,24 +165,10 @@ export function CalendarTool({
   const dayMs = 86400000;
   const minDay = localDay(new Date(now - 30 * dayMs));
   const maxDay = localDay(new Date(now + 365 * dayMs));
-  const outsideRange = day < minDay || day > maxDay;
-  const outdated = connections.some(
-    (connection) =>
-      !["ready", "syncing"].includes(text(connection.status)) ||
-      typeof connection.lastSuccessAt !== "number" ||
-      connection.lastSuccessAt > now ||
-      now - connection.lastSuccessAt > 30 * 60000,
-  );
-  const hasCoverage =
-    !outsideRange &&
-    !outdated &&
-    connections.length > 0 &&
-    connections.every(
-      (connection) =>
-        typeof connection.lastSuccessAt === "number" &&
-        beginning >= connection.lastSuccessAt - 30 * dayMs &&
-        nextDay.getTime() <= connection.lastSuccessAt + 365 * dayMs,
-    );
+  const coverage = freeTimeCoverage(connections, day, now);
+  const outsideRange = coverage === "outside";
+  const outdated = connectionsOutdated(connections, now);
+  const hasCoverage = coverage === "covered";
   function card(event: DataRecord): ReactElement {
     return (
       <article className={s.item} key={text(event.id)}>

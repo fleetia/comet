@@ -18,7 +18,7 @@ import { WindowHeader } from "../../components/WindowHeader/WindowHeader";
 import { useWidgets } from "../useWidgets";
 import { useGeneratedWidgets } from "../GeneratedWidgets/useGeneratedWidgets";
 import type { WidgetView } from "../types";
-import type { ToolAction } from "../toolData";
+import { offeredForInstall, type ToolAction } from "../toolData";
 import * as common from "../../lagrange.css";
 import { CONFIGURABLE_WIDGETS, DISPLAY_KINDS, WidgetSettings } from "./WidgetSettings";
 import { GeneratedWidgetSettings } from "./GeneratedWidgetSettings";
@@ -66,6 +66,7 @@ export function WidgetManager({
   const { snapshot, error, reload } = useWidgets();
   const { workshop, error: generatedError, reload: reloadGenerated } = useGeneratedWidgets();
   const [selected, setSelected] = useState<string[]>([]);
+  const [suggestionClosed, setSuggestionClosed] = useState(false);
   const [focused, setFocused] = useState<string | null>(null);
   const [visitedSettings, setVisitedSettings] = useState<string[]>([]);
   useEffect(() => {
@@ -168,6 +169,13 @@ export function WidgetManager({
     widgets.find((item) => item.kind === kind);
   const nameOf = (kind: string): string => catalog.find((item) => item.id === kind)?.name ?? kind;
   const installation = new Set(selected.filter((kind) => !findView(kind)?.installed));
+  // First run only: planning is one of comet's two pillars, so offer it before the long list.
+  const suggested = ["todo", "focus-timer"].filter(
+    (kind) =>
+      catalog.some((item) => item.id === kind) &&
+      !findView(kind)?.installed &&
+      !selected.includes(kind),
+  );
   function addRequired(kind: string): void {
     for (const required of catalog.find((item) => item.id === kind)?.required ?? []) {
       const existing = findView(required);
@@ -191,8 +199,9 @@ export function WidgetManager({
     ? catalog.filter((item) => item.required.includes(removed.kind) && findView(item.id)?.installed)
     : [];
   const installedCount = widgets.filter((item) => item.installed).length + generatedWidgets.length;
+  const offered = catalog.filter((item) => offeredForInstall(item.id, findView(item.id)));
   const entries = [
-    ...catalog.map((item) => {
+    ...offered.map((item) => {
       const view = findView(item.id);
       return {
         ...item,
@@ -278,7 +287,7 @@ export function WidgetManager({
           </Heading>
         )}
         <Text variant="caption" tone="muted">
-          공식 {catalog.length}개 · AI·가져온 위젯 {generatedWidgets.length}개 · 설치됨{" "}
+          공식 {offered.length}개 · AI·가져온 위젯 {generatedWidgets.length}개 · 설치됨{" "}
           {installedCount}개
         </Text>
       </header>
@@ -309,6 +318,28 @@ export function WidgetManager({
         <Text as="p" role="alert" className={common.error}>
           {failure}
         </Text>
+      )}
+      {snapshot && !snapshot.onboardingDone && !suggestionClosed && suggested.length > 0 && (
+        <section aria-label="할 일과 시간 관리 제안">
+          <Text as="p">
+            할 일·시간도 같이 관리할까요? 할 일과 집중 타이머를 설치할 목록에 넣어 둘게요.
+          </Text>
+          <Inline gap="sm">
+            <Button
+              variant="primary"
+              disabled={!canAct}
+              onClick={() => {
+                setSelected((before) => [...new Set([...before, ...suggested])]);
+                setSuggestionClosed(true);
+              }}
+            >
+              같이 쓰기
+            </Button>
+            <Button variant="quiet" onClick={() => setSuggestionClosed(true)}>
+              나중에
+            </Button>
+          </Inline>
+        </section>
       )}
       {!snapshot ? (
         error ? (

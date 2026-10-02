@@ -1,5 +1,5 @@
 import { Button } from "@fleetia/lagrange";
-import { useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { localDay, text, type DataRecord } from "../toolData";
 import { CalendarColors } from "./CalendarColors";
 import { colorForEvent } from "./calendarColorData";
@@ -10,6 +10,8 @@ import {
   eventsOn,
   eventStart,
   eventTime,
+  freeTimeCoverage,
+  freeTimes,
   moveDay,
   movePeriod,
   periodAnchor,
@@ -54,6 +56,14 @@ export function PlannerCalendar({
   side: ReactNode;
 }): ReactElement {
   const [view, setView] = useState("month");
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 60000);
+    return () => window.clearInterval(interval);
+  }, []);
+  const coverage = freeTimeCoverage(connections, day, now);
+  const free = coverage === "covered" ? freeTimes(events, day) : [];
+  const dayEnd = new Date(`${moveDay(day, 1)}T00:00:00`).getTime();
   const weekStart = periodAnchor("week", day);
   const days = Array.from({ length: 7 }, (_, i) => moveDay(weekStart, i));
   const gridDays = monthDays(day);
@@ -352,6 +362,28 @@ export function PlannerCalendar({
               <p className={s.caption}>조회한 일정이 없어요.</p>
             )}
           </section>
+          {connections.length > 0 && (
+            <section className={s.section} aria-label="선택한 날짜 빈 시간">
+              <h3 className={s.heading}>빈 시간</h3>
+              {coverage !== "covered" ? (
+                <p className={s.caption}>
+                  {coverage === "outside"
+                    ? "선택한 날짜는 조회 범위 밖이에요."
+                    : "조회 정보가 오래됐거나 이 날짜 전체를 확인하지 못했어요."}{" "}
+                  새로 조회하기 전에는 빈 시간을 판단하지 않아요.
+                </p>
+              ) : free.length ? (
+                free.map(([start, end]) => (
+                  <p className={s.caption} key={start}>
+                    {clockLabel(start)} – {end === dayEnd ? "24:00" : clockLabel(end)}
+                  </p>
+                ))
+              ) : (
+                <p className={s.caption}>이 날짜에는 조회한 빈 시간이 없어요.</p>
+              )}
+              <p className={s.caption}>연결한 캘린더의 일정만 기준으로 해요.</p>
+            </section>
+          )}
           {side}
         </aside>
       </div>

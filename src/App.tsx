@@ -31,7 +31,9 @@ export function App(): JSX.Element {
   if (view === "memo-note") {
     return <MemoNote id={query.get("id") ?? ""} noteId={query.get("noteId") ?? ""} />;
   }
-  if (query.get("view") === "widget") return <WidgetTool id={query.get("id") ?? ""} />;
+  if (query.get("view") === "widget") {
+    return <WidgetTool id={query.get("id") ?? ""} characters={snapshot?.characters} />;
+  }
   if (!snapshot) {
     return (
       <main className={s.loading}>

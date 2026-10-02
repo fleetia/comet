@@ -5,6 +5,7 @@ import { useWidgets } from "../useWidgets";
 import { WidgetFrame } from "../WidgetFrame/WidgetFrame";
 import { record, rows, text, type DataRecord } from "../toolData";
 import type { WidgetView } from "../types";
+import type { CharacterCollection } from "../../types";
 import { ToyTool } from "../ToyTools/ToyTools";
 import { TodoTool } from "../TodoTool/TodoTool";
 import { ClockTool, TimerTool } from "../PlanningTools/PlanningTools";
@@ -16,7 +17,13 @@ import { ConnectionTool } from "../ConnectionTools/ConnectionTools";
 import * as c from "../../lagrange.css";
 import * as s from "../tools.css";
 
-export function WidgetTool({ id }: { id: string }): ReactElement {
+export function WidgetTool({
+  id,
+  characters,
+}: {
+  id: string;
+  characters?: CharacterCollection;
+}): ReactElement {
   const { snapshot, error, reload } = useWidgets();
   const [failure, setFailure] = useState<string | null>(null),
     [busy, setBusy] = useState(false);
@@ -171,7 +178,7 @@ export function WidgetTool({ id }: { id: string }): ReactElement {
         content = <ConnectionTool widget={widget} />;
         break;
       default:
-        content = <ToyTool {...props} />;
+        content = <ToyTool {...props} characters={characters} />;
         if (["ball", "paper-plane", "bubbles"].includes(widget.kind)) {
           footer = (
             <>

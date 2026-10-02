@@ -109,6 +109,7 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
         has_api_key: inference::has_api_key(&settings),
         model_ready: models::selected_ready(&state.app_data, &settings),
         local_models: models::model_statuses(&state.app_data),
+        device: crate::device::info(),
         settings,
         reactions: lock(&state.reactions)?.views(),
         user: store::current_user(&db)?,

@@ -305,8 +305,10 @@ pub(crate) fn set_paused(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     paused: bool,
+    minutes: Option<u32>,
 ) -> Result<(), String> {
-    let token = apply_pause(&state, paused)?;
+    let until = pause_until(paused, minutes, chrono::Utc::now().timestamp_millis())?;
+    let token = apply_pause(&state, paused, until)?;
     if paused {
         desktop_toys::clear_automatic(&app);
     }
@@ -325,12 +327,56 @@ pub(crate) fn set_paused(
     Ok(())
 }
 
+pub(crate) fn pause_until(
+    paused: bool,
+    minutes: Option<u32>,
+    now_ms: i64,
+) -> Result<Option<i64>, String> {
+    match minutes {
+        Some(minutes) if paused => {
+            if !(1..=720).contains(&minutes) {
+                return Err("쉬는 시간은 1분에서 12시간 사이로 정해 주세요.".into());
+            }
+            Ok(Some(now_ms + i64::from(minutes) * 60_000))
+        }
+        _ => Ok(None),
+    }
+}
+
 pub(crate) fn apply_pause(
     state: &AppState,
     paused: bool,
+    until: Option<i64>,
 ) -> Result<Option<(u64, Arc<AtomicBool>)>, String> {
     let _action = lock(&state.action)?;
-    lock(&state.runtime)?.paused = paused;
+    pause_locked(state, paused, until)
+}
+
+/// Ends a timed pause. Checks and resumes under one action lock so a newer open-ended pause stays.
+pub(crate) fn expire_pause(state: &AppState, now_ms: i64) -> Result<bool, String> {
+    let _action = lock(&state.action)?;
+    let expired = {
+        let runtime = lock(&state.runtime)?;
+        runtime.paused && runtime.paused_until.is_some_and(|until| until <= now_ms)
+    };
+    if expired {
+        // Resuming never interrupts playback, so there is no epoch to settle.
+        pause_locked(state, false, None)?;
+    }
+    Ok(expired)
+}
+
+/// The caller holds the action lock.
+fn pause_locked(
+    state: &AppState,
+    paused: bool,
+    until: Option<i64>,
+) -> Result<Option<(u64, Arc<AtomicBool>)>, String> {
+    {
+        let mut runtime = lock(&state.runtime)?;
+        runtime.paused = paused;
+        runtime.paused_until = until.filter(|_| paused);
+    }
     widgets::storage::discard_pending(&*lock(&state.db)?)?;
     if !paused {
         schedule_idle(state, store::settings(&*lock(&state.db)?)?.idle_minutes);
@@ -388,8 +434,15 @@ pub(crate) fn open_settings_section(
     app: tauri::AppHandle,
     section: SettingsSection,
 ) -> Result<(), String> {
-    let state = app.state::<Arc<AppState>>();
     skip_talk(app.clone(), app.state::<Arc<AppState>>())?;
+    show_settings_section(app, section)
+}
+
+pub(crate) fn show_settings_section(
+    app: tauri::AppHandle,
+    section: SettingsSection,
+) -> Result<(), String> {
+    let state = app.state::<Arc<AppState>>();
     // Keep the latest destination until the WebView has registered its listener,
     // and serialize simultaneous menu requests while the singleton is created.
     let mut current_section = lock(&state.settings_section)?;

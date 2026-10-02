@@ -270,7 +270,11 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                 </p>
                 {snapshot.runtime.paused && (
                   <div className={s.row}>
-                    <span>자동 잡담 일시정지 중</span>
+                    <span>
+                      {snapshot.runtime.pausedUntil
+                        ? `${new Date(snapshot.runtime.pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}까지 자동 잡담 일시정지 중`
+                        : "자동 잡담 일시정지 중"}
+                    </span>
                     <Button
                       variant="secondary"
                       onClick={() => void automatic.run("set_paused", { paused: false })}

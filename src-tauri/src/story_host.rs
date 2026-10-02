@@ -17,6 +17,14 @@ pub fn advance(state: &AppState, at: Instant) -> Result<bool, String> {
         lock(&state.story_clock)?.elapsed = Duration::ZERO;
         return Ok(false);
     }
+    // Skip this turn instead of opening a choice right after focus ends.
+    if crate::widgets::storage::focus_active(
+        &*lock(&state.db)?,
+        chrono::Utc::now().timestamp_millis(),
+    )? {
+        lock(&state.story_clock)?.elapsed = Duration::ZERO;
+        return Ok(false);
+    }
     let status = lock(&state.runtime)?.clone();
     if crate::app::unavailable(state)
         || state.launcher_open.load(Ordering::SeqCst)

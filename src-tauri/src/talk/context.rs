@@ -137,7 +137,7 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         ("event", "kind") => "현재 전달된 실제 사건의 kind. idle 평가에는 null",
         ("event", "widget") => "현재 사건을 발행한 위젯 kind",
         ("event", "action") => "교감 사건의 실제 사용자 동작: stroke, poke, snack",
-        ("event", "character") => "교감 사건의 대상 자리: A 또는 B",
+        ("event", "character") => "교감 사건의 대상 자리: 함께 지내는 순서의 A~H",
         ("event", "outcome") => "작은 승부 또는 맞히기 결과의 기계 식별자. 공개된 결과만 제공",
         ("event", "mode") => "사건의 timer 모드, 승부 종류 또는 맞히기 종류",
         ("event", "itemName") => "실제 item-acquired 사건에서 획득한 물건 이름",

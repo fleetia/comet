@@ -705,6 +705,23 @@ pub fn discard_pending(db: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// A paused or finished timer is not focus; `now` is in milliseconds like the timer deadline.
+pub fn focus_active(db: &Connection, now: i64) -> Result<bool> {
+    db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM widget_instances WHERE kind='focus-timer' AND installed=1 AND enabled=1 AND json_extract(data,'$.status')='running' AND json_extract(data,'$.mode')='focus' AND json_extract(data,'$.deadline')>?1)",
+        [now],
+        |row| row.get(0),
+    )
+    .map_err(err)
+}
+
+/// Focus keeps only time-critical reminders and the mood lines the user turned on.
+pub(crate) fn discard_pending_during_focus(db: &Connection) -> Result<()> {
+    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND json_extract(data,'$.kind') NOT IN ('timer-finished','calendar-reminder','planner-reminder','planner-mood')", [])
+        .map_err(err)?;
+    Ok(())
+}
+
 fn without_toy_statistics(mut event: WidgetEvent) -> WidgetEvent {
     let text = match event.event.kind.as_str() {
         "ball.stopped" | "desktop.ball.stopped" => Some("공이 멈췄어요."),

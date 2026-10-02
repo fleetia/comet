@@ -1,4 +1,4 @@
-use crate::types::{DownloadProgress, LocalModel, LocalModelStatus, Settings};
+use crate::types::{DownloadProgress, LocalModel, LocalModelStatus, ModelFit, Settings};
 use futures_util::StreamExt;
 use sha2::{Digest, Sha256};
 use std::{
@@ -131,7 +131,50 @@ pub fn selected_ready(app_data: &Path, settings: &Settings) -> bool {
     }
 }
 
+const GB: u64 = 1_000_000_000;
+
+/// Leaves 4 GB for the OS and other apps, then compares the model's estimated working set:
+/// its weights, a quarter more for the 4K chat context and runtime buffers, and 0.5 GB.
+fn fit(model_bytes: u64, total_memory: Option<u64>) -> ModelFit {
+    let Some(total) = total_memory else {
+        return ModelFit::Unknown;
+    };
+    let available = total.saturating_sub(4 * GB);
+    let need = model_bytes + model_bytes / 4 + GB / 2;
+    if need * 10 <= available * 7 {
+        ModelFit::Fits
+    } else if need <= available {
+        ModelFit::Tight
+    } else {
+        ModelFit::Insufficient
+    }
+}
+
+/// The largest model that fits comfortably. CPU-only builds stop at 4B, since larger
+/// models answer too slowly there; ties keep the catalog order.
+fn recommended(device: crate::device::DeviceInfo) -> Option<LocalModel> {
+    let limit = if device.apple_silicon {
+        f64::INFINITY
+    } else {
+        4.
+    };
+    let mut best: Option<(LocalModel, f64)> = None;
+    for model in CATALOG {
+        let Some(spec) = spec(model) else {
+            continue;
+        };
+        let comfortable = spec.parameter_billions <= limit
+            && fit(spec.size, device.total_memory) == ModelFit::Fits;
+        if comfortable && best.is_none_or(|(_, size)| spec.parameter_billions > size) {
+            best = Some((model, spec.parameter_billions));
+        }
+    }
+    best.map(|(model, _)| model)
+}
+
 pub fn model_statuses(app_data: &Path) -> Vec<LocalModelStatus> {
+    let device = crate::device::info();
+    let suggestion = recommended(device);
     CATALOG
         .into_iter()
         .filter_map(|model| Some((model, spec(model)?, model_path(app_data, model)?)))
@@ -153,6 +196,9 @@ pub fn model_statuses(app_data: &Path) -> Vec<LocalModelStatus> {
                 size: spec.size,
                 ready,
                 downloaded_bytes,
+                fit: fit(spec.size, device.total_memory),
+                recommended: suggestion == Some(model),
+                widget_creation: spec.parameter_billions > 9.,
             }
         })
         .collect()
@@ -453,6 +499,44 @@ mod tests {
         .unwrap();
         assert!(model_ready(directory.path(), LocalModel::Qwen35_4B));
         assert!(!model_ready(directory.path(), LocalModel::Qwen35_9B));
+    }
+    #[test]
+    fn fit_compares_the_estimated_working_set_with_memory_left_for_the_model() {
+        let gib = |n: u64| Some(n << 30);
+        let size = |model| spec(model).unwrap().size;
+        assert_eq!(fit(size(LocalModel::Qwen38_2B), gib(8)), ModelFit::Fits);
+        assert_eq!(fit(size(LocalModel::Qwen35_4B), gib(8)), ModelFit::Tight);
+        assert_eq!(
+            fit(size(LocalModel::Gemma4E4B), gib(8)),
+            ModelFit::Insufficient
+        );
+        assert_eq!(fit(size(LocalModel::Qwen35_9B), gib(16)), ModelFit::Fits);
+        assert_eq!(fit(size(LocalModel::Gemma4_12B), gib(16)), ModelFit::Tight);
+        assert_eq!(fit(size(LocalModel::Gemma4_12B), gib(24)), ModelFit::Fits);
+        assert_eq!(
+            fit(size(LocalModel::Qwen35_4B), gib(4)),
+            ModelFit::Insufficient
+        );
+        assert_eq!(fit(size(LocalModel::Qwen35_4B), None), ModelFit::Unknown);
+    }
+    #[test]
+    fn recommends_the_largest_comfortable_model_and_keeps_cpu_builds_small() {
+        let device = |memory: u64, apple_silicon| crate::device::DeviceInfo {
+            total_memory: Some(memory << 30),
+            apple_silicon,
+        };
+        assert_eq!(recommended(device(8, true)), Some(LocalModel::Qwen38_2B));
+        assert_eq!(recommended(device(16, true)), Some(LocalModel::Qwen35_9B));
+        assert_eq!(recommended(device(24, true)), Some(LocalModel::Gemma4_12B));
+        assert_eq!(recommended(device(32, false)), Some(LocalModel::Qwen35_4B));
+        assert_eq!(recommended(device(4, true)), None);
+        assert_eq!(
+            recommended(crate::device::DeviceInfo {
+                total_memory: None,
+                apple_silicon: true
+            }),
+            None
+        );
     }
     #[test]
     fn catalog_lists_every_pinned_model_once_and_excludes_custom() {

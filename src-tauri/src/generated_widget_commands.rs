@@ -195,7 +195,8 @@ fn automatic_allowed(
         && !runtime.paused
         && !state.launcher_open.load(Ordering::SeqCst)
         && lock(&state.panel)?.is_none()
-        && !crate::unavailable(state))
+        && !crate::unavailable(state)
+        && !crate::widgets::storage::focus_active(db, chrono::Utc::now().timestamp_millis())?)
 }
 
 fn validate_generation(
@@ -297,7 +298,8 @@ fn reactions_blocked(state: &AppState, db: &rusqlite::Connection) -> Result<bool
     Ok(runtime.hidden
         || runtime.paused
         || !store::settings(db)?.autonomous_enabled
-        || state.launcher_open.load(Ordering::SeqCst))
+        || state.launcher_open.load(Ordering::SeqCst)
+        || crate::widgets::storage::focus_active(db, chrono::Utc::now().timestamp_millis())?)
 }
 
 fn observe_generated_state(
@@ -1288,6 +1290,23 @@ mod tests {
             runtime.hidden = false;
             runtime.paused = false;
         }
+        let directory = tempfile::tempdir().unwrap();
+        crate::widgets::storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
+        let timer = crate::widgets::storage::instances(&db).unwrap().remove(0);
+        let at = chrono::Utc::now().timestamp_millis();
+        let mut focus = timer.data.clone();
+        focus["status"] = serde_json::json!("running");
+        focus["deadline"] = serde_json::json!(at + 60_000);
+        crate::widgets::storage::commit_data(&db, &timer.id, timer.revision, focus, vec![], at)
+            .unwrap();
+        assert!(!automatic_allowed(&state, &db, &settings).unwrap());
+        assert!(reactions_blocked(&state, &db).unwrap());
+        let mut idle = crate::widgets::storage::instances(&db).unwrap().remove(0);
+        idle.data["status"] = serde_json::json!("idle");
+        crate::widgets::storage::commit_data(&db, &idle.id, idle.revision, idle.data, vec![], at)
+            .unwrap();
+        assert!(automatic_allowed(&state, &db, &settings).unwrap());
+        assert!(!reactions_blocked(&state, &db).unwrap());
         settings.autonomous_enabled = false;
         assert!(!automatic_allowed(&state, &db, &settings).unwrap());
         settings.autonomous_enabled = true;
