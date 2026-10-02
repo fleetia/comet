@@ -71,15 +71,7 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         if !["idle", "error"].contains(&status.phase.as_str()) {
             continue;
         }
-        if lock(&state.behavior)
-            .map(|machine| {
-                matches!(
-                    machine.phase,
-                    behavior::Phase::Playing | behavior::Phase::Suspended
-                )
-            })
-            .unwrap_or(true)
-        {
+        if behavior::reactions_blocked(&state).unwrap_or(true) {
             continue;
         }
         if play_widget_reaction(&app, &state).unwrap_or(false) {

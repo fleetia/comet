@@ -1340,7 +1340,7 @@ mod tests {
         let local = chrono::Local::now();
         let settings = Settings {
             local_idle_enabled: true,
-            local_model: crate::types::LocalModel::Qwen35_9B,
+            local_model: crate::types::LocalModel::Gemma4_12B,
             quiet_hours: crate::types::QuietHours {
                 enabled: true,
                 start: (local - chrono::Duration::hours(1))
@@ -1353,6 +1353,7 @@ mod tests {
             },
             ..Settings::default()
         };
+        assert!(models::widget_generation_eligibility(&settings).allowed);
         store::save_settings(&db, &settings).unwrap();
         assert!(!automatic_allowed(&state, &db, &settings).unwrap());
         assert!(reactions_blocked(&state, &db).unwrap());
@@ -1368,13 +1369,17 @@ mod tests {
         let message = crate::types::Message {
             id: "quiet-message".into(),
             role: "user".into(),
-            persona: None,
+            persona: Some("all".into()),
             content: "횟수를 셀 도구가 필요해".into(),
             expression: None,
             created_at: chrono::Utc::now().timestamp_millis(),
             status: "complete".into(),
         };
         store::insert_message(&db, &message).unwrap();
+        assert!(store::context_messages(&db, 20)
+            .unwrap()
+            .iter()
+            .any(|value| value.id == message.id));
         skip_automatic_message(&db).unwrap();
         skip_automatic_message(&db).unwrap();
         let skipped: String = db
