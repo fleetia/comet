@@ -39,9 +39,10 @@ pub use memory::{delete_memory, edit_memory};
 #[cfg(test)]
 pub use messages::insert_message_with_talk;
 pub use messages::{
-    context_messages, context_messages_for, expire_generated_recall, insert_message,
-    insert_message_with_source, mark_message_displayed, message_identities, message_targets,
-    messages, resume_conversation, MessageIdentity,
+    context_messages, context_messages_for, expire_generated_recall, has_turn_replies,
+    insert_message, insert_message_with_playback, insert_message_with_source,
+    mark_message_displayed, message_displayed, message_identities, message_targets, messages,
+    resume_conversation, save_reply_scene, saved_reply, saved_reply_scene, MessageIdentity,
 };
 use messages::{initialize_identities, initialize_message_context};
 pub use search::{

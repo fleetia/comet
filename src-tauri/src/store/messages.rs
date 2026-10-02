@@ -1,5 +1,5 @@
 use super::{bump_revision, err, get, put, Result};
-use crate::types::Message;
+use crate::types::{Message, SceneLine};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +15,17 @@ pub(super) fn initialize_message_context(conn: &Connection) -> Result<()> {
             forgotten INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS message_context_expiry ON message_context(expires_at)
-            WHERE forgotten=0 AND expires_at IS NOT NULL;",
+            WHERE forgotten=0 AND expires_at IS NOT NULL;
+        CREATE TABLE IF NOT EXISTS message_playback(
+            message_id TEXT PRIMARY KEY REFERENCES messages(id),
+            revision INTEGER NOT NULL,
+            line TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS direct_reply_scenes(
+            message_id TEXT PRIMARY KEY REFERENCES messages(id),
+            revision INTEGER NOT NULL,
+            lines TEXT NOT NULL
+        );",
     )
     .map_err(err)?;
     if get::<bool>(&tx, "message_context_v1")? != Some(true) {
@@ -203,6 +213,17 @@ pub fn insert_message_with_source(
     scene_key: Option<&str>,
     direct_reply: bool,
 ) -> Result<()> {
+    insert_message_with_playback(conn, message, source, scene_key, direct_reply, None)
+}
+
+pub fn insert_message_with_playback(
+    conn: &Connection,
+    message: &Message,
+    source: &str,
+    scene_key: Option<&str>,
+    direct_reply: bool,
+    line: Option<&SceneLine>,
+) -> Result<()> {
     let tx = conn.unchecked_transaction().map_err(err)?;
     let changed = tx
         .execute(
@@ -215,6 +236,19 @@ pub fn insert_message_with_source(
         )
         .map_err(err)?;
     if changed > 0 {
+        if direct_reply {
+            if let Some(line) = line {
+                tx.execute(
+                    "INSERT INTO message_playback(message_id,revision,line) VALUES(?1,?2,?3)",
+                    params![
+                        message.id,
+                        super::revision(&tx)?,
+                        serde_json::to_string(line).map_err(err)?
+                    ],
+                )
+                .map_err(err)?;
+            }
+        }
         tx.execute(
             "INSERT INTO message_users VALUES(?1,?2)",
             params![message.id, super::active_user_id(&tx)?],
@@ -361,4 +395,301 @@ pub fn message_targets(conn: &Connection, message_id: &str) -> Result<Vec<String
 pub fn mark_message_displayed(conn: &Connection, id: &str, at: i64) -> Result<()> {
     conn.execute("INSERT OR IGNORE INTO message_presentations SELECT id,?2 FROM messages WHERE id=?1 AND role='assistant'",params![id,at]).map_err(err)?;
     Ok(())
+}
+
+pub fn message_displayed(conn: &Connection, id: &str) -> Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM message_presentations p
+         JOIN message_users u ON u.message_id=p.message_id
+         WHERE p.message_id=?1 AND u.user_id=?2)",
+        params![id, super::active_user_id(conn)?],
+        |row| row.get(0),
+    )
+    .map_err(err)
+}
+
+const RETRY_STALE: &str =
+    "저장된 답변의 근거가 바뀌었어요. 원문은 기록에 남아 있으니 새 메시지로 말해 주세요.";
+const RETRY_LEGACY: &str = "이전 버전 답변의 재생 정보를 확인할 수 없어요. 원문은 기록에 남아 있으니 새 메시지로 말해 주세요.";
+
+// Never manufacture playback metadata for a legacy raw message or overwrite its text.
+// The caller also owns the action/epoch gate; this check protects persisted provenance.
+pub fn saved_reply(conn: &Connection, id: &str) -> Result<Option<(SceneLine, String)>> {
+    let saved: Option<(String, String, Option<i64>, Option<String>)> = conn
+        .query_row(
+            "SELECT m.data,c.source,p.revision,p.line FROM messages m
+         JOIN message_context c ON c.message_id=m.id
+         LEFT JOIN message_playback p ON p.message_id=m.id
+         WHERE m.id=?1 AND m.role='assistant'",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()
+        .map_err(err)?;
+    let Some((raw, source, revision, line)) = saved else {
+        return Ok(None);
+    };
+    if super::message_user_id(conn, id)? != super::active_user_id(conn)? {
+        return Err(RETRY_STALE.into());
+    }
+    let (Some(revision), Some(line)) = (revision, line) else {
+        return Err(RETRY_LEGACY.into());
+    };
+    let message: Message = serde_json::from_str(&raw).map_err(err)?;
+    let line: SceneLine = serde_json::from_str(&line).map_err(err)?;
+    if revision != super::revision(conn)?
+        || !super::conversation_message_allowed(conn, &message, &line.persona)?
+        || message.content != line.text
+        || message.expression.as_deref() != Some(line.expression.as_str())
+        || message.persona.as_deref() != Some(line.persona.as_str())
+    {
+        return Err(RETRY_STALE.into());
+    }
+    Ok(Some((line, source)))
+}
+
+pub fn saved_reply_scene(conn: &Connection, message_id: &str) -> Result<Option<Vec<SceneLine>>> {
+    let saved: Option<(i64, String)> = conn
+        .query_row(
+            "SELECT revision,lines FROM direct_reply_scenes WHERE message_id=?1",
+            [message_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(err)?;
+    let Some((revision, lines)) = saved else {
+        return Ok(None);
+    };
+    if revision != super::revision(conn)?
+        || super::message_user_id(conn, message_id)? != super::active_user_id(conn)?
+    {
+        return Err(RETRY_STALE.into());
+    }
+    let lines: Vec<SceneLine> = serde_json::from_str(&lines).map_err(err)?;
+    let raw: String = conn
+        .query_row(
+            "SELECT data FROM messages WHERE id=?1 AND role='user'",
+            [message_id],
+            |row| row.get(0),
+        )
+        .map_err(err)?;
+    let input: Message = serde_json::from_str(&raw).map_err(err)?;
+    for line in &lines {
+        if !super::conversation_message_allowed(conn, &input, &line.persona)? {
+            return Err(RETRY_STALE.into());
+        }
+    }
+    Ok(Some(lines))
+}
+
+pub fn save_reply_scene(conn: &Connection, message_id: &str, lines: &[SceneLine]) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO direct_reply_scenes(message_id,revision,lines) VALUES(?1,?2,?3)",
+        params![
+            message_id,
+            super::revision(conn)?,
+            serde_json::to_string(lines).map_err(err)?
+        ],
+    )
+    .map_err(err)?;
+    Ok(())
+}
+
+pub fn has_turn_replies(conn: &Connection, message_id: &str, prefix: &str) -> Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM messages WHERE role='assistant'
+         AND substr(id,1,length(?1))=?1)",
+        [format!("{prefix}:{message_id}:")],
+        |row| row.get(0),
+    )
+    .map_err(err)
+}
+
+#[cfg(test)]
+mod retry_display_tests {
+    use super::*;
+    use crate::store;
+
+    fn setup(conn: &Connection) -> (Message, SceneLine, Message) {
+        let at = chrono::Utc::now().timestamp_millis();
+        store::set_user_name(conn, "첫 사용자", at).unwrap();
+        let input = Message {
+            id: "input".into(),
+            role: "user".into(),
+            persona: Some("all".into()),
+            content: "고마워".into(),
+            expression: None,
+            created_at: at,
+            status: "complete".into(),
+        };
+        insert_message(conn, &input).unwrap();
+        let line = SceneLine {
+            persona: "builtin-a".into(),
+            text: "  저장된 답변\n공백 보존  ".into(),
+            expression: "평온".into(),
+            motion: crate::character_reactions::MotionOverride::Static,
+        };
+        let reply = Message {
+            id: "reply:input:builtin-a".into(),
+            role: "assistant".into(),
+            persona: Some(line.persona.clone()),
+            content: line.text.clone(),
+            expression: Some(line.expression.clone()),
+            created_at: at,
+            status: "complete".into(),
+        };
+        store::record_recall(conn, &reply.id, &[], at).unwrap();
+        store::inherit_recall(conn, &reply.id, &[input.id.clone()]).unwrap();
+        insert_message_with_playback(conn, &reply, "llm", None, true, Some(&line)).unwrap();
+        (input, line, reply)
+    }
+
+    #[test]
+    fn retry_display_metadata_and_scene_are_immutable_and_survive_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("retry.sqlite");
+        let db = store::open(&path).unwrap();
+        let (input, line, reply) = setup(&db);
+        let lines = vec![
+            line.clone(),
+            SceneLine {
+                persona: "builtin-b".into(),
+                ..line.clone()
+            },
+        ];
+        save_reply_scene(&db, &input.id, &lines).unwrap();
+        let changed = SceneLine {
+            text: "바꾼 본문".into(),
+            motion: Default::default(),
+            ..line.clone()
+        };
+        insert_message_with_playback(
+            &db,
+            &Message {
+                content: changed.text.clone(),
+                ..reply.clone()
+            },
+            "wordbook",
+            None,
+            true,
+            Some(&changed),
+        )
+        .unwrap();
+        save_reply_scene(&db, &input.id, &[changed]).unwrap();
+        let raw = serde_json::to_value(messages(&db, 10).unwrap()).unwrap();
+        let affinity = serde_json::to_value(store::relationships(&db).unwrap()).unwrap();
+        assert_eq!(
+            db.query_row("SELECT COUNT(*) FROM character_affinity", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        drop(db);
+        let db = store::open(&path).unwrap();
+        let (saved, source) = saved_reply(&db, &reply.id).unwrap().unwrap();
+        assert_eq!(source, "llm");
+        assert_eq!(saved.text, line.text);
+        assert_eq!(saved.motion, line.motion);
+        assert_eq!(
+            serde_json::to_value(saved_reply_scene(&db, &input.id).unwrap().unwrap()).unwrap(),
+            serde_json::to_value(lines).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(messages(&db, 10).unwrap()).unwrap(),
+            raw
+        );
+        assert!(!message_displayed(&db, &reply.id).unwrap());
+        mark_message_displayed(&db, &reply.id, 1).unwrap();
+        mark_message_displayed(&db, &reply.id, 2).unwrap();
+        assert!(message_displayed(&db, &reply.id).unwrap());
+        assert_eq!(
+            serde_json::to_value(store::relationships(&db).unwrap()).unwrap(),
+            affinity
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT shown_at FROM message_presentations WHERE message_id=?1",
+                [&reply.id],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn retry_display_rejects_legacy_raw_without_inventing_metadata() {
+        let db = store::open(std::path::Path::new(":memory:")).unwrap();
+        let (_, _, reply) = setup(&db);
+        let legacy = Message {
+            id: "legacy".into(),
+            ..reply
+        };
+        insert_message_with_source(&db, &legacy, "llm", None, true).unwrap();
+        assert!(saved_reply(&db, &legacy.id)
+            .unwrap_err()
+            .contains("이전 버전"));
+        assert_eq!(
+            messages(&db, 10).unwrap().last().unwrap().content,
+            legacy.content
+        );
+        assert!(!message_displayed(&db, &legacy.id).unwrap());
+    }
+
+    #[test]
+    fn retry_display_never_revives_changed_owners_characters_or_recall_sources() {
+        for scenario in [
+            "revision",
+            "character",
+            "removed",
+            "user",
+            "excluded",
+            "dependency",
+        ] {
+            let db = store::open(std::path::Path::new(":memory:")).unwrap();
+            let (input, line, reply) = setup(&db);
+            save_reply_scene(&db, &input.id, &[line]).unwrap();
+            let raw = serde_json::to_value(messages(&db, 10).unwrap()).unwrap();
+            match scenario {
+                "revision" => {
+                    store::bump_revision(&db).unwrap();
+                }
+                "character" => {
+                    let mut character =
+                        crate::characters::active_character(&db, "builtin-a").unwrap();
+                    character.definition.description = "변경된 설정".into();
+                    crate::characters::save(&db, &character.id, &character.definition).unwrap();
+                }
+                "removed" => {
+                    crate::characters::apply_roster(&db, vec!["builtin-b".into()]).unwrap();
+                }
+                "user" => {
+                    store::set_user_name(&db, "다른 사용자", input.created_at + 1).unwrap();
+                }
+                "excluded" => {
+                    db.execute(
+                        "INSERT INTO memory_exclusions VALUES('builtin-a',?1,?2)",
+                        params![store::active_user_id(&db).unwrap(), input.id],
+                    )
+                    .unwrap();
+                }
+                _ => {
+                    // A missing dependency invalidates replay even if revision is unchanged.
+                    db.execute(
+                        "INSERT INTO recall_dependencies VALUES(?1,'deleted-memory',0)",
+                        [&reply.id],
+                    )
+                    .unwrap();
+                }
+            }
+            assert!(saved_reply(&db, &reply.id).is_err(), "{scenario}");
+            if scenario != "dependency" {
+                assert!(saved_reply_scene(&db, &input.id).is_err(), "{scenario}");
+            }
+            assert_eq!(
+                serde_json::to_value(messages(&db, 10).unwrap()).unwrap(),
+                raw
+            );
+        }
+    }
 }
