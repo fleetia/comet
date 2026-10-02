@@ -646,42 +646,54 @@ mod retry_display_tests {
             "excluded",
             "dependency",
         ] {
-            let db = store::open(std::path::Path::new(":memory:")).unwrap();
-            let (input, line, reply) = setup(&db);
-            save_reply_scene(&db, &input.id, &[line]).unwrap();
-            let raw = serde_json::to_value(messages(&db, 10).unwrap()).unwrap();
-            match scenario {
-                "revision" => {
-                    store::bump_revision(&db).unwrap();
-                }
-                "character" => {
-                    let mut character =
-                        crate::characters::active_character(&db, "builtin-a").unwrap();
-                    character.definition.description = "변경된 설정".into();
-                    crate::characters::save(&db, &character.id, &character.definition).unwrap();
-                }
-                "removed" => {
-                    crate::characters::apply_roster(&db, vec!["builtin-b".into()]).unwrap();
-                }
-                "user" => {
-                    store::set_user_name(&db, "다른 사용자", input.created_at + 1).unwrap();
-                }
-                "excluded" => {
-                    db.execute(
-                        "INSERT INTO memory_exclusions VALUES('builtin-a',?1,?2)",
-                        params![store::active_user_id(&db).unwrap(), input.id],
-                    )
-                    .unwrap();
-                }
-                _ => {
-                    // A missing dependency invalidates replay even if revision is unchanged.
-                    db.execute(
-                        "INSERT INTO recall_dependencies VALUES(?1,'deleted-memory',0)",
-                        [&reply.id],
-                    )
-                    .unwrap();
+            let state = crate::app::tests::state();
+            let (input, reply, raw) = {
+                let db = state.db.lock().unwrap();
+                let (input, line, reply) = setup(&db);
+                save_reply_scene(&db, &input.id, &[line]).unwrap();
+                let raw = serde_json::to_value(messages(&db, 10).unwrap()).unwrap();
+                (input, reply, raw)
+            };
+            if matches!(scenario, "character" | "removed") {
+                // Production character edits own revision/cancellation in this boundary;
+                // the low-level storage helpers deliberately do not invalidate on their own.
+                crate::character_commands::mutate(&state, |db| {
+                    if scenario == "character" {
+                        let mut character = crate::characters::active_character(db, "builtin-a")?;
+                        character.definition.description = "변경된 설정".into();
+                        crate::characters::save(db, &character.id, &character.definition)
+                    } else {
+                        crate::characters::apply_roster(db, vec!["builtin-b".into()])
+                    }
+                })
+                .unwrap();
+            } else {
+                let db = state.db.lock().unwrap();
+                match scenario {
+                    "revision" => {
+                        store::bump_revision(&db).unwrap();
+                    }
+                    "user" => {
+                        store::set_user_name(&db, "다른 사용자", input.created_at + 1).unwrap();
+                    }
+                    "excluded" => {
+                        db.execute(
+                            "INSERT INTO memory_exclusions VALUES('builtin-a',?1,?2)",
+                            params![store::active_user_id(&db).unwrap(), input.id],
+                        )
+                        .unwrap();
+                    }
+                    _ => {
+                        // A missing dependency invalidates replay even if revision is unchanged.
+                        db.execute(
+                            "INSERT INTO recall_dependencies VALUES(?1,'deleted-memory',0)",
+                            [&reply.id],
+                        )
+                        .unwrap();
+                    }
                 }
             }
+            let db = state.db.lock().unwrap();
             assert!(saved_reply(&db, &reply.id).is_err(), "{scenario}");
             if scenario != "dependency" {
                 assert!(saved_reply_scene(&db, &input.id).is_err(), "{scenario}");
