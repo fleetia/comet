@@ -539,7 +539,7 @@ mod retry_display_tests {
             status: "complete".into(),
         };
         store::record_recall(conn, &reply.id, &[], at).unwrap();
-        store::inherit_recall(conn, &reply.id, &[input.id.clone()]).unwrap();
+        store::inherit_recall(conn, &reply.id, std::slice::from_ref(&input.id)).unwrap();
         insert_message_with_playback(conn, &reply, "llm", None, true, Some(&line)).unwrap();
         (input, line, reply)
     }
