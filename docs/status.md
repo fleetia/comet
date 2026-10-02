@@ -11,7 +11,7 @@ description: 공식 위젯과 보조 화면의 소스 구현, 실제 검증 범�
 
 ## 2026-10-02 개발 계획 대조 후 연결 보완과 선택 기능
 
-**소스 구현과 클라우드 자동 검증. 지원 데스크톱 인수는 미완료.** 저장소와 로컬 작업 기록을 대조한 뒤 다음 변경을 통합했다. 작업 기준은 `f7f2a67`이며 마지막 코드 검증 기준은 `777eed7`이다. 아래 문서 정리 이외에는 그 뒤 코드를 바꾸지 않았다. 이 작업에서 사용자 설치본·프로필·모델을 변경하거나 원격 push·PR·릴리스·배포를 하지 않았다.
+**소스 구현·클라우드 자동 검증·지원 OS CI 통과. 실제 데스크톱 인수는 미완료.** 저장소와 로컬 작업 기록을 대조한 뒤 다음 변경을 통합했다. 작업 기준은 `f7f2a67`이며 클라우드의 마지막 코드 검증 기준은 `777eed7`이다. 그 뒤 문서만 정리한 `bf8a2f3`까지 원본 17개 커밋을 `codex/comet-audit-implementation`에 push하고 [Draft PR #17](https://github.com/fleetia/comet/pull/17)을 열었다. 아래 지원 OS CI는 정확히 `bf8a2f3`에 대한 결과다. 사용자 설치본·프로필·모델은 변경하지 않았으며 main 병합·릴리스·배포는 하지 않았다.
 
 | 항목 | 현재 소스 |
 | --- | --- |
@@ -24,7 +24,17 @@ description: 공식 위젯과 보조 화면의 소스 구현, 실제 검증 범�
 | 모델 후보 | 기존 8종에 Kanana 1.5 Instruct 2.1B·8B Q4_K_M을 추가했다. 공개 라이선스·고정 revision·LFS 크기/hash를 확인했고 실제 대화 미검증으로 표시한다. 기본값·기존 추천은 그대로이며 두 후보는 자동 추천과 위젯 제작에서 제외한다. [공급 근거와 제한](development/model-catalog.md). |
 | 공식 별꼬리 출처 표시 | 사용자 지정 문구 **기본 설치**, 원본 링크가 없어 빈 `sourceUrl`. 이는 표시용 값이며 제작자 신원이나 URL을 추정하지 않는다. 콘텐츠 이용 조건과 기존 설치의 수정 정보는 바꾸지 않는다. |
 
-**검증 결과**
+**GitHub CI 결과 — `bf8a2f3`**
+
+[Verify desktop #90](https://github.com/fleetia/comet/actions/runs/36999208707)은 프런트엔드·macOS arm64·Windows x64 모두 성공했다. [릴리스 자동화 검사](https://github.com/fleetia/comet/actions/runs/36999208941)도 성공했고, 실제 version/release job은 PR 조건에 따라 건너뛰었다.
+
+- 프런트엔드: 원본 `pnpm install --frozen-lockfile`, `pnpm check`, 전체 Vitest 59개 파일·421개, production build 통과.
+- macOS 14 arm64: Rust 1.85.0에서 NLP 2개, 앱 638개 통과·실패 0개·기존 제외 5개. main/doc-test 통과.
+- Windows x64: Rust 1.85.0에서 NLP 2개, 앱 620개 통과·실패 0개·기존 제외 5개. main/doc-test 통과. 플랫폼별 조건부 테스트가 달라 개수 차이가 난다.
+- 세 runner 모두 원본 lockfile 공급망 검사 328개와 registry의 `@fleetia/lagrange 0.2.2` 설치를 통과했다. 아래 클라우드 VM의 대체 소스 빌드 검증과 구분되는 정상 CI 설치 결과다.
+- sidecar/NLP 준비는 기존 캐시를 사용했다. PR workflow는 네이티브 bundle 생성·서명/아카이브 검사·artifact 업로드를 건너뛰므로 이 CI를 새 설치 파일의 빌드·실행 검증으로 표현하지 않는다. 실제 화면 동작과 모델 의미 품질도 여전히 별도 인수다.
+
+**클라우드 VM 검증 결과**
 
 - Rust 전체: `cargo test --locked --manifest-path src-tauri/Cargo.toml`, 628개 통과·실패 0개·기존 제외 5개. main/doc-test와 예제 컴파일도 통과했다. 제외 5개는 실제 모델 의미 smoke 3개, NLP fixture-vector 평가와 진단 benchmark이며 실행한 품질 검사로 세지 않는다.
 - 프런트엔드: TypeScript·전체 Oxlint, Vitest 59개 파일·421개 통과. 최종 전체 실행은 `--maxWorkers=2`를 사용했다. 앞선 위키·Rust 동시 실행 중 AnimationEditor 한 건이 기존 5초 제한을 넘었으나 단독 7개와 최종 전체 421개가 같은 제한으로 통과했다. 테스트를 제외하거나 제한 시간을 늘리지 않았다.
