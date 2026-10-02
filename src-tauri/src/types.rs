@@ -19,6 +19,10 @@ pub enum LocalModel {
     Gemma4_12B,
     #[serde(rename = "ministral-3-8b")]
     Ministral3_8B,
+    #[serde(rename = "kanana-1.5-2.1b-instruct-2505")]
+    Kanana15_2_1B,
+    #[serde(rename = "kanana-1.5-8b-instruct-2505")]
+    Kanana15_8B,
     #[serde(rename = "custom")]
     Custom,
 }
@@ -423,6 +427,27 @@ mod tests {
                 .unwrap()
                 .local_idle_enabled
         );
+    }
+
+    #[test]
+    fn experimental_kanana_selection_round_trips_without_changing_defaults() {
+        assert_eq!(Settings::default().local_model, LocalModel::Qwen35_4B);
+        for (model, id) in [
+            (LocalModel::Kanana15_2_1B, "kanana-1.5-2.1b-instruct-2505"),
+            (LocalModel::Kanana15_8B, "kanana-1.5-8b-instruct-2505"),
+        ] {
+            let settings = Settings {
+                local_model: model,
+                local_reasoning_enabled: true,
+                idle_minutes: 12,
+                ..Settings::default()
+            };
+            let saved = serde_json::to_value(&settings).unwrap();
+            assert_eq!(saved["localModel"], id);
+            let reopened: Settings = serde_json::from_value(saved.clone()).unwrap();
+            assert_eq!(reopened.local_model, model);
+            assert_eq!(serde_json::to_value(reopened).unwrap(), saved);
+        }
     }
 
     #[test]

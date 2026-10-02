@@ -138,6 +138,39 @@ it("shows how the chosen model fits this computer and offers the recommended one
   expect(screen.queryByRole("button", { name: "추천 모델 선택" })).toBeNull();
 });
 
+it.each([
+  ["kanana-1.5-2.1b-instruct-2505", "Kanana 1.5 2.1B Instruct", "1.52"],
+  ["kanana-1.5-8b-instruct-2505", "Kanana 1.5 8B Instruct", "4.92"],
+])(
+  "keeps experimental Korean candidate %s selectable without recommending it",
+  async (id, name, size) => {
+    render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="model" />);
+    const select = screen.getByLabelText("로컬 모델");
+    expect(select).toHaveProperty("value", "qwen3.5-4b");
+    const option = screen.getByRole("option", { name: new RegExp(`^${name} ·`) });
+    expect(option.textContent).toContain("한국어");
+    expect(option.textContent).toContain("실험");
+    expect(option.textContent).toContain("실제 대화 미검증");
+    expect(option.textContent).not.toContain("이 컴퓨터 추천");
+    fireEvent.change(select, { target: { value: id } });
+    expect(select).toHaveProperty("value", id);
+    expect(screen.getByText(`${name} Q4_K_M · 다운로드 ${size} GB`)).toBeTruthy();
+    expect(screen.queryByText(/위젯 제작 가능/)).toBeNull();
+    expect(command).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "변경 취소" }));
+    expect(select).toHaveProperty("value", "qwen3.5-4b");
+    fireEvent.change(select, { target: { value: id } });
+    fireEvent.click(screen.getByRole("button", { name: "AI 연결 저장" }));
+    await waitFor(() =>
+      expect(command).toHaveBeenLastCalledWith("save_settings", {
+        settings: { ...PREVIEW_SNAPSHOT.settings, localModel: id },
+        scope: "model",
+        apiKey: null,
+      }),
+    );
+  },
+);
+
 it("asks before downloading a model that this computer's memory cannot hold", async () => {
   const snapshot = {
     ...PREVIEW_SNAPSHOT,

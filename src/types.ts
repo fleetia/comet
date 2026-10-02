@@ -152,6 +152,8 @@ export type LocalModel =
   | "gemma-4-e4b"
   | "gemma-4-12b"
   | "ministral-3-8b"
+  | "kanana-1.5-2.1b-instruct-2505"
+  | "kanana-1.5-8b-instruct-2505"
   | "custom";
 export type LocalModelStatus = {
   id: LocalModel;
