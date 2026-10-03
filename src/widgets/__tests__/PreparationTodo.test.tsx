@@ -101,6 +101,20 @@ it("distinguishes stale source data from a cancelled or removed event", () => {
   view.rerender(<PreparationTool widget={preparation} widgets={[calendar("ready")]} act={act} />);
   expect(screen.queryByText(/연결 끊김/)).toBeNull();
   expect(screen.queryByText(/이전 일정 정보/)).toBeNull();
+  view.rerender(
+    <PreparationTool
+      widget={preparation}
+      widgets={[
+        widget("calendar", {
+          connections: [],
+          events: [{ id: "event", connectionId: "local", title: "팀 회의", cancelled: false }],
+        }),
+      ]}
+      act={act}
+    />,
+  );
+  expect(screen.queryByText(/연결 끊김|이전 일정 정보/)).toBeNull();
+  expect(screen.getByLabelText("자료 준비")).toBeTruthy();
 });
 
 it("rolls a 01:00 KST task to the chosen local day with an explicit timestamp", async () => {

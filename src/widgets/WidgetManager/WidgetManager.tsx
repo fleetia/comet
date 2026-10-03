@@ -871,7 +871,7 @@ function runtimeLabel(state: WindowState | undefined, shared: boolean): string {
   if (!state) {
     return isDesktop() ? "창 상태 확인 중" : "데스크톱에서 확인";
   }
-  const name = shared ? "플래너" : "위젯 창";
+  const name = shared ? "다이어리" : "위젯 창";
   switch (state) {
     case "visible":
       return `${name} 열림`;

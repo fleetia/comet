@@ -106,6 +106,7 @@ fn reconcile(app: &tauri::AppHandle, focus: Option<&str>) -> Result<(), String> 
                 .inner_size(320.0, 320.0)
                 .min_inner_size(260.0, 220.0)
                 .decorations(false)
+                .disable_drag_drop_handler()
                 .maximizable(false)
                 .focused(false)
                 .visible(false)

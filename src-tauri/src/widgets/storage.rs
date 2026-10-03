@@ -407,6 +407,10 @@ pub fn verify_packages(db: &Connection, directory: &Path) -> Result<()> {
             let previous = if instance.kind == "paper-plane" {
                 definition.description = "드래그로 날리고 비행 기록을 남겨요".into();
                 Some(serde_json::to_vec(&definition).map_err(err)?)
+            } else if instance.kind == "preparation" {
+                definition.description = "일정별 체크리스트와 자료 링크".into();
+                definition.required = vec!["calendar".into()];
+                Some(serde_json::to_vec(&definition).map_err(err)?)
             } else {
                 None
             };
@@ -501,8 +505,13 @@ pub fn execute(db: &Connection, request: &WidgetRequest, now: i64, entropy: u64)
             return Err("함께 지내는 캐릭터가 바뀌었어요. 다시 골라 주세요.".into());
         }
     }
-    let related = active_data(&tx)?;
-    if instance.kind == "preparation" && request.action == "create" {
+    let mut related = active_data(&tx)?;
+    if instance.kind == "preparation"
+        && matches!(request.action.as_str(), "create" | "update")
+        && request.input["eventId"]
+            .as_str()
+            .is_some_and(|id| !id.is_empty())
+    {
         let id = request.input["eventId"]
             .as_str()
             .ok_or("일정을 선택해 주세요.")?;
@@ -518,7 +527,11 @@ pub fn execute(db: &Connection, request: &WidgetRequest, now: i64, entropy: u64)
             return Err("현재 조회할 수 있는 일정을 선택해 주세요.".into());
         }
     }
-    let effect = super::act(&instance, request, &related, now, entropy)?;
+    let effect = if instance.kind == "preparation" && request.action == "check-promote" {
+        promote_preparation_check(&tx, &instance, request, &mut related, now, entropy)?
+    } else {
+        super::act(&instance, request, &related, now, entropy)?
+    };
     apply_effect(&tx, instance, effect, now)?;
     tx.execute(
         "INSERT INTO widget_requests VALUES(?1,?2)",
@@ -526,6 +539,117 @@ pub fn execute(db: &Connection, request: &WidgetRequest, now: i64, entropy: u64)
     )
     .map_err(err)?;
     tx.commit().map_err(err)
+}
+
+fn promote_preparation_check(
+    db: &Connection,
+    preparation: &WidgetInstance,
+    request: &WidgetRequest,
+    related: &mut BTreeMap<String, Value>,
+    now: i64,
+    entropy: u64,
+) -> Result<WidgetEffect> {
+    let check = preparation.data["envelopes"]
+        .as_array()
+        .and_then(|envelopes| {
+            envelopes
+                .iter()
+                .find(|envelope| envelope["id"] == request.input["id"])
+        })
+        .and_then(|envelope| envelope["checks"].as_array())
+        .and_then(|checks| {
+            checks
+                .iter()
+                .find(|check| check["id"] == request.input["checkId"])
+        })
+        .ok_or("준비 항목을 찾을 수 없습니다.")?;
+    if check["done"] == true {
+        return Err("완료한 준비 항목은 먼저 완료를 취소해 주세요.".into());
+    }
+    let selected = request.input["plannedDate"]
+        .as_str()
+        .ok_or("계획할 날짜를 선택해 주세요.")?;
+    let todo = instances(db)?
+        .into_iter()
+        .find(|item| item.kind == "todo" && item.installed && item.enabled)
+        .ok_or("할 일 위젯을 켜 주세요.")?;
+    let todo_effect = super::planning::act(
+        "todo",
+        &todo.data,
+        "add",
+        &json!({"title":check["text"],"plannedDate":selected}),
+        related,
+        now,
+        entropy,
+    )?;
+    let todo_id = todo_effect.data["items"]
+        .as_array()
+        .and_then(|items| items.last())
+        .and_then(|item| item["id"].as_str())
+        .ok_or("할 일을 만들지 못했습니다.")?;
+    let mut input = request.input.clone();
+    input["todoId"] = json!(todo_id);
+    related.insert("todo".into(), todo_effect.data.clone());
+    let effect = super::planning::act(
+        "preparation",
+        &preparation.data,
+        "check-promote",
+        &input,
+        related,
+        now,
+        entropy,
+    )?;
+    apply_effect(db, todo, todo_effect, now)?;
+    Ok(effect)
+}
+
+/// The diary transaction owns both the move history and the live planning change.
+pub(crate) fn move_diary_todo(
+    db: &Connection,
+    todo_id: &str,
+    from_date: &str,
+    to_date: &str,
+    title: &str,
+) -> Result<()> {
+    let todo = instances(db)?
+        .into_iter()
+        .find(|item| item.kind == "todo" && item.installed && item.enabled)
+        .ok_or("할 일 위젯을 켜 주세요.")?;
+    let item = todo.data["items"]
+        .as_array()
+        .and_then(|items| items.iter().find(|item| item["id"] == todo_id))
+        .ok_or("옮길 할 일을 찾을 수 없습니다.")?;
+    let planned = if item.get("plannedDate").is_some() {
+        item["plannedDate"].as_str().map(str::to_owned)
+    } else {
+        item["dueDate"].as_str().map(str::to_owned).or_else(|| {
+            item["dueAt"]
+                .as_i64()
+                .and_then(chrono::DateTime::from_timestamp_millis)
+                .map(|at| {
+                    at.with_timezone(&chrono::Local)
+                        .format("%Y-%m-%d")
+                        .to_string()
+                })
+        })
+    };
+    if planned.as_deref() != Some(from_date)
+        || item["title"] != title
+        || item["completedAt"].is_number()
+    {
+        return Err("할 일이 바뀌었거나 이미 완료됐어요. 최신 내용을 다시 확인해 주세요.".into());
+    }
+    let now = chrono::Utc::now().timestamp_millis();
+    let effect = super::planning::act(
+        "todo",
+        &todo.data,
+        "plan",
+        &json!({"ids":[todo_id],"date":to_date}),
+        &BTreeMap::new(),
+        now,
+        0,
+    )?;
+    apply_effect(db, todo, effect, now)
 }
 
 fn apply_effect(

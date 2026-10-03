@@ -22,7 +22,7 @@ description: 현재 Tauri 앱의 코드 소유권과 생활 도구·외부 위�
 | `src/hooks/useCharacterGestures.ts` | OS 더블클릭 간격에 따른 클릭 후보·입력 분리, 우클릭·키보드 메뉴, 끌기 요청. 실제 시작·놓기는 네이티브 사건으로 확인 |
 | `src/hooks/useAnimationFrames.ts`, `useAnimationPlayer.ts`, `useCharacterAnimation.ts`, `src/components/AnimationFrameView/` | 프레임 준비·고정 크기 렌더, 경과 시간 기반 재생, 본체의 상황 우선순위·중단. 편집기와 본체가 프레임 준비·재생 로직을 공유한다. |
 | `src/widgets/WidgetManager/WidgetManager.tsx`, `src/widgets/WidgetTool/WidgetTool.tsx` | 통합 설정 안의 설치·활성·표시·연결 관리와 별도 실행 창의 실제 위젯 작업을 분리 |
-| `src/widgets/Planner/`, `src/widgets/PlannerAlerts/` | 플래너의 오늘·기간 계획·주간/월간 캘린더·템플릿·회차 편집과 생활 알림 설정. 화면은 위젯 snapshot을 읽고 호스트 명령으로 저장한다. |
+| `src/widgets/Planner/`, `src/widgets/PlannerAlerts/` | 다이어리의 공통 화면·월간/주간/하루와 본문 안의 기간 계획·템플릿·할 일 관리, 캘린더 정보·회차 편집과 생활 알림 설정. 화면은 위젯·다이어리 snapshot을 읽고 호스트 명령으로 저장하며 숨긴 관리 패널의 초안과 종료 확인은 다이어리가 함께 관리한다. |
 | `src/hooks/useBalloonSizing.ts`, `src/components/Balloon/Balloon.tsx` | hook은 데스크톱의 ResizeObserver·requestAnimationFrame·네이티브 크기 변경을 관리하고, Balloon은 메뉴·입력·기록·스토리·대사를 표시한다. |
 | `src/main.tsx`, `src/lagrange.css.ts`, `src/desktop.css.ts` | 모든 화면에 적용하는 공통 테마·reset·글꼴 역할, 공용 폼 스타일과 보조 화면 레이아웃. 위젯 컴포넌트는 `src/widgets/<Tool>/<Tool>.tsx`, 위젯별 배치는 `src/widgets/WidgetManager/widgetManager.css.ts`와 `src/widgets/tools.css.ts`가 담당한다. |
 | `src/hooks/useSnapshot.ts`, `src/types.ts` | Rust 상태 수신·이벤트 구독과 화면용 타입 |
@@ -119,9 +119,11 @@ macOS의 `start_dragging`/AppKit 요청은 Window Server에 이동을 맡긴 뒤
 
 ## 플래너의 실행·저장·알림 경계 {#planner-boundaries}
 
-`view=planner`는 기존 `todo`·`calendar`·`preparation`·`focus-timer` 위젯의 상태를 함께 표시하는 실행 화면이다. 새 플래너 저장소나 외부 일정 쓰기 계층을 만들지 않는다. `open_widget`의 할 일·캘린더 진입은 `planner_windows::open`으로 같은 창을 재사용하고, 연결·알림 설정은 `open_planner_settings`가 기존 `settings` 창의 위젯 영역으로 전달한다. 로컬 할 일 작업은 캘린더 인증·네트워크·LLM에 의존하지 않는다.
+`view=planner`는 다이어리와 기존 `todo`·`calendar`·`preparation`·`focus-timer` 위젯의 상태를 함께 표시하는 실행 화면이다. 다이어리의 페이지·계속 쓸 메모·이동 기록은 SQLite `diary_state`가 소유한다. 할 일·Comet 일정·준비 봉투·낱장 메모·타이머는 기존 `widget_instances.data`에 남으며 다이어리는 원본 ID를 참조한다. 본문 통합을 위해 위젯 소유 데이터를 별도 작업 데이터로 복제하지 않는다. `open_widget`의 할 일·캘린더 진입은 `planner_windows::open`으로 같은 창을 재사용하고, 연결·알림 설정은 `open_planner_settings`가 기존 `settings` 창의 위젯 영역으로 전달한다. 로컬 기록·할 일 작업은 캘린더 인증·네트워크·LLM에 의존하지 않으며 외부 일정 쓰기는 제공하지 않는다.
 
-변경은 기존 `execute_widget` → `widget_commands::change` → `widgets::storage::execute`를 통과한다. `requestId`의 UUID와 요청 fingerprint로 재전송을 구분하고 `expectedRevision`이 현재 위젯 revision과 같을 때만 transaction을 적용한다. `batch-add`의 새 목록·선택 항목은 함께 성공하거나 함께 취소된다. `plan`은 선택한 항목의 `plannedDate`를 바꾸고 기한을 건드리지 않으며, 기존 `rollover`는 기한 변경의 호환 명령으로 남는다. 공개 입력 의미와 제한의 원본은 [할 일과 캘린더](../product/planning.md)다.
+다이어리 변경은 `useDiary` → `update_diary` → `diary::update`를 통과한다. 호스트의 action 경계 안에서 다이어리의 `expectedRevision`을 검사하고 `diary_state`를 transaction으로 저장한 뒤 `diary-updated`를 전달한다. `move-record`는 같은 transaction에서 `widgets::storage::move_diary_todo`를 호출해 원본 Todo의 계획 날짜와 다이어리의 이동 기록을 함께 저장한다. 기한은 보존하며 실패 시 둘 다 반영하지 않는다.
+
+위젯 작업은 기존 `execute_widget` → `widget_commands::change` → `widgets::storage::execute`를 사용한다. `requestId`의 UUID와 요청 fingerprint로 재전송을 구분하고 `expectedRevision`이 해당 위젯의 revision과 같을 때만 transaction을 적용한다. 이 revision은 다이어리 revision과 별개다. `batch-add`의 새 목록·선택 항목은 함께 성공하거나 함께 취소된다. `plan`은 선택한 항목의 `plannedDate`를 바꾸고 기한을 건드리지 않으며, 기존 `rollover`는 기한 변경의 호환 명령으로 남는다. 공개 입력 의미와 제한의 원본은 [할 일과 캘린더](../product/planning.md)다.
 
 할 일은 `widget_instances.data`의 기존 JSON을 확장한다. `planPeriod`·`planAnchor`·`plannedDate`와 `repeatRule`·`frequencyRecords`를 읽되 이전 데이터의 기한·완료·생성 연결을 보존한다. `plannedDate`가 없던 항목만 기존 기한의 지역 날짜를 승계하고 명시적인 `null`은 그대로 둔다. `planning/recurrence.rs`는 새 규칙의 지역 시각과 월 날짜 앵커를 계산하며, 기존 `repeat` 문자열의 UTC·월말 계산은 별도로 보존한다. DST가 모호하거나 존재하지 않는 시각은 오류로 반환한다.
 

@@ -19,6 +19,7 @@ import {
   type ToolAction,
 } from "../toolData";
 import type { WidgetView } from "../types";
+import { WidgetDragHandle } from "../WidgetDragHandle";
 import * as c from "../../lagrange.css";
 import * as s from "../tools.css";
 import * as todo from "./todoTool.css";
@@ -267,6 +268,10 @@ export function TodoTool({ widget, act }: Props): ReactElement {
               {text(item.title)}
             </Checkbox>
             <div className={s.row}>
+              <WidgetDragHandle
+                payload={{ v: 1, kind: "todo", widgetId: widget.id, itemId: text(item.id) }}
+                title={text(item.title)}
+              />
               <Button variant="secondary" size="compact" onClick={() => edit(item)}>
                 수정
               </Button>

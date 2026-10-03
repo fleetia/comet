@@ -16,6 +16,7 @@ mod desktop_menu;
 mod desktop_toys;
 mod device;
 mod device_wake;
+mod diary;
 mod domain;
 mod exbrain;
 mod generated_widget_commands;

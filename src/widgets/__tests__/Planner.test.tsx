@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { listen } from "@tauri-apps/api/event";
 import type { ReactElement } from "react";
 import { command } from "../../hooks/useSnapshot";
 import { useWidgets } from "../useWidgets";
@@ -108,6 +109,7 @@ beforeEach(() => {
   native.close.mockReset().mockResolvedValue(undefined);
   native.destroy.mockReset().mockResolvedValue(undefined);
   native.startDragging.mockReset().mockResolvedValue(undefined);
+  vi.mocked(listen).mockClear();
   reload.mockReset();
   window.history.replaceState(null, "", "/?view=planner");
   HTMLDialogElement.prototype.showModal = function (): void {
@@ -503,6 +505,52 @@ it("submits selected template rows as one batch and preserves the choices when i
   expect(act.mock.calls[1]).toEqual(act.mock.calls[0]);
 });
 
+it("shows Comet events in Today and Calendar without a remote connection", async () => {
+  await renderPlanner(
+    snapshot(
+      [],
+      [
+        widget("calendar", {
+          connections: [],
+          events: [
+            {
+              id: "local",
+              connectionId: "local",
+              title: "Comet 독서 모임",
+              allDay: true,
+              startDate: TODAY,
+              endDate: "2026-09-22",
+              cancelled: false,
+            },
+            {
+              id: "orphan",
+              connectionId: "removed",
+              title: "해제한 연결 일정",
+              allDay: true,
+              startDate: TODAY,
+              endDate: "2026-09-22",
+              cancelled: false,
+            },
+          ],
+        }),
+      ],
+    ),
+  );
+  const today = within(screen.getByRole("tabpanel", { name: "오늘" }));
+  expect(today.getByText("Comet 독서 모임")).toBeTruthy();
+  expect(today.getByText("Comet")).toBeTruthy();
+  expect(today.getByText("종일 · Comet에 저장한 일정")).toBeTruthy();
+  expect(today.queryByText(/읽기 전용|이전에 확인한 일정/)).toBeNull();
+  expect(today.queryByRole("button", { name: "캘린더 연결" })).toBeNull();
+  expect(screen.queryByText("해제한 연결 일정")).toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "캘린더" }));
+  expect(
+    within(screen.getByRole("region", { name: "월간 캘린더" })).getByRole("button", {
+      name: "종일 Comet 독서 모임",
+    }),
+  ).toBeTruthy();
+});
+
 it("keeps cached external events readable without exposing task completion or calendar writes", async () => {
   const event = {
     id: "event-one",
@@ -536,6 +584,9 @@ it("keeps cached external events readable without exposing task completion or ca
   expect(
     within(screen.getByRole("tabpanel", { name: "오늘" })).getByText("캐시된 독서 모임"),
   ).toBeTruthy();
+  const today = within(screen.getByRole("tabpanel", { name: "오늘" }));
+  expect(today.getByText(/개인 · 읽기 전용/)).toBeTruthy();
+  expect(today.getByText(/이전에 확인한 일정입니다/)).toBeTruthy();
   expect(screen.queryByRole("checkbox", { name: /캐시된 독서 모임/ })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "원본 일정 ↗" }));
   await waitFor(() =>
@@ -837,4 +888,164 @@ it("shows free time beside the planner calendar only after a fresh read of every
     ),
   ).toBeTruthy();
   expect(screen.queryByText("10:00 – 12:00")).toBeNull();
+});
+
+it("embeds task tools without a second header, navigation, calendar or native close owner", () => {
+  useSnapshot(
+    snapshot([item("daily", "오늘 할 일")], [widget("calendar", { connections: [], events: [] })]),
+  );
+  const onStateChange = vi.fn();
+  const onNavigate = vi.fn();
+  render(<Planner embeddedTab="today" onNavigate={onNavigate} onStateChange={onStateChange} />);
+  expect(screen.queryByRole("button", { name: "플래너 닫기" })).toBeNull();
+  expect(screen.queryByRole("tablist")).toBeNull();
+  expect(screen.queryByRole("region", { name: "월간 캘린더", hidden: true })).toBeNull();
+  expect(screen.queryByText("오늘 일정 · 0")).toBeNull();
+  expect(native.onCloseRequested).not.toHaveBeenCalled();
+  expect(listen).not.toHaveBeenCalledWith("planner-tab", expect.anything());
+  expect(command).not.toHaveBeenCalledWith("get_planner_tab");
+  expect(screen.getByRole("button", { name: "25분 집중" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "하루 마무리" })).toBeTruthy();
+  expect(onStateChange).toHaveBeenLastCalledWith({ dirty: false, busy: false, blocking: false });
+  fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
+    target: { value: "진행 중인 계획" },
+  });
+  expect(onStateChange).toHaveBeenLastCalledWith({ dirty: true, busy: false, blocking: false });
+  fireEvent.click(screen.getByRole("button", { name: "수집함 0" }));
+  expect(onNavigate).toHaveBeenCalledWith("plans");
+});
+
+it("keeps an embedded template draft across menu changes and reports its dirty state", () => {
+  useSnapshot(snapshot([]));
+  const onStateChange = vi.fn();
+  const view = render(<Planner embeddedTab="templates" onStateChange={onStateChange} />);
+  fireEvent.click(screen.getByRole("button", { name: "건강 관리" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "가볍게 스트레칭하기" }));
+  fireEvent.change(screen.getByLabelText("건강검진 날짜 알아보기 첫 날짜"), {
+    target: { value: "2026-11-09" },
+  });
+  expect(onStateChange).toHaveBeenLastCalledWith({ dirty: true, busy: false, blocking: false });
+  view.rerender(<Planner embeddedTab="plans" onStateChange={onStateChange} />);
+  expect(screen.queryByRole("heading", { name: "건강 관리" })).toBeNull();
+  view.rerender(<Planner embeddedTab="templates" onStateChange={onStateChange} />);
+  expect(screen.getByRole("heading", { name: "건강 관리" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "가볍게 스트레칭하기" })).toHaveProperty(
+    "checked",
+    false,
+  );
+  expect(screen.getByLabelText("건강검진 날짜 알아보기 첫 날짜")).toHaveProperty(
+    "value",
+    "2026-11-09",
+  );
+  expect(screen.getByRole("button", { name: "선택한 3개 추가" })).toBeTruthy();
+});
+
+it("opens the saved template's selected period and anchor inside the controlled diary tools", async () => {
+  useSnapshot(snapshot([]));
+  const onStateChange = vi.fn();
+  const onNavigate = vi.fn();
+  const view = render(
+    <Planner embeddedTab="templates" onNavigate={onNavigate} onStateChange={onStateChange} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "건강 관리" }));
+  for (const title of [
+    "가볍게 스트레칭하기",
+    "잠들기 전 화면 내려놓기",
+    "건강검진 날짜 알아보기",
+  ]) {
+    fireEvent.click(screen.getByRole("checkbox", { name: title }));
+  }
+  fireEvent.change(screen.getByLabelText("20분 산책하기 첫 날짜"), {
+    target: { value: "2026-11-09" },
+  });
+  fireEvent.change(
+    within(screen.getByRole("region", { name: "템플릿" })).getByRole("combobox", {
+      name: "계획 기간",
+    }),
+    { target: { value: "month" } },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "선택한 1개 추가" }));
+  await screen.findByRole("button", { name: "기간 계획에서 보기" });
+  await waitFor(() =>
+    expect(onStateChange).toHaveBeenLastCalledWith({ dirty: false, busy: false, blocking: false }),
+  );
+  expectAction("batch-add", {
+    listName: "건강 관리",
+    items: [
+      expect.objectContaining({
+        title: "20분 산책하기",
+        planPeriod: "month",
+        planAnchor: "2026-11-01",
+        plannedDate: null,
+      }),
+    ],
+  });
+  fireEvent.click(screen.getByRole("button", { name: "기간 계획에서 보기" }));
+  expect(onNavigate).toHaveBeenCalledWith("plans");
+  view.rerender(
+    <Planner embeddedTab="plans" onNavigate={onNavigate} onStateChange={onStateChange} />,
+  );
+  expect(screen.getByRole("button", { name: "이번 달" }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByText("2026-11-01")).toBeTruthy();
+});
+
+it("reports an embedded modal as blocking until it closes", () => {
+  useSnapshot(snapshot([]));
+  const onStateChange = vi.fn();
+  render(<Planner embeddedTab="plans" onStateChange={onStateChange} />);
+  fireEvent.click(screen.getByRole("button", { name: "목록 관리" }));
+  expect(onStateChange).toHaveBeenLastCalledWith({ dirty: true, busy: false, blocking: true });
+  fireEvent.click(screen.getByRole("button", { name: "목록 관리 닫기" }));
+  expect(onStateChange).toHaveBeenLastCalledWith({ dirty: false, busy: false, blocking: false });
+});
+
+it("dismisses embedded dialogs without resetting other planning and template drafts", async () => {
+  useSnapshot(
+    snapshot([item("weekly", "이번 주 준비", { planPeriod: "week", planAnchor: TODAY })]),
+  );
+  const onStateChange = vi.fn();
+  const view = render(
+    <Planner embeddedTab="templates" dismissVersion={0} onStateChange={onStateChange} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "건강 관리" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "가볍게 스트레칭하기" }));
+  fireEvent.change(screen.getByLabelText("건강검진 날짜 알아보기 첫 날짜"), {
+    target: { value: "2026-11-09" },
+  });
+  view.rerender(<Planner embeddedTab="plans" dismissVersion={0} onStateChange={onStateChange} />);
+  fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
+    target: { value: "보존할 계획 초안" },
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: "목록 관리" }));
+  expect(screen.getByRole("dialog", { name: "목록 관리" })).toBeTruthy();
+  view.rerender(<Planner embeddedTab="plans" dismissVersion={1} onStateChange={onStateChange} />);
+  expect(screen.queryByRole("dialog", { name: "목록 관리" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "이번 주 준비 편집" }));
+  expect(screen.getByRole("dialog", { name: "할 일 편집" })).toBeTruthy();
+  view.rerender(<Planner embeddedTab="today" dismissVersion={2} onStateChange={onStateChange} />);
+  expect(screen.queryByRole("dialog", { name: "할 일 편집" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "하루 마무리" }));
+  expect(screen.getByRole("dialog", { name: "오늘은 여기까지" })).toBeTruthy();
+  view.rerender(
+    <Planner embeddedTab="templates" dismissVersion={3} onStateChange={onStateChange} />,
+  );
+  expect(screen.queryByRole("dialog", { name: "오늘은 여기까지" })).toBeNull();
+  await waitFor(() =>
+    expect(onStateChange).toHaveBeenLastCalledWith({ dirty: true, busy: false, blocking: false }),
+  );
+  expect(screen.getByRole("heading", { name: "건강 관리" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "가볍게 스트레칭하기" })).toHaveProperty(
+    "checked",
+    false,
+  );
+  expect(screen.getByLabelText("건강검진 날짜 알아보기 첫 날짜")).toHaveProperty(
+    "value",
+    "2026-11-09",
+  );
+  view.rerender(<Planner embeddedTab="plans" dismissVersion={3} onStateChange={onStateChange} />);
+  expect(screen.getByRole("textbox", { name: "새 할 일" })).toHaveProperty(
+    "value",
+    "보존할 계획 초안",
+  );
 });

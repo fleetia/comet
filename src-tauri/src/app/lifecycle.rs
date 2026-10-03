@@ -475,6 +475,8 @@ pub fn run() {
             crate::memo_notes::request_close_memo_note,
             crate::memo_notes::save_memo_note,
             widget_commands::get_widgets,
+            crate::diary::get_diary,
+            crate::diary::update_diary,
             crate::widget_runtime::get_widget_runtime,
             widget_commands::install_widgets,
             widget_commands::finish_widget_onboarding,

@@ -151,17 +151,18 @@ fn targets(
         if event["cancelled"] == true {
             continue;
         }
-        let fresh = data["connections"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|connection| {
-                connection["id"] == event["connectionId"]
-                    && matches!(connection["status"].as_str(), Some("ready" | "syncing"))
-                    && connection["lastSuccessAt"]
-                        .as_i64()
-                        .is_some_and(|time| now >= time && now - time <= 30 * 60 * 1000)
-            });
+        let fresh = event["connectionId"] == "local"
+            || data["connections"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|connection| {
+                    connection["id"] == event["connectionId"]
+                        && matches!(connection["status"].as_str(), Some("ready" | "syncing"))
+                        && connection["lastSuccessAt"]
+                            .as_i64()
+                            .is_some_and(|time| now >= time && now - time <= 30 * 60 * 1000)
+                });
         if !fresh {
             continue;
         }
@@ -502,6 +503,29 @@ mod tests {
             .unwrap()
             .is_empty());
     }
+    #[test]
+    fn local_calendar_alerts_work_offline_and_honor_existing_preferences() {
+        let mut value = data();
+        value["connections"] = json!([]);
+        value["events"][0]["connectionId"] = json!("local");
+        assert_eq!(
+            due_targets(&value, None, 999_500, 1_000_000, 600)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(due_targets(&value, None, 999_500, 1_000_000, 1380)
+            .unwrap()
+            .is_empty());
+        assert!(due_targets(&value, None, 800_000, 1_000_000, 600)
+            .unwrap()
+            .is_empty());
+        value["reminders"]["enabled"] = json!(false);
+        assert!(due_targets(&value, None, 999_500, 1_000_000, 600)
+            .unwrap()
+            .is_empty());
+    }
+
     #[test]
     fn local_tasks_work_offline_and_snooze_never_changes_due_or_completed_tasks() {
         let mut value = data();

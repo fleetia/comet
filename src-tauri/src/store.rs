@@ -94,6 +94,7 @@ INSERT OR IGNORE INTO kv VALUES('revision','0');").map_err(err)?;
     users::initialize(&conn)?;
     conversations::initialize_conversations(&conn)?;
     crate::widgets::storage::initialize(&conn)?;
+    crate::diary::initialize(&conn)?;
     crate::generated_widgets::initialize(&conn)?;
     Ok(conn)
 }

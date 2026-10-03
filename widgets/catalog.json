@@ -2,7 +2,7 @@
   {"id":"todo","name":"할 일","description":"목록과 반복 할 일, 장보기와 오늘의 쪽지","category":"daily","version":1,"required":[],"connection":null},
   {"id":"calendar","name":"캘린더","description":"Google Calendar·ICS 일정과 다음 일정 티켓","category":"daily","version":1,"required":[],"connection":"calendar"},
   {"id":"focus-timer","name":"집중 타이머","description":"집중하고 쉬는 시간, 할 일과 선택 연결","category":"daily","version":1,"required":[],"connection":null},
-  {"id":"preparation","name":"준비 봉투","description":"일정별 체크리스트와 자료 링크","category":"daily","version":1,"required":["calendar"],"connection":null},
+  {"id":"preparation","name":"준비 봉투","description":"할 일과 메모, 자료를 모아두는 준비 봉투","category":"daily","version":1,"required":[],"connection":null},
   {"id":"clock","name":"시계·기념일","description":"현재 시각과 등록한 기념일의 디데이","category":"daily","version":1,"required":[],"connection":null},
   {"id":"memo","name":"메모","description":"꺼내 쓰고 다시 접어 두는 작은 메모","category":"daily","version":1,"required":[],"connection":null},
   {"id":"weather","name":"날씨","description":"선택한 지역의 날씨와 마지막 갱신 시각","category":"connections","version":1,"required":[],"connection":"weather"},
