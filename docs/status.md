@@ -613,6 +613,12 @@ v5 파일을 UI에서 다시 설치한 뒤 복제했다. 원본·가져온 사�
 
 최종 번들은 `src-tauri/target/debug/bundle/macos/Comet Memory QA.app`이며 실행 파일 SHA-256은 `71608812e68167cf074999aaf871dc1b3bf9013de04491fa4c671c2cc67a5a51`이다. 현재 소스의 프런트엔드 production build, strict Clippy(`--lib --tests -- -D warnings`), `codesign --verify --deep --strict`와 실제 재시작을 통과했다. 위키 타입 검사·정적 빌드와 diff 검사도 통과했다. 새 빌드 정상 실행 뒤 실행 중이 아닌 `/tmp/Comet-old-66817.app`·`/tmp/Comet-old-75704.app`을 휴지통으로 옮겼다. 병행 작업의 최신 Animation QA 번들은 유지했다. 사용자 설치본·데이터·설정·팩·모델·빌드 캐시는 보존했다. Windows 실제 실행·notarization·외부 계정은 이번 검증 범위가 아니다.
 
+### 2026-10-04 PR #18 동명이인 기억 충돌 해소 검증
+
+`codex/windows-memory-ownership`와 최신 `main`의 `model_quality_smoke.rs` 충돌은 `main`의 공통 sidecar 실행 파일 경로를 적용해 해소했다. PR의 사례 선택·바이너리 경로·예상 사례 수 옵션은 유지된다. 현재 `main`에 기억 인용 화자와 Vitest worker 변경이 이미 반영되어, 충돌 해소 후 `main` 대비 남은 변경은 이 PR의 changeset이다.
+
+이번 소스에서 Rust 동명이인 인용 소유권 회귀 1건, `corepack pnpm check`, 프런트엔드 전체 72파일·551개 테스트, `corepack pnpm build`, `git diff --cached --check`를 통과했다. 별도 macOS debug 번들 `src-tauri/target/debug/bundle/macos/Comet PR18 QA.app`(`space.starlight.comet.pr18-qa`, 실행 파일 SHA-256 `bd55b73be53eaffc2573a6d45df123a00159544b52f4bb004073b1b15d48236a`)의 코드 서명과 실제 창 실행을 확인했다. 사용자 이름을 `민수 → 지수 → 민수`로 저장한 뒤 QA DB의 `민수` ID가 서로 다른 2개이고 활성 ID는 1개임을 읽기 전용으로 확인했다. DB `integrity_check`는 `ok`, ⌘Q 후 QA 프로세스는 종료됐다. 사용자 설치본과 데이터·팩·모델은 변경하지 않았다. Windows 실기와 실제 GGUF를 이용한 모델 의미 품질은 이번 검증에 포함되지 않는다.
+
 ## 2026-09-24 캐릭터 스프라이트 애니메이션
 
 [캐릭터 동작 계약](product/characters.md#상황별-스프라이트-재생)에 따라 모습·표정에서 PNG 시퀀스·격자 시트·APNG를 편집하고 평소·말하기·클릭에 연결한다. APNG의 합성과 프레임 정리를 반영해 정지 PNG 프레임으로 펼치며 지정한 1~30fps로 재생한다. 클릭은 한 번 재생으로 고정한다. 표정별 상속·별도 연결·명시적 끄기, 반복 간격의 정적 표정 복귀, 동작 줄이기와 중단 조건을 구현했다. 편집기와 본체는 같은 경과 시간 재생기를 사용한다.
