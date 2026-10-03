@@ -17,7 +17,7 @@ export const permission = style({
   flexWrap: "wrap",
   alignItems: "center",
   gap: vars.space.sm,
-  borderTop: `1px solid ${vars.color.border.subtle}`,
+  borderTop: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
   paddingTop: vars.space.sm,
 });
 export const heading = style({
@@ -29,6 +29,6 @@ export const notice = style({
   display: "grid",
   gap: vars.space.xs,
   padding: vars.space.sm,
-  background: vars.color.selection.surface,
-  borderBottom: `1px solid ${vars.color.border.subtle}`,
+  background: vars.color.surface.muted,
+  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
 });

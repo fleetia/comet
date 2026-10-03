@@ -7,6 +7,7 @@ import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { number, record, rows, text, type DataRecord } from "../toolData";
 import { useWidgets } from "../useWidgets";
 import { useMemoDraft } from "../useMemoDraft";
+import { WidgetDragHandle } from "../WidgetDragHandle";
 import * as c from "../../lagrange.css";
 import * as s from "../memo.css";
 
@@ -148,6 +149,11 @@ function NoteEditor({ id, note }: { id: string; note: DataRecord }): ReactElemen
                 }[status]}
           </span>
           <div className={s.footerRow}>
+            <WidgetDragHandle
+              payload={{ v: 1, kind: "memo", widgetId: id, itemId: noteId }}
+              title={text(note.title) || "메모"}
+              disabled={busy || status !== "saved"}
+            />
             <div className={s.fontControls}>
               <IconButton
                 label="글자 크기 줄이기"

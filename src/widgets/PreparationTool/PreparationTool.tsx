@@ -3,6 +3,7 @@ import { useState, type ReactElement } from "react";
 import { record, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import { useConnectionCommand } from "../useConnectionCommand";
+import { WidgetDragHandle } from "../WidgetDragHandle";
 import * as c from "../../lagrange.css";
 import * as s from "../tools.css";
 export function PreparationTool({
@@ -27,6 +28,9 @@ export function PreparationTool({
       .items,
   );
   const [eventId, setEventId] = useState("");
+  const [envelopeName, setEnvelopeName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState("");
   const chosen = events.find((event) => event.id === eventId);
   return (
     <>
@@ -35,24 +39,58 @@ export function PreparationTool({
           {error}
         </p>
       )}
-      {events.length === 0 ? (
-        <p className={c.quiet}>
-          조회 가능한 일정이 없어요. 캘린더를 연결하면 새 준비 봉투를 만들 수 있어요. 기존 준비
-          내용은 계속 편집할 수 있어요.
+      <p className={c.quiet}>
+        날짜가 정해지기 전부터 준비할 것과 자료를 모아두세요. 일정은 나중에 연결해도 돼요.
+      </p>
+      {createError && (
+        <p className={c.error} role="alert">
+          {createError}
         </p>
-      ) : (
-        <form
-          className={s.body}
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (chosen) {
-              void act("create", { eventId, eventLabel: text(chosen.title) });
-            }
-          }}
-        >
-          <FormField className={c.field} label="준비할 일정" required>
-            <Select value={eventId} onChange={(e) => setEventId(e.target.value)}>
-              <option value="">일정 선택</option>
+      )}
+      <form
+        className={s.body}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const name = envelopeName.trim() || text(chosen?.title);
+          if (!name || creating) return;
+          setCreating(true);
+          setCreateError("");
+          try {
+            if (
+              await act("create", {
+                title: name,
+                ...(chosen ? { eventId, eventLabel: text(chosen.title) } : {}),
+              })
+            ) {
+              setEnvelopeName("");
+              setEventId("");
+            } else setCreateError("준비 봉투를 만들지 못했어요. 입력한 내용은 남아 있어요.");
+          } finally {
+            setCreating(false);
+          }
+        }}
+      >
+        <FormField className={c.field} label="준비 봉투 이름" required>
+          <TextField
+            maxLength={500}
+            value={envelopeName}
+            disabled={creating}
+            placeholder={text(chosen?.title) || "무엇을 준비하나요?"}
+            onChange={(e) => setEnvelopeName(e.target.value)}
+          />
+        </FormField>
+        {events.length > 0 && (
+          <FormField className={c.field} label="준비할 일정 (선택)">
+            <Select
+              value={eventId}
+              disabled={creating}
+              onChange={(e) => {
+                setEventId(e.target.value);
+                if (!envelopeName.trim())
+                  setEnvelopeName(text(events.find((event) => event.id === e.target.value)?.title));
+              }}
+            >
+              <option value="">날짜 없이 시작</option>
               {events.map((event) => (
                 <option key={text(event.id)} value={text(event.id)}>
                   {text(event.title)} {text(event.startDate)}
@@ -60,14 +98,15 @@ export function PreparationTool({
               ))}
             </Select>
           </FormField>
-          <Button type="submit" variant="primary" disabled={!chosen}>
-            준비 봉투 만들기
-          </Button>
-        </form>
-      )}
+        )}
+        <Button type="submit" variant="primary" disabled={creating || !envelopeName.trim()}>
+          준비 봉투 만들기
+        </Button>
+      </form>
       {envelopes.map((envelope) => (
         <Envelope
           key={text(envelope.id)}
+          widgetId={widget.id}
           envelope={envelope}
           todos={todos}
           act={act}
@@ -82,6 +121,7 @@ export function PreparationTool({
   );
 }
 function Envelope({
+  widgetId,
   envelope,
   todos,
   act,
@@ -91,6 +131,7 @@ function Envelope({
   openingLink,
   openLink,
 }: {
+  widgetId: string;
   envelope: DataRecord;
   todos: DataRecord[];
   act: ToolAction;
@@ -107,15 +148,23 @@ function Envelope({
   const id = text(envelope.id);
   const connection = connections.find((item) => item.id === event?.connectionId);
   let connectionMessage: string | null = null;
-  if (!hasCalendar) {
+  if (!text(envelope.eventId)) {
+    connectionMessage = null;
+  } else if (!hasCalendar) {
     connectionMessage =
       "연결 끊김 · 캘린더가 꺼져 있거나 제거되었습니다. 준비 내용은 계속 편집할 수 있어요.";
-  } else if (!event || event.cancelled === true || !connection) {
+  } else if (
+    !event ||
+    event.cancelled === true ||
+    (!connection && event.connectionId !== "local")
+  ) {
     connectionMessage =
       "연결 끊김 · 원본 일정을 현재 찾을 수 없거나 취소되었습니다. 준비 내용은 보존됩니다.";
-  } else if (connection.status === "syncing") {
+  } else if (event.connectionId === "local") {
+    connectionMessage = null;
+  } else if (connection?.status === "syncing") {
     connectionMessage = "일정 조회 중 · 마지막으로 확인한 준비 내용을 표시합니다.";
-  } else if (connection.status !== "ready") {
+  } else if (connection?.status !== "ready") {
     connectionMessage =
       "이전 일정 정보 · 원본 연결이 최신 상태가 아닙니다. 캘린더 연결을 확인해 주세요.";
   }
@@ -124,7 +173,14 @@ function Envelope({
     : [];
   return (
     <section className={s.item}>
-      <h2>{text(envelope.eventLabel)}</h2>
+      <h2 className={s.sectionTitle}>
+        <WidgetDragHandle
+          payload={{ v: 1, kind: "envelope", widgetId, itemId: id }}
+          title={text(envelope.title) || text(envelope.eventLabel) || "준비 봉투"}
+        />
+        {text(envelope.title) || text(envelope.eventLabel) || "준비 봉투"}
+        {envelope.archived === true ? " · 보관됨" : ""}
+      </h2>
       {connectionMessage && (
         <p className={c.quiet} role="status">
           {connectionMessage}
@@ -147,6 +203,7 @@ function Envelope({
         </div>
       ))}
       <form
+        className={s.composer}
         onSubmit={async (e) => {
           e.preventDefault();
           if (await act("check-add", { id, text: check })) {

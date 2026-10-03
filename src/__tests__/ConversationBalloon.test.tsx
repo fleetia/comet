@@ -272,3 +272,111 @@ it("pauses only after idle time with no draft, open log, or active reply", async
   });
   expect(command).toHaveBeenCalledWith("close_panel", { sessionId: session.id });
 });
+
+it.each(["one failing test. one small fix.", "same hero new line. surprise me with a scene."])(
+  "surfaces a failed follow-up before the retained reply: %s",
+  async (previousReply) => {
+    const failure = "설정에서 로컬 모델을 먼저 다운로드해 주세요.";
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    vi.mocked(command).mockImplementation(async (name) => {
+      if (name === "send_message") throw new Error(failure);
+    });
+    try {
+      const snapshot = conversationSnapshot();
+      render(
+        <Balloon
+          snapshot={{
+            ...snapshot,
+            conversation: {
+              ...snapshot.conversation!,
+              messages: [{ ...seed, content: previousReply }],
+            },
+          }}
+        />,
+      );
+      const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+      const draftText = "  tell me something new\n";
+      fireEvent.change(input, { target: { value: draftText } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toBe(failure);
+      const reply = screen.getByText(previousReply);
+      expect(alert.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(screen.getByText(/^이전 답변 · /)).toBeTruthy();
+      expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest" });
+      expect(input.value).toBe(draftText);
+      expect(document.activeElement).toBe(input);
+      expect(screen.getByRole("button", { name: "보내기" })).toHaveProperty("disabled", false);
+      expect(command).toHaveBeenCalledWith("save_conversation_draft", {
+        sessionId: session.id,
+        draft: draftText,
+      });
+      expect(command).not.toHaveBeenCalledWith("save_conversation_draft", {
+        sessionId: session.id,
+        draft: "",
+      });
+      // Repeating the same failed request must reveal the same feedback again.
+      scrollIntoView.mockClear();
+      fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" }));
+      expect(input.value).toBe(draftText);
+      expect(screen.getAllByRole("alert")).toHaveLength(1);
+    } finally {
+      delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  },
+);
+
+it("shows runtime failure and retry before the previous response, and clears the label on recovery", () => {
+  const snapshot = conversationSnapshot();
+  const failed = {
+    ...snapshot,
+    runtime: { ...snapshot.runtime, phase: "error" as const, error: "답변 생성 실패" },
+    conversation: {
+      ...snapshot.conversation!,
+      messages: [seed, { ...seed, id: "new-question", role: "user", content: "다음 이야기" }],
+    },
+  };
+  const { rerender } = render(<Balloon snapshot={failed} />);
+  const reply = screen.getByText(seed.content);
+  for (const feedback of [
+    screen.getByRole("alert"),
+    screen.getByRole("button", { name: "다시 이야기하기" }),
+  ]) {
+    expect(feedback.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  }
+  expect(screen.getByText(/^이전 답변 · /)).toBeTruthy();
+  rerender(<Balloon snapshot={{ ...snapshot, playback }} />);
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByText(/^이전 답변 · /)).toBeNull();
+  expect(screen.getByLabelText(playback.text, { normalizer: (value) => value })).toBeTruthy();
+});
+
+it("does not carry a failed submission's local feedback into another conversation", async () => {
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "send_message") throw new Error("이전 대화 전송 실패");
+  });
+  const snapshot = conversationSnapshot();
+  const { rerender } = render(<Balloon snapshot={snapshot} />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "첫 대화의 입력" } });
+  fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  rerender(
+    <Balloon
+      snapshot={{
+        ...snapshot,
+        conversation: {
+          session: { ...session, id: "next", draft: "새 대화의 초안" },
+          messages: [],
+          nextBefore: null,
+        },
+      }}
+    />,
+  );
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "새 대화의 초안");
+});

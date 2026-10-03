@@ -1,8 +1,19 @@
-import { useEffect, useRef, useState, type JSX } from "react";
+import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Button, Checkbox } from "@fleetia/lagrange";
+import {
+  ActionBar,
+  Button,
+  Checkbox,
+  Inline,
+  SaveStatus,
+  SectionHeader,
+  SettingsRow,
+  Surface,
+} from "@fleetia/lagrange";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import * as s from "../../lagrange.css";
+import * as layout from "../SettingsPanel/settings.css";
+import * as styles from "./desktopPreferences.css";
 
 type Preferences = { charactersVisible: boolean; pranksEnabled: boolean; allowedToys: string[] };
 const toys = [
@@ -14,9 +25,11 @@ const toys = [
 export function DesktopPreferences({
   hidden,
   onDirtyChange,
+  children,
 }: {
   hidden: boolean;
   onDirtyChange?: (dirty: boolean) => void;
+  children?: ReactNode;
 }): JSX.Element {
   const [preferences, setPreferences] = useState<Preferences>({
     charactersVisible: !hidden,
@@ -104,75 +117,98 @@ export function DesktopPreferences({
     }
   }
   return (
-    <section className={s.section}>
-      <h2 className={s.sectionTitle}>바탕화면 장난</h2>
-      <p className={s.quiet}>
-        허용한 장난감 중 설치하고 켠 것만 10~20분마다 하나씩, 최대 30초 동안 꺼내요. 대화 중이거나
-        캐릭터를 숨기면 쉬어요.
-      </p>
-      <Checkbox
-        checked={preferences.pranksEnabled}
-        disabled={pending || !loaded}
-        onChange={(event) => edit({ ...preferences, pranksEnabled: event.target.checked })}
-      >
-        장난 모드
-      </Checkbox>
-      <div className={s.row}>
-        {toys.map((toy) => (
-          <Checkbox
-            key={toy.id}
-            checked={preferences.allowedToys.includes(toy.id)}
-            disabled={pending || !loaded}
-            onChange={(event) =>
-              edit({
-                ...preferences,
-                allowedToys: event.target.checked
-                  ? [...preferences.allowedToys, toy.id]
-                  : preferences.allowedToys.filter((id) => id !== toy.id),
-              })
-            }
+    <Surface className={layout.generalMain}>
+      <div className={layout.panelBody}>
+        {children}
+        <section className={layout.settingsSection}>
+          <SectionHeader title="바탕화면 장난" headingVariant="subsection" rule="none" />
+          <SettingsRow
+            className={layout.settingsRow}
+            label={<span id="pranks-label">장난 모드</span>}
+            description="10~20분마다 하나씩 · 최대 30초"
           >
-            {toy.name}
-          </Checkbox>
-        ))}
+            <Checkbox
+              className={layout.rowControl}
+              aria-labelledby="pranks-label"
+              checked={preferences.pranksEnabled}
+              disabled={pending || !loaded}
+              onChange={(event) => edit({ ...preferences, pranksEnabled: event.target.checked })}
+            >
+              장난 허용
+            </Checkbox>
+          </SettingsRow>
+          <Surface tone="inset" className={styles.toys}>
+            <p className={layout.rowLabel}>사용할 장난감</p>
+            <div className={styles.toyChoices}>
+              {toys.map((toy) => (
+                <Checkbox
+                  key={toy.id}
+                  checked={preferences.allowedToys.includes(toy.id)}
+                  disabled={pending || !loaded}
+                  onChange={(event) =>
+                    edit({
+                      ...preferences,
+                      allowedToys: event.target.checked
+                        ? [...preferences.allowedToys, toy.id]
+                        : preferences.allowedToys.filter((id) => id !== toy.id),
+                    })
+                  }
+                >
+                  {toy.name}
+                </Checkbox>
+              ))}
+            </div>
+            <div className={styles.cleanup}>
+              <Button
+                variant="quiet"
+                className={styles.cleanupButton}
+                disabled={pending || !loaded}
+                onClick={() => {
+                  void command("clear_desktop_toys").catch((cause: unknown) =>
+                    setError(errorText(cause)),
+                  );
+                }}
+              >
+                장난감 모두 정리
+              </Button>
+              <span className={s.quiet}>꺼내 둔 장난감만 정리</span>
+            </div>
+          </Surface>
+        </section>
       </div>
-      <div className={s.row}>
-        <Button
-          variant="secondary"
-          disabled={pending || !loaded || !dirty}
-          onClick={() => void save()}
+      <footer className={styles.saveBar}>
+        <ActionBar
+          className={layout.footerBar}
+          status={
+            <div className={layout.footerStatus}>
+              <SaveStatus
+                state={pending ? "saving" : error ? "error" : notice ? "saved" : "idle"}
+                message={error ?? notice ?? (dirty ? "변경사항 있음" : "변경사항 없음")}
+              />
+              <span className={s.quiet}>장난 모드·허용 목록</span>
+            </div>
+          }
         >
-          장난 설정 저장
-        </Button>
-        <Button
-          variant="quiet"
-          disabled={pending || !loaded || !dirty}
-          onClick={() => edit(saved.current)}
-        >
-          변경 취소
-        </Button>
-        <Button
-          variant="quiet"
-          disabled={pending || !loaded}
-          onClick={() => {
-            void command("clear_desktop_toys").catch((cause: unknown) =>
-              setError(errorText(cause)),
-            );
-          }}
-        >
-          장난감 모두 정리
-        </Button>
-      </div>
-      {error && (
-        <p role="alert" className={s.error}>
-          {error}
-        </p>
-      )}
-      {notice && (
-        <p role="status" className={s.quiet}>
-          {notice}
-        </p>
-      )}
-    </section>
+          <Inline className={layout.footerActions} gap="sm">
+            <Button
+              variant="quiet"
+              className={layout.cancelButton}
+              disabled={pending || !loaded || !dirty}
+              onClick={() => edit(saved.current)}
+            >
+              변경 취소
+            </Button>
+            <Button
+              variant="primary"
+              className={styles.saveButton}
+              disabled={pending || !loaded || !dirty}
+              onClick={() => void save()}
+            >
+              장난 설정 저장
+            </Button>
+          </Inline>
+        </ActionBar>
+      </footer>
+    </Surface>
   );
 }

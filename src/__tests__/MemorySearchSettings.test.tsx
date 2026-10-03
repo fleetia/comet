@@ -129,7 +129,7 @@ it("loads only one page, keeps a draft during revisions, and blocks paging until
   expect(screen.getByRole("button", { name: "다음 기억" })).toHaveProperty("disabled", true);
   rerender(<MemorySettings characterId="builtin-a" memoryCount={51} memoryRevision={2} />);
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: "변경 취소" }).closest("fieldset")).toHaveProperty(
+    expect(screen.getByLabelText("기억 내용").closest("fieldset")).toHaveProperty(
       "disabled",
       false,
     ),

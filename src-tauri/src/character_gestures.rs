@@ -30,6 +30,12 @@ pub(crate) enum Phase {
     Cancelled,
 }
 
+impl Phase {
+    fn is_terminal(self) -> bool {
+        self == Self::Ended || self == Self::Cancelled
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct GestureEvent {
@@ -144,7 +150,7 @@ impl Registry {
     fn cancel(&mut self, label: &str) -> Option<GestureEvent> {
         self.generation = self.generation.wrapping_add(1);
         let entry = self.entries.remove(label)?;
-        if matches!(entry.phase, Some(Phase::Ended | Phase::Cancelled)) {
+        if entry.phase.is_some_and(Phase::is_terminal) {
             return None;
         }
         Some(GestureEvent {
@@ -187,6 +193,7 @@ fn native_handle(window: &WebviewWindow) -> Option<usize> {
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn is_current(window: &WebviewWindow, session: &Session) -> bool {
     if native_handle(window) != Some(session.native_handle)
         || window.is_visible().ok() != Some(true)
@@ -306,7 +313,12 @@ pub(crate) fn begin_character_drag(
         .strip_prefix("body-")
         .ok_or("캐릭터 본체에서만 옮길 수 있어요.")?
         .to_string();
-    let native_handle = native_handle(&window).ok_or("캐릭터 창을 확인하지 못했어요.")?;
+    let native_handle =
+        native_handle(&window).ok_or(if cfg!(any(target_os = "macos", target_os = "windows")) {
+            "캐릭터 창을 확인하지 못했어요."
+        } else {
+            "이 운영체제에서는 캐릭터 잡기 반응을 지원하지 않아요."
+        })?;
     if !window.is_visible().map_err(|error| error.to_string())? {
         return Err("숨긴 캐릭터는 옮길 수 없어요.".into());
     }
@@ -348,6 +360,14 @@ pub(crate) fn begin_character_drag(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_end_and_cancellation_are_terminal() {
+        assert!(!Phase::Started.is_terminal());
+        assert!(Phase::Ended.is_terminal());
+        assert!(Phase::Cancelled.is_terminal());
+    }
+
     fn session(id: &str, native_handle: usize) -> Session {
         Session {
             character_id: "friend".into(),

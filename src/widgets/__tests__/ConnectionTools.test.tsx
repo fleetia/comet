@@ -299,6 +299,41 @@ it("clears the private ICS URL only after successful connection", async () => {
     expect(screen.getByLabelText(/^ICS \/ webcal 구독 주소\s*\*?$/)).toHaveProperty("value", ""),
   );
 });
+it("shows local calendar events without an external connection or refresh warning", () => {
+  render(
+    <CalendarTool
+      act={act}
+      widget={widget("calendar", {
+        connections: [],
+        events: [
+          {
+            id: "local",
+            connectionId: "local",
+            title: "Comet 약속",
+            allDay: true,
+            startDate: "2026-09-15",
+            endDate: "2026-09-16",
+          },
+          {
+            id: "orphan",
+            connectionId: "removed",
+            title: "해제한 연결 일정",
+            allDay: true,
+            startDate: "2026-09-15",
+            endDate: "2026-09-16",
+          },
+        ],
+      })}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText(/^조회 날짜\s*\*?$/), { target: { value: "2026-09-15" } });
+  expect(screen.getByRole("heading", { name: "Comet 약속" })).toBeTruthy();
+  expect(screen.queryByText("해제한 연결 일정")).toBeNull();
+  expect(screen.queryByText(/새로 조회하기 전에는/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "연결한 캘린더의 빈 시간 보기" })).toBeNull();
+  expect(command).not.toHaveBeenCalled();
+});
+
 it("shows an upcoming event once in the agenda and keeps it available in the free-time view", () => {
   render(
     <CalendarTool

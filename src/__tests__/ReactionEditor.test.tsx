@@ -97,6 +97,7 @@ it("keeps reaction candidates and ordinary line motion in the character draft ac
     />,
   );
   fireEvent.click(screen.getByRole("tab", { name: "대사·반응" }));
+  fireEvent.click(button("사건 반응"));
   fireEvent.click(button("반응 추가"));
   expect(button("캐릭터 저장")).toHaveProperty("disabled", true);
   fireEvent.change(screen.getByLabelText("반응 1 후보 1 대사"), {
@@ -108,7 +109,7 @@ it("keeps reaction candidates and ordinary line motion in the character draft ac
   });
   expect(screen.queryByLabelText("반응 1 후보 1 반복")).toBeNull();
   fireEvent.change(screen.getByLabelText("반응 1 대사 쿨다운(초)"), { target: { value: "4.5" } });
-  fireEvent.click(button("인사 편집"));
+  fireEvent.click(button("인사·자동 수다"));
   fireEvent.change(screen.getByLabelText("인사 1 동작"), { target: { value: "static" } });
   fireEvent.click(
     within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^B/ }),
@@ -117,6 +118,7 @@ it("keeps reaction candidates and ordinary line motion in the character draft ac
   fireEvent.click(
     within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^A/ }),
   );
+  fireEvent.click(button("사건 반응"));
   expect(screen.getByLabelText("반응 1 후보 1 대사")).toHaveProperty("value", "  앗,\n어디로?  ");
   expect(screen.getByText("행동 판정 미리보기는 데스크톱 앱에서 사용할 수 있어요.")).toBeTruthy();
   fireEvent.click(button("캐릭터 저장"));
@@ -370,7 +372,7 @@ it("saves pair dialogue motion against each speaker's clip library", async () =>
   fireEvent.change(screen.getByLabelText("장면 1 대사 1 동작"), {
     target: { value: "clip:clip-1" },
   });
-  fireEvent.click(button("조합 대사 저장"));
+  fireEvent.click(button("이 장면 저장"));
   await waitFor(() =>
     expect(vi.mocked(command).mock.calls.some(([name]) => name === "save_character_dialogue")).toBe(
       true,

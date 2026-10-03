@@ -16,6 +16,10 @@ use tauri::{AppHandle, Manager, WebviewWindow};
 #[path = "desktop_toys_macos.rs"]
 mod native;
 
+#[cfg(target_os = "linux")]
+#[path = "desktop_toys_linux.rs"]
+mod linux;
+
 const STEP: f64 = 1.0 / 120.0;
 const SIZE: f64 = 56.0;
 const MAX_ACTORS: usize = 8;
@@ -91,6 +95,8 @@ struct Actor {
     expires: Option<Instant>,
     ignore_cursor: bool,
     last_sent: Option<(f64, f64, Frame)>,
+    visible: bool,
+    attempt: String,
 }
 #[derive(Default)]
 struct World {
@@ -365,6 +371,7 @@ pub(crate) fn open(
     if count == 0 {
         return Err("먼저 꺼낸 장난감을 정리해 주세요.".into());
     }
+    let attempt = crate::widget_runtime::begin_attempt(app, widget_id);
     let mut ids = Vec::with_capacity(count);
     for _ in 0..count {
         match open_one(
@@ -375,16 +382,19 @@ pub(crate) fn open(
             revision,
             automatic,
             geometry,
+            &attempt,
         ) {
             Ok(id) => ids.push(id),
             Err(error) => {
                 for id in ids {
                     remove_actor(app, &id);
                 }
+                crate::widget_runtime::attempt_result(app, widget_id, &attempt, Err(error.clone()));
                 return Err(error);
             }
         }
     }
+    crate::widget_runtime::refresh(app);
     ids.into_iter()
         .next()
         .ok_or("장난감을 꺼내지 못했어요.".into())
@@ -404,6 +414,7 @@ fn open_one(
     revision: i64,
     automatic: bool,
     geometry: &Geometry,
+    attempt: &str,
 ) -> Result<String, String> {
     let seed = uuid::Uuid::new_v4().as_u128();
     let cursor = desktop_geometry::cursor_position();
@@ -474,6 +485,8 @@ fn open_one(
             .then_some(now + Duration::from_secs(if automatic { 20 } else { 45 })),
         ignore_cursor: true,
         last_sent: None,
+        visible: false,
+        attempt: attempt.into(),
     };
     #[cfg(target_os = "macos")]
     let initial_frame = frame(&actor, geometry);
@@ -508,14 +521,100 @@ fn open_one(
     {
         let app = app.clone();
         let actor_id = id.clone();
+        let creation_app = app.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            if let Err(error) = create_webview(&app, &actor_id, x, y, scale) {
-                remove_actor(&app, &actor_id);
+            if let Err(error) = create_webview(&creation_app, &actor_id, x, y, scale) {
+                creation_result(&creation_app, &actor_id, Err(error.clone()));
                 eprintln!("desktop toy window creation failed: {error}");
+            }
+        });
+        let timeout_app = app.clone();
+        let timeout_id = id.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            let pending = timeout_app
+                .state::<Runtime>()
+                .world
+                .lock()
+                .map(|world| {
+                    world
+                        .actors
+                        .get(&timeout_id)
+                        .is_some_and(|actor| !actor.visible)
+                })
+                .unwrap_or(false);
+            if pending {
+                creation_result(
+                    &timeout_app,
+                    &timeout_id,
+                    Err("장난감 화면 준비 시간이 지났어요. 다시 꺼내 주세요.".into()),
+                );
             }
         });
         Ok(id)
     }
+}
+
+// Read the current state at dispatch time: an older queued input update must
+// not overwrite a newer hit-test result or bring back a removed actor.
+#[cfg(target_os = "linux")]
+fn linux_input_state(world: &World, id: &str) -> Option<bool> {
+    world.actors.get(id).map(|actor| actor.ignore_cursor)
+}
+
+#[cfg(target_os = "linux")]
+fn update_linux_input(window: &WebviewWindow, show_ready: bool) -> Result<(), String> {
+    let app = window.app_handle().clone();
+    let window_label = window.label().to_string();
+    window
+        .run_on_main_thread(move || {
+            use gtk::prelude::{GtkWindowExt, WidgetExt};
+            let Some(id) = window_label.strip_prefix("desktop-toy-") else {
+                return;
+            };
+            let Some(window) = app.get_webview_window(&window_label) else {
+                return;
+            };
+            let Ok(native) = window.gtk_window() else {
+                return;
+            };
+            let runtime = app.state::<Runtime>();
+            // World lock owners only calculate toy state; they never wait for GTK
+            // while holding it. Keep the actor check, input shape and mapping atomic
+            // with removal, and release it before reporting the creation outcome.
+            let Ok(world) = runtime.world.lock() else {
+                return;
+            };
+            let Some(ignore) = linux_input_state(&world, id) else {
+                return;
+            };
+            linux::set_input_passthrough(&native, ignore);
+            if show_ready {
+                native.set_focus_on_map(false);
+                native.show_all();
+            }
+            drop(world);
+            if show_ready {
+                creation_result(&app, id, Ok(()));
+            }
+        })
+        .map_err(|error| error.to_string())
+}
+
+// Tao's Linux CursorIgnoreEvents(true) unwraps the GDK window even when the
+// hidden toy has not been realized yet. GTK's widget API retains the input shape
+// across realization without forcing an early show or taking keyboard focus.
+#[cfg(not(target_os = "macos"))]
+fn set_ignore_cursor_events(window: &WebviewWindow, ignore: bool) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = ignore;
+        update_linux_input(window, false)
+    }
+    #[cfg(not(target_os = "linux"))]
+    window
+        .set_ignore_cursor_events(ignore)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -550,9 +649,7 @@ fn create_webview(app: &AppHandle, id: &str, x: f64, y: f64, scale: f64) -> Resu
         return Ok(());
     }
     set_position(&built, x - SIZE * scale / 2.0, y - SIZE * scale / 2.0)?;
-    built
-        .set_ignore_cursor_events(true)
-        .map_err(|error| error.to_string())?;
+    set_ignore_cursor_events(&built, true)?;
     // The renderer calls ready after its event listener and initial frame exist.
     Ok(())
 }
@@ -573,8 +670,12 @@ fn remove_matching(app: &AppHandle, matches: impl Fn(&Actor) -> bool) {
     } else {
         vec![]
     };
+    let changed = !ids.is_empty();
     for id in ids {
         close_window(app, &id);
+    }
+    if changed {
+        crate::widget_runtime::refresh(app);
     }
 }
 fn close_window(app: &AppHandle, id: &str) {
@@ -585,6 +686,69 @@ fn close_window(app: &AppHandle, id: &str) {
         let _ = window.close();
     }
 }
+
+pub(crate) fn runtime_counts(
+    app: &AppHandle,
+    widget_id: &str,
+) -> Result<crate::widget_runtime::Toys, String> {
+    let actors = {
+        let runtime = app.state::<Runtime>();
+        let world = crate::lock(&runtime.world)?;
+        world
+            .actors
+            .values()
+            .filter(|actor| actor.widget_id == widget_id)
+            .map(|actor| (actor.id.clone(), actor.visible))
+            .collect::<Vec<_>>()
+    };
+    if actors.is_empty() {
+        return Ok(crate::widget_runtime::Toys::default());
+    }
+    #[cfg(target_os = "macos")]
+    let visible = native::visible_ids(app)?;
+    let mut counts = crate::widget_runtime::Toys::default();
+    for (id, ready) in actors {
+        if !ready {
+            counts.starting += 1;
+            continue;
+        }
+        #[cfg(target_os = "macos")]
+        if visible.contains(&id) {
+            counts.visible += 1;
+        }
+        #[cfg(not(target_os = "macos"))]
+        if let Some(window) = app.get_webview_window(&label(&id)) {
+            if window.is_visible().map_err(|error| error.to_string())?
+                && !window.is_minimized().map_err(|error| error.to_string())?
+            {
+                counts.visible += 1;
+            }
+        }
+    }
+    Ok(counts)
+}
+
+fn creation_result(app: &AppHandle, id: &str, result: Result<(), String>) {
+    let target = {
+        let runtime = app.state::<Runtime>();
+        let Ok(mut world) = runtime.world.lock() else {
+            return;
+        };
+        let Some(actor) = world.actors.get_mut(id) else {
+            return;
+        };
+        let target = (actor.widget_id.clone(), actor.attempt.clone());
+        if result.is_ok() {
+            actor.visible = true;
+        }
+        target
+    };
+    if result.is_err() {
+        remove_actor(app, id);
+    }
+    crate::widget_runtime::attempt_result(app, &target.0, &target.1, result);
+}
+
 pub(crate) fn remove_actor(app: &AppHandle, id: &str) {
     remove_matching(app, |actor| actor.id == id);
 }
@@ -681,12 +845,21 @@ pub(crate) fn desktop_toy_action(
         if action == "ready" {
             #[cfg(target_os = "windows")]
             if let Err(error) = apply_input_region(&window, &current) {
-                remove_actor(&app, &id);
+                creation_result(&app, &id, Err(error.clone()));
                 return Err(error);
             }
-            if let Err(error) = window.show().map_err(|error| error.to_string()) {
-                remove_actor(&app, &id);
+            #[cfg(target_os = "linux")]
+            if let Err(error) = update_linux_input(&window, true) {
+                creation_result(&app, &id, Err(error.clone()));
                 return Err(error);
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                if let Err(error) = window.show().map_err(|error| error.to_string()) {
+                    creation_result(&app, &id, Err(error.clone()));
+                    return Err(error);
+                }
+                creation_result(&app, &id, Ok(()));
             }
         }
         Ok(current)
@@ -1263,8 +1436,12 @@ pub(crate) fn start(app: AppHandle) {
                 }
                 world.outcomes.extend(outcomes);
             }
+            let changed = !removed.is_empty();
             for id in removed {
                 close_window(&app, &id);
+            }
+            if changed {
+                crate::widget_runtime::refresh(&app);
             }
             for (id, x, y, input_change, frame) in displays {
                 #[cfg(target_os = "macos")]
@@ -1282,7 +1459,7 @@ pub(crate) fn start(app: AppHandle) {
                     }
                     #[cfg(not(target_os = "windows"))]
                     if let Some(ignore) = input_change {
-                        let _ = window.set_ignore_cursor_events(ignore);
+                        let _ = set_ignore_cursor_events(&window, ignore);
                     }
                     let _ = window.emit("desktop-toy-frame", frame);
                 }
@@ -1294,6 +1471,22 @@ pub(crate) fn start(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_queued_input_uses_latest_actor_and_drops_removed_toys() {
+        let mut world = World::default();
+        let actor = resting_ball();
+        let id = actor.id.clone();
+        world.actors.insert(id.clone(), actor);
+        assert_eq!(linux_input_state(&world, &id), Some(true));
+        // A late initialization/ready callback must use the latest hit test,
+        // not its original ignore=true value.
+        world.actors.get_mut(&id).unwrap().ignore_cursor = false;
+        assert_eq!(linux_input_state(&world, &id), Some(false));
+        world.actors.remove(&id);
+        assert_eq!(linux_input_state(&world, &id), None);
+    }
 
     #[test]
     fn clearing_cancels_pending_launches_without_blocking_new_or_unrelated_requests() {
@@ -1386,6 +1579,8 @@ mod tests {
             expires: None,
             ignore_cursor: true,
             last_sent: None,
+            visible: false,
+            attempt: String::new(),
         }
     }
     #[test]

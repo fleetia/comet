@@ -310,6 +310,7 @@ it("adds and removes expressions, protects the default one, and gates images on 
   for (const button of screen.getAllByRole("button", { name: /^(?!말풍선).* 이미지 선택$/ })) {
     expect(button).toHaveProperty("disabled", true);
   }
+  fireEvent.click(screen.getByRole("button", { name: "표정 추가 열기" }));
   fireEvent.change(screen.getByLabelText("새 표정 이름"), { target: { value: " 화남 " } });
   fireEvent.click(screen.getByRole("button", { name: "표정 추가" }));
   expect(onChange).toHaveBeenLastCalledWith(
@@ -318,6 +319,7 @@ it("adds and removes expressions, protects the default one, and gates images on 
       faceIcon: true,
     }),
   );
+  fireEvent.click(screen.getByRole("button", { name: "슬픔 표정 선택" }));
   fireEvent.click(screen.getByRole("button", { name: "슬픔 표정 삭제" }));
   expect(onChange).toHaveBeenLastCalledWith(
     expect.objectContaining({ expressions: { 평온: "기본", 기쁨: "기쁨" } }),
@@ -337,15 +339,18 @@ it("adds and removes expressions, protects the default one, and gates images on 
       dirty={false}
     />,
   );
+  fireEvent.click(screen.getByRole("button", { name: "기쁨 표정 선택" }));
   const joy = screen.getByLabelText("기쁨 이미지");
   expect(within(joy).getByRole("img").getAttribute("src")).toContain(
     "expression=%EA%B8%B0%EC%81%A8",
   );
-  expect(screen.getByLabelText("슬픔 이미지").textContent).toBe("—");
-  expect(screen.getAllByRole("button", { name: /^(?!말풍선).* 이미지 제거$/ })).toHaveLength(2);
-  fireEvent.click(screen.getAllByRole("button", { name: /^(?!말풍선).* 이미지 선택$/ })[2]);
+  fireEvent.click(screen.getByRole("button", { name: "슬픔 표정 선택" }));
+  expect(screen.getByLabelText("슬픔 이미지").textContent).toContain("평온 이미지로 표시");
+  expect(screen.getByRole("button", { name: "슬픔 이미지 제거" })).toHaveProperty("disabled", true);
+  fireEvent.click(screen.getByRole("button", { name: "슬픔 이미지 선택" }));
   expect(onSprite).toHaveBeenLastCalledWith("슬픔", false);
-  fireEvent.click(screen.getAllByRole("button", { name: /^(?!말풍선).* 이미지 제거$/ })[1]);
+  fireEvent.click(screen.getByRole("button", { name: "기쁨 표정 선택" }));
+  fireEvent.click(screen.getByRole("button", { name: "기쁨 이미지 제거" }));
   expect(onSprite).toHaveBeenLastCalledWith("기쁨", true);
   fireEvent.click(screen.getByRole("tab", { name: "말풍선" }));
   expect(screen.getByLabelText("말풍선 이미지").textContent).toBe("기본");
@@ -353,6 +358,5 @@ it("adds and removes expressions, protects the default one, and gates images on 
   expect(onSprite).toHaveBeenLastCalledWith("$balloon", false);
   expect(screen.queryByRole("button", { name: "말풍선 이미지 제거" })).toBeNull();
   fireEvent.click(screen.getByRole("tab", { name: "대사·반응" }));
-  fireEvent.click(screen.getByRole("button", { name: "인사 편집" }));
   expect(screen.getByLabelText("인사 1 표정")).toBeTruthy();
 });

@@ -16,7 +16,7 @@ export const item = style({
   display: "grid",
   gap: vars.space.xxs,
   padding: `${vars.space.xs} 0`,
-  borderBottom: `1px dotted ${vars.color.border.subtle}`,
+  borderBottom: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
 });
 export const itemMain = style({
   display: "flex",

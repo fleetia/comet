@@ -25,6 +25,7 @@ pub(crate) fn publish_widgets(app: &tauri::AppHandle, state: &AppState) {
         publish(app, state);
     }
     crate::desktop_menu::refresh(app);
+    crate::widget_runtime::refresh(app);
 }
 
 /// Keeps idle chatter deferred for the whole focus run, so it never fires right after the timer ends.
@@ -257,7 +258,7 @@ pub(crate) async fn execute_widget(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     request: WidgetRequest,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     if matches!(request.action.as_str(), "desktop-open" | "desktop-clear") {
         let launch = if request.action == "desktop-open" {
             let token = crate::desktop_toys::launch_token(&app, &request.instance_id)?;
@@ -288,11 +289,11 @@ pub(crate) async fn execute_widget(
             } else {
                 crate::desktop_toys::remove_widget(&app, &instance.id);
             }
-            Ok(())
+            Ok(None)
         });
     }
-    change(&state, |db| {
-        storage::execute(
+    let created_id = change(&state, |db| {
+        let created_id = execute_with_created_id(
             db,
             &request,
             chrono::Utc::now().timestamp_millis(),
@@ -301,13 +302,58 @@ pub(crate) async fn execute_widget(
         if request.action == "configure-alerts" {
             lock(&state.widget_clocks)?.remove(&request.instance_id);
         }
-        Ok(())
+        Ok(created_id)
     })?;
     crate::memo_notes::schedule_sync(&app);
     // New state can invalidate an already playing reaction to this widget.
-    cancel_widget_scene(&app, &state)?;
+    if let Err(error) = cancel_widget_scene(&app, &state) {
+        if created_id.is_none() {
+            return Err(error);
+        }
+        eprintln!("위젯 내용 저장 후 반응 갱신 실패: {error}");
+        if let Ok(mut runtime) = lock(&state.runtime) {
+            runtime.error = Some("내용은 저장했지만 캐릭터 반응을 갱신하지 못했어요.".into());
+        }
+        publish(&app, &state);
+    }
     publish_widgets(&app, &state);
-    Ok(())
+    Ok(created_id)
+}
+
+fn execute_with_created_id(
+    db: &rusqlite::Connection,
+    request: &WidgetRequest,
+    now: i64,
+    entropy: u64,
+) -> Result<Option<String>, String> {
+    let before = if matches!(request.action.as_str(), "add" | "create") {
+        storage::get(db, &request.instance_id).ok()
+    } else {
+        None
+    };
+    storage::execute(db, request, now, entropy)?;
+    let Some(before) = before else {
+        return Ok(None);
+    };
+    let field = match (before.kind.as_str(), request.action.as_str()) {
+        ("todo", "add") => "items",
+        ("preparation", "create") => "envelopes",
+        _ => return Ok(None),
+    };
+    let previous_ids: std::collections::BTreeSet<&str> = before.data[field]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item["id"].as_str())
+        .collect();
+    let after = storage::get(db, &request.instance_id)?;
+    Ok(after.data[field]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item["id"].as_str())
+        .find(|id| !previous_ids.contains(id))
+        .map(str::to_owned))
 }
 
 #[tauri::command]
@@ -582,8 +628,11 @@ async fn open_widget_inner(
     }
     let label = format!("widget-{id}");
     if let Some(window) = app.get_webview_window(&label) {
+        window.unminimize().map_err(|error| error.to_string())?;
         window.show().map_err(|error| error.to_string())?;
-        return window.set_focus().map_err(|error| error.to_string());
+        window.set_focus().map_err(|error| error.to_string())?;
+        crate::widget_runtime::refresh(app);
+        return Ok(());
     }
     tauri::WebviewWindowBuilder::new(
         app,
@@ -608,9 +657,11 @@ async fn open_widget_inner(
     )
     .min_inner_size(296.0, 320.0)
     .decorations(false)
+    .disable_drag_drop_handler()
     .maximizable(false)
     .build()
     .map_err(|error| error.to_string())?;
+    crate::widget_runtime::refresh(app);
     Ok(())
 }
 
@@ -645,10 +696,13 @@ pub(crate) async fn open_widget_display(
     uuid::Uuid::parse_str(&id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
     let label = format!("widget-display-{id}");
     if let Some(window) = app.get_webview_window(&label) {
-        return reveal_widget_display(&state, &id, instance.revision, || {
+        let result = reveal_widget_display(&state, &id, instance.revision, || {
+            window.unminimize().map_err(|error| error.to_string())?;
             window.show().map_err(|error| error.to_string())?;
             window.set_focus().map_err(|error| error.to_string())
         });
+        crate::widget_runtime::refresh(&app);
+        return result;
     }
     // Building waits for the UI thread, so keep it outside the lifecycle lock and hidden.
     let window = tauri::WebviewWindowBuilder::new(
@@ -680,6 +734,7 @@ pub(crate) async fn open_widget_display(
     if result.is_err() {
         let _ = window.destroy();
     }
+    crate::widget_runtime::refresh(&app);
     result
 }
 
@@ -689,6 +744,7 @@ pub(crate) fn close_widget(app: tauri::AppHandle, id: String) -> Result<(), Stri
     if let Some(window) = app.get_webview_window(&format!("widget-{id}")) {
         window.destroy().map_err(|error| error.to_string())?;
     }
+    crate::widget_runtime::refresh(&app);
     Ok(())
 }
 
@@ -698,6 +754,7 @@ pub(crate) fn close_widget_display(app: tauri::AppHandle, id: String) -> Result<
     if let Some(window) = app.get_webview_window(&format!("widget-display-{id}")) {
         window.destroy().map_err(|error| error.to_string())?;
     }
+    crate::widget_runtime::refresh(&app);
     Ok(())
 }
 
@@ -849,6 +906,71 @@ fn fallback_reaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn created_widget_item_id_belongs_to_the_action_and_replay_is_a_noop() {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        storage::initialize(&db).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        storage::install(
+            &db,
+            directory.path(),
+            &["todo".into(), "preparation".into()],
+        )
+        .unwrap();
+        for (kind, action, field) in [
+            ("todo", "add", "items"),
+            ("preparation", "create", "envelopes"),
+        ] {
+            let instance = storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|item| item.kind == kind)
+                .unwrap();
+            let first = WidgetRequest {
+                request_id: uuid::Uuid::new_v4().to_string(),
+                instance_id: instance.id.clone(),
+                expected_revision: instance.revision,
+                action: action.into(),
+                input: serde_json::json!({"title":"먼저 만든 내용"}),
+            };
+            storage::execute(&db, &first, 1000, 1).unwrap();
+            let before = storage::get(&db, &instance.id).unwrap();
+            let created = WidgetRequest {
+                request_id: uuid::Uuid::new_v4().to_string(),
+                expected_revision: before.revision,
+                input: serde_json::json!({"title":"이번에 만든 내용"}),
+                ..first
+            };
+            let id = execute_with_created_id(&db, &created, 2000, 2)
+                .unwrap()
+                .unwrap();
+            let after = storage::get(&db, &instance.id).unwrap();
+            assert_ne!(before.data[field][0]["id"], id);
+            assert_eq!(after.data[field][1]["id"], id);
+            assert_eq!(after.data[field][1]["title"], "이번에 만든 내용");
+            assert_eq!(
+                execute_with_created_id(&db, &created, 3000, 3).unwrap(),
+                None
+            );
+            assert_eq!(storage::get(&db, &instance.id).unwrap().data, after.data);
+            let update = WidgetRequest {
+                request_id: uuid::Uuid::new_v4().to_string(),
+                expected_revision: after.revision,
+                action: "update".into(),
+                input: serde_json::json!({"id":id,"title":"수정한 내용"}),
+                ..created
+            };
+            assert_eq!(
+                execute_with_created_id(&db, &update, 4000, 4).unwrap(),
+                None
+            );
+            assert_eq!(
+                storage::get(&db, &instance.id).unwrap().data[field][1]["title"],
+                "수정한 내용"
+            );
+        }
+    }
 
     #[test]
     fn launcher_widget_dispatch_rejects_changed_or_disabled_preview() {

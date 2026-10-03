@@ -116,8 +116,16 @@ struct Preparation {
 #[serde(rename_all = "camelCase")]
 struct Envelope {
     id: String,
+    #[serde(default)]
     event_id: String,
+    #[serde(default)]
     event_label: String,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    archived: bool,
+    #[serde(default)]
+    date: Option<String>,
     checks: Vec<Check>,
     links: Vec<Link>,
     todo_ids: Vec<String>,
@@ -886,8 +894,13 @@ fn timer(
         "cancel" => {
             state.status = "idle".into();
             state.deadline = None;
+            state.duration_ms = state.focus_duration_ms.unwrap_or(if state.mode == "rest" {
+                1500000
+            } else {
+                state.duration_ms
+            });
+            state.mode = "focus".into();
             state.remaining_ms = state.duration_ms;
-            state.todo_id = None;
         }
         _ => return Err("지원하지 않는 타이머 동작입니다.".into()),
     }
@@ -1045,16 +1058,29 @@ fn preparation(
     entropy: u64,
 ) -> Result<WidgetEffect, String> {
     let mut state: Preparation = decode(data)?;
+    for envelope in &mut state.envelopes {
+        if envelope.title.is_empty() {
+            envelope.title.clone_from(&envelope.event_label);
+        }
+    }
     let new_id = id(now, entropy);
     if action == "create" {
         capacity(state.envelopes.len())?;
         if state.envelopes.iter().any(|x| x.id == new_id) {
             return Err("ID 충돌입니다.".into());
         }
+        let title = if input.get("title").is_some() {
+            text(input, "title", 1000)?
+        } else {
+            text(input, "eventLabel", 1000)?
+        };
         state.envelopes.push(Envelope {
             id: new_id,
-            event_id: text(input, "eventId", 1000)?,
-            event_label: text(input, "eventLabel", 1000)?,
+            event_id: envelope_event_id(input)?,
+            event_label: optional_text(input, "eventLabel", 1000)?,
+            title,
+            archived: false,
+            date: envelope_date(input)?,
             checks: vec![],
             links: vec![],
             todo_ids: vec![],
@@ -1073,6 +1099,46 @@ fn preparation(
     }
     let envelope = &mut state.envelopes[at];
     match action {
+        "update" => {
+            if input.get("title").is_some() {
+                envelope.title = text(input, "title", 1000)?;
+            }
+            if input.get("eventId").is_some() {
+                envelope.event_id = envelope_event_id(input)?;
+                envelope.event_label = if envelope.event_id.is_empty() {
+                    String::new()
+                } else {
+                    text(input, "eventLabel", 1000)?
+                };
+            }
+            if let Some(value) = input.get("archived") {
+                envelope.archived = value.as_bool().ok_or("보관 상태가 올바르지 않습니다.")?;
+            }
+            if input.get("date").is_some() {
+                envelope.date = envelope_date(input)?;
+            }
+        }
+        "check-promote" => {
+            let key = text(input, "checkId", 200)?;
+            let at = envelope
+                .checks
+                .iter()
+                .position(|check| check.id == key)
+                .ok_or_else(missing)?;
+            if envelope.checks[at].done {
+                return Err("완료한 준비 항목은 먼저 완료를 취소해 주세요.".into());
+            }
+            let todo_id = text(input, "todoId", 200)?;
+            let todos: TodoState = decode(related.get("todo").ok_or("할 일 위젯을 켜 주세요.")?)?;
+            if !todos.items.iter().any(|todo| todo.id == todo_id) {
+                return Err(missing());
+            }
+            capacity(envelope.todo_ids.len())?;
+            envelope.checks.remove(at);
+            if !envelope.todo_ids.contains(&todo_id) {
+                envelope.todo_ids.push(todo_id);
+            }
+        }
         "check-add" => {
             capacity(envelope.checks.len())?;
             if envelope.checks.iter().any(|x| x.id == new_id) {
@@ -1149,6 +1215,24 @@ fn preparation(
         _ => return Err("지원하지 않는 준비 봉투 동작입니다.".into()),
     }
     encode(state, vec![])
+}
+
+fn envelope_event_id(input: &Value) -> Result<String, String> {
+    match input.get("eventId") {
+        None | Some(Value::Null) => Ok(String::new()),
+        Some(_) => optional_text(input, "eventId", 1000),
+    }
+}
+
+fn envelope_date(input: &Value) -> Result<Option<String>, String> {
+    match input.get("date") {
+        None | Some(Value::Null) => Ok(None),
+        Some(_) => {
+            let selected = text(input, "date", 10)?;
+            date(&selected)?;
+            Ok(Some(selected))
+        }
+    }
 }
 
 pub fn tick(kind: &str, data: &Value, now: i64) -> Result<Option<WidgetEffect>, String> {
@@ -1362,6 +1446,42 @@ mod tests {
         assert_eq!(continued.data["deadline"], 70000);
     }
     #[test]
+    fn timer_cancel_restores_focus_and_keeps_the_linked_task() {
+        let data = json!({
+            "status":"running", "mode":"rest", "durationMs":300000,
+            "focusDurationMs":60000, "remainingMs":300000,
+            "deadline":301000, "todoId":"linked-task"
+        });
+        let restored: Value = serde_json::from_str(&data.to_string()).unwrap();
+        let cancelled = run("focus-timer", &restored, "cancel", json!({}), 2000);
+        assert_eq!(cancelled.data["status"], "idle");
+        assert_eq!(cancelled.data["mode"], "focus");
+        assert_eq!(cancelled.data["durationMs"], 60000);
+        assert_eq!(cancelled.data["remainingMs"], 60000);
+        assert_eq!(cancelled.data["todoId"], "linked-task");
+        assert!(cancelled.data["deadline"].is_null());
+        assert!(cancelled.events.is_empty());
+        let restarted = run("focus-timer", &cancelled.data, "start", json!({}), 3000);
+        assert_eq!(restarted.data["deadline"], 63000);
+        assert_eq!(restarted.data["todoId"], "linked-task");
+    }
+
+    #[test]
+    fn timer_cancel_handles_paused_finished_and_legacy_states() {
+        for status in ["paused", "finished"] {
+            for (mode, duration, expected) in [("focus", 60000, 60000), ("rest", 300000, 1500000)] {
+                let data = json!({"status":status,"mode":mode,"durationMs":duration,
+                    "remainingMs":0,"deadline":null,"todoId":null});
+                let cancelled = run("focus-timer", &data, "cancel", json!({}), 2000);
+                assert_eq!(cancelled.data["mode"], "focus");
+                assert_eq!(cancelled.data["remainingMs"], expected);
+                assert_eq!(cancelled.data["durationMs"], expected);
+                assert!(cancelled.events.is_empty());
+            }
+        }
+    }
+
+    #[test]
     fn lists_and_invalid_due_inputs_do_not_mutate_original() {
         let list = run(
             "todo",
@@ -1397,6 +1517,66 @@ mod tests {
             assert!(act("todo", &added.data, "add", &input, &BTreeMap::new(), 3, 7).is_err());
         }
         assert_eq!(added.data["items"].as_array().unwrap().len(), 1);
+    }
+    #[test]
+    fn legacy_envelope_keeps_content_when_renamed_detached_and_archived() {
+        let legacy = json!({"envelopes":[{
+            "id":"old","eventId":"calendar:old","eventLabel":"원래 일정",
+            "checks":[{"id":"check","text":"  준비물  ","done":false}],
+            "links":[{"id":"link","title":"자료","url":"https://example.com"}],
+            "todoIds":["existing-todo"]
+        }]});
+        let normalized = run(
+            "preparation",
+            &legacy,
+            "check-toggle",
+            json!({"id":"old","checkId":"check"}),
+            1,
+        );
+        assert_eq!(normalized.data["envelopes"][0]["title"], "원래 일정");
+        assert!(normalized.data["envelopes"][0]["date"].is_null());
+        let updated = run(
+            "preparation",
+            &normalized.data,
+            "update",
+            json!({"id":"old","title":"  내 봉투  ","eventId":null,"date":"2026-10-03","archived":true}),
+            2,
+        );
+        let envelope = &updated.data["envelopes"][0];
+        assert_eq!(envelope["title"], "  내 봉투  ");
+        assert_eq!(envelope["eventId"], "");
+        assert_eq!(envelope["eventLabel"], "");
+        assert_eq!(envelope["archived"], true);
+        assert_eq!(envelope["date"], "2026-10-03");
+        assert_eq!(
+            envelope["checks"],
+            normalized.data["envelopes"][0]["checks"]
+        );
+        assert_eq!(envelope["links"], legacy["envelopes"][0]["links"]);
+        assert_eq!(envelope["todoIds"], legacy["envelopes"][0]["todoIds"]);
+        let reopened = run(
+            "preparation",
+            &updated.data,
+            "update",
+            json!({"id":"old","archived":false}),
+            3,
+        );
+        assert_eq!(
+            reopened.data["envelopes"][0]["checks"][0]["text"],
+            "  준비물  "
+        );
+        assert_eq!(reopened.data["envelopes"][0]["archived"], false);
+        assert_eq!(reopened.data["envelopes"][0]["date"], "2026-10-03");
+        let attached = run(
+            "preparation",
+            &reopened.data,
+            "update",
+            json!({"id":"old","eventId":"event","eventLabel":"연결한 일정","date":null}),
+            4,
+        );
+        assert!(attached.data["envelopes"][0]["date"].is_null());
+        assert_eq!(attached.data["envelopes"][0]["eventId"], "event");
+        assert_eq!(attached.data["envelopes"][0]["title"], "  내 봉투  ");
     }
     #[test]
     fn preparation_keeps_local_content_disconnected_and_rejects_unsafe_links() {

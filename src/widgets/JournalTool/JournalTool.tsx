@@ -60,11 +60,14 @@ export function JournalTool({ widget }: { widget: WidgetView }): ReactElement {
       <Button variant="secondary" disabled={busy} onClick={() => void load(null)}>
         새로고침
       </Button>
-      {entries.length === 0 && !busy && <p>아직 함께한 사건이 없어요.</p>}
+      {entries.length === 0 && !busy && !error && <p>아직 함께한 사건이 없어요.</p>}
       {entries.map(([seq, entry]) => (
         <article className={s.item} key={seq}>
           <p className={s.prose}>{entry.text}</p>
-          <time className={`${c.quiet} ${s.data}`}>
+          <time
+            className={`${c.quiet} ${s.data}`}
+            dateTime={new Date(entry.createdAt).toISOString()}
+          >
             {new Date(entry.createdAt).toLocaleString()}
           </time>
         </article>

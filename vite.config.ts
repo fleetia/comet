@@ -11,5 +11,12 @@ export default defineConfig({
     host: "127.0.0.1",
     watch: { ignored: ["**/src-tauri/**"] },
   },
-  test: { environment: "jsdom", include: ["src/**/*.test.{ts,tsx}"], restoreMocks: true },
+  test: {
+    environment: "jsdom",
+    include: ["src/**/*.test.{ts,tsx}"],
+    restoreMocks: true,
+    // Concurrent jsdom character editors exceed the normal 5s limit under CPU contention.
+    // Keep file isolation and every assertion; bound workers instead of extending timeouts.
+    maxWorkers: 2,
+  },
 });

@@ -38,8 +38,8 @@ export const tone = styleVariants({
   b: { borderTop: `3px solid ${vars.color.status.positive}` },
 });
 export const bodyName = style({
-  fontSize: 11,
-  fontWeight: 650,
+  fontSize: vars.typography.size.caption,
+  fontWeight: 600,
   maxWidth: "100%",
   overflow: "hidden",
   textOverflow: "ellipsis",
@@ -65,7 +65,7 @@ export const sprite = style({
 });
 export const spriteBody = style({
   minHeight: 0,
-  padding: 4,
+  padding: vars.space.xs,
   gap: 0,
   border: 0,
   borderRadius: 0,
@@ -128,7 +128,7 @@ export const balloonHeader = style({
   alignItems: "center",
   justifyContent: "space-between",
   padding: "7px 12px",
-  fontSize: 11,
+  fontSize: vars.typography.size.caption,
   color: vars.color.content.secondary,
   flexShrink: 0,
   borderBottom: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
@@ -142,7 +142,7 @@ globalStyle(`${balloonHeader} > span`, {
 globalStyle(`${balloonHeader} > button`, { flexShrink: 0 });
 export const speech = style({
   maxHeight: 400,
-  padding: "8px 32px 8px 12px",
+  padding: `${vars.space.sm} ${vars.space.xxl} ${vars.space.sm} ${vars.space.md}`,
   fontSize: 19,
   lineHeight: 1.65,
   letterSpacing: "-0.025em",
@@ -178,7 +178,7 @@ export const conversationDetails = style({
   minHeight: 26,
   flexShrink: 1,
   overflowY: "auto",
-  fontSize: 11,
+  fontSize: vars.typography.size.caption,
   borderBottom: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
 });
 export const conversationSummary = style({
@@ -194,7 +194,7 @@ export const conversationLog = style({
   padding: "0 14px 8px",
 });
 globalStyle(`${conversationDetails} ${conversationLog}`, {
-  padding: "0 0 8px",
+  padding: `0 0 ${vars.space.sm}`,
   overflow: "visible",
   maxHeight: "none",
 });
@@ -202,31 +202,31 @@ export const historyToolbar = style({
   display: "flex",
   justifyContent: "space-between",
   padding: "6px 12px",
-  gap: 4,
+  gap: vars.space.xs,
   flexShrink: 0,
 });
 export const conversationTitle = style({
   margin: "4px 14px",
-  fontSize: 12,
+  fontSize: vars.typography.size.label,
   overflowWrap: "anywhere",
 });
 export const conversationMeta = style({
   margin: "3px 0",
-  fontSize: 10,
+  fontSize: vars.typography.size.caption,
   color: vars.color.content.secondary,
 });
 export const conversationItem = style({
   width: "100%",
   display: "flex",
   flexDirection: "column",
-  gap: 4,
-  padding: "12px 0",
+  gap: vars.space.xs,
+  padding: `${vars.space.md} 0`,
   background: "transparent",
   border: 0,
   borderBottom: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
   textAlign: "left",
   color: vars.color.content.primary,
-  fontSize: 12,
+  fontSize: vars.typography.size.label,
   overflowWrap: "anywhere",
   cursor: "pointer",
   ":focus-visible": { outline: `2px solid ${vars.color.interaction.focus}`, outlineOffset: -2 },
@@ -266,7 +266,7 @@ export const waitingLabel = style({
 });
 export const footer = style({
   padding: "6px 14px 10px",
-  fontSize: 10,
+  fontSize: vars.typography.size.caption,
   color: vars.color.content.secondary,
   display: "flex",
   justifyContent: "space-between",
@@ -315,26 +315,26 @@ export const history = style({
   minHeight: 0,
 });
 export const historyMessage = style({
-  margin: "12px 0",
-  fontSize: 12,
+  margin: `${vars.space.md} 0`,
+  fontSize: vars.typography.size.label,
   lineHeight: 1.65,
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
 });
 export const historyName = style({
   display: "block",
-  fontSize: 10,
+  fontSize: vars.typography.size.caption,
   fontWeight: 600,
   color: vars.color.content.secondary,
-  marginBottom: 2,
+  marginBottom: vars.space.xxs,
 });
-export const notice = style({ padding: "0 12px 8px", flexShrink: 0 });
+export const notice = style({ padding: `0 ${vars.space.md} ${vars.space.sm}`, flexShrink: 0 });
 export const error = style({
   padding: "8px 10px",
   background: vars.color.status.criticalSurface,
   color: vars.color.status.critical,
-  fontSize: 11,
-  lineHeight: 1.6,
+  fontSize: vars.typography.size.caption,
+  lineHeight: vars.typography.lineHeight.body,
   borderRadius: vars.shape.radius.subtle,
   maxHeight: 65,
   overflowY: "auto",
@@ -347,8 +347,8 @@ export const preview = style({
   minHeight: "100dvh",
 });
 export const previewTitle = style({
-  fontSize: 15,
-  fontWeight: 550,
+  fontSize: vars.typography.size.headingSm,
+  fontWeight: 600,
   marginBottom: 7,
   letterSpacing: "0.02em",
 });
@@ -359,7 +359,7 @@ export const stage = style({
   flexDirection: "column",
   alignItems: "center",
   justifyContent: "flex-end",
-  padding: "24px 0 32px",
+  padding: `${vars.space.xl} 0 ${vars.space.xxl}`,
   borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
   marginBottom: 20,
 });
@@ -375,13 +375,13 @@ export const demoControls = style({
   display: "flex",
   flexWrap: "wrap",
   alignItems: "center",
-  gap: 8,
-  marginBottom: 12,
+  gap: vars.space.sm,
+  marginBottom: vars.space.md,
 });
 export const resting = style({
   height: 260,
   display: "flex",
   alignItems: "center",
   color: vars.color.content.secondary,
-  fontSize: 12,
+  fontSize: vars.typography.size.label,
 });

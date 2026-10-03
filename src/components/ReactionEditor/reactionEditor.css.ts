@@ -2,7 +2,7 @@ import { style } from "@vanilla-extract/css";
 import { semanticVars as vars } from "@fleetia/lagrange/theme";
 export const rule = style({
   marginTop: vars.space.md,
-  borderTop: `1px solid ${vars.color.border.subtle}`,
+  borderTop: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
   paddingTop: vars.space.sm,
 });
 export const controls = style({

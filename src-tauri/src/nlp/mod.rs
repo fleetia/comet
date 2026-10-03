@@ -124,8 +124,8 @@ impl NlpService {
             let manifest = models::manifest(kind);
             let profile = models::fingerprint(&manifest);
             let artifact = models::artifact_fingerprint(&manifest);
-            let installed =
-                std::fs::read_to_string(root.join(kind.name()).join("verified-artifacts"))
+            let installed = !manifest.files.is_empty()
+                && std::fs::read_to_string(root.join(kind.name()).join("verified-artifacts"))
                     .ok()
                     .as_deref()
                     == Some(&artifact);
@@ -192,7 +192,7 @@ impl NlpService {
         let semantic = models::manifest(ModelKind::Semantic);
         if !status.semantic.installed
             && status.semantic.state != "initializing"
-            && semantic.files.iter().any(|file| file.url.is_none())
+            && (semantic.files.is_empty() || semantic.files.iter().any(|file| file.url.is_none()))
         {
             status.semantic.state = "unavailable".into();
             status.semantic.error = Some("의미 검색 모델의 검증과 배포를 준비하고 있어요.".into());

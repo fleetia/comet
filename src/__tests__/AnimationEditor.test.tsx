@@ -37,7 +37,10 @@ function appearance(): ReturnType<typeof within> {
       name: "모습·표정",
     }),
   );
-  return within(screen.getByRole("tabpanel", { name: "모습·표정" }));
+  const panel = within(screen.getByRole("tabpanel", { name: "모습·표정" }));
+  const motion = panel.queryAllByRole("button", { name: /동작 선택$/ })[0];
+  if (motion) fireEvent.click(motion);
+  return panel;
 }
 function chooseCharacter(name: RegExp): void {
   fireEvent.click(
@@ -48,7 +51,7 @@ function chooseCharacter(name: RegExp): void {
 }
 function createClip(): ReturnType<typeof within> {
   const editor = appearance();
-  const animation = within(editor.getByRole("region", { name: "애니메이션" }));
+  const animation = within(editor.getByRole("region", { name: "표정과 동작 자산" }));
   fireEvent.click(animation.getByRole("button", { name: "동작 추가" }));
   fireEvent.change(animation.getByLabelText("동작 이름"), { target: { value: "깜빡" } });
   return editor;
@@ -70,9 +73,9 @@ it("saves ordered frames and situation mappings atomically", async () => {
   render(<CharacterManager embedded snapshot={PREVIEW_SNAPSHOT} />);
   const editor = createClip();
   expect(editor.getByLabelText("동작 속도(fps)")).toHaveProperty("value", "8");
-  expect(screen.getByText("캐릭터 저장", { selector: "button" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "캐릭터 저장" })).toHaveProperty("disabled", true);
   fireEvent.click(
-    within(editor.getByRole("region", { name: "애니메이션" })).getByRole("button", {
+    within(editor.getByRole("region", { name: "표정과 동작 자산" })).getByRole("button", {
       name: "PNG/APNG 프레임 추가",
     }),
   );
@@ -96,12 +99,13 @@ it("saves ordered frames and situation mappings atomically", async () => {
     target: { value: clipId },
   });
   expect(editor.getByLabelText("음악을 재생하는 동안 반복 간격(초)")).toHaveProperty("value", "0");
+  fireEvent.click(editor.getByRole("button", { name: "기쁨 표정 선택" }));
   fireEvent.change(editor.getByLabelText("기쁨 · 평소 동작"), { target: { value: "$none" } });
   fireEvent.change(editor.getByLabelText("기쁨 · 말하는 동안 동작"), { target: { value: clipId } });
   fireEvent.change(editor.getByLabelText("기쁨 · 말하는 동안 동작"), {
     target: { value: "$inherit" },
   });
-  fireEvent.click(screen.getByText("캐릭터 저장", { selector: "button" }));
+  fireEvent.click(screen.getByRole("button", { name: "캐릭터 저장" }));
   await waitFor(() =>
     expect(vi.mocked(command).mock.calls.some(([name]) => name === "save_character")).toBe(true),
   );
@@ -143,7 +147,7 @@ it("preserves animation images through character and tab changes, failed save an
   render(<CharacterManager embedded snapshot={PREVIEW_SNAPSHOT} onDirtyChange={dirty} />);
   const editor = createClip();
   fireEvent.click(
-    within(editor.getByRole("region", { name: "애니메이션" })).getByRole("button", {
+    within(editor.getByRole("region", { name: "표정과 동작 자산" })).getByRole("button", {
       name: "PNG/APNG 프레임 추가",
     }),
   );
@@ -170,13 +174,13 @@ it("preserves animation images through character and tab changes, failed save an
   );
   appearance();
   expect(editor.getByLabelText("동작 이름")).toHaveProperty("value", "깜빡");
-  fireEvent.click(screen.getByText("캐릭터 저장", { selector: "button" }));
+  fireEvent.click(screen.getByRole("button", { name: "캐릭터 저장" }));
   await screen.findByText("디스크에 저장하지 못했어요.");
   expect(latestSave().animationAssets).toEqual([first]);
   expect(latestSave().definition.animation?.clips[0].frames[0].assetId).toBe(first.assetId);
   expect(editor.getByLabelText("동작 이름")).toHaveProperty("value", "깜빡");
   expect(dirty).toHaveBeenLastCalledWith(true);
-  fireEvent.click(screen.getByText("캐릭터 수정 취소", { selector: "button" }));
+  fireEvent.click(screen.getByRole("button", { name: "캐릭터 수정 취소" }));
   expect(editor.queryByLabelText("동작 이름")).toBeNull();
   expect(dirty).toHaveBeenLastCalledWith(false);
 });
@@ -223,6 +227,8 @@ it("imports a sheet in row order and rejects unequal sequence dimensions without
   await editor.findByRole("button", { name: "5번 프레임 선택" });
   fireEvent.click(editor.getByRole("button", { name: "다음 프레임" }));
   expect(editor.getByText("2 / 5 프레임")).toBeTruthy();
+  expect(editor.getByRole("button", { name: "2번 프레임 선택", pressed: true })).toBeTruthy();
+  expect(editor.getByRole("button", { name: "1번 프레임 선택", pressed: false })).toBeTruthy();
   selected = [asset("wrong-size", 32, 16)];
   fireEvent.click(editor.getByRole("button", { name: "PNG/APNG 프레임 추가" }));
   await editor.findByText("한 동작의 모든 프레임은 너비와 높이가 같아야 해요.");
@@ -282,7 +288,9 @@ it("clears deleted clip mappings and prunes expression overrides when the expres
     />,
   );
   const editor = appearance();
+  fireEvent.click(editor.getByRole("button", { name: "기쁨 표정 선택" }));
   fireEvent.click(editor.getByRole("button", { name: "기쁨 표정 삭제" }));
+  fireEvent.click(editor.getByRole("button", { name: "깜빡 동작 선택" }));
   fireEvent.click(editor.getByRole("button", { name: "동작 삭제" }));
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 저장" }));
   await waitFor(() =>

@@ -243,6 +243,9 @@ pub(crate) fn show_boxes(app: &tauri::AppHandle, state: &AppState) {
             }
         }
     }
+    // Linux remaps body/face together in publish through the passive placement
+    // adapter; a raw show here would let GTK/WM reset their saved positions.
+    #[cfg(not(target_os = "linux"))]
     for (label, window) in app.webview_windows() {
         if desktop::is_body(&label) {
             let _ = window.show();
@@ -451,9 +454,25 @@ pub(crate) fn show_settings_section(
         window
             .emit("open-settings-section", section)
             .map_err(|e| e.to_string())?;
+        window.unminimize().map_err(|e| e.to_string())?;
         window.show().map_err(|e| e.to_string())?;
         return window.set_focus().map_err(|e| e.to_string());
     }
+    let preferred_size = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|monitor| {
+            let area = monitor
+                .work_area()
+                .size
+                .to_logical::<f64>(monitor.scale_factor());
+            (
+                area.width.clamp(960.0, 1920.0),
+                area.height.clamp(640.0, 1080.0),
+            )
+        })
+        .unwrap_or((1120.0, 720.0));
     tauri::WebviewWindowBuilder::new(
         &app,
         "settings",
@@ -462,7 +481,7 @@ pub(crate) fn show_settings_section(
         ),
     )
     .title("comet · 설정")
-    .inner_size(1120.0, 720.0)
+    .inner_size(preferred_size.0, preferred_size.1)
     .min_inner_size(960.0, 640.0)
     .decorations(false)
     .maximizable(false)

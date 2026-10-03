@@ -336,15 +336,25 @@ unsafe fn create_panel(app: AppHandle, frame: Frame, x: f64, y: f64) -> Result<(
     let id = frame.id.clone();
     PANELS.with(|panels| {
         panels.borrow_mut().insert(
-            id,
+            id.clone(),
             Panel {
                 window: panel.clone(),
                 view,
-                app,
+                app: app.clone(),
                 frame,
             },
         )
     });
+    // Clearing during creation invalidates this actor before the panel becomes visible.
+    let world = crate::lock(&runtime.world)?;
+    if !world.actors.contains_key(&id) {
+        drop(world);
+        PANELS.with(|panels| {
+            panels.borrow_mut().remove(&id);
+        });
+        let _: () = msg_send![&*panel, close];
+        return Ok(());
+    }
     // Leave ignoresMouseEvents untouched: Cocoa uses drawn alpha as the shape.
     let _: () = msg_send![&*panel,orderFront:std::ptr::null::<AnyObject>()];
     Ok(())
@@ -358,12 +368,31 @@ pub(super) fn create(app: &AppHandle, frame: Frame, x: f64, y: f64) -> Result<()
             create_panel(app_copy.clone(), frame, x, y)
         }))
         .unwrap_or_else(|_| Err("장난감 창을 준비하지 못했어요.".into()));
-        if let Err(error) = result {
-            super::remove_actor(&app_copy, &id);
-            eprintln!("desktop toy panel creation failed: {error}");
-        }
+        super::creation_result(&app_copy, &id, result);
     })
     .map_err(|error| error.to_string())
+}
+
+pub(super) fn visible_ids(app: &AppHandle) -> Result<std::collections::BTreeSet<String>, String> {
+    let (send, receive) = std::sync::mpsc::channel();
+    app.run_on_main_thread(move || {
+        let ids = PANELS.with(|panels| {
+            panels
+                .borrow()
+                .iter()
+                .filter_map(|(id, panel)| unsafe {
+                    let visible: Bool = msg_send![&*panel.window, isVisible];
+                    let minimized: Bool = msg_send![&*panel.window, isMiniaturized];
+                    (visible.as_bool() && !minimized.as_bool()).then(|| id.clone())
+                })
+                .collect()
+        });
+        let _ = send.send(ids);
+    })
+    .map_err(|error| error.to_string())?;
+    receive
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .map_err(|error| error.to_string())
 }
 
 pub(super) fn update(app: &AppHandle, id: String, x: f64, y: f64, frame: Frame) {

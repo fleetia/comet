@@ -48,4 +48,4 @@ export const actions = style({
   flexShrink: 0,
   gap: vars.space.sm,
 });
-export const close = style({ fontSize: 24, lineHeight: 1 });
+export const close = style({ fontSize: vars.typography.size.headingMd, lineHeight: 1 });

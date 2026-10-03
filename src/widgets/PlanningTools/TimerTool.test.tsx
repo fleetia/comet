@@ -312,3 +312,92 @@ it.each([null, { mode: "calendar", unit: "day" }, { mode: "completion", unit: "d
     expect(act).toHaveBeenCalledExactlyOnceWith("complete", { id: "goal" }, target);
   },
 );
+
+describe("timer display and restored controls", () => {
+  it("previews the next focus length before starting and retains edits across snapshots", () => {
+    const initial = widget("focus-timer", {
+      status: "idle",
+      mode: "focus",
+      durationMs: 1500000,
+      remainingMs: 1500000,
+    });
+    const view = render(<TimerTool widget={initial} widgets={[todo()]} act={act} />);
+    fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "1" } });
+    expect(screen.getByLabelText("남은 시간").textContent).toBe("01:00");
+    view.rerender(<TimerTool widget={{ ...initial, revision: 9 }} widgets={[todo()]} act={act} />);
+    expect(screen.getByRole("spinbutton")).toHaveProperty("value", "1");
+  });
+
+  it("restores focus length and linked task after reopening during a break and stopping", async () => {
+    const state = {
+      status: "running",
+      mode: "rest",
+      focusDurationMs: 60000,
+      durationMs: 300000,
+      remainingMs: 300000,
+      deadline: Date.now() + 300000,
+      todoId: "goal",
+    };
+    const view = render(
+      <TimerTool widget={widget("focus-timer", state)} widgets={[todo()]} act={act} />,
+    );
+    expect(screen.getByRole("status").textContent).toBe("휴식 중");
+    view.rerender(
+      <TimerTool
+        widget={widget("focus-timer", {
+          ...state,
+          status: "idle",
+          mode: "focus",
+          durationMs: 60000,
+          remainingMs: 60000,
+          deadline: null,
+        })}
+        widgets={[todo()]}
+        act={act}
+      />,
+    );
+    expect(screen.getByRole("spinbutton")).toHaveProperty("value", "1");
+    expect(screen.getByRole("combobox")).toHaveProperty("value", "goal");
+    expect(screen.getByLabelText("남은 시간").textContent).toBe("01:00");
+    await click("집중 시작");
+    expect(act).toHaveBeenCalledExactlyOnceWith("start", { durationMs: 60000, todoId: "goal" });
+  });
+
+  it("does not resubmit a completed or removed saved task", async () => {
+    render(
+      <TimerTool
+        widget={widget("focus-timer", {
+          status: "idle",
+          mode: "focus",
+          focusDurationMs: 60000,
+          todoId: "goal",
+        })}
+        widgets={[todo(goal({ completedAt: 1 }))]}
+        act={act}
+      />,
+    );
+    expect(screen.getByRole("combobox")).toHaveProperty("value", "");
+    await click("집중 시작");
+    expect(act).toHaveBeenCalledExactlyOnceWith("start", { durationMs: 60000, todoId: null });
+  });
+
+  it("does not add a second when a fresh deadline arrives between clock ticks", () => {
+    const view = render(<TimerTool widget={timer("idle")} widgets={[]} act={act} />);
+    vi.setSystemTime(Date.now() + 400);
+    view.rerender(
+      <TimerTool
+        widget={widget("focus-timer", {
+          status: "running",
+          mode: "focus",
+          durationMs: 60000,
+          remainingMs: 60000,
+          deadline: Date.now() + 60000,
+        })}
+        widgets={[]}
+        act={act}
+      />,
+    );
+    expect(screen.getByLabelText("남은 시간").textContent).toBe("01:00");
+    expect(screen.getByRole("status").textContent).toBe("집중 중");
+  });
+});

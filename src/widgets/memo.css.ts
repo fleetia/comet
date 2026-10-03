@@ -8,7 +8,7 @@ export const listItem = style({
   gap: vars.space.xs,
   minWidth: 0,
   minHeight: 40,
-  borderBottom: `1px solid ${vars.color.border.subtle}`,
+  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
 });
 export const preview = style({
   flex: 1,
@@ -23,11 +23,14 @@ export const preview = style({
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
   cursor: "pointer",
+  ":disabled": { cursor: "not-allowed", opacity: 0.55 },
   ":focus-visible": { outline: `2px solid ${vars.color.interaction.focus}`, outlineOffset: 2 },
 });
 globalStyle(`${list} button${preview}`, { whiteSpace: "nowrap" });
+globalStyle(`${listItem} > button:not(.${preview})`, { flexShrink: 0 });
 export const dialogActions = style({
   display: "flex",
+  flexWrap: "wrap",
   gap: vars.space.sm,
   marginTop: vars.space.md,
 });
@@ -60,10 +63,12 @@ export const footer = style({
 });
 export const footerRow = style({
   display: "flex",
+  flexWrap: "wrap",
   alignItems: "center",
   justifyContent: "space-between",
   gap: vars.space.sm,
 });
+globalStyle(`${footerRow} > button`, { marginLeft: "auto" });
 export const fontControls = style({
   display: "flex",
   alignItems: "center",

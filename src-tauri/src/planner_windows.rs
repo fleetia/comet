@@ -17,20 +17,25 @@ pub(crate) fn open(app: &tauri::AppHandle, tab: &str) -> Result<(), String> {
     *crate::lock(&navigation.tab)? = tab.to_string();
     if let Some(window) = app.get_webview_window("planner") {
         window.emit("planner-tab", tab).map_err(|e| e.to_string())?;
+        window.unminimize().map_err(|e| e.to_string())?;
         window.show().map_err(|e| e.to_string())?;
-        return window.set_focus().map_err(|e| e.to_string());
+        window.set_focus().map_err(|e| e.to_string())?;
+        crate::widget_runtime::refresh(app);
+        return Ok(());
     }
     tauri::WebviewWindowBuilder::new(
         app,
         "planner",
         tauri::WebviewUrl::App(format!("index.html?view=planner&tab={tab}").into()),
     )
-    .title("comet · 플래너")
-    .inner_size(960.0, 640.0)
+    .title("comet · 내 다이어리")
+    .inner_size(1280.0, 840.0)
     .min_inner_size(720.0, 520.0)
     .decorations(false)
+    .disable_drag_drop_handler()
     .build()
     .map_err(|e| e.to_string())?;
+    crate::widget_runtime::refresh(app);
     Ok(())
 }
 

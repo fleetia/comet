@@ -30,18 +30,8 @@ use tauri_plugin_dialog::DialogExt;
 pub(crate) fn resource_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
     if cfg!(debug_assertions) {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries");
-        let target = if cfg!(target_os = "macos") {
-            "aarch64-apple-darwin"
-        } else {
-            "x86_64-pc-windows-msvc"
-        };
-        let suffix = if cfg!(target_os = "windows") {
-            ".exe"
-        } else {
-            ""
-        };
         return Ok((
-            root.join(format!("llama-server-{target}{suffix}")),
+            crate::sidecar::development_executable("llama-server"),
             root.join("runtime"),
         ));
     }
@@ -257,6 +247,7 @@ pub fn run() {
             app.manage(state.clone());
             crate::character_reaction_host::install(app.handle(), state.clone());
             app.manage(desktop_toys::Runtime::default());
+            app.manage(crate::widget_runtime::Runtime::default());
             app.manage(updater::UpdateState::default());
             launcher::initialize(app.handle(), &state).map_err(std::io::Error::other)?;
             crate::memo_notes::schedule_sync(app.handle());
@@ -302,6 +293,16 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if matches!(event, WindowEvent::Destroyed) {
+                let label = window.label();
+                #[cfg(not(target_os = "macos"))]
+                if let Some(id) = label.strip_prefix("desktop-toy-") {
+                    crate::desktop_toys::remove_actor(window.app_handle(), id);
+                }
+                if label == "planner" || label.starts_with("widget-") {
+                    crate::widget_runtime::refresh(window.app_handle());
+                }
+            }
             if window.label().starts_with("generated-widget-") {
                 match event {
                     WindowEvent::CloseRequested { .. } => {
@@ -466,6 +467,9 @@ pub fn run() {
             crate::memo_notes::request_close_memo_note,
             crate::memo_notes::save_memo_note,
             widget_commands::get_widgets,
+            crate::diary::get_diary,
+            crate::diary::update_diary,
+            crate::widget_runtime::get_widget_runtime,
             widget_commands::install_widgets,
             widget_commands::finish_widget_onboarding,
             widget_commands::set_widget_enabled,

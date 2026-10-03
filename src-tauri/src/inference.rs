@@ -284,19 +284,9 @@ async fn local_endpoint(
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .kill_on_drop(true);
+    crate::sidecar::configure_runtime(command.as_std_mut(), &inference.runtime_dir)?;
     if cfg!(target_os = "macos") {
-        command
-            .env("DYLD_LIBRARY_PATH", &inference.runtime_dir)
-            .args(["--n-gpu-layers", "auto"]);
-    } else {
-        let mut paths = vec![inference.runtime_dir.clone()];
-        paths.extend(std::env::split_paths(
-            &std::env::var_os("PATH").unwrap_or_default(),
-        ));
-        command.env(
-            "PATH",
-            std::env::join_paths(paths).map_err(|_| "실행기 경로 설정 실패")?,
-        );
+        command.args(["--n-gpu-layers", "auto"]);
     }
     #[cfg(target_os = "windows")]
     command
@@ -629,6 +619,16 @@ pub async fn test_local(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_credentials_use_secret_service_instead_of_the_mock_backend() {
+        // Inspect the builder only: no connection, credential read or write.
+        let builder = keyring::default::default_credential_builder();
+        assert!(builder
+            .as_any()
+            .is::<keyring::secret_service::SsCredentialBuilder>());
+    }
+
     use super::*;
 
     async fn captured_completion(

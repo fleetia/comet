@@ -335,7 +335,7 @@ it("keeps pair scene order and whitespace when saving the current two characters
   await screen.findByLabelText("장면 1 대사 1");
   fireEvent.click(screen.getByRole("button", { name: "장면 1 대사 2 위로" }));
   expect(screen.getByLabelText("장면 1 대사 1")).toHaveProperty("value", "둘째\n말");
-  fireEvent.click(screen.getByRole("button", { name: "조합 대사 저장" }));
+  fireEvent.click(screen.getByRole("button", { name: "이 장면 저장" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("save_character_dialogue", {
       ids: ["builtin-a", "local-third"],

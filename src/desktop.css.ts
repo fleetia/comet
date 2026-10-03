@@ -1,9 +1,9 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { lagrangeThemeClass, semanticVars as vars } from "@fleetia/lagrange/theme";
+import { vnextThemeClass, semanticVars as vars } from "@fleetia/lagrange/theme";
 import { localFonts } from "./fonts.css";
 import * as shared from "./lagrange.css";
 
-export const theme = style([lagrangeThemeClass, localFonts]);
+export const theme = style([vnextThemeClass, localFonts]);
 
 export const documentRoot = style({ minHeight: "100%" });
 export const root = style({ minHeight: "100dvh" });
@@ -21,7 +21,7 @@ globalStyle(`${root} :where(h1, h2, h3, p)`, { margin: 0 });
 globalStyle(`${root} [hidden]`, { display: "none" });
 globalStyle(`${root} summary`, { cursor: "pointer" });
 globalStyle(`${root} summary:focus-visible`, {
-  outline: `1px solid ${vars.color.interaction.focus}`,
+  outline: `${vars.border.width.hairline} solid ${vars.color.interaction.focus}`,
   outlineOffset: 2,
 });
 globalStyle(`${root} ${shared.settings}`, {
@@ -35,13 +35,14 @@ globalStyle(`${root} ${shared.settingsTitle}`, {
   color: vars.color.content.accent,
   fontFamily: vars.typography.family.display,
   lineHeight: vars.typography.lineHeight.tight,
-  margin: `${vars.space.xs} 0 ${vars.space.sm}`,
+  margin: `0 0 ${vars.space.sm}`,
 });
 globalStyle(`${root} ${shared.sectionTitle}`, {
   color: vars.color.content.accent,
   fontFamily: vars.typography.family.display,
   lineHeight: vars.typography.lineHeight.compact,
-  marginBottom: vars.space.md,
+  fontSize: vars.typography.size.headingSm,
+  marginBottom: vars.space.lg,
 });
 globalStyle(`${root} ${shared.field}`, {
   gap: vars.space.xxs,
@@ -52,13 +53,13 @@ globalStyle(`${root} ${shared.row}`, {
   margin: `${vars.space.sm} 0`,
 });
 globalStyle(`${root} ${shared.section}`, {
-  marginTop: vars.space.xl,
+  marginTop: vars.space.lg,
   paddingTop: vars.space.lg,
 });
 globalStyle(`${root} ${shared.choice}`, {
   flex: "0 1 auto",
   padding: `${vars.space.sm} ${vars.space.md}`,
-  borderWidth: "0 0 1px",
+  borderWidth: `0 0 ${vars.border.width.hairline}`,
 });
 
 export const pageHeader = style({
@@ -81,13 +82,13 @@ export const info = style({
 export const subsettings = style({
   margin: `${vars.space.md} 0 0 ${vars.space.lg}`,
   paddingLeft: vars.space.md,
-  borderLeft: `1px dotted ${vars.color.border.subtle}`,
+  borderLeft: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
 });
 export const modeChoices = style({
   display: "flex",
   flexWrap: "wrap",
-  gap: vars.space.sm,
-  marginBottom: vars.space.lg,
+  gap: vars.space.lg,
+  marginBottom: vars.space.md,
 });
 export const data = style({
   fontFamily: vars.typography.family.data,
@@ -120,7 +121,7 @@ export const saveStatus = style({
 export const disclosure = style({
   marginTop: vars.space.xl,
   paddingTop: vars.space.md,
-  borderTop: `1px dotted ${vars.color.border.subtle}`,
+  borderTop: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
 });
 export const disclosureSummary = style({
   color: vars.color.content.secondary,

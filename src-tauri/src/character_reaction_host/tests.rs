@@ -299,6 +299,60 @@ fn widget_reactions_obey_owner_epoch_revision_expiry_and_same_cooldown_policy() 
         .unwrap()
         .is_none());
 }
+
+#[test]
+fn interaction_targets_resolve_uppercase_slots_and_ignore_absent_members() {
+    let (state, _) = configured();
+    let db = lock(&state.db).unwrap();
+    let ids = characters::active_ids(&db).unwrap();
+    for id in &ids {
+        let mut character = characters::get(&db, id).unwrap();
+        character.definition.reactions.push(ReactionRule {
+            id: "touch".into(),
+            event: "interaction.touch".into(),
+            cooldown_ms: 0,
+            variants: vec![ReactionVariant {
+                id: "one".into(),
+                text: Some("반가워!".into()),
+                expression: None,
+                motion: MotionOverride::Inherit,
+            }],
+        });
+        characters::save(&db, id, &character.definition).unwrap();
+    }
+    let mut event = widgets::WidgetEvent {
+        id: "interaction-event".into(),
+        instance_id: "interaction".into(),
+        widget_kind: "interaction".into(),
+        revision: 1,
+        created_at: 0,
+        expires_at: i64::MAX,
+        event: widgets::EventDraft {
+            kind: "interaction.touch".into(),
+            text: "A를 쓰다듬었어요.".into(),
+            payload: serde_json::json!({"character":"A"}),
+        },
+    };
+    for (slot, id) in [
+        ("A", &ids[0]),
+        ("B", &ids[1]),
+        ("a", &ids[0]),
+        ("b", &ids[1]),
+    ] {
+        event.event.payload["character"] = serde_json::json!(slot);
+        assert_eq!(widget_character(&db, &event).unwrap(), Some(id.clone()));
+    }
+    characters::apply_roster(&db, vec![ids[1].clone(), ids[0].clone()]).unwrap();
+    event.event.payload["character"] = serde_json::json!("A");
+    assert_eq!(widget_character(&db, &event).unwrap(), Some(ids[1].clone()));
+    event.event.payload["owner"] = serde_json::json!(ids[0]);
+    assert_eq!(widget_character(&db, &event).unwrap(), Some(ids[0].clone()));
+    characters::apply_roster(&db, vec![ids[1].clone()]).unwrap();
+    assert_eq!(widget_character(&db, &event).unwrap(), None);
+    event.event.payload.as_object_mut().unwrap().remove("owner");
+    event.event.payload["character"] = serde_json::json!("B");
+    assert_eq!(widget_character(&db, &event).unwrap(), None);
+}
 #[test]
 fn completed_widget_scene_allows_click_speech_while_active_widget_remains_protected() {
     let (state, id) = configured();

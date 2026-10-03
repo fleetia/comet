@@ -50,7 +50,7 @@ export const success = style({
 });
 export const settings = style({
   maxWidth: 680,
-  padding: `${vars.space.xxl} ${vars.space.xl} 40px`,
+  padding: `${vars.space.xxl} ${vars.space.xl} calc(${vars.space.xxl} + ${vars.space.sm})`,
   margin: "0 auto",
   minHeight: "100dvh",
 });
@@ -92,10 +92,11 @@ export const choice = style({
     '&[aria-pressed="true"]': {
       borderColor: vars.color.selection.indicator,
       background: vars.color.selection.surface,
-      color: vars.color.content.accent,
+      color: vars.color.content.onAccent,
     },
     '&[aria-pressed="true"]:hover:not(:disabled)': {
       background: vars.color.selection.surface,
+      color: vars.color.content.onAccent,
     },
   },
 });

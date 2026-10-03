@@ -192,6 +192,8 @@ fn event(
         cancelled,
         url: safe_url(component.find_prop("URL").map(|x| x.val.as_ref())),
         meeting_url: None,
+        location: None,
+        description: None,
     })
 }
 fn recurrent(

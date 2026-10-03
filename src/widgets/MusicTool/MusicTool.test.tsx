@@ -77,6 +77,18 @@ it("opens lyrics first and keeps the same song header and controls while switchi
   expect(screen.getByRole("tabpanel").textContent).toContain("조용한 궤도");
 });
 
+it("starts each detail tab at the top after scrolling another tab", async () => {
+  render(<MusicTool widget={widget()} />);
+  fireEvent.click(screen.getByRole("button", { name: "가사" }));
+  const detail = await screen.findByRole("region", { name: "음악 상세 내용" });
+  detail.scrollTop = 180;
+  fireEvent.click(screen.getByRole("tab", { name: "곡 정보" }));
+  expect(detail.scrollTop).toBe(0);
+  detail.scrollTop = 120;
+  fireEvent.click(screen.getByRole("tab", { name: "가사" }));
+  expect(detail.scrollTop).toBe(0);
+});
+
 it("sends one revision-bound command and never offers unsupported volume or shuffle controls", async () => {
   render(<MusicTool widget={widget()} />);
   expect(screen.getByRole("button", { name: "이전 곡" })).toHaveProperty("disabled", true);
@@ -184,6 +196,41 @@ it("loads playlists on request and sends their URI for random playback", async (
       value: { uri: "spotify:playlist:abc" },
     }),
   );
+});
+
+it("keeps supported queue actions visible and disabled while another music command is pending", async () => {
+  let finish: (value: WidgetValue) => void = () => {};
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name !== "music_request") return null;
+    if (args?.action === "playlists") {
+      return { items: [{ uri: "spotify:playlist:qa", title: "합성 목록" }] };
+    }
+    if (args?.action === "playlistTracks") {
+      return { items: [{ uri: "spotify:track:qa", title: "합성 곡" }] };
+    }
+    return new Promise<WidgetValue>((resolve) => {
+      finish = resolve;
+    });
+  });
+  render(
+    <MusicTool
+      widget={widget(
+        {
+          capabilities: { playlists: true, playlistTracks: true, playUri: true, enqueue: true },
+        },
+        { provider: "spicetify" },
+      )}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "플레이리스트" }));
+  fireEvent.click(await screen.findByRole("button", { name: "불러오기" }));
+  fireEvent.click(await screen.findByRole("button", { name: "곡 보기" }));
+  const queue = await screen.findByRole("button", { name: "합성 곡 큐에 추가" });
+  fireEvent.click(screen.getByRole("button", { name: "합성 곡 재생" }));
+  expect(screen.getByRole("button", { name: "합성 곡 큐에 추가" })).toBe(queue);
+  expect(queue).toHaveProperty("disabled", true);
+  finish(null);
+  await waitFor(() => expect(queue).toHaveProperty("disabled", false));
 });
 
 it("requests the playback queue without a playlist pagination argument", async () => {

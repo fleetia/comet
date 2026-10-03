@@ -1,19 +1,25 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
-import { Button, Checkbox, Dialog, Select } from "@fleetia/lagrange";
-import { command, errorText } from "../../hooks/useSnapshot";
+import { Button, Checkbox, Dialog, Select, SelectableListRow, Surface } from "@fleetia/lagrange";
+import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type {
   AnimationAsset,
   CharacterAnimation,
   CharacterDefinition,
   InstalledCharacter,
+  InstalledCharacterPack,
   Snapshot,
 } from "../../types";
-import { CharacterEditor, EXPRESSIONS } from "../CharacterEditor/CharacterEditor";
+import {
+  CharacterEditor,
+  EXPRESSIONS,
+  type DialogueType,
+} from "../CharacterEditor/CharacterEditor";
 import { CharacterDialogueEditor } from "../CharacterDialogueEditor/CharacterDialogueEditor";
 import { CharacterSharing, type SharingAction } from "../CharacterSharing/CharacterSharing";
 import { CharacterPackSelector } from "../CharacterPackSelector/CharacterPackSelector";
 import { MemorySettings } from "../MemorySettings/MemorySettings";
 import { CharacterMemorySettings } from "../CharacterMemorySettings/CharacterMemorySettings";
+import { spriteSource, DEFAULT_EXPRESSION } from "../characterIdentity";
 import { WindowHeader } from "../WindowHeader/WindowHeader";
 import * as ui from "../../lagrange.css";
 import * as s from "../characters.css";
@@ -71,6 +77,24 @@ export function CharacterManager({
       return remaining.length === previous.length ? previous : remaining;
     });
   }, [snapshotInstalled]);
+  const packIds = [
+    ...new Set(installed.flatMap((character) => (character.packId ? [character.packId] : []))),
+  ]
+    .sort()
+    .join(":");
+  const [packs, setPacks] = useState<InstalledCharacterPack[]>([]);
+  useEffect(() => {
+    if (!isDesktop() || !packIds) return;
+    let live = true;
+    void command<InstalledCharacterPack[]>("get_character_packs")
+      .then((result) => {
+        if (live && Array.isArray(result)) setPacks(result);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [packIds]);
   const [selectedId, setSelectedId] = useState(installed[0]?.id ?? NEW_ID);
   const [memoryOwners, setMemoryOwners] = useState<string[]>([]);
   const [memoryDirty, setMemoryDirty] = useState<Record<string, boolean>>({});
@@ -95,6 +119,7 @@ export function CharacterManager({
   const [dialogueDirty, setDialogueDirty] = useState<Record<string, boolean>>({});
   const [dialogueVersions, setDialogueVersions] = useState<Record<string, number>>({});
   const [owners, setOwners] = useState<DialogueOwner[]>([]);
+  const [dialogueType, setDialogueType] = useState<DialogueType>("lines");
   const [scope, setScope] = useState<"single" | "pair">("single");
   const [packOpen, setPackOpen] = useState(false);
   const [packPending, setPackPending] = useState(false);
@@ -274,331 +299,197 @@ export function CharacterManager({
         </p>
       )}
       <div className={s.layout}>
-        <aside className={s.list} aria-label="설치된 캐릭터">
-          <div className={s.libraryHeading}>
-            <h2 className={s.subheading}>보유 캐릭터</h2>
-            <span className={s.small}>{installed.length}명</span>
-          </div>
-          <div className={s.characterList}>
-            {installed.map((character) => {
-              const order = active.indexOf(character.id);
-              const changed =
-                Boolean(drafts[character.id]) ||
-                Boolean(memoryDirty[character.id]) ||
-                owners.some(
-                  (owner) => owner.ids.includes(character.id) && dialogueDirty[owner.key],
+        <Surface className={s.list} padding="flush" role="complementary" aria-label="설치된 캐릭터">
+          <div className={s.rosterBody}>
+            <div className={s.libraryHeading}>
+              <h2 className={s.subheading}>보유 캐릭터</h2>
+              <span className={s.small}>{installed.length}명</span>
+            </div>
+            <p className={s.small}>불러온 팩 · {packs.length}개</p>
+            <Button
+              variant="secondary"
+              className={s.packPicker}
+              disabled={anyPending}
+              onClick={() => setPackOpen(true)}
+            >
+              {selected?.packId
+                ? (packs.find((pack) => pack.id === selected.packId)?.name ?? "설치된 캐릭터팩")
+                : "직접 만든 캐릭터"}{" "}
+              ▾
+            </Button>
+            <div className={s.characterList}>
+              {installed.map((character) => {
+                const order = active.indexOf(character.id);
+                const changed =
+                  Boolean(drafts[character.id]) ||
+                  Boolean(memoryDirty[character.id]) ||
+                  owners.some(
+                    (owner) => owner.ids.includes(character.id) && dialogueDirty[owner.key],
+                  );
+                return (
+                  <SelectableListRow
+                    className={s.item}
+                    key={character.id}
+                    selected={selectedId === character.id}
+                    disabled={packPending}
+                    onClick={() => select(character.id)}
+                  >
+                    <span className={s.characterFace} aria-hidden="true">
+                      {spriteSource(character, DEFAULT_EXPRESSION) ? (
+                        <img
+                          className={s.characterPortrait}
+                          src={spriteSource(character, DEFAULT_EXPRESSION) ?? undefined}
+                          alt=""
+                        />
+                      ) : (
+                        character.definition.expressions[DEFAULT_EXPRESSION]
+                      )}
+                    </span>
+                    <span className={s.itemDetail}>
+                      <span className={s.itemName}>
+                        {drafts[character.id]?.name || character.definition.name}
+                        {changed && <span aria-label="미저장"> ·</span>}
+                      </span>
+                      <span className={s.itemStatus}>
+                        {order >= 0 ? `함께 · ${order + 1}` : "쉼"}
+                      </span>
+                    </span>
+                  </SelectableListRow>
                 );
-              return (
-                <Button
-                  variant="quiet"
-                  size="compact"
+              })}
+              {drafts[NEW_ID] && (
+                <SelectableListRow
                   className={s.item}
-                  key={character.id}
-                  aria-pressed={selectedId === character.id}
+                  selected={selectedId === NEW_ID}
                   disabled={packPending}
-                  onClick={() => select(character.id)}
+                  onClick={() => select(NEW_ID)}
                 >
-                  <span className={s.itemName}>
-                    {drafts[character.id]?.name || character.definition.name}
-                    {changed && <span aria-label="미저장"> ·</span>}
-                  </span>
-                  <span className={s.small}>{order >= 0 ? `함께 · ${order + 1}` : "쉼"}</span>
+                  새 캐릭터 · 미저장
+                </SelectableListRow>
+              )}
+            </div>
+            <div className={s.roster} aria-label="현재 바탕화면 구성">
+              <p className={s.small}>
+                함께 지내기 {active.length} / {MAX_ROSTER}명
+              </p>
+              <Checkbox
+                checked={together}
+                disabled={
+                  !selected ||
+                  rosterBlocked ||
+                  (together ? active.length === 1 : active.length >= MAX_ROSTER)
+                }
+                onChange={(event) =>
+                  void applyRoster(
+                    event.target.checked
+                      ? [...active, selectedId]
+                      : active.filter((id) => id !== selectedId),
+                    event.target.checked
+                      ? "함께 지내기 시작했어요."
+                      : "바탕화면에서 쉬어요. 기록과 친밀도는 보관해요.",
+                  )
+                }
+              >
+                함께 지내기
+              </Checkbox>
+              {together && active.length === 1 && (
+                <p className={s.small}>마지막 친구는 다른 친구를 추가한 뒤 뺄 수 있어요.</p>
+              )}
+              <div className={s.rosterOrder}>
+                <Button
+                  variant="secondary"
+                  size="compact"
+                  aria-label="앞으로"
+                  disabled={!together || rosterBlocked || position === 0}
+                  onClick={() =>
+                    void applyRoster(moved(active, position, position - 1), "앞으로 옮겼어요.")
+                  }
+                >
+                  위로
                 </Button>
-              );
-            })}
-            {drafts[NEW_ID] && (
+                <Button
+                  variant="secondary"
+                  size="compact"
+                  aria-label="뒤로"
+                  disabled={!together || rosterBlocked || position === active.length - 1}
+                  onClick={() =>
+                    void applyRoster(moved(active, position, position + 1), "뒤로 옮겼어요.")
+                  }
+                >
+                  아래로
+                </Button>
+              </div>
               <Button
                 variant="quiet"
                 size="compact"
-                className={s.item}
-                aria-pressed={selectedId === NEW_ID}
-                disabled={packPending}
-                onClick={() => select(NEW_ID)}
+                disabled={anyPending}
+                onClick={() => setPackOpen(true)}
               >
-                새 캐릭터 · 미저장
+                설치한 팩으로 바꾸기
               </Button>
-            )}
-          </div>
-          <div className={s.roster} aria-label="현재 바탕화면 구성">
-            <p className={s.small}>
-              함께 지내기 {active.length} / {MAX_ROSTER}명
-            </p>
-            <Checkbox
-              checked={together}
-              disabled={
-                !selected ||
-                rosterBlocked ||
-                (together ? active.length === 1 : active.length >= MAX_ROSTER)
-              }
-              onChange={(event) =>
-                void applyRoster(
-                  event.target.checked
-                    ? [...active, selectedId]
-                    : active.filter((id) => id !== selectedId),
-                  event.target.checked
-                    ? "함께 지내기 시작했어요."
-                    : "바탕화면에서 쉬어요. 기록과 친밀도는 보관해요.",
-                )
-              }
-            >
-              함께 지내기
-            </Checkbox>
-            {together && active.length === 1 && (
-              <p className={s.small}>마지막 친구는 다른 친구를 추가한 뒤 뺄 수 있어요.</p>
-            )}
-          </div>
-          <div className={s.libraryActions}>
+            </div>
+            <div className={s.libraryActions}>
+              <Button
+                variant="secondary"
+                size="compact"
+                disabled={packPending}
+                aria-label="추가"
+                onClick={() => {
+                  setDrafts((values) => ({
+                    ...values,
+                    [NEW_ID]: values[NEW_ID] ?? newDefinition(),
+                  }));
+                  select(NEW_ID);
+                }}
+              >
+                캐릭터 추가
+              </Button>
+              <Button
+                variant="secondary"
+                size="compact"
+                disabled={anyPending}
+                onClick={() => setSharingAction("import")}
+              >
+                가져오기
+              </Button>
+            </div>
             <Button
               variant="secondary"
               size="compact"
-              disabled={packPending}
+              disabled={active.length < 2 || anyPending || dirty || hasDialogueDrafts}
               onClick={() => {
-                setDrafts((values) => ({ ...values, [NEW_ID]: values[NEW_ID] ?? newDefinition() }));
-                select(NEW_ID);
+                setExportScope("pair");
+                setSharingAction("export");
               }}
             >
-              추가
+              조합 내보내기
             </Button>
+
+            {Object.keys(drafts).length > 0 || hasDialogueDrafts ? (
+              <p className={s.small}>
+                구성을 바꾸려면 미저장 캐릭터·대사를 먼저 저장하거나 취소해 주세요.
+              </p>
+            ) : null}
             <Button
-              variant="secondary"
+              variant="quiet"
               size="compact"
-              disabled={anyPending}
-              onClick={() => setSharingAction("import")}
-            >
-              가져오기
-            </Button>
-            <Button
-              variant="secondary"
-              size="compact"
-              aria-label="앞으로"
-              disabled={!together || rosterBlocked || position === 0}
-              onClick={() =>
-                void applyRoster(moved(active, position, position - 1), "앞으로 옮겼어요.")
+              disabled={
+                !selected ||
+                anyPending ||
+                dirty ||
+                hasDialogueDrafts ||
+                Boolean(memoryDirty[selectedId]) ||
+                (together && active.length === 1)
               }
+              onClick={() => setRemoveId(selectedId)}
             >
-              ↑
-            </Button>
-            <Button
-              variant="secondary"
-              size="compact"
-              aria-label="뒤로"
-              disabled={!together || rosterBlocked || position === active.length - 1}
-              onClick={() =>
-                void applyRoster(moved(active, position, position + 1), "뒤로 옮겼어요.")
-              }
-            >
-              ↓
-            </Button>
-            <Button
-              variant="secondary"
-              size="compact"
-              disabled={!selected || selectedPending || dirty || hasDialogueDrafts}
-              onClick={() =>
-                void run(async () => {
-                  const created = await command<InstalledCharacter>("clone_character", {
-                    id: selectedId,
-                  });
-                  setCreatedCharacters((values) => [...values, created]);
-                  select(created.id);
-                  setNotice("별도의 관계를 가진 복사본을 만들었어요.");
-                })
-              }
-            >
-              복제
+              보유 목록에서 제거
             </Button>
           </div>
-          <Button
-            variant="secondary"
-            size="compact"
-            disabled={active.length < 2 || anyPending || dirty || hasDialogueDrafts}
-            onClick={() => {
-              setExportScope("pair");
-              setSharingAction("export");
-            }}
-          >
-            조합 내보내기
-          </Button>
-          <Button
-            variant="quiet"
-            size="compact"
-            disabled={anyPending}
-            onClick={() => setPackOpen(true)}
-          >
-            설치한 팩으로 바꾸기
-          </Button>
-          {Object.keys(drafts).length > 0 || hasDialogueDrafts ? (
-            <p className={s.small}>
-              구성을 바꾸려면 미저장 캐릭터·대사를 먼저 저장하거나 취소해 주세요.
-            </p>
-          ) : null}
-          <Button
-            variant="quiet"
-            size="compact"
-            disabled={
-              !selected ||
-              anyPending ||
-              dirty ||
-              hasDialogueDrafts ||
-              Boolean(memoryDirty[selectedId]) ||
-              (together && active.length === 1)
-            }
-            onClick={() => setRemoveId(selectedId)}
-          >
-            보유 목록에서 제거
-          </Button>
-        </aside>
+        </Surface>
         <div className={s.detail}>
           {definition ? (
             <>
-              <CharacterEditor
-                memoryTabRequest={memoryTabRequest}
-                memoryContent={
-                  <>
-                    {!selected && (
-                      <p className={s.small}>캐릭터를 저장하면 함께 나눈 기억을 볼 수 있어요.</p>
-                    )}
-                    {memoryOwners.map((id) => (
-                      <div key={id} hidden={id !== selectedId}>
-                        <MemorySettings
-                          key={`${id}:${memoryVersions[id] ?? 0}`}
-                          characterId={id}
-                          active={id === selectedId}
-                          memoryRevision={snapshot.memoryRevision}
-                          onDirtyChange={(value) =>
-                            setMemoryDirty((previous) =>
-                              Boolean(previous[id]) === value
-                                ? previous
-                                : { ...previous, [id]: value },
-                            )
-                          }
-                        />
-                      </div>
-                    ))}
-                  </>
-                }
-                settingsContent={
-                  selected ? (
-                    <CharacterMemorySettings
-                      key={selected.id}
-                      character={selected}
-                      memoryRevision={snapshot.memoryRevision}
-                      disabled={anyPending}
-                      exportDisabled={dirty || hasDialogueDrafts}
-                      memoryDirty={Boolean(memoryDirty[selectedId])}
-                      onExport={() => {
-                        setExportScope("selected");
-                        setSharingAction("export");
-                      }}
-                      onForgot={() => {
-                        setMemoryVersions((previous) => ({
-                          ...previous,
-                          [selectedId]: (previous[selectedId] ?? 0) + 1,
-                        }));
-                        setMemoryDirty((previous) => ({ ...previous, [selectedId]: false }));
-                      }}
-                    />
-                  ) : undefined
-                }
-                definition={definition}
-                character={selected}
-                installed={installed}
-                animationAssets={Object.values(animationAssets[selectedId] ?? {})}
-                animationVersion={animationVersions[selectedId] ?? 0}
-                onAnimationChange={changeAnimation}
-                onChooseAnimationAssets={chooseAnimationAssets}
-                onChange={(value) => setDrafts((values) => ({ ...values, [selectedId]: value }))}
-                onSprite={(expression, remove) =>
-                  void run(async () => {
-                    if (remove) {
-                      await command("remove_character_sprite", { id: selectedId, expression });
-                      setNotice(`${expression} 이미지를 제거했어요.`);
-                    } else {
-                      const chosen = await command<boolean>("choose_character_sprite", {
-                        id: selectedId,
-                        expression,
-                      });
-                      if (chosen) {
-                        setNotice(`${expression} 이미지를 저장했어요.`);
-                      }
-                    }
-                  })
-                }
-                onSave={() => void save()}
-                onCancel={discardDefinition}
-                pending={selectedPending}
-                dirty={dirty}
-              >
-                <div hidden={!selected}>
-                  <div className={s.dialogueScope}>
-                    <label className={s.scopeField}>
-                      대사 소유{" "}
-                      <Select
-                        aria-label="등록 대사 대상"
-                        value={scope}
-                        disabled={packPending || Boolean(pendingTargets.roster)}
-                        onChange={(event) =>
-                          setScope(event.target.value === "pair" ? "pair" : "single")
-                        }
-                      >
-                        <option value="single">{selected?.definition.name ?? "새 캐릭터"}</option>
-                        <option value="pair" disabled={active.length < 2}>
-                          현재 함께 지내는 조합
-                        </option>
-                      </Select>
-                    </label>
-                    {dialogueDirty[dialogueKey] && (
-                      <Button
-                        variant="quiet"
-                        size="compact"
-                        disabled={dialoguePending[dialogueKey]}
-                        onClick={() => {
-                          setDialogueVersions((values) => ({
-                            ...values,
-                            [dialogueKey]: (values[dialogueKey] ?? 0) + 1,
-                          }));
-                          updateDialogueDirty(dialogueKey, false);
-                        }}
-                      >
-                        대사 수정 취소
-                      </Button>
-                    )}
-                  </div>
-                  {owners.map((owner) => (
-                    <div key={owner.key} hidden={owner.key !== dialogueKey}>
-                      <fieldset
-                        className={s.fieldset}
-                        disabled={packPending || Boolean(pendingTargets.roster)}
-                      >
-                        <CharacterDialogueEditor
-                          key={`${owner.key}:${dialogueVersions[owner.key] ?? 0}`}
-                          ids={owner.ids}
-                          owners={owner.ids.map((id) =>
-                            installed.find((character) => character.id === id),
-                          )}
-                          expressions={[
-                            ...new Set(
-                              owner.ids.flatMap((id) =>
-                                Object.keys(
-                                  installed.find((character) => character.id === id)?.definition
-                                    .expressions ?? {},
-                                ),
-                              ),
-                            ),
-                          ]}
-                          onDirtyChange={(value) => updateDialogueDirty(owner.key, value)}
-                          onPendingChange={(value) => updateDialoguePending(owner.key, value)}
-                          compact
-                        />
-                      </fieldset>
-                    </div>
-                  ))}
-                </div>
-                {!selected && (
-                  <p className={s.small}>
-                    캐릭터를 저장하면 키워드 대사와 공유를 사용할 수 있어요.
-                  </p>
-                )}
-              </CharacterEditor>
               <CharacterSharing
                 snapshot={snapshot}
                 selectedId={selected?.id ?? null}
@@ -611,7 +502,217 @@ export function CharacterManager({
                 exportScope={exportScope}
                 action={sharingAction}
                 onActionChange={setSharingAction}
-              />
+              >
+                {(packSummary) => (
+                  <CharacterEditor
+                    packContent={packSummary}
+                    headerActions={
+                      <>
+                        <Button
+                          variant="quiet"
+                          disabled={!selected?.packId || anyPending}
+                          onClick={() => setSharingAction("attribution")}
+                        >
+                          출처 편집
+                        </Button>
+                        <Button
+                          variant="quiet"
+                          disabled={!selected || selectedPending || dirty || hasDialogueDrafts}
+                          onClick={() =>
+                            void run(async () => {
+                              const created = await command<InstalledCharacter>("clone_character", {
+                                id: selectedId,
+                              });
+                              setCreatedCharacters((values) => [...values, created]);
+                              select(created.id);
+                              setNotice("별도의 관계를 가진 복사본을 만들었어요.");
+                            })
+                          }
+                        >
+                          복제
+                        </Button>
+                      </>
+                    }
+                    memoryTabRequest={memoryTabRequest}
+                    memoryContent={(onManage) => (
+                      <>
+                        {!selected && (
+                          <p className={s.small}>
+                            캐릭터를 저장하면 함께 나눈 기억을 볼 수 있어요.
+                          </p>
+                        )}
+                        {memoryOwners.map((id) => (
+                          <div key={id} hidden={id !== selectedId} className={s.ownerContent}>
+                            <MemorySettings
+                              key={`${id}:${memoryVersions[id] ?? 0}`}
+                              characterId={id}
+                              characterName={
+                                installed.find((value) => value.id === id)?.definition.name
+                              }
+                              onManage={onManage}
+                              active={id === selectedId}
+                              memoryRevision={snapshot.memoryRevision}
+                              onDirtyChange={(value) =>
+                                setMemoryDirty((previous) =>
+                                  Boolean(previous[id]) === value
+                                    ? previous
+                                    : { ...previous, [id]: value },
+                                )
+                              }
+                            />
+                          </div>
+                        ))}
+                      </>
+                    )}
+                    settingsContent={
+                      selected ? (
+                        <CharacterMemorySettings
+                          key={selected.id}
+                          character={selected}
+                          memoryRevision={snapshot.memoryRevision}
+                          disabled={anyPending}
+                          exportDisabled={dirty || hasDialogueDrafts}
+                          memoryDirty={Boolean(memoryDirty[selectedId])}
+                          onExport={() => {
+                            setExportScope("selected");
+                            setSharingAction("export");
+                          }}
+                          onForgot={() => {
+                            setMemoryVersions((previous) => ({
+                              ...previous,
+                              [selectedId]: (previous[selectedId] ?? 0) + 1,
+                            }));
+                            setMemoryDirty((previous) => ({ ...previous, [selectedId]: false }));
+                          }}
+                        />
+                      ) : undefined
+                    }
+                    dialogueType={dialogueType}
+                    canEditCombination={active.length > 1}
+                    onDialogueTypeChange={(type) => {
+                      setDialogueType(type);
+                      if (type === "scenes") setScope("pair");
+                    }}
+                    packName={
+                      selected
+                        ? selected.packId
+                          ? (packs.find((pack) => pack.id === selected.packId)?.name ??
+                            "설치된 캐릭터팩")
+                          : "직접 만든 캐릭터"
+                        : undefined
+                    }
+                    isTogether={together}
+                    definition={definition}
+                    character={selected}
+                    installed={installed}
+                    animationAssets={Object.values(animationAssets[selectedId] ?? {})}
+                    animationVersion={animationVersions[selectedId] ?? 0}
+                    onAnimationChange={changeAnimation}
+                    onChooseAnimationAssets={chooseAnimationAssets}
+                    onChange={(value) =>
+                      setDrafts((values) => ({ ...values, [selectedId]: value }))
+                    }
+                    onSprite={(expression, remove) =>
+                      void run(async () => {
+                        if (remove) {
+                          await command("remove_character_sprite", { id: selectedId, expression });
+                          setNotice(`${expression} 이미지를 제거했어요.`);
+                        } else {
+                          const chosen = await command<boolean>("choose_character_sprite", {
+                            id: selectedId,
+                            expression,
+                          });
+                          if (chosen) {
+                            setNotice(`${expression} 이미지를 저장했어요.`);
+                          }
+                        }
+                      })
+                    }
+                    onSave={() => void save()}
+                    onCancel={discardDefinition}
+                    pending={selectedPending}
+                    dirty={dirty}
+                  >
+                    <div hidden={!selected} className={s.ownerContent}>
+                      <div className={s.dialogueScope}>
+                        <label className={s.scopeField}>
+                          대사 소유{" "}
+                          <Select
+                            aria-label="등록 대사 대상"
+                            value={scope}
+                            disabled={packPending || Boolean(pendingTargets.roster)}
+                            onChange={(event) =>
+                              setScope(event.target.value === "pair" ? "pair" : "single")
+                            }
+                          >
+                            <option value="single">
+                              {selected?.definition.name ?? "새 캐릭터"}
+                            </option>
+                            <option value="pair" disabled={active.length < 2}>
+                              현재 함께 지내는 조합
+                            </option>
+                          </Select>
+                        </label>
+                        {dialogueDirty[dialogueKey] && (
+                          <Button
+                            variant="quiet"
+                            size="compact"
+                            disabled={dialoguePending[dialogueKey]}
+                            onClick={() => {
+                              setDialogueVersions((values) => ({
+                                ...values,
+                                [dialogueKey]: (values[dialogueKey] ?? 0) + 1,
+                              }));
+                              updateDialogueDirty(dialogueKey, false);
+                            }}
+                          >
+                            이 대상 대사 모두 취소
+                          </Button>
+                        )}
+                      </div>
+                      {owners.map((owner) => (
+                        <div
+                          key={owner.key}
+                          hidden={owner.key !== dialogueKey}
+                          className={s.ownerContent}
+                        >
+                          <fieldset
+                            className={`${s.fieldset} ${s.ownerContent}`}
+                            disabled={packPending || Boolean(pendingTargets.roster)}
+                          >
+                            <CharacterDialogueEditor
+                              key={`${owner.key}:${dialogueVersions[owner.key] ?? 0}`}
+                              ids={owner.ids}
+                              owners={owner.ids.map((id) =>
+                                installed.find((character) => character.id === id),
+                              )}
+                              expressions={[
+                                ...new Set(
+                                  owner.ids.flatMap((id) =>
+                                    Object.keys(
+                                      installed.find((character) => character.id === id)?.definition
+                                        .expressions ?? {},
+                                    ),
+                                  ),
+                                ),
+                              ]}
+                              onDirtyChange={(value) => updateDialogueDirty(owner.key, value)}
+                              onPendingChange={(value) => updateDialoguePending(owner.key, value)}
+                              compact
+                              mode={dialogueType === "scenes" ? "scenes" : "keyword"}
+                            />
+                          </fieldset>
+                        </div>
+                      ))}
+                    </div>
+                    {!selected && (
+                      <p className={s.small}>
+                        캐릭터를 저장하면 키워드 대사와 공유를 사용할 수 있어요.
+                      </p>
+                    )}
+                  </CharacterEditor>
+                )}
+              </CharacterSharing>
             </>
           ) : (
             <p className={s.small} role="status">

@@ -32,9 +32,6 @@ const snapshot: Snapshot = {
 function choose(name: RegExp): void {
   fireEvent.click(within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name }));
 }
-function closeDialog(): void {
-  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "닫기" }));
-}
 function selectTab(name: string): void {
   fireEvent.click(
     within(screen.getByRole("tablist", { name: "캐릭터 편집" })).getByRole("tab", { name }),
@@ -45,6 +42,37 @@ function selectPanel(name: string): ReturnType<typeof within> {
   return within(screen.getByRole("tabpanel", { name }));
 }
 
+it("opens authored lines from the profile, previews the selected draft locally, and keeps save controls outside the scrolling body", async () => {
+  render(<CharacterManager embedded snapshot={snapshot} />);
+  const profile = screen.getByRole("tabpanel", { name: "프로필" });
+  const save = within(profile).getByRole("button", { name: "캐릭터 저장" });
+  const footer = save.closest('[data-character-footer="fixed"]');
+  const body = footer?.parentElement?.querySelector('[data-character-scroll="body"]');
+  expect(footer).toBeTruthy();
+  expect(body).toBeTruthy();
+  expect(body?.contains(save)).toBe(false);
+
+  fireEvent.click(within(profile).getByRole("button", { name: "대사·반응 편집" }));
+  const panel = within(screen.getByRole("tabpanel", { name: "대사·반응" }));
+  const line = panel.getByRole("textbox", { name: "자동 수다 1 대사" });
+  fireEvent.focus(line);
+  fireEvent.change(line, { target: { value: "  선택한 원문.\n다음 줄.  " } });
+  const preview = within(panel.getByLabelText("선택한 대사 미리보기"));
+  expect(preview.getByText("선택한 원문. 다음 줄.")).toBeTruthy();
+  fireEvent.click(preview.getByRole("button", { name: "미리보기" }));
+  fireEvent.click(preview.getByRole("button", { name: "정지" }));
+  expect(vi.mocked(command).mock.calls.some(([name]) => name !== "get_character_dialogue")).toBe(
+    false,
+  );
+
+  choose(/^B/);
+  choose(/^A/);
+  expect(screen.getByRole("textbox", { name: "자동 수다 1 대사" })).toHaveProperty(
+    "value",
+    "  선택한 원문.\n다음 줄.  ",
+  );
+});
+
 it("separates six editing tabs and keeps the selected tab when changing characters without changing the roster", async () => {
   render(<CharacterManager embedded snapshot={snapshot} />);
   const tabs = within(screen.getByRole("tablist", { name: "캐릭터 편집" }));
@@ -54,7 +82,7 @@ it("separates six editing tabs and keeps the selected tab when changing characte
     "말풍선",
     "대사·반응",
     "기억",
-    "설정",
+    "관리",
   ]);
   const profile = tabs.getByRole("tab", { name: "프로필", selected: true });
   expect(
@@ -77,7 +105,8 @@ it("separates six editing tabs and keeps the selected tab when changing characte
   const dialogue = tabs.getByRole("tab", { name: "대사·반응", selected: true });
   expect(document.activeElement).toBe(dialogue);
   expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
-  await screen.findByRole("button", { name: "키워드 대사 편집" });
+  fireEvent.click(screen.getByRole("button", { name: "키워드" }));
+  await screen.findByRole("textbox", { name: "제목" });
   choose(/^B/);
   expect(tabs.getByRole("tab", { name: "대사·반응", selected: true })).toBeTruthy();
   expect(screen.getByRole("tabpanel", { name: "대사·반응" })).toBeTruthy();
@@ -126,7 +155,6 @@ it("retains exact per-character drafts across selection and snapshot changes aft
     target: { value: "  오래된 친구.\n편하게 장난쳐요.  " },
   });
   panel = selectPanel("대사·반응");
-  fireEvent.click(panel.getByRole("button", { name: "인사 편집" }));
   fireEvent.change(panel.getByLabelText("인사 1 대사"), {
     target: { value: "  안녕.\n반가워.  " },
   });
@@ -466,7 +494,8 @@ it("preserves separate keyword drafts when switching characters or visiting a ne
   const onDirtyChange = vi.fn();
   render(<CharacterManager embedded snapshot={snapshot} onDirtyChange={onDirtyChange} />);
   selectTab("대사·반응");
-  fireEvent.click(await screen.findByRole("button", { name: "키워드 대사 편집" }));
+  fireEvent.click(screen.getByRole("button", { name: "키워드" }));
+  await screen.findByRole("textbox", { name: "제목" });
   fireEvent.change(screen.getByRole("textbox", { name: "제목" }), {
     target: { value: "첫 친구 인사" },
   });
@@ -476,19 +505,20 @@ it("preserves separate keyword drafts when switching characters or visiting a ne
   fireEvent.change(screen.getByRole("textbox", { name: "대사 1" }), {
     target: { value: "  쓰던 인사\n반가워  " },
   });
-  closeDialog();
+  fireEvent.click(screen.getByRole("button", { name: "인사·자동 수다" }));
   selectTab("프로필");
   selectTab("말풍선");
   selectTab("대사·반응");
   choose(/^B/);
-  fireEvent.click(await screen.findByRole("button", { name: "키워드 대사 편집" }));
+  fireEvent.click(screen.getByRole("button", { name: "키워드" }));
+  await screen.findByRole("textbox", { name: "제목" });
   fireEvent.change(screen.getByRole("textbox", { name: "제목" }), {
     target: { value: "둘째 친구 인사" },
   });
-  closeDialog();
+  fireEvent.click(screen.getByRole("button", { name: "인사·자동 수다" }));
   fireEvent.click(screen.getByRole("button", { name: /^추가$/ }));
   choose(/^A/);
-  fireEvent.click(screen.getByRole("button", { name: "키워드 대사 편집" }));
+  fireEvent.click(screen.getByRole("button", { name: "키워드" }));
   expect(screen.getByRole("textbox", { name: "제목" })).toHaveProperty("value", "첫 친구 인사");
   expect(screen.getByRole("textbox", { name: "대사 1" })).toHaveProperty(
     "value",
@@ -508,9 +538,9 @@ it("preserves separate keyword drafts when switching characters or visiting a ne
       }),
     }),
   );
-  closeDialog();
+  fireEvent.click(screen.getByRole("button", { name: "인사·자동 수다" }));
   expect(onDirtyChange).toHaveBeenLastCalledWith(true);
   choose(/^B/);
-  fireEvent.click(screen.getByRole("button", { name: "키워드 대사 편집" }));
+  fireEvent.click(screen.getByRole("button", { name: "키워드" }));
   expect(screen.getByRole("textbox", { name: "제목" })).toHaveProperty("value", "둘째 친구 인사");
 });

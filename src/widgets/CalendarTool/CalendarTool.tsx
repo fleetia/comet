@@ -54,7 +54,9 @@ export function CalendarTool({
     connections = rows(d.connections);
   const connectedIds = new Set(connections.map((connection) => text(connection.id)));
   const events = rows(d.events).filter(
-    (event) => event.cancelled !== true && connectedIds.has(text(event.connectionId)),
+    (event) =>
+      event.cancelled !== true &&
+      (event.connectionId === "local" || connectedIds.has(text(event.connectionId))),
   );
   const { busy, error, clearError, run } = useConnectionCommand();
   const [now, setNow] = useState(Date.now()),
@@ -169,6 +171,7 @@ export function CalendarTool({
   const outsideRange = coverage === "outside";
   const outdated = connectionsOutdated(connections, now);
   const hasCoverage = coverage === "covered";
+  const showFree = free && connections.length > 0;
   function card(event: DataRecord): ReactElement {
     return (
       <article className={s.item} key={text(event.id)}>
@@ -209,7 +212,7 @@ export function CalendarTool({
         </p>
       )}
       {mode === "tool" &&
-        (connections.length === 0 ? (
+        (connections.length === 0 && events.length === 0 ? (
           <p>캘린더를 읽기 연결하면 오늘과 다음 일정을 볼 수 있어요.</p>
         ) : (
           <>
@@ -231,14 +234,16 @@ export function CalendarTool({
                 }}
               />
             </FormField>
-            <Button
-              variant={free ? "primary" : "secondary"}
-              aria-pressed={free}
-              onClick={() => setFree((current) => !current)}
-            >
-              {free ? "일정 보기" : "연결한 캘린더의 빈 시간 보기"}
-            </Button>
-            {!hasCoverage && (
+            {connections.length > 0 && (
+              <Button
+                variant={showFree ? "primary" : "secondary"}
+                aria-pressed={showFree}
+                onClick={() => setFree((current) => !current)}
+              >
+                {showFree ? "일정 보기" : "연결한 캘린더의 빈 시간 보기"}
+              </Button>
+            )}
+            {connections.length > 0 && !hasCoverage && (
               <p role="status" className={c.error}>
                 {outsideRange
                   ? "선택한 날짜는 조회 범위 밖입니다."
@@ -246,10 +251,10 @@ export function CalendarTool({
                 새로 조회하기 전에는 빈 시간을 판단하지 않습니다.
               </p>
             )}
-            {free && hasCoverage ? (
+            {showFree && hasCoverage ? (
               <>
                 <p className={c.quiet}>
-                  연결하여 조회한 캘린더만 기준으로 합니다. 다른 일정은 포함하지 않아요.
+                  Comet에 저장한 일정과 연결하여 조회한 캘린더를 기준으로 합니다.
                 </p>
                 {freeTimes(events, day).map(([a, b]) => (
                   <p key={a}>
@@ -260,11 +265,13 @@ export function CalendarTool({
               </>
             ) : (
               <>
-                {!free && hasCoverage && today.length === 0 && <p>조회한 날짜에 일정이 없어요.</p>}
-                {!free && today.map(card)}
+                {!showFree && (hasCoverage || connections.length === 0) && today.length === 0 && (
+                  <p>조회한 날짜에 일정이 없어요.</p>
+                )}
+                {!showFree && today.map(card)}
               </>
             )}
-            {next && (free || !today.some((event) => event.id === next.id)) && (
+            {next && (showFree || !today.some((event) => event.id === next.id)) && (
               <section className={s.section}>
                 <h2 className={s.sectionTitle}>다음 일정</h2>
                 {card(next)}

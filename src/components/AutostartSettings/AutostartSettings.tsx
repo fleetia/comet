@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
-import { Button, Checkbox } from "@fleetia/lagrange";
+import { Button, Checkbox, SectionHeader, SettingsRow } from "@fleetia/lagrange";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import * as s from "../../lagrange.css";
+import * as layout from "../SettingsPanel/settings.css";
 
 export function AutostartSettings({ active }: { active: boolean }): JSX.Element {
   const [enabled, setEnabled] = useState<boolean | null>(null);
@@ -40,22 +41,38 @@ export function AutostartSettings({ active }: { active: boolean }): JSX.Element 
   }, [active, run]);
 
   return (
-    <section className={s.section} aria-labelledby="autostart-title" aria-busy={pending}>
-      <h2 className={s.sectionTitle} id="autostart-title">
-        시작
-      </h2>
-      <Checkbox
-        checked={enabled === true}
-        disabled={!isDesktop() || pending || enabled === null}
-        onChange={(event) => void run(event.target.checked)}
+    <section className={layout.sectionBody} aria-labelledby="autostart-title" aria-busy={pending}>
+      <SectionHeader
+        title="시작"
+        headingId="autostart-title"
+        headingVariant="subsection"
+        rule="none"
+      />
+      <SettingsRow
+        className={layout.settingsRow}
+        label={<span id="autostart-label">컴퓨터 로그인 시 자동 실행</span>}
+        description="로그인한 사용자의 등록 상태"
       >
-        컴퓨터 로그인 시 자동 실행
-      </Checkbox>
-      {pending && (
+        <Checkbox
+          className={layout.rowControl}
+          aria-labelledby="autostart-label"
+          checked={enabled === true}
+          disabled={!isDesktop() || pending || enabled === null}
+          onChange={(event) => void run(event.target.checked)}
+        >
+          자동 실행
+        </Checkbox>
+      </SettingsRow>
+      <div className={layout.statusRow}>
         <p className={s.quiet} role="status">
-          자동 실행 설정을 확인하고 있어요.
+          {pending
+            ? "자동 실행 설정을 확인하고 있어요."
+            : enabled === null
+              ? "등록 상태 미확인"
+              : `${enabled ? "켜짐" : "꺼짐"} · 확인 완료`}
         </p>
-      )}
+        <p className={s.quiet}>변경하면 바로 반영</p>
+      </div>
       {error && (
         <div className={s.row}>
           <p className={s.error} role="alert">

@@ -1,4 +1,4 @@
-import { FormField, Button, TextField } from "@fleetia/lagrange";
+import { Button, Surface, TextField } from "@fleetia/lagrange";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { record, rows, text, number, type DataRecord } from "../toolData";
@@ -51,14 +51,12 @@ export function ConnectionTool(props: Props): ReactElement {
   return <InformationConnectionTool {...props} />;
 }
 function InformationConnectionTool({ widget, mode = "tool", onDirtyChange }: Props): ReactElement {
-  const d = record(widget.data),
-    observation = record(d.observation);
+  const d = record(widget.data);
   const { busy, error, run } = useConnectionCommand();
   const [regionDirty, setRegionDirty] = useState(false);
   useEffect(() => {
     onDirtyChange?.(mode === "settings" && regionDirty);
   }, [regionDirty, mode, onDirtyChange]);
-  const stale = d.status !== "ready";
   return (
     <fieldset className={s.body} disabled={busy}>
       {error && (
@@ -70,58 +68,7 @@ function InformationConnectionTool({ widget, mode = "tool", onDirtyChange }: Pro
       {d.status === "unsupported" && (
         <p role="status">이 운영체제에서는 해당 연결을 지원하지 않습니다.</p>
       )}
-      {mode === "tool" && d.observation && (
-        <section className={s.item} aria-label="마지막 조회 정보">
-          {stale && <p className={c.error}>이전 정보 · 현재 상태를 확인하지 못했어요.</p>}
-          {widget.kind === "weather" && (
-            <>
-              <h2>{text(observation.name)}</h2>
-              <p className={s.number}>
-                {typeof observation.temperature === "number"
-                  ? `${observation.temperature}${text(observation.temperatureUnit)}`
-                  : "온도 정보 없음"}
-              </p>
-              <p>{weatherLabel(number(observation.weatherCode))} · 기상 모델 정보</p>
-              <p className={c.quiet}>모델 시각: {stamp(observation.observedAt)}</p>
-              <p className={c.quiet}>
-                {text(observation.attribution) || "Weather data by Open-Meteo (CC BY 4.0)"}
-              </p>
-            </>
-          )}
-          {widget.kind === "device" && (
-            <>
-              {observation.hasBattery === false ? (
-                <p>이 기기에는 조회 가능한 배터리가 없어요.</p>
-              ) : (
-                rows(observation.batteries).map((battery, index) => (
-                  <p key={index}>
-                    배터리 {index + 1}:{" "}
-                    {typeof battery.percent === "number" ? `${battery.percent}%` : "잔량 확인 불가"}{" "}
-                    ·{" "}
-                    {{
-                      charging: "충전 중",
-                      discharging: "배터리 사용 중",
-                      charged: "충전 완료",
-                      "not-charging": "충전 안 함",
-                      ac: "외부 전원",
-                      unknown: "상태 확인 불가",
-                    }[text(battery.status)] || "상태 확인 불가"}
-                  </p>
-                ))
-              )}
-              <p className={c.quiet}>
-                전원:{" "}
-                {observation.powerSource === "ac"
-                  ? "외부 전원"
-                  : observation.powerSource === "battery"
-                    ? "배터리"
-                    : "확인 불가"}
-              </p>
-            </>
-          )}
-          <p className={c.quiet}>마지막 조회 성공: {stamp(d.lastSuccessAt)}</p>
-        </section>
-      )}
+      {mode === "tool" && d.observation && <ConnectionObservation widget={widget} />}
       {mode === "tool" && d.configured === true && (
         <>
           <Button
@@ -139,8 +86,33 @@ function InformationConnectionTool({ widget, mode = "tool", onDirtyChange }: Pro
       )}
       {mode === "settings" && widget.kind === "weather" && (
         <section className={s.section} aria-label="날씨 지역 설정">
-          <h2 className={s.sectionTitle}>{d.configured === true ? "지역 변경" : "지역 선택"}</h2>
-          <WeatherRegion id={widget.id} run={run} onDirtyChange={setRegionDirty} />
+          <div className={s.weatherHeading}>
+            <h2 className={s.sectionTitle}>지역과 연결</h2>
+            <p className={c.quiet}>
+              {d.configured === true
+                ? `현재 지역 · ${text(record(d.config).name)}`
+                : "조회할 지역을 선택하세요."}
+            </p>
+          </div>
+          <WeatherRegion
+            id={widget.id}
+            currentRegion={record(d.config)}
+            run={run}
+            onDirtyChange={setRegionDirty}
+          />
+          <div className={s.weatherStatus}>
+            <span>
+              {d.status === "ready"
+                ? "● 정상"
+                : d.configured === true
+                  ? "● 연결 확인 필요"
+                  : "● 지역 설정 필요"}
+              {typeof d.lastSuccessAt === "number"
+                ? ` · 마지막 갱신 ${stamp(d.lastSuccessAt)}`
+                : ""}
+            </span>
+            <span className={c.quiet}>지역 선택 즉시 반영</span>
+          </div>
         </section>
       )}
       {mode === "settings" && widget.kind === "device" && d.configured !== true && (
@@ -164,10 +136,12 @@ function InformationConnectionTool({ widget, mode = "tool", onDirtyChange }: Pro
 }
 function WeatherRegion({
   id,
+  currentRegion,
   run,
   onDirtyChange,
 }: {
   id: string;
+  currentRegion: DataRecord;
   run: (name: string, args: Record<string, unknown>) => Promise<boolean>;
   onDirtyChange: (dirty: boolean) => void;
 }): ReactElement {
@@ -203,28 +177,27 @@ function WeatherRegion({
   }
   return (
     <section className={s.section}>
-      <p className={c.quiet}>
-        위치를 자동 추측하지 않아요. 입력한 지역 이름을 Open-Meteo에 검색합니다.
-      </p>
       <form
+        className={s.regionSearch}
         onSubmit={(e) => {
           e.preventDefault();
           void search();
         }}
       >
-        <FormField className={c.field} label="지역 이름" required>
-          <TextField
-            disabled={busy}
-            minLength={2}
-            maxLength={100}
+        <TextField
+          aria-label="지역 이름"
+          placeholder="지역 이름으로 검색"
+          required
+          disabled={busy}
+          minLength={2}
+          maxLength={100}
 
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setResults(null);
-            }}
-          />
-        </FormField>
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setResults(null);
+          }}
+        />
         <Button type="submit" variant="secondary" disabled={busy}>
           지역 검색
         </Button>
@@ -235,29 +208,47 @@ function WeatherRegion({
         </p>
       )}
       {results?.length === 0 && <p>검색한 지역이 없어요. 다른 이름으로 검색해 주세요.</p>}
-      {results?.map((region) => (
-        <Button
-          variant="secondary"
-          key={number(region.id)}
-          onClick={async () => {
-            if (
-              await run("configure_connection_widget", {
-                id,
-                input: {
-                  name: text(region.name),
-                  latitude: number(region.latitude),
-                  longitude: number(region.longitude),
-                },
-              })
-            ) {
-              setQuery("");
-              setResults(null);
-            }
-          }}
-        >
-          {text(region.name)} · {text(region.admin1)} · {text(region.country)} 선택
-        </Button>
-      ))}
+      {results && results.length > 0 && (
+        <Surface tone="inset" padding="compact" className={s.weatherResults}>
+          <p className={c.quiet}>검색 결과 · {results.length}개</p>
+          {results.map((region) => {
+            const current =
+              typeof currentRegion.latitude === "number" &&
+              typeof currentRegion.longitude === "number" &&
+              region.latitude === currentRegion.latitude &&
+              region.longitude === currentRegion.longitude;
+            return (
+              <div className={s.regionResult} key={number(region.id)}>
+                <span>
+                  {text(region.name)} · {text(region.admin1)} · {text(region.country)}
+                </span>
+                <Button
+                  variant={current ? "quiet" : "secondary"}
+                  disabled={current}
+                  aria-label={`${text(region.name)} · ${text(region.admin1)} · ${text(region.country)} ${current ? "현재 지역" : "선택"}`}
+                  onClick={async () => {
+                    if (
+                      await run("configure_connection_widget", {
+                        id,
+                        input: {
+                          name: text(region.name),
+                          latitude: number(region.latitude),
+                          longitude: number(region.longitude),
+                        },
+                      })
+                    ) {
+                      setQuery("");
+                      setResults(null);
+                    }
+                  }}
+                >
+                  {current ? "현재 지역" : "이 지역 선택"}
+                </Button>
+              </div>
+            );
+          })}
+        </Surface>
+      )}
       {query && (
         <Button
           variant="quiet"
@@ -271,6 +262,100 @@ function WeatherRegion({
         </Button>
       )}
       {busy && <p role="status">지역을 검색하고 있어요.</p>}
+    </section>
+  );
+}
+
+export function ConnectionObservation({ widget }: { widget: WidgetView }): ReactElement {
+  const d = record(widget.data);
+  const observation = record(d.observation);
+  const stale = d.status !== "ready";
+  if (!d.observation) {
+    return (
+      <section className={s.observation}>
+        <h2>{widget.kind === "weather" ? "현재 날씨" : "현재 정보"}</h2>
+        <p>아직 성공적으로 조회한 정보가 없어요.</p>
+      </section>
+    );
+  }
+  return (
+    <section className={s.observation} aria-label="마지막 조회 정보">
+      {stale && <p className={c.error}>이전 정보 · 현재 상태를 확인하지 못했어요.</p>}
+      {widget.kind === "weather" && (
+        <>
+          <div className={s.weatherHeading}>
+            <h2>현재 날씨</h2>
+            <p className={c.quiet}>
+              {text(observation.name)} · {stamp(observation.observedAt)} 관측
+            </p>
+          </div>
+          <div className={s.weatherReadings}>
+            <strong className={s.weatherTemperature}>
+              {typeof observation.temperature === "number"
+                ? `${observation.temperature}${text(observation.temperatureUnit)}`
+                : "온도 정보 없음"}
+            </strong>
+            <div>
+              <p>
+                {typeof observation.weatherCode === "number"
+                  ? weatherLabel(observation.weatherCode)
+                  : "상태 확인 불가"}
+              </p>
+              <p>
+                {typeof observation.apparentTemperature === "number"
+                  ? `체감 ${observation.apparentTemperature}°C`
+                  : "체감 정보 없음"}
+              </p>
+            </div>
+            <div>
+              <p>
+                {typeof observation.humidity === "number"
+                  ? `습도 ${observation.humidity}%`
+                  : "습도 확인 불가"}
+              </p>
+              <p>
+                {typeof observation.windSpeed === "number"
+                  ? `바람 ${observation.windSpeed}m/s`
+                  : "바람 확인 불가"}
+              </p>
+            </div>
+          </div>
+          <p className={`${c.quiet} ${s.observationSource}`}>
+            {text(observation.attribution) || "Weather data by Open-Meteo (CC BY 4.0)"}
+          </p>
+        </>
+      )}
+      {widget.kind === "device" && (
+        <>
+          {observation.hasBattery === false ? (
+            <p>이 기기에는 조회 가능한 배터리가 없어요.</p>
+          ) : (
+            rows(observation.batteries).map((battery, index) => (
+              <p key={index}>
+                배터리 {index + 1}:{" "}
+                {typeof battery.percent === "number" ? `${battery.percent}%` : "잔량 확인 불가"} ·{" "}
+                {{
+                  charging: "충전 중",
+                  discharging: "배터리 사용 중",
+                  charged: "충전 완료",
+                  "not-charging": "충전 안 함",
+                  ac: "외부 전원",
+                  unknown: "상태 확인 불가",
+                }[text(battery.status)] || "상태 확인 불가"}
+              </p>
+            ))
+          )}
+          <p className={c.quiet}>
+            전원:{" "}
+            {observation.powerSource === "ac"
+              ? "외부 전원"
+              : observation.powerSource === "battery"
+                ? "배터리"
+                : "확인 불가"}
+          </p>
+        </>
+      )}
+      <p className={c.quiet}>마지막 조회 성공: {stamp(d.lastSuccessAt)}</p>
     </section>
   );
 }

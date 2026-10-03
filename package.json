@@ -27,10 +27,11 @@
     "docs:build": "corepack pnpm --dir wiki build",
     "docs:serve": "corepack pnpm --dir wiki serve",
     "talk": "cargo run --manifest-path src-tauri/Cargo.toml --example talk --",
-    "prepare:nlp": "node scripts/prepare-nlp.mjs"
+    "prepare:nlp": "node scripts/prepare-nlp.mjs",
+    "test:native-runtime": "node --test scripts/test-native-runtime.mjs"
   },
   "dependencies": {
-    "@fleetia/lagrange": "0.2.2",
+    "@fleetia/lagrange": "file:vendor/fleetia-lagrange-0.1.1.tgz",
     "@tauri-apps/api": "^2.11.1",
     "@vanilla-extract/css": "^1.21.2",
     "react": "^19.3.0",

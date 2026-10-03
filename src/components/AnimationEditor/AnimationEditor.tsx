@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from "react";
-import { Button, Checkbox, FormField, Select, TextField } from "@fleetia/lagrange";
+import { Button, Checkbox, FormField, Select, Surface, TextField } from "@fleetia/lagrange";
 import type {
   AnimationAsset,
   AnimationBinding,
@@ -37,9 +37,12 @@ type Props = {
   visible: boolean;
   onChange: (animation: CharacterAnimation, assets?: AnimationAsset[]) => void;
   onChooseAssets?: () => Promise<AnimationAsset[]>;
+  selectedClipId?: string;
+  onSelectClip?: (id: string) => void;
+  hideNavigation?: boolean;
 };
 
-function BindingEditor({
+export function BindingEditor({
   label,
   situation,
   value,
@@ -121,10 +124,15 @@ export function AnimationEditor({
   visible,
   onChange,
   onChooseAssets,
+  selectedClipId,
+  onSelectClip,
+  hideNavigation = false,
 }: Props): JSX.Element {
   const animation = saved ?? EMPTY_ANIMATION;
   const [selectedId, setSelectedId] = useState(animation.clips[0]?.id ?? "");
-  const clip = animation.clips.find((item) => item.id === selectedId) ?? animation.clips[0];
+  const clip =
+    animation.clips.find((item) => item.id === (selectedClipId ?? selectedId)) ??
+    animation.clips[0];
   const [playing, setPlaying] = useState(false);
   const [playVersion, setPlayVersion] = useState(0);
   const [manualIndex, setManualIndex] = useState(0);
@@ -285,7 +293,7 @@ export function AnimationEditor({
   }
 
   return (
-    <section className={common.section} aria-label="애니메이션">
+    <section aria-label="애니메이션">
       <h3 className={common.subheading}>동작</h3>
       <p className={common.small}>
         PNG·APNG 프레임이나 스프라이트 시트로 동작을 만들고 상황에 연결해요. 캐릭터 저장으로 함께
@@ -294,11 +302,13 @@ export function AnimationEditor({
       <div className={s.editor}>
         <div className={s.controls}>
           <Select
+            hidden={hideNavigation}
             aria-label="편집할 동작"
             value={clip?.id ?? ""}
             disabled={animation.clips.length === 0}
             onChange={(event) => {
               setSelectedId(event.target.value);
+              onSelectClip?.(event.target.value);
               setError(null);
             }}
           >
@@ -313,6 +323,7 @@ export function AnimationEditor({
             variant="secondary"
             size="compact"
             type="button"
+            hidden={hideNavigation}
             disabled={animation.clips.length >= MAX_ANIMATION_CLIPS}
             onClick={() => {
               const id = crypto.randomUUID();
@@ -324,6 +335,7 @@ export function AnimationEditor({
                 ],
               });
               setSelectedId(id);
+              onSelectClip?.(id);
               setError(null);
             }}
           >
@@ -363,7 +375,7 @@ export function AnimationEditor({
                 />
               </FormField>
             </div>
-            <div className={s.preview}>
+            <Surface tone="accent" className={s.preview}>
               {shownIndex === null ? (
                 <span className={s.fallback} style={{ width: previewSize, height: previewSize }}>
                   {fallbackImage ? (
@@ -385,7 +397,7 @@ export function AnimationEditor({
                   ? "프레임을 추가해 주세요."
                   : `${shownIndex === null ? "쉬는 중" : `${shownIndex + 1} / ${clip.frames.length} 프레임`}`}
               </span>
-            </div>
+            </Surface>
             <div className={s.controls}>
               <Button
                 variant="secondary"
@@ -460,10 +472,11 @@ export function AnimationEditor({
               {clip.frames.map((frame, index) => (
                 <div className={s.frame} key={index} data-selected={shownIndex === index}>
                   <Button
-                    variant="quiet"
+                    variant={shownIndex === index ? "primary" : "quiet"}
                     size="compact"
                     type="button"
                     aria-label={`${index + 1}번 프레임 선택`}
+                    aria-pressed={shownIndex === index}
                     onClick={() => {
                       setPlaying(false);
                       setManualIndex(index);
@@ -589,57 +602,60 @@ export function AnimationEditor({
             {error || validationError}
           </p>
         )}
-        <div>
-          <h4 className={common.subheading}>상황 연결</h4>
-          {(
-            [
-              ["idle", "평소"],
-              ["speaking", "말하는 동안"],
-              ["click", "클릭했을 때"],
-              ["calendarOpen", "캘린더를 보고 있는 동안"],
-              ["musicPlaying", "음악을 재생하는 동안"],
-            ] as const
-          ).map(([situation, label]) => (
-            <BindingEditor
-              key={situation}
-              label={label}
-              situation={situation}
-              value={animation.bindings[situation]}
-              clips={animation.clips}
-              onChange={(value) =>
-                onChange({ ...animation, bindings: { ...animation.bindings, [situation]: value } })
-              }
-            />
-          ))}
-          <p className={common.small}>
-            반응 → 말하는 동안 → 캘린더 → 음악 → 평소 순서로 재생돼요. 캘린더·음악은 동작을 지정해야
-            켜져요. 캘린더 탭을 실제로 연 동안, 음악 연결이 재생을 확인한 동안에만 적용해요. 동작이
-            끝나거나 쉬는 동안에는 현재 표정으로 돌아와요.
-          </p>
-          <details className={s.expression}>
-            <summary>표정마다 다르게 연결</summary>
-            {expressions.map((expression) => (
-              <div key={expression}>
-                <BindingEditor
-                  label={`${expression} · 평소`}
-                  situation="idle"
-                  value={animation.overrides[expression]?.idle}
-                  clips={animation.clips}
-                  inherit
-                  onChange={(value) => setOverride(expression, "idle", value)}
-                />
-                <BindingEditor
-                  label={`${expression} · 말하는 동안`}
-                  situation="speaking"
-                  value={animation.overrides[expression]?.speaking}
-                  clips={animation.clips}
-                  inherit
-                  onChange={(value) => setOverride(expression, "speaking", value)}
-                />
-              </div>
+        {!hideNavigation && (
+          <div>
+            <h4 className={common.subheading}>상황 연결</h4>
+            {(
+              [
+                ["idle", "평소"],
+                ["speaking", "말하는 동안"],
+                ["click", "클릭했을 때"],
+                ["calendarOpen", "캘린더를 보고 있는 동안"],
+                ["musicPlaying", "음악을 재생하는 동안"],
+              ] as const
+            ).map(([situation, label]) => (
+              <BindingEditor
+                key={situation}
+                label={label}
+                situation={situation}
+                value={animation.bindings[situation]}
+                clips={animation.clips}
+                onChange={(value) =>
+                  onChange({
+                    ...animation,
+                    bindings: { ...animation.bindings, [situation]: value },
+                  })
+                }
+              />
             ))}
-          </details>
-        </div>
+            <p className={common.small}>
+              클릭 반응이 먼저 재생돼요. 동작이 끝나거나 쉬는 동안에는 현재 표정으로 돌아와요.
+            </p>
+            <details className={s.expression} hidden={hideNavigation}>
+              <summary>표정마다 다르게 연결</summary>
+              {expressions.map((expression) => (
+                <div key={expression}>
+                  <BindingEditor
+                    label={`${expression} · 평소`}
+                    situation="idle"
+                    value={animation.overrides[expression]?.idle}
+                    clips={animation.clips}
+                    inherit
+                    onChange={(value) => setOverride(expression, "idle", value)}
+                  />
+                  <BindingEditor
+                    label={`${expression} · 말하는 동안`}
+                    situation="speaking"
+                    value={animation.overrides[expression]?.speaking}
+                    clips={animation.clips}
+                    inherit
+                    onChange={(value) => setOverride(expression, "speaking", value)}
+                  />
+                </div>
+              ))}
+            </details>
+          </div>
+        )}
       </div>
     </section>
   );

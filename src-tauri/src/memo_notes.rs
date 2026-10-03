@@ -106,6 +106,7 @@ fn reconcile(app: &tauri::AppHandle, focus: Option<&str>) -> Result<(), String> 
                 .inner_size(320.0, 320.0)
                 .min_inner_size(260.0, 220.0)
                 .decorations(false)
+                .disable_drag_drop_handler()
                 .maximizable(false)
                 .focused(false)
                 .visible(false)
@@ -133,6 +134,8 @@ fn reconcile(app: &tauri::AppHandle, focus: Option<&str>) -> Result<(), String> 
             } else if focus == Some(window_label.as_str()) {
                 if let Some(window) = app.get_webview_window(&window_label) {
                     reveal_note(&state, &instance.id, note_id, || {
+                        window.unminimize().map_err(|error| error.to_string())?;
+                        window.show().map_err(|error| error.to_string())?;
                         window.set_focus().map_err(|error| error.to_string())
                     })?;
                 }
@@ -147,6 +150,7 @@ fn reconcile(app: &tauri::AppHandle, focus: Option<&str>) -> Result<(), String> 
             window.destroy().map_err(|error| error.to_string())?;
         }
     }
+    crate::widget_runtime::refresh(app);
     Ok(())
 }
 

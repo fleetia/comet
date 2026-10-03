@@ -186,6 +186,14 @@ pub fn act(
         "calendar"
             if matches!(
                 request.action.as_str(),
+                "create-event" | "update-event" | "delete-event"
+            ) =>
+        {
+            calendar::act_local(&instance.data, &request.action, &request.input)
+        }
+        "calendar"
+            if matches!(
+                request.action.as_str(),
                 "configure-alerts"
                     | "mute-alerts"
                     | "unmute-alerts"
@@ -243,9 +251,6 @@ pub fn project_with_background(
         .cloned()
         .collect::<Vec<_>>();
     let connection_needed = match instance.kind.as_str() {
-        "calendar" => instance.data["connections"]
-            .as_array()
-            .is_none_or(Vec::is_empty),
         "weather" | "music" | "device" => instance.data["configured"] != true,
         _ => false,
     };
@@ -395,6 +400,6 @@ mod projection_tests {
         source.data["connections"][1]["status"] = json!("ready");
         assert_eq!(project(source.clone(), &[]).unwrap().instance.error, None);
         source.data["connections"] = json!([]);
-        assert_eq!(project(source, &[]).unwrap().status, "setup");
+        assert_eq!(project(source, &[]).unwrap().status, "enabled");
     }
 }

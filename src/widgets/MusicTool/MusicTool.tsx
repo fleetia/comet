@@ -1,5 +1,5 @@
 import { Button, Tab, TabList, TabPanel, Tabs } from "@fleetia/lagrange";
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { isDesktop } from "../../hooks/useSnapshot";
 import { record, text, type DataRecord } from "../toolData";
 import type { WidgetValue, WidgetView } from "../types";
@@ -183,6 +183,12 @@ export function MusicTool({ widget }: { widget: WidgetView }): ReactElement {
   const now = Math.max(clock, Date.now());
   const [expanded, setExpanded] = useState(false);
   const [tab, setTab] = useState("lyrics");
+  const detailScroll = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (detailScroll.current) {
+      detailScroll.current.scrollTop = 0;
+    }
+  }, [tab]);
   useEffect(() => {
     if (
       (tab === "playlists" && capabilities.playlists !== true) ||
@@ -348,7 +354,7 @@ export function MusicTool({ widget }: { widget: WidgetView }): ReactElement {
           </div>
         </div>
         {(error || text(data.error)) && (
-          <p role="alert" className={s.notice}>
+          <p role="alert" className={c.error}>
             {error || text(data.error)}
           </p>
         )}
@@ -380,7 +386,13 @@ export function MusicTool({ widget }: { widget: WidgetView }): ReactElement {
               접기
             </Button>
           </div>
-          <div className={s.scrollBody}>
+          <div
+            ref={detailScroll}
+            className={s.scrollBody}
+            role="region"
+            aria-label="음악 상세 내용"
+            tabIndex={0}
+          >
             <TabPanel value="lyrics">
               <section className={s.lyrics} aria-label="가사">
                 {config.showLyrics === false ? (
@@ -413,6 +425,7 @@ export function MusicTool({ widget }: { widget: WidgetView }): ReactElement {
                   mode="playlists"
                   can={can}
                   busy={busy}
+                  supportsEnqueue={capabilities.enqueue === true}
                   request={request}
                 />
               </TabPanel>
@@ -424,6 +437,7 @@ export function MusicTool({ widget }: { widget: WidgetView }): ReactElement {
                   mode="queue"
                   can={can}
                   busy={busy}
+                  supportsEnqueue={capabilities.enqueue === true}
                   request={request}
                 />
               </TabPanel>

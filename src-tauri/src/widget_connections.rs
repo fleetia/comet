@@ -1497,6 +1497,38 @@ mod tests {
         );
     }
     #[test]
+    fn local_calendar_events_survive_remote_refresh_and_disconnect_roundtrips() {
+        let connected = calendar::connect_ics(calendar::IcsConnectInput {
+            name: "구독".into(),
+            url: "https://example.com/calendar.ics".into(),
+        })
+        .unwrap();
+        let initial = json!({"connections":[],"events":[],"lastSuccessAt":null});
+        let created = calendar::act_local(
+            &initial,
+            "create-event",
+            &json!({"title":"Comet 일정","allDay":true,"startDate":"2026-10-03","endDate":"2026-10-04","location":"서울","description":"  보존할 메모\n  "}),
+        )
+        .unwrap()
+        .data;
+        let local = created["events"][0].clone();
+        let mut data = decode_calendar(&created).unwrap();
+        let source="BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:external\r\nDTSTART;VALUE=DATE:20261003\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        let now = chrono::DateTime::parse_from_rfc3339("2026-10-03T00:00:00Z")
+            .unwrap()
+            .timestamp_millis();
+        let events = calendar::parse_ics(source, &connected.connection.id, now).unwrap();
+        merge_calendar(&mut data, connected.connection.clone(), Some(events));
+        assert_eq!(data.events.len(), 2);
+        merge_calendar(&mut data, connected.connection.clone(), Some(vec![]));
+        assert_eq!(data.events.len(), 1);
+        remove_calendar(&mut data, &connected.connection.id);
+        let roundtrip = serde_json::to_value(data).unwrap();
+        assert_eq!(roundtrip["events"], json!([local]));
+        assert_eq!(roundtrip["connections"], json!([]));
+    }
+
+    #[test]
     fn failure_keeps_observation_and_last_success_and_event_urls_are_allowlisted() {
         let data = json!({"configured":true,"status":"ready","observation":{"temperature":21},"lastSuccessAt":123,"failureCount":0});
         let failure = connections::ConnectionError {

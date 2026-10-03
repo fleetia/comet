@@ -125,7 +125,7 @@ mod native {
         let center = UNUserNotificationCenter::currentNotificationCenter();
         let open = UNNotificationAction::actionWithIdentifier_title_options(
             &NSString::from_str("planner-open"),
-            &NSString::from_str("플래너 열기"),
+            &NSString::from_str("다이어리 열기"),
             UNNotificationActionOptions::Foreground,
         );
         let snooze = UNNotificationAction::actionWithIdentifier_title_options(

@@ -36,3 +36,16 @@ export type WidgetSnapshot = {
   widgets: WidgetView[];
   onboardingDone: boolean;
 };
+
+export type WindowState = "closed" | "hidden" | "minimized" | "visible" | "unknown";
+export type WidgetRuntime = {
+  id: string;
+  toolWindow: { state: WindowState; shared: "planner" | null } | null;
+  displayWindow: WindowState | null;
+  noteWindows: { open: number; visible: number } | null;
+  toys: { starting: number; visible: number } | null;
+  queryError: string | null;
+  lastConfirmed?: boolean;
+  actionError: { attemptId: string; message: string } | null;
+};
+export type WidgetRuntimeSnapshot = { sequence: number; widgets: WidgetRuntime[] };

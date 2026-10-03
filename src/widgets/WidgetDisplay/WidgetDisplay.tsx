@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWindowDrag } from "../../hooks/useWindowDrag";
 import { useWidgets } from "../useWidgets";
-import { localDay, number, record, rows, text } from "../toolData";
+import { localDay, record, rows, text } from "../toolData";
 import type { WidgetView } from "../types";
 import {
   backgroundPosition,
@@ -89,7 +89,11 @@ function DisplayContent({ widget, now }: { widget: WidgetView; now: number }): R
             ? `${observation.temperature}${text(observation.temperatureUnit)}`
             : "온도 정보 없음"}
         </span>
-        <span>{weatherLabel(number(observation.weatherCode))}</span>
+        <span>
+          {typeof observation.weatherCode === "number"
+            ? weatherLabel(observation.weatherCode)
+            : "상태 확인 불가"}
+        </span>
       </div>
     );
   }
@@ -164,7 +168,17 @@ export function WidgetDisplay({ id }: { id: string }): ReactElement {
         ×
       </IconButton>
       {widget ? (
-        <div className={s.content}>
+        <div
+          className={s.content}
+          role="region"
+          aria-label="위젯 표시 내용"
+          tabIndex={0}
+          onPointerDown={(event) => {
+            if (event.currentTarget.scrollHeight > event.currentTarget.clientHeight) {
+              event.stopPropagation();
+            }
+          }}
+        >
           <DisplayContent widget={widget} now={now} />
         </div>
       ) : (
@@ -172,7 +186,11 @@ export function WidgetDisplay({ id }: { id: string }): ReactElement {
           {error || (snapshot ? "사용할 수 없는 위젯이에요." : "표시를 불러오고 있어요.")}
         </p>
       )}
-      {(dragError || (widget && error)) && <p className={s.error}>{dragError || error}</p>}
+      {(dragError || (widget && error)) && (
+        <p role="alert" className={s.error}>
+          {dragError || error}
+        </p>
+      )}
     </main>
   );
 }

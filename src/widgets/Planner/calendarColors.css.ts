@@ -8,7 +8,7 @@ export const name = style({
   flexDirection: "column",
   minWidth: 0,
   fontSize: v.typography.size.label,
-  lineHeight: "18px",
+  lineHeight: v.typography.lineHeight.compact,
   overflowWrap: "anywhere",
 });
 export const connection = style({
@@ -28,7 +28,7 @@ export const trigger = style({
   background: "transparent",
   cursor: "pointer",
   selectors: {
-    "&:hover:not(:disabled)": { background: v.color.selection.surface },
+    "&:hover:not(:disabled)": { background: v.color.interaction.focusSurface },
     "&:focus-visible": { outline: `2px solid ${v.color.interaction.focus}`, outlineOffset: 1 },
     "&:disabled": { opacity: 0.5, cursor: "default" },
   },
@@ -41,14 +41,14 @@ export const swatch = style({
   justifyContent: "center",
   borderRadius: "50%",
   color: "#ffffff",
-  fontSize: 12,
+  fontSize: v.typography.size.caption,
   lineHeight: 1,
   fontWeight: 700,
 });
 export const palette = style({
   display: "flex",
   flexWrap: "wrap",
-  gap: 2,
+  gap: v.space.xxs,
   margin: "2px 0 6px 32px",
 });
 export const choice = style([
@@ -57,7 +57,9 @@ export const choice = style([
     width: 26,
     height: 26,
     selectors: {
-      '&[aria-pressed="true"]': { outline: `1px solid ${v.color.content.secondary}` },
+      '&[aria-pressed="true"]': {
+        outline: `${v.border.width.hairline} solid ${v.color.content.secondary}`,
+      },
     },
   },
 ]);

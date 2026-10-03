@@ -1,22 +1,7 @@
-import { globalFontFace, style } from "@vanilla-extract/css";
+import { style } from "@vanilla-extract/css";
 import { semanticVars as vars } from "@fleetia/lagrange/theme";
 
-globalFontFace("Comet Eulyoo1945", {
-  src: 'local("Eulyoo1945-Regular")',
-  fontStyle: "normal",
-  fontWeight: 400,
-  fontDisplay: "swap",
-});
-
-globalFontFace("Comet Eulyoo1945", {
-  src: 'local("Eulyoo1945-SemiBold")',
-  fontStyle: "normal",
-  fontWeight: 600,
-  fontDisplay: "swap",
-});
-
-// A separate family keeps an unavailable local face from trying Lagrange's CDN.
-const family = '"Comet Eulyoo1945", serif';
+const family = '"Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif';
 
 export const localFonts = style({
   vars: {

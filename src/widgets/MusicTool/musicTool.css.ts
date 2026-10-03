@@ -1,5 +1,5 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
+import { semanticVars as vars, componentVars } from "@fleetia/lagrange/theme";
 
 export const root = style({
   display: "flex",
@@ -7,7 +7,9 @@ export const root = style({
   flex: 1,
   minHeight: 0,
   minWidth: 0,
+  overflowWrap: "anywhere",
   gap: vars.space.sm,
+  "@media": { "(max-height: 440px)": { flex: "none" } },
 });
 export const fixed = style({
   flexShrink: 0,
@@ -42,7 +44,7 @@ export const artworkPlaceholder = style([
     placeItems: "center",
     color: vars.color.content.secondary,
     fontSize: 38,
-    border: `1px solid ${vars.color.border.subtle}`,
+    border: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
   },
 ]);
 export const summary = style({ flex: 1, minWidth: 0, display: "grid", gap: vars.space.xs });
@@ -68,7 +70,7 @@ export const artist = style({
   overflow: "hidden",
   textOverflow: "ellipsis",
 });
-export const timeline = style({ display: "grid", gap: 2, marginTop: vars.space.xs });
+export const timeline = style({ display: "grid", gap: vars.space.xxs, marginTop: vars.space.xs });
 export const range = style({
   appearance: "none",
   WebkitAppearance: "none",
@@ -78,14 +80,17 @@ export const range = style({
   height: 16,
   margin: 0,
   background: "transparent",
-  accentColor: vars.color.content.accent,
+  accentColor: componentVars.range.activeTrack,
   selectors: {
     "&:disabled": { cursor: "default", opacity: 0.5 },
-    "&:focus-visible": { outline: `2px solid ${vars.color.interaction.focus}`, outlineOffset: 2 },
+    "&:focus-visible": {
+      outline: `2px solid ${componentVars.range.focusIndicator}`,
+      outlineOffset: 2,
+    },
   },
 });
 globalStyle(`${range}::-webkit-slider-runnable-track`, {
-  background: vars.color.border.strong,
+  background: componentVars.range.track,
   height: 2,
 });
 globalStyle(`${range}::-webkit-slider-thumb`, {
@@ -95,15 +100,15 @@ globalStyle(`${range}::-webkit-slider-thumb`, {
   height: 8,
   marginTop: -3,
   borderRadius: 0,
-  background: vars.color.content.accent,
+  background: componentVars.range.thumb,
 });
-globalStyle(`${range}::-moz-range-track`, { background: vars.color.border.strong, height: 2 });
+globalStyle(`${range}::-moz-range-track`, { background: componentVars.range.track, height: 2 });
 globalStyle(`${range}::-moz-range-thumb`, {
   width: 8,
   height: 8,
   border: 0,
   borderRadius: 0,
-  background: vars.color.content.accent,
+  background: componentVars.range.thumb,
 });
 export const time = style({
   display: "flex",
@@ -128,9 +133,16 @@ export const secondaryControls = style({
   gap: vars.space.xs,
   minWidth: 0,
 });
-globalStyle(`${secondaryControls} button[aria-pressed="true"]`, {
-  color: vars.color.content.accent,
-  background: vars.color.selection.surface,
+globalStyle(
+  `${secondaryControls} button[aria-pressed="true"], ${secondaryControls} button[aria-pressed="true"]:hover:not(:disabled)`,
+  {
+    color: componentVars.navigation.selectedText,
+    background: componentVars.navigation.selectedSurface,
+  },
+);
+globalStyle(`${secondaryControls} button[aria-pressed="true"]:focus-visible`, {
+  outline: `2px solid ${componentVars.navigation.selectedText}`,
+  outlineOffset: -3,
 });
 export const volume = style({
   display: "flex",
@@ -146,13 +158,19 @@ export const notice = style({
   color: vars.color.content.secondary,
   lineHeight: vars.typography.lineHeight.body,
 });
-export const tabs = style({ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 });
+export const tabs = style({
+  display: "flex",
+  flexDirection: "column",
+  flex: 1,
+  minHeight: 0,
+  "@media": { "(max-height: 440px)": { flex: "none" } },
+});
 export const tabHeading = style({
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
   flexShrink: 0,
-  borderBottom: `1px solid ${vars.color.border.strong}`,
+  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.strong}`,
   gap: vars.space.xs,
 });
 export const tabList = style({ flex: 1, minWidth: 0, flexWrap: "wrap" });
@@ -162,11 +180,13 @@ export const scrollBody = style({
   overscrollBehavior: "contain",
   flex: 1,
   padding: `${vars.space.lg} 0`,
+  "@media": { "(max-height: 440px)": { flex: "none", overflowY: "visible" } },
 });
 export const compactLinks = style({
   display: "flex",
+  flexWrap: "wrap",
   gap: vars.space.xs,
-  borderTop: `1px dotted ${vars.color.border.subtle}`,
+  borderTop: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
   paddingTop: vars.space.xs,
 });
 export const footer = style({
@@ -199,7 +219,7 @@ export const metadataRow = style({
   gridTemplateColumns: "minmax(95px, 26%) minmax(0, 1fr)",
   gap: vars.space.lg,
   padding: `${vars.space.sm} 0`,
-  borderBottom: `1px dotted ${vars.color.border.subtle}`,
+  borderBottom: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
   fontSize: vars.typography.size.label,
   lineHeight: vars.typography.lineHeight.body,
 });
@@ -219,7 +239,7 @@ export const trackRow = style({
   gap: vars.space.sm,
   alignItems: "center",
   padding: `${vars.space.md} 0`,
-  borderBottom: `1px dotted ${vars.color.border.subtle}`,
+  borderBottom: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
 });
 export const trackSummary = style({
   display: "grid",
@@ -245,7 +265,7 @@ export const pairing = style({
   gap: vars.space.md,
   marginTop: vars.space.lg,
   paddingTop: vars.space.lg,
-  borderTop: `1px solid ${vars.color.border.subtle}`,
+  borderTop: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
   lineHeight: vars.typography.lineHeight.body,
 });
 export const pairingCode = style({
@@ -255,7 +275,7 @@ export const pairingCode = style({
   background: vars.color.surface.muted,
 });
 globalStyle(`${pairingCode} code`, {
-  fontSize: 24,
+  fontSize: vars.typography.size.headingMd,
   letterSpacing: "0.08em",
   overflowWrap: "anywhere",
 });

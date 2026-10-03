@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Balloon } from "../components/Balloon/Balloon";
 import { PREVIEW_SNAPSHOT, command } from "../hooks/useSnapshot";
 
@@ -110,3 +110,97 @@ it("waits for fonts and discards a previous content measurement before acknowled
     Object.defineProperty(document, "fonts", { configurable: true, value: oldFonts });
   }
 });
+
+it.each([
+  ["one failing test. one small fix.", 355, 428],
+  ["same hero new line. surprise me with a scene.", 387, 460],
+  ["a long previous reply ".repeat(30), 520, 520],
+])(
+  "keeps failed-send feedback first while measuring the same input panel: %s",
+  async (reply, previousHeight, failedHeight) => {
+    window.history.replaceState(null, "", "/?view=balloon");
+    let resized: () => void = () => {};
+    vi.stubGlobal(
+      "ResizeObserver",
+      vi.fn(function (callback: () => void) {
+        resized = callback;
+        return { observe: vi.fn(), disconnect: vi.fn() };
+      }),
+    );
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback): number => {
+      callback(0);
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    // jsdom has no layout. Model both natural growth and an already capped bubble,
+    // and verify the hook's native sizing contract independently of DOM ordering.
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return new DOMRect(
+        0,
+        0,
+        320,
+        this.querySelector('[role="alert"]') ? failedHeight : previousHeight,
+      );
+    });
+    vi.mocked(command).mockImplementation(async (name) => {
+      if (name === "send_message") throw new Error("설정에서 로컬 모델을 먼저 다운로드해 주세요.");
+    });
+    render(
+      <Balloon
+        snapshot={{
+          ...PREVIEW_SNAPSHOT,
+          panel: { persona: "builtin-a", mode: "input" },
+          conversation: {
+            session: {
+              id: "wrapped-reply",
+              userId: "preview-user",
+              participants: ["builtin-a"],
+              status: "active",
+              title: "test",
+              createdAt: 1,
+              updatedAt: 1,
+              draft: "tell me something new",
+              continuedFrom: null,
+            },
+            messages: [
+              {
+                id: "wordbook-reply",
+                role: "assistant",
+                persona: "builtin-a",
+                content: reply,
+                expression: "평온",
+                status: "complete",
+                createdAt: 1,
+              },
+            ],
+            nextBefore: null,
+          },
+        }}
+      />,
+    );
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("resize_balloon", {
+        width: 320,
+        height: previousHeight,
+        contentKey: "panel:builtin-a:input",
+      }),
+    );
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+    const alert = await screen.findByRole("alert");
+    act(() => resized());
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("resize_balloon", {
+        width: 320,
+        height: failedHeight,
+        contentKey: "panel:builtin-a:input",
+      }),
+    );
+    const previousReply = screen.getByText(reply, { exact: true, normalizer: (value) => value });
+    expect(
+      alert.compareDocumentPosition(previousReply) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByRole("textbox")).toHaveProperty("value", "tell me something new");
+  },
+);

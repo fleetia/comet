@@ -11,7 +11,7 @@ import {
   Tabs,
   TextField,
 } from "@fleetia/lagrange";
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
@@ -57,16 +57,75 @@ const NAVIGATION = [
   ["templates", "템플릿"],
 ] as const;
 
-export function Planner(): ReactElement {
+export type PlannerToolTab = "today" | "plans" | "templates";
+export type PlannerToolState = { dirty: boolean; busy: boolean; blocking: boolean };
+
+function PlannerPanel({
+  embedded,
+  current,
+  value,
+  children,
+}: {
+  embedded: boolean;
+  current: string;
+  value: string;
+  children: ReactNode;
+}): ReactElement {
+  if (embedded) {
+    return (
+      <section
+        className={s.embeddedPanel}
+        hidden={current !== value}
+        aria-label={NAVIGATION.find(([key]) => key === value)?.[1]}
+      >
+        {children}
+      </section>
+    );
+  }
+  return (
+    <TabPanel value={value} className={s.panel}>
+      {children}
+    </TabPanel>
+  );
+}
+
+export function Planner({
+  onBack,
+  initialTab,
+  embeddedTab,
+  dismissVersion,
+  onNavigate,
+  onStateChange,
+}: {
+  onBack?: () => void;
+  initialTab?: string;
+  embeddedTab?: PlannerToolTab;
+  dismissVersion?: number;
+  onNavigate?: (tab: PlannerToolTab) => void;
+  onStateChange?: (state: PlannerToolState) => void;
+} = {}): ReactElement {
   const { snapshot, error: loadError, reload } = useWidgets();
   const [failure, setFailure] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
-  const [tab, setTab] = useState(new URLSearchParams(window.location.search).get("tab") || "today");
+  const [internalTab, setInternalTab] = useState(
+    initialTab || new URLSearchParams(window.location.search).get("tab") || "today",
+  );
+  const embedded = embeddedTab !== undefined;
+  const tab = embeddedTab ?? internalTab;
+  function setTab(value: string): void {
+    if (embedded) {
+      if (value === "today" || value === "plans" || value === "templates") {
+        onNavigate?.(value);
+      }
+    } else {
+      setInternalTab(value);
+    }
+  }
   const selectTab = (next: string): void => {
     setTab(next);
-    if (isDesktop()) {
+    if (!embedded && isDesktop()) {
       void command("set_planner_tab", { tab: next }).catch((cause: unknown) =>
         setFailure(errorText(cause)),
       );
@@ -85,11 +144,25 @@ export function Planner(): ReactElement {
   const [rollIds, setRollIds] = useState<string[]>([]);
   const [rollDate, setRollDate] = useState(moveDay(localDay(), 1));
   const [manageLists, setManageLists] = useState(false);
+  const [templateDirty, setTemplateDirty] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
+  useEffect(() => {
+    setEditing(null);
+    setManageLists(false);
+    setWrap(false);
+  }, [dismissVersion]);
   const leaving = useRef(false);
-  const dirty = Boolean(editing || title.trim());
+  const returning = useRef(false);
+  const blocking = Boolean(editing || manageLists || wrap);
+  const dirty = Boolean(blocking || title.trim() || templateDirty);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
+  const report = useRef(onStateChange);
+  report.current = onStateChange;
+  useEffect(() => {
+    report.current?.({ dirty, busy, blocking });
+  }, [dirty, busy, blocking]);
+  useEffect(() => () => report.current?.({ dirty: false, busy: false, blocking: false }), []);
   const widgets = snapshot?.widgets ?? [];
   const enabled = (kind: string): WidgetView | undefined =>
     widgets.find((w) => w.kind === kind && w.installed && w.enabled);
@@ -101,7 +174,9 @@ export function Planner(): ReactElement {
     lists = rows(record(todo?.data).lists);
   const connections = rows(record(calendar?.data).connections);
   const events = rows(record(calendar?.data).events).filter(
-    (event) => !event.cancelled && connections.some((c) => c.id === event.connectionId),
+    (event) =>
+      !event.cancelled &&
+      (event.connectionId === "local" || connections.some((c) => c.id === event.connectionId)),
   );
   const dailyEvents = eventsOn(events, day);
   const event = dailyEvents.find((e) => e.id === selectedEvent) ?? dailyEvents[0];
@@ -121,7 +196,7 @@ export function Planner(): ReactElement {
   const lastSuccess = Math.max(0, ...connections.map((c) => number(c.lastSuccessAt)));
 
   useEffect(() => {
-    if (!isDesktop()) return;
+    if (embedded || !isDesktop()) return;
     let active = true;
     let tabCleanup: (() => void) | undefined, closeCleanup: (() => void) | undefined;
     let received = false;
@@ -139,7 +214,7 @@ export function Planner(): ReactElement {
         }
         tabCleanup = cleanup;
         const latest = await command<string>("get_planner_tab");
-        if (!received) select(latest);
+        if (!received && !initialTab) select(latest);
       })
       .catch((cause: unknown) => {
         if (active) setFailure(errorText(cause));
@@ -163,7 +238,7 @@ export function Planner(): ReactElement {
       tabCleanup?.();
       closeCleanup?.();
     };
-  }, []);
+  }, [embedded]);
 
   async function run(operation: () => Promise<unknown>): Promise<boolean> {
     if (!isDesktop()) {
@@ -308,7 +383,8 @@ export function Planner(): ReactElement {
       setConfirmClose(true);
       return;
     }
-    if (isDesktop()) await getCurrentWindow().destroy();
+    if (returning.current && onBack) onBack();
+    else if (isDesktop()) await getCurrentWindow().destroy();
   }
   const shown = items.filter(
     (item) =>
@@ -316,9 +392,31 @@ export function Planner(): ReactElement {
       (visibleList === "all" || item.listId === visibleList) &&
       (showCompleted || typeof item.completedAt !== "number"),
   );
+  const Root = embedded ? "section" : "main";
   return (
-    <main className={s.window}>
-      <WindowHeader className={s.header} label="플래너 닫기" title="플래너" onClose={closeWindow} />
+    <Root className={embedded ? s.embedded : s.window}>
+      {!embedded && (
+        <WindowHeader
+          className={s.header}
+          label="플래너 닫기"
+          title="할 일·연결 관리"
+          onClose={closeWindow}
+          actions={
+            onBack && (
+              <Button
+                variant="quiet"
+                size="compact"
+                onClick={() => {
+                  returning.current = true;
+                  void closeWindow();
+                }}
+              >
+                다이어리로 돌아가기
+              </Button>
+            )
+          }
+        />
+      )}
       {(loadError || failure) && (
         <div role="alert" className={s.error}>
           {loadError || failure}{" "}
@@ -341,22 +439,24 @@ export function Planner(): ReactElement {
         </p>
       )}
       {!snapshot ? (
-        <div className={s.empty}>플래너를 불러오고 있어요.</div>
+        <div className={s.empty}>할 일을 불러오고 있어요.</div>
       ) : (
-        <Tabs value={tab} onValueChange={selectTab} className={s.tabs}>
-          <div className={s.nav}>
-            <TabList className={s.tabList} aria-label="플래너">
-              {NAVIGATION.map(([key, label]) => (
-                <Tab key={key} value={key} className={s.tab}>
-                  {label}
-                </Tab>
-              ))}
-            </TabList>
-            <Button variant="quiet" size="compact" onClick={() => openSettings()}>
-              연결·알림 설정 ↗
-            </Button>
-          </div>
-          <TabPanel value="today" className={s.panel}>
+        <Tabs value={tab} onValueChange={selectTab} className={embedded ? s.embeddedTabs : s.tabs}>
+          {!embedded && (
+            <div className={s.nav}>
+              <TabList className={s.tabList} aria-label="플래너">
+                {NAVIGATION.map(([key, label]) => (
+                  <Tab key={key} value={key} className={s.tab}>
+                    {label}
+                  </Tab>
+                ))}
+              </TabList>
+              <Button variant="quiet" size="compact" onClick={() => openSettings()}>
+                연결·알림 설정 ↗
+              </Button>
+            </div>
+          )}
+          <PlannerPanel embedded={embedded} current={tab} value="today">
             <div className={s.toolbar}>
               <strong>
                 {dayDate(day).toLocaleDateString("ko-KR", {
@@ -389,54 +489,58 @@ export function Planner(): ReactElement {
                 할 일 {chosen.length}개 · 완료 {chosen.length - remaining.length}개
               </span>
             </div>
-            <div className={s.split}>
-              <aside className={s.column}>
-                <h2 className={s.heading}>오늘 일정 · {dailyEvents.length}</h2>
-                {!calendar || !connections.length ? (
-                  <div className={s.empty}>
-                    <p className={s.caption}>내 캘린더도 함께 볼 수 있어요.</p>
-                    <Button variant="secondary" size="compact" onClick={() => openSettings()}>
-                      캘린더 연결
-                    </Button>
-                    <p className={s.caption}>할 일은 계정 없이 사용할 수 있어요.</p>
-                  </div>
-                ) : (
-                  <>
-                    {connections.some((c) => !["ready", "syncing"].includes(text(c.status))) && (
-                      <div role="status" className={s.error}>
-                        캘린더를 갱신하지 못했어요.
-                        <Button variant="quiet" size="compact" onClick={() => openSettings()}>
-                          연결 확인 ↗
-                        </Button>
-                      </div>
-                    )}
-                    {!dailyEvents.length && (
-                      <p className={s.caption}>이 날짜에 조회된 일정이 없어요.</p>
-                    )}
-                    {dailyEvents.map((e) => (
-                      <button
-                        type="button"
-                        key={text(e.id)}
-                        className={s.eventButton}
-                        aria-pressed={event?.id === e.id}
-                        onClick={() => setSelectedEvent(text(e.id))}
-                      >
-                        <span className={s.caption}>{eventTime(e)}</span>
-                        <span>{text(e.title)}</span>
-                        <span className={s.caption}>
-                          {text(connections.find((c) => c.id === e.connectionId)?.name)}
-                        </span>
-                      </button>
-                    ))}
-                  </>
-                )}
-                {event && prep()}
-                {lastSuccess > 0 && (
-                  <p className={s.caption}>
-                    마지막 확인 {new Date(lastSuccess).toLocaleString("ko-KR")} · 읽기 연결
-                  </p>
-                )}
-              </aside>
+            <div className={embedded ? s.embeddedContent : s.split}>
+              {!embedded && (
+                <aside className={s.column}>
+                  <h2 className={s.heading}>오늘 일정 · {dailyEvents.length}</h2>
+                  {!calendar || (!connections.length && !events.length) ? (
+                    <div className={s.empty}>
+                      <p className={s.caption}>내 캘린더도 함께 볼 수 있어요.</p>
+                      <Button variant="secondary" size="compact" onClick={() => openSettings()}>
+                        캘린더 연결
+                      </Button>
+                      <p className={s.caption}>할 일은 계정 없이 사용할 수 있어요.</p>
+                    </div>
+                  ) : (
+                    <>
+                      {connections.some((c) => !["ready", "syncing"].includes(text(c.status))) && (
+                        <div role="status" className={s.error}>
+                          캘린더를 갱신하지 못했어요.
+                          <Button variant="quiet" size="compact" onClick={() => openSettings()}>
+                            연결 확인 ↗
+                          </Button>
+                        </div>
+                      )}
+                      {!dailyEvents.length && (
+                        <p className={s.caption}>이 날짜에 조회된 일정이 없어요.</p>
+                      )}
+                      {dailyEvents.map((e) => (
+                        <button
+                          type="button"
+                          key={text(e.id)}
+                          className={s.eventButton}
+                          aria-pressed={event?.id === e.id}
+                          onClick={() => setSelectedEvent(text(e.id))}
+                        >
+                          <span className={s.caption}>{eventTime(e)}</span>
+                          <span>{text(e.title)}</span>
+                          <span className={s.caption}>
+                            {e.connectionId === "local"
+                              ? "Comet"
+                              : text(connections.find((c) => c.id === e.connectionId)?.name)}
+                          </span>
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {event && prep()}
+                  {lastSuccess > 0 && (
+                    <p className={s.caption}>
+                      마지막 확인 {new Date(lastSuccess).toLocaleString("ko-KR")} · 읽기 연결
+                    </p>
+                  )}
+                </aside>
+              )}
               <section className={s.column} aria-label="오늘 할 일">
                 <div className={s.actions}>
                   <h2 className={s.heading}>오늘 할 일</h2>
@@ -547,8 +651,8 @@ export function Planner(): ReactElement {
                 {calendar && <PlannerAlertNotice widget={calendar} act={act} />}
               </section>
             </div>
-          </TabPanel>
-          <TabPanel value="plans" className={s.panel}>
+          </PlannerPanel>
+          <PlannerPanel embedded={embedded} current={tab} value="plans">
             <div className={s.toolbar}>
               <div className={s.actions} role="group" aria-label="계획 기간">
                 {[...PERIODS, ["inbox", "수집함"]].map(([key, label]) => (
@@ -680,80 +784,91 @@ export function Planner(): ReactElement {
                 </Button>
               </div>
             )}
-          </TabPanel>
-          <TabPanel value="calendar" className={s.panel}>
-            <PlannerCalendar
-              day={day}
-              setDay={setDay}
-              events={events}
-              selected={text(event?.id)}
-              onSelect={(value) => setSelectedEvent(text(value.id))}
-              connections={connections}
-              colors={record(record(calendar?.data).calendarColors)}
-              busy={busy}
-              onColorChange={
-                calendar ? (input) => void act("set-calendar-color", input, calendar) : undefined
-              }
-              side={
-                <>
-                  {calendar ? (
-                    prep()
-                  ) : (
-                    <Button variant="secondary" onClick={() => openSettings()}>
-                      캘린더 연결
-                    </Button>
-                  )}
-                  <section className={s.section}>
-                    <h3 className={s.heading}>시간을 정한 할 일</h3>
-                    {items
-                      .filter(
-                        (item) =>
-                          typeof item.completedAt !== "number" &&
-                          typeof item.dueAt === "number" &&
-                          dueDay(item) === day,
-                      )
-                      .sort((a, b) => number(a.dueAt) - number(b.dueAt))
-                      .map((item) => (
-                        <div key={text(item.id)} className={s.actions}>
-                          <span className={s.caption}>{clockLabel(number(item.dueAt))}</span>
-                          {taskCheck(item)}
-                          <Button
-                            variant="quiet"
-                            size="compact"
-                            aria-label={`${text(item.title)} 시간 수정`}
-                            onClick={() => edit(item)}
-                          >
-                            수정
-                          </Button>
-                        </div>
-                      ))}
-                    <h3 className={s.heading}>아직 시간을 정하지 않은 일</h3>
-                    {remaining
-                      .filter((item) => typeof item.dueAt !== "number")
-                      .map((item) => (
-                        <div key={text(item.id)} className={s.actions}>
-                          {taskCheck(item)}
-                          <Button
-                            variant="quiet"
-                            size="compact"
-                            aria-label={`${text(item.title)} 시간 잡기`}
-                            onClick={() => edit(item)}
-                          >
-                            시간 잡기
-                          </Button>
-                        </div>
-                      ))}
-                    <p className={s.caption}>
-                      내장 할 일의 기한만 바뀝니다. 외부 일정은 수정하지 않아요.
-                    </p>
-                  </section>
-                </>
-              }
-            />
-          </TabPanel>
-          <TabPanel value="templates" className={s.panel}>
+          </PlannerPanel>
+          {!embedded && (
+            <TabPanel value="calendar" className={s.panel}>
+              <PlannerCalendar
+                day={day}
+                setDay={setDay}
+                events={events}
+                selected={text(event?.id)}
+                onSelect={(value) => setSelectedEvent(text(value.id))}
+                connections={connections}
+                colors={record(record(calendar?.data).calendarColors)}
+                busy={busy}
+                onColorChange={
+                  calendar ? (input) => void act("set-calendar-color", input, calendar) : undefined
+                }
+                side={
+                  <>
+                    {calendar ? (
+                      prep()
+                    ) : (
+                      <Button variant="secondary" onClick={() => openSettings()}>
+                        캘린더 연결
+                      </Button>
+                    )}
+                    <section className={s.section}>
+                      <h3 className={s.heading}>시간을 정한 할 일</h3>
+                      {items
+                        .filter(
+                          (item) =>
+                            typeof item.completedAt !== "number" &&
+                            typeof item.dueAt === "number" &&
+                            dueDay(item) === day,
+                        )
+                        .sort((a, b) => number(a.dueAt) - number(b.dueAt))
+                        .map((item) => (
+                          <div key={text(item.id)} className={s.actions}>
+                            <span className={s.caption}>{clockLabel(number(item.dueAt))}</span>
+                            {taskCheck(item)}
+                            <Button
+                              variant="quiet"
+                              size="compact"
+                              aria-label={`${text(item.title)} 시간 수정`}
+                              onClick={() => edit(item)}
+                            >
+                              수정
+                            </Button>
+                          </div>
+                        ))}
+                      <h3 className={s.heading}>아직 시간을 정하지 않은 일</h3>
+                      {remaining
+                        .filter((item) => typeof item.dueAt !== "number")
+                        .map((item) => (
+                          <div key={text(item.id)} className={s.actions}>
+                            {taskCheck(item)}
+                            <Button
+                              variant="quiet"
+                              size="compact"
+                              aria-label={`${text(item.title)} 시간 잡기`}
+                              onClick={() => edit(item)}
+                            >
+                              시간 잡기
+                            </Button>
+                          </div>
+                        ))}
+                      <p className={s.caption}>
+                        내장 할 일의 기한만 바뀝니다. 외부 일정은 수정하지 않아요.
+                      </p>
+                    </section>
+                  </>
+                }
+              />
+            </TabPanel>
+          )}
+          <PlannerPanel embedded={embedded} current={tab} value="templates">
             {todo ? (
-              <PlannerTemplates act={act} busy={busy} />
+              <PlannerTemplates
+                act={act}
+                busy={busy}
+                onDirtyChange={setTemplateDirty}
+                onShowPlans={(value, anchor) => {
+                  setPeriod(value);
+                  setPlanDay(anchor);
+                  setTab("plans");
+                }}
+              />
             ) : (
               <div className={s.empty}>
                 <p>할 일을 시작하면 템플릿을 사용할 수 있어요.</p>
@@ -762,7 +877,7 @@ export function Planner(): ReactElement {
                 </Button>
               </div>
             )}
-          </TabPanel>
+          </PlannerPanel>
         </Tabs>
       )}
       <footer className={s.footer}>
@@ -866,11 +981,21 @@ export function Planner(): ReactElement {
         isOpen={confirmClose}
         title="작성 중인 내용이 있어요"
         size="small"
-        onOpenChange={setConfirmClose}
+        closeLabel="플래너 종료 확인 닫기"
+        onOpenChange={(open) => {
+          if (!open) returning.current = false;
+          setConfirmClose(open);
+        }}
       >
-        <p>저장하지 않은 내용을 버리고 플래너를 닫을까요?</p>
+        <p>저장하지 않은 내용을 버리고 나갈까요?</p>
         <div className={s.actions}>
-          <Button variant="secondary" onClick={() => setConfirmClose(false)}>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              returning.current = false;
+              setConfirmClose(false);
+            }}
+          >
             계속 작성
           </Button>
           <Button
@@ -880,11 +1005,11 @@ export function Planner(): ReactElement {
               await closeWindow();
             }}
           >
-            버리고 닫기
+            버리고 나가기
           </Button>
         </div>
       </Dialog>
-    </main>
+    </Root>
   );
 }
 
@@ -910,6 +1035,7 @@ function ListManager({
       isOpen
       title="목록 관리"
       size="small"
+      closeLabel="목록 관리 닫기"
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
@@ -928,6 +1054,7 @@ function ListManager({
           }}
         >
           <TextField
+            className={s.grow}
             aria-label="새 목록 이름"
             required
             maxLength={100}
@@ -951,6 +1078,7 @@ function ListManager({
             }}
           >
             <TextField
+              className={s.grow}
               aria-label={`${text(list.name)} 이름`}
               required
               maxLength={100}

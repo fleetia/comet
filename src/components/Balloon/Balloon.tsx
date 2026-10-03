@@ -103,6 +103,7 @@ export function Balloon({
   const composing = useRef(false);
   const submitting = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const errorRef = useRef<HTMLParagraphElement>(null);
   const responding = ["loading", "generating"].includes(snapshot.runtime.phase);
   const playing = Boolean(conversation && snapshot.playback);
   const idleBlocked = useRef(false);
@@ -116,6 +117,13 @@ export function Balloon({
     snapshot.runtime.phase === "error" &&
     latestUser;
   const visibleError = error || (mode === "input" || !mode ? snapshot.runtime.error : null);
+  useLayoutEffect(() => {
+    // A failed send can arrive while the native window still has its previous size,
+    // or while an expanded conversation log has scrolled the document.
+    if (mode === "input" && visibleError) {
+      errorRef.current?.scrollIntoView?.({ block: "nearest" });
+    }
+  }, [mode, visibleError]);
   useEffect(() => {
     if (sessionId) return;
     setTarget(persona);
@@ -137,6 +145,7 @@ export function Balloon({
       saved: conversation.session.draft,
     };
     setInput(conversation.session.draft);
+    setError(null);
     setLogOpen(false);
   }, [sessionId]);
   useEffect(() => {
@@ -357,6 +366,36 @@ export function Balloon({
       )}
     </span>
   );
+  const notice = (visibleError || canRetry || responding) && (
+    <div className={s.notice}>
+      {visibleError && (
+        <p ref={errorRef} className={s.error} role="alert">
+          {visibleError}
+        </p>
+      )}
+      <div className={s.row}>
+        {canRetry && (
+          <Button
+            variant="secondary"
+            disabled={pending || responding}
+            onClick={() =>
+              void perform("retry_turn", {
+                messageId: latestUser.id,
+                target: latestUser.persona,
+              })
+            }
+          >
+            다시 이야기하기
+          </Button>
+        )}
+        {responding && (
+          <Button variant="quiet" size="compact" onClick={() => void perform("cancel_generation")}>
+            생성 멈추기
+          </Button>
+        )}
+      </div>
+    </div>
+  );
   return (
     <section
       ref={balloonRef}
@@ -413,6 +452,7 @@ export function Balloon({
           ×
         </IconButton>
       )}
+      {mode === "input" && notice}
       {mode === "menu" && (
         <>
           <nav className={s.menu} aria-label="캐릭터 메뉴">
@@ -529,6 +569,7 @@ export function Balloon({
               aria-label={snapshot.playback ? fullText : undefined}
             >
               <span className={s.historyName}>
+                {!snapshot.playback && visibleError && "이전 답변 · "}
                 {!snapshot.playback && latestReply && conversation.characterNames?.[latestReply.id]
                   ? conversation.characterNames[latestReply.id]
                   : characterName(
@@ -702,40 +743,7 @@ export function Balloon({
           )}
         </div>
       )}
-      {(visibleError || canRetry || responding) && (
-        <div className={s.notice}>
-          {visibleError && (
-            <p className={s.error} role="alert">
-              {visibleError}
-            </p>
-          )}
-          <div className={s.row}>
-            {canRetry && (
-              <Button
-                variant="secondary"
-                disabled={pending || responding}
-                onClick={() =>
-                  void perform("retry_turn", {
-                    messageId: latestUser.id,
-                    target: latestUser.persona,
-                  })
-                }
-              >
-                다시 이야기하기
-              </Button>
-            )}
-            {responding && (
-              <Button
-                variant="quiet"
-                size="compact"
-                onClick={() => void perform("cancel_generation")}
-              >
-                생성 멈추기
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
+      {mode !== "input" && notice}
     </section>
   );
 }
