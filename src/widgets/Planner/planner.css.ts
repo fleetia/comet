@@ -45,6 +45,21 @@ export const panel = style({
   flexDirection: "column",
   gap: v.space.sm,
 });
+export const embedded = style({
+  minWidth: 0,
+  display: "flex",
+  flexDirection: "column",
+  gap: v.space.sm,
+});
+export const embeddedTabs = style({ minWidth: 0 });
+export const embeddedPanel = style({
+  minWidth: 0,
+  display: "flex",
+  flexDirection: "column",
+  gap: v.space.sm,
+  selectors: { "&[hidden]": { display: "none" } },
+});
+export const embeddedContent = style({ minWidth: 0 });
 export const toolbar = style({
   display: "flex",
   alignItems: "center",

@@ -30,18 +30,8 @@ use tauri_plugin_dialog::DialogExt;
 pub(crate) fn resource_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
     if cfg!(debug_assertions) {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries");
-        let target = if cfg!(target_os = "macos") {
-            "aarch64-apple-darwin"
-        } else {
-            "x86_64-pc-windows-msvc"
-        };
-        let suffix = if cfg!(target_os = "windows") {
-            ".exe"
-        } else {
-            ""
-        };
         return Ok((
-            root.join(format!("llama-server-{target}{suffix}")),
+            crate::sidecar::development_executable("llama-server"),
             root.join("runtime"),
         ));
     }
@@ -241,6 +231,7 @@ pub fn run() {
                 last_foreground: AtomicI64::new(now()),
                 last_scene: AtomicI64::new(now()),
                 next_idle: AtomicI64::new(now() + 5),
+                quiet_hours: Mutex::new(super::quiet_hours::Runtime::default()),
                 last_preparation: AtomicI64::new(0),
                 last_background_check: AtomicI64::new(0),
                 idle_sequence: AtomicU64::new(0),
@@ -250,6 +241,7 @@ pub fn run() {
                 update_installing: AtomicBool::new(false),
                 behavior: Mutex::new(behavior::Machine::default()),
                 reactions: Mutex::new(crate::character_reaction_host::Runtime::default()),
+                animation_states: Mutex::new(crate::character_animation_states::Runtime::default()),
                 positions: Mutex::new(HashMap::new()),
             });
             app.manage(state.clone());
@@ -475,6 +467,8 @@ pub fn run() {
             crate::memo_notes::request_close_memo_note,
             crate::memo_notes::save_memo_note,
             widget_commands::get_widgets,
+            crate::diary::get_diary,
+            crate::diary::update_diary,
             crate::widget_runtime::get_widget_runtime,
             widget_commands::install_widgets,
             widget_commands::finish_widget_onboarding,
@@ -496,6 +490,7 @@ pub fn run() {
             widget_connections::connect_calendar_apple,
             widget_connections::list_apple_calendars,
             crate::planner_windows::get_planner_tab,
+            crate::planner_windows::set_planner_tab,
             crate::planner_windows::preview_planner_recurrence,
             crate::planner_windows::open_planner_settings,
             crate::planner_windows::get_planner_settings_target,

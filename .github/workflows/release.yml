@@ -73,6 +73,8 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: pnpm check
       - run: pnpm test
+      - run: pnpm test:release
+      - run: pnpm test:native-runtime
       - name: Create or reuse draft release
         id: release
         env:
@@ -142,7 +144,7 @@ jobs:
         id: sidecar-cache
         with:
           path: src-tauri/binaries
-          key: sidecar-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/prepare-sidecar.mjs', 'scripts/prepare-nlp.mjs', 'crates/comet-nlp/Cargo.*', 'crates/comet-nlp/src/**') }}
+          key: sidecar-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/prepare-sidecar.mjs', 'scripts/prepare-nlp.mjs', 'scripts/native-runtime.mjs', 'crates/comet-nlp/Cargo.*', 'crates/comet-nlp/src/**', 'src-tauri/src/nlp/protocol.rs') }}
       - run: pnpm prepare:sidecar
         if: steps.sidecar-cache.outputs.cache-hit != 'true'
       - run: pnpm prepare:nlp
@@ -180,8 +182,74 @@ jobs:
             hdiutil verify "$installer"
           done
 
+  linux:
+    name: Experimental Linux x64 CPU / Ubuntu 24.04
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.27.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://npm.pkg.github.com
+          scope: '@fleetia'
+      - name: Check native host architecture
+        run: node -e "if (process.platform !== 'linux' || process.arch !== 'x64') throw new Error('Expected Linux x64 host')"
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libxdo-dev libxtst-dev libssl-dev libdbus-1-dev xvfb xauth
+      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
+            crates/comet-nlp -> target
+          shared-key: desktop-ubuntu-24.04-x64
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/cache/restore@v4
+        id: sidecar-cache
+        with:
+          path: src-tauri/binaries
+          key: sidecar-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/prepare-sidecar.mjs', 'scripts/prepare-nlp.mjs', 'scripts/native-runtime.mjs', 'crates/comet-nlp/Cargo.*', 'crates/comet-nlp/src/**', 'src-tauri/src/nlp/protocol.rs') }}
+      - run: pnpm prepare:sidecar
+        if: steps.sidecar-cache.outputs.cache-hit != 'true'
+      - run: pnpm prepare:nlp
+        if: steps.sidecar-cache.outputs.cache-hit != 'true'
+      - run: cargo test --locked --manifest-path crates/comet-nlp/Cargo.toml
+      - name: Test Linux native host on X11
+        env:
+          GDK_BACKEND: x11
+        run: |
+          xvfb-run --auto-servernum cargo test --locked --manifest-path src-tauri/Cargo.toml
+          xvfb-run --auto-servernum cargo test --locked --manifest-path src-tauri/Cargo.toml linux_input_shape_survives_hidden_realized_and_destroyed_windows -- --ignored
+      # DEB is a manual-install experiment, not a Tauri updater payload.
+      # Keep signing credentials and latest.json generation in the supported updater jobs.
+      - name: Build experimental Linux package
+        run: pnpm tauri build --bundles deb
+      - name: Verify experimental Linux package
+        run: python3 scripts/verify_linux_bundle.py src-tauri/target/release/bundle/deb/*.deb
+      - name: Upload Linux package to draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release upload "$RELEASE_TAG" src-tauri/target/release/bundle/deb/*.deb --clobber
+
   publish:
-    needs: [prepare, build]
+    needs: [prepare, build, linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -189,7 +257,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.prepare.outputs.tag }}
-      - name: Validate both update targets and publish
+      - name: Validate all installers and signed update targets before publishing
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}

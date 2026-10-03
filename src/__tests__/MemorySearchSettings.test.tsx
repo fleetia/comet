@@ -58,6 +58,12 @@ it("saves search flags independently and only removes a model after confirmation
     }),
   );
   expect(vi.mocked(command).mock.calls.some(([name]) => name === "save_settings")).toBe(false);
+  // The command can be observed before its status refresh and pending-state cleanup finish.
+  await waitFor(() =>
+    expect(
+      (screen.getByRole("button", { name: "한국어 분석 제거" }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
   fireEvent.click(screen.getByRole("button", { name: "한국어 분석 제거" }));
   expect(vi.mocked(command).mock.calls.some(([name]) => name === "remove_nlp_model")).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "한국어 분석 제거 확인" }));

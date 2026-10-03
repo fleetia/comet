@@ -17,6 +17,15 @@ fn argument(name: &str) -> Option<PathBuf> {
     }
     None
 }
+
+fn runtime_library(name: &str) -> String {
+    format!(
+        "{}{name}{}",
+        std::env::consts::DLL_PREFIX,
+        std::env::consts::DLL_SUFFIX
+    )
+}
+
 fn main() {
     // Hugging Face's tokenization stays sequential too.
     std::env::set_var("TOKENIZERS_PARALLELISM", "false");
@@ -25,11 +34,7 @@ fn main() {
     };
     let mut errors = Vec::new();
     let kiwi = argument("--kiwi").and_then(|path| {
-        let library = runtime.join(if cfg!(windows) {
-            "kiwi.dll"
-        } else {
-            "libkiwi.dylib"
-        });
+        let library = runtime.join(runtime_library("kiwi"));
         match kiwi::Kiwi::load(&library, &path) {
             Ok(model) => Some(model),
             Err(error) => {
@@ -39,11 +44,7 @@ fn main() {
         }
     });
     let mut encoder = argument("--semantic").and_then(|path| {
-        let library = runtime.join(if cfg!(windows) {
-            "onnxruntime.dll"
-        } else {
-            "libonnxruntime.dylib"
-        });
+        let library = runtime.join(runtime_library("onnxruntime"));
         match embedding::Encoder::load(&library, &path) {
             Ok(model) => Some(model),
             Err(error) => {
@@ -131,4 +132,20 @@ fn write_line(out: &mut impl Write, value: &impl serde::Serialize) -> io::Result
     serde_json::to_writer(&mut *out, value)?;
     out.write_all(b"\n")?;
     out.flush()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn runtime_libraries_use_the_target_platform_extension() {
+        let expected = if cfg!(target_os = "windows") {
+            ["kiwi.dll", "onnxruntime.dll"]
+        } else if cfg!(target_os = "macos") {
+            ["libkiwi.dylib", "libonnxruntime.dylib"]
+        } else {
+            ["libkiwi.so", "libonnxruntime.so"]
+        };
+        assert_eq!(super::runtime_library("kiwi"), expected[0]);
+        assert_eq!(super::runtime_library("onnxruntime"), expected[1]);
+    }
 }

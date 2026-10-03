@@ -1,5 +1,6 @@
 import { Button, Dialog } from "@fleetia/lagrange";
 import { useState, type ReactElement } from "react";
+import { WidgetDragHandle } from "../WidgetDragHandle";
 import { record, rows, text, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import * as c from "../../lagrange.css";
@@ -29,6 +30,11 @@ export function MemoTool({
             text(note.body).replace(/\s+/g, " ").trim() || text(note.title) || "빈 메모";
           return (
             <li className={s.listItem} key={id}>
+              <WidgetDragHandle
+                payload={{ v: 1, kind: "memo", widgetId: widget.id, itemId: id }}
+                title={preview}
+                disabled={busy}
+              />
               <button
                 type="button"
                 className={s.preview}

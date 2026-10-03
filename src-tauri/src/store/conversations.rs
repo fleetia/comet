@@ -368,6 +368,8 @@ pub fn conversation_messages(
         "SELECT m.seq,m.data FROM conversation_messages cm JOIN messages m ON m.id=cm.message_id
          JOIN message_users mu ON mu.message_id=m.id
          WHERE cm.conversation_id=?1 AND mu.user_id=?2 AND (?3 IS NULL OR m.seq<?3)
+         AND (NOT EXISTS(SELECT 1 FROM message_playback p WHERE p.message_id=m.id)
+             OR EXISTS(SELECT 1 FROM message_presentations p WHERE p.message_id=m.id))
          ORDER BY m.seq DESC LIMIT 101"
     ).map_err(err)?;
     let rows = statement
@@ -577,6 +579,37 @@ mod tests {
 
     fn ids(messages: &[Message]) -> Vec<&str> {
         messages.iter().map(|message| message.id.as_str()).collect()
+    }
+
+    #[test]
+    fn retry_display_unshown_raw_is_not_a_finished_conversation_reply() {
+        let db = store::open(Path::new(":memory:")).unwrap();
+        let session = start(&db);
+        let input = message("input", "user", "a", "보여 줘");
+        append(&db, &session, &input);
+        let reply = message(
+            "reply:input:builtin-a",
+            "assistant",
+            "builtin-a",
+            "  아직 미표시  ",
+        );
+        let line = crate::types::SceneLine {
+            persona: "builtin-a".into(),
+            text: reply.content.clone(),
+            expression: reply.expression.clone().unwrap(),
+            motion: Default::default(),
+        };
+        store::insert_message_with_playback(&db, &reply, "llm", None, true, Some(&line)).unwrap();
+        assert_eq!(
+            ids(&conversation_view(&db, &session.id).unwrap().messages),
+            ["input"]
+        );
+        assert_eq!(store::messages(&db, 10).unwrap().len(), 2);
+        store::mark_message_displayed(&db, &reply.id, reply.created_at).unwrap();
+        assert_eq!(
+            ids(&conversation_view(&db, &session.id).unwrap().messages),
+            ["input", reply.id.as_str()]
+        );
     }
 
     #[test]

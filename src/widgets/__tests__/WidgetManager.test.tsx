@@ -153,19 +153,19 @@ it("browses the catalog through filters without installation checkboxes or a bat
 });
 
 it.each([false, true])(
-  "confirms the widget and its required dependency when already installed=%s",
-  async (hasDependency) => {
+  "installs preparation alone when a disabled calendar is installed=%s",
+  async (hasCalendar) => {
     vi.mocked(useWidgets).mockReturnValue({
       snapshot: {
         ...PREVIEW_WIDGETS,
-        widgets: hasDependency ? [installed("calendar", false)] : [],
+        widgets: hasCalendar ? [installed("calendar", false)] : [],
       },
       error: null,
       reload,
     });
     render(<WidgetManager embedded />);
     openInstallation("준비 봉투");
-    expect(screen.getByText("필수 위젯도 함께 설치하거나 켭니다: 캘린더")).toBeTruthy();
+    expect(screen.queryByText(/필수 위젯도 함께 설치하거나 켭니다/)).toBeNull();
     expect(
       vi
         .mocked(command)
@@ -177,7 +177,7 @@ it.each([false, true])(
         vi
           .mocked(command)
           .mock.calls.filter(([name]) => name !== "get_planner_notification_permission"),
-      ).toEqual([["install_widgets", { kinds: ["preparation", "calendar"] }]]),
+      ).toEqual([["install_widgets", { kinds: ["preparation"] }]]),
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   },
@@ -239,14 +239,14 @@ it("hides the native installation confirmation during an external tab switch", (
   ).toEqual([]);
 });
 
-it("opens preserved local data with a missing dependency and pauses a running widget separately", async () => {
+it("opens a calendar awaiting a connection and pauses a running widget separately", async () => {
   vi.mocked(useWidgets).mockReturnValue({
     snapshot: {
       ...PREVIEW_WIDGETS,
       onboardingDone: true,
       widgets: [
         installed("todo"),
-        { ...installed("preparation"), status: "setup", missing: ["calendar"] },
+        { ...installed("calendar"), status: "setup", data: { connections: [] } },
       ],
     },
     error: null,
@@ -256,10 +256,10 @@ it("opens preserved local data with a missing dependency and pauses a running wi
   fireEvent.change(screen.getByRole("combobox", { name: "설치 상태" }), {
     target: { value: "attention" },
   });
-  fireEvent.click(screen.getByRole("button", { name: /^준비 봉투/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^캘린더 설정 필요$/ }));
   expect(screen.queryByRole("button", { name: /^할 일 켜짐$/ })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "위젯 열기 ↗" }));
-  await waitFor(() => expect(command).toHaveBeenCalledWith("open_widget", { id: "preparation" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("open_widget", { id: "calendar" }));
   await waitFor(() => expect(screen.getByLabelText("위젯 사용")).toHaveProperty("disabled", false));
   fireEvent.change(screen.getByRole("combobox", { name: "설치 상태" }), {
     target: { value: "all" },
@@ -271,16 +271,17 @@ it("opens preserved local data with a missing dependency and pauses a running wi
   );
 });
 
-it("shows dependent tools before removal and preserves written data by default", async () => {
+it("removes only calendar, preserves data by default, and leaves preparation available", async () => {
+  const preparation = installed("preparation");
   vi.mocked(useWidgets).mockReturnValue({
-    snapshot: { ...PREVIEW_WIDGETS, widgets: [installed("calendar"), installed("preparation")] },
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [installed("calendar"), preparation] },
     error: null,
     reload,
   });
-  render(<WidgetManager embedded />);
+  const view = render(<WidgetManager embedded />);
   fireEvent.click(screen.getByLabelText("위젯 더보기"));
   fireEvent.click(screen.getByRole("button", { name: "위젯 제거" }));
-  expect(screen.getByText(/필수 연결을 사용할 수 없게 되는 도구: 준비 봉투/)).toBeTruthy();
+  expect(screen.queryByText(/필수 연결을 사용할 수 없게 되는 도구/)).toBeNull();
   expect(screen.getByLabelText("이 위젯의 작성 데이터도 삭제")).toHaveProperty("checked", false);
   expect(command).not.toHaveBeenCalledWith("remove_widget", expect.anything());
   fireEvent.click(screen.getByRole("button", { name: "제거 확인" }));
@@ -290,6 +291,23 @@ it("shows dependent tools before removal and preserves written data by default",
       deleteData: false,
     }),
   );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [preparation] },
+    error: null,
+    reload,
+  });
+  view.rerender(<WidgetManager embedded />);
+  fireEvent.click(screen.getByRole("button", { name: "준비 봉투 켜짐" }));
+  fireEvent.click(screen.getByRole("button", { name: "위젯 열기 ↗" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("open_widget", { id: "preparation" }));
+  expect(vi.mocked(command).mock.calls.filter(([name]) => name === "remove_widget")).toEqual([
+    ["remove_widget", { id: "calendar", deleteData: false }],
+  ]);
+  expect(command).not.toHaveBeenCalledWith("set_widget_enabled", {
+    id: "preparation",
+    enabled: false,
+  });
 });
 
 it("preserves the explicit deletion choice and the error when removal fails", async () => {

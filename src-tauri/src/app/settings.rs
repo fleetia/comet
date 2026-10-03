@@ -78,6 +78,9 @@ fn validate_settings(
     if scope != Some(SettingsScope::Model) && !(1..=60).contains(&settings.idle_minutes) {
         return Err("설정값을 확인해 주세요.".into());
     }
+    if scope != Some(SettingsScope::Model) {
+        super::quiet_hours::validate(&settings.quiet_hours)?;
+    }
     if scope == Some(SettingsScope::Automatic) {
         return Ok(());
     }
@@ -122,6 +125,7 @@ pub(crate) fn apply_settings(
             local_idle_enabled: settings.local_idle_enabled,
             api_idle_enabled: settings.api_idle_enabled,
             idle_minutes: settings.idle_minutes,
+            quiet_hours: settings.quiet_hours.clone(),
             ..current
         },
         Some(SettingsScope::Model) => Settings {

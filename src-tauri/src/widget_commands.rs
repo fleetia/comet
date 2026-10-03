@@ -21,13 +21,18 @@ pub(crate) fn publish_widgets(app: &tauri::AppHandle, state: &AppState) {
             let _ = app.emit("widgets-state", snapshot);
         }
     }
+    if crate::character_animation_states::refresh(app, state).unwrap_or(false) {
+        publish(app, state);
+    }
     crate::desktop_menu::refresh(app);
     crate::widget_runtime::refresh(app);
 }
 
 /// Keeps idle chatter deferred for the whole focus run, so it never fires right after the timer ends.
 pub(crate) fn hold_for_focus(state: &AppState, db: &rusqlite::Connection) -> Result<bool, String> {
-    if !storage::focus_active(db, chrono::Utc::now().timestamp_millis())? {
+    if !storage::focus_active(db, chrono::Utc::now().timestamp_millis())?
+        && !crate::app::quiet_hours::automatic_blocked(state, &store::settings(db)?)?
+    {
         return Ok(false);
     }
     storage::discard_pending_during_focus(db)?;
@@ -221,6 +226,11 @@ pub(crate) fn event_current(
     db: &rusqlite::Connection,
     event: &WidgetEvent,
 ) -> Result<bool, String> {
+    if crate::app::quiet_hours::active(&store::settings(db)?)
+        && !crate::app::quiet_hours::event_allowed(&event.event.kind)
+    {
+        return Ok(false);
+    }
     if event.widget_kind == "state-rule" {
         return crate::generated_widget_commands::event_current(db, event);
     }
@@ -248,7 +258,7 @@ pub(crate) async fn execute_widget(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     request: WidgetRequest,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     if matches!(request.action.as_str(), "desktop-open" | "desktop-clear") {
         let launch = if request.action == "desktop-open" {
             let token = crate::desktop_toys::launch_token(&app, &request.instance_id)?;
@@ -279,11 +289,11 @@ pub(crate) async fn execute_widget(
             } else {
                 crate::desktop_toys::remove_widget(&app, &instance.id);
             }
-            Ok(())
+            Ok(None)
         });
     }
-    change(&state, |db| {
-        storage::execute(
+    let created_id = change(&state, |db| {
+        let created_id = execute_with_created_id(
             db,
             &request,
             chrono::Utc::now().timestamp_millis(),
@@ -292,13 +302,58 @@ pub(crate) async fn execute_widget(
         if request.action == "configure-alerts" {
             lock(&state.widget_clocks)?.remove(&request.instance_id);
         }
-        Ok(())
+        Ok(created_id)
     })?;
     crate::memo_notes::schedule_sync(&app);
     // New state can invalidate an already playing reaction to this widget.
-    cancel_widget_scene(&app, &state)?;
+    if let Err(error) = cancel_widget_scene(&app, &state) {
+        if created_id.is_none() {
+            return Err(error);
+        }
+        eprintln!("위젯 내용 저장 후 반응 갱신 실패: {error}");
+        if let Ok(mut runtime) = lock(&state.runtime) {
+            runtime.error = Some("내용은 저장했지만 캐릭터 반응을 갱신하지 못했어요.".into());
+        }
+        publish(&app, &state);
+    }
     publish_widgets(&app, &state);
-    Ok(())
+    Ok(created_id)
+}
+
+fn execute_with_created_id(
+    db: &rusqlite::Connection,
+    request: &WidgetRequest,
+    now: i64,
+    entropy: u64,
+) -> Result<Option<String>, String> {
+    let before = if matches!(request.action.as_str(), "add" | "create") {
+        storage::get(db, &request.instance_id).ok()
+    } else {
+        None
+    };
+    storage::execute(db, request, now, entropy)?;
+    let Some(before) = before else {
+        return Ok(None);
+    };
+    let field = match (before.kind.as_str(), request.action.as_str()) {
+        ("todo", "add") => "items",
+        ("preparation", "create") => "envelopes",
+        _ => return Ok(None),
+    };
+    let previous_ids: std::collections::BTreeSet<&str> = before.data[field]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item["id"].as_str())
+        .collect();
+    let after = storage::get(db, &request.instance_id)?;
+    Ok(after.data[field]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item["id"].as_str())
+        .find(|id| !previous_ids.contains(id))
+        .map(str::to_owned))
 }
 
 #[tauri::command]
@@ -576,7 +631,7 @@ async fn open_widget_inner(
         window.unminimize().map_err(|error| error.to_string())?;
         window.show().map_err(|error| error.to_string())?;
         window.set_focus().map_err(|error| error.to_string())?;
-        crate::widget_runtime::refresh(&app);
+        crate::widget_runtime::refresh(app);
         return Ok(());
     }
     tauri::WebviewWindowBuilder::new(
@@ -602,10 +657,11 @@ async fn open_widget_inner(
     )
     .min_inner_size(296.0, 320.0)
     .decorations(false)
+    .disable_drag_drop_handler()
     .maximizable(false)
     .build()
     .map_err(|error| error.to_string())?;
-    crate::widget_runtime::refresh(&app);
+    crate::widget_runtime::refresh(app);
     Ok(())
 }
 
@@ -736,39 +792,47 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
     Ok(())
 }
 
+/// Caller holds action and db. Share eligibility and queue consumption with the scheduler tests.
+pub(crate) fn take_pending_reaction(
+    state: &AppState,
+    db: &rusqlite::Connection,
+) -> Result<Option<WidgetEvent>, String> {
+    if crate::unavailable(state) {
+        return Ok(None);
+    }
+    let status = lock(&state.runtime)?.clone();
+    current_events(state, db)?;
+    if state.launcher_open.load(Ordering::SeqCst)
+        || status.hidden
+        || status.paused
+        || !store::settings(db)?.autonomous_enabled
+    {
+        storage::discard_pending(db)?;
+        return Ok(None);
+    }
+    if state.stopping.load(Ordering::SeqCst)
+        || status.phase != "idle"
+        || lock(&state.panel)?.is_some()
+        || now() - state.last_input.load(Ordering::SeqCst) < 3
+    {
+        return Ok(None);
+    }
+    hold_for_focus(state, db)?;
+    let event = storage::take_reaction(db, chrono::Utc::now().timestamp_millis())?;
+    match event {
+        Some(event) if widgets::reminders::event_current(db, &event)? => Ok(Some(event)),
+        _ => Ok(None),
+    }
+}
+
 pub(crate) fn play_widget_reaction(
     app: &tauri::AppHandle,
     state: &Arc<AppState>,
 ) -> Result<bool, String> {
     let pending = {
         let _action = lock(&state.action)?;
-        if crate::unavailable(state) {
-            return Ok(false);
-        }
-        let status = lock(&state.runtime)?.clone();
         let db = lock(&state.db)?;
-        current_events(state, &db)?;
-        if state.launcher_open.load(Ordering::SeqCst)
-            || status.hidden
-            || status.paused
-            || !store::settings(&db)?.autonomous_enabled
-        {
-            storage::discard_pending(&db)?;
-            return Ok(false);
-        }
-        if state.stopping.load(Ordering::SeqCst)
-            || status.phase != "idle"
-            || lock(&state.panel)?.is_some()
-            || now() - state.last_input.load(Ordering::SeqCst) < 3
-        {
-            return Ok(false);
-        }
-        hold_for_focus(state, &db)?;
-        let event = storage::take_reaction(&db, chrono::Utc::now().timestamp_millis())?;
-        if let Some(event) = event {
-            if !widgets::reminders::event_current(&db, &event)? {
-                return Ok(false);
-            }
+        if let Some(event) = take_pending_reaction(state, &db)? {
             if let Some(character_id) =
                 crate::character_reaction_host::widget_character(&db, &event)?
             {
@@ -842,6 +906,71 @@ fn fallback_reaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn created_widget_item_id_belongs_to_the_action_and_replay_is_a_noop() {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        storage::initialize(&db).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        storage::install(
+            &db,
+            directory.path(),
+            &["todo".into(), "preparation".into()],
+        )
+        .unwrap();
+        for (kind, action, field) in [
+            ("todo", "add", "items"),
+            ("preparation", "create", "envelopes"),
+        ] {
+            let instance = storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|item| item.kind == kind)
+                .unwrap();
+            let first = WidgetRequest {
+                request_id: uuid::Uuid::new_v4().to_string(),
+                instance_id: instance.id.clone(),
+                expected_revision: instance.revision,
+                action: action.into(),
+                input: serde_json::json!({"title":"먼저 만든 내용"}),
+            };
+            storage::execute(&db, &first, 1000, 1).unwrap();
+            let before = storage::get(&db, &instance.id).unwrap();
+            let created = WidgetRequest {
+                request_id: uuid::Uuid::new_v4().to_string(),
+                expected_revision: before.revision,
+                input: serde_json::json!({"title":"이번에 만든 내용"}),
+                ..first
+            };
+            let id = execute_with_created_id(&db, &created, 2000, 2)
+                .unwrap()
+                .unwrap();
+            let after = storage::get(&db, &instance.id).unwrap();
+            assert_ne!(before.data[field][0]["id"], id);
+            assert_eq!(after.data[field][1]["id"], id);
+            assert_eq!(after.data[field][1]["title"], "이번에 만든 내용");
+            assert_eq!(
+                execute_with_created_id(&db, &created, 3000, 3).unwrap(),
+                None
+            );
+            assert_eq!(storage::get(&db, &instance.id).unwrap().data, after.data);
+            let update = WidgetRequest {
+                request_id: uuid::Uuid::new_v4().to_string(),
+                expected_revision: after.revision,
+                action: "update".into(),
+                input: serde_json::json!({"id":id,"title":"수정한 내용"}),
+                ..created
+            };
+            assert_eq!(
+                execute_with_created_id(&db, &update, 4000, 4).unwrap(),
+                None
+            );
+            assert_eq!(
+                storage::get(&db, &instance.id).unwrap().data[field][1]["title"],
+                "수정한 내용"
+            );
+        }
+    }
 
     #[test]
     fn launcher_widget_dispatch_rejects_changed_or_disabled_preview() {

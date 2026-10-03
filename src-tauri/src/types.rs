@@ -19,6 +19,10 @@ pub enum LocalModel {
     Gemma4_12B,
     #[serde(rename = "ministral-3-8b")]
     Ministral3_8B,
+    #[serde(rename = "kanana-1.5-2.1b-instruct-2505")]
+    Kanana15_2_1B,
+    #[serde(rename = "kanana-1.5-8b-instruct-2505")]
+    Kanana15_8B,
     #[serde(rename = "custom")]
     Custom,
 }
@@ -59,6 +63,27 @@ pub struct LocalModelTest {
     pub elapsed_ms: u64,
 }
 
+/// Device-local recurring silence. Weekdays use Monday=0 through Sunday=6.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct QuietHours {
+    pub enabled: bool,
+    pub start: String,
+    pub end: String,
+    pub weekdays: Vec<u32>,
+}
+
+impl Default for QuietHours {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            start: "22:00".into(),
+            end: "08:00".into(),
+            weekdays: (0..7).collect(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -77,6 +102,8 @@ pub struct Settings {
     pub local_idle_enabled: bool,
     pub api_idle_enabled: bool,
     pub idle_minutes: u32,
+    #[serde(default)]
+    pub quiet_hours: QuietHours,
 }
 
 fn default_autonomous_enabled() -> bool {
@@ -97,6 +124,7 @@ impl Default for Settings {
             local_idle_enabled: false,
             api_idle_enabled: false,
             idle_minutes: 2,
+            quiet_hours: QuietHours::default(),
         }
     }
 }
@@ -303,9 +331,18 @@ impl Default for RuntimeStatus {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterAnimationStates {
+    pub music_playing: bool,
+    pub calendar_open: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
+    #[serde(default)]
+    pub animation_states: CharacterAnimationStates,
     #[serde(default)]
     pub(crate) reactions:
         std::collections::BTreeMap<String, crate::character_reactions::ReactionRun>,
@@ -390,6 +427,27 @@ mod tests {
                 .unwrap()
                 .local_idle_enabled
         );
+    }
+
+    #[test]
+    fn experimental_kanana_selection_round_trips_without_changing_defaults() {
+        assert_eq!(Settings::default().local_model, LocalModel::Qwen35_4B);
+        for (model, id) in [
+            (LocalModel::Kanana15_2_1B, "kanana-1.5-2.1b-instruct-2505"),
+            (LocalModel::Kanana15_8B, "kanana-1.5-8b-instruct-2505"),
+        ] {
+            let settings = Settings {
+                local_model: model,
+                local_reasoning_enabled: true,
+                idle_minutes: 12,
+                ..Settings::default()
+            };
+            let saved = serde_json::to_value(&settings).unwrap();
+            assert_eq!(saved["localModel"], id);
+            let reopened: Settings = serde_json::from_value(saved.clone()).unwrap();
+            assert_eq!(reopened.local_model, model);
+            assert_eq!(serde_json::to_value(reopened).unwrap(), saved);
+        }
     }
 
     #[test]

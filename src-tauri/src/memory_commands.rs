@@ -10,13 +10,8 @@ use tauri::Manager;
 pub(crate) fn new_nlp(app: &tauri::AppHandle, data: &Path) -> Result<NlpService, String> {
     let (executable, runtime) = if cfg!(debug_assertions) {
         let binaries = Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries");
-        let target = if cfg!(windows) {
-            "x86_64-pc-windows-msvc.exe"
-        } else {
-            "aarch64-apple-darwin"
-        };
         (
-            binaries.join(format!("comet-nlp-{target}")),
+            crate::sidecar::development_executable("comet-nlp"),
             binaries.join("nlp-runtime"),
         )
     } else {

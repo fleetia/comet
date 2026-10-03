@@ -1,5 +1,7 @@
 use super::connections::ConnectionError;
-use serde_json::{json, Value};
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+use serde_json::json;
+use serde_json::Value;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -10,6 +12,7 @@ mod macos;
 #[cfg(target_os = "windows")]
 mod windows;
 
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 const ACTIONS: [&str; 10] = [
     "play", "pause", "next", "previous", "seek", "volume", "shuffle", "repeat", "playUri", "like",
 ];
@@ -31,6 +34,7 @@ fn ensure_active(cancel: &AtomicBool) -> Result<(), ConnectionError> {
     Ok(())
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 fn dispatch_if_active<T>(
     cancel: &AtomicBool,
     dispatch: impl FnOnce() -> Result<T, ConnectionError>,
@@ -87,6 +91,7 @@ fn valid_spotify_uri(uri: &str) -> bool {
         && parts.next().is_none()
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 fn empty_observation(provider: &str, source_id: Option<&str>, now: i64) -> Value {
     let source = match provider {
         "music" => "Apple Music",
@@ -106,6 +111,7 @@ fn empty_observation(provider: &str, source_id: Option<&str>, now: i64) -> Value
     })
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 fn clean_text(value: &Value, limit: usize) -> Value {
     value
         .as_str()
@@ -114,6 +120,7 @@ fn clean_text(value: &Value, limit: usize) -> Value {
         .unwrap_or(Value::Null)
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 fn normalize_observation(raw: Value, provider: &str, now: i64) -> Result<Value, ConnectionError> {
     let running = raw["running"]
         .as_bool()
@@ -216,6 +223,7 @@ fn normalize_observation(raw: Value, provider: &str, now: i64) -> Result<Value, 
     Ok(result)
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 fn valid_number(value: &Value, maximum: f64) -> Value {
     value
         .as_f64()
@@ -223,6 +231,7 @@ fn valid_number(value: &Value, maximum: f64) -> Value {
         .map_or(Value::Null, |number| json!(number))
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 fn normalize_artwork(value: &Value) -> Value {
     let Some(url) = value.as_str() else {
         return Value::Null;
@@ -342,6 +351,40 @@ pub async fn control_source(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[tokio::test]
+    async fn unsupported_platform_reports_unavailable_without_dispatching() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        assert_eq!(
+            observe_source("spotify", None, 123)
+                .await
+                .unwrap_err()
+                .status,
+            "unsupported"
+        );
+        assert_eq!(
+            control_source("spotify", None, "play", Value::Null, cancel.clone())
+                .await
+                .unwrap_err()
+                .status,
+            "unsupported"
+        );
+        assert_eq!(
+            launch_spotify(cancel.clone()).await.unwrap_err().status,
+            "unsupported"
+        );
+
+        cancel.store(true, Ordering::Release);
+        assert_eq!(
+            control_source("spotify", None, "play", Value::Null, cancel.clone())
+                .await
+                .unwrap_err()
+                .status,
+            "stale"
+        );
+        assert_eq!(launch_spotify(cancel).await.unwrap_err().status, "stale");
+    }
 
     #[tokio::test]
     async fn cancellation_during_preparation_prevents_dispatch() {

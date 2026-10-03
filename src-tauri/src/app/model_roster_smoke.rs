@@ -332,16 +332,12 @@ async fn actual_model_roster_and_guidance_smoke() {
     let sample_path = output_directory.join("roster-samples.ndjson");
     let mut output = File::create(&sample_path).unwrap();
     let binaries = Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries");
-    let executable = if cfg!(windows) {
-        "llama-server-x86_64-pc-windows-msvc.exe"
-    } else {
-        "llama-server-aarch64-apple-darwin"
-    };
+    let executable = crate::sidecar::development_executable("llama-server");
     let mut state = super::state();
     state.app_data = temporary.path().into();
     state.inference = inference::Inference::new(
         temporary.path().into(),
-        binaries.join(executable),
+        executable,
         binaries.join("runtime"),
     );
     state.nlp =

@@ -306,6 +306,8 @@ mod native {
                             .as_deref(),
                     ),
                     meeting_url: None,
+                    location: None,
+                    description: None,
                 };
                 if all_day {
                     let (start_date, end_date) = all_day_dates(&start, &end, &zone)?;

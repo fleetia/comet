@@ -233,6 +233,36 @@ fn cancel_automatic_reaction(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
+// The maintenance loop and its regression tests use the same policy classification.
+fn tick_conditions(
+    state: &AppState,
+    db: &Connection,
+    fullscreen: bool,
+    timestamp: i64,
+) -> Result<(bool, bool, bool), String> {
+    let runtime = lock(&state.runtime)?.clone();
+    let blocked = crate::unavailable(state)
+        || state.launcher_open.load(Ordering::SeqCst)
+        || runtime.hidden
+        || runtime.paused
+        || fullscreen
+        || !store::settings(db)?.autonomous_enabled;
+    // Focus and scheduled silence end pranks without suspending time-critical reminders.
+    let conversation = !matches!(runtime.phase.as_str(), "idle" | "error" | "waiting")
+        || lock(&state.panel)?.is_some()
+        || timestamp - state.last_input.load(Ordering::SeqCst) < 3
+        || widgets::storage::focus_active(db, chrono::Utc::now().timestamp_millis())?
+        || crate::app::quiet_hours::automatic_blocked(state, &store::settings(db)?)?;
+    Ok((blocked, conversation, runtime.phase == "waiting"))
+}
+
+pub(crate) fn reactions_blocked(state: &AppState) -> Result<bool, String> {
+    Ok(matches!(
+        lock(&state.behavior)?.phase,
+        Phase::Playing | Phase::Suspended
+    ))
+}
+
 pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
     let geometry = desktop_toys::current_geometry(app).await;
     let timestamp = crate::now();
@@ -246,31 +276,13 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
     }
     let db = lock(&state.db)?;
     let preferences = preferences(&db)?;
-    let runtime = lock(&state.runtime)?.clone();
     let epoch = state.epoch.load(Ordering::SeqCst);
-    let blocked = crate::unavailable(state)
-        || state.launcher_open.load(Ordering::SeqCst)
-        || runtime.hidden
-        || runtime.paused
-        || fullscreen
-        || !store::settings(&db)?.autonomous_enabled;
-    // Focus ends pranks like a conversation would, without suspending widget reminders.
-    let conversation = !matches!(runtime.phase.as_str(), "idle" | "error" | "waiting")
-        || lock(&state.panel)?.is_some()
-        || timestamp - state.last_input.load(Ordering::SeqCst) < 3
-        || widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?;
+    let (blocked, conversation, waiting) = tick_conditions(state, &db, fullscreen, timestamp)?;
     let mut machine = lock(&state.behavior)?;
     if !preferences.pranks_enabled && machine.actor.take().is_some() {
         desktop_toys::clear_automatic(app);
     }
-    let transition = machine.observe(
-        timestamp,
-        blocked,
-        conversation,
-        runtime.phase == "waiting",
-        epoch,
-        entropy,
-    );
+    let transition = machine.observe(timestamp, blocked, conversation, waiting, epoch, entropy);
     if transition.end_play {
         desktop_toys::clear_automatic(app);
     }
@@ -417,6 +429,156 @@ mod tests {
                 assert_eq!(state.epoch.load(Ordering::SeqCst), epoch);
                 assert_eq!(lock(&state.runtime).unwrap().phase, "playing");
             }
+        }
+    }
+
+    fn enable_quiet_hours(state: &AppState) {
+        let local = chrono::Local::now();
+        store::save_settings(
+            &lock(&state.db).unwrap(),
+            &crate::types::Settings {
+                quiet_hours: crate::types::QuietHours {
+                    enabled: true,
+                    start: (local - chrono::Duration::hours(1))
+                        .format("%H:%M")
+                        .to_string(),
+                    end: (local + chrono::Duration::hours(1))
+                        .format("%H:%M")
+                        .to_string(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn quiet_maintenance_stops_pranks_but_timer_event_reaches_actual_scene_playback() {
+        let state = crate::app::tests::state();
+        enable_quiet_hours(&state);
+        let directory = tempfile::tempdir().unwrap();
+        let (event, token, revision) = {
+            let _action = lock(&state.action).unwrap();
+            let db = lock(&state.db).unwrap();
+            widgets::storage::install(
+                &db,
+                directory.path(),
+                &["focus-timer".into(), "ball".into()],
+            )
+            .unwrap();
+            let timer = widgets::storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|item| item.kind == "focus-timer")
+                .unwrap();
+            widgets::storage::commit_data(
+                &db,
+                &timer.id,
+                timer.revision,
+                timer.data,
+                ["timer-finished", "ball.stopped"]
+                    .into_iter()
+                    .map(|kind| widgets::EventDraft {
+                        kind: kind.into(),
+                        text: "집중 시간이 끝났어요.".into(),
+                        payload: serde_json::json!({}),
+                    })
+                    .collect(),
+                chrono::Utc::now().timestamp_millis(),
+            )
+            .unwrap();
+            let timestamp = crate::now();
+            let epoch = state.epoch.load(Ordering::SeqCst);
+            let (blocked, conversation, waiting) =
+                tick_conditions(&state, &db, false, timestamp).unwrap();
+            {
+                let mut machine = lock(&state.behavior).unwrap();
+                machine.begin("old-prank".into(), epoch, timestamp);
+                let transition =
+                    machine.observe(timestamp, blocked, conversation, waiting, epoch, 0);
+                assert!(transition.end_play && transition.discard_reactions);
+                assert_eq!(machine.phase, Phase::Conversing);
+            }
+            // This is the gate in background_loop, after the same maintenance classification.
+            assert!(!reactions_blocked(&state).unwrap());
+            let event = crate::widget_commands::take_pending_reaction(&state, &db)
+                .unwrap()
+                .unwrap();
+            assert_eq!(event.event.kind, "timer-finished");
+            assert!(crate::widget_commands::take_pending_reaction(&state, &db)
+                .unwrap()
+                .is_none());
+            // Ordinary events alone must also be dropped, rather than winning the next tick.
+            let current = widgets::storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|item| item.kind == "ball")
+                .unwrap();
+            widgets::storage::commit_data(
+                &db,
+                &current.id,
+                current.revision,
+                current.data,
+                vec![widgets::EventDraft {
+                    kind: "ball.stopped".into(),
+                    text: "장난감 반응".into(),
+                    payload: serde_json::json!({}),
+                }],
+                chrono::Utc::now().timestamp_millis(),
+            )
+            .unwrap();
+            assert!(crate::widget_commands::take_pending_reaction(&state, &db)
+                .unwrap()
+                .is_none());
+            let token = crate::interrupt(&state, true).unwrap();
+            state.widget_epoch.store(token.0, Ordering::SeqCst);
+            *lock(&state.widget_playback).unwrap() = Some(event.clone());
+            (event, token, store::revision(&db).unwrap())
+        };
+        let line = crate::types::SceneLine {
+            motion: Default::default(),
+            persona: "a".into(),
+            expression: "평온".into(),
+            text: event.event.text,
+        };
+        assert!(crate::app::scene::present_line(
+            &state, &line, "widget", &event.id, 0, 1, revision, token.0, &token.1, false
+        )
+        .unwrap());
+        assert_eq!(
+            lock(&state.playback).unwrap().as_ref().unwrap().text,
+            line.text
+        );
+    }
+
+    #[test]
+    fn quiet_hours_do_not_bypass_hidden_paused_or_fullscreen_delivery_suspension() {
+        for (hidden, paused, fullscreen) in [
+            (true, false, false),
+            (false, true, false),
+            (false, false, true),
+        ] {
+            let state = crate::app::tests::state();
+            enable_quiet_hours(&state);
+            {
+                let mut runtime = lock(&state.runtime).unwrap();
+                runtime.hidden = hidden;
+                runtime.paused = paused;
+            }
+            let _action = lock(&state.action).unwrap();
+            let db = lock(&state.db).unwrap();
+            let (blocked, conversation, waiting) =
+                tick_conditions(&state, &db, fullscreen, crate::now()).unwrap();
+            lock(&state.behavior).unwrap().observe(
+                crate::now(),
+                blocked,
+                conversation,
+                waiting,
+                0,
+                0,
+            );
+            assert!(reactions_blocked(&state).unwrap());
         }
     }
 

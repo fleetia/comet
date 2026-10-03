@@ -331,16 +331,16 @@ async fn actual_model_app_path_semantics_smoke() {
     let binaries = std::env::var_os("COMET_QA_BINARIES")
         .map(PathBuf::from)
         .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries"));
-    let executable = if cfg!(windows) {
-        "llama-server-x86_64-pc-windows-msvc.exe"
-    } else {
-        "llama-server-aarch64-apple-darwin"
-    };
+    let executable = binaries.join(
+        crate::sidecar::development_executable("llama-server")
+            .file_name()
+            .expect("development sidecar has a file name"),
+    );
     let mut state = super::state();
     state.app_data = directory.path().into();
     state.inference = inference::Inference::new(
         directory.path().into(),
-        binaries.join(executable),
+        executable,
         binaries.join("runtime"),
     );
     state.nlp =

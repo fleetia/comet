@@ -38,6 +38,7 @@ export function PlannerPreparation({
   );
   if (!event)
     return <p className={s.caption}>일정을 선택하면 준비할 일과 자료를 확인할 수 있어요.</p>;
+  const isLocalEvent = event.connectionId === "local";
   const linkedIds = Array.isArray(envelope?.todoIds) ? envelope.todoIds : [];
   const todo = widgets.find((w) => w.kind === "todo" && w.installed && w.enabled);
   const linkedTodos = rows(record(todo?.data).items).filter((item) =>
@@ -53,9 +54,10 @@ export function PlannerPreparation({
     <section className={s.section}>
       <h3 className={s.heading}>{text(event.title)} 준비</h3>
       <p className={s.caption}>
-        {eventTime(event)} · {text(connection?.name)} · 읽기 전용
+        {eventTime(event)} ·{" "}
+        {isLocalEvent ? "Comet에 저장한 일정" : `${text(connection?.name)} · 읽기 전용`}
       </p>
-      {connection?.status !== "ready" && (
+      {!isLocalEvent && connection?.status !== "ready" && (
         <p className={s.caption}>이전에 확인한 일정입니다. 준비 내용은 계속 편집할 수 있어요.</p>
       )}
       {rows(envelope?.checks).map((check) => (

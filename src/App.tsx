@@ -11,7 +11,7 @@ import { WidgetWorkshop } from "./widgets/GeneratedWidgets/WidgetWorkshop";
 import { GeneratedWidgetTool } from "./widgets/GeneratedWidgets/GeneratedWidgetTool";
 import { WidgetStateRules } from "./widgets/GeneratedWidgets/WidgetStateRules";
 import { Launcher } from "./components/Launcher/Launcher";
-import { Planner } from "./widgets/Planner/Planner";
+import { Diary } from "./widgets/Planner/Diary";
 import { WidgetDisplay } from "./widgets/WidgetDisplay/WidgetDisplay";
 import { MemoNote } from "./widgets/MemoNote/MemoNote";
 import { WindowHeader } from "./components/WindowHeader/WindowHeader";
@@ -25,7 +25,7 @@ export function App(): JSX.Element {
   if (view === "widget-workshop") return <WidgetWorkshop />;
   if (view === "generated-widget") return <GeneratedWidgetTool id={query.get("id") ?? ""} />;
   if (view === "widget-state-rules") return <WidgetStateRules id={query.get("id") ?? ""} />;
-  if (view === "planner") return <Planner />;
+  if (view === "planner") return <Diary />;
   if (view === "desktop-toy") return <DesktopToy id={query.get("id") ?? ""} />;
   if (view === "widget-display") return <WidgetDisplay id={query.get("id") ?? ""} />;
   if (view === "memo-note") {

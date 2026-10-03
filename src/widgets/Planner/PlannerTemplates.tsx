@@ -1,17 +1,37 @@
 import { Button, Checkbox, DateField, FormField, Select } from "@fleetia/lagrange";
-import { useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { localDay, text, type DataRecord, type ToolAction } from "../toolData";
 import { PLANNER_TEMPLATES, templateItems } from "./templateCatalog";
 import { PERIODS, periodAnchor, repeatLabel } from "./plannerData";
 import * as s from "./planner.css";
 
-export function PlannerTemplates({ act, busy }: { act: ToolAction; busy: boolean }): ReactElement {
+export function PlannerTemplates({
+  act,
+  busy,
+  onDirtyChange,
+  onShowPlans,
+}: {
+  act: ToolAction;
+  busy: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
+  onShowPlans?: (period: string, anchor: string) => void;
+}): ReactElement {
   const [selected, setSelected] = useState(PLANNER_TEMPLATES[0]);
   const [base, setBase] = useState(localDay());
   const [items, setItems] = useState(() => templateItems(selected, base));
   const [checked, setChecked] = useState([0, 1, 2, 3]);
   const [period, setPeriod] = useState<string>(selected.period);
   const [saved, setSaved] = useState(false);
+  const [savedAnchor, setSavedAnchor] = useState(base);
+  const fingerprint = JSON.stringify({ items, checked, period, base });
+  const [baseline, setBaseline] = useState(fingerprint);
+  const dirty = fingerprint !== baseline;
+  const report = useRef(onDirtyChange);
+  report.current = onDirtyChange;
+  useEffect(() => {
+    report.current?.(dirty);
+  }, [dirty]);
+  useEffect(() => () => report.current?.(false), []);
   function patch(index: number, values: DataRecord): void {
     setItems((before) => before.map((item, i) => (i === index ? { ...item, ...values } : item)));
     setSaved(false);
@@ -33,11 +53,20 @@ export function PlannerTemplates({ act, busy }: { act: ToolAction; busy: boolean
               className={s.categoryButton}
               aria-pressed={selected.id === template.id}
               onClick={() => {
+                const nextItems = templateItems(template, base);
                 setSelected(template);
-                setItems(templateItems(template, base));
+                setItems(nextItems);
                 setChecked([0, 1, 2, 3]);
                 setPeriod(template.period);
                 setSaved(false);
+                setBaseline(
+                  JSON.stringify({
+                    items: nextItems,
+                    checked: [0, 1, 2, 3],
+                    period: template.period,
+                    base,
+                  }),
+                );
               }}
             >
               {template.title}
@@ -55,13 +84,17 @@ export function PlannerTemplates({ act, busy }: { act: ToolAction; busy: boolean
             event.preventDefault();
             const chosen = items
               .filter((_, i) => checked.includes(i))
-              .map((item) => ({
+              .map((item): DataRecord => ({
                 ...item,
                 planPeriod: period,
                 planAnchor: period === "someday" ? null : periodAnchor(period, text(item.dueDate)),
                 plannedDate: null,
               }));
-            if (await act("batch-add", { listName: selected.title, items: chosen })) setSaved(true);
+            if (await act("batch-add", { listName: selected.title, items: chosen })) {
+              setSaved(true);
+              setBaseline(fingerprint);
+              setSavedAnchor(text(chosen[0]?.planAnchor) || text(chosen[0]?.dueDate) || base);
+            }
           }}
         >
           <h2 className={s.heading}>{selected.title}</h2>
@@ -167,9 +200,20 @@ export function PlannerTemplates({ act, busy }: { act: ToolAction; busy: boolean
             </span>
           </div>
           {saved && (
-            <p role="status" className={s.caption}>
-              새 할 일을 저장했어요. 기존 항목은 그대로입니다.
-            </p>
+            <div className={s.actions}>
+              <p role="status" className={s.caption}>
+                새 할 일을 저장했어요. 기존 항목은 그대로입니다.
+              </p>
+              {onShowPlans && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => onShowPlans(period, savedAnchor)}
+                >
+                  기간 계획에서 보기
+                </Button>
+              )}
+            </div>
           )}
         </form>
       </div>

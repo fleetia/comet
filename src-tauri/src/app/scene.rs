@@ -24,9 +24,23 @@ pub(crate) fn present_line(
 ) -> Result<bool, String> {
     let _action = lock(&state.action)?;
     let db = lock(&state.db)?;
-    if !is_current(state, epoch, cancel) || store::revision(&db)? != revision {
+    if !is_current(state, epoch, cancel)
+        || super::quiet_hours::playback_blocked(state, &store::settings(&db)?)?
+        || store::revision(&db)? != revision
+    {
         return Ok(false);
     }
+    let saved = if direct_reply {
+        if store::message_displayed(&db, id)? {
+            return Ok(false);
+        }
+        store::saved_reply(&db, id)?
+    } else {
+        None
+    };
+    let (line, source) = saved
+        .as_ref()
+        .map_or((line, source), |(line, source)| (line, source.as_str()));
     if matches!(source, "llm" | "question")
         && !store::recall_valid(&db, id, chrono::Utc::now().timestamp_millis())?
     {
@@ -53,7 +67,7 @@ pub(crate) fn present_line(
     } else {
         None
     };
-    store::insert_message_with_source(
+    store::insert_message_with_playback(
         &db,
         &Message {
             id: id.into(),
@@ -67,6 +81,7 @@ pub(crate) fn present_line(
         source,
         scene_key.as_deref(),
         direct_reply,
+        Some(line),
     )?;
     *lock(&state.playback)? = Some(Playback {
         id: id.into(),
@@ -256,9 +271,27 @@ pub(crate) async fn run_scene(
     epoch: u64,
     cancel: Arc<AtomicBool>,
 ) -> Result<(), String> {
-    let revision = store::revision(&*lock(&state.db)?)?;
+    let (revision, saved) = {
+        let _action = lock(&state.action)?;
+        if !is_current(state, epoch, &cancel) {
+            return Ok(());
+        }
+        let db = lock(&state.db)?;
+        let saved = if direct_reply && source == "wordbook" {
+            super::conversation::ensure_current_user_message(&db, prefix)?;
+            store::save_reply_scene(&db, prefix, lines)?;
+            store::saved_reply_scene(&db, prefix)?
+        } else {
+            None
+        };
+        (store::revision(&db)?, saved)
+    };
+    let lines = saved.as_deref().unwrap_or(lines);
     for (index, line) in lines.iter().enumerate() {
         let message_id = format!("scene:{prefix}:{index}");
+        if direct_reply && store::message_displayed(&*lock(&state.db)?, &message_id)? {
+            continue;
+        }
         if matches!(source, "llm" | "question") {
             store::copy_recall(&*lock(&state.db)?, "active-scene", &message_id)?;
         }
@@ -341,7 +374,11 @@ pub(crate) fn start_scene(
                 &app,
                 &state,
                 epoch,
-                crate::types::RuntimePhase::Idle,
+                if direct_reply && result.is_err() {
+                    crate::types::RuntimePhase::Error
+                } else {
+                    crate::types::RuntimePhase::Idle
+                },
                 None,
                 result.err(),
             );
@@ -419,6 +456,111 @@ pub(crate) fn character_script(db: &Connection, sequence: u64) -> Result<Vec<Sce
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn retry_display_timeout_replays_exact_saved_line_and_skips_visible_duplicates() {
+        let state = super::super::tests::state();
+        let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
+        let old = super::super::interrupt(&state, false).unwrap();
+        let line = SceneLine {
+            persona: "builtin-a".into(),
+            expression: "평온".into(),
+            text: "  재시도 원문\n그대로  ".into(),
+            motion: crate::character_reactions::MotionOverride::Static,
+        };
+        assert!(present_line(
+            &state,
+            &line,
+            "wordbook",
+            "retry-display",
+            0,
+            1,
+            revision,
+            old.0,
+            &old.1,
+            true
+        )
+        .unwrap());
+        assert!(wait_for_displayed_line_until(
+            &state,
+            old.0,
+            old.1.clone(),
+            tokio::time::Instant::now()
+        )
+        .await
+        .unwrap_err()
+        .contains("30초"));
+        let retry = super::super::interrupt(&state, false).unwrap();
+        let changed = SceneLine {
+            text: "다른 새 생성은 사용하지 않음".into(),
+            motion: Default::default(),
+            ..line.clone()
+        };
+        assert!(!present_line(
+            &state,
+            &changed,
+            "llm",
+            "retry-display",
+            0,
+            1,
+            revision,
+            old.0,
+            &old.1,
+            true
+        )
+        .unwrap());
+        assert!(present_line(
+            &state,
+            &changed,
+            "llm",
+            "retry-display",
+            0,
+            1,
+            revision,
+            retry.0,
+            &retry.1,
+            true
+        )
+        .unwrap());
+        let playback = lock(&state.playback).unwrap().clone().unwrap();
+        assert_eq!(playback.text, line.text);
+        assert_eq!(playback.motion, line.motion);
+        assert_eq!(playback.source, "wordbook");
+        let db = lock(&state.db).unwrap();
+        let history = store::messages(&db, 10).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].content, playback.text);
+        store::mark_message_displayed(&db, &playback.id, 1).unwrap();
+        store::mark_message_displayed(&db, &playback.id, 2).unwrap();
+        assert_eq!(
+            db.query_row("SELECT COUNT(*) FROM message_presentations", [], |row| row
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            db.query_row("SELECT COUNT(*) FROM character_affinity", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        drop(db);
+        assert!(!present_line(
+            &state,
+            &changed,
+            "llm",
+            "retry-display",
+            0,
+            1,
+            revision,
+            retry.0,
+            &retry.1,
+            true
+        )
+        .unwrap());
+    }
 
     #[tokio::test]
     async fn display_preparation_timeout_clears_only_unshown_playback_and_keeps_raw_history() {

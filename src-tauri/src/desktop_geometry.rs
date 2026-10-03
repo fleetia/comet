@@ -139,10 +139,9 @@ pub(crate) fn monitor_edges(monitors: &[Rect]) -> Vec<Edge> {
         .collect()
 }
 
+#[cfg(not(target_os = "linux"))]
 pub(crate) fn capture() -> Result<Geometry, String> {
     let (monitors, windows) = platform::capture()?;
-    let mut edge_list = monitor_edges(&monitors);
-    edge_list.extend(visible_edges(&windows));
     let fullscreen = monitors.iter().any(|area| {
         windows
             .iter()
@@ -159,20 +158,31 @@ pub(crate) fn capture() -> Result<Geometry, String> {
                     && w.y + w.height >= area.y + area.height
             })
     });
-    Ok(Geometry {
+    Ok(from_snapshot(monitors, windows, fullscreen))
+}
+
+fn from_snapshot(monitors: Vec<Rect>, windows: Vec<Rect>, fullscreen: bool) -> Geometry {
+    let mut edge_list = monitor_edges(&monitors);
+    edge_list.extend(visible_edges(&windows));
+    Geometry {
         monitors,
         edges: edge_list,
         characters: Vec::new(),
         external_windows_available: true,
         fullscreen,
-    })
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn capture() -> Result<Geometry, String> {
+    platform::capture()
 }
 
 pub(crate) fn cursor_position() -> Option<(f64, f64)> {
     platform::cursor_position()
 }
 
-// macOS coordinates remain Quartz points; Windows coordinates remain physical pixels.
+// macOS coordinates remain Quartz points; Windows/X11 coordinates remain physical pixels.
 // Conversion to a Tauri window position is intentionally kept in the actor adapter.
 #[cfg(target_os = "macos")]
 mod platform {
@@ -417,7 +427,11 @@ mod platform {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(target_os = "linux")]
+#[path = "desktop_geometry_linux.rs"]
+mod platform;
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 mod platform {
     use super::Rect;
     pub(super) fn capture() -> Result<(Vec<Rect>, Vec<Rect>), String> {

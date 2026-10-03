@@ -412,12 +412,20 @@ fn duplicate_request_is_noop_but_changed_replay_and_stale_revision_fail() {
 }
 
 #[test]
-fn missing_dependency_is_explicit_and_never_silently_installed() {
+fn standalone_preparation_installs_without_calendar_and_keeps_data_after_disconnect() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    assert!(storage::install(&db, directory.path(), &["preparation".into()]).is_err());
-    assert!(storage::instances(&db).unwrap().is_empty());
-    install(&db, directory.path(), &["calendar", "preparation"]);
+    install(&db, directory.path(), &["preparation"]);
+    assert_eq!(storage::instances(&db).unwrap().len(), 1);
+    act(
+        &db,
+        "preparation",
+        "create",
+        json!({"title":"  여행 준비  ","date":"2026-10-03"}),
+        100,
+        1,
+    );
+    install(&db, directory.path(), &["calendar"]);
     let preparation = instance(&db, "preparation");
     storage::remove(&db, directory.path(), &instance(&db, "calendar").id, false).unwrap();
     let snapshot = storage::snapshot(&db).unwrap();
@@ -426,10 +434,119 @@ fn missing_dependency_is_explicit_and_never_silently_installed() {
         .iter()
         .find(|view| view.instance.kind == "preparation")
         .unwrap();
-    assert_eq!(view.status, "setup");
-    assert_eq!(view.missing, vec!["calendar"]);
+    assert_eq!(view.status, "enabled");
+    assert!(view.missing.is_empty());
     assert_eq!(view.instance.data, preparation.data);
     assert!(view.instance.installed);
+}
+
+#[test]
+fn preparation_attachment_validation_and_check_promotion_are_atomic() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    install(&db, directory.path(), &["preparation", "todo"]);
+    act(
+        &db,
+        "preparation",
+        "create",
+        json!({"title":"여행"}),
+        100,
+        1,
+    );
+    let envelope = instance(&db, "preparation").data["envelopes"][0]["id"].clone();
+    let before = instance(&db, "preparation");
+    for action in ["create", "update"] {
+        let invalid = request(
+            &db,
+            "preparation",
+            action,
+            json!({"id":envelope,"title":"bad","eventId":"missing","eventLabel":"missing"}),
+        );
+        assert!(storage::execute(&db, &invalid, 101, 1).is_err());
+        assert_eq!(instance(&db, "preparation").data, before.data);
+        let invalid_date = request(
+            &db,
+            "preparation",
+            action,
+            json!({"id":envelope,"title":"bad","date":"2026-02-30"}),
+        );
+        assert!(storage::execute(&db, &invalid_date, 101, 1).is_err());
+        assert_eq!(instance(&db, "preparation").data, before.data);
+    }
+    act(
+        &db,
+        "preparation",
+        "check-add",
+        json!({"id":envelope,"text":"  숙소 예약\n확인  "}),
+        102,
+        1,
+    );
+    let check = instance(&db, "preparation").data["envelopes"][0]["checks"][0]["id"].clone();
+    let before = instance(&db, "preparation");
+    let bad = request(
+        &db,
+        "preparation",
+        "check-promote",
+        json!({"id":envelope,"checkId":check,"plannedDate":"2026-02-30"}),
+    );
+    assert!(storage::execute(&db, &bad, 103, 1).is_err());
+    assert_eq!(instance(&db, "preparation").data, before.data);
+    assert_eq!(instance(&db, "todo").data["items"], json!([]));
+    let promote = request(
+        &db,
+        "preparation",
+        "check-promote",
+        json!({"id":envelope,"checkId":check,"plannedDate":"2026-10-03"}),
+    );
+    db.execute_batch("CREATE TRIGGER fail_preparation_update BEFORE UPDATE ON widget_instances WHEN NEW.kind='preparation' BEGIN SELECT RAISE(ABORT, 'test failure'); END;").unwrap();
+    assert!(storage::execute(&db, &promote, 104, 1).is_err());
+    assert_eq!(instance(&db, "preparation").data, before.data);
+    assert_eq!(instance(&db, "todo").data["items"], json!([]));
+    db.execute_batch("DROP TRIGGER fail_preparation_update;")
+        .unwrap();
+    storage::execute(&db, &promote, 104, 1).unwrap();
+    storage::execute(&db, &promote, 105, 1).unwrap();
+    let todo = instance(&db, "todo");
+    assert_eq!(todo.data["items"].as_array().unwrap().len(), 1);
+    assert_eq!(todo.data["items"][0]["title"], "  숙소 예약\n확인  ");
+    assert_eq!(todo.data["items"][0]["plannedDate"], "2026-10-03");
+    let prepared = instance(&db, "preparation");
+    assert_eq!(prepared.data["envelopes"][0]["checks"], json!([]));
+    assert_eq!(
+        prepared.data["envelopes"][0]["todoIds"][0],
+        todo.data["items"][0]["id"]
+    );
+    act(&db, "preparation", "delete", json!({"id":envelope}), 106, 1);
+    assert_eq!(instance(&db, "todo").data, todo.data);
+}
+
+#[test]
+fn old_preparation_package_is_upgraded_without_disabling_or_losing_content() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    install(&db, directory.path(), &["preparation"]);
+    act(
+        &db,
+        "preparation",
+        "create",
+        json!({"title":"남길 봉투"}),
+        100,
+        1,
+    );
+    let before = instance(&db, "preparation");
+    let mut old = super::manifest("preparation").unwrap();
+    old.description = "일정별 체크리스트와 자료 링크".into();
+    old.required = vec!["calendar".into()];
+    let path = directory.path().join("widgets/preparation/manifest.json");
+    std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+    storage::verify_packages(&db, directory.path()).unwrap();
+    let after = instance(&db, "preparation");
+    assert!(after.enabled);
+    assert_eq!(after.data, before.data);
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        serde_json::to_vec(&super::manifest("preparation").unwrap()).unwrap()
+    );
 }
 
 #[test]

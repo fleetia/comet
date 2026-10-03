@@ -1,5 +1,6 @@
 pub mod apple;
 mod ics;
+mod local;
 mod oauth;
 
 use chrono::{DateTime, Utc};
@@ -11,6 +12,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 pub use ics::parse_ics;
+pub use local::act as act_local;
 pub use oauth::{begin_google, finish_google, GoogleConnectInput, GooglePending};
 
 const MAX_BYTES: usize = 4 * 1024 * 1024;
@@ -53,6 +55,10 @@ pub struct CalendarEvent {
     pub cancelled: bool,
     pub url: Option<String>,
     pub meeting_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -637,6 +643,8 @@ fn google_event(
         cancelled,
         url: safe_url(item["htmlLink"].as_str()),
         meeting_url: safe_url(item["hangoutLink"].as_str()),
+        location: None,
+        description: None,
     };
     if cancelled && item.get("start").is_none() {
         return Ok(event);

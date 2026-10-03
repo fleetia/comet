@@ -5,6 +5,7 @@ import {
   ActionBar,
   Checkbox,
   Dialog,
+  Heading,
   Inline,
   SaveStatus,
   SectionHeader,
@@ -19,6 +20,7 @@ import {
   Tabs,
   TextField,
 } from "@fleetia/lagrange";
+import { QuietHoursSettings, quietHoursError } from "./QuietHoursSettings";
 import { version } from "../../../package.json";
 import type { Snapshot } from "../../types";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
@@ -40,16 +42,6 @@ import * as d from "../../desktop.css";
 import * as styles from "./settings.css";
 
 type Props = { snapshot: Snapshot; preview?: boolean; initialSection?: string };
-const PAGE_DESCRIPTIONS: Record<string, string> = {
-  characters: "함께 지낼 캐릭터를 고르고 모습과 대사를 편집해요.",
-  widgets: "위젯을 선택하고 연결과 바탕화면 표시를 관리해요.",
-  automatic: "먼저 이야기하는 간격과 새 잡담 생성을 설정해요.",
-  wordbook: "키워드에 맞춰 등록한 대사를 그대로 재생해요.",
-  talk: "설치한 대화팩의 출처와 내용을 확인해요.",
-  user: "사용자 이름과 기억의 주인을 관리해요.",
-  model: "대화 방식과 기억 검색을 각각 설정해요.",
-  general: "앱 시작, 바탕화면 표시와 업데이트를 관리해요.",
-};
 function DraftActions({
   draft,
   label,
@@ -110,7 +102,7 @@ function DraftActions({
           </Button>
         </Inline>
       </ActionBar>
-      {!valid && (
+      {!valid && !draft.validInterval && (
         <p className={s.error} role="alert">
           이야기 간격을 1~60분으로 입력해 주세요.
         </p>
@@ -209,10 +201,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
           {section !== "characters" && (
             <div className={styles.pageHeading}>
               <h1>{current.label}</h1>
-              <span className={styles.pageDescription}>
-                {PAGE_DESCRIPTIONS[section]}
-                {dirty[section] && <span className={styles.pageDirty}> · 미저장 변경 있음</span>}
-              </span>
+              {dirty[section] && <span className={styles.pageDirty}>미저장 변경 있음</span>}
             </div>
           )}
           {(navigationError || actionError) && (
@@ -251,132 +240,138 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                   className={`${d.fieldset} ${styles.panelBody}`}
                   disabled={!!automatic.pending}
                 >
-                  <Surface tone="accent" padding="inline" className={styles.inlineHighlight}>
-                    <SectionHeader
-                      title="먼저 이야기하기"
-                      headingVariant="subsection"
-                      rule="none"
-                    />
+                  <Surface tone="inverse" padding="inline" className={styles.inlineHighlight}>
+                    <Heading variant="subsection" tone="default">
+                      먼저 이야기하기
+                    </Heading>
                     <span className={s.quiet}>
                       {snapshot.runtime.paused ? "현재 · 일시정지" : "현재 · 자동 대화"}
                     </span>
                   </Surface>
-                  <SettingsRow
-                    className={styles.settingsRow}
-                    label={<span id="automatic-enabled-label">바탕화면에서 먼저 이야기하기</span>}
-                    description="꺼도 간격과 생성 허용은 유지돼요."
-                  >
-                    <Checkbox
-                      className={styles.rowControl}
-                      aria-labelledby="automatic-enabled-label"
-                      checked={automatic.settings.autonomousEnabled}
-                      onChange={(event) =>
-                        automatic.change("autonomousEnabled", event.target.checked)
+                  <div className={styles.automaticContent}>
+                    <SettingsRow
+                      className={styles.settingsRow}
+                      label={<span id="automatic-enabled-label">바탕화면에서 먼저 이야기하기</span>}
+                      description="꺼도 간격과 생성 허용은 유지돼요."
+                    >
+                      <Checkbox
+                        className={styles.rowControl}
+                        aria-labelledby="automatic-enabled-label"
+                        checked={automatic.settings.autonomousEnabled}
+                        onChange={(event) =>
+                          automatic.change("autonomousEnabled", event.target.checked)
+                        }
+                      >
+                        사용
+                      </Checkbox>
+                    </SettingsRow>
+                    <SettingsRow
+                      className={styles.settingsRow}
+                      label={<span id="automatic-interval-label">이야기 간격</span>}
+                      description="1~60분. 실제 간격은 조금씩 달라져요."
+                    >
+                      <div className={styles.automaticField}>
+                        <TextField
+                          style={{ width: 104 }}
+                          aria-labelledby="automatic-interval-label"
+                          type="number"
+                          min={1}
+                          max={60}
+                          value={automatic.settings.idleMinutes}
+                          onChange={(event) =>
+                            automatic.change("idleMinutes", Number(event.target.value))
+                          }
+                        />
+                        <span>분</span>
+                      </div>
+                    </SettingsRow>
+                    <SettingsRow
+                      className={styles.pausedRow}
+                      label="일시정지"
+                      description={
+                        snapshot.runtime.paused
+                          ? snapshot.runtime.pausedUntil
+                            ? `${new Date(snapshot.runtime.pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}까지 자동 잡담 일시정지 중`
+                            : "현재 자동 잡담이 잠시 멈춰 있어요."
+                          : "자동 대화가 실행 중이에요."
                       }
                     >
-                      사용
-                    </Checkbox>
-                  </SettingsRow>
-                  <SettingsRow
-                    className={styles.settingsRow}
-                    label={<span id="automatic-interval-label">이야기 간격</span>}
-                    description="1~60분. 실제 간격은 조금씩 달라져요."
-                  >
-                    <div className={styles.automaticField}>
-                      <TextField
-                        style={{ width: 104 }}
-                        aria-labelledby="automatic-interval-label"
-                        type="number"
-                        min={1}
-                        max={60}
-                        value={automatic.settings.idleMinutes}
-                        onChange={(event) =>
-                          automatic.change("idleMinutes", Number(event.target.value))
-                        }
+                      <Button
+                        className={styles.rowControl}
+                        variant="secondary"
+                        disabled={!snapshot.runtime.paused}
+                        onClick={() => void automatic.run("set_paused", { paused: false })}
+                      >
+                        다시 시작
+                      </Button>
+                    </SettingsRow>
+                    <section className={styles.settingsSection}>
+                      <QuietHoursSettings
+                        value={automatic.settings.quietHours}
+                        onChange={(value) => automatic.change("quietHours", value)}
                       />
-                      <span>분</span>
-                    </div>
-                  </SettingsRow>
-                  <SettingsRow
-                    className={styles.pausedRow}
-                    label="일시정지"
-                    description={
-                      snapshot.runtime.paused
-                        ? snapshot.runtime.pausedUntil
-                          ? `${new Date(snapshot.runtime.pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}까지 자동 잡담 일시정지 중`
-                          : "현재 자동 잡담이 잠시 멈춰 있어요."
-                        : "자동 대화가 실행 중이에요."
-                    }
-                  >
-                    <Button
-                      className={styles.rowControl}
-                      variant="secondary"
-                      disabled={!snapshot.runtime.paused}
-                      onClick={() => void automatic.run("set_paused", { paused: false })}
-                    >
-                      다시 시작
-                    </Button>
-                  </SettingsRow>
-                  <section className={styles.settingsSection}>
-                    <div className={styles.headingRow}>
-                      <h2 className={styles.sectionTitle}>새 잡담 생성</h2>
-                      <span className={s.quiet}>AI</span>
-                    </div>
-                    <SettingsRow
-                      className={styles.settingsRow}
-                      label={
-                        <>
-                          <span>로컬 모델</span>
-                          <VisuallyHidden id="automatic-local-label">
-                            로컬 모델로 새 잡담 만들기
-                          </VisuallyHidden>
-                        </>
-                      }
-                      description="이 기기의 모델로 새 잡담을 만들어요."
-                    >
-                      <Checkbox
-                        className={styles.rowControl}
-                        aria-label="로컬 모델로 새 잡담 만들기"
-                        aria-labelledby="automatic-local-label"
-                        disabled={!automatic.settings.autonomousEnabled}
-                        checked={automatic.settings.localIdleEnabled}
-                        onChange={(event) =>
-                          automatic.change("localIdleEnabled", event.target.checked)
+                    </section>
+                    <section className={styles.settingsSection}>
+                      <div className={styles.headingRow}>
+                        <h2 className={styles.sectionTitle}>새 잡담 생성</h2>
+                        <span className={s.quiet}>AI</span>
+                      </div>
+                      <SettingsRow
+                        className={styles.settingsRow}
+                        label={
+                          <>
+                            <span>로컬 모델</span>
+                            <VisuallyHidden id="automatic-local-label">
+                              로컬 모델로 새 잡담 만들기
+                            </VisuallyHidden>
+                          </>
                         }
+                        description="이 기기의 모델로 새 잡담을 만들어요."
                       >
-                        허용
-                      </Checkbox>
-                    </SettingsRow>
-                    <SettingsRow
-                      className={styles.settingsRow}
-                      label={
-                        <>
-                          <span>외부 API</span>
-                          <VisuallyHidden id="automatic-api-label">
-                            API로 새 잡담 만들기
-                          </VisuallyHidden>
-                        </>
-                      }
-                      description="자동 요청에 제공자 요금이 발생할 수 있어요."
-                    >
-                      <Checkbox
-                        className={styles.rowControl}
-                        aria-labelledby="automatic-api-label"
-                        disabled={!automatic.settings.autonomousEnabled}
-                        checked={automatic.settings.apiIdleEnabled}
-                        onChange={(event) =>
-                          automatic.change("apiIdleEnabled", event.target.checked)
+                        <Checkbox
+                          className={styles.rowControl}
+                          aria-label="로컬 모델로 새 잡담 만들기"
+                          aria-labelledby="automatic-local-label"
+                          disabled={!automatic.settings.autonomousEnabled}
+                          checked={automatic.settings.localIdleEnabled}
+                          onChange={(event) =>
+                            automatic.change("localIdleEnabled", event.target.checked)
+                          }
+                        >
+                          허용
+                        </Checkbox>
+                      </SettingsRow>
+                      <SettingsRow
+                        className={styles.settingsRow}
+                        label={
+                          <>
+                            <span>외부 API</span>
+                            <VisuallyHidden id="automatic-api-label">
+                              API로 새 잡담 만들기
+                            </VisuallyHidden>
+                          </>
                         }
+                        description="자동 요청에 제공자 요금이 발생할 수 있어요."
                       >
-                        허용
-                      </Checkbox>
-                    </SettingsRow>
-                  </section>
+                        <Checkbox
+                          className={styles.rowControl}
+                          aria-labelledby="automatic-api-label"
+                          disabled={!automatic.settings.autonomousEnabled}
+                          checked={automatic.settings.apiIdleEnabled}
+                          onChange={(event) =>
+                            automatic.change("apiIdleEnabled", event.target.checked)
+                          }
+                        >
+                          허용
+                        </Checkbox>
+                      </SettingsRow>
+                    </section>
+                  </div>
                 </fieldset>
                 <DraftActions
                   draft={automatic}
                   label="자동 대화"
-                  valid={automatic.validInterval}
+                  valid={automatic.validInterval && !quietHoursError(automatic.settings.quietHours)}
                   blocked={updateBusy}
                 />
               </Surface>

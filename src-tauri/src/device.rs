@@ -59,7 +59,25 @@ fn total_memory() -> Option<u64> {
     (ok != 0 && status.ullTotalPhys > 0).then_some(status.ullTotalPhys)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(target_os = "linux")]
+fn total_memory() -> Option<u64> {
+    memory_from_meminfo(&std::fs::read_to_string("/proc/meminfo").ok()?)
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn memory_from_meminfo(contents: &str) -> Option<u64> {
+    let mut fields = contents
+        .lines()
+        .find_map(|line| line.strip_prefix("MemTotal:"))?
+        .split_whitespace();
+    let kibibytes: u64 = fields.next()?.parse().ok()?;
+    if fields.next()? != "kB" || fields.next().is_some() || kibibytes == 0 {
+        return None;
+    }
+    kibibytes.checked_mul(1024)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn total_memory() -> Option<u64> {
     None
 }
@@ -69,9 +87,39 @@ mod tests {
     #[test]
     fn reports_the_memory_of_supported_desktops() {
         let info = super::info();
-        if cfg!(any(target_os = "macos", target_os = "windows")) {
+        if cfg!(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux"
+        )) {
             assert!(info.total_memory.is_some_and(|bytes| bytes >= 1 << 30));
         }
         assert_eq!(info, super::info());
+    }
+
+    #[test]
+    fn linux_meminfo_uses_total_memory_and_converts_kibibytes() {
+        assert_eq!(
+            super::memory_from_meminfo(
+                "MemFree: 10 kB\nMemTotal:       16384000 kB\nMemAvailable: 123 kB\n"
+            ),
+            Some(16_384_000 * 1024)
+        );
+    }
+
+    #[test]
+    fn linux_meminfo_rejects_missing_invalid_or_overflowed_totals() {
+        for invalid in [
+            "",
+            "MemFree: 10 kB",
+            "MemTotal: 0 kB",
+            "MemTotal: -1 kB",
+            "MemTotal: 10 MB",
+            "MemTotal: 10",
+            "MemTotal: 10 kB extra",
+            "MemTotal: 18446744073709551615 kB",
+        ] {
+            assert_eq!(super::memory_from_meminfo(invalid), None, "{invalid}");
+        }
     }
 }

@@ -196,45 +196,31 @@ pub(crate) fn retry_turn(
             return Err("앱을 종료하고 있어요.".into());
         }
         let db = lock(&state.db)?;
-        ensure_current_user_message(&db, &message_id)?;
-        let original_session = store::conversation_for_message(&db, &message_id)?;
-        let history = match &original_session {
-            Some(session) => store::conversation_messages(&db, &session.id, None)?.messages,
-            None => store::messages(&db, 100)?,
-        };
-        let latest = history
-            .iter()
-            .rev()
-            .find(|m| m.role == "user")
-            .ok_or("다시 요청할 대화가 없어요.")?;
-        if latest.id != message_id {
-            return Err("가장 최근 대화만 다시 요청할 수 있어요.".into());
-        }
+        let latest = retry_input(&db, &message_id)?;
         ensure_retry_characters(&db, &message_id, &target)?;
-        if let Some(session) = store::conversation_for_message(&db, &message_id)? {
-            let active = store::active_conversation(&db)?;
-            if active.as_ref().is_none_or(|active| active.id != session.id) {
-                return Err("이 대화의 이어하기에서 다시 요청해 주세요.".into());
-            }
-        }
         let original = store::message_targets(&db, &message_id)?;
         let requested = if target == "all" {
             original.clone()
         } else {
             resolve_targets(&db, &target)?
         };
-        let registered = route_message(&state, &db, &latest.content, &requested)?;
-        let targets = requested
-            .into_iter()
-            .filter(|id| {
-                !history
-                    .iter()
-                    .any(|m| m.id == reply_id(&message_id, id) && m.status == "complete")
-            })
-            .collect::<Vec<_>>();
-        if targets.iter().any(|id| !original.contains(id)) {
-            return Err("원래 대화 상대에게만 다시 요청할 수 있어요.".into());
-        }
+        let targets = pending_reply_targets(&db, &message_id, &requested)?;
+        let registered = if let Some(lines) = store::saved_reply_scene(&db, &message_id)? {
+            Some(lines)
+        } else if store::has_turn_replies(&db, &message_id, "scene")? {
+            // Older builds did not retain the chosen scene or motion. Do not guess them
+            // from today's wordbook, whose lines/order may have changed since the request.
+            return Err("이전 버전 답변의 재생 정보를 확인할 수 없어요. 원문은 기록에 남아 있으니 새 메시지로 말해 주세요.".into());
+        } else if store::has_turn_replies(&db, &message_id, "reply")? || targets.is_empty() {
+            // Saved model replies must stay on their original route, even if a new keyword
+            // matches now. Playback-only recovery also needs no ready model/API credentials.
+            for id in &targets {
+                store::saved_reply(&db, &reply_id(&message_id, id))?;
+            }
+            None
+        } else {
+            route_message(&state, &db, &latest.content, &requested)?
+        };
         if targets.is_empty() && registered.is_none() {
             return Ok(());
         }
@@ -263,6 +249,50 @@ pub(crate) fn retry_turn(
     }
     start_turn(app, state.inner().clone(), targets, message_id, token);
     Ok(())
+}
+
+fn retry_input(db: &Connection, message_id: &str) -> Result<Message, String> {
+    ensure_current_user_message(db, message_id)?;
+    let history = match store::conversation_for_message(db, message_id)? {
+        Some(session) => {
+            if store::active_conversation(db)?
+                .as_ref()
+                .is_none_or(|active| active.id != session.id)
+            {
+                return Err("이 대화의 이어하기에서 다시 요청해 주세요.".into());
+            }
+            store::conversation_messages(db, &session.id, None)?.messages
+        }
+        None => store::messages(db, 100)?,
+    };
+    let latest = history
+        .into_iter()
+        .rev()
+        .find(|message| message.role == "user")
+        .ok_or("다시 요청할 대화가 없어요.")?;
+    if latest.id != message_id {
+        return Err("가장 최근 대화만 다시 요청할 수 있어요.".into());
+    }
+    Ok(latest)
+}
+
+// Completion is presentation evidence, independent of immutable raw-message status.
+fn pending_reply_targets(
+    db: &Connection,
+    message_id: &str,
+    requested: &[String],
+) -> Result<Vec<String>, String> {
+    let original = store::message_targets(db, message_id)?;
+    if requested.iter().any(|id| !original.contains(id)) {
+        return Err("원래 대화 상대에게만 다시 요청할 수 있어요.".into());
+    }
+    let mut pending = Vec::new();
+    for id in original {
+        if requested.contains(&id) && !store::message_displayed(db, &reply_id(message_id, &id))? {
+            pending.push(id);
+        }
+    }
+    Ok(pending)
 }
 
 pub(crate) fn reply_id(message_id: &str, persona: &str) -> String {
@@ -428,13 +458,20 @@ fn conversation_history(
     persona: &str,
     message_id: &str,
 ) -> Result<Vec<Message>, String> {
-    if let Some(session) = store::conversation_for_message(db, message_id)? {
+    let history = if let Some(session) = store::conversation_for_message(db, message_id)? {
         // The explicitly selected dialogue is quoted history, never new canon or user facts.
         // Storage revalidates identity, deleted evidence and story-source exclusions.
-        store::conversation_context(db, &session.id, persona)
+        store::conversation_context(db, &session.id, persona)?
     } else {
-        story::prompt_history(db, persona, store::context_messages_for(db, 24, persona)?)
+        story::prompt_history(db, persona, store::context_messages_for(db, 24, persona)?)?
+    };
+    let mut displayed = Vec::new();
+    for message in history {
+        if message.role != "assistant" || store::message_displayed(db, &message.id)? {
+            displayed.push(message);
+        }
     }
+    Ok(displayed)
 }
 
 fn prompt_with_history(
@@ -504,7 +541,8 @@ fn prompt_with_history(
                     && m.id.starts_with(&format!("reply:{message_id}:"))
                     && m.status == "complete"
             }) {
-                if !messages.iter().any(|m| m.id == reply.id)
+                if store::message_displayed(db, &reply.id)?
+                    && !messages.iter().any(|m| m.id == reply.id)
                     && store::conversation_message_allowed(db, &reply, persona)?
                 {
                     messages.push(reply);
@@ -603,6 +641,26 @@ pub(crate) async fn generate_turn_with_memories(
     Ok((lines, revision))
 }
 
+fn turn_groups(
+    db: &Connection,
+    targets: &[String],
+    message_id: &str,
+) -> Result<Vec<Vec<String>>, String> {
+    let original = store::message_targets(db, message_id)?;
+    // Preserve the original 3–8-member sequential path even when only two remain.
+    if original.len() <= 2 && targets.len() == 2 {
+        let mut missing = true;
+        for id in targets {
+            missing &= !store::message_displayed(db, &reply_id(message_id, id))?
+                && store::saved_reply(db, &reply_id(message_id, id))?.is_none();
+        }
+        if missing {
+            return Ok(vec![targets.to_vec()]);
+        }
+    }
+    Ok(targets.iter().map(|id| vec![id.clone()]).collect())
+}
+
 pub(crate) async fn run_turn(
     app: &tauri::AppHandle,
     state: &AppState,
@@ -623,24 +681,41 @@ pub(crate) async fn run_turn(
         targets.first().cloned(),
         None,
     );
-    let groups: Vec<Vec<String>> = if targets.len() <= 2 {
-        vec![targets.to_vec()]
-    } else {
-        targets.iter().map(|id| vec![id.clone()]).collect()
-    };
+    let groups = turn_groups(&*lock(&state.db)?, targets, message_id)?;
     let mut shown = 0;
     for group in groups {
         if !is_current(state, epoch, &cancel) {
             return Ok(());
         }
-        let (lines, revision) =
-            generate_turn_with_memories(state, &group, message_id, cancel.clone(), memories)
+        let saved = if let [persona] = group.as_slice() {
+            let db = lock(&state.db)?;
+            if store::message_displayed(&db, &reply_id(message_id, persona))? {
+                continue;
+            }
+            store::saved_reply(&db, &reply_id(message_id, persona))?
+                .map(|(line, source)| (vec![line], store::revision(&db), source))
+        } else {
+            None
+        };
+        let (lines, revision, source) = match saved {
+            Some((lines, revision, source)) => (lines, revision?, source),
+            None => {
+                let (lines, revision) = generate_turn_with_memories(
+                    state,
+                    &group,
+                    message_id,
+                    cancel.clone(),
+                    memories,
+                )
                 .await?;
+                (lines, revision, "llm".into())
+            }
+        };
         for line in &lines {
             if !present_line(
                 state,
                 line,
-                "llm",
+                &source,
                 &reply_id(message_id, &line.persona),
                 shown,
                 targets.len(),
@@ -752,5 +827,110 @@ mod session_tests {
             session_targets(&db, "all", Some(&continued)).unwrap(),
             session.participants
         );
+    }
+}
+
+#[cfg(test)]
+mod retry_display_tests {
+    use super::*;
+
+    fn input(db: &Connection) -> Message {
+        let input = Message {
+            id: "retry-input".into(),
+            role: "user".into(),
+            persona: Some("all".into()),
+            content: "원래 순서로 답해 줘".into(),
+            expression: None,
+            created_at: chrono::Utc::now().timestamp_millis(),
+            status: "complete".into(),
+        };
+        store::insert_message(db, &input).unwrap();
+        input
+    }
+
+    #[test]
+    fn retry_display_evidence_preserves_one_two_and_three_to_eight_target_paths() {
+        for count in [1, 2, 3, 8] {
+            let db = store::open(std::path::Path::new(":memory:")).unwrap();
+            let mut ids = vec!["builtin-b".to_string()];
+            while ids.len() < count {
+                ids.push(characters::clone_character(&db, "builtin-a").unwrap().id);
+            }
+            characters::apply_roster(&db, ids.clone()).unwrap();
+            let user = input(&db);
+            let mut requested = ids.clone();
+            requested.reverse();
+            assert_eq!(
+                pending_reply_targets(&db, &user.id, &requested).unwrap(),
+                ids
+            );
+            let groups = turn_groups(&db, &ids, &user.id).unwrap();
+            assert_eq!(groups.len(), if count == 2 { 1 } else { count });
+            let line = SceneLine {
+                persona: ids[0].clone(),
+                expression: "평온".into(),
+                text: "  저장한 답변\n그대로  ".into(),
+                motion: Default::default(),
+            };
+            let reply = Message {
+                id: reply_id(&user.id, &ids[0]),
+                role: "assistant".into(),
+                persona: Some(line.persona.clone()),
+                content: line.text.clone(),
+                expression: Some(line.expression.clone()),
+                created_at: user.created_at + 1,
+                status: "complete".into(),
+            };
+            store::insert_message_with_playback(&db, &reply, "llm", None, true, Some(&line))
+                .unwrap();
+            assert_eq!(
+                pending_reply_targets(&db, &user.id, &requested).unwrap(),
+                ids
+            );
+            assert_eq!(turn_groups(&db, &ids, &user.id).unwrap().len(), count);
+            store::mark_message_displayed(&db, &reply.id, user.created_at + 2).unwrap();
+            store::mark_message_displayed(&db, &reply.id, user.created_at + 3).unwrap();
+            let pending = pending_reply_targets(&db, &user.id, &requested).unwrap();
+            assert_eq!(pending, ids[1..]);
+            assert_eq!(
+                turn_groups(&db, &pending, &user.id).unwrap().len(),
+                count - 1
+            );
+            let extra = characters::clone_character(&db, "builtin-a").unwrap();
+            assert!(pending_reply_targets(&db, &user.id, &[extra.id]).is_err());
+            assert_eq!(store::messages(&db, 10).unwrap().len(), 2);
+        }
+    }
+
+    #[test]
+    fn retry_display_keeps_closed_sessions_old_inputs_and_other_users_out() {
+        for state in ["paused", "ended", "other-user", "newer-input"] {
+            let db = store::open(std::path::Path::new(":memory:")).unwrap();
+            store::set_user_name(&db, "첫 사용자", 1).unwrap();
+            let session =
+                store::create_conversation(&db, &["a".into(), "b".into()], None, None, 1).unwrap();
+            let user = input(&db);
+            assert_eq!(retry_input(&db, &user.id).unwrap().id, user.id);
+            match state {
+                "paused" | "ended" => {
+                    store::set_conversation_status(&db, &session.id, state, 2).unwrap();
+                }
+                "other-user" => {
+                    store::set_user_name(&db, "다른 사용자", 2).unwrap();
+                }
+                _ => {
+                    store::insert_message(
+                        &db,
+                        &Message {
+                            id: "newer".into(),
+                            ..user.clone()
+                        },
+                    )
+                    .unwrap();
+                }
+            }
+            assert!(retry_input(&db, &user.id).is_err(), "{state}");
+            assert_eq!(store::messages(&db, 10).unwrap()[0].content, user.content);
+        }
     }
 }

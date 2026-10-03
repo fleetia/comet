@@ -211,7 +211,11 @@ fn pack_and_dialogue_reject_foreign_clips_old_versions_and_unknown_motion_fields
     };
     assert!(save_dialogue(&conn, &ids, &foreign).is_err());
     let mut pack = export_pack(&conn, &ids, &[]).unwrap();
-    for version in [1, 2, 3, 6] {
+    let mut compatible = pack.clone();
+    compatible.format_version = 6;
+    validate_pack(&compatible).unwrap();
+    parse_pack(&pack_json(&compatible).unwrap()).unwrap();
+    for version in [1, 2, 3, 7] {
         let mut invalid = pack.clone();
         invalid.format_version = version;
         assert!(validate_pack(&invalid).is_err(), "version {version}");

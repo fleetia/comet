@@ -90,14 +90,12 @@ export const workspace = style({
   padding: vars.space.lg,
 });
 export const pageHeading = style({
-  display: "grid",
-  gridTemplateColumns: "280px minmax(0, 1fr)",
+  display: "flex",
   alignItems: "center",
   gap: vars.space.lg,
   flexShrink: 0,
   height: 56,
   marginBottom: vars.space.md,
-  "@media": { "(max-width: 1200px)": { gridTemplateColumns: "200px minmax(0, 1fr)" } },
 });
 globalStyle(`${pageHeading} h1`, {
   margin: 0,
@@ -136,11 +134,6 @@ export const columns = style({
   gap: vars.space.xl,
   marginTop: vars.space.lg,
   "@media": { "(max-width: 800px)": { gridTemplateColumns: "1fr" } },
-});
-export const pageDescription = style({
-  color: vars.color.content.secondary,
-  fontSize: vars.typography.size.body,
-  lineHeight: vars.typography.lineHeight.body,
 });
 export const simplePage = style({ maxWidth: 792 });
 export const widePage = style({ maxWidth: 1184, height: "100%", minHeight: 0, overflow: "hidden" });
@@ -226,6 +219,7 @@ export const inlineHighlight = style({
   justifyContent: "space-between",
   gap: vars.space.lg,
 });
+globalStyle(`${inlineHighlight} h2`, { color: "inherit" });
 export const automaticField = style({
   display: "flex",
   width: 144,
@@ -241,6 +235,13 @@ export const automaticPanel = style({
   gap: vars.space.md,
   overflow: "hidden",
 });
+export const automaticContent = style({
+  display: "grid",
+  gap: vars.space.md,
+  minWidth: 0,
+  paddingInline: vars.space.xl,
+});
+globalStyle(`${automaticPanel} > .${saveBar}`, { marginInline: vars.space.xl });
 export const pausedRow = style([settingsRow, { minHeight: 48 }]);
 export const sectionTitle = style({
   margin: 0,
@@ -317,6 +318,9 @@ globalStyle(`${panel} .${common.choice}`, {
 });
 export const editor = style({ border: 0, padding: 0, margin: 0, minWidth: 0 });
 
-export const pageDirty = style({ fontSize: vars.typography.size.caption });
+export const pageDirty = style({
+  color: vars.color.content.secondary,
+  fontSize: vars.typography.size.caption,
+});
 
 export const footerActions = style({ display: "flex", alignItems: "center", gap: vars.space.md });
