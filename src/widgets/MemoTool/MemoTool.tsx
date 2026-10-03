@@ -70,7 +70,7 @@ export function MemoTool({
         <p>메모 내용도 함께 삭제됩니다. 창만 닫으려면 넣기를 사용하세요.</p>
         <div className={s.dialogActions}>
           <Button
-            variant="primary"
+            variant="critical"
             disabled={busy}
             onClick={async () => {
               if (deleting && (await act("delete", { id: deleting }))) {

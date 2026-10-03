@@ -18,11 +18,12 @@ export const layout = style({
   display: "grid",
   flex: 1,
   minHeight: 0,
-  gridTemplateColumns: "168px minmax(0,1fr)",
-  alignItems: "start",
+  gridTemplateColumns: "224px minmax(0,1fr)",
+  alignItems: "stretch",
   gap: vars.space.lg,
   "@media": {
-    "(max-width: 680px)": { gridTemplateColumns: "140px minmax(0,1fr)", gap: vars.space.sm },
+    "(max-width: 1280px)": { gridTemplateColumns: "192px minmax(0,1fr)", gap: vars.space.lg },
+    "(max-width: 850px)": { gridTemplateColumns: "160px minmax(0,1fr)", gap: vars.space.md },
   },
 });
 export const list = style({
@@ -32,36 +33,42 @@ export const list = style({
   alignSelf: "stretch",
   minWidth: 0,
   minHeight: 0,
+  overflow: "hidden",
+});
+export const rosterBody = style({
+  minHeight: 0,
+  flex: 1,
   overflowY: "auto",
+  padding: vars.space.md,
+  display: "flex",
+  flexDirection: "column",
+  gap: vars.space.sm,
 });
 export const libraryHeading = style({
   display: "flex",
   alignItems: "baseline",
   justifyContent: "space-between",
   gap: vars.space.xs,
-  borderBottom: `1px solid ${vars.color.border.strong}`,
-  paddingBottom: vars.space.xs,
+  paddingBottom: 0,
 });
 export const characterList = style({ display: "flex", flexDirection: "column" });
 export const item = style({
-  width: "100%",
-  justifyContent: "space-between",
+  display: "grid",
+  gridTemplateColumns: "36px minmax(0,1fr)",
+  alignItems: "center",
+  gap: vars.space.md,
+  minHeight: 64,
+});
+export const itemDetail = style({
+  display: "grid",
   gap: vars.space.xs,
-  padding: `${vars.space.xs} ${vars.space.sm}`,
-  minHeight: vars.dimension.control,
   textAlign: "left",
-  whiteSpace: "normal",
-  border: 0,
-  borderBottom: `1px dotted ${vars.color.border.subtle}`,
-  borderInlineStart: "2px solid transparent",
-  selectors: {
-    '&[aria-pressed="true"]': {
-      background: vars.color.selection.surface,
-      color: vars.color.content.accent,
-      borderInlineStartColor: vars.color.selection.indicator,
-    },
-    '&[aria-pressed="true"]:hover:not(:disabled)': { background: vars.color.selection.surface },
-  },
+  minWidth: 0,
+});
+export const itemStatus = style({
+  fontSize: vars.typography.size.caption,
+  lineHeight: vars.typography.lineHeight.compact,
+  color: vars.color.content.secondary,
 });
 export const itemName = style({ overflowWrap: "anywhere", minWidth: 0 });
 export const small = style({
@@ -78,7 +85,7 @@ export const roster = style({
 });
 export const libraryActions = style({
   display: "flex",
-  flexWrap: "wrap",
+  flexDirection: "column",
   gap: vars.space.sm,
   margin: `${vars.space.sm} 0`,
 });
@@ -88,8 +95,8 @@ export const detail = style({
   alignSelf: "stretch",
   minWidth: 0,
   minHeight: 0,
-  paddingLeft: vars.space.lg,
-  borderLeft: `1px solid ${vars.color.border.subtle}`,
+  paddingLeft: 0,
+  borderLeft: 0,
   "@media": { "(max-width: 680px)": { paddingLeft: vars.space.sm } },
 });
 export const editor = style({
@@ -102,37 +109,40 @@ export const editor = style({
 export const editorHeader = style({
   flexShrink: 0,
   background: vars.color.surface.canvas,
+  display: "grid",
+  gap: vars.space.md,
+  paddingBottom: vars.space.md,
 });
 export const editorPanel = style({
   flex: 1,
   minHeight: 0,
-  overflowY: "auto",
-  scrollbarGutter: "stable",
-  paddingTop: vars.space.md,
+  overflow: "hidden",
+  padding: 0,
 });
 export const fieldset = style({ border: 0, padding: 0, margin: 0, minWidth: 0 });
 export const section = style({
   margin: `${vars.space.md} 0 0`,
   paddingTop: vars.space.sm,
-  borderTop: `1px solid ${vars.color.border.strong}`,
+  borderTop: `${vars.border.width.hairline} solid ${vars.color.border.strong}`,
 });
 export const sectionHeader = style({
   display: "flex",
   alignItems: "start",
   justifyContent: "space-between",
-  gap: vars.space.sm,
+  gap: vars.space.md,
 });
 export const subheading = style({
-  color: vars.color.content.accent,
-  fontFamily: vars.typography.family.display,
-  fontSize: vars.typography.size.label,
+  color: vars.color.content.primary,
+  fontFamily: vars.typography.family.ui,
+  fontSize: vars.typography.size.headingSm,
   lineHeight: vars.typography.lineHeight.compact,
   fontWeight: 600,
   margin: `0 0 ${vars.space.sm}`,
 });
 export const characterFace = style({
-  width: 32,
-  height: 32,
+  width: 40,
+  height: 40,
+  flexShrink: 0,
   display: "grid",
   placeItems: "center",
   fontSize: vars.typography.size.body,
@@ -147,20 +157,22 @@ export const characterPortrait = style({
 });
 export const basicFields = style({
   display: "grid",
-  gridTemplateColumns: "minmax(170px,0.8fr) minmax(0,1.4fr)",
-  gap: `${vars.space.xs} ${vars.space.lg}`,
-  "@media": { "(max-width: 850px)": { gridTemplateColumns: "1fr" } },
+  alignItems: "start",
+  gridTemplateColumns: "minmax(160px,0.6fr) minmax(0,1.6fr)",
+  gap: vars.space.lg,
+  minWidth: 0,
+  "@media": { "(max-width: 1280px)": { gridTemplateColumns: "1fr" } },
 });
 export const inlineField = style({
   display: "grid",
-  gridTemplateColumns: "68px minmax(0,1fr)",
+  gridTemplateColumns: "1fr",
   alignItems: "baseline",
-  columnGap: vars.space.sm,
+  gap: vars.space.sm,
   minWidth: 0,
 });
 export const personalityInput = style({
-  minHeight: vars.dimension.control,
-  height: vars.dimension.control,
+  minHeight: 96,
+  height: 96,
 });
 export const expressionAdd = style({
   display: "grid",
@@ -169,6 +181,7 @@ export const expressionAdd = style({
   alignItems: "center",
   marginTop: vars.space.xs,
 });
+globalStyle(`${expressionAdd}[hidden]`, { display: "none" });
 export const personalityField = style([inlineField, { gridColumn: "1 / -1" }]);
 export const relationshipRow = style({
   display: "grid",
@@ -203,7 +216,7 @@ export const expressionHead = style({
   gridTemplateColumns: "70px minmax(60px,1fr) minmax(105px,1.2fr) 24px",
   alignItems: "center",
   gap: vars.space.sm,
-  borderBottom: `1px solid ${vars.color.border.strong}`,
+  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.strong}`,
   minHeight: vars.dimension.control,
   color: vars.color.content.secondary,
   fontSize: vars.typography.size.caption,
@@ -215,7 +228,7 @@ export const expressionRow = style({
   gap: vars.space.sm,
   minHeight: vars.dimension.control,
   padding: 0,
-  borderBottom: `1px dotted ${vars.color.border.subtle}`,
+  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
   fontSize: vars.typography.size.label,
 });
 export const spriteFrame = style({
@@ -254,7 +267,7 @@ export const balloonColorInput = style({
 export const balloonTextPreview = style({
   margin: 0,
   padding: vars.space.sm,
-  border: `1px solid ${vars.color.border.subtle}`,
+  border: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
   lineHeight: 1.6,
   overflowWrap: "anywhere",
 });
@@ -272,7 +285,7 @@ export const dialogueRow = style({
   gap: vars.space.sm,
   minHeight: 30,
   padding: 0,
-  borderBottom: `1px dotted ${vars.color.border.subtle}`,
+  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
   fontSize: vars.typography.size.label,
 });
 export const lineSummary = style({
@@ -283,7 +296,7 @@ export const lineSummary = style({
 });
 export const lineEditor = style({ padding: `${vars.space.sm} 0 ${vars.space.md}`, minWidth: 0 });
 export const line = style({ paddingBottom: vars.space.sm });
-export const textarea = style({ minHeight: `calc(${vars.dimension.control} * 2)` });
+export const textarea = style({ minHeight: 96 });
 export const dialogueScope = style({
   display: "flex",
   alignItems: "center",
@@ -300,10 +313,8 @@ export const scopeField = style({
 });
 export const saveBar = style({
   flexShrink: 0,
-  background: vars.color.surface.canvas,
-  borderTop: `3px double ${vars.color.border.strong}`,
+  borderTop: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
   padding: `${vars.space.xs} 0`,
-  marginTop: vars.space.md,
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
@@ -345,3 +356,39 @@ export const disclosureSummary = style({
 });
 
 globalStyle(`${saveBar}[hidden]`, { display: "none" });
+
+export const sourceHeading = style({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: vars.space.md,
+  minHeight: vars.dimension.control,
+  flexWrap: "wrap",
+});
+export const sourceDetail = style({
+  display: "grid",
+  gridTemplateColumns: "140px minmax(0,1fr)",
+  gap: vars.space.lg,
+  alignItems: "center",
+  minHeight: vars.dimension.control,
+  marginBlock: vars.space.sm,
+  overflowWrap: "anywhere",
+  "@media": { "(max-width: 1280px)": { gridTemplateColumns: "64px minmax(0,1fr)" } },
+});
+export const ownerContent = style({
+  height: "100%",
+  flex: 1,
+  minWidth: 0,
+  minHeight: 0,
+  display: "flex",
+  flexDirection: "column",
+});
+globalStyle(`${ownerContent}[hidden]`, { display: "none" });
+export const packPicker = style({ width: "100%", justifyContent: "space-between", flexShrink: 0 });
+
+export const rosterOrder = style({
+  display: "grid",
+  gridTemplateColumns: "repeat(2,minmax(0,1fr))",
+  gap: vars.space.sm,
+});
+globalStyle(`${libraryActions} > button`, { width: "100%" });

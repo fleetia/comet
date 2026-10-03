@@ -557,7 +557,7 @@ fn retired_plane_description_upgrades_only_the_known_manifest_and_preserves_enab
 
 #[test]
 fn damaged_package_is_disabled_without_blocking_other_widgets_or_losing_data() {
-    let db = database();
+    let db = crate::store::open(Path::new(":memory:")).unwrap();
     let directory = tempfile::tempdir().unwrap();
     install(&db, directory.path(), &["interaction", "fortune"]);
     act(
@@ -580,6 +580,78 @@ fn damaged_package_is_disabled_without_blocking_other_widgets_or_losing_data() {
     assert!(instance(&db, "fortune").enabled);
     assert!(storage::snapshot(&db).is_ok());
     assert!(storage::take_reaction(&db, 101).unwrap().is_none());
+}
+
+#[test]
+fn interaction_rejects_a_removed_slot_before_spending_snacks_or_recording_events() {
+    let db = crate::store::open(Path::new(":memory:")).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    install(&db, directory.path(), &["interaction", "journal"]);
+    let requested = request(&db, "interaction", "snack", json!({"character":"B"}));
+    let before = instance(&db, "interaction");
+    let first = crate::characters::active_ids(&db).unwrap()[0].clone();
+    crate::characters::apply_roster(&db, vec![first]).unwrap();
+    assert!(storage::execute(&db, &requested, 100, 0).is_err());
+    let after = instance(&db, "interaction");
+    assert_eq!(after.data, before.data);
+    assert_eq!(after.revision, before.revision);
+    assert!(storage::journal(&db, None).unwrap().is_empty());
+    assert!(storage::take_reaction(&db, 101).unwrap().is_none());
+    act(
+        &db,
+        "interaction",
+        "snack",
+        json!({"character":"A"}),
+        200,
+        0,
+    );
+    let accepted = instance(&db, "interaction");
+    assert_eq!(accepted.data["snacks"], 5);
+    assert_eq!(accepted.data["touches"], 1);
+    assert_eq!(
+        storage::journal(&db, None).unwrap()[0].1.event.payload["character"],
+        "A"
+    );
+}
+
+#[test]
+fn interaction_accepts_all_eight_slots_and_rejects_a_changed_owner_without_side_effects() {
+    let db = crate::store::open(Path::new(":memory:")).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    install(&db, directory.path(), &["interaction", "journal"]);
+    let mut ids = crate::characters::active_ids(&db).unwrap();
+    while ids.len() < 8 {
+        ids.push(crate::characters::clone_character(&db, &ids[0]).unwrap().id);
+    }
+    crate::characters::apply_roster(&db, ids.clone()).unwrap();
+    for (index, id) in ids.iter().enumerate() {
+        let slot = ((b'A' + index as u8) as char).to_string();
+        act(
+            &db,
+            "interaction",
+            "stroke",
+            json!({"character":slot,"owner":id}),
+            100 + index as i64 * 5000,
+            0,
+        );
+        let events = storage::journal(&db, None).unwrap();
+        assert_eq!(events[0].1.event.payload["character"], slot);
+        assert_eq!(events[0].1.event.payload["owner"], *id);
+    }
+    let before = instance(&db, "interaction");
+    let requested = request(
+        &db,
+        "interaction",
+        "snack",
+        json!({"character":"H","owner":ids[7]}),
+    );
+    ids.swap(0, 7);
+    crate::characters::apply_roster(&db, ids).unwrap();
+    assert!(storage::execute(&db, &requested, 50_000, 0).is_err());
+    let after = instance(&db, "interaction");
+    assert_eq!(after.data, before.data);
+    assert_eq!(after.revision, before.revision);
+    assert_eq!(storage::journal(&db, None).unwrap().len(), 8);
 }
 
 #[test]

@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@fleetia/lagrange':
-        specifier: 0.2.2
-        version: 0.2.2(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: file:vendor/fleetia-lagrange-0.1.1.tgz
+        version: file:vendor/fleetia-lagrange-0.1.1.tgz(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@tauri-apps/api':
         specifier: ^2.11.1
         version: 2.11.1
@@ -435,8 +435,9 @@ packages:
       '@noble/hashes':
         optional: true
 
-  '@fleetia/lagrange@0.2.2':
-    resolution: {integrity: sha512-8vvsBKmw6N75V65kjJgiMzXeMp6W74X/ankoc96Ax6JOp/EuVq9J16KTYirrEyRuDuPGNe3b5fjkIdHclpbG4A==, tarball: https://npm.pkg.github.com/download/@fleetia/lagrange/0.2.2/cb3246a56fec91b85847e6e6449e06fcdd535186}
+  '@fleetia/lagrange@file:vendor/fleetia-lagrange-0.1.1.tgz':
+    resolution: {integrity: sha512-eTkYkSV/Bhh1koDlNzwA/R4pqHybg1s7+flxTQkonj/LDKhejt9Byzb8OkJSW3zRazJA2is4ne/4H8uq32pEVw==, tarball: file:vendor/fleetia-lagrange-0.1.1.tgz}
+    version: 0.1.1
     engines: {node: '>=22.14.0'}
     peerDependencies:
       react: '>=18.2.0 <20'
@@ -2129,7 +2130,7 @@ snapshots:
 
   '@exodus/bytes@1.15.1': {}
 
-  '@fleetia/lagrange@0.2.2(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@fleetia/lagrange@file:vendor/fleetia-lagrange-0.1.1.tgz(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       clsx: 2.1.1
       react: 19.3.0

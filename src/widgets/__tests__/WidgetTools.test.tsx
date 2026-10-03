@@ -65,6 +65,30 @@ it.each(["completion-jar", "device", "guessing", "fishing", "plant", "pet"])(
   },
 );
 
+it.each(["weather", "music", "preparation"])(
+  "opens the existing settings flow from the %s tool",
+  async (kind) => {
+    vi.mocked(useWidgets).mockReturnValue({
+      snapshot: { ...PREVIEW_WIDGETS, widgets: [widget(kind, { configured: false })] },
+      error: null,
+      reload: vi.fn(),
+    });
+    render(<WidgetTool id={kind} />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: kind === "preparation" ? "캘린더 연결 설정" : "위젯 설정 열기",
+      }),
+    );
+    await waitFor(() => {
+      if (kind === "preparation") {
+        expect(command).toHaveBeenCalledWith("open_planner_settings", { kind: "calendar" });
+      } else {
+        expect(command).toHaveBeenCalledWith("open_widgets");
+      }
+    });
+    expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
+  },
+);
 it("keeps local dates separate from datetime and shows retained settings after saving", async () => {
   render(
     <TodoTool
@@ -174,8 +198,8 @@ it("locks collection footer cleanup and item actions together while clearing", a
       ...PREVIEW_WIDGETS,
       widgets: [
         widget("collection", {
-          items: [{ itemId: "sock", name: "양말", quantity: 1 }],
-          decorations: [],
+          items: [{ itemId: "sock", name: "양말", quantity: 2 }],
+          decorations: [{ id: 1, itemId: "sock", x: 50, y: 50 }],
         }),
       ],
     },
@@ -392,6 +416,8 @@ it("shows only the one friend living on the desktop as an interaction target", (
 });
 it("does not point new users to retired fishing in an empty collection", () => {
   render(<ToyTool widget={widget("collection", { items: [], decorations: [] })} act={act} />);
-  expect(screen.getByText("모은 물건이 없어요. 지금은 새로 물건을 얻는 놀이가 없어요.")).toBeTruthy();
+  expect(
+    screen.getByText("모은 물건이 없어요. 지금은 새로 물건을 얻는 놀이가 없어요."),
+  ).toBeTruthy();
   expect(screen.queryByText(/낚시/)).toBeNull();
 });

@@ -22,6 +22,7 @@ pub(crate) fn publish_widgets(app: &tauri::AppHandle, state: &AppState) {
         }
     }
     crate::desktop_menu::refresh(app);
+    crate::widget_runtime::refresh(app);
 }
 
 /// Keeps idle chatter deferred for the whole focus run, so it never fires right after the timer ends.
@@ -572,8 +573,11 @@ async fn open_widget_inner(
     }
     let label = format!("widget-{id}");
     if let Some(window) = app.get_webview_window(&label) {
+        window.unminimize().map_err(|error| error.to_string())?;
         window.show().map_err(|error| error.to_string())?;
-        return window.set_focus().map_err(|error| error.to_string());
+        window.set_focus().map_err(|error| error.to_string())?;
+        crate::widget_runtime::refresh(&app);
+        return Ok(());
     }
     tauri::WebviewWindowBuilder::new(
         app,
@@ -601,6 +605,7 @@ async fn open_widget_inner(
     .maximizable(false)
     .build()
     .map_err(|error| error.to_string())?;
+    crate::widget_runtime::refresh(&app);
     Ok(())
 }
 
@@ -635,10 +640,13 @@ pub(crate) async fn open_widget_display(
     uuid::Uuid::parse_str(&id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
     let label = format!("widget-display-{id}");
     if let Some(window) = app.get_webview_window(&label) {
-        return reveal_widget_display(&state, &id, instance.revision, || {
+        let result = reveal_widget_display(&state, &id, instance.revision, || {
+            window.unminimize().map_err(|error| error.to_string())?;
             window.show().map_err(|error| error.to_string())?;
             window.set_focus().map_err(|error| error.to_string())
         });
+        crate::widget_runtime::refresh(&app);
+        return result;
     }
     // Building waits for the UI thread, so keep it outside the lifecycle lock and hidden.
     let window = tauri::WebviewWindowBuilder::new(
@@ -670,6 +678,7 @@ pub(crate) async fn open_widget_display(
     if result.is_err() {
         let _ = window.destroy();
     }
+    crate::widget_runtime::refresh(&app);
     result
 }
 
@@ -679,6 +688,7 @@ pub(crate) fn close_widget(app: tauri::AppHandle, id: String) -> Result<(), Stri
     if let Some(window) = app.get_webview_window(&format!("widget-{id}")) {
         window.destroy().map_err(|error| error.to_string())?;
     }
+    crate::widget_runtime::refresh(&app);
     Ok(())
 }
 
@@ -688,6 +698,7 @@ pub(crate) fn close_widget_display(app: tauri::AppHandle, id: String) -> Result<
     if let Some(window) = app.get_webview_window(&format!("widget-display-{id}")) {
         window.destroy().map_err(|error| error.to_string())?;
     }
+    crate::widget_runtime::refresh(&app);
     Ok(())
 }
 

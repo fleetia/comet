@@ -1,5 +1,5 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
+import { semanticVars as vars, componentVars } from "@fleetia/lagrange/theme";
 
 export const window = style({
   height: "auto",
@@ -68,8 +68,8 @@ export const result = style({
   borderRadius: 4,
   selectors: {
     '&[aria-selected="true"]': {
-      background: vars.color.selection.surface,
-      color: vars.color.content.accent,
+      background: componentVars.navigation.selectedSurface,
+      color: componentVars.navigation.selectedText,
     },
     '&[aria-disabled="true"]': { cursor: "default" },
   },
@@ -100,6 +100,9 @@ export const detail = style({
   overflow: "hidden",
   whiteSpace: "nowrap",
   textOverflow: "ellipsis",
+});
+globalStyle(`${result}[aria-selected="true"] ${detail}`, {
+  color: componentVars.navigation.selectedText,
 });
 export const preview = style({
   flexShrink: 0,

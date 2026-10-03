@@ -101,3 +101,31 @@ it("creates an enabled entry with idle off and deletes only the selected entry",
   await waitFor(() => expect(screen.queryByRole("button", { name: "작별" })).toBeNull());
   expect(screen.getByRole("button", { name: "인사" })).toBeTruthy();
 });
+
+it("cancels only the selected entry to its latest saved baseline and retains other drafts", () => {
+  const { rerender } = render(<WordbookPanel entries={[FIRST, SECOND]} />);
+  fireEvent.change(screen.getByLabelText("대사 1"), { target: { value: "미저장 인사" } });
+  fireEvent.click(screen.getByRole("button", { name: "작별" }));
+  fireEvent.change(screen.getByLabelText("대사 1"), { target: { value: "미저장 작별" } });
+  const latest = { ...FIRST, lines: [{ ...FIRST.lines[0], text: "최근 저장된 인사" }] };
+  rerender(<WordbookPanel entries={[latest, SECOND]} />);
+  fireEvent.click(screen.getByRole("button", { name: "인사 · 미저장" }));
+  fireEvent.click(screen.getByRole("button", { name: "수정 취소" }));
+  expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "최근 저장된 인사");
+  fireEvent.click(screen.getByRole("button", { name: "작별 · 미저장" }));
+  expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "미저장 작별");
+  expect(command).not.toHaveBeenCalled();
+});
+
+it("discards only a new unsaved entry and returns to the existing dirty entry", () => {
+  render(<WordbookPanel entries={[FIRST]} />);
+  fireEvent.change(screen.getByLabelText("대사 1"), { target: { value: "먼저 편집한 인사" } });
+  fireEvent.click(screen.getByRole("button", { name: "새 항목 만들기" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "제목" }), {
+    target: { value: "버릴 새 항목" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "수정 취소" }));
+  expect(screen.queryByRole("button", { name: /버릴 새 항목/ })).toBeNull();
+  expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "먼저 편집한 인사");
+  expect(command).not.toHaveBeenCalled();
+});

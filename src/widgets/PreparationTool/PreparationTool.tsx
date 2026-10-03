@@ -124,7 +124,7 @@ function Envelope({
     : [];
   return (
     <section className={s.item}>
-      <h2>{text(envelope.eventLabel)}</h2>
+      <h2 className={s.sectionTitle}>{text(envelope.eventLabel)}</h2>
       {connectionMessage && (
         <p className={c.quiet} role="status">
           {connectionMessage}
@@ -147,6 +147,7 @@ function Envelope({
         </div>
       ))}
       <form
+        className={s.composer}
         onSubmit={async (e) => {
           e.preventDefault();
           if (await act("check-add", { id, text: check })) {

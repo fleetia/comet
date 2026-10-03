@@ -17,7 +17,11 @@ export function PlannerTemplates({ act, busy }: { act: ToolAction; busy: boolean
     setSaved(false);
   }
   return (
-    <fieldset disabled={busy} className={s.form} style={{border: 0, padding: 0, margin: 0, minWidth: 0}}>
+    <fieldset
+      disabled={busy}
+      className={s.form}
+      style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
+    >
       <p className={s.caption}>필요한 항목과 주기를 골라 내 할 일에 추가하세요.</p>
       <div className={s.templateLayout}>
         <nav className={s.category} aria-label="템플릿 종류">
@@ -75,61 +79,63 @@ export function PlannerTemplates({ act, busy }: { act: ToolAction; busy: boolean
               />
             </FormField>
           )}
-          <table className={s.table}>
-            <thead>
-              <tr>
-                <th>추가할 할 일</th>
-                <th>반복</th>
-                <th>첫 날짜</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item, index) => (
-                <tr key={`${selected.id}-${index}`}>
-                  <td>
-                    <Checkbox
-                      checked={checked.includes(index)}
-                      onChange={(e) => {
-                        setChecked((old) =>
-                          e.target.checked ? [...old, index] : old.filter((i) => i !== index),
-                        );
-                        setSaved(false);
-                      }}
-                    >
-                      {text(item.title)}
-                    </Checkbox>
-                  </td>
-                  <td>
-                    <Select
-                      aria-label={`${text(item.title)} 반복`}
-                      value={item.repeatRule ? "suggested" : "none"}
-                      onChange={(e) =>
-                        patch(index, {
-                          repeatRule:
-                            e.target.value === "none" ? null : selected.items[index].repeatRule,
-                        })
-                      }
-                    >
-                      {selected.items[index].repeatRule && (
-                        <option value="suggested">
-                          {repeatLabel({ repeatRule: selected.items[index].repeatRule })}
-                        </option>
-                      )}
-                      <option value="none">없음</option>
-                    </Select>
-                  </td>
-                  <td>
-                    <DateField
-                      required
-                      aria-label={`${text(item.title)} 첫 날짜`}
-                      value={text(item.dueDate)}
-                      onChange={(e) => patch(index, { dueDate: e.target.value })}
-                    />
-                  </td>
+          <div className={s.tableScroll}>
+            <table className={s.table}>
+              <thead>
+                <tr>
+                  <th>추가할 할 일</th>
+                  <th>반복</th>
+                  <th>첫 날짜</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {items.map((item, index) => (
+                  <tr key={`${selected.id}-${index}`}>
+                    <td>
+                      <Checkbox
+                        checked={checked.includes(index)}
+                        onChange={(e) => {
+                          setChecked((old) =>
+                            e.target.checked ? [...old, index] : old.filter((i) => i !== index),
+                          );
+                          setSaved(false);
+                        }}
+                      >
+                        {text(item.title)}
+                      </Checkbox>
+                    </td>
+                    <td>
+                      <Select
+                        aria-label={`${text(item.title)} 반복`}
+                        value={item.repeatRule ? "suggested" : "none"}
+                        onChange={(e) =>
+                          patch(index, {
+                            repeatRule:
+                              e.target.value === "none" ? null : selected.items[index].repeatRule,
+                          })
+                        }
+                      >
+                        {selected.items[index].repeatRule && (
+                          <option value="suggested">
+                            {repeatLabel({ repeatRule: selected.items[index].repeatRule })}
+                          </option>
+                        )}
+                        <option value="none">없음</option>
+                      </Select>
+                    </td>
+                    <td>
+                      <DateField
+                        required
+                        aria-label={`${text(item.title)} 첫 날짜`}
+                        value={text(item.dueDate)}
+                        onChange={(e) => patch(index, { dueDate: e.target.value })}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <div className={s.actions}>
             <span className={s.caption}>목록 · {selected.title}</span>
             <FormField label="계획 기간" className={s.field}>

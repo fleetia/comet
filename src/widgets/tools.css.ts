@@ -1,5 +1,5 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
+import { semanticVars as vars, componentVars } from "@fleetia/lagrange/theme";
 import * as common from "../lagrange.css";
 export const host = style({
   maxWidth: 760,
@@ -27,8 +27,16 @@ export const body = style({
   margin: 0,
   minWidth: 0,
 });
-export const musicContent = style({ display: "flex", flexDirection: "column", overflow: "hidden" });
-export const musicBody = style([body, { flex: 1, minHeight: 0 }]);
+export const musicContent = style({
+  display: "flex",
+  flexDirection: "column",
+  overflow: "hidden",
+  "@media": { "(max-height: 440px)": { overflowY: "auto" } },
+});
+export const musicBody = style([
+  body,
+  { flex: 1, minHeight: 0, "@media": { "(max-height: 440px)": { flex: "none" } } },
+]);
 export const row = style({
   display: "flex",
   gap: vars.space.sm,
@@ -68,11 +76,18 @@ export const token = style({
   lineHeight: 1,
   background: "transparent",
   border: 0,
-  padding: 4,
+  padding: vars.space.xs,
   transition: "left 500ms linear, top 500ms linear",
   selectors: {
     "&:focus-visible": { outline: `2px solid ${vars.color.interaction.focus}`, outlineOffset: 2 },
-    '&[aria-pressed="true"]': { background: vars.color.selection.surface },
+    '&[aria-pressed="true"]': {
+      background: componentVars.navigation.selectedSurface,
+      color: componentVars.navigation.selectedText,
+    },
+    '&[aria-pressed="true"]:focus-visible': {
+      outlineColor: componentVars.navigation.selectedText,
+      outlineOffset: -2,
+    },
   },
   "@media": { "(prefers-reduced-motion: reduce)": { transition: "none" } },
 });
@@ -92,6 +107,31 @@ export const prose = style({
   overflowWrap: "anywhere",
   lineHeight: vars.typography.lineHeight.body,
 });
+
+export const jarSummary = style({
+  display: "grid",
+  gap: vars.space.sm,
+  padding: vars.space.lg,
+  textAlign: "center",
+  background: vars.color.surface.raised,
+  borderRadius: vars.shape.radius.subtle,
+});
+export const jarCount = style([number, { padding: 0 }]);
+export const marbles = style({
+  display: "flex",
+  flexWrap: "wrap",
+  justifyContent: "center",
+  alignItems: "center",
+  gap: vars.space.sm,
+  minHeight: vars.dimension.control,
+});
+export const marble = style({
+  width: vars.space.lg,
+  height: vars.space.lg,
+  borderRadius: "50%",
+  background: vars.color.content.accent,
+});
+export const completedList = style({ listStyle: "none", padding: 0, margin: 0 });
 
 export const data = style({
   fontFamily: vars.typography.family.data,
@@ -119,21 +159,29 @@ export const filters = style({
   display: "flex",
   gap: vars.space.xs,
   flexWrap: "wrap",
-  borderBottom: `1px solid ${vars.color.border.subtle}`,
+  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
 });
 export const filterButton = style({
   padding: `${vars.space.xs} ${vars.space.sm}`,
   selectors: {
     '&[aria-pressed="true"]': {
-      color: vars.color.content.accent,
-      background: vars.color.selection.surface,
+      color: componentVars.navigation.selectedText,
+      background: componentVars.navigation.selectedSurface,
       boxShadow: `inset 0 -2px ${vars.color.selection.indicator}`,
+    },
+    '&[aria-pressed="true"]:hover:not(:disabled)': {
+      color: componentVars.navigation.selectedText,
+      background: componentVars.navigation.selectedSurface,
+    },
+    '&[aria-pressed="true"]:focus-visible': {
+      outlineColor: componentVars.navigation.selectedText,
+      outlineOffset: -3,
     },
   },
 });
 export const disclosure = style({
   paddingTop: vars.space.sm,
-  borderTop: `1px solid ${vars.color.border.subtle}`,
+  borderTop: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
 });
 export const optionSummary = style({
   display: "block",
@@ -156,3 +204,64 @@ globalStyle(`${host} button`, { maxWidth: "100%", whiteSpace: "normal", overflow
 globalStyle(`${body} > button`, { alignSelf: "flex-start" });
 globalStyle(`${host} input, ${host} select, ${host} textarea`, { minWidth: 0 });
 globalStyle(`${actions} > ${common.field}`, { flex: "1 1 140px", marginBottom: 0 });
+
+export const regionSearch = style({
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) 132px",
+  gap: vars.space.md,
+  alignItems: "end",
+  "@media": { "(max-width: 1000px)": { gridTemplateColumns: "minmax(0, 1fr) 96px" } },
+});
+
+export const regionResult = style({
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) 144px",
+  alignItems: "center",
+  gap: vars.space.md,
+  minHeight: 40,
+  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
+  "@media": { "(max-width: 1000px)": { gridTemplateColumns: "minmax(0, 1fr) 96px" } },
+});
+
+export const weatherHeading = style({ display: "grid", gap: vars.space.xs });
+export const weatherStatus = style({
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) auto",
+  gap: vars.space.lg,
+  alignItems: "center",
+  minHeight: 48,
+  paddingTop: vars.space.md,
+  borderTop: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
+  fontSize: vars.typography.size.label,
+  lineHeight: vars.typography.lineHeight.body,
+  "@media": { "(max-width: 1000px)": { gridTemplateColumns: "1fr", gap: vars.space.xs } },
+});
+export const weatherResults = style({
+  display: "grid",
+  gap: vars.space.xs,
+  padding: vars.space.md,
+  minHeight: 0,
+  maxHeight: 224,
+  overflowY: "auto",
+  overscrollBehavior: "contain",
+});
+export const observation = style({ display: "grid", gap: vars.space.md, minWidth: 0 });
+export const weatherReadings = style({
+  display: "grid",
+  gridTemplateColumns: "216fr 256fr 264fr",
+  gap: vars.space.lg,
+  alignItems: "center",
+  minHeight: 72,
+  fontSize: vars.typography.size.label,
+  lineHeight: vars.typography.lineHeight.body,
+  "@media": { "(max-width: 1000px)": { gridTemplateColumns: "1fr 1fr", gap: vars.space.md } },
+});
+export const weatherTemperature = style({
+  fontSize: vars.typography.size.headingMd,
+  fontWeight: 700,
+  lineHeight: vars.typography.lineHeight.tight,
+});
+export const observationSource = style({
+  paddingTop: vars.space.md,
+  borderTop: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
+});

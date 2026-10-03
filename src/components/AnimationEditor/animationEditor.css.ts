@@ -17,10 +17,8 @@ export const clipFields = style({
 export const preview = style({
   display: "grid",
   placeItems: "center",
-  minHeight: 132,
+  minHeight: 220,
   padding: vars.space.sm,
-  border: `1px dotted ${vars.color.border.subtle}`,
-  background: vars.color.surface.canvas,
 });
 export const frames = style({
   display: "flex",
@@ -33,23 +31,22 @@ export const frame = style({
   display: "grid",
   gap: vars.space.xs,
   padding: vars.space.xs,
-  border: `1px solid ${vars.color.border.subtle}`,
+  border: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
   selectors: {
     '&[data-selected="true"]': {
       borderColor: vars.color.selection.indicator,
-      background: vars.color.selection.surface,
     },
   },
 });
 export const fallback = style({ display: "grid", placeItems: "center" });
-export const frameActions = style({ display: "flex", gap: 2 });
+export const frameActions = style({ display: "flex", gap: vars.space.xxs });
 export const binding = style({
   display: "grid",
   gridTemplateColumns: "minmax(80px, 1fr) minmax(110px, 2fr)",
   gap: vars.space.sm,
   alignItems: "center",
   padding: `${vars.space.sm} 0`,
-  borderBottom: `1px dotted ${vars.color.border.subtle}`,
+  borderBottom: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
 });
 export const playback = style({
   gridColumn: "1 / -1",

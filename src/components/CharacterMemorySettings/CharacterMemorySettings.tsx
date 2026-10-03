@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, Dialog } from "@fleetia/lagrange";
+import { Button, Dialog, Surface } from "@fleetia/lagrange";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { InstalledCharacter } from "../../types";
+import { CharacterWorkPanel } from "../CharacterEditor/CharacterWorkPanel";
 import * as s from "../../lagrange.css";
+import * as layout from "./CharacterMemorySettings.css";
 
 export function CharacterMemorySettings({
   character,
@@ -68,34 +70,84 @@ export function CharacterMemorySettings({
     }
   }
   return (
-    <section aria-label="캐릭터 설정">
-      <h3 className={s.sectionTitle}>캐릭터 내보내기</h3>
-      <p className={s.quiet}>이 캐릭터와 함께 보낼 스프라이트·기억·친밀도·대화 기록을 선택해요.</p>
-      <Button
-        variant="secondary"
-        disabled={disabled || exportDisabled || pending}
-        onClick={onExport}
-      >
-        이 캐릭터 내보내기
-      </Button>
-      <section className={s.section}>
-        <h3 className={s.sectionTitle}>기억 잊기</h3>
-        <p className={s.quiet}>
-          이 캐릭터가 함께 지낸 모든 사람에 관한 기억을 잊어요. 대화 원문과 친밀도는 보존해요.
-        </p>
-        <Button
-          variant="quiet"
-          disabled={disabled || pending || memoryDirty || count === null || count === 0}
-          onClick={() => setConfirm(true)}
-        >
-          이 캐릭터의 기억 전체 잊기{count !== null ? ` (${count}개)` : ""}
-        </Button>
-        {memoryDirty && (
+    <section aria-label="캐릭터 설정" className={layout.workspace}>
+      <div className={layout.actions}>
+        <CharacterWorkPanel>
+          <h3 className={s.sectionTitle}>캐릭터 내보내기</h3>
+          <div className={layout.commandRow}>
+            <p>{character.definition.name}의 프로필·모습·등록 대사를 JSON 파일로 공유해요.</p>
+            <Button
+              variant="primary"
+              disabled={disabled || exportDisabled || pending}
+              onClick={onExport}
+            >
+              이 캐릭터 내보내기
+            </Button>
+          </div>
           <p className={s.quiet}>
-            편집 중인 기억을 저장하거나 취소한 뒤 전체 기억을 잊을 수 있어요.
+            저장된 내용을 내보내요. 기억·친밀도·대화 기록은 포함할 자료를 선택해요.
           </p>
-        )}
-      </section>
+          <section className={layout.boundary}>
+            <h3 className={s.sectionTitle}>기억 전체 잊기</h3>
+            <div className={layout.commandRow}>
+              <p>
+                {character.definition.name}의 기억 {count === null ? "확인 중" : `${count}개`}
+                <br />
+                모든 사용자에 대해 남긴 기억
+              </p>
+              <Button
+                variant="quiet"
+                disabled={disabled || pending || memoryDirty || count === null || count === 0}
+                onClick={() => setConfirm(true)}
+              >
+                이 캐릭터의 기억 전체 잊기{count !== null ? ` (${count}개)` : ""}
+              </Button>
+            </div>
+            <p className={s.quiet}>건수를 확인한 뒤 실행해요. 대화 원문과 친밀도는 유지돼요.</p>
+            {memoryDirty && (
+              <p className={s.quiet}>
+                편집 중인 기억을 저장하거나 취소한 뒤 전체 기억을 잊을 수 있어요.
+              </p>
+            )}
+          </section>
+        </CharacterWorkPanel>
+        <CharacterWorkPanel>
+          <h3 className={s.sectionTitle}>{character.definition.name}에 포함된 콘텐츠</h3>
+          <Surface tone="accent" padding="inline" className={layout.identity}>
+            <strong>{character.definition.name}</strong>
+            <span>보유 중 · 기억 {count === null ? "확인 중" : `${count}개`}</span>
+          </Surface>
+          <div className={layout.detailRow}>
+            <span className={s.quiet}>프로필</span>
+            <span>이름·소개·성격·지침</span>
+          </div>
+          <div className={layout.detailRow}>
+            <span className={s.quiet}>표현 자산</span>
+            <span>
+              표정 {Object.keys(character.definition.expressions).length}개 · 동작{" "}
+              {character.definition.animation?.clips.length ?? 0}개
+            </span>
+          </div>
+          <div className={layout.detailRow}>
+            <span className={s.quiet}>등록 대사</span>
+            <span>
+              인사 {character.definition.greeting.length}줄 · 수다{" "}
+              {character.definition.idleLines.length}줄 · 사건 반응{" "}
+              {character.definition.reactions?.length ?? 0}개
+            </span>
+          </div>
+          <div className={layout.detailRow}>
+            <span className={s.quiet}>공유 형식</span>
+            <span>UTF-8 JSON · 최대 32 MiB</span>
+          </div>
+          <Surface tone="inset" padding="compact">
+            <p className={s.quiet}>
+              스프라이트·기억·친밀도·대화 기록의 포함 여부는 내보낼 때 선택해요. API 키와 모델
+              파일은 포함하지 않아요.
+            </p>
+          </Surface>
+        </CharacterWorkPanel>
+      </div>
       {error && !confirm && (
         <div role="alert" className={s.error}>
           {error}

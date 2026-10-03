@@ -10,10 +10,11 @@ type Props = {
   mode: "playlists" | "queue";
   can: (action: string) => boolean;
   busy: boolean;
+  supportsEnqueue: boolean;
   request: (action: string, value?: WidgetValue) => Promise<WidgetValue | undefined>;
 };
 
-export function MusicLibrary({ mode, can, busy, request }: Props): ReactElement {
+export function MusicLibrary({ mode, can, busy, supportsEnqueue, request }: Props): ReactElement {
   const [items, setItems] = useState<DataRecord[] | null>(null);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [selected, setSelected] = useState<DataRecord | null>(null);
@@ -79,11 +80,11 @@ export function MusicLibrary({ mode, can, busy, request }: Props): ReactElement 
               >
                 재생
               </Button>
-              {can("enqueue") && (
+              {supportsEnqueue && (
                 <Button
                   size="compact"
                   variant="quiet"
-                  disabled={busy}
+                  disabled={busy || !can("enqueue")}
                   aria-label={`${text(item.title) || text(item.name)} 큐에 추가`}
                   onClick={() => void request("enqueue", { uri: text(item.uri) })}
                 >

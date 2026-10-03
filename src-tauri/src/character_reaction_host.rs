@@ -616,7 +616,7 @@ pub(crate) fn widget_character(
             .iter()
             .find(|member| member.id == touched)
             .or_else(|| {
-                characters::slot_index(touched)
+                characters::slot_index(&touched.to_ascii_lowercase())
                     .ok()
                     .and_then(|index| members.get(index))
             })

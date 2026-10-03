@@ -113,7 +113,7 @@ it("keeps character memory drafts independent and scopes edits and forgetting wi
 
 it("requires counted confirmation to forget one character and opens individual export from its settings", async () => {
   render(<CharacterManager snapshot={PREVIEW_SNAPSHOT} />);
-  characterTab("설정");
+  characterTab("관리");
   const forget = await screen.findByRole("button", { name: "이 캐릭터의 기억 전체 잊기 (1개)" });
   fireEvent.click(forget);
   expect(screen.getByRole("dialog").textContent).toContain("A의 기억 1개");
@@ -163,7 +163,7 @@ it("offers independent export choices and presets reset private flags while pres
 
 it("registers a trimmed name, leaves same-name changes alone, and explicitly confirms a new relationship", async () => {
   const { rerender } = render(<UserSettings snapshot={{ ...PREVIEW_SNAPSHOT, user: null }} />);
-  fireEvent.change(screen.getByLabelText("유저명"), { target: { value: "  민수  " } });
+  fireEvent.change(screen.getByLabelText("캐릭터가 부를 이름"), { target: { value: "  민수  " } });
   fireEvent.click(screen.getByRole("button", { name: "이름 저장" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("set_user_name", { name: "민수" }));
   rerender(
@@ -174,16 +174,16 @@ it("registers a trimmed name, leaves same-name changes alone, and explicitly con
       }}
     />,
   );
-  fireEvent.change(screen.getByLabelText("유저명"), { target: { value: "민수 " } });
+  fireEvent.change(screen.getByLabelText("캐릭터가 부를 이름"), { target: { value: "민수 " } });
   expect(screen.getByRole("button", { name: "이름 변경" })).toHaveProperty("disabled", true);
-  fireEvent.change(screen.getByLabelText("유저명"), { target: { value: "지연" } });
+  fireEvent.change(screen.getByLabelText("캐릭터가 부를 이름"), { target: { value: "지연" } });
   fireEvent.click(screen.getByRole("button", { name: "이름 변경" }));
   expect(command).toHaveBeenCalledTimes(1);
   expect(screen.getByRole("dialog").textContent).toContain("스토리 진행은 처음부터 시작");
   fireEvent.click(screen.getByRole("button", { name: "이름 변경 확인" }));
   await waitFor(() => expect(command).toHaveBeenLastCalledWith("set_user_name", { name: "지연" }));
   await screen.findByText("이름을 저장했어요.");
-  fireEvent.change(screen.getByLabelText("유저명"), { target: { value: "민수" } });
+  fireEvent.change(screen.getByLabelText("캐릭터가 부를 이름"), { target: { value: "민수" } });
   fireEvent.click(screen.getByRole("button", { name: "이름 변경" }));
   fireEvent.click(screen.getByRole("button", { name: "이름 변경 확인" }));
   await waitFor(() => expect(command).toHaveBeenLastCalledWith("set_user_name", { name: "민수" }));
@@ -194,13 +194,13 @@ it("rejects blank and overlong names and preserves a failed registration draft",
   vi.mocked(command).mockRejectedValue(new Error("이름 저장 실패"));
   render(<UserSettings snapshot={{ ...PREVIEW_SNAPSHOT, user: null }} />);
   for (const name of ["  ", "가".repeat(41)]) {
-    fireEvent.change(screen.getByLabelText("유저명"), { target: { value: name } });
+    fireEvent.change(screen.getByLabelText("캐릭터가 부를 이름"), { target: { value: name } });
     expect(screen.getByRole("button", { name: "이름 저장" })).toHaveProperty("disabled", true);
   }
-  fireEvent.change(screen.getByLabelText("유저명"), { target: { value: "유저" } });
+  fireEvent.change(screen.getByLabelText("캐릭터가 부를 이름"), { target: { value: "유저" } });
   fireEvent.click(screen.getByRole("button", { name: "이름 저장" }));
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "이름 저장 실패");
-  expect(screen.getByLabelText("유저명")).toHaveProperty("value", "유저");
+  expect(screen.getByLabelText("캐릭터가 부를 이름")).toHaveProperty("value", "유저");
 });
 
 it("routes legacy memory destinations into the selected character and moves search settings to AI connection", async () => {
@@ -289,7 +289,7 @@ it("reads a character history page with the original name, keeping imported reco
 
 it("keeps failed rename and bulk-forget confirmations open with their errors visible for retry", async () => {
   const { unmount } = render(<UserSettings snapshot={PREVIEW_SNAPSHOT} />);
-  fireEvent.change(screen.getByLabelText("유저명"), { target: { value: "지연" } });
+  fireEvent.change(screen.getByLabelText("캐릭터가 부를 이름"), { target: { value: "지연" } });
   fireEvent.click(screen.getByRole("button", { name: "이름 변경" }));
   vi.mocked(command).mockRejectedValueOnce(new Error("변경 실패"));
   fireEvent.click(screen.getByRole("button", { name: "이름 변경 확인" }));
@@ -301,7 +301,7 @@ it("keeps failed rename and bulk-forget confirmations open with their errors vis
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   unmount();
   render(<CharacterManager snapshot={PREVIEW_SNAPSHOT} />);
-  characterTab("설정");
+  characterTab("관리");
   fireEvent.click(await screen.findByRole("button", { name: "이 캐릭터의 기억 전체 잊기 (1개)" }));
   vi.mocked(command).mockRejectedValueOnce(new Error("잊기 실패"));
   fireEvent.click(screen.getByRole("button", { name: "전체 기억 잊기 확인" }));

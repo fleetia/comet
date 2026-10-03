@@ -173,11 +173,13 @@ export function PlannerPreparation({
           </p>
         )}
         {filteredPreparation && (
-          <PreparationTool
-            widget={filteredPreparation}
-            widgets={widgets}
-            act={(action, input) => save(action, input, preparation)}
-          />
+          <div className={s.form}>
+            <PreparationTool
+              widget={filteredPreparation}
+              widgets={widgets}
+              act={(action, input) => save(action, input, preparation)}
+            />
+          </div>
         )}
       </Dialog>
     </section>

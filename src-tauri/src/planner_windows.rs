@@ -18,8 +18,11 @@ pub(crate) fn open(app: &tauri::AppHandle, tab: &str) -> Result<(), String> {
     *latest = tab.to_string();
     if let Some(window) = app.get_webview_window("planner") {
         window.emit("planner-tab", tab).map_err(|e| e.to_string())?;
+        window.unminimize().map_err(|e| e.to_string())?;
         window.show().map_err(|e| e.to_string())?;
-        return window.set_focus().map_err(|e| e.to_string());
+        window.set_focus().map_err(|e| e.to_string())?;
+        crate::widget_runtime::refresh(app);
+        return Ok(());
     }
     tauri::WebviewWindowBuilder::new(
         app,
@@ -32,6 +35,7 @@ pub(crate) fn open(app: &tauri::AppHandle, tab: &str) -> Result<(), String> {
     .decorations(false)
     .build()
     .map_err(|e| e.to_string())?;
+    crate::widget_runtime::refresh(app);
     Ok(())
 }
 

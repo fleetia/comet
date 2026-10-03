@@ -486,6 +486,21 @@ pub fn execute(db: &Connection, request: &WidgetRequest, now: i64, entropy: u64)
             "다른 화면에서 위젯이 변경됐어요. 최신 상태를 확인하고 다시 시도해 주세요.".into(),
         );
     }
+    if instance.kind == "interaction"
+        && matches!(request.action.as_str(), "stroke" | "poke" | "snack")
+    {
+        let slot = request.input["character"]
+            .as_str()
+            .filter(|slot| matches!(*slot, "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H"))
+            .ok_or("함께 지내는 캐릭터를 골라 주세요.")?;
+        let character = crate::characters::active_character(&tx, &slot.to_ascii_lowercase())?;
+        if request.input["owner"]
+            .as_str()
+            .is_some_and(|owner| owner != character.id)
+        {
+            return Err("함께 지내는 캐릭터가 바뀌었어요. 다시 골라 주세요.".into());
+        }
+    }
     let related = active_data(&tx)?;
     if instance.kind == "preparation" && request.action == "create" {
         let id = request.input["eventId"]

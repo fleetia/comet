@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, Checkbox, Dialog, Select, TextField } from "@fleetia/lagrange";
+import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
+import { Button, Checkbox, Dialog, Select, TextField, Surface } from "@fleetia/lagrange";
 import { command, errorText } from "../../hooks/useSnapshot";
 import type {
   CharacterExportOptions,
@@ -16,6 +16,7 @@ type Attribution = { author: string; sourceUrl: string };
 type AttributionDraft = { saved: Attribution; draft: Attribution };
 
 type Props = {
+  children?: (summary: ReactNode) => ReactNode;
   snapshot: Snapshot;
   selectedId: string | null;
   disabled: boolean;
@@ -27,6 +28,7 @@ type Props = {
   exportScope?: "selected" | "pair";
 };
 export function CharacterSharing({
+  children,
   snapshot,
   selectedId,
   disabled,
@@ -454,26 +456,37 @@ export function CharacterSharing({
   if (full) {
     return content;
   }
-  return (
-    <>
-      <div className={s.attributionSummary}>
-        <span>팩 정보</span>
-        <span className={`${s.small} ${s.lineSummary}`}>
-          {packId
-            ? `${author || "제작자 미등록"}${currentAttributionDirty ? " · 미저장" : ""}`
-            : "직접 만든 캐릭터"}
-        </span>
+  const summary = (
+    <Surface aria-label="캐릭터팩 출처">
+      <div className={s.sourceHeading}>
+        <h3 className={s.subheading}>캐릭터팩 출처</h3>
         <Button
-          variant="secondary"
+          variant="quiet"
           size="compact"
           disabled={!packId || disabled}
           onClick={() => onActionChange?.("attribution")}
         >
           정보·출처 편집
         </Button>
-        <span>출처</span>
-        <span className={`${s.small} ${s.lineSummary}`}>{sourceUrl || "등록된 출처 없음"}</span>
       </div>
+      <div className={s.sourceDetail}>
+        <span className={s.small}>작성자</span>
+        <span>
+          {packId
+            ? `${author || "제작자 미등록"}${currentAttributionDirty ? " · 미저장" : ""}`
+            : "직접 만든 캐릭터"}
+        </span>
+      </div>
+      <div className={s.sourceDetail}>
+        <span className={s.small}>출처 URL</span>
+        <span>{sourceUrl || "등록된 출처 없음"}</span>
+      </div>
+      <p className={s.small}>작성자와 URL은 이 팩에 함께 적용돼요.</p>
+    </Surface>
+  );
+  return (
+    <>
+      {children ? children(summary) : summary}
       <Dialog
         closeLabel="닫기"
         isOpen={action !== null}

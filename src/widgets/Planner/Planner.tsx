@@ -854,6 +854,7 @@ export function Planner(): ReactElement {
         isOpen={confirmClose}
         title="작성 중인 내용이 있어요"
         size="small"
+        closeLabel="플래너 종료 확인 닫기"
         onOpenChange={setConfirmClose}
       >
         <p>저장하지 않은 내용을 버리고 플래너를 닫을까요?</p>
@@ -898,6 +899,7 @@ function ListManager({
       isOpen
       title="목록 관리"
       size="small"
+      closeLabel="목록 관리 닫기"
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
@@ -916,6 +918,7 @@ function ListManager({
           }}
         >
           <TextField
+            className={s.grow}
             aria-label="새 목록 이름"
             required
             maxLength={100}
@@ -939,6 +942,7 @@ function ListManager({
             }}
           >
             <TextField
+              className={s.grow}
               aria-label={`${text(list.name)} 이름`}
               required
               maxLength={100}

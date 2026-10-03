@@ -1,5 +1,5 @@
 import { style } from "@vanilla-extract/css";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
+import { semanticVars as vars, vnextVars } from "@fleetia/lagrange/theme";
 
 export const frame = style({
   position: "relative",
@@ -11,7 +11,7 @@ export const frame = style({
   backgroundRepeat: "no-repeat",
   backgroundSize: "cover",
   border: "1px solid rgba(255, 255, 255, 0.25)",
-  borderRadius: 18,
+  borderRadius: vnextVars.radius.parent,
   overflow: "hidden",
   boxShadow: "0 14px 36px rgba(0, 0, 0, 0.2)",
   textShadow: "0 1px 10px rgba(0, 0, 0, 0.32)",
@@ -31,11 +31,17 @@ export const content = style({
   display: "grid",
   gap: vars.space.sm,
   maxWidth: "88%",
+  minWidth: 0,
+  maxHeight: "100%",
+  overflowY: "auto",
+  overscrollBehavior: "contain",
+  overflowWrap: "anywhere",
   padding: `${vars.space.sm} ${vars.space.md}`,
   background: "rgba(0, 0, 0, 0.24)",
   borderRadius: vars.shape.radius.subtle,
   fontFamily: vars.typography.family.display,
   lineHeight: vars.typography.lineHeight.compact,
+  ":focus-visible": { outline: "2px solid currentColor", outlineOffset: 2 },
 });
 export const list = style({
   display: "grid",
@@ -61,6 +67,13 @@ export const error = style({
   right: vars.space.md,
   bottom: vars.space.sm,
   left: vars.space.md,
+  maxHeight: "40%",
+  overflowY: "auto",
+  overflowWrap: "anywhere",
+  padding: vars.space.sm,
+  background: vars.color.status.criticalSurface,
+  color: vars.color.status.critical,
+  borderRadius: vars.shape.radius.subtle,
   fontFamily: vars.typography.family.ui,
   fontSize: vars.typography.size.caption,
 });

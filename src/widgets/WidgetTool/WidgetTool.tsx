@@ -145,6 +145,15 @@ export function WidgetTool({
         break;
       case "preparation":
         content = <PreparationTool {...props} />;
+        footer = (
+          <Button
+            variant="secondary"
+            disabled={busy}
+            onClick={() => void run(() => command("open_planner_settings", { kind: "calendar" }))}
+          >
+            캘린더 연결 설정
+          </Button>
+        );
         break;
       case "journal":
         content = <JournalTool widget={widget} />;
@@ -153,18 +162,30 @@ export function WidgetTool({
         const completed = rows(record(widget.data).completed);
         content = (
           <>
-            <p className={s.number} aria-label="완료 구슬 수">
-              {completed.length}
-            </p>
-            <div className={s.row} aria-hidden="true">
-              {completed.slice(0, 100).map((item) => (
-                <span key={text(item.id)}>●</span>
-              ))}
-            </div>
+            <section className={s.jarSummary} aria-label="모은 구슬">
+              <p className={s.status}>모은 구슬</p>
+              <p className={s.jarCount} aria-label="완료 구슬 수">
+                {completed.length}
+              </p>
+              <div className={s.marbles} aria-hidden="true">
+                {completed.slice(0, 100).map((item) => (
+                  <span className={s.marble} key={text(item.id)} />
+                ))}
+              </div>
+            </section>
             {completed.length === 0 && <p>할 일을 직접 완료하면 구슬이 모여요.</p>}
-            {completed.map((item) => (
-              <p key={text(item.id)}>{text(item.title)}</p>
-            ))}
+            {completed.length > 0 && (
+              <section className={s.section}>
+                <h2 className={s.sectionTitle}>완료한 할 일</h2>
+                <ul className={s.completedList} role="list">
+                  {completed.map((item) => (
+                    <li className={s.item} key={text(item.id)}>
+                      {text(item.title)}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
           </>
         );
         break;
@@ -176,6 +197,15 @@ export function WidgetTool({
       case "music":
       case "device":
         content = <ConnectionTool widget={widget} />;
+        footer = (
+          <Button
+            variant="secondary"
+            disabled={busy}
+            onClick={() => void run(() => command("open_widgets"))}
+          >
+            위젯 설정 열기
+          </Button>
+        );
         break;
       default:
         content = <ToyTool {...props} characters={characters} />;
@@ -205,7 +235,7 @@ export function WidgetTool({
             <Button
               variant="secondary"
               size="compact"
-              disabled={busy}
+              disabled={busy || rows(record(widget.data).decorations).length === 0}
               onClick={() => void act("clear")}
             >
               소품 모두 넣기

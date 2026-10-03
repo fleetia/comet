@@ -5,6 +5,11 @@ import { WidgetDisplay } from "../WidgetDisplay/WidgetDisplay";
 import { PREVIEW_WIDGETS, useWidgets } from "../useWidgets";
 import type { WidgetValue, WidgetView } from "../types";
 
+const startDragging = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ startDragging }),
+}));
+
 vi.mock("../useWidgets", async (load) => ({
   ...(await load<typeof import("../useWidgets")>()),
   useWidgets: vi.fn(),
@@ -37,6 +42,7 @@ function snapshot(entry: WidgetView): ReturnType<typeof useWidgets>["snapshot"] 
 }
 
 beforeEach(() => {
+  startDragging.mockClear();
   vi.mocked(command).mockReset();
   vi.mocked(command).mockResolvedValue(undefined);
   vi.mocked(isDesktop).mockReturnValue(true);
@@ -122,4 +128,38 @@ it.each([
   });
   render(<WidgetDisplay id={kind} />);
   expect(screen.getByText(expected)).toBeTruthy();
+});
+
+it("keeps a missing weather condition unknown and gives overflow content its own scroll target", () => {
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: snapshot(
+      widget("weather", {
+        configured: true,
+        status: "ready",
+        observation: { name: "서울", temperature: 21.5, temperatureUnit: "°C" },
+      }),
+    ),
+    error: null,
+    reload: vi.fn(),
+  });
+  render(<WidgetDisplay id="weather" />);
+  expect(screen.getByText("상태 확인 불가")).toBeTruthy();
+  expect(screen.queryByText("맑음")).toBeNull();
+  const content = screen.getByRole("region", { name: "위젯 표시 내용" });
+  expect(content.tabIndex).toBe(0);
+  const main = screen.getByRole("main");
+  function moveContent(): void {
+    fireEvent(content, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 0 }));
+    fireEvent(main, new MouseEvent("pointermove", { bubbles: true, buttons: 1, clientX: 20 }));
+    fireEvent(main, new MouseEvent("pointerup", { bubbles: true }));
+  }
+  Object.defineProperties(content, {
+    scrollHeight: { configurable: true, value: 300 },
+    clientHeight: { configurable: true, value: 120 },
+  });
+  moveContent();
+  expect(startDragging).not.toHaveBeenCalled();
+  Object.defineProperty(content, "clientHeight", { value: 300 });
+  moveContent();
+  expect(startDragging).toHaveBeenCalledTimes(1);
 });
