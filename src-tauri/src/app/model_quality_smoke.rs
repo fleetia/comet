@@ -56,6 +56,11 @@ async fn sample(
     case: Sample<'_>,
     reports: &mut Vec<Value>,
 ) -> Result<(), String> {
+    if std::env::var("COMET_QA_CASE")
+        .is_ok_and(|names| !names.split(',').any(|name| name == case.name))
+    {
+        return Ok(());
+    }
     {
         let db = lock(&state.db)?;
         let target = if case.targets.len() == 2 {
@@ -311,7 +316,7 @@ async fn run_samples(state: &AppState, reports: &mut Vec<Value>) -> Result<(), S
 }
 
 #[tokio::test]
-#[ignore = "Actual app-path GGUF samples; set COMET_QA_MODEL, optionally COMET_QA_OUTPUT_DIR; no downloads"]
+#[ignore = "Actual app-path GGUF samples; set COMET_QA_MODEL; optional COMET_QA_OUTPUT_DIR, COMET_QA_CASE, COMET_QA_BINARIES; no downloads"]
 async fn actual_model_app_path_semantics_smoke() {
     let model = std::env::var("COMET_QA_MODEL").expect("COMET_QA_MODEL is required");
     let model = std::fs::canonicalize(model).expect("Use an existing GGUF file");
@@ -323,17 +328,19 @@ async fn actual_model_app_path_semantics_smoke() {
     let output_directory = output_root.join(uuid::Uuid::new_v4().to_string());
     std::fs::create_dir_all(&output_directory).unwrap();
     let output = output_directory.join("app-path-samples.json");
-    let binaries = Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries");
-    let executable = if cfg!(windows) {
-        "llama-server-x86_64-pc-windows-msvc.exe"
-    } else {
-        "llama-server-aarch64-apple-darwin"
-    };
+    let binaries = std::env::var_os("COMET_QA_BINARIES")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries"));
+    let executable = binaries.join(
+        crate::sidecar::development_executable("llama-server")
+            .file_name()
+            .expect("development sidecar has a file name"),
+    );
     let mut state = super::state();
     state.app_data = directory.path().into();
     state.inference = inference::Inference::new(
         directory.path().into(),
-        binaries.join(executable),
+        executable,
         binaries.join("runtime"),
     );
     state.nlp =
@@ -349,7 +356,9 @@ async fn actual_model_app_path_semantics_smoke() {
     let outcome = run_samples(&state, &mut reports).await;
     inference::stop_local(&state.inference).await;
     let running = inference::is_local_running(&state.inference, &settings).await;
-    let all_responses_parsed = reports.len() == 7
+    let expected_samples =
+        std::env::var("COMET_QA_CASE").map_or(7, |names| names.split(',').count());
+    let all_responses_parsed = reports.len() == expected_samples
         && reports
             .iter()
             .all(|report| report["result"].get("Ok").is_some());

@@ -4,15 +4,10 @@ import { tmpdir } from 'node:os';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { nlpTargets as targets, verifyArchive, isNlpLibrary, copyRuntimeFiles } from './native-runtime.mjs';
 
-const targets = {
-  'darwin-arm64': { triple: 'aarch64-apple-darwin', kiwi: ['kiwi_mac_arm64_v0.24.0.tgz', 41310974, '87eda17f319c371824d5a2cc2e497eda6327ba3ddbf08a018db967f61ddbe48d'],
-    ort: ['onnxruntime-osx-arm64-1.22.0.tgz', 25943843, 'cab6dcbd77e7ec775390e7b73a8939d45fec3379b017c7cb74f5b204c1a1cc07'] },
-  'win32-x64': { triple: 'x86_64-pc-windows-msvc', kiwi: ['kiwi_win_x64_v0.24.0.zip', 38138308, 'd876d04cfff71dd4042f6964e1b950378fcb306234ac0258c4020cd23d9c4204'],
-    ort: ['onnxruntime-win-x64-1.22.0.zip', 72368545, '174c616efc0271194488642a72f1a514e01487da4dfe84c49296d66e40ebe0da'] },
-};
 const target = targets[`${process.platform}-${process.arch}`];
-if (!target) throw new Error('NLP release targets are macOS arm64 and Windows x64.');
+if (!target) throw new Error('NLP release targets are macOS arm64, Windows x64, and Linux x64.');
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const binaries = join(root, 'src-tauri', 'binaries');
 const runtime = join(binaries, 'nlp-runtime');
@@ -33,7 +28,7 @@ async function archive(repo, release, descriptor) {
     if (!response.ok) throw new Error(`NLP runtime download failed: HTTP ${response.status}`);
     bytes = Buffer.from(await response.arrayBuffer());
   }
-  if (bytes.length !== size || createHash('sha256').update(bytes).digest('hex') !== sha) throw new Error(`NLP runtime integrity mismatch: ${name}`);
+  verifyArchive(bytes, name, size, sha);
   const path = join(temporary, name); await writeFile(path, bytes);
   const extracted = join(temporary, `${repo.split('/')[1]}-extracted`); await mkdir(extracted);
   execFileSync('tar', ['-xf', path, '-C', extracted], { stdio: 'inherit' });
@@ -63,8 +58,13 @@ try {
   const kiwiFiles = await archive('bab2min/Kiwi', 'v0.24.0', target.kiwi);
   const ortFiles = await archive('microsoft/onnxruntime', 'v1.22.0', target.ort);
   const stage = join(temporary, 'runtime'); await mkdir(stage);
-  const isLibrary = path => process.platform === 'win32' ? /\.dll$/i.test(path) : ['libkiwi.dylib','libonnxruntime.dylib'].includes(basename(path));
-  for (const file of [...kiwiFiles, ...ortFiles].filter(isLibrary)) await copyFile(file, join(stage, basename(file)));
+  const isLibrary = path => isNlpLibrary(basename(path), process.platform);
+  await copyRuntimeFiles([...kiwiFiles, ...ortFiles].filter(isLibrary), stage, process.platform);
+  if (process.platform === 'linux') {
+    for (const name of ['libkiwi.so', 'libonnxruntime.so']) {
+      if (!(await stat(join(stage, name))).isFile()) throw new Error(`Required NLP runtime missing: ${name}`);
+    }
+  }
   if (process.platform === 'win32') {
     const candidate = (await readdir(stage)).find(name => /^kiwi.*\.dll$/i.test(name));
     if (!candidate) throw new Error('Kiwi runtime DLL missing.');
@@ -96,7 +96,7 @@ try {
   await chmod(executable,0o755);
   // NLP has its own directory: prepare-sidecar's llama runtime cleanup cannot erase it.
   await rm(runtime,{recursive:true,force:true}); await mkdir(runtime,{recursive:true});
-  for (const file of await files(stage)) await copyFile(file,join(runtime,basename(file)));
+  await copyRuntimeFiles(await files(stage), runtime, process.platform);
   if (process.platform === 'darwin') {
     for (const file of (await files(runtime)).filter(isLibrary)) execFileSync('codesign',['--force','--sign','-',file]);
     execFileSync('codesign',['--force','--sign','-',executable]);

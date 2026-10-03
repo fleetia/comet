@@ -59,6 +59,7 @@ pub(crate) fn state() -> AppState {
         last_foreground: AtomicI64::new(0),
         last_scene: AtomicI64::new(0),
         next_idle: AtomicI64::new(0),
+        quiet_hours: Mutex::new(super::quiet_hours::Runtime::default()),
         last_preparation: AtomicI64::new(0),
         last_background_check: AtomicI64::new(0),
         idle_sequence: AtomicU64::new(0),
@@ -68,6 +69,7 @@ pub(crate) fn state() -> AppState {
         update_installing: AtomicBool::new(false),
         behavior: Mutex::new(behavior::Machine::default()),
         reactions: Mutex::new(crate::character_reaction_host::Runtime::default()),
+        animation_states: Mutex::new(crate::character_animation_states::Runtime::default()),
         positions: Mutex::new(HashMap::new()),
     }
 }
@@ -2230,6 +2232,12 @@ async fn pair_generation_uses_one_request_and_partial_retry_only_generates_the_m
         true,
     )
     .unwrap());
+    store::mark_message_displayed(
+        &lock(&state.db).unwrap(),
+        &reply_id(&user.id, "a"),
+        chrono::Utc::now().timestamp_millis(),
+    )
+    .unwrap();
     let retry = interrupt(&state, false).unwrap();
     assert!(!present_line(
         &state,
@@ -2529,7 +2537,7 @@ fn pair_prompt_rejects_questions_removed_from_active_contexts() {
 
 #[test]
 fn partial_retry_references_only_current_characters_completed_same_turn_reply() {
-    for scenario in ["complete", "incomplete", "other-turn", "swapped", "expired"] {
+    for scenario in ["complete", "unshown", "incomplete", "other-turn", "swapped", "expired"] {
         let db = store::open(std::path::Path::new(":memory:")).unwrap();
         use_neutral_characters(&db);
         let user = Message {
@@ -2564,6 +2572,9 @@ fn partial_retry_references_only_current_characters_completed_same_turn_reply() 
             .into(),
         };
         store::insert_message_with_source(&db, &reply, "llm", None, true).unwrap();
+        if scenario != "unshown" {
+            store::mark_message_displayed(&db, &reply.id, reply.created_at).unwrap();
+        }
         if scenario == "expired" {
             store::resume_conversation(&db, reply.created_at + 31 * 60 * 1000).unwrap();
         }

@@ -20,6 +20,7 @@ import {
   Tabs,
   TextField,
 } from "@fleetia/lagrange";
+import { QuietHoursSettings, quietHoursError } from "./QuietHoursSettings";
 import { version } from "../../../package.json";
 import type { Snapshot } from "../../types";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
@@ -101,7 +102,7 @@ function DraftActions({
           </Button>
         </Inline>
       </ActionBar>
-      {!valid && (
+      {!valid && !draft.validInterval && (
         <p className={s.error} role="alert">
           이야기 간격을 1~60분으로 입력해 주세요.
         </p>
@@ -305,6 +306,12 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                       </Button>
                     </SettingsRow>
                     <section className={styles.settingsSection}>
+                      <QuietHoursSettings
+                        value={automatic.settings.quietHours}
+                        onChange={(value) => automatic.change("quietHours", value)}
+                      />
+                    </section>
+                    <section className={styles.settingsSection}>
                       <div className={styles.headingRow}>
                         <h2 className={styles.sectionTitle}>새 잡담 생성</h2>
                         <span className={s.quiet}>AI</span>
@@ -364,7 +371,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                 <DraftActions
                   draft={automatic}
                   label="자동 대화"
-                  valid={automatic.validInterval}
+                  valid={automatic.validInterval && !quietHoursError(automatic.settings.quietHours)}
                   blocked={updateBusy}
                 />
               </Surface>

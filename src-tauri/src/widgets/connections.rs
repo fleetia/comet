@@ -1,10 +1,14 @@
 use super::appearance;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{process::Stdio, time::Duration};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use std::process::Stdio;
+use std::time::Duration;
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 const MAX_RESPONSE_BYTES: usize = 128 * 1024;
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 const MAX_COMMAND_BYTES: usize = 16 * 1024;
 
 #[derive(Debug, Clone)]
@@ -324,6 +328,7 @@ async fn weather(config: &WeatherConfig, now: i64) -> Result<Value, ConnectionEr
     parse_weather(value, config, now)
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 async fn read_bounded(reader: impl AsyncRead + Unpin) -> Result<Vec<u8>, ConnectionError> {
     let mut bytes = Vec::new();
     reader
@@ -337,6 +342,7 @@ async fn read_bounded(reader: impl AsyncRead + Unpin) -> Result<Vec<u8>, Connect
     Ok(bytes)
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 async fn run_read_command(program: &str, args: &[&str]) -> Result<String, ConnectionError> {
     let mut child = tokio::process::Command::new(program)
         .args(args)

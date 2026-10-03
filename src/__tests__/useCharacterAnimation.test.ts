@@ -280,3 +280,251 @@ it("uses static timing with reduced motion and cancels completion when hidden or
     expect(acknowledgements()).not.toContainEqual({ runId: flag, phase: "finished" });
   }
 });
+
+function directReply(): Snapshot {
+  return {
+    ...talking(),
+    panel: { persona: character.id, mode: "input" },
+    conversation: {
+      session: {
+        id: "session",
+        userId: snapshot.user!.id,
+        participants: [character.id],
+        status: "active",
+        title: "대화",
+        createdAt: 1,
+        updatedAt: 1,
+        draft: "",
+        continuedFrom: null,
+      },
+      messages: [],
+      nextBefore: null,
+    },
+  };
+}
+
+it("animates the actually displayed direct reply alongside input, including line motion overrides", () => {
+  const state = directReply();
+  state.playback!.source = "wordbook";
+  state.playback!.motion = { mode: "clip", clipId: "click", repeat: false, intervalMs: 0 };
+  const { result, rerender } = setup(state);
+  expect(result.current.frames).toBe(frameSets.get("click"));
+  act(() => vi.advanceTimersByTime(1000));
+  expect(result.current.frames).toBe(frameSets.get("talk"));
+  const staticReply = structuredClone(state);
+  staticReply.playback!.id = "static-reply";
+  staticReply.playback!.motion = { mode: "static" };
+  rerender({ state: staticReply, expression: "평온" });
+  expect(result.current.frames).toBeNull();
+  const inherited = structuredClone(staticReply);
+  inherited.playback!.id = "inherited-reply";
+  inherited.playback!.motion = { mode: "inherit" };
+  rerender({ state: inherited, expression: "기쁨" });
+  expect(result.current.frames).toBe(frameSets.get("happy"));
+});
+
+it("does not speak for input alone, preparation, a retained old answer, folded conversation or another speaker", () => {
+  const state = directReply();
+  const { result, rerender } = setup(state);
+  expect(result.current.frames).toBe(frameSets.get("talk"));
+  const variants: Snapshot[] = [
+    { ...state, playback: null },
+    { ...state, conversation: null },
+    { ...state, user: { ...state.user!, id: "next-user" } },
+    { ...state, playback: { ...state.playback!, displayStartedAt: null } },
+    { ...state, playback: { ...state.playback!, persona: "other-character" } },
+    {
+      ...state,
+      conversation: {
+        ...state.conversation!,
+        session: { ...state.conversation!.session, status: "paused" },
+      },
+    },
+    { ...state, panel: { persona: character.id, mode: "history" } },
+    { ...state, panel: { persona: character.id, mode: "menu" } },
+    { ...state, characters: { ...state.characters, active: [] } },
+  ];
+  for (const variant of variants) {
+    rerender({ state: variant, expression: "평온" });
+    expect(result.current.frames).toBe(frameSets.get("idle"));
+  }
+});
+
+it("keeps sustained states opt-in and prioritizes reaction, direct speech, calendar, music, then idle", () => {
+  const both = { ...snapshot, animationStates: { musicPlaying: true, calendarOpen: true } };
+  const { result, rerender } = setup(both);
+  expect(result.current.frames).toBe(frameSets.get("idle"));
+  character.definition.animation!.bindings.musicPlaying = {
+    clipId: "happy",
+    repeat: true,
+    intervalMs: 0,
+  };
+  character.definition.animation!.bindings.calendarOpen = {
+    clipId: "click",
+    repeat: true,
+    intervalMs: 0,
+  };
+  rerender({ state: structuredClone(both), expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("click"));
+  const speaking = { ...directReply(), animationStates: both.animationStates };
+  rerender({ state: speaking, expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("talk"));
+  rerender({
+    state: withReaction(speaking, { ...reaction("static-priority"), motion: { mode: "static" } }),
+    expression: "평온",
+  });
+  expect(result.current.frames).toBeNull();
+  const music = { ...both, animationStates: { musicPlaying: true, calendarOpen: false } };
+  rerender({ state: music, expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("happy"));
+  act(() => vi.advanceTimersByTime(500));
+  rerender({ state: structuredClone(music), expression: "평온" });
+  expect(result.current.frameIndex).toBe(1);
+  rerender({
+    state: { ...both, animationStates: { musicPlaying: false, calendarOpen: false } },
+    expression: "평온",
+  });
+  expect(result.current.frames).toBe(frameSets.get("idle"));
+  rerender({ state: music, expression: "평온" });
+  expect(result.current.frameIndex).toBe(0);
+  for (const flag of ["hidden", "paused"] as const) {
+    rerender({
+      state: { ...music, runtime: { ...music.runtime, [flag]: true } },
+      expression: "평온",
+    });
+    expect(result.current.frames).toBeNull();
+    expect(result.current.frameIndex).toBeNull();
+  }
+});
+
+it("does not substitute a sustained animation for unassigned speaking or explicit static speech", () => {
+  character.definition.animation!.bindings.speaking = null;
+  character.definition.animation!.bindings.musicPlaying = {
+    clipId: "happy",
+    repeat: true,
+    intervalMs: 0,
+  };
+  const state = { ...directReply(), animationStates: { musicPlaying: true, calendarOpen: false } };
+  const { result, rerender } = setup(state);
+  expect(result.current.frames).toBe(frameSets.get("idle"));
+  state.playback!.motion = { mode: "static" };
+  rerender({ state: structuredClone(state), expression: "평온" });
+  expect(result.current.frames).toBeNull();
+});
+
+function sustainedSnapshot(calendarOpen = false): Snapshot {
+  character.definition.animation!.bindings.musicPlaying = {
+    clipId: "happy",
+    repeat: false,
+    intervalMs: 0,
+  };
+  character.definition.animation!.bindings.calendarOpen = {
+    clipId: "click",
+    repeat: false,
+    intervalMs: 0,
+  };
+  return { ...snapshot, animationStates: { musicPlaying: true, calendarOpen } };
+}
+
+it("keeps common state timing across expression changes and never replays a completed activation", () => {
+  const state = sustainedSnapshot();
+  const { result, rerender } = setup(state);
+  const initialKey = result.current.key;
+  act(() => vi.advanceTimersByTime(500));
+  rerender({ state, expression: "기쁨" });
+  expect(result.current.key).toBe(initialKey);
+  expect(result.current.frameIndex).toBe(1);
+  act(() => vi.advanceTimersByTime(500));
+  expect(result.current.frameIndex).toBeNull();
+  rerender({ state, expression: "평온" });
+  expect(result.current.frameIndex).toBeNull();
+  const speech = { ...directReply(), animationStates: state.animationStates };
+  rerender({ state: speech, expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("talk"));
+  rerender({ state, expression: "평온" });
+  expect(result.current.frameIndex).toBeNull();
+  rerender({ state: withReaction(state, reaction("after-finished")), expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("click"));
+  act(() => vi.advanceTimersByTime(1000));
+  expect(result.current.frameIndex).toBeNull();
+  expect(acknowledgements()).toContainEqual({ runId: "after-finished", phase: "finished" });
+});
+
+it("consumes a one-shot when it begins, so speech or a reaction interruption cannot restart it", () => {
+  const state = sustainedSnapshot();
+  const { result, rerender } = setup(state);
+  act(() => vi.advanceTimersByTime(500));
+  expect(result.current.frameIndex).toBe(1);
+  rerender({
+    state: { ...directReply(), animationStates: state.animationStates },
+    expression: "평온",
+  });
+  rerender({ state, expression: "평온" });
+  expect(result.current.frameIndex).toBeNull();
+  const off = { ...state, animationStates: { musicPlaying: false, calendarOpen: false } };
+  rerender({ state: off, expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("idle"));
+  rerender({ state, expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("happy"));
+  expect(result.current.frameIndex).toBe(0);
+  act(() => vi.advanceTimersByTime(250));
+  rerender({ state: withReaction(state, reaction("interrupt")), expression: "평온" });
+  act(() => vi.advanceTimersByTime(1000));
+  expect(result.current.frameIndex).toBeNull();
+  rerender({ state, expression: "기쁨" });
+  expect(result.current.frameIndex).toBeNull();
+});
+
+it("tracks calendar and music activations independently while higher-priority conditions mask them", () => {
+  const both = sustainedSnapshot(true);
+  const { result, rerender } = setup(both);
+  expect(result.current.frames).toBe(frameSets.get("click"));
+  act(() => vi.advanceTimersByTime(1000));
+  expect(result.current.frameIndex).toBeNull();
+  const music = { ...both, animationStates: { musicPlaying: true, calendarOpen: false } };
+  rerender({ state: music, expression: "평온" });
+  // Music has been true throughout, but had never started behind calendar.
+  expect(result.current.frames).toBe(frameSets.get("happy"));
+  expect(result.current.frameIndex).toBe(0);
+  act(() => vi.advanceTimersByTime(500));
+  rerender({ state: both, expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("click"));
+  expect(result.current.frameIndex).toBe(0);
+  rerender({ state: music, expression: "평온" });
+  expect(result.current.frameIndex).toBeNull();
+  rerender({ state: both, expression: "평온" });
+  const musicOff = { ...both, animationStates: { musicPlaying: false, calendarOpen: true } };
+  rerender({ state: musicOff, expression: "평온" });
+  act(() => vi.advanceTimersByTime(500));
+  rerender({ state: both, expression: "기쁨" });
+  expect(result.current.frameIndex).toBe(1); // A music epoch must not restart calendar.
+  rerender({ state: music, expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("happy"));
+  expect(result.current.frameIndex).toBe(0);
+});
+
+it("does not consume a one-shot before frames load and resets on hidden or changed definition", () => {
+  const state = sustainedSnapshot();
+  loaded.ready = false;
+  const { result, rerender } = setup(state);
+  rerender({
+    state: { ...directReply(), animationStates: state.animationStates },
+    expression: "평온",
+  });
+  loaded.ready = true;
+  rerender({ state, expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("happy"));
+  expect(result.current.frameIndex).toBe(0);
+  act(() => vi.advanceTimersByTime(1000));
+  rerender({
+    state: { ...state, runtime: { ...state.runtime, hidden: true } },
+    expression: "평온",
+  });
+  rerender({ state, expression: "평온" });
+  expect(result.current.frameIndex).toBe(0);
+  act(() => vi.advanceTimersByTime(1000));
+  const changed = structuredClone(state);
+  changed.characters.installed[0].definition.name = "새 정의";
+  rerender({ state: changed, expression: "평온" });
+  expect(result.current.frameIndex).toBe(0);
+});

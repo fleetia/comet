@@ -243,6 +243,9 @@ pub(crate) fn show_boxes(app: &tauri::AppHandle, state: &AppState) {
             }
         }
     }
+    // Linux remaps body/face together in publish through the passive placement
+    // adapter; a raw show here would let GTK/WM reset their saved positions.
+    #[cfg(not(target_os = "linux"))]
     for (label, window) in app.webview_windows() {
         if desktop::is_body(&label) {
             let _ = window.show();

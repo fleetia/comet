@@ -976,7 +976,9 @@ pub fn export_pack_with_options(
             line.motion = line.motion.without_images();
         }
     }
-    pack.format_version = if validation::has_reactions_or_motion(&pack) {
+    pack.format_version = if validation::has_state_bindings(&pack) {
+        6
+    } else if validation::has_reactions_or_motion(&pack) {
         5
     } else if pack.archive.is_some() {
         4

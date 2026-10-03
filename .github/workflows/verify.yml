@@ -47,6 +47,8 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: pnpm check
       - run: pnpm test
+      - run: pnpm test:release
+      - run: pnpm test:native-runtime
       - run: pnpm build
         if: github.event_name == 'pull_request'
 
@@ -65,6 +67,9 @@ jobs:
           - runner: windows-latest
             arch: x64
             bundle: nsis
+          - runner: ubuntu-24.04
+            arch: x64
+            bundle: deb
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -80,6 +85,11 @@ jobs:
         env:
           EXPECTED_ARCH: ${{ matrix.arch }}
         run: node -e "if (process.arch !== process.env.EXPECTED_ARCH) throw new Error('Unsupported runner architecture ' + process.arch)"
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libxdo-dev libxtst-dev libssl-dev libdbus-1-dev xvfb xauth
       - uses: dtolnay/rust-toolchain@1.85.0
       - uses: Swatinem/rust-cache@v2
         with:
@@ -95,7 +105,7 @@ jobs:
         id: sidecar-cache
         with:
           path: src-tauri/binaries
-          key: sidecar-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/prepare-sidecar.mjs', 'scripts/prepare-nlp.mjs', 'crates/comet-nlp/Cargo.*', 'crates/comet-nlp/src/**') }}
+          key: sidecar-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/prepare-sidecar.mjs', 'scripts/prepare-nlp.mjs', 'scripts/native-runtime.mjs', 'crates/comet-nlp/Cargo.*', 'crates/comet-nlp/src/**', 'src-tauri/src/nlp/protocol.rs') }}
       - run: pnpm prepare:sidecar
         if: steps.sidecar-cache.outputs.cache-hit != 'true'
       - run: pnpm prepare:nlp
@@ -107,8 +117,14 @@ jobs:
           path: src-tauri/binaries
           key: ${{ steps.sidecar-cache.outputs.cache-primary-key }}
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+        if: runner.os != 'Linux'
+      - name: Test Linux native host on X11
+        if: runner.os == 'Linux'
+        env:
+          GDK_BACKEND: x11
+        run: xvfb-run --auto-servernum cargo test --locked --manifest-path src-tauri/Cargo.toml
       - name: Build native bundle
-        if: github.event_name != 'pull_request'
+        if: runner.os == 'Linux' || github.event_name != 'pull_request'
         run: pnpm tauri build --bundles ${{ matrix.bundle }}
       - name: Verify and archive macOS app
         if: runner.os == 'macOS' && github.event_name != 'pull_request'
@@ -118,14 +134,18 @@ jobs:
             hdiutil verify "$installer"
           done
           ditto -c -k --sequesterRsrc --keepParent 'src-tauri/target/release/bundle/macos/comet.app' 'src-tauri/target/release/bundle/comet-macOS-arm64.zip'
+      - name: Verify experimental Linux package
+        if: runner.os == 'Linux'
+        run: python3 scripts/verify_linux_bundle.py src-tauri/target/release/bundle/deb/*.deb
       - uses: actions/upload-artifact@v4
-        if: github.event_name != 'pull_request'
+        if: runner.os == 'Linux' || github.event_name != 'pull_request'
         with:
           name: comet-${{ matrix.arch }}-${{ runner.os }}
           path: |
             src-tauri/target/release/bundle/*.zip
             src-tauri/target/release/bundle/dmg/*.dmg
             src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/deb/*.deb
           if-no-files-found: error
           compression-level: 0
           retention-days: 7

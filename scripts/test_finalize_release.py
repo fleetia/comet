@@ -15,7 +15,7 @@ PREFIX = f'https://github.com/{REPO}/releases/download/{TAG}/'
 
 
 def fixture() -> tuple[dict, dict]:
-    names = ['Comet.dmg', 'Comet.exe', 'Comet.exe.sig', 'Comet.app.tar.gz', 'Comet.app.tar.gz.sig']
+    names = ['Comet.dmg', 'Comet.exe', 'Comet.exe.sig', 'Comet.app.tar.gz', 'Comet.app.tar.gz.sig', 'comet_0.4.1_amd64.deb']
     assets = [dict(name=name, size=100, url=PREFIX + name,
                    apiUrl=f'https://api.github.com/repos/{REPO}/releases/assets/{index + 1}')
               for index, name in enumerate(names)]
@@ -71,6 +71,10 @@ def test_all_api_aliases_become_public_and_notes_are_preserved() -> None:
         assert '## 다운로드' in notes and '## 업데이트 노트\n\n' + release['body'] in notes
         assert PREFIX + 'Comet.dmg' in notes and PREFIX + 'Comet.exe' in notes
         assert 'notarization' in notes and 'Authenticode' in notes
+        assert PREFIX + 'comet_0.4.1_amd64.deb' in notes
+        assert 'Ubuntu 24.04 x64' in notes and 'X11' in notes and 'CPU' in notes
+        assert '실험판' in notes and 'Linux 자동 업데이트와 패키지 서명은 제공하지 않습니다.' in notes
+        assert not any(key.startswith('linux') for key in actual['platforms'])
         assert run(root).returncode == 0
         assert json.loads(path.read_text()) == actual
 
@@ -151,6 +155,26 @@ def test_invalid_input_never_changes_manifest_or_notes() -> None:
         else:
             bad_release['assets'].append(dict(name='Other.exe', size=100, url=PREFIX + 'Other.exe'))
         cases.append((original, bad_release))
+    for change in ['missing-linux', 'empty-linux', 'duplicate-linux', 'wrong-linux-version', 'wrong-linux-arch', 'foreign-linux-url', 'linux-updater', 'linux-as-windows-updater']:
+        manifest = copy.deepcopy(original)
+        bad_release = copy.deepcopy(release)
+        deb = bad_release['assets'][-1]
+        if change == 'missing-linux':
+            bad_release['assets'].pop()
+        elif change == 'empty-linux':
+            deb['size'] = 0
+        elif change == 'duplicate-linux':
+            bad_release['assets'].append(dict(name='Other.deb', size=100, url=PREFIX + 'Other.deb'))
+        elif change in ('wrong-linux-version', 'wrong-linux-arch'):
+            deb['name'] = deb['name'].replace('0.4.1', '0.4.0') if change == 'wrong-linux-version' else deb['name'].replace('amd64', 'arm64')
+            deb['url'] = PREFIX + deb['name']
+        elif change == 'foreign-linux-url':
+            deb['url'] = deb['url'].replace(REPO, 'other/repository')
+        else:
+            key = 'linux-x86_64' if change == 'linux-updater' else 'windows-x86_64'
+            manifest['platforms'][key] = dict(url=deb['url'], signature='signed-content')
+            bad_release['assets'].append(dict(name=deb['name'] + '.sig', size=100, url=deb['url'] + '.sig'))
+        cases.append((manifest, bad_release))
     for manifest, release_data in cases:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

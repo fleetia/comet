@@ -1,6 +1,7 @@
 mod app;
 mod behavior;
 mod character_animation;
+mod character_animation_states;
 mod character_collision;
 mod character_collision_host;
 mod character_commands;
@@ -32,6 +33,7 @@ mod planner_notifications;
 mod planner_windows;
 mod playback;
 mod resources;
+mod sidecar;
 mod store;
 mod story;
 mod story_host;

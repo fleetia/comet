@@ -1,7 +1,11 @@
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use crate::app::{lock, AppState};
-use std::sync::{Arc, Mutex};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use std::sync::Arc;
+use std::sync::Mutex;
 use tauri::Manager;
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn receive_wake(app: &tauri::AppHandle) {
     // Native callbacks must never unwind through Objective-C or the window procedure.
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), String> {

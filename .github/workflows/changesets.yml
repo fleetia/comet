@@ -18,6 +18,11 @@ on:
       - 'scripts/finalize_release.py'
       - 'scripts/prepare-release*'
       - 'scripts/test_*.py'
+      - 'scripts/verify_linux_bundle.py'
+      - 'scripts/native-runtime.mjs'
+      - 'scripts/test-native-runtime.mjs'
+      - 'scripts/prepare-sidecar.mjs'
+      - 'scripts/prepare-nlp.mjs'
       - 'vitest.release.config.ts'
   workflow_dispatch:
 
@@ -53,6 +58,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: pnpm release:check
       - run: pnpm test:release
+      - run: pnpm test:native-runtime
       - name: Validate changeset entries
         run: |
           if node -e "process.exit(require('node:fs').readdirSync('.changeset').some(name => name.endsWith('.md') && name !== 'README.md') ? 0 : 1)"; then

@@ -27,7 +27,7 @@ import {
 import * as common from "../characters.css";
 import * as s from "./animationEditor.css";
 
-type Situation = "idle" | "speaking" | "click";
+type Situation = "idle" | "speaking" | "click" | "musicPlaying" | "calendarOpen";
 type Props = {
   animation?: CharacterAnimation | null;
   character?: InstalledCharacter;
@@ -610,6 +610,8 @@ export function AnimationEditor({
                 ["idle", "평소"],
                 ["speaking", "말하는 동안"],
                 ["click", "클릭했을 때"],
+                ["calendarOpen", "캘린더를 보고 있는 동안"],
+                ["musicPlaying", "음악을 재생하는 동안"],
               ] as const
             ).map(([situation, label]) => (
               <BindingEditor

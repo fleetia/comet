@@ -35,6 +35,12 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         {
             super::publish(&app, &state);
         }
+        let quiet_changed = super::quiet_hours::reconcile(&state).unwrap_or(false);
+        let animation_changed =
+            crate::character_animation_states::refresh(&app, &state).unwrap_or(false);
+        if quiet_changed || animation_changed {
+            super::publish(&app, &state);
+        }
         tasks::reap(&state).await;
         let maintenance_app = app.clone();
         let maintenance_state = state.clone();
@@ -65,15 +71,7 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         if !["idle", "error"].contains(&status.phase.as_str()) {
             continue;
         }
-        if lock(&state.behavior)
-            .map(|machine| {
-                matches!(
-                    machine.phase,
-                    behavior::Phase::Playing | behavior::Phase::Suspended
-                )
-            })
-            .unwrap_or(true)
-        {
+        if behavior::reactions_blocked(&state).unwrap_or(true) {
             continue;
         }
         if play_widget_reaction(&app, &state).unwrap_or(false) {
@@ -146,6 +144,9 @@ pub(crate) fn begin_background(state: &AppState) -> Result<Option<(u64, Arc<Atom
         }
         store::settings(&db)?
     };
+    if super::quiet_hours::automatic_blocked(state, &settings)? {
+        return Ok(None);
+    }
     let due = settings.autonomous_enabled && now() >= state.next_idle.load(Ordering::SeqCst);
     if status.phase != "idle" && !(status.phase == "error" && due) {
         return Ok(None);
@@ -189,6 +190,9 @@ pub(crate) async fn run_background(
             characters::collection(&db)?.installed,
         )
     };
+    if super::quiet_hours::automatic_blocked(state, &settings)? {
+        return Ok(());
+    }
     if settings.autonomous_enabled && now() >= state.next_idle.load(Ordering::SeqCst) {
         let (lines, source) = {
             let _action = lock(&state.action)?;
@@ -242,7 +246,10 @@ pub(crate) async fn run_background(
             {
                 let _action = lock(&state.action)?;
                 let db = lock(&state.db)?;
-                if !is_current(state, epoch, &cancel) || store::revision(&db)? != batch.revision {
+                if !is_current(state, epoch, &cancel)
+                    || super::quiet_hours::automatic_blocked(state, &store::settings(&db)?)?
+                    || store::revision(&db)? != batch.revision
+                {
                     return Ok(());
                 }
                 store::defer_analysis(&db, &batch.deferred_ids, "source_budget")?;
@@ -262,7 +269,10 @@ pub(crate) async fn run_background(
             .await;
             let _action = lock(&state.action)?;
             let db = lock(&state.db)?;
-            if !is_current(state, epoch, &cancel) || store::revision(&db)? != batch.revision {
+            if !is_current(state, epoch, &cancel)
+                || super::quiet_hours::automatic_blocked(state, &store::settings(&db)?)?
+                || store::revision(&db)? != batch.revision
+            {
                 return Ok(());
             }
             match result {
@@ -391,6 +401,7 @@ pub(crate) async fn run_background(
     let _action = lock(&state.action)?;
     let db = lock(&state.db)?;
     if !is_current(state, epoch, &cancel)
+        || super::quiet_hours::automatic_blocked(state, &store::settings(&db)?)?
         || store::revision(&db)? != revision
         || !store::recall_valid(&db, &scene_id, chrono::Utc::now().timestamp_millis())?
     {
@@ -415,6 +426,9 @@ pub(crate) async fn background_generate(
     max_tokens: u32,
     cancel: Arc<AtomicBool>,
 ) -> Result<serde_json::Value, String> {
+    if super::quiet_hours::automatic_blocked(state, settings)? {
+        return Err("조용한 시간에는 자동 준비를 쉬어요.".into());
+    }
     let seconds = if settings.autonomous_enabled {
         (state.next_idle.load(Ordering::SeqCst) - now()).clamp(1, 45)
     } else {

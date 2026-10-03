@@ -14,8 +14,7 @@ pub(crate) fn open(app: &tauri::AppHandle, tab: &str) -> Result<(), String> {
         _ => "today",
     };
     let navigation = app.state::<Navigation>();
-    let mut latest = crate::lock(&navigation.tab)?;
-    *latest = tab.to_string();
+    *crate::lock(&navigation.tab)? = tab.to_string();
     if let Some(window) = app.get_webview_window("planner") {
         window.emit("planner-tab", tab).map_err(|e| e.to_string())?;
         window.unminimize().map_err(|e| e.to_string())?;
@@ -37,6 +36,28 @@ pub(crate) fn open(app: &tauri::AppHandle, tab: &str) -> Result<(), String> {
     .build()
     .map_err(|e| e.to_string())?;
     crate::widget_runtime::refresh(app);
+    Ok(())
+}
+
+pub(crate) fn calendar_selected(app: &tauri::AppHandle) -> Result<bool, String> {
+    let navigation = app.state::<Navigation>();
+    let selected = crate::lock(&navigation.tab)?.as_str() == "calendar";
+    Ok(selected)
+}
+
+#[tauri::command]
+pub(crate) fn set_planner_tab(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    tab: String,
+) -> Result<(), String> {
+    if window.label() != "planner"
+        || !["today", "plans", "calendar", "templates"].contains(&tab.as_str())
+    {
+        return Err("플래너에서 지원되는 화면을 선택해 주세요.".into());
+    }
+    *crate::lock(&app.state::<Navigation>().tab)? = tab;
+    crate::app::publish(&app, &app.state::<std::sync::Arc<crate::AppState>>());
     Ok(())
 }
 

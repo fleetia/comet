@@ -894,8 +894,13 @@ fn timer(
         "cancel" => {
             state.status = "idle".into();
             state.deadline = None;
+            state.duration_ms = state.focus_duration_ms.unwrap_or(if state.mode == "rest" {
+                1500000
+            } else {
+                state.duration_ms
+            });
+            state.mode = "focus".into();
             state.remaining_ms = state.duration_ms;
-            state.todo_id = None;
         }
         _ => return Err("지원하지 않는 타이머 동작입니다.".into()),
     }
@@ -1440,6 +1445,42 @@ mod tests {
         assert_eq!(continued.data["durationMs"], 10000);
         assert_eq!(continued.data["deadline"], 70000);
     }
+    #[test]
+    fn timer_cancel_restores_focus_and_keeps_the_linked_task() {
+        let data = json!({
+            "status":"running", "mode":"rest", "durationMs":300000,
+            "focusDurationMs":60000, "remainingMs":300000,
+            "deadline":301000, "todoId":"linked-task"
+        });
+        let restored: Value = serde_json::from_str(&data.to_string()).unwrap();
+        let cancelled = run("focus-timer", &restored, "cancel", json!({}), 2000);
+        assert_eq!(cancelled.data["status"], "idle");
+        assert_eq!(cancelled.data["mode"], "focus");
+        assert_eq!(cancelled.data["durationMs"], 60000);
+        assert_eq!(cancelled.data["remainingMs"], 60000);
+        assert_eq!(cancelled.data["todoId"], "linked-task");
+        assert!(cancelled.data["deadline"].is_null());
+        assert!(cancelled.events.is_empty());
+        let restarted = run("focus-timer", &cancelled.data, "start", json!({}), 3000);
+        assert_eq!(restarted.data["deadline"], 63000);
+        assert_eq!(restarted.data["todoId"], "linked-task");
+    }
+
+    #[test]
+    fn timer_cancel_handles_paused_finished_and_legacy_states() {
+        for status in ["paused", "finished"] {
+            for (mode, duration, expected) in [("focus", 60000, 60000), ("rest", 300000, 1500000)] {
+                let data = json!({"status":status,"mode":mode,"durationMs":duration,
+                    "remainingMs":0,"deadline":null,"todoId":null});
+                let cancelled = run("focus-timer", &data, "cancel", json!({}), 2000);
+                assert_eq!(cancelled.data["mode"], "focus");
+                assert_eq!(cancelled.data["remainingMs"], expected);
+                assert_eq!(cancelled.data["durationMs"], expected);
+                assert!(cancelled.events.is_empty());
+            }
+        }
+    }
+
     #[test]
     fn lists_and_invalid_due_inputs_do_not_mutate_original() {
         let list = run(

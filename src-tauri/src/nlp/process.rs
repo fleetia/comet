@@ -129,16 +129,10 @@ async fn spawn(shared: &Arc<Shared>) -> Result<Option<Worker>, String> {
     if semantic.is_some() {
         command.arg("--semantic").arg(shared.root.join("semantic"));
     }
-    #[cfg(windows)]
-    {
-        command.creation_flags(0x08000000);
-        let inherited = std::env::var_os("PATH").unwrap_or_default();
-        let path = std::env::join_paths(
-            std::iter::once(shared.runtime.clone()).chain(std::env::split_paths(&inherited)),
-        )
+    crate::sidecar::configure_runtime(command.as_std_mut(), &shared.runtime)
         .map_err(|_| "nlp_runtime_path_invalid")?;
-        command.env("PATH", path);
-    }
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
     let mut child = command.spawn().map_err(|_| "nlp_executable_unavailable")?;
     let input = child.stdin.take().ok_or("nlp_process_pipe_failed")?;
     let output = child.stdout.take().ok_or("nlp_process_pipe_failed")?;
