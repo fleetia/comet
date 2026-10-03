@@ -372,6 +372,11 @@ export function AppearanceEditor({
               />
             ))}
           </Surface>
+          <p className={common.small}>
+            반응 → 말하는 동안 → 캘린더 → 음악 → 평소 순서로 재생돼요. 캘린더·음악은 동작을 지정해야
+            켜져요. 다이어리에서 월간·주간 보기를 연 동안, 음악 연결이 재생을 확인한 동안에만 적용해요.
+            동작이 끝나거나 쉬는 동안에는 현재 표정으로 돌아와요.
+          </p>
         </div>
       </CharacterWorkPanel>
     </section>

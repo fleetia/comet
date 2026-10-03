@@ -41,10 +41,12 @@ const sidebars: SidebarsConfig = {
       items: [
         "development/architecture",
         "development/nlp",
+        "development/model-catalog",
         "development/talk-reference",
         "development/spicetify",
         "development/talk-coverage",
         "development/roadmap",
+        "development/widget-redesign-scope",
         "development/wiki",
         "development/releases",
       ],

@@ -75,6 +75,58 @@ macOS debug 앱을 다시 빌드하고 코드 서명을 확인했다. 최신 번
 
 **빌드 정리.** 검증 중 별도 다이어리 작업에서 더 늦게 완성된 `src-tauri/target/debug/bundle/macos/Comet Diary Navigation QA.app`에서도 같은 설정 변경을 직접 확인하고 서명을 재검사했다. 이 최신 앱을 실행 상태로 유지하고 검증을 마친 `Comet Settings Hierarchy QA.app`은 정상 종료 후 휴지통으로 옮겼다. 최신 실행 파일 SHA-256은 `228001ab46640301351b1102f4daebe96fcc0baef6b6b0ecfb8ae5ba36ac1561`이다. 사용자·QA 데이터, 설정, 캐릭터팩, 모델과 빌드 캐시는 보존했다. Windows 실행·notarization·외부 계정·모델 의미 품질은 이번 검증 범위 밖이다.
 
+## 2026-10-02 개발 계획 대조 후 연결 보완과 선택 기능
+
+**PR #17 기준 소스 구현·클라우드 자동 검증·지원 OS CI 통과. 해당 변경의 실제 데스크톱 인수는 미완료.** 저장소와 로컬 작업 기록을 대조한 뒤 다음 변경을 통합했다. 작업 기준은 `f7f2a67`이며 클라우드의 마지막 코드 검증 기준은 `777eed7`이다. 그 뒤 문서만 정리한 `bf8a2f3`까지 원본 17개 커밋을 `codex/comet-audit-implementation`에 push하고 [Draft PR #17](https://github.com/fleetia/comet/pull/17)을 열었다. 아래 지원 OS CI는 정확히 `bf8a2f3`에 대한 결과다. 이 검증 시점에는 사용자 설치본·프로필·모델을 변경하지 않았고 main 병합·릴리스·배포도 하지 않았다.
+
+| 항목 | PR #17의 검증 기준 소스 |
+| --- | --- |
+| 주간 횟수 목표와 집중 타이머 | 일반 완료와 명시적 1회 기록을 분리. 기록 날짜는 목표 시간대로 표시하고 클릭 뒤 재시도에서는 그 날짜를 보존한다. 일/주 한도·중복·revision 경계는 기존 호스트를 사용한다. |
+| 직접 답변의 말하기 동작 | 입력 패널 안에서 실제 표시 중인 답변에도 화자의 말하기·지정 동작을 적용한다. 단순 입력·준비·기록·과거 답변 fallback은 제외한다. |
+| 표시 실패와 재시도 | 실제 표시 기록으로 완료를 판정한다. 미표시 답변은 저장한 원문·표정·동작을 재생하고 이미 표시한 줄은 제외한다. 원래 대상·순서와 사용자·revision·기억 근거 경계를 확인한다. 새 미표시 원문은 완료 답변 fallback에 노출하지 않는다. |
+| 지속 상태 동작 | 기본 미지정의 음악 실제 재생·보이는 다이어리 캘린더 보기와의 연결. 반응·현재 대사보다 낮은 우선순위, 조건 종료·관측 만료·한 번 재생의 소비를 적용한다. 새 연결이 있는 공유 팩만 v6를 사용한다. |
+| 예약 조용한 시간 | 기본 꺼짐. 사용자가 기기 현지 시작·종료·요일을 정하며 자정을 넘으면 시작 요일에 귀속한다. 자동 잡담·준비·AI 자동 제작·장난은 쉬고 직접 요청·중요 알림·독립 OS 알림은 유지한다. 종료 후 밀린 작업 없이 새 정기 간격을 기다린다. |
+| 위젯 공통 footer와 사양 | 별도 하단 테두리를 제거하고 현재 공식 16개·은퇴 토이·하루 통합 보기·LLM 기본 꺼짐·단어장 예외와 외부 editor 경계를 맞췄다. |
+| 모델 후보 | 기존 8종에 Kanana 1.5 Instruct 2.1B·8B Q4_K_M을 추가했다. 공개 라이선스·고정 revision·LFS 크기/hash를 확인했고 실제 대화 미검증으로 표시한다. 기본값·기존 추천은 그대로이며 두 후보는 자동 추천과 위젯 제작에서 제외한다. [공급 근거와 제한](development/model-catalog.md). |
+| 공식 별꼬리 출처 표시 | 사용자 지정 문구 **기본 설치**, 원본 링크가 없어 빈 `sourceUrl`. 이는 표시용 값이며 제작자 신원이나 URL을 추정하지 않는다. 콘텐츠 이용 조건과 기존 설치의 수정 정보는 바꾸지 않는다. |
+
+**GitHub CI 결과 — `bf8a2f3`**
+
+[Verify desktop #90](https://github.com/fleetia/comet/actions/runs/36999208707)은 프런트엔드·macOS arm64·Windows x64 모두 성공했다. [릴리스 자동화 검사](https://github.com/fleetia/comet/actions/runs/36999208941)도 성공했고, 실제 version/release job은 PR 조건에 따라 건너뛰었다.
+
+- 프런트엔드: 원본 `pnpm install --frozen-lockfile`, `pnpm check`, 전체 Vitest 59개 파일·421개, production build 통과.
+- macOS 14 arm64: Rust 1.85.0에서 NLP 2개, 앱 638개 통과·실패 0개·기존 제외 5개. main/doc-test 통과.
+- Windows x64: Rust 1.85.0에서 NLP 2개, 앱 620개 통과·실패 0개·기존 제외 5개. main/doc-test 통과. 플랫폼별 조건부 테스트가 달라 개수 차이가 난다.
+- 세 runner 모두 원본 lockfile 공급망 검사 328개와 registry의 `@fleetia/lagrange 0.2.2` 설치를 통과했다. 아래 클라우드 VM의 대체 소스 빌드 검증과 구분되는 정상 CI 설치 결과다.
+- sidecar/NLP 준비는 기존 캐시를 사용했다. PR workflow는 네이티브 bundle 생성·서명/아카이브 검사·artifact 업로드를 건너뛰므로 이 CI를 새 설치 파일의 빌드·실행 검증으로 표현하지 않는다. 실제 화면 동작과 모델 의미 품질도 여전히 별도 인수다.
+
+**클라우드 VM 검증 결과**
+
+- Rust 전체: `cargo test --locked --manifest-path src-tauri/Cargo.toml`, 628개 통과·실패 0개·기존 제외 5개. main/doc-test와 예제 컴파일도 통과했다. 제외 5개는 실제 모델 의미 smoke 3개, NLP fixture-vector 평가와 진단 benchmark이며 실행한 품질 검사로 세지 않는다.
+- 프런트엔드: TypeScript·전체 Oxlint, Vitest 59개 파일·421개 통과. 최종 전체 실행은 `--maxWorkers=2`를 사용했다. 앞선 위키·Rust 동시 실행 중 AnimationEditor 한 건이 기존 5초 제한을 넘었으나 단독 7개와 최종 전체 421개가 같은 제한으로 통과했다. 테스트를 제외하거나 제한 시간을 늘리지 않았다.
+- Vite production build, 릴리스 메타데이터 검사, 릴리스 Vitest 5개·Python 9개, 위키 타입 검사·Docusaurus production build를 통과했다. Vite의 500kB 초과 chunk 안내는 남아 있다.
+- strict all-target Clippy는 **통과하지 않았다**. 새 lint는 고쳤으며, 마지막 실행에는 이번 기준 소스부터 바뀌지 않은 `character_gestures.rs`, `device_wake.rs`, `widgets/connections.rs`, `widgets/music_native.rs`의 macOS/Windows 전용 호출 경로가 Linux에서 사용되지 않는 `dead_code` 13건만 남았다. 경고를 전역으로 숨기거나 지원 플랫폼의 통과로 바꾸어 기록하지 않는다.
+
+**검증 환경과 제한**
+
+클라우드 Linux에서 Rust 1.99.0과 공식 Debian 서명 패키지를 작업 폴더에 준비했다. 시스템 패키지나 권한 설정은 바꾸지 않았다. 지원 대상이 아닌 Linux에는 동봉 sidecar가 없으므로 프로세스에만 `TAURI_CONFIG={"bundle":{"externalBin":[],"resources":[]}}`를 적용해 단위 테스트를 컴파일했다. 저장소 설정 파일은 그대로이며 이 결과는 macOS/Windows 패키징 성공이 아니다.
+
+기존 GitHub Packages의 Lagrange 0.2.2 설치는 인증 없는 401과 공급망 검사 실패로 중단됐다. 보호 검사를 끄지 않았다. 같은 공식 태그 `41eaa9819858c232309ed10c6317fbc7766a3b2c`를 문서의 빌드 절차로 만든 뒤 격리된 검증 의존성에만 연결했다. 그 라이브러리의 538개 lock 항목과 나머지 원래 Comet 공개 의존성 327개는 공급망 검사를 통과했다. Comet의 `package.json`·lockfile은 변경하지 않았다. 이는 원래 registry tarball과 동일 바이트임을 검증한 결과가 아니다.
+
+정상 실행한 로컬 Vite의 새 설정 화면을 클라우드 Chrome에서 열려고 했으나 `ERR_BLOCKED_BY_CLIENT`로 차단돼 서버를 종료했다. 화면 캡처·지원 OS 네이티브 동작·실제 Kanana 모델 로드와 대화 품질·배포는 미검증이다. 재시작/이어하기 후 기존 UI의 재시도 버튼 표시 범위는 별도 제한으로 남아 있으며, 원문과 재생 정보의 보존이 그 UI 흐름까지 확장했다는 뜻은 아니다.
+
+**남은 범위**
+
+2026-10-02 후속 사용자 결정으로 현재는 필수 조작·설정을 갖춘 가벼운 UI를 유지한다. 전체 UI는 사용자가 새로 만들 계획이므로 이번에 광범위하게 바꾸거나 기존 기능을 없애지 않는다. [화면별 목록](development/widget-redesign-scope.md)은 향후 재설계용이며 현재 범위의 승인 대기가 아니다. 외부 SDK·마켓·SSP·별도 talk editor 등 보류 범위를 이번 구현으로 확대하지 않는다. 기존 모델 품질·E5·계정·플랫폼 실기 작업은 이 결과와 분리해 이어 간다.
+
+### 2026-10-04 PR #17 병합 충돌 해제와 macOS 화면 확인
+
+PR #17의 `3cc782b`와 `origin/main`의 `1698734`를 별도 워크트리에서 병합해 검증했다. 문서 4곳과 UI·테스트 5곳의 충돌을 해제했고, 자동 병합이 중복 삽입한 `planner_windows.rs`의 `calendar_selected`·`set_planner_tab` 정의를 하나로 정리했다. 현재 코드 기준에서는 다이어리 월간·주간 보기만 캘린더 상태를 열며, 설정의 캘린더 항목이나 다이어리 일간 보기는 해당하지 않는다. 공통 동작 우선순위 설명은 실제 편집 화면을 소유하는 `AppearanceEditor`의 공통 연결 아래에 배치했다. 이번 검증 시점에 main 병합·배포는 하지 않았다.
+
+**코드 검증.** 최종 화면 문구를 반영한 소스에서 `pnpm check`, AnimationEditor 테스트 7개, Rust `character_animation_states::tests` 4개가 통과했다. 최종 문서에서 `docs:check`·`docs:build`도 통과했다. 문구 이동 전 같은 병합 후보에서 프런트엔드 전체 72개 파일·551개 테스트와 Vite production build가 통과했고, 문구 이동 후 macOS debug QA 번들 빌드가 Vite build를 다시 통과했다. 앞선 PR #17의 클라우드·CI 결과는 이 병합 후보의 결과로 간주하지 않는다.
+
+**실제 macOS 확인.** 별도 identifier `space.starlight.comet.pr17-conflict-qa`의 `Comet PR17 Conflict QA.app`을 빌드해 `codesign --verify --deep --strict`를 통과했고, 실행 파일 SHA-256은 `ab901d51876239f546883056dd938cb33223d40b00b6e7747530f157d6386a4a`다. 실제 설정 창에서 **캐릭터 → 모습·표정**으로 이동해 공통 연결 다섯 항목과 그 아래의 우선순위·캘린더/음악 조건 안내가 내부 스크롤 뒤에도 고정 하단 영역에 가리지 않고 읽히는 것을 확인했다. 첫 빌드에서는 안내가 숨겨진 AnimationEditor 내부에 있어 보이지 않았고, 배치를 고쳐 다시 빌드·확인했다. QA 앱은 종료했으며 사용자 설치본·DB·설정은 교체하지 않았다. 이 확인은 안내와 편집 UI의 표시 범위다. 실제 동작 전환·Windows 실행·notarization·모델 의미 품질은 검증하지 않았다.
+
 ## 2026-10-02 Windows CI 줄바꿈 실패 수정과 위젯 제작 기준 정리
 
 **Windows CI 결과.** `bada65c`의 [Verify desktop 36980340169](https://github.com/fleetia/comet/actions/runs/36980340169)에서 프런트엔드와 macOS는 통과했다. Windows `cargo test`는 586개 통과·1개 실패·기존 제외 5개였다. 새 메모리 조회 코드는 Windows에서 컴파일되고 `device` 회귀를 통과했다. Windows 네이티브 화면 확인은 남아 있다.
@@ -1059,13 +1111,13 @@ Rust 명령은 `src-tauri/`에서 실행하거나 저장소 루트에서 `--mani
 | 범위 | 상태 |
 | --- | --- |
 | 외부 Widget SDK·개발 폴더·외부 ZIP·SDK용 모의 사건 도구 | 미구현. 공식 `.talk` 대본의 CLI 시뮬레이션과 별개 |
-| 커스텀 HTML/CSS/JavaScript·임의 native/WASM 실행 | 미구현. 공식 manifest로 임의 코드를 실행할 수 없음 |
+| 범용 외부 HTML/CSS/JavaScript SDK·임의 native/WASM 실행 | 후속 범위. 제한된 AI JavaScript Worker·JSON 가져오기는 구현돼 있으며, 공식 manifest로 임의 코드를 실행할 수 없음 |
 | 캐릭터 패키지 마켓·서명·자동 업데이트 | 후속 범위. GitHub 갤러리의 수동 JSON 다운로드와 앱 자체 updater는 별도 구현 |
 | Rust workspace | 단일 crate 유지. 별도 Rust 패키지가 실제 공통 계약을 공유할 때 검토 |
-| 통합 오늘 브리핑 | 후속 보기 제안. 현재 할 일과 캘린더의 개별 오늘 보기를 제공 |
-| 사용자 단어장과 임의 위젯 사건의 설정형 연결 | 후속. 암호화 `.talk` 편집 UI와 기존 단어장 매칭·원문 재생은 제공 |
+| 추가 자동 브리핑 | 후속 제안. 플래너의 할 일·일정 통합 오늘 보기는 이미 제공하며, 그 이상의 자동 요약·말풍선 흐름은 별도 결정 |
+| 기존 개인 단어장 항목과 위젯 사건의 직접 매핑 | 후속. 공식·AI 위젯의 상태별 대사·표정·동작 편집과 기존 단어장 원문 재생은 제공. `.talk`·story 원문 편집기는 앱 밖 별도 도구 |
 | 캐릭터 스킨·애니메이션 시퀀스·SSP 호환 | PNG 시퀀스·PNG 시트·APNG와 팩 공유는 2026-09-24 구현·macOS QA 완료. SSP 호환은 후속 범위 |
-| [상황별 스프라이트 재생](product/characters.md#상황별-스프라이트-재생) | 평소·말하기·클릭, 잡기·놓기·지원 사건 반응과 대사별 동작은 2026-09-24 구현·macOS QA 완료. 음악 재생 중·캘린더 창 열림 등 지속 상태 연결은 후속 범위 |
+| [상황별 스프라이트 재생](product/characters.md#상황별-스프라이트-재생) | 평소·말하기·클릭, 잡기·놓기·지원 사건 반응과 대사별 동작은 2026-09-24 구현·macOS QA 완료. 음악 실제 재생·보이는 플래너 캘린더 탭 연결은 2026-10-02 소스·자동 회귀 구현. 지원 데스크톱 인수는 위 기록의 제한을 따름 |
 | 캐릭터 수 1~8명 | 소스 구현. ID 기반 화자·대상, 2명 동시 준비·3명 이상 순차 생성, 부분 재시도와 1명 질문 대기. macOS에서 1명·2명·8명 로컬 모델 응답 완료를 확인했으며 Windows 실기·모델 의미 품질 검증은 미완료 |
 
 ## 생성 대사 회상 검증
