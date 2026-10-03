@@ -16,6 +16,10 @@ use tauri::{AppHandle, Manager, WebviewWindow};
 #[path = "desktop_toys_macos.rs"]
 mod native;
 
+#[cfg(target_os = "linux")]
+#[path = "desktop_toys_linux.rs"]
+mod linux;
+
 const STEP: f64 = 1.0 / 120.0;
 const SIZE: f64 = 56.0;
 const MAX_ACTORS: usize = 8;
@@ -551,6 +555,68 @@ fn open_one(
     }
 }
 
+// Read the current state at dispatch time: an older queued input update must
+// not overwrite a newer hit-test result or bring back a removed actor.
+#[cfg(target_os = "linux")]
+fn linux_input_state(world: &World, id: &str) -> Option<bool> {
+    world.actors.get(id).map(|actor| actor.ignore_cursor)
+}
+
+#[cfg(target_os = "linux")]
+fn update_linux_input(window: &WebviewWindow, show_ready: bool) -> Result<(), String> {
+    let app = window.app_handle().clone();
+    let window_label = window.label().to_string();
+    window
+        .run_on_main_thread(move || {
+            use gtk::prelude::{GtkWindowExt, WidgetExt};
+            let Some(id) = window_label.strip_prefix("desktop-toy-") else {
+                return;
+            };
+            let Some(window) = app.get_webview_window(&window_label) else {
+                return;
+            };
+            let Ok(native) = window.gtk_window() else {
+                return;
+            };
+            let runtime = app.state::<Runtime>();
+            // World lock owners only calculate toy state; they never wait for GTK
+            // while holding it. Keep the actor check, input shape and mapping atomic
+            // with removal, and release it before reporting the creation outcome.
+            let Ok(world) = runtime.world.lock() else {
+                return;
+            };
+            let Some(ignore) = linux_input_state(&world, id) else {
+                return;
+            };
+            linux::set_input_passthrough(&native, ignore);
+            if show_ready {
+                native.set_focus_on_map(false);
+                native.show_all();
+            }
+            drop(world);
+            if show_ready {
+                creation_result(&app, id, Ok(()));
+            }
+        })
+        .map_err(|error| error.to_string())
+}
+
+// Tao's Linux CursorIgnoreEvents(true) unwraps the GDK window even when the
+// hidden toy has not been realized yet. GTK's widget API retains the input shape
+// across realization without forcing an early show or taking keyboard focus.
+#[cfg(not(target_os = "macos"))]
+fn set_ignore_cursor_events(window: &WebviewWindow, ignore: bool) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = ignore;
+        update_linux_input(window, false)
+    }
+    #[cfg(not(target_os = "linux"))]
+    window
+        .set_ignore_cursor_events(ignore)
+        .map_err(|error| error.to_string())
+}
+
 #[cfg(not(target_os = "macos"))]
 fn create_webview(app: &AppHandle, id: &str, x: f64, y: f64, scale: f64) -> Result<(), String> {
     let built = tauri::WebviewWindowBuilder::new(
@@ -583,9 +649,7 @@ fn create_webview(app: &AppHandle, id: &str, x: f64, y: f64, scale: f64) -> Resu
         return Ok(());
     }
     set_position(&built, x - SIZE * scale / 2.0, y - SIZE * scale / 2.0)?;
-    built
-        .set_ignore_cursor_events(true)
-        .map_err(|error| error.to_string())?;
+    set_ignore_cursor_events(&built, true)?;
     // The renderer calls ready after its event listener and initial frame exist.
     Ok(())
 }
@@ -784,11 +848,19 @@ pub(crate) fn desktop_toy_action(
                 creation_result(&app, &id, Err(error.clone()));
                 return Err(error);
             }
-            if let Err(error) = window.show().map_err(|error| error.to_string()) {
+            #[cfg(target_os = "linux")]
+            if let Err(error) = update_linux_input(&window, true) {
                 creation_result(&app, &id, Err(error.clone()));
                 return Err(error);
             }
-            creation_result(&app, &id, Ok(()));
+            #[cfg(not(target_os = "linux"))]
+            {
+                if let Err(error) = window.show().map_err(|error| error.to_string()) {
+                    creation_result(&app, &id, Err(error.clone()));
+                    return Err(error);
+                }
+                creation_result(&app, &id, Ok(()));
+            }
         }
         Ok(current)
     }
@@ -1387,7 +1459,7 @@ pub(crate) fn start(app: AppHandle) {
                     }
                     #[cfg(not(target_os = "windows"))]
                     if let Some(ignore) = input_change {
-                        let _ = window.set_ignore_cursor_events(ignore);
+                        let _ = set_ignore_cursor_events(&window, ignore);
                     }
                     let _ = window.emit("desktop-toy-frame", frame);
                 }
@@ -1399,6 +1471,22 @@ pub(crate) fn start(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_queued_input_uses_latest_actor_and_drops_removed_toys() {
+        let mut world = World::default();
+        let actor = resting_ball();
+        let id = actor.id.clone();
+        world.actors.insert(id.clone(), actor);
+        assert_eq!(linux_input_state(&world, &id), Some(true));
+        // A late initialization/ready callback must use the latest hit test,
+        // not its original ignore=true value.
+        world.actors.get_mut(&id).unwrap().ignore_cursor = false;
+        assert_eq!(linux_input_state(&world, &id), Some(false));
+        world.actors.remove(&id);
+        assert_eq!(linux_input_state(&world, &id), None);
+    }
 
     #[test]
     fn clearing_cancels_pending_launches_without_blocking_new_or_unrelated_requests() {
