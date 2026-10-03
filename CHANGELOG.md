@@ -1,5 +1,11 @@
 # comet
 
+## 0.8.1
+
+### Patch Changes
+
+- 167b5a5: Disambiguate earlier users' quoted facts when a new user has the same name, without changing saved memories or relationships.
+
 ## 0.8.0
 
 ### Minor Changes
