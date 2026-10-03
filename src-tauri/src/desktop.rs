@@ -29,7 +29,7 @@ fn face_label(id: &str) -> String {
 // Displaying ambient content must not replace the foreground application's key window.
 fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
     let collision_token = crate::character_collision_host::prepare_show(window);
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     {
         use std::sync::atomic::Ordering;
         let state = app.state::<Arc<AppState>>();
@@ -43,7 +43,7 @@ fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
                 state.db.try_lock(), state.runtime.try_lock(),
                 state.panel.try_lock(), state.playback.try_lock(), state.story.try_lock(),
             ) else { return; };
-            if state.epoch.load(Ordering::SeqCst) != epoch || runtime.hidden || super::unavailable(&state) {
+            if !passive_show_current(&state, epoch, runtime.hidden) {
                 return;
             }
             let Ok(characters) = crate::characters::collection(&db) else { return; };
@@ -76,10 +76,14 @@ fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
                     );
                 }
             }
+            #[cfg(target_os = "linux")]
+            if show_linux_passive(&window).is_err() {
+                return;
+            }
             crate::character_collision_host::did_show(&window, collision_token);
         }).map_err(|error| error.to_string())
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         let _ = app;
         window.show().map_err(|error| error.to_string())?;
@@ -88,7 +92,53 @@ fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
     }
 }
 
+fn passive_show_current(state: &AppState, epoch: u64, hidden: bool) -> bool {
+    state.epoch.load(Ordering::SeqCst) == epoch && !hidden && !super::unavailable(state)
+}
+
+// Run only on the GTK/UI thread. `focused(false)` suppresses focus for the first
+// draw only; Tao restores accept-focus afterwards. Every later ambient remap
+// must retain GTK's no-focus-on-map hint, while explicit clicks/input can focus.
+#[cfg(target_os = "linux")]
+fn show_linux_passive(window: &WebviewWindow) -> Result<(), String> {
+    use gtk::prelude::{GtkWindowExt, WidgetExt};
+    let native = window.gtk_window().map_err(|error| error.to_string())?;
+    native.set_focus_on_map(false);
+    let layout = linux_ambient_layout(window.app_handle());
+    let (size, placement) = {
+        let layout = layout
+            .try_lock()
+            .map_err(|_| "창 위치를 다시 확인할게요.")?;
+        (
+            layout
+                .0
+                .get(window.label())
+                .map(|placement| placement.logical_rect()),
+            layout.remap(window.label(), native.is_visible()),
+        )
+    };
+    if let Some(rect) = size {
+        // GtkWindow substitutes a 200px natural size for an empty WebKit
+        // requisition, then fixes min=max for non-resizable windows. An explicit
+        // widget size request disables that fallback; default_size/resize alone
+        // cannot. Keep it current when an already-visible body changes size.
+        native.set_size_request(rect.width.round() as i32, rect.height.round() as i32);
+    }
+    if let Some(placement) = placement {
+        let rect = placement.logical_rect();
+        // Keep move/size/map on the same GTK turn. Tao queues setters and
+        // its pre-ConfigureNotify outer-size cache can still be zero.
+        native.set_default_size(rect.width.round() as i32, rect.height.round() as i32);
+        native.resize(rect.width.round() as i32, rect.height.round() as i32);
+        native.move_(rect.x.round() as i32, rect.y.round() as i32);
+    }
+    native.show_all();
+    Ok(())
+}
+
 pub(crate) fn hide_ambient(window: &WebviewWindow) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    let _ = remember_linux_visible_rect(window);
     crate::character_collision_host::visibility(window, false);
     #[cfg(target_os = "windows")]
     {
@@ -117,12 +167,101 @@ pub(crate) fn hide_ambient(window: &WebviewWindow) -> Result<(), String> {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Rect {
     x: f64,
     y: f64,
     width: f64,
     height: f64,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Default)]
+struct LinuxAmbientLayout(std::collections::HashMap<String, LinuxPlacement>);
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct LinuxPlacement {
+    rect: Rect,
+    scale: f64,
+}
+
+#[cfg(target_os = "linux")]
+impl LinuxPlacement {
+    fn logical_rect(self) -> Rect {
+        Rect {
+            x: self.rect.x / self.scale,
+            y: self.rect.y / self.scale,
+            width: self.rect.width / self.scale,
+            height: self.rect.height / self.scale,
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl LinuxAmbientLayout {
+    fn remember(&mut self, label: &str, rect: Rect, scale: f64) {
+        if (is_body(label) || is_face(label))
+            && [rect.x, rect.y, rect.width, rect.height]
+                .into_iter()
+                .all(f64::is_finite)
+            && rect.width > 0.0
+            && rect.height > 0.0
+            && scale.is_finite()
+            && scale > 0.0
+        {
+            self.0.insert(label.into(), LinuxPlacement { rect, scale });
+        }
+    }
+
+    fn remap(&self, label: &str, visible: bool) -> Option<LinuxPlacement> {
+        (!visible).then(|| self.0.get(label).copied()).flatten()
+    }
+
+    fn body_bounds(&self, label: &str, observed: Rect, just_created: bool) -> Rect {
+        if !just_created && observed.width > 0.0 && observed.height > 0.0 {
+            observed
+        } else {
+            self.0
+                .get(label)
+                .map(|placement| placement.rect)
+                .unwrap_or(observed)
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_ambient_layout(app: &AppHandle) -> tauri::State<'_, Mutex<LinuxAmbientLayout>> {
+    if app.try_state::<Mutex<LinuxAmbientLayout>>().is_none() {
+        app.manage(Mutex::new(LinuxAmbientLayout::default()));
+    }
+    app.state::<Mutex<LinuxAmbientLayout>>()
+}
+
+#[cfg(target_os = "linux")]
+fn remember_linux_rect(window: &WebviewWindow, rect: Rect, scale: f64) -> Result<(), String> {
+    super::lock(&linux_ambient_layout(window.app_handle()))?.remember(window.label(), rect, scale);
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn remember_linux_visible_rect(window: &WebviewWindow) -> Result<(), String> {
+    if (is_body(window.label()) || is_face(window.label())) && window.is_visible().unwrap_or(false)
+    {
+        let position = window.outer_position().map_err(|error| error.to_string())?;
+        let size = window.outer_size().map_err(|error| error.to_string())?;
+        remember_linux_rect(
+            window,
+            Rect {
+                x: position.x as f64,
+                y: position.y as f64,
+                width: size.width as f64,
+                height: size.height as f64,
+            },
+            window.scale_factor().map_err(|error| error.to_string())?,
+        )?;
+    }
+    Ok(())
 }
 
 fn work_area(monitor: &Monitor) -> Rect {
@@ -263,6 +402,18 @@ fn create_body(app: &AppHandle, state: &AppState, spec: BodySpec) -> Result<(), 
                 area,
             )
         };
+        #[cfg(target_os = "linux")]
+        remember_linux_rect(
+            &window,
+            Rect {
+                x,
+                y,
+                width,
+                height,
+            },
+            scale,
+        )?;
+        #[cfg(not(target_os = "linux"))]
         window
             .set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32))
             .map_err(|e| e.to_string())?;
@@ -353,10 +504,30 @@ fn set_logical_size(window: &WebviewWindow, (width, height): (f64, f64)) -> Resu
     if window.inner_size().map_err(|e| e.to_string())? != target {
         window.set_size(target).map_err(|e| e.to_string())?;
     }
+    #[cfg(target_os = "linux")]
+    if let Some(rect) = super::lock(&linux_ambient_layout(window.app_handle()))?
+        .0
+        .get_mut(window.label())
+    {
+        // Keep the cached destination scale until a real visible snapshot
+        // replaces it; an unmapped body's current GTK scale may be primary.
+        rect.rect.width = width * rect.scale;
+        rect.rect.height = height * rect.scale;
+    }
     Ok(())
 }
 
-fn create_face(app: &AppHandle, id: &str, title: &str) -> Result<(), String> {
+fn face_position(body: Rect, area: Rect, scale: f64) -> (f64, f64) {
+    clamp_position(
+        body.x + body.width + 4.0 * scale,
+        body.y + (body.height - FACE_SIZE.1 * scale) / 2.0,
+        FACE_SIZE.0 * scale,
+        FACE_SIZE.1 * scale,
+        area,
+    )
+}
+
+fn create_face(app: &AppHandle, id: &str, title: &str, _body_created: bool) -> Result<(), String> {
     let label = face_label(id);
     let body = app
         .get_webview_window(&body_label(id))
@@ -384,6 +555,34 @@ fn create_face(app: &AppHandle, id: &str, title: &str) -> Result<(), String> {
     let monitors = window.available_monitors().map_err(|e| e.to_string())?;
     let saved_monitor = monitor_at_saved_position(&monitors, saved.as_ref(), monitor_bounds);
     let body_monitor = body.current_monitor().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "linux")]
+    let body_bounds = {
+        let position = body.outer_position().map_err(|error| error.to_string())?;
+        let size = body.outer_size().map_err(|error| error.to_string())?;
+        super::lock(&linux_ambient_layout(app))?.body_bounds(
+            body.label(),
+            Rect {
+                x: position.x as f64,
+                y: position.y as f64,
+                width: size.width as f64,
+                height: size.height as f64,
+            },
+            _body_created,
+        )
+    };
+    #[cfg(target_os = "linux")]
+    let body_monitor = {
+        // An unmapped GTK body reports the primary monitor. Resolve the same
+        // planned-or-observed bounds used below, including first show after a
+        // hidden startup, before choosing scale and the clipping work area.
+        let position = WindowPosition {
+            x: body_bounds.x,
+            y: body_bounds.y,
+        };
+        monitor_at_saved_position(&monitors, Some(&position), monitor_bounds)
+            .cloned()
+            .or(body_monitor)
+    };
     let primary = body.primary_monitor().map_err(|e| e.to_string())?;
     let monitor = saved_monitor
         .or(body_monitor.as_ref())
@@ -395,17 +594,34 @@ fn create_face(app: &AppHandle, id: &str, title: &str) -> Result<(), String> {
     let (x, y) = match saved.filter(|p| p.x.is_finite() && p.y.is_finite()) {
         Some(saved) => clamp_position(saved.x, saved.y, width, height, area),
         None => {
-            let position = body.outer_position().map_err(|e| e.to_string())?;
-            let size = body.outer_size().map_err(|e| e.to_string())?;
-            clamp_position(
-                position.x as f64 + size.width as f64 + 4.0 * scale,
-                position.y as f64 + (size.height as f64 - height) / 2.0,
-                width,
-                height,
-                area,
-            )
+            #[cfg(not(target_os = "linux"))]
+            let bounds = {
+                let position = body.outer_position().map_err(|e| e.to_string())?;
+                let size = body.outer_size().map_err(|e| e.to_string())?;
+                Rect {
+                    x: position.x as f64,
+                    y: position.y as f64,
+                    width: size.width as f64,
+                    height: size.height as f64,
+                }
+            };
+            #[cfg(target_os = "linux")]
+            let bounds = body_bounds;
+            face_position(bounds, area, scale)
         }
     };
+    #[cfg(target_os = "linux")]
+    remember_linux_rect(
+        &window,
+        Rect {
+            x,
+            y,
+            width,
+            height,
+        },
+        scale,
+    )?;
+    #[cfg(not(target_os = "linux"))]
     window
         .set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32))
         .map_err(|e| e.to_string())?;
@@ -420,7 +636,9 @@ fn reconcile(app: &AppHandle, state: &AppState, snapshot: &Snapshot) -> Result<(
         let character = character_by_id(snapshot, id);
         let title = character.map_or(id.as_str(), |character| character.definition.name.as_str());
         let size = body_size(snapshot, character);
-        match app.get_webview_window(&body_label(id)) {
+        let body = app.get_webview_window(&body_label(id));
+        let body_created = body.is_none();
+        match body {
             Some(window) => {
                 set_logical_size(&window, size)?;
                 if !snapshot.runtime.hidden {
@@ -451,7 +669,7 @@ fn reconcile(app: &AppHandle, state: &AppState, snapshot: &Snapshot) -> Result<(
                 let _ = hide_ambient(&window);
             }
             (None, true) => {
-                let _ = create_face(app, id, title);
+                let _ = create_face(app, id, title, body_created);
             }
             (None, false) => {}
         }
@@ -462,6 +680,10 @@ fn reconcile(app: &AppHandle, state: &AppState, snapshot: &Snapshot) -> Result<(
             .or_else(|| label.strip_prefix(FACE_PREFIX));
         if id.is_some_and(|id| !roster.iter().any(|active| active == id)) {
             crate::character_collision_host::remove(app, &label);
+            #[cfg(target_os = "linux")]
+            if let Ok(mut layout) = linux_ambient_layout(app).lock() {
+                layout.0.remove(&label);
+            }
             let _ = window.destroy();
         }
     }
@@ -704,7 +926,9 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
         return Ok(false);
     };
     let characters = crate::characters::collection(&db)?;
-    let target = if super::unavailable(&state) {
+    let target = if super::unavailable(&state)
+        || crate::app::quiet_hours::playback_blocked(&state, &store::settings(&db)?)?
+    {
         None
     } else {
         balloon_target(
@@ -765,7 +989,9 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
             );
         }
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    show_linux_passive(&window)?;
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     window.show().map_err(|error| error.to_string())?;
     if layout.take_focus_request() {
         window.set_focus().map_err(|error| error.to_string())?;
@@ -885,6 +1111,237 @@ pub(crate) async fn resize_balloon(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_first_face_uses_planned_body_not_unmapped_tao_geometry() {
+        let mut layout = LinuxAmbientLayout::default();
+        let planned = Rect {
+            x: 500.0,
+            y: 600.0,
+            width: 200.0,
+            height: 200.0,
+        };
+        layout.remember("body-one", planned, 1.0);
+        let unmapped = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 0.0,
+            height: 0.0,
+        };
+        let area = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1400.0,
+            height: 1000.0,
+        };
+        assert_eq!(
+            face_position(layout.body_bounds("body-one", unmapped, true), area, 1.0),
+            (704.0, 682.0)
+        );
+        let initial_configure = Rect {
+            width: 200.0,
+            height: 200.0,
+            ..unmapped
+        };
+        assert_eq!(
+            layout.body_bounds("body-one", initial_configure, true),
+            planned
+        );
+        let moved = Rect {
+            x: 750.0,
+            y: 420.0,
+            ..planned
+        };
+        assert_eq!(layout.body_bounds("body-one", moved, false), moved);
+        assert_eq!(layout.body_bounds("body-one", unmapped, false), planned);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_new_face_uses_planned_secondary_monitor_before_body_is_mapped() {
+        let mut layout = LinuxAmbientLayout::default();
+        let body = Rect {
+            x: -800.0,
+            y: 500.0,
+            width: 200.0,
+            height: 200.0,
+        };
+        let monitors = [
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1400.0,
+                height: 1000.0,
+            },
+            Rect {
+                x: -1600.0,
+                y: 0.0,
+                width: 1600.0,
+                height: 900.0,
+            },
+        ];
+        layout.remember("body-one", body, 1.0);
+        let planned = layout.0.get("body-one").map(|rect| WindowPosition {
+            x: rect.rect.x,
+            y: rect.rect.y,
+        });
+        let monitor = monitor_at_saved_position(&monitors, planned.as_ref(), |area| *area).unwrap();
+        assert_eq!(*monitor, monitors[1]);
+        assert_eq!(face_position(body, *monitor, 1.0), (-596.0, 582.0));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_remap_preserves_independent_positions_and_never_moves_visible_windows() {
+        let mut layout = LinuxAmbientLayout::default();
+        let body = Rect {
+            x: 700.0,
+            y: 500.0,
+            width: 200.0,
+            height: 200.0,
+        };
+        let face = Rect {
+            x: 30.0,
+            y: 80.0,
+            width: 120.0,
+            height: 36.0,
+        };
+        layout.remember("body-one", body, 1.0);
+        layout.remember("face-one", face, 1.0);
+        assert_eq!(
+            layout.remap("body-one", false),
+            Some(LinuxPlacement {
+                rect: body,
+                scale: 1.0
+            })
+        );
+        assert_eq!(
+            layout.remap("face-one", false),
+            Some(LinuxPlacement {
+                rect: face,
+                scale: 1.0
+            })
+        );
+        assert_eq!(layout.remap("face-one", true), None);
+        let dragged = Rect {
+            x: -300.0,
+            y: 90.0,
+            ..face
+        };
+        layout.remember("face-one", dragged, 1.0);
+        assert_eq!(
+            layout.remap("face-one", false),
+            Some(LinuxPlacement {
+                rect: dragged,
+                scale: 1.0
+            })
+        );
+        assert_eq!(
+            layout.remap("body-one", false),
+            Some(LinuxPlacement {
+                rect: body,
+                scale: 1.0
+            })
+        );
+        layout.remember("face-one", Rect { width: 0.0, ..face }, 1.0);
+        assert_eq!(
+            layout.remap("face-one", false),
+            Some(LinuxPlacement {
+                rect: dragged,
+                scale: 1.0
+            })
+        );
+        layout.remember("balloon", body, 1.0);
+        assert_eq!(layout.remap("balloon", false), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_initial_mapping_preserves_target_monitor_logical_size() {
+        let placement = LinuxPlacement {
+            rect: Rect {
+                x: -1800.0,
+                y: 600.0,
+                width: 240.0,
+                height: 72.0,
+            },
+            scale: 2.0,
+        };
+        assert_eq!(
+            placement.logical_rect(),
+            Rect {
+                x: -900.0,
+                y: 300.0,
+                width: 120.0,
+                height: 36.0
+            }
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_widget_size_request_stays_smaller_than_gtk_empty_child_fallback() {
+        let mut layout = LinuxAmbientLayout::default();
+        let rect = Rect {
+            x: 400.0,
+            y: 300.0,
+            width: FACE_SIZE.0,
+            height: FACE_SIZE.1,
+        };
+        layout.remember("face-one", rect, 1.0);
+        let request = layout.0.get("face-one").unwrap().logical_rect();
+        assert_eq!((request.width as i32, request.height as i32), (120, 36));
+        // A visible face keeps the request while remapping remains disabled.
+        assert!(layout.remap("face-one", true).is_none());
+        let body = Rect {
+            width: 136.0,
+            height: 136.0,
+            ..rect
+        };
+        layout.remember("body-one", body, 1.0);
+        let request = layout.0.get("body-one").unwrap().logical_rect();
+        assert_eq!((request.width as i32, request.height as i32), (136, 136));
+    }
+
+    #[test]
+    fn initial_face_placement_clamps_inside_negative_monitor_bounds() {
+        let area = Rect {
+            x: -1600.0,
+            y: -100.0,
+            width: 1600.0,
+            height: 900.0,
+        };
+        let body = Rect {
+            x: -100.0,
+            y: 720.0,
+            width: 200.0,
+            height: 200.0,
+        };
+        assert_eq!(face_position(body, area, 1.0), (-120.0, 764.0));
+        assert_eq!(
+            clamp_position(-900.0, 100.0, FACE_SIZE.0, FACE_SIZE.1, area),
+            (-900.0, 100.0)
+        );
+    }
+
+    #[test]
+    fn queued_passive_show_rejects_old_hidden_and_stopping_work() {
+        let state = crate::app::tests::state();
+        let epoch = state.epoch.load(Ordering::SeqCst);
+        assert!(passive_show_current(&state, epoch, false));
+        assert!(!passive_show_current(&state, epoch, true));
+        state.epoch.fetch_add(1, Ordering::SeqCst);
+        assert!(!passive_show_current(&state, epoch, false));
+        let epoch = state.epoch.load(Ordering::SeqCst);
+        state.stopping.store(true, Ordering::SeqCst);
+        assert!(!passive_show_current(&state, epoch, false));
+        state.stopping.store(false, Ordering::SeqCst);
+        state.update_installing.store(true, Ordering::SeqCst);
+        assert!(!passive_show_current(&state, epoch, false));
+        state.update_installing.store(false, Ordering::SeqCst);
+        assert!(passive_show_current(&state, epoch, false));
+    }
 
     #[test]
     fn saved_face_position_uses_its_own_monitor() {

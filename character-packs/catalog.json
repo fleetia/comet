@@ -16,7 +16,7 @@
       "id": "byulkkori",
       "name": "별꼬리",
       "description": "표정 이미지가 포함된 공식 별꼬리 팩입니다. 0.6.0부터 새 설치의 기본 캐릭터이며, 지운 뒤 다시 설치할 때 사용합니다.",
-      "author": "",
+      "author": "기본 설치",
       "sourceUrl": "",
       "file": "../examples/character-packs/byulkkori.comet-character.json",
       "license": "LicenseRef-Comet-Official-Content",

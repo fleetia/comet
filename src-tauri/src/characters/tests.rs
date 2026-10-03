@@ -1490,3 +1490,23 @@ fn removed_builtins_are_not_reseeded_and_final_member_cannot_be_deleted() {
     initialize_for_tests(&conn).unwrap();
     assert_eq!(active_ids(&conn).unwrap(), [friend.id]);
 }
+
+#[test]
+fn official_byulkkori_attribution_uses_requested_display_label_without_a_source_url() {
+    let pack = byulkkori_pack();
+    assert_eq!(pack.author, "기본 설치");
+    assert!(pack.source_url.is_empty());
+    let catalog: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../character-packs/catalog.json"
+    )))
+    .unwrap();
+    let entry = catalog["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["id"] == "byulkkori")
+        .unwrap();
+    assert_eq!(entry["author"], pack.author);
+    assert_eq!(entry["sourceUrl"], pack.source_url);
+}

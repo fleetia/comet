@@ -186,6 +186,7 @@ fn automatic_allowed(
     let runtime = lock(&state.runtime)?;
     Ok(preference(db)?
         && settings.autonomous_enabled
+        && !app::quiet_hours::automatic_blocked(state, settings)?
         && (if settings.mode == "api" {
             settings.api_idle_enabled
         } else {
@@ -298,6 +299,7 @@ fn reactions_blocked(state: &AppState, db: &rusqlite::Connection) -> Result<bool
     Ok(runtime.hidden
         || runtime.paused
         || !store::settings(db)?.autonomous_enabled
+        || app::quiet_hours::automatic_blocked(state, &store::settings(db)?)?
         || state.launcher_open.load(Ordering::SeqCst)
         || crate::widgets::storage::focus_active(db, chrono::Utc::now().timestamp_millis())?)
 }
@@ -1084,6 +1086,22 @@ pub(crate) fn advance_reactions(app: &tauri::AppHandle, state: &Arc<AppState>) -
     Ok(true)
 }
 
+/// Do not turn messages received during recurring silence into catch-up widget proposals.
+/// Only the automatic detector cursor changes; direct widget creation and messages are preserved.
+pub(crate) fn skip_automatic_message(db: &rusqlite::Connection) -> Result<()> {
+    if let Some(message) = store::context_messages(db, 20)?
+        .into_iter()
+        .rev()
+        .find(|message| message.role == "user")
+    {
+        db.execute(
+            "INSERT INTO kv VALUES('generated.last-message',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE value<>excluded.value",
+            [&message.id],
+        ).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 pub(crate) async fn maybe_create(
     app: &tauri::AppHandle,
     state: &AppState,
@@ -1313,6 +1331,69 @@ mod tests {
         db.execute("INSERT INTO kv VALUES('generated.automatic','false')", [])
             .unwrap();
         assert!(!automatic_allowed(&state, &db, &settings).unwrap());
+    }
+
+    #[test]
+    fn quiet_hours_stop_automatic_detector_and_reactions_but_preserve_manual_generation() {
+        let state = app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let local = chrono::Local::now();
+        let settings = Settings {
+            local_idle_enabled: true,
+            local_model: crate::types::LocalModel::Gemma4_12B,
+            quiet_hours: crate::types::QuietHours {
+                enabled: true,
+                start: (local - chrono::Duration::hours(1))
+                    .format("%H:%M")
+                    .to_string(),
+                end: (local + chrono::Duration::hours(1))
+                    .format("%H:%M")
+                    .to_string(),
+                ..Default::default()
+            },
+            ..Settings::default()
+        };
+        assert!(models::widget_generation_eligibility(&settings).allowed);
+        store::save_settings(&db, &settings).unwrap();
+        assert!(!automatic_allowed(&state, &db, &settings).unwrap());
+        assert!(reactions_blocked(&state, &db).unwrap());
+        let manual = tasks::reserve(&state, tasks::Kind::WidgetGeneration, false).unwrap();
+        bind_generation(&db, manual.0, None, false).unwrap();
+        assert!(validate_generation(&state, &db, manual.0, &manual.1, None, false).is_ok());
+    }
+
+    #[test]
+    fn quiet_hours_skip_automatic_message_catchup_without_deleting_the_message() {
+        let state = app::tests::state();
+        let db = lock(&state.db).unwrap();
+        let message = crate::types::Message {
+            id: "quiet-message".into(),
+            role: "user".into(),
+            persona: Some("all".into()),
+            content: "횟수를 셀 도구가 필요해".into(),
+            expression: None,
+            created_at: chrono::Utc::now().timestamp_millis(),
+            status: "complete".into(),
+        };
+        store::insert_message(&db, &message).unwrap();
+        assert!(store::context_messages(&db, 20)
+            .unwrap()
+            .iter()
+            .any(|value| value.id == message.id));
+        skip_automatic_message(&db).unwrap();
+        skip_automatic_message(&db).unwrap();
+        let skipped: String = db
+            .query_row(
+                "SELECT value FROM kv WHERE key='generated.last-message'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(skipped, message.id);
+        assert!(store::context_messages(&db, 20)
+            .unwrap()
+            .iter()
+            .any(|value| value.id == message.id));
     }
 
     #[test]

@@ -52,7 +52,7 @@ export function appendFrames(clip: AnimationClip, frames: AnimationFrame[]): Ani
 
 export function defaultBinding(
   clipId: string,
-  situation: "idle" | "speaking" | "click",
+  situation: "idle" | "speaking" | "click" | "musicPlaying" | "calendarOpen",
 ): AnimationBinding {
   return { clipId, repeat: situation !== "click", intervalMs: situation === "idle" ? 3000 : 0 };
 }

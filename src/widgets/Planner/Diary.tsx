@@ -64,6 +64,7 @@ export function Diary(): ReactElement {
   const [toolsOpened, setToolsOpened] = useState(tool !== null);
   const [toolState, setToolState] = useState<PlannerToolState>(EMPTY_TOOL_STATE);
   const [toolDismissVersion, setToolDismissVersion] = useState(0);
+  const [navigationReady, setNavigationReady] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [archived, setArchived] = useState(false);
   const [creating, setCreating] = useState<"page" | "envelope" | null>(null);
@@ -220,6 +221,9 @@ export function Diary(): ReactElement {
       })
       .catch((cause: unknown) => {
         if (active) setFailure(errorText(cause));
+      })
+      .finally(() => {
+        if (active) setNavigationReady(true);
       });
     void getCurrentWindow()
       .onCloseRequested((event) => {
@@ -237,6 +241,20 @@ export function Diary(): ReactElement {
       cleanups.forEach((cleanup) => cleanup());
     };
   }, []);
+
+  // Project the visible calendar into the existing native animation condition.
+  // Read startup navigation first so an initial "today" render cannot overwrite it.
+  const nativeTab = tool ?? (!pageId && !envelopeId && view !== "day" ? "calendar" : "today");
+  useEffect(() => {
+    if (!navigationReady || !isDesktop()) return;
+    let active = true;
+    void command("set_planner_tab", { tab: nativeTab }).catch((cause: unknown) => {
+      if (active) setFailure(errorText(cause));
+    });
+    return () => {
+      active = false;
+    };
+  }, [navigationReady, nativeTab]);
 
   async function run<T>(operation: () => Promise<T>): Promise<{ value: T } | null> {
     if (!isDesktop()) {

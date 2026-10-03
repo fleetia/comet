@@ -2,6 +2,27 @@ use super::*;
 #[cfg(unix)]
 use std::time::Duration;
 
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn unvalidated_linux_semantic_profile_is_never_reported_as_installed() {
+    let directory = tempfile::tempdir().unwrap();
+    let semantic = directory.path().join("nlp/semantic");
+    std::fs::create_dir_all(&semantic).unwrap();
+    std::fs::write(
+        semantic.join("verified-artifacts"),
+        models::artifact_fingerprint(&models::manifest(ModelKind::Semantic)),
+    )
+    .unwrap();
+    let service = NlpService::new(directory.path().into(), PathBuf::new(), PathBuf::new()).unwrap();
+    let status = service.status();
+    assert!(!status.semantic.installed);
+    assert_eq!(status.semantic.state, "unavailable");
+    assert!(status.semantic.profile.is_none());
+    assert_eq!(status.active_methods, vec!["lexical"]);
+    assert!(!status.running);
+    service.shutdown().await;
+}
+
 #[cfg(unix)]
 fn fake_service(script: &str) -> (tempfile::TempDir, NlpService) {
     use std::os::unix::fs::PermissionsExt;
@@ -219,7 +240,9 @@ fn evaluate_combined_search_from_native_fixture_vectors() {
         .collect::<Vec<_>>();
     let combined_search_quality_gate = (combined.len() == 2).then(|| {
         combined.iter().all(|result| {
-            result["recallAt5"].as_f64().is_some_and(|value| value >= 0.9)
+            result["recallAt5"]
+                .as_f64()
+                .is_some_and(|value| value >= 0.9)
                 && result["unrelatedFalsePositiveRate"]
                     .as_f64()
                     .is_some_and(|value| value <= 0.05)
@@ -242,7 +265,14 @@ fn evaluate_combined_search_from_native_fixture_vectors() {
 
 #[test]
 fn changing_search_policy_preserves_installation_and_invalidates_only_cache() {
-    let original = models::manifest(ModelKind::Semantic);
+    let mut original = models::manifest(ModelKind::Semantic);
+    // Policy identity is independent of a platform's currently published models.
+    original.files = vec![models::ModelFile {
+        name: "model.onnx".into(),
+        url: None,
+        size: 1,
+        sha256: "test-model".into(),
+    }];
     let mut changed = original.clone();
     changed.profile.push_str("-updated-pooling");
     changed.threshold = Some(0.91);

@@ -124,6 +124,7 @@ beforeEach(() => {
       if (name === "get_widgets") return structuredClone(widgets);
       if (name === "get_diary") return structuredClone(diary);
       if (name === "get_planner_tab") return "today";
+      if (name === "set_planner_tab") return null;
       if (name === "update_diary") return update(String(args?.action), args?.input as DataRecord);
       if (name === "execute_widget") return execute(args?.request as DataRecord);
       throw new Error(`Unexpected command: ${name}`);
@@ -144,6 +145,35 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   vi.useRealTimers();
+});
+
+it("projects month and week calendars into native state and clears it for tools and day pages", async () => {
+  await openDiary();
+  await waitFor(() => expect(actions("set_planner_tab").at(-1)).toEqual({ tab: "today" }));
+  fireEvent.click(screen.getByRole("button", { name: "월간" }));
+  await waitFor(() => expect(actions("set_planner_tab").at(-1)).toEqual({ tab: "calendar" }));
+  const calendarWrites = actions("set_planner_tab").length;
+  fireEvent.click(screen.getByRole("button", { name: "주간" }));
+  expect(actions("set_planner_tab")).toHaveLength(calendarWrites);
+  fireEvent.click(screen.getByRole("button", { name: "기간 계획" }));
+  await waitFor(() => expect(actions("set_planner_tab").at(-1)).toEqual({ tab: "plans" }));
+  fireEvent.click(screen.getByRole("button", { name: "하루" }));
+  await waitFor(() => expect(actions("set_planner_tab").at(-1)).toEqual({ tab: "today" }));
+});
+
+it("waits for startup navigation before publishing a calendar condition", async () => {
+  const existing = vi.mocked(command).getMockImplementation()!;
+  let finishNavigation!: (tab: string) => void;
+  vi.mocked(command).mockImplementation((name, args) =>
+    name === "get_planner_tab"
+      ? new Promise((resolve) => { finishNavigation = resolve; })
+      : existing(name, args),
+  );
+  await openDiary();
+  expect(actions("set_planner_tab")).toEqual([]);
+  await act(async () => finishNavigation("calendar"));
+  await waitFor(() => expect(actions("set_planner_tab")).toEqual([{ tab: "calendar" }]));
+  expect(screen.getByRole("button", { name: "월간" }).getAttribute("aria-current")).toBe("page");
 });
 
 it("links the exact returned Todo IDs and uses fresh widget revisions before a widgets-state event", async () => {

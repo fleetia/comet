@@ -123,6 +123,14 @@ export function Planner({
       setInternalTab(value);
     }
   }
+  const selectTab = (next: string): void => {
+    setTab(next);
+    if (!embedded && isDesktop()) {
+      void command("set_planner_tab", { tab: next }).catch((cause: unknown) =>
+        setFailure(errorText(cause)),
+      );
+    }
+  };
   const [day, setDay] = useState(localDay());
   const [period, setPeriod] = useState("week");
   const [planDay, setPlanDay] = useState(localDay());
@@ -433,7 +441,7 @@ export function Planner({
       {!snapshot ? (
         <div className={s.empty}>할 일을 불러오고 있어요.</div>
       ) : (
-        <Tabs value={tab} onValueChange={setTab} className={embedded ? s.embeddedTabs : s.tabs}>
+        <Tabs value={tab} onValueChange={selectTab} className={embedded ? s.embeddedTabs : s.tabs}>
           {!embedded && (
             <div className={s.nav}>
               <TabList className={s.tabList} aria-label="플래너">
@@ -542,7 +550,7 @@ export function Planner({
                     size="compact"
                     onClick={() => {
                       setPeriod("inbox");
-                      setTab("plans");
+                      selectTab("plans");
                     }}
                   >
                     수집함 {inboxCount}
@@ -561,7 +569,11 @@ export function Planner({
                     {!chosen.length && (
                       <div className={s.empty}>
                         <p>오늘 할 일 하나부터 적어 볼까요?</p>
-                        <Button variant="quiet" size="compact" onClick={() => setTab("templates")}>
+                        <Button
+                          variant="quiet"
+                          size="compact"
+                          onClick={() => selectTab("templates")}
+                        >
                           템플릿에서 고르기
                         </Button>
                       </div>

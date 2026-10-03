@@ -31,6 +31,9 @@ mod legacy_names;
 #[allow(dead_code, unused_imports)]
 #[path = "../src/models.rs"]
 mod models;
+#[allow(dead_code)]
+#[path = "../src/sidecar.rs"]
+mod sidecar;
 #[allow(dead_code, unused_imports)]
 #[path = "../src/store.rs"]
 mod store;
@@ -80,13 +83,8 @@ async fn main() -> Result<(), String> {
     )
     .await?;
     let binaries = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries");
-    let name = if cfg!(windows) {
-        "llama-server-x86_64-pc-windows-msvc.exe"
-    } else {
-        "llama-server-aarch64-apple-darwin"
-    };
-    let runtime =
-        inference::Inference::new(app_data, binaries.join(name), binaries.join("runtime"));
+    let executable = sidecar::development_executable("llama-server");
+    let runtime = inference::Inference::new(app_data, executable, binaries.join("runtime"));
     let settings = types::Settings::default();
     let messages = vec![types::Message {
         id: "smoke-user".into(),

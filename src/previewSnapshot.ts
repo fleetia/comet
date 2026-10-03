@@ -38,6 +38,7 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
     localIdleEnabled: false,
     apiIdleEnabled: false,
     idleMinutes: 2,
+    quietHours: { enabled: false, start: "22:00", end: "08:00", weekdays: [0, 1, 2, 3, 4, 5, 6] },
   },
   messages: [],
   memoryCount: 0,
@@ -68,6 +69,18 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
       ["gemma-4-e4b", "Gemma 4 E4B", "Qwen 외 4B급 비교용", 4977171584],
       ["gemma-4-12b", "Gemma 4 12B", "고품질 비교용 · 메모리 많이 사용", 7121861440],
       ["ministral-3-8b", "Ministral 3 8B", "Mistral 계열 비교용", 5198386720],
+      [
+        "kanana-1.5-2.1b-instruct-2505",
+        "Kanana 1.5 2.1B Instruct",
+        "한국어 경량 비교용 · 실험 · 실제 대화 미검증",
+        1522796768,
+      ],
+      [
+        "kanana-1.5-8b-instruct-2505",
+        "Kanana 1.5 8B Instruct",
+        "한국어 8B 비교용 · 실험 · 실제 대화 미검증 · CPU 지연 가능",
+        4920765472,
+      ],
     ] satisfies [LocalModel, string, string, number][]
   ).map(([id, name, description, size]) => ({
     id,

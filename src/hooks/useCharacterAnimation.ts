@@ -32,6 +32,40 @@ function motionBinding(motion: MotionOverride | undefined): AnimationBinding | n
   return undefined;
 }
 
+const SUSTAINED_STATES = ["calendarOpen", "musicPlaying"] as const;
+type SustainedState = (typeof SUSTAINED_STATES)[number];
+type SustainedRuns = {
+  definitionKey: string;
+  current: string | null;
+  states: Record<SustainedState, { active: boolean; generation: number; consumed: boolean }>;
+};
+
+function nextSustainedRuns(
+  previous: SustainedRuns | undefined,
+  definitionKey: string,
+  conditions: Snapshot["animationStates"],
+): SustainedRuns {
+  const sameDefinition = previous?.definitionKey === definitionKey;
+  return {
+    definitionKey,
+    current: sameDefinition ? previous.current : null,
+    states: Object.fromEntries(
+      SUSTAINED_STATES.map((state) => {
+        const active = Boolean(conditions?.[state]);
+        const old = sameDefinition ? previous.states[state] : undefined;
+        return [
+          state,
+          {
+            active,
+            generation: (old?.generation ?? 0) + Number(active && !old?.active),
+            consumed: old?.active === active ? old.consumed : false,
+          },
+        ];
+      }),
+    ) as SustainedRuns["states"],
+  };
+}
+
 export function useCharacterAnimation(
   character: InstalledCharacter | undefined,
   snapshot: Snapshot,
@@ -51,13 +85,30 @@ export function useCharacterAnimation(
   const available = enabled && !snapshot.runtime.hidden && !snapshot.runtime.paused;
   const running = available && !reduced;
   const definitionKey = JSON.stringify([character?.id, character?.definition, available]);
+  const [storedRuns, setSustainedRuns] = useState(() =>
+    nextSustainedRuns(undefined, definitionKey, snapshot.animationStates),
+  );
+  let sustainedRuns = storedRuns;
+  if (
+    storedRuns.definitionKey !== definitionKey ||
+    SUSTAINED_STATES.some(
+      (state) => storedRuns.states[state].active !== Boolean(snapshot.animationStates?.[state]),
+    )
+  ) {
+    // Reconcile condition epochs before rendering, even while speech or another state owns the body.
+    sustainedRuns = nextSustainedRuns(storedRuns, definitionKey, snapshot.animationStates);
+    setSustainedRuns(sustainedRuns);
+  }
   const reaction = available ? snapshot.reactions?.[character?.id ?? ""] : undefined;
   const [finishedLine, setFinishedLine] = useState("");
   const [finishedReaction, setFinishedReaction] = useState("");
   const activeReaction = reaction?.id !== finishedReaction ? reaction : undefined;
   const playback = snapshot.playback;
   const speakingLine =
-    !snapshot.panel &&
+    (!snapshot.panel ||
+      (snapshot.panel.mode === "input" &&
+        snapshot.conversation?.session.status === "active" &&
+        snapshot.conversation.session.userId === snapshot.user?.id)) &&
     !snapshot.story &&
     playback?.displayStartedAt != null &&
     activeCharacter(snapshot, playback.persona)?.id === character?.id;
@@ -72,13 +123,36 @@ export function useCharacterAnimation(
   let binding = motionBinding(motion);
   const explicit = binding !== undefined;
   let trigger = activeReaction ? `reaction:${activeReaction.id}` : "idle";
+  let sustainedState: SustainedState | undefined;
+  let sustainedKey: string | null = null;
   if (binding === undefined && speaking)
     binding = animationBinding(animation, expression, "speaking");
+  if (binding === undefined && !speaking && !activeReaction) {
+    // Only opt-in bindings participate; an unassigned higher-priority state falls through.
+    for (const state of SUSTAINED_STATES) {
+      if (snapshot.animationStates?.[state] && animation?.bindings[state]) {
+        const run = sustainedRuns.states[state];
+        sustainedState = state;
+        sustainedKey = `state:${state}:${run.generation}`;
+        binding = animation.bindings[state];
+        // A one-shot keeps ownership as a static pose after completion or preemption.
+        if (!binding.repeat && run.consumed && sustainedRuns.current !== sustainedKey)
+          binding = null;
+        trigger = sustainedKey;
+        break;
+      }
+    }
+  }
   if (binding === undefined) binding = animationBinding(animation, expression, "idle");
   if (!activeReaction && speaking)
     trigger = `speaking:${speakingLine ? playback?.id : snapshot.story?.id}`;
   const clip = animation?.clips.find((value) => value.id === binding?.clipId);
-  const key = JSON.stringify([definitionKey, activeReaction ? null : expression, trigger, binding]);
+  const key = JSON.stringify([
+    definitionKey,
+    activeReaction || sustainedState ? null : expression,
+    trigger,
+    binding,
+  ]);
   const sources = useMemo(
     () =>
       Object.fromEntries(
@@ -101,6 +175,35 @@ export function useCharacterAnimation(
     enabled: running,
     ready: loaded.ready,
   });
+  useEffect(() => {
+    const started = sustainedState && running && clip && (loaded.ready || loaded.error);
+    setSustainedRuns((previous) => {
+      if (previous.definitionKey !== definitionKey) return previous;
+      if (!started || !sustainedState) {
+        return previous.current === null ? previous : { ...previous, current: null };
+      }
+      const run = previous.states[sustainedState];
+      if (!run.active || `state:${sustainedState}:${run.generation}` !== sustainedKey)
+        return previous;
+      const consumed = run.consumed || !binding?.repeat;
+      if (previous.current === sustainedKey && run.consumed === consumed) return previous;
+      return {
+        ...previous,
+        current: sustainedKey,
+        states: { ...previous.states, [sustainedState]: { ...run, consumed } },
+      };
+    });
+  }, [
+    definitionKey,
+    sustainedState,
+    sustainedKey,
+    running,
+    clip?.id,
+    binding?.repeat,
+    loaded.ready,
+    loaded.error,
+  ]);
+
   useEffect(() => {
     if (
       !activeReaction &&

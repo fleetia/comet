@@ -104,7 +104,7 @@ pub(super) fn validate_pack(pack: &CharacterPack) -> Result<()> {
     super::prepare_pack(pack.clone()).map(|_| ())
 }
 pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
-    if ![1, 2, 3, 4, 5].contains(&pack.format_version)
+    if ![1, 2, 3, 4, 5, 6].contains(&pack.format_version)
         || !(1..=if pack.format_version == 1 {
             2
         } else {
@@ -125,6 +125,9 @@ pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
         || (pack.format_version == 4 && pack.archive.is_none())
     {
         return Err("개인 기록이 포함된 캐릭터팩은 버전 4 이상이어야 합니다.".into());
+    }
+    if pack.format_version < 6 && has_state_bindings(pack) {
+        return Err("지속 상태 동작이 포함된 캐릭터팩은 버전 6 이상이어야 합니다.".into());
     }
     if pack.format_version < 5 && has_reactions_or_motion(pack) {
         return Err(
@@ -242,7 +245,7 @@ pub fn parse_pack(json: &str) -> Result<CharacterPack> {
     }
     let mut value: serde_json::Value =
         serde_json::from_str(json).map_err(|_| "캐릭터팩 JSON을 읽을 수 없습니다.")?;
-    if matches!(value["formatVersion"].as_u64(), Some(2..=5)) {
+    if matches!(value["formatVersion"].as_u64(), Some(2..=6)) {
         convert_pack_speakers(&mut value, false)?;
     }
     if let Some(scenes) = value.get("pairScenes").and_then(|v| v.as_array()) {
@@ -401,4 +404,12 @@ pub(super) fn validate_attribution(author: &str, source_url: &str) -> Result<()>
         return Err("제작자와 출처 URL을 확인해 주세요.".into());
     }
     Ok(())
+}
+
+pub(super) fn has_state_bindings(pack: &CharacterPack) -> bool {
+    pack.characters.iter().any(|definition| {
+        definition.animation.as_ref().is_some_and(|animation| {
+            animation.bindings.music_playing.is_some() || animation.bindings.calendar_open.is_some()
+        })
+    })
 }

@@ -353,6 +353,8 @@ export function AppearanceEditor({
                 ["idle", "평소"],
                 ["speaking", "말하는 동안"],
                 ["click", "클릭했을 때"],
+                ["calendarOpen", "캘린더를 보고 있는 동안"],
+                ["musicPlaying", "음악을 재생하는 동안"],
               ] as const
             ).map(([situation, label]) => (
               <BindingEditor

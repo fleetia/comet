@@ -72,16 +72,28 @@ def finalize() -> None:
     source_prefix = f'/{repo}/releases/download/{source_tag}/'
     public_urls = {name: public_url(asset, prefix, source_prefix) for name, asset in assets.items()}
     downloads = []
-    for platform, extension in [('macOS 14+ · Apple Silicon', '.dmg'), ('Windows · x64', '.exe')]:
+    for platform, extension in [
+        ('macOS 14+ · Apple Silicon', '.dmg'), ('Windows · x64', '.exe'),
+        ('Linux 실험판 · Ubuntu 24.04 x64 · X11 · CPU', '.deb'),
+    ]:
         installers = [asset for name, asset in assets.items() if name.endswith(extension)]
         require(len(installers) == 1 and nonempty(installers[0]), 'Missing, empty or ambiguous installer.')
+        if extension == '.deb':
+            require(installers[0]['name'] == f'comet_{tag[1:]}_amd64.deb',
+                    'Linux installer must match this version and amd64 architecture.')
         url = public_urls[installers[0]['name']]
         downloads.append(f'| {platform} | [{extension[1:].upper()} 다운로드]({url}) |')
     platforms = manifest['platforms']
     require(isinstance(platforms, dict), 'Invalid updater targets.')
     for candidates in [('darwin-aarch64-app', 'darwin-aarch64'), ('windows-x86_64-nsis', 'windows-x86_64')]:
         require(any(key in platforms for key in candidates), 'Missing required updater target.')
-    for target in platforms.values():
+    updater_extensions = {
+        'darwin-aarch64-app': '.app.tar.gz', 'darwin-aarch64': '.app.tar.gz',
+        'windows-x86_64-nsis': '.exe', 'windows-x86_64': '.exe',
+    }
+    require(all(key in updater_extensions for key in platforms),
+            'Unsupported updater target. The experimental Linux DEB is manual-install only.')
+    for key, target in platforms.items():
         require(isinstance(target, dict), 'Invalid updater target.')
         require(isinstance(target.get('signature'), str) and bool(target['signature'].strip()), 'Missing target signature.')
         url = target.get('url')
@@ -90,6 +102,8 @@ def finalize() -> None:
                    if url in (asset.get('url'), asset.get('apiUrl'), public_urls[name])]
         require(len(matches) == 1 and nonempty(matches[0]), 'Updater URL must match one nonempty release asset.')
         asset = matches[0]
+        require(asset['name'].endswith(updater_extensions[key]),
+                'Updater asset format does not match its platform.')
         signature = assets.get(asset['name'] + '.sig')
         require(signature is not None and nonempty(signature), 'Missing or empty signature asset.')
         target['url'] = public_urls[asset['name']]
@@ -97,7 +111,9 @@ def finalize() -> None:
     notes = '\n'.join([
         '## 다운로드', '', '| 운영체제 | 설치 파일 |', '| --- | --- |', *downloads, '',
         'macOS는 DMG를 열고 comet를 Applications 폴더로 옮겨 실행하세요. Windows는 EXE 설치 파일을 실행하세요.', '',
-        '앱 updater 서명은 적용됩니다. macOS notarization과 Windows Authenticode 서명은 아직 제공하지 않습니다.', '',
+        'Linux DEB는 Ubuntu 24.04 x64의 X11 세션과 CPU 실행용 실험판입니다. 배포판 전체·Wayland·GPU 지원을 보장하지 않습니다.', '',
+        'Linux는 내려받은 DEB를 수동 설치하세요. Linux 자동 업데이트와 패키지 서명은 제공하지 않습니다.', '',
+        'macOS·Windows 앱 updater 서명은 적용됩니다. macOS notarization과 Windows Authenticode 서명은 아직 제공하지 않습니다.', '',
         '## 업데이트 노트', '', body, '',
     ])
     # No output is changed until every target, alias and note has passed validation.

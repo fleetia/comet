@@ -31,7 +31,7 @@ export type AnimationFrame = {
 export type AnimationClip = { id: string; name: string; fps: number; frames: AnimationFrame[] };
 export type AnimationBinding = { clipId: string; repeat: boolean; intervalMs: number };
 export type AnimationBindings = Partial<
-  Record<"idle" | "speaking" | "click", AnimationBinding | null>
+  Record<"idle" | "speaking" | "click" | "musicPlaying" | "calendarOpen", AnimationBinding | null>
 >;
 export type CharacterAnimation = {
   clips: AnimationClip[];
@@ -97,7 +97,7 @@ export type CharacterArchive = {
   }[];
 };
 export type CharacterPack = {
-  formatVersion: 1 | 2 | 3 | 4 | 5;
+  formatVersion: 1 | 2 | 3 | 4 | 5 | 6;
   name: string;
   author: string;
   sourceUrl?: string;
@@ -152,6 +152,8 @@ export type LocalModel =
   | "gemma-4-e4b"
   | "gemma-4-12b"
   | "ministral-3-8b"
+  | "kanana-1.5-2.1b-instruct-2505"
+  | "kanana-1.5-8b-instruct-2505"
   | "custom";
 export type LocalModelStatus = {
   id: LocalModel;
@@ -167,6 +169,12 @@ export type LocalModelStatus = {
 };
 export type DeviceInfo = { totalMemory: number | null; appleSilicon: boolean };
 export type LocalModelTest = { reply: string; elapsedMs: number };
+export type QuietHours = {
+  enabled: boolean;
+  start: string;
+  end: string;
+  weekdays: number[];
+};
 export type Settings = {
   mode: "local" | "api";
   autonomousEnabled: boolean;
@@ -179,6 +187,7 @@ export type Settings = {
   localIdleEnabled: boolean;
   apiIdleEnabled: boolean;
   idleMinutes: number;
+  quietHours: QuietHours;
 };
 export type Message = {
   id: string;
@@ -295,6 +304,7 @@ export type RuntimeStatus = {
   pausedUntil: number | null;
 };
 export type Snapshot = {
+  animationStates?: { musicPlaying: boolean; calendarOpen: boolean };
   reactions?: Record<string, CharacterReactionRun>;
   user: UserIdentity | null;
   legacyMemoryCount: number;

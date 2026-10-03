@@ -30,11 +30,26 @@ pub fn manifest(kind: ModelKind) -> ModelManifest {
         ModelKind::Semantic => {
             let data = if cfg!(target_os = "windows") {
                 include_str!("../../../nlp/models/e5-windows-x64.json")
+            } else if cfg!(target_os = "linux") {
+                // Linux artifacts and retrieval quality have not been validated.
+                // Never reuse another platform's model receipt or calibration.
+                include_str!("../../../nlp/models/e5-linux-x64.json")
             } else {
                 include_str!("../../../nlp/models/e5-macos-arm64.json")
             };
             serde_json::from_str(data).expect("bundled E5 manifest must be valid")
         }
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    #[test]
+    fn linux_semantic_search_stays_unavailable_without_validated_artifacts() {
+        let manifest = super::manifest(super::ModelKind::Semantic);
+        assert_eq!(manifest.profile, "e5-linux-x64-unavailable-v1");
+        assert!(manifest.files.is_empty());
+        assert!(manifest.threshold.is_none());
     }
 }
 pub fn fingerprint(manifest: &ModelManifest) -> String {

@@ -21,13 +21,18 @@ pub(crate) fn publish_widgets(app: &tauri::AppHandle, state: &AppState) {
             let _ = app.emit("widgets-state", snapshot);
         }
     }
+    if crate::character_animation_states::refresh(app, state).unwrap_or(false) {
+        publish(app, state);
+    }
     crate::desktop_menu::refresh(app);
     crate::widget_runtime::refresh(app);
 }
 
 /// Keeps idle chatter deferred for the whole focus run, so it never fires right after the timer ends.
 pub(crate) fn hold_for_focus(state: &AppState, db: &rusqlite::Connection) -> Result<bool, String> {
-    if !storage::focus_active(db, chrono::Utc::now().timestamp_millis())? {
+    if !storage::focus_active(db, chrono::Utc::now().timestamp_millis())?
+        && !crate::app::quiet_hours::automatic_blocked(state, &store::settings(db)?)?
+    {
         return Ok(false);
     }
     storage::discard_pending_during_focus(db)?;
@@ -221,6 +226,11 @@ pub(crate) fn event_current(
     db: &rusqlite::Connection,
     event: &WidgetEvent,
 ) -> Result<bool, String> {
+    if crate::app::quiet_hours::active(&store::settings(db)?)
+        && !crate::app::quiet_hours::event_allowed(&event.event.kind)
+    {
+        return Ok(false);
+    }
     if event.widget_kind == "state-rule" {
         return crate::generated_widget_commands::event_current(db, event);
     }
@@ -782,39 +792,47 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
     Ok(())
 }
 
+/// Caller holds action and db. Share eligibility and queue consumption with the scheduler tests.
+pub(crate) fn take_pending_reaction(
+    state: &AppState,
+    db: &rusqlite::Connection,
+) -> Result<Option<WidgetEvent>, String> {
+    if crate::unavailable(state) {
+        return Ok(None);
+    }
+    let status = lock(&state.runtime)?.clone();
+    current_events(state, db)?;
+    if state.launcher_open.load(Ordering::SeqCst)
+        || status.hidden
+        || status.paused
+        || !store::settings(db)?.autonomous_enabled
+    {
+        storage::discard_pending(db)?;
+        return Ok(None);
+    }
+    if state.stopping.load(Ordering::SeqCst)
+        || status.phase != "idle"
+        || lock(&state.panel)?.is_some()
+        || now() - state.last_input.load(Ordering::SeqCst) < 3
+    {
+        return Ok(None);
+    }
+    hold_for_focus(state, db)?;
+    let event = storage::take_reaction(db, chrono::Utc::now().timestamp_millis())?;
+    match event {
+        Some(event) if widgets::reminders::event_current(db, &event)? => Ok(Some(event)),
+        _ => Ok(None),
+    }
+}
+
 pub(crate) fn play_widget_reaction(
     app: &tauri::AppHandle,
     state: &Arc<AppState>,
 ) -> Result<bool, String> {
     let pending = {
         let _action = lock(&state.action)?;
-        if crate::unavailable(state) {
-            return Ok(false);
-        }
-        let status = lock(&state.runtime)?.clone();
         let db = lock(&state.db)?;
-        current_events(state, &db)?;
-        if state.launcher_open.load(Ordering::SeqCst)
-            || status.hidden
-            || status.paused
-            || !store::settings(&db)?.autonomous_enabled
-        {
-            storage::discard_pending(&db)?;
-            return Ok(false);
-        }
-        if state.stopping.load(Ordering::SeqCst)
-            || status.phase != "idle"
-            || lock(&state.panel)?.is_some()
-            || now() - state.last_input.load(Ordering::SeqCst) < 3
-        {
-            return Ok(false);
-        }
-        hold_for_focus(state, &db)?;
-        let event = storage::take_reaction(&db, chrono::Utc::now().timestamp_millis())?;
-        if let Some(event) = event {
-            if !widgets::reminders::event_current(&db, &event)? {
-                return Ok(false);
-            }
+        if let Some(event) = take_pending_reaction(state, &db)? {
             if let Some(character_id) =
                 crate::character_reaction_host::widget_character(&db, &event)?
             {

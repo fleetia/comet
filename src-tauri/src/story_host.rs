@@ -18,10 +18,12 @@ pub fn advance(state: &AppState, at: Instant) -> Result<bool, String> {
         return Ok(false);
     }
     // Skip this turn instead of opening a choice right after focus ends.
-    if crate::widgets::storage::focus_active(
-        &*lock(&state.db)?,
-        chrono::Utc::now().timestamp_millis(),
-    )? {
+    let silenced = {
+        let db = lock(&state.db)?;
+        crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
+            || crate::app::quiet_hours::automatic_blocked(state, &crate::store::settings(&db)?)?
+    };
+    if silenced {
         lock(&state.story_clock)?.elapsed = Duration::ZERO;
         return Ok(false);
     }
@@ -89,6 +91,7 @@ pub fn choose_story(
             || status.paused
             || crate::app::unavailable(&state)
             || !crate::store::settings(&db)?.autonomous_enabled
+            || crate::app::quiet_hours::automatic_blocked(&state, &crate::store::settings(&db)?)?
         {
             return Err("지금은 이야기가 쉬고 있어요.".into());
         }

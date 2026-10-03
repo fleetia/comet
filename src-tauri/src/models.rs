@@ -25,7 +25,7 @@ struct ModelSpec {
     url: &'static str,
 }
 
-const CATALOG: [LocalModel; 8] = [
+const CATALOG: [LocalModel; 10] = [
     LocalModel::Qwen35_4B,
     LocalModel::Qwen35_9B,
     LocalModel::Qwen38_2B,
@@ -34,6 +34,8 @@ const CATALOG: [LocalModel; 8] = [
     LocalModel::Gemma4E4B,
     LocalModel::Gemma4_12B,
     LocalModel::Ministral3_8B,
+    LocalModel::Kanana15_2_1B,
+    LocalModel::Kanana15_8B,
 ];
 
 fn spec(model: LocalModel) -> Option<ModelSpec> {
@@ -85,6 +87,18 @@ fn spec(model: LocalModel) -> Option<ModelSpec> {
             name: "Ministral 3 8B", description: "Mistral 계열 비교용", file: "Ministral-3-8B-Instruct-2512-Q4_K_M.gguf", size: 5_198_386_720,
             sha256: "5dbc3647eb563b9f8d3c70ec3d906cce84b86bb35c5e0b8a36e7df3937ab7174",
             url: "https://huggingface.co/unsloth/Ministral-3-8B-Instruct-2512-GGUF/resolve/3731507ec3e867db16d620f73e14d689125758f4/Ministral-3-8B-Instruct-2512-Q4_K_M.gguf",
+        },
+        LocalModel::Kanana15_2_1B => ModelSpec {
+            parameter_billions: 2.1,
+            name: "Kanana 1.5 2.1B Instruct", description: "한국어 경량 비교용 · 실험 · 실제 대화 미검증", file: "kakaocorp.kanana-1.5-2.1b-instruct-2505.Q4_K_M.gguf", size: 1_522_796_768,
+            sha256: "24d3db59d0af2c85c0afc0bbc99da1174b73ef6728bce2650bd91bec28ad1c81",
+            url: "https://huggingface.co/DevQuasar/kakaocorp.kanana-1.5-2.1b-instruct-2505-GGUF/resolve/4d3b6203857d893ebfcaca6c51901e3ea1d00d00/kakaocorp.kanana-1.5-2.1b-instruct-2505.Q4_K_M.gguf",
+        },
+        LocalModel::Kanana15_8B => ModelSpec {
+            parameter_billions: 8.,
+            name: "Kanana 1.5 8B Instruct", description: "한국어 8B 비교용 · 실험 · 실제 대화 미검증 · CPU 지연 가능", file: "kakaocorp.kanana-1.5-8b-instruct-2505.Q4_K_M.gguf", size: 4_920_765_472,
+            sha256: "f7ae0cc1de2396647dce4a82fb4943136bcc785339ee8944c6818184c983d287",
+            url: "https://huggingface.co/DevQuasar/kakaocorp.kanana-1.5-8b-instruct-2505-GGUF/resolve/4ac8eab32701b37555f225ee2c34dfa4edcdc99d/kakaocorp.kanana-1.5-8b-instruct-2505.Q4_K_M.gguf",
         },
         LocalModel::Custom => return None,
     })
@@ -150,7 +164,16 @@ fn fit(model_bytes: u64, total_memory: Option<u64>) -> ModelFit {
     }
 }
 
-/// The largest model that fits comfortably. CPU-only builds stop at 4B, since larger
+/// New Korean-focused candidates stay manually selectable until their actual app quality
+/// has been accepted. Keep existing device recommendations unchanged in the meantime.
+fn automatic_recommendation_eligible(model: LocalModel) -> bool {
+    !matches!(
+        model,
+        LocalModel::Kanana15_2_1B | LocalModel::Kanana15_8B | LocalModel::Custom
+    )
+}
+
+/// The largest eligible model that fits comfortably. CPU-only builds stop at 4B, since larger
 /// models answer too slowly there; ties keep the catalog order.
 fn recommended(device: crate::device::DeviceInfo) -> Option<LocalModel> {
     let limit = if device.apple_silicon {
@@ -163,7 +186,8 @@ fn recommended(device: crate::device::DeviceInfo) -> Option<LocalModel> {
         let Some(spec) = spec(model) else {
             continue;
         };
-        let comfortable = spec.parameter_billions <= limit
+        let comfortable = automatic_recommendation_eligible(model)
+            && spec.parameter_billions <= limit
             && fit(spec.size, device.total_memory) == ModelFit::Fits;
         if comfortable && best.is_none_or(|(_, size)| spec.parameter_billions > size) {
             best = Some((model, spec.parameter_billions));
@@ -529,6 +553,7 @@ mod tests {
         assert_eq!(recommended(device(16, true)), Some(LocalModel::Qwen35_9B));
         assert_eq!(recommended(device(24, true)), Some(LocalModel::Gemma4_12B));
         assert_eq!(recommended(device(32, false)), Some(LocalModel::Qwen35_4B));
+        assert_eq!(recommended(device(36, false)), Some(LocalModel::Qwen35_4B));
         assert_eq!(recommended(device(4, true)), None);
         assert_eq!(
             recommended(crate::device::DeviceInfo {
@@ -537,6 +562,67 @@ mod tests {
             }),
             None
         );
+    }
+    #[test]
+    fn kanana_candidates_are_pinned_selectable_and_manual_only() {
+        let directory = tempfile::tempdir().unwrap();
+        let statuses = model_statuses(directory.path());
+        for (model, id, size, hash, revision) in [
+            (
+                LocalModel::Kanana15_2_1B,
+                "kanana-1.5-2.1b-instruct-2505",
+                1_522_796_768,
+                "24d3db59d0af2c85c0afc0bbc99da1174b73ef6728bce2650bd91bec28ad1c81",
+                "4d3b6203857d893ebfcaca6c51901e3ea1d00d00",
+            ),
+            (
+                LocalModel::Kanana15_8B,
+                "kanana-1.5-8b-instruct-2505",
+                4_920_765_472,
+                "f7ae0cc1de2396647dce4a82fb4943136bcc785339ee8944c6818184c983d287",
+                "4ac8eab32701b37555f225ee2c34dfa4edcdc99d",
+            ),
+        ] {
+            let spec = spec(model).unwrap();
+            assert_eq!(spec.size, size);
+            assert_eq!(spec.sha256, hash);
+            assert_eq!(spec.file, format!("kakaocorp.{id}.Q4_K_M.gguf"));
+            assert_eq!(
+                spec.url,
+                format!(
+                    "https://huggingface.co/DevQuasar/kakaocorp.{id}-GGUF/resolve/{revision}/{}",
+                    spec.file
+                )
+            );
+            assert!(!automatic_recommendation_eligible(model));
+            let status = statuses.iter().find(|status| status.id == model).unwrap();
+            assert!(status.name.starts_with("Kanana 1.5 "));
+            assert!(status.description.contains("한국어"));
+            assert!(status.description.contains("실험"));
+            assert!(status.description.contains("실제 대화 미검증"));
+            assert!(!status.recommended);
+            assert!(!status.widget_creation);
+            assert!(!status.ready);
+            let settings = Settings {
+                local_model: model,
+                ..Settings::default()
+            };
+            assert_eq!(
+                selected_path(directory.path(), &settings),
+                Some(directory.path().join("models").join(spec.file))
+            );
+            assert!(!selected_ready(directory.path(), &settings));
+            assert!(!widget_generation_eligibility(&settings).allowed);
+        }
+        for memory in [4, 8, 16, 24, 36, 128] {
+            for apple_silicon in [false, true] {
+                let suggestion = recommended(crate::device::DeviceInfo {
+                    total_memory: Some(memory << 30),
+                    apple_silicon,
+                });
+                assert!(suggestion.is_none_or(automatic_recommendation_eligible));
+            }
+        }
     }
     #[test]
     fn catalog_lists_every_pinned_model_once_and_excludes_custom() {

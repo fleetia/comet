@@ -210,3 +210,70 @@ fn animation_assets_survive_restart_and_legacy_definitions_need_no_animation_fie
     initialize_for_tests(&conn).unwrap();
     assert_eq!(get(&conn, &saved.id).unwrap(), saved);
 }
+
+#[test]
+fn sustained_bindings_use_v6_only_when_assigned_and_survive_pack_and_clone() {
+    let conn = database();
+    let (mut definition, asset) = animated();
+    let animation = definition.animation.as_mut().unwrap();
+    animation.bindings.music_playing = animation.bindings.idle.clone();
+    animation.bindings.calendar_open = animation.bindings.idle.clone();
+    let created = create_with_assets(&conn, &definition, &[asset]).unwrap();
+    let pack = export_pack(&conn, std::slice::from_ref(&created.id), &[]).unwrap();
+    assert_eq!(pack.format_version, 6);
+    let parsed = parse_pack(&pack_json(&pack).unwrap()).unwrap();
+    let imported = import_pack(&conn, &parsed).unwrap().remove(0);
+    assert_eq!(imported.definition.animation, created.definition.animation);
+    assert_eq!(imported.animation_assets, created.animation_assets);
+    assert_eq!(
+        clone_character(&conn, &imported.id)
+            .unwrap()
+            .definition
+            .animation,
+        created.definition.animation
+    );
+    for version in 1..=5 {
+        let mut old = pack.clone();
+        old.format_version = version;
+        assert!(validation::validate_pack(&old).is_err());
+    }
+    let options = ExportOptions {
+        include_sprites: false,
+        ..Default::default()
+    };
+    let no_images =
+        export_pack_with_options(&conn, std::slice::from_ref(&created.id), &[], &options).unwrap();
+    assert_eq!(no_images.format_version, 2);
+    assert!(no_images.characters[0].animation.is_none());
+    assert!(no_images.animation_assets.is_empty());
+    let animation = definition.animation.as_mut().unwrap();
+    animation.bindings.music_playing = None;
+    animation.bindings.calendar_open = None;
+    save(&conn, &created.id, &definition).unwrap();
+    assert_eq!(
+        export_pack(&conn, &[created.id], &[])
+            .unwrap()
+            .format_version,
+        3
+    );
+}
+
+#[test]
+fn sustained_bindings_validate_clip_references_and_intervals() {
+    let (mut definition, _) = animated();
+    let animation = definition.animation.as_mut().unwrap();
+    animation.bindings.music_playing = Some(Binding {
+        clip_id: "missing".into(),
+        repeat: true,
+        interval_ms: 0,
+    });
+    assert!(validation::validate_definition(&definition).is_err());
+    let animation = definition.animation.as_mut().unwrap();
+    animation.bindings.music_playing = None;
+    animation.bindings.calendar_open = Some(Binding {
+        clip_id: "hello".into(),
+        repeat: true,
+        interval_ms: 60_001,
+    });
+    assert!(validation::validate_definition(&definition).is_err());
+}

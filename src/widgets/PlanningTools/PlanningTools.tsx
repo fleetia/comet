@@ -2,6 +2,8 @@ import { FormField, Button, DateField, Select, TextField } from "@fleetia/lagran
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { localDay, number, record, rows, text, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
+import { ruleOf } from "../Planner/plannerData";
+import { FrequencyRecordAction } from "./FrequencyRecordAction";
 import * as c from "../../lagrange.css";
 import * as s from "../tools.css";
 
@@ -17,13 +19,24 @@ function useNow(): number {
 export function TimerTool({ widget, widgets, act }: Props): ReactElement {
   const d = record(widget.data),
     now = useNow();
-  const [minutes, setMinutes] = useState("25"),
-    [todoId, setTodoId] = useState("");
+  const focusDuration =
+    number(d.focusDurationMs) || (d.mode !== "rest" ? number(d.durationMs) : 0) || 1500000;
+  const [minutes, setMinutes] = useState(() => String(focusDuration / 60000)),
+    [todoId, setTodoId] = useState(() => text(d.todoId));
+  useEffect(() => {
+    setMinutes(String(focusDuration / 60000));
+    setTodoId(text(d.todoId));
+  }, [widget.id, focusDuration, d.todoId]);
   const todo = widgets.find((item) => item.kind === "todo" && item.installed && item.enabled);
   const tasks = rows(record(todo?.data).items).filter((item) => item.completedAt === null);
+  const selectedTodoId = tasks.some((item) => item.id === todoId) ? todoId : "";
   const remaining = Math.max(
     0,
-    text(d.status) === "running" ? number(d.deadline) - now : number(d.remainingMs),
+    text(d.status) === "idle"
+      ? Math.round(Number(minutes) * 60000) || 0
+      : text(d.status) === "running"
+        ? Math.min(number(d.remainingMs), number(d.deadline) - now)
+        : number(d.remainingMs),
   );
   const seconds = Math.ceil(remaining / 1000);
   const linked = tasks.find((item) => item.id === d.todoId);
@@ -36,9 +49,12 @@ export function TimerTool({ widget, widgets, act }: Props): ReactElement {
         {
           {
             idle: "시작할 준비가 됐어요.",
-            running: "진행 중",
-            paused: "일시정지",
-            finished: "시간이 끝났어요. 계속할지 쉴지 골라 주세요.",
+            running: d.mode === "rest" ? "휴식 중" : "집중 중",
+            paused: d.mode === "rest" ? "휴식 일시정지" : "집중 일시정지",
+            finished:
+              d.mode === "rest"
+                ? "쉬는 시간이 끝났어요. 계속할지 쉴지 골라 주세요."
+                : "집중 시간이 끝났어요. 계속할지 쉴지 골라 주세요.",
           }[text(d.status)]
         }
       </p>
@@ -49,7 +65,7 @@ export function TimerTool({ widget, widgets, act }: Props): ReactElement {
             e.preventDefault();
             void act("start", {
               durationMs: Math.round(Number(minutes) * 60000),
-              todoId: todoId || null,
+              todoId: selectedTodoId || null,
             });
           }}
         >
@@ -64,7 +80,7 @@ export function TimerTool({ widget, widgets, act }: Props): ReactElement {
             />
           </FormField>
           <FormField className={c.field} label="연결할 할 일 (선택)">
-            <Select value={todoId} onChange={(e) => setTodoId(e.target.value)}>
+            <Select value={selectedTodoId} onChange={(e) => setTodoId(e.target.value)}>
               <option value="">연결하지 않음</option>
               {tasks.map((item) => (
                 <option key={text(item.id)} value={text(item.id)}>
@@ -97,7 +113,7 @@ export function TimerTool({ widget, widgets, act }: Props): ReactElement {
             <Button variant="secondary" onClick={() => void act("rest")}>
               5분 쉬기
             </Button>
-            {linked && todo && (
+            {linked && todo && ruleOf(linked).mode !== "frequency" && (
               <Button
                 variant="secondary"
                 onClick={() => void act("complete", { id: text(linked.id) }, todo)}
@@ -113,7 +129,16 @@ export function TimerTool({ widget, widgets, act }: Props): ReactElement {
           </Button>
         )}
       </div>
-      <p className={c.quiet}>타이머가 끝나도 할 일은 자동 완료하지 않아요.</p>
+      {text(d.status) === "finished" && linked && todo && ruleOf(linked).mode === "frequency" && (
+        <FrequencyRecordAction
+          key={`${todo.id}:${text(linked.id)}:${text(ruleOf(linked).timeZone)}`}
+          item={linked}
+          todo={todo}
+          now={now}
+          act={act}
+        />
+      )}
+      <p className={c.quiet}>타이머가 끝나도 할 일 완료나 횟수 기록을 자동으로 하지 않아요.</p>
     </>
   );
 }
