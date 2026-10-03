@@ -14,6 +14,9 @@ mod characters;
 #[path = "../src/device.rs"]
 mod device;
 #[allow(dead_code)]
+#[path = "../src/diary/schema.rs"]
+mod diary;
+#[allow(dead_code)]
 #[path = "../src/domain.rs"]
 mod domain;
 #[allow(dead_code)]

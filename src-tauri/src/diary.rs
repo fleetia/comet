@@ -1,3 +1,6 @@
+mod schema;
+pub(crate) use schema::initialize;
+
 use crate::app::{lock, AppState};
 use chrono::{Datelike, NaiveDate};
 use rusqlite::{params, Connection};
@@ -73,19 +76,6 @@ struct Move {
 
 fn err(error: impl std::fmt::Display) -> String {
     error.to_string()
-}
-
-pub(crate) fn initialize(db: &Connection) -> Result<()> {
-    db.execute_batch(
-        "CREATE TABLE IF NOT EXISTS diary_state(id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);",
-    )
-    .map_err(err)?;
-    db.execute(
-        "INSERT OR IGNORE INTO diary_state(id,data) VALUES(1,?1)",
-        [serde_json::to_string(&DiaryState::default()).map_err(err)?],
-    )
-    .map_err(err)?;
-    Ok(())
 }
 
 fn read(db: &Connection) -> Result<DiaryState> {
