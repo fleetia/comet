@@ -191,15 +191,30 @@ fn planner_batch_is_atomic_and_frequency_records_are_idempotent() {
 }
 
 #[test]
-fn first_run_can_skip_without_installing_packages() {
+fn widget_onboarding_is_read_compatible_and_installation_never_writes_it() {
     let db = database();
+    let directory = tempfile::tempdir().unwrap();
     let before = storage::snapshot(&db).unwrap();
     assert_eq!(before.catalog.len(), 16);
     assert!(before.widgets.is_empty());
     assert!(!before.onboarding_done);
-    storage::finish_onboarding(&db).unwrap();
+    install(&db, directory.path(), &["memo"]);
+    let count: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM widget_preferences WHERE key='onboarding'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 0);
+    db.execute(
+        "INSERT INTO widget_preferences VALUES('onboarding','done')",
+        [],
+    )
+    .unwrap();
     assert!(storage::snapshot(&db).unwrap().onboarding_done);
-    assert!(storage::instances(&db).unwrap().is_empty());
+    install(&db, directory.path(), &["todo"]);
+    assert!(storage::snapshot(&db).unwrap().onboarding_done);
 }
 
 #[test]

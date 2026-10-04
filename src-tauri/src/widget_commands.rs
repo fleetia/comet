@@ -114,16 +114,6 @@ pub(crate) fn install_widgets(
 }
 
 #[tauri::command]
-pub(crate) fn finish_widget_onboarding(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, Arc<AppState>>,
-) -> Result<(), String> {
-    change(&state, storage::finish_onboarding)?;
-    publish_widgets(&app, &state);
-    Ok(())
-}
-
-#[tauri::command]
 pub(crate) async fn set_widget_enabled(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,

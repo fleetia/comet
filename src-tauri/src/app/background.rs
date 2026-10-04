@@ -217,6 +217,10 @@ pub(crate) async fn run_background(
         return Ok(());
     }
     if settings.autonomous_enabled && now() >= state.next_idle.load(Ordering::SeqCst) {
+        if super::users::begin_name_prompt(state, epoch, &cancel)? {
+            super::publish(app, state);
+            return Ok(());
+        }
         let (lines, source) = {
             let _action = lock(&state.action)?;
             if !is_current(state, epoch, &cancel) {

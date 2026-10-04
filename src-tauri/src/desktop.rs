@@ -788,7 +788,7 @@ fn balloon_target(
         key,
         owner,
         epoch,
-        input: panel.is_some_and(|panel| panel.mode == "input"),
+        input: panel.is_some_and(|panel| matches!(panel.mode.as_str(), "input" | "name")),
     })
 }
 
@@ -1641,6 +1641,9 @@ mod tests {
         data.playback = None;
         assert_eq!(target(&data).unwrap().key, "panel:a:input");
         assert_eq!(target(&data).unwrap().owner, id);
+        data.panel.as_mut().unwrap().mode = "name".into();
+        assert!(target(&data).unwrap().input);
+        assert_eq!(target(&data).unwrap().key, "panel:a:name");
         data.runtime.hidden = true;
         assert_eq!(target(&data), None);
     }

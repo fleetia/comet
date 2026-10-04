@@ -145,10 +145,6 @@ it("browses the catalog through filters without installation checkboxes or a bat
   });
   expect(catalog.getByRole("button", { name: "할 일 미설치" })).toBeTruthy();
   expect(catalog.queryAllByRole("checkbox")).toEqual([]);
-  expect(screen.getByRole("button", { name: "위젯 없이 시작하기" })).toHaveProperty(
-    "disabled",
-    false,
-  );
   expect(command).not.toHaveBeenCalled();
 });
 
@@ -190,10 +186,6 @@ it("cancels an installation without a dirty draft and installs only the next wid
   fireEvent.click(screen.getByRole("button", { name: "취소" }));
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(dirty).toHaveBeenLastCalledWith(false);
-  expect(screen.getByRole("button", { name: "위젯 없이 시작하기" })).toHaveProperty(
-    "disabled",
-    false,
-  );
   expect(command).not.toHaveBeenCalled();
 
   openInstallation("집중 타이머");
@@ -328,21 +320,13 @@ it("preserves the explicit deletion choice and the error when removal fails", as
   expect(reload).not.toHaveBeenCalled();
 });
 
-it.each([false, true])(
-  "finishes optional onboarding without closing the shared settings when embedded=%s",
-  async (embedded) => {
-    render(<WidgetManager embedded={embedded} />);
-    expect(screen.queryByRole("button", { name: "위젯 관리 닫기" }) !== null).toBe(!embedded);
-    fireEvent.click(screen.getByRole("button", { name: "위젯 없이 시작하기" }));
-    await waitFor(() => expect(reload).toHaveBeenCalled());
-    expect(command).toHaveBeenCalledWith("finish_widget_onboarding", undefined);
-    if (embedded) {
-      expect(command).toHaveBeenCalledTimes(1);
-    } else {
-      expect(command).toHaveBeenCalledWith("close_widgets");
-    }
-  },
-);
+it.each([false, true])("has no required onboarding completion when embedded=%s", (embedded) => {
+  render(<WidgetManager embedded={embedded} />);
+  expect(screen.queryByRole("button", { name: "위젯 관리 닫기" }) !== null).toBe(!embedded);
+  expect(screen.queryByRole("button", { name: "위젯 없이 시작하기" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "위젯 선택 마치기" })).toBeNull();
+  expect(command).not.toHaveBeenCalledWith("finish_widget_onboarding", expect.anything());
+});
 
 it("allows browsing the catalog but never installs preview data", () => {
   vi.mocked(isDesktop).mockReturnValue(false);

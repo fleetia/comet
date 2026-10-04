@@ -112,9 +112,8 @@ function DraftActions({
   );
 }
 export function SettingsPanel({ snapshot, preview = false, initialSection }: Props): JSX.Element {
-  const { section, visited, navigate, navigationError, memoryTabRequest } = useSettingsNavigation(
-    snapshot.user ? initialSection : "user",
-  );
+  const { section, visited, navigate, navigationError, memoryTabRequest } =
+    useSettingsNavigation(initialSection);
   const automatic = useSettingsDraft(snapshot.settings, "automatic");
   const model = useSettingsDraft(snapshot.settings, "model");
   const [widgetsDirty, setWidgetsDirty] = useState(false);

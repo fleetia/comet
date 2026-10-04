@@ -215,6 +215,10 @@ pub(crate) fn interrupt(
     *lock(&state.widget_playback)? = None;
     *lock(&state.talk_playback)? = None;
     *lock(&state.story)? = None;
+    let mut panel = lock(&state.panel)?;
+    if panel.as_ref().is_some_and(|panel| panel.mode == "name") {
+        *panel = None;
+    }
     Ok((epoch, cancel))
 }
 

@@ -122,9 +122,6 @@ export function WidgetManager({
     setFailure(null);
     try {
       await command(name, args);
-      if (name === "finish_widget_onboarding" && !embedded) {
-        await command("close_widgets");
-      }
       setConfirmation(null);
       if (name === "install_widgets") {
         setInstallTarget(null);
@@ -284,23 +281,12 @@ export function WidgetManager({
       </section>
     ) : undefined;
   const installationActions =
-    snapshot && (!snapshot.onboardingDone || busy) ? (
+    snapshot && busy ? (
       <footer className={styles.footer}>
         <Inline gap="sm">
-          {!snapshot.onboardingDone && (
-            <Button
-              variant="secondary"
-              disabled={!canAct}
-              onClick={() => void run("finish_widget_onboarding")}
-            >
-              {installedCount === 0 ? "위젯 없이 시작하기" : "위젯 선택 마치기"}
-            </Button>
-          )}
-          {busy && (
-            <Text variant="caption" role="status">
-              처리하고 있어요.
-            </Text>
-          )}
+          <Text variant="caption" role="status">
+            처리하고 있어요.
+          </Text>
         </Inline>
         <Text variant="caption" tone="muted">
           설치와 사용 변경은 즉시 반영됩니다.

@@ -144,11 +144,6 @@ pub fn snapshot(db: &Connection) -> Result<WidgetSnapshot> {
     })
 }
 
-pub fn finish_onboarding(db: &Connection) -> Result<()> {
-    db.execute("INSERT INTO widget_preferences VALUES('onboarding','done') ON CONFLICT(key) DO UPDATE SET value='done'", []).map_err(err)?;
-    Ok(())
-}
-
 fn package_path(directory: &Path, kind: &str) -> Result<std::path::PathBuf> {
     super::manifest(kind)?;
     let root = directory.join("widgets");
@@ -275,7 +270,6 @@ pub fn install(db: &Connection, directory: &Path, kinds: &[String]) -> Result<()
             put(&tx, &instance)?;
         }
         discard_pending(&tx)?;
-        finish_onboarding(&tx)?;
         tx.commit().map_err(err)
     })();
     if result.is_err() {

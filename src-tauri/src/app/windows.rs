@@ -91,6 +91,11 @@ pub(crate) fn open_panel(
         } else {
             store::pause_conversations(&db)?;
         }
+        let mode = if mode == "input" && store::current_user(&db)?.is_none() {
+            "name".into()
+        } else {
+            mode
+        };
         let token = interrupt(&state, false)?;
         *lock(&state.panel)? = Some(PanelState { persona, mode });
         state.last_input.store(now(), Ordering::SeqCst);

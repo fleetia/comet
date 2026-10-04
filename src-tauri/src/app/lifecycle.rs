@@ -12,7 +12,7 @@ use crate::{
     desktop, device_wake, inference, store, story, story_host, talk_host,
     types::*,
     widget_commands::{self, cancel_widget_jobs},
-    widget_connections, widgets,
+    widget_connections,
 };
 use std::{
     collections::HashMap,
@@ -262,25 +262,6 @@ pub fn run() {
             if let Err(error) = device_wake::install(app.handle()) {
                 eprintln!("기기 복귀 알림 연결 실패: {error}");
             }
-            if store::current_user(&*lock(&state.db).map_err(std::io::Error::other)?)
-                .map_err(std::io::Error::other)?
-                .is_none()
-            {
-                windows::show_settings_section(
-                    app.handle().clone(),
-                    windows::SettingsSection::General,
-                )
-                .map_err(std::io::Error::other)?;
-            } else if !widgets::storage::snapshot(&*lock(&state.db).map_err(std::io::Error::other)?)
-                .map_err(std::io::Error::other)?
-                .onboarding_done
-            {
-                windows::show_settings_section(
-                    app.handle().clone(),
-                    windows::SettingsSection::Widgets,
-                )
-                .map_err(std::io::Error::other)?;
-            }
             let handle = app.handle().clone();
             talk_host::watch(handle.clone(), state.clone());
             tauri::async_runtime::spawn(story_host::run_clock(handle.clone(), state.clone()));
@@ -442,6 +423,7 @@ pub fn run() {
             super::get_snapshot,
             super::history::list_character_history,
             super::users::set_user_name,
+            super::users::register_user_name,
             super::users::list_legacy_memories,
             super::users::assign_legacy_memories,
             super::users::forget_character_memories,
@@ -472,7 +454,6 @@ pub fn run() {
             crate::diary::update_diary,
             crate::widget_runtime::get_widget_runtime,
             widget_commands::install_widgets,
-            widget_commands::finish_widget_onboarding,
             widget_commands::set_widget_enabled,
             widget_commands::remove_widget,
             widget_commands::execute_widget,
