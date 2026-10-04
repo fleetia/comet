@@ -271,6 +271,7 @@ pub(crate) fn show_boxes(app: &tauri::AppHandle, state: &AppState) {
     state.last_input.store(now(), Ordering::SeqCst);
     drop(action);
     publish(app, state);
+    crate::desktop_menu::refresh(app);
 }
 
 #[tauri::command]
@@ -314,6 +315,7 @@ pub(crate) async fn hide_boxes(
         inference::stop_local(&state.inference).await;
     }
     publish(&app, &state);
+    crate::desktop_menu::refresh(&app);
     Ok(())
 }
 
@@ -341,6 +343,7 @@ pub(crate) fn set_paused(
     } else {
         publish(&app, &state);
     }
+    crate::desktop_menu::refresh(&app);
     Ok(())
 }
 

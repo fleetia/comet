@@ -304,22 +304,23 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                     </SettingsRow>
                     <SettingsRow
                       className={styles.pausedRow}
-                      label="일시정지"
+                      label="자동 잡담"
                       description={
                         snapshot.runtime.paused
                           ? snapshot.runtime.pausedUntil
-                            ? `${new Date(snapshot.runtime.pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}까지 자동 잡담 일시정지 중`
-                            : "현재 자동 잡담이 잠시 멈춰 있어요."
+                            ? `${new Date(snapshot.runtime.pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}까지 자동 잡담 쉬는 중`
+                            : "자동 잡담 쉬는 중"
                           : "자동 대화가 실행 중이에요."
                       }
                     >
                       <Button
                         className={styles.rowControl}
                         variant="secondary"
-                        disabled={!snapshot.runtime.paused}
-                        onClick={() => void automatic.run("set_paused", { paused: false })}
+                        onClick={() =>
+                          void automatic.run("set_paused", { paused: !snapshot.runtime.paused })
+                        }
                       >
-                        다시 시작
+                        {snapshot.runtime.paused ? "다시 시작" : "자동 잡담 쉬기"}
                       </Button>
                     </SettingsRow>
                     <section className={styles.settingsSection}>
@@ -464,7 +465,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                           variant="quiet"
                           onClick={() => (hasChanges ? setConfirmExit(true) : void act("quit_app"))}
                         >
-                          앱 종료
+                          종료
                         </Button>
                       </SettingsRow>
                     </section>

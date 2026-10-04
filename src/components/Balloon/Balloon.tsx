@@ -578,20 +578,6 @@ export function Balloon({
               <Button
                 variant="quiet"
                 className={s.menuItem}
-                onClick={() => void perform("open_characters")}
-              >
-                캐릭터 관리
-              </Button>
-              <Button
-                variant="quiet"
-                className={s.menuItem}
-                onClick={() => void perform("open_widgets")}
-              >
-                위젯 관리
-              </Button>
-              <Button
-                variant="quiet"
-                className={s.menuItem}
                 onClick={() => void perform("open_settings")}
               >
                 설정
@@ -603,7 +589,7 @@ export function Balloon({
                 className={s.menuItem}
                 onClick={() => void perform("set_paused", { paused: !snapshot.runtime.paused })}
               >
-                {snapshot.runtime.paused ? "자동 잡담 다시 시작" : "자동 잡담 잠시 쉬기"}
+                {snapshot.runtime.paused ? "다시 시작" : "자동 잡담 쉬기"}
               </Button>
               {!snapshot.runtime.paused && (
                 <Button
@@ -619,7 +605,7 @@ export function Balloon({
                 className={s.menuItem}
                 onClick={() => void perform("hide_boxes")}
               >
-                숨기기
+                캐릭터 숨기기
               </Button>
             </div>
           </nav>

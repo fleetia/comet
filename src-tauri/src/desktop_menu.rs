@@ -1,7 +1,7 @@
-use crate::{behavior, lock, widgets, AppState};
+use crate::{lock, widgets, AppState};
 use std::sync::Arc;
 use tauri::{
-    menu::{CheckMenuItem, Menu, MenuItem, Submenu},
+    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     Manager,
 };
 
@@ -88,19 +88,19 @@ fn install_macos_menu(app: &tauri::AppHandle) -> Result<(), String> {
 
 fn menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
     let state = app.state::<Arc<AppState>>();
-    let (preferences, instances) = {
+    let instances = {
         let db = lock(&state.db)?;
-        (
-            behavior::preferences(&db)?,
-            widgets::storage::instances(&db)?,
-        )
+        widgets::storage::instances(&db)?
     };
+    let runtime = lock(&state.runtime)?.clone();
     let menu = Menu::new(app).map_err(|error| error.to_string())?;
     for (id, text) in [
         ("launcher", "빠른 실행…"),
-        ("show", "캐릭터 표시"),
-        ("hide", "캐릭터 숨기기"),
-        ("characters", "캐릭터 관리"),
+        if runtime.hidden {
+            ("show", "캐릭터 표시")
+        } else {
+            ("hide", "캐릭터 숨기기")
+        },
     ] {
         let item = MenuItem::with_id(app, id, text, true, None::<&str>)
             .map_err(|error| error.to_string())?;
@@ -126,30 +126,23 @@ fn menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
         .map_err(|error| error.to_string())?;
     submenu.append(&manage).map_err(|error| error.to_string())?;
     menu.append(&submenu).map_err(|error| error.to_string())?;
-    let pranks = CheckMenuItem::with_id(
+    let pause = MenuItem::with_id(
         app,
-        "pranks",
-        "장난 모드",
+        "pause",
+        if runtime.paused {
+            "다시 시작"
+        } else {
+            "자동 잡담 쉬기"
+        },
         true,
-        preferences.pranks_enabled,
         None::<&str>,
     )
     .map_err(|error| error.to_string())?;
-    menu.append(&pranks).map_err(|error| error.to_string())?;
-    for (id, text) in [
-        ("clear-toys", "장난감 모두 정리"),
-        ("pause", "자동 행동 정지 / 재개"),
-        ("quiet-hour", "1시간 조용히"),
-        ("updates", "업데이트 확인…"),
-        ("settings", "설정"),
-        ("quit", "완전 종료"),
-    ] {
-        let label = if id == "updates" {
-            crate::updater::menu_label(app)
-        } else {
-            text.to_string()
-        };
-        let item = MenuItem::with_id(app, id, label, true, None::<&str>)
+    menu.append(&pause).map_err(|error| error.to_string())?;
+    let separator = PredefinedMenuItem::separator(app).map_err(|error| error.to_string())?;
+    menu.append(&separator).map_err(|error| error.to_string())?;
+    for (id, text) in [("settings", "설정"), ("quit", "종료")] {
+        let item = MenuItem::with_id(app, id, text, true, None::<&str>)
             .map_err(|error| error.to_string())?;
         menu.append(&item).map_err(|error| error.to_string())?;
     }
@@ -157,9 +150,14 @@ fn menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
 }
 
 pub(crate) fn refresh(app: &tauri::AppHandle) {
-    if let (Some(tray), Ok(menu)) = (app.tray_by_id("comet"), menu(app)) {
-        let _ = tray.set_menu(Some(menu));
-    }
+    static REFRESH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let _refresh = REFRESH.lock().await;
+        if let (Some(tray), Ok(menu)) = (handle.tray_by_id("comet"), menu(&handle)) {
+            let _ = tray.set_menu(Some(menu));
+        }
+    });
 }
 
 pub(crate) fn create(app: &tauri::AppHandle) -> Result<(), String> {
@@ -183,39 +181,13 @@ pub(crate) fn create(app: &tauri::AppHandle) -> Result<(), String> {
                         Ok(())
                     }
                     "hide" => crate::hide_boxes(app.clone(), state).await,
-                    "characters" => crate::open_characters(app.clone()).await,
                     "widgets" => crate::open_widgets(app.clone()).await,
-                    "clear-toys" => {
-                        behavior::clear_desktop_toys(app.clone());
-                        Ok(())
-                    }
                     "settings" => crate::open_settings(app.clone()).await,
-                    "updates" => {
-                        let opened = crate::app::windows::open_settings_section(
-                            app.clone(),
-                            crate::app::windows::SettingsSection::General,
-                        );
-                        if opened.is_ok() {
-                            let _ = crate::updater::check_app_update(app.clone()).await;
-                        }
-                        opened
-                    }
                     "pause" => {
                         let paused = lock(&state.runtime)
                             .map(|runtime| !runtime.paused)
                             .unwrap_or(true);
                         crate::set_paused(app.clone(), state, paused, None)
-                    }
-                    "quiet-hour" => crate::set_paused(app.clone(), state, true, Some(60)),
-                    "pranks" => {
-                        let config = lock(&state.db).and_then(|db| behavior::preferences(&db));
-                        match config {
-                            Ok(mut config) => {
-                                config.pranks_enabled = !config.pranks_enabled;
-                                behavior::set_desktop_preferences(app.clone(), state, config).await
-                            }
-                            Err(error) => Err(error),
-                        }
                     }
                     "quit" => crate::quit_app(app.clone(), state, None).await,
                     _ => {

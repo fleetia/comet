@@ -48,11 +48,21 @@ it("shows when a timed pause ends and resumes without saving automatic drafts", 
     />,
   );
   const time = new Date(pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  expect(screen.getByText(`${time}까지 자동 잡담 일시정지 중`)).toBeTruthy();
+  expect(screen.getByText(`${time}까지 자동 잡담 쉬는 중`)).toBeTruthy();
   fireEvent.change(screen.getByLabelText(/이야기 간격/), { target: { value: "12" } });
   fireEvent.click(screen.getByRole("button", { name: "다시 시작" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledExactlyOnceWith("set_paused", { paused: false }),
+  );
+  expect(screen.getByLabelText(/이야기 간격/)).toHaveProperty("value", "12");
+});
+
+it("pauses from automatic settings without saving the draft", async () => {
+  render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="automatic" />);
+  fireEvent.change(screen.getByLabelText(/이야기 간격/), { target: { value: "12" } });
+  fireEvent.click(screen.getByRole("button", { name: "자동 잡담 쉬기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledExactlyOnceWith("set_paused", { paused: true }),
   );
   expect(screen.getByLabelText(/이야기 간격/)).toHaveProperty("value", "12");
 });

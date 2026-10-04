@@ -35,6 +35,7 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
             .unwrap_or(false)
         {
             super::publish(&app, &state);
+            crate::desktop_menu::refresh(&app);
         }
         let quiet_changed = super::quiet_hours::reconcile(&state).unwrap_or(false);
         let animation_changed =
