@@ -6,6 +6,9 @@ on:
     paths-ignore:
       - 'docs/**'
       - 'wiki/**'
+      - 'integrations/spicetify/README.md'
+      - 'scripts/widget-harness/README.md'
+      - '.github/workflows/docs.yml'
       - '.changeset/**'
       - '*.md'
       - 'LICENSE'
@@ -14,6 +17,9 @@ on:
     paths-ignore:
       - 'docs/**'
       - 'wiki/**'
+      - 'integrations/spicetify/README.md'
+      - 'scripts/widget-harness/README.md'
+      - '.github/workflows/docs.yml'
       - '.changeset/**'
       - '*.md'
       - 'LICENSE'
