@@ -1038,7 +1038,7 @@ mod tests {
             )
         })
         .unwrap();
-        let before = storage::get(&*lock(&state.db).unwrap(), &first.id).unwrap();
+        let before = storage::get(&lock(&state.db).unwrap(), &first.id).unwrap();
         state.launcher_open.store(true, Ordering::SeqCst);
         assert!(create_memo_for_open(&state, &first.id, Some((first.revision, 0))).is_err());
         assert!(create_memo_for_open(&state, &first.id, Some((before.revision, 1))).is_err());
@@ -1049,7 +1049,7 @@ mod tests {
         assert_eq!(notes[1]["isOpen"], true);
         assert!(create_memo_for_open(&state, &first.id, Some((before.revision, 0))).is_err());
         assert_eq!(
-            storage::get(&*lock(&state.db).unwrap(), &first.id)
+            storage::get(&lock(&state.db).unwrap(), &first.id)
                 .unwrap()
                 .data["notes"]
                 .as_array()

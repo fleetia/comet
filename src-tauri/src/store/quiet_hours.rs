@@ -54,7 +54,7 @@ pub(super) fn migrate(db: &Connection) -> Result<()> {
                 .is_ok_and(|time| time.format("%H:%M").to_string() == start)
         {
             schedule.enabled = false;
-        } else if crate::app::quiet_hours::validate(&schedule).is_ok() {
+        } else if schedule.validate().is_ok() {
             schedule.enabled = active && (reminders_enabled || moods_enabled);
         } else {
             // Invalid legacy values must not enable a broken schedule or prevent startup.

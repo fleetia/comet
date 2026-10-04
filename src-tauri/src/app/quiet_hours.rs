@@ -14,43 +14,14 @@ pub(crate) struct Runtime {
     active: bool,
 }
 
-fn minute(value: &str) -> Option<u32> {
-    let bytes = value.as_bytes();
-    if bytes.len() != 5
-        || bytes[2] != b':'
-        || ![bytes[0], bytes[1], bytes[3], bytes[4]]
-            .iter()
-            .all(u8::is_ascii_digit)
-    {
-        return None;
-    }
-    let hour = value[..2].parse::<u32>().ok()?;
-    let minute = value[3..].parse::<u32>().ok()?;
-    (hour < 24 && minute < 60).then_some(hour * 60 + minute)
-}
-
-pub(crate) fn validate(settings: &QuietHours) -> Result<(), String> {
-    if !settings.enabled {
-        return Ok(());
-    }
-    if minute(&settings.start).is_none()
-        || minute(&settings.end).is_none()
-        || settings.start == settings.end
-        || settings.weekdays.is_empty()
-        || settings.weekdays.iter().any(|day| *day > 6)
-    {
-        return Err(
-            "조용한 시간의 시작·종료 시각을 다르게 정하고 요일을 하나 이상 골라 주세요.".into(),
-        );
-    }
-    Ok(())
-}
-
 pub(crate) fn active_at(settings: &QuietHours, at: NaiveDateTime) -> bool {
     if !settings.enabled {
         return false;
     }
-    let (Some(start), Some(end)) = (minute(&settings.start), minute(&settings.end)) else {
+    let (Some(start), Some(end)) = (
+        QuietHours::minute(&settings.start),
+        QuietHours::minute(&settings.end),
+    ) else {
         return false;
     };
     let current = at.hour() * 60 + at.minute();
@@ -71,14 +42,14 @@ pub(crate) fn active(settings: &Settings) -> bool {
 
 // A sleeping computer can miss both boundaries. Detect that interval too, without catch-up.
 fn crossed(settings: &QuietHours, from: NaiveDateTime, to: NaiveDateTime) -> bool {
-    if !settings.enabled || validate(settings).is_err() || to <= from {
+    if !settings.enabled || settings.validate().is_err() || to <= from {
         return false;
     }
     if to.signed_duration_since(from) >= chrono::Duration::days(8) {
         return true;
     }
-    let start = minute(&settings.start).unwrap();
-    let end = minute(&settings.end).unwrap();
+    let start = QuietHours::minute(&settings.start).unwrap();
+    let end = QuietHours::minute(&settings.end).unwrap();
     let mut date = from.date().pred_opt().unwrap_or(from.date());
     while date <= to.date() {
         if settings
@@ -309,15 +280,16 @@ mod tests {
             ("22:00", "08:00", vec![]),
             ("22:00", "08:00", vec![7]),
         ] {
-            assert!(validate(&QuietHours {
+            assert!(QuietHours {
                 start: start.into(),
                 end: end.into(),
                 weekdays: days,
                 ..schedule()
-            })
+            }
+            .validate()
             .is_err());
         }
-        assert!(validate(&QuietHours::default()).is_ok());
+        assert!(QuietHours::default().validate().is_ok());
     }
 
     #[test]

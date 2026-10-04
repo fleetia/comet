@@ -90,7 +90,7 @@ fn validate_settings(
         return Err("설정값을 확인해 주세요.".into());
     }
     if scope != Some(SettingsScope::Model) {
-        super::quiet_hours::validate(&settings.quiet_hours)?;
+        settings.quiet_hours.validate()?;
     }
     if scope == Some(SettingsScope::Automatic) {
         return Ok(());

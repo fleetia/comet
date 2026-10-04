@@ -406,6 +406,8 @@ fn available_actor_slots(app: &AppHandle) -> Result<usize, String> {
     Ok(MAX_ACTORS.saturating_sub(world.actors.len()))
 }
 
+// A bubble batch shares one attempt while each actor keeps its own launch parameters.
+#[allow(clippy::too_many_arguments)]
 fn open_one(
     app: &AppHandle,
     widget_id: &str,

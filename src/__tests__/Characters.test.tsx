@@ -314,8 +314,11 @@ it("renders installed names and custom expressions while keeping historical spea
   fireEvent.click(screen.getByRole("button", { name: "이전 기록" }));
   expect(screen.getByText("예전 친구")).toBeTruthy();
   rerender(<Balloon snapshot={{ ...custom, panel: { persona: "a", mode: "menu" } }} />);
-  fireEvent.click(screen.getByRole("button", { name: "캐릭터 관리" }));
-  expect(command).toHaveBeenCalledWith("open_characters", undefined);
+  fireEvent.click(screen.getByRole("button", { name: "설정" }));
+  expect(command).toHaveBeenCalledWith("open_settings", undefined);
+  expect(vi.mocked(command).mock.calls.some(([name]) => name === "set_settings_section")).toBe(
+    false,
+  );
 });
 
 it("keeps pair scene order and whitespace when saving the current two characters", async () => {

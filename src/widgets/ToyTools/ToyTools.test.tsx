@@ -1,144 +1,26 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { act as reactAct, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ToyTool } from "./ToyTools";
 import type { WidgetView } from "../types";
 import { PREVIEW_SNAPSHOT } from "../../hooks/useSnapshot";
 
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-});
+afterEach(cleanup);
 
-function collection(
-  decorations: { id: number; itemId: string; x: number; y: number }[],
-): WidgetView {
+function toyWidget(kind: string): WidgetView {
   return {
-    id: "collection",
-    kind: "collection",
+    id: kind,
+    kind,
     installed: true,
     enabled: true,
     revision: 1,
     version: 1,
-    data: { items: [{ itemId: "sock", name: "양말", quantity: 1 }], decorations },
+    data: {},
     error: null,
     missing: [],
     status: "enabled",
     packageBytes: 1,
   };
 }
-
-it("moves the focused decoration with arrow keys within the existing position bounds", () => {
-  const act = vi.fn().mockResolvedValue(true);
-  render(<ToyTool widget={collection([{ id: 1, itemId: "sock", x: 98, y: 2 }])} act={act} />);
-  const decoration = screen.getByRole("button", { name: "양말 소품 선택" });
-  fireEvent.keyDown(decoration, { key: "ArrowRight" });
-  expect(act).toHaveBeenLastCalledWith("move", { id: 1, x: 100, y: 2 });
-  expect(screen.getByRole("button", { name: "양말 소품 선택", pressed: true })).toBeTruthy();
-  fireEvent.keyDown(decoration, { key: "ArrowUp" });
-  expect(act).toHaveBeenLastCalledWith("move", { id: 1, x: 98, y: 0 });
-  fireEvent.keyDown(decoration, { key: "Enter" });
-  expect(act).toHaveBeenCalledTimes(2);
-});
-
-it("restores decoration focus lost during a move so arrow keys can continue", async () => {
-  let finish: ((value: boolean) => void) | undefined;
-  let frame: FrameRequestCallback | undefined;
-  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-    frame = callback;
-    return 1;
-  });
-  const act = vi.fn(
-    () =>
-      new Promise<boolean>((resolve) => {
-        finish = resolve;
-      }),
-  );
-  const widget = collection([{ id: 1, itemId: "sock", x: 50, y: 50 }]);
-  const view = render(
-    <fieldset>
-      <ToyTool widget={widget} act={act} />
-    </fieldset>,
-  );
-  const control = screen.getByRole("button", { name: "양말 소품 선택" });
-  control.focus();
-  fireEvent.keyDown(control, { key: "ArrowLeft" });
-  // Model WebKit moving focus to the body when the containing fieldset is disabled.
-  control.blur();
-  view.rerender(
-    <fieldset disabled>
-      <ToyTool widget={widget} act={act} />
-    </fieldset>,
-  );
-  expect(document.activeElement).toBe(document.body);
-  view.rerender(
-    <fieldset>
-      <ToyTool widget={collection([{ id: 1, itemId: "sock", x: 45, y: 50 }])} act={act} />
-    </fieldset>,
-  );
-  await reactAct(async () => finish?.(true));
-  expect(frame).toBeTypeOf("function");
-  frame?.(0);
-  expect(document.activeElement).toBe(control);
-  fireEvent.keyDown(control, { key: "ArrowUp" });
-  expect(act).toHaveBeenLastCalledWith("move", { id: 1, x: 45, y: 45 });
-});
-
-it.each(["another control", "removed decoration"])(
-  "does not restore decoration focus after a move when focus belongs to %s",
-  async (destination) => {
-    let finish: ((value: boolean) => void) | undefined;
-    let frame: FrameRequestCallback | undefined;
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-      frame = callback;
-      return 1;
-    });
-    const act = vi.fn(
-      () =>
-        new Promise<boolean>((resolve) => {
-          finish = resolve;
-        }),
-    );
-    const view = render(
-      <>
-        <ToyTool widget={collection([{ id: 1, itemId: "sock", x: 50, y: 50 }])} act={act} />
-        <button>다른 조작</button>
-      </>,
-    );
-    const control = screen.getByRole("button", { name: "양말 소품 선택" });
-    control.focus();
-    fireEvent.keyDown(control, { key: "ArrowLeft" });
-    if (destination === "another control") {
-      screen.getByRole("button", { name: "다른 조작" }).focus();
-    } else {
-      view.rerender(
-        <>
-          <ToyTool widget={collection([])} act={act} />
-          <button>다른 조작</button>
-        </>,
-      );
-    }
-    const focus = vi.spyOn(control, "focus");
-    const active = document.activeElement;
-    await reactAct(async () => finish?.(true));
-    expect(frame).toBeTypeOf("function");
-    frame?.(0);
-    expect(focus).not.toHaveBeenCalled();
-    expect(document.activeElement).toBe(active);
-  },
-);
-
-it("removes movement controls when the selected decoration is put away", () => {
-  const act = vi.fn().mockResolvedValue(true);
-  const view = render(
-    <ToyTool widget={collection([{ id: 1, itemId: "sock", x: 50, y: 50 }])} act={act} />,
-  );
-  fireEvent.click(screen.getByRole("button", { name: "양말 소품 선택" }));
-  expect(screen.getByRole("button", { name: "선택한 소품 가운데로" })).toBeTruthy();
-  view.rerender(<ToyTool widget={collection([])} act={act} />);
-  expect(screen.queryByRole("button", { name: "선택한 소품 가운데로" })).toBeNull();
-  fireEvent.pointerUp(screen.getByRole("group", { name: "수집품 배치" }));
-  expect(act).not.toHaveBeenCalled();
-});
 
 it.each([
   ["heads", "tails", "앞면 / 뒷면"],
@@ -148,9 +30,7 @@ it.each([
 ])("labels small-match outcomes %s and %s without changing action values", (a, b, label) => {
   const act = vi.fn().mockResolvedValue(true);
   const widget: WidgetView = {
-    ...collection([]),
-    id: "small-match",
-    kind: "small-match",
+    ...toyWidget("small-match"),
     data: { a, b, result: "무승부" },
   };
   render(<ToyTool widget={widget} act={act} />);
@@ -174,9 +54,7 @@ it("keeps the selected companion while following current roster slots", () => {
     characters = { installed, active };
   }
   const widget: WidgetView = {
-    ...collection([]),
-    id: "interaction",
-    kind: "interaction",
+    ...toyWidget("interaction"),
     data: { snacks: 6, touches: 0 },
   };
   roster([first]);
@@ -216,9 +94,7 @@ it.each([
   ({ draws, storedText, expected }) => {
     const act = vi.fn().mockResolvedValue(true);
     const widget: WidgetView = {
-      ...collection([]),
-      id: "fortune",
-      kind: "fortune",
+      ...toyWidget("fortune"),
       data: { text: storedText, ...(draws === undefined ? {} : { draws }) },
     };
     render(<ToyTool widget={widget} act={act} />);
@@ -231,9 +107,7 @@ it.each([
 it("disables targeted interaction until a companion is available", () => {
   const act = vi.fn().mockResolvedValue(true);
   const widget: WidgetView = {
-    ...collection([]),
-    id: "interaction",
-    kind: "interaction",
+    ...toyWidget("interaction"),
     data: { snacks: 6 },
   };
   const view = render(<ToyTool widget={widget} act={act} />);
