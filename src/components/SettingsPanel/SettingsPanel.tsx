@@ -19,6 +19,7 @@ import {
   TabPanel,
   Tabs,
   TextField,
+  Select,
 } from "@fleetia/lagrange";
 import { QuietHoursSettings, quietHoursError } from "./QuietHoursSettings";
 import { version } from "../../../package.json";
@@ -123,6 +124,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
   const [generalDirty, setGeneralDirty] = useState(false);
   const [updateBusy, setUpdateBusy] = useState(false);
   const [confirmExit, setConfirmExit] = useState(false);
+  const [pauseDuration, setPauseDuration] = useState("60");
   const [actionError, setActionError] = useState<string | null>(null);
   const dirty = {
     characters: charactersDirty,
@@ -302,24 +304,41 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                     </SettingsRow>
                     <SettingsRow
                       className={styles.pausedRow}
-                      label="자동 잡담"
+                      label="지금 조용히"
                       description={
                         snapshot.runtime.paused
                           ? snapshot.runtime.pausedUntil
                             ? `${new Date(snapshot.runtime.pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}까지 자동 잡담 쉬는 중`
-                            : "자동 잡담 쉬는 중"
+                            : "다시 시작할 때까지 자동 잡담 쉬는 중"
                           : "자동 대화가 실행 중이에요."
                       }
                     >
-                      <Button
-                        className={styles.rowControl}
-                        variant="secondary"
-                        onClick={() =>
-                          void automatic.run("set_paused", { paused: !snapshot.runtime.paused })
-                        }
-                      >
-                        {snapshot.runtime.paused ? "다시 시작" : "자동 잡담 쉬기"}
-                      </Button>
+                      <div className={styles.automaticField}>
+                        {!snapshot.runtime.paused && (
+                          <Select
+                            aria-label="쉬는 기간"
+                            value={pauseDuration}
+                            onChange={(event) => setPauseDuration(event.target.value)}
+                          >
+                            <option value="60">1시간</option>
+                            <option value="restart">다시 시작할 때까지</option>
+                          </Select>
+                        )}
+                        <Button
+                          className={styles.rowControl}
+                          variant="secondary"
+                          onClick={() =>
+                            void automatic.run("set_paused", {
+                              paused: !snapshot.runtime.paused,
+                              ...(!snapshot.runtime.paused && pauseDuration === "60"
+                                ? { minutes: 60 }
+                                : {}),
+                            })
+                          }
+                        >
+                          {snapshot.runtime.paused ? "다시 시작" : "자동 잡담 쉬기"}
+                        </Button>
+                      </div>
                     </SettingsRow>
                     <section className={styles.settingsSection}>
                       <QuietHoursSettings

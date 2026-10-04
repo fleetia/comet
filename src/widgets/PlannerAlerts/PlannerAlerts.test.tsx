@@ -19,6 +19,9 @@ beforeEach(() => {
 afterEach(cleanup);
 it("keeps character, OS and mood choices separate and requests OS access only from its button", async () => {
   render(<PlannerAlerts data={{ enabled: true }} act={act} />);
+  expect(screen.queryByLabelText("조용한 시간 시작")).toBeNull();
+  expect(screen.queryByRole("button", { name: "생활 알림 1시간 쉬기" })).toBeNull();
+  expect(screen.getByText(/조용한 시간은 설정 → 자동 대화에서 함께 정해요/)).toBeTruthy();
   await waitFor(() => expect(command).toHaveBeenCalledWith("get_planner_notification_permission"));
   fireEvent.click(screen.getByLabelText("캐릭터 말풍선"));
   fireEvent.click(screen.getByLabelText("OS 알림"));
@@ -62,6 +65,7 @@ it("snoozes the notification without editing the source task and hides only the 
     packageBytes: 1,
   };
   render(<PlannerAlertNotice widget={calendar} act={act} />);
+  expect(screen.queryByRole("button", { name: "1시간 쉬기" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "10분 뒤 다시 알림" }));
   expect(act).toHaveBeenCalledExactlyOnceWith("snooze-alert", {}, calendar);
   fireEvent.click(screen.getByRole("button", { name: "이 알림 닫기" }));

@@ -30,12 +30,17 @@ pub(crate) fn publish_widgets(app: &tauri::AppHandle, state: &AppState) {
 
 /// Keeps idle chatter deferred for the whole focus run, so it never fires right after the timer ends.
 pub(crate) fn hold_for_focus(state: &AppState, db: &rusqlite::Connection) -> Result<bool, String> {
-    if !storage::focus_active(db, chrono::Utc::now().timestamp_millis())?
-        && !crate::app::quiet_hours::automatic_blocked(state, &store::settings(db)?)?
-    {
+    let quiet = lock(&state.runtime)?.paused
+        || crate::app::quiet_hours::automatic_blocked(state, &store::settings(db)?)?;
+    let focus = storage::focus_active(db, chrono::Utc::now().timestamp_millis())?;
+    if !quiet && !focus {
         return Ok(false);
     }
-    storage::discard_pending_during_focus(db)?;
+    if quiet {
+        storage::discard_pending_during_quiet(db)?;
+    } else {
+        storage::discard_pending_during_focus(db)?;
+    }
     crate::app::schedule_idle(state, store::settings(db)?.idle_minutes);
     Ok(true)
 }
@@ -219,6 +224,9 @@ pub(crate) fn widget_event_current(
     let Some(event) = lock(&state.widget_playback)?.clone() else {
         return Ok(false);
     };
+    if lock(&state.runtime)?.paused && !crate::app::quiet_hours::event_allowed(&event.event) {
+        return Ok(false);
+    }
     event_current(db, &event)
 }
 
@@ -227,7 +235,7 @@ pub(crate) fn event_current(
     event: &WidgetEvent,
 ) -> Result<bool, String> {
     if crate::app::quiet_hours::active(&store::settings(db)?)
-        && !crate::app::quiet_hours::event_allowed(&event.event.kind)
+        && !crate::app::quiet_hours::event_allowed(&event.event)
     {
         return Ok(false);
     }
@@ -762,12 +770,13 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
     let changed = change(state, |db| {
         let timestamp = chrono::Utc::now().timestamp_millis();
         let changed = storage::advance(db, timestamp)?;
+        let quiet = lock(&state.runtime)?.paused
+            || crate::app::quiet_hours::automatic_blocked(state, &store::settings(db)?)?;
         let alerted =
-            widgets::reminders::advance(db, &mut *lock(&state.widget_clocks)?, timestamp)?;
+            widgets::reminders::advance(db, &mut *lock(&state.widget_clocks)?, timestamp, quiet)?;
         let runtime = lock(&state.runtime)?;
         if state.launcher_open.load(Ordering::SeqCst)
             || runtime.hidden
-            || runtime.paused
             || !store::settings(db)?.autonomous_enabled
         {
             storage::discard_pending(db)?;
@@ -804,7 +813,6 @@ pub(crate) fn take_pending_reaction(
     current_events(state, db)?;
     if state.launcher_open.load(Ordering::SeqCst)
         || status.hidden
-        || status.paused
         || !store::settings(db)?.autonomous_enabled
     {
         storage::discard_pending(db)?;

@@ -126,19 +126,19 @@ fn menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
         .map_err(|error| error.to_string())?;
     submenu.append(&manage).map_err(|error| error.to_string())?;
     menu.append(&submenu).map_err(|error| error.to_string())?;
-    let pause = MenuItem::with_id(
-        app,
-        "pause",
-        if runtime.paused {
-            "다시 시작"
-        } else {
-            "자동 잡담 쉬기"
-        },
-        true,
-        None::<&str>,
-    )
-    .map_err(|error| error.to_string())?;
-    menu.append(&pause).map_err(|error| error.to_string())?;
+    if runtime.paused {
+        let resume = MenuItem::with_id(app, "resume", "다시 시작", true, None::<&str>)
+            .map_err(|error| error.to_string())?;
+        menu.append(&resume).map_err(|error| error.to_string())?;
+    } else {
+        let pause = Submenu::new(app, "자동 잡담 쉬기", true).map_err(|error| error.to_string())?;
+        for (id, text) in [("pause-hour", "1시간"), ("pause", "다시 시작할 때까지")] {
+            let item = MenuItem::with_id(app, id, text, true, None::<&str>)
+                .map_err(|error| error.to_string())?;
+            pause.append(&item).map_err(|error| error.to_string())?;
+        }
+        menu.append(&pause).map_err(|error| error.to_string())?;
+    }
     let separator = PredefinedMenuItem::separator(app).map_err(|error| error.to_string())?;
     menu.append(&separator).map_err(|error| error.to_string())?;
     for (id, text) in [("settings", "설정"), ("quit", "종료")] {
@@ -183,12 +183,9 @@ pub(crate) fn create(app: &tauri::AppHandle) -> Result<(), String> {
                     "hide" => crate::hide_boxes(app.clone(), state).await,
                     "widgets" => crate::open_widgets(app.clone()).await,
                     "settings" => crate::open_settings(app.clone()).await,
-                    "pause" => {
-                        let paused = lock(&state.runtime)
-                            .map(|runtime| !runtime.paused)
-                            .unwrap_or(true);
-                        crate::set_paused(app.clone(), state, paused, None)
-                    }
+                    "pause" => crate::set_paused(app.clone(), state, true, None),
+                    "pause-hour" => crate::set_paused(app.clone(), state, true, Some(60)),
+                    "resume" => crate::set_paused(app.clone(), state, false, None),
                     "quit" => crate::quit_app(app.clone(), state, None).await,
                     _ => {
                         if let Some(widget_id) = id.strip_prefix("widget:") {

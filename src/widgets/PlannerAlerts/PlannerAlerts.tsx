@@ -44,8 +44,6 @@ function savedSettings(data: DataRecord): DataRecord {
     osEnabled: data.osEnabled === true,
     leadMinutes: typeof data.leadMinutes === "number" ? data.leadMinutes : 10,
     includeAllDay: data.includeAllDay === true,
-    quietStart: text(data.quietStart) || "22:00",
-    quietEnd: text(data.quietEnd) || "08:00",
     moodDayStart: data.moodDayStart === true,
     moodFocusStart: data.moodFocusStart === true,
     moodBreak: data.moodBreak === true,
@@ -176,21 +174,10 @@ export function PlannerAlerts({
             <p className={c.quiet}>날짜만 있으면 오전 9시를 기준으로 알립니다.</p>
           </div>
           <div className={a.group}>
-            <FormField className={c.field} label="조용한 시간 시작" required>
-              <TextField
-                type="time"
-                value={text(values.quietStart)}
-                onChange={(event) => change({ quietStart: event.target.value })}
-              />
-            </FormField>
-            <FormField className={c.field} label="조용한 시간 끝" required>
-              <TextField
-                type="time"
-                value={text(values.quietEnd)}
-                onChange={(event) => change({ quietEnd: event.target.value })}
-              />
-            </FormField>
-            <p className={c.quiet}>기기 시간대 기준 · 시작과 끝이 같으면 제한 없음</p>
+            <p className={c.quiet}>
+              조용한 시간은 설정 → 자동 대화에서 함께 정해요. 그동안 일상 인사는 쉬고, 타이머 종료와
+              일정·기한 알림은 계속 알려 드려요.
+            </p>
           </div>
         </div>
         <div className={a.permission}>
@@ -293,9 +280,6 @@ export function PlannerAlerts({
           <Button type="button" variant="quiet" onClick={() => void act("preview-alert")}>
             캐릭터 인사 미리보기
           </Button>
-          <Button type="button" variant="quiet" onClick={() => void act("mute-alerts")}>
-            생활 알림 1시간 쉬기
-          </Button>
         </div>
         {saved && <p role="status">알림 설정을 저장했어요.</p>}
         {notice && <p role="status">{notice}</p>}
@@ -326,13 +310,12 @@ export function PlannerAlertNotice({
     return () => window.clearInterval(timer);
   }, []);
   const observed = typeof last.observedAt === "number" ? last.observedAt : 0;
-  const muted = typeof state.mutedUntil === "number" && state.mutedUntil > now;
   const snoozed = typeof state.snoozeAt === "number" && state.snoozeAt > now;
   const recent = observed <= now && now - observed <= 3_600_000 && dismissed !== observed;
-  if (!muted && !recent && !deliveryError) {
+  if (!recent && !deliveryError) {
     return null;
   }
-  if (!muted && !recent) {
+  if (!recent) {
     return (
       <aside className={a.notice} aria-label="생활 알림">
         <p role="alert" className={c.error}>
@@ -348,33 +331,18 @@ export function PlannerAlertNotice({
           {deliveryError}
         </p>
       )}
-      <p>
-        {muted
-          ? `생활 알림을 ${new Date(Number(state.mutedUntil)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}까지 쉬어요.`
-          : text(last.text)}
-      </p>
+      <p>{text(last.text)}</p>
       <div className={s.row}>
-        {muted ? (
-          <Button variant="quiet" onClick={() => void act("unmute-alerts", {}, widget)}>
-            지금 다시 켜기
-          </Button>
-        ) : (
-          <>
-            <Button
-              variant="quiet"
-              disabled={snoozed}
-              onClick={() => void act("snooze-alert", {}, widget)}
-            >
-              {snoozed ? "다시 알림 예약됨" : "10분 뒤 다시 알림"}
-            </Button>
-            <Button variant="quiet" onClick={() => void act("mute-alerts", {}, widget)}>
-              1시간 쉬기
-            </Button>
-            <Button variant="quiet" onClick={() => setDismissed(observed)}>
-              이 알림 닫기
-            </Button>
-          </>
-        )}
+        <Button
+          variant="quiet"
+          disabled={snoozed}
+          onClick={() => void act("snooze-alert", {}, widget)}
+        >
+          {snoozed ? "다시 알림 예약됨" : "10분 뒤 다시 알림"}
+        </Button>
+        <Button variant="quiet" onClick={() => setDismissed(observed)}>
+          이 알림 닫기
+        </Button>
         {snoozed && <span className={c.quiet}>기한은 그대로 유지됩니다.</span>}
       </div>
     </aside>

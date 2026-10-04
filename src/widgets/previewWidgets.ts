@@ -78,8 +78,6 @@ export function getWidgetPreview(): WidgetSnapshot {
         enabled: false,
         leadMinutes: 10,
         includeAllDay: false,
-        quietStart: "22:00",
-        quietEnd: "08:00",
       },
     },
     preparation: {

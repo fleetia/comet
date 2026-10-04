@@ -325,11 +325,12 @@ it("routes grouped menu actions and retains an input draft through a menu round 
   }
   expect(screen.queryByRole("button", { name: "캐릭터 관리" })).toBeNull();
   expect(screen.queryByRole("button", { name: "위젯 관리" })).toBeNull();
+  fireEvent.click(screen.getByText("자동 잡담 쉬기"));
   for (const [label, name, args] of [
     ["설정", "open_settings", undefined],
-    ["자동 잡담 쉬기", "set_paused", { paused: true }],
+    ["다시 시작할 때까지", "set_paused", { paused: true }],
     ["캐릭터 숨기기", "hide_boxes", undefined],
-    ["1시간 조용히", "set_paused", { paused: true, minutes: 60 }],
+    ["1시간", "set_paused", { paused: true, minutes: 60 }],
     ["말 걸기", "open_panel", { persona: "builtin-b", mode: "input" }],
   ] as const) {
     fireEvent.click(screen.getByRole("button", { name: label }));
@@ -352,7 +353,7 @@ it("shows when a timed pause ends and offers only resume while paused", () => {
   );
   const end = new Date(until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   expect(screen.getByText(`${end}까지 자동 잡담 쉬는 중`)).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "1시간 조용히" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "1시간" })).toBeNull();
   expect(screen.getByRole("button", { name: "다시 시작" })).toBeTruthy();
 });
 

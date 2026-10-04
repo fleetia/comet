@@ -28,7 +28,7 @@ export function QuietHoursSettings({
   const error = quietHoursError(value);
   return (
     <section aria-label="예약된 조용한 시간">
-      <h2 className={s.sectionTitle}>예약된 조용한 시간</h2>
+      <h2 className={s.sectionTitle}>매일 조용히</h2>
       <Checkbox
         className={s.row}
         checked={value.enabled}
@@ -81,9 +81,9 @@ export function QuietHoursSettings({
       </fieldset>
       <p className={s.quiet}>
         자정을 넘으면 시작하는 요일을 기준으로 해요. 월요일 22:00~08:00은 화요일 아침까지 쉬어요.
-        자동 잡담·이야기·장난·AI 위젯 자동 제작을 쉬고, 끝나면 새 이야기 간격을 기다려요. 직접
-        대화와 타이머 종료·일정 알림·켜 둔 무드메이커, 별도 OS 알림 설정은 유지해요. 수동 일시정지와
-        1시간 조용히는 별도로 적용돼요.
+        자동 잡담·이야기·장난·AI 위젯 자동 제작과 생활 알림의 무드메이커가 함께 쉬어요. 끝나면 새
+        이야기 간격을 기다려요. 직접 대화·클릭 반응과 타이머 종료·일정·기한 알림은 계속 전달해요. OS
+        알림은 켜 둔 경우에만 나가요. ‘지금 조용히’는 앱을 다시 실행하면 풀려요.
       </p>
       {error && <p role="alert">{error}</p>}
     </section>

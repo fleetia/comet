@@ -246,14 +246,44 @@ fn old_or_recreated_window_acknowledgements_cannot_finish_the_current_run() {
     assert!(acknowledge(&state, &id, 7, &current, "finished").unwrap());
     assert!(!lock(&state.reactions).unwrap().runs.contains_key(&id));
 }
+
 #[test]
-fn hidden_paused_definition_and_roster_transitions_drop_runs_without_revival() {
-    for transition in ["hide", "pause", "definition", "roster"] {
+fn manual_pause_preserves_click_and_important_widget_reactions_but_hiding_still_cancels() {
+    for click in [true, false] {
+        let (state, id) = configured();
+        crate::app::windows::apply_pause(&state, true, None).unwrap();
+        let prepared = if click {
+            prepare(&state, &id, "click")
+        } else {
+            let event = timer_event(&state, &id);
+            prepare_reaction(
+                &state,
+                &id,
+                "timer-finished",
+                7,
+                Some((&event, state.epoch.load(Ordering::SeqCst))),
+                None,
+            )
+            .unwrap()
+            .unwrap()
+        };
+        display(&state, prepared);
+        assert!(lock(&state.reactions).unwrap().runs.contains_key(&id));
+        lock(&state.runtime).unwrap().hidden = true;
+        reconcile_state(&state, &[]).unwrap();
+        assert!(!lock(&state.reactions).unwrap().runs.contains_key(&id));
+        assert!(prepare_reaction(&state, &id, "click", 7, None, None)
+            .unwrap()
+            .is_none());
+    }
+}
+#[test]
+fn hidden_definition_and_roster_transitions_drop_runs_without_revival() {
+    for transition in ["hide", "definition", "roster"] {
         let (state, id) = configured();
         prepare(&state, &id, "grab-start");
         match transition {
             "hide" => lock(&state.runtime).unwrap().hidden = true,
-            "pause" => lock(&state.runtime).unwrap().paused = true,
             "definition" => {
                 let db = lock(&state.db).unwrap();
                 let mut character = characters::get(&db, &id).unwrap();

@@ -289,18 +289,19 @@ fn talk_remaining_lines_stop_after_each_dependency_and_host_invalidation() {
                 interrupt(&state, false).unwrap();
             }
         }
-        assert!(
-            !present_line(
+        assert_eq!(
+            present_line(
                 &state, &lines[1], "talk", "second", 1, 2, revision, token.0, &token.1, false,
             )
             .unwrap(),
+            cause == "manual-pause",
             "{cause}"
         );
         assert_eq!(
             store::messages(&lock(&state.db).unwrap(), 10)
                 .unwrap()
                 .len(),
-            1,
+            if cause == "manual-pause" { 2 } else { 1 },
             "{cause}"
         );
         assert_eq!(

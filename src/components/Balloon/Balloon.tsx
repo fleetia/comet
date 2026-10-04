@@ -584,21 +584,32 @@ export function Balloon({
               </Button>
             </div>
             <div className={s.menuGroup} role="group" aria-label="자동 잡담과 표시">
-              <Button
-                variant="quiet"
-                className={s.menuItem}
-                onClick={() => void perform("set_paused", { paused: !snapshot.runtime.paused })}
-              >
-                {snapshot.runtime.paused ? "다시 시작" : "자동 잡담 쉬기"}
-              </Button>
-              {!snapshot.runtime.paused && (
+              {snapshot.runtime.paused ? (
                 <Button
                   variant="quiet"
                   className={s.menuItem}
-                  onClick={() => void perform("set_paused", { paused: true, minutes: 60 })}
+                  onClick={() => void perform("set_paused", { paused: false })}
                 >
-                  1시간 조용히
+                  다시 시작
                 </Button>
+              ) : (
+                <details>
+                  <summary className={s.pauseSummary}>자동 잡담 쉬기</summary>
+                  <Button
+                    variant="quiet"
+                    className={s.menuItem}
+                    onClick={() => void perform("set_paused", { paused: true, minutes: 60 })}
+                  >
+                    1시간
+                  </Button>
+                  <Button
+                    variant="quiet"
+                    className={s.menuItem}
+                    onClick={() => void perform("set_paused", { paused: true })}
+                  >
+                    다시 시작할 때까지
+                  </Button>
+                </details>
               )}
               <Button
                 variant="quiet"

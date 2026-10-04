@@ -861,6 +861,13 @@ pub(crate) fn discard_pending_during_focus(db: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Silence preserves important reminders and an explicitly requested greeting preview.
+pub(crate) fn discard_pending_during_quiet(db: &Connection) -> Result<()> {
+    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND json_extract(data,'$.kind') NOT IN ('timer-finished','calendar-reminder','planner-reminder') AND NOT (json_extract(data,'$.kind')='planner-mood' AND COALESCE(json_extract(data,'$.payload.preview'),0)=1)", [])
+        .map_err(err)?;
+    Ok(())
+}
+
 fn without_toy_statistics(mut event: WidgetEvent) -> WidgetEvent {
     let text = match event.event.kind.as_str() {
         "ball.stopped" | "desktop.ball.stopped" => Some("공이 멈췄어요."),

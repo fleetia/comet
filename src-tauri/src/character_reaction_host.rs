@@ -173,7 +173,7 @@ pub(crate) fn forget_speech(state: &AppState) -> Result<()> {
     Ok(())
 }
 
-// Called before publishing. Cancelled runs never survive a hidden/paused or definition transition.
+// Called before publishing. Hidden and stale runs are cancelled; silence preserves direct reactions.
 pub(crate) fn reconcile(app: &AppHandle, state: &AppState) -> Result<()> {
     let native_runs: Vec<_> = lock(&state.reactions)?
         .runs
@@ -194,7 +194,7 @@ pub(crate) fn reconcile(app: &AppHandle, state: &AppState) -> Result<()> {
     }
     let blocked = {
         let status = lock(&state.runtime)?;
-        status.hidden || status.paused
+        status.hidden
     };
     if blocked || app::unavailable(state) {
         character_gestures::cancel_all(app);
@@ -226,7 +226,7 @@ fn reconcile_state(state: &AppState, stale_windows: &[String]) -> Result<Vec<Str
     {
         reactions.speech = None;
     }
-    let blocked = status.hidden || status.paused || app::unavailable(state);
+    let blocked = status.hidden || app::unavailable(state);
     let at = chrono::Utc::now().timestamp_millis();
     let cancelled: Vec<_> = reactions
         .runs
@@ -235,7 +235,8 @@ fn reconcile_state(state: &AppState, stale_windows: &[String]) -> Result<Vec<Str
             blocked
                 || !present.contains(id)
                 || run.widget.as_ref().is_some_and(|event| {
-                    !crate::widget_commands::event_current(&db, event).unwrap_or(false)
+                    (status.paused && !app::quiet_hours::event_allowed(&event.event))
+                        || !crate::widget_commands::event_current(&db, event).unwrap_or(false)
                 })
                 || stale_windows.contains(&run.id)
                 || run.roster
@@ -359,7 +360,7 @@ fn handle_gesture(
             return Ok(());
         }
         let status = lock(&state.runtime)?;
-        if status.hidden || status.paused || app::unavailable(&state) {
+        if status.hidden || app::unavailable(&state) {
             return Ok(());
         }
         drop(status);
@@ -467,7 +468,7 @@ fn prepare_reaction(
     let speech = {
         let _action = lock(&state.action)?;
         let status = lock(&state.runtime)?.clone();
-        if status.hidden || status.paused || app::unavailable(state) {
+        if status.hidden || app::unavailable(state) {
             return Ok(None);
         }
         let (definition, roster) = {
@@ -478,6 +479,7 @@ fn prepare_reaction(
             }
             if let Some((widget, epoch)) = widget {
                 if state.epoch.load(Ordering::SeqCst) != epoch
+                    || (status.paused && !app::quiet_hours::event_allowed(&widget.event))
                     || !crate::widget_commands::event_current(&db, widget)?
                     || !crate::store::settings(&db)?.autonomous_enabled
                 {

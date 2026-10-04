@@ -105,13 +105,15 @@ it("shows when a timed pause ends and resumes without saving automatic drafts", 
   expect(screen.getByLabelText(/이야기 간격/)).toHaveProperty("value", "12");
 });
 
-it("pauses from automatic settings without saving the draft", async () => {
+it.each([
+  ["60", { paused: true, minutes: 60 }],
+  ["restart", { paused: true }],
+])("pauses for %s without saving the automatic draft", async (duration, args) => {
   render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="automatic" />);
   fireEvent.change(screen.getByLabelText(/이야기 간격/), { target: { value: "12" } });
+  fireEvent.change(screen.getByLabelText("쉬는 기간"), { target: { value: duration } });
   fireEvent.click(screen.getByRole("button", { name: "자동 잡담 쉬기" }));
-  await waitFor(() =>
-    expect(command).toHaveBeenCalledExactlyOnceWith("set_paused", { paused: true }),
-  );
+  await waitFor(() => expect(command).toHaveBeenCalledExactlyOnceWith("set_paused", args));
   expect(screen.getByLabelText(/이야기 간격/)).toHaveProperty("value", "12");
 });
 

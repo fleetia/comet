@@ -394,15 +394,18 @@ fn pause_locked(
         runtime.paused = paused;
         runtime.paused_until = until.filter(|_| paused);
     }
-    widgets::storage::discard_pending(&*lock(&state.db)?)?;
+    widgets::storage::discard_pending_during_quiet(&*lock(&state.db)?)?;
     if !paused {
         schedule_idle(state, store::settings(&*lock(&state.db)?)?.idle_minutes);
     }
-    let has_talk = lock(&state.talk_playback)?.is_some();
-    if should_cancel_for_pause(paused, state.automatic.load(Ordering::SeqCst))
-        || (paused && has_talk)
-    {
-        Ok(Some(interrupt(state, false)?))
+    let cancel = lock(&state.widget_playback)?.as_ref().map_or_else(
+        || should_cancel_for_pause(paused, state.automatic.load(Ordering::SeqCst)),
+        |event| paused && !super::quiet_hours::event_allowed(&event.event),
+    );
+    if cancel {
+        let token = interrupt(state, false)?;
+        state.widget_epoch.store(token.0, Ordering::SeqCst);
+        Ok(Some(token))
     } else {
         Ok(None)
     }
