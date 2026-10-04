@@ -128,11 +128,9 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
     characters: charactersDirty,
     widgets: widgetsDirty,
     automatic: automatic.hasChanges,
-    wordbook: wordbookDirty,
-    talk: false,
-    user: userDirty,
+    dialogue: wordbookDirty,
     model: model.hasChanges,
-    general: generalDirty,
+    general: generalDirty || userDirty,
   };
   const hasChanges = Object.values(dirty).some(Boolean);
   useEffect(() => {
@@ -403,31 +401,25 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                 />
               )}
             </TabPanel>
-            <TabPanel value="wordbook" className={styles.panel}>
-              {visited.has("wordbook") && (
-                <div className={styles.fullPage}>
-                  <WordbookPanel
-                    entries={snapshot.wordbook}
-                    owners={snapshot.characters.active.map((id) =>
-                      snapshot.characters.installed.find((character) => character.id === id),
-                    )}
-                    title="개인 단어장"
-                    description="키워드가 포함되면 등록한 대사를 모델 없이 그대로 재생해요. 캐릭터를 바꿔도 유지돼요."
-                    onDirtyChange={setWordbookDirty}
-                  />
+            <TabPanel value="dialogue" className={styles.panel}>
+              {visited.has("dialogue") && (
+                <div className={styles.dialogueLayout}>
+                  <div className={styles.wordbookSection}>
+                    <WordbookPanel
+                      entries={snapshot.wordbook}
+                      owners={snapshot.characters.active.map((id) =>
+                        snapshot.characters.installed.find((character) => character.id === id),
+                      )}
+                      title="개인 단어장"
+                      description="키워드가 포함되면 등록한 대사를 모델 없이 그대로 재생해요. 캐릭터를 바꿔도 유지돼요."
+                      onDirtyChange={setWordbookDirty}
+                    />
+                  </div>
+                  <section className={styles.talkSection}>
+                    <SectionHeader title="대화팩" headingVariant="subsection" rule="none" />
+                    <TalkPackPanel />
+                  </section>
                 </div>
-              )}
-            </TabPanel>
-            <TabPanel value="talk" className={styles.panel}>
-              {visited.has("talk") && (
-                <div className={styles.widePage}>
-                  <TalkPackPanel />
-                </div>
-              )}
-            </TabPanel>
-            <TabPanel value="user" className={styles.panel}>
-              {visited.has("user") && (
-                <UserSettings snapshot={snapshot} onDirtyChange={setUserDirty} />
               )}
             </TabPanel>
             <TabPanel value="general" className={styles.panel}>
@@ -437,6 +429,10 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                     hidden={snapshot.runtime.hidden}
                     onDirtyChange={setGeneralDirty}
                   >
+                    <section className={styles.sectionBody}>
+                      <SectionHeader title="사용자" headingVariant="subsection" rule="none" />
+                      <UserSettings snapshot={snapshot} onDirtyChange={setUserDirty} />
+                    </section>
                     <AutostartSettings active={section === "general"} />
                     <section className={styles.settingsSection}>
                       <SectionHeader title="표시와 종료" headingVariant="subsection" rule="none" />

@@ -2081,7 +2081,7 @@ fn unsaved_settings_require_exit_confirmation_and_block_update_installation() {
 }
 
 #[test]
-fn settings_navigation_defaults_to_characters_and_maps_update_links_to_general() {
+fn settings_navigation_defaults_to_characters_and_maps_legacy_destinations() {
     assert_eq!(
         windows::SettingsSection::default(),
         windows::SettingsSection::Characters
@@ -2090,8 +2090,7 @@ fn settings_navigation_defaults_to_characters_and_maps_update_links_to_general()
         "characters",
         "widgets",
         "automatic",
-        "wordbook",
-        "talk",
+        "dialogue",
         "memory",
         "model",
         "general",
@@ -2100,10 +2099,16 @@ fn settings_navigation_defaults_to_characters_and_maps_update_links_to_general()
         let parsed: windows::SettingsSection = serde_json::from_value(value.clone()).unwrap();
         assert_eq!(serde_json::to_value(parsed).unwrap(), value);
     }
-    assert_eq!(
-        serde_json::from_str::<windows::SettingsSection>("\"updates\"").unwrap(),
-        windows::SettingsSection::General
-    );
+    for (legacy, expected) in [
+        ("updates", windows::SettingsSection::General),
+        ("user", windows::SettingsSection::General),
+        ("wordbook", windows::SettingsSection::Dialogue),
+        ("talk", windows::SettingsSection::Dialogue),
+    ] {
+        let parsed: windows::SettingsSection =
+            serde_json::from_value(serde_json::Value::String(legacy.into())).unwrap();
+        assert_eq!(parsed, expected);
+    }
 }
 
 #[test]

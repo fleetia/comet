@@ -22,6 +22,28 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it.each([
+  ["wordbook", "dialogue"],
+  ["talk", "dialogue"],
+  ["user", "general"],
+])(
+  "maps legacy %s destinations to %s without discarding visited sections",
+  async (legacy, section) => {
+    vi.mocked(command).mockResolvedValue(legacy);
+    const { result } = renderHook(() => useSettingsNavigation(legacy));
+    expect(result.current.section).toBe(section);
+    await waitFor(() => expect(command).toHaveBeenCalledWith("get_settings_section"));
+    act(() => result.current.navigate("model"));
+    act(() => receive({ event: "open-settings-section", id: 1, payload: legacy }));
+    expect(result.current.section).toBe(section);
+    act(() => result.current.navigate("characters"));
+    act(() => result.current.navigate(legacy));
+    expect(result.current.section).toBe(section);
+    expect(command).toHaveBeenLastCalledWith("set_settings_section", { section });
+    expect([...result.current.visited]).toEqual([section, "model", "characters"]);
+  },
+);
+
 it("recovers a destination requested before listener registration and keeps visited drafts mounted", async () => {
   vi.mocked(command).mockResolvedValue("widgets");
   const { result, unmount } = renderHook(() => useSettingsNavigation("characters"));

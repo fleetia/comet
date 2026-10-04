@@ -119,11 +119,11 @@ const WIDGET_ALIASES: Record<string, string[]> = {
 };
 const SECTION_ALIASES: Partial<Record<SettingsSection, string[]>> = {
   model: ["모델", "API", "AI", "인공지능"],
-  wordbook: ["단어장"],
+  dialogue: ["개인 단어장", "단어장", "단어장 설정", "대화팩", "대화팩 설정"],
   automatic: ["자동 수다"],
   characters: ["캐릭터 관리", "친구"],
   widgets: ["위젯 관리"],
-  general: ["업데이트"],
+  general: ["업데이트", "사용자", "사용자 설정"],
 };
 function widgetResult(
   entry: { id: string; name: string; description: string },

@@ -18,12 +18,11 @@ pub(crate) enum SettingsSection {
     Characters,
     Widgets,
     Automatic,
-    Wordbook,
-    Talk,
+    #[serde(alias = "wordbook", alias = "talk")]
+    Dialogue,
     Memory,
-    User,
     Model,
-    #[serde(alias = "updates")]
+    #[serde(alias = "updates", alias = "user")]
     General,
 }
 
@@ -34,10 +33,8 @@ impl SettingsSection {
             Self::Characters => "characters",
             Self::Widgets => "widgets",
             Self::Automatic => "automatic",
-            Self::Wordbook => "wordbook",
-            Self::Talk => "talk",
+            Self::Dialogue => "dialogue",
             Self::Memory => "memory",
-            Self::User => "user",
             Self::Model => "model",
         }
     }

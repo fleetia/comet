@@ -268,7 +268,7 @@ pub fn run() {
             {
                 windows::show_settings_section(
                     app.handle().clone(),
-                    windows::SettingsSection::User,
+                    windows::SettingsSection::General,
                 )
                 .map_err(std::io::Error::other)?;
             } else if !widgets::storage::snapshot(&*lock(&state.db).map_err(std::io::Error::other)?)

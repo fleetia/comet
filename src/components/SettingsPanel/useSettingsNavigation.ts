@@ -6,17 +6,22 @@ export const SETTINGS_SECTIONS = [
   { id: "characters", label: "캐릭터", group: "관리" },
   { id: "widgets", label: "위젯", group: "관리" },
   { id: "automatic", label: "자동 대화", group: "대화" },
-  { id: "wordbook", label: "개인 단어장", group: "대화" },
-  { id: "talk", label: "대화팩", group: "대화" },
-  { id: "user", label: "사용자", group: "앱" },
+  { id: "dialogue", label: "대사", group: "대화" },
   { id: "model", label: "AI 연결", group: "앱" },
   { id: "general", label: "일반", group: "앱" },
 ] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]["id"];
 
 function sectionFrom(value: unknown): SettingsSection | null {
-  if (value === "memory") return "characters";
-  if (value === "updates") return "general";
+  if (value === "memory") {
+    return "characters";
+  }
+  if (value === "updates" || value === "user") {
+    return "general";
+  }
+  if (value === "wordbook" || value === "talk") {
+    return "dialogue";
+  }
   return SETTINGS_SECTIONS.find((item) => item.id === value)?.id ?? null;
 }
 

@@ -19,21 +19,69 @@ beforeEach(() => {
   vi.mocked(command).mockResolvedValue(undefined);
 });
 
-it("opens all eight destinations directly with keyboard navigation", () => {
+it("opens the six grouped destinations directly with keyboard navigation", () => {
   render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} />);
   expect(screen.getByRole("tabpanel", { name: "캐릭터" })).toBeTruthy();
   expect(screen.getAllByRole("main")).toHaveLength(1);
   const tabs = screen.getByRole("tablist", { name: "설정 항목" });
-  expect(within(tabs).getAllByRole("tab")).toHaveLength(8);
+  expect(
+    within(tabs)
+      .getAllByRole("tab")
+      .map((tab) => tab.textContent),
+  ).toEqual(["캐릭터", "위젯", "자동 대화", "대사", "AI 연결", "일반"]);
+  expect(
+    within(tabs)
+      .getAllByText(/^(관리|대화|앱)$/)
+      .map((group) => group.textContent),
+  ).toEqual(["관리", "대화", "앱"]);
   fireEvent.keyDown(within(tabs).getByRole("tab", { name: "캐릭터" }), { key: "ArrowDown" });
   expect(screen.getByRole("heading", { level: 1, name: "위젯" })).toBeTruthy();
   fireEvent.keyDown(document.activeElement!, { key: "End" });
   expect(screen.getByRole("heading", { level: 1, name: "일반" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "사용자" })).toBeTruthy();
+  expect(screen.getByLabelText("캐릭터가 부를 이름")).toBeTruthy();
   expect(screen.getByRole("heading", { name: "앱 업데이트" })).toBeTruthy();
   expect(screen.getByRole("heading", { name: "빠른 실행 단축키" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "빠른 실행 열기" })).toBeTruthy();
   fireEvent.keyDown(document.activeElement!, { key: "Home" });
   expect(screen.getByRole("tabpanel", { name: "캐릭터" })).toBeTruthy();
+});
+
+it("keeps user and desktop drafts independent within general settings and across navigation", async () => {
+  render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="user" />);
+  fireEvent.change(screen.getByLabelText("캐릭터가 부를 이름"), {
+    target: { value: "  새 이름  " },
+  });
+  fireEvent.click(screen.getByRole("checkbox", { name: "장난 모드" }));
+  fireEvent.click(screen.getByRole("tab", { name: "대사" }));
+  fireEvent.click(screen.getByRole("tab", { name: /일반/ }));
+  expect(screen.getByLabelText("캐릭터가 부를 이름")).toHaveProperty("value", "  새 이름  ");
+  expect(screen.getByRole("checkbox", { name: "장난 모드" })).toHaveProperty("checked", true);
+
+  fireEvent.click(screen.getByRole("button", { name: "이름 변경" }));
+  fireEvent.click(screen.getByRole("button", { name: "이름 변경 확인" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledExactlyOnceWith("set_user_name", { name: "새 이름" }),
+  );
+  expect(screen.getByRole("button", { name: "장난 설정 저장" })).toHaveProperty("disabled", false);
+  expect(screen.getByRole("tab", { name: /일반/ }).textContent).toContain("저장하지 않은 변경");
+
+  fireEvent.change(screen.getByLabelText("캐릭터가 부를 이름"), {
+    target: { value: "다음 이름 초안" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "장난 설정 저장" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("set_desktop_preferences", {
+      preferences: {
+        charactersVisible: true,
+        pranksEnabled: true,
+        allowedToys: ["ball", "paper-plane", "bubbles"],
+      },
+    }),
+  );
+  expect(command).toHaveBeenCalledTimes(2);
+  expect(screen.getByLabelText("캐릭터가 부를 이름")).toHaveProperty("value", "다음 이름 초안");
+  expect(screen.getByRole("tab", { name: /일반/ }).textContent).toContain("저장하지 않은 변경");
 });
 
 it("shows when a timed pause ends and resumes without saving automatic drafts", async () => {
@@ -385,19 +433,23 @@ it("locks automatic and model save actions while an update is being checked", as
 
 it("preserves personal wordbook whitespace and memory drafts across management tabs", async () => {
   vi.mocked(isDesktop).mockReturnValue(true);
-  vi.mocked(command).mockImplementation(async (name) =>
-    name === "list_memories"
-      ? {
-          items: [{ id: "memory", content: "기존 기억", sourceMessageId: "source", updatedAt: 1 }],
-          total: 1,
-          offset: 0,
-          nextOffset: null,
-          revision: 1,
-        }
-      : name === "count_character_memories"
-        ? 0
-        : undefined,
-  );
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "list_memories") {
+      return {
+        items: [{ id: "memory", content: "기존 기억", sourceMessageId: "source", updatedAt: 1 }],
+        total: 1,
+        offset: 0,
+        nextOffset: null,
+        revision: 1,
+      };
+    }
+    if (name === "count_character_memories") {
+      return 0;
+    }
+    if (name === "get_talk_packs") {
+      return [];
+    }
+  });
   const snapshot = {
     ...PREVIEW_SNAPSHOT,
     wordbook: [
@@ -422,7 +474,7 @@ it("preserves personal wordbook whitespace and memory drafts across management t
   fireEvent.change(await screen.findByLabelText("기억 내용"), { target: { value: "쓰던 기억" } });
   fireEvent.click(screen.getByRole("tab", { name: "위젯" }));
   rerender(<SettingsPanel snapshot={{ ...snapshot, wordbook: [...snapshot.wordbook] }} />);
-  fireEvent.click(screen.getByRole("tab", { name: /개인 단어장/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /대사/ }));
   expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "  쓰던 말\n\n다음 줄  ");
   fireEvent.click(screen.getByRole("tab", { name: /캐릭터/ }));
   fireEvent.click(screen.getByRole("tab", { name: "기억" }));

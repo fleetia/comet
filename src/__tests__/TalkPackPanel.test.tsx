@@ -77,10 +77,23 @@ it("shows the command error instead of changing the list", async () => {
   expect(screen.getByRole("button", { name: "나디르와 별꼬리 설치" })).toBeTruthy();
 });
 
-it("opens the pack list from the settings tab", async () => {
+it("installs a pack within dialogue settings without saving a personal wordbook draft", async () => {
   render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} />);
-  fireEvent.click(screen.getByRole("tab", { name: "대화팩" }));
+  fireEvent.click(screen.getByRole("tab", { name: "대사" }));
   expect(await screen.findByRole("list", { name: "대화팩 목록" })).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("대사 1"), {
+    target: { value: "  쓰던 대사\n\n다음 줄  " },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "나디르와 별꼬리 선택" }));
+  fireEvent.click(screen.getByRole("button", { name: "나디르와 별꼬리 설치" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("install_talk_pack", { id: "nadir-and-star-tail" }),
+  );
+  expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "  쓰던 대사\n\n다음 줄  ");
+  expect(vi.mocked(command).mock.calls.some(([name]) => name === "save_wordbook_entry")).toBe(
+    false,
+  );
+  expect(screen.getByRole("tab", { name: /대사/ }).textContent).toContain("저장하지 않은 변경");
 });
 
 it("keeps installation feedback with its selected pack", async () => {

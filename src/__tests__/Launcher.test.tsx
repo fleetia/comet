@@ -60,6 +60,14 @@ function executed(): unknown[][] {
 }
 
 describe("local command and conversation routing", () => {
+  it.each([
+    ["단어장 설정", "dialogue"],
+    ["대화팩 설정", "dialogue"],
+    ["사용자 설정", "general"],
+  ])("routes the legacy %s alias to %s", (query, section) => {
+    expect(results(query)[0].action).toEqual({ type: "settings", section });
+  });
+
   it("matches aliases and specific settings while retaining the conversation alternative", () => {
     expect(results("설정")[0].action).toEqual({ type: "settings", section: null });
     expect(results("AI 연결")[0].action).toEqual({ type: "settings", section: "model" });
