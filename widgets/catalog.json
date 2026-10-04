@@ -12,7 +12,5 @@
   {"id":"paper-plane","name":"종이비행기","description":"드래그로 날리고 착지하는 종이비행기","category":"play","version":1,"required":[],"connection":null},
   {"id":"bubbles","name":"비눗방울","description":"비눗방울을 만들고 톡톡 터뜨려요","category":"play","version":1,"required":[],"connection":null},
   {"id":"small-match","name":"작은 승부","description":"주사위·동전·가위바위보 한 판","category":"play","version":1,"required":[],"connection":null},
-  {"id":"fortune","name":"장난 운세","description":"가볍게 웃어넘기는 가상의 운세","category":"play","version":1,"required":[],"connection":null},
-  {"id":"collection","name":"수집함·소품","description":"놀이에서 얻은 물건을 모으고 꺼내 놓아요","category":"play","version":1,"required":[],"connection":null},
-  {"id":"journal","name":"함께한 사건 일지","description":"실제로 함께한 놀이와 도구의 사건을 돌아봐요","category":"play","version":1,"required":[],"connection":null}
+  {"id":"fortune","name":"장난 운세","description":"가볍게 웃어넘기는 가상의 운세","category":"play","version":1,"required":[],"connection":null}
 ]

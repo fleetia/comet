@@ -122,7 +122,7 @@ fn collect(app: &tauri::AppHandle) -> Result<Snapshot, String> {
                 WindowState::Unknown
             }
         };
-        let tool_window = (!is_toy).then(|| ToolWindow {
+        let tool_window = (!is_toy && instance.kind != "memo").then(|| ToolWindow {
             state: read(&if planner {
                 "planner".into()
             } else {

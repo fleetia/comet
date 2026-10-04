@@ -453,15 +453,11 @@ pub(crate) fn remove_widget_background(
 pub(crate) fn get_widget_journal(
     state: tauri::State<'_, Arc<AppState>>,
     before: Option<i64>,
+    start_at: i64,
+    end_at: i64,
 ) -> Result<Vec<(i64, WidgetEvent)>, String> {
     let db = lock(&state.db)?;
-    if !storage::instances(&db)?
-        .iter()
-        .any(|entry| entry.kind == "journal" && entry.installed && entry.enabled)
-    {
-        return Err("사건 일지를 설치하고 켜 주세요.".into());
-    }
-    storage::journal(&db, before)
+    storage::journal(&db, before, start_at, end_at)
 }
 
 #[tauri::command]
@@ -548,7 +544,7 @@ fn validate_open_widget(
     instance: &widgets::WidgetInstance,
     launcher: Option<(i64, u64)>,
 ) -> Result<(), String> {
-    if !instance.installed || !instance.enabled {
+    if widgets::is_retired(&instance.kind) || !instance.installed || !instance.enabled {
         return Err("위젯을 설치하고 켜 주세요.".into());
     }
     if let Some((revision, session)) = launcher {
@@ -560,6 +556,21 @@ fn validate_open_widget(
         }
     }
     Ok(())
+}
+
+fn create_memo_for_open(
+    state: &AppState,
+    id: &str,
+    launcher: Option<(i64, u64)>,
+) -> Result<WidgetSnapshot, String> {
+    change(state, |db| {
+        let current = storage::get(db, id)?;
+        validate_open_widget(state, &current, launcher)?;
+        if let Some((_, session)) = launcher {
+            crate::app::launcher::accept_execution(state, session)?;
+        }
+        crate::memo_notes::create_note(db, id)
+    })
 }
 
 async fn open_widget_inner(
@@ -574,6 +585,11 @@ async fn open_widget_inner(
         validate_open_widget(state, &instance, launcher)?;
         Ok(instance)
     })?;
+    if instance.kind == "memo" {
+        let snapshot = create_memo_for_open(state, id, launcher)?;
+        crate::memo_notes::reveal_created_note(app, state, id, snapshot).await?;
+        return Ok(());
+    }
     if crate::behavior::TOYS.contains(&instance.kind.as_str()) {
         let token = crate::desktop_toys::launch_token(app, id)?;
         let geometry = crate::desktop_toys::current_geometry(app).await?;
@@ -990,6 +1006,57 @@ mod tests {
         let mut disabled = instance;
         disabled.enabled = false;
         assert!(validate_open_widget(&state, &disabled, Some((3, 0))).is_err());
+    }
+
+    #[test]
+    fn memo_open_creates_a_detached_sheet_only_for_the_current_launcher_preview() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut state = crate::app::tests::state();
+        state.app_data = directory.path().into();
+        let first = change(&state, |db| {
+            storage::install(db, &state.app_data, &["memo".into()])?;
+            Ok(storage::instances(db)?.remove(0))
+        })
+        .unwrap();
+        let created = create_memo_for_open(&state, &first.id, None).unwrap();
+        let note = &created.widgets[0].instance.data["notes"][0];
+        assert_eq!(note["isOpen"], true);
+        let note_id = note["id"].clone();
+        change(&state, |db| {
+            let current = storage::get(db, &first.id)?;
+            storage::execute(
+                db,
+                &WidgetRequest {
+                    request_id: uuid::Uuid::new_v4().to_string(),
+                    instance_id: first.id.clone(),
+                    expected_revision: current.revision,
+                    action: "update".into(),
+                    input: serde_json::json!({"id":note_id,"body":"  원문\n  보존","isOpen":false}),
+                },
+                1,
+                0,
+            )
+        })
+        .unwrap();
+        let before = storage::get(&*lock(&state.db).unwrap(), &first.id).unwrap();
+        state.launcher_open.store(true, Ordering::SeqCst);
+        assert!(create_memo_for_open(&state, &first.id, Some((first.revision, 0))).is_err());
+        assert!(create_memo_for_open(&state, &first.id, Some((before.revision, 1))).is_err());
+        let result = create_memo_for_open(&state, &first.id, Some((before.revision, 0))).unwrap();
+        let notes = result.widgets[0].instance.data["notes"].as_array().unwrap();
+        assert_eq!(notes.len(), 2);
+        assert_eq!(notes[0], before.data["notes"][0]);
+        assert_eq!(notes[1]["isOpen"], true);
+        assert!(create_memo_for_open(&state, &first.id, Some((before.revision, 0))).is_err());
+        assert_eq!(
+            storage::get(&*lock(&state.db).unwrap(), &first.id)
+                .unwrap()
+                .data["notes"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
     }
 
     #[test]

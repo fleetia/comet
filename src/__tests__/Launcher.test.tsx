@@ -77,7 +77,11 @@ describe("local command and conversation routing", () => {
       expectedRevision: expect.any(Number),
     });
     // The conversation alternative stays, followed only by the explicit task row.
-    expect(results("공 던지기").map((result) => result.kind).slice(-2)).toEqual(["chat", "todo"]);
+    expect(
+      results("공 던지기")
+        .map((result) => result.kind)
+        .slice(-2),
+    ).toEqual(["chat", "todo"]);
   });
   it.each(["공원 가고 싶다", "설정 바꾸기 귀찮네", "오늘 졸리네"])(
     "keeps the whole sentence %s as a conversation",
@@ -90,7 +94,10 @@ describe("local command and conversation routing", () => {
   it("offers the todo row only for plain input that fits and the todo tool can take", () => {
     expect(results(">B 오늘 졸리네").some((result) => result.kind === "todo")).toBe(false);
     expect(results("가".repeat(501)).at(-1)).toMatchObject({ kind: "todo", action: undefined });
-    const withoutTodo = { ...widgets, widgets: widgets.widgets.filter((item) => item.kind !== "todo") };
+    const withoutTodo = {
+      ...widgets,
+      widgets: widgets.widgets.filter((item) => item.kind !== "todo"),
+    };
     expect(results("우유 사기", withoutTodo).at(-1)).toMatchObject({
       id: "widget:todo",
       action: { type: "settings", section: "widgets" },
@@ -111,10 +118,19 @@ describe("local command and conversation routing", () => {
       })[0].title,
     ).toContain("켜기 설정");
   });
-  it("does not offer the collection to someone who never had one", () => {
-    const fresh = { ...widgets, widgets: widgets.widgets.filter((item) => item.kind !== "collection") };
-    expect(results("수집함", fresh).some((result) => result.id === "widget:collection")).toBe(false);
-    expect(results("수집함").some((result) => result.id === "widget:collection")).toBe(true);
+  it("labels memo launch as creating a desktop sheet", () => {
+    const result = results("메모").find((item) => item.id === "widget:memo");
+    expect(result?.title).toBe("새 메모 꺼내기");
+    expect(result?.preview).toContain("다이어리");
+    expect(result?.action).toMatchObject({ type: "widget", id: "memo" });
+  });
+  it("does not offer retired collection or journal widgets", () => {
+    for (const [query, kind] of [
+      ["수집함", "collection"],
+      ["사건 일지", "journal"],
+    ]) {
+      expect(results(query).some((result) => result.id === `widget:${kind}`)).toBe(false);
+    }
   });
   it("routes installed widgets requiring setup to their settings", () => {
     const pendingSetup: WidgetSnapshot = {

@@ -6,6 +6,7 @@ mod expr;
 pub(crate) mod files;
 mod legacy;
 mod parser;
+mod retired;
 pub mod runtime;
 #[cfg(test)]
 mod tests;

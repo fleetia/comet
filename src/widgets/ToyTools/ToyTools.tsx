@@ -1,12 +1,11 @@
 import { FormField, Button, Select, TextField } from "@fleetia/lagrange";
-import { useId, useState, type PointerEvent, type ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 import type { WidgetView } from "../types";
-import { number, record, rows, text, type ToolAction } from "../toolData";
+import { number, record, text, type ToolAction } from "../toolData";
 import type { CharacterCollection } from "../../types";
 import { activeTargets } from "../../components/Launcher/search";
 import * as s from "../tools.css";
 import * as c from "../../lagrange.css";
-import * as toy from "./toyTools.css";
 
 type Props = { widget: WidgetView; act: ToolAction; characters?: CharacterCollection };
 const matchLabels: Record<string, string> = {
@@ -16,13 +15,7 @@ const matchLabels: Record<string, string> = {
   rock: "바위",
   paper: "보",
 };
-function point(event: PointerEvent<HTMLElement>): { x: number; y: number } {
-  const bounds = event.currentTarget.getBoundingClientRect();
-  return {
-    x: Math.max(0, Math.min(100, ((event.clientX - bounds.left) / bounds.width) * 100)),
-    y: Math.max(0, Math.min(100, ((event.clientY - bounds.top) / bounds.height) * 100)),
-  };
-}
+
 function MotionTool({ widget }: { widget: WidgetView }): ReactElement {
   return (
     <>
@@ -92,10 +85,6 @@ export function ToyTool({ widget, act, characters }: Props): ReactElement {
   const d = record(widget.data);
   const [guess, setGuess] = useState("50");
   const [mode, setMode] = useState(text(d.mode) === "number" ? "number" : "cups");
-  const [decoration, setDecoration] = useState<number | null>(null);
-  const collectionInstructions = useId();
-  const decorations = rows(d.decorations);
-  const selectedDecoration = decorations.find((item) => number(item.id) === decoration);
   switch (widget.kind) {
     case "ball":
     case "paper-plane":
@@ -250,115 +239,6 @@ export function ToyTool({ widget, act, characters }: Props): ReactElement {
           >
             물 주기
           </Button>
-        </>
-      );
-    case "collection":
-      return (
-        <>
-          <p className={c.quiet} id={collectionInstructions}>
-            실제로 획득한 물건만 꺼낼 수 있어요. 소품을 고른 뒤 공간을 누르거나 방향키로 옮겨요.
-          </p>
-          <div
-            className={s.area}
-            role="group"
-            aria-label="수집품 배치"
-            onPointerUp={(event) => {
-              if (selectedDecoration) {
-                void act("move", { id: number(selectedDecoration.id), ...point(event) });
-              }
-            }}
-          >
-            {decorations.map((item) => (
-              <button
-                className={toy.decoration}
-                key={number(item.id)}
-                type="button"
-                aria-label={`${text(rows(d.items).find((owned) => owned.itemId === item.itemId)?.name) || "이름 없는 소품"} 소품 선택`}
-                aria-describedby={collectionInstructions}
-                aria-pressed={decoration === number(item.id)}
-                style={{
-                  left: `clamp(20px, ${number(item.x)}%, calc(100% - 20px))`,
-                  top: `clamp(20px, ${number(item.y)}%, calc(100% - 20px))`,
-                }}
-                onPointerUp={(e) => e.stopPropagation()}
-                onClick={() => setDecoration(number(item.id))}
-                onKeyDown={(event) => {
-                  let x = number(item.x);
-                  let y = number(item.y);
-                  switch (event.key) {
-                    case "ArrowLeft":
-                      x -= 5;
-                      break;
-                    case "ArrowRight":
-                      x += 5;
-                      break;
-                    case "ArrowUp":
-                      y -= 5;
-                      break;
-                    case "ArrowDown":
-                      y += 5;
-                      break;
-                    default:
-                      return;
-                  }
-                  event.preventDefault();
-                  const control = event.currentTarget;
-                  const ownerDocument = control.ownerDocument;
-                  const hadFocus = ownerDocument.activeElement === control;
-                  setDecoration(number(item.id));
-                  void act("move", {
-                    id: number(item.id),
-                    x: Math.max(0, Math.min(100, x)),
-                    y: Math.max(0, Math.min(100, y)),
-                  }).then(() => {
-                    if (!hadFocus) {
-                      return;
-                    }
-                    requestAnimationFrame(() => {
-                      const active = ownerDocument.activeElement;
-                      if (
-                        control.isConnected &&
-                        !control.matches(":disabled") &&
-                        (active === ownerDocument.body || active === ownerDocument.documentElement)
-                      ) {
-                        control.focus({ preventScroll: true });
-                      }
-                    });
-                  });
-                }}
-              >
-                ◆
-              </button>
-            ))}
-          </div>
-          {rows(d.items).length === 0 && (
-            <p>모은 물건이 없어요. 지금은 새로 물건을 얻는 놀이가 없어요.</p>
-          )}
-          {rows(d.items).map((item) => (
-            <div key={text(item.itemId)} className={s.item}>
-              <span>
-                {text(item.name)} × {number(item.quantity)}
-              </span>
-              <Button
-                variant="secondary"
-                disabled={
-                  rows(d.decorations).filter((x) => x.itemId === item.itemId).length >=
-                  number(item.quantity)
-                }
-                onClick={() => void act("decorate", { itemId: text(item.itemId), x: 50, y: 50 })}
-              >
-                꺼내 놓기
-              </Button>
-            </div>
-          ))}
-          {selectedDecoration && (
-            <Button
-              variant="secondary"
-              onClick={() => void act("move", { id: number(selectedDecoration.id), x: 50, y: 50 })}
-            >
-              선택한 소품 가운데로
-            </Button>
-          )}
         </>
       );
     default:

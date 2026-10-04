@@ -10,7 +10,6 @@ type Props = {
   snapshot: WidgetSnapshot;
   busy: boolean;
   onOpenWidget: (widget: WidgetView) => void;
-  onOpenMemo: (widget: WidgetView, itemId: string) => void;
   onAdd: (payload: WidgetDragPayload) => void;
 };
 
@@ -24,14 +23,6 @@ function sourceItems(widget: WidgetView): { payload: WidgetDragPayload; title: s
           payload: { v: 1, kind: "todo", widgetId: widget.id, itemId: text(item.id) },
           title: text(item.title),
         }));
-    case "memo":
-      return rows(data.notes).map((item) => ({
-        payload: { v: 1, kind: "memo", widgetId: widget.id, itemId: text(item.id) },
-        title:
-          text(item.body).replace(/\s+/g, " ").trim().slice(0, 120) ||
-          text(item.title) ||
-          "빈 메모",
-      }));
     case "preparation":
       return rows(data.envelopes)
         .filter((item) => item.archived !== true)
@@ -44,13 +35,7 @@ function sourceItems(widget: WidgetView): { payload: WidgetDragPayload; title: s
   }
 }
 
-export function DiaryWidgetShelf({
-  snapshot,
-  busy,
-  onOpenWidget,
-  onOpenMemo,
-  onAdd,
-}: Props): ReactElement {
+export function DiaryWidgetShelf({ snapshot, busy, onOpenWidget, onAdd }: Props): ReactElement {
   const widgets = snapshot.widgets.filter((widget) => widget.installed && widget.enabled);
   return (
     <details className={s.shelf}>
@@ -97,13 +82,7 @@ export function DiaryWidgetShelf({
                         className={s.itemName}
                         disabled={busy}
                         title={item.title}
-                        onClick={() => {
-                          if (item.payload.kind === "memo" && item.payload.itemId) {
-                            onOpenMemo(widget, item.payload.itemId);
-                          } else {
-                            onOpenWidget(widget);
-                          }
-                        }}
+                        onClick={() => onOpenWidget(widget)}
                       >
                         {item.title}
                       </button>

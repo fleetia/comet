@@ -660,7 +660,6 @@ fn apply_effect(
     instance.revision += 1;
     instance.error = None;
     put(db, &instance)?;
-    let journal_enabled = active_data(db)?.contains_key("journal");
     for draft in effect.events {
         if draft.text.chars().count() > 2000 || draft.kind.len() > 80 {
             return Err("위젯 사건의 크기가 제한을 넘었어요.".into());
@@ -683,13 +682,8 @@ fn apply_effect(
             ],
         )
         .map_err(err)?;
-        if journal_enabled {
-            db.execute(
-                "INSERT OR IGNORE INTO widget_journal VALUES(?)",
-                [&event.id],
-            )
+        db.execute("INSERT OR IGNORE INTO widget_journal VALUES(?)", [&event.id])
             .map_err(err)?;
-        }
         if event.event.kind == "item-acquired" {
             collect_item(db, &event.event)?;
         }
@@ -757,10 +751,8 @@ pub(crate) fn record_desktop_result(
         params![event.id, id, data, pending],
     )
     .map_err(err)?;
-    if active_data(&tx)?.contains_key("journal") {
-        tx.execute("INSERT INTO widget_journal VALUES(?1)", [&event.id])
-            .map_err(err)?;
-    }
+    tx.execute("INSERT INTO widget_journal VALUES(?1)", [&event.id])
+        .map_err(err)?;
     tx.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND (json_extract(data,'$.expiresAt')<=?1 OR seq NOT IN (SELECT seq FROM widget_events WHERE pending=1 ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END,seq DESC LIMIT 8))",[now]).map_err(err)?;
     tx.commit().map_err(err)?;
     Ok(true)
@@ -917,10 +909,18 @@ pub fn take_reaction(db: &Connection, now: i64) -> Result<Option<WidgetEvent>> {
     Ok(result.map(without_toy_statistics))
 }
 
-pub fn journal(db: &Connection, before: Option<i64>) -> Result<Vec<(i64, WidgetEvent)>> {
-    let mut statement = db.prepare("SELECT e.seq,e.data FROM widget_events e JOIN widget_journal j ON j.event_id=e.id WHERE e.seq<? ORDER BY e.seq DESC LIMIT 100").map_err(err)?;
+pub fn journal(
+    db: &Connection,
+    before: Option<i64>,
+    start_at: i64,
+    end_at: i64,
+) -> Result<Vec<(i64, WidgetEvent)>> {
+    if start_at >= end_at {
+        return Err("기록을 조회할 날짜 범위가 올바르지 않아요.".into());
+    }
+    let mut statement = db.prepare("SELECT e.seq,e.data FROM widget_events e JOIN widget_journal j ON j.event_id=e.id WHERE e.seq<?1 AND json_extract(e.data,'$.createdAt')>=?2 AND json_extract(e.data,'$.createdAt')<?3 ORDER BY e.seq DESC LIMIT 100").map_err(err)?;
     let rows = statement
-        .query_map([before.unwrap_or(i64::MAX)], |row| {
+        .query_map([before.unwrap_or(i64::MAX), start_at, end_at], |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
         })
         .map_err(err)?;

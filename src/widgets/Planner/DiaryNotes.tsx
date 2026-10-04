@@ -1,5 +1,6 @@
 import { Button, Dialog, FormField, TextArea, TextField } from "@fleetia/lagrange";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
+import { DiaryDesktopNotes, type DesktopNotesProps } from "./DiaryDesktopNotes";
 import type { DiaryAction, DiaryNote } from "./diaryTypes";
 import * as s from "./diaryEnvelope.css";
 
@@ -11,7 +12,12 @@ type NoteCollectionProps = {
   onDirtyChange?: (dirty: boolean) => void;
   onOpenEnvelope?: (id: string) => void;
   envelopeNames?: Record<string, string>;
+  search?: string;
 };
+
+function matchesNote(note: DiaryNote, query: string): boolean {
+  return `${note.title} ${note.body}`.toLocaleLowerCase().includes(query);
+}
 
 type NoteDraft = { title: string; body: string; baseTitle: string; baseBody: string };
 
@@ -41,14 +47,30 @@ function keepDraft(key: string, draft: NoteDraft | null): boolean {
   }
 }
 
-export function DiaryNotes(props: NoteCollectionProps): ReactElement {
+export function DiaryNotes(
+  props: NoteCollectionProps & { desktop?: DesktopNotesProps },
+): ReactElement {
+  const [search, setSearch] = useState("");
+  const query = search.trim().toLocaleLowerCase();
   const [showStored, setShowStored] = useState(false);
-  const stored = props.notes.filter((note) => !note.pinned);
+  const stored = props.notes.filter((note) => !note.pinned && matchesNote(note, query));
   return (
     <section className={s.notes} aria-label="계속 쓸 메모">
       <h2 className={s.subheading}>계속 쓸 메모</h2>
       <p className={s.caption}>모든 날짜에서 함께 보는 메모 · 날짜가 바뀌어도 곁에 두어요</p>
-      <DiaryNoteCollection {...props} notes={props.notes.filter((note) => note.pinned)} />
+      <TextField
+        aria-label="메모 검색"
+        placeholder="제목이나 내용 검색"
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+      />
+      <DiaryNoteCollection
+        {...props}
+        search={query}
+        notes={props.notes.filter((note) => note.pinned)}
+      />
+      {props.desktop && <DiaryDesktopNotes {...props.desktop} search={query} />}
+
       {stored.length > 0 && (
         <div className={s.notes}>
           <Button
@@ -89,6 +111,7 @@ export function DiaryNoteCollection({
   onDirtyChange,
   onOpenEnvelope,
   envelopeNames,
+  search = "",
 }: NoteCollectionProps): ReactElement {
   const draftKey = `comet.diary.note-compose:${envelopeId || "pinned"}`;
   const [restored] = useState(() => readDraft(draftKey));
@@ -131,20 +154,21 @@ export function DiaryNoteCollection({
         </p>
       )}
       {notes.map((note) => (
-        <DiaryNoteEditor
-          key={note.id}
-          note={note}
-          diaryAction={diaryAction}
-          busy={busy}
-          onDirtyChange={reportNote}
-          onOpenEnvelope={
-            note.envelopeId && envelopeNames && !envelopeNames[note.envelopeId]
-              ? undefined
-              : onOpenEnvelope
-          }
-          envelopeName={note.envelopeId ? envelopeNames?.[note.envelopeId] : undefined}
-          inEnvelope={Boolean(envelopeId)}
-        />
+        <div key={note.id} hidden={!matchesNote(note, search)}>
+          <DiaryNoteEditor
+            note={note}
+            diaryAction={diaryAction}
+            busy={busy}
+            onDirtyChange={reportNote}
+            onOpenEnvelope={
+              note.envelopeId && envelopeNames && !envelopeNames[note.envelopeId]
+                ? undefined
+                : onOpenEnvelope
+            }
+            envelopeName={note.envelopeId ? envelopeNames?.[note.envelopeId] : undefined}
+            inEnvelope={Boolean(envelopeId)}
+          />
+        </div>
       ))}
       {creating ? (
         <form

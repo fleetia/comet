@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactElement } from "react";
-import { Button, Checkbox } from "@fleetia/lagrange";
+import { Button } from "@fleetia/lagrange";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { WidgetFrame } from "../WidgetFrame/WidgetFrame";
 import { useGeneratedWidgets } from "./useGeneratedWidgets";
@@ -94,22 +94,6 @@ export function WidgetWorkshop(): ReactElement {
           </p>
         )}
         {notice && <p role="status">{notice}</p>}
-        <Checkbox
-          checked={workshop.automatic}
-          disabled={busy || !isDesktop()}
-          onChange={() =>
-            void run(() =>
-              command("set_widget_creation_automatic", { enabled: !workshop.automatic }),
-            )
-          }
-        >
-          대화에서 필요한 도구가 보이면 자동으로 만들기
-        </Checkbox>
-        <p className={s.status}>
-          로컬 모델 또는 연결한 OpenAI 호환 API를 사용해요. 현재 AI의 자동 대화 생성 설정이 켜져
-          있을 때 자동 제작하며 최대 5분에 한 번이에요. API 이용량이 발생할 수 있어요. 기본
-          JavaScript 실행환경은 앱에 포함되어 있어요.
-        </p>
         <p className={s.status}>
           만든 위젯은 위젯 목록에서 실행·수정하고 설치 정보를 확인할 수 있어요.
         </p>

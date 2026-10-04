@@ -1,7 +1,6 @@
 import catalog from "../../../widgets/catalog.json";
 import type { CharacterCollection, Snapshot } from "../../types";
 import type { WidgetSnapshot, WidgetView } from "../../widgets/types";
-import { offeredForInstall } from "../../widgets/toolData";
 import { SETTINGS_SECTIONS, type SettingsSection } from "../SettingsPanel/useSettingsNavigation";
 
 export const DEFAULT_SHORTCUT = "CommandOrControl+Shift+Space";
@@ -109,13 +108,10 @@ const WIDGET_ALIASES: Record<string, string[]> = {
   ball: ["공 던지기", "공 꺼내기"],
   "paper-plane": ["비행기", "비행기 날리기", "종이비행기 날리기"],
   bubbles: ["방울", "방울 만들기"],
-  pet: ["펫", "펫 꺼내기"],
   clock: ["시계", "기념일", "디데이"],
-  device: ["배터리"],
   "focus-timer": ["타이머", "집중"],
   "small-match": ["주사위", "가위바위보", "동전"],
   music: ["음악"],
-  collection: ["수집함", "소품"],
 };
 const SECTION_ALIASES: Partial<Record<SettingsSection, string[]>> = {
   model: ["모델", "API", "AI", "인공지능"],
@@ -135,15 +131,25 @@ function widgetResult(
   return {
     id: `widget:${entry.id}`,
     title: available
-      ? `${entry.name} ${toy ? "꺼내기" : "열기"}`
+      ? entry.id === "memo"
+        ? "새 메모 꺼내기"
+        : `${entry.name} ${toy ? "꺼내기" : "열기"}`
       : needsSetup
         ? `${entry.name} 설정 열기`
         : `${entry.name} ${instance?.installed ? "켜기" : "설치"} 설정 열기`,
-    detail: available ? (toy ? "바탕화면 장난감" : "위젯") : "설정 › 위젯",
+    detail: available
+      ? entry.id === "memo"
+        ? "바탕화면 낱장 메모"
+        : toy
+          ? "바탕화면 장난감"
+          : "위젯"
+      : "설정 › 위젯",
     preview: available
-      ? toy
-        ? `${entry.name}을 바탕화면에 꺼내요. 우클릭으로 정리할 수 있어요.`
-        : entry.description
+      ? entry.id === "memo"
+        ? "새 낱장을 꺼내요. 저장한 메모 목록과 검색은 다이어리에서 볼 수 있어요."
+        : toy
+          ? `${entry.name}을 바탕화면에 꺼내요. 우클릭으로 정리할 수 있어요.`
+          : entry.description
       : needsSetup
         ? `${entry.name} 사용 준비가 필요해요. 위젯 설정에서 연결과 설정을 확인해요.`
         : `${entry.name}을 사용할 수 있도록 위젯 설정으로 이동해요. 자동으로 설치하거나 켜지 않아요.`,
@@ -270,7 +276,6 @@ export function launcherResults(
       continue;
     }
     const instance = widgets.widgets.find((candidate) => candidate.kind === entry.id);
-    if (!offeredForInstall(entry.id, instance)) continue;
     candidates.push({ rank, result: widgetResult(entry, instance) });
   }
   const results = candidates

@@ -1,39 +1,6 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { semanticVars as vars } from "@fleetia/lagrange/theme";
 
-export const list = style({ listStyle: "none", padding: 0, margin: 0 });
-export const listItem = style({
-  display: "flex",
-  alignItems: "center",
-  gap: vars.space.xs,
-  minWidth: 0,
-  minHeight: 40,
-  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
-});
-export const preview = style({
-  flex: 1,
-  minWidth: 0,
-  border: 0,
-  background: "transparent",
-  padding: `${vars.space.sm} 0`,
-  textAlign: "left",
-  font: "inherit",
-  color: vars.color.content.primary,
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-  cursor: "pointer",
-  ":disabled": { cursor: "not-allowed", opacity: 0.55 },
-  ":focus-visible": { outline: `2px solid ${vars.color.interaction.focus}`, outlineOffset: 2 },
-});
-globalStyle(`${list} button${preview}`, { whiteSpace: "nowrap" });
-globalStyle(`${listItem} > button:not(.${preview})`, { flexShrink: 0 });
-export const dialogActions = style({
-  display: "flex",
-  flexWrap: "wrap",
-  gap: vars.space.sm,
-  marginTop: vars.space.md,
-});
 export const editor = style({
   display: "block",
   flex: 1,

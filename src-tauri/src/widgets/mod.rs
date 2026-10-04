@@ -102,6 +102,8 @@ pub const RETIRED_KINDS: &[&str] = &[
     "fishing",
     "plant",
     "pet",
+    "collection",
+    "journal",
 ];
 
 pub fn is_retired(kind: &str) -> bool {

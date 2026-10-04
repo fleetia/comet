@@ -154,3 +154,12 @@ export const memoPreview = style([
   caption,
   { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
 ]);
+
+export const desktopMemoPreview = style({
+  flex: 1,
+  minWidth: 0,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+  justifyContent: "flex-start",
+});
