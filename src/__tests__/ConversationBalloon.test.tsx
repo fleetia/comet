@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Balloon } from "../components/Balloon/Balloon";
 import { PREVIEW_SNAPSHOT, command, isDesktop } from "../hooks/useSnapshot";
+import * as s from "../components/companion.css";
 import type { ConversationSession, Message, Playback, Snapshot } from "../types";
 
 vi.mock("../hooks/useSnapshot", async (load) => ({
@@ -293,7 +294,10 @@ it.each(["one failing test. one small fix.", "same hero new line. surprise me wi
             ...snapshot,
             conversation: {
               ...snapshot.conversation!,
-              messages: [{ ...seed, content: previousReply }],
+              messages: [
+                { ...seed, id: "earlier-input", role: "user", content: "앞선 질문" },
+                { ...seed, content: previousReply },
+              ],
             },
           }}
         />,
@@ -307,6 +311,8 @@ it.each(["one failing test. one small fix.", "same hero new line. surprise me wi
       const reply = screen.getByText(previousReply);
       expect(alert.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(screen.getByText(/^이전 답변 · /)).toBeTruthy();
+      expect(screen.getByText("이번 입력 · 답변을 받지 못했어요")).toBeTruthy();
+      expect(screen.queryByText("이번 입력 · 답변을 마치지 못했어요")).toBeNull();
       expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest" });
       expect(input.value).toBe(draftText);
       expect(document.activeElement).toBe(input);
@@ -350,10 +356,127 @@ it("shows runtime failure and retry before the previous response, and clears the
     expect(feedback.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   }
   expect(screen.getByText(/^이전 답변 · /)).toBeTruthy();
+  expect(screen.getByText("이번 입력 · 답변을 받지 못했어요")).toBeTruthy();
   rerender(<Balloon snapshot={{ ...snapshot, playback }} />);
   expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.queryByText(/^이전 답변 · /)).toBeNull();
   expect(screen.getByLabelText(playback.text, { normalizer: (value) => value })).toBeTruthy();
+});
+
+it.each([null, "답변 생성 실패"])(
+  "focuses the editor without scrolling a reopened failure out of view: %s",
+  (error) => {
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    try {
+      const snapshot = conversationSnapshot();
+      render(
+        <Balloon
+          snapshot={{
+            ...snapshot,
+            runtime: { ...snapshot.runtime, phase: error ? "error" : "idle", error },
+            conversation: {
+              ...snapshot.conversation!,
+              messages: [seed, { ...seed, id: "input", role: "user", content: "다음 이야기" }],
+            },
+          }}
+        />,
+      );
+      expect(focus).toHaveBeenCalledWith({ preventScroll: Boolean(error) });
+      expect(document.activeElement).toBe(screen.getByRole("textbox"));
+      if (error) expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest" });
+    } finally {
+      focus.mockRestore();
+      delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  },
+);
+
+it("keeps the expanded log, retained reply and editor in a scrolling input body below the header", async () => {
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "send_message") throw new Error("설정에서 로컬 모델을 먼저 다운로드해 주세요.");
+  });
+  render(<Balloon snapshot={conversationSnapshot()} />);
+  const viewport = screen.getByRole("region", { name: "대화 내용과 입력" });
+  expect(viewport.classList.contains(s.inputContents)).toBe(true);
+  const balloon = viewport.parentElement!;
+  const header = balloon.querySelector("header")!;
+  expect(header.parentElement).toBe(balloon);
+  expect(viewport.contains(header)).toBe(false);
+  const details = screen.getByText("이번 대화").closest("details")!;
+  details.open = true;
+  fireEvent(details, new Event("toggle"));
+  await waitFor(() => expect(screen.getAllByText(seed.content)).toHaveLength(2));
+  const input = screen.getByRole("textbox");
+  const draftText = "  qa model-free failure\n";
+  fireEvent.change(input, { target: { value: draftText } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  const alert = await screen.findByRole("alert");
+  const reply = screen.getByText(/^이전 답변 · /).parentElement!;
+  // These regions must be block-flow children of the same scroll viewport, not
+  // flex siblings competing with the expanded log and the non-shrinking editor.
+  expect(alert.parentElement!.parentElement).toBe(viewport);
+  expect(reply.parentElement).toBe(viewport);
+  expect(reply.textContent).toContain(seed.content);
+  expect(details.parentElement).toBe(viewport);
+  expect(input.closest("form")!.parentElement).toBe(viewport);
+  expect(details.open).toBe(true);
+  expect(input).toHaveProperty("value", draftText);
+  expect(document.activeElement).toBe(input);
+  details.open = false;
+  fireEvent(details, new Event("toggle"));
+  await waitFor(() => expect(screen.getAllByText(seed.content)).toHaveLength(1));
+  expect(reply.textContent).toContain(seed.content);
+  expect(input).toHaveProperty("value", draftText);
+});
+
+it("reveals identical runtime errors again for sends and retries, without resetting manual scrolling on snapshot churn", async () => {
+  const failure = "설정에서 로컬 모델을 먼저 다운로드해 주세요.";
+  const scrollIntoView = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: scrollIntoView,
+  });
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "send_message" || name === "retry_turn") throw new Error(failure);
+  });
+  try {
+    const base = conversationSnapshot();
+    const snapshot: Snapshot = {
+      ...base,
+      runtime: { ...base.runtime, phase: "error", error: failure },
+      conversation: {
+        ...base.conversation!,
+        messages: [seed, { ...seed, id: "failed-input", role: "user", content: "이번 요청" }],
+      },
+    };
+    const { rerender } = render(<Balloon snapshot={snapshot} />);
+    const input = screen.getByRole("textbox");
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      scrollIntoView.mockClear();
+      fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" }));
+      expect(input).toHaveProperty("value", "이번 요청");
+    }
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      scrollIntoView.mockClear();
+      fireEvent.click(screen.getByRole("button", { name: "다시 이야기하기" }));
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" }));
+      expect(command).toHaveBeenCalledWith("retry_turn", {
+        messageId: "failed-input",
+        target: "builtin-a",
+      });
+    }
+    scrollIntoView.mockClear();
+    rerender(<Balloon snapshot={{ ...snapshot, modelReady: true }} />);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  } finally {
+    delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  }
 });
 
 it("does not carry a failed submission's local feedback into another conversation", async () => {
@@ -456,9 +579,7 @@ it("restores an accepted input after async failure without replacing newer text"
   };
   rerender(<Balloon snapshot={failed} />);
   expect(input).toHaveProperty("value", "  이번 요청\n");
-  expect(screen.getByLabelText("답변을 완료하지 못한 이번 입력").textContent).toContain(
-    "이번 요청",
-  );
+  expect(screen.getByLabelText("답변에 실패한 이번 입력").textContent).toContain("이번 요청");
   expect(screen.getByText(/^이전 답변 · /)).toBeTruthy();
   fireEvent.change(input, { target: { value: "다시 쓰고 있는 말" } });
   rerender(<Balloon snapshot={generating} />);
@@ -488,6 +609,30 @@ it("does not describe a partial current-turn reply as a previous answer", () => 
   expect(screen.getByText("이번 요청의 첫 답변")).toBeTruthy();
   expect(screen.getByText("AI 생성")).toBeTruthy();
   expect(screen.queryByText(/^이전 답변 · /)).toBeNull();
+  expect(screen.getByText("이번 입력 · 답변을 마치지 못했어요")).toBeTruthy();
+  expect(screen.queryByText("이번 입력 · 답변을 받지 못했어요")).toBeNull();
+});
+
+it("does not call an empty current-turn response a partial answer", () => {
+  const snapshot = conversationSnapshot();
+  render(
+    <Balloon
+      snapshot={{
+        ...snapshot,
+        runtime: { ...snapshot.runtime, phase: "error", error: "답변 생성 실패" },
+        conversation: {
+          ...snapshot.conversation!,
+          messages: [
+            seed,
+            { ...seed, id: "input", role: "user", content: "다음 이야기" },
+            { ...seed, id: "empty", content: "" },
+          ],
+        },
+      }}
+    />,
+  );
+  expect(screen.getByText("이번 입력 · 답변을 받지 못했어요")).toBeTruthy();
+  expect(screen.queryByText("이번 입력 · 답변을 마치지 못했어요")).toBeNull();
 });
 
 it("preserves origin metadata when loading older conversation pages", async () => {

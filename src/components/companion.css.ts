@@ -114,6 +114,14 @@ export const balloon = style({
   overflow: "hidden",
 });
 export const balloonPanel = style({ width: 320, minHeight: 110 });
+// Keep input sections in normal block flow inside one bounded viewport. As flex
+// siblings, an expanded log and failure notice squeezed the reply down to its labels.
+export const inputContents = style({
+  display: "block",
+  flex: "1 1 auto",
+  minHeight: 0,
+  overflowY: "auto",
+});
 export const balloonSkinned = style({
   imageRendering: "pixelated",
   background: "transparent",

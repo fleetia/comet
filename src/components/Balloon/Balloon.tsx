@@ -96,7 +96,11 @@ export function Balloon({
   const [navigating, setNavigating] = useState(false);
   const navigatingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
-  const [failedSubmission, setFailedSubmission] = useState<string | null>(null);
+  const [failureRevision, setFailureRevision] = useState(0);
+  const [failedSubmission, setFailedSubmission] = useState<{
+    id: string;
+    content: string;
+  } | null>(null);
   const [logOpen, setLogOpen] = useState(false);
   const [sessions, setSessions] = useState<ConversationSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
@@ -126,7 +130,7 @@ export function Balloon({
       ? lastSubmission.current.content
       : latestUser?.content;
   const failedContent = visibleError
-    ? (failedSubmission ?? (canRetry ? latestInputContent : null))
+    ? (failedSubmission?.content ?? (canRetry ? latestInputContent : null))
     : null;
   useLayoutEffect(() => {
     // A failed send can arrive while the native window still has its previous size,
@@ -134,7 +138,7 @@ export function Balloon({
     if (mode === "input" && visibleError) {
       errorRef.current?.scrollIntoView?.({ block: "nearest" });
     }
-  }, [mode, visibleError]);
+  }, [mode, visibleError, failureRevision, latestUser?.id]);
   useEffect(() => {
     if (sessionId) return;
     setTarget(persona);
@@ -185,7 +189,7 @@ export function Balloon({
   }, [sessionId]);
   useEffect(() => {
     if (mode === "input") {
-      inputRef.current?.focus();
+      inputRef.current?.focus({ preventScroll: Boolean(visibleError) });
     }
   }, [mode]);
   useEffect(() => {
@@ -294,6 +298,7 @@ export function Balloon({
       await dispatch(name, args);
     } catch (cause) {
       setError(errorText(cause));
+      setFailureRevision((revision) => revision + 1);
     }
   }
   async function openModelSettings(): Promise<void> {
@@ -393,8 +398,9 @@ export function Balloon({
       }
     } catch (cause) {
       if (draft.current === submittedDraft) {
-        setFailedSubmission(submittedValue);
+        setFailedSubmission({ id: clientMessageId, content: submittedValue });
         setError(errorText(cause));
+        setFailureRevision((revision) => revision + 1);
       }
     } finally {
       submitting.current = false;
@@ -404,12 +410,20 @@ export function Balloon({
   const latestReply = conversation?.messages
     .filter((message) => message.role === "assistant")
     .at(-1);
+  const failedInputIndex =
+    conversation?.messages.findIndex(
+      (message) => message.id === (failedSubmission?.id ?? latestUser?.id),
+    ) ?? -1;
+  const hasCurrentReply = Boolean(
+    failedInputIndex >= 0 &&
+    conversation!.messages
+      .slice(failedInputIndex + 1)
+      .some((message) => message.role === "assistant" && message.content.trim().length > 0),
+  );
   const previousReply = Boolean(
     failedContent &&
-    (failedSubmission ||
-      (latestUser &&
-        latestReply &&
-        conversation!.messages.indexOf(latestReply) < conversation!.messages.indexOf(latestUser))),
+    latestReply &&
+    (failedInputIndex < 0 || conversation!.messages.indexOf(latestReply) < failedInputIndex),
   );
   const paused = sessions.find((session) => session.status === "paused");
   const recipientName = characterName(
@@ -434,8 +448,10 @@ export function Balloon({
   const notice = (visibleError || canRetry || responding) && (
     <div className={s.notice}>
       {failedContent && (
-        <div aria-label="답변을 완료하지 못한 이번 입력">
-          <span className={s.historyName}>이번 입력 · 답변을 마치지 못했어요</span>
+        <div aria-label="답변에 실패한 이번 입력">
+          <span className={s.historyName}>
+            이번 입력 · {hasCurrentReply ? "답변을 마치지 못했어요" : "답변을 받지 못했어요"}
+          </span>
           <p className={s.failedInput}>{failedContent}</p>
         </div>
       )}
@@ -523,7 +539,6 @@ export function Balloon({
           ×
         </IconButton>
       )}
-      {mode === "input" && notice}
       {mode === "menu" && (
         <>
           <nav className={s.menu} aria-label="캐릭터 메뉴">
@@ -631,7 +646,8 @@ export function Balloon({
         </>
       )}
       {mode === "input" && (
-        <>
+        <div className={s.inputContents} role="region" aria-label="대화 내용과 입력" tabIndex={0}>
+          {notice}
           {conversation && (snapshot.playback || latestReply) && (
             <div
               className={s.conversationSpeech}
@@ -784,7 +800,7 @@ export function Balloon({
               </Button>
             )}
           </form>
-        </>
+        </div>
       )}
       {mode === "history" && (
         <>
