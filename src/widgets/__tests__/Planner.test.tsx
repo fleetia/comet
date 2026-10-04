@@ -290,7 +290,7 @@ it("records frequency on the displayed past date and disables future completion"
   );
   fireEvent.click(screen.getByRole("button", { name: "이전 날짜" }));
   fireEvent.click(
-    within(screen.getByRole("region", { name: "오늘 할 일" })).getByRole("checkbox", {
+    within(screen.getByRole("region", { name: "선택 날짜 할 일" })).getByRole("checkbox", {
       name: /어제 산책/,
     }),
   );
@@ -299,7 +299,7 @@ it("records frequency on the displayed past date and disables future completion"
   fireEvent.click(screen.getByRole("button", { name: "다음 날짜" }));
   fireEvent.click(screen.getByRole("button", { name: "다음 날짜" }));
   expect(
-    within(screen.getByRole("region", { name: "오늘 할 일" })).getByRole("checkbox", {
+    within(screen.getByRole("region", { name: "선택 날짜 할 일" })).getByRole("checkbox", {
       name: /내일 산책/,
     }),
   ).toHaveProperty("disabled", true);
@@ -1048,4 +1048,87 @@ it("dismisses embedded dialogs without resetting other planning and template dra
     "value",
     "보존할 계획 초안",
   );
+});
+
+it("separates keyboard detail selection from completion and offers completion undo", async () => {
+  const work = item("read", "검토할 문서", {
+    memo: "첫 메모\n자세한 두 번째 줄",
+    dueAt: new Date("2026-10-09T14:30:00").getTime(),
+    dueDate: null,
+  });
+  const original = structuredClone(work);
+  await renderPlanner(snapshot([work]));
+  const user = userEvent.setup();
+  const checkbox = screen.getByRole("checkbox", { name: "검토할 문서" });
+  checkbox.focus();
+  expect(screen.getByRole("button", { name: "25분 집중" })).toHaveProperty("disabled", true);
+  const title = screen.getByRole("button", { name: "검토할 문서 상세 보기" });
+  title.focus();
+  await user.keyboard("{Enter}");
+  expect(screen.getByRole("region", { name: "검토할 문서 상세" }).textContent).toContain(
+    "자세한 두 번째 줄",
+  );
+  expect(screen.getByRole("region", { name: "검토할 문서 상세" }).textContent).toContain(
+    "2026-10-09 14:30",
+  );
+  expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
+  expect(screen.queryByRole("dialog")).toBeNull();
+  checkbox.focus();
+  await user.keyboard(" ");
+  await waitFor(() => expectAction("complete", { id: "read" }));
+  await user.click(screen.getByRole("button", { name: "완료 취소" }));
+  await waitFor(() => expectAction("undo", { id: "read" }));
+  expect(work).toEqual(original);
+  expect(
+    screen.getByRole("button", { name: "검토할 문서 상세 보기" }).getAttribute("aria-expanded"),
+  ).toBe("true");
+});
+
+it("requires the explicit focus button and never completes the selected task when starting a timer", async () => {
+  await renderPlanner(snapshot([item("focus", "집중할 자료")], [widget("focus-timer", {})]));
+  fireEvent.click(screen.getByRole("button", { name: "집중할 자료 상세 보기" }));
+  expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
+  fireEvent.click(screen.getByRole("button", { name: "25분 집중" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("execute_widget", {
+      request: expect.objectContaining({
+        instanceId: "focus-timer-id",
+        action: "start",
+        input: { durationMs: 1500000, todoId: "focus" },
+      }),
+    }),
+  );
+  expect(
+    vi
+      .mocked(command)
+      .mock.calls.filter(
+        ([name, args]) =>
+          name === "execute_widget" &&
+          (args?.request as DataRecord | undefined)?.action === "complete",
+      ),
+  ).toEqual([]);
+});
+
+it("shares the diary date and offers an all-task escape from an empty date scope", async () => {
+  useSnapshot(
+    snapshot([
+      item("later", "다른 날짜 작업", { plannedDate: "2026-09-23", dueDate: "2026-09-30" }),
+    ]),
+  );
+  const onDay = vi.fn();
+  render(<Planner embeddedTab="today" selectedDay="2026-09-22" onSelectedDayChange={onDay} />);
+  expect(screen.getByText("2026-09-22에 계획한 할 일이 없어요.")).toBeTruthy();
+  expect(screen.queryByRole("checkbox", { name: "다른 날짜 작업" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "모든 할 일 보기" }));
+  expect(screen.getByRole("checkbox", { name: "다른 날짜 작업" })).toBeTruthy();
+  expect(screen.getByText(/계획 · 2026-09-23.*마감 2026-09-30/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "다른 날짜 작업 상세 보기" }));
+  expect(screen.getByRole("button", { name: "선택 날짜에서 빼기" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  expect(screen.getByRole("button", { name: "25분 집중" })).toHaveProperty("disabled", false);
+  fireEvent.click(screen.getByRole("button", { name: "다음 날짜" }));
+  expect(onDay).toHaveBeenCalledWith("2026-09-23");
+  expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
 });

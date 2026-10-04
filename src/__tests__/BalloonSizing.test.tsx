@@ -15,6 +15,26 @@ afterEach(() => {
   vi.unstubAllGlobals();
   window.history.replaceState(null, "", "/");
 });
+it("bounds a block-flow input viewport without growing the native balloon", async () => {
+  // jsdom cannot verify visual clipping. Assert the source layout contract here;
+  // expanded-history and failed-send geometry still requires native acceptance.
+  const { readFileSync } = await vi.importActual<{
+    readFileSync(path: string, encoding: "utf8"): string;
+  }>("node:fs");
+  const companionStyles = readFileSync("src/components/companion.css.ts", "utf8");
+  const viewport = companionStyles.match(
+    /export const inputContents = style\(\{([\s\S]*?)\}\);/,
+  )?.[1];
+  expect(viewport).toBeDefined();
+  expect(viewport).toContain('display: "block"');
+  expect(viewport).toContain('flex: "1 1 auto"');
+  expect(viewport).toContain("minHeight: 0");
+  expect(viewport).toContain('overflowY: "auto"');
+  const balloon = companionStyles.match(/export const balloon = style\(\{([\s\S]*?)\}\);/)?.[1];
+  expect(balloon).toContain("maxWidth: 320");
+  expect(balloon).toContain("maxHeight: 520");
+  expect(balloon).toContain('overflow: "hidden"');
+});
 it("sends final width and height with the current content key, deduplicates and disconnects", async () => {
   window.history.replaceState(null, "", "/?view=balloon");
   let height = 218;

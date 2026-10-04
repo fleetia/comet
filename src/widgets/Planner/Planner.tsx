@@ -31,11 +31,13 @@ import { PlannerAlertNotice } from "../PlannerAlerts/PlannerAlerts";
 import { PlannerCalendar } from "./PlannerCalendar";
 import { PlannerPreparation } from "./PlannerPreparation";
 import { PlannerTemplates } from "./PlannerTemplates";
-import { TodoEditor } from "./TodoEditor";
+import { TaskReadOnlyDetails, TodoEditor } from "./TodoEditor";
 import {
   clockLabel,
   dayDate,
   dueDay,
+  dueLabel,
+  deviceTimeZone,
   eventsOn,
   eventTime,
   frequencyRecords,
@@ -96,6 +98,8 @@ export function Planner({
   dismissVersion,
   onNavigate,
   onStateChange,
+  selectedDay,
+  onSelectedDayChange,
 }: {
   onBack?: () => void;
   initialTab?: string;
@@ -103,6 +107,8 @@ export function Planner({
   dismissVersion?: number;
   onNavigate?: (tab: PlannerToolTab) => void;
   onStateChange?: (state: PlannerToolState) => void;
+  selectedDay?: string;
+  onSelectedDayChange?: (day: string) => void;
 } = {}): ReactElement {
   const { snapshot, error: loadError, reload } = useWidgets();
   const [failure, setFailure] = useState<string | null>(null);
@@ -131,7 +137,21 @@ export function Planner({
       );
     }
   };
-  const [day, setDay] = useState(localDay());
+  const [internalDay, setInternalDay] = useState(localDay());
+  const day = selectedDay ?? internalDay;
+  const [allTasks, setAllTasks] = useState(false);
+  useEffect(() => setAllTasks(false), [day]);
+  function setDay(value: string): void {
+    setAllTasks(false);
+    if (onSelectedDayChange) onSelectedDayChange(value);
+    else setInternalDay(value);
+  }
+  const [completionUndo, setCompletionUndo] = useState<{
+    id: string;
+    title: string;
+    date: string;
+    frequency: boolean;
+  } | null>(null);
   const [period, setPeriod] = useState("week");
   const [planDay, setPlanDay] = useState(localDay());
   const [title, setTitle] = useState("");
@@ -189,7 +209,16 @@ export function Planner({
         rows(item.frequencyRecords).some((entry) => entry.date === day)
       ),
   );
-  const currentTask = remaining.find((item) => item.id === selectedTask);
+  const displayedTasks = allTasks ? items : chosen;
+  const currentTask = displayedTasks.find(
+    (item) =>
+      item.id === selectedTask &&
+      typeof item.completedAt !== "number" &&
+      !(
+        ruleOf(item).mode === "frequency" &&
+        rows(item.frequencyRecords).some((entry) => entry.date === day)
+      ),
+  );
   const inboxCount = items.filter(
     (item) => !item.completedAt && inPeriod(item, "inbox", day),
   ).length;
@@ -296,37 +325,90 @@ export function Planner({
   }
   async function check(item: DataRecord): Promise<void> {
     const id = text(item.id);
-    if (ruleOf(item).mode === "frequency") {
-      const date = tab === "plans" ? planDay : day,
-        existing = rows(item.frequencyRecords).find((r) => r.date === date);
+    const date = tab === "plans" ? planDay : day;
+    const frequency = ruleOf(item).mode === "frequency";
+    const existing = rows(item.frequencyRecords).find((entry) => entry.date === date);
+    const completed = frequency ? !!existing : typeof item.completedAt === "number";
+    const ok = await act(
+      frequency
+        ? completed
+          ? "undo-frequency"
+          : "record-frequency"
+        : completed
+          ? "undo"
+          : "complete",
+      frequency ? (existing ? { id, recordId: text(existing.id) } : { id, date }) : { id },
+    );
+    if (ok) setCompletionUndo(completed ? null : { id, title: text(item.title), date, frequency });
+  }
+  async function undoCompletion(): Promise<void> {
+    if (!completionUndo) return;
+    const { id, date, frequency } = completionUndo;
+    const current = items.find((item) => item.id === id);
+    const entry = rows(current?.frequencyRecords).find((value) => value.date === date);
+    if (frequency && !entry) {
+      setFailure("최신 완료 기록을 불러온 뒤 다시 취소해 주세요.");
+      reload();
+      return;
+    }
+    if (
       await act(
-        existing ? "undo-frequency" : "record-frequency",
-        existing ? { id, recordId: text(existing.id) } : { id, date },
-      );
-    } else await act(typeof item.completedAt === "number" ? "undo" : "complete", { id });
+        frequency ? "undo-frequency" : "undo",
+        frequency ? { id, recordId: text(entry?.id) } : { id },
+      )
+    )
+      setCompletionUndo(null);
   }
   function taskCheck(item: DataRecord): ReactElement {
     const frequency = ruleOf(item).mode === "frequency";
     const recordingDay = tab === "plans" ? planDay : day;
+    const selected = selectedTask === item.id;
     return (
-      <Checkbox
-        className={s.taskCheck}
-        disabled={busy || (frequency && recordingDay > localDay())}
-        checked={
-          frequency
-            ? rows(item.frequencyRecords).some((r) => r.date === recordingDay)
-            : typeof item.completedAt === "number"
-        }
-        onChange={() => void check(item)}
-      >
-        {text(item.title)}
-        {frequency && (
-          <span className={s.caption}>
-            {" "}
-            · {frequencyRecords(item, recordingDay).length}/{number(ruleOf(item).timesPerWeek)}회
+      <div className={s.taskSummary}>
+        <div className={s.actions}>
+          <span onClick={(event) => event.stopPropagation()}>
+            <Checkbox
+              className={s.taskCheck}
+              aria-label={text(item.title)}
+              title="완료 상태 바꾸기"
+              children={null}
+              aria-labelledby={undefined}
+              disabled={busy || (frequency && recordingDay > localDay())}
+              checked={
+                frequency
+                  ? rows(item.frequencyRecords).some((entry) => entry.date === recordingDay)
+                  : typeof item.completedAt === "number"
+              }
+              onChange={() => void check(item)}
+            />
+          </span>
+          <button
+            type="button"
+            className={s.taskTitle}
+            aria-label={`${text(item.title)} 상세 보기`}
+            aria-expanded={selected}
+            onClick={() => setSelectedTask(text(item.id))}
+          >
+            {text(item.title)}
+            {frequency && (
+              <span className={s.caption}>
+                {" "}
+                · {frequencyRecords(item, recordingDay).length}/{number(ruleOf(item).timesPerWeek)}
+                회
+              </span>
+            )}
+          </button>
+        </div>
+        <p className={s.caption}>
+          계획 · {plannedDay(item) || "미지정"}　{dueLabel(item) || "기한 없음"}
+        </p>
+        {!!text(item.memo) && (
+          <span className={s.memoPreview}>
+            메모 · {text(item.memo).split(/\r?\n/)[0]} · 상세 보기
           </span>
         )}
-      </Checkbox>
+        {selected && <TaskReadOnlyDetails item={item} />}
+      </div>
     );
   }
   function quickInput(isToday: boolean): ReactElement {
@@ -438,6 +520,19 @@ export function Planner({
           {notice}
         </p>
       )}
+      {completionUndo && (
+        <div role="status" className={s.status}>
+          {completionUndo.title} · 완료했어요.
+          <Button
+            variant="quiet"
+            size="compact"
+            disabled={busy}
+            onClick={() => void undoCompletion()}
+          >
+            완료 취소
+          </Button>
+        </div>
+      )}
       {!snapshot ? (
         <div className={s.empty}>할 일을 불러오고 있어요.</div>
       ) : (
@@ -484,6 +579,7 @@ export function Planner({
               >
                 ›
               </Button>
+              <span className={s.caption}>기기 시간대 · {deviceTimeZone()}</span>
               <div className={s.spacer} />
               <span className={s.caption}>
                 할 일 {chosen.length}개 · 완료 {chosen.length - remaining.length}개
@@ -541,9 +637,22 @@ export function Planner({
                   )}
                 </aside>
               )}
-              <section className={s.column} aria-label="오늘 할 일">
+              <section
+                className={s.column}
+                aria-label={day === localDay() ? "오늘 할 일" : "선택 날짜 할 일"}
+              >
                 <div className={s.actions}>
-                  <h2 className={s.heading}>오늘 할 일</h2>
+                  <h2 className={s.heading}>
+                    {allTasks ? "모든 할 일" : day === localDay() ? "오늘 할 일" : `${day} 할 일`}
+                  </h2>
+                  <Button
+                    variant="quiet"
+                    size="compact"
+                    aria-pressed={allTasks}
+                    onClick={() => setAllTasks((value) => !value)}
+                  >
+                    {allTasks ? "선택 날짜만 보기" : "모든 할 일 보기"}
+                  </Button>
                   <div className={s.spacer} />
                   <Button
                     variant="quiet"
@@ -566,9 +675,11 @@ export function Planner({
                 ) : (
                   <>
                     {quickInput(true)}
-                    {!chosen.length && (
+                    {!displayedTasks.length && (
                       <div className={s.empty}>
-                        <p>오늘 할 일 하나부터 적어 볼까요?</p>
+                        <p>
+                          {allTasks ? "저장한 할 일이 없어요." : `${day}에 계획한 할 일이 없어요.`}
+                        </p>
                         <Button
                           variant="quiet"
                           size="compact"
@@ -579,20 +690,17 @@ export function Planner({
                       </div>
                     )}
                     <div className={s.list}>
-                      {chosen.map((item) => (
+                      {displayedTasks.map((item) => (
                         <article
                           key={text(item.id)}
                           className={s.task}
                           data-selected={selectedTask === item.id}
-                          onFocusCapture={() => setSelectedTask(text(item.id))}
                           onClick={() => setSelectedTask(text(item.id))}
                         >
                           {taskCheck(item)}
                           <span className={s.meta}>
                             {repeatLabel(item) ||
-                              (typeof item.dueAt === "number"
-                                ? clockLabel(item.dueAt)
-                                : text(lists.find((l) => l.id === item.listId)?.name))}
+                              text(lists.find((l) => l.id === item.listId)?.name)}
                           </span>
                           <Button
                             variant="quiet"
@@ -628,10 +736,10 @@ export function Planner({
                       <Button
                         variant="quiet"
                         size="compact"
-                        disabled={!currentTask || busy}
+                        disabled={!currentTask || plannedDay(currentTask) !== day || busy}
                         onClick={() => void act("plan", { ids: [selectedTask], date: null })}
                       >
-                        오늘에서 빼기
+                        {day === localDay() ? "오늘에서 빼기" : "선택 날짜에서 빼기"}
                       </Button>
                       <div className={s.spacer} />
                       <Button
@@ -739,7 +847,9 @@ export function Planner({
                             {text(lists.find((l) => l.id === item.listId)?.name)}
                           </td>
                           <td className={s.caption}>
-                            {repeatLabel(item) || dueDay(item) || "날짜 없음"}
+                            {[dueLabel(item) || "기한 없음", repeatLabel(item)]
+                              .filter(Boolean)
+                              .join(" · ")}
                           </td>
                           <td>
                             <Button
@@ -882,7 +992,7 @@ export function Planner({
       )}
       <footer className={s.footer}>
         {tab === "today"
-          ? "오늘에 고른 일만 모아 봅니다. 계획 기간과 기한은 그대로 유지됩니다."
+          ? `선택 날짜 ${day}에 계획한 일을 모아 봅니다. 모든 할 일 보기도 사용할 수 있어요. 계획 날짜와 기한은 별개입니다.`
           : tab === "plans"
             ? "계획 기간은 목표를 묶는 기준입니다. 오늘에 넣어도 기한이나 반복 규칙은 바뀌지 않습니다."
             : tab === "calendar"

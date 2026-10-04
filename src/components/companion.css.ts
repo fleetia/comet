@@ -114,6 +114,14 @@ export const balloon = style({
   overflow: "hidden",
 });
 export const balloonPanel = style({ width: 320, minHeight: 110 });
+// Keep input sections in normal block flow inside one bounded viewport. As flex
+// siblings, an expanded log and failure notice squeezed the reply down to its labels.
+export const inputContents = style({
+  display: "block",
+  flex: "1 1 auto",
+  minHeight: 0,
+  overflowY: "auto",
+});
 export const balloonSkinned = style({
   imageRendering: "pixelated",
   background: "transparent",
@@ -214,6 +222,23 @@ export const conversationMeta = style({
   margin: "3px 0",
   fontSize: vars.typography.size.caption,
   color: vars.color.content.secondary,
+});
+export const responseOrigin = style({
+  display: "block",
+  fontSize: vars.typography.size.caption,
+  fontWeight: 400,
+  lineHeight: vars.typography.lineHeight.body,
+  color: vars.color.content.secondary,
+  marginBottom: vars.space.xxs,
+});
+export const playbackOrigin = style([responseOrigin, { margin: "0 14px 8px" }]);
+export const failedInput = style({
+  margin: "4px 0",
+  maxHeight: 70,
+  overflowY: "auto",
+  whiteSpace: "pre-wrap",
+  overflowWrap: "anywhere",
+  fontSize: vars.typography.size.caption,
 });
 export const conversationItem = style({
   width: "100%",

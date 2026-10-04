@@ -47,7 +47,7 @@ export function DiaryNotes(props: NoteCollectionProps): ReactElement {
   return (
     <section className={s.notes} aria-label="계속 쓸 메모">
       <h2 className={s.subheading}>계속 쓸 메모</h2>
-      <p className={s.caption}>날짜가 바뀌어도 곁에 두는 메모</p>
+      <p className={s.caption}>모든 날짜에서 함께 보는 메모 · 날짜가 바뀌어도 곁에 두어요</p>
       <DiaryNoteCollection {...props} notes={props.notes.filter((note) => note.pinned)} />
       {stored.length > 0 && (
         <div className={s.notes}>
@@ -352,6 +352,15 @@ function DiaryNoteEditor({
             </Button>
           </div>
           <p className={s.noteBody}>{note.body || "아직 내용이 없어요."}</p>
+          <Button
+            variant="quiet"
+            size="compact"
+            disabled={busy}
+            onClick={edit}
+            aria-label={`${note.title} 메모 편집`}
+          >
+            메모 편집
+          </Button>
           {note.envelopeId && onOpenEnvelope && (
             <Button
               variant="quiet"

@@ -17,6 +17,7 @@ import { StoryChoices } from "../StoryChoices/StoryChoices";
 import { activeCharacter, BALLOON_SPRITE, characterName, spriteUrl } from "../characterIdentity";
 import { skinStyle, useImageSlice } from "../../hooks/useImageSlice";
 import { balloonTextStyle } from "../balloonTypography";
+import { aiAvailability, responseOrigin } from "./conversationStatus";
 
 type Props = {
   snapshot: Snapshot;
@@ -95,6 +96,11 @@ export function Balloon({
   const [navigating, setNavigating] = useState(false);
   const navigatingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const [failureRevision, setFailureRevision] = useState(0);
+  const [failedSubmission, setFailedSubmission] = useState<{
+    id: string;
+    content: string;
+  } | null>(null);
   const [logOpen, setLogOpen] = useState(false);
   const [sessions, setSessions] = useState<ConversationSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
@@ -102,6 +108,7 @@ export function Balloon({
   const lastActivity = useRef(Date.now());
   const composing = useRef(false);
   const submitting = useRef(false);
+  const lastSubmission = useRef<{ id: string; content: string } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
   const responding = ["loading", "generating"].includes(snapshot.runtime.phase);
@@ -117,13 +124,21 @@ export function Balloon({
     snapshot.runtime.phase === "error" &&
     latestUser;
   const visibleError = error || (mode === "input" || !mode ? snapshot.runtime.error : null);
+  const availability = aiAvailability(snapshot);
+  const latestInputContent =
+    latestUser && lastSubmission.current?.id === latestUser.id
+      ? lastSubmission.current.content
+      : latestUser?.content;
+  const failedContent = visibleError
+    ? (failedSubmission?.content ?? (canRetry ? latestInputContent : null))
+    : null;
   useLayoutEffect(() => {
     // A failed send can arrive while the native window still has its previous size,
     // or while an expanded conversation log has scrolled the document.
     if (mode === "input" && visibleError) {
       errorRef.current?.scrollIntoView?.({ block: "nearest" });
     }
-  }, [mode, visibleError]);
+  }, [mode, visibleError, failureRevision, latestUser?.id]);
   useEffect(() => {
     if (sessionId) return;
     setTarget(persona);
@@ -136,6 +151,8 @@ export function Balloon({
     };
     setInput(draft.current.value);
     setError(null);
+    setFailedSubmission(null);
+    lastSubmission.current = null;
   }, [snapshot.user?.id]);
   useEffect(() => {
     if (!conversation || draft.current.sessionId === sessionId) return;
@@ -146,8 +163,25 @@ export function Balloon({
     };
     setInput(conversation.session.draft);
     setError(null);
+    setFailedSubmission(null);
+    lastSubmission.current = null;
     setLogOpen(false);
   }, [sessionId]);
+  useEffect(() => {
+    // Async generation can fail after send_message accepted and cleared the editor.
+    // Restore only an empty draft, never text written while that request was running.
+    if (
+      mode !== "input" ||
+      !conversation ||
+      snapshot.runtime.phase !== "error" ||
+      !latestUser ||
+      draft.current.value.length > 0
+    )
+      return;
+    const content = latestInputContent ?? latestUser.content;
+    draft.current.value = content;
+    setInput(content);
+  }, [mode, sessionId, snapshot.runtime.phase, latestUser?.id]);
   useEffect(() => {
     if (!conversation) return;
     const participants = conversation.session.participants;
@@ -155,11 +189,12 @@ export function Balloon({
   }, [sessionId]);
   useEffect(() => {
     if (mode === "input") {
-      inputRef.current?.focus();
+      inputRef.current?.focus({ preventScroll: Boolean(visibleError) });
     }
   }, [mode]);
   useEffect(() => {
     setError(null);
+    setFailedSubmission(null);
   }, [mode, persona]);
   useEffect(() => {
     if (mode !== "menu" && mode !== "history") return;
@@ -263,6 +298,25 @@ export function Balloon({
       await dispatch(name, args);
     } catch (cause) {
       setError(errorText(cause));
+      setFailureRevision((revision) => revision + 1);
+    }
+  }
+  async function openModelSettings(): Promise<void> {
+    if (navigatingRef.current) return;
+    navigatingRef.current = true;
+    setNavigating(true);
+    const previousView = currentView.current;
+    try {
+      await flushDraft();
+      if (currentView.current.identity !== previousView.identity) return;
+      await dispatch("set_settings_section", { section: "model" });
+      if (currentView.current.identity !== previousView.identity) return;
+      await dispatch("open_settings");
+    } catch (cause) {
+      if (currentView.current.identity === previousView.identity) setError(errorText(cause));
+    } finally {
+      navigatingRef.current = false;
+      setNavigating(false);
     }
   }
   const closeCommand = snapshot.panel ? "close_panel" : "skip_talk";
@@ -317,14 +371,20 @@ export function Balloon({
     submitting.current = true;
     setPending(true);
     setError(null);
+    setFailedSubmission(null);
     const submittedDraft = draft.current;
     const submittedValue = input;
+    const submittedView = currentView.current.identity;
+    const clientMessageId = crypto.randomUUID();
     try {
       await flushDraft();
+      if (draft.current !== submittedDraft || currentView.current.identity !== submittedView)
+        return;
+      lastSubmission.current = { id: clientMessageId, content: submittedValue };
       await dispatch("send_message", {
         content: input.trim(),
         target,
-        clientMessageId: crypto.randomUUID(),
+        clientMessageId,
         ...(submittedDraft.sessionId ? { sessionId: submittedDraft.sessionId } : {}),
       });
       if (draft.current === submittedDraft) {
@@ -337,7 +397,11 @@ export function Balloon({
         }
       }
     } catch (cause) {
-      if (draft.current === submittedDraft) setError(errorText(cause));
+      if (draft.current === submittedDraft) {
+        setFailedSubmission({ id: clientMessageId, content: submittedValue });
+        setError(errorText(cause));
+        setFailureRevision((revision) => revision + 1);
+      }
     } finally {
       submitting.current = false;
       setPending(false);
@@ -346,6 +410,21 @@ export function Balloon({
   const latestReply = conversation?.messages
     .filter((message) => message.role === "assistant")
     .at(-1);
+  const failedInputIndex =
+    conversation?.messages.findIndex(
+      (message) => message.id === (failedSubmission?.id ?? latestUser?.id),
+    ) ?? -1;
+  const hasCurrentReply = Boolean(
+    failedInputIndex >= 0 &&
+    conversation!.messages
+      .slice(failedInputIndex + 1)
+      .some((message) => message.role === "assistant" && message.content.trim().length > 0),
+  );
+  const previousReply = Boolean(
+    failedContent &&
+    latestReply &&
+    (failedInputIndex < 0 || conversation!.messages.indexOf(latestReply) < failedInputIndex),
+  );
   const paused = sessions.find((session) => session.status === "paused");
   const recipientName = characterName(
     snapshot,
@@ -368,6 +447,14 @@ export function Balloon({
   );
   const notice = (visibleError || canRetry || responding) && (
     <div className={s.notice}>
+      {failedContent && (
+        <div aria-label="답변에 실패한 이번 입력">
+          <span className={s.historyName}>
+            이번 입력 · {hasCurrentReply ? "답변을 마치지 못했어요" : "답변을 받지 못했어요"}
+          </span>
+          <p className={s.failedInput}>{failedContent}</p>
+        </div>
+      )}
       {visibleError && (
         <p ref={errorRef} className={s.error} role="alert">
           {visibleError}
@@ -452,7 +539,6 @@ export function Balloon({
           ×
         </IconButton>
       )}
-      {mode === "input" && notice}
       {mode === "menu" && (
         <>
           <nav className={s.menu} aria-label="캐릭터 메뉴">
@@ -560,7 +646,8 @@ export function Balloon({
         </>
       )}
       {mode === "input" && (
-        <>
+        <div className={s.inputContents} role="region" aria-label="대화 내용과 입력" tabIndex={0}>
+          {notice}
           {conversation && (snapshot.playback || latestReply) && (
             <div
               className={s.conversationSpeech}
@@ -569,13 +656,19 @@ export function Balloon({
               aria-label={snapshot.playback ? fullText : undefined}
             >
               <span className={s.historyName}>
-                {!snapshot.playback && visibleError && "이전 답변 · "}
+                {!snapshot.playback && previousReply && "이전 답변 · "}
                 {!snapshot.playback && latestReply && conversation.characterNames?.[latestReply.id]
                   ? conversation.characterNames[latestReply.id]
                   : characterName(
                       snapshot,
                       snapshot.playback?.persona ?? latestReply?.persona ?? persona,
                     )}
+              </span>
+              <span className={s.responseOrigin}>
+                {responseOrigin(
+                  snapshot.playback?.source ??
+                    (latestReply ? conversation.messageSources?.[latestReply.id] : undefined),
+                )}
               </span>
               {snapshot.playback ? speech : latestReply?.content}
             </div>
@@ -604,6 +697,24 @@ export function Balloon({
               void send();
             }}
           >
+            <div aria-label="대화 가능 상태">
+              <div className={s.row}>
+                <p className={s.conversationMeta}>{availability.label}</p>
+                {!availability.ready && (
+                  <Button
+                    variant="quiet"
+                    size="compact"
+                    disabled={navigating}
+                    onClick={() => void openModelSettings()}
+                  >
+                    AI 연결 설정
+                  </Button>
+                )}
+              </div>
+              <p className={s.conversationMeta}>
+                등록된 키워드 답장·혼잣말은 모델 없이 사용할 수 있어요.
+              </p>
+            </div>
             {!snapshot.user && (
               <div className={s.row}>
                 <span className={ui.quiet}>함께 이야기하기 전에 이름을 알려 주세요.</span>
@@ -689,7 +800,7 @@ export function Balloon({
               </Button>
             )}
           </form>
-        </>
+        </div>
       )}
       {mode === "history" && (
         <>
@@ -742,6 +853,9 @@ export function Balloon({
             ""
           )}
         </div>
+      )}
+      {!mode && !snapshot.story && snapshot.playback && (
+        <span className={s.playbackOrigin}>{responseOrigin(snapshot.playback.source)}</span>
       )}
       {mode !== "input" && notice}
     </section>

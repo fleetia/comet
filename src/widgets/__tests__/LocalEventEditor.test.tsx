@@ -187,3 +187,76 @@ it("reloads only after explicit discard confirmation and keeps the draft if relo
   await waitFor(() => expect(onReload).toHaveBeenCalledTimes(2));
   expect(onClose).not.toHaveBeenCalled();
 });
+
+it("clears obsolete validation feedback as the interval is corrected", () => {
+  render(<LocalEventEditor day={DAY} busy={false} onSave={vi.fn()} onClose={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText("일정 제목"), { target: { value: "집중 시간" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "종일" }));
+  fireEvent.change(screen.getByLabelText("종료 시각"), { target: { value: "09:00" } });
+  fireEvent.click(screen.getByRole("button", { name: "추가" }));
+  expect(screen.getByRole("alert").textContent).toContain("종료는 시작보다 뒤로");
+  fireEvent.change(screen.getByLabelText("종료 시각"), { target: { value: "10:00" } });
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("moves an entire timed event across midnight only when length preservation is selected", async () => {
+  const onSave = vi.fn().mockResolvedValue(true);
+  render(<LocalEventEditor day={DAY} busy={false} onSave={onSave} onClose={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText("일정 제목"), { target: { value: "집중 시간" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "종일" }));
+  fireEvent.change(screen.getByLabelText("시작 시각"), { target: { value: "09:30" } });
+  expect(screen.getByLabelText("종료 시각")).toHaveProperty("value", "10:00");
+  fireEvent.click(screen.getByRole("checkbox", { name: /시작 변경 시 종료도 함께 이동/ }));
+  fireEvent.change(screen.getByLabelText("시작 시각"), { target: { value: "23:45" } });
+  expect(screen.getByLabelText("종료 시각")).toHaveProperty("value", "00:15");
+  expect(screen.getByLabelText("종료 날짜")).toHaveProperty("value", "2026-10-04");
+  expect(screen.getByText(/기기 시간대:/).textContent).toContain(
+    Intl.DateTimeFormat().resolvedOptions().timeZone,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "추가" }));
+  await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+  expect(onSave.mock.calls[0][0].endAt - onSave.mock.calls[0][0].startAt).toBe(30 * 60000);
+});
+
+it("moves all-day dates together without changing inclusive duration", () => {
+  render(
+    <LocalEventEditor event={EVENT} day={DAY} busy={false} onSave={vi.fn()} onClose={vi.fn()} />,
+  );
+  fireEvent.click(screen.getByRole("checkbox", { name: /시작 변경 시 종료도 함께 이동/ }));
+  fireEvent.change(screen.getByLabelText("시작 날짜"), { target: { value: "2026-10-05" } });
+  expect(screen.getByLabelText("종료 날짜")).toHaveProperty("value", "2026-10-06");
+});
+
+it("shows overlap as advisory, excludes the edited event, and permits saving", async () => {
+  const onSave = vi.fn().mockResolvedValue(true);
+  render(
+    <LocalEventEditor
+      event={EVENT}
+      events={[EVENT, { ...EVENT, id: "other", title: "다른 일정" }]}
+      day={DAY}
+      busy={false}
+      onSave={onSave}
+      onClose={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole("status").textContent).toContain("겹치는 일정 1개: 다른 일정");
+  expect(screen.getByRole("status").textContent).toContain("그대로 저장할 수 있어요");
+  fireEvent.click(screen.getByRole("button", { name: "저장" }));
+  await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+});
+
+it.skipIf(Intl.DateTimeFormat().resolvedOptions().timeZone !== "America/New_York")(
+  "keeps the draft unchanged when a duration-preserving move would create an ambiguous local end",
+  () => {
+    // Run this timezone-specific regression with TZ=America/New_York.
+    render(<LocalEventEditor day="2026-11-01" busy={false} onSave={vi.fn()} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "종일" }));
+    fireEvent.change(screen.getByLabelText("시작 시각"), { target: { value: "00:30" } });
+    fireEvent.change(screen.getByLabelText("종료 시각"), { target: { value: "01:30" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /시작 변경 시 종료도 함께 이동/ }));
+    fireEvent.change(screen.getByLabelText("시작 시각"), { target: { value: "01:00" } });
+    expect(screen.getByRole("alert").textContent).toContain("종료 시각이 두 번 나타나요");
+    expect(screen.getByLabelText("시작 시각")).toHaveProperty("value", "00:30");
+    expect(screen.getByLabelText("종료 시각")).toHaveProperty("value", "01:30");
+  },
+);

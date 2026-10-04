@@ -210,3 +210,23 @@ export const footer = style({
   color: v.color.content.secondary,
   fontSize: v.typography.size.caption,
 });
+
+export const taskTitle = style({
+  flex: 1,
+  minWidth: 0,
+  border: 0,
+  background: "transparent",
+  color: "inherit",
+  font: "inherit",
+  padding: `${v.space.xs} 0`,
+  textAlign: "left",
+  cursor: "pointer",
+  overflowWrap: "anywhere",
+  selectors: {
+    "&:focus-visible": { outline: `2px solid ${v.color.interaction.focus}`, outlineOffset: 2 },
+  },
+});
+export const memoPreview = style([
+  meta,
+  { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 },
+]);

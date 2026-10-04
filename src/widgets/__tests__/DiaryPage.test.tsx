@@ -218,7 +218,7 @@ it("adds local appointments and envelope references without changing the externa
   fireEvent.change(screen.getByRole("textbox", { name: "새 기록 내용" }), {
     target: { value: "동네 산책" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "추가" }));
+  fireEvent.click(screen.getByRole("button", { name: "일정 기록 추가" }));
   await waitFor(() =>
     expect(callbacks.onDiaryAction).toHaveBeenCalledWith("entry-add", {
       pageId: "page-1",
@@ -236,7 +236,7 @@ it("adds local appointments and envelope references without changing the externa
   fireEvent.change(screen.getByRole("combobox", { name: "연결할 준비 봉투" }), {
     target: { value: "envelope-1" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "추가" }));
+  fireEvent.click(screen.getByRole("button", { name: "봉투 연결" }));
   await waitFor(() =>
     expect(callbacks.onDiaryAction).toHaveBeenLastCalledWith("entry-add", {
       pageId: "page-1",
@@ -413,4 +413,60 @@ it("keeps the saved reference label when its widget or memo disappears", () => {
   ).toBe(true);
   expect(callbacks.onOpenWidgetEntry).not.toHaveBeenCalled();
   expect(callbacks.onDiaryAction).not.toHaveBeenCalled();
+});
+
+it("opens task details by mouse or keyboard without completing, editing, or focusing the task", async () => {
+  const item = {
+    ...task("one", "키보드로 열기"),
+    memo: "첫 줄 메모\n긴 상세 메모",
+    dueDate: "2026-12-20",
+  };
+  const callbacks = props({ items: [item], onFocusTask: vi.fn() });
+  render(<DiaryPage {...callbacks} />);
+  const user = userEvent.setup();
+  const title = screen.getByRole("button", { name: "키보드로 열기 상세 보기" });
+  await user.click(title);
+  expect(screen.getByRole("region", { name: "키보드로 열기 상세" }).textContent).toContain(
+    "긴 상세 메모",
+  );
+  expect(screen.getByText(/계획 · 2026-10-03.*마감 2026-12-20/)).toBeTruthy();
+  expect(callbacks.onToggleTask).not.toHaveBeenCalled();
+  expect(callbacks.onEditTask).not.toHaveBeenCalled();
+  expect(callbacks.onFocusTask).not.toHaveBeenCalled();
+  await user.keyboard(" ");
+  expect(screen.queryByRole("region", { name: "키보드로 열기 상세" })).toBeNull();
+  await user.keyboard("{Enter}");
+  await user.click(screen.getByRole("button", { name: "25분 집중 시작" }));
+  expect(callbacks.onFocusTask).toHaveBeenCalledWith(item);
+  const checkbox = screen.getByRole("checkbox", { name: "키보드로 열기" });
+  checkbox.focus();
+  await user.keyboard(" ");
+  expect(callbacks.onToggleTask).toHaveBeenCalledExactlyOnceWith(item);
+  expect(callbacks.onDiaryAction).not.toHaveBeenCalled();
+});
+
+it("makes composer mode and Enter behavior explicit while keeping memo newlines", async () => {
+  const callbacks = props();
+  render(<DiaryPage {...callbacks} />);
+  const user = userEvent.setup();
+  openComposer();
+  expect(screen.getByText(/메모 작성/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "메모 추가" })).toBeTruthy();
+  const input = screen.getByRole("textbox", { name: "새 기록 내용" });
+  await user.type(input, "한 줄{Enter}두 줄");
+  expect(input).toHaveProperty("value", "한 줄\n두 줄");
+  expect(callbacks.onDiaryAction).not.toHaveBeenCalled();
+  await user.keyboard("{Control>}{Enter}{/Control}");
+  await waitFor(() =>
+    expect(callbacks.onDiaryAction).toHaveBeenCalledWith("entry-add", {
+      pageId: "page-1",
+      kind: "note",
+      text: "한 줄\n두 줄",
+    }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "할 일" }));
+  expect(screen.getByText(/할 일 작성/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "할 일 추가" })).toBeTruthy();
+  await user.type(input, "챙길 일{Enter}");
+  await waitFor(() => expect(callbacks.onAddTask).toHaveBeenCalledExactlyOnceWith("챙길 일"));
 });

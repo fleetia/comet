@@ -10,7 +10,13 @@ import {
   TextField,
 } from "@fleetia/lagrange";
 import { command, errorText } from "../../hooks/useSnapshot";
-import type { InstalledCharacter, SceneLine, WordbookEntry } from "../../types";
+import type {
+  InstalledCharacter,
+  SceneLine,
+  WordbookEntry,
+  WordbookGroup,
+  WordbookMatchPreview,
+} from "../../types";
 import { MotionSelect, motionError, motionOwner } from "../MotionSelect/MotionSelect";
 import * as s from "../../lagrange.css";
 import * as w from "./WordbookPanel.css";
@@ -22,6 +28,34 @@ type Draft = {
   persisted: boolean;
   baseline: WordbookEntry;
 };
+const GROUPS: { value: WordbookGroup; label: string }[] = [
+  { value: "work", label: "업무" },
+  { value: "rest", label: "휴식" },
+  { value: "daily", label: "일상" },
+];
+function groupLabel(group?: WordbookGroup): string {
+  return GROUPS.find((option) => option.value === group)?.label ?? "미분류";
+}
+function PreviewLines({
+  lines,
+  owners,
+}: {
+  lines: SceneLine[];
+  owners: (InstalledCharacter | undefined)[];
+}): JSX.Element {
+  return (
+    <ol className={w.previewLines}>
+      {lines.map((line, index) => (
+        <li key={index}>
+          <strong>
+            {motionOwner(line.persona, owners)?.definition.name ?? line.persona.toUpperCase()}
+          </strong>
+          <span className={w.previewText}>{line.text || "대사를 입력해 주세요."}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
 const EXPRESSIONS = ["평온", "기쁨", "호기심", "생각중", "걱정", "장난"];
 function draftFor(entry: WordbookEntry, persisted = true): Draft {
   return { entry, keywords: entry.keywords.join(", "), dirty: false, persisted, baseline: entry };
@@ -48,6 +82,11 @@ function keywordsFrom(text: string): string[] {
         .filter(Boolean),
     ),
   ];
+}
+function draftKeywords(draft: Draft): string[] {
+  return draft.keywords === draft.entry.keywords.join(", ")
+    ? draft.entry.keywords
+    : keywordsFrom(draft.keywords);
 }
 type Props = {
   title?: string;
@@ -82,7 +121,23 @@ export function WordbookPanel({
   const [selected, setSelected] = useState(initial.entry.id);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({ [initial.entry.id]: initial });
   const [removed, setRemoved] = useState<string[]>([]);
+  // Confirmed local saves bridge only the gap until the next authoritative snapshot.
+  const [localSaves, setLocalSaves] = useState<{
+    snapshot: WordbookEntry[];
+    entries: WordbookEntry[];
+  } | null>(null);
+  const latestEntries = useRef(entries);
+  latestEntries.current = entries;
   const [pending, setPending] = useState(false);
+  const [groupFilter, setGroupFilter] = useState<"all" | "ungrouped" | WordbookGroup>("all");
+  const [testInput, setTestInput] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<{
+    context: string;
+    match: WordbookMatchPreview | null;
+  } | null>(null);
+  const testRequest = useRef(0);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -111,7 +166,40 @@ export function WordbookPanel({
       (draft) => !entries.some((entry) => entry.id === draft.entry.id),
     ),
   ].filter((draft) => !removed.includes(draft.entry.id));
-  const keywords = keywordsFrom(current.keywords);
+  const filteredList = list.filter((draft) =>
+    groupFilter === "all"
+      ? true
+      : groupFilter === "ungrouped"
+        ? !draft.entry.group
+        : draft.entry.group === groupFilter,
+  );
+  // Retained drafts may belong to externally deleted entries. Only the current snapshot
+  // and confirmed saves awaiting its next update are authoritative for matching.
+  const awaitingSnapshot = localSaves?.snapshot === entries ? localSaves.entries : [];
+  const savedEntries = [
+    ...entries.map((entry) => awaitingSnapshot.find((saved) => saved.id === entry.id) ?? entry),
+    ...awaitingSnapshot.filter((saved) => !entries.some((entry) => entry.id === saved.id)),
+  ].filter((entry) => !removed.includes(entry.id));
+  const testContext = JSON.stringify({ input: testInput, entries: savedEntries });
+  const latestTestContext = useRef(testContext);
+  latestTestContext.current = testContext;
+  useEffect(() => {
+    testRequest.current += 1;
+    setTesting(false);
+    setTestError(null);
+    setTestResult(null);
+    return () => {
+      testRequest.current += 1;
+    };
+  }, [testContext]);
+  const keywords = draftKeywords(current);
+  const duplicateEntries = list.filter(
+    (draft) =>
+      draft.entry.id !== current.entry.id &&
+      draftKeywords(draft).some((keyword) =>
+        keywords.some((currentKeyword) => currentKeyword.toLowerCase() === keyword.toLowerCase()),
+      ),
+  );
   const valid =
     Boolean(current.entry.title.trim()) &&
     keywords.length > 0 &&
@@ -141,6 +229,9 @@ export function WordbookPanel({
   }
   function create(): void {
     const draft = newDraft();
+    if (groupFilter !== "all" && groupFilter !== "ungrouped") {
+      draft.entry.group = groupFilter;
+    }
     setDrafts((previous) => ({ ...previous, [draft.entry.id]: draft }));
     select(draft.entry.id);
   }
@@ -183,10 +274,31 @@ export function WordbookPanel({
     setError(null);
     setNotice(null);
     setConfirmDelete(false);
-    const entry = { ...current.entry, title: current.entry.title.trim(), keywords };
+    const entry = {
+      ...current.entry,
+      title:
+        current.entry.title === current.baseline.title
+          ? current.entry.title
+          : current.entry.title.trim(),
+      keywords,
+    };
+    const snapshot = latestEntries.current;
     try {
       if (saveEntry) await saveEntry(entry);
       else await command("save_wordbook_entry", { entry });
+      // A snapshot received during this request is authoritative, even if the save
+      // response arrives later. Never bridge a stale completion over that snapshot.
+      if (latestEntries.current === snapshot) {
+        setLocalSaves((previous) => {
+          const saved = previous?.snapshot === snapshot ? previous.entries : [];
+          return {
+            snapshot,
+            entries: saved.some((value) => value.id === entry.id)
+              ? saved.map((value) => (value.id === entry.id ? entry : value))
+              : [...saved, entry],
+          };
+        });
+      }
       setDrafts((previous) => ({ ...previous, [entry.id]: draftFor(entry) }));
       setNotice("단어장에 저장했어요.");
     } catch (cause) {
@@ -225,6 +337,29 @@ export function WordbookPanel({
       setPending(false);
     }
   }
+  async function testMatch(): Promise<void> {
+    if (testing || !testInput.trim()) return;
+    const request = ++testRequest.current;
+    const context = testContext;
+    setTesting(true);
+    setTestError(null);
+    setTestResult(null);
+    try {
+      const match = await command<WordbookMatchPreview | null>("preview_wordbook_match", {
+        entries: savedEntries,
+        input: testInput,
+      });
+      if (request === testRequest.current && context === latestTestContext.current) {
+        setTestResult({ context, match });
+      }
+    } catch (cause) {
+      if (request === testRequest.current && context === latestTestContext.current) {
+        setTestError(errorText(cause));
+      }
+    } finally {
+      if (request === testRequest.current) setTesting(false);
+    }
+  }
   return (
     <section className={w.workspace} aria-label={title}>
       <div className={w.layout}>
@@ -234,7 +369,26 @@ export function WordbookPanel({
             <p className={s.quiet}>
               {highlight ? "개인 항목 · 캐릭터를 바꿔도 유지" : description}
             </p>
-            {list.map((draft) => (
+            <FormField label="분류로 찾기">
+              <Select
+                value={groupFilter}
+                onChange={(event) => setGroupFilter(event.target.value as typeof groupFilter)}
+              >
+                <option value="all">전체 · {list.length}개</option>
+                <option value="ungrouped">미분류</option>
+                {GROUPS.map((group) => (
+                  <option key={group.value} value={group.value}>
+                    {group.label}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+            <p className={s.quiet}>분류는 목록 정리용이에요. 재생 조건은 바뀌지 않아요.</p>
+            {filteredList.length === 0 && <p className={s.quiet}>이 분류에 항목이 없어요.</p>}
+            {!filteredList.some((draft) => draft.entry.id === selected) && (
+              <p className={s.quiet}>현재 편집 중인 항목은 다른 분류에 있어요. 초안은 유지돼요.</p>
+            )}
+            {filteredList.map((draft) => (
               <SelectableListRow
                 key={draft.entry.id}
                 type="button"
@@ -250,6 +404,7 @@ export function WordbookPanel({
                   {!draft.entry.enabled ? " · 꺼짐" : ""}
                 </span>
                 <span className={w.entryKeywords}>
+                  {groupLabel(draft.entry.group)} ·{" "}
                   {draft.entry.keywords.join(", ") || "키워드 없음"} · {draft.entry.lines.length}줄
                 </span>
               </SelectableListRow>
@@ -281,19 +436,77 @@ export function WordbookPanel({
                     <span>{current.entry.lines.length} / 8줄</span>
                   </Surface>
                 )}
-                {!highlight && (
+                <details className={w.previewDetails} open={!highlight || undefined}>
+                  <summary>대사 미리보기 · 현재 편집 내용</summary>
+                  <p className={s.quiet}>
+                    공백·줄바꿈·화자 순서를 그대로 확인해요. 실제로 재생하지 않아요.
+                  </p>
                   <Surface tone="accent" className={w.preview} aria-label="키워드 대사 미리보기">
-                    {current.entry.lines.map((line, index) => (
-                      <p key={index}>
-                        <strong>
-                          {motionOwner(line.persona, owners)?.definition.name ??
-                            line.persona.toUpperCase()}
-                        </strong>{" "}
-                        · {line.text || "대사를 입력해 주세요."}
-                      </p>
-                    ))}
+                    <PreviewLines lines={current.entry.lines} owners={owners} />
                   </Surface>
-                )}
+                </details>
+                <section className={w.matchTest} aria-label="저장된 키워드 테스트">
+                  <strong>입력으로 매칭 확인</strong>
+                  <p className={s.quiet}>
+                    이 목록의 저장된 모든 항목에서 찾아요. 분류 필터와 미저장 수정은 적용하지
+                    않아요. 대소문자를 구분하지 않고 긴 키워드, 같은 길이면 먼저 등록한 항목을
+                    선택해요.
+                  </p>
+                  <div className={w.testControls}>
+                    <FormField label="테스트할 말">
+                      <TextField
+                        value={testInput}
+                        maxLength={2000}
+                        placeholder="예: 안녕, 오늘도 반가워"
+                        onChange={(event) => setTestInput(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                            event.preventDefault();
+                            void testMatch();
+                          }
+                        }}
+                      />
+                    </FormField>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={testing || !testInput.trim()}
+                      onClick={() => void testMatch()}
+                    >
+                      {testing ? "확인 중…" : "매칭 테스트"}
+                    </Button>
+                  </div>
+                  <p className={s.quiet}>
+                    대사 재생·대화 전송·AI 호출은 하지 않아요. 실제 대화 상대와 화자에 따른 재생
+                    가능 여부는 별도로 확인해 주세요.
+                  </p>
+                  {testError && (
+                    <p role="alert" className={s.error}>
+                      {testError}
+                    </p>
+                  )}
+                  {testResult?.context === testContext && (
+                    <div role="status" aria-label="매칭 결과">
+                      {testResult.match ? (
+                        <>
+                          <p>
+                            일치한 등록 항목: <strong>{testResult.match.entry.title}</strong> ·
+                            키워드 ‘{testResult.match.keyword}’
+                          </p>
+                          <Surface
+                            tone="accent"
+                            className={w.preview}
+                            aria-label="일치한 등록 대사"
+                          >
+                            <PreviewLines lines={testResult.match.entry.lines} owners={owners} />
+                          </Surface>
+                        </>
+                      ) : (
+                        <p>일치하는 저장된 활성 항목이 없어요.</p>
+                      )}
+                    </div>
+                  )}
+                </section>
                 <div className={w.fields}>
                   <FormField label="제목" required>
                     <TextField
@@ -314,6 +527,40 @@ export function WordbookPanel({
                 </div>
                 <p className={s.quiet}>
                   쉼표나 줄바꿈으로 나눠요. 키워드는 20개까지, 하나당 80자까지 입력할 수 있어요.
+                </p>
+                {duplicateEntries.length > 0 && (
+                  <p role="note" className={w.warning}>
+                    같은 키워드가 다른 항목에도 있어요:{" "}
+                    {duplicateEntries
+                      .map(
+                        (draft) =>
+                          `‘${draft.entry.title || "새 항목"}’${draft.entry.enabled ? "" : " (꺼짐)"}${draft.dirty ? " (미저장)" : ""}`,
+                      )
+                      .join(", ")}
+                    . 저장된 활성 항목 중 긴 일치 키워드가 우선이고, 길이가 같으면 먼저 등록한
+                    항목을 사용해요. 저장 전에는 위 매칭 테스트에 반영되지 않아요.
+                  </p>
+                )}
+                <FormField label="분류 (선택)" className={w.groupField}>
+                  <Select
+                    value={current.entry.group ?? ""}
+                    onChange={(event) =>
+                      update({
+                        ...current.entry,
+                        group: (event.target.value || undefined) as WordbookGroup | undefined,
+                      })
+                    }
+                  >
+                    <option value="">미분류</option>
+                    {GROUPS.map((group) => (
+                      <option key={group.value} value={group.value}>
+                        {group.label}
+                      </option>
+                    ))}
+                  </Select>
+                </FormField>
+                <p className={s.quiet}>
+                  업무·휴식·일상은 정리용 이름이며, 현재 상태에 따라 재생을 제한하지 않아요.
                 </p>
                 <div className={s.row}>
                   <Checkbox

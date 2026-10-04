@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Balloon } from "../components/Balloon/Balloon";
 import { PREVIEW_SNAPSHOT, command, isDesktop } from "../hooks/useSnapshot";
+import * as s from "../components/companion.css";
 import type { ConversationSession, Message, Playback, Snapshot } from "../types";
 
 vi.mock("../hooks/useSnapshot", async (load) => ({
@@ -293,7 +294,10 @@ it.each(["one failing test. one small fix.", "same hero new line. surprise me wi
             ...snapshot,
             conversation: {
               ...snapshot.conversation!,
-              messages: [{ ...seed, content: previousReply }],
+              messages: [
+                { ...seed, id: "earlier-input", role: "user", content: "앞선 질문" },
+                { ...seed, content: previousReply },
+              ],
             },
           }}
         />,
@@ -307,6 +311,8 @@ it.each(["one failing test. one small fix.", "same hero new line. surprise me wi
       const reply = screen.getByText(previousReply);
       expect(alert.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(screen.getByText(/^이전 답변 · /)).toBeTruthy();
+      expect(screen.getByText("이번 입력 · 답변을 받지 못했어요")).toBeTruthy();
+      expect(screen.queryByText("이번 입력 · 답변을 마치지 못했어요")).toBeNull();
       expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest" });
       expect(input.value).toBe(draftText);
       expect(document.activeElement).toBe(input);
@@ -350,10 +356,127 @@ it("shows runtime failure and retry before the previous response, and clears the
     expect(feedback.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   }
   expect(screen.getByText(/^이전 답변 · /)).toBeTruthy();
+  expect(screen.getByText("이번 입력 · 답변을 받지 못했어요")).toBeTruthy();
   rerender(<Balloon snapshot={{ ...snapshot, playback }} />);
   expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.queryByText(/^이전 답변 · /)).toBeNull();
   expect(screen.getByLabelText(playback.text, { normalizer: (value) => value })).toBeTruthy();
+});
+
+it.each([null, "답변 생성 실패"])(
+  "focuses the editor without scrolling a reopened failure out of view: %s",
+  (error) => {
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    try {
+      const snapshot = conversationSnapshot();
+      render(
+        <Balloon
+          snapshot={{
+            ...snapshot,
+            runtime: { ...snapshot.runtime, phase: error ? "error" : "idle", error },
+            conversation: {
+              ...snapshot.conversation!,
+              messages: [seed, { ...seed, id: "input", role: "user", content: "다음 이야기" }],
+            },
+          }}
+        />,
+      );
+      expect(focus).toHaveBeenCalledWith({ preventScroll: Boolean(error) });
+      expect(document.activeElement).toBe(screen.getByRole("textbox"));
+      if (error) expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest" });
+    } finally {
+      focus.mockRestore();
+      delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  },
+);
+
+it("keeps the expanded log, retained reply and editor in a scrolling input body below the header", async () => {
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "send_message") throw new Error("설정에서 로컬 모델을 먼저 다운로드해 주세요.");
+  });
+  render(<Balloon snapshot={conversationSnapshot()} />);
+  const viewport = screen.getByRole("region", { name: "대화 내용과 입력" });
+  expect(viewport.classList.contains(s.inputContents)).toBe(true);
+  const balloon = viewport.parentElement!;
+  const header = balloon.querySelector("header")!;
+  expect(header.parentElement).toBe(balloon);
+  expect(viewport.contains(header)).toBe(false);
+  const details = screen.getByText("이번 대화").closest("details")!;
+  details.open = true;
+  fireEvent(details, new Event("toggle"));
+  await waitFor(() => expect(screen.getAllByText(seed.content)).toHaveLength(2));
+  const input = screen.getByRole("textbox");
+  const draftText = "  qa model-free failure\n";
+  fireEvent.change(input, { target: { value: draftText } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  const alert = await screen.findByRole("alert");
+  const reply = screen.getByText(/^이전 답변 · /).parentElement!;
+  // These regions must be block-flow children of the same scroll viewport, not
+  // flex siblings competing with the expanded log and the non-shrinking editor.
+  expect(alert.parentElement!.parentElement).toBe(viewport);
+  expect(reply.parentElement).toBe(viewport);
+  expect(reply.textContent).toContain(seed.content);
+  expect(details.parentElement).toBe(viewport);
+  expect(input.closest("form")!.parentElement).toBe(viewport);
+  expect(details.open).toBe(true);
+  expect(input).toHaveProperty("value", draftText);
+  expect(document.activeElement).toBe(input);
+  details.open = false;
+  fireEvent(details, new Event("toggle"));
+  await waitFor(() => expect(screen.getAllByText(seed.content)).toHaveLength(1));
+  expect(reply.textContent).toContain(seed.content);
+  expect(input).toHaveProperty("value", draftText);
+});
+
+it("reveals identical runtime errors again for sends and retries, without resetting manual scrolling on snapshot churn", async () => {
+  const failure = "설정에서 로컬 모델을 먼저 다운로드해 주세요.";
+  const scrollIntoView = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: scrollIntoView,
+  });
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "send_message" || name === "retry_turn") throw new Error(failure);
+  });
+  try {
+    const base = conversationSnapshot();
+    const snapshot: Snapshot = {
+      ...base,
+      runtime: { ...base.runtime, phase: "error", error: failure },
+      conversation: {
+        ...base.conversation!,
+        messages: [seed, { ...seed, id: "failed-input", role: "user", content: "이번 요청" }],
+      },
+    };
+    const { rerender } = render(<Balloon snapshot={snapshot} />);
+    const input = screen.getByRole("textbox");
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      scrollIntoView.mockClear();
+      fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" }));
+      expect(input).toHaveProperty("value", "이번 요청");
+    }
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      scrollIntoView.mockClear();
+      fireEvent.click(screen.getByRole("button", { name: "다시 이야기하기" }));
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" }));
+      expect(command).toHaveBeenCalledWith("retry_turn", {
+        messageId: "failed-input",
+        target: "builtin-a",
+      });
+    }
+    scrollIntoView.mockClear();
+    rerender(<Balloon snapshot={{ ...snapshot, modelReady: true }} />);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  } finally {
+    delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  }
 });
 
 it("does not carry a failed submission's local feedback into another conversation", async () => {
@@ -380,3 +503,199 @@ it("does not carry a failed submission's local feedback into another conversatio
   expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.getByRole("textbox")).toHaveProperty("value", "새 대화의 초안");
 });
+
+it("shows model availability before sending and still routes registered replies without a model", async () => {
+  render(<Balloon snapshot={conversationSnapshot()} />);
+  expect(screen.getByLabelText("대화 가능 상태").textContent).toContain(
+    "AI 자유 대화 · 모델 준비 필요",
+  );
+  expect(screen.getByLabelText("대화 가능 상태").textContent).toContain(
+    "등록된 키워드 답장·혼잣말",
+  );
+  const input = screen.getByRole("textbox");
+  fireEvent.change(input, { target: { value: "등록된 키워드" } });
+  expect(screen.getByRole("button", { name: "보내기" })).toHaveProperty("disabled", false);
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith(
+      "send_message",
+      expect.objectContaining({ content: "등록된 키워드" }),
+    ),
+  );
+  expect(vi.mocked(command).mock.calls.some(([name]) => name.includes("download"))).toBe(false);
+});
+
+it("saves the exact draft before opening AI settings without starting a download", async () => {
+  render(<Balloon snapshot={conversationSnapshot()} />);
+  const value = "  설정 뒤 이어 쓸 말\n";
+  fireEvent.change(screen.getByRole("textbox"), { target: { value } });
+  fireEvent.click(screen.getByRole("button", { name: "AI 연결 설정" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("open_settings"));
+  expect(vi.mocked(command).mock.calls.map(([name]) => name)).toEqual([
+    "save_conversation_draft",
+    "set_settings_section",
+    "open_settings",
+  ]);
+  expect(command).toHaveBeenCalledWith("set_settings_section", { section: "model" });
+  expect(screen.getByRole("textbox")).toHaveProperty("value", value);
+});
+
+it("keeps an authored reply's recorded origin after model readiness changes", () => {
+  const snapshot = conversationSnapshot();
+  const view = {
+    ...snapshot,
+    conversation: { ...snapshot.conversation!, messageSources: { [seed.id]: "wordbook" } },
+  };
+  const { rerender } = render(<Balloon snapshot={view} />);
+  expect(screen.getByText("등록 대사 · 단어장")).toBeTruthy();
+  rerender(<Balloon snapshot={{ ...view, modelReady: true }} />);
+  expect(screen.getByText("등록 대사 · 단어장")).toBeTruthy();
+  expect(screen.getByText("AI 자유 대화 · 로컬 모델 준비됨")).toBeTruthy();
+  expect(screen.queryByText("AI 생성")).toBeNull();
+  rerender(<Balloon snapshot={{ ...snapshot, modelReady: true }} />);
+  expect(screen.getByText("출처 미확인")).toBeTruthy();
+  expect(screen.queryByText("AI 생성")).toBeNull();
+});
+
+it("restores an accepted input after async failure without replacing newer text", async () => {
+  const snapshot = conversationSnapshot();
+  const { rerender } = render(<Balloon snapshot={snapshot} />);
+  const input = screen.getByRole("textbox");
+  fireEvent.change(input, { target: { value: "  이번 요청\n" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() => expect(input).toHaveProperty("value", ""));
+  const id = vi.mocked(command).mock.calls.find(([name]) => name === "send_message")![1]!
+    .clientMessageId as string;
+  const latestInput = { ...seed, id, role: "user", content: "이번 요청" };
+  const generating = {
+    ...snapshot,
+    runtime: { ...snapshot.runtime, phase: "generating" as const },
+    conversation: { ...snapshot.conversation!, messages: [seed, latestInput] },
+  };
+  rerender(<Balloon snapshot={generating} />);
+  const failed = {
+    ...generating,
+    runtime: { ...snapshot.runtime, phase: "error" as const, error: "모델 실행 실패" },
+  };
+  rerender(<Balloon snapshot={failed} />);
+  expect(input).toHaveProperty("value", "  이번 요청\n");
+  expect(screen.getByLabelText("답변에 실패한 이번 입력").textContent).toContain("이번 요청");
+  expect(screen.getByText(/^이전 답변 · /)).toBeTruthy();
+  fireEvent.change(input, { target: { value: "다시 쓰고 있는 말" } });
+  rerender(<Balloon snapshot={generating} />);
+  rerender(<Balloon snapshot={failed} />);
+  expect(input).toHaveProperty("value", "다시 쓰고 있는 말");
+});
+
+it("does not describe a partial current-turn reply as a previous answer", () => {
+  const snapshot = conversationSnapshot();
+  render(
+    <Balloon
+      snapshot={{
+        ...snapshot,
+        runtime: { ...snapshot.runtime, phase: "error", error: "다른 친구의 답변 실패" },
+        conversation: {
+          ...snapshot.conversation!,
+          messages: [
+            seed,
+            { ...seed, id: "input", role: "user", content: "모두에게 할 말" },
+            { ...seed, id: "partial", content: "이번 요청의 첫 답변" },
+          ],
+          messageSources: { partial: "llm" },
+        },
+      }}
+    />,
+  );
+  expect(screen.getByText("이번 요청의 첫 답변")).toBeTruthy();
+  expect(screen.getByText("AI 생성")).toBeTruthy();
+  expect(screen.queryByText(/^이전 답변 · /)).toBeNull();
+  expect(screen.getByText("이번 입력 · 답변을 마치지 못했어요")).toBeTruthy();
+  expect(screen.queryByText("이번 입력 · 답변을 받지 못했어요")).toBeNull();
+});
+
+it("does not call an empty current-turn response a partial answer", () => {
+  const snapshot = conversationSnapshot();
+  render(
+    <Balloon
+      snapshot={{
+        ...snapshot,
+        runtime: { ...snapshot.runtime, phase: "error", error: "답변 생성 실패" },
+        conversation: {
+          ...snapshot.conversation!,
+          messages: [
+            seed,
+            { ...seed, id: "input", role: "user", content: "다음 이야기" },
+            { ...seed, id: "empty", content: "" },
+          ],
+        },
+      }}
+    />,
+  );
+  expect(screen.getByText("이번 입력 · 답변을 받지 못했어요")).toBeTruthy();
+  expect(screen.queryByText("이번 입력 · 답변을 마치지 못했어요")).toBeNull();
+});
+
+it("preserves origin metadata when loading older conversation pages", async () => {
+  vi.mocked(command).mockResolvedValue({
+    messages: [{ ...seed, id: "earlier-authored", content: "  앞선 등록 원문\n\n " }],
+    nextBefore: null,
+    messageSources: { "earlier-authored": "wordbook" },
+  });
+  const snapshot = conversationSnapshot();
+  render(
+    <Balloon
+      snapshot={{
+        ...snapshot,
+        conversation: {
+          ...snapshot.conversation!,
+          nextBefore: 42,
+          messageSources: { seed: "llm" },
+        },
+      }}
+    />,
+  );
+  const details = screen.getByText("이번 대화").closest("details")!;
+  details.open = true;
+  fireEvent(details, new Event("toggle"));
+  fireEvent.click(await screen.findByRole("button", { name: "앞선 내용 더 보기" }));
+  expect(await screen.findByText("등록 대사 · 단어장")).toBeTruthy();
+  expect(screen.getAllByText("AI 생성")).toHaveLength(2);
+  expect(screen.getByText("앞선 등록 원문").textContent).toContain("  앞선 등록 원문\n\n ");
+});
+
+it.each(["보내기", "AI 연결 설정"])(
+  "does not continue %s after another view replaces the saved draft",
+  async (action) => {
+    let finishSave!: () => void;
+    vi.mocked(command).mockImplementation(async (name) => {
+      if (name === "save_conversation_draft")
+        await new Promise<void>((resolve) => {
+          finishSave = resolve;
+        });
+    });
+    const snapshot = conversationSnapshot();
+    const { rerender } = render(<Balloon snapshot={snapshot} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "이전 대화 초안" } });
+    fireEvent.click(screen.getByRole("button", { name: action }));
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("save_conversation_draft", expect.anything()),
+    );
+    rerender(
+      <Balloon
+        snapshot={{
+          ...snapshot,
+          conversation: {
+            session: { ...session, id: "different", draft: "새 초안" },
+            messages: [],
+            nextBefore: null,
+          },
+        }}
+      />,
+    );
+    await act(async () => finishSave());
+    expect(vi.mocked(command).mock.calls.map(([name]) => name)).toEqual([
+      "save_conversation_draft",
+    ]);
+    expect(screen.getByRole("textbox")).toHaveProperty("value", "새 초안");
+  },
+);

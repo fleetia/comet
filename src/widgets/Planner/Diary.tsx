@@ -1,5 +1,12 @@
 import { Button, Dialog, FormField, Surface, TextField } from "@fleetia/lagrange";
-import { useEffect, useRef, useState, type DragEvent, type ReactElement } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type ReactElement,
+} from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WindowHeader } from "../../components/WindowHeader/WindowHeader";
@@ -21,6 +28,7 @@ import { DiaryCalendarContext } from "./DiaryCalendarContext";
 import { TodoEditor } from "./TodoEditor";
 import {
   dayDate,
+  deviceTimeZone,
   eventsOn,
   eventTime,
   moveDay,
@@ -80,6 +88,24 @@ export function Diary(): ReactElement {
   const [calendarDirty, setCalendarDirty] = useState(false);
   const [dropActive, setDropActive] = useState(false);
   const [notice, setNotice] = useState("");
+  const [completionUndo, setCompletionUndo] = useState<{
+    id: string;
+    title: string;
+    date: string;
+    frequency: boolean;
+  } | null>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const scrollPositions = useRef<Record<string, number>>({});
+  const bodyScope = tool
+    ? `tool:${tool}`
+    : envelopeId
+      ? `envelope:${envelopeId}`
+      : pageId
+        ? `page:${pageId}`
+        : `${view}:${day}`;
+  useLayoutEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = scrollPositions.current[bodyScope] ?? 0;
+  }, [bodyScope]);
   const [addingWidget, setAddingWidget] = useState(false);
   const dropping = useRef(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -342,15 +368,53 @@ export function Diary(): ReactElement {
     });
     return result?.value ?? null;
   }
-  function toggleTask(item: DataRecord, date = day): Promise<boolean> {
-    if (ruleOf(item).mode === "frequency") {
-      const entry = rows(item.frequencyRecords).find((value) => value.date === date);
-      return act(entry ? "undo-frequency" : "record-frequency", {
+  async function toggleTask(item: DataRecord, date = day): Promise<boolean> {
+    const frequency = ruleOf(item).mode === "frequency";
+    const entry = rows(item.frequencyRecords).find((value) => value.date === date);
+    const completed = frequency ? !!entry : typeof item.completedAt === "number";
+    const ok = await act(
+      frequency ? (entry ? "undo-frequency" : "record-frequency") : completed ? "undo" : "complete",
+      {
         id: text(item.id),
-        ...(entry ? { recordId: text(entry.id) } : { date }),
-      });
+        ...(frequency ? (entry ? { recordId: text(entry.id) } : { date }) : {}),
+      },
+    );
+    if (ok)
+      setCompletionUndo(
+        completed ? null : { id: text(item.id), title: text(item.title), date, frequency },
+      );
+    return ok;
+  }
+  async function undoCompletion(): Promise<void> {
+    if (!completionUndo || !todo) return;
+    const { id, date, frequency } = completionUndo;
+    const latest = latestWidgets.current.find((widget) => widget.id === todo.id) ?? todo;
+    const item = rows(record(latest.data).items).find((value) => value.id === id);
+    const entry = rows(item?.frequencyRecords).find((value) => value.date === date);
+    if (frequency && !entry) {
+      setFailure("최신 완료 기록을 불러온 뒤 다시 취소해 주세요.");
+      reload();
+      return;
     }
-    return act(typeof item.completedAt === "number" ? "undo" : "complete", { id: text(item.id) });
+    if (
+      await act(
+        frequency ? "undo-frequency" : "undo",
+        frequency ? { id, recordId: text(entry?.id) } : { id },
+        latest,
+      )
+    )
+      setCompletionUndo(null);
+  }
+  async function focusTask(item: DataRecord): Promise<void> {
+    const timer = enabled("focus-timer");
+    if (!timer) {
+      await run(() => command("open_planner_settings", { kind: "focus-timer" }));
+      return;
+    }
+    if (await act("start", { durationMs: 1500000, todoId: text(item.id) }, timer)) {
+      setNotice("25분 집중을 시작했어요. 할 일 완료는 직접 표시해 주세요.");
+      await run(() => command("open_widget", { id: timer.id }));
+    }
   }
   async function createPage(): Promise<string | null> {
     if (page) return page.id;
@@ -398,12 +462,8 @@ export function Diary(): ReactElement {
   }
   function openCalendarEvent(event: DataRecord, date = day): void {
     navigate(() => {
-      if (event.connectionId === "local") {
-        setCalendarDraft({ date, event, revision: calendar?.revision });
-      } else {
-        setDay(date);
-        setSelectedEvent(event);
-      }
+      setDay(date);
+      setSelectedEvent(event);
     });
   }
   async function saveCalendarEvent(input: DataRecord, deleting = false): Promise<boolean> {
@@ -625,6 +685,19 @@ export function Diary(): ReactElement {
             }}
           >
             다시 불러오기
+          </Button>
+        </div>
+      )}
+      {completionUndo && (
+        <div role="status" className={s.status}>
+          {completionUndo.title} · 완료했어요.
+          <Button
+            variant="quiet"
+            size="compact"
+            disabled={saving}
+            onClick={() => void undoCompletion()}
+          >
+            완료 취소
           </Button>
         </div>
       )}
@@ -872,13 +945,26 @@ export function Diary(): ReactElement {
                 </>
               )}
             </div>
-            <div className={s.body}>
+            <div
+              className={s.body}
+              ref={bodyRef}
+              onScroll={(event) => {
+                scrollPositions.current[bodyScope] = event.currentTarget.scrollTop;
+              }}
+            >
               {toolsOpened && (
                 <div hidden={!tool} className={s.toolContent}>
                   <h1 className={s.title}>{TOOL_MENU.find(([value]) => value === tool)?.[1]}</h1>
                   <Planner
                     dismissVersion={toolDismissVersion}
                     embeddedTab={tool ?? "plans"}
+                    selectedDay={day}
+                    onSelectedDayChange={(date) =>
+                      navigate(() => {
+                        setDay(date);
+                        setMonth(date);
+                      })
+                    }
                     onNavigate={openTool}
                     onStateChange={setToolState}
                   />
@@ -905,6 +991,8 @@ export function Diary(): ReactElement {
                       diaryAction={diaryAction}
                       onPlanTask={(item) => planTask(item, localDay())}
                       onToggleTask={(item) => toggleTask(item, localDay())}
+                      onEditTask={setEditing}
+                      onFocusTask={(item) => void focusTask(item)}
                       onCreateTask={(title) => createTask(title, null)}
                       onOpenPage={openPage}
                       onReturnToDay={() => openDay(localDay())}
@@ -948,6 +1036,7 @@ export function Diary(): ReactElement {
                               ? "한 주를 펼쳐 놓고, 하루씩 이어 써요."
                               : `${day.slice(0, 4)}년 · 할 일, 약속, 떠오른 생각을 한곳에`}
                       </p>
+                      {!pageId && <p className={s.caption}>기기 시간대 · {deviceTimeZone()}</p>}
                       {!pageId && (
                         <DiaryCalendarContext
                           day={day}
@@ -997,6 +1086,7 @@ export function Diary(): ReactElement {
                           onAddTask={(title) => createTask(title, pageId ? null : day)}
                           onToggleTask={(item) => void toggleTask(item)}
                           onEditTask={setEditing}
+                          onFocusTask={(item) => void focusTask(item)}
                           onMoveTask={planTask}
                           onOpenEnvelope={openEnvelope}
                           onCreatePage={createPage}
@@ -1023,6 +1113,7 @@ export function Diary(): ReactElement {
           }
           day={calendarDraft.date}
           event={calendarDraft.event}
+          events={events}
           busy={busy}
           onSave={saveCalendarEvent}
           onDelete={calendarDraft.event ? () => saveCalendarEvent({}, true) : undefined}
@@ -1105,10 +1196,59 @@ export function Diary(): ReactElement {
       >
         {selectedEvent && (
           <div className={s.form}>
-            <p>
-              {eventTime(selectedEvent)} · {text(selectedEvent.calendarName) || "연결된 캘린더"}
+            <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+              {text(selectedEvent.title)}
             </p>
-            <p className={s.caption}>외부 일정은 원본 캘린더에서 수정해요.</p>
+            <p>
+              {selectedEvent.allDay
+                ? `${text(selectedEvent.startDate)} ~ ${moveDay(text(selectedEvent.endDate) || text(selectedEvent.startDate), -1)} · 종일`
+                : `${new Date(Number(selectedEvent.startAt)).toLocaleString("ko-KR")} ~ ${new Date(Number(selectedEvent.endAt)).toLocaleString("ko-KR")}`}{" "}
+              · {deviceTimeZone()}
+            </p>
+            <p className={s.caption}>
+              {selectedEvent.connectionId === "local"
+                ? "Comet 일정"
+                : text(selectedEvent.calendarName) || "연결된 캘린더 · 읽기 전용"}
+            </p>
+            {text(selectedEvent.location) && (
+              <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                장소 · {text(selectedEvent.location)}
+              </p>
+            )}
+            {text(selectedEvent.description) && (
+              <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                {text(selectedEvent.description)}
+              </p>
+            )}
+            {selectedEvent.connectionId === "local" ? (
+              <Button
+                variant="secondary"
+                disabled={saving || !events.some((event) => event.id === selectedEvent.id)}
+                onClick={() => {
+                  const current = events.find((event) => event.id === selectedEvent.id);
+                  if (!current) return;
+                  setCalendarDraft({ date: day, event: current, revision: calendar?.revision });
+                  setSelectedEvent(null);
+                }}
+              >
+                일정 편집
+              </Button>
+            ) : (
+              <p className={s.caption}>외부 일정은 원본 캘린더에서 수정해요.</p>
+            )}
+            <section aria-label="선택 날짜 전체 일정" className={s.form}>
+              <h3>{day} 전체 일정</h3>
+              {eventsOn(events, day).map((event) => (
+                <Button
+                  key={text(event.id)}
+                  variant="quiet"
+                  style={{ whiteSpace: "normal", textAlign: "left", overflowWrap: "anywhere" }}
+                  onClick={() => setSelectedEvent(event)}
+                >
+                  {eventTime(event)} · {text(event.title)}
+                </Button>
+              ))}
+            </section>
             <Button
               variant="primary"
               onClick={() => {

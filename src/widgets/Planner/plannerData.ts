@@ -193,3 +193,33 @@ export function localDateTime(day: string, time: string): number | null {
     return null;
   return value.getTime();
 }
+
+/** Display the device zone explicitly; stored dates and instants are not converted or rewritten. */
+export function deviceTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "기기 지역 시간";
+}
+
+export function dueLabel(item: DataRecord, referenceDay = localDay()): string {
+  const day = dueDay(item);
+  if (!day) return "";
+  const relative = day === referenceDay ? "오늘" : day === moveDay(referenceDay, 1) ? "내일" : "";
+  const at = typeof item.dueAt === "number" ? ` ${clockLabel(item.dueAt)}` : "";
+  const overdue =
+    typeof item.completedAt !== "number" &&
+    (typeof item.dueAt === "number" ? item.dueAt < Date.now() : day < localDay());
+  return `마감 ${day}${at}${relative ? ` · ${relative}` : ""}${overdue ? " · 기한 지남" : ""}`;
+}
+
+/** Advisory only: adjacent intervals do not overlap; cancelled/self events are ignored. */
+export function overlappingEvents(candidate: DataRecord, events: DataRecord[]): DataRecord[] {
+  const start = eventStart(candidate),
+    end = eventEnd(candidate);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return [];
+  return events.filter(
+    (event) =>
+      !event.cancelled &&
+      (!candidate.id || event.id !== candidate.id) &&
+      eventStart(event) < end &&
+      eventEnd(event) > start,
+  );
+}

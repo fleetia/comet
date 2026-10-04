@@ -159,3 +159,31 @@ export const preview = style({
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
 });
+
+export const groupField = style({ maxWidth: 240 });
+export const previewDetails = style({ marginBottom: vars.space.md });
+globalStyle(`${previewDetails} > summary`, {
+  cursor: "pointer",
+  fontWeight: 600,
+  padding: `${vars.space.sm} 0`,
+});
+export const previewLines = style({ margin: 0, paddingLeft: vars.space.lg });
+export const previewText = style({ display: "block", whiteSpace: "pre-wrap" });
+export const matchTest = style({
+  marginBottom: vars.space.lg,
+  padding: vars.space.md,
+  background: vars.color.surface.muted,
+});
+export const testControls = style({
+  display: "flex",
+  alignItems: "end",
+  gap: vars.space.sm,
+  flexWrap: "wrap",
+});
+globalStyle(`${testControls} > div`, { flex: "1 1 240px" });
+export const warning = style({
+  padding: vars.space.md,
+  borderLeft: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
+  background: vars.color.surface.muted,
+  fontSize: vars.typography.size.body,
+});

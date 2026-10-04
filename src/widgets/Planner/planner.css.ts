@@ -133,7 +133,44 @@ export const task = style({
     },
   },
 });
-export const taskCheck = style({ flex: 1, minWidth: 0 });
+export const taskCheck = style({ flexShrink: 0 });
+export const taskSummary = style({ minWidth: 0, flex: 1 });
+export const taskTitle = style({
+  border: 0,
+  background: "transparent",
+  color: "inherit",
+  font: "inherit",
+  cursor: "pointer",
+  padding: `${v.space.xs} 0`,
+  textAlign: "left",
+  minWidth: 0,
+  flex: 1,
+  overflowWrap: "anywhere",
+  selectors: {
+    "&:focus-visible": { outline: `2px solid ${v.color.interaction.focus}`, outlineOffset: 2 },
+  },
+});
+export const taskDetails = style({
+  padding: v.space.sm,
+  borderLeft: `2px solid ${v.color.border.subtle}`,
+  marginTop: v.space.xs,
+  minWidth: 0,
+});
+export const taskMemo = style({
+  whiteSpace: "pre-wrap",
+  overflowWrap: "anywhere",
+  margin: `${v.space.sm} 0`,
+});
+export const memoPreview = style([
+  caption,
+  {
+    display: "block",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    maxWidth: "100%",
+  },
+]);
 globalStyle(`${taskCheck} label`, { overflowWrap: "anywhere" });
 globalStyle(`${task}[data-selected="true"] .${taskCheck}`, {
   vars: {

@@ -8,7 +8,7 @@ import {
   TextArea,
   TextField,
 } from "@fleetia/lagrange";
-import { useRef, useState, type ReactElement } from "react";
+import { useEffect, useId, useRef, useState, type ReactElement } from "react";
 import {
   localDay,
   number,
@@ -20,6 +20,7 @@ import {
 } from "../toolData";
 import type { WidgetView } from "../types";
 import { WidgetDragHandle } from "../WidgetDragHandle";
+import { deviceTimeZone, dueLabel, plannedDay, repeatLabel } from "../Planner/plannerData";
 import * as c from "../../lagrange.css";
 import * as s from "../tools.css";
 import * as todo from "./todoTool.css";
@@ -32,6 +33,16 @@ export function TodoTool({ widget, act }: Props): ReactElement {
     lists = rows(d.lists);
   const titleInput = useRef<HTMLInputElement>(null);
   const options = useRef<HTMLDetailsElement>(null);
+  const detailId = useId();
+  const timeZoneId = useId();
+  const completionPending = useRef(false);
+  const [completing, setCompleting] = useState(false);
+  const [completedNotice, setCompletedNotice] = useState<{
+    id: string;
+    title: string;
+    revision: number;
+  } | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
   const [visibleList, setVisibleList] = useState("all");
   const [list, setList] = useState("default");
@@ -86,6 +97,34 @@ export function TodoTool({ widget, act }: Props): ReactElement {
       setDue(text(item.dueDate));
     }
   }
+  async function changeCompletion(item: DataRecord): Promise<void> {
+    if (completionPending.current) return;
+    const completed = typeof item.completedAt === "number";
+    completionPending.current = true;
+    setCompleting(true);
+    try {
+      if (await act(completed ? "undo" : "complete", { id: text(item.id) })) {
+        setCompletedNotice(
+          completed
+            ? null
+            : { id: text(item.id), title: text(item.title), revision: widget.revision },
+        );
+      }
+    } finally {
+      completionPending.current = false;
+      setCompleting(false);
+    }
+  }
+  const lastCompleted = items.find((item) => item.id === completedNotice?.id);
+  useEffect(() => {
+    if (
+      completedNotice &&
+      widget.revision !== completedNotice.revision &&
+      (!lastCompleted || typeof lastCompleted.completedAt !== "number")
+    ) {
+      setCompletedNotice(null);
+    }
+  }, [completedNotice, lastCompleted, widget.revision]);
   const shown = items.filter((item) => {
     if (visibleList !== "all" && item.listId !== visibleList) {
       return false;
@@ -94,10 +133,7 @@ export function TodoTool({ widget, act }: Props): ReactElement {
       case "routine":
         return ["daily", "weekly", "monthly"].includes(text(item.repeat));
       case "today":
-        return (
-          item.dueDate === localDay() ||
-          (typeof item.dueAt === "number" && localDay(new Date(item.dueAt)) === localDay())
-        );
+        return plannedDay(item) === localDay();
       case "shopping":
         return lists.some((l) => l.id === item.listId && text(l.name).includes("장보기"));
       case "wrap":
@@ -197,9 +233,15 @@ export function TodoTool({ widget, act }: Props): ReactElement {
               <TextField
                 type={dueKind === "date" ? "date" : "datetime-local"}
                 value={due}
+                aria-describedby={dueKind === "time" ? timeZoneId : undefined}
                 onChange={(e) => setDue(e.target.value)}
               />
             </FormField>
+          )}
+          {dueKind === "time" && (
+            <p id={timeZoneId} className={c.quiet}>
+              기기 시간대 {deviceTimeZone()} 기준
+            </p>
           )}
           <FormField className={c.field} label="반복">
             <Select value={repeat} onChange={(e) => setRepeat(e.target.value)}>
@@ -251,23 +293,56 @@ export function TodoTool({ widget, act }: Props): ReactElement {
         진행 중 {items.filter((item) => item.completedAt === null).length} · 완료{" "}
         {items.filter((item) => typeof item.completedAt === "number").length}
       </p>
+      {completedNotice &&
+        lastCompleted &&
+        (widget.revision === completedNotice.revision ||
+          typeof lastCompleted.completedAt === "number") && (
+          <div className={todo.completionNotice}>
+            <p role="status">{completedNotice.title} 완료했어요.</p>
+            <Button
+              variant="secondary"
+              size="compact"
+              disabled={completing || typeof lastCompleted.completedAt !== "number"}
+              onClick={() => void changeCompletion(lastCompleted)}
+            >
+              완료 되돌리기
+            </Button>
+            <Button variant="quiet" size="compact" onClick={() => setCompletedNotice(null)}>
+              알림 닫기
+            </Button>
+          </div>
+        )}
       {shown.length === 0 && (
         <p className={c.quiet}>이 보기에 할 일이 없어요. 위에서 새 항목을 작성할 수 있어요.</p>
       )}
       {shown.map((item) => (
         <article className={todo.item} key={text(item.id)}>
           <div className={todo.itemMain}>
-            <Checkbox
-              checked={typeof item.completedAt === "number"}
-              onChange={() =>
-                void act(typeof item.completedAt === "number" ? "undo" : "complete", {
-                  id: text(item.id),
-                })
-              }
-            >
-              {text(item.title)}
-            </Checkbox>
-            <div className={s.row}>
+            <div className={todo.itemHeading}>
+              <Checkbox
+                aria-label={text(item.title)}
+                aria-labelledby={undefined}
+                title={typeof item.completedAt === "number" ? "완료 취소" : "완료하기"}
+                checked={typeof item.completedAt === "number"}
+                disabled={completing}
+                onChange={() => void changeCompletion(item)}
+              >
+                {null}
+              </Checkbox>
+              <Button
+                variant="quiet"
+                size="compact"
+                className={todo.itemTitle}
+                data-completed={typeof item.completedAt === "number" || undefined}
+                aria-label={`${text(item.title)} 상세 보기`}
+                aria-expanded={expanded === item.id}
+                aria-controls={`${detailId}-${text(item.id)}`}
+                onClick={() => setExpanded(expanded === item.id ? null : text(item.id))}
+              >
+                {text(item.title)}
+              </Button>
+            </div>
+            <div className={todo.itemActions}>
               <WidgetDragHandle
                 payload={{ v: 1, kind: "todo", widgetId: widget.id, itemId: text(item.id) }}
                 title={text(item.title)}
@@ -284,14 +359,37 @@ export function TodoTool({ widget, act }: Props): ReactElement {
               </Button>
             </div>
           </div>
-          {text(item.memo) && <p className={todo.memo}>{text(item.memo)}</p>}
-          {(item.dueDate || typeof item.dueAt === "number" || repeatLabels[text(item.repeat)]) && (
-            <p className={c.quiet}>
-              {text(item.dueDate)}
-              {typeof item.dueAt === "number" && new Date(item.dueAt).toLocaleString()}{" "}
-              {repeatLabels[text(item.repeat)]}
-            </p>
+          {expanded !== item.id && (
+            <>
+              {text(item.memo) && <p className={todo.memoPreview}>{text(item.memo)}</p>}
+              <p className={todo.metadata}>
+                계획 날짜 {plannedDay(item) || "미정"} · {dueLabel(item) || "기한 없음"}
+                {typeof item.dueAt === "number" && ` · ${deviceTimeZone()} 기준`}
+                {repeatLabel(item) && ` · ${repeatLabel(item)}`}
+              </p>
+            </>
           )}
+          <section
+            id={`${detailId}-${text(item.id)}`}
+            aria-label={`${text(item.title)} 상세`}
+            className={todo.detail}
+            hidden={expanded !== item.id}
+          >
+            <dl className={todo.detailDates}>
+              <dt>계획 날짜</dt>
+              <dd>{plannedDay(item) || "미정"}</dd>
+              <dt>기한</dt>
+              <dd>
+                {dueLabel(item) || "없음"}
+                {typeof item.dueAt === "number" && ` · ${deviceTimeZone()} 기준`}
+              </dd>
+              <dt>목록</dt>
+              <dd>{text(lists.find((entry) => entry.id === item.listId)?.name) || "할 일"}</dd>
+              <dt>반복</dt>
+              <dd>{repeatLabel(item) || "없음"}</dd>
+            </dl>
+            <p className={todo.memo}>{text(item.memo) || "메모 없음"}</p>
+          </section>
           {filter === "wrap" && (
             <Checkbox
               checked={rollover.includes(text(item.id))}

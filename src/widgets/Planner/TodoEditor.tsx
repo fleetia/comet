@@ -14,6 +14,9 @@ import { localDay, number, record, text, type DataRecord, type ToolAction } from
 import {
   clockLabel,
   dueDay,
+  dueLabel,
+  deviceTimeZone,
+  plannedDay,
   localDateTime,
   PERIODS,
   periodAnchor,
@@ -22,6 +25,20 @@ import {
   WEEKDAYS,
 } from "./plannerData";
 import * as s from "./planner.css";
+
+export function TaskReadOnlyDetails({ item }: { item: DataRecord }): ReactElement {
+  return (
+    <div className={s.taskDetails} role="region" aria-label={`${text(item.title)} 상세`}>
+      <p className={s.caption}>계획 날짜 · {plannedDay(item) || "미지정"}</p>
+      <p className={s.caption}>{dueLabel(item) || "기한 없음"}</p>
+      {typeof item.dueAt === "number" && (
+        <p className={s.caption}>기기 시간대 · {deviceTimeZone()}</p>
+      )}
+      {repeatLabel(item) && <p className={s.caption}>반복 · {repeatLabel(item)}</p>}
+      <p className={s.taskMemo}>{text(item.memo) || "등록한 메모가 없어요."}</p>
+    </div>
+  );
+}
 
 export function TodoEditor({
   item,
@@ -284,6 +301,7 @@ export function TodoEditor({
               )}
             </div>
             <div className={s.field}>
+              <p className={s.caption}>기기 시간대 · {deviceTimeZone()}</p>
               <FormField id="planner-todo-due-time" label="시각 (선택)" className={s.field}>
                 {time ? (
                   <TextField type="time" value={time} onChange={(e) => setTime(e.target.value)} />

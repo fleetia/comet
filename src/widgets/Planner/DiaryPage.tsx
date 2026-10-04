@@ -11,7 +11,16 @@ import {
 } from "react";
 import { record, rows, text, type DataRecord } from "../toolData";
 import type { WidgetView } from "../types";
-import { eventsOn, eventTime, frequencyRecords, moveDay, plannedDay, ruleOf } from "./plannerData";
+import {
+  dueLabel,
+  deviceTimeZone,
+  eventsOn,
+  eventTime,
+  frequencyRecords,
+  moveDay,
+  plannedDay,
+  ruleOf,
+} from "./plannerData";
 import type {
   DiaryAction,
   DiaryEntry,
@@ -19,6 +28,7 @@ import type {
   DiaryMove,
   DiaryPage as Page,
 } from "./diaryTypes";
+import { TaskReadOnlyDetails } from "./TodoEditor";
 import * as s from "./diaryPage.css";
 
 export type DiaryPageProps = {
@@ -33,6 +43,7 @@ export type DiaryPageProps = {
   onAddTask: (title: string) => Promise<string | null>;
   onToggleTask: (item: DataRecord) => void;
   onEditTask: (item: DataRecord) => void;
+  onFocusTask?: (item: DataRecord) => void;
   onMoveTask: (item: DataRecord, toDate: string) => Promise<boolean>;
   onOpenEnvelope: (id: string) => void;
   onCreatePage: () => Promise<string | null>;
@@ -194,6 +205,7 @@ export function DiaryPage({
   onAddTask,
   onToggleTask,
   onEditTask,
+  onFocusTask,
   onMoveTask,
   onOpenEnvelope,
   onCreatePage,
@@ -544,6 +556,7 @@ export function DiaryPage({
               busy={disabled}
               onToggle={onToggleTask}
               onEdit={onEditTask}
+              onFocus={onFocusTask}
               onMove={onMoveTask}
               onRemove={() => void removeEntry(entry)}
             />
@@ -709,7 +722,7 @@ export function DiaryPage({
               <div className={s.row}>
                 {onOpenEvent && (
                   <Button variant="quiet" size="compact" onClick={() => onOpenEvent(event)}>
-                    {event.connectionId === "local" ? "일정 편집" : "일정 보기"}
+                    일정 보기
                   </Button>
                 )}
                 {envelopes
@@ -763,6 +776,7 @@ export function DiaryPage({
                   busy={disabled}
                   onToggle={onToggleTask}
                   onEdit={onEditTask}
+                  onFocus={onFocusTask}
                   onMove={onMoveTask}
                 />
               </div>
@@ -863,9 +877,19 @@ export function DiaryPage({
                 )}
               </>
             )}
+            <p className={s.meta} id="diary-composer-mode">
+              {kind === "todo"
+                ? "할 일 작성 · 체크할 수 있는 새 할 일을 만듭니다."
+                : kind === "note"
+                  ? "메모 작성 · 생각과 기록을 자유롭게 남겨요."
+                  : kind === "event"
+                    ? `일정 기록 작성 · 이 페이지에 남기는 기록 · 기기 시간대 ${deviceTimeZone()}`
+                    : "준비 봉투 연결 · 기존 봉투를 이 페이지에서 열어요."}
+            </p>
             <div className={s.composerBody}>
               <WritingArea
                 aria-label="새 기록 내용"
+                aria-describedby="diary-composer-mode diary-composer-shortcut"
                 value={body}
                 autoFocus
                 maxLength={kind === "todo" ? 500 : 20000}
@@ -889,7 +913,7 @@ export function DiaryPage({
               </p>
             )}
             <div className={s.row}>
-              <span className={s.meta}>
+              <span className={s.meta} id="diary-composer-shortcut">
                 {kind === "note"
                   ? "줄바꿈은 Enter · 추가는 ⌘/Ctrl+Enter"
                   : "Enter로 추가 · Shift+Enter로 줄바꿈"}
@@ -910,7 +934,15 @@ export function DiaryPage({
                 type="submit"
                 disabled={disabled || (kind === "envelope" ? !envelopeId : !body.trim())}
               >
-                {createdTask ? "페이지에 연결" : "추가"}
+                {createdTask
+                  ? "페이지에 연결"
+                  : kind === "todo"
+                    ? "할 일 추가"
+                    : kind === "note"
+                      ? "메모 추가"
+                      : kind === "event"
+                        ? "일정 기록 추가"
+                        : "봉투 연결"}
               </Button>
             </div>
           </form>
@@ -932,6 +964,7 @@ function TaskLine({
   busy,
   onToggle,
   onEdit,
+  onFocus,
   onMove,
   onRemove,
 }: {
@@ -940,9 +973,11 @@ function TaskLine({
   busy: boolean;
   onToggle: (item: DataRecord) => void;
   onEdit: (item: DataRecord) => void;
+  onFocus?: (item: DataRecord) => void;
   onMove: (item: DataRecord, toDate: string) => Promise<boolean>;
   onRemove?: () => void;
 }): ReactElement {
+  const [expanded, setExpanded] = useState(false);
   const [moving, setMoving] = useState(false);
   const [destination, setDestination] = useState(moveDay(date, 1));
   const [failure, setFailure] = useState("");
@@ -956,13 +991,23 @@ function TaskLine({
     <>
       <div className={s.row}>
         <Checkbox
-          className={s.task}
+          aria-label={text(item.title)}
+          title="완료 상태 바꾸기"
+          children={null}
+          aria-labelledby={undefined}
           checked={done}
           disabled={busy || saving}
           onChange={() => onToggle(item)}
+        />
+        <button
+          type="button"
+          className={`${s.taskTitle} ${done ? s.completed : ""}`}
+          aria-label={`${text(item.title)} 상세 보기`}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
         >
-          <span className={done ? s.completed : undefined}>{text(item.title)}</span>
-        </Checkbox>
+          {text(item.title)}
+        </button>
         <div className={s.rowActions}>
           <Button
             size="compact"
@@ -998,6 +1043,27 @@ function TaskLine({
           )}
         </div>
       </div>
+      <p className={s.meta}>
+        계획 · {plannedDay(item) || "미지정"}　{dueLabel(item) || "기한 없음"}
+      </p>
+      {!!text(item.memo) && (
+        <p className={s.memoPreview}>메모 · {text(item.memo).split(/\r?\n/)[0]} · 상세 보기</p>
+      )}
+      {expanded && (
+        <>
+          <TaskReadOnlyDetails item={item} />
+          {onFocus && !done && (
+            <Button
+              variant="secondary"
+              size="compact"
+              disabled={busy || saving}
+              onClick={() => onFocus(item)}
+            >
+              25분 집중 시작
+            </Button>
+          )}
+        </>
+      )}
       {moving && (
         <form
           className={s.controls}

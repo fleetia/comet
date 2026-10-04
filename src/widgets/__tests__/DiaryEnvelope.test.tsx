@@ -284,3 +284,41 @@ it("promotes a preparation check in one action and archives the envelope without
   );
   expect(props.onCreateTask).not.toHaveBeenCalled();
 });
+
+it("keeps linked task titles and checklist text independent from completion", async () => {
+  const props = envelopeProps();
+  const item = {
+    id: "todo",
+    title: "공유 할 일",
+    completedAt: null,
+    plannedDate: "2026-10-08",
+    dueDate: "2026-10-12",
+    memo: "공유 메모\n세부 내용",
+  };
+  render(
+    <DiaryEnvelope
+      {...props}
+      envelope={{
+        ...envelope,
+        todoIds: ["todo"],
+        checks: [{ id: "check", text: "준비물", done: false }],
+      }}
+      items={[item]}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "공유 할 일 상세 보기" }));
+  expect(screen.getByRole("region", { name: "공유 할 일 상세" }).textContent).toContain(
+    "세부 내용",
+  );
+  expect(props.onToggleTask).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "준비물" }));
+  expect(props.act).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("checkbox", { name: "준비물" }));
+  await waitFor(() =>
+    expect(props.act).toHaveBeenCalledWith(
+      "check-toggle",
+      { id: "envelope", checkId: "check" },
+      preparation,
+    ),
+  );
+});

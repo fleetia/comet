@@ -134,3 +134,23 @@ export const related = style([
   { paddingTop: 20, borderTop: `1px solid ${v.color.border.subtle}`, marginTop: "auto" },
 ]);
 export const footer = style([row, { justifyContent: "space-between", paddingTop: 12 }]);
+
+export const itemTitle = style({
+  flex: 1,
+  minWidth: 0,
+  border: 0,
+  background: "transparent",
+  color: "inherit",
+  font: "inherit",
+  padding: `${v.space.xs} 0`,
+  textAlign: "left",
+  cursor: "pointer",
+  overflowWrap: "anywhere",
+  selectors: {
+    "&:focus-visible": { outline: `2px solid ${v.color.interaction.focus}`, outlineOffset: 2 },
+  },
+});
+export const memoPreview = style([
+  caption,
+  { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+]);

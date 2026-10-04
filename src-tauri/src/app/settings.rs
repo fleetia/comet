@@ -15,6 +15,17 @@ pub(crate) enum SettingsScope {
 }
 
 #[tauri::command]
+pub(crate) fn preview_wordbook_match(
+    entries: Vec<WordbookEntry>,
+    input: String,
+) -> Result<Option<wordbook::MatchPreview>, String> {
+    if input.trim().is_empty() || input.chars().count() > 2000 {
+        return Err("테스트할 말은 1~2,000자로 입력해 주세요.".into());
+    }
+    Ok(wordbook::preview_match(&entries, &input))
+}
+
+#[tauri::command]
 pub(crate) fn save_wordbook_entry(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,

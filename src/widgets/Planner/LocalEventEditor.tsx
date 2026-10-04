@@ -9,11 +9,19 @@ import {
 } from "@fleetia/lagrange";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { localDay, text, type DataRecord } from "../toolData";
-import { clockLabel, dayDate, localDateTime, moveDay } from "./plannerData";
+import {
+  clockLabel,
+  dayDate,
+  deviceTimeZone,
+  localDateTime,
+  moveDay,
+  overlappingEvents,
+} from "./plannerData";
 import * as s from "./planner.css";
 
 export function LocalEventEditor({
   event,
+  events = [],
   day,
   busy,
   onSave,
@@ -23,6 +31,7 @@ export function LocalEventEditor({
   onDirtyChange,
 }: {
   event?: DataRecord;
+  events?: DataRecord[];
   day: string;
   busy: boolean;
   onSave: (input: DataRecord) => Promise<boolean>;
@@ -55,6 +64,8 @@ export function LocalEventEditor({
   const [location, setLocation] = useState(text(event?.location));
   const [description, setDescription] = useState(text(event?.description));
   const [error, setError] = useState("");
+  const [validationError, setValidationError] = useState("");
+  const [moveTogether, setMoveTogether] = useState(false);
   const [confirmation, setConfirmation] = useState<"close" | "delete" | "reload" | null>(null);
   const [working, setWorking] = useState(false);
   const pending = useRef(false);
@@ -68,6 +79,7 @@ export function LocalEventEditor({
     location,
     description,
   });
+  useEffect(() => setValidationError(""), [fingerprint]);
   const baseline = useRef(fingerprint);
   const dirty = fingerprint !== baseline.current;
   const disabled = busy || working;
@@ -136,9 +148,9 @@ export function LocalEventEditor({
   }
 
   function save(): void {
-    setError("");
+    setValidationError("");
     if (!title.trim()) {
-      setError("일정 제목을 입력해 주세요.");
+      setValidationError("일정 제목을 입력해 주세요.");
       titleRef.current?.focus();
       return;
     }
@@ -148,17 +160,19 @@ export function LocalEventEditor({
       localDay(dayDate(startDate)) !== startDate ||
       localDay(dayDate(endDate)) !== endDate
     ) {
-      setError("시작 날짜와 종료 날짜를 확인해 주세요.");
+      setValidationError("시작 날짜와 종료 날짜를 확인해 주세요.");
       return;
     }
     const startAt = allDay ? null : localDateTime(startDate, startTime);
     const endAt = allDay ? null : localDateTime(endDate, endTime);
     if (!allDay && (startAt === null || endAt === null)) {
-      setError("선택한 날짜에 해당 시각이 존재하지 않아요. 날짜와 시각을 다시 선택해 주세요.");
+      setValidationError(
+        "선택한 날짜에 해당 시각이 존재하지 않아요. 날짜와 시각을 다시 선택해 주세요.",
+      );
       return;
     }
     if (allDay ? endDate < startDate : Number(endAt) <= Number(startAt)) {
-      setError("종료는 시작보다 뒤로 정해 주세요. 종일 일정은 같은 날에 끝날 수 있어요.");
+      setValidationError("종료는 시작보다 뒤로 정해 주세요. 종일 일정은 같은 날에 끝날 수 있어요.");
       return;
     }
     void persist(
@@ -177,6 +191,47 @@ export function LocalEventEditor({
       "저장하지 못했어요. 입력은 유지했습니다. 최신 일정을 확인한 뒤 다시 시도해 주세요.",
     );
   }
+
+  function changeStart(nextDate: string, nextTime: string): void {
+    if (moveTogether) {
+      if (allDay && nextDate && startDate && endDate >= startDate) {
+        const days = Math.round(
+          (Date.parse(`${nextDate}T12:00:00Z`) - Date.parse(`${startDate}T12:00:00Z`)) / 86400000,
+        );
+        if (Number.isFinite(days)) setEndDate(moveDay(endDate, days));
+      } else if (!allDay) {
+        const before = localDateTime(startDate, startTime);
+        const after = localDateTime(nextDate, nextTime);
+        const end = localDateTime(endDate, endTime);
+        if (before !== null && after !== null && end !== null && end > before) {
+          const shifted = end + after - before;
+          const shiftedDate = localDay(new Date(shifted));
+          const shiftedTime = clockLabel(shifted);
+          if (localDateTime(shiftedDate, shiftedTime) !== shifted) {
+            setValidationError(
+              "시간대 전환으로 종료 시각이 두 번 나타나요. 길이 유지를 끄고 시각을 직접 확인해 주세요.",
+            );
+            return;
+          }
+          setEndDate(shiftedDate);
+          setEndTime(shiftedTime);
+        }
+      }
+    }
+    setStartDate(nextDate);
+    setStartTime(nextTime);
+  }
+  const overlaps = overlappingEvents(
+    {
+      id: event?.id ?? null,
+      startDate: allDay ? startDate : null,
+      endDate: allDay ? moveDay(endDate, 1) : null,
+      startAt: allDay ? null : localDateTime(startDate, startTime),
+      endAt: allDay ? null : localDateTime(endDate, endTime),
+    },
+    events,
+  );
+  const displayedError = validationError || error;
 
   return (
     <Dialog
@@ -238,12 +293,18 @@ export function LocalEventEditor({
           <Checkbox checked={allDay} onChange={(change) => setAllDay(change.target.checked)}>
             종일
           </Checkbox>
+          <Checkbox
+            checked={moveTogether}
+            onChange={(change) => setMoveTogether(change.target.checked)}
+          >
+            시작 변경 시 종료도 함께 이동 · 길이 유지
+          </Checkbox>
           <div className={s.fields}>
             <FormField label="시작 날짜" className={s.field}>
               <DateField
                 required
                 value={startDate}
-                onChange={(change) => setStartDate(change.target.value)}
+                onChange={(change) => changeStart(change.target.value, startTime)}
               />
             </FormField>
             <FormField label="종료 날짜" className={s.field}>
@@ -260,7 +321,7 @@ export function LocalEventEditor({
                     type="time"
                     required
                     value={startTime}
-                    onChange={(change) => setStartTime(change.target.value)}
+                    onChange={(change) => changeStart(startDate, change.target.value)}
                   />
                 </FormField>
                 <FormField label="종료 시각" className={s.field}>
@@ -274,7 +335,7 @@ export function LocalEventEditor({
               </>
             )}
           </div>
-          {!allDay && <p className={s.caption}>시각은 현재 기기의 시간대를 따릅니다.</p>}
+          {!allDay && <p className={s.caption}>기기 시간대: {deviceTimeZone()}</p>}
           <FormField label="장소" className={s.field}>
             <TextField
               value={location}
@@ -282,6 +343,7 @@ export function LocalEventEditor({
               onChange={(change) => setLocation(change.target.value)}
             />
           </FormField>
+          <p className={s.caption}>이 일정의 안건 · Enter는 줄바꿈</p>
           <FormField label="메모" className={s.field}>
             <TextArea
               rows={3}
@@ -290,9 +352,16 @@ export function LocalEventEditor({
               onChange={(change) => setDescription(change.target.value)}
             />
           </FormField>
-          {error && (
+          {overlaps.length > 0 && (
+            <p role="status" className={s.caption}>
+              겹치는 일정 {overlaps.length}개:{" "}
+              {overlaps.map((value) => text(value.title)).join(" · ")}. 현재 읽어 온 일정 기준이며,
+              그대로 저장할 수 있어요.
+            </p>
+          )}
+          {displayedError && (
             <div role="alert" className={s.error}>
-              <p>{error}</p>
+              <p>{displayedError}</p>
               {event && onReload && (
                 <Button type="button" variant="quiet" onClick={() => setConfirmation("reload")}>
                   최신 일정 다시 열기

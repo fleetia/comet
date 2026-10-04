@@ -27,6 +27,8 @@ pub struct ConversationMessages {
     pub character_names: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub user_names: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub message_sources: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -39,6 +41,8 @@ pub struct ConversationView {
     pub character_names: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub user_names: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub message_sources: BTreeMap<String, String>,
 }
 
 const SESSION_FIELDS: &str =
@@ -392,14 +396,24 @@ pub fn conversation_messages(
         .collect::<Result<_>>()?;
     let mut names = conn.prepare(
         "SELECT (SELECT name FROM message_characters WHERE message_id=?1 ORDER BY persona LIMIT 1),
-         (SELECT u.name FROM message_users mu JOIN user_identities u ON u.id=mu.user_id WHERE mu.message_id=?1)"
+         (SELECT u.name FROM message_users mu JOIN user_identities u ON u.id=mu.user_id WHERE mu.message_id=?1),
+         (SELECT source FROM message_context WHERE message_id=?1)"
     ).map_err(err)?;
     let mut character_names = BTreeMap::new();
     let mut user_names = BTreeMap::new();
+    let mut message_sources = BTreeMap::new();
     for message in &messages {
-        let (character, user): (Option<String>, Option<String>) = names
-            .query_row([&message.id], |row| Ok((row.get(0)?, row.get(1)?)))
+        let (character, user, source): (Option<String>, Option<String>, Option<String>) = names
+            .query_row([&message.id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
             .map_err(err)?;
+        if message.role == "assistant" {
+            message_sources.insert(
+                message.id.clone(),
+                source.unwrap_or_else(|| "unknown".into()),
+            );
+        }
         if let Some(name) = character {
             character_names.insert(message.id.clone(), name);
         }
@@ -412,6 +426,7 @@ pub fn conversation_messages(
         next_before,
         character_names,
         user_names,
+        message_sources,
     })
 }
 
@@ -424,6 +439,7 @@ pub fn conversation_view(conn: &Connection, id: &str) -> Result<ConversationView
         next_before: page.next_before,
         character_names: page.character_names,
         user_names: page.user_names,
+        message_sources: page.message_sources,
     })
 }
 
@@ -579,6 +595,43 @@ mod tests {
 
     fn ids(messages: &[Message]) -> Vec<&str> {
         messages.iter().map(|message| message.id.as_str()).collect()
+    }
+
+    #[test]
+    fn conversation_origins_use_recorded_sources_and_preserve_missing_metadata() {
+        let db = store::open(Path::new(":memory:")).unwrap();
+        let session = start(&db);
+        for (id, source) in [
+            ("registered", "wordbook"),
+            ("generated", "llm"),
+            ("legacy", "unknown"),
+        ] {
+            let reply = message(id, "assistant", "a", "  원문 그대로\n\n  ");
+            store::insert_message_with_source(&db, &reply, source, None, false).unwrap();
+            attach_conversation_message(&db, &session.id, id).unwrap();
+        }
+        // A legacy row can be missing provenance. Reading it must not guess AI or a script.
+        db.execute("DELETE FROM message_context WHERE message_id='legacy'", [])
+            .unwrap();
+        let input = message("input", "user", "a", "내가 적은 말");
+        append(&db, &session, &input);
+        let raw_before = serde_json::to_value(store::messages(&db, 10).unwrap()).unwrap();
+        let view = conversation_view(&db, &session.id).unwrap();
+        assert_eq!(view.message_sources["registered"], "wordbook");
+        assert_eq!(view.message_sources["generated"], "llm");
+        assert_eq!(view.message_sources["legacy"], "unknown");
+        assert!(!view.message_sources.contains_key("input"));
+        assert!(view.messages[..3]
+            .iter()
+            .all(|message| message.content == "  원문 그대로\n\n  "));
+        assert_eq!(
+            serde_json::to_value(store::messages(&db, 10).unwrap()).unwrap(),
+            raw_before
+        );
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(json["messageSources"]["legacy"], "unknown");
+        let page = conversation_messages(&db, &session.id, None).unwrap();
+        assert_eq!(page.message_sources, view.message_sources);
     }
 
     #[test]

@@ -893,6 +893,7 @@ fn authored_idle_wordbook_overrides_the_character_pair_fallback() {
                 lines: lines.clone(),
                 enabled: true,
                 use_for_idle: true,
+                group: None,
             }],
         },
     )
@@ -950,6 +951,7 @@ fn shared_character_pack_uses_authored_keyword_order_after_personal_entries() {
         }],
         enabled: true,
         use_for_idle: false,
+        group: None,
     });
     let imported =
         character_commands::mutate(&state, |db| characters::import_pack(db, &pack)).unwrap();
@@ -983,6 +985,7 @@ fn shared_character_pack_uses_authored_keyword_order_after_personal_entries() {
         }],
         enabled: true,
         use_for_idle: false,
+        group: None,
     };
     wordbook::save(&db, &local).unwrap();
     assert_eq!(
@@ -1026,6 +1029,7 @@ fn keyword_route_works_without_a_model_and_preserves_authored_lines() {
         ],
         enabled: true,
         use_for_idle: false,
+        group: None,
     };
     wordbook::save(&db, &entry).unwrap();
     let lines = route_message(
@@ -1105,6 +1109,7 @@ fn single_recipient_keyword_routes_filter_whole_scenes_before_matching() {
                 .collect(),
             enabled: true,
             use_for_idle: false,
+            group: None,
         };
         let mixed = if source == "character" {
             entry("HELLO there", &[("a", "  A의 인사\n  ")])
@@ -1240,6 +1245,7 @@ fn unavailable_wordbook_winner_is_reported_before_shorter_or_later_matches() {
         }],
         enabled: true,
         use_for_idle: false,
+        group: None,
     };
     wordbook::save(&db, &short).unwrap();
     let mut first = short.clone();
