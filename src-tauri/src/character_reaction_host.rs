@@ -64,6 +64,10 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
+    pub(crate) fn blocks_presence(&self) -> bool {
+        !self.runs.is_empty() || !self.dragging.is_empty()
+    }
+
     pub(crate) fn views(&self) -> BTreeMap<String, character_reactions::ReactionRun> {
         self.runs
             .iter()
@@ -202,6 +206,13 @@ fn reconcile_state(state: &AppState, stale_windows: &[String]) -> Result<Vec<Str
     let _action = lock(&state.action)?;
     let db = lock(&state.db)?;
     let members = characters::active_members(&db)?;
+    let present = app::presence::present_ids(
+        state,
+        &members
+            .iter()
+            .map(|member| member.id.clone())
+            .collect::<Vec<_>>(),
+    )?;
     let status = lock(&state.runtime)?.clone();
     let playback = lock(&state.playback)?.clone();
     let epoch = state.epoch.load(Ordering::SeqCst);
@@ -222,6 +233,7 @@ fn reconcile_state(state: &AppState, stale_windows: &[String]) -> Result<Vec<Str
         .iter()
         .filter(|(id, run)| {
             blocked
+                || !present.contains(id)
                 || run.widget.as_ref().is_some_and(|event| {
                     !crate::widget_commands::event_current(&db, event).unwrap_or(false)
                 })

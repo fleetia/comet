@@ -1,5 +1,5 @@
 use crate::{
-    app::{interrupt, lock, publish, AppState},
+    app::{interrupt, lock, presence, publish, AppState},
     talk, widgets,
 };
 use rusqlite::Connection;
@@ -32,15 +32,24 @@ pub(crate) fn prepare(
     let Some(program) = program else {
         return Ok(None);
     };
-    let context = talk::context::build(
+    let mut context = talk::context::build(
         db,
         event,
         chrono::Utc::now().timestamp_millis(),
         uuid::Uuid::new_v4().as_u128() as u64,
     )?;
+    context.visible = presence::present_ids(state, &context.active)?;
+    context.values.insert(
+        "character.count".into(),
+        serde_json::json!(context.visible.len()),
+    );
     let simulation =
         talk::simulate_with_validation(&program, &context, &talk::runtime::history(db)?, |lines| {
-            validate_motions(db, lines)
+            validate_motions(db, lines)?;
+            if !presence::lines_visible(state, db, lines)? {
+                return Err("부재 중인 화자가 있어요.".into());
+            }
+            Ok(())
         });
     for candidate in simulation
         .candidates
@@ -121,7 +130,12 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
     }) {
         return Ok(false);
     }
-    let context = talk::context::build(db, prepared.event.as_ref(), now, prepared.seed)?;
+    let mut context = talk::context::build(db, prepared.event.as_ref(), now, prepared.seed)?;
+    context.visible = presence::present_ids(state, &context.active)?;
+    context.values.insert(
+        "character.count".into(),
+        serde_json::json!(context.visible.len()),
+    );
     let rendered = talk::render_scene_with_text_values(
         &prepared.program,
         &prepared.selection.key,
@@ -131,6 +145,7 @@ pub(crate) fn current(state: &AppState, db: &Connection) -> Result<bool, String>
     Ok(context.active == prepared.active
         && rendered.is_some_and(|rendered| {
             validate_motions(db, &rendered.lines).is_ok()
+                && presence::lines_visible(state, db, &rendered.lines).unwrap_or(false)
                 && rendered.lines.len() == prepared.selection.lines.len()
                 && rendered.lines.iter().zip(&prepared.selection.lines).all(
                     |(current, original)| {

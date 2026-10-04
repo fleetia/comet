@@ -411,7 +411,7 @@ export function CharacterEditor({
   headerActions,
 }: Props): JSX.Element {
   const [previewSelection, setPreviewSelection] = useState<{
-    group: "greeting" | "idleLines";
+    group: "greeting" | "idleLines" | "departureLines" | "returnLines";
     index: number;
   }>({ group: "greeting", index: 0 });
   const [assetSelections, setAssetSelections] = useState<Record<string, AssetSelection>>({});
@@ -475,7 +475,12 @@ export function CharacterEditor({
     (balloonStyle.textColor === null || /^#[0-9a-f]{6}$/i.test(balloonStyle.textColor));
   const dialogueError =
     reactionError(definition) ??
-    [...definition.greeting, ...definition.idleLines]
+    [
+      ...definition.greeting,
+      ...definition.idleLines,
+      ...definition.departureLines,
+      ...definition.returnLines,
+    ]
       .map((line) => motionError(line.motion, definition.animation?.clips ?? []))
       .find(Boolean);
   const valid =
@@ -493,7 +498,14 @@ export function CharacterEditor({
     definition.spriteSize >= 32 &&
     definition.spriteSize <= 512 &&
     expressionKeys.every((key) => definition.expressions[key]?.trim()) &&
-    [...definition.greeting, ...definition.idleLines].every((line) => line.text.trim());
+    [
+      definition.greeting,
+      definition.idleLines,
+      definition.departureLines,
+      definition.returnLines,
+    ].every((lines) => lines.length > 0 && lines.every((line) => line.text.trim())) &&
+    definition.departureLines.length <= 8 &&
+    definition.returnLines.length <= 8;
   const definitionActions = (
     <ActionBar
       className={s.saveBar}
@@ -630,6 +642,14 @@ export function CharacterEditor({
                     <div className={e.detailRow}>
                       <span className={s.small}>자동 수다 · {definition.idleLines.length}줄</span>
                       <span>{definition.idleLines[0]?.text}</span>
+                    </div>
+                    <div className={e.detailRow}>
+                      <span className={s.small}>떠남 · {definition.departureLines.length}줄</span>
+                      <span>{definition.departureLines[0]?.text}</span>
+                    </div>
+                    <div className={e.detailRow}>
+                      <span className={s.small}>복귀 · {definition.returnLines.length}줄</span>
+                      <span>{definition.returnLines[0]?.text}</span>
                     </div>
                   </Surface>
                 </div>
@@ -803,7 +823,7 @@ export function CharacterEditor({
           <div className={e.dialogueTypes} role="group" aria-label="대사 유형">
             {(
               [
-                ["lines", "인사·자동 수다"],
+                ["lines", "인사·수다·출입"],
                 ["reactions", "사건 반응"],
                 ["keyword", "키워드"],
                 ["scenes", "조합"],
@@ -843,9 +863,31 @@ export function CharacterEditor({
                     onChange={(lines) => change("idleLines", lines)}
                   />
                 </div>
+                <div className={e.sectionBoundary}>
+                  <Lines
+                    title="떠남"
+                    lines={definition.departureLines}
+                    limit={8}
+                    expressions={expressionKeys}
+                    clips={definition.animation?.clips ?? []}
+                    onSelect={(index) => setPreviewSelection({ group: "departureLines", index })}
+                    onChange={(lines) => change("departureLines", lines)}
+                  />
+                </div>
+                <div className={e.sectionBoundary}>
+                  <Lines
+                    title="복귀"
+                    lines={definition.returnLines}
+                    limit={8}
+                    expressions={expressionKeys}
+                    clips={definition.animation?.clips ?? []}
+                    onSelect={(index) => setPreviewSelection({ group: "returnLines", index })}
+                    onChange={(lines) => change("returnLines", lines)}
+                  />
+                </div>
                 <p className={s.small}>
-                  말하는 간격과 AI 생성 허용은 자동 대화에서 정해요. 원문과 줄바꿈은 그대로
-                  저장해요.
+                  말하는 간격·가끔 자리 비우기·AI 생성 허용은 자동 대화에서 정해요. 원문과 줄바꿈은
+                  그대로 저장해요.
                 </p>
               </fieldset>
             </CharacterWorkPanel>

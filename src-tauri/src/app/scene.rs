@@ -1,3 +1,4 @@
+use super::presence;
 use super::{is_current, lock, phase, publish, AppState};
 use crate::{characters, models, playback, store, talk_host, types::*, widget_commands, wordbook};
 use rusqlite::Connection;
@@ -48,6 +49,12 @@ pub(crate) fn present_line(
     }
     let resolved = characters::resolve_lines(&db, std::slice::from_ref(line))?;
     let line = &resolved[0];
+    if source != "presence" && !presence::is_present(state, &line.persona)? {
+        if state.automatic.load(Ordering::SeqCst) {
+            return Ok(false);
+        }
+        presence::summon_locked(state, &line.persona)?;
+    }
     let text_speed = characters::active_character(&db, &line.persona)?
         .definition
         .balloon_style
@@ -398,22 +405,22 @@ pub(crate) fn next_scene(state: &AppState) -> Result<(Vec<SceneLine>, &'static s
     }
     let sequence = state.idle_sequence.fetch_add(1, Ordering::SeqCst);
     if sequence == 0 {
-        return Ok((character_script(&db, 0)?, "script"));
+        return Ok((visible_script(state, &db, 0)?, "script"));
     }
     let registered: Vec<_> = wordbook::entries(&db)?
         .into_iter()
         .filter(|entry| {
             entry.enabled
                 && entry.use_for_idle
-                && characters::resolve_lines(&db, &entry.lines).is_ok()
+                && presence::lines_visible(state, &db, &entry.lines).unwrap_or(false)
         })
         .collect();
     let mut scenes = Vec::new();
     for scene in store::prepared_scenes(&db)? {
-        if store::recall_valid(&db, &scene.id, chrono::Utc::now().timestamp_millis())? {
-            scenes.push(scene);
-        } else {
+        if !store::recall_valid(&db, &scene.id, chrono::Utc::now().timestamp_millis())? {
             store::delete_scene(&db, &scene.id)?;
+        } else if presence::lines_visible(state, &db, &scene.lines)? {
+            scenes.push(scene);
         }
     }
     let source = playback::idle_source(sequence, !registered.is_empty(), !scenes.is_empty());
@@ -437,8 +444,46 @@ pub(crate) fn next_scene(state: &AppState) -> Result<(Vec<SceneLine>, &'static s
                 },
             ))
         }
-        _ => Ok((character_script(&db, sequence)?, "script")),
+        _ => Ok((visible_script(state, &db, sequence)?, "script")),
     }
+}
+
+fn visible_script(
+    state: &AppState,
+    db: &Connection,
+    sequence: u64,
+) -> Result<Vec<SceneLine>, String> {
+    let script = character_script(db, sequence)?;
+    if presence::lines_visible(state, db, &script)? {
+        return Ok(script);
+    }
+    let active = characters::active_members(db)?;
+    let present = presence::present_ids(
+        state,
+        &active
+            .iter()
+            .map(|member| member.id.clone())
+            .collect::<Vec<_>>(),
+    )?;
+    let mut lines = Vec::new();
+    for (slot, member) in characters::SLOTS.iter().zip(active.iter()) {
+        if !present.contains(&member.id) {
+            continue;
+        }
+        if sequence == 0 {
+            lines.extend(characters::greeting(db, slot)?);
+        } else {
+            let index = sequence as usize % member.definition.idle_lines.len();
+            let line = &member.definition.idle_lines[index];
+            lines.push(SceneLine {
+                persona: member.id.clone(),
+                expression: line.expression.clone(),
+                text: line.text.clone(),
+                motion: line.motion.clone(),
+            });
+        }
+    }
+    Ok(lines)
 }
 
 pub(crate) fn character_script(db: &Connection, sequence: u64) -> Result<Vec<SceneLine>, String> {

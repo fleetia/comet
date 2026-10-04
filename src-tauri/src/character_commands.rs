@@ -241,6 +241,10 @@ fn mutate_inner<T>(
     let before_targets = referenced_character_names(&tx, &before)?;
     let result = change(&tx)?;
     let after = characters::active_members(&tx)?;
+    let roster_changed = before
+        .iter()
+        .map(|member| &member.id)
+        .ne(after.iter().map(|member| &member.id));
     let changed = dialogue_changed
         || before != after
         || before_targets != referenced_character_names(&tx, &after)?;
@@ -250,6 +254,9 @@ fn mutate_inner<T>(
     }
     tx.commit().map_err(|error| error.to_string())?;
     if changed {
+        if roster_changed {
+            lock(&state.presence)?.reset(now());
+        }
         interrupt(state, false)?;
         *lock(&state.panel)? = None;
         state.idle_sequence.store(0, Ordering::SeqCst);

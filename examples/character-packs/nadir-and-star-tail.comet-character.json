@@ -1,5 +1,5 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 6,
   "name": "나디르와 별꼬리",
   "author": "Comet",
   "license": "",
@@ -60,6 +60,18 @@
           "expression": "평온",
           "text": "말을 고르느라 늦었어요. 듣고 있었으니 계속해도 돼요."
         }
+      ],
+      "departureLines": [
+        {
+          "expression": "평온",
+          "text": "저 잠깐 다녀올게요. 돌아와서 이어서 들을게요."
+        }
+      ],
+      "returnLines": [
+        {
+          "expression": "호기심",
+          "text": "다녀왔어요. 아, 이야기는 어디까지 했죠?"
+        }
       ]
     },
     {
@@ -118,66 +130,78 @@
           "expression": "기쁨",
           "text": "나 여기 조용히 있을게. 꼬리만 조금 흔들고!"
         }
+      ],
+      "departureLines": [
+        {
+          "expression": "기쁨",
+          "text": "별꼬리 잠깐 다녀올게! 금방 와!"
+        }
+      ],
+      "returnLines": [
+        {
+          "expression": "기쁨",
+          "text": "별꼬리 돌아왔어! 기다렸어?"
+        }
       ]
     }
   ],
   "pairScenes": [
     [
       {
-        "persona": "a",
+        "speaker": "nadir",
         "expression": "평온",
         "text": "같은 음절을 세 번 말했는데 네 번 한 느낌이에요."
       },
       {
-        "persona": "b",
+        "speaker": "star-tail",
         "expression": "기쁨",
         "text": "나디르가 처음 걸 다시 셌어!"
       }
     ],
     [
       {
-        "persona": "a",
+        "speaker": "nadir",
         "expression": "평온",
         "text": "별꼬리. 제 펜 위에 앉아 있네요."
       },
       {
-        "persona": "b",
+        "speaker": "star-tail",
         "expression": "기쁨",
         "text": "펜이 의자인 줄 알았어!"
       }
     ],
     [
       {
-        "persona": "a",
+        "speaker": "nadir",
         "expression": "평온",
         "text": "장갑 재질이 달라서 손끝 느낌도 다르네요."
       },
       {
-        "persona": "b",
+        "speaker": "star-tail",
         "expression": "기쁨",
         "text": "손 두 개가 다른 놀이 해!"
       }
     ],
     [
       {
-        "persona": "a",
+        "speaker": "nadir",
         "expression": "평온",
         "text": "차가 어디 갔지. 아. 들고 있네."
       },
       {
-        "persona": "b",
+        "speaker": "star-tail",
         "expression": "기쁨",
         "text": "오늘도 찾기 성공!"
       }
     ],
     [
       {
-        "persona": "a",
+        "speaker": "nadir",
         "expression": "평온",
         "text": "질문이 생겼어요. 지금 대답 안 해도 돼요."
       },
       {
-        "persona": "b",
+        "speaker": "star-tail",
         "expression": "기쁨",
         "text": "질문한테 의자 내 줄게!"
       }

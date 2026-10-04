@@ -39,20 +39,21 @@ fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
         window.run_on_main_thread(move || {
             let state = app.state::<Arc<AppState>>();
             // Never wait on locks from the UI thread: the next publish retries a skipped display.
-            let (Ok(db), Ok(runtime), Ok(panel), Ok(playback), Ok(story)) = (
+            let (Ok(db), Ok(runtime), Ok(panel), Ok(playback), Ok(story), Ok(presence)) = (
                 state.db.try_lock(), state.runtime.try_lock(),
-                state.panel.try_lock(), state.playback.try_lock(), state.story.try_lock(),
+                state.panel.try_lock(), state.playback.try_lock(), state.story.try_lock(), state.presence.try_lock(),
             ) else { return; };
             if !passive_show_current(&state, epoch, runtime.hidden) {
                 return;
             }
             let Ok(characters) = crate::characters::collection(&db) else { return; };
             let wanted = if label == "balloon" {
-                owner_id(&runtime, panel.as_ref(), story.as_ref(), playback.as_ref(), &characters.active).is_some()
+                owner_id(&runtime, panel.as_ref(), story.as_ref(), playback.as_ref(), &characters.active)
+                    .is_some_and(|id| presence.contains(id))
             } else if let Some(id) = label.strip_prefix(BODY_PREFIX) {
-                characters.active.iter().any(|active| active == id)
+                presence.contains(id) && characters.active.iter().any(|active| active == id)
             } else if let Some(id) = label.strip_prefix(FACE_PREFIX) {
-                characters.active.iter().any(|active| active == id)
+                presence.contains(id) && characters.active.iter().any(|active| active == id)
                     && characters.installed.iter().any(|character| character.id == id
                         && has_visible_sprite(character, &characters.active, playback.as_ref())
                         && character.definition.face_icon)
@@ -81,6 +82,7 @@ fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
                 return;
             }
             crate::character_collision_host::did_show(&window, collision_token);
+            drop(presence);
         }).map_err(|error| error.to_string())
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
@@ -486,7 +488,11 @@ fn body_size(snapshot: &Snapshot, character: Option<&InstalledCharacter>) -> (f6
 fn face_wanted(snapshot: &Snapshot, character: Option<&InstalledCharacter>) -> bool {
     !snapshot.runtime.hidden
         && character.is_some_and(|character| {
-            character.definition.face_icon
+            snapshot
+                .runtime
+                .present_character_ids
+                .contains(&character.id)
+                && character.definition.face_icon
                 && has_visible_sprite(
                     character,
                     &snapshot.characters.active,
@@ -633,6 +639,7 @@ fn create_face(app: &AppHandle, id: &str, title: &str, _body_created: bool) -> R
 fn reconcile(app: &AppHandle, state: &AppState, snapshot: &Snapshot) -> Result<(), String> {
     let roster = &snapshot.characters.active;
     for (index, id) in roster.iter().enumerate() {
+        let present = snapshot.runtime.present_character_ids.contains(id);
         let character = character_by_id(snapshot, id);
         let title = character.map_or(id.as_str(), |character| character.definition.name.as_str());
         let size = body_size(snapshot, character);
@@ -641,8 +648,10 @@ fn reconcile(app: &AppHandle, state: &AppState, snapshot: &Snapshot) -> Result<(
         match body {
             Some(window) => {
                 set_logical_size(&window, size)?;
-                if !snapshot.runtime.hidden {
+                if !snapshot.runtime.hidden && present {
                     show_passive(app, &window)?;
+                } else {
+                    hide_ambient(&window)?;
                 }
             }
             None => create_body(
@@ -654,7 +663,7 @@ fn reconcile(app: &AppHandle, state: &AppState, snapshot: &Snapshot) -> Result<(
                     id,
                     title,
                     size,
-                    visible: !snapshot.runtime.hidden,
+                    visible: !snapshot.runtime.hidden && present,
                 },
             )?,
         }
@@ -702,6 +711,13 @@ fn owner(snapshot: &Snapshot) -> Option<&str> {
         snapshot.playback.as_ref(),
         &snapshot.characters.active,
     )
+    .filter(|id| {
+        snapshot
+            .runtime
+            .present_character_ids
+            .iter()
+            .any(|present| present == *id)
+    })
 }
 
 fn owner_id<'a>(
@@ -916,12 +932,13 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
     let Ok(_action) = state.action.try_lock() else {
         return Ok(false);
     };
-    let (Ok(db), Ok(runtime), Ok(panel), Ok(mut playback), Ok(mut story)) = (
+    let (Ok(db), Ok(runtime), Ok(panel), Ok(mut playback), Ok(mut story), Ok(presence)) = (
         state.db.try_lock(),
         state.runtime.try_lock(),
         state.panel.try_lock(),
         state.playback.try_lock(),
         state.story.try_lock(),
+        state.presence.try_lock(),
     ) else {
         return Ok(false);
     };
@@ -939,8 +956,9 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
             &characters.active,
             state.epoch.load(Ordering::SeqCst),
         )
+        .filter(|target| presence.contains(&target.owner))
     };
-    drop((runtime, panel));
+    drop((runtime, panel, presence));
     let layout = balloon_layout(app);
     let Ok(mut layout) = layout.try_lock() else {
         return Ok(false);
@@ -1098,7 +1116,13 @@ pub(crate) async fn resize_balloon(
             snapshot.playback.as_ref(),
             &snapshot.characters.active,
             state.epoch.load(Ordering::SeqCst),
-        ) else {
+        )
+        .filter(|target| {
+            snapshot
+                .runtime
+                .present_character_ids
+                .contains(&target.owner)
+        }) else {
             return Ok(());
         };
         if !super::lock(&balloon_layout(app))?.measured(target, content_key, size) {

@@ -170,6 +170,7 @@ mod tests {
             values,
             available: case.available.clone(),
             active: case.active.clone(),
+            visible: case.active.clone(),
             trigger: case.trigger.clone(),
             now_ms: 1_000_000,
             seed: case.seed,

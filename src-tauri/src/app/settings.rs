@@ -130,9 +130,12 @@ pub(crate) fn apply_settings(
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
     let current = store::settings(&tx)?;
+    let old_presence = current.random_presence_enabled;
+    let old_automatic = current.autonomous_enabled;
     let settings = match scope {
         Some(SettingsScope::Automatic) => Settings {
             autonomous_enabled: settings.autonomous_enabled,
+            random_presence_enabled: settings.random_presence_enabled,
             local_idle_enabled: settings.local_idle_enabled,
             api_idle_enabled: settings.api_idle_enabled,
             idle_minutes: settings.idle_minutes,
@@ -152,6 +155,8 @@ pub(crate) fn apply_settings(
         None => settings.clone(),
     };
     validate_settings(state, &settings, scope)?;
+    let restore_presence = settings.random_presence_enabled != old_presence
+        || (old_automatic && !settings.autonomous_enabled);
     if scope != Some(SettingsScope::Automatic) {
         if let Some(key) = api_key.map(str::trim).filter(|key| !key.is_empty()) {
             inference::set_api_key(&settings, key)?;
@@ -160,6 +165,9 @@ pub(crate) fn apply_settings(
     store::save_settings(&tx, &settings)?;
     store::bump_revision(&tx)?;
     tx.commit().map_err(|error| error.to_string())?;
+    if restore_presence {
+        lock(&state.presence)?.reset(super::now());
+    }
     let token = interrupt(state, false)?;
     schedule_idle(state, settings.idle_minutes);
     let mut runtime = lock(&state.runtime)?;

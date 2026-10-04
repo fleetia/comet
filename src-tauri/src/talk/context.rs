@@ -622,9 +622,11 @@ pub fn build(
             values.insert("character.nadir.affinity".into(), json!(score));
         }
     }
+    let active = crate::characters::active_ids(db)?;
     Ok(EvalContext {
         values,
-        active: crate::characters::active_ids(db)?,
+        visible: active.clone(),
+        active,
         available,
         now_ms,
         seed,

@@ -90,6 +90,18 @@ export function CharacterPackPreview({ pack }: Props): JSX.Element {
                 [{line.expression}] {line.text}
               </p>
             ))}
+            <strong>떠남</strong>
+            {character.departureLines.map((line, i) => (
+              <p key={i}>
+                [{line.expression}] {line.text}
+              </p>
+            ))}
+            <strong>복귀</strong>
+            {character.returnLines.map((line, i) => (
+              <p key={i}>
+                [{line.expression}] {line.text}
+              </p>
+            ))}
           </div>
         </details>
       ))}

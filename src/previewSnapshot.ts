@@ -29,6 +29,7 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
   settings: {
     mode: "local",
     autonomousEnabled: true,
+    randomPresenceEnabled: false,
     localModel: "qwen3.5-4b",
     localModelPath: "",
     localReasoningEnabled: false,
@@ -51,6 +52,7 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
   runtime: {
     phase: "idle",
     persona: null,
+    presentCharacterIds: ["builtin-a", "builtin-b"],
     error: null,
     download: null,
     hidden: false,

@@ -159,10 +159,12 @@ fn fixture(
     {
         return Err("active must contain 1 to 8 distinct nonempty character IDs".into());
     }
+    let visible = input.active.clone();
     Ok((
         EvalContext {
             values,
             active: input.active,
+            visible,
             available: input.available,
             now_ms: now.or(input.now_ms).unwrap_or(0),
             seed: seed.or(input.seed).unwrap_or(0),

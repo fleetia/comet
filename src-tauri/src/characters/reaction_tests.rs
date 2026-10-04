@@ -215,7 +215,7 @@ fn pack_and_dialogue_reject_foreign_clips_old_versions_and_unknown_motion_fields
     compatible.format_version = 6;
     validate_pack(&compatible).unwrap();
     parse_pack(&pack_json(&compatible).unwrap()).unwrap();
-    for version in [1, 2, 3, 7] {
+    for version in [1, 2, 3, 4, 7] {
         let mut invalid = pack.clone();
         invalid.format_version = version;
         assert!(validate_pack(&invalid).is_err(), "version {version}");
@@ -226,6 +226,53 @@ fn pack_and_dialogue_reject_foreign_clips_old_versions_and_unknown_motion_fields
     let mut wire: serde_json::Value = serde_json::from_str(&pack_json(&pack).unwrap()).unwrap();
     wire["pairScenes"][0][0]["motion"]["extra"] = true.into();
     assert!(parse_pack(&wire.to_string()).is_err());
+}
+
+#[test]
+fn presence_line_motion_uses_v6_and_is_removed_with_unshared_animation_assets() {
+    let conn = database();
+    let (mut definition, asset) = reacting();
+    definition.departure_lines[0].text = "잠깐 다녀올게.".into();
+    definition.departure_lines[0].motion = motion(false);
+    definition.return_lines[0].text = "돌아왔어!".into();
+    definition.return_lines[0].motion = motion(false);
+    let created = create_with_assets(&conn, &definition, &[asset]).unwrap();
+    let ids = [created.id.clone()];
+    let shared = export_pack(&conn, &ids, &[]).unwrap();
+    assert_eq!(shared.format_version, 6);
+    let parsed = parse_pack(&pack_json(&shared).unwrap()).unwrap();
+    assert_eq!(
+        parsed.characters[0].departure_lines[0].motion,
+        motion(false)
+    );
+    assert_eq!(parsed.characters[0].return_lines[0].motion, motion(false));
+
+    let without_sprites = export_pack_with_options(
+        &conn,
+        &ids,
+        &[],
+        &ExportOptions {
+            include_sprites: false,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(without_sprites.format_version, 6);
+    assert!(without_sprites.characters[0].departure_lines[0]
+        .motion
+        .is_inherit());
+    assert!(without_sprites.characters[0].return_lines[0]
+        .motion
+        .is_inherit());
+    parse_pack(&pack_json(&without_sprites).unwrap()).unwrap();
+
+    let mut invalid = created.definition;
+    invalid.departure_lines[0].motion = MotionOverride::Clip {
+        clip_id: "missing".into(),
+        repeat: false,
+        interval_ms: 0,
+    };
+    assert!(save(&conn, &created.id, &invalid).is_err());
 }
 
 #[test]

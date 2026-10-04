@@ -1,3 +1,4 @@
+use super::presence;
 use super::scene::{next_scene, start_scene};
 use super::unavailable;
 use super::{interrupt, is_current, lock, now, phase, publish, schedule_idle, AppState};
@@ -80,8 +81,9 @@ pub(crate) fn open_panel(
             return Ok(());
         }
         let db = lock(&state.db)?;
+        let id = characters::active_character(&db, &persona)?.id;
+        presence::summon_locked(&state, &id)?;
         if mode == "input" && store::current_user(&db)?.is_some() {
-            let id = characters::active_character(&db, &persona)?.id;
             store::create_conversation(
                 &db,
                 &[id],
@@ -188,6 +190,15 @@ pub(crate) fn talk_now(
         if unavailable(&state) {
             return Ok(());
         }
+        {
+            let db = lock(&state.db)?;
+            let active = characters::active_ids(&db)?;
+            if presence::present_ids(&state, &active)?.is_empty() {
+                if let Some(first) = active.first() {
+                    presence::summon_locked(&state, first)?;
+                }
+            }
+        }
         store::pause_conversations(&*lock(&state.db)?)?;
         let token = super::tasks::reserve(&state, super::tasks::Kind::Scene, false)?;
         *lock(&state.panel)? = None;
@@ -242,6 +253,9 @@ pub(crate) fn show_boxes(app: &tauri::AppHandle, state: &AppState) {
                 return;
             }
         }
+    }
+    if let Ok(mut presence) = lock(&state.presence) {
+        presence.reset(now());
     }
     // Linux remaps body/face together in publish through the passive placement
     // adapter; a raw show here would let GTK/WM reset their saved positions.

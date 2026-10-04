@@ -30,6 +30,25 @@ fn configured() -> (AppState, String) {
     };
     (state, id)
 }
+
+#[test]
+fn a_drag_blocks_presence_even_without_a_reaction_visual() {
+    let mut runtime = Runtime::default();
+    assert!(!runtime.blocks_presence());
+    runtime.dragging.insert(
+        "character".into(),
+        Drag {
+            session_id: "drag".into(),
+            generation: 1,
+            definition: "definition".into(),
+            roster: "roster".into(),
+        },
+    );
+    assert!(runtime.runs.is_empty());
+    assert!(runtime.blocks_presence());
+    runtime.dragging.clear();
+    assert!(!runtime.blocks_presence());
+}
 fn prepare(state: &AppState, id: &str, event: &str) -> Prepared {
     prepare_reaction(state, id, event, 7, None, None)
         .unwrap()

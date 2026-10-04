@@ -97,12 +97,15 @@ fn rank(key: &str, seed: u64) -> u64 {
     value ^= value >> 27;
     value.wrapping_mul(0x94d049bb133111eb) ^ (value >> 31)
 }
-/// Seeded Fisher-Yates order of the active slots for `speakers: random` scenes. The same
-/// (scene, seed, roster size) always yields the same order so pre-display revalidation matches.
-fn shuffled_slots(count: usize, key: &str, seed: u64) -> Vec<usize> {
+/// Shuffles visible slots while keeping each slot tied to the unchanged active roster.
+fn shuffled_slots(context: &EvalContext, key: &str, seed: u64) -> Vec<usize> {
     let mut state = rank(key, seed.rotate_left(17) ^ 0x5eed_5eed_5eed_5eed);
-    let mut slots: Vec<usize> = (0..count).collect();
-    for index in (1..count).rev() {
+    let mut slots: Vec<usize> = context
+        .visible
+        .iter()
+        .filter_map(|id| context.active.iter().position(|active| active == id))
+        .collect();
+    for index in (1..slots.len()).rev() {
         state ^= state >> 12;
         state ^= state << 25;
         state ^= state >> 27;
@@ -168,7 +171,7 @@ fn eligible(
     let mut lines = Vec::new();
     let order = scene
         .random_speakers
-        .then(|| shuffled_slots(context.active.len(), &scene.key, context.seed));
+        .then(|| shuffled_slots(context, &scene.key, context.seed));
     render(
         &scene.body,
         scene,

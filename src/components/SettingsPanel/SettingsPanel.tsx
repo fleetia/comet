@@ -252,7 +252,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                     <SettingsRow
                       className={styles.settingsRow}
                       label={<span id="automatic-enabled-label">바탕화면에서 먼저 이야기하기</span>}
-                      description="꺼도 간격과 생성 허용은 유지돼요."
+                      description="꺼도 간격·자리 비우기·생성 허용은 유지돼요."
                     >
                       <Checkbox
                         className={styles.rowControl}
@@ -284,6 +284,23 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                         />
                         <span>분</span>
                       </div>
+                    </SettingsRow>
+                    <SettingsRow
+                      className={styles.settingsRow}
+                      label={<span id="random-presence-label">가끔 자리 비우기</span>}
+                      description="캐릭터가 잠시 떠났다가 돌아와요. 모두 자리를 비울 수도 있고, 떠남·복귀 때 짧게 인사해요."
+                    >
+                      <Checkbox
+                        className={styles.rowControl}
+                        aria-labelledby="random-presence-label"
+                        disabled={!automatic.settings.autonomousEnabled}
+                        checked={automatic.settings.randomPresenceEnabled}
+                        onChange={(event) =>
+                          automatic.change("randomPresenceEnabled", event.target.checked)
+                        }
+                      >
+                        사용
+                      </Checkbox>
                     </SettingsRow>
                     <SettingsRow
                       className={styles.pausedRow}

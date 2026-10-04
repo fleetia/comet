@@ -235,6 +235,7 @@ pub fn run() {
                 last_preparation: AtomicI64::new(0),
                 last_background_check: AtomicI64::new(0),
                 idle_sequence: AtomicU64::new(0),
+                presence: Mutex::new(super::presence::Presence::for_app(app.handle())),
                 action: Mutex::new(()),
                 automatic: AtomicBool::new(false),
                 stopping: AtomicBool::new(false),

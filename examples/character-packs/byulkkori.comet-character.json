@@ -1,5 +1,5 @@
 {
-  "formatVersion": 2,
+  "formatVersion": 6,
   "name": "별꼬리",
   "author": "기본 설치",
   "license": "Comet 공식 배포에 한해 원작자 허락을 받았습니다. 사용자의 수정 및 재배포는 허용되지 않습니다. 원작자 및 출처 표시가 필요합니다. 자세한 조건은 동봉된 byulkkori.LICENSE.txt를 따릅니다.",
@@ -40,6 +40,18 @@
         {
           "expression": "호기심",
           "text": "창밖은 지금 어떤 색일까?"
+        }
+      ],
+      "departureLines": [
+        {
+          "expression": "호기심",
+          "text": "나 잠깐 다녀올게! 꼬리 흔들며 금방 올게."
+        }
+      ],
+      "returnLines": [
+        {
+          "expression": "기쁨",
+          "text": "나 왔어! 다시 같이 놀자."
         }
       ]
     }
