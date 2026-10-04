@@ -7,6 +7,7 @@ import { allDaySegments, monthDays, timedPlacements } from "./calendarLayout";
 import {
   clockLabel,
   dayDate,
+  deviceTimeZone,
   eventsOn,
   eventStart,
   eventTime,
@@ -138,6 +139,7 @@ export function PlannerCalendar({
   }
   return (
     <>
+      <p className={s.caption}>기기 시간대: {deviceTimeZone()}</p>
       <div className={s.toolbar}>
         <strong className={s.calendarTitle}>
           {dayDate(day).getFullYear()}년 {dayDate(day).getMonth() + 1}월

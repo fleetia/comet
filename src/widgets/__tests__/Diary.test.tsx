@@ -84,7 +84,7 @@ async function addTask(title: string): Promise<void> {
   fireEvent.change(opened().getByRole("textbox", { name: "새 기록 내용" }), {
     target: { value: title },
   });
-  fireEvent.click(opened().getByRole("button", { name: "추가" }));
+  fireEvent.click(opened().getByRole("button", { name: "할 일 추가" }));
   await waitFor(() =>
     expect(opened().getByRole("textbox", { name: "새 기록 내용" })).toHaveProperty("value", ""),
   );
@@ -166,7 +166,9 @@ it("waits for startup navigation before publishing a calendar condition", async 
   let finishNavigation!: (tab: string) => void;
   vi.mocked(command).mockImplementation((name, args) =>
     name === "get_planner_tab"
-      ? new Promise((resolve) => { finishNavigation = resolve; })
+      ? new Promise((resolve) => {
+          finishNavigation = resolve;
+        })
       : existing(name, args),
   );
   await openDiary();
@@ -558,6 +560,7 @@ it("creates a local calendar event from a month date and edits the same event wi
   expect((actions("execute_widget")[0].request as DataRecord).input).not.toHaveProperty("id");
 
   fireEvent.click(eventButton);
+  fireEvent.click(screen.getByRole("button", { name: "일정 편집" }));
   const editor = within(screen.getByRole("dialog", { name: "일정 편집" }));
   fireEvent.change(editor.getByLabelText("일정 제목"), { target: { value: "오후 동네 축제" } });
   fireEvent.click(editor.getByRole("button", { name: "저장" }));
@@ -589,6 +592,7 @@ it.each(["update-event", "delete-event"] as const)(
     await openDiary();
     fireEvent.click(screen.getByRole("button", { name: "월간" }));
     fireEvent.click(screen.getByRole("button", { name: "산책" }));
+    fireEvent.click(screen.getByRole("button", { name: "일정 편집" }));
     const editor = within(screen.getByRole("dialog", { name: "일정 편집" }));
     fireEvent.change(editor.getByLabelText("일정 제목"), { target: { value: "아침 산책" } });
     widgets.widgets[0] = {
@@ -634,6 +638,7 @@ it("rejects saving or deleting an event changed elsewhere and preserves the edit
   await openDiary();
   fireEvent.click(screen.getByRole("button", { name: "월간" }));
   fireEvent.click(screen.getByRole("button", { name: "산책" }));
+  fireEvent.click(screen.getByRole("button", { name: "일정 편집" }));
   const editor = within(screen.getByRole("dialog", { name: "일정 편집" }));
   fireEvent.change(editor.getByLabelText("일정 제목"), { target: { value: "저장 전 산책 초안" } });
   act(() => {
@@ -747,3 +752,114 @@ it.each([
     expect(actions("execute_widget")).toEqual([]);
   },
 );
+
+it("keeps the calendar and embedded task manager on one date without filtering pinned notes", async () => {
+  setTasks([task("one", "오늘 작업"), task("two", "다음 날 작업", NEXT_DAY)]);
+  diary.notes = [{ id: "pinned", title: "늘 보는 메모", body: "모든 날짜의 안내", pinned: true }];
+  await openDiary();
+  fireEvent.click(screen.getByRole("button", { name: `${NEXT_DAY} 기록 열기` }));
+  expect(screen.getByText("모든 날짜의 안내")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "할 일 관리" }));
+  expect(await screen.findByRole("checkbox", { name: "다음 날 작업" })).toBeTruthy();
+  expect(screen.queryByRole("checkbox", { name: "오늘 작업" })).toBeNull();
+  expect(screen.getByText("모든 날짜의 안내")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "이전 날짜" }));
+  expect(screen.getByRole("checkbox", { name: "오늘 작업" })).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: `${DAY} 기록 열기` }).getAttribute("aria-pressed"),
+  ).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "기록으로 돌아가기" }));
+  expect(screen.getByRole("checkbox", { name: "오늘 작업" })).toBeTruthy();
+  expect(screen.getByText("모든 날짜의 안내")).toBeTruthy();
+  expect(actions("execute_widget")).toEqual([]);
+  expect(actions("update_diary")).toEqual([]);
+});
+
+it("shows complete event details and the selected-day agenda before explicit editing", async () => {
+  const title = "생략되지 않는 아주 긴 Comet 일정 제목과 준비 내용을 끝까지 확인하기";
+  widgets.widgets = [
+    widget("calendar", {
+      connections: [],
+      events: [
+        {
+          id: "long",
+          connectionId: "local",
+          title,
+          allDay: true,
+          startDate: DAY,
+          endDate: NEXT_DAY,
+          location: "모임 장소",
+          description: "전체 일정 설명\n두 번째 줄",
+        },
+        {
+          id: "second",
+          connectionId: "local",
+          title: "같은 날 다른 일정",
+          allDay: true,
+          startDate: DAY,
+          endDate: NEXT_DAY,
+        },
+      ],
+    }),
+  ];
+  await openDiary();
+  const page = screen.getByLabelText("다이어리 본문");
+  const body = page.parentElement!;
+  body.scrollTop = 180;
+  fireEvent.scroll(body);
+  fireEvent.click(opened().getAllByRole("button", { name: "일정 보기" })[0]);
+  const detail = within(screen.getByRole("dialog", { name: title }));
+  expect(detail.getAllByText(title).length).toBeGreaterThan(0);
+  expect(detail.getByText("전체 일정 설명 두 번째 줄")).toBeTruthy();
+  expect(detail.getByRole("region", { name: "선택 날짜 전체 일정" }).textContent).toContain(
+    "같은 날 다른 일정",
+  );
+  expect(detail.queryByRole("textbox")).toBeNull();
+  expect(actions("execute_widget")).toEqual([]);
+  fireEvent.click(detail.getByRole("button", { name: "약속 닫기" }));
+  expect(body.scrollTop).toBe(180);
+  fireEvent.click(screen.getByRole("button", { name: "할 일 관리" }));
+  fireEvent.click(screen.getByRole("button", { name: "기록으로 돌아가기" }));
+  expect(body.scrollTop).toBe(180);
+});
+
+it("undoes completion against the refreshed revision without touching diary records or starting a timer", async () => {
+  setTasks([task("one", "되돌릴 일")]);
+  execute = (request) => {
+    const data = widgets.widgets[0].data as DataRecord;
+    widgets.widgets[0] = {
+      ...widgets.widgets[0],
+      revision: widgets.widgets[0].revision + 1,
+      data: {
+        ...data,
+        items: [
+          {
+            ...task("one", "되돌릴 일"),
+            completedAt: request.action === "complete" ? Date.now() : null,
+          },
+        ],
+      },
+    };
+    return null;
+  };
+  await openDiary();
+  fireEvent.click(screen.getByRole("checkbox", { name: "되돌릴 일" }));
+  const undo = await screen.findByRole("button", { name: "완료 취소" });
+  fireEvent.click(undo);
+  await waitFor(() => expect(actions("execute_widget")).toHaveLength(2));
+  expect(actions("execute_widget").map(({ request }) => request)).toEqual([
+    expect.objectContaining({
+      action: "complete",
+      instanceId: "todo",
+      expectedRevision: 7,
+      input: { id: "one" },
+    }),
+    expect.objectContaining({
+      action: "undo",
+      instanceId: "todo",
+      expectedRevision: 8,
+      input: { id: "one" },
+    }),
+  ]);
+  expect(actions("update_diary")).toEqual([]);
+});

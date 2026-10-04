@@ -195,6 +195,14 @@ pub struct SceneLine {
     pub motion: crate::character_reactions::MotionOverride,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WordbookGroup {
+    Work,
+    Rest,
+    Daily,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WordbookEntry {
@@ -204,6 +212,9 @@ pub struct WordbookEntry {
     pub lines: Vec<SceneLine>,
     pub enabled: bool,
     pub use_for_idle: bool,
+    /// Organizational metadata only; never a matching or playback condition.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<WordbookGroup>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

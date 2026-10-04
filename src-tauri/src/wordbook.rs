@@ -103,7 +103,29 @@ pub fn delete(conn: &Connection, id: &str) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchPreview {
+    pub entry: WordbookEntry,
+    pub keyword: String,
+}
+
+/// Read-only test of this saved wordbook scope. Shares runtime keyword selection exactly.
+pub fn preview_match(entries: &[WordbookEntry], input: &str) -> Option<MatchPreview> {
+    match_with_keyword(entries, input.trim()).map(|(entry, keyword)| MatchPreview {
+        entry: entry.clone(),
+        keyword: keyword.into(),
+    })
+}
+
 pub fn match_entry<'a>(entries: &'a [WordbookEntry], input: &str) -> Option<&'a WordbookEntry> {
+    match_with_keyword(entries, input).map(|(entry, _)| entry)
+}
+
+fn match_with_keyword<'a>(
+    entries: &'a [WordbookEntry],
+    input: &str,
+) -> Option<(&'a WordbookEntry, &'a str)> {
     let input = input.to_lowercase();
     let mut best = None;
     let mut best_length = 0;
@@ -113,7 +135,7 @@ pub fn match_entry<'a>(entries: &'a [WordbookEntry], input: &str) -> Option<&'a 
             let length = normalized.chars().count();
             if !normalized.trim().is_empty() && length > best_length && input.contains(&normalized)
             {
-                best = Some(entry);
+                best = Some((entry, keyword.as_str()));
                 best_length = length;
             }
         }
@@ -150,6 +172,7 @@ mod tests {
             }],
             enabled: true,
             use_for_idle: false,
+            group: None,
         }
     }
 
@@ -301,6 +324,92 @@ mod tests {
         assert!(entries(&crate::store::open(&path).unwrap())
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn optional_group_is_backward_compatible_and_never_changes_matching_or_registration() {
+        use crate::types::WordbookGroup;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("grouped.sqlite");
+        let conn = crate::store::open(&path).unwrap();
+        for sample in entries(&conn).unwrap() {
+            delete(&conn, &sample.id).unwrap();
+        }
+        let mut first = entry("  SAME  ");
+        let mut second = entry("  same  ");
+        let original_lines = serde_json::to_value(&first.lines).unwrap();
+        let legacy = serde_json::to_value(&first).unwrap();
+        assert!(legacy.get("group").is_none());
+        assert!(serde_json::from_value::<WordbookEntry>(legacy)
+            .unwrap()
+            .group
+            .is_none());
+        save(&conn, &first).unwrap();
+        second.group = Some(WordbookGroup::Rest);
+        save(&conn, &second).unwrap();
+        first.group = Some(WordbookGroup::Work);
+        save(&conn, &first).unwrap();
+        drop(conn);
+
+        let conn = crate::store::open(&path).unwrap();
+        let rows = entries(&conn).unwrap();
+        assert_eq!(rows[0].id, first.id);
+        assert_eq!(rows[0].group, Some(WordbookGroup::Work));
+        assert_eq!(rows[1].group, Some(WordbookGroup::Rest));
+        assert_eq!(rows[0].keywords, first.keywords);
+        assert_eq!(
+            serde_json::to_value(&rows[0].lines).unwrap(),
+            original_lines
+        );
+        assert_eq!(
+            match_entry(&rows, "prefix  same  suffix").unwrap().id,
+            first.id
+        );
+        first.group = None;
+        save(&conn, &first).unwrap();
+        let rows = entries(&conn).unwrap();
+        assert_eq!(rows[0].id, first.id);
+        assert!(rows[0].group.is_none());
+        assert_eq!(
+            serde_json::to_value(&rows[0].lines).unwrap(),
+            original_lines
+        );
+    }
+
+    #[test]
+    fn preview_shares_runtime_matching_and_returns_verbatim_registered_lines() {
+        use crate::types::WordbookGroup;
+        let mut first = entry("HELLO");
+        first.group = Some(WordbookGroup::Work);
+        first.lines.push(SceneLine {
+            persona: "a".into(),
+            expression: "기쁨".into(),
+            text: "\n  두 번째도 같은 화자  \n".into(),
+            motion: Default::default(),
+        });
+        let mut disabled = entry("hello world");
+        disabled.enabled = false;
+        let rows = vec![first, entry("hello"), disabled, entry("😀😀"), entry("abc")];
+        for input in ["hello world", "abc😀😀", "not matched", ".*"] {
+            let preview = preview_match(&rows, input);
+            let runtime = match_entry(&rows, input);
+            assert_eq!(
+                preview.as_ref().map(|result| &result.entry.id),
+                runtime.map(|entry| &entry.id)
+            );
+            if let (Some(preview), Some(runtime)) = (preview, runtime) {
+                assert_eq!(
+                    serde_json::to_value(&preview.entry).unwrap(),
+                    serde_json::to_value(runtime).unwrap()
+                );
+            }
+        }
+        let preview = preview_match(&rows, "  hello world  ").unwrap();
+        assert_eq!(preview.keyword, "HELLO");
+        assert_eq!(preview.entry.lines[0].text, "  그대로\n말할게.  ");
+        assert_eq!(preview.entry.lines[1].text, "\n  두 번째도 같은 화자  \n");
+        assert_eq!(preview_match(&rows, "abc😀😀").unwrap().keyword, "abc");
+        assert!(preview_match(&rows, "not matched").is_none());
     }
 
     #[test]

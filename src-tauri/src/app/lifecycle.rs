@@ -542,6 +542,7 @@ pub fn run() {
             windows::skip_talk,
             windows::talk_now,
             windows::resize_balloon,
+            settings::preview_wordbook_match,
             settings::save_wordbook_entry,
             settings::delete_wordbook_entry,
             conversation::send_message,

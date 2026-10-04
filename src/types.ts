@@ -116,6 +116,8 @@ export type MessageIdentity = {
   name: string;
 };
 export type SceneLine = CharacterLine & { persona: Persona };
+export type WordbookGroup = "work" | "rest" | "daily";
+export type WordbookMatchPreview = { entry: WordbookEntry; keyword: string };
 export type WordbookEntry = {
   id: string;
   title: string;
@@ -123,6 +125,7 @@ export type WordbookEntry = {
   lines: SceneLine[];
   enabled: boolean;
   useForIdle: boolean;
+  group?: WordbookGroup;
 };
 export type Playback = SceneLine & {
   id: string;
@@ -211,6 +214,8 @@ export type ConversationSession = {
 };
 export type ConversationMessages = {
   messages: Message[];
+  /** Stored origin by message ID; absent legacy origins remain unknown. */
+  messageSources?: Record<string, string>;
   nextBefore: number | null;
   characterNames?: Record<string, string>;
   userNames?: Record<string, string>;

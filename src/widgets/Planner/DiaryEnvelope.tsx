@@ -13,7 +13,8 @@ import type { WidgetView } from "../types";
 import { useConnectionCommand } from "../useConnectionCommand";
 import { DiaryNoteCollection } from "./DiaryNotes";
 import type { DiaryAction, DiaryNote, DiaryPage } from "./diaryTypes";
-import { eventTime, frequencyRecords, plannedDay, ruleOf } from "./plannerData";
+import { dueLabel, eventTime, frequencyRecords, plannedDay, ruleOf } from "./plannerData";
+import { TaskReadOnlyDetails } from "./TodoEditor";
 import * as s from "./diaryEnvelope.css";
 
 export function envelopeTitle(envelope: DataRecord): string {
@@ -32,6 +33,8 @@ export function DiaryEnvelope({
   diaryAction,
   onPlanTask,
   onToggleTask,
+  onEditTask,
+  onFocusTask,
   onCreateTask,
   onOpenPage,
   onDirtyChange,
@@ -48,6 +51,8 @@ export function DiaryEnvelope({
   diaryAction: DiaryAction;
   onPlanTask: (item: DataRecord) => Promise<boolean>;
   onToggleTask: (item: DataRecord) => Promise<boolean>;
+  onEditTask?: (item: DataRecord) => void;
+  onFocusTask?: (item: DataRecord) => void;
   onCreateTask: (title: string) => Promise<string | null>;
   onOpenPage: (page: DiaryPage) => void;
   onDirtyChange?: (dirty: boolean) => void;
@@ -58,6 +63,8 @@ export function DiaryEnvelope({
   const [eventId, setEventId] = useState("");
   const [check, setCheck] = useState("");
   const [task, setTask] = useState("");
+  const [selectedTask, setSelectedTask] = useState("");
+  const [selectedCheck, setSelectedCheck] = useState("");
   const [pendingTodo, setPendingTodo] = useState<string | null>(null);
   const [todoId, setTodoId] = useState("");
   const [noteId, setNoteId] = useState("");
@@ -290,32 +297,93 @@ export function DiaryEnvelope({
                   );
                 const done = isDone(item);
                 return (
-                  <div className={s.checkRow} key={linkedId}>
-                    <Checkbox
-                      className={s.grow}
-                      checked={done}
-                      disabled={disabled}
-                      onChange={() => void perform(() => onToggleTask(item))}
-                    >
-                      {text(item.title)}
-                    </Checkbox>
-                    {plannedDay(item) === localDay() && <span className={s.caption}>오늘</span>}
+                  <div key={linkedId}>
+                    <div className={s.checkRow}>
+                      <Checkbox
+                        aria-label={text(item.title)}
+                        title="완료 상태 바꾸기"
+                        children={null}
+                        aria-labelledby={undefined}
+                        checked={done}
+                        disabled={disabled}
+                        onChange={() => void perform(() => onToggleTask(item))}
+                      />
+                      <button
+                        type="button"
+                        className={s.itemTitle}
+                        aria-label={`${text(item.title)} 상세 보기`}
+                        aria-expanded={selectedTask === linkedId}
+                        onClick={() => setSelectedTask(selectedTask === linkedId ? "" : linkedId)}
+                      >
+                        {text(item.title)}
+                      </button>
+                      {plannedDay(item) === localDay() && <span className={s.caption}>오늘</span>}
+                    </div>
+                    <p className={s.caption}>
+                      계획 · {plannedDay(item) || "미지정"}　{dueLabel(item) || "기한 없음"}
+                    </p>
+                    {!!text(item.memo) && (
+                      <p className={s.memoPreview}>
+                        메모 · {text(item.memo).split(/\r?\n/)[0]} · 상세 보기
+                      </p>
+                    )}
+                    {selectedTask === linkedId && (
+                      <>
+                        <TaskReadOnlyDetails item={item} />
+                        <div className={s.row}>
+                          {onEditTask && (
+                            <Button
+                              variant="quiet"
+                              size="compact"
+                              disabled={disabled}
+                              onClick={() => onEditTask(item)}
+                            >
+                              할 일 편집
+                            </Button>
+                          )}
+                          {onFocusTask && !done && (
+                            <Button
+                              variant="secondary"
+                              size="compact"
+                              disabled={disabled}
+                              onClick={() => onFocusTask(item)}
+                            >
+                              25분 집중 시작
+                            </Button>
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
                 );
               })}
             </div>
             {checks.map((item) => (
-              <div key={text(item.id)} className={s.checkRow}>
-                <Checkbox
-                  className={s.grow}
-                  checked={item.done === true}
-                  disabled={disabled}
-                  onChange={() =>
-                    void perform(() => save("check-toggle", { id, checkId: text(item.id) }))
-                  }
-                >
-                  {text(item.text)}
-                </Checkbox>
+              <div key={text(item.id)}>
+                <div className={s.checkRow}>
+                  <Checkbox
+                    aria-label={text(item.text)}
+                    title="완료 상태 바꾸기"
+                    children={null}
+                    aria-labelledby={undefined}
+                    checked={item.done === true}
+                    disabled={disabled}
+                    onChange={() =>
+                      void perform(() => save("check-toggle", { id, checkId: text(item.id) }))
+                    }
+                  />
+                  <button
+                    type="button"
+                    className={s.itemTitle}
+                    aria-expanded={selectedCheck === item.id}
+                    onClick={() => setSelectedCheck(selectedCheck === item.id ? "" : text(item.id))}
+                  >
+                    {text(item.text)}
+                  </button>
+                </div>
+                {selectedCheck === item.id && (
+                  <p className={s.noteBody}>{text(item.text)} · 준비 체크리스트</p>
+                )}
               </div>
             ))}
             <div>

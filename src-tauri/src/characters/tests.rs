@@ -39,6 +39,7 @@ fn pack() -> CharacterPack {
             }],
             enabled: true,
             use_for_idle: false,
+            group: None,
         }],
         sprites: Vec::new(),
         animation_assets: Vec::new(),

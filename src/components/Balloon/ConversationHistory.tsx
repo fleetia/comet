@@ -10,6 +10,7 @@ import type {
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { characterName } from "../characterIdentity";
 import { CharacterHistory } from "../CharacterHistory/CharacterHistory";
+import { responseOrigin } from "./conversationStatus";
 import * as s from "../companion.css";
 import * as ui from "../../lagrange.css";
 
@@ -18,11 +19,13 @@ export function ConversationMessageList({
   messages,
   characterNames,
   userNames,
+  messageSources,
 }: {
   snapshot: Snapshot;
   messages: Message[];
   characterNames?: Record<string, string>;
   userNames?: Record<string, string>;
+  messageSources?: Record<string, string>;
 }): JSX.Element {
   return (
     <>
@@ -39,6 +42,9 @@ export function ConversationMessageList({
                   ?.name ??
                 characterName(snapshot, message.persona ?? ""))}
           </span>
+          {message.role === "assistant" && (
+            <span className={s.responseOrigin}>{responseOrigin(messageSources?.[message.id])}</span>
+          )}
           {message.content}
         </p>
       ))}
@@ -78,6 +84,7 @@ export function ConversationLog({
         nextBefore: result.nextBefore,
         characterNames: { ...previous?.characterNames, ...result.characterNames },
         userNames: { ...previous?.userNames, ...result.userNames },
+        messageSources: { ...previous?.messageSources, ...result.messageSources },
       }));
     } catch (cause) {
       setError(errorText(cause));
@@ -105,6 +112,7 @@ export function ConversationLog({
           messages={messages}
           characterNames={{ ...older?.characterNames, ...page.characterNames }}
           userNames={{ ...older?.userNames, ...page.userNames }}
+          messageSources={{ ...older?.messageSources, ...page.messageSources }}
         />
       )}
     </div>

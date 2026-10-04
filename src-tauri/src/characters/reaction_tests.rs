@@ -279,6 +279,7 @@ fn personal_wordbook_motion_uses_current_speaker_while_legacy_absent_slots_still
         lines: vec![scene("a")],
         enabled: true,
         use_for_idle: false,
+        group: None,
     };
     crate::wordbook::save(&conn, &entry).unwrap();
     entry.lines[0].persona = "h".into();
