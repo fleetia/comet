@@ -50,29 +50,27 @@ export function MotionSelect({
   const error = motionError(value, clips, once);
   return (
     <div className={s.container}>
-      <FormField label="동작">
-        <Select
-          aria-label={`${label} 동작`}
-          value={selected}
-          onChange={(event) => {
-            const id = event.target.value;
-            if (id === "inherit") onChange(undefined);
-            else if (id === "static") onChange({ mode: "static" });
-            else onChange({ mode: "clip", clipId: id.slice(5), repeat: !once, intervalMs: 0 });
-          }}
-        >
-          <option value="inherit">기본 연결 사용</option>
-          <option value="static">동작 없음 · 정적 표정</option>
-          {value?.mode === "clip" && !clips.some((clip) => clip.id === value.clipId) && (
-            <option value={`clip:${value.clipId}`}>없는 동작 · 다시 선택</option>
-          )}
-          {clips.map((clip) => (
-            <option key={clip.id} value={`clip:${clip.id}`}>
-              {clip.name || "이름 없는 동작"}
-            </option>
-          ))}
-        </Select>
-      </FormField>
+      <Select
+        aria-label={`${label} 동작`}
+        value={selected}
+        onChange={(event) => {
+          const id = event.target.value;
+          if (id === "inherit") onChange(undefined);
+          else if (id === "static") onChange({ mode: "static" });
+          else onChange({ mode: "clip", clipId: id.slice(5), repeat: !once, intervalMs: 0 });
+        }}
+      >
+        <option value="inherit">기본 연결 사용</option>
+        <option value="static">동작 없음 · 정적 표정</option>
+        {value?.mode === "clip" && !clips.some((clip) => clip.id === value.clipId) && (
+          <option value={`clip:${value.clipId}`}>없는 동작 · 다시 선택</option>
+        )}
+        {clips.map((clip) => (
+          <option key={clip.id} value={`clip:${clip.id}`}>
+            {clip.name || "이름 없는 동작"}
+          </option>
+        ))}
+      </Select>
       {value?.mode === "clip" &&
         (once ? (
           <span className={s.hint}>한 번 재생</span>
