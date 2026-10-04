@@ -99,6 +99,8 @@ pub struct Settings {
     pub api_token_parameter: String,
     #[serde(default = "default_autonomous_enabled")]
     pub autonomous_enabled: bool,
+    #[serde(default)]
+    pub random_presence_enabled: bool,
     pub local_idle_enabled: bool,
     pub api_idle_enabled: bool,
     pub idle_minutes: u32,
@@ -121,6 +123,7 @@ impl Default for Settings {
             api_model: String::new(),
             api_token_parameter: "max_completion_tokens".into(),
             autonomous_enabled: true,
+            random_presence_enabled: false,
             local_idle_enabled: false,
             api_idle_enabled: false,
             idle_minutes: 2,
@@ -322,6 +325,8 @@ pub struct RuntimeStatus {
     pub error: Option<String>,
     pub download: Option<DownloadProgress>,
     pub hidden: bool,
+    #[serde(default)]
+    pub present_character_ids: Vec<String>,
     pub paused: bool,
     /// Milliseconds; `None` for an open-ended pause. Kept in memory like `paused`.
     #[serde(default)]
@@ -336,6 +341,7 @@ impl Default for RuntimeStatus {
             error: None,
             download: None,
             hidden: false,
+            present_character_ids: Vec::new(),
             paused: false,
             paused_until: None,
         }

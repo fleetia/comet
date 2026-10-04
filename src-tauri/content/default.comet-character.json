@@ -1,5 +1,5 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 6,
   "name": "A와 B",
   "author": "Comet",
   "license": "",
@@ -28,6 +28,18 @@
           "expression": "평온",
           "text": "잠깐 쉬어 가도 좋겠다."
         }
+      ],
+      "departureLines": [
+        {
+          "expression": "호기심",
+          "text": "잠깐 다녀올게. 돌아오면 또 이야기하자."
+        }
+      ],
+      "returnLines": [
+        {
+          "expression": "기쁨",
+          "text": "다녀왔어. 다시 같이 있을게."
+        }
       ]
     },
     {
@@ -53,6 +65,18 @@
         {
           "expression": "평온",
           "text": "여기서 조용히 같이 있을게."
+        }
+      ],
+      "departureLines": [
+        {
+          "expression": "평온",
+          "text": "잠깐 자리를 비울게. 곧 올게."
+        }
+      ],
+      "returnLines": [
+        {
+          "expression": "평온",
+          "text": "돌아왔어. 조용히 다시 같이 있자."
         }
       ]
     }

@@ -44,6 +44,7 @@ pub struct Registry {
 pub struct EvalContext {
     pub values: BTreeMap<String, Value>,
     pub active: Vec<String>,
+    pub visible: Vec<String>,
     pub available: BTreeSet<String>,
     pub now_ms: i64,
     pub seed: u64,

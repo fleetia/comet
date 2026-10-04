@@ -1382,3 +1382,27 @@ Windows 네이티브 실행, 실제 외부 계정 OAuth·일정 조회·OS 알�
 현재 소스로 `corepack pnpm check`, 기존 `Diary.test.tsx`·`DiaryCalendar.test.tsx` 13개 테스트, 변경 컴포넌트의 Oxfmt와 `git diff --check`를 통과했다. 같은 Navigation QA identifier로 macOS debug 앱을 다시 빌드하고 코드 서명 검증을 통과했다. 실제 창에서 정리된 목차, 상단 주간 → 월간 → 하루 전환, 작은 달력의 10월 7일 선택을 확인했다. Windows·외부 계정·모델 의미 품질은 이번 검증 범위가 아니다.
 
 정상 실행 확인 후 종료된 `Comet Diary QA.app`과 이번 재빌드 전 Navigation QA 백업 번들을 휴지통으로 옮겼다. 앞 단계의 다이어리 이전 빌드 정리 대기는 해소했다. 최신 `Comet Diary Navigation QA.app`은 실행해 두었으며, 별도 작업 중인 `Comet Settings Hierarchy QA.app`과 사용자 설치본·모든 데이터·설정·팩·모델·빌드 캐시는 보존했다.
+
+## 캐릭터의 가끔 자리 비우기 · 2026-10-04
+
+[바탕화면 출입 계약](product/desktop.md#랜덤-출현)에 따라 자동 대화 설정에 기본 꺼짐인 **가끔 자리 비우기**를 추가했다. 함께 지내는 명단과 순서는 유지하면서 현재 보이는 캐릭터만 무작위로 바꾼다. 한 명뿐이어도 떠날 수 있고, 전원 부재 중에는 자동 대화를 멈추되 귀환 예약은 계속한다. 떠남 대사는 보이는 동안 말한 뒤 본체·표정을 감추고, 복귀는 본체를 먼저 보인 뒤 말한다. 캐릭터마다 1~8줄씩 직접 편집하는 대사를 저장·복제·공유한다. 기존 캐릭터·v1~v5 팩에는 기본 대사를 제공하고, 기본값과 다른 출입 대사를 담은 팩은 JSON v6로 내보낸다. 출입에는 모델이나 API가 필요 없다.
+
+자동 장면·단어장·`.talk`·LLM 준비 장면은 부재 화자를 건너뛰거나 재생 전에 취소하고, 사용자가 부재 친구를 직접 부르면 즉시 표시해 직접 요청을 우선한다. 드래그·진행 중인 대사·집중·전체 숨김·일시정지·상위 자동 대화 해제·구성 변경의 중단 경계를 함께 처리했다. 캐릭터의 임시 출입은 명단·원문·기억·친밀도·설치 팩·본체 위치를 초기화하지 않는다. 출입 간격은 일반 빌드에서 4~10분이며, 별도 식별자의 debug QA 앱에서만 15~30초로 단축했다.
+
+### 현재 소스 검증
+
+| 범위 | 결과 |
+| --- | --- |
+| 프런트엔드 | `corepack pnpm check`, Vite production build, Vitest 전체 70파일·504테스트 통과. 변경 UI 파일의 Oxfmt 검사 통과 |
+| Rust | `cargo test --locked --manifest-path src-tauri/Cargo.toml --lib --quiet`: 640개 통과, 5개 무시, 실패 0개. 캐릭터 팩 호환, 전원 부재 뒤 귀환, 중단·화자 선택 회귀 포함 |
+| Clippy | `cargo clippy --locked --manifest-path src-tauri/Cargo.toml --lib --all-targets -- -D warnings -A clippy::too-many-arguments` 통과. `desktop_toys.rs::open_one`의 기존 인자 수 경고만 허용한 결과 |
+| 문서·형식 | 위키 `docs:check`·`docs:build`, 변경 파일 형식 및 `git diff --check` 통과 |
+| macOS 패키지 | 현재 소스의 별도 debug QA 앱 빌드, `codesign --verify --deep --strict`, bundle identifier 확인 통과 |
+
+### 실제 macOS 실행
+
+QA 앱은 `src-tauri/target/debug/bundle/macos/Comet Character Presence QA.app`, identifier는 `space.starlight.comet.presence-qa`다. 최종 실행 파일 SHA-256은 `0d84f0d0c419f3bb42efd94ca5fe910d1b8f4098c10c9bdfa33acfbd4b911f7b`다. 별도 새 프로필에서 이름을 등록하고 위젯 없이 시작했다. **캐릭터 → 대사·반응**에서 별꼬리의 떠남을 `별꼬리, 잠깐 산책 다녀올게!`, 복귀를 `별꼬리 돌아왔어! 다시 놀자.`로 수정해 저장하고 **자동 대화 → 가끔 자리 비우기**를 켰다. QA SQLite를 읽기 전용으로 열어 옵션과 두 문구의 저장을 확인했다.
+
+첫 실행에서는 퇴장 대사 표시 뒤 전원 부재 상태가 장난감 동작의 `Suspended` 경계에 걸려 귀환 타이머가 실행되지 않는 문제를 발견했다. 전원 부재이고 귀환 시각이 지난 경우에만 해당 경계를 통과하도록 수정하고 Rust 회귀를 추가한 뒤 같은 QA 앱을 다시 빌드했다. 최종 앱의 표시 기록에는 퇴장 대사 `shown_at=1791124597160`과 약 21초 뒤 복귀 대사 `shown_at=1791124618165`가 있다. 퇴장 뒤에는 UI 도구가 QA 앱의 보이는 창을 찾지 못했고, 복귀 뒤에는 별꼬리 본체 창과 스프라이트를 실제 화면에서 다시 확인했다. 이후 집중된 말풍선에서 ⌘Q로 종료해 프로세스가 없어진 것을 확인하고 재실행했다. 별꼬리 창이 처음부터 다시 보였고, 옵션·두 문구·표시 기록이 유지됐으며 읽기 전용 `PRAGMA integrity_check`는 `ok`였다.
+
+사용자 설치본·DB·설정·캐릭터팩·모델·빌드 캐시는 바꾸지 않았다. 정상 실행을 확인한 뒤 종료된 이전 `Comet PR17 Conflict QA.app` 번들만 휴지통으로 옮겨 `target`의 앱 번들은 최신 QA 앱 하나만 남겼다. 첫 재빌드에서 공간 부족으로 생긴 미완성 Rust 아카이브만 제거하고 성공적으로 재빌드했다. Windows 실기, release notarization·설치/업데이트, 외부 계정과 LLM 의미 품질은 이번 검증에 포함하지 않는다.

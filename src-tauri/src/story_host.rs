@@ -46,7 +46,8 @@ pub fn advance(state: &AppState, at: Instant) -> Result<bool, String> {
         *lock(&state.story_catalog)? = catalog;
     }
     let seed = uuid::Uuid::new_v4().as_u128() as u64;
-    let mut personas = crate::characters::active_ids(&db)?;
+    let mut personas =
+        crate::app::presence::present_ids(state, &crate::characters::active_ids(&db)?)?;
     if !personas.is_empty() {
         let offset = seed as usize % personas.len();
         personas.rotate_left(offset);

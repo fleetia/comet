@@ -1,6 +1,7 @@
 use super::{
-    slot_index, CharacterDefinition, CharacterPack, PackSprite, Result, BALLOON_FONT_SIZE_RANGE,
-    BALLOON_SPRITE, DEFAULT_EXPRESSION, MAX_PACK_BYTES, MAX_ROSTER, SLOTS, SPRITE_SIZE_RANGE,
+    default_departure_lines, default_return_lines, slot_index, CharacterDefinition, CharacterPack,
+    PackSprite, Result, BALLOON_FONT_SIZE_RANGE, BALLOON_SPRITE, DEFAULT_EXPRESSION,
+    MAX_PACK_BYTES, MAX_ROSTER, SLOTS, SPRITE_SIZE_RANGE,
 };
 use crate::character_animation as animation;
 use crate::character_reactions as reactions;
@@ -36,6 +37,8 @@ pub(crate) fn validate_definition(definition: &CharacterDefinition) -> Result<()
             .any(|(key, value)| !valid_expression_key(key) || !bounded(value, 40, true))
         || !(1..=8).contains(&definition.greeting.len())
         || !(1..=32).contains(&definition.idle_lines.len())
+        || !(1..=8).contains(&definition.departure_lines.len())
+        || !(1..=8).contains(&definition.return_lines.len())
     {
         return Err("캐릭터 이름·정의·표정·대사 개수를 확인해 주세요.".into());
     }
@@ -61,7 +64,13 @@ pub(crate) fn validate_definition(definition: &CharacterDefinition) -> Result<()
             return Err("캐릭터 관계는 서로 다른 상대와 1~500자의 설명으로 설정해 주세요.".into());
         }
     }
-    for line in definition.greeting.iter().chain(&definition.idle_lines) {
+    for line in definition
+        .greeting
+        .iter()
+        .chain(&definition.idle_lines)
+        .chain(&definition.departure_lines)
+        .chain(&definition.return_lines)
+    {
         validate_line(&line.expression, &line.text)?;
         reactions::validate_motion(&line.motion, definition, false)?;
     }
@@ -133,6 +142,9 @@ pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
         return Err(
             "상황별 반응이나 대사 모션이 포함된 캐릭터팩은 버전 5 이상이어야 합니다.".into(),
         );
+    }
+    if pack.format_version < 6 && has_authored_presence_lines(pack) {
+        return Err("출발·귀환 대사가 포함된 캐릭터팩은 버전 6 이상이어야 합니다.".into());
     }
     if pack.format_version < 3
         && (!pack.animation_assets.is_empty()
@@ -221,7 +233,11 @@ pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
         }
         animation::validate_references(definition.animation.as_ref(), &assets)?;
     }
-    if serde_json::to_vec(pack).map_err(|e| e.to_string())?.len() > MAX_PACK_BYTES {
+    if serde_json::to_vec(&pack_wire_value(pack)?)
+        .map_err(|e| e.to_string())?
+        .len()
+        > MAX_PACK_BYTES
+    {
         return Err("캐릭터팩은 32 MiB 이하여야 합니다.".into());
     }
     Ok(())
@@ -370,6 +386,8 @@ pub(super) fn has_reactions_or_motion(pack: &CharacterPack) -> bool {
                 .greeting
                 .iter()
                 .chain(&definition.idle_lines)
+                .chain(&definition.departure_lines)
+                .chain(&definition.return_lines)
                 .any(|line| !line.motion.is_inherit())
     }) || pack
         .pair_scenes
@@ -379,12 +397,36 @@ pub(super) fn has_reactions_or_motion(pack: &CharacterPack) -> bool {
         .any(|line| !line.motion.is_inherit())
 }
 
-pub fn pack_json(pack: &CharacterPack) -> Result<String> {
-    validate_pack(pack)?;
+pub(super) fn has_authored_presence_lines(pack: &CharacterPack) -> bool {
+    pack.characters.iter().any(|definition| {
+        definition.departure_lines != default_departure_lines()
+            || definition.return_lines != default_return_lines()
+    })
+}
+
+fn pack_wire_value(pack: &CharacterPack) -> Result<serde_json::Value> {
     let mut value = serde_json::to_value(pack).map_err(|e| e.to_string())?;
+    if pack.format_version < 6 {
+        for definition in value["characters"]
+            .as_array_mut()
+            .ok_or("캐릭터 목록이 없습니다.")?
+        {
+            let fields = definition
+                .as_object_mut()
+                .ok_or("캐릭터 정의가 올바르지 않습니다.")?;
+            fields.remove("departureLines");
+            fields.remove("returnLines");
+        }
+    }
     if pack.format_version >= 2 {
         convert_pack_speakers(&mut value, true)?;
     }
+    Ok(value)
+}
+
+pub fn pack_json(pack: &CharacterPack) -> Result<String> {
+    validate_pack(pack)?;
+    let value = pack_wire_value(pack)?;
     let json = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
     if json.len() > MAX_PACK_BYTES {
         return Err("캐릭터팩은 32 MiB 이하여야 합니다.".into());

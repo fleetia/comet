@@ -63,6 +63,7 @@ pub(crate) fn state() -> AppState {
         last_preparation: AtomicI64::new(0),
         last_background_check: AtomicI64::new(0),
         idle_sequence: AtomicU64::new(0),
+        presence: Mutex::new(super::presence::Presence::default()),
         action: Mutex::new(()),
         automatic: AtomicBool::new(false),
         stopping: AtomicBool::new(false),
@@ -1060,8 +1061,18 @@ fn keyword_route_works_without_a_model_and_preserves_authored_lines() {
         },
     )
     .unwrap();
-    assert!(route_message(&state, &db, "수박", &characters::active_ids(&db).unwrap()).unwrap().is_some());
-    assert!(route_message(&state, &db, "다른 말", &characters::active_ids(&db).unwrap()).is_err());
+    assert!(
+        route_message(&state, &db, "수박", &characters::active_ids(&db).unwrap())
+            .unwrap()
+            .is_some()
+    );
+    assert!(route_message(
+        &state,
+        &db,
+        "다른 말",
+        &characters::active_ids(&db).unwrap()
+    )
+    .is_err());
     store::save_settings(
         &db,
         &Settings {
@@ -1072,7 +1083,14 @@ fn keyword_route_works_without_a_model_and_preserves_authored_lines() {
         },
     )
     .unwrap();
-    assert!(route_message(&state, &db, "다른 말", &characters::active_ids(&db).unwrap()).unwrap().is_none());
+    assert!(route_message(
+        &state,
+        &db,
+        "다른 말",
+        &characters::active_ids(&db).unwrap()
+    )
+    .unwrap()
+    .is_none());
     store::save_settings(
         &db,
         &Settings {
@@ -1083,7 +1101,13 @@ fn keyword_route_works_without_a_model_and_preserves_authored_lines() {
         },
     )
     .unwrap();
-    assert!(route_message(&state, &db, "다른 말", &characters::active_ids(&db).unwrap()).is_err());
+    assert!(route_message(
+        &state,
+        &db,
+        "다른 말",
+        &characters::active_ids(&db).unwrap()
+    )
+    .is_err());
 }
 
 #[test]
@@ -1221,11 +1245,17 @@ fn fresh_single_character_wordbook_routes_without_models() {
     state.app_data = directory.path().to_path_buf();
     let db = lock(&state.db).unwrap();
     let id = characters::active_ids(&db).unwrap().remove(0);
-    let greeting = route_message(&state, &db, "안녕", &characters::active_ids(&db).unwrap()).unwrap().unwrap();
+    let greeting = route_message(&state, &db, "안녕", &characters::active_ids(&db).unwrap())
+        .unwrap()
+        .unwrap();
     assert_eq!(greeting.len(), 1);
     assert_eq!(greeting[0].persona, id);
     assert_eq!(greeting[0].text, "안녕! 잠깐 이야기할까?");
-    assert!(route_message(&state, &db, "쉬자", &characters::active_ids(&db).unwrap()).unwrap().is_some());
+    assert!(
+        route_message(&state, &db, "쉬자", &characters::active_ids(&db).unwrap())
+            .unwrap()
+            .is_some()
+    );
 }
 
 #[test]
@@ -1261,7 +1291,13 @@ fn unavailable_wordbook_winner_is_reported_before_shorter_or_later_matches() {
     later.lines[0].persona = "a".into();
     wordbook::save(&db, &later).unwrap();
     let before = serde_json::to_value(wordbook::entries(&db).unwrap()).unwrap();
-    let error = route_message(&state, &db, "테스트키워드", &characters::active_ids(&db).unwrap()).unwrap_err();
+    let error = route_message(
+        &state,
+        &db,
+        "테스트키워드",
+        &characters::active_ids(&db).unwrap(),
+    )
+    .unwrap_err();
     assert!(error.contains("먼저 등록한 긴 항목"));
     assert!(error.contains("화자"));
     assert_eq!(
@@ -1271,13 +1307,29 @@ fn unavailable_wordbook_winner_is_reported_before_shorter_or_later_matches() {
     first.enabled = false;
     wordbook::save(&db, &first).unwrap();
     assert_eq!(
-        route_message(&state, &db, "테스트키워드", &characters::active_ids(&db).unwrap()).unwrap().unwrap()[0].text,
+        route_message(
+            &state,
+            &db,
+            "테스트키워드",
+            &characters::active_ids(&db).unwrap()
+        )
+        .unwrap()
+        .unwrap()[0]
+            .text,
         later.lines[0].text
     );
     later.enabled = false;
     wordbook::save(&db, &later).unwrap();
     assert_eq!(
-        route_message(&state, &db, "테스트키워드", &characters::active_ids(&db).unwrap()).unwrap().unwrap()[0].text,
+        route_message(
+            &state,
+            &db,
+            "테스트키워드",
+            &characters::active_ids(&db).unwrap()
+        )
+        .unwrap()
+        .unwrap()[0]
+            .text,
         short.lines[0].text
     );
 }

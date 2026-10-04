@@ -132,7 +132,9 @@ export function CharacterMemorySettings({
             <span className={s.quiet}>등록 대사</span>
             <span>
               인사 {character.definition.greeting.length}줄 · 수다{" "}
-              {character.definition.idleLines.length}줄 · 사건 반응{" "}
+              {character.definition.idleLines.length}줄 · 떠남{" "}
+              {character.definition.departureLines.length}줄 · 복귀{" "}
+              {character.definition.returnLines.length}줄 · 사건 반응{" "}
               {character.definition.reactions?.length ?? 0}개
             </span>
           </div>

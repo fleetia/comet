@@ -85,10 +85,11 @@ it("retains separate model and automatic drafts and only saves the chosen scope"
   });
   fireEvent.click(screen.getByRole("tab", { name: /자동 대화/ }));
   expect(screen.getByLabelText(/이야기 간격/)).toHaveProperty("value", "12");
+  fireEvent.click(screen.getByRole("checkbox", { name: "가끔 자리 비우기" }));
   fireEvent.click(screen.getByRole("button", { name: "자동 대화 저장" }));
   await waitFor(() =>
     expect(command).toHaveBeenLastCalledWith("save_settings", {
-      settings: { ...PREVIEW_SNAPSHOT.settings, idleMinutes: 12 },
+      settings: { ...PREVIEW_SNAPSHOT.settings, idleMinutes: 12, randomPresenceEnabled: true },
       scope: "automatic",
       apiKey: null,
     }),

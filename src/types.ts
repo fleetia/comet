@@ -4,15 +4,28 @@ export type MotionOverride =
   | { mode: "inherit" }
   | { mode: "static" }
   | { mode: "clip"; clipId: string; repeat: boolean; intervalMs: number };
-export type ReactionVariant = { id: string; text?: string; expression?: string; motion?: MotionOverride };
-export type ReactionRule = { id: string; event: string; variants: ReactionVariant[]; cooldownMs: number };
+export type ReactionVariant = {
+  id: string;
+  text?: string;
+  expression?: string;
+  motion?: MotionOverride;
+};
+export type ReactionRule = {
+  id: string;
+  event: string;
+  variants: ReactionVariant[];
+  cooldownMs: number;
+};
 export type CharacterReactionRun = {
   id: string;
   event: string;
   expression?: string;
   motion: MotionOverride;
 };
-export type ReactionPreview = { selection: { ruleId: string; variant: ReactionVariant; speechAllowed: boolean } | null; speechReason: string | null };
+export type ReactionPreview = {
+  selection: { ruleId: string; variant: ReactionVariant; speechAllowed: boolean } | null;
+  speechReason: string | null;
+};
 export type CharacterLine = { expression: string; text: string; motion?: MotionOverride };
 export type CharacterRelationship = { targetId: string; description: string };
 export type BalloonStyle = {
@@ -55,6 +68,8 @@ export type CharacterDefinition = {
   reactions?: ReactionRule[];
   greeting: CharacterLine[];
   idleLines: CharacterLine[];
+  departureLines: CharacterLine[];
+  returnLines: CharacterLine[];
 };
 export type SpriteInfo = { mime: string; updatedAt: number };
 export type InstalledCharacter = {
@@ -129,7 +144,16 @@ export type WordbookEntry = {
 };
 export type Playback = SceneLine & {
   id: string;
-  source: "script" | "llm" | "wordbook" | "widget" | "talk" | "story" | "question" | "reaction";
+  source:
+    | "script"
+    | "llm"
+    | "wordbook"
+    | "widget"
+    | "talk"
+    | "story"
+    | "question"
+    | "reaction"
+    | "presence";
   endsAt: number;
   textSpeed?: number;
   displayStartedAt?: number | null;
@@ -181,6 +205,7 @@ export type QuietHours = {
 export type Settings = {
   mode: "local" | "api";
   autonomousEnabled: boolean;
+  randomPresenceEnabled: boolean;
   localModel: LocalModel;
   localModelPath: string;
   localReasoningEnabled: boolean;
@@ -295,6 +320,7 @@ export type RuntimePhase =
 export type RuntimeStatus = {
   phase: RuntimePhase;
   persona: string | null;
+  presentCharacterIds: string[];
   error: string | null;
   download: {
     model: LocalModel;

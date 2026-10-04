@@ -52,6 +52,8 @@ function newDefinition(): CharacterDefinition {
     spriteSize: 64,
     greeting: [{ expression: "평온", text: "안녕. 만나서 반가워." }],
     idleLines: [{ expression: "평온", text: "잠깐 쉬어 갈까?" }],
+    departureLines: [{ expression: "평온", text: "잠깐 다녀올게." }],
+    returnLines: [{ expression: "기쁨", text: "다녀왔어!" }],
   };
 }
 
@@ -351,7 +353,13 @@ export function CharacterManager({
                         {changed && <span aria-label="미저장"> ·</span>}
                       </span>
                       <span className={s.itemStatus}>
-                        {order >= 0 ? `함께 · ${order + 1}` : "쉼"}
+                        {order < 0
+                          ? "쉼"
+                          : snapshot.settings.randomPresenceEnabled &&
+                              !snapshot.runtime.hidden &&
+                              !snapshot.runtime.presentCharacterIds.includes(character.id)
+                            ? `함께 · ${order + 1} · 자리 비움`
+                            : `함께 · ${order + 1}`}
                       </span>
                     </span>
                   </SelectableListRow>
@@ -371,6 +379,9 @@ export function CharacterManager({
             <div className={s.roster} aria-label="현재 바탕화면 구성">
               <p className={s.small}>
                 함께 지내기 {active.length} / {MAX_ROSTER}명
+                {snapshot.settings.randomPresenceEnabled &&
+                  !snapshot.runtime.hidden &&
+                  ` · 지금 ${snapshot.runtime.presentCharacterIds.length}명 표시`}
               </p>
               <Checkbox
                 checked={together}

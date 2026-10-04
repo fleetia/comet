@@ -58,6 +58,8 @@ fn fresh_install_starts_with_byulkkori_alone_as_a_removable_pack() {
     assert!(only.pack_id.is_some(), "installed as an ordinary pack");
     assert_eq!(only.sprites.len(), 9);
     assert!(only.definition.face_icon);
+    assert!(only.definition.departure_lines[0].text.contains("꼬리"));
+    assert!(only.definition.return_lines[0].text.contains("놀자"));
     let idle = idle_scene(&conn, 0).unwrap();
     assert_eq!(idle.len(), 1);
     assert_eq!(idle[0].persona, "a");
@@ -77,6 +79,16 @@ fn fresh_install_starts_with_byulkkori_alone_as_a_removable_pack() {
 
 #[test]
 fn legacy_factory_pair_keeps_a_and_b_and_local_dialogue() {
+    let factory = factory_pack();
+    assert_eq!(factory.format_version, 6);
+    assert_ne!(
+        factory.characters[0].departure_lines,
+        factory.characters[1].departure_lines
+    );
+    assert_ne!(
+        factory.characters[0].return_lines,
+        factory.characters[1].return_lines
+    );
     let conn = database();
     let current = collection(&conn).unwrap();
     assert_eq!(current.active, ["builtin-a", "builtin-b"]);
@@ -99,6 +111,15 @@ fn legacy_factory_pair_keeps_a_and_b_and_local_dialogue() {
 #[test]
 fn addon_keeps_public_profiles_and_greeting_alternatives_after_import() {
     let pack = nadir_pack();
+    assert_eq!(pack.format_version, 6);
+    assert_ne!(
+        pack.characters[0].departure_lines,
+        pack.characters[1].departure_lines
+    );
+    assert_ne!(
+        pack.characters[0].return_lines,
+        pack.characters[1].return_lines
+    );
     assert_eq!(pack.pair_scenes.len(), 5);
     for character in &pack.characters {
         assert_eq!(character.greeting.len(), 5);
@@ -532,6 +553,79 @@ fn legacy_character_json_defaults_to_empty_authored_context_and_default_balloon_
                 && character.definition.balloon_style == BalloonStyle::default()
         }));
     }
+}
+
+#[test]
+fn old_definitions_get_presence_lines_and_authored_lines_survive_save_clone_and_share() {
+    let mut old_pack = pack();
+    old_pack.format_version = 1;
+    let wire = pack_json(&old_pack).unwrap();
+    assert!(!wire.contains("departureLines"));
+    assert!(!wire.contains("returnLines"));
+    let old = parse_pack(&wire).unwrap();
+    assert!(old.characters.iter().all(|definition| {
+        definition.departure_lines == default_departure_lines()
+            && definition.return_lines == default_return_lines()
+    }));
+
+    let conn = database();
+    conn.execute(
+        "UPDATE characters SET data=json_remove(data,'$.departureLines','$.returnLines') WHERE id='builtin-a'",
+        [],
+    )
+    .unwrap();
+    let mut edited = get(&conn, "builtin-a").unwrap().definition;
+    assert_eq!(edited.departure_lines, default_departure_lines());
+    assert_eq!(edited.return_lines, default_return_lines());
+    let snapshot = serde_json::to_value(&edited).unwrap();
+    assert_eq!(snapshot["departureLines"][0]["text"], "잠깐 다녀올게.");
+    assert_eq!(snapshot["returnLines"][0]["text"], "다녀왔어.");
+    edited.departure_lines = vec![CharacterLine {
+        expression: "호기심".into(),
+        text: "  잠깐 볼일이 있어\n곧 돌아올게  ".into(),
+        motion: MotionOverride::default(),
+    }];
+    edited.return_lines = vec![CharacterLine {
+        expression: "기쁨".into(),
+        text: "다녀왔어!".into(),
+        motion: MotionOverride::default(),
+    }];
+    save(&conn, "builtin-a", &edited).unwrap();
+    let cloned = clone_character(&conn, "builtin-a").unwrap();
+    assert_eq!(cloned.definition.departure_lines, edited.departure_lines);
+    assert_eq!(cloned.definition.return_lines, edited.return_lines);
+
+    let exported = export_pack(&conn, &[cloned.id], &[]).unwrap();
+    assert_eq!(exported.format_version, 6);
+    let json = pack_json(&exported).unwrap();
+    let parsed = parse_pack(&json).unwrap();
+    let imported = import_pack(&conn, &parsed).unwrap().remove(0);
+    assert_eq!(imported.definition.departure_lines, edited.departure_lines);
+    assert_eq!(imported.definition.return_lines, edited.return_lines);
+    let mut older: serde_json::Value = serde_json::from_str(&json).unwrap();
+    older["formatVersion"] = 5.into();
+    assert!(parse_pack(&older.to_string()).is_err());
+}
+
+#[test]
+fn presence_lines_validate_count_expression_text_and_saved_state() {
+    let conn = database();
+    let original = get(&conn, "builtin-a").unwrap().definition;
+    let mut invalid = original.clone();
+    invalid.departure_lines.clear();
+    assert!(save(&conn, "builtin-a", &invalid).is_err());
+    invalid = original.clone();
+    invalid.return_lines = vec![invalid.return_lines[0].clone(); 9];
+    assert!(save(&conn, "builtin-a", &invalid).is_err());
+    invalid = original.clone();
+    invalid.departure_lines[0].expression = "$없는 표정".into();
+    assert!(save(&conn, "builtin-a", &invalid).is_err());
+    invalid = original.clone();
+    invalid.return_lines[0].text = " ".into();
+    assert!(save(&conn, "builtin-a", &invalid).is_err());
+    invalid.return_lines[0].text = "가".repeat(501);
+    assert!(save(&conn, "builtin-a", &invalid).is_err());
+    assert_eq!(get(&conn, "builtin-a").unwrap().definition, original);
 }
 
 #[test]

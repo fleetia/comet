@@ -42,6 +42,7 @@ fn context() -> EvalContext {
             ("todo.title".into(), json!("산책")),
         ]),
         active: vec!["first".into(), "second".into()],
+        visible: vec!["first".into(), "second".into()],
         available: BTreeSet::from(["weather".into(), "todo".into()]),
         now_ms: 100_000,
         seed: 1,
@@ -688,6 +689,7 @@ fn random_speakers_pick_distinct_active_slots_and_are_rejected_inside_a_cast() {
     );
     let mut input = context();
     input.active = vec!["only".into()];
+    input.visible = input.active.clone();
     let alone = simulate(&program, &input, &History::new());
     assert!(alone.candidates.iter().any(
         |candidate| candidate.scene_id == "duo" && candidate.reason.starts_with("render_error")
@@ -695,6 +697,7 @@ fn random_speakers_pick_distinct_active_slots_and_are_rejected_inside_a_cast() {
     assert_eq!(alone.selected.unwrap().scene_id, "solo");
 
     input.active = (0..8).map(|index| format!("friend-{index}")).collect();
+    input.visible = input.active.clone();
     let duo = &program.scenes[0];
     let mut pairs = BTreeSet::new();
     for seed in 0..40 {
@@ -708,6 +711,21 @@ fn random_speakers_pick_distinct_active_slots_and_are_rejected_inside_a_cast() {
     let first = render_scene(&program, &duo.key, &input).unwrap().lines;
     let again = render_scene(&program, &duo.key, &input).unwrap().lines;
     assert_eq!(first[0].persona, again[0].persona);
+
+    input.visible = vec!["friend-2".into(), "friend-7".into()];
+    for seed in 0..40 {
+        input.seed = seed;
+        let lines = render_scene(&program, &duo.key, &input).unwrap().lines;
+        assert_eq!(
+            lines
+                .iter()
+                .map(|line| line.persona.clone())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["c".to_string(), "h".to_string()])
+        );
+    }
+    input.visible = vec!["friend-7".into()];
+    assert!(render_scene(&program, &duo.key, &input).is_none());
 
     for (source, code) in [
         (

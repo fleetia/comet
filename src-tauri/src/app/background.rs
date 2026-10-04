@@ -1,4 +1,5 @@
 use super::lifecycle::flush_positions;
+use super::presence;
 use super::scene::{next_scene, run_scene};
 use super::unavailable;
 use super::{is_current, lock, now, phase, schedule_idle, tasks, AppState};
@@ -72,6 +73,21 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
             continue;
         }
         if behavior::reactions_blocked(&state).unwrap_or(true) {
+            // An empty desktop suspends toy behavior, but a due return must still run.
+            // Playing toys and other suspended states keep their usual gate.
+            if lock(&state.behavior)
+                .map(|machine| machine.phase == behavior::Phase::Suspended)
+                .unwrap_or(false)
+                && presence::all_absent_return_due(&state).unwrap_or(false)
+                && crate::desktop_toys::current_geometry(&app)
+                    .await
+                    .is_ok_and(|geometry| !geometry.fullscreen)
+                && lock(&state.behavior)
+                    .map(|machine| machine.phase == behavior::Phase::Suspended)
+                    .unwrap_or(false)
+            {
+                let _ = presence::tick(&app, &state);
+            }
             continue;
         }
         if play_widget_reaction(&app, &state).unwrap_or(false) {
@@ -79,6 +95,9 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         }
         if expire_idle_recall(&state, chrono::Utc::now().timestamp_millis()).unwrap_or(false) {
             super::publish(&app, &state);
+        }
+        if presence::tick(&app, &state).unwrap_or(false) {
+            continue;
         }
         if let Ok(Some((epoch, cancel))) = begin_background(&state) {
             let worker_app = app.clone();
@@ -140,6 +159,9 @@ pub(crate) fn begin_background(state: &AppState) -> Result<Option<(u64, Arc<Atom
     let settings = {
         let db = lock(&state.db)?;
         if storage::focus_active(&db, chrono::Utc::now().timestamp_millis())? {
+            return Ok(None);
+        }
+        if presence::present_ids(state, &characters::active_ids(&db)?)?.is_empty() {
             return Ok(None);
         }
         store::settings(&db)?
@@ -328,6 +350,17 @@ pub(crate) async fn run_background(
     if !ready {
         return Ok(());
     }
+    let present = presence::present_ids(
+        state,
+        &characters
+            .iter()
+            .map(|member| member.id.clone())
+            .collect::<Vec<_>>(),
+    )?;
+    let characters: Vec<_> = characters
+        .into_iter()
+        .filter(|member| present.contains(&member.id))
+        .collect();
     let targets: Vec<String> = characters.iter().map(|member| member.id.clone()).collect();
     if targets.is_empty() {
         return Ok(());

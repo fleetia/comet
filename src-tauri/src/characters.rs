@@ -40,6 +40,20 @@ pub const SLOTS: [&str; 8] = ["a", "b", "c", "d", "e", "f", "g", "h"];
 fn default_sprite_size() -> u32 {
     DEFAULT_SPRITE_SIZE
 }
+fn default_departure_lines() -> Vec<CharacterLine> {
+    vec![CharacterLine {
+        expression: DEFAULT_EXPRESSION.into(),
+        text: "잠깐 다녀올게.".into(),
+        motion: MotionOverride::default(),
+    }]
+}
+fn default_return_lines() -> Vec<CharacterLine> {
+    vec![CharacterLine {
+        expression: DEFAULT_EXPRESSION.into(),
+        text: "다녀왔어.".into(),
+        motion: MotionOverride::default(),
+    }]
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -105,6 +119,10 @@ pub struct CharacterDefinition {
     pub reactions: Vec<ReactionRule>,
     pub greeting: Vec<CharacterLine>,
     pub idle_lines: Vec<CharacterLine>,
+    #[serde(default = "default_departure_lines")]
+    pub departure_lines: Vec<CharacterLine>,
+    #[serde(default = "default_return_lines")]
+    pub return_lines: Vec<CharacterLine>,
 }
 fn discard_legacy_version<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
@@ -226,7 +244,10 @@ pub(crate) fn factory_pack() -> CharacterPack {
 
 #[cfg(test)]
 fn builtin(slot: &str) -> CharacterDefinition {
-    factory_pack().characters.remove(usize::from(slot != "a"))
+    let mut definition = factory_pack().characters.remove(usize::from(slot != "a"));
+    definition.departure_lines = default_departure_lines();
+    definition.return_lines = default_return_lines();
+    definition
 }
 
 pub(crate) fn nadir_pack() -> CharacterPack {
@@ -954,6 +975,8 @@ pub fn export_pack_with_options(
                 .greeting
                 .iter_mut()
                 .chain(&mut definition.idle_lines)
+                .chain(&mut definition.departure_lines)
+                .chain(&mut definition.return_lines)
             {
                 line.motion = line.motion.without_images();
             }
@@ -976,7 +999,9 @@ pub fn export_pack_with_options(
             line.motion = line.motion.without_images();
         }
     }
-    pack.format_version = if validation::has_state_bindings(&pack) {
+    pack.format_version = if validation::has_state_bindings(&pack)
+        || validation::has_authored_presence_lines(&pack)
+    {
         6
     } else if validation::has_reactions_or_motion(&pack) {
         5

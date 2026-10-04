@@ -276,8 +276,10 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
     }
     let db = lock(&state.db)?;
     let preferences = preferences(&db)?;
+    let present = crate::app::presence::present_ids(state, &crate::characters::active_ids(&db)?)?;
     let epoch = state.epoch.load(Ordering::SeqCst);
     let (blocked, conversation, waiting) = tick_conditions(state, &db, fullscreen, timestamp)?;
+    let blocked = blocked || present.is_empty();
     let mut machine = lock(&state.behavior)?;
     if !preferences.pranks_enabled && machine.actor.take().is_some() {
         desktop_toys::clear_automatic(app);
@@ -352,7 +354,7 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
             eligible.get((entropy as usize) % eligible.len().max(1)),
             geometry.as_ref(),
         ) {
-            let owner = crate::characters::collection(&db)?.active.first().cloned();
+            let owner = present.first().cloned();
             let actor = desktop_toys::open(
                 app,
                 &instance.id,

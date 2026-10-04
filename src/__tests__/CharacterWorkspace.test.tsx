@@ -127,6 +127,23 @@ it("separates six editing tabs and keeps the selected tab when changing characte
   );
 });
 
+it("shows an empty temporary presence without changing the active roster", () => {
+  render(
+    <CharacterManager
+      embedded
+      snapshot={{
+        ...snapshot,
+        settings: { ...snapshot.settings, randomPresenceEnabled: true },
+        runtime: { ...snapshot.runtime, presentCharacterIds: [] },
+      }}
+    />,
+  );
+  const list = within(screen.getByLabelText("설치된 캐릭터"));
+  expect(list.getAllByText(/자리 비움/)).toHaveLength(2);
+  expect(screen.getByText(/함께 지내기 2 \/ 8명 · 지금 0명 표시/)).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "함께 지내기" })).toHaveProperty("checked", true);
+});
+
 it("retains exact per-character drafts across selection and snapshot changes after a save failure", async () => {
   const onDirtyChange = vi.fn();
   const { rerender } = render(
@@ -157,6 +174,12 @@ it("retains exact per-character drafts across selection and snapshot changes aft
   panel = selectPanel("대사·반응");
   fireEvent.change(panel.getByLabelText("인사 1 대사"), {
     target: { value: "  안녕.\n반가워.  " },
+  });
+  fireEvent.change(panel.getByLabelText("떠남 1 대사"), {
+    target: { value: "  산책 다녀올게.\n금방 올게.  " },
+  });
+  fireEvent.change(panel.getByLabelText("복귀 1 대사"), {
+    target: { value: "  다시 왔어!  " },
   });
   choose(/^B/);
   panel = selectPanel("말풍선");
@@ -201,6 +224,14 @@ it("retains exact per-character drafts across selection and snapshot changes aft
     "value",
     "  안녕.\n반가워.  ",
   );
+  expect(panel.getByRole("textbox", { name: "떠남 1 대사" })).toHaveProperty(
+    "value",
+    "  산책 다녀올게.\n금방 올게.  ",
+  );
+  expect(panel.getByRole("textbox", { name: "복귀 1 대사" })).toHaveProperty(
+    "value",
+    "  다시 왔어!  ",
+  );
   vi.mocked(command).mockImplementation(async (name) => {
     if (name === "save_character") {
       throw new Error("저장 실패");
@@ -226,6 +257,15 @@ it("retains exact per-character drafts across selection and snapshot changes aft
       greeting: [
         { ...snapshot.characters.installed[0].definition.greeting[0], text: "  안녕.\n반가워.  " },
         ...snapshot.characters.installed[0].definition.greeting.slice(1),
+      ],
+      departureLines: [
+        {
+          ...snapshot.characters.installed[0].definition.departureLines[0],
+          text: "  산책 다녀올게.\n금방 올게.  ",
+        },
+      ],
+      returnLines: [
+        { ...snapshot.characters.installed[0].definition.returnLines[0], text: "  다시 왔어!  " },
       ],
     }),
   });
@@ -505,7 +545,7 @@ it("preserves separate keyword drafts when switching characters or visiting a ne
   fireEvent.change(screen.getByRole("textbox", { name: "대사 1" }), {
     target: { value: "  쓰던 인사\n반가워  " },
   });
-  fireEvent.click(screen.getByRole("button", { name: "인사·자동 수다" }));
+  fireEvent.click(screen.getByRole("button", { name: "인사·수다·출입" }));
   selectTab("프로필");
   selectTab("말풍선");
   selectTab("대사·반응");
@@ -515,7 +555,7 @@ it("preserves separate keyword drafts when switching characters or visiting a ne
   fireEvent.change(screen.getByRole("textbox", { name: "제목" }), {
     target: { value: "둘째 친구 인사" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "인사·자동 수다" }));
+  fireEvent.click(screen.getByRole("button", { name: "인사·수다·출입" }));
   fireEvent.click(screen.getByRole("button", { name: /^추가$/ }));
   choose(/^A/);
   fireEvent.click(screen.getByRole("button", { name: "키워드" }));
@@ -538,7 +578,7 @@ it("preserves separate keyword drafts when switching characters or visiting a ne
       }),
     }),
   );
-  fireEvent.click(screen.getByRole("button", { name: "인사·자동 수다" }));
+  fireEvent.click(screen.getByRole("button", { name: "인사·수다·출입" }));
   expect(onDirtyChange).toHaveBeenLastCalledWith(true);
   choose(/^B/);
   fireEvent.click(screen.getByRole("button", { name: "키워드" }));

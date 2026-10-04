@@ -109,7 +109,7 @@ it("keeps reaction candidates and ordinary line motion in the character draft ac
   });
   expect(screen.queryByLabelText("반응 1 후보 1 반복")).toBeNull();
   fireEvent.change(screen.getByLabelText("반응 1 대사 쿨다운(초)"), { target: { value: "4.5" } });
-  fireEvent.click(button("인사·자동 수다"));
+  fireEvent.click(button("인사·수다·출입"));
   fireEvent.change(screen.getByLabelText("인사 1 동작"), { target: { value: "static" } });
   fireEvent.click(
     within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^B/ }),

@@ -5,6 +5,7 @@ pub(crate) mod conversation;
 mod history;
 pub(crate) mod launcher;
 pub(crate) mod lifecycle;
+pub(crate) mod presence;
 pub(crate) mod quiet_hours;
 pub(crate) mod scene;
 mod settings;
@@ -68,6 +69,7 @@ pub(crate) struct AppState {
     pub(crate) last_preparation: AtomicI64,
     pub(crate) last_background_check: AtomicI64,
     pub(crate) idle_sequence: AtomicU64,
+    pub(crate) presence: Mutex<presence::Presence>,
     pub(crate) action: Mutex<()>,
     pub(crate) automatic: AtomicBool,
     pub(crate) stopping: AtomicBool,
@@ -108,6 +110,10 @@ pub(crate) fn open_session(path: &std::path::Path) -> Result<Connection, String>
 pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
     let db = lock(&state.db)?;
     let settings = store::settings(&db)?;
+    let characters = characters::collection(&db)?;
+    let present_character_ids = presence::present_ids(state, &characters.active)?;
+    let mut runtime = lock(&state.runtime)?.clone();
+    runtime.present_character_ids = present_character_ids;
     Ok(Snapshot {
         has_api_key: inference::has_api_key(&settings),
         model_ready: models::selected_ready(&state.app_data, &settings),
@@ -123,7 +129,7 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
         memory_revision: store::memory_revision(&db)?,
         relationships: store::relationships(&db)?,
         prepared_count: store::prepared_scenes(&db)?.len(),
-        runtime: lock(&state.runtime)?.clone(),
+        runtime,
         playback: lock(&state.playback)?.clone(),
         panel: lock(&state.panel)?.clone(),
         conversation: store::active_conversation(&db)?
@@ -131,7 +137,7 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
             .transpose()?,
         story: lock(&state.story)?.clone(),
         wordbook: wordbook::entries(&db)?,
-        characters: characters::collection(&db)?,
+        characters,
         message_identities: store::message_identities(&db, 100)?,
         message_user_names: store::message_user_names(&db, 100)?,
     })
