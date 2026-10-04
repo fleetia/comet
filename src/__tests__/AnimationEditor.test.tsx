@@ -65,13 +65,17 @@ function latestSave(): { definition: CharacterDefinition; animationAssets?: Anim
   return args as { definition: CharacterDefinition; animationAssets?: AnimationAsset[] };
 }
 
-it("saves ordered frames and situation mappings atomically", async () => {
+it("keeps advanced animation editing collapsed by default and saves retained drafts atomically", async () => {
   vi.mocked(command).mockImplementation(async (name) => {
     if (name === "choose_animation_assets") return [first, second, third];
     if (name === "get_character_dialogue") return { pairScenes: [], wordbook: [] };
   });
   render(<CharacterManager embedded snapshot={PREVIEW_SNAPSHOT} />);
+  const summary = appearance().getByText("고급: 애니메이션 편집");
+  const advanced = summary.closest("details");
+  expect(advanced).toHaveProperty("open", false);
   const editor = createClip();
+  expect(advanced).toHaveProperty("open", true);
   expect(editor.getByLabelText("동작 속도(fps)")).toHaveProperty("value", "8");
   expect(screen.getByRole("button", { name: "캐릭터 저장" })).toHaveProperty("disabled", true);
   fireEvent.click(
@@ -83,6 +87,16 @@ it("saves ordered frames and situation mappings atomically", async () => {
   fireEvent.click(editor.getByLabelText("3번 프레임 앞으로"));
   fireEvent.click(editor.getByLabelText("3번 프레임 삭제"));
   fireEvent.change(editor.getByLabelText("동작 속도(fps)"), { target: { value: "12" } });
+  fireEvent.change(editor.getByLabelText("시트 칸 너비(px)"), { target: { value: "96" } });
+  fireEvent.click(summary);
+  await waitFor(() => expect(advanced).toHaveProperty("open", false));
+  fireEvent.click(screen.getByRole("tab", { name: "프로필" }));
+  fireEvent.click(screen.getByRole("tab", { name: "모습·표정" }));
+  expect(advanced).toHaveProperty("open", false);
+  fireEvent.click(summary);
+  await waitFor(() => expect(advanced).toHaveProperty("open", true));
+  expect(editor.getByLabelText("시트 칸 너비(px)")).toHaveProperty("value", "96");
+  expect(editor.getByLabelText("동작 속도(fps)")).toHaveProperty("value", "12");
   const clipId = (editor.getByLabelText("편집할 동작") as HTMLSelectElement).value;
   fireEvent.change(editor.getByLabelText("평소 동작"), { target: { value: clipId } });
   expect(editor.getByLabelText("평소 반복 간격(초)")).toHaveProperty("value", "3");
