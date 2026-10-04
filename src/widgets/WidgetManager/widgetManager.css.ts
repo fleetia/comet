@@ -503,3 +503,13 @@ globalStyle(`${settings} .${tools.number}`, {
   textAlign: "left",
   color: vars.color.content.primary,
 });
+
+export const experiments = style({
+  flexShrink: 0,
+  padding: vars.space.sm,
+  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
+  maxHeight: "40%",
+  overflowY: "auto",
+});
+globalStyle(`${experiments} > summary`, { cursor: "pointer" });
+globalStyle(`${experiments}[open] > :not(summary)`, { marginTop: vars.space.sm });

@@ -191,22 +191,37 @@ fn planner_batch_is_atomic_and_frequency_records_are_idempotent() {
 }
 
 #[test]
-fn first_run_can_skip_without_installing_packages() {
+fn widget_onboarding_is_read_compatible_and_installation_never_writes_it() {
     let db = database();
+    let directory = tempfile::tempdir().unwrap();
     let before = storage::snapshot(&db).unwrap();
-    assert_eq!(before.catalog.len(), 16);
+    assert_eq!(before.catalog.len(), 14);
     assert!(before.widgets.is_empty());
     assert!(!before.onboarding_done);
-    storage::finish_onboarding(&db).unwrap();
+    install(&db, directory.path(), &["memo"]);
+    let count: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM widget_preferences WHERE key='onboarding'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 0);
+    db.execute(
+        "INSERT INTO widget_preferences VALUES('onboarding','done')",
+        [],
+    )
+    .unwrap();
     assert!(storage::snapshot(&db).unwrap().onboarding_done);
-    assert!(storage::instances(&db).unwrap().is_empty());
+    install(&db, directory.path(), &["todo"]);
+    assert!(storage::snapshot(&db).unwrap().onboarding_done);
 }
 
 #[test]
 fn desktop_outcomes_preserve_legacy_data_and_reject_removed_revisions() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["ball", "journal"]);
+    install(&db, directory.path(), &["ball"]);
     let original = instance(&db, "ball");
     let draft = || super::EventDraft {
         kind: "desktop.ball.stopped".into(),
@@ -224,7 +239,7 @@ fn desktop_outcomes_preserve_legacy_data_and_reject_removed_revisions() {
     .unwrap());
     assert_eq!(instance(&db, "ball").data, original.data);
     assert_eq!(instance(&db, "ball").revision, original.revision);
-    let journal = storage::journal(&db, None).unwrap();
+    let journal = storage::journal(&db, None, i64::MIN, i64::MAX).unwrap();
     assert_eq!(journal[0].1.event.text, "공이 멈췄어요.");
     assert_eq!(
         journal[0].1.event.payload,
@@ -256,14 +271,14 @@ fn desktop_outcomes_preserve_legacy_data_and_reject_removed_revisions() {
         })
         .unwrap();
     assert_eq!(count, 0);
-    assert!(storage::journal(&db, None).unwrap().is_empty());
+    assert!(storage::journal(&db, None, i64::MIN, i64::MAX).unwrap().is_empty());
 }
 
 #[test]
 fn clearing_automatic_desktop_reactions_preserves_manual_timer_and_journal() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["ball", "journal", "focus-timer"]);
+    install(&db, directory.path(), &["ball", "focus-timer"]);
     let ball = instance(&db, "ball");
     for automatic in [true, false] {
         storage::record_desktop_result(
@@ -294,7 +309,7 @@ fn clearing_automatic_desktop_reactions_preserves_manual_timer_and_journal() {
         1001,
     )
     .unwrap();
-    let before = storage::journal(&db, None).unwrap();
+    let before = storage::journal(&db, None, i64::MIN, i64::MAX).unwrap();
     storage::discard_automatic_desktop_pending(&db).unwrap();
     let pending: Vec<String> = db
         .prepare("SELECT data FROM widget_events WHERE pending=1")
@@ -316,7 +331,7 @@ fn clearing_automatic_desktop_reactions_preserves_manual_timer_and_journal() {
         .any(|event| event.event.kind == "desktop.ball.stopped"
             && event.event.payload["automatic"] == false));
     assert_eq!(
-        serde_json::to_value(storage::journal(&db, None).unwrap()).unwrap(),
+        serde_json::to_value(storage::journal(&db, None, i64::MIN, i64::MAX).unwrap()).unwrap(),
         serde_json::to_value(before).unwrap()
     );
     let count: i64 = db
@@ -613,14 +628,13 @@ fn disabled_and_restarted_widgets_do_not_replay_pending_reactions() {
 }
 
 #[test]
-fn event_cleanup_preserves_opted_in_journal_and_request_deduplication() {
+fn event_cleanup_preserves_diary_history_without_a_journal_widget_and_request_deduplication() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
     install(&db, directory.path(), &["small-match"]);
     let old = request(&db, "small-match", "dice", json!({}));
     storage::execute(&db, &old, 100, 1).unwrap();
     storage::take_reaction(&db, 101).unwrap();
-    install(&db, directory.path(), &["journal"]);
     act(&db, "small-match", "dice", json!({}), 200, 2);
     storage::take_reaction(&db, 201).unwrap();
     storage::advance(&db, 600_000).unwrap();
@@ -629,10 +643,10 @@ fn event_cleanup_preserves_opted_in_journal_and_request_deduplication() {
         .query_row("SELECT COUNT(*) FROM widget_events", [], |row| row.get(0))
         .unwrap();
     assert_eq!(
-        retained, 1,
-        "Only the opted-in journal event should remain after retention expires"
+        retained, 2,
+        "Diary events remain after reaction retention expires without installing a journal"
     );
-    assert_eq!(storage::journal(&db, None).unwrap().len(), 1);
+    assert_eq!(storage::journal(&db, None, i64::MIN, i64::MAX).unwrap().len(), 2);
     storage::execute(&db, &old, 600_001, 99).unwrap();
     assert_eq!(instance(&db, "small-match").data["rounds"], 2);
 }
@@ -703,7 +717,7 @@ fn damaged_package_is_disabled_without_blocking_other_widgets_or_losing_data() {
 fn interaction_rejects_a_removed_slot_before_spending_snacks_or_recording_events() {
     let db = crate::store::open(Path::new(":memory:")).unwrap();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["interaction", "journal"]);
+    install(&db, directory.path(), &["interaction"]);
     let requested = request(&db, "interaction", "snack", json!({"character":"B"}));
     let before = instance(&db, "interaction");
     let first = crate::characters::active_ids(&db).unwrap()[0].clone();
@@ -712,7 +726,7 @@ fn interaction_rejects_a_removed_slot_before_spending_snacks_or_recording_events
     let after = instance(&db, "interaction");
     assert_eq!(after.data, before.data);
     assert_eq!(after.revision, before.revision);
-    assert!(storage::journal(&db, None).unwrap().is_empty());
+    assert!(storage::journal(&db, None, i64::MIN, i64::MAX).unwrap().is_empty());
     assert!(storage::take_reaction(&db, 101).unwrap().is_none());
     act(
         &db,
@@ -726,7 +740,7 @@ fn interaction_rejects_a_removed_slot_before_spending_snacks_or_recording_events
     assert_eq!(accepted.data["snacks"], 5);
     assert_eq!(accepted.data["touches"], 1);
     assert_eq!(
-        storage::journal(&db, None).unwrap()[0].1.event.payload["character"],
+        storage::journal(&db, None, i64::MIN, i64::MAX).unwrap()[0].1.event.payload["character"],
         "A"
     );
 }
@@ -735,7 +749,7 @@ fn interaction_rejects_a_removed_slot_before_spending_snacks_or_recording_events
 fn interaction_accepts_all_eight_slots_and_rejects_a_changed_owner_without_side_effects() {
     let db = crate::store::open(Path::new(":memory:")).unwrap();
     let directory = tempfile::tempdir().unwrap();
-    install(&db, directory.path(), &["interaction", "journal"]);
+    install(&db, directory.path(), &["interaction"]);
     let mut ids = crate::characters::active_ids(&db).unwrap();
     while ids.len() < 8 {
         ids.push(crate::characters::clone_character(&db, &ids[0]).unwrap().id);
@@ -751,7 +765,7 @@ fn interaction_accepts_all_eight_slots_and_rejects_a_changed_owner_without_side_
             100 + index as i64 * 5000,
             0,
         );
-        let events = storage::journal(&db, None).unwrap();
+        let events = storage::journal(&db, None, i64::MIN, i64::MAX).unwrap();
         assert_eq!(events[0].1.event.payload["character"], slot);
         assert_eq!(events[0].1.event.payload["owner"], *id);
     }
@@ -768,7 +782,7 @@ fn interaction_accepts_all_eight_slots_and_rejects_a_changed_owner_without_side_
     let after = instance(&db, "interaction");
     assert_eq!(after.data, before.data);
     assert_eq!(after.revision, before.revision);
-    assert_eq!(storage::journal(&db, None).unwrap().len(), 8);
+    assert_eq!(storage::journal(&db, None, i64::MIN, i64::MAX).unwrap().len(), 8);
 }
 
 #[test]
@@ -789,7 +803,7 @@ fn timely_calendar_and_timer_alerts_survive_a_burst_of_ordinary_events() {
             "memo",
             "clock",
             "fortune",
-            "collection",
+            "preparation",
         ];
         let mut kinds = ordinary.to_vec();
         kinds.push(kind);
@@ -888,7 +902,7 @@ fn retired_widgets_keep_saved_data_but_cannot_resume_or_reinstall() {
         assert_eq!(saved.data, data);
     }
     assert_eq!(
-        storage::journal(&db, None).unwrap().len(),
+        storage::journal(&db, None, i64::MIN, i64::MAX).unwrap().len(),
         super::RETIRED_KINDS.len()
     );
     assert!(storage::snapshot(&db).unwrap().widgets.is_empty());
@@ -897,4 +911,83 @@ fn retired_widgets_keep_saved_data_but_cannot_resume_or_reinstall() {
         .unwrap()
         .iter()
         .all(|saved| saved.revision == 8));
+}
+
+#[test]
+fn diary_journal_filters_dates_before_pagination_and_preserves_history_after_retirement() {
+    let db = database();
+    // The old journal's saved events remain readable even after both source widgets retire.
+    for index in 0..105 {
+        let event = super::WidgetEvent {
+            id: format!("historic-{index}"),
+            instance_id: "collection".into(),
+            widget_kind: "collection".into(),
+            revision: 1,
+            created_at: 1000 + index,
+            expires_at: 0,
+            event: super::EventDraft {
+                kind: "legacy-event".into(),
+                text: format!("  사건 {index}\n원문  "),
+                payload: json!({}),
+            },
+        };
+        db.execute(
+            "INSERT INTO widget_events(id,instance_id,data,pending) VALUES(?1,?2,?3,0)",
+            rusqlite::params![
+                event.id,
+                event.instance_id,
+                serde_json::to_string(&event).unwrap()
+            ],
+        )
+        .unwrap();
+        db.execute("INSERT INTO widget_journal VALUES(?1)", [event.id])
+            .unwrap();
+    }
+    // Later sequences from another day must not fill the first page of the requested day.
+    for (index, at) in std::iter::repeat_n(2000, 110)
+        .chain([999, 1105])
+        .enumerate()
+    {
+        let event = super::WidgetEvent {
+            id: format!("outside-{index}"),
+            instance_id: "journal".into(),
+            widget_kind: "journal".into(),
+            revision: 1,
+            created_at: at,
+            expires_at: 0,
+            event: super::EventDraft {
+                kind: "legacy-event".into(),
+                text: "다른 날".into(),
+                payload: json!({}),
+            },
+        };
+        db.execute(
+            "INSERT INTO widget_events(id,instance_id,data,pending) VALUES(?1,?2,?3,0)",
+            rusqlite::params![
+                event.id,
+                event.instance_id,
+                serde_json::to_string(&event).unwrap()
+            ],
+        )
+        .unwrap();
+        db.execute("INSERT INTO widget_journal VALUES(?1)", [event.id])
+            .unwrap();
+    }
+    storage::initialize(&db).unwrap();
+    let first = storage::journal(&db, None, 1000, 1105).unwrap();
+    assert_eq!(first.len(), 100);
+    assert_eq!(first[0].1.event.text, "  사건 104\n원문  ");
+    let second = storage::journal(&db, Some(first.last().unwrap().0), 1000, 1105).unwrap();
+    assert_eq!(second.len(), 5);
+    assert_eq!(second.last().unwrap().1.created_at, 1000);
+    assert!(second
+        .iter()
+        .all(|row| !first.iter().any(|seen| seen.0 == row.0)));
+    assert!(
+        storage::journal(&db, Some(second.last().unwrap().0), 1000, 1105)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(storage::journal(&db, None, 1105, 1106).unwrap().len(), 1);
+    assert!(storage::journal(&db, None, 1000, 1000).is_err());
 }

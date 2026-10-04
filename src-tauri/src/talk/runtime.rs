@@ -115,6 +115,9 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
     if !initialized {
         write_marker(&marker)?;
     }
+    if let Err(error) = super::retired::migrate(&root) {
+        eprintln!(".talk retired-widget migration: {error}");
+    }
     migrate_defaults(&root);
     migrate_packs(&root);
     migrate_encryption(&root);
@@ -128,7 +131,19 @@ fn migrate_defaults(root: &Path) {
     let Some(nadir) = defaults::pack(defaults::NADIR_AND_STAR_TAIL) else {
         return;
     };
-    if let Err(error) = upgrade_defaults(root, nadir.files, super::legacy::FILE_HASHES) {
+    // The retirement migration owns these sources so authored retired scenes stay reachable.
+    let files = nadir
+        .files
+        .iter()
+        .copied()
+        .filter(|(name, _)| {
+            !matches!(
+                *name,
+                "widgets/index.talk" | "pairs/default.talk" | "situations/index.talk"
+            )
+        })
+        .collect::<Vec<_>>();
+    if let Err(error) = upgrade_defaults(root, &files, super::legacy::FILE_HASHES) {
         eprintln!(".talk default migration: {error}");
     }
 }

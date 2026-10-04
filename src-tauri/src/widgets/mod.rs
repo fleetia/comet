@@ -102,6 +102,8 @@ pub const RETIRED_KINDS: &[&str] = &[
     "fishing",
     "plant",
     "pet",
+    "collection",
+    "journal",
 ];
 
 pub fn is_retired(kind: &str) -> bool {
@@ -194,11 +196,7 @@ pub fn act(
         "calendar"
             if matches!(
                 request.action.as_str(),
-                "configure-alerts"
-                    | "mute-alerts"
-                    | "unmute-alerts"
-                    | "snooze-alert"
-                    | "preview-alert"
+                "configure-alerts" | "snooze-alert" | "preview-alert"
             ) =>
         {
             reminders::act(&instance.data, &request.action, &request.input, now)

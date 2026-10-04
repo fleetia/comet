@@ -11,7 +11,6 @@ import { WidgetTool } from "../WidgetTool/WidgetTool";
 import { TodoTool } from "../TodoTool/TodoTool";
 import { ClockTool, TimerTool } from "../PlanningTools/PlanningTools";
 import { ToyTool } from "../ToyTools/ToyTools";
-import { JournalTool } from "../JournalTool/JournalTool";
 import { PREVIEW_WIDGETS, useWidgets } from "../useWidgets";
 import { PREVIEW_SNAPSHOT, command } from "../../hooks/useSnapshot";
 import type { WidgetValue, WidgetView } from "../types";
@@ -192,76 +191,11 @@ it.each(["ball", "paper-plane", "bubbles"])(
     );
   },
 );
-it("locks collection footer cleanup and item actions together while clearing", async () => {
-  vi.mocked(useWidgets).mockReturnValue({
-    snapshot: {
-      ...PREVIEW_WIDGETS,
-      widgets: [
-        widget("collection", {
-          items: [{ itemId: "sock", name: "양말", quantity: 2 }],
-          decorations: [{ id: 1, itemId: "sock", x: 50, y: 50 }],
-        }),
-      ],
-    },
-    error: null,
-    reload: vi.fn(),
-  });
-  let finish: (() => void) | undefined;
-  vi.mocked(command).mockImplementationOnce(
-    () =>
-      new Promise<void>((resolve) => {
-        finish = resolve;
-      }),
-  );
-  render(<WidgetTool id="collection" />);
-  const clear = screen.getByRole("button", { name: "소품 모두 넣기" });
-  expect(clear.closest("footer")).not.toBeNull();
-  fireEvent.click(clear);
-  expect(clear).toHaveProperty("disabled", true);
-  expect(screen.getByRole("button", { name: "꺼내 놓기" }).matches(":disabled")).toBe(true);
-  expect(command).toHaveBeenCalledWith("execute_widget", {
-    request: expect.objectContaining({
-      instanceId: "collection",
-      expectedRevision: 8,
-      action: "clear",
-    }),
-  });
-  await reactAct(async () => finish?.());
-  expect(clear).toHaveProperty("disabled", false);
-  expect(screen.getByRole("button", { name: "꺼내 놓기" }).matches(":disabled")).toBe(false);
-});
-it("uses actual fishing phases and acquired inventory limits", () => {
-  const rendered = render(
-    <ToyTool widget={widget("fishing", { phase: "bite", catches: 0 })} act={act} />,
-  );
+it("uses the actual fishing phase when rendering legacy fishing", () => {
+  render(<ToyTool widget={widget("fishing", { phase: "bite", catches: 0 })} act={act} />);
   fireEvent.click(screen.getByRole("button", { name: "낚싯줄 거두기" }));
   expect(act).toHaveBeenCalledWith("reel");
-  rendered.rerender(
-    <ToyTool
-      widget={widget("collection", {
-        items: [{ itemId: "sock", name: "양말", quantity: 1 }],
-        decorations: [{ id: 1, itemId: "sock", x: 50, y: 50 }],
-      })}
-      act={act}
-    />,
-  );
-  expect(screen.getByRole("button", { name: "꺼내 놓기" })).toHaveProperty("disabled", true);
-  fireEvent.click(screen.getByRole("button", { name: "양말 소품 선택" }));
-  fireEvent.click(screen.getByRole("button", { name: "선택한 소품 가운데로" }));
-  expect(act).toHaveBeenCalledWith("move", { id: 1, x: 50, y: 50 });
 });
-it("paginates real journal events using the last received sequence", async () => {
-  vi.mocked(command)
-    .mockResolvedValueOnce([
-      [25, { id: "one", text: "물고기 획득", createdAt: 100, widgetKind: "fishing" }],
-    ])
-    .mockResolvedValueOnce([]);
-  render(<JournalTool widget={widget("journal", {})} />);
-  await screen.findByText("물고기 획득");
-  fireEvent.click(screen.getByRole("button", { name: "이전 사건 더 보기" }));
-  await waitFor(() => expect(command).toHaveBeenCalledWith("get_widget_journal", { before: 25 }));
-});
-
 it("restores the active guessing mode when reopening a number game", () => {
   render(
     <ToyTool
@@ -414,10 +348,8 @@ it("shows only the one friend living on the desktop as an interaction target", (
     owner: PREVIEW_SNAPSHOT.characters.active[0],
   });
 });
-it("does not point new users to retired fishing in an empty collection", () => {
+it("has no collection renderer for a retired widget", () => {
   render(<ToyTool widget={widget("collection", { items: [], decorations: [] })} act={act} />);
-  expect(
-    screen.getByText("모은 물건이 없어요. 지금은 새로 물건을 얻는 놀이가 없어요."),
-  ).toBeTruthy();
-  expect(screen.queryByText(/낚시/)).toBeNull();
+  expect(screen.queryByRole("group", { name: "수집품 배치" })).toBeNull();
+  expect(screen.getByText("지원하는 놀이를 선택해 주세요.")).toBeTruthy();
 });

@@ -145,10 +145,6 @@ it("browses the catalog through filters without installation checkboxes or a bat
   });
   expect(catalog.getByRole("button", { name: "할 일 미설치" })).toBeTruthy();
   expect(catalog.queryAllByRole("checkbox")).toEqual([]);
-  expect(screen.getByRole("button", { name: "위젯 없이 시작하기" })).toHaveProperty(
-    "disabled",
-    false,
-  );
   expect(command).not.toHaveBeenCalled();
 });
 
@@ -190,10 +186,6 @@ it("cancels an installation without a dirty draft and installs only the next wid
   fireEvent.click(screen.getByRole("button", { name: "취소" }));
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(dirty).toHaveBeenLastCalledWith(false);
-  expect(screen.getByRole("button", { name: "위젯 없이 시작하기" })).toHaveProperty(
-    "disabled",
-    false,
-  );
   expect(command).not.toHaveBeenCalled();
 
   openInstallation("집중 타이머");
@@ -328,21 +320,13 @@ it("preserves the explicit deletion choice and the error when removal fails", as
   expect(reload).not.toHaveBeenCalled();
 });
 
-it.each([false, true])(
-  "finishes optional onboarding without closing the shared settings when embedded=%s",
-  async (embedded) => {
-    render(<WidgetManager embedded={embedded} />);
-    expect(screen.queryByRole("button", { name: "위젯 관리 닫기" }) !== null).toBe(!embedded);
-    fireEvent.click(screen.getByRole("button", { name: "위젯 없이 시작하기" }));
-    await waitFor(() => expect(reload).toHaveBeenCalled());
-    expect(command).toHaveBeenCalledWith("finish_widget_onboarding", undefined);
-    if (embedded) {
-      expect(command).toHaveBeenCalledTimes(1);
-    } else {
-      expect(command).toHaveBeenCalledWith("close_widgets");
-    }
-  },
-);
+it.each([false, true])("has no required onboarding completion when embedded=%s", (embedded) => {
+  render(<WidgetManager embedded={embedded} />);
+  expect(screen.queryByRole("button", { name: "위젯 관리 닫기" }) !== null).toBe(!embedded);
+  expect(screen.queryByRole("button", { name: "위젯 없이 시작하기" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "위젯 선택 마치기" })).toBeNull();
+  expect(command).not.toHaveBeenCalledWith("finish_widget_onboarding", expect.anything());
+});
 
 it("allows browsing the catalog but never installs preview data", () => {
   vi.mocked(isDesktop).mockReturnValue(false);
@@ -500,9 +484,8 @@ it("includes created and imported widgets in the same list, counts and filters",
   expect(list.getByRole("button", { name: "할 일 켜짐" })).toBeTruthy();
   expect(list.getByRole("button", { name: "단수 세기 켜짐" })).toBeTruthy();
   expect(list.getByRole("button", { name: "물 마시기 실행 검사 대기" })).toBeTruthy();
-  // Without an existing collection the official list offers 15 of the 16 tools.
-  expect(screen.getByText("공식 15개 · AI·가져온 위젯 2개 · 설치됨 3개")).toBeTruthy();
-  expect(screen.getByRole("option", { name: "전체 17" })).toBeTruthy();
+  expect(screen.getByText("공식 14개 · AI·가져온 위젯 2개 · 설치됨 3개")).toBeTruthy();
+  expect(screen.getByRole("option", { name: "전체 16" })).toBeTruthy();
   fireEvent.change(screen.getByRole("combobox", { name: "설치 상태" }), {
     target: { value: "available" },
   });
@@ -731,29 +714,40 @@ it("keeps an installed widget usable when the current model cannot edit it", asy
   expect(command).not.toHaveBeenCalledWith("generate_widget", expect.anything());
 });
 
-it("offers the collection only to people who already have one", () => {
-  const others = PREVIEW_WIDGETS.widgets.filter((item) => item.kind !== "collection");
+it("omits retired collection and journal even when legacy records are present", () => {
   vi.mocked(useWidgets).mockReturnValue({
-    snapshot: { ...PREVIEW_WIDGETS, widgets: others },
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [installed("collection"), installed("journal")] },
     error: null,
     reload,
   });
   render(<WidgetManager embedded />);
   expect(screen.queryByRole("button", { name: /^수집함·소품/ })).toBeNull();
-  cleanup();
-  vi.mocked(useWidgets).mockReturnValue({
-    snapshot: {
-      ...PREVIEW_WIDGETS,
-      widgets: [
-        ...others,
-        { ...installed("collection"), installed: false, enabled: false, status: "not-installed" },
-      ],
-    },
-    error: null,
-    reload,
-  });
+  expect(screen.queryByRole("button", { name: /^함께한 사건 일지/ })).toBeNull();
+  expect(PREVIEW_WIDGETS.catalog).toHaveLength(14);
+});
+
+it("keeps AI creation and its automatic setting in a closed experiment disclosure", async () => {
   render(<WidgetManager embedded />);
-  expect(screen.getByRole("button", { name: "수집함·소품 미설치" })).toBeTruthy();
+  const summary = screen.getByText("실험 기능");
+  expect(summary.closest("details")).toHaveProperty("open", false);
+  expect(screen.getByRole("button", { name: "AI로 위젯 만들기" }).closest("details")).toBe(
+    summary.closest("details"),
+  );
+  fireEvent.click(summary);
+  fireEvent.click(
+    screen.getByRole("checkbox", { name: "대화에서 필요한 도구가 보이면 자동으로 만들기" }),
+  );
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("set_widget_creation_automatic", { enabled: false }),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "AI로 위젯 만들기" })).toHaveProperty(
+      "disabled",
+      false,
+    ),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "AI로 위젯 만들기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("open_widget_workshop", undefined));
 });
 
 it("allows closing a last confirmed display after query failure without claiming it is closed before a fresh read", async () => {
@@ -923,4 +917,36 @@ it("moves save controls between owning panels on resize without losing the appea
   } finally {
     window.innerWidth = previousWidth;
   }
+});
+
+it("creates a detached memo without requiring the retired list window", async () => {
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [installed("memo")] },
+    error: null,
+    reload,
+  });
+  vi.mocked(useWidgetRuntime).mockReturnValue({
+    snapshot: {
+      sequence: 1,
+      widgets: [
+        {
+          id: "memo",
+          toolWindow: null,
+          displayWindow: null,
+          noteWindows: { open: 2, visible: 1 },
+          toys: null,
+          queryError: null,
+          actionError: null,
+        },
+      ],
+    },
+    error: null,
+    reload: () => undefined,
+  });
+  render(<WidgetManager embedded />);
+  expect(screen.getByText("바탕화면 낱장 메모")).toBeTruthy();
+  expect(screen.getByText("메모 2개 열림 · 1개 표시")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "새 메모 꺼내기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("create_memo_note", { id: "memo" }));
+  expect(command).not.toHaveBeenCalledWith("open_widget", expect.anything());
 });

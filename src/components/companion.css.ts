@@ -313,6 +313,11 @@ export const menuItem = style({
   flexShrink: 0,
   minHeight: vars.dimension.control,
 });
+export const pauseSummary = style({
+  cursor: "pointer",
+  padding: `${vars.space.sm} ${vars.space.md}`,
+  minHeight: vars.dimension.control,
+});
 export const form = style({
   maxHeight: 290,
   padding: "12px 14px",

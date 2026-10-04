@@ -3,7 +3,7 @@ use chrono::{Local, NaiveDate, NaiveTime, TimeZone, Timelike};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{cmp::Ordering, collections::BTreeMap};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
@@ -13,8 +13,6 @@ pub struct ReminderSettings {
     pub os_enabled: bool,
     pub lead_minutes: u32,
     pub include_all_day: bool,
-    pub quiet_start: String,
-    pub quiet_end: String,
     pub mood_day_start: bool,
     pub mood_focus_start: bool,
     pub mood_break: bool,
@@ -31,8 +29,6 @@ impl Default for ReminderSettings {
             os_enabled: false,
             lead_minutes: 10,
             include_all_day: false,
-            quiet_start: "22:00".into(),
-            quiet_end: "08:00".into(),
             mood_day_start: false,
             mood_focus_start: false,
             mood_break: false,
@@ -63,12 +59,7 @@ pub fn configure(data: &Value, input: &Value) -> Result<Value, String> {
     if settings.lead_minutes > 120 {
         return Err("생활 알림은 0~120분 전으로 설정해 주세요.".into());
     }
-    for time in [
-        &settings.quiet_start,
-        &settings.quiet_end,
-        &settings.day_start,
-        &settings.day_end,
-    ] {
+    for time in [&settings.day_start, &settings.day_end] {
         minute(time)?;
     }
     let mut data = data.clone();
@@ -92,11 +83,6 @@ pub fn act(data: &Value, action: &str, input: &Value, now: i64) -> Result<Widget
             })
         }
         "configure-alerts" => data = configure(&data, input)?,
-        "mute-alerts" => {
-            data["alertState"]["mutedUntil"] = json!(now + 3_600_000);
-            data["alertState"]["snoozeAt"] = Value::Null;
-        }
-        "unmute-alerts" => data["alertState"]["mutedUntil"] = Value::Null,
         "snooze-alert" => {
             let last = &data["alertState"]["lastNotification"];
             if !last["observedAt"]
@@ -120,16 +106,6 @@ fn minute(value: &str) -> Result<u32, String> {
     let time = NaiveTime::parse_from_str(value, "%H:%M")
         .map_err(|_| "알림 시각은 시:분으로 입력해 주세요.")?;
     Ok(time.hour() * 60 + time.minute())
-}
-
-fn quiet(settings: &ReminderSettings, local_minute: u32) -> Result<bool, String> {
-    let start = minute(&settings.quiet_start)?;
-    let end = minute(&settings.quiet_end)?;
-    Ok(match start.cmp(&end) {
-        Ordering::Less => local_minute >= start && local_minute < end,
-        Ordering::Greater => local_minute >= start || local_minute < end,
-        Ordering::Equal => false,
-    })
 }
 
 fn local_date_time(date: &str, at: &str) -> Option<i64> {
@@ -214,16 +190,9 @@ fn due_targets(
     todo: Option<&Value>,
     after: i64,
     now: i64,
-    local_minute: u32,
 ) -> Result<Vec<Value>, String> {
     let settings = settings(data)?;
-    if !settings.enabled
-        || (!settings.character_enabled && !settings.os_enabled)
-        || quiet(&settings, local_minute)?
-        || data["alertState"]["mutedUntil"]
-            .as_i64()
-            .is_some_and(|at| at > now)
-    {
+    if !settings.enabled || (!settings.character_enabled && !settings.os_enabled) {
         return Ok(vec![]);
     }
     let targets = targets(data, todo, &settings, now);
@@ -348,6 +317,7 @@ pub fn advance(
     db: &Connection,
     clocks: &mut BTreeMap<String, i64>,
     now: i64,
+    quiet: bool,
 ) -> Result<Advance, String> {
     let local = Local
         .timestamp_millis_opt(now)
@@ -374,14 +344,15 @@ pub fn advance(
         let previous = clocks.insert(instance.id.clone(), now);
         let settings = settings(&instance.data)?;
         let continuous = previous.is_some_and(|after| now >= after && now - after <= 120_000);
-        let allowed = instance.installed
-            && instance.enabled
-            && continuous
-            && !quiet(&settings, local.hour() * 60 + local.minute())?
-            && instance.data["alertState"]["mutedUntil"]
-                .as_i64()
-                .is_none_or(|at| at <= now);
-        let mut mood = timer_moods(clocks, &instance.id, &timers, now, allowed, &settings);
+        let allowed = instance.installed && instance.enabled && continuous;
+        let mut mood = timer_moods(
+            clocks,
+            &instance.id,
+            &timers,
+            now,
+            allowed && !quiet,
+            &settings,
+        );
         if !allowed {
             continue;
         }
@@ -401,7 +372,9 @@ pub fn advance(
                 "오늘 마친 일부터 볼까요? 남은 일은 옮길 것만 직접 골라 주세요.",
             ),
         ] {
-            if enabled && local_date_time(&date, time).is_some_and(|at| crossed(previous, now, at))
+            if !quiet
+                && enabled
+                && local_date_time(&date, time).is_some_and(|at| crossed(previous, now, at))
             {
                 let key = format!("{}:{kind}", instance.id);
                 let day = local_date_time(&date, "12:00").unwrap_or(now);
@@ -411,13 +384,7 @@ pub fn advance(
                 }
             }
         }
-        let due = due_targets(
-            &instance.data,
-            todo,
-            previous,
-            now,
-            local.hour() * 60 + local.minute(),
-        )?;
+        let due = due_targets(&instance.data, todo, previous, now)?;
         let mut data = instance.data.clone();
         let mut drafts = vec![];
         if !due.is_empty() {
@@ -470,36 +437,28 @@ pub fn advance(
 mod tests {
     use super::*;
     fn data() -> Value {
-        json!({"reminders":{"enabled":true,"leadMinutes":10,"includeAllDay":false,"quietStart":"22:00","quietEnd":"08:00"},
+        json!({"reminders":{"enabled":true,"leadMinutes":10,"includeAllDay":false},
         "connections":[{"id":"c","status":"ready","lastSuccessAt":1_000_000}],
         "events":[{"id":"one","connectionId":"c","title":"회의","startAt":1_600_000,"allDay":false,"cancelled":false}]})
     }
     #[test]
-    fn alerts_cross_once_and_skip_catchup_quiet_stale_and_cancelled() {
+    fn alerts_cross_once_and_skip_catchup_stale_and_cancelled() {
         let value = data();
         assert_eq!(
-            due_targets(&value, None, 999_500, 1_000_000, 600)
-                .unwrap()
-                .len(),
+            due_targets(&value, None, 999_500, 1_000_000).unwrap().len(),
             1
         );
-        for (after, now, minute) in [
-            (1_000_000, 1_000_500, 600),
-            (800_000, 1_000_000, 600),
-            (999_500, 1_000_000, 1380),
-        ] {
-            assert!(due_targets(&value, None, after, now, minute)
-                .unwrap()
-                .is_empty());
+        for (after, now) in [(1_000_000, 1_000_500), (800_000, 1_000_000)] {
+            assert!(due_targets(&value, None, after, now).unwrap().is_empty());
         }
         let mut offline = value.clone();
         offline["connections"][0]["status"] = json!("offline");
-        assert!(due_targets(&offline, None, 999_500, 1_000_000, 600)
+        assert!(due_targets(&offline, None, 999_500, 1_000_000)
             .unwrap()
             .is_empty());
         let mut cancelled = value;
         cancelled["events"][0]["cancelled"] = json!(true);
-        assert!(due_targets(&cancelled, None, 999_500, 1_000_000, 600)
+        assert!(due_targets(&cancelled, None, 999_500, 1_000_000)
             .unwrap()
             .is_empty());
     }
@@ -509,19 +468,14 @@ mod tests {
         value["connections"] = json!([]);
         value["events"][0]["connectionId"] = json!("local");
         assert_eq!(
-            due_targets(&value, None, 999_500, 1_000_000, 600)
-                .unwrap()
-                .len(),
+            due_targets(&value, None, 999_500, 1_000_000).unwrap().len(),
             1
         );
-        assert!(due_targets(&value, None, 999_500, 1_000_000, 1380)
-            .unwrap()
-            .is_empty());
-        assert!(due_targets(&value, None, 800_000, 1_000_000, 600)
+        assert!(due_targets(&value, None, 800_000, 1_000_000)
             .unwrap()
             .is_empty());
         value["reminders"]["enabled"] = json!(false);
-        assert!(due_targets(&value, None, 999_500, 1_000_000, 600)
+        assert!(due_targets(&value, None, 999_500, 1_000_000)
             .unwrap()
             .is_empty());
     }
@@ -532,7 +486,7 @@ mod tests {
         value["connections"] = json!([]);
         let todo =
             json!({"items":[{"id":"task","title":"책 반납","dueAt":1_600_000,"completedAt":null}]});
-        let due = due_targets(&value, Some(&todo), 999_500, 1_000_000, 600).unwrap();
+        let due = due_targets(&value, Some(&todo), 999_500, 1_000_000).unwrap();
         assert_eq!(due.len(), 1);
         value["alertState"] = json!({"lastNotification":{"targets":due,"observedAt":1_000_000}});
         let snoozed = act(&value, "snooze-alert", &json!({}), 1_001_000)
@@ -540,32 +494,22 @@ mod tests {
             .data;
         assert_eq!(snoozed["alertState"]["snoozeAt"], 1_601_000);
         assert_eq!(
-            due_targets(&snoozed, Some(&todo), 1_600_000, 1_601_000, 600)
+            due_targets(&snoozed, Some(&todo), 1_600_000, 1_601_000)
                 .unwrap()
                 .len(),
             1
         );
         let mut changed = todo.clone();
         changed["items"][0]["dueAt"] = json!(2_600_000);
-        assert!(
-            due_targets(&snoozed, Some(&changed), 1_600_000, 1_601_000, 600)
-                .unwrap()
-                .is_empty()
-        );
-        changed = todo.clone();
-        changed["items"][0]["completedAt"] = json!(1_100_000);
-        assert!(
-            due_targets(&snoozed, Some(&changed), 1_600_000, 1_601_000, 600)
-                .unwrap()
-                .is_empty()
-        );
-        assert_eq!(todo["items"][0]["dueAt"], 1_600_000);
-        let muted = act(&value, "mute-alerts", &json!({}), 999_000)
-            .unwrap()
-            .data;
-        assert!(due_targets(&muted, Some(&todo), 999_500, 1_000_000, 600)
+        assert!(due_targets(&snoozed, Some(&changed), 1_600_000, 1_601_000)
             .unwrap()
             .is_empty());
+        changed = todo.clone();
+        changed["items"][0]["completedAt"] = json!(1_100_000);
+        assert!(due_targets(&snoozed, Some(&changed), 1_600_000, 1_601_000)
+            .unwrap()
+            .is_empty());
+        assert_eq!(todo["items"][0]["dueAt"], 1_600_000);
     }
     #[test]
     fn all_day_tasks_use_local_nine_and_remain_opt_in() {
@@ -574,20 +518,20 @@ mod tests {
         let todo = json!({"items":[{"id":"day","title":"정리","dueDate":"2026-09-21","completedAt":null}]});
         let threshold = local_date_time("2026-09-21", "08:50").unwrap();
         assert!(
-            due_targets(&value, Some(&todo), threshold - 1000, threshold, 530)
+            due_targets(&value, Some(&todo), threshold - 1000, threshold)
                 .unwrap()
                 .is_empty()
         );
         value["reminders"]["includeAllDay"] = json!(true);
         assert_eq!(
-            due_targets(&value, Some(&todo), threshold - 1000, threshold, 530)
+            due_targets(&value, Some(&todo), threshold - 1000, threshold)
                 .unwrap()
                 .len(),
             1
         );
         value["reminders"]["characterEnabled"] = json!(false);
         assert!(
-            due_targets(&value, Some(&todo), threshold - 1000, threshold, 530)
+            due_targets(&value, Some(&todo), threshold - 1000, threshold)
                 .unwrap()
                 .is_empty()
         );
@@ -751,20 +695,80 @@ mod tests {
             .find(|i| i.kind == "calendar")
             .unwrap();
         let mut value = data();
-        value["reminders"]["quietStart"] = json!("00:00");
-        value["reminders"]["quietEnd"] = json!("00:00");
         value["reminders"]["characterEnabled"] = json!(false);
         value["reminders"]["osEnabled"] = json!(true);
         storage::commit_data(&db, &calendar.id, calendar.revision, value, vec![], 999_000).unwrap();
         let mut clocks = BTreeMap::new();
-        assert!(!advance(&db, &mut clocks, 999_500).unwrap().changed);
-        let result = advance(&db, &mut clocks, 1_000_000).unwrap();
+        assert!(!advance(&db, &mut clocks, 999_500, false).unwrap().changed);
+        let result = advance(&db, &mut clocks, 1_000_000, false).unwrap();
         assert_eq!(result.os.len(), 1);
         assert!(storage::take_reaction(&db, 1_000_001).unwrap().is_none());
-        assert!(advance(&db, &mut BTreeMap::new(), 1_000_000)
+        assert!(advance(&db, &mut BTreeMap::new(), 1_000_000, false)
             .unwrap()
             .os
             .is_empty());
-        assert!(advance(&db, &mut clocks, 1_000_001).unwrap().os.is_empty());
+        assert!(advance(&db, &mut clocks, 1_000_001, false)
+            .unwrap()
+            .os
+            .is_empty());
+    }
+
+    #[test]
+    fn shared_silence_skips_moods_without_catchup_but_delivers_important_alerts() {
+        for quiet in [false, true] {
+            let db = Connection::open_in_memory().unwrap();
+            storage::initialize(&db).unwrap();
+            let directory = tempfile::tempdir().unwrap();
+            storage::install(&db, directory.path(), &["calendar".into()]).unwrap();
+            let calendar = storage::instances(&db).unwrap().remove(0);
+            let now = local_date_time("2026-09-28", "09:00").unwrap();
+            let mut value = calendar.data.clone();
+            value["reminders"]["moodDayStart"] = json!(true);
+            storage::commit_data(
+                &db,
+                &calendar.id,
+                calendar.revision,
+                value,
+                vec![],
+                now - 1000,
+            )
+            .unwrap();
+            let mut clocks = BTreeMap::new();
+            advance(&db, &mut clocks, now - 500, quiet).unwrap();
+            advance(&db, &mut clocks, now, quiet).unwrap();
+            let mood = storage::take_reaction(&db, now).unwrap();
+            assert_eq!(mood.is_some(), !quiet);
+            advance(&db, &mut clocks, now + 500, false).unwrap();
+            assert!(storage::take_reaction(&db, now + 500).unwrap().is_none());
+
+            let calendar = storage::get(&db, &calendar.id).unwrap();
+            let mut value = calendar.data;
+            value["reminders"]["enabled"] = json!(true);
+            value["reminders"]["osEnabled"] = json!(true);
+            value["events"] = json!([{"id":"local","connectionId":"local","title":"회의","startAt":now + 601_000,"allDay":false}]);
+            storage::commit_data(
+                &db,
+                &calendar.id,
+                calendar.revision,
+                value,
+                vec![],
+                now + 500,
+            )
+            .unwrap();
+            let delivered = advance(&db, &mut clocks, now + 1000, quiet).unwrap();
+            assert_eq!(delivered.os.len(), 1);
+            assert_eq!(
+                storage::take_reaction(&db, now + 1000)
+                    .unwrap()
+                    .unwrap()
+                    .event
+                    .kind,
+                "planner-reminder"
+            );
+            assert!(advance(&db, &mut clocks, now + 1500, false)
+                .unwrap()
+                .os
+                .is_empty());
+        }
     }
 }

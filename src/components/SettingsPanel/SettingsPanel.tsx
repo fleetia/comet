@@ -19,6 +19,7 @@ import {
   TabPanel,
   Tabs,
   TextField,
+  Select,
 } from "@fleetia/lagrange";
 import { QuietHoursSettings, quietHoursError } from "./QuietHoursSettings";
 import { version } from "../../../package.json";
@@ -111,9 +112,8 @@ function DraftActions({
   );
 }
 export function SettingsPanel({ snapshot, preview = false, initialSection }: Props): JSX.Element {
-  const { section, visited, navigate, navigationError, memoryTabRequest } = useSettingsNavigation(
-    snapshot.user ? initialSection : "user",
-  );
+  const { section, visited, navigate, navigationError, memoryTabRequest } =
+    useSettingsNavigation(initialSection);
   const automatic = useSettingsDraft(snapshot.settings, "automatic");
   const model = useSettingsDraft(snapshot.settings, "model");
   const [widgetsDirty, setWidgetsDirty] = useState(false);
@@ -123,16 +123,15 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
   const [generalDirty, setGeneralDirty] = useState(false);
   const [updateBusy, setUpdateBusy] = useState(false);
   const [confirmExit, setConfirmExit] = useState(false);
+  const [pauseDuration, setPauseDuration] = useState("60");
   const [actionError, setActionError] = useState<string | null>(null);
   const dirty = {
     characters: charactersDirty,
     widgets: widgetsDirty,
     automatic: automatic.hasChanges,
-    wordbook: wordbookDirty,
-    talk: false,
-    user: userDirty,
+    dialogue: wordbookDirty,
     model: model.hasChanges,
-    general: generalDirty,
+    general: generalDirty || userDirty,
   };
   const hasChanges = Object.values(dirty).some(Boolean);
   useEffect(() => {
@@ -304,23 +303,41 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                     </SettingsRow>
                     <SettingsRow
                       className={styles.pausedRow}
-                      label="일시정지"
+                      label="지금 조용히"
                       description={
                         snapshot.runtime.paused
                           ? snapshot.runtime.pausedUntil
-                            ? `${new Date(snapshot.runtime.pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}까지 자동 잡담 일시정지 중`
-                            : "현재 자동 잡담이 잠시 멈춰 있어요."
+                            ? `${new Date(snapshot.runtime.pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}까지 자동 잡담 쉬는 중`
+                            : "다시 시작할 때까지 자동 잡담 쉬는 중"
                           : "자동 대화가 실행 중이에요."
                       }
                     >
-                      <Button
-                        className={styles.rowControl}
-                        variant="secondary"
-                        disabled={!snapshot.runtime.paused}
-                        onClick={() => void automatic.run("set_paused", { paused: false })}
-                      >
-                        다시 시작
-                      </Button>
+                      <div className={styles.automaticField}>
+                        {!snapshot.runtime.paused && (
+                          <Select
+                            aria-label="쉬는 기간"
+                            value={pauseDuration}
+                            onChange={(event) => setPauseDuration(event.target.value)}
+                          >
+                            <option value="60">1시간</option>
+                            <option value="restart">다시 시작할 때까지</option>
+                          </Select>
+                        )}
+                        <Button
+                          className={styles.rowControl}
+                          variant="secondary"
+                          onClick={() =>
+                            void automatic.run("set_paused", {
+                              paused: !snapshot.runtime.paused,
+                              ...(!snapshot.runtime.paused && pauseDuration === "60"
+                                ? { minutes: 60 }
+                                : {}),
+                            })
+                          }
+                        >
+                          {snapshot.runtime.paused ? "다시 시작" : "자동 잡담 쉬기"}
+                        </Button>
+                      </div>
                     </SettingsRow>
                     <section className={styles.settingsSection}>
                       <QuietHoursSettings
@@ -402,31 +419,25 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                 />
               )}
             </TabPanel>
-            <TabPanel value="wordbook" className={styles.panel}>
-              {visited.has("wordbook") && (
-                <div className={styles.fullPage}>
-                  <WordbookPanel
-                    entries={snapshot.wordbook}
-                    owners={snapshot.characters.active.map((id) =>
-                      snapshot.characters.installed.find((character) => character.id === id),
-                    )}
-                    title="개인 단어장"
-                    description="키워드가 포함되면 등록한 대사를 모델 없이 그대로 재생해요. 캐릭터를 바꿔도 유지돼요."
-                    onDirtyChange={setWordbookDirty}
-                  />
+            <TabPanel value="dialogue" className={styles.panel}>
+              {visited.has("dialogue") && (
+                <div className={styles.dialogueLayout}>
+                  <div className={styles.wordbookSection}>
+                    <WordbookPanel
+                      entries={snapshot.wordbook}
+                      owners={snapshot.characters.active.map((id) =>
+                        snapshot.characters.installed.find((character) => character.id === id),
+                      )}
+                      title="개인 단어장"
+                      description="키워드가 포함되면 등록한 대사를 모델 없이 그대로 재생해요. 캐릭터를 바꿔도 유지돼요."
+                      onDirtyChange={setWordbookDirty}
+                    />
+                  </div>
+                  <section className={styles.talkSection}>
+                    <SectionHeader title="대화팩" headingVariant="subsection" rule="none" />
+                    <TalkPackPanel />
+                  </section>
                 </div>
-              )}
-            </TabPanel>
-            <TabPanel value="talk" className={styles.panel}>
-              {visited.has("talk") && (
-                <div className={styles.widePage}>
-                  <TalkPackPanel />
-                </div>
-              )}
-            </TabPanel>
-            <TabPanel value="user" className={styles.panel}>
-              {visited.has("user") && (
-                <UserSettings snapshot={snapshot} onDirtyChange={setUserDirty} />
               )}
             </TabPanel>
             <TabPanel value="general" className={styles.panel}>
@@ -436,6 +447,10 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                     hidden={snapshot.runtime.hidden}
                     onDirtyChange={setGeneralDirty}
                   >
+                    <section className={styles.sectionBody}>
+                      <SectionHeader title="사용자" headingVariant="subsection" rule="none" />
+                      <UserSettings snapshot={snapshot} onDirtyChange={setUserDirty} />
+                    </section>
                     <AutostartSettings active={section === "general"} />
                     <section className={styles.settingsSection}>
                       <SectionHeader title="표시와 종료" headingVariant="subsection" rule="none" />
@@ -464,7 +479,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                           variant="quiet"
                           onClick={() => (hasChanges ? setConfirmExit(true) : void act("quit_app"))}
                         >
-                          앱 종료
+                          종료
                         </Button>
                       </SettingsRow>
                     </section>

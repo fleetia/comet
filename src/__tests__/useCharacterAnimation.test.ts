@@ -256,7 +256,7 @@ it("holds a grab loop until release then finishes the drop and resumes the lates
   expect(acknowledgements()).toContainEqual({ runId: "drop", phase: "finished" });
 });
 
-it("uses static timing with reduced motion and cancels completion when hidden or paused", () => {
+it("uses static timing with reduced motion and cancels completion when hidden", () => {
   vi.stubGlobal("matchMedia", () => ({
     matches: true,
     addEventListener: vi.fn(),
@@ -268,7 +268,7 @@ it("uses static timing with reduced motion and cancels completion when hidden or
   expect(acknowledgements()).toEqual([{ runId: "reduced", phase: "ready" }]);
   act(() => vi.advanceTimersByTime(1500));
   expect(acknowledgements()).toContainEqual({ runId: "reduced", phase: "finished" });
-  for (const flag of ["hidden", "paused"] as const) {
+  for (const flag of ["hidden"] as const) {
     const state = withReaction(snapshot, reaction(flag));
     rerender({ state, expression: "평온" });
     act(() => vi.advanceTimersByTime(500));
@@ -279,6 +279,20 @@ it("uses static timing with reduced motion and cancels completion when hidden or
     act(() => vi.advanceTimersByTime(2000));
     expect(acknowledgements()).not.toContainEqual({ runId: flag, phase: "finished" });
   }
+});
+
+it("keeps direct reaction and shown speech animations while paused, with ambient animation stopped", () => {
+  snapshot.runtime.paused = true;
+  const { result, rerender } = setup(snapshot);
+  expect(result.current.frames).toBeNull();
+  rerender({ state: withReaction(snapshot, reaction("paused-click")), expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("click"));
+  act(() => vi.advanceTimersByTime(1000));
+  expect(acknowledgements()).toContainEqual({ runId: "paused-click", phase: "finished" });
+  rerender({ state: talking(), expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("talk"));
+  rerender({ state: snapshot, expression: "평온" });
+  expect(result.current.frames).toBeNull();
 });
 
 function directReply(): Snapshot {
@@ -387,7 +401,7 @@ it("keeps sustained states opt-in and prioritizes reaction, direct speech, calen
   expect(result.current.frames).toBe(frameSets.get("idle"));
   rerender({ state: music, expression: "평온" });
   expect(result.current.frameIndex).toBe(0);
-  for (const flag of ["hidden", "paused"] as const) {
+  for (const flag of ["hidden"] as const) {
     rerender({
       state: { ...music, runtime: { ...music.runtime, [flag]: true } },
       expression: "평온",

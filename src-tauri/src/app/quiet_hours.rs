@@ -1,4 +1,4 @@
-//! Recurring automatic-chatter silence, independent from pauses and planner notifications.
+//! Shared scheduled silence and delivery exceptions for automatic chatter and planner moods.
 use super::{interrupt, lock, schedule_idle, AppState};
 use crate::{
     store,
@@ -14,43 +14,14 @@ pub(crate) struct Runtime {
     active: bool,
 }
 
-fn minute(value: &str) -> Option<u32> {
-    let bytes = value.as_bytes();
-    if bytes.len() != 5
-        || bytes[2] != b':'
-        || ![bytes[0], bytes[1], bytes[3], bytes[4]]
-            .iter()
-            .all(u8::is_ascii_digit)
-    {
-        return None;
-    }
-    let hour = value[..2].parse::<u32>().ok()?;
-    let minute = value[3..].parse::<u32>().ok()?;
-    (hour < 24 && minute < 60).then_some(hour * 60 + minute)
-}
-
-pub(crate) fn validate(settings: &QuietHours) -> Result<(), String> {
-    if !settings.enabled {
-        return Ok(());
-    }
-    if minute(&settings.start).is_none()
-        || minute(&settings.end).is_none()
-        || settings.start == settings.end
-        || settings.weekdays.is_empty()
-        || settings.weekdays.iter().any(|day| *day > 6)
-    {
-        return Err(
-            "조용한 시간의 시작·종료 시각을 다르게 정하고 요일을 하나 이상 골라 주세요.".into(),
-        );
-    }
-    Ok(())
-}
-
 pub(crate) fn active_at(settings: &QuietHours, at: NaiveDateTime) -> bool {
     if !settings.enabled {
         return false;
     }
-    let (Some(start), Some(end)) = (minute(&settings.start), minute(&settings.end)) else {
+    let (Some(start), Some(end)) = (
+        QuietHours::minute(&settings.start),
+        QuietHours::minute(&settings.end),
+    ) else {
         return false;
     };
     let current = at.hour() * 60 + at.minute();
@@ -71,14 +42,14 @@ pub(crate) fn active(settings: &Settings) -> bool {
 
 // A sleeping computer can miss both boundaries. Detect that interval too, without catch-up.
 fn crossed(settings: &QuietHours, from: NaiveDateTime, to: NaiveDateTime) -> bool {
-    if !settings.enabled || validate(settings).is_err() || to <= from {
+    if !settings.enabled || settings.validate().is_err() || to <= from {
         return false;
     }
     if to.signed_duration_since(from) >= chrono::Duration::days(8) {
         return true;
     }
-    let start = minute(&settings.start).unwrap();
-    let end = minute(&settings.end).unwrap();
+    let start = QuietHours::minute(&settings.start).unwrap();
+    let end = QuietHours::minute(&settings.end).unwrap();
     let mut date = from.date().pred_opt().unwrap_or(from.date());
     while date <= to.date() {
         if settings
@@ -114,21 +85,25 @@ pub(crate) fn automatic_blocked(state: &AppState, settings: &Settings) -> Result
             .is_some_and(|last| crossed(&settings.quiet_hours, last, at)))
 }
 
-pub(crate) fn event_allowed(kind: &str) -> bool {
+pub(crate) fn event_allowed(event: &widgets::EventDraft) -> bool {
     matches!(
-        kind,
-        "timer-finished" | "calendar-reminder" | "planner-reminder" | "planner-mood"
-    )
+        event.kind.as_str(),
+        "timer-finished" | "calendar-reminder" | "planner-reminder"
+    ) || (event.kind == "planner-mood" && event.payload["preview"] == true)
 }
 
 /// Caller holds action and db. Automatic widget reactions use their event even when their
 /// character reaction speech has a foreground token. Genuine direct replies are untouched.
-pub(crate) fn playback_blocked(state: &AppState, settings: &Settings) -> Result<bool, String> {
-    if !automatic_blocked(state, settings)? {
+pub(crate) fn playback_blocked(
+    state: &AppState,
+    settings: &Settings,
+    paused: bool,
+) -> Result<bool, String> {
+    if !paused && !automatic_blocked(state, settings)? {
         return Ok(false);
     }
     if let Some(event) = lock(&state.widget_playback)?.as_ref() {
-        return Ok(!event_allowed(&event.event.kind));
+        return Ok(!event_allowed(&event.event));
     }
     Ok(state.automatic.load(Ordering::SeqCst))
 }
@@ -161,12 +136,12 @@ pub(crate) fn reconcile_at(state: &AppState, at: NaiveDateTime) -> Result<bool, 
             .map_err(|error| error.to_string())?;
         lock(&state.story_clock)?.elapsed = std::time::Duration::ZERO;
     }
-    widgets::storage::discard_pending_during_focus(&db)?;
+    widgets::storage::discard_pending_during_quiet(&db)?;
     crate::generated_widgets::discard_pending(&db)?;
     crate::generated_widget_commands::skip_automatic_message(&db)?;
     let cancel_automatic = lock(&state.widget_playback)?.as_ref().map_or_else(
         || state.automatic.load(Ordering::SeqCst),
-        |event| !event_allowed(&event.event.kind),
+        |event| !event_allowed(&event.event),
     );
     if cancel_automatic {
         let (epoch, _) = interrupt(state, false)?;
@@ -305,15 +280,16 @@ mod tests {
             ("22:00", "08:00", vec![]),
             ("22:00", "08:00", vec![7]),
         ] {
-            assert!(validate(&QuietHours {
+            assert!(QuietHours {
                 start: start.into(),
                 end: end.into(),
                 weekdays: days,
                 ..schedule()
-            })
+            }
+            .validate()
             .is_err());
         }
-        assert!(validate(&QuietHours::default()).is_ok());
+        assert!(QuietHours::default().validate().is_ok());
     }
 
     #[test]
@@ -413,7 +389,6 @@ mod tests {
             Some("timer-finished"),
             Some("calendar-reminder"),
             Some("planner-reminder"),
-            Some("planner-mood"),
         ] {
             let state = crate::app::tests::state();
             save(&state, schedule());
@@ -468,8 +443,115 @@ mod tests {
             .unwrap()
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
-        assert_eq!(pending.len(), 4);
-        assert!(pending.iter().all(|kind| event_allowed(kind)));
+        assert_eq!(pending.len(), 3);
+        assert!(pending.iter().all(|kind| event_allowed(&event(kind).event)));
+    }
+
+    #[test]
+    fn manual_pause_cancels_ambient_work_without_losing_queued_important_events() {
+        for until in [None, Some(i64::MAX)] {
+            let state = crate::app::tests::state();
+            let directory = tempfile::tempdir().unwrap();
+            let (epoch, cancel) = interrupt(&state, true).unwrap();
+            state.widget_epoch.store(epoch, Ordering::SeqCst);
+            {
+                let db = lock(&state.db).unwrap();
+                widgets::storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
+                let timer = widgets::storage::instances(&db).unwrap().remove(0);
+                widgets::storage::commit_data(
+                    &db,
+                    &timer.id,
+                    timer.revision,
+                    timer.data,
+                    ["timer-finished", "planner-mood", "ball.stopped"]
+                        .into_iter()
+                        .map(|kind| event(kind).event)
+                        .collect(),
+                    chrono::Utc::now().timestamp_millis(),
+                )
+                .unwrap();
+            }
+            super::super::windows::apply_pause(&state, true, until).unwrap();
+            assert!(cancel.load(Ordering::SeqCst));
+            assert!(begin_background(&state).unwrap().is_none());
+            let _action = lock(&state.action).unwrap();
+            let db = lock(&state.db).unwrap();
+            let pending = crate::widget_commands::take_pending_reaction(&state, &db)
+                .unwrap()
+                .unwrap();
+            assert_eq!(pending.event.kind, "timer-finished");
+            assert!(crate::widget_commands::take_pending_reaction(&state, &db)
+                .unwrap()
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn pause_exceptions_do_not_bypass_hidden_or_disabled_automatic_character_delivery() {
+        for hidden in [false, true] {
+            let state = crate::app::tests::state();
+            let directory = tempfile::tempdir().unwrap();
+            super::super::windows::apply_pause(&state, true, None).unwrap();
+            lock(&state.runtime).unwrap().hidden = hidden;
+            let _action = lock(&state.action).unwrap();
+            let db = lock(&state.db).unwrap();
+            store::save_settings(
+                &db,
+                &Settings {
+                    autonomous_enabled: hidden,
+                    ..Settings::default()
+                },
+            )
+            .unwrap();
+            widgets::storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
+            let timer = widgets::storage::instances(&db).unwrap().remove(0);
+            widgets::storage::commit_data(
+                &db,
+                &timer.id,
+                timer.revision,
+                timer.data,
+                vec![event("timer-finished").event],
+                chrono::Utc::now().timestamp_millis(),
+            )
+            .unwrap();
+            assert!(crate::widget_commands::take_pending_reaction(&state, &db)
+                .unwrap()
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn silence_keeps_direct_work_and_preview_but_rejects_ordinary_moods() {
+        for preview in [false, true] {
+            let state = crate::app::tests::state();
+            save(&state, active_now());
+            let (_, cancel) = interrupt(&state, true).unwrap();
+            let mut mood = event("planner-mood");
+            mood.event.payload = serde_json::json!({"preview":preview});
+            *lock(&state.widget_playback).unwrap() = Some(mood);
+            let settings = store::settings(&lock(&state.db).unwrap()).unwrap();
+            assert_eq!(playback_blocked(&state, &settings, true).unwrap(), !preview);
+            super::super::windows::apply_pause(&state, true, None).unwrap();
+            assert_eq!(cancel.load(Ordering::SeqCst), !preview);
+        }
+        let state = crate::app::tests::state();
+        let (epoch, cancel) = interrupt(&state, false).unwrap();
+        super::super::windows::apply_pause(&state, true, None).unwrap();
+        assert!(!cancel.load(Ordering::SeqCst));
+        let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
+        assert!(crate::app::scene::present_line(
+            &state,
+            &line(),
+            "wordbook",
+            "direct-while-paused",
+            0,
+            1,
+            revision,
+            epoch,
+            &cancel,
+            false
+        )
+        .unwrap());
     }
 
     #[test]
@@ -527,7 +609,7 @@ mod tests {
         assert!(!active(&settings));
         assert!(automatic_blocked(&state, &settings).unwrap());
         interrupt(&state, true).unwrap();
-        assert!(playback_blocked(&state, &settings).unwrap());
+        assert!(playback_blocked(&state, &settings, false).unwrap());
         assert!(begin_background(&state).unwrap().is_none());
         reconcile_at(&state, local).unwrap();
         assert!(!automatic_blocked(&state, &settings).unwrap());
@@ -540,7 +622,7 @@ mod tests {
         assert!(begin_background(&state).unwrap().is_none());
         let settings = store::settings(&lock(&state.db).unwrap()).unwrap();
         let (epoch, cancel) = interrupt(&state, true).unwrap();
-        assert!(playback_blocked(&state, &settings).unwrap());
+        assert!(playback_blocked(&state, &settings, false).unwrap());
         let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
         assert!(!crate::app::scene::present_line(
             &state,
@@ -556,7 +638,7 @@ mod tests {
         )
         .unwrap());
         let (epoch, cancel) = interrupt(&state, false).unwrap();
-        assert!(!playback_blocked(&state, &settings).unwrap());
+        assert!(!playback_blocked(&state, &settings, false).unwrap());
         assert!(crate::app::scene::present_line(
             &state,
             &line(),
@@ -570,15 +652,10 @@ mod tests {
             true
         )
         .unwrap());
-        for kind in [
-            "timer-finished",
-            "calendar-reminder",
-            "planner-reminder",
-            "planner-mood",
-        ] {
+        for kind in ["timer-finished", "calendar-reminder", "planner-reminder"] {
             state.automatic.store(true, Ordering::SeqCst);
             *lock(&state.widget_playback).unwrap() = Some(event(kind));
-            assert!(!playback_blocked(&state, &settings).unwrap());
+            assert!(!playback_blocked(&state, &settings, false).unwrap());
         }
     }
 }

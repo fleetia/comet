@@ -102,7 +102,7 @@ pub(crate) async fn send_message(
         }
         let db = lock(&state.db)?;
         if store::current_user(&db)?.is_none() {
-            return Err("설정의 사용자에서 이름을 먼저 입력해 주세요.".into());
+            return Err("말풍선에서 이름을 먼저 알려 주세요.".into());
         }
         let settings = store::settings(&db)?;
         let active_session = store::active_conversation(&db)?;

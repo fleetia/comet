@@ -173,13 +173,16 @@ pub(crate) fn schedule_sync(app: &tauri::AppHandle) {
     });
 }
 
-#[tauri::command]
-pub(crate) async fn create_memo_note(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, Arc<AppState>>,
-    id: String,
+pub(crate) fn create_note(db: &rusqlite::Connection, id: &str) -> Result<WidgetSnapshot, String> {
+    execute(db, id, "add", json!({"isOpen":true}))
+}
+
+pub(crate) async fn reveal_created_note(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    id: &str,
+    snapshot: WidgetSnapshot,
 ) -> Result<WidgetSnapshot, String> {
-    let snapshot = change(&state, |db| execute(db, &id, "add", json!({"isOpen":true})))?;
     let note_id = snapshot
         .widgets
         .iter()
@@ -187,10 +190,20 @@ pub(crate) async fn create_memo_note(
         .and_then(|widget| widget.instance.data["notes"].as_array())
         .and_then(|notes| notes.last())
         .and_then(|note| note["id"].as_str());
-    cancel_widget_scene(&app, &state)?;
-    publish_widgets(&app, &state);
-    sync(&app, note_id.map(|note_id| label(&id, note_id))).await?;
+    cancel_widget_scene(app, state)?;
+    publish_widgets(app, state);
+    sync(app, note_id.map(|note_id| label(id, note_id))).await?;
     Ok(snapshot)
+}
+
+#[tauri::command]
+pub(crate) async fn create_memo_note(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+) -> Result<WidgetSnapshot, String> {
+    let snapshot = change(&state, |db| create_note(db, &id))?;
+    reveal_created_note(&app, &state, &id, snapshot).await
 }
 
 #[tauri::command]

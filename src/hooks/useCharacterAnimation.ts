@@ -82,8 +82,7 @@ export function useCharacterAnimation(
 } {
   const reduced = useReducedMotion();
   const animation = character?.definition.animation;
-  const available = enabled && !snapshot.runtime.hidden && !snapshot.runtime.paused;
-  const running = available && !reduced;
+  const available = enabled && !snapshot.runtime.hidden;
   const definitionKey = JSON.stringify([character?.id, character?.definition, available]);
   const [storedRuns, setSustainedRuns] = useState(() =>
     nextSustainedRuns(undefined, definitionKey, snapshot.animationStates),
@@ -117,6 +116,8 @@ export function useCharacterAnimation(
     snapshot.story?.displayStartedAt != null &&
     activeCharacter(snapshot, snapshot.story.persona)?.id === character?.id;
   const speaking = Boolean(speakingLine || speakingStory);
+  const running =
+    available && !reduced && (!snapshot.runtime.paused || speaking || Boolean(activeReaction));
   const lineKey = JSON.stringify([definitionKey, playback?.id]);
   const lineMotion = speakingLine && finishedLine !== lineKey ? playback?.motion : undefined;
   const motion = activeReaction ? activeReaction.motion : lineMotion;
@@ -127,7 +128,7 @@ export function useCharacterAnimation(
   let sustainedKey: string | null = null;
   if (binding === undefined && speaking)
     binding = animationBinding(animation, expression, "speaking");
-  if (binding === undefined && !speaking && !activeReaction) {
+  if (binding === undefined && !speaking && !activeReaction && !snapshot.runtime.paused) {
     // Only opt-in bindings participate; an unassigned higher-priority state falls through.
     for (const state of SUSTAINED_STATES) {
       if (snapshot.animationStates?.[state] && animation?.bindings[state]) {

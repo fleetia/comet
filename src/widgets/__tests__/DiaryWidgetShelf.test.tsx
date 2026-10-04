@@ -36,7 +36,7 @@ function transfer(): Pick<DataTransfer, "getData" | "setData" | "effectAllowed" 
   };
 }
 
-it("opens the existing widget or note and links their identities from the keyboard alternative", () => {
+it("links widgets and todos while keeping individual memo management in Diary notes", () => {
   const todo = widget("todo", { items: [{ id: "todo-1", title: "책 읽기", completedAt: null }] });
   const memo = widget("memo", { notes: [{ id: "memo-1", body: "책 모임 메모" }] });
   const inactive = { ...widget("clock", {}), enabled: false };
@@ -46,32 +46,19 @@ it("opens the existing widget or note and links their identities from the keyboa
     onboardingDone: true,
   };
   const onOpenWidget = vi.fn(),
-    onOpenMemo = vi.fn(),
     onAdd = vi.fn();
   render(
-    <DiaryWidgetShelf
-      snapshot={snapshot}
-      busy={false}
-      onOpenWidget={onOpenWidget}
-      onOpenMemo={onOpenMemo}
-      onAdd={onAdd}
-    />,
+    <DiaryWidgetShelf snapshot={snapshot} busy={false} onOpenWidget={onOpenWidget} onAdd={onAdd} />,
   );
   fireEvent.click(screen.getByText("위젯"));
   screen.getAllByText("내용 1개").forEach((summary) => fireEvent.click(summary));
   fireEvent.click(screen.getByTitle("todo 열기"));
   expect(onOpenWidget).toHaveBeenCalledWith(todo);
-  fireEvent.click(screen.getByTitle("책 모임 메모"));
-  expect(onOpenMemo).toHaveBeenCalledWith(memo, "memo-1");
+  expect(screen.queryByTitle("책 모임 메모")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "책 읽기 연결" }));
   expect(onAdd).toHaveBeenCalledWith({ v: 1, kind: "todo", widgetId: todo.id, itemId: "todo-1" });
   fireEvent.click(screen.getByRole("button", { name: "memo 위젯 연결" }));
   expect(onAdd).toHaveBeenLastCalledWith({ v: 1, kind: "widget", widgetId: memo.id });
-  const data = transfer();
-  fireEvent.dragStart(screen.getByLabelText("책 모임 메모 다이어리로 드래그"), {
-    dataTransfer: data,
-  });
-  expect(readWidgetDrag(data)).toEqual({ v: 1, kind: "memo", widgetId: memo.id, itemId: "memo-1" });
   expect(screen.queryByTitle("clock 열기")).toBeNull();
 });
 

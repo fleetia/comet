@@ -43,19 +43,13 @@ pub const PACKS: &[Pack] = &[
             "widgets/calendar.talk",
             "widgets/clock.talk",
             "widgets/collection.talk",
-            "widgets/completion-jar.talk",
-            "widgets/device.talk",
-            "widgets/fishing.talk",
             "widgets/focus-timer.talk",
             "widgets/fortune.talk",
-            "widgets/guessing.talk",
             "widgets/interaction.talk",
             "widgets/journal.talk",
             "widgets/memo.talk",
             "widgets/music.talk",
             "widgets/paper-plane.talk",
-            "widgets/pet.talk",
-            "widgets/plant.talk",
             "widgets/preparation.talk",
             "widgets/small-match.talk",
             "widgets/todo.talk",
@@ -76,20 +70,14 @@ pub const PACKS: &[Pack] = &[
             "widgets/calendar.talk",
             "widgets/clock.talk",
             "widgets/collection.talk",
-            "widgets/completion-jar.talk",
-            "widgets/device.talk",
-            "widgets/fishing.talk",
             "widgets/focus-timer.talk",
             "widgets/fortune.talk",
-            "widgets/guessing.talk",
             "widgets/index.talk",
             "widgets/interaction.talk",
             "widgets/journal.talk",
             "widgets/memo.talk",
             "widgets/music.talk",
             "widgets/paper-plane.talk",
-            "widgets/pet.talk",
-            "widgets/plant.talk",
             "widgets/preparation.talk",
             "widgets/small-match.talk",
             "widgets/todo.talk",
@@ -289,11 +277,6 @@ mod tests {
                     "condition_false",
                 ),
                 (
-                    "negative.event-mismatch",
-                    "guessing.correct",
-                    "trigger_mismatch",
-                ),
-                (
                     "negative.unknown-result",
                     "match.winner-a",
                     "condition_false",
@@ -318,11 +301,6 @@ mod tests {
                     "dependency_unavailable",
                 ),
                 ("negative.null-weather", "weather.cold", "condition_false"),
-                (
-                    "negative.event-mismatch",
-                    "guessing.attempt",
-                    "trigger_mismatch",
-                ),
                 ("negative.unknown-result", "match.dice", "condition_false"),
             ],
         );
@@ -354,6 +332,29 @@ mod tests {
             .scenes
             .iter()
             .all(|scene| scene.pack.as_deref() == Some(pack.id) && scene.key.contains(pack.id)));
+    }
+
+    #[test]
+    fn retired_widget_assets_are_absent_from_every_shipped_program() {
+        for pack in PACKS {
+            let program = program(pack.id);
+            for kind in [
+                "completion-jar",
+                "device",
+                "guessing",
+                "fishing",
+                "plant",
+                "pet",
+            ] {
+                let path = format!("widgets/{kind}.talk");
+                assert!(!pack.files.iter().any(|(name, _)| *name == path));
+                assert!(!program.files.iter().any(|file| file.ends_with(&path)));
+                assert!(program
+                    .scenes
+                    .iter()
+                    .all(|scene| !scene.dependencies.contains(kind)));
+            }
+        }
     }
 
     #[test]
@@ -769,7 +770,7 @@ mod pipeline_tests {
         selected
     }
 
-    const INITIAL_STATES: [&str; 16] = [
+    const INITIAL_STATES: [&str; 14] = [
         "todo.empty",
         "calendar.unconfigured",
         "timer.idle",
@@ -784,8 +785,6 @@ mod pipeline_tests {
         "bubbles.empty",
         "match.new",
         "fortune.fresh",
-        "collection.empty",
-        "journal.empty",
     ];
 
     #[test]
@@ -799,7 +798,7 @@ mod pipeline_tests {
         let (db, _directory) = nadir_database(&kinds);
         let program = program(NADIR_AND_STAR_TAIL);
         let context = context::build(&db, None, 1_000, 0).unwrap();
-        assert_eq!(context.available.len(), 16);
+        assert_eq!(context.available.len(), 14);
         for scene in INITIAL_STATES {
             idle_scene(&db, &program, scene, 1_000);
         }

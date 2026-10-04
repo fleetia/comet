@@ -687,14 +687,12 @@ it("moves the original dated Todo when dropped onto a calendar date without crea
   expect(item.dueDate).toBe("2026-10-09");
 });
 
-it("adds an original memo reference from the shelf to an undated page", async () => {
+it("adds an original desktop memo reference from persistent notes to an undated page", async () => {
   widgets.widgets = [widget("memo", { notes: [{ id: "note-1", body: "원본 메모" }] })];
   diary.pages = [{ id: "collection", title: "생각 모음", date: null, entries: [] }];
   update = () => ({ ...diary, revision: 4 });
   await openDiary();
   fireEvent.click(screen.getByRole("button", { name: "생각 모음" }));
-  fireEvent.click(screen.getByText("위젯"));
-  fireEvent.click(screen.getByText("내용 1개"));
   fireEvent.click(screen.getByRole("button", { name: "원본 메모 연결" }));
   await screen.findByText("이 페이지에 연결했어요.");
   expect(actions("update_diary")).toEqual([
@@ -862,4 +860,74 @@ it("undoes completion against the refreshed revision without touching diary reco
     }),
   ]);
   expect(actions("update_diary")).toEqual([]);
+});
+
+it("searches both memo stores and restores a desktop sheet without mutating Diary notes", async () => {
+  widgets.widgets = [
+    widget("memo", { notes: [{ id: "desktop", body: "  회의 메모\n그대로  ", isOpen: false }] }),
+  ];
+  diary.notes = [{ id: "persistent", title: "계획", body: "내일 할 일", pinned: true }];
+  await openDiary();
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation((name, args) =>
+    name === "open_memo_note" ? Promise.resolve(undefined) : fallback(name, args),
+  );
+  fireEvent.change(screen.getByRole("textbox", { name: "메모 검색" }), {
+    target: { value: "회의" },
+  });
+  expect(screen.queryByText("계획")).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "계획" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "꺼내기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("open_memo_note", { id: "memo", noteId: "desktop" }),
+  );
+  expect(actions("update_diary")).toEqual([]);
+  expect(actions("execute_widget")).toEqual([]);
+  expect(widgets.widgets[0].data).toEqual({
+    notes: [{ id: "desktop", body: "  회의 메모\n그대로  ", isOpen: false }],
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "메모 검색" }), {
+    target: { value: "내일" },
+  });
+  expect(screen.queryByRole("button", { name: "회의 메모 그대로" })).toBeNull();
+  expect(screen.getByText("계획")).toBeTruthy();
+});
+
+it("locks desktop memo creation and restore together and exposes command failures", async () => {
+  widgets.widgets = [widget("memo", { notes: [{ id: "one", body: "남길 메모", isOpen: true }] })];
+  await openDiary();
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  let finish: (() => void) | undefined;
+  vi.mocked(command).mockImplementation((name, args) =>
+    name === "create_memo_note"
+      ? new Promise((resolve) => {
+          finish = () => resolve(undefined);
+        })
+      : fallback(name, args),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "+ 새 메모" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("create_memo_note", { id: "memo" }));
+  expect(screen.getByRole("button", { name: "+ 새 메모" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "넣기" })).toHaveProperty("disabled", true);
+  await act(async () => finish?.());
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "넣기" })).toHaveProperty("disabled", false),
+  );
+  vi.mocked(command).mockImplementation((name, args) =>
+    name === "request_close_memo_note"
+      ? Promise.reject(new Error("메모 저장 실패"))
+      : fallback(name, args),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "넣기" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("메모 저장 실패");
+  expect(screen.getByRole("button", { name: "남길 메모" })).toBeTruthy();
+  expect(actions("close_memo_note")).toEqual([]);
+});
+
+it("shows the collapsed event history only on dated day pages", async () => {
+  diary.pages = [{ id: "undated", title: "메모 모음", date: null, entries: [] }];
+  await openDiary();
+  expect(screen.getByText("함께한 기록").closest("details")).toHaveProperty("open", false);
+  fireEvent.click(screen.getByRole("button", { name: "메모 모음" }));
+  expect(screen.queryByText("함께한 기록")).toBeNull();
 });

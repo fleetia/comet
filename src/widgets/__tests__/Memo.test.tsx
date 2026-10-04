@@ -2,7 +2,6 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { command } from "../../hooks/useSnapshot";
-import { WidgetTool } from "../WidgetTool/WidgetTool";
 import { MemoNote } from "../MemoNote/MemoNote";
 import { useWidgets } from "../useWidgets";
 import type { WidgetView } from "../types";
@@ -48,44 +47,6 @@ beforeEach(() => {
   });
 });
 afterEach(cleanup);
-
-it("shows one body preview per list row and requests note creation, opening and safe put-away", async () => {
-  render(<WidgetTool id="memo" />);
-  expect(screen.getAllByRole("listitem")).toHaveLength(2);
-  expect(screen.getByRole("button", { name: "첫 줄 둘째 줄" })).toBeTruthy();
-  expect(screen.queryByRole("textbox")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "넣기" }));
-  await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("request_close_memo_note", { id: "memo", noteId: "one" }),
-  );
-  fireEvent.click(screen.getByRole("button", { name: "꺼내기" }));
-  await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("open_memo_note", { id: "memo", noteId: "two" }),
-  );
-  fireEvent.click(screen.getByRole("button", { name: "+ 새 메모" }));
-  await waitFor(() => expect(command).toHaveBeenCalledWith("create_memo_note", { id: "memo" }));
-});
-
-it("keeps footer creation and list actions locked together until a memo command completes", async () => {
-  let finish: (() => void) | undefined;
-  vi.mocked(command).mockImplementationOnce(
-    () =>
-      new Promise<void>((resolve) => {
-        finish = resolve;
-      }),
-  );
-  render(<WidgetTool id="memo" />);
-  const create = screen.getByRole("button", { name: "+ 새 메모" });
-  expect(create.closest("footer")).not.toBeNull();
-  fireEvent.click(create);
-  expect(create).toHaveProperty("disabled", true);
-  expect(screen.getByRole("button", { name: "넣기" })).toHaveProperty("disabled", true);
-  fireEvent.click(create);
-  expect(command).toHaveBeenCalledTimes(1);
-  await act(async () => finish?.());
-  expect(create).toHaveProperty("disabled", false);
-  expect(screen.getByRole("button", { name: "넣기" })).toHaveProperty("disabled", false);
-});
 
 it("keeps a detached draft open when saving fails and closes only after successful save", async () => {
   vi.mocked(command).mockRejectedValueOnce(new Error("저장 실패"));

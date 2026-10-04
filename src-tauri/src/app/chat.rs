@@ -28,7 +28,8 @@ fn begin_reply(state: &AppState, playback_id: &str) -> Result<u64, String> {
         .cloned()
         .ok_or("이 말풍선은 이미 지나갔어요. 지난 대화에서 확인해 주세요.")?;
     let db = lock(&state.db)?;
-    if store::current_user(&db)?.is_some() {
+    let registered = store::current_user(&db)?.is_some();
+    if registered {
         store::create_conversation(
             &db,
             std::slice::from_ref(&line.persona),
@@ -40,7 +41,7 @@ fn begin_reply(state: &AppState, playback_id: &str) -> Result<u64, String> {
     let epoch = interrupt(state, false)?.0;
     *lock(&state.panel)? = Some(PanelState {
         persona: line.persona,
-        mode: "input".into(),
+        mode: if registered { "input" } else { "name" }.into(),
     });
     state.last_input.store(now(), Ordering::SeqCst);
     Ok(epoch)
@@ -147,6 +148,30 @@ pub(crate) fn get_conversation_messages(
 mod tests {
     use super::*;
     use crate::types::{Message, Playback};
+
+    #[test]
+    fn replying_before_registration_opens_the_name_prompt_without_a_conversation() {
+        let state = super::super::tests::state();
+        let id = characters::active_ids(&lock(&state.db).unwrap()).unwrap()[0].clone();
+        *lock(&state.playback).unwrap() = Some(Playback {
+            id: "greeting".into(),
+            persona: id,
+            expression: "평온".into(),
+            text: "안녕!".into(),
+            motion: Default::default(),
+            source: "script".into(),
+            text_speed: 0,
+            display_started_at: Some(1),
+            ends_at: 100,
+            line_index: 0,
+            line_count: 1,
+        });
+        begin_reply(&state, "greeting").unwrap();
+        assert_eq!(lock(&state.panel).unwrap().as_ref().unwrap().mode, "name");
+        assert!(store::active_conversation(&lock(&state.db).unwrap())
+            .unwrap()
+            .is_none());
+    }
 
     #[test]
     fn clicking_only_the_displayed_line_captures_original_and_cancels_the_old_scene() {

@@ -35,6 +35,7 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
             .unwrap_or(false)
         {
             super::publish(&app, &state);
+            crate::desktop_menu::refresh(&app);
         }
         let quiet_changed = super::quiet_hours::reconcile(&state).unwrap_or(false);
         let animation_changed =
@@ -216,6 +217,10 @@ pub(crate) async fn run_background(
         return Ok(());
     }
     if settings.autonomous_enabled && now() >= state.next_idle.load(Ordering::SeqCst) {
+        if super::users::begin_name_prompt(state, epoch, &cancel)? {
+            super::publish(app, state);
+            return Ok(());
+        }
         let (lines, source) = {
             let _action = lock(&state.action)?;
             if !is_current(state, epoch, &cancel) {

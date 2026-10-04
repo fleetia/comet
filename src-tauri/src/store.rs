@@ -6,6 +6,8 @@ mod conversations;
 mod memory;
 #[path = "store/messages.rs"]
 mod messages;
+#[path = "store/quiet_hours.rs"]
+mod quiet_hours;
 #[path = "store/search.rs"]
 mod search;
 #[path = "store/users.rs"]
@@ -95,6 +97,7 @@ INSERT OR IGNORE INTO kv VALUES('revision','0');").map_err(err)?;
     users::initialize(&conn)?;
     conversations::initialize_conversations(&conn)?;
     crate::widgets::storage::initialize(&conn)?;
+    quiet_hours::migrate(&conn)?;
     crate::diary::initialize(&conn)?;
     crate::generated_widgets::initialize(&conn)?;
     Ok(conn)

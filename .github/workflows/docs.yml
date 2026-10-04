@@ -1,0 +1,51 @@
+name: Verify docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'wiki/**'
+      - 'README.md'
+      - 'AGENTS.md'
+      - '.changeset/README.md'
+      - 'integrations/spicetify/README.md'
+      - 'scripts/widget-harness/README.md'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'wiki/**'
+      - 'README.md'
+      - 'AGENTS.md'
+      - '.changeset/README.md'
+      - 'integrations/spicetify/README.md'
+      - 'scripts/widget-harness/README.md'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    name: Check wiki
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.27.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: wiki/pnpm-lock.yaml
+      - run: pnpm --dir wiki install --frozen-lockfile
+      - run: pnpm --dir wiki typecheck
+      - run: pnpm --dir wiki build

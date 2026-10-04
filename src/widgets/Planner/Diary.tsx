@@ -16,6 +16,7 @@ import { localDay, record, rows, text, type DataRecord, type ToolAction } from "
 import type { WidgetSnapshot, WidgetView } from "../types";
 import { DiaryCalendar, MiniCalendar } from "./DiaryCalendar";
 import { DiaryEnvelope, envelopeTitle } from "./DiaryEnvelope";
+import { DiaryJournal } from "./DiaryJournal";
 import { DiaryNotes } from "./DiaryNotes";
 import { DiaryPage, discardDiaryPageDraft } from "./DiaryPage";
 import { DiaryPageMenu } from "./DiaryPageMenu";
@@ -727,6 +728,26 @@ export function Diary(): ReactElement {
               envelopeNames={Object.fromEntries(
                 envelopes.map((value) => [text(value.id), envelopeTitle(value)]),
               )}
+              desktop={{
+                widgets: widgets.filter((widget) => widget.kind === "memo"),
+                busy: saving,
+                act,
+                onCreate: () =>
+                  run(async () => {
+                    const widget = await ensureWidget("memo");
+                    await command("create_memo_note", { id: widget.id });
+                    reload();
+                  }).then(Boolean),
+                onOpenNote: (widget, noteId, putAway) =>
+                  run(async () => {
+                    await command(putAway ? "request_close_memo_note" : "open_memo_note", {
+                      id: widget.id,
+                      noteId,
+                    });
+                    reload();
+                  }).then(Boolean),
+                onAdd: (payload) => navigate(() => void addWidgetItem(payload)),
+              }}
             />
           </aside>
           <Surface
@@ -845,7 +866,6 @@ export function Diary(): ReactElement {
               snapshot={snapshot}
               busy={saving}
               onOpenWidget={openSourceWidget}
-              onOpenMemo={openSourceWidget}
               onAdd={(payload) =>
                 navigate(() => {
                   setTool(null);
@@ -1093,6 +1113,7 @@ export function Diary(): ReactElement {
                           onDirtyChange={setPageDirty}
                         />
                       )}
+                      {!pageId && view === "day" && <DiaryJournal key={day} date={day} />}
                       {!pageId && view !== "day" && (
                         <p className={s.legend}>□ 할 일　 · 기록이 있는 날　 ↗ 준비 봉투 연결</p>
                       )}

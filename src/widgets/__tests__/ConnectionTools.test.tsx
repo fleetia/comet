@@ -471,8 +471,6 @@ it("saves reminder opt-in only on explicit form submission", async () => {
       enabled: true,
       leadMinutes: 10,
       includeAllDay: false,
-      quietStart: "22:00",
-      quietEnd: "08:00",
       characterEnabled: true,
       osEnabled: false,
       moodDayStart: false,

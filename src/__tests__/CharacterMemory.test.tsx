@@ -214,25 +214,21 @@ it("routes legacy memory destinations into the selected character and moves sear
   expect(screen.getByRole("heading", { name: "기억 검색" })).toBeTruthy();
 });
 
-it("shows first-run name entry before widgets and prevents personal input before registration", async () => {
+it("allows settings navigation before registration and asks for a name in the balloon", () => {
   vi.mocked(isDesktop).mockReturnValue(false);
   const { unmount } = render(
     <SettingsPanel snapshot={{ ...PREVIEW_SNAPSHOT, user: null }} initialSection="widgets" />,
   );
-  expect(screen.getByRole("heading", { name: "어떻게 불러드릴까요?" })).toBeTruthy();
+  expect(screen.getByRole("tab", { name: "위젯", selected: true })).toBeTruthy();
   unmount();
   render(
     <Balloon
-      snapshot={{ ...PREVIEW_SNAPSHOT, user: null, panel: { persona: "a", mode: "input" } }}
+      snapshot={{ ...PREVIEW_SNAPSHOT, user: null, panel: { persona: "a", mode: "name" } }}
     />,
   );
-  expect(screen.getByRole("textbox")).toHaveProperty("disabled", true);
-  expect(screen.getByRole("button", { name: "보내기" })).toHaveProperty("disabled", true);
-  fireEvent.click(screen.getByRole("button", { name: "이름 설정" }));
-  await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("set_settings_section", { section: "user" }),
-  );
-  await waitFor(() => expect(command).toHaveBeenCalledWith("open_settings"));
+  expect(screen.getByRole("textbox", { name: "뭐라고 부를까?" })).toHaveProperty("disabled", false);
+  expect(screen.queryByRole("button", { name: "이름 설정" })).toBeNull();
+  expect(command).not.toHaveBeenCalledWith("open_settings");
 });
 
 it("assigns legacy memory explicitly to selected characters only", async () => {

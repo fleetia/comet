@@ -322,3 +322,36 @@ it("keeps linked task titles and checklist text independent from completion", as
     ),
   );
 });
+
+it("keeps an unsaved persistent-note draft mounted while search hides it", async () => {
+  const diaryAction = vi.fn<DiaryAction>().mockResolvedValue(true);
+  const onDirtyChange = vi.fn();
+  render(
+    <DiaryNotes
+      notes={[note]}
+      diaryAction={diaryAction}
+      busy={false}
+      onDirtyChange={onDirtyChange}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "세션 아이디어 메모 메뉴" }));
+  fireEvent.click(screen.getByRole("button", { name: "편집" }));
+  fireEvent.change(screen.getByLabelText("메모 내용"), { target: { value: "  저장 전\n내용  " } });
+  fireEvent.change(screen.getByRole("textbox", { name: "메모 검색" }), {
+    target: { value: "다른 메모" },
+  });
+  expect(screen.queryByRole("textbox", { name: "메모 내용" })).toBeNull();
+  expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  fireEvent.change(screen.getByRole("textbox", { name: "메모 검색" }), { target: { value: "" } });
+  expect(screen.getByRole("textbox", { name: "메모 내용" })).toHaveProperty(
+    "value",
+    "  저장 전\n내용  ",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "메모 저장" }));
+  await waitFor(() =>
+    expect(diaryAction).toHaveBeenCalledWith(
+      "note-update",
+      expect.objectContaining({ id: note.id, body: "  저장 전\n내용  " }),
+    ),
+  );
+});

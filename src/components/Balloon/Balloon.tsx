@@ -12,6 +12,7 @@ import { useBalloonSizing } from "../../hooks/useBalloonSizing";
 import { useTypewriter } from "../../hooks/useTypewriter";
 import * as s from "../companion.css";
 import * as ui from "../../lagrange.css";
+import { NameRegistration } from "./NameRegistration";
 import { ConversationHistory, ConversationLog } from "./ConversationHistory";
 import { StoryChoices } from "../StoryChoices/StoryChoices";
 import { activeCharacter, BALLOON_SPRITE, characterName, spriteUrl } from "../characterIdentity";
@@ -434,6 +435,7 @@ export function Balloon({
     menu: "무엇을 할까?",
     input: target === "all" ? "함께 대화 중" : `${recipientName}와 대화`,
     history: "지난 대화",
+    name: "처음 만났네",
   };
   const speech = (
     <span className={s.speechText}>
@@ -578,48 +580,45 @@ export function Balloon({
               <Button
                 variant="quiet"
                 className={s.menuItem}
-                onClick={() => void perform("open_characters")}
-              >
-                캐릭터 관리
-              </Button>
-              <Button
-                variant="quiet"
-                className={s.menuItem}
-                onClick={() => void perform("open_widgets")}
-              >
-                위젯 관리
-              </Button>
-              <Button
-                variant="quiet"
-                className={s.menuItem}
                 onClick={() => void perform("open_settings")}
               >
                 설정
               </Button>
             </div>
             <div className={s.menuGroup} role="group" aria-label="자동 잡담과 표시">
-              <Button
-                variant="quiet"
-                className={s.menuItem}
-                onClick={() => void perform("set_paused", { paused: !snapshot.runtime.paused })}
-              >
-                {snapshot.runtime.paused ? "자동 잡담 다시 시작" : "자동 잡담 잠시 쉬기"}
-              </Button>
-              {!snapshot.runtime.paused && (
+              {snapshot.runtime.paused ? (
                 <Button
                   variant="quiet"
                   className={s.menuItem}
-                  onClick={() => void perform("set_paused", { paused: true, minutes: 60 })}
+                  onClick={() => void perform("set_paused", { paused: false })}
                 >
-                  1시간 조용히
+                  다시 시작
                 </Button>
+              ) : (
+                <details>
+                  <summary className={s.pauseSummary}>자동 잡담 쉬기</summary>
+                  <Button
+                    variant="quiet"
+                    className={s.menuItem}
+                    onClick={() => void perform("set_paused", { paused: true, minutes: 60 })}
+                  >
+                    1시간
+                  </Button>
+                  <Button
+                    variant="quiet"
+                    className={s.menuItem}
+                    onClick={() => void perform("set_paused", { paused: true })}
+                  >
+                    다시 시작할 때까지
+                  </Button>
+                </details>
               )}
               <Button
                 variant="quiet"
                 className={s.menuItem}
                 onClick={() => void perform("hide_boxes")}
               >
-                숨기기
+                캐릭터 숨기기
               </Button>
             </div>
           </nav>
@@ -644,6 +643,13 @@ export function Balloon({
             )}
           </div>
         </>
+      )}
+      {mode === "name" && !snapshot.user && (
+        <NameRegistration
+          key={persona}
+          greeting={character?.definition.greeting[0]?.text ?? "안녕! 만나서 반가워."}
+          dispatch={dispatch}
+        />
       )}
       {mode === "input" && (
         <div className={s.inputContents} role="region" aria-label="대화 내용과 입력" tabIndex={0}>
@@ -715,21 +721,6 @@ export function Balloon({
                 등록된 키워드 답장·혼잣말은 모델 없이 사용할 수 있어요.
               </p>
             </div>
-            {!snapshot.user && (
-              <div className={s.row}>
-                <span className={ui.quiet}>함께 이야기하기 전에 이름을 알려 주세요.</span>
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    void dispatch("set_settings_section", { section: "user" })
-                      .then(() => dispatch("open_settings"))
-                      .catch((cause: unknown) => setError(errorText(cause)));
-                  }}
-                >
-                  이름 설정
-                </Button>
-              </div>
-            )}
             <div className={s.recipientRow}>
               <label className={ui.quiet}>
                 받는 친구{" "}

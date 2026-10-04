@@ -26,7 +26,11 @@ pub(crate) fn present_line(
     let _action = lock(&state.action)?;
     let db = lock(&state.db)?;
     if !is_current(state, epoch, cancel)
-        || super::quiet_hours::playback_blocked(state, &store::settings(&db)?)?
+        || super::quiet_hours::playback_blocked(
+            state,
+            &store::settings(&db)?,
+            lock(&state.runtime)?.paused,
+        )?
         || store::revision(&db)? != revision
     {
         return Ok(false);

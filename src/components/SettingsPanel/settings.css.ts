@@ -136,8 +136,26 @@ export const columns = style({
   "@media": { "(max-width: 800px)": { gridTemplateColumns: "1fr" } },
 });
 export const simplePage = style({ maxWidth: 792 });
-export const widePage = style({ maxWidth: 1184, height: "100%", minHeight: 0, overflow: "hidden" });
-export const fullPage = style({ height: "100%", minHeight: 0, overflow: "hidden" });
+export const dialogueLayout = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: vars.space.xl,
+  height: "100%",
+  maxWidth: 1184,
+  overflowY: "auto",
+  scrollbarGutter: "stable",
+});
+export const wordbookSection = style({
+  height: "min(640px, calc(100% - 72px))",
+  minHeight: 400,
+  flexShrink: 0,
+});
+export const talkSection = style({
+  display: "grid",
+  gap: vars.space.md,
+  flexShrink: 0,
+  paddingBottom: vars.space.md,
+});
 export const userIdentity = style({
   display: "flex",
   alignItems: "center",

@@ -6,7 +6,6 @@ export const workspace = style({
   maxWidth: 1184,
   gap: vars.space.lg,
   minHeight: 0,
-  height: "100%",
   alignItems: "start",
   "@media": { "(max-width: 1280px)": { gridTemplateColumns: "224px minmax(0,1fr)" } },
 });

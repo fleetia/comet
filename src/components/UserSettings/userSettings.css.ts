@@ -5,7 +5,6 @@ export const workspace = style({
   display: "flex",
   flexDirection: "column",
   gap: vars.space.md,
-  height: "100%",
   minHeight: 0,
   maxWidth: 1184,
 });

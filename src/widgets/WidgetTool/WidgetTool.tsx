@@ -9,9 +9,7 @@ import type { CharacterCollection } from "../../types";
 import { ToyTool } from "../ToyTools/ToyTools";
 import { TodoTool } from "../TodoTool/TodoTool";
 import { ClockTool, TimerTool } from "../PlanningTools/PlanningTools";
-import { MemoTool } from "../MemoTool/MemoTool";
 import { PreparationTool } from "../PreparationTool/PreparationTool";
-import { JournalTool } from "../JournalTool/JournalTool";
 import { CalendarTool } from "../CalendarTool/CalendarTool";
 import { ConnectionTool } from "../ConnectionTools/ConnectionTools";
 import * as c from "../../lagrange.css";
@@ -117,29 +115,6 @@ export function WidgetTool({
       case "focus-timer":
         content = <TimerTool {...props} />;
         break;
-      case "memo":
-        footer = (
-          <Button
-            variant="primary"
-            size="compact"
-            disabled={busy}
-            onClick={() => void run(() => command("create_memo_note", { id }))}
-          >
-            + 새 메모
-          </Button>
-        );
-        content = (
-          <MemoTool
-            {...props}
-            busy={busy}
-            openNote={(noteId, putAway) =>
-              run(() =>
-                command(putAway ? "request_close_memo_note" : "open_memo_note", { id, noteId }),
-              )
-            }
-          />
-        );
-        break;
       case "clock":
         content = <ClockTool {...props} />;
         break;
@@ -154,9 +129,6 @@ export function WidgetTool({
             캘린더 연결 설정
           </Button>
         );
-        break;
-      case "journal":
-        content = <JournalTool widget={widget} />;
         break;
       case "completion-jar": {
         const completed = rows(record(widget.data).completed);
@@ -229,17 +201,6 @@ export function WidgetTool({
                 바탕화면에 꺼내기
               </Button>
             </>
-          );
-        } else if (widget.kind === "collection") {
-          footer = (
-            <Button
-              variant="secondary"
-              size="compact"
-              disabled={busy || rows(record(widget.data).decorations).length === 0}
-              onClick={() => void act("clear")}
-            >
-              소품 모두 넣기
-            </Button>
           );
         }
     }

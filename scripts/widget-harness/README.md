@@ -47,7 +47,7 @@ corepack pnpm test:widgets:browser
 
 ## Native QA와 모델 생성 검증
 
-브라우저 통과 후에는 별도 identifier의 QA 앱으로 현재 소스를 빌드하고 서명·identifier를 확인한다. 사용자 설치본이나 사용자 DB를 교체하지 않는다. 구현 상태는 [AI 위젯 사양](../../docs/widgets/ai-creation.md)과 [상태표](../../docs/status.md)에 기록한다.
+브라우저 통과 후에는 별도 identifier의 QA 앱으로 현재 소스를 빌드하고 서명·identifier를 확인한다. 사용자 설치본이나 사용자 DB를 교체하지 않는다. 실행 계약은 [확장 기능](../../docs/extensions.md), QA 절차는 [개발과 검증](../../docs/development.md)을 따른다. 실제 결과는 작업 기록에 남기며 [미검증 범위](../../docs/status.md)에는 남은 확인만 적는다.
 
 1. QA 작업실에 `native-counter.json`을 가져온다. 이 합성 위젯의 버튼·입력으로 count·note를 바꾸고 앱을 재시작한 뒤 값 보존을 확인한다.
 2. tick 중 입력을 연달아 확정하고 마지막 값과 동작 순서를 확인한다. 실행 중 끄기·닫기·코드 변경 뒤 이전 입력이 다시 적용되지 않아야 한다.

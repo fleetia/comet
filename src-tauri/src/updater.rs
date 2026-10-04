@@ -46,17 +46,12 @@ fn configured(app: &tauri::AppHandle) -> bool {
 }
 
 fn publish(app: &tauri::AppHandle, status: UpdateStatus) -> Result<UpdateStatus, String> {
-    let refresh_menu = {
+    {
         let state = app.state::<UpdateState>();
         let mut current = super::lock(&state.status)?;
-        let changed = current.phase != status.phase || current.version != status.version;
         *current = status.clone();
-        changed
-    };
-    let _ = app.emit("app-update", &status);
-    if refresh_menu {
-        crate::desktop_menu::refresh(app);
     }
+    let _ = app.emit("app-update", &status);
     Ok(status)
 }
 
@@ -90,21 +85,6 @@ fn report_failure(app: &tauri::AppHandle, message: String) -> String {
 
 fn get_status(app: &tauri::AppHandle) -> Result<UpdateStatus, String> {
     Ok(super::lock(&app.state::<UpdateState>().status)?.clone())
-}
-
-pub(crate) fn menu_label(app: &tauri::AppHandle) -> String {
-    let Ok(status) = get_status(app) else {
-        return "업데이트 확인".into();
-    };
-    match status.phase {
-        "available" | "error" if status.version.is_some() => {
-            format!("새 버전 {} 설치 가능", status.version.unwrap_or_default())
-        }
-        "checking" => "업데이트 확인 중…".into(),
-        "downloading" => "업데이트 다운로드 중…".into(),
-        "installing" => "업데이트 설치 중…".into(),
-        _ => "업데이트 확인".into(),
-    }
 }
 
 #[tauri::command]

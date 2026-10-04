@@ -73,6 +73,40 @@ pub struct QuietHours {
     pub weekdays: Vec<u32>,
 }
 
+impl QuietHours {
+    pub(crate) fn minute(value: &str) -> Option<u32> {
+        let bytes = value.as_bytes();
+        if bytes.len() != 5
+            || bytes[2] != b':'
+            || ![bytes[0], bytes[1], bytes[3], bytes[4]]
+                .iter()
+                .all(u8::is_ascii_digit)
+        {
+            return None;
+        }
+        let hour = value[..2].parse::<u32>().ok()?;
+        let minute = value[3..].parse::<u32>().ok()?;
+        (hour < 24 && minute < 60).then_some(hour * 60 + minute)
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        if !self.enabled {
+            return Ok(());
+        }
+        if Self::minute(&self.start).is_none()
+            || Self::minute(&self.end).is_none()
+            || self.start == self.end
+            || self.weekdays.is_empty()
+            || self.weekdays.iter().any(|day| *day > 6)
+        {
+            return Err(
+                "조용한 시간의 시작·종료 시각을 다르게 정하고 요일을 하나 이상 골라 주세요.".into(),
+            );
+        }
+        Ok(())
+    }
+}
+
 impl Default for QuietHours {
     fn default() -> Self {
         Self {

@@ -18,12 +18,11 @@ pub(crate) enum SettingsSection {
     Characters,
     Widgets,
     Automatic,
-    Wordbook,
-    Talk,
+    #[serde(alias = "wordbook", alias = "talk")]
+    Dialogue,
     Memory,
-    User,
     Model,
-    #[serde(alias = "updates")]
+    #[serde(alias = "updates", alias = "user")]
     General,
 }
 
@@ -34,10 +33,8 @@ impl SettingsSection {
             Self::Characters => "characters",
             Self::Widgets => "widgets",
             Self::Automatic => "automatic",
-            Self::Wordbook => "wordbook",
-            Self::Talk => "talk",
+            Self::Dialogue => "dialogue",
             Self::Memory => "memory",
-            Self::User => "user",
             Self::Model => "model",
         }
     }
@@ -94,6 +91,11 @@ pub(crate) fn open_panel(
         } else {
             store::pause_conversations(&db)?;
         }
+        let mode = if mode == "input" && store::current_user(&db)?.is_none() {
+            "name".into()
+        } else {
+            mode
+        };
         let token = interrupt(&state, false)?;
         *lock(&state.panel)? = Some(PanelState { persona, mode });
         state.last_input.store(now(), Ordering::SeqCst);
@@ -271,6 +273,7 @@ pub(crate) fn show_boxes(app: &tauri::AppHandle, state: &AppState) {
     state.last_input.store(now(), Ordering::SeqCst);
     drop(action);
     publish(app, state);
+    crate::desktop_menu::refresh(app);
 }
 
 #[tauri::command]
@@ -314,6 +317,7 @@ pub(crate) async fn hide_boxes(
         inference::stop_local(&state.inference).await;
     }
     publish(&app, &state);
+    crate::desktop_menu::refresh(&app);
     Ok(())
 }
 
@@ -341,6 +345,7 @@ pub(crate) fn set_paused(
     } else {
         publish(&app, &state);
     }
+    crate::desktop_menu::refresh(&app);
     Ok(())
 }
 
@@ -394,15 +399,18 @@ fn pause_locked(
         runtime.paused = paused;
         runtime.paused_until = until.filter(|_| paused);
     }
-    widgets::storage::discard_pending(&*lock(&state.db)?)?;
+    widgets::storage::discard_pending_during_quiet(&*lock(&state.db)?)?;
     if !paused {
         schedule_idle(state, store::settings(&*lock(&state.db)?)?.idle_minutes);
     }
-    let has_talk = lock(&state.talk_playback)?.is_some();
-    if should_cancel_for_pause(paused, state.automatic.load(Ordering::SeqCst))
-        || (paused && has_talk)
-    {
-        Ok(Some(interrupt(state, false)?))
+    let cancel = lock(&state.widget_playback)?.as_ref().map_or_else(
+        || should_cancel_for_pause(paused, state.automatic.load(Ordering::SeqCst)),
+        |event| paused && !super::quiet_hours::event_allowed(&event.event),
+    );
+    if cancel {
+        let token = interrupt(state, false)?;
+        state.widget_epoch.store(token.0, Ordering::SeqCst);
+        Ok(Some(token))
     } else {
         Ok(None)
     }

@@ -849,7 +849,7 @@ mod tests {
     }
 
     #[test]
-    fn counts_describe_actual_items_and_collection_not_events() {
+    fn todo_counts_describe_actual_items_and_retired_collection_stays_unavailable() {
         let (todo, _) = project(
             &snapshot(
                 "todo",
@@ -860,15 +860,15 @@ mod tests {
         assert_eq!(todo["todo.openCount"], 2);
         assert_eq!(todo["todo.completedCount"], 1);
         assert_eq!(todo["todo.overdueCount"], 1);
-        let (collection, _) = project(
-            &snapshot(
-                "collection",
-                json!({"items":[{"quantity":5}],"decorations":[{},{}]}),
-            ),
-            10,
-        );
-        assert_eq!(collection["collection.count"], 1);
-        assert_eq!(collection["collection.decorationCount"], 2);
+        let saved = json!({"items":[{"quantity":5}],"decorations":[{},{}]});
+        let state = snapshot("collection", saved.clone());
+        let (collection, available) = project(&state, 10);
+        assert_eq!(collection["collection.count"], Value::Null);
+        assert_eq!(collection["collection.decorationCount"], Value::Null);
+        assert_eq!(collection["collection.ready"], false);
+        assert!(!available.contains("collection"));
+        assert!(registry().variables.contains_key("collection.count"));
+        assert_eq!(state.widgets[0].instance.data, saved);
     }
     #[test]
     fn build_projects_all_catalog_kinds_and_allowlisted_event_only() {
@@ -891,9 +891,13 @@ mod tests {
             },
         };
         let context = build(&db, Some(&event), 100, 5).unwrap();
-        assert_eq!(context.available.len(), 16);
+        assert_eq!(context.available.len(), 14);
+        assert!(!context.available.contains("collection"));
+        assert!(!context.available.contains("journal"));
         assert_eq!(context.values["event.action"], "poke");
-        assert_eq!(context.values["journal.count"], 0);
+        assert_eq!(context.values["journal.count"], Value::Null);
+        assert_eq!(context.values["journal.ready"], false);
+        assert!(registry().variables.contains_key("journal.count"));
         assert_eq!(context.values["todo.openCount"], 0);
         assert_eq!(context.values["weather.temperature"], Value::Null);
         assert_eq!(context.active, ["builtin-a", "builtin-b"]);

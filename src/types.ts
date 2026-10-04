@@ -168,7 +168,7 @@ export type StoryRequest = {
   prompt: string;
   choices: { id: string; label: string }[];
 };
-export type PanelState = { persona: Persona; mode: "menu" | "input" | "history" };
+export type PanelState = { persona: Persona; mode: "menu" | "input" | "history" | "name" };
 export type Dispatch = (name: string, args?: Record<string, unknown>) => Promise<void>;
 export type LocalModel =
   | "qwen3.5-4b"

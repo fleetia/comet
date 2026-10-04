@@ -30,12 +30,17 @@ pub(crate) fn publish_widgets(app: &tauri::AppHandle, state: &AppState) {
 
 /// Keeps idle chatter deferred for the whole focus run, so it never fires right after the timer ends.
 pub(crate) fn hold_for_focus(state: &AppState, db: &rusqlite::Connection) -> Result<bool, String> {
-    if !storage::focus_active(db, chrono::Utc::now().timestamp_millis())?
-        && !crate::app::quiet_hours::automatic_blocked(state, &store::settings(db)?)?
-    {
+    let quiet = lock(&state.runtime)?.paused
+        || crate::app::quiet_hours::automatic_blocked(state, &store::settings(db)?)?;
+    let focus = storage::focus_active(db, chrono::Utc::now().timestamp_millis())?;
+    if !quiet && !focus {
         return Ok(false);
     }
-    storage::discard_pending_during_focus(db)?;
+    if quiet {
+        storage::discard_pending_during_quiet(db)?;
+    } else {
+        storage::discard_pending_during_focus(db)?;
+    }
     crate::app::schedule_idle(state, store::settings(db)?.idle_minutes);
     Ok(true)
 }
@@ -106,16 +111,6 @@ pub(crate) fn install_widgets(
     crate::memo_notes::schedule_sync(&app);
     publish_widgets(&app, &state);
     result
-}
-
-#[tauri::command]
-pub(crate) fn finish_widget_onboarding(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, Arc<AppState>>,
-) -> Result<(), String> {
-    change(&state, storage::finish_onboarding)?;
-    publish_widgets(&app, &state);
-    Ok(())
 }
 
 #[tauri::command]
@@ -219,6 +214,9 @@ pub(crate) fn widget_event_current(
     let Some(event) = lock(&state.widget_playback)?.clone() else {
         return Ok(false);
     };
+    if lock(&state.runtime)?.paused && !crate::app::quiet_hours::event_allowed(&event.event) {
+        return Ok(false);
+    }
     event_current(db, &event)
 }
 
@@ -227,7 +225,7 @@ pub(crate) fn event_current(
     event: &WidgetEvent,
 ) -> Result<bool, String> {
     if crate::app::quiet_hours::active(&store::settings(db)?)
-        && !crate::app::quiet_hours::event_allowed(&event.event.kind)
+        && !crate::app::quiet_hours::event_allowed(&event.event)
     {
         return Ok(false);
     }
@@ -455,15 +453,11 @@ pub(crate) fn remove_widget_background(
 pub(crate) fn get_widget_journal(
     state: tauri::State<'_, Arc<AppState>>,
     before: Option<i64>,
+    start_at: i64,
+    end_at: i64,
 ) -> Result<Vec<(i64, WidgetEvent)>, String> {
     let db = lock(&state.db)?;
-    if !storage::instances(&db)?
-        .iter()
-        .any(|entry| entry.kind == "journal" && entry.installed && entry.enabled)
-    {
-        return Err("사건 일지를 설치하고 켜 주세요.".into());
-    }
-    storage::journal(&db, before)
+    storage::journal(&db, before, start_at, end_at)
 }
 
 #[tauri::command]
@@ -550,7 +544,7 @@ fn validate_open_widget(
     instance: &widgets::WidgetInstance,
     launcher: Option<(i64, u64)>,
 ) -> Result<(), String> {
-    if !instance.installed || !instance.enabled {
+    if widgets::is_retired(&instance.kind) || !instance.installed || !instance.enabled {
         return Err("위젯을 설치하고 켜 주세요.".into());
     }
     if let Some((revision, session)) = launcher {
@@ -562,6 +556,21 @@ fn validate_open_widget(
         }
     }
     Ok(())
+}
+
+fn create_memo_for_open(
+    state: &AppState,
+    id: &str,
+    launcher: Option<(i64, u64)>,
+) -> Result<WidgetSnapshot, String> {
+    change(state, |db| {
+        let current = storage::get(db, id)?;
+        validate_open_widget(state, &current, launcher)?;
+        if let Some((_, session)) = launcher {
+            crate::app::launcher::accept_execution(state, session)?;
+        }
+        crate::memo_notes::create_note(db, id)
+    })
 }
 
 async fn open_widget_inner(
@@ -576,6 +585,11 @@ async fn open_widget_inner(
         validate_open_widget(state, &instance, launcher)?;
         Ok(instance)
     })?;
+    if instance.kind == "memo" {
+        let snapshot = create_memo_for_open(state, id, launcher)?;
+        crate::memo_notes::reveal_created_note(app, state, id, snapshot).await?;
+        return Ok(());
+    }
     if crate::behavior::TOYS.contains(&instance.kind.as_str()) {
         let token = crate::desktop_toys::launch_token(app, id)?;
         let geometry = crate::desktop_toys::current_geometry(app).await?;
@@ -762,12 +776,13 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
     let changed = change(state, |db| {
         let timestamp = chrono::Utc::now().timestamp_millis();
         let changed = storage::advance(db, timestamp)?;
+        let quiet = lock(&state.runtime)?.paused
+            || crate::app::quiet_hours::automatic_blocked(state, &store::settings(db)?)?;
         let alerted =
-            widgets::reminders::advance(db, &mut *lock(&state.widget_clocks)?, timestamp)?;
+            widgets::reminders::advance(db, &mut *lock(&state.widget_clocks)?, timestamp, quiet)?;
         let runtime = lock(&state.runtime)?;
         if state.launcher_open.load(Ordering::SeqCst)
             || runtime.hidden
-            || runtime.paused
             || !store::settings(db)?.autonomous_enabled
         {
             storage::discard_pending(db)?;
@@ -804,7 +819,6 @@ pub(crate) fn take_pending_reaction(
     current_events(state, db)?;
     if state.launcher_open.load(Ordering::SeqCst)
         || status.hidden
-        || status.paused
         || !store::settings(db)?.autonomous_enabled
     {
         storage::discard_pending(db)?;
@@ -992,6 +1006,57 @@ mod tests {
         let mut disabled = instance;
         disabled.enabled = false;
         assert!(validate_open_widget(&state, &disabled, Some((3, 0))).is_err());
+    }
+
+    #[test]
+    fn memo_open_creates_a_detached_sheet_only_for_the_current_launcher_preview() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut state = crate::app::tests::state();
+        state.app_data = directory.path().into();
+        let first = change(&state, |db| {
+            storage::install(db, &state.app_data, &["memo".into()])?;
+            Ok(storage::instances(db)?.remove(0))
+        })
+        .unwrap();
+        let created = create_memo_for_open(&state, &first.id, None).unwrap();
+        let note = &created.widgets[0].instance.data["notes"][0];
+        assert_eq!(note["isOpen"], true);
+        let note_id = note["id"].clone();
+        change(&state, |db| {
+            let current = storage::get(db, &first.id)?;
+            storage::execute(
+                db,
+                &WidgetRequest {
+                    request_id: uuid::Uuid::new_v4().to_string(),
+                    instance_id: first.id.clone(),
+                    expected_revision: current.revision,
+                    action: "update".into(),
+                    input: serde_json::json!({"id":note_id,"body":"  원문\n  보존","isOpen":false}),
+                },
+                1,
+                0,
+            )
+        })
+        .unwrap();
+        let before = storage::get(&lock(&state.db).unwrap(), &first.id).unwrap();
+        state.launcher_open.store(true, Ordering::SeqCst);
+        assert!(create_memo_for_open(&state, &first.id, Some((first.revision, 0))).is_err());
+        assert!(create_memo_for_open(&state, &first.id, Some((before.revision, 1))).is_err());
+        let result = create_memo_for_open(&state, &first.id, Some((before.revision, 0))).unwrap();
+        let notes = result.widgets[0].instance.data["notes"].as_array().unwrap();
+        assert_eq!(notes.len(), 2);
+        assert_eq!(notes[0], before.data["notes"][0]);
+        assert_eq!(notes[1]["isOpen"], true);
+        assert!(create_memo_for_open(&state, &first.id, Some((before.revision, 0))).is_err());
+        assert_eq!(
+            storage::get(&lock(&state.db).unwrap(), &first.id)
+                .unwrap()
+                .data["notes"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
     }
 
     #[test]

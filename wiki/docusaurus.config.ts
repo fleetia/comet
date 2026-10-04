@@ -4,7 +4,7 @@ import type { PluginOptions } from '@easyops-cn/docusaurus-search-local';
 
 const config: Config = {
   title: 'comet 위키',
-  tagline: '바탕화면 동행과 위젯의 사양·설계·개발 기록',
+  tagline: '바탕화면 동행의 사용·확장·개발 계약',
   url: 'http://127.0.0.1:3000',
   baseUrl: '/',
   trailingSlash: false,
@@ -47,7 +47,7 @@ const config: Config = {
       title: 'comet 위키',
       items: [
         { type: 'docSidebar', sidebarId: 'docs', position: 'left', label: '문서' },
-        { to: '/status', label: '현재 상태', position: 'right' },
+        { to: '/status', label: '미검증 범위', position: 'right' },
       ],
     },
     docs: { sidebar: { hideable: true, autoCollapseCategories: true } },

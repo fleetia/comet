@@ -18,7 +18,7 @@ import { useWidgets } from "../useWidgets";
 import { useGeneratedWidgets } from "../GeneratedWidgets/useGeneratedWidgets";
 import { useWidgetRuntime } from "../useWidgetRuntime";
 import type { WidgetRuntime, WidgetView, WindowState } from "../types";
-import { offeredForInstall, type ToolAction } from "../toolData";
+import { type ToolAction } from "../toolData";
 import * as common from "../../lagrange.css";
 import { CONFIGURABLE_WIDGETS, DISPLAY_KINDS, WidgetSettings } from "./WidgetSettings";
 import { GeneratedWidgetSettings } from "./GeneratedWidgetSettings";
@@ -122,9 +122,6 @@ export function WidgetManager({
     setFailure(null);
     try {
       await command(name, args);
-      if (name === "finish_widget_onboarding" && !embedded) {
-        await command("close_widgets");
-      }
       setConfirmation(null);
       if (name === "install_widgets") {
         setInstallTarget(null);
@@ -186,9 +183,8 @@ export function WidgetManager({
     ? catalog.filter((item) => item.required.includes(removed.kind) && findView(item.id)?.installed)
     : [];
   const installedCount = widgets.filter((item) => item.installed).length + generatedWidgets.length;
-  const offered = catalog.filter((item) => offeredForInstall(item.id, findView(item.id)));
   const entries = [
-    ...offered.map((item) => {
+    ...catalog.map((item) => {
       const view = findView(item.id);
       return {
         ...item,
@@ -235,6 +231,7 @@ export function WidgetManager({
   const failureStatus = hasLastConfirmation ? "마지막 확인 상태 · 갱신 실패" : "확인 실패";
   const canCloseDisplay = hasLastConfirmation && running?.displayWindow === "visible";
   const windowState = running?.toolWindow?.state;
+  const isMemo = widget?.kind === "memo";
   const isToy = widget ? DESKTOP_TOYS.includes(widget.kind) : false;
   const related = entry
     ? catalog.filter(
@@ -284,23 +281,12 @@ export function WidgetManager({
       </section>
     ) : undefined;
   const installationActions =
-    snapshot && (!snapshot.onboardingDone || busy) ? (
+    snapshot && busy ? (
       <footer className={styles.footer}>
         <Inline gap="sm">
-          {!snapshot.onboardingDone && (
-            <Button
-              variant="secondary"
-              disabled={!canAct}
-              onClick={() => void run("finish_widget_onboarding")}
-            >
-              {installedCount === 0 ? "위젯 없이 시작하기" : "위젯 선택 마치기"}
-            </Button>
-          )}
-          {busy && (
-            <Text variant="caption" role="status">
-              처리하고 있어요.
-            </Text>
-          )}
+          <Text variant="caption" role="status">
+            처리하고 있어요.
+          </Text>
         </Inline>
         <Text variant="caption" tone="muted">
           설치와 사용 변경은 즉시 반영됩니다.
@@ -325,13 +311,34 @@ export function WidgetManager({
           </Heading>
         )}
         <Text variant="caption" tone="muted">
-          공식 {offered.length}개 · AI·가져온 위젯 {generatedWidgets.length}개 · 설치됨{" "}
+          공식 {catalog.length}개 · AI·가져온 위젯 {generatedWidgets.length}개 · 설치됨{" "}
           {installedCount}개
         </Text>
       </header>
-      <Button variant="primary" disabled={!canAct} onClick={() => void run("open_widget_workshop")}>
-        AI로 위젯 만들기
-      </Button>
+      <details className={styles.experiments}>
+        <summary>실험 기능</summary>
+        <Button
+          variant="secondary"
+          disabled={!canAct}
+          onClick={() => void run("open_widget_workshop")}
+        >
+          AI로 위젯 만들기
+        </Button>
+        <Checkbox
+          checked={workshop.automatic}
+          disabled={!canAct}
+          onChange={() =>
+            void run("set_widget_creation_automatic", { enabled: !workshop.automatic })
+          }
+        >
+          대화에서 필요한 도구가 보이면 자동으로 만들기
+        </Checkbox>
+        <Text as="p" variant="caption" tone="muted">
+          로컬 모델 또는 연결한 OpenAI 호환 API를 사용해요. 현재 AI의 자동 대화 생성 설정이 켜져
+          있을 때 자동 제작하며 최대 5분에 한 번이에요. API 이용량이 발생할 수 있어요. 기본
+          JavaScript 실행환경은 앱에 포함되어 있어요.
+        </Text>
+      </details>
       {!isDesktop() && (
         <Text as="p" variant="caption" tone="muted">
           예시 데이터 미리보기 · 설치와 저장은 데스크톱 앱에서 사용할 수 있어요.
@@ -508,18 +515,20 @@ export function WidgetManager({
                       )}
                       {widget?.installed && (
                         <Text variant="caption" tone="muted">
-                          {isToy
-                            ? runtimeError
-                              ? failureStatus
-                              : hasLastConfirmation && running?.toys
-                                ? `화면에 보임 ${running.toys.visible}개`
-                                : "장난감 상태 확인 중"
-                            : runtimeError
-                              ? failureStatus
-                              : runtimeLabel(
-                                  windowState,
-                                  running?.toolWindow?.shared === "planner",
-                                )}
+                          {isMemo
+                            ? "바탕화면 낱장 메모"
+                            : isToy
+                              ? runtimeError
+                                ? failureStatus
+                                : hasLastConfirmation && running?.toys
+                                  ? `화면에 보임 ${running.toys.visible}개`
+                                  : "장난감 상태 확인 중"
+                              : runtimeError
+                                ? failureStatus
+                                : runtimeLabel(
+                                    windowState,
+                                    running?.toolWindow?.shared === "planner",
+                                  )}
                         </Text>
                       )}
                     </div>
@@ -530,13 +539,14 @@ export function WidgetManager({
                           disabled={
                             !canAct ||
                             !widget.enabled ||
-                            !windowState ||
-                            windowState === "unknown" ||
-                            !!runtimeError
+                            (!isMemo &&
+                              (!windowState || windowState === "unknown" || !!runtimeError))
                           }
-                          onClick={() => void run("open_widget", { id: widget.id })}
+                          onClick={() =>
+                            void run(isMemo ? "create_memo_note" : "open_widget", { id: widget.id })
+                          }
                         >
-                          {toolActionLabel(windowState)}
+                          {isMemo ? "새 메모 꺼내기" : toolActionLabel(windowState)}
                         </Button>
                       )}
                       {widget?.installed && isToy && (
@@ -697,7 +707,9 @@ export function WidgetManager({
                               </Text>
                             )}
                             <Text variant="caption">
-                              실행 창을 닫아도 사용 상태와 저장한 데이터는 유지됩니다.
+                              {isMemo
+                                ? "목록과 검색은 다이어리의 계속 쓸 메모에서 볼 수 있어요. 낱장을 넣어도 내용은 남아 있어요."
+                                : "실행 창을 닫아도 사용 상태와 저장한 데이터는 유지됩니다."}
                             </Text>
                             {relatedContent}
                             {metadata}
