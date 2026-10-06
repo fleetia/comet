@@ -540,6 +540,71 @@ it("saves the exact draft before opening AI settings without starting a download
   expect(screen.getByRole("textbox")).toHaveProperty("value", value);
 });
 
+it("can ask AI once without changing the next ordinary send", async () => {
+  render(<Balloon snapshot={{ ...conversationSnapshot(), modelReady: true }} />);
+  const input = screen.getByRole("textbox");
+  fireEvent.change(input, { target: { value: "lighthouse가 포함된 긴 질문에 답해 줘" } });
+  fireEvent.click(screen.getByRole("button", { name: "AI에게 묻기" }));
+  await waitFor(() => expect(input).toHaveProperty("value", ""));
+  expect(command).toHaveBeenCalledWith("send_message", {
+    content: "lighthouse가 포함된 긴 질문에 답해 줘",
+    target: "builtin-a",
+    clientMessageId: expect.any(String),
+    sessionId: session.id,
+    aiOnly: true,
+  });
+  fireEvent.change(input, { target: { value: "lighthouse" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() => expect(input).toHaveProperty("value", ""));
+  const sends = vi.mocked(command).mock.calls.filter(([name]) => name === "send_message");
+  expect(sends).toHaveLength(2);
+  expect(sends[1]![1]).not.toHaveProperty("aiOnly");
+});
+
+it("keeps ordinary sending available while AI needs setup", () => {
+  render(<Balloon snapshot={conversationSnapshot()} />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "등록된 키워드" } });
+  expect(screen.getByRole("button", { name: "AI에게 묻기" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "보내기" })).toHaveProperty("disabled", false);
+  expect(screen.getByRole("button", { name: "AI 연결 설정" })).toBeTruthy();
+});
+
+it("does not double-send an AI request or erase a newer draft", async () => {
+  let finish!: () => void;
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "send_message")
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+  });
+  render(<Balloon snapshot={{ ...conversationSnapshot(), modelReady: true }} />);
+  const input = screen.getByRole("textbox");
+  fireEvent.change(input, { target: { value: "첫 AI 질문" } });
+  const ask = screen.getByRole("button", { name: "AI에게 묻기" });
+  fireEvent.click(ask);
+  fireEvent.click(ask);
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() => expect(command).toHaveBeenCalledWith("send_message", expect.anything()));
+  expect(vi.mocked(command).mock.calls.filter(([name]) => name === "send_message")).toHaveLength(1);
+  expect(ask).toHaveProperty("disabled", true);
+  fireEvent.change(input, { target: { value: "새로 쓰는 초안" } });
+  await act(async () => finish());
+  expect(input).toHaveProperty("value", "새로 쓰는 초안");
+});
+
+it("retains an AI input when submission fails", async () => {
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "send_message") throw new Error("모델 실행 실패");
+  });
+  render(<Balloon snapshot={{ ...conversationSnapshot(), modelReady: true }} />);
+  const input = screen.getByRole("textbox");
+  fireEvent.change(input, { target: { value: "  lighthouse가 포함된 질문\n" } });
+  fireEvent.click(screen.getByRole("button", { name: "AI에게 묻기" }));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "모델 실행 실패");
+  expect(input).toHaveProperty("value", "  lighthouse가 포함된 질문\n");
+  expect(screen.getByRole("button", { name: "AI에게 묻기" })).toHaveProperty("disabled", false);
+});
+
 it("keeps an authored reply's recorded origin after model readiness changes", () => {
   const snapshot = conversationSnapshot();
   const view = {
@@ -663,7 +728,7 @@ it("preserves origin metadata when loading older conversation pages", async () =
   expect(screen.getByText("앞선 등록 원문").textContent).toContain("  앞선 등록 원문\n\n ");
 });
 
-it.each(["보내기", "AI 연결 설정"])(
+it.each(["보내기", "AI 연결 설정", "AI에게 묻기"])(
   "does not continue %s after another view replaces the saved draft",
   async (action) => {
     let finishSave!: () => void;
@@ -673,7 +738,7 @@ it.each(["보내기", "AI 연결 설정"])(
           finishSave = resolve;
         });
     });
-    const snapshot = conversationSnapshot();
+    const snapshot = { ...conversationSnapshot(), modelReady: action === "AI에게 묻기" };
     const { rerender } = render(<Balloon snapshot={snapshot} />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "이전 대화 초안" } });
     fireEvent.click(screen.getByRole("button", { name: action }));

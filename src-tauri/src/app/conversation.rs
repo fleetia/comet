@@ -45,6 +45,11 @@ pub(crate) fn route_message(
     if let Some(lines) = characters::keyword_scene(db, content, targets)? {
         return Ok(Some(characters::resolve_lines(db, &lines)?));
     }
+    ensure_model_ready(state, db)?;
+    Ok(None)
+}
+
+fn ensure_model_ready(state: &AppState, db: &Connection) -> Result<(), String> {
     let settings = store::settings(db)?;
     if settings.mode == "local" && !models::selected_ready(&state.app_data, &settings) {
         return Err(inference::not_ready_message(&settings));
@@ -54,7 +59,23 @@ pub(crate) fn route_message(
     {
         return Err("설정에서 API 연결을 먼저 완료해 주세요.".into());
     }
-    Ok(None)
+    Ok(())
+}
+
+pub(crate) fn route_input(
+    state: &AppState,
+    db: &Connection,
+    content: &str,
+    targets: &[String],
+    message_id: &str,
+) -> Result<Option<Vec<SceneLine>>, String> {
+    if store::input_ai_only(db, message_id)? {
+        // Preserve this one-shot choice across setup failures, retries, and restarts.
+        ensure_model_ready(state, db)?;
+        Ok(None)
+    } else {
+        route_message(state, db, content, targets)
+    }
 }
 
 pub(crate) fn record_input_and_route(
@@ -64,8 +85,9 @@ pub(crate) fn record_input_and_route(
     target: &str,
     targets: &[String],
     message_id: &str,
+    ai_only: bool,
 ) -> Result<Option<Vec<SceneLine>>, String> {
-    store::insert_message(
+    store::insert_user_input(
         db,
         &Message {
             id: message_id.into(),
@@ -76,8 +98,9 @@ pub(crate) fn record_input_and_route(
             created_at: now() * 1000,
             status: "complete".into(),
         },
+        ai_only,
     )?;
-    route_message(state, db, content, targets)
+    route_input(state, db, content, targets, message_id)
 }
 
 #[tauri::command]
@@ -88,6 +111,7 @@ pub(crate) async fn send_message(
     target: String,
     client_message_id: String,
     session_id: Option<String>,
+    ai_only: Option<bool>,
 ) -> Result<(), String> {
     let content = content.trim();
     if content.is_empty() || content.chars().count() > 2000 {
@@ -134,8 +158,15 @@ pub(crate) async fn send_message(
         if session.participants != targets {
             store::set_conversation_participants(&db, &session.id, &targets)?;
         }
-        let registered =
-            record_input_and_route(&state, &db, content, &target, &targets, &client_message_id);
+        let registered = record_input_and_route(
+            &state,
+            &db,
+            content,
+            &target,
+            &targets,
+            &client_message_id,
+            ai_only.unwrap_or(false),
+        );
         let token = super::tasks::reserve(&state, super::tasks::Kind::Conversation, false)?;
         if registered.is_err() {
             lock(&state.tasks)?.active = None;
@@ -219,7 +250,7 @@ pub(crate) fn retry_turn(
             }
             None
         } else {
-            route_message(&state, &db, &latest.content, &requested)?
+            route_input(&state, &db, &latest.content, &requested, &message_id)?
         };
         if targets.is_empty() && registered.is_none() {
             return Ok(());

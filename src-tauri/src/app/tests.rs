@@ -1112,6 +1112,100 @@ fn keyword_route_works_without_a_model_and_preserves_authored_lines() {
 }
 
 #[test]
+fn explicit_ai_input_bypasses_personal_and_character_keywords_without_changing_defaults() {
+    for source in ["personal", "character"] {
+        let state = state();
+        let db = lock(&state.db).unwrap();
+        let targets = resolve_targets(&db, "a").unwrap();
+        let entry = WordbookEntry {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: "합성 키워드".into(),
+            keywords: vec!["lighthouse".into()],
+            lines: vec![SceneLine {
+                motion: Default::default(),
+                persona: "a".into(),
+                expression: "평온".into(),
+                text: "  저장한 합성 대사\n그대로  ".into(),
+            }],
+            enabled: true,
+            use_for_idle: false,
+            group: None,
+        };
+        if source == "personal" {
+            wordbook::save(&db, &entry).unwrap();
+        } else {
+            characters::save_dialogue(
+                &db,
+                &targets,
+                &characters::CharacterDialogue {
+                    pair_scenes: vec![],
+                    wordbook: vec![entry.clone()],
+                },
+            )
+            .unwrap();
+        }
+        let input = "lighthouse가 포함된 긴 자유 질문을 자세히 설명해 줘";
+        let ordinary = route_message(&state, &db, input, &targets)
+            .unwrap()
+            .unwrap();
+        assert_eq!(ordinary[0].text, entry.lines[0].text, "{source}");
+        // The same matching question must report missing AI setup when explicitly requested.
+        let error = super::conversation::record_input_and_route(
+            &state,
+            &db,
+            input,
+            "a",
+            &targets,
+            "ai-question",
+            true,
+        )
+        .unwrap_err();
+        assert!(error.contains("모델"), "{error}");
+        assert!(store::input_ai_only(&db, "ai-question").unwrap());
+        let original = store::messages(&db, 20).unwrap().pop().unwrap();
+        assert_eq!(original.content, input);
+        let revision = store::revision(&db).unwrap();
+        let relationships = serde_json::to_value(store::relationships(&db).unwrap()).unwrap();
+        // A configured loopback API lets us verify routing without any inference/network call.
+        store::save_settings(
+            &db,
+            &Settings {
+                mode: "api".into(),
+                base_url: "http://127.0.0.1:11434/v1".into(),
+                api_model: "synthetic-test-model".into(),
+                ..Settings::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            super::conversation::route_input(
+                &state,
+                &db,
+                &original.content,
+                &targets,
+                &original.id,
+            )
+            .unwrap()
+            .is_none(),
+            "retry must preserve AI selection: {source}"
+        );
+        assert_eq!(store::revision(&db).unwrap(), revision);
+        assert_eq!(
+            serde_json::to_value(store::relationships(&db).unwrap()).unwrap(),
+            relationships
+        );
+        assert_eq!(
+            route_message(&state, &db, input, &targets)
+                .unwrap()
+                .unwrap()[0]
+                .text,
+            entry.lines[0].text
+        );
+        assert_eq!(store::messages(&db, 20).unwrap().len(), 1);
+    }
+}
+
+#[test]
 fn single_recipient_keyword_routes_filter_whole_scenes_before_matching() {
     for source in ["personal", "character", "pair"] {
         let mut state = state();
@@ -2601,7 +2695,14 @@ fn pair_prompt_rejects_questions_removed_from_active_contexts() {
 
 #[test]
 fn partial_retry_references_only_current_characters_completed_same_turn_reply() {
-    for scenario in ["complete", "unshown", "incomplete", "other-turn", "swapped", "expired"] {
+    for scenario in [
+        "complete",
+        "unshown",
+        "incomplete",
+        "other-turn",
+        "swapped",
+        "expired",
+    ] {
         let db = store::open(std::path::Path::new(":memory:")).unwrap();
         use_neutral_characters(&db);
         let user = Message {
@@ -2779,7 +2880,8 @@ fn unprepared_model_keeps_new_original_and_rule_based_affinity() {
         "고마워",
         "a",
         &["a".to_string()],
-        "new-without-llm"
+        "new-without-llm",
+        false,
     )
     .is_err());
     let original = store::messages(&db, 20)
