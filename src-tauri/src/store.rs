@@ -22,9 +22,10 @@ pub use analysis::{
 pub use conversations::{
     active_conversation, attach_conversation_message, conversation, conversation_context,
     conversation_for_message, conversation_message_allowed, conversation_messages,
-    conversation_view, conversations, create_conversation, pause_conversations,
-    record_conversation_disclosure, save_conversation_draft, set_conversation_participants,
-    set_conversation_status, ConversationMessages, ConversationSession, ConversationView,
+    conversation_reply_pending, conversation_view, conversations, create_conversation,
+    pause_conversations, record_conversation_disclosure, save_conversation_draft,
+    set_conversation_participants, set_conversation_status, ConversationMessages,
+    ConversationSession, ConversationView,
 };
 #[cfg(test)]
 pub use memory::analyze_apply;

@@ -53,38 +53,53 @@ pub(crate) fn resume_chat(
     state: tauri::State<'_, Arc<AppState>>,
     session_id: String,
 ) -> Result<(), String> {
-    let epoch = {
-        let _action = lock(&state.action)?;
-        if unavailable(&state) {
-            return Err("앱을 종료하고 있어요.".into());
-        }
-        let db = lock(&state.db)?;
-        let session = store::conversation(&db, &session_id)?;
-        let active = characters::active_ids(&db)?;
-        if session.participants.iter().any(|id| !active.contains(id)) {
-            return Err("그때의 친구들을 다시 함께 지내기로 선택하면 이어갈 수 있어요.".into());
-        }
-        let at = chrono::Utc::now().timestamp_millis();
-        if session.status == "ended" {
-            store::create_conversation(&db, &session.participants, None, Some(&session.id), at)?;
-        } else {
-            store::set_conversation_status(&db, &session.id, "active", at)?;
-        }
-        let epoch = interrupt(&state, false)?.0;
-        *lock(&state.panel)? = Some(PanelState {
-            persona: session
-                .participants
-                .first()
-                .cloned()
-                .ok_or("대화 상대가 없어요.")?,
-            mode: "input".into(),
-        });
-        state.last_input.store(now(), Ordering::SeqCst);
-        epoch
-    };
+    let (epoch, recovery) = begin_resume(&state, &session_id)?;
     crate::desktop::request_balloon_focus(&app)?;
-    phase(&app, &state, epoch, RuntimePhase::Idle, None, None);
+    phase(
+        &app,
+        &state,
+        epoch,
+        if recovery.is_some() {
+            RuntimePhase::Error
+        } else {
+            RuntimePhase::Idle
+        },
+        None,
+        recovery,
+    );
     Ok(())
+}
+
+fn begin_resume(state: &AppState, session_id: &str) -> Result<(u64, Option<String>), String> {
+    let _action = lock(&state.action)?;
+    if unavailable(state) {
+        return Err("앱을 종료하고 있어요.".into());
+    }
+    let db = lock(&state.db)?;
+    let session = store::conversation(&db, session_id)?;
+    let active = characters::active_ids(&db)?;
+    if session.participants.iter().any(|id| !active.contains(id)) {
+        return Err("그때의 친구들을 다시 함께 지내기로 선택하면 이어갈 수 있어요.".into());
+    }
+    let recovery = store::conversation_reply_pending(&db, &session.id)?
+        .then(|| "마지막 답변을 마치지 못했어요. 다시 이야기하기로 이어갈 수 있어요.".to_string());
+    let at = chrono::Utc::now().timestamp_millis();
+    if session.status == "ended" {
+        store::create_conversation(&db, &session.participants, None, Some(&session.id), at)?;
+    } else {
+        store::set_conversation_status(&db, &session.id, "active", at)?;
+    }
+    let epoch = interrupt(state, false)?.0;
+    *lock(&state.panel)? = Some(PanelState {
+        persona: session
+            .participants
+            .first()
+            .cloned()
+            .ok_or("대화 상대가 없어요.")?,
+        mode: "input".into(),
+    });
+    state.last_input.store(now(), Ordering::SeqCst);
+    Ok((epoch, recovery))
 }
 
 #[tauri::command]
@@ -147,7 +162,7 @@ pub(crate) fn get_conversation_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Message, Playback};
+    use crate::types::{Message, Playback, SceneLine, Settings, WordbookEntry};
 
     #[test]
     fn replying_before_registration_opens_the_name_prompt_without_a_conversation() {
@@ -231,5 +246,264 @@ mod tests {
         let view = store::conversation_view(&db, &session.id).unwrap();
         assert_eq!(view.messages[0].content, "  원문\n그대로  ");
         assert_eq!(lock(&state.panel).unwrap().as_ref().unwrap().mode, "input");
+    }
+
+    #[test]
+    fn resume_restores_unanswered_input_after_close_and_database_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("resume.sqlite");
+        let state = super::super::tests::state();
+        *lock(&state.db).unwrap() = store::open(&path).unwrap();
+        let at = chrono::Utc::now().timestamp_millis();
+        let session = {
+            let db = lock(&state.db).unwrap();
+            store::set_user_name(&db, "합성 복원 검사", at).unwrap();
+            let session =
+                store::create_conversation(&db, &["builtin-a".into()], None, None, at).unwrap();
+            crate::wordbook::save(
+                &db,
+                &WordbookEntry {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    title: "합성 고정 대사".into(),
+                    keywords: vec!["lighthouse".into()],
+                    lines: vec![SceneLine {
+                        persona: "a".into(),
+                        text: "  원문\n보존  ".into(),
+                        expression: "평온".into(),
+                        motion: Default::default(),
+                    }],
+                    enabled: true,
+                    use_for_idle: false,
+                    group: None,
+                },
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO memories(id,content,source,updated,deleted,locked) VALUES('synthetic-memory','합성 기억','manual',1,0,0)",
+                [],
+            )
+            .unwrap();
+            store::save_settings(
+                &db,
+                &Settings {
+                    mode: "api".into(),
+                    base_url: "http://127.0.0.1:11434/v1".into(),
+                    api_model: "synthetic-no-network".into(),
+                    ..Settings::default()
+                },
+            )
+            .unwrap();
+            store::insert_user_input(
+                &db,
+                &Message {
+                    id: "failed-ai".into(),
+                    role: "user".into(),
+                    persona: Some("builtin-a".into()),
+                    content: "lighthouse failed".into(),
+                    expression: None,
+                    created_at: at,
+                    status: "complete".into(),
+                },
+                true,
+            )
+            .unwrap();
+            store::save_conversation_draft(&db, &session.id, "새로 작성한 초안\n보존").unwrap();
+            store::pause_conversations(&db).unwrap();
+            session
+        };
+        let original = preserved_data(&lock(&state.db).unwrap());
+        let mut recovery_found = Vec::new();
+        for reopen in [false, true] {
+            if reopen {
+                *lock(&state.db).unwrap() = store::open(std::path::Path::new(":memory:")).unwrap();
+                *lock(&state.db).unwrap() = store::open(&path).unwrap();
+            }
+            let (_, recovery) = begin_resume(&state, &session.id).unwrap();
+            recovery_found.push(recovery.is_some());
+            assert!(lock(&state.tasks).unwrap().active.is_none());
+            assert!(lock(&state.playback).unwrap().is_none());
+            let db = lock(&state.db).unwrap();
+            assert!(store::input_ai_only(&db, "failed-ai").unwrap());
+            assert_eq!(preserved_data(&db), original);
+            let targets = vec!["builtin-a".into()];
+            assert!(super::super::conversation::route_input(
+                &state,
+                &db,
+                "lighthouse failed",
+                &targets,
+                "failed-ai"
+            )
+            .unwrap()
+            .is_none());
+            assert_eq!(
+                super::super::conversation::route_message(
+                    &state,
+                    &db,
+                    "lighthouse failed",
+                    &targets
+                )
+                .unwrap()
+                .unwrap()[0]
+                    .text,
+                "  원문\n보존  "
+            );
+            assert_eq!(
+                db.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+                    .unwrap(),
+                "ok"
+            );
+            assert_eq!(
+                db.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+                0
+            );
+            assert_eq!(
+                store::conversation(&db, &session.id).unwrap().draft,
+                "새로 작성한 초안\n보존"
+            );
+            assert_eq!(
+                store::conversation_messages(&db, &session.id, None)
+                    .unwrap()
+                    .messages
+                    .len(),
+                1
+            );
+            store::pause_conversations(&db).unwrap();
+        }
+        assert_eq!(
+            recovery_found,
+            vec![true, true],
+            "retry notice lost after close/reopen or restart"
+        );
+    }
+
+    fn preserved_data(db: &rusqlite::Connection) -> Vec<Vec<Vec<String>>> {
+        [
+            "sqlite_master",
+            "messages",
+            "message_context",
+            "message_users",
+            "message_targets",
+            "message_characters",
+            "message_presentations",
+            "message_playback",
+            "direct_reply_scenes",
+            "ai_only_inputs",
+            "wordbook",
+            "memories",
+            "character_affinity",
+        ]
+        .into_iter()
+        .map(|table| {
+            let mut statement = db
+                .prepare(&format!("SELECT * FROM {table} ORDER BY rowid"))
+                .unwrap();
+            let columns = statement.column_count();
+            statement
+                .query_map([], |row| {
+                    (0..columns)
+                        .map(|index| {
+                            row.get::<_, rusqlite::types::Value>(index)
+                                .map(|value| format!("{value:?}"))
+                        })
+                        .collect::<rusqlite::Result<Vec<_>>>()
+                })
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap()
+        })
+        .collect()
+    }
+
+    #[test]
+    fn resume_does_not_recover_ended_or_other_conversations_and_rejects_changed_owners() {
+        let state = super::super::tests::state();
+        let session = {
+            let db = lock(&state.db).unwrap();
+            store::set_user_name(&db, "합성 사용자", 1).unwrap();
+            let session =
+                store::create_conversation(&db, &["builtin-a".into()], None, None, 1).unwrap();
+            store::insert_user_input(
+                &db,
+                &Message {
+                    id: "unfinished".into(),
+                    role: "user".into(),
+                    persona: Some("builtin-a".into()),
+                    content: "합성 질문".into(),
+                    expression: None,
+                    created_at: 1,
+                    status: "complete".into(),
+                },
+                false,
+            )
+            .unwrap();
+            session
+        };
+        let old_token = interrupt(&state, false).unwrap();
+        let (epoch, recovery) = begin_resume(&state, &session.id).unwrap();
+        assert!(recovery.is_some());
+        assert!(epoch > old_token.0);
+        assert!(old_token.1.load(Ordering::SeqCst));
+        assert!(!super::super::set_phase_if_current(
+            &state,
+            old_token.0,
+            RuntimePhase::Idle,
+            None,
+            None
+        )
+        .unwrap());
+        super::super::set_phase_if_current(&state, epoch, RuntimePhase::Error, None, recovery)
+            .unwrap();
+        assert_eq!(lock(&state.runtime).unwrap().phase, RuntimePhase::Error);
+        let empty = {
+            let db = lock(&state.db).unwrap();
+            store::create_conversation(&db, &["builtin-b".into()], None, None, 2).unwrap()
+        };
+        assert!(begin_resume(&state, &empty.id).unwrap().1.is_none());
+        {
+            let db = lock(&state.db).unwrap();
+            store::set_conversation_status(&db, &session.id, "ended", 3).unwrap();
+        }
+        assert!(begin_resume(&state, &session.id).unwrap().1.is_none());
+        {
+            let db = lock(&state.db).unwrap();
+            let continued = store::active_conversation(&db).unwrap().unwrap();
+            assert_ne!(continued.id, session.id);
+            assert_eq!(
+                continued.continued_from.as_deref(),
+                Some(session.id.as_str())
+            );
+            store::set_user_name(&db, "바뀐 합성 사용자", 4).unwrap();
+        }
+        assert!(begin_resume(&state, &session.id).is_err());
+    }
+
+    #[test]
+    fn resume_rejects_removed_participant_without_switching_the_current_conversation() {
+        let state = super::super::tests::state();
+        let (old, current) = {
+            let db = lock(&state.db).unwrap();
+            store::set_user_name(&db, "합성 사용자", 1).unwrap();
+            let old =
+                store::create_conversation(&db, &["builtin-a".into()], None, None, 1).unwrap();
+            let current =
+                store::create_conversation(&db, &["builtin-b".into()], None, None, 2).unwrap();
+            characters::apply_roster(&db, vec!["builtin-b".into()]).unwrap();
+            (old, current)
+        };
+        let epoch = begin_resume(&state, &current.id).unwrap().0;
+        let original = preserved_data(&lock(&state.db).unwrap());
+        assert!(begin_resume(&state, &old.id)
+            .unwrap_err()
+            .contains("그때의 친구"));
+        assert_eq!(state.epoch.load(Ordering::SeqCst), epoch);
+        let db = lock(&state.db).unwrap();
+        assert_eq!(
+            store::active_conversation(&db).unwrap().unwrap().id,
+            current.id
+        );
+        assert_eq!(preserved_data(&db), original);
     }
 }

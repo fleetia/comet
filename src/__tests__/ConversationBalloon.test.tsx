@@ -764,3 +764,58 @@ it.each(["보내기", "AI 연결 설정", "AI에게 묻기"])(
     expect(screen.getByRole("textbox")).toHaveProperty("value", "새 초안");
   },
 );
+
+it.each(["", "새로 작성한 초안\n보존"])(
+  "rehydrates retry with the saved input ID without resending or overwriting a newer draft: %s",
+  async (draft) => {
+    const snapshot = conversationSnapshot();
+    const failedInput = {
+      ...seed,
+      id: "failed-before-restart",
+      role: "user",
+      content: "lighthouse failed",
+    };
+    const recovered = {
+      ...snapshot,
+      runtime: {
+        ...snapshot.runtime,
+        phase: "error" as const,
+        error: "마지막 답변을 마치지 못했어요. 다시 이야기하기로 이어갈 수 있어요.",
+      },
+      conversation: {
+        ...snapshot.conversation!,
+        session: { ...session, draft },
+        messages: [seed, failedInput],
+      },
+    };
+    const { rerender } = render(<Balloon snapshot={recovered} />);
+    expect(screen.getByRole("alert").textContent).toContain("마지막 답변을 마치지 못했어요");
+    const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+    expect(input.value).toBe(draft || failedInput.content);
+    expect(screen.getByLabelText("답변에 실패한 이번 입력").textContent).toContain(
+      failedInput.content,
+    );
+    expect(command).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "다시 이야기하기" }));
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("retry_turn", {
+        messageId: failedInput.id,
+        target: failedInput.persona,
+      }),
+    );
+    expect(vi.mocked(command).mock.calls.filter(([name]) => name === "send_message")).toHaveLength(
+      0,
+    );
+    rerender(
+      <Balloon
+        snapshot={{
+          ...recovered,
+          runtime: { ...snapshot.runtime, phase: "generating", error: null },
+        }}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "다시 이야기하기" })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(input.value).toBe(draft || failedInput.content);
+  },
+);
