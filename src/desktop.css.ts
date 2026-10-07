@@ -19,6 +19,7 @@ globalStyle(`${root}, ${root} *, ${root} *::before, ${root} *::after`, {
 });
 globalStyle(`${root} :where(h1, h2, h3, p)`, { margin: 0 });
 globalStyle(`${root} [hidden]`, { display: "none" });
+globalStyle(`${root} [role="tabpanel"]:focus`, { outline: "none" });
 globalStyle(`${root} summary`, { cursor: "pointer" });
 globalStyle(`${root} summary:focus-visible`, {
   outline: `${vars.border.width.hairline} solid ${vars.color.interaction.focus}`,
@@ -59,7 +60,7 @@ globalStyle(`${root} ${shared.section}`, {
 globalStyle(`${root} ${shared.choice}`, {
   flex: "0 1 auto",
   padding: `${vars.space.sm} ${vars.space.md}`,
-  borderWidth: `0 0 ${vars.border.width.hairline}`,
+  borderWidth: 0,
 });
 
 export const pageHeader = style({

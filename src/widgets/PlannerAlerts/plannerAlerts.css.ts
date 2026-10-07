@@ -30,5 +30,4 @@ export const notice = style({
   gap: vars.space.xs,
   padding: vars.space.sm,
   background: vars.color.surface.muted,
-  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
 });

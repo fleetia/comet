@@ -1692,6 +1692,138 @@
         "journal.status": "enabled"
       },
       "expectedScene": "journal.some"
+    },
+    {
+      "id": "solo.corner",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {},
+      "expectedScene": "solo.corner"
+    },
+    {
+      "id": "solo.little-mistake",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {},
+      "expectedScene": "solo.little-mistake"
+    },
+    {
+      "id": "solo.make-believe",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {},
+      "expectedScene": "solo.make-believe"
+    },
+    {
+      "id": "solo.quiet-company",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {},
+      "expectedScene": "solo.quiet-company"
+    },
+    {
+      "id": "solo.tiny-game",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {},
+      "expectedScene": "solo.tiny-game"
+    },
+    {
+      "id": "time.morning-gentle",
+      "path": "situations/time.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "environment.hour": 9
+      },
+      "expectedScene": "time.morning-gentle"
+    },
+    {
+      "id": "time.evening-small",
+      "path": "situations/time.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "environment.hour": 20
+      },
+      "expectedScene": "time.evening-small"
+    },
+    {
+      "id": "duo.take-turns",
+      "path": "situations/duo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {},
+      "expectedScene": "duo.take-turns"
+    },
+    {
+      "id": "duo.little-discovery",
+      "path": "situations/duo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {},
+      "expectedScene": "duo.little-discovery"
+    },
+    {
+      "id": "trio.little-vote",
+      "path": "situations/group.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b",
+        "fixture-c"
+      ],
+      "values": {},
+      "expectedScene": "trio.little-vote"
+    },
+    {
+      "id": "quad.make-room",
+      "path": "situations/group.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b",
+        "fixture-c",
+        "fixture-d"
+      ],
+      "values": {},
+      "expectedScene": "quad.make-room"
     }
   ]
 }

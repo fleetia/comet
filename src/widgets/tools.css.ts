@@ -54,7 +54,6 @@ export const row = style({
   alignItems: "center",
 });
 export const item = style({
-  borderBottom: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
   padding: `${vars.space.sm} 0`,
   display: "flex",
   flexDirection: "column",
@@ -169,7 +168,6 @@ export const filters = style({
   display: "flex",
   gap: vars.space.xs,
   flexWrap: "wrap",
-  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
 });
 export const filterButton = style({
   padding: `${vars.space.xs} ${vars.space.sm}`,
@@ -177,7 +175,6 @@ export const filterButton = style({
     '&[aria-pressed="true"]': {
       color: componentVars.navigation.selectedText,
       background: componentVars.navigation.selectedSurface,
-      boxShadow: `inset 0 -2px ${vars.color.selection.indicator}`,
     },
     '&[aria-pressed="true"]:hover:not(:disabled)': {
       color: componentVars.navigation.selectedText,
@@ -229,7 +226,6 @@ export const regionResult = style({
   alignItems: "center",
   gap: vars.space.md,
   minHeight: 40,
-  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
   "@media": { "(max-width: 1000px)": { gridTemplateColumns: "minmax(0, 1fr) 96px" } },
 });
 

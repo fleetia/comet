@@ -170,7 +170,6 @@ export const tabHeading = style({
   alignItems: "center",
   justifyContent: "space-between",
   flexShrink: 0,
-  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.strong}`,
   gap: vars.space.xs,
 });
 export const tabList = style({ flex: 1, minWidth: 0, flexWrap: "wrap" });
@@ -219,7 +218,6 @@ export const metadataRow = style({
   gridTemplateColumns: "minmax(95px, 26%) minmax(0, 1fr)",
   gap: vars.space.lg,
   padding: `${vars.space.sm} 0`,
-  borderBottom: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
   fontSize: vars.typography.size.label,
   lineHeight: vars.typography.lineHeight.body,
 });
@@ -239,7 +237,6 @@ export const trackRow = style({
   gap: vars.space.sm,
   alignItems: "center",
   padding: `${vars.space.md} 0`,
-  borderBottom: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
 });
 export const trackSummary = style({
   display: "grid",

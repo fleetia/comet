@@ -19,6 +19,7 @@ import { useConnectionCommand } from "../useConnectionCommand";
 import type { WidgetView } from "../types";
 import * as c from "../../lagrange.css";
 import * as s from "../tools.css";
+import * as settings from "./calendarTool.css";
 type AppleCalendarList = {
   supported: boolean;
   authorization: string;
@@ -281,7 +282,6 @@ export function CalendarTool({
         ))}
       {mode === "settings" && (
         <>
-          <PlannerAlerts data={record(d.reminders)} act={act} onDirtyChange={setAlertsDirty} />
           <section className={s.section} aria-label="캘린더 연결 관리">
             <h2 className={s.sectionTitle}>캘린더 연결 관리</h2>
             {connections.map((connection) => (
@@ -536,6 +536,13 @@ export function CalendarTool({
               )}
             </form>
           </section>
+          <details className={settings.alerts}>
+            <summary className={settings.alertsSummary}>
+              일정과 생활 알림
+              {alertsDirty && <span className={c.quiet}> · 변경사항 있음</span>}
+            </summary>
+            <PlannerAlerts data={record(d.reminders)} act={act} onDirtyChange={setAlertsDirty} />
+          </details>
         </>
       )}
       {appleBusy && <p role="status">macOS 권한 확인과 캘린더 목록 조회를 기다리고 있어요.</p>}

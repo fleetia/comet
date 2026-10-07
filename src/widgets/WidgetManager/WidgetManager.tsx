@@ -1,47 +1,29 @@
-import {
-  Button,
-  Checkbox,
-  Dialog,
-  Heading,
-  Inline,
-  Select,
-  Surface,
-  SelectableListRow,
-  Text,
-  TextField,
-} from "@fleetia/lagrange";
-import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
+import { Button, Checkbox, Dialog, Heading, Inline, Surface, Text } from "@fleetia/lagrange";
+import { useCallback, useEffect, useId, useRef, useState, type ReactElement } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { WindowHeader } from "../../components/WindowHeader/WindowHeader";
 import { useWidgets } from "../useWidgets";
 import { useGeneratedWidgets } from "../GeneratedWidgets/useGeneratedWidgets";
 import { useWidgetRuntime } from "../useWidgetRuntime";
-import type { WidgetRuntime, WidgetView, WindowState } from "../types";
+import type { WidgetView, WindowState } from "../types";
 import { type ToolAction } from "../toolData";
 import * as common from "../../lagrange.css";
 import { CONFIGURABLE_WIDGETS, DISPLAY_KINDS, WidgetSettings } from "./WidgetSettings";
 import { GeneratedWidgetSettings } from "./GeneratedWidgetSettings";
+import { WidgetCatalog, type WidgetListEntry } from "./WidgetCatalog";
+import { WidgetGuide } from "./WidgetGuide";
+import * as details from "./widgetDetails.css";
 import * as styles from "./widgetManager.css";
 
-const STATUS: Record<WidgetView["status"] | "draft", string> = {
-  "not-installed": "미설치",
-  "install-error": "설치 오류",
-  disabled: "꺼짐",
-  setup: "설정 필요",
-  error: "오류",
-  enabled: "켜짐",
-  draft: "실행 검사 대기",
-};
-const CATEGORIES = [
-  ["daily", "생활 도구"],
-  ["play", "장난감"],
-  ["connections", "외부 연결"],
-  ["generated", "AI·가져온 위젯"],
-] as const;
-const OPTIONAL_CONNECTIONS: Record<string, string[]> = {
-  todo: ["focus-timer"],
-  "focus-timer": ["todo"],
+const OPTIONAL_CONNECTIONS: Record<string, Record<string, string>> = {
+  todo: { "focus-timer": "할 일을 정하고 집중하기", preparation: "준비할 일을 봉투에 모으기" },
+  "focus-timer": { todo: "집중할 일을 선택하고 완료하기" },
+  preparation: {
+    todo: "할 일을 연결하거나 체크 항목을 할 일로 옮기기",
+    calendar: "준비 봉투에 일정 연결하기",
+  },
+  calendar: { preparation: "일정에 필요한 준비 모으기" },
 };
 const DESKTOP_TOYS = ["ball", "paper-plane", "bubbles"];
 
@@ -58,6 +40,8 @@ export function WidgetManager({
   const { workshop, error: generatedError, reload: reloadGenerated } = useGeneratedWidgets();
   const runtime = useWidgetRuntime(active);
   const [installTarget, setInstallTarget] = useState<string | null>(null);
+  const [experimentsOpen, setExperimentsOpen] = useState(false);
+  const experimentsId = useId();
   const [focused, setFocused] = useState<string | null>(null);
   const [visitedSettings, setVisitedSettings] = useState<string[]>([]);
   useEffect(() => {
@@ -101,9 +85,6 @@ export function WidgetManager({
       ...new Set([...previous, ...(selectedId ? [selectedId] : []), kind]),
     ]);
   }
-  const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("all");
-  const [filter, setFilter] = useState("all");
   const [confirmation, setConfirmation] = useState<
     "install" | WidgetView | { generatedId: string } | null
   >(null);
@@ -157,20 +138,32 @@ export function WidgetManager({
   const findView = (kind: string): WidgetView | undefined =>
     widgets.find((item) => item.kind === kind);
   const nameOf = (kind: string): string => catalog.find((item) => item.id === kind)?.name ?? kind;
-  const installation = new Set(
-    installTarget && !findView(installTarget)?.installed ? [installTarget] : [],
-  );
-  function addRequired(kind: string): void {
-    for (const required of catalog.find((item) => item.id === kind)?.required ?? []) {
-      const existing = findView(required);
-      if ((!existing?.installed || !existing.enabled) && !installation.has(required)) {
-        installation.add(required);
-        addRequired(required);
+  function installationPlan(target: string | null): string[] {
+    const kinds = new Set(target && !findView(target)?.installed ? [target] : []);
+    function addRequired(kind: string): void {
+      for (const required of catalog.find((item) => item.id === kind)?.required ?? []) {
+        const existing = findView(required);
+        if ((!existing?.installed || !existing.enabled) && !kinds.has(required)) {
+          kinds.add(required);
+          addRequired(required);
+        }
       }
     }
+    [...kinds].forEach(addRequired);
+    return [...kinds];
   }
-  [...installation].forEach(addRequired);
-  const added = [...installation].filter((kind) => kind !== installTarget);
+  const installation = installationPlan(installTarget);
+  const added = installation.filter((kind) => kind !== installTarget);
+  function install(kind: string): void {
+    setFailure(null);
+    const kinds = installationPlan(kind);
+    if (kinds.length > 1) {
+      setInstallTarget(kind);
+      setConfirmation("install");
+      return;
+    }
+    void run("install_widgets", { kinds });
+  }
   const removed =
     confirmation && typeof confirmation === "object" && "kind" in confirmation
       ? confirmation
@@ -182,8 +175,7 @@ export function WidgetManager({
   const affected = removed
     ? catalog.filter((item) => item.required.includes(removed.kind) && findView(item.id)?.installed)
     : [];
-  const installedCount = widgets.filter((item) => item.installed).length + generatedWidgets.length;
-  const entries = [
+  const entries: WidgetListEntry[] = [
     ...catalog.map((item) => {
       const view = findView(item.id);
       return {
@@ -206,25 +198,18 @@ export function WidgetManager({
         }) as const,
     ),
   ];
-  const query = search.trim().toLocaleLowerCase();
-  const matching = entries.filter((entry) => {
-    const matchesStatus =
-      filter === "all" ||
-      (filter === "installed" && entry.installed) ||
-      (filter === "available" && !entry.installed) ||
-      (filter === "attention" && entry.attention);
-    return (
-      matchesStatus &&
-      (category === "all" || entry.category === category) &&
-      `${entry.name} ${entry.description}`.toLocaleLowerCase().includes(query)
-    );
-  });
   const entry =
     catalog.find((item) => item.id === focused) ??
     catalog.find((item) => findView(item.id)?.installed) ??
     catalog[0];
   const widget = entry ? findView(entry.id) : undefined;
   const selectedId = generated?.id ?? entry?.id;
+  useEffect(() => {
+    if (!selectedId) return;
+    setVisitedSettings((previous) =>
+      previous.includes(selectedId) ? previous : [...previous, selectedId],
+    );
+  }, [selectedId]);
   const running = runtime.snapshot?.widgets.find((item) => item.id === widget?.id);
   const runtimeError = running?.queryError ?? runtime.error;
   const hasLastConfirmation = !!running && (!running.queryError || !!running.lastConfirmed);
@@ -238,7 +223,7 @@ export function WidgetManager({
         (item) =>
           entry.required.includes(item.id) ||
           item.required.includes(entry.id) ||
-          OPTIONAL_CONNECTIONS[entry.id]?.includes(item.id),
+          Boolean(OPTIONAL_CONNECTIONS[entry.id]?.[item.id]),
       )
     : [];
   const act: ToolAction = async (action, input = {}, target = widget) => {
@@ -256,22 +241,19 @@ export function WidgetManager({
     });
   };
 
-  const metadata = (
-    <Text variant="caption" tone="muted" className={styles.metadata}>
-      공식 · 앱에 포함 · 이 기기에 저장
-    </Text>
-  );
   const relatedContent =
     related.length > 0 ? (
       <section className={styles.group}>
         <Heading level={4} variant="label">
-          연결된 위젯
+          함께 쓰기
         </Heading>
         {related.map((item) => (
           <div className={styles.related} key={item.id}>
             <Text variant="label">{item.name}</Text>
             <Text variant="caption" tone="muted">
-              {entry?.required.includes(item.id) ? "필수 연결" : "선택 연동"}
+              {entry?.required.includes(item.id)
+                ? "필수 연결"
+                : (OPTIONAL_CONNECTIONS[entry?.id ?? ""]?.[item.id] ?? "선택 연동")}
             </Text>
             <Button variant="secondary" size="compact" onClick={() => focusWidget(item.id)}>
               {findView(item.id)?.installed ? "설정" : "추가"}
@@ -280,19 +262,50 @@ export function WidgetManager({
         ))}
       </section>
     ) : undefined;
-  const installationActions =
-    snapshot && busy ? (
-      <footer className={styles.footer}>
-        <Inline gap="sm">
-          <Text variant="caption" role="status">
-            처리하고 있어요.
-          </Text>
-        </Inline>
-        <Text variant="caption" tone="muted">
-          설치와 사용 변경은 즉시 반영됩니다.
+  const catalogFooter = (
+    <footer className={styles.footer}>
+      {busy && (
+        <Text variant="caption" role="status">
+          처리하고 있어요.
         </Text>
-      </footer>
-    ) : null;
+      )}
+      <section className={styles.experiments} aria-label="실험 기능">
+        <button
+          type="button"
+          className={styles.experimentsToggle}
+          aria-expanded={experimentsOpen}
+          aria-controls={experimentsId}
+          onClick={() => setExperimentsOpen((open) => !open)}
+        >
+          <span aria-hidden="true">{experimentsOpen ? "⌄" : "›"}</span>
+          <span>실험 기능</span>
+        </button>
+        <div id={experimentsId} className={styles.experimentsBody} hidden={!experimentsOpen}>
+          <Button
+            variant="secondary"
+            disabled={!canAct}
+            onClick={() => void run("open_widget_workshop")}
+          >
+            AI로 위젯 만들기
+          </Button>
+          <Checkbox
+            checked={workshop.automatic}
+            disabled={!canAct}
+            onChange={() =>
+              void run("set_widget_creation_automatic", { enabled: !workshop.automatic })
+            }
+          >
+            대화에서 필요한 도구가 보이면 자동으로 만들기
+          </Checkbox>
+          <Text as="p" variant="caption" tone="muted">
+            로컬 모델 또는 연결한 OpenAI 호환 API를 사용해요. 현재 AI의 자동 대화 생성 설정이
+            켜져 있을 때 자동 제작하며 최대 5분에 한 번이에요. API 이용량이 발생할 수 있어요. 기본
+            JavaScript 실행환경은 앱에 포함되어 있어요.
+          </Text>
+        </div>
+      </section>
+    </footer>
+  );
 
   return (
     <section className={embedded ? styles.embedded : styles.page} aria-label="위젯 관리">
@@ -304,41 +317,6 @@ export function WidgetManager({
           title="위젯"
         />
       )}
-      <header className={embedded ? styles.catalogSummary : styles.sectionHeader}>
-        {!embedded && (
-          <Heading level={2} variant="subsection">
-            위젯
-          </Heading>
-        )}
-        <Text variant="caption" tone="muted">
-          공식 {catalog.length}개 · AI·가져온 위젯 {generatedWidgets.length}개 · 설치됨{" "}
-          {installedCount}개
-        </Text>
-      </header>
-      <details className={styles.experiments}>
-        <summary>실험 기능</summary>
-        <Button
-          variant="secondary"
-          disabled={!canAct}
-          onClick={() => void run("open_widget_workshop")}
-        >
-          AI로 위젯 만들기
-        </Button>
-        <Checkbox
-          checked={workshop.automatic}
-          disabled={!canAct}
-          onChange={() =>
-            void run("set_widget_creation_automatic", { enabled: !workshop.automatic })
-          }
-        >
-          대화에서 필요한 도구가 보이면 자동으로 만들기
-        </Checkbox>
-        <Text as="p" variant="caption" tone="muted">
-          로컬 모델 또는 연결한 OpenAI 호환 API를 사용해요. 현재 AI의 자동 대화 생성 설정이 켜져
-          있을 때 자동 제작하며 최대 5분에 한 번이에요. API 이용량이 발생할 수 있어요. 기본
-          JavaScript 실행환경은 앱에 포함되어 있어요.
-        </Text>
-      </details>
       {!isDesktop() && (
         <Text as="p" variant="caption" tone="muted">
           예시 데이터 미리보기 · 설치와 저장은 데스크톱 앱에서 사용할 수 있어요.
@@ -376,84 +354,9 @@ export function WidgetManager({
         )
       ) : (
         <div className={styles.workspace}>
-          <Surface className={styles.catalog} role="region" aria-label="위젯 목록">
-            <div className={styles.catalogTitle}>
-              <strong>위젯 · {entries.length}개</strong>
-              <Text variant="caption" tone="muted">
-                설치 {installedCount}개
-              </Text>
-            </div>
-            <TextField
-              type="search"
-              aria-label="위젯 검색"
-              placeholder="위젯 검색"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-            <div className={styles.filters}>
-              <Select
-                aria-label="설치 상태"
-                value={filter}
-                onChange={(event) => setFilter(event.target.value)}
-              >
-                <option value="all">전체 {entries.length}</option>
-                <option value="installed">설치됨 {installedCount}</option>
-                <option value="available">미설치</option>
-                <option value="attention">확인 필요</option>
-              </Select>
-              <Select
-                aria-label="위젯 분류"
-                value={category}
-                onChange={(event) => setCategory(event.target.value)}
-              >
-                <option value="all">모든 종류</option>
-                {CATEGORIES.map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className={styles.listHeading}>
-              <span>위젯</span>
-              <span>상태</span>
-            </div>
-            <div className={styles.list}>
-              {matching.map((item) => {
-                const status = item.status;
-                return (
-                  <div className={styles.row} data-selected={selectedId === item.id} key={item.id}>
-                    <SelectableListRow
-                      selected={selectedId === item.id}
-                      className={styles.selectEntry}
-                      aria-label={`${item.name} ${STATUS[status]}`}
-                      aria-pressed={selectedId === item.id}
-                      onClick={() => focusWidget(item.id)}
-                    >
-                      <span className={styles.entryName}>{item.name}</span>
-                      <span className={styles.entryInstallation}>
-                        {item.installed ? "설치" : "미설치"}
-                      </span>
-                      <span className={styles.entryStatus}>
-                        {item.installed ? `● ${STATUS[status]}` : "—"}
-                      </span>
-                    </SelectableListRow>
-                  </div>
-                );
-              })}
-              {matching.length === 0 && (
-                <Text as="p" variant="caption" tone="muted" className={styles.empty}>
-                  찾는 위젯이 없어요. 검색어나 필터를 바꿔 보세요.
-                </Text>
-              )}
-            </div>
-            <div className={styles.catalogActions}>
-              <Text variant="caption" tone="muted">
-                설치 · 사용 상태
-              </Text>
-            </div>
-            {installationActions}
-          </Surface>
+          <WidgetCatalog entries={entries} selectedId={selectedId} onSelect={focusWidget}>
+            {catalogFooter}
+          </WidgetCatalog>
           {(entry || generated) && (
             <section
               className={styles.detail}
@@ -482,22 +385,16 @@ export function WidgetManager({
                 ))}
               {entry && (
                 <div className={styles.officialView} hidden={Boolean(generated)}>
-                  <Surface className={`${styles.detailHeader} ${isToy ? styles.toyHeader : ""}`}>
-                    <Surface
-                      tone={isToy ? "accent" : "parent"}
-                      padding={isToy ? "inline" : "flush"}
-                      className={`${styles.identity} ${isToy ? styles.toyIdentity : ""}`}
-                    >
+                  <Surface className={details.header}>
+                    <div className={styles.identity}>
                       <Heading level={3} variant="subsection">
                         {entry.name}
                       </Heading>
                       <Text variant="caption" tone="muted">
-                        {CATEGORIES.find(([id]) => id === entry.category)?.[1]} ·{" "}
-                        {entry.connection ?? "이 기기에 저장"}
+                        {entry.description}
                       </Text>
-                    </Surface>
-                    <div className={styles.headerState}>
-                      <Text variant="caption">{widget?.installed ? "설치됨" : "미설치"}</Text>
+                    </div>
+                    <div className={details.state}>
                       {widget?.installed && (
                         <Checkbox
                           aria-label="위젯 사용"
@@ -532,7 +429,7 @@ export function WidgetManager({
                         </Text>
                       )}
                     </div>
-                    <div className={styles.headerActions}>
+                    <div className={details.actions}>
                       {widget?.installed && !isToy && (
                         <Button
                           variant="primary"
@@ -569,32 +466,13 @@ export function WidgetManager({
                         </>
                       )}
                       {widget?.installed && (
-                        <details className={styles.more}>
-                          <summary aria-label="위젯 더보기">···</summary>
-                          <div className={styles.moreMenu}>
-                            <Button
-                              variant="secondary"
-                              disabled={!canAct}
-                              onClick={() => void run("open_widget_state_rules", { id: widget.id })}
-                            >
-                              상태별 캐릭터 대사 편집
-                            </Button>
-                            <Button
-                              variant="critical"
-                              disabled={!canAct}
-                              onClick={() => {
-                                setDeleteData(false);
-                                setFailure(null);
-                                setConfirmation(widget);
-                              }}
-                            >
-                              위젯 제거
-                            </Button>
-                            <Text variant="caption" tone="muted">
-                              작성한 데이터는 기본으로 보존합니다.
-                            </Text>
-                          </div>
-                        </details>
+                        <Button
+                          variant="secondary"
+                          disabled={!canAct}
+                          onClick={() => void run("open_widget_state_rules", { id: widget.id })}
+                        >
+                          상태별 캐릭터 대사 편집
+                        </Button>
                       )}
                     </div>
                   </Surface>
@@ -634,9 +512,8 @@ export function WidgetManager({
                     {!widget?.installed ? (
                       <Surface className={styles.genericPanel}>
                         <Heading level={4} variant="label">
-                          설치
+                          사용 시작
                         </Heading>
-                        <Text as="p">{entry.description}</Text>
                         {entry.required.length > 0 && (
                           <Text as="p" variant="label">
                             필수 위젯: {entry.required.map(nameOf).join(", ")}
@@ -650,72 +527,22 @@ export function WidgetManager({
                         <Button
                           variant="primary"
                           disabled={!canAct}
-                          onClick={() => {
-                            setInstallTarget(entry.id);
-                            setFailure(null);
-                            setConfirmation("install");
-                          }}
+                          onClick={() => install(entry.id)}
                         >
                           {widget?.status === "install-error" ? "다시 설치" : "위젯 설치"}
                         </Button>
                         {relatedContent}
-                        {metadata}
                       </Surface>
                     ) : (
-                      <>
-                        {isToy && (
-                          <Surface className={styles.toyPanel}>
-                            <Heading level={4} variant="subsection">
-                              바탕화면 장난감
-                            </Heading>
-                            <div className={styles.toyCounts}>
-                              <strong>
-                                꺼내는 중{" "}
-                                {hasLastConfirmation && running?.toys
-                                  ? `${running.toys.starting}개`
-                                  : "확인 중"}
-                              </strong>
-                              <strong>
-                                화면에 보임{" "}
-                                {hasLastConfirmation && running?.toys
-                                  ? `${running.toys.visible}개`
-                                  : "확인 중"}
-                              </strong>
-                            </div>
-                            <div className={styles.toyDescription}>
-                              <Text variant="caption" role="status">
-                                {toyLabel(running?.toys, hasLastConfirmation, runtimeError)}
-                              </Text>
-                              <Text variant="caption" tone="muted">
-                                {entry.description}
-                              </Text>
-                            </div>
-                            {metadata}
-                          </Surface>
-                        )}
-                        {!isToy && !CONFIGURABLE_WIDGETS.includes(widget.kind) && (
-                          <Surface className={styles.genericPanel}>
-                            <Heading level={4} variant="subsection">
-                              {entry.name}
-                            </Heading>
-                            <Text as="p">{entry.description}</Text>
-                            {running?.noteWindows && (!runtimeError || hasLastConfirmation) && (
-                              <Text variant="caption" role="status">
-                                메모 {running.noteWindows.open}개 열림 ·{" "}
-                                {running.noteWindows.visible}개 표시
-                                {runtimeError ? " · 마지막 확인 상태" : ""}
-                              </Text>
-                            )}
-                            <Text variant="caption">
-                              {isMemo
-                                ? "목록과 검색은 다이어리의 계속 쓸 메모에서 볼 수 있어요. 낱장을 넣어도 내용은 남아 있어요."
-                                : "실행 창을 닫아도 사용 상태와 저장한 데이터는 유지됩니다."}
-                            </Text>
-                            {relatedContent}
-                            {metadata}
-                          </Surface>
-                        )}
-                      </>
+                      !CONFIGURABLE_WIDGETS.includes(widget.kind) && (
+                        <WidgetGuide
+                          widget={widget}
+                          runtime={running}
+                          hasLastConfirmation={hasLastConfirmation}
+                          runtimeError={runtimeError}
+                          related={relatedContent}
+                        />
+                      )
                     )}
                     {widgets
                       .filter(
@@ -736,7 +563,6 @@ export function WidgetManager({
                               active={active && !generated && item.id === widget?.id}
                               act={act}
                               onDirtyChange={reportDirty}
-                              metadata={metadata}
                               related={item.id === widget?.id ? relatedContent : undefined}
                               disabled={!canAct || !item.enabled}
                               displayControls={
@@ -775,6 +601,25 @@ export function WidgetManager({
                           </div>
                         </div>
                       ))}
+                    {widget?.installed && (
+                      <div className={styles.remove}>
+                        <Text variant="caption" tone="muted">
+                          제거해도 작성한 데이터는 기본으로 보존합니다.
+                        </Text>
+                        <Button
+                          variant="critical"
+                          size="compact"
+                          disabled={!canAct}
+                          onClick={() => {
+                            setDeleteData(false);
+                            setFailure(null);
+                            setConfirmation(widget);
+                          }}
+                        >
+                          위젯 제거
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -853,12 +698,12 @@ export function WidgetManager({
               disabled={
                 !canAct ||
                 (confirmation === "install"
-                  ? installation.size === 0
+                  ? installation.length === 0
                   : !removed && !removedGenerated)
               }
               onClick={() => {
                 if (confirmation === "install")
-                  void run("install_widgets", { kinds: [...installation] });
+                  void run("install_widgets", { kinds: installation });
                 else if (removed) void run("remove_widget", { id: removed.id, deleteData });
                 else if (removedGenerated)
                   void run("remove_generated_widget", {
@@ -928,18 +773,4 @@ function toolActionLabel(state: WindowState | undefined): string {
     return "확인 실패";
   }
   return state && state !== "closed" ? "창으로 이동 ↗" : "위젯 열기 ↗";
-}
-
-function toyLabel(
-  counts: WidgetRuntime["toys"] | undefined,
-  hasConfirmation: boolean,
-  error: string | null,
-): string {
-  if (!counts || (!hasConfirmation && error)) {
-    if (error) {
-      return "장난감 상태 확인 실패";
-    }
-    return isDesktop() ? "장난감 상태 확인 중" : "데스크톱에서 확인";
-  }
-  return `준비 중 ${counts.starting}개 · 표시 ${counts.visible}개${error ? " · 마지막 확인 상태" : ""}`;
 }

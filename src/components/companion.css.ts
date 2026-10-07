@@ -139,7 +139,6 @@ export const balloonHeader = style({
   fontSize: vars.typography.size.caption,
   color: vars.color.content.secondary,
   flexShrink: 0,
-  borderBottom: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
 });
 globalStyle(`${balloonHeader} > span`, {
   minWidth: 0,
@@ -187,7 +186,6 @@ export const conversationDetails = style({
   flexShrink: 1,
   overflowY: "auto",
   fontSize: vars.typography.size.caption,
-  borderBottom: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
 });
 export const conversationSummary = style({
   padding: "6px 0",
@@ -248,7 +246,6 @@ export const conversationItem = style({
   padding: `${vars.space.md} 0`,
   background: "transparent",
   border: 0,
-  borderBottom: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
   textAlign: "left",
   color: vars.color.content.primary,
   fontSize: vars.typography.size.label,
@@ -390,7 +387,6 @@ export const stage = style({
   alignItems: "center",
   justifyContent: "flex-end",
   padding: `${vars.space.xl} 0 ${vars.space.xxl}`,
-  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
   marginBottom: 20,
 });
 export const stageBalloon = style({

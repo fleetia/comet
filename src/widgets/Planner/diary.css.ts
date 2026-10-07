@@ -145,7 +145,6 @@ export const sectionTitle = style({
 export const navItem = style({
   width: "100%",
   border: 0,
-  borderBottom: `1px solid ${v.color.border.subtle}`,
   borderRadius: 0,
   minHeight: 56,
   padding: "9px 8px",
@@ -161,7 +160,6 @@ export const navItem = style({
       background: componentVars.navigation.selectedSurface,
       color: componentVars.navigation.selectedText,
       borderRadius: vnextVars.radius.control,
-      borderBottomColor: "transparent",
     },
     "&:hover:not([aria-current=page])": { background: v.color.surface.muted },
     "&:focus-visible": { outline: `2px solid ${v.color.interaction.focus}`, outlineOffset: -2 },
@@ -176,7 +174,7 @@ export const toolMenu = style({
   paddingTop: 12,
   borderTop: `1px solid ${v.color.border.subtle}`,
 });
-export const toolMenuItem = style([navItem, { minHeight: 36, borderBottom: 0, padding: "8px" }]);
+export const toolMenuItem = style([navItem, { minHeight: 36, padding: "8px" }]);
 export const toolContent = style({
   minWidth: 0,
   display: "flex",
@@ -419,7 +417,6 @@ export const weekTitle = style([
     borderRadius: 0,
     padding: "0 0 16px",
     minHeight: 44,
-    borderBottom: `1px solid ${v.color.border.subtle}`,
   },
 ]);
 export const weekContent = style({ paddingTop: 8 });

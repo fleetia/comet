@@ -102,7 +102,6 @@ export const choice = style({
 });
 export const memory = style({
   padding: `${vars.space.md} 0`,
-  borderBottom: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
 });
 export const progress = style({
   width: "100%",

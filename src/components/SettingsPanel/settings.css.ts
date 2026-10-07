@@ -318,7 +318,6 @@ export const packRow = style({
   gridTemplateColumns: "1fr auto",
   alignItems: "center",
   gap: vars.space.lg,
-  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
   padding: `${vars.space.md} 0`,
 });
 globalStyle(`${panel} .${common.row}`, { margin: `${vars.space.sm} 0`, gap: vars.space.sm });

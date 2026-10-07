@@ -216,7 +216,6 @@ export const expressionHead = style({
   gridTemplateColumns: "70px minmax(60px,1fr) minmax(105px,1.2fr) 24px",
   alignItems: "center",
   gap: vars.space.sm,
-  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.strong}`,
   minHeight: vars.dimension.control,
   color: vars.color.content.secondary,
   fontSize: vars.typography.size.caption,
@@ -228,7 +227,6 @@ export const expressionRow = style({
   gap: vars.space.sm,
   minHeight: vars.dimension.control,
   padding: 0,
-  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
   fontSize: vars.typography.size.label,
 });
 export const spriteFrame = style({
@@ -285,7 +283,6 @@ export const dialogueRow = style({
   gap: vars.space.sm,
   minHeight: 30,
   padding: 0,
-  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
   fontSize: vars.typography.size.label,
 });
 export const lineSummary = style({

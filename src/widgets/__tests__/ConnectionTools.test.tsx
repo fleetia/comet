@@ -454,7 +454,7 @@ it("merges overlapping connected calendar intervals and excludes cancelled event
   ).toBeTruthy();
 });
 
-it("saves reminder opt-in only on explicit form submission", async () => {
+it("preserves collapsed reminder edits and saves only on explicit form submission", async () => {
   render(
     <CalendarTool
       mode="settings"
@@ -462,9 +462,21 @@ it("saves reminder opt-in only on explicit form submission", async () => {
       widget={widget("calendar", { connections: [], events: [] })}
     />,
   );
+  expect(screen.getByRole("textbox", { name: /^연결 이름/ })).toBeTruthy();
+  const disclosure = screen.getByText("일정과 생활 알림", { selector: "summary" });
+  expect(disclosure.closest("details")).toHaveProperty("open", false);
+  fireEvent.click(disclosure);
   expect(screen.getByLabelText("일정·할 일 기한 알림 켜기")).toHaveProperty("checked", false);
   fireEvent.click(screen.getByLabelText("일정·할 일 기한 알림 켜기"));
+  fireEvent.click(disclosure);
+  expect(disclosure).toHaveProperty("textContent", "일정과 생활 알림 · 변경사항 있음");
+  expect(disclosure.closest("details")).toHaveProperty("open", false);
   expect(act).not.toHaveBeenCalled();
+  fireEvent.click(disclosure);
+  expect(screen.getByRole("checkbox", { name: "일정·할 일 기한 알림 켜기" })).toHaveProperty(
+    "checked",
+    true,
+  );
   fireEvent.click(screen.getByRole("button", { name: "알림 설정 저장" }));
   await waitFor(() =>
     expect(act).toHaveBeenCalledWith("configure-alerts", {
@@ -482,6 +494,7 @@ it("saves reminder opt-in only on explicit form submission", async () => {
       dayEnd: "21:00",
     }),
   );
+  await waitFor(() => expect(disclosure).toHaveProperty("textContent", "일정과 생활 알림"));
 });
 
 it("does not infer free time outside the fetched range or from stale connections", () => {

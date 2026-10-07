@@ -100,7 +100,6 @@ export const lineHeading = style({
 });
 export const line = style({
   padding: `${vars.space.md} 0 ${vars.space.xl}`,
-  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
 });
 export const lineControls = style({
   display: "flex",

@@ -19,12 +19,10 @@ export const header = styleVariants({
     padding: `${vars.space.xs} ${vars.space.lg}`,
     minHeight: "32px",
     boxSizing: "border-box",
-    borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.strong}`,
   },
   note: {
     padding: `${vars.space.xs} ${vars.space.sm}`,
     background: vars.color.surface.muted,
-    borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
   },
 });
 export const status = style({

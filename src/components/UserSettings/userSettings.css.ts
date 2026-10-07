@@ -99,7 +99,6 @@ export const memoryRow = style({
   gap: vars.space.lg,
   alignItems: "center",
   minHeight: 45,
-  borderBottom: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
   "@media": { "(max-width: 1000px)": { gridTemplateColumns: "minmax(0,1fr) 152px" } },
 });
 export const pagination = style({
