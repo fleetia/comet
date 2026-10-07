@@ -23,6 +23,74 @@ fn apply(conn: &Connection, facts: Vec<Value>, events: Vec<Value>) {
     )
     .unwrap();
 }
+
+#[test]
+fn ai_input_choice_survives_reopen_and_duplicate_submissions_keep_original_choice() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("synthetic.sqlite");
+    let db = open(&path).unwrap();
+    let original = message("ai-input", "user", "  lighthouse\n합성 질문  ");
+    insert_user_input(&db, &original, true).unwrap();
+    let revision = revision(&db).unwrap();
+    insert_user_input(&db, &message("ai-input", "user", "다른 입력"), false).unwrap();
+    assert!(input_ai_only(&db, "ai-input").unwrap());
+    assert_eq!(super::revision(&db).unwrap(), revision);
+    insert_message(&db, &message("legacy-input", "user", "기존 입력")).unwrap();
+    insert_user_input(&db, &message("legacy-input", "user", "변경 시도"), true).unwrap();
+    assert!(!input_ai_only(&db, "legacy-input").unwrap());
+    let history = serde_json::to_value(messages(&db, 100).unwrap()).unwrap();
+    assert_eq!(messages(&db, 100).unwrap()[0].content, original.content);
+    drop(db);
+    let db = open(&path).unwrap();
+    assert!(input_ai_only(&db, "ai-input").unwrap());
+    assert!(!input_ai_only(&db, "legacy-input").unwrap());
+    assert_eq!(
+        serde_json::to_value(messages(&db, 100).unwrap()).unwrap(),
+        history
+    );
+    assert_eq!(
+        db.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+            .unwrap(),
+        "ok"
+    );
+}
+
+#[test]
+fn ai_input_choice_and_original_message_are_atomic() {
+    let db = open(Path::new(":memory:")).unwrap();
+    let revision = revision(&db).unwrap();
+    db.execute_batch("CREATE TRIGGER fail_ai_choice BEFORE INSERT ON ai_only_inputs BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END;").unwrap();
+    assert!(insert_user_input(&db, &message("failed", "user", "합성 질문"), true).is_err());
+    assert!(messages(&db, 100).unwrap().is_empty());
+    assert!(!input_ai_only(&db, "failed").unwrap());
+    assert_eq!(super::revision(&db).unwrap(), revision);
+    assert!(pending_user_messages(&db).unwrap().is_empty());
+}
+
+#[test]
+fn adding_ai_input_metadata_preserves_existing_history() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("legacy.sqlite");
+    let db = open(&path).unwrap();
+    insert_message(&db, &message("existing", "user", "  이전 원문\n그대로  ")).unwrap();
+    let history = serde_json::to_value(messages(&db, 100).unwrap()).unwrap();
+    let relationships = serde_json::to_value(super::relationships(&db).unwrap()).unwrap();
+    let revision = revision(&db).unwrap();
+    // Simulate an existing database created before this additive metadata table.
+    db.execute_batch("DROP TABLE ai_only_inputs").unwrap();
+    drop(db);
+    let db = open(&path).unwrap();
+    assert!(!input_ai_only(&db, "existing").unwrap());
+    assert_eq!(
+        serde_json::to_value(messages(&db, 100).unwrap()).unwrap(),
+        history
+    );
+    assert_eq!(
+        serde_json::to_value(super::relationships(&db).unwrap()).unwrap(),
+        relationships
+    );
+    assert_eq!(super::revision(&db).unwrap(), revision);
+}
 #[test]
 fn generated_recall_expires_without_changing_authored_history_or_user_memory() {
     let conn = open(Path::new(":memory:")).unwrap();
