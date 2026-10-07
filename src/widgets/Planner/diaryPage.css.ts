@@ -39,7 +39,6 @@ export const line = style({
   minWidth: 0,
   padding: `${v.space.xs} 0`,
   minHeight: 45,
-  borderBottom: `${v.border.width.hairline} solid ${v.color.border.subtle}`,
 });
 
 export const rowActions = style({

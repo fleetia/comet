@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { listen } from "@tauri-apps/api/event";
 import { WidgetManager } from "../WidgetManager/WidgetManager";
 import { useWidgetRuntime } from "../useWidgetRuntime";
 import { useWidgets, PREVIEW_WIDGETS } from "../useWidgets";
@@ -13,6 +14,7 @@ vi.mock("../useWidgets", async (load) => ({
   useWidgets: vi.fn(),
 }));
 vi.mock("../GeneratedWidgets/useGeneratedWidgets", () => ({ useGeneratedWidgets: vi.fn() }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 vi.mock("../../hooks/useSnapshot", async (load) => ({
   ...(await load<typeof import("../../hooks/useSnapshot")>()),
   command: vi.fn(),
@@ -79,6 +81,10 @@ function installed(kind: string, enabled = true): WidgetView {
 }
 
 beforeEach(() => {
+  localStorage.setItem(
+    "comet.widget-groups",
+    JSON.stringify({ daily: true, play: true, information: true, generated: true }),
+  );
   reload.mockReset();
   reloadGenerated.mockReset();
   generatedSnapshot([]);
@@ -100,6 +106,8 @@ beforeEach(() => {
   });
   vi.mocked(command).mockReset();
   vi.mocked(command).mockResolvedValue(undefined);
+  vi.mocked(listen).mockReset();
+  vi.mocked(listen).mockRejectedValue(new Error("Native events are unavailable in this test."));
   vi.mocked(isDesktop).mockReturnValue(true);
   vi.mocked(useWidgets).mockReturnValue({ snapshot: PREVIEW_WIDGETS, error: null, reload });
   HTMLDialogElement.prototype.showModal = function (): void {
@@ -111,15 +119,63 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it("preserves the initially selected widget draft when a native deep link changes the selection", async () => {
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: {
+      ...PREVIEW_WIDGETS,
+      onboardingDone: true,
+      widgets: [installed("clock"), installed("weather")],
+    },
+    error: null,
+    reload,
+  });
+  vi.mocked(listen).mockResolvedValue(() => undefined);
+  vi.mocked(command).mockResolvedValue(null);
+  const onDirtyChange = vi.fn();
+  render(<WidgetManager embedded onDirtyChange={onDirtyChange} />);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_planner_settings_target"));
+
+  fireEvent.click(screen.getByRole("button", { name: "바탕화면 꾸미기" }));
+  fireEvent.click(
+    within(screen.getByRole("radiogroup", { name: "글자 위치" })).getByRole("radio", {
+      name: "오른쪽 아래",
+    }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "바탕화면 꾸미기" }));
+  const receiveTarget = vi
+    .mocked(listen)
+    .mock.calls.find(([event]) => event === "planner-settings-target")?.[1];
+  if (!receiveTarget) throw new Error("The planner settings listener was not registered.");
+
+  act(() => receiveTarget({ event: "planner-settings-target", id: 1, payload: "weather" }));
+  expect(screen.getByRole("textbox", { name: "지역 이름" })).toBeTruthy();
+  expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  act(() => receiveTarget({ event: "planner-settings-target", id: 2, payload: "clock" }));
+  expect(
+    screen.getByRole("button", { name: "바탕화면 꾸미기" }).getAttribute("aria-expanded"),
+  ).toBe("false");
+  fireEvent.click(screen.getByRole("button", { name: "바탕화면 꾸미기" }));
+  expect(
+    within(screen.getByRole("radiogroup", { name: "글자 위치" }))
+      .getByRole("radio", { name: "오른쪽 아래" })
+      .getAttribute("aria-checked"),
+  ).toBe("true");
+  expect(screen.getByRole("button", { name: "표시 설정 저장" })).toHaveProperty("disabled", false);
+});
+
 function openInstallation(name: string): void {
   fireEvent.click(screen.getByRole("button", { name: `${name} 미설치` }));
   fireEvent.click(screen.getByRole("button", { name: "위젯 설치" }));
 }
 
-it("browses the catalog through filters without installation checkboxes or a batch selection", () => {
+it("browses the catalog with a search only, without a status filter, checkboxes or a batch selection", () => {
   render(<WidgetManager embedded />);
   const catalog = within(screen.getByRole("region", { name: "위젯 목록" }));
   expect(catalog.queryAllByRole("checkbox")).toEqual([]);
+  expect(catalog.queryByRole("combobox")).toBeNull();
+  expect(screen.queryByText(/^공식 \d+개/)).toBeNull();
+  expect(catalog.getByText("위젯 · 14개")).toBeTruthy();
+  expect(catalog.getByText("설치 0개")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "여러 개 설치" })).toBeNull();
   expect(screen.queryByRole("button", { name: /선택한 위젯 설치/ })).toBeNull();
   fireEvent.click(catalog.getByRole("button", { name: "할 일 미설치" }));
@@ -129,27 +185,18 @@ it("browses the catalog through filters without installation checkboxes or a bat
   });
   expect(catalog.queryByRole("button", { name: "할 일 미설치" })).toBeNull();
   expect(catalog.getByRole("button", { name: "날씨 미설치" })).toBeTruthy();
-  fireEvent.change(screen.getByRole("combobox", { name: "위젯 분류" }), {
-    target: { value: "play" },
+  fireEvent.change(screen.getByRole("searchbox", { name: "위젯 검색" }), {
+    target: { value: "없는 위젯" },
   });
-  expect(screen.getByText("찾는 위젯이 없어요. 검색어나 필터를 바꿔 보세요.")).toBeTruthy();
-  fireEvent.change(screen.getByRole("combobox", { name: "설치 상태" }), {
-    target: { value: "installed" },
-  });
-  fireEvent.change(screen.getByRole("combobox", { name: "설치 상태" }), {
-    target: { value: "all" },
-  });
+  expect(screen.getByText("찾는 위젯이 없어요. 검색어를 바꿔 보세요.")).toBeTruthy();
   fireEvent.change(screen.getByRole("searchbox", { name: "위젯 검색" }), { target: { value: "" } });
-  fireEvent.change(screen.getByRole("combobox", { name: "위젯 분류" }), {
-    target: { value: "all" },
-  });
   expect(catalog.getByRole("button", { name: "할 일 미설치" })).toBeTruthy();
   expect(catalog.queryAllByRole("checkbox")).toEqual([]);
   expect(command).not.toHaveBeenCalled();
 });
 
 it.each([false, true])(
-  "installs preparation alone when a disabled calendar is installed=%s",
+  "installs preparation alone and without a confirmation when a disabled calendar is installed=%s",
   async (hasCalendar) => {
     vi.mocked(useWidgets).mockReturnValue({
       snapshot: {
@@ -161,13 +208,7 @@ it.each([false, true])(
     });
     render(<WidgetManager embedded />);
     openInstallation("준비 봉투");
-    expect(screen.queryByText(/필수 위젯도 함께 설치하거나 켭니다/)).toBeNull();
-    expect(
-      vi
-        .mocked(command)
-        .mock.calls.filter(([name]) => name !== "get_planner_notification_permission"),
-    ).toEqual([]);
-    fireEvent.click(screen.getByRole("button", { name: "설치 확인" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
     await waitFor(() =>
       expect(
         vi
@@ -175,38 +216,59 @@ it.each([false, true])(
           .mock.calls.filter(([name]) => name !== "get_planner_notification_permission"),
       ).toEqual([["install_widgets", { kinds: ["preparation"] }]]),
     );
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
   },
 );
 
-it("cancels an installation without a dirty draft and installs only the next widget", async () => {
+it("confirms only installations that add required widgets and cancels them without a dirty draft", async () => {
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: {
+      ...PREVIEW_WIDGETS,
+      catalog: PREVIEW_WIDGETS.catalog.map((item) =>
+        item.id === "focus-timer" ? { ...item, required: ["todo"] } : item,
+      ),
+      widgets: [installed("todo", false)],
+    },
+    error: null,
+    reload,
+  });
   const dirty = vi.fn();
   render(<WidgetManager embedded onDirtyChange={dirty} />);
-  openInstallation("할 일");
+  openInstallation("집중 타이머");
+  const dialog = within(screen.getByRole("dialog"));
+  expect(dialog.getByText("집중 타이머")).toBeTruthy();
+  expect(dialog.getByText("필수 위젯도 함께 설치하거나 켭니다: 할 일")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "취소" }));
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(dirty).toHaveBeenLastCalledWith(false);
   expect(command).not.toHaveBeenCalled();
 
   openInstallation("집중 타이머");
-  expect(within(screen.getByRole("dialog")).getByText("집중 타이머")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "설치 확인" }));
   await waitFor(() =>
-    expect(command).toHaveBeenCalledExactlyOnceWith("install_widgets", { kinds: ["focus-timer"] }),
+    expect(command).toHaveBeenCalledExactlyOnceWith("install_widgets", {
+      kinds: ["focus-timer", "todo"],
+    }),
   );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 });
 
-it("hides the native installation confirmation during an external tab switch", () => {
+it("hides the native removal confirmation during an external tab switch", () => {
   HTMLDialogElement.prototype.close = function (): void {
     this.removeAttribute("open");
     this.dispatchEvent(new Event("close"));
   };
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [installed("todo")] },
+    error: null,
+    reload,
+  });
   const view = render(
     <div>
       <WidgetManager embedded />
     </div>,
   );
-  openInstallation("할 일");
+  fireEvent.click(screen.getByRole("button", { name: "위젯 제거" }));
   const dialog = screen.getByRole("dialog");
   expect(dialog).toHaveProperty("open", true);
 
@@ -245,17 +307,10 @@ it("opens a calendar awaiting a connection and pauses a running widget separatel
     reload,
   });
   render(<WidgetManager embedded />);
-  fireEvent.change(screen.getByRole("combobox", { name: "설치 상태" }), {
-    target: { value: "attention" },
-  });
   fireEvent.click(screen.getByRole("button", { name: /^캘린더 설정 필요$/ }));
-  expect(screen.queryByRole("button", { name: /^할 일 켜짐$/ })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "위젯 열기 ↗" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("open_widget", { id: "calendar" }));
   await waitFor(() => expect(screen.getByLabelText("위젯 사용")).toHaveProperty("disabled", false));
-  fireEvent.change(screen.getByRole("combobox", { name: "설치 상태" }), {
-    target: { value: "all" },
-  });
   fireEvent.click(screen.getByRole("button", { name: /^할 일 켜짐$/ }));
   fireEvent.click(screen.getByLabelText("위젯 사용"));
   await waitFor(() =>
@@ -271,7 +326,7 @@ it("removes only calendar, preserves data by default, and leaves preparation ava
     reload,
   });
   const view = render(<WidgetManager embedded />);
-  fireEvent.click(screen.getByLabelText("위젯 더보기"));
+  expect(screen.queryByLabelText("위젯 더보기")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "위젯 제거" }));
   expect(screen.queryByText(/필수 연결을 사용할 수 없게 되는 도구/)).toBeNull();
   expect(screen.getByLabelText("이 위젯의 작성 데이터도 삭제")).toHaveProperty("checked", false);
@@ -310,7 +365,6 @@ it("preserves the explicit deletion choice and the error when removal fails", as
   });
   vi.mocked(command).mockRejectedValue(new Error("저장 실패"));
   render(<WidgetManager embedded />);
-  fireEvent.click(screen.getByLabelText("위젯 더보기"));
   fireEvent.click(screen.getByRole("button", { name: "위젯 제거" }));
   fireEvent.click(screen.getByLabelText("이 위젯의 작성 데이터도 삭제"));
   fireEvent.click(screen.getByRole("button", { name: "제거 확인" }));
@@ -379,32 +433,29 @@ it("shows connection settings in place without running the widget", () => {
   expect(command).not.toHaveBeenCalled();
 });
 
-it("opens official state rules from the widget menu without changing its data", async () => {
+it("opens official state rules from the widget header without changing its data", async () => {
   vi.mocked(useWidgets).mockReturnValue({
     snapshot: { ...PREVIEW_WIDGETS, onboardingDone: true, widgets: [installed("todo")] },
     error: null,
     reload,
   });
   render(<WidgetManager embedded />);
-  fireEvent.click(screen.getByLabelText("위젯 더보기"));
   fireEvent.click(screen.getByRole("button", { name: "상태별 캐릭터 대사 편집" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledExactlyOnceWith("open_widget_state_rules", { id: "todo" }),
   );
 });
 
-it("keeps a failed installation open and retries the same widget", async () => {
+it("keeps a failed installation selected and retries the same widget", async () => {
   vi.mocked(command).mockRejectedValueOnce(new Error("설치 실패"));
   render(<WidgetManager embedded />);
   openInstallation("할 일");
-  fireEvent.click(screen.getByRole("button", { name: "설치 확인" }));
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "설치 실패");
-  expect(screen.getByRole("dialog")).toBeTruthy();
-  expect(within(screen.getByRole("dialog")).getByText("할 일")).toBeTruthy();
+  expect(screen.getByRole("region", { name: "할 일 설정" })).toBeTruthy();
   expect(command).toHaveBeenCalledExactlyOnceWith("install_widgets", { kinds: ["todo"] });
   expect(reload).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "설치 확인" }));
-  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  fireEvent.click(screen.getByRole("button", { name: "위젯 설치" }));
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   expect(command).toHaveBeenNthCalledWith(2, "install_widgets", { kinds: ["todo"] });
   expect(command).toHaveBeenCalledTimes(2);
   expect(reload).toHaveBeenCalledTimes(1);
@@ -431,6 +482,7 @@ it("tracks and retains separate widget setting drafts across selection and snaps
   fireEvent.change(screen.getByLabelText(/^ICS \/ webcal/), {
     target: { value: "https://example.com/private.ics" },
   });
+  fireEvent.click(screen.getByText("일정과 생활 알림", { selector: "summary" }));
   fireEvent.click(screen.getByLabelText("일정·할 일 기한 알림 켜기"));
   fireEvent.click(screen.getByRole("button", { name: /^음악 정보/ }));
   expect(screen.getByLabelText("음악 앱")).toHaveProperty("value", "spotify");
@@ -484,17 +536,10 @@ it("includes created and imported widgets in the same list, counts and filters",
   expect(list.getByRole("button", { name: "할 일 켜짐" })).toBeTruthy();
   expect(list.getByRole("button", { name: "단수 세기 켜짐" })).toBeTruthy();
   expect(list.getByRole("button", { name: "물 마시기 실행 검사 대기" })).toBeTruthy();
-  expect(screen.getByText("공식 14개 · AI·가져온 위젯 2개 · 설치됨 3개")).toBeTruthy();
-  expect(screen.getByRole("option", { name: "전체 16" })).toBeTruthy();
-  fireEvent.change(screen.getByRole("combobox", { name: "설치 상태" }), {
-    target: { value: "available" },
-  });
-  expect(list.queryByRole("button", { name: /^단수 세기/ })).toBeNull();
-  fireEvent.change(screen.getByRole("combobox", { name: "설치 상태" }), {
-    target: { value: "installed" },
-  });
-  fireEvent.change(screen.getByRole("combobox", { name: "위젯 분류" }), {
-    target: { value: "generated" },
+  expect(list.getByText("위젯 · 16개")).toBeTruthy();
+  expect(list.getByText("설치 3개")).toBeTruthy();
+  fireEvent.change(screen.getByRole("searchbox", { name: "위젯 검색" }), {
+    target: { value: "AI·가져온" },
   });
   expect(list.queryByRole("button", { name: "할 일 켜짐" })).toBeNull();
   expect(
@@ -505,12 +550,6 @@ it("includes created and imported widgets in the same list, counts and filters",
   });
   expect(list.getByRole("button", { name: "단수 세기 켜짐" })).toBeTruthy();
   expect(list.queryByRole("button", { name: /^물 마시기/ })).toBeNull();
-  fireEvent.change(screen.getByRole("searchbox", { name: "위젯 검색" }), { target: { value: "" } });
-  fireEvent.change(screen.getByRole("combobox", { name: "설치 상태" }), {
-    target: { value: "attention" },
-  });
-  expect(list.getByRole("button", { name: "물 마시기 실행 검사 대기" })).toBeTruthy();
-  expect(list.queryByRole("button", { name: /^단수 세기/ })).toBeNull();
 });
 
 it("shows persisted installation information and retains it through state revision refreshes", () => {
@@ -653,9 +692,6 @@ it("shows generated fetch and operation errors without discarding edit requests"
   expect(screen.getByText("목록 새로고침 실패")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "AI 위젯 다시 불러오기" }));
   expect(reloadGenerated).toHaveBeenCalledTimes(1);
-  fireEvent.change(screen.getByRole("combobox", { name: "설치 상태" }), {
-    target: { value: "attention" },
-  });
   fireEvent.click(screen.getByRole("button", { name: "단수 세기 오류" }));
   expect(screen.getByText("실행 시간 초과")).toBeTruthy();
   fireEvent.change(screen.getByRole("textbox", { name: "수정할 내용" }), {
@@ -726,14 +762,15 @@ it("omits retired collection and journal even when legacy records are present", 
   expect(PREVIEW_WIDGETS.catalog).toHaveLength(14);
 });
 
-it("keeps AI creation and its automatic setting in a closed experiment disclosure", async () => {
+it("keeps AI creation and its automatic setting in a closed experiment disclosure below the list", async () => {
   render(<WidgetManager embedded />);
-  const summary = screen.getByText("실험 기능");
-  expect(summary.closest("details")).toHaveProperty("open", false);
-  expect(screen.getByRole("button", { name: "AI로 위젯 만들기" }).closest("details")).toBe(
-    summary.closest("details"),
-  );
-  fireEvent.click(summary);
+  const list = within(screen.getByRole("region", { name: "위젯 목록" }));
+  const toggle = list.getByRole("button", { name: "실험 기능" });
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(screen.queryByRole("button", { name: "AI로 위젯 만들기" })).toBeNull();
+  fireEvent.click(toggle);
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  expect(list.getByRole("button", { name: "AI로 위젯 만들기" })).toBeTruthy();
   fireEvent.click(
     screen.getByRole("checkbox", { name: "대화에서 필요한 도구가 보이면 자동으로 만들기" }),
   );
@@ -849,6 +886,7 @@ it("keeps appearance save controls in their owning white panel and preserves dis
     reload,
   });
   const view = render(<WidgetManager embedded />);
+  fireEvent.click(screen.getByRole("button", { name: "바탕화면 꾸미기" }));
   fireEvent.click(
     within(screen.getByRole("radiogroup", { name: "글자 위치" })).getByRole("radio", {
       name: "오른쪽 아래",
@@ -865,6 +903,8 @@ it("keeps appearance save controls in their owning white panel and preserves dis
   ).toBe(false);
   expect(save).toHaveProperty("disabled", false);
   fireEvent.click(screen.getByRole("button", { name: /^날씨 켜짐$/ }));
+  expect(screen.queryByRole("button", { name: "표시 설정 저장" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "바탕화면 꾸미기" }));
   expect(screen.getAllByRole("button", { name: "표시 설정 저장" })).toHaveLength(1);
   expect(screen.getByRole("button", { name: "표시 설정 저장" })).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByRole("button", { name: /^시계·기념일 켜짐$/ }));
@@ -883,7 +923,7 @@ it("keeps appearance save controls in their owning white panel and preserves dis
   expect(command).not.toHaveBeenCalled();
 });
 
-it("moves save controls between owning panels on resize without losing the appearance draft", () => {
+it("keeps the appearance save footer and draft when the window becomes narrow", () => {
   const previousWidth = window.innerWidth;
   Object.defineProperty(window, "innerWidth", { value: 1920, writable: true, configurable: true });
   try {
@@ -893,6 +933,7 @@ it("moves save controls between owning panels on resize without losing the appea
       reload,
     });
     render(<WidgetManager embedded />);
+    fireEvent.click(screen.getByRole("button", { name: "바탕화면 꾸미기" }));
     fireEvent.click(
       within(screen.getByRole("radiogroup", { name: "글자 위치" })).getByRole("radio", {
         name: "오른쪽 아래",

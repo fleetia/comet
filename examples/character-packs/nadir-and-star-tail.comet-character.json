@@ -59,18 +59,66 @@
         {
           "expression": "평온",
           "text": "말을 고르느라 늦었어요. 듣고 있었으니 계속해도 돼요."
+        },
+        {
+          "expression": "평온",
+          "text": "안경을 닦았더니 글씨가 조금 덜 어려워 보여요. 내용은 그대로지만."
+        },
+        {
+          "expression": "생각중",
+          "text": "한 음절이 자꾸 길어져요. 숨을 먼저 세어 볼게요."
+        },
+        {
+          "expression": "호기심",
+          "text": "이 문장은 소리 내면 다르게 들려요. 한 번 더 읽어 볼게요."
+        },
+        {
+          "expression": "걱정",
+          "text": "손끝에 잉크가 묻었네. 종이를 만지기 전에 닦아야겠어요."
+        },
+        {
+          "expression": "평온",
+          "text": "제가 잠깐 멈춘 건… 음, 조금 막혔어요."
+        },
+        {
+          "expression": "호기심",
+          "text": "새 펜촉은 빠르네요. 생각이 아직 못 따라왔어."
+        },
+        {
+          "expression": "생각중",
+          "text": "답을 적기 전에 예외를 하나 더 확인하고 싶어요."
+        },
+        {
+          "expression": "평온",
+          "text": "잠깐 쉬면 다음 음절이 잘 들릴지도 몰라요. 한번 해 볼게요."
         }
       ],
       "departureLines": [
         {
           "expression": "평온",
           "text": "저 잠깐 다녀올게요. 돌아와서 이어서 들을게요."
+        },
+        {
+          "expression": "평온",
+          "text": "펜을 챙겨서 잠깐 다녀올게요."
+        },
+        {
+          "expression": "호기심",
+          "text": "잠깐 확인할 게 생겼어요. 돌아와서 이야기할게요."
         }
       ],
       "returnLines": [
         {
           "expression": "호기심",
           "text": "다녀왔어요. 아, 이야기는 어디까지 했죠?"
+        },
+        {
+          "expression": "평온",
+          "text": "돌아왔어요. 펜도 챙겨 왔어요."
+        },
+        {
+          "expression": "기쁨",
+          "text": "다녀왔어요. 여기가 역시 마음이 놓이네요."
         }
       ]
     },
@@ -129,18 +177,66 @@
         {
           "expression": "기쁨",
           "text": "나 여기 조용히 있을게. 꼬리만 조금 흔들고!"
+        },
+        {
+          "expression": "장난",
+          "text": "혼자 숨바꼭질할 수 있을까? 찾는 쪽부터 정하면 돼!"
+        },
+        {
+          "expression": "기쁨",
+          "text": "이 자리는 내가 정했어! 이유는… 그냥 마음에 들어!"
+        },
+        {
+          "expression": "생각중",
+          "text": "간식 생각을 접어 뒀어. 접힌 채로도 맛있어 보여!"
+        },
+        {
+          "expression": "호기심",
+          "text": "꼬리 하나가 먼저 돌아섰어. 저쪽에 뭐가 있나 봐!"
+        },
+        {
+          "expression": "장난",
+          "text": "오늘은 얌전하게! 아, 지금은 연습 중이야."
+        },
+        {
+          "expression": "기쁨",
+          "text": "작은 별을 그렸는데 한쪽이 삐죽해. 마음에 들어!"
+        },
+        {
+          "expression": "생각중",
+          "text": "나도 오래 생각할 수 있어. 이번엔 생각보다 먼저 웃었지만!"
+        },
+        {
+          "expression": "평온",
+          "text": "발소리 안 나게 걸어 봤어. 다음에는 꼬리도 조용히 시켜야지!"
         }
       ],
       "departureLines": [
         {
           "expression": "기쁨",
           "text": "별꼬리 잠깐 다녀올게! 금방 와!"
+        },
+        {
+          "expression": "호기심",
+          "text": "잠깐 둘러보고 올게. 돌아오면 알려 줄게!"
+        },
+        {
+          "expression": "장난",
+          "text": "꼬리 셋이 다른 길을 골랐어. 하나만 따라갔다 올게!"
         }
       ],
       "returnLines": [
         {
           "expression": "기쁨",
           "text": "별꼬리 돌아왔어! 기다렸어?"
+        },
+        {
+          "expression": "기쁨",
+          "text": "다녀왔어! 꼬리도 다 같이 왔어."
+        },
+        {
+          "expression": "평온",
+          "text": "돌아왔어. 여기 자리 아직 따뜻하네."
         }
       ]
     }
@@ -204,6 +300,146 @@
         "speaker": "star-tail",
         "expression": "기쁨",
         "text": "질문한테 의자 내 줄게!"
+      }
+    ],
+    [
+      {
+        "speaker": "star-tail",
+        "expression": "장난",
+        "text": "나디르, 내가 이름 없는 놀이 만들었어!"
+      },
+      {
+        "speaker": "nadir",
+        "expression": "생각중",
+        "text": "규칙부터 들으면 이름이 떠오를지도요."
+      }
+    ],
+    [
+      {
+        "speaker": "nadir",
+        "expression": "생각중",
+        "text": "영창 끝 음절을 너무 세게 읽었어요."
+      },
+      {
+        "speaker": "star-tail",
+        "expression": "평온",
+        "text": "그럼 마지막만 살짝 내려놓자!"
+      },
+      {
+        "speaker": "nadir",
+        "expression": "평온",
+        "text": "그건 해 볼 만해요."
+      }
+    ],
+    [
+      {
+        "speaker": "star-tail",
+        "expression": "호기심",
+        "text": "이 자리, 간식 놓기 딱 좋아!"
+      },
+      {
+        "speaker": "nadir",
+        "expression": "평온",
+        "text": "책 놓는 자리였는데요."
+      },
+      {
+        "speaker": "star-tail",
+        "expression": "장난",
+        "text": "그럼 책 옆에 아주 조금만."
+      }
+    ],
+    [
+      {
+        "speaker": "nadir",
+        "expression": "생각중",
+        "text": "여기 쉼표를 넣으면 영창이 늦어져요."
+      },
+      {
+        "speaker": "star-tail",
+        "expression": "평온",
+        "text": "쉼표는 내 차례에 줘. 난 안 급해!"
+      }
+    ],
+    [
+      {
+        "speaker": "star-tail",
+        "expression": "기쁨",
+        "text": "내 꼬리로 박자 맞춰 줄까?"
+      },
+      {
+        "speaker": "nadir",
+        "expression": "장난",
+        "text": "한 갈래씩만요. 셋이 한꺼번에 나서면 너무 빨라요."
+      }
+    ],
+    [
+      {
+        "speaker": "nadir",
+        "expression": "걱정",
+        "text": "이 줄은 다시 써야겠어요."
+      },
+      {
+        "speaker": "star-tail",
+        "expression": "호기심",
+        "text": "지우기 전에 나한테 한 번 읽어 줘!"
+      },
+      {
+        "speaker": "nadir",
+        "expression": "평온",
+        "text": "좋아요. 제가 놓친 게 들릴지도 모르니까."
+      }
+    ],
+    [
+      {
+        "speaker": "star-tail",
+        "expression": "장난",
+        "text": "이쪽이 내 무대야! 관객 한 명만 구해."
+      },
+      {
+        "speaker": "nadir",
+        "expression": "평온",
+        "text": "저요? 박수는 조용히 칠게요."
+      }
+    ],
+    [
+      {
+        "speaker": "nadir",
+        "expression": "평온",
+        "text": "차가 아직 뜨거워요."
+      },
+      {
+        "speaker": "star-tail",
+        "expression": "기쁨",
+        "text": "그럼 내가 기다릴게. 마시는 건 네가 해!"
+      }
+    ],
+    [
+      {
+        "speaker": "star-tail",
+        "expression": "호기심",
+        "text": "길 하나 그렸어. 여기서 여기까지!"
+      },
+      {
+        "speaker": "nadir",
+        "expression": "생각중",
+        "text": "시작과 끝이 같은 점인데요."
+      },
+      {
+        "speaker": "star-tail",
+        "expression": "장난",
+        "text": "돌아오는 길이 제일 쉬워!"
+      }
+    ],
+    [
+      {
+        "speaker": "nadir",
+        "expression": "호기심",
+        "text": "이 문장은 입으로 읽으면 생각이 달라져요."
+      },
+      {
+        "speaker": "star-tail",
+        "expression": "평온",
+        "text": "그럼 듣는 쪽은 내가 할게!"
       }
     ]
   ],

@@ -78,6 +78,55 @@ fn fresh_install_starts_with_byulkkori_alone_as_a_removable_pack() {
 }
 
 #[test]
+fn bundled_byulkkori_greeting_uses_one_alternative_and_custom_lines_keep_their_order() {
+    let conn = Connection::open_in_memory().unwrap();
+    initialize(&conn).unwrap();
+    let character = collection(&conn).unwrap().installed.remove(0);
+    let alternatives = byulkkori_pack().characters.remove(0).greeting;
+    assert!(
+        alternatives.len() > 1,
+        "the bundled greeting needs alternatives"
+    );
+
+    for _ in 0..20 {
+        let lines = greeting(&conn, "a").unwrap();
+        assert_eq!(lines.len(), 1);
+        assert!(alternatives.iter().any(|line| line.text == lines[0].text));
+    }
+
+    let mut edited = character.definition;
+    edited.greeting = vec![
+        CharacterLine {
+            expression: "평온".into(),
+            text: "첫 줄".into(),
+            motion: Default::default(),
+        },
+        CharacterLine {
+            expression: "기쁨".into(),
+            text: "둘째 줄".into(),
+            motion: Default::default(),
+        },
+    ];
+    save(&conn, &character.id, &edited).unwrap();
+    let lines = greeting(&conn, "a").unwrap();
+    assert_eq!(lines.len(), 2);
+    assert_eq!(
+        lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>(),
+        ["첫 줄", "둘째 줄"]
+    );
+    assert_eq!(
+        lines
+            .iter()
+            .map(|line| line.expression.as_str())
+            .collect::<Vec<_>>(),
+        ["평온", "기쁨"]
+    );
+}
+
+#[test]
 fn legacy_factory_pair_keeps_a_and_b_and_local_dialogue() {
     let factory = factory_pack();
     assert_eq!(factory.format_version, 6);
@@ -120,7 +169,7 @@ fn addon_keeps_public_profiles_and_greeting_alternatives_after_import() {
         pack.characters[0].return_lines,
         pack.characters[1].return_lines
     );
-    assert_eq!(pack.pair_scenes.len(), 5);
+    assert_eq!(pack.pair_scenes.len(), 15);
     for character in &pack.characters {
         assert_eq!(character.greeting.len(), 5);
         assert!(character.idle_lines.len() >= 5);

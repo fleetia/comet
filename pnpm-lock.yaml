@@ -436,7 +436,7 @@ packages:
         optional: true
 
   '@fleetia/lagrange@file:vendor/fleetia-lagrange-0.1.1.tgz':
-    resolution: {integrity: sha512-eTkYkSV/Bhh1koDlNzwA/R4pqHybg1s7+flxTQkonj/LDKhejt9Byzb8OkJSW3zRazJA2is4ne/4H8uq32pEVw==, tarball: file:vendor/fleetia-lagrange-0.1.1.tgz}
+    resolution: {integrity: sha512-HlPO+ZGkGjKX86Xh0oTIECpKYrf0rHWcvyX2XM+crLi8S11lTznmk4pt/R/DYec4IGUqfDMVzj9vIudps4SyQw==, tarball: file:vendor/fleetia-lagrange-0.1.1.tgz}
     version: 0.1.1
     engines: {node: '>=22.14.0'}
     peerDependencies:

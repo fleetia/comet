@@ -1,8 +1,8 @@
 use super::validation::{validate_scene, validate_wordbook};
 use super::{
-    active_character, active_ids, factory_pack, get, nadir_pack, pack_record, slot_index,
-    CharacterDefinition, CharacterDialogue, CharacterPack, Result, MAX_PACK_BYTES, MAX_ROSTER,
-    SLOTS,
+    active_character, active_ids, byulkkori_pack, factory_pack, get, nadir_pack, pack_record,
+    slot_index, CharacterDefinition, CharacterDialogue, CharacterPack, Result, MAX_PACK_BYTES,
+    MAX_ROSTER, SLOTS,
 };
 use crate::types::SceneLine;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -55,6 +55,7 @@ pub fn greeting(conn: &Connection, slot: &str) -> Result<Vec<SceneLine>> {
         .characters
         .into_iter()
         .chain(nadir_pack().characters)
+        .chain(byulkkori_pack().characters)
         .find(|item| item.source_id == definition.source_id);
     let mut lines = definition.greeting;
     if factory.is_some_and(|item| item.greeting == lines) {

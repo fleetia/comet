@@ -25,6 +25,9 @@ pub(super) fn initialize_message_context(conn: &Connection) -> Result<()> {
             message_id TEXT PRIMARY KEY REFERENCES messages(id),
             revision INTEGER NOT NULL,
             lines TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS ai_only_inputs(
+            message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE
         );",
     )
     .map_err(err)?;
@@ -224,6 +227,39 @@ pub fn insert_message_with_playback(
     direct_reply: bool,
     line: Option<&SceneLine>,
 ) -> Result<()> {
+    insert_message_record(conn, message, source, scene_key, direct_reply, line, false)
+}
+
+pub fn insert_user_input(conn: &Connection, message: &Message, ai_only: bool) -> Result<()> {
+    if message.role != "user" {
+        return Err("AI 입력 선택은 사용자 메시지에만 저장할 수 있어요.".into());
+    }
+    if ai_only {
+        insert_message_record(conn, message, "user", None, false, None, true)
+    } else {
+        insert_message(conn, message)
+    }
+}
+
+/// Absent metadata belongs to the existing keyword-first route, including older inputs.
+pub fn input_ai_only(conn: &Connection, message_id: &str) -> Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM ai_only_inputs WHERE message_id=?1)",
+        [message_id],
+        |row| row.get(0),
+    )
+    .map_err(err)
+}
+
+fn insert_message_record(
+    conn: &Connection,
+    message: &Message,
+    source: &str,
+    scene_key: Option<&str>,
+    direct_reply: bool,
+    line: Option<&SceneLine>,
+    ai_only: bool,
+) -> Result<()> {
     let tx = conn.unchecked_transaction().map_err(err)?;
     let changed = tx
         .execute(
@@ -236,6 +272,13 @@ pub fn insert_message_with_playback(
         )
         .map_err(err)?;
     if changed > 0 {
+        if ai_only {
+            tx.execute(
+                "INSERT INTO ai_only_inputs(message_id) VALUES(?1)",
+                [&message.id],
+            )
+            .map_err(err)?;
+        }
         if direct_reply {
             if let Some(line) = line {
                 tx.execute(

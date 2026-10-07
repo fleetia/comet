@@ -22,9 +22,10 @@ pub use analysis::{
 pub use conversations::{
     active_conversation, attach_conversation_message, conversation, conversation_context,
     conversation_for_message, conversation_message_allowed, conversation_messages,
-    conversation_view, conversations, create_conversation, pause_conversations,
-    record_conversation_disclosure, save_conversation_draft, set_conversation_participants,
-    set_conversation_status, ConversationMessages, ConversationSession, ConversationView,
+    conversation_reply_pending, conversation_view, conversations, create_conversation,
+    pause_conversations, record_conversation_disclosure, save_conversation_draft,
+    set_conversation_participants, set_conversation_status, ConversationMessages,
+    ConversationSession, ConversationView,
 };
 #[cfg(test)]
 pub use memory::analyze_apply;
@@ -38,11 +39,13 @@ pub use memory::{
 };
 #[cfg(test)]
 pub use memory::{delete_memory, edit_memory};
+#[allow(unused_imports)] // Developer smoke examples still insert synthetic history directly.
+pub use messages::insert_message;
 pub use messages::{
     context_messages, context_messages_for, expire_generated_recall, has_turn_replies,
-    insert_message, insert_message_with_playback, mark_message_displayed, message_displayed,
-    message_identities, message_targets, messages, resume_conversation, save_reply_scene,
-    saved_reply, saved_reply_scene, MessageIdentity,
+    input_ai_only, insert_message_with_playback, insert_user_input, mark_message_displayed,
+    message_displayed, message_identities, message_targets, messages, resume_conversation,
+    save_reply_scene, saved_reply, saved_reply_scene, MessageIdentity,
 };
 use messages::{initialize_identities, initialize_message_context};
 #[cfg(test)]

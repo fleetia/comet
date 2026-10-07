@@ -70,7 +70,6 @@ export const header = style({
   gap: 9,
   padding: "0 17px",
   userSelect: "none",
-  borderBottom: "1px solid #ecece4",
   cursor: "grab",
 });
 export const name = style({ fontSize: 13, fontWeight: 650 });
@@ -120,7 +119,6 @@ export const statusRow = style({
   alignItems: "center",
   gap: 8,
   padding: "9px 20px",
-  borderBottom: "1px solid #e9eae1",
   fontSize: 10,
   color: "#72786c",
 });
@@ -249,7 +247,7 @@ export const choice = style([
     },
   },
 ]);
-export const memory = style({ padding: "13px 0", borderBottom: "1px solid #eceee4" });
+export const memory = style({ padding: "13px 0" });
 export const progress = style({ width: "100%", accentColor: "#678066", height: 7 });
 export const loading = style({
   display: "grid",

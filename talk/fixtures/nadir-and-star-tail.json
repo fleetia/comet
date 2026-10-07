@@ -2859,6 +2859,70 @@
       ],
       "trigger": "idle",
       "expectedScene": "base-weather.unclassified"
+    },
+    {
+      "id": "situation.unfinished-syllable",
+      "path": "situations/index.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20
+      },
+      "expectedScene": "situation.unfinished-syllable"
+    },
+    {
+      "id": "situation.small-game",
+      "path": "situations/index.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20
+      },
+      "expectedScene": "situation.small-game"
+    },
+    {
+      "id": "situation.shared-quiet",
+      "path": "situations/index.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20
+      },
+      "expectedScene": "situation.shared-quiet"
+    },
+    {
+      "id": "situation.margin-note",
+      "path": "situations/index.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20
+      },
+      "expectedScene": "situation.margin-note"
     }
   ]
 }

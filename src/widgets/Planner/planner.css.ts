@@ -15,7 +15,6 @@ export const header = style({
   padding: `0 ${v.space.md}`,
   minHeight: v.dimension.control,
   flexShrink: 0,
-  borderBottom: `${v.border.width.hairline} solid ${v.color.border.strong}`,
   fontSize: v.typography.size.label,
 });
 export const tabs = style({
@@ -119,7 +118,6 @@ export const task = style({
   minHeight: 33,
   alignItems: "center",
   gap: v.space.sm,
-  borderBottom: `${v.border.width.hairline} solid ${v.color.border.subtle}`,
   padding: `${v.space.xs} 0`,
   minWidth: 0,
   selectors: {
@@ -248,7 +246,6 @@ globalStyle(`${table} th`, {
 });
 globalStyle(`${table} td`, {
   padding: `${v.space.sm} ${v.space.xs}`,
-  borderBottom: `${v.border.width.hairline} solid ${v.color.border.subtle}`,
   verticalAlign: "middle",
 });
 export const listSelect = style({ width: 132 });

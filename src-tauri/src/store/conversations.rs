@@ -430,6 +430,57 @@ pub fn conversation_messages(
     })
 }
 
+// Recovery is derived from immutable input IDs and presentation receipts. Do not
+// persist a runtime error string, infer success from raw message status, or reroute.
+pub fn conversation_reply_pending(conn: &Connection, id: &str) -> Result<bool> {
+    let session = conversation(conn, id)?;
+    if session.status == "ended" {
+        return Ok(false);
+    }
+    let latest: Option<String> = conn
+        .query_row(
+            "SELECT m.id FROM conversation_messages cm JOIN messages m ON m.id=cm.message_id
+         JOIN message_users mu ON mu.message_id=m.id
+         WHERE cm.conversation_id=?1 AND mu.user_id=?2 AND m.role='user'
+         ORDER BY m.seq DESC LIMIT 1",
+            params![id, session.user_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(err)?;
+    let Some(input) = latest else {
+        return Ok(false);
+    };
+    let scene_length: Option<usize> = conn
+        .query_row(
+            "SELECT json_array_length(lines) FROM direct_reply_scenes WHERE message_id=?1",
+            [&input],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(err)?;
+    if let Some(length) = scene_length {
+        // A completed scene remains complete even after its recall revision changes.
+        for index in 0..length {
+            if !super::message_displayed(conn, &format!("scene:{input}:{index}"))? {
+                return Ok(true);
+            }
+        }
+        return Ok(false);
+    }
+    if super::has_turn_replies(conn, &input, "scene")? {
+        // Legacy scenes have no saved line count; never guess missing lines or
+        // present a completed historical wordbook reply as a failed model turn.
+        return Ok(false);
+    }
+    for target in super::message_targets(conn, &input)? {
+        if !super::message_displayed(conn, &format!("reply:{input}:{target}"))? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 pub fn conversation_view(conn: &Connection, id: &str) -> Result<ConversationView> {
     let session = conversation(conn, id)?;
     let page = conversation_messages(conn, id, None)?;
@@ -1065,5 +1116,134 @@ mod tests {
             ids(&conversation_context(&db, &session.id, &star_tail).unwrap()),
             ["ordinary-star-tail"]
         );
+    }
+
+    #[test]
+    fn pending_reply_tracks_each_original_model_recipient_and_display_receipt() {
+        let db = store::open(Path::new(":memory:")).unwrap();
+        let session = create_conversation(
+            &db,
+            &["builtin-a".into(), "builtin-b".into()],
+            None,
+            None,
+            1,
+        )
+        .unwrap();
+        append(
+            &db,
+            &session,
+            &message("input", "user", "all", "  합성 질문\n보존  "),
+        );
+        for target in ["builtin-a", "builtin-b"] {
+            assert!(conversation_reply_pending(&db, &session.id).unwrap());
+            let id = format!("reply:input:{target}");
+            append(
+                &db,
+                &session,
+                &message(&id, "assistant", target, "합성 응답"),
+            );
+            assert!(
+                conversation_reply_pending(&db, &session.id).unwrap(),
+                "raw complete is not displayed"
+            );
+            store::mark_message_displayed(&db, &id, 2).unwrap();
+        }
+        assert!(!conversation_reply_pending(&db, &session.id).unwrap());
+        store::bump_revision(&db).unwrap();
+        assert!(
+            !conversation_reply_pending(&db, &session.id).unwrap(),
+            "completion does not expire with recall"
+        );
+    }
+
+    #[test]
+    fn pending_reply_counts_saved_scene_lines_without_rerouting_or_guessing_legacy_scenes() {
+        let db = store::open(Path::new(":memory:")).unwrap();
+        let session = start(&db);
+        append(
+            &db,
+            &session,
+            &message("input", "user", "a", "합성 단어장 질문"),
+        );
+        let lines: Vec<_> = ["  첫 줄\n  ", "둘째 줄"]
+            .into_iter()
+            .map(|text| crate::types::SceneLine {
+                persona: "builtin-a".into(),
+                text: text.into(),
+                expression: "평온".into(),
+                motion: Default::default(),
+            })
+            .collect();
+        store::save_reply_scene(&db, "input", &lines).unwrap();
+        for (index, line) in lines.iter().enumerate() {
+            assert!(conversation_reply_pending(&db, &session.id).unwrap());
+            let id = format!("scene:input:{index}");
+            append(&db, &session, &message(&id, "assistant", "a", &line.text));
+            assert!(conversation_reply_pending(&db, &session.id).unwrap());
+            store::mark_message_displayed(&db, &id, 2).unwrap();
+            if index == 0 {
+                store::bump_revision(&db).unwrap();
+                assert!(conversation_reply_pending(&db, &session.id).unwrap());
+                assert!(
+                    store::saved_reply_scene(&db, "input").is_err(),
+                    "recovery must not bypass stale provenance"
+                );
+            }
+        }
+        assert!(!conversation_reply_pending(&db, &session.id).unwrap());
+        store::bump_revision(&db).unwrap();
+        assert!(!conversation_reply_pending(&db, &session.id).unwrap());
+        db.execute(
+            "DELETE FROM direct_reply_scenes WHERE message_id='input'",
+            [],
+        )
+        .unwrap();
+        assert!(
+            !conversation_reply_pending(&db, &session.id).unwrap(),
+            "legacy scene length is unknown"
+        );
+    }
+
+    #[test]
+    fn pending_reply_uses_latest_input_in_selected_session_and_checks_owner_and_ending() {
+        let db = store::open(Path::new(":memory:")).unwrap();
+        store::set_user_name(&db, "합성 사용자", 1).unwrap();
+        let first = start(&db);
+        assert!(!conversation_reply_pending(&db, &first.id).unwrap());
+        append(
+            &db,
+            &first,
+            &message("earlier-failed", "user", "a", "이전 질문"),
+        );
+        assert!(conversation_reply_pending(&db, &first.id).unwrap());
+        append(
+            &db,
+            &first,
+            &message("latest-complete", "user", "a", "새 질문"),
+        );
+        append(
+            &db,
+            &first,
+            &message(
+                "reply:latest-complete:builtin-a",
+                "assistant",
+                "a",
+                "완료 답변",
+            ),
+        );
+        store::mark_message_displayed(&db, "reply:latest-complete:builtin-a", 2).unwrap();
+        assert!(!conversation_reply_pending(&db, &first.id).unwrap());
+        let second = start(&db);
+        append(
+            &db,
+            &second,
+            &message("other-failed", "user", "a", "다른 대화"),
+        );
+        assert!(!conversation_reply_pending(&db, &first.id).unwrap());
+        assert!(conversation_reply_pending(&db, &second.id).unwrap());
+        set_conversation_status(&db, &second.id, "ended", 3).unwrap();
+        assert!(!conversation_reply_pending(&db, &second.id).unwrap());
+        store::set_user_name(&db, "다른 합성 사용자", 4).unwrap();
+        assert!(conversation_reply_pending(&db, &first.id).is_err());
     }
 }

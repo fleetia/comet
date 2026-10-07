@@ -375,10 +375,11 @@ export function Balloon({
     }, 1000);
     return () => clearInterval(timer);
   }, [mode, sessionId, input, logOpen, responding, playing, pending]);
-  async function send(): Promise<void> {
+  async function send(aiOnly = false): Promise<void> {
     if (
       !snapshot.user ||
       !input.trim() ||
+      (aiOnly && !availability.ready) ||
       submitting.current ||
       responding ||
       playing ||
@@ -403,6 +404,7 @@ export function Balloon({
         content: input.trim(),
         target,
         clientMessageId,
+        ...(aiOnly ? { aiOnly: true } : {}),
         ...(submittedDraft.sessionId ? { sessionId: submittedDraft.sessionId } : {}),
       });
       if (draft.current === submittedDraft) {
@@ -743,6 +745,10 @@ export function Balloon({
               <p className={s.conversationMeta}>
                 등록된 키워드 답장·혼잣말은 모델 없이 사용할 수 있어요.
               </p>
+              <p className={s.conversationMeta}>
+                보내기는 등록 대사를 먼저 찾아요. AI에게 묻기는 이번 질문의 키워드 매칭을
+                건너뛰어요.
+              </p>
             </div>
             <div className={s.recipientRow}>
               <label className={ui.quiet}>
@@ -790,10 +796,26 @@ export function Balloon({
                 }
               }}
             />
-            <div className={s.row}>
+            <div className={s.recipientRow}>
               <span className={ui.quiet} role="status">
                 {responding && <WaitingDots />}
               </span>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={
+                  !availability.ready ||
+                  !snapshot.user ||
+                  !input.trim() ||
+                  responding ||
+                  playing ||
+                  pending ||
+                  navigating
+                }
+                onClick={() => void send(true)}
+              >
+                AI에게 묻기
+              </Button>
               <Button
                 type="submit"
                 disabled={

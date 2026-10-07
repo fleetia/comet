@@ -46,7 +46,6 @@ export const binding = style({
   gap: vars.space.sm,
   alignItems: "center",
   padding: `${vars.space.sm} 0`,
-  borderBottom: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
 });
 export const playback = style({
   gridColumn: "1 / -1",

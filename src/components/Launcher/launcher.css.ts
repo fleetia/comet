@@ -15,7 +15,6 @@ export const header = style({
   height: 32,
   flexShrink: 0,
   padding: "0 12px",
-  borderBottom: `1px solid ${vars.color.border.subtle}`,
 });
 export const search = style({
   display: "flex",
@@ -23,7 +22,6 @@ export const search = style({
   gap: 12,
   margin: "12px 16px 8px",
   padding: "4px 0 10px",
-  borderBottom: `2px solid ${vars.color.selection.indicator}`,
   flexShrink: 0,
 });
 export const searchIcon = style({
