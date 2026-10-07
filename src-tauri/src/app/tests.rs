@@ -1625,6 +1625,229 @@ fn set_focus_timer(
     .unwrap();
 }
 
+fn run_focus_timer(state: &AppState, action: &str) {
+    crate::widget_commands::change(state, |db| {
+        let timer = widgets::storage::instances(db)?
+            .into_iter()
+            .find(|instance| instance.kind == "focus-timer")
+            .unwrap();
+        widgets::storage::execute(
+            db,
+            &widgets::WidgetRequest {
+                request_id: uuid::Uuid::new_v4().to_string(),
+                instance_id: timer.id,
+                expected_revision: timer.revision,
+                action: action.into(),
+                input: serde_json::json!({"durationMs":60_000}),
+            },
+            chrono::Utc::now().timestamp_millis(),
+            1,
+        )
+    })
+    .unwrap();
+}
+
+#[test]
+fn starting_and_resuming_focus_cancel_existing_speech_without_erasing_the_conversation() {
+    let state = state();
+    let directory = tempfile::tempdir().unwrap();
+    let (persona, session_id) = {
+        let db = lock(&state.db).unwrap();
+        widgets::storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
+        store::set_user_name(&db, "집중 검사", chrono::Utc::now().timestamp_millis()).unwrap();
+        let persona = characters::active_ids(&db).unwrap()[0].clone();
+        let session = store::create_conversation(
+            &db,
+            std::slice::from_ref(&persona),
+            None,
+            None,
+            chrono::Utc::now().timestamp_millis(),
+        )
+        .unwrap();
+        store::save_conversation_draft(&db, &session.id, "쓰던 초안").unwrap();
+        (persona, session.id)
+    };
+    let line = SceneLine {
+        persona: persona.clone(),
+        expression: "평온".into(),
+        text: "집중 전에 읽던 대사".into(),
+        motion: Default::default(),
+    };
+    for action in ["start", "resume"] {
+        if action == "resume" {
+            run_focus_timer(&state, "pause");
+            store::set_conversation_status(
+                &lock(&state.db).unwrap(),
+                &session_id,
+                "active",
+                chrono::Utc::now().timestamp_millis(),
+            )
+            .unwrap();
+        }
+        let token = {
+            let _action = lock(&state.action).unwrap();
+            super::tasks::reserve(&state, super::tasks::Kind::Conversation, false).unwrap()
+        };
+        let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
+        assert!(present_line(
+            &state, &line, "script", action, 0, 2, revision, token.0, &token.1, false,
+        )
+        .unwrap());
+        *lock(&state.panel).unwrap() = Some(PanelState {
+            persona: persona.clone(),
+            mode: "input".into(),
+        });
+        let before =
+            serde_json::to_value(store::messages(&lock(&state.db).unwrap(), 100).unwrap()).unwrap();
+        run_focus_timer(&state, action);
+        assert!(token.1.load(Ordering::SeqCst));
+        assert!(lock(&state.playback).unwrap().is_none());
+        assert!(lock(&state.panel).unwrap().is_none());
+        assert_eq!(lock(&state.runtime).unwrap().phase, RuntimePhase::Idle);
+        let focused_epoch = state.epoch.load(Ordering::SeqCst);
+        crate::widget_commands::change(&state, |_| Ok(())).unwrap();
+        assert_eq!(state.epoch.load(Ordering::SeqCst), focused_epoch);
+        {
+            let db = lock(&state.db).unwrap();
+            let session = store::conversation(&db, &session_id).unwrap();
+            assert_eq!(session.status, "paused");
+            assert_eq!(session.draft, "쓰던 초안");
+            assert_eq!(
+                serde_json::to_value(store::messages(&db, 100).unwrap()).unwrap(),
+                before,
+            );
+        }
+        assert!(!present_line(
+            &state,
+            &line,
+            "script",
+            "late-during-focus",
+            1,
+            2,
+            revision,
+            token.0,
+            &token.1,
+            false,
+        )
+        .unwrap());
+        if action == "resume" {
+            run_focus_timer(&state, "cancel");
+            assert!(!present_line(
+                &state,
+                &line,
+                "script",
+                "late-after-focus",
+                1,
+                2,
+                revision,
+                token.0,
+                &token.1,
+                false,
+            )
+            .unwrap());
+        }
+    }
+}
+
+#[test]
+fn focus_rejects_keyword_input_and_fresh_playback_before_saving_any_content() {
+    let state = state();
+    let directory = tempfile::tempdir().unwrap();
+    let db = lock(&state.db).unwrap();
+    store::set_user_name(&db, "집중 검사", chrono::Utc::now().timestamp_millis()).unwrap();
+    let persona = characters::active_ids(&db).unwrap()[0].clone();
+    let line = SceneLine {
+        persona: "a".into(),
+        expression: "평온".into(),
+        text: "  등록한 원문\n그대로  ".into(),
+        motion: Default::default(),
+    };
+    wordbook::save(
+        &db,
+        &WordbookEntry {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: "집중 검사".into(),
+            keywords: vec!["집중 검사 입력".into()],
+            lines: vec![line.clone()],
+            enabled: true,
+            use_for_idle: false,
+            group: None,
+        },
+    )
+    .unwrap();
+    set_focus_timer(
+        &db,
+        directory.path(),
+        "running",
+        "focus",
+        Some(chrono::Utc::now().timestamp_millis() + 60_000),
+    );
+    let before = serde_json::json!({
+        "messages": store::messages(&db, 100).unwrap(),
+        "relationships": store::relationships(&db).unwrap(),
+        "conversations": store::conversations(&db, &persona).unwrap(),
+    });
+    assert_eq!(
+        super::conversation::record_input_and_route(
+            &state,
+            &db,
+            "집중 검사 입력",
+            &persona,
+            std::slice::from_ref(&persona),
+            "blocked-input",
+        )
+        .unwrap_err(),
+        super::conversation::FOCUS_UNAVAILABLE,
+    );
+    assert_eq!(
+        serde_json::json!({
+            "messages": store::messages(&db, 100).unwrap(),
+            "relationships": store::relationships(&db).unwrap(),
+            "conversations": store::conversations(&db, &persona).unwrap(),
+        }),
+        before,
+    );
+    let revision = store::revision(&db).unwrap();
+    drop(db);
+    let token = interrupt(&state, false).unwrap();
+    assert!(!present_line(
+        &state,
+        &line,
+        "wordbook",
+        "blocked-fresh-playback",
+        0,
+        1,
+        revision,
+        token.0,
+        &token.1,
+        false,
+    )
+    .unwrap());
+    let db = lock(&state.db).unwrap();
+    assert!(store::messages(&db, 100).unwrap().is_empty());
+    for (status, mode) in [("paused", "focus"), ("running", "rest")] {
+        set_focus_timer(
+            &db,
+            directory.path(),
+            status,
+            mode,
+            Some(chrono::Utc::now().timestamp_millis() + 60_000),
+        );
+        super::conversation::ensure_available(&db).unwrap();
+        let routed = super::conversation::record_input_and_route(
+            &state,
+            &db,
+            "집중 검사 입력",
+            &persona,
+            std::slice::from_ref(&persona),
+            status,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(routed[0].text, line.text);
+    }
+}
+
 #[test]
 fn focus_activity_requires_enabled_running_focus_with_future_deadline() {
     let state = state();
@@ -1658,7 +1881,7 @@ fn focus_activity_requires_enabled_running_focus_with_future_deadline() {
 }
 
 #[test]
-fn focus_hold_keeps_reminders_and_drops_other_widget_reactions() {
+fn focus_hold_drops_all_balloon_reactions_without_a_catch_up() {
     let state = state();
     let directory = tempfile::tempdir().unwrap();
     let db = lock(&state.db).unwrap();
@@ -1685,6 +1908,7 @@ fn focus_hold_keeps_reminders_and_drops_other_widget_reactions() {
             draft("small-match.result"),
             draft("todo-completed"),
             draft("planner-reminder"),
+            draft("calendar-reminder"),
             draft("timer-finished"),
             draft("planner-mood"),
         ],
@@ -1695,19 +1919,25 @@ fn focus_hold_keeps_reminders_and_drops_other_widget_reactions() {
     set_focus_timer(&db, directory.path(), "running", "focus", Some(at + 60_000));
     state.next_idle.store(now() - 1, Ordering::SeqCst);
     assert!(crate::widget_commands::hold_for_focus(&state, &db).unwrap());
-    let mut pending = db
+    let pending = db
         .prepare("SELECT json_extract(data,'$.kind') FROM widget_events WHERE pending=1")
         .unwrap()
         .query_map([], |row| row.get::<_, String>(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
-    pending.sort();
-    assert_eq!(
-        pending,
-        ["planner-mood", "planner-reminder", "timer-finished"]
-    );
+    assert!(pending.is_empty());
     assert!(state.next_idle.load(Ordering::SeqCst) > now());
+    set_focus_timer(&db, directory.path(), "idle", "focus", None);
+    assert!(crate::widget_commands::take_pending_reaction(&state, &db)
+        .unwrap()
+        .is_none());
+    set_focus_timer(&db, directory.path(), "running", "focus", Some(at - 1));
+    widgets::storage::advance(&db, at).unwrap();
+    let finished = crate::widget_commands::take_pending_reaction(&state, &db)
+        .unwrap()
+        .unwrap();
+    assert_eq!(finished.event.kind, "timer-finished");
 }
 
 #[test]

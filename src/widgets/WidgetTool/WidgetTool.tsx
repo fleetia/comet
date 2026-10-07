@@ -26,6 +26,7 @@ export function WidgetTool({
   const [failure, setFailure] = useState<string | null>(null),
     [busy, setBusy] = useState(false);
   const pending = useRef(false);
+  const [focusHeader, setFocusHeader] = useState<HTMLFieldSetElement | null>(null);
   const widget = snapshot?.widgets.find((item) => item.id === id);
   async function run(operation: () => Promise<void>): Promise<boolean> {
     if (!isDesktop()) {
@@ -113,7 +114,7 @@ export function WidgetTool({
         );
         break;
       case "focus-timer":
-        content = <TimerTool {...props} />;
+        content = <TimerTool {...props} headerActionsTarget={focusHeader} />;
         break;
       case "clock":
         content = <ClockTool {...props} />;
@@ -207,9 +208,20 @@ export function WidgetTool({
   }
   return (
     <WidgetFrame
-      className={s.host}
-      contentClassName={widget?.kind === "music" ? s.musicContent : undefined}
+      className={widget?.kind === "focus-timer" ? s.focusHost : s.host}
+      contentClassName={
+        widget?.kind === "music"
+          ? s.musicContent
+          : widget?.kind === "focus-timer"
+            ? s.focusContent
+            : undefined
+      }
       title={name}
+      headerActions={
+        widget?.kind === "focus-timer" && widget.installed && widget.enabled ? (
+          <fieldset ref={setFocusHeader} className={s.focusHeaderActions} disabled={busy} />
+        ) : undefined
+      }
       closeLabel="위젯 닫기"
       onClose={() => command("close_widget", { id })}
       footer={footer}
@@ -229,7 +241,16 @@ export function WidgetTool({
       {!isDesktop() && (
         <p className={s.previewNote}>예시 데이터 미리보기 · 입력한 내용은 저장하지 않아요.</p>
       )}
-      <fieldset className={widget?.kind === "music" ? s.musicBody : s.body} disabled={busy}>
+      <fieldset
+        className={
+          widget?.kind === "music"
+            ? s.musicBody
+            : widget?.kind === "focus-timer"
+              ? s.focusBody
+              : s.body
+        }
+        disabled={busy}
+      >
         {content}
       </fieldset>
       {busy && <p role="status">처리 중…</p>}

@@ -628,6 +628,144 @@ fn disabled_and_restarted_widgets_do_not_replay_pending_reactions() {
 }
 
 #[test]
+fn focus_statistics_stop_on_disable_and_keep_intervals_after_remove_and_reinstall() {
+    for resume in [false, true] {
+        let db = database();
+        let directory = tempfile::tempdir().unwrap();
+        install(&db, directory.path(), &["focus-timer"]);
+        let now = chrono::Utc::now().timestamp_millis();
+        act(
+            &db,
+            "focus-timer",
+            "start",
+            json!({"durationMs":20*60000}),
+            now - 5 * 60000,
+            1,
+        );
+        let id = instance(&db, "focus-timer").id;
+        storage::set_enabled(&db, &id, false).unwrap();
+        let disabled = instance(&db, "focus-timer");
+        assert_eq!(disabled.data["status"], "paused");
+        assert!(disabled.data["activeSession"]["runningSince"].is_null());
+        let elapsed = disabled.data["activeSession"]["elapsedMs"]
+            .as_i64()
+            .unwrap();
+        assert!((5 * 60000..6 * 60000).contains(&elapsed));
+        storage::set_enabled(&db, &id, true).unwrap();
+        let later = now + 10 * 60000;
+        if resume {
+            act(&db, "focus-timer", "resume", json!({}), later, 2);
+        }
+        act(&db, "focus-timer", "cancel", json!({}), later + 1000, 3);
+        let recorded = instance(&db, "focus-timer");
+        assert_eq!(
+            recorded.data["sessions"][0]["elapsedMs"],
+            elapsed + if resume { 1000 } else { 0 }
+        );
+        let fresh = chrono::Utc::now().timestamp_millis();
+        act(&db, "focus-timer", "start", json!({}), fresh - 1000, 4);
+        storage::remove(&db, directory.path(), &id, false).unwrap();
+        let removed = instance(&db, "focus-timer");
+        assert_eq!(removed.data["status"], "paused");
+        assert!(removed.data["activeSession"]["runningSince"].is_null());
+        install(&db, directory.path(), &["focus-timer"]);
+        let reinstalled = instance(&db, "focus-timer");
+        assert_eq!(reinstalled.id, id);
+        assert_eq!(reinstalled.data, removed.data);
+        assert_eq!(reinstalled.data["sessions"], recorded.data["sessions"]);
+    }
+}
+
+#[test]
+fn focus_statistics_survive_restart_and_expired_sessions_are_not_replayed() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    install(&db, directory.path(), &["focus-timer"]);
+    let now = chrono::Utc::now().timestamp_millis();
+    act(
+        &db,
+        "focus-timer",
+        "start",
+        json!({"durationMs":20*60000}),
+        now - 5 * 60000,
+        1,
+    );
+    let original = instance(&db, "focus-timer");
+    storage::verify_packages(&db, directory.path()).unwrap();
+    let restarted = instance(&db, "focus-timer");
+    assert_eq!(restarted.data["status"], "running");
+    assert_eq!(
+        restarted.data["activeSession"]["id"],
+        original.data["activeSession"]["id"]
+    );
+    assert_eq!(
+        restarted.data["activeSession"]["runningSince"],
+        now - 5 * 60000
+    );
+    act(&db, "focus-timer", "cancel", json!({}), now + 1000, 2);
+    let recorded = instance(&db, "focus-timer");
+    assert_eq!(recorded.data["sessions"][0]["elapsedMs"], 5 * 60000 + 1000);
+    act(
+        &db,
+        "focus-timer",
+        "start",
+        json!({"durationMs":1000}),
+        now - 5000,
+        3,
+    );
+    storage::verify_packages(&db, directory.path()).unwrap();
+    let expired = instance(&db, "focus-timer");
+    assert_eq!(expired.data["status"], "finished");
+    assert_eq!(expired.data["sessions"].as_array().unwrap().len(), 2);
+    assert_eq!(expired.data["sessions"][1]["elapsedMs"], 1000);
+    assert_eq!(expired.data["sessions"][1]["endedAt"], now - 4000);
+    assert!(
+        storage::take_reaction(&db, chrono::Utc::now().timestamp_millis())
+            .unwrap()
+            .is_none()
+    );
+    storage::verify_packages(&db, directory.path()).unwrap();
+    assert_eq!(instance(&db, "focus-timer").data, expired.data);
+}
+
+#[test]
+fn invalid_focus_package_disables_and_closes_the_current_statistical_interval() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    install(&db, directory.path(), &["focus-timer"]);
+    let now = chrono::Utc::now().timestamp_millis();
+    act(
+        &db,
+        "focus-timer",
+        "start",
+        json!({"durationMs":20*60000}),
+        now - 5 * 60000,
+        1,
+    );
+    std::fs::write(
+        directory.path().join("widgets/focus-timer/manifest.json"),
+        "invalid",
+    )
+    .unwrap();
+    storage::verify_packages(&db, directory.path()).unwrap();
+    let disabled = instance(&db, "focus-timer");
+    assert!(!disabled.enabled);
+    assert!(disabled.error.is_some());
+    assert_eq!(disabled.data["status"], "paused");
+    assert!(disabled.data["activeSession"]["runningSince"].is_null());
+    let elapsed = disabled.data["activeSession"]["elapsedMs"]
+        .as_i64()
+        .unwrap();
+    assert!((5 * 60000..6 * 60000).contains(&elapsed));
+    install(&db, directory.path(), &["focus-timer"]);
+    act(&db, "focus-timer", "cancel", json!({}), now + 10 * 60000, 2);
+    assert_eq!(
+        instance(&db, "focus-timer").data["sessions"][0]["elapsedMs"],
+        elapsed
+    );
+}
+
+#[test]
 fn event_cleanup_preserves_diary_history_without_a_journal_widget_and_request_deduplication() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();

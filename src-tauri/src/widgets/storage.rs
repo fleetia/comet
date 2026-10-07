@@ -261,7 +261,7 @@ pub fn install(db: &Connection, directory: &Path, kinds: &[String]) -> Result<()
                     error: None,
                 });
             if !instance.enabled {
-                suspend(&mut instance, chrono::Utc::now().timestamp_millis(), true);
+                suspend(&mut instance, chrono::Utc::now().timestamp_millis(), true)?;
             }
             instance.installed = true;
             instance.enabled = true;
@@ -286,23 +286,10 @@ pub fn install(db: &Connection, directory: &Path, kinds: &[String]) -> Result<()
     result
 }
 
-fn suspend(instance: &mut WidgetInstance, now: i64, restarting: bool) {
+fn suspend(instance: &mut WidgetInstance, now: i64, restarting: bool) -> Result<()> {
     match instance.kind.as_str() {
         "focus-timer" if instance.data["status"] == "running" => {
-            let remaining = instance.data["deadline"]
-                .as_i64()
-                .unwrap_or(now)
-                .saturating_sub(now)
-                .max(0);
-            instance.data["remainingMs"] = json!(remaining);
-            if restarting && remaining == 0 {
-                instance.data["status"] = json!("finished");
-            } else if !restarting {
-                instance.data["status"] = json!("paused");
-            }
-            if !restarting || remaining == 0 {
-                instance.data["deadline"] = Value::Null;
-            }
+            instance.data = super::planning::suspend_timer(&instance.data, now, restarting)?;
         }
         "ball" | "paper-plane" => {
             instance.data["moving"] = json!(false);
@@ -321,6 +308,7 @@ fn suspend(instance: &mut WidgetInstance, now: i64, restarting: bool) {
         }
         _ => {}
     }
+    Ok(())
 }
 
 pub fn set_enabled(db: &Connection, id: &str, enabled: bool) -> Result<()> {
@@ -331,7 +319,7 @@ pub fn set_enabled(db: &Connection, id: &str, enabled: bool) -> Result<()> {
         return Err("위젯을 먼저 설치해 주세요.".into());
     }
     if !enabled {
-        suspend(&mut instance, chrono::Utc::now().timestamp_millis(), false);
+        suspend(&mut instance, chrono::Utc::now().timestamp_millis(), false)?;
     }
     if enabled && !instance.enabled && instance.kind == "plant" {
         instance.data["updatedAt"] = json!(chrono::Utc::now().timestamp_millis());
@@ -358,7 +346,7 @@ pub fn remove(db: &Connection, directory: &Path, id: &str, delete_data: bool) ->
         instance.enabled = false;
         instance.revision += 1;
         instance.error = None;
-        suspend(&mut instance, chrono::Utc::now().timestamp_millis(), false);
+        suspend(&mut instance, chrono::Utc::now().timestamp_millis(), false)?;
         if delete_data {
             instance.data = super::initial(&instance.kind)?;
             super::backgrounds::remove(&tx, id)?;
@@ -438,7 +426,12 @@ pub fn verify_packages(db: &Connection, directory: &Path) -> Result<()> {
             put(db, &instance)?;
         }
         let before = instance.data.clone();
-        suspend(&mut instance, chrono::Utc::now().timestamp_millis(), true);
+        let restarting = instance.enabled;
+        suspend(
+            &mut instance,
+            chrono::Utc::now().timestamp_millis(),
+            restarting,
+        )?;
         if instance.data != before {
             instance.revision += 1;
             put(db, &instance)?;
@@ -840,11 +833,9 @@ pub fn focus_active(db: &Connection, now: i64) -> Result<bool> {
     .map_err(err)
 }
 
-/// Focus keeps only time-critical reminders and the mood lines the user turned on.
+/// Focus drops balloon reactions; OS notifications are delivered independently.
 pub(crate) fn discard_pending_during_focus(db: &Connection) -> Result<()> {
-    db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND json_extract(data,'$.kind') NOT IN ('timer-finished','calendar-reminder','planner-reminder','planner-mood')", [])
-        .map_err(err)?;
-    Ok(())
+    discard_pending(db)
 }
 
 /// Silence preserves important reminders and an explicitly requested greeting preview.

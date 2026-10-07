@@ -69,9 +69,10 @@ export function Balloon({
   const mode = snapshot.panel?.mode;
   const conversation = snapshot.conversation;
   const sessionId = conversation?.session.id;
+  const userId = snapshot.user?.id;
   const viewIdentity = `${snapshot.user?.id ?? ""}:${mode === "input" && sessionId ? `conversation:${sessionId}` : snapshot.panel ? `${mode}:${snapshot.panel.persona}` : (snapshot.playback?.id ?? "")}`;
-  const currentView = useRef({ identity: viewIdentity, mode, sessionId });
-  currentView.current = { identity: viewIdentity, mode, sessionId };
+  const currentView = useRef({ identity: viewIdentity, mode, sessionId, userId });
+  currentView.current = { identity: viewIdentity, mode, sessionId, userId };
   const name = characterName(snapshot, persona);
   const character = activeCharacter(snapshot, persona);
   const textStyle = balloonTextStyle(character?.definition.balloonStyle);
@@ -85,6 +86,7 @@ export function Balloon({
     return () => document.documentElement.classList.remove(s.transparentDocument);
   }, [transparent]);
   const draft = useRef({
+    userId: conversation?.session.userId ?? userId,
     sessionId,
     value: conversation?.session.draft ?? "",
     saved: conversation?.session.draft ?? "",
@@ -146,6 +148,7 @@ export function Balloon({
   }, [persona, sessionId]);
   useEffect(() => {
     draft.current = {
+      userId: conversation?.session.userId ?? userId,
       sessionId,
       value: conversation?.session.draft ?? "",
       saved: conversation?.session.draft ?? "",
@@ -158,6 +161,7 @@ export function Balloon({
   useEffect(() => {
     if (!conversation || draft.current.sessionId === sessionId) return;
     draft.current = {
+      userId: conversation.session.userId,
       sessionId,
       value: conversation.session.draft,
       saved: conversation.session.draft,
@@ -249,11 +253,15 @@ export function Balloon({
     ready && (!mode || mode === "input") && !snapshot.story,
   );
   const revealing = revealedText !== fullText;
-  function persistDraft(): Promise<void> {
-    const current = draft.current;
+  function persistDraft(current = draft.current): Promise<void> {
     const value = current.value;
     const task = saveQueue.current.then(async () => {
-      if (!current.sessionId || current.saved === value) return;
+      if (
+        !current.sessionId ||
+        current.userId !== currentView.current.userId ||
+        current.saved === value
+      )
+        return;
       await dispatch("save_conversation_draft", { sessionId: current.sessionId, draft: value });
       current.saved = value;
     });
@@ -271,6 +279,15 @@ export function Balloon({
     }, 400);
     return () => clearTimeout(saveTimer.current);
   }, [input, sessionId, mode]);
+  useEffect(() => {
+    if (mode !== "input") return;
+    const current = draft.current;
+    return () => {
+      void persistDraft(current).catch((cause: unknown) => {
+        if (current.userId === currentView.current.userId) setError(errorText(cause));
+      });
+    };
+  }, [sessionId, mode, userId]);
   async function leave(name: string, args?: Record<string, unknown>): Promise<void> {
     if (navigatingRef.current) return;
     navigatingRef.current = true;
@@ -436,6 +453,7 @@ export function Balloon({
     input: target === "all" ? "함께 대화 중" : `${recipientName}와 대화`,
     history: "지난 대화",
     name: "처음 만났네",
+    focus: "집중 중",
   };
   const speech = (
     <span className={s.speechText}>
@@ -651,6 +669,11 @@ export function Balloon({
           dispatch={dispatch}
         />
       )}
+      {mode === "focus" && (
+        <p className={s.notice} role="status">
+          집중 시간 동안에는 대화를 사용할 수 없어요. 집중을 마친 뒤 다시 말 걸어 주세요.
+        </p>
+      )}
       {mode === "input" && (
         <div className={s.inputContents} role="region" aria-label="대화 내용과 입력" tabIndex={0}>
           {notice}
@@ -848,7 +871,7 @@ export function Balloon({
       {!mode && !snapshot.story && snapshot.playback && (
         <span className={s.playbackOrigin}>{responseOrigin(snapshot.playback.source)}</span>
       )}
-      {mode !== "input" && notice}
+      {mode !== "input" && mode !== "focus" && notice}
     </section>
   );
 }

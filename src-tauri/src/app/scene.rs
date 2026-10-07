@@ -26,6 +26,7 @@ pub(crate) fn present_line(
     let _action = lock(&state.action)?;
     let db = lock(&state.db)?;
     if !is_current(state, epoch, cancel)
+        || crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
         || super::quiet_hours::playback_blocked(
             state,
             &store::settings(&db)?,

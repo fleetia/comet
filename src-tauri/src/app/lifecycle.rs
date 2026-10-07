@@ -488,6 +488,7 @@ pub fn run() {
             widget_connections::music_bridge_disconnect,
             widget_connections::export_music_extension,
             widget_commands::set_music_expanded,
+            widget_commands::set_focus_expanded,
             widget_connections::refresh_connection_widget,
             widget_connections::search_weather_regions,
             widget_connections::open_widget_link,

@@ -6,6 +6,8 @@ export const host = style({
   margin: "0 auto",
   overflowWrap: "anywhere",
 });
+export const focusHost = style([host, { maxWidth: "none" }]);
+export const focusHeaderActions = style({ border: 0, padding: 0, margin: 0, minWidth: 0 });
 export const status = style({
   color: vars.color.content.secondary,
   fontSize: vars.typography.size.label,
@@ -37,6 +39,14 @@ export const musicBody = style([
   body,
   { flex: 1, minHeight: 0, "@media": { "(max-height: 440px)": { flex: "none" } } },
 ]);
+export const focusContent = style({
+  display: "flex",
+  flexDirection: "column",
+  padding: 0,
+  overflow: "hidden",
+});
+export const focusBody = style([body, { flex: 1, minHeight: 0 }]);
+globalStyle(`${focusHost} ${focusContent}`, { padding: 0 });
 export const row = style({
   display: "flex",
   gap: vars.space.sm,

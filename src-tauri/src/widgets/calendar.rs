@@ -39,6 +39,16 @@ pub struct Connection {
     pub calendar_names: BTreeMap<String, String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NoteReference {
+    pub kind: String,
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub widget_id: Option<String>,
+    #[serde(default)]
+    pub title: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CalendarEvent {
     pub id: String,
@@ -59,6 +69,8 @@ pub struct CalendarEvent {
     pub location: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note_ref: Option<NoteReference>,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -645,6 +657,7 @@ fn google_event(
         meeting_url: safe_url(item["hangoutLink"].as_str()),
         location: None,
         description: None,
+        note_ref: None,
     };
     if cancelled && item.get("start").is_none() {
         return Ok(event);

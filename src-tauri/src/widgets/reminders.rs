@@ -11,6 +11,7 @@ pub struct ReminderSettings {
     pub enabled: bool,
     pub character_enabled: bool,
     pub os_enabled: bool,
+    pub sound_enabled: bool,
     pub lead_minutes: u32,
     pub include_all_day: bool,
     pub mood_day_start: bool,
@@ -27,6 +28,7 @@ impl Default for ReminderSettings {
             enabled: false,
             character_enabled: true,
             os_enabled: false,
+            sound_enabled: false,
             lead_minutes: 10,
             include_all_day: false,
             mood_day_start: false,
@@ -192,7 +194,7 @@ fn due_targets(
     now: i64,
 ) -> Result<Vec<Value>, String> {
     let settings = settings(data)?;
-    if !settings.enabled || (!settings.character_enabled && !settings.os_enabled) {
+    if !settings.enabled {
         return Ok(vec![]);
     }
     let targets = targets(data, todo, &settings, now);
@@ -227,6 +229,7 @@ fn due_targets(
 pub struct Delivery {
     pub instance_id: String,
     pub text: String,
+    pub sound_enabled: bool,
 }
 
 pub struct Advance {
@@ -415,6 +418,7 @@ pub fn advance(
                 result.os.push(Delivery {
                     instance_id: instance.id.clone(),
                     text,
+                    sound_enabled: settings.sound_enabled,
                 });
             }
         }
@@ -530,10 +534,11 @@ mod tests {
             1
         );
         value["reminders"]["characterEnabled"] = json!(false);
-        assert!(
+        assert_eq!(
             due_targets(&value, Some(&todo), threshold - 1000, threshold)
                 .unwrap()
-                .is_empty()
+                .len(),
+            1
         );
     }
     #[test]
@@ -632,8 +637,10 @@ mod tests {
     fn configuration_preserves_calendar_and_old_opt_in_and_validates_bounds() {
         assert!(settings(&data()).unwrap().character_enabled);
         assert!(!settings(&data()).unwrap().os_enabled);
+        assert!(!settings(&data()).unwrap().sound_enabled);
         let updated = configure(&data(), &initial()).unwrap();
         assert_eq!(updated["events"], data()["events"]);
+        assert_eq!(updated["reminders"]["soundEnabled"], false);
         let mut invalid = initial();
         invalid["leadMinutes"] = json!(121);
         assert!(configure(&data(), &invalid).is_err());
@@ -702,6 +709,7 @@ mod tests {
         assert!(!advance(&db, &mut clocks, 999_500, false).unwrap().changed);
         let result = advance(&db, &mut clocks, 1_000_000, false).unwrap();
         assert_eq!(result.os.len(), 1);
+        assert!(!result.os[0].sound_enabled);
         assert!(storage::take_reaction(&db, 1_000_001).unwrap().is_none());
         assert!(advance(&db, &mut BTreeMap::new(), 1_000_000, false)
             .unwrap()
@@ -766,6 +774,42 @@ mod tests {
                 "planner-reminder"
             );
             assert!(advance(&db, &mut clocks, now + 1500, false)
+                .unwrap()
+                .os
+                .is_empty());
+        }
+    }
+
+    #[test]
+    fn banner_only_alerts_are_recorded_and_os_sound_remains_explicit() {
+        for (os_enabled, sound_enabled) in [(false, false), (true, false), (true, true)] {
+            let db = Connection::open_in_memory().unwrap();
+            storage::initialize(&db).unwrap();
+            let directory = tempfile::tempdir().unwrap();
+            storage::install(&db, directory.path(), &["calendar".into()]).unwrap();
+            let calendar = storage::instances(&db).unwrap().remove(0);
+            let mut value = data();
+            value["reminders"]["characterEnabled"] = json!(false);
+            value["reminders"]["osEnabled"] = json!(os_enabled);
+            value["reminders"]["soundEnabled"] = json!(sound_enabled);
+            value["events"][0]["connectionId"] = json!("local");
+            storage::commit_data(&db, &calendar.id, calendar.revision, value, vec![], 999_000)
+                .unwrap();
+            let mut clocks = BTreeMap::new();
+            advance(&db, &mut clocks, 999_500, true).unwrap();
+            let result = advance(&db, &mut clocks, 1_000_000, true).unwrap();
+            assert!(result.changed);
+            assert_eq!(result.os.len(), usize::from(os_enabled));
+            if os_enabled {
+                assert_eq!(result.os[0].sound_enabled, sound_enabled);
+            }
+            let saved = storage::get(&db, &calendar.id).unwrap();
+            let last = &saved.data["alertState"]["lastNotification"];
+            assert_eq!(last["observedAt"], 1_000_000);
+            assert!(last["text"].as_str().unwrap().contains("회의"));
+            assert_eq!(last["targets"].as_array().unwrap().len(), 1);
+            assert!(storage::take_reaction(&db, 1_000_000).unwrap().is_none());
+            assert!(advance(&db, &mut clocks, 1_000_500, false)
                 .unwrap()
                 .os
                 .is_empty());

@@ -277,8 +277,14 @@ fn reconcile_state(state: &AppState, stale_windows: &[String]) -> Result<Vec<Str
     Ok(cancelled.into_iter().chain(stale_drags).collect::<Vec<_>>())
 }
 
-// The balloon is shared. Only ambient automatic speech yields to a physical reaction.
+// Focus suppresses speech. Otherwise, only ambient speech yields to a physical reaction.
 fn speech_reason(state: &AppState) -> Result<Option<&'static str>> {
+    if crate::widgets::storage::focus_active(
+        &*lock(&state.db)?,
+        chrono::Utc::now().timestamp_millis(),
+    )? {
+        return Ok(Some("집중 시간 동안에는 대화를 사용할 수 없어요."));
+    }
     if lock(&state.panel)?.is_some() {
         return Ok(Some("메뉴나 입력 화면을 사용하고 있어요."));
     }

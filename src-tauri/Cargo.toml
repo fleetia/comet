@@ -51,7 +51,7 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["s
 objc2-core-foundation = "0.3.2"
 objc2-service-management = { version = "0.3.2", default-features = false, features = ["std", "SMAppService", "objc2", "objc2-foundation"] }
 objc2-event-kit = { version = "0.3.2", default-features = false, features = ["std", "EKCalendar", "EKCalendarItem", "EKEvent", "EKEventStore", "EKObject", "EKSource", "EKTypes", "block2"] }
-objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["std", "block2", "UNUserNotificationCenter", "UNNotificationSettings", "UNNotificationContent", "UNNotificationRequest", "UNNotificationTrigger", "UNNotification", "UNNotificationResponse", "UNNotificationAction", "UNNotificationCategory"] }
+objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["std", "block2", "UNUserNotificationCenter", "UNNotificationSettings", "UNNotificationContent", "UNNotificationRequest", "UNNotificationTrigger", "UNNotification", "UNNotificationResponse", "UNNotificationAction", "UNNotificationCategory", "UNNotificationSound"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }

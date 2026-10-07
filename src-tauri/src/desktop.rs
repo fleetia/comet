@@ -944,6 +944,10 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
     };
     let characters = crate::characters::collection(&db)?;
     let target = if super::unavailable(&state)
+        || (crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
+            && panel
+                .as_ref()
+                .is_none_or(|panel| matches!(panel.mode.as_str(), "input" | "name")))
         || crate::app::quiet_hours::playback_blocked(
             &state,
             &store::settings(&db)?,

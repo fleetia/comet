@@ -18,7 +18,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 it("keeps character, OS and mood choices separate and requests OS access only from its button", async () => {
-  render(<PlannerAlerts data={{ enabled: true }} act={act} />);
+  render(<PlannerAlerts data={{ enabled: true, soundEnabled: true }} act={act} />);
   expect(screen.queryByLabelText("조용한 시간 시작")).toBeNull();
   expect(screen.queryByRole("button", { name: "생활 알림 1시간 쉬기" })).toBeNull();
   expect(screen.getByText(/조용한 시간은 설정 → 자동 대화에서 함께 정해요/)).toBeTruthy();
@@ -36,6 +36,7 @@ it("keeps character, OS and mood choices separate and requests OS access only fr
         enabled: true,
         characterEnabled: false,
         osEnabled: true,
+        soundEnabled: true,
         moodDayStart: true,
         moodDayEnd: false,
       }),

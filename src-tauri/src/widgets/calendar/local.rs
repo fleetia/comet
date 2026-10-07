@@ -1,4 +1,4 @@
-use super::{CalendarEvent, MAX_EVENTS};
+use super::{CalendarEvent, NoteReference, MAX_EVENTS};
 use crate::widgets::WidgetEffect;
 use chrono::{DateTime, Datelike, NaiveDate};
 use serde::Deserialize;
@@ -17,6 +17,7 @@ struct EventInput {
     time_zone: Option<String>,
     location: Option<String>,
     description: Option<String>,
+    note_ref: Option<NoteReference>,
 }
 
 #[derive(Deserialize)]
@@ -52,6 +53,19 @@ fn event(input: EventInput, id: String) -> Result<CalendarEvent, String> {
         return Err("장소는 2000자, 메모는 20000자까지 입력할 수 있습니다.".into());
     }
     let time_zone = input.time_zone.as_deref().unwrap_or("local");
+    if input.note_ref.as_ref().is_some_and(|reference| {
+        !matches!(reference.kind.as_str(), "diary" | "memo")
+            || reference.id.trim().is_empty()
+            || reference.id.chars().count() > 200
+            || reference.title.chars().count() > 500
+            || (reference.kind == "memo" && reference.widget_id.is_none())
+            || reference
+                .widget_id
+                .as_ref()
+                .is_some_and(|id| id.trim().is_empty() || id.chars().count() > 200)
+    }) {
+        return Err("연결할 메모 정보가 올바르지 않습니다.".into());
+    }
     if time_zone != "local" && time_zone.parse::<chrono_tz::Tz>().is_err() {
         return Err("일정 시간대가 올바르지 않습니다.".into());
     }
@@ -97,6 +111,7 @@ fn event(input: EventInput, id: String) -> Result<CalendarEvent, String> {
         meeting_url: None,
         location: input.location.filter(|value| !value.is_empty()),
         description: input.description.filter(|value| !value.is_empty()),
+        note_ref: input.note_ref,
     })
 }
 
@@ -124,6 +139,7 @@ pub fn act(data: &Value, action: &str, input: &Value) -> Result<WidgetEffect, St
             events.remove(index);
         }
         "create-event" | "update-event" => {
+            let preserve_note_ref = input.get("noteRef").is_none();
             let input: EventInput = serde_json::from_value(input.clone())
                 .map_err(|_| "일정 입력 형식이 올바르지 않습니다.")?;
             let index = match action {
@@ -150,9 +166,14 @@ pub fn act(data: &Value, action: &str, input: &Value) -> Result<WidgetEffect, St
                 .id
                 .clone()
                 .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-            let value =
+            let mut value =
                 serde_json::to_value(event(input, id)?).map_err(|error| error.to_string())?;
             if let Some(index) = index {
+                if preserve_note_ref {
+                    if let Some(reference) = events[index].get("noteRef") {
+                        value["noteRef"] = reference.clone();
+                    }
+                }
                 events[index] = value;
             } else {
                 events.push(value);
@@ -249,6 +270,40 @@ mod tests {
         .is_err());
         assert!(act(&data, "delete-event", &json!({"id":"missing"})).is_err());
         assert!(act(&data, "update-event", &all_day()).is_err());
+    }
+
+    #[test]
+    fn local_events_copy_only_note_reference_and_keep_it_when_older_editors_omit_it() {
+        let data = json!({"connections":[],"events":[]});
+        let reference =
+            json!({"kind":"memo","id":"note-one","widgetId":"memo-widget","title":"준비할 내용"});
+        let mut input = json!({"title":"발표 준비","allDay":false,"startAt":1_000_000,"endAt":2_500_000,"noteRef":reference});
+        let created = act(&data, "create-event", &input).unwrap().data;
+        let saved = &created["events"][0];
+        assert_eq!(saved["noteRef"], reference);
+        assert_eq!(
+            saved["endAt"].as_i64().unwrap() - saved["startAt"].as_i64().unwrap(),
+            1_500_000
+        );
+        assert!(saved["description"].is_null());
+        input["id"] = saved["id"].clone();
+        input.as_object_mut().unwrap().remove("noteRef");
+        let edited = act(&created, "update-event", &input).unwrap().data;
+        assert_eq!(edited["events"][0]["noteRef"], reference);
+        input["noteRef"] = Value::Null;
+        let unlinked = act(&edited, "update-event", &input).unwrap().data;
+        assert!(unlinked["events"][0].get("noteRef").is_none());
+        input.as_object_mut().unwrap().remove("id");
+        for invalid in [
+            json!({"kind":"diary","id":"diary-note","title":"일기","body":"본문은 복제하지 않음"}),
+            json!({"kind":"external","id":"note","title":"메모"}),
+            json!({"kind":"memo","id":" ","title":"메모"}),
+            json!({"kind":"memo","id":"note","title":"메모"}),
+            json!({"kind":"memo","id":"note","widgetId":"","title":"메모"}),
+        ] {
+            input["noteRef"] = invalid;
+            assert!(act(&data, "create-event", &input).is_err());
+        }
     }
 
     #[test]

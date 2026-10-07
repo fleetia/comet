@@ -46,7 +46,7 @@ export function WindowHeader({
         !(target instanceof Element) ||
         actionsRef.current?.contains(target) ||
         target.closest("button, a, input, select, textarea, label, summary, [contenteditable]") ||
-        document.querySelector("dialog[open]")
+        document.querySelector('dialog[open], [data-window-resizing="true"]')
       ) {
         return null;
       }

@@ -106,6 +106,34 @@ it("preserves input and modal interaction in the expanded drag area", () => {
   expect(native.startDragging).toHaveBeenCalledTimes(1);
 });
 
+it("suspends title dragging during a focus resize and restores it when resizing ends", () => {
+  function content(resizing: boolean) {
+    return (
+      <>
+        <WindowHeader label="설정 닫기">설정</WindowHeader>
+        <section data-window-resizing={resizing} />
+      </>
+    );
+  }
+  const view = render(content(false));
+  fireEvent.mouseMove(document.body, { clientX: 2, clientY: 2 });
+  fireEvent.mouseDown(document.body, { button: 0, detail: 1, clientX: 2, clientY: 2 });
+  expect(document.body.classList.contains(grabTarget)).toBe(true);
+  expect(native.startDragging).toHaveBeenCalledTimes(1);
+
+  view.rerender(content(true));
+  fireEvent.mouseMove(document.body, { clientX: 2, clientY: 2 });
+  fireEvent.mouseDown(document.body, { button: 0, detail: 1, clientX: 2, clientY: 2 });
+  expect(document.body.classList.contains(grabTarget)).toBe(false);
+  expect(native.startDragging).toHaveBeenCalledTimes(1);
+
+  view.rerender(content(false));
+  fireEvent.mouseMove(document.body, { clientX: 2, clientY: 2 });
+  fireEvent.mouseDown(document.body, { button: 0, detail: 1, clientX: 2, clientY: 2 });
+  expect(document.body.classList.contains(grabTarget)).toBe(true);
+  expect(native.startDragging).toHaveBeenCalledTimes(2);
+});
+
 it("reports a native close failure", async () => {
   native.close.mockRejectedValueOnce(new Error("창을 닫지 못했어요."));
   render(<WindowHeader label="설정 닫기">설정</WindowHeader>);

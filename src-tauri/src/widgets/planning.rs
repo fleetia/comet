@@ -3,6 +3,7 @@ use chrono::{DateTime, Days, Months, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+mod focus;
 mod recurrence;
 #[cfg(test)]
 mod recurrence_tests;
@@ -53,18 +54,6 @@ fn no_period() -> String {
 struct Generation {
     id: String,
     snapshot: Value,
-}
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Timer {
-    status: String,
-    mode: String,
-    duration_ms: i64,
-    #[serde(default)]
-    focus_duration_ms: Option<i64>,
-    remaining_ms: i64,
-    deadline: Option<i64>,
-    todo_id: Option<String>,
 }
 #[derive(Serialize, Deserialize)]
 struct MemoState {
@@ -206,9 +195,7 @@ fn event(kind: &str, item: &Todo) -> EventDraft {
 pub fn initial(kind: &str) -> Value {
     match kind {
         "todo" => json!({"lists":[{"id":"default","name":"할 일"}],"items":[]}),
-        "focus-timer" => {
-            json!({"status":"idle","mode":"focus","durationMs":1500000,"remainingMs":1500000,"deadline":null,"todoId":null})
-        }
+        "focus-timer" => focus::initial(),
         "preparation" => json!({"envelopes":[]}),
         "clock" => json!({"format":"24h","anniversaries":[],"appearance":appearance::initial()}),
         "memo" => json!({"notes":[]}),
@@ -805,124 +792,6 @@ fn todo(
     encode(state, events)
 }
 
-fn timer(
-    data: &Value,
-    action: &str,
-    input: &Value,
-    related: &BTreeMap<String, Value>,
-    now: i64,
-) -> Result<WidgetEffect, String> {
-    let mut state: Timer = decode(data)?;
-    match action {
-        "start" | "rest" | "continue" => {
-            if action != "start" && state.status != "finished" {
-                return Err("타이머 종료 후 선택할 수 있습니다.".into());
-            }
-            let duration =
-                input
-                    .get("durationMs")
-                    .and_then(Value::as_i64)
-                    .unwrap_or(if action == "rest" {
-                        300000
-                    } else {
-                        state.focus_duration_ms.unwrap_or(state.duration_ms)
-                    });
-            if !(1000..=86400000).contains(&duration) {
-                return Err("타이머는 1초부터 24시간까지 설정할 수 있습니다.".into());
-            }
-            if input
-                .get("durationMs")
-                .is_some_and(|v| v.as_i64().is_none())
-            {
-                return Err("타이머 길이가 올바르지 않습니다.".into());
-            }
-            if input.get("todoId").is_some() {
-                state.todo_id = if input["todoId"].is_null() {
-                    None
-                } else {
-                    let key = text(input, "todoId", 200)?;
-                    let todo: TodoState =
-                        decode(related.get("todo").ok_or("할 일 위젯을 켜 주세요.")?)?;
-                    if !todo
-                        .items
-                        .iter()
-                        .any(|x| x.id == key && x.completed_at.is_none())
-                    {
-                        return Err(missing());
-                    }
-                    Some(key)
-                };
-            }
-            state.status = "running".into();
-            state.mode = if action == "rest" { "rest" } else { "focus" }.into();
-            if action != "rest" {
-                state.focus_duration_ms = Some(duration);
-            }
-            state.duration_ms = duration;
-            state.remaining_ms = duration;
-            state.deadline = Some(
-                now.checked_add(duration)
-                    .ok_or("시각 범위를 벗어났습니다.")?,
-            );
-        }
-        "pause" => {
-            if state.status != "running" {
-                return Err("실행 중인 타이머가 없습니다.".into());
-            }
-            let remaining = state
-                .deadline
-                .ok_or("종료 시각 오류")?
-                .saturating_sub(now)
-                .max(0);
-            if remaining == 0 {
-                return timer_finish(state);
-            }
-            state.remaining_ms = remaining;
-            state.deadline = None;
-            state.status = "paused".into();
-        }
-        "resume" => {
-            if state.status != "paused" {
-                return Err("일시정지된 타이머가 없습니다.".into());
-            }
-            state.deadline = Some(
-                now.checked_add(state.remaining_ms)
-                    .ok_or("시각 범위 오류")?,
-            );
-            state.status = "running".into();
-        }
-        "cancel" => {
-            state.status = "idle".into();
-            state.deadline = None;
-            state.duration_ms = state.focus_duration_ms.unwrap_or(if state.mode == "rest" {
-                1500000
-            } else {
-                state.duration_ms
-            });
-            state.mode = "focus".into();
-            state.remaining_ms = state.duration_ms;
-        }
-        _ => return Err("지원하지 않는 타이머 동작입니다.".into()),
-    }
-    encode(state, vec![])
-}
-fn timer_finish(mut state: Timer) -> Result<WidgetEffect, String> {
-    state.status = "finished".into();
-    state.deadline = None;
-    state.remaining_ms = 0;
-    let event = EventDraft {
-        kind: "timer-finished".into(),
-        text: if state.mode == "rest" {
-            "쉬는 시간이 끝났어요."
-        } else {
-            "집중 시간이 끝났어요. 계속할지 쉴지 골라 주세요."
-        }
-        .into(),
-        payload: json!({"todoId":state.todo_id,"mode":state.mode}),
-    };
-    encode(state, vec![event])
-}
-
 pub fn act(
     kind: &str,
     data: &Value,
@@ -937,7 +806,7 @@ pub fn act(
     }
     match kind {
         "todo" => todo(data, action, input, now, entropy),
-        "focus-timer" => timer(data, action, input, related, now),
+        "focus-timer" => focus::act(data, action, input, related, now),
         "memo" => {
             let mut state: MemoState = decode(data)?;
             match action {
@@ -1239,11 +1108,11 @@ pub fn tick(kind: &str, data: &Value, now: i64) -> Result<Option<WidgetEffect>, 
     if kind != "focus-timer" {
         return Ok(None);
     }
-    let state: Timer = decode(data)?;
-    if state.status == "running" && state.deadline.is_some_and(|deadline| deadline <= now) {
-        return timer_finish(state).map(Some);
-    }
-    Ok(None)
+    focus::tick(data, now)
+}
+
+pub(super) fn suspend_timer(data: &Value, now: i64, restarting: bool) -> Result<Value, String> {
+    focus::suspend(data, now, restarting)
 }
 
 #[cfg(test)]

@@ -80,7 +80,9 @@ pub(crate) fn open_panel(
         let db = lock(&state.db)?;
         let id = characters::active_character(&db, &persona)?.id;
         presence::summon_locked(&state, &id)?;
-        if mode == "input" && store::current_user(&db)?.is_some() {
+        let focusing = mode == "input"
+            && widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?;
+        if mode == "input" && !focusing && store::current_user(&db)?.is_some() {
             store::create_conversation(
                 &db,
                 &[id],
@@ -91,7 +93,9 @@ pub(crate) fn open_panel(
         } else {
             store::pause_conversations(&db)?;
         }
-        let mode = if mode == "input" && store::current_user(&db)?.is_none() {
+        let mode = if focusing {
+            "focus".into()
+        } else if mode == "input" && store::current_user(&db)?.is_none() {
             "name".into()
         } else {
             mode
@@ -194,6 +198,7 @@ pub(crate) fn talk_now(
         }
         {
             let db = lock(&state.db)?;
+            super::conversation::ensure_available(&db)?;
             let active = characters::active_ids(&db)?;
             if presence::present_ids(&state, &active)?.is_empty() {
                 if let Some(first) = active.first() {

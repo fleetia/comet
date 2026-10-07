@@ -563,6 +563,7 @@ pub(crate) async fn execute_launcher(
             } => {
                 {
                     let _action = lock(&state.action)?;
+                    conversation::ensure_available(&*lock(&state.db)?)?;
                     accept_execution(&state, request.session_id)?;
                 }
                 if lock(&state.runtime)?.hidden {

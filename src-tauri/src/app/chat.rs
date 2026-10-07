@@ -22,12 +22,13 @@ fn begin_reply(state: &AppState, playback_id: &str) -> Result<u64, String> {
     if unavailable(state) {
         return Err("앱을 종료하고 있어요.".into());
     }
+    let db = lock(&state.db)?;
+    super::conversation::ensure_available(&db)?;
     let line = lock(&state.playback)?
         .as_ref()
         .filter(|line| line.id == playback_id && line.display_started_at.is_some())
         .cloned()
         .ok_or("이 말풍선은 이미 지나갔어요. 지난 대화에서 확인해 주세요.")?;
-    let db = lock(&state.db)?;
     let registered = store::current_user(&db)?.is_some();
     if registered {
         store::create_conversation(
@@ -59,6 +60,7 @@ pub(crate) fn resume_chat(
             return Err("앱을 종료하고 있어요.".into());
         }
         let db = lock(&state.db)?;
+        super::conversation::ensure_available(&db)?;
         let session = store::conversation(&db, &session_id)?;
         let active = characters::active_ids(&db)?;
         if session.participants.iter().any(|id| !active.contains(id)) {

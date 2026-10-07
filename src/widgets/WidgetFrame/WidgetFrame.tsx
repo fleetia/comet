@@ -5,6 +5,7 @@ import * as s from "./widgetFrame.css";
 type Props = {
   title: string;
   status?: string;
+  headerActions?: ReactNode;
   footer?: ReactNode;
   closeLabel: string;
   onClose: () => Promise<void>;
@@ -17,6 +18,7 @@ type Props = {
 export function WidgetFrame({
   title,
   status,
+  headerActions,
   footer,
   closeLabel,
   onClose,
@@ -33,6 +35,7 @@ export function WidgetFrame({
           label={closeLabel}
           onClose={onClose}
           title={title}
+          actions={headerActions}
         />
       </div>
       <div className={`${s.content[variant]} ${contentClassName}`}>

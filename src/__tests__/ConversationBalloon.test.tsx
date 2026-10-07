@@ -57,6 +57,30 @@ function conversationSnapshot(): Snapshot {
   };
 }
 
+it("shows an unavailable notice during focus without conversation controls and keeps closing available", async () => {
+  render(
+    <Balloon
+      snapshot={{
+        ...PREVIEW_SNAPSHOT,
+        panel: { persona: "builtin-a", mode: "focus" },
+        runtime: { ...PREVIEW_SNAPSHOT.runtime, phase: "generating" },
+      }}
+    />,
+  );
+  expect(screen.getByRole("region", { name: "집중 중" })).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toBe(
+    "집중 시간 동안에는 대화를 사용할 수 없어요. 집중을 마친 뒤 다시 말 걸어 주세요.",
+  );
+  expect(screen.queryByRole("textbox")).toBeNull();
+  expect(screen.queryByRole("button", { name: "AI 연결 설정" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "생성 멈추기" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "패널 닫기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("close_panel", undefined));
+  vi.mocked(command).mockClear();
+  fireEvent.keyDown(window, { key: "Escape" });
+  await waitFor(() => expect(command).toHaveBeenCalledWith("close_panel", undefined));
+});
+
 it("opens a reply to the exact displayed line and keeps the close action separate", async () => {
   render(<Balloon snapshot={{ ...PREVIEW_SNAPSHOT, playback }} />);
   const reply = screen.getByRole("button", { name: /에게 답장:/ });
@@ -93,6 +117,50 @@ it("retains the seed and live draft across snapshots, speaker changes, and gener
     screen.getByLabelText(playback.text, { normalizer: (value) => value }).textContent,
   ).toContain(playback.text);
   expect(screen.getByRole("button", { name: "보내기" })).toHaveProperty("disabled", true);
+});
+
+it("saves the draft when focus closes the input before autosave and retains it on resume", async () => {
+  const snapshot = conversationSnapshot();
+  const { rerender } = render(<Balloon snapshot={snapshot} />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "  집중 전에 쓰던 말\n" } });
+  expect(command).not.toHaveBeenCalledWith("save_conversation_draft", expect.anything());
+  rerender(<Balloon snapshot={{ ...snapshot, panel: null, conversation: null }} />);
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("save_conversation_draft", {
+      sessionId: session.id,
+      draft: "  집중 전에 쓰던 말\n",
+    }),
+  );
+  rerender(<Balloon snapshot={snapshot} />);
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "  집중 전에 쓰던 말\n");
+});
+
+it("saves pending text on unmount without writing a prior user's draft after identity changes", async () => {
+  const snapshot = conversationSnapshot();
+  const first = render(<Balloon snapshot={snapshot} />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "창이 닫혀도 남을 말" } });
+  first.unmount();
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("save_conversation_draft", {
+      sessionId: session.id,
+      draft: "창이 닫혀도 남을 말",
+    }),
+  );
+  vi.mocked(command).mockClear();
+  const second = render(<Balloon snapshot={snapshot} />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "이전 사용자의 초안" } });
+  second.rerender(
+    <Balloon
+      snapshot={{
+        ...snapshot,
+        user: { ...snapshot.user!, id: "another-user" },
+        panel: null,
+        conversation: null,
+      }}
+    />,
+  );
+  await act(async () => {});
+  expect(command).not.toHaveBeenCalledWith("save_conversation_draft", expect.anything());
 });
 
 it("does not erase text entered while the previous submission is pending", async () => {

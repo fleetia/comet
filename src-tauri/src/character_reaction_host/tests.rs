@@ -139,6 +139,35 @@ fn visual_reactions_do_not_interrupt_direct_dialogue_or_panels_and_keep_characte
         assert!(lock(&state.reactions).unwrap().runs.contains_key(&id));
     }
 }
+
+#[test]
+fn focus_preserves_physical_reactions_without_starting_speech() {
+    let (state, id) = configured();
+    let directory = tempfile::tempdir().unwrap();
+    {
+        let db = lock(&state.db).unwrap();
+        widgets::storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
+        let timer = widgets::storage::instances(&db)
+            .unwrap()
+            .into_iter()
+            .find(|instance| instance.kind == "focus-timer")
+            .unwrap();
+        let mut data = timer.data;
+        data["status"] = serde_json::json!("running");
+        data["mode"] = serde_json::json!("focus");
+        data["deadline"] = serde_json::json!(chrono::Utc::now().timestamp_millis() + 60_000);
+        widgets::storage::commit_data(&db, &timer.id, timer.revision, data, vec![], 0).unwrap();
+    }
+    let epoch = state.epoch.load(Ordering::SeqCst);
+    for event in ["click", "grab-start", "release"] {
+        let prepared = prepare(&state, &id, event);
+        assert!(prepared.speech.is_none());
+        assert_eq!(lock(&state.reactions).unwrap().runs[&id].event, event);
+        assert_eq!(state.epoch.load(Ordering::SeqCst), epoch);
+    }
+    assert!(lock(&state.playback).unwrap().is_none());
+}
+
 #[test]
 fn only_ambient_automatic_speech_yields_and_pending_reaction_does_not_queue_more_text() {
     let (state, id) = configured();

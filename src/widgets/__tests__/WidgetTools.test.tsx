@@ -265,6 +265,189 @@ it.each([false, true])(
   },
 );
 
+it("keeps a running countdown and memo through a pending focus resize", async () => {
+  localStorage.clear();
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-07T10:00:00"));
+  try {
+    vi.mocked(useWidgets).mockReturnValue({
+      snapshot: {
+        ...PREVIEW_WIDGETS,
+        widgets: [
+          widget("focus-timer", {
+            status: "running",
+            durationMs: 1500000,
+            remainingMs: 1500000,
+            deadline: Date.now() + 1500000,
+          }),
+        ],
+      },
+      error: null,
+      reload: vi.fn(),
+    });
+    let finish: (() => void) | undefined;
+    vi.mocked(command).mockImplementation((name) =>
+      name === "set_focus_expanded"
+        ? new Promise<void>((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve(undefined),
+    );
+    render(<WidgetTool id="focus-timer" />);
+    fireEvent.click(screen.getByRole("tab", { name: "노트" }));
+    const memo = screen.getByLabelText("이번 집중 메모");
+    fireEvent.change(memo, { target: { value: "집중 중 초안" } });
+    fireEvent.click(screen.getByRole("button", { name: "작게 보기" }));
+    await reactAct(async () => vi.advanceTimersByTime(2000));
+    expect(screen.getByLabelText("남은 시간").textContent).toBe("24:58");
+    expect(screen.getByRole("button", { name: "일시정지" })).toBeTruthy();
+    expect(memo).toHaveProperty("value", "집중 중 초안");
+    await reactAct(async () => finish?.());
+    expect(screen.getByLabelText("남은 시간").textContent).toBe("24:58");
+    expect(screen.getByLabelText("이번 집중 메모")).toBe(memo);
+    expect(memo).toHaveProperty("value", "집중 중 초안");
+    expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
+  } finally {
+    cleanup();
+    vi.useRealTimers();
+  }
+});
+
+it("keeps focus controls together in the header and locks them during a pending action", async () => {
+  localStorage.clear();
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: {
+      ...PREVIEW_WIDGETS,
+      widgets: [widget("focus-timer", { status: "idle", durationMs: 1500000 })],
+    },
+    error: null,
+    reload: vi.fn(),
+  });
+  render(<WidgetTool id="focus-timer" />);
+  const close = screen.getByRole("button", { name: "위젯 닫기" });
+  const header = close.closest("header");
+  expect(header).not.toBeNull();
+  for (const name of ["알람 미리보기", "집중 설정", "작게 보기", "위젯 닫기"]) {
+    const buttons = screen.getAllByRole("button", { name });
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]?.closest("header")).toBe(header);
+  }
+
+  fireEvent.click(screen.getByRole("button", { name: "알람 미리보기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("preview_planner_notification"));
+  fireEvent.click(screen.getByRole("button", { name: "집중 설정" }));
+  expect(screen.getByRole("dialog", { name: "집중 설정" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "설정 닫기" }));
+  expect(screen.queryByRole("dialog", { name: "집중 설정" })).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "작게 보기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("set_focus_expanded", {
+      id: "focus-timer",
+      expanded: false,
+      animate: true,
+    }),
+  );
+  const expand = await screen.findByRole("button", { name: "펼쳐 보기" });
+  expect(expand.closest("header")).toBe(header);
+
+  let finish: (() => void) | undefined;
+  vi.mocked(command).mockImplementation((name) =>
+    name === "execute_widget"
+      ? new Promise<void>((resolve) => {
+          finish = resolve;
+        })
+      : Promise.resolve(undefined),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "집중 시작" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("execute_widget", {
+      request: expect.objectContaining({ instanceId: "focus-timer", action: "start" }),
+    }),
+  );
+  const moved = [
+    screen.getByRole("button", { name: "알람 미리보기" }),
+    screen.getByRole("button", { name: "집중 설정" }),
+    expand,
+  ];
+  for (const button of moved) {
+    expect(button.matches(":disabled")).toBe(true);
+  }
+  expect(close.matches(":disabled")).toBe(false);
+  fireEvent.click(close);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("close_widget", { id: "focus-timer" }));
+  await reactAct(async () => finish?.());
+  for (const button of moved) {
+    expect(button.matches(":disabled")).toBe(false);
+  }
+});
+
+it.each([false, true])(
+  "guards a pending focus resize and restores the draft after failure with reduced motion=%s",
+  async (reducedMotion) => {
+    localStorage.clear();
+    const matchMedia = vi.fn().mockReturnValue({ matches: reducedMotion });
+    vi.stubGlobal("matchMedia", matchMedia);
+    vi.mocked(useWidgets).mockReturnValue({
+      snapshot: {
+        ...PREVIEW_WIDGETS,
+        widgets: [widget("focus-timer", { status: "idle", durationMs: 1500000 })],
+      },
+      error: null,
+      reload: vi.fn(),
+    });
+    let fail: ((cause: Error) => void) | undefined;
+    vi.mocked(command).mockImplementation((name) =>
+      name === "set_focus_expanded"
+        ? new Promise<void>((_resolve, reject) => {
+            fail = reject;
+          })
+        : Promise.resolve(undefined),
+    );
+    render(<WidgetTool id="focus-timer" />);
+    const title = screen.getByLabelText("집중할 일");
+    fireEvent.change(title, { target: { value: "작업 초안" } });
+    fireEvent.click(screen.getByRole("button", { name: "50분" }));
+    fireEvent.click(screen.getByRole("tab", { name: "노트" }));
+    const memo = screen.getByLabelText("이번 집중 메모");
+    fireEvent.change(memo, { target: { value: "남겨 둔 생각" } });
+    const timer = screen.getByLabelText("남은 시간");
+    const root = screen.getByLabelText("집중 타이머");
+    const panel = screen.getByLabelText("일정과 집중 기록");
+    vi.spyOn(panel, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 432, 600));
+    const toggle = screen.getByRole("button", { name: "작게 보기" });
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+
+    expect(matchMedia).toHaveBeenCalledWith("(prefers-reduced-motion: reduce)");
+    expect(command).toHaveBeenCalledExactlyOnceWith("set_focus_expanded", {
+      id: "focus-timer",
+      expanded: false,
+      animate: !reducedMotion,
+    });
+    expect(screen.getByRole("button", { name: "펼쳐 보기" })).toHaveProperty("disabled", true);
+    expect(root.getAttribute("data-window-resizing")).toBe("true");
+    expect(panel.hasAttribute("inert")).toBe(true);
+    expect(panel.style.width).toBe("432px");
+    expect(title).toHaveProperty("value", "작업 초안");
+    expect(memo).toHaveProperty("value", "남겨 둔 생각");
+    expect(timer.textContent).toBe("50:00");
+
+    await reactAct(async () => fail?.(new Error("창 크기 변경 실패")));
+    expect(screen.getByText("창 크기 변경 실패").getAttribute("role")).toBe("alert");
+    expect(screen.getByRole("button", { name: "작게 보기" })).toHaveProperty("disabled", false);
+    expect(root.getAttribute("data-window-resizing")).toBe("false");
+    expect(panel.hasAttribute("inert")).toBe(false);
+    expect(panel.style.width).toBe("");
+    expect(screen.getByLabelText("집중할 일")).toBe(title);
+    expect(screen.getByLabelText("이번 집중 메모")).toBe(memo);
+    expect(title).toHaveProperty("value", "작업 초안");
+    expect(memo).toHaveProperty("value", "남겨 둔 생각");
+    expect(screen.getByLabelText("남은 시간")).toBe(timer);
+    expect(timer.textContent).toBe("50:00");
+  },
+);
+
 it("replaces loading with a retry action after a widget snapshot failure", () => {
   const reload = vi.fn();
   vi.mocked(useWidgets).mockReturnValue({ snapshot: null, error: null, reload });

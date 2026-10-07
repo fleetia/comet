@@ -194,6 +194,7 @@ fn event(
         meeting_url: None,
         location: None,
         description: None,
+        note_ref: None,
     })
 }
 fn recurrent(

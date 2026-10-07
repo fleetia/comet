@@ -50,6 +50,18 @@ corepack pnpm talk variables
 
 관련 코드: `src-tauri/src/widgets/mod.rs`, `src-tauri/src/widgets/storage.rs`, `src-tauri/src/widget_commands.rs`, `src-tauri/src/widget_runtime.rs`, `src/widgets/WidgetManager/`.
 
+## 집중 타이머의 일정·기록·노트
+
+집중 타이머는 보조 도구 창에서 실행하며, 오른쪽 패널의 일정·집중 기록·노트를 펼치거나 접을 수 있다. 다이얼과 숫자는 저장된 타이머 상태를 표현하는 두 가지 보기다. 실행 상태·표시 방식·집중 제목·연결 참조·세션 메모·휴식 설정·집중 기록은 해당 `focus-timer` 인스턴스가 소유한다.
+
+기록은 시작 시각부터 종료 시각까지의 벽시계 차이가 아니라 실제 실행한 집중 구간으로 계산한다. 일시정지와 휴식은 제외하고, 늦게 처리된 만료는 예정된 종료 시각까지만 센다. 수동 종료는 그때까지 집중한 시간을 남기고 완료와 구분한다. 일·주·월·년 통계는 기기 현지 날짜의 경계에서 집중 구간을 나누므로 자정을 넘은 시간을 한 날짜에 몰아넣지 않는다. 실행 구간이 없는 과거 타이머 데이터에서 집중 시간을 추정해 새 기록으로 만들지 않는다.
+
+일정 목록은 기존 캘린더 위젯의 일정을 읽는다. 이 창에서 새로 등록하는 일정은 Comet 캘린더에 저장하며, Apple·Google·ICS 등 외부 일정은 읽기 전용 계약을 유지한다. 일정 알람은 캘린더의 `reminders`를 공유하고 `soundEnabled` 기본값은 꺼짐이다. 앱이 실행 중일 때 통과한 알림을 전달하며, 앱 종료 중 지나간 알림을 재시작 후 몰아서 보여 주지 않는다.
+
+집중 기록에는 연결한 일정과 노트의 원본 식별자 및 표시용 제목을 남긴다. 일정 이동·삭제나 노트 제목 변경이 과거 집중 기록을 다시 쓰지 않는다. 노트 본문은 원래 저장소에서 읽고 수정하며 집중 기록에 복제하지 않는다. 세션 메모는 집중 기록에 속하는 별도 내용이다. 새 일정에 노트를 가져와도 본문 대신 같은 원본 참조를 저장한다.
+
+관련 코드: `src/widgets/PlanningTools/FocusTimerTool.tsx`, `src-tauri/src/widgets/planning/focus.rs`, `src-tauri/src/widgets/reminders.rs`, `src-tauri/src/widgets/calendar/local.rs`.
+
 ## 음악의 선택 연결
 
 음악 위젯은 선택한 재생 앱이 제공하는 곡 정보·제어를 표시한다. macOS의 Apple Music·Spotify 연결은 시스템 자동화 권한을 요청할 수 있고, Windows는 시스템 미디어 경로를 사용한다. 외부 앱이 제공하지 않는 정보·제어를 있다고 가정하지 않는다.

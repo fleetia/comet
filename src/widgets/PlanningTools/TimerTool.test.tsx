@@ -50,6 +50,7 @@ async function tick(at: string): Promise<void> {
   await reactAct(async () => vi.advanceTimersByTime(1000));
 }
 beforeEach(() => {
+  localStorage.clear();
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-10-01T16:00:00Z"));
   act.mockReset();
@@ -322,6 +323,7 @@ describe("timer display and restored controls", () => {
       remainingMs: 1500000,
     });
     const view = render(<TimerTool widget={initial} widgets={[todo()]} act={act} />);
+    fireEvent.click(screen.getByRole("button", { name: "직접" }));
     fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "1" } });
     expect(screen.getByLabelText("남은 시간").textContent).toBe("01:00");
     view.rerender(<TimerTool widget={{ ...initial, revision: 9 }} widgets={[todo()]} act={act} />);

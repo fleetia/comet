@@ -36,10 +36,10 @@ pub(crate) fn hold_for_focus(state: &AppState, db: &rusqlite::Connection) -> Res
     if !quiet && !focus {
         return Ok(false);
     }
-    if quiet {
-        storage::discard_pending_during_quiet(db)?;
-    } else {
+    if focus {
         storage::discard_pending_during_focus(db)?;
+    } else {
+        storage::discard_pending_during_quiet(db)?;
     }
     crate::app::schedule_idle(state, store::settings(db)?.idle_minutes);
     Ok(true)
@@ -64,7 +64,24 @@ pub(crate) fn change<T>(
     }
     let db = lock(&state.db)?;
     current_events(state, &db)?;
-    action(&db)
+    let was_focused = storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?;
+    let result = action(&db)?;
+    if !was_focused && storage::focus_active(&db, chrono::Utc::now().timestamp_millis())? {
+        store::pause_conversations(&db)?;
+        let (epoch, _) = interrupt(state, false)?;
+        state.widget_epoch.store(epoch, Ordering::SeqCst);
+        *lock(&state.panel)? = None;
+        storage::discard_pending_during_focus(&db)?;
+        crate::generated_widgets::discard_pending(&db)?;
+        crate::generated_widget_commands::skip_automatic_message(&db)?;
+        crate::app::schedule_idle(state, store::settings(&db)?.idle_minutes);
+        let mut runtime = lock(&state.runtime)?;
+        runtime.phase = crate::types::RuntimePhase::Idle;
+        runtime.persona = None;
+        runtime.error = None;
+        state.nlp.pause_indexing(false);
+    }
+    Ok(result)
 }
 
 fn active_appearance_target(
@@ -224,6 +241,9 @@ pub(crate) fn event_current(
     db: &rusqlite::Connection,
     event: &WidgetEvent,
 ) -> Result<bool, String> {
+    if storage::focus_active(db, chrono::Utc::now().timestamp_millis())? {
+        return Ok(false);
+    }
     if crate::app::quiet_hours::active(&store::settings(db)?)
         && !crate::app::quiet_hours::event_allowed(&event.event)
     {
@@ -660,16 +680,31 @@ async fn open_widget_inner(
     .inner_size(
         if current.kind == "music" {
             440.0
+        } else if current.kind == "focus-timer" {
+            840.0
         } else {
             360.0
         },
         if current.kind == "music" {
             340.0
+        } else if current.kind == "focus-timer" {
+            700.0
         } else {
             480.0
         },
     )
-    .min_inner_size(296.0, 320.0)
+    .min_inner_size(
+        if current.kind == "focus-timer" {
+            740.0
+        } else {
+            296.0
+        },
+        if current.kind == "focus-timer" {
+            620.0
+        } else {
+            320.0
+        },
+    )
     .decorations(false)
     .disable_drag_drop_handler()
     .maximizable(false)
@@ -796,6 +831,7 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
                 &delivery.instance_id,
                 timestamp,
                 &delivery.text,
+                delivery.sound_enabled,
             );
         }
         Ok(changed || alerted.changed)
@@ -1167,6 +1203,156 @@ mod tests {
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].persona, "a");
         assert_eq!(lines[0].text, event.event.text);
+    }
+}
+
+const FOCUS_RESIZE_DURATION: std::time::Duration = std::time::Duration::from_millis(280);
+
+fn focus_resize_target(
+    current: tauri::PhysicalSize<u32>,
+    scale: f64,
+    expanded: bool,
+) -> tauri::PhysicalSize<u32> {
+    tauri::PhysicalSize::new(
+        ((if expanded { 840.0 } else { 380.0 }) * scale).round() as u32,
+        if expanded {
+            current.height.max((620.0 * scale).ceil() as u32)
+        } else {
+            current.height
+        },
+    )
+}
+
+fn focus_resize_frame(
+    start: tauri::PhysicalSize<u32>,
+    target: tauri::PhysicalSize<u32>,
+    elapsed: std::time::Duration,
+) -> tauri::PhysicalSize<u32> {
+    let progress = (elapsed.as_secs_f64() / FOCUS_RESIZE_DURATION.as_secs_f64()).min(1.0);
+    let eased = 1.0 - (1.0 - progress).powi(3);
+    let interpolate = |from: u32, to: u32| {
+        (f64::from(from) + (f64::from(to) - f64::from(from)) * eased).round() as u32
+    };
+    tauri::PhysicalSize::new(
+        interpolate(start.width, target.width),
+        interpolate(start.height, target.height),
+    )
+}
+
+async fn apply_focus_window_size(
+    window: &tauri::WebviewWindow,
+    size: tauri::PhysicalSize<u32>,
+    position: tauri::PhysicalPosition<i32>,
+) -> Result<(), String> {
+    let (send, receive) = tokio::sync::oneshot::channel();
+    let resizing = window.clone();
+    window
+        .run_on_main_thread(move || {
+            let result = resizing
+                .set_size(size)
+                .and_then(|()| resizing.set_position(position))
+                .map_err(|error| error.to_string());
+            let _ = send.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+    receive.await.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub(crate) async fn set_focus_expanded(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    expanded: bool,
+    animate: Option<bool>,
+) -> Result<(), String> {
+    let (window, start, position, scale) = change(&state, |db| {
+        let instance = storage::get(db, &id)?;
+        if instance.kind != "focus-timer" || !instance.installed || !instance.enabled {
+            return Err("집중 타이머를 먼저 켜 주세요.".into());
+        }
+        let window = app
+            .get_webview_window(&format!("widget-{id}"))
+            .ok_or("집중 타이머 창을 찾을 수 없어요.")?;
+        let start = window.inner_size().map_err(|error| error.to_string())?;
+        let position = window.outer_position().map_err(|error| error.to_string())?;
+        let scale = window.scale_factor().map_err(|error| error.to_string())?;
+        Ok((window, start, position, scale))
+    })?;
+    let target = focus_resize_target(start, scale, expanded);
+    // Intermediate widths must remain below the expanded minimum until the final frame.
+    window
+        .set_min_size(Some(tauri::LogicalSize::new(340.0, 520.0)))
+        .map_err(|error| error.to_string())?;
+    if animate.unwrap_or(true) && start != target {
+        let started = std::time::Instant::now();
+        loop {
+            let elapsed = started.elapsed();
+            if elapsed >= FOCUS_RESIZE_DURATION {
+                break;
+            }
+            apply_focus_window_size(
+                &window,
+                focus_resize_frame(start, target, elapsed),
+                position,
+            )
+            .await?;
+            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+        }
+    }
+    apply_focus_window_size(&window, target, position).await?;
+    if expanded {
+        window
+            .set_min_size(Some(tauri::LogicalSize::new(740.0, 620.0)))
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod focus_resize_tests {
+    use super::{focus_resize_frame, focus_resize_target, FOCUS_RESIZE_DURATION};
+    use tauri::PhysicalSize;
+
+    #[test]
+    fn resize_targets_preserve_height_and_apply_expanded_minimum_at_display_scale() {
+        assert_eq!(
+            focus_resize_target(PhysicalSize::new(1680, 1500), 2.0, false),
+            PhysicalSize::new(760, 1500)
+        );
+        assert_eq!(
+            focus_resize_target(PhysicalSize::new(760, 1500), 2.0, true),
+            PhysicalSize::new(1680, 1500)
+        );
+        assert_eq!(
+            focus_resize_target(PhysicalSize::new(475, 650), 1.25, true),
+            PhysicalSize::new(1050, 775)
+        );
+    }
+
+    #[test]
+    fn resizing_moves_monotonically_without_overshoot_in_both_directions() {
+        for (start, target) in [
+            (PhysicalSize::new(380, 520), PhysicalSize::new(840, 620)),
+            (PhysicalSize::new(840, 700), PhysicalSize::new(380, 700)),
+        ] {
+            let mut previous = start;
+            for step in 0..=20 {
+                let next = focus_resize_frame(start, target, FOCUS_RESIZE_DURATION * step / 20);
+                if target.width > start.width {
+                    assert!((previous.width..=target.width).contains(&next.width));
+                } else {
+                    assert!((target.width..=previous.width).contains(&next.width));
+                }
+                assert!((previous.height..=target.height).contains(&next.height));
+                previous = next;
+            }
+            assert_eq!(previous, target);
+            assert_eq!(
+                focus_resize_frame(start, target, FOCUS_RESIZE_DURATION * 2),
+                target
+            );
+        }
     }
 }
 

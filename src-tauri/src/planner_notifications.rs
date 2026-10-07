@@ -26,6 +26,7 @@ pub(crate) async fn preview_planner_notification(app: tauri::AppHandle) -> Resul
         "preview",
         0,
         "일정 10분 전이에요. 플래너에서 준비할 일을 확인해 볼까요?",
+        false,
     )
 }
 
@@ -33,8 +34,14 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<(), String> {
     native::install(app)
 }
 
-pub(crate) fn deliver(app: &tauri::AppHandle, instance_id: &str, observed_at: i64, text: &str) {
-    if let Err(error) = native::show(app, instance_id, observed_at, text) {
+pub(crate) fn deliver(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    observed_at: i64,
+    text: &str,
+    sound_enabled: bool,
+) {
+    if let Err(error) = native::show(app, instance_id, observed_at, text, sound_enabled) {
         let _ = app.emit("planner-notification-error", error);
     }
 }
@@ -50,8 +57,8 @@ mod native {
         UNAuthorizationOptions, UNAuthorizationStatus, UNMutableNotificationContent,
         UNNotification, UNNotificationAction, UNNotificationActionOptions, UNNotificationCategory,
         UNNotificationCategoryOptions, UNNotificationPresentationOptions, UNNotificationRequest,
-        UNNotificationResponse, UNNotificationSettings, UNUserNotificationCenter,
-        UNUserNotificationCenterDelegate,
+        UNNotificationResponse, UNNotificationSettings, UNNotificationSound,
+        UNUserNotificationCenter, UNUserNotificationCenterDelegate,
     };
     use std::{
         ptr::NonNull,
@@ -71,11 +78,15 @@ mod native {
             fn will_present(
                 &self,
                 _: &UNUserNotificationCenter,
-                _: &UNNotification,
+                notification: &UNNotification,
                 completion: &block2::DynBlock<dyn Fn(UNNotificationPresentationOptions)>,
             ) {
-                completion.call((UNNotificationPresentationOptions::Banner
-                    | UNNotificationPresentationOptions::List,));
+                let mut options = UNNotificationPresentationOptions::Banner
+                    | UNNotificationPresentationOptions::List;
+                if notification.request().content().sound().is_some() {
+                    options |= UNNotificationPresentationOptions::Sound;
+                }
+                completion.call((options,));
             }
             #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
             fn received(
@@ -268,6 +279,7 @@ mod native {
         instance_id: &str,
         observed_at: i64,
         text: &str,
+        sound_enabled: bool,
     ) -> Result<(), String> {
         if !bundled_app() {
             return Err("OS 알림은 빌드된 Comet 앱에서 사용할 수 있어요.".into());
@@ -275,6 +287,9 @@ mod native {
         let content = UNMutableNotificationContent::new();
         content.setTitle(&NSString::from_str("Comet · 생활 알림"));
         content.setBody(&NSString::from_str(text));
+        if sound_enabled {
+            content.setSound(Some(&UNNotificationSound::defaultSound()));
+        }
         content.setThreadIdentifier(&NSString::from_str("comet-planner"));
         if observed_at > 0 {
             content.setCategoryIdentifier(&NSString::from_str("comet-planner"));
@@ -310,11 +325,26 @@ mod native {
         // Desktop plugin APIs cannot report the operating system's actual setting.
         Ok("system".into())
     }
-    pub fn show(app: &tauri::AppHandle, _: &str, _: i64, text: &str) -> Result<(), String> {
-        app.notification()
+    pub fn show(
+        app: &tauri::AppHandle,
+        _: &str,
+        _: i64,
+        text: &str,
+        sound_enabled: bool,
+    ) -> Result<(), String> {
+        let mut notification = app
+            .notification()
             .builder()
             .title("Comet · 생활 알림")
-            .body(text)
+            .body(text);
+        if sound_enabled {
+            notification = notification.sound(if cfg!(windows) {
+                "Default"
+            } else {
+                "message-new-instant"
+            });
+        }
+        notification
             .show()
             .map_err(|_| "OS 알림을 표시하지 못했어요. 시스템 알림 설정을 확인해 주세요.".into())
     }

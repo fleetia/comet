@@ -42,6 +42,7 @@ function savedSettings(data: DataRecord): DataRecord {
     enabled: data.enabled === true,
     characterEnabled: data.characterEnabled !== false,
     osEnabled: data.osEnabled === true,
+    soundEnabled: data.soundEnabled === true,
     leadMinutes: typeof data.leadMinutes === "number" ? data.leadMinutes : 10,
     includeAllDay: data.includeAllDay === true,
     moodDayStart: data.moodDayStart === true,
@@ -152,6 +153,12 @@ export function PlannerAlerts({
               onChange={(event) => change({ osEnabled: event.target.checked })}
             >
               OS 알림
+            </Checkbox>
+            <Checkbox
+              checked={values.soundEnabled === true}
+              onChange={(event) => change({ soundEnabled: event.target.checked })}
+            >
+              OS 알림 소리
             </Checkbox>
             <p className={c.quiet}>말풍선을 닫거나 캐릭터를 숨겨도 OS 알림 설정은 유지돼요.</p>
           </div>

@@ -8,6 +8,16 @@ use std::sync::{
     Arc,
 };
 
+pub(crate) const FOCUS_UNAVAILABLE: &str =
+    "집중 시간 동안에는 대화를 사용할 수 없어요. 집중을 마친 뒤 다시 말 걸어 주세요.";
+
+pub(crate) fn ensure_available(db: &Connection) -> Result<(), String> {
+    if crate::widgets::storage::focus_active(db, chrono::Utc::now().timestamp_millis())? {
+        return Err(FOCUS_UNAVAILABLE.into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 pub(crate) fn validate_target(target: &str) -> Result<Vec<&str>, String> {
     match target {
@@ -65,6 +75,7 @@ pub(crate) fn record_input_and_route(
     targets: &[String],
     message_id: &str,
 ) -> Result<Option<Vec<SceneLine>>, String> {
+    ensure_available(db)?;
     store::insert_message(
         db,
         &Message {
@@ -101,6 +112,7 @@ pub(crate) async fn send_message(
             return Err("앱을 종료하고 있어요.".into());
         }
         let db = lock(&state.db)?;
+        ensure_available(&db)?;
         if store::current_user(&db)?.is_none() {
             return Err("말풍선에서 이름을 먼저 알려 주세요.".into());
         }
@@ -196,6 +208,7 @@ pub(crate) fn retry_turn(
             return Err("앱을 종료하고 있어요.".into());
         }
         let db = lock(&state.db)?;
+        ensure_available(&db)?;
         let latest = retry_input(&db, &message_id)?;
         ensure_retry_characters(&db, &message_id, &target)?;
         let original = store::message_targets(&db, &message_id)?;
