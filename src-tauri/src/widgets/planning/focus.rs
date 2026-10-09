@@ -36,7 +36,7 @@ struct Timer {
     #[serde(default)]
     active_session: Option<ActiveSession>,
     #[serde(default)]
-    app_usage_target: Option<crate::app_usage::Application>,
+    app_usage_target: Option<crate::widgets::AppUsageTarget>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -83,7 +83,7 @@ struct Segment {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AppUsage {
-    target: crate::app_usage::Application,
+    target: crate::widgets::AppUsageTarget,
     elapsed_ms: i64,
     status: String,
 }
@@ -251,7 +251,7 @@ fn configure(
         state.app_usage_target = if value.is_null() {
             None
         } else {
-            let target: crate::app_usage::Application = serde_json::from_value(value.clone())
+            let target: crate::widgets::AppUsageTarget = serde_json::from_value(value.clone())
                 .map_err(|_| "프로그램 선택 정보가 올바르지 않습니다.")?;
             if !bounded(&target.id, 1024) || !bounded(&target.name, 200)
                 || target.id.chars().any(char::is_control)

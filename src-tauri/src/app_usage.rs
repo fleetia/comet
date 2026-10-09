@@ -14,11 +14,7 @@ mod native;
 #[path = "app_usage/unsupported.rs"]
 mod native;
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-pub(crate) struct Application {
-    pub id: String,
-    pub name: String,
-}
+pub(crate) use crate::widgets::AppUsageTarget as Application;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
