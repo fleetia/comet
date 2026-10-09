@@ -808,8 +808,9 @@ pub(crate) fn close_widget_display(app: tauri::AppHandle, id: String) -> Result<
 }
 
 pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
-    let changed = change(state, |db| {
+    let (changed, usage_changed) = change(state, |db| {
         let timestamp = chrono::Utc::now().timestamp_millis();
+        let usage_changed = advance_app_usage(state, db, timestamp)?;
         let changed = storage::advance(db, timestamp)?;
         let quiet = lock(&state.runtime)?.paused
             || crate::app::quiet_hours::automatic_blocked(state, &store::settings(db)?)?;
@@ -834,11 +835,15 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
                 delivery.sound_enabled,
             );
         }
-        Ok(changed || alerted.changed)
+        Ok((changed || alerted.changed, usage_changed))
     })?;
     if changed {
         cancel_widget_scene(app, state)?;
         publish_widgets(app, state);
+    } else if usage_changed {
+        // Telemetry must not cancel scenes, refresh native menus, or publish chat history.
+        let snapshot = storage::snapshot(&*lock(&state.db)?)?;
+        let _ = app.emit("widgets-state", snapshot);
     }
     Ok(())
 }
@@ -1384,4 +1389,41 @@ pub(crate) fn set_music_expanded(
             ))
             .map_err(|error| error.to_string())
     })
+}
+
+// Called with action + db locked: no sample can be applied after a newer timer action.
+fn advance_app_usage(state: &AppState, db: &rusqlite::Connection, at: i64) -> Result<bool, String> {
+    let timers: Vec<_> = storage::instances(db)?
+        .into_iter()
+        .filter(|instance| {
+            instance.kind == "focus-timer"
+                && instance.installed
+                && instance.enabled
+                && crate::app_usage_tracking::enabled(&instance.data)
+        })
+        .collect();
+    let mut tracker = lock(&state.app_usage_tracker)?;
+    tracker.retain(&timers.iter().map(|timer| timer.id.clone()).collect::<Vec<_>>());
+    if timers.is_empty() {
+        tracker.clear();
+        return Ok(false);
+    }
+    let sample = crate::app_usage::sample();
+    let instant = std::time::Instant::now();
+    let mut changed = false;
+    for timer in timers {
+        if let Some(data) = tracker.observe(&timer.id, &timer.data, &sample, at, instant) {
+            storage::save_usage_observation(db, &timer.id, timer.revision, &data)?;
+            changed = true;
+        }
+    }
+    Ok(changed)
+}
+
+#[tauri::command]
+pub(crate) fn list_usage_applications() -> Value {
+    match crate::app_usage::applications() {
+        Ok(applications) => serde_json::json!({"applications":applications,"supported":true,"message":""}),
+        Err(message) => serde_json::json!({"applications":[],"supported":false,"message":message}),
+    }
 }

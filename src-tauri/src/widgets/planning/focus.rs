@@ -35,6 +35,8 @@ struct Timer {
     sessions: Vec<Session>,
     #[serde(default)]
     active_session: Option<ActiveSession>,
+    #[serde(default)]
+    app_usage_target: Option<crate::app_usage::Application>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -80,6 +82,14 @@ struct Segment {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct AppUsage {
+    target: crate::app_usage::Application,
+    elapsed_ms: i64,
+    status: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ActiveSession {
     id: String,
     title: String,
@@ -92,6 +102,8 @@ struct ActiveSession {
     note_ref: Option<NoteReference>,
     memo: String,
     segments: Vec<Segment>,
+    #[serde(default)]
+    app_usage: Option<AppUsage>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -109,6 +121,8 @@ struct Session {
     note_ref: Option<NoteReference>,
     memo: String,
     segments: Vec<Segment>,
+    #[serde(default)]
+    app_usage: Option<AppUsage>,
 }
 
 fn rest_duration() -> i64 {
@@ -211,6 +225,7 @@ fn configure(
         "eventRef",
         "noteRef",
         "memo",
+        "appUsageTarget",
     ];
     if input
         .as_object()
@@ -231,6 +246,20 @@ fn configure(
             .filter(|value| matches!(*value, "dial" | "digits"))
             .ok_or("타이머 표시 방식을 선택해 주세요.")?;
         state.presentation = value.into();
+    }
+    if let Some(value) = input.get("appUsageTarget") {
+        state.app_usage_target = if value.is_null() {
+            None
+        } else {
+            let target: crate::app_usage::Application = serde_json::from_value(value.clone())
+                .map_err(|_| "프로그램 선택 정보가 올바르지 않습니다.")?;
+            if !bounded(&target.id, 1024) || !bounded(&target.name, 200)
+                || target.id.chars().any(char::is_control)
+                || target.name.chars().any(char::is_control) {
+                return Err("프로그램 식별자가 올바르지 않습니다.".into());
+            }
+            Some(target)
+        };
     }
     if input.get("title").is_some() {
         state.title = optional_text(input, "title", 500)?;
@@ -293,6 +322,11 @@ fn new_session(state: &Timer, now: i64, running: bool) -> ActiveSession {
         note_ref: state.note_ref.clone(),
         memo: state.memo.clone(),
         segments: vec![],
+        app_usage: state.app_usage_target.clone().map(|target| AppUsage {
+            target,
+            elapsed_ms: 0,
+            status: "waiting".into(),
+        }),
     }
 }
 
@@ -326,6 +360,9 @@ fn close_segment(state: &mut Timer, now: i64) {
         });
         active.elapsed_ms = active.elapsed_ms.saturating_add(length);
     }
+    if let Some(usage) = active.app_usage.as_mut() {
+        usage.elapsed_ms = usage.elapsed_ms.min(active.elapsed_ms).max(0);
+    }
 }
 
 fn save_session(state: &mut Timer, now: i64, outcome: &str) {
@@ -350,6 +387,10 @@ fn save_session(state: &mut Timer, now: i64, outcome: &str) {
         note_ref: active.note_ref,
         memo: active.memo,
         segments: active.segments,
+        app_usage: active.app_usage.map(|mut usage| {
+            usage.elapsed_ms = usage.elapsed_ms.min(active.elapsed_ms).max(0);
+            usage
+        }),
     });
 }
 

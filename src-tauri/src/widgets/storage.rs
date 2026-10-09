@@ -924,3 +924,21 @@ pub fn journal(
     })
     .collect()
 }
+
+/// Internal telemetry only; caller holds the app action lock and has read the latest row.
+/// Do not invalidate in-flight user commands or event revisions for every sample.
+pub(crate) fn save_usage_observation(
+    db: &Connection,
+    id: &str,
+    revision: i64,
+    data: &Value,
+) -> Result<()> {
+    let changed = db.execute(
+        "UPDATE widget_instances SET data=?1 WHERE id=?2 AND revision=?3 AND kind='focus-timer' AND installed=1 AND enabled=1",
+        params![serde_json::to_string(data).map_err(err)?, id, revision],
+    ).map_err(err)?;
+    if changed != 1 {
+        return Err("사용 시간 관측 대상이 변경됐어요.".into());
+    }
+    Ok(())
+}

@@ -424,3 +424,98 @@ fn storage_request_replay_and_revision_checks_keep_session_appends_atomic_and_on
     storage::advance(&db, 9000).unwrap();
     assert_eq!(storage::get(&db, &instance.id).unwrap().data, finished.data);
 }
+
+#[test]
+fn selected_application_is_opt_in_and_preserved_in_session_history() {
+    let started = run(&initial(), "start", json!({"durationMs":10000,
+        "appUsageTarget":{"id":"com.example.editor","name":"Editor"}}), 1000);
+    assert_eq!(started.data["activeSession"]["appUsage"]["elapsedMs"], 0);
+    let mut observed = started.data;
+    observed["activeSession"]["appUsage"]["elapsedMs"] = json!(1500);
+    reject(&observed, "configure", json!({"appUsageTarget":null}), 3000);
+    let paused = run(&observed, "pause", json!({}), 3000);
+    assert_eq!(paused.data["activeSession"]["appUsage"]["elapsedMs"], 1500);
+    let ended = run(&paused.data, "cancel", json!({}), 9000);
+    assert_eq!(ended.data["sessions"][0]["elapsedMs"], 2000);
+    assert_eq!(ended.data["sessions"][0]["appUsage"]["elapsedMs"], 1500);
+    assert_eq!(ended.data["sessions"][0]["appUsage"]["target"]["name"], "Editor");
+    let opted_out = run(&ended.data, "configure", json!({"appUsageTarget":null}), 9001);
+    let next = run(&opted_out.data, "start", json!({}), 10000);
+    assert!(next.data["activeSession"]["appUsage"].is_null());
+    assert_eq!(next.data["sessions"][0]["appUsage"]["elapsedMs"], 1500);
+}
+
+#[test]
+fn historical_timers_do_not_invent_application_usage() {
+    let started = run(&initial(), "start", json!({"durationMs":1000}), 1000);
+    let completed = tick(&started.data, 2000).unwrap().unwrap();
+    assert!(completed.data["sessions"][0]["appUsage"].is_null());
+    let rest = run(&completed.data, "rest", json!({}), 2001);
+    assert!(rest.data["activeSession"].is_null());
+    reject(&initial(), "configure", json!({"appUsageTarget":{"id":"", "name":"Editor"}}), 1000);
+    reject(&initial(), "configure", json!({"appUsageTarget":{"id":"app\nname", "name":"Editor"}}), 1000);
+}
+
+#[test]
+fn clock_rollback_before_timer_actions_caps_usage_without_another_sample() {
+    let mut observed = run(&initial(), "start", json!({"durationMs":10000,
+        "appUsageTarget":{"id":"com.example.editor","name":"Editor"}}), 1000).data;
+    // Usage was observed through wall=6000. The next user action arrives after
+    // the clock moves back, before the background tracker can observe again.
+    observed["activeSession"]["appUsage"]["elapsedMs"] = json!(5000);
+
+    let ended = run(&observed, "cancel", json!({}), 4000);
+    assert_eq!(ended.data["sessions"][0]["elapsedMs"], 3000);
+    assert_eq!(ended.data["sessions"][0]["appUsage"]["elapsedMs"], 3000);
+
+    let paused = run(&observed, "pause", json!({}), 4000);
+    assert_eq!(paused.data["activeSession"]["elapsedMs"], 3000);
+    assert_eq!(paused.data["activeSession"]["appUsage"]["elapsedMs"], 3000);
+    let paused_ended = run(&paused.data, "cancel", json!({}), 4500);
+    assert_eq!(paused_ended.data["sessions"][0]["appUsage"]["elapsedMs"], 3000);
+
+    let suspended = suspend(&observed, 4000, false).unwrap();
+    assert_eq!(suspended["activeSession"]["elapsedMs"], 3000);
+    assert_eq!(suspended["activeSession"]["appUsage"]["elapsedMs"], 3000);
+}
+
+#[test]
+fn usage_observations_preserve_command_revisions_and_reject_stale_writes() {
+    let db = rusqlite::Connection::open_in_memory().unwrap();
+    storage::initialize(&db).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
+    let timer = storage::instances(&db).unwrap().into_iter()
+        .find(|widget| widget.kind == "focus-timer").unwrap();
+    let start = WidgetRequest {
+        request_id: uuid::Uuid::new_v4().to_string(),
+        instance_id: timer.id.clone(),
+        expected_revision: timer.revision,
+        action: "start".into(),
+        input: json!({"durationMs":10000,
+            "appUsageTarget":{"id":"com.example.editor","name":"Editor"}}),
+    };
+    storage::execute(&db, &start, 1000, 1).unwrap();
+    let started = storage::get(&db, &timer.id).unwrap();
+    let mut observation = started.data.clone();
+    observation["activeSession"]["appUsage"]["elapsedMs"] = json!(1500);
+    observation["activeSession"]["appUsage"]["status"] = json!("tracking");
+    storage::save_usage_observation(&db, &timer.id, started.revision, &observation).unwrap();
+    assert_eq!(storage::get(&db, &timer.id).unwrap().revision, started.revision);
+
+    // A command created before the last observation still applies to the latest
+    // stored data. Once it changes the revision, the old sample cannot undo it.
+    let pause = WidgetRequest {
+        request_id: uuid::Uuid::new_v4().to_string(),
+        instance_id: timer.id.clone(),
+        expected_revision: started.revision,
+        action: "pause".into(),
+        input: json!({}),
+    };
+    storage::execute(&db, &pause, 3000, 2).unwrap();
+    let paused = storage::get(&db, &timer.id).unwrap();
+    assert_eq!(paused.data["status"], "paused");
+    assert_eq!(paused.data["activeSession"]["appUsage"]["elapsedMs"], 1500);
+    assert!(storage::save_usage_observation(&db, &timer.id, started.revision, &observation).is_err());
+    assert_eq!(storage::get(&db, &timer.id).unwrap().data, paused.data);
+}

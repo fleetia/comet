@@ -16,6 +16,7 @@ fn receive_wake(app: &tauri::AppHandle) {
         // A wake callback resets reminder cursors even after a short sleep. No missed
         // threshold, snooze, or mood transition should be replayed on resume.
         lock(&state.widget_clocks)?.clear();
+        lock(&state.app_usage_tracker)?.clear();
         Ok(())
     }));
 }

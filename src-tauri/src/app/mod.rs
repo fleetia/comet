@@ -32,6 +32,7 @@ use std::{
 use tauri::Emitter;
 
 pub(crate) struct AppState {
+    pub(crate) app_usage_tracker: Mutex<crate::app_usage_tracking::Tracker>,
     pub(crate) db: Mutex<Connection>,
     pub(crate) inference: inference::Inference,
     pub(crate) nlp: crate::nlp::NlpService,

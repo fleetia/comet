@@ -18,7 +18,7 @@ export const toolbar = style({
 });
 export const layout = style({
   display: "grid",
-  gridTemplateColumns: "minmax(0, 326px) minmax(0, 1fr)",
+  gridTemplateColumns: "minmax(0, 448px) minmax(0, 1fr)",
   flex: 1,
   minHeight: 0,
   overflow: "hidden",
@@ -123,20 +123,52 @@ export const related = style({
 });
 export const clock = style({
   position: "relative",
-  width: "min(100%, 250px)",
+  width: "min(100%, 210px)",
   flexShrink: 0,
   aspectRatio: "1",
-  margin: `${v.space.md} auto ${v.space.lg}`,
+  margin: "0 auto",
   display: "grid",
   placeItems: "center",
   transition: "width 280ms cubic-bezier(0.22, 1, 0.36, 1), margin 280ms ease",
   selectors: {
     '[data-expanded="false"] &': {
       width: "min(100%, 210px)",
-      margin: `${v.space.sm} auto ${v.space.md}`,
+      margin: "0 auto",
     },
   },
   "@media": { "(prefers-reduced-motion: reduce)": { transition: "none" } },
+});
+export const timerReadouts = style({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  flexWrap: "wrap",
+  gap: v.space.md,
+  margin: `${v.space.md} 0 ${v.space.lg}`,
+  minWidth: 0,
+});
+export const appUsage = style({
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-start",
+  flex: "1 1 140px",
+  minWidth: 0,
+  maxWidth: "100%",
+  gap: v.space.xs,
+  padding: v.space.md,
+  borderRadius: vnextVars.radius.control,
+  background: v.color.surface.muted,
+});
+export const appUsageName = style({
+  fontSize: v.typography.size.caption,
+  lineHeight: v.typography.lineHeight.body,
+  overflowWrap: "anywhere",
+});
+export const appUsageTime = style({
+  fontFamily: v.typography.family.data,
+  fontVariantNumeric: "tabular-nums",
+  fontSize: 28,
+  lineHeight: 1.2,
 });
 export const dial = style({
   position: "absolute",

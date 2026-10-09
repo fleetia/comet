@@ -26,6 +26,7 @@ import { clockLabel, eventEnd, eventStart, ruleOf } from "../Planner/plannerData
 import { PlannerAlertNotice } from "../PlannerAlerts/PlannerAlerts";
 import { FrequencyRecordAction } from "./FrequencyRecordAction";
 import { FocusTimerCalendar } from "./FocusTimerCalendar";
+import { FocusTimerAppUsage } from "./FocusTimerAppUsage";
 import { FocusTimerNotes } from "./FocusTimerNotes";
 import { FocusTimerSettings } from "./FocusTimerSettings";
 import { FocusTimerStats } from "./FocusTimerStats";
@@ -328,7 +329,7 @@ export function TimerTool({
     const next = !expanded;
     const animate = !(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
     resizing.current = true;
-    setResizeWidth(next ? 514 : (context.current?.getBoundingClientRect().width ?? 514));
+    setResizeWidth(next ? 392 : (context.current?.getBoundingClientRect().width ?? 392));
     setExpanded(next);
     setError("");
     try {
@@ -471,61 +472,64 @@ export function TimerTool({
               </Button>
             )}
           </div>
-          <div className={s.clock} data-presentation={presentation}>
-            {presentation === "dial" && (
-              <svg className={s.dial} viewBox="0 0 250 250" aria-hidden="true">
-                <g className={s.ticks}>
-                  {Array.from({ length: 60 }, (_, index) => (
-                    <line
-                      key={index}
-                      x1="125"
-                      y1={index % 5 === 0 ? 12 : 15}
-                      x2="125"
-                      y2={index % 5 === 0 ? 21 : 19}
-                      transform={`rotate(${index * 6} 125 125)`}
-                    />
-                  ))}
-                </g>
-                <circle cx="125" cy="125" r="119" className={s.dialTrack} />
-                <circle
-                  cx="125"
-                  cy="125"
-                  r="119"
-                  className={s.dialArc}
-                  strokeDasharray={2 * Math.PI * 119}
-                  strokeDashoffset={2 * Math.PI * 119 * (1 - progress)}
-                />
-              </svg>
-            )}
-            <div className={s.clockCenter}>
-              <span className={s.quiet}>{phase}</span>
-              <span className={s.time} role="timer" aria-label="남은 시간">
-                {countdown(remaining)}
-              </span>
-              <span className={s.quiet}>
-                {status === "paused"
-                  ? "준비되면 다시 시작해요"
-                  : status === "finished"
-                    ? rest
-                      ? "다시 집중할 준비가 됐어요"
-                      : `실제 집중 ${focusDuration(sessions.at(-1)?.elapsedMs || 0)}`
-                    : idle
-                      ? `${clockLabel(now)} → ${clockLabel(now + remaining)}`
-                      : `${clockLabel(number(data.deadline) || now + remaining)} 종료 예정`}
-              </span>
-            </div>
-            {presentation === "digits" && (
-              <div
-                className={s.progress}
-                role="progressbar"
-                aria-label="남은 집중 시간"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={Math.round(progress * 100)}
-              >
-                <div className={s.progressFill} style={{ width: `${progress * 100}%` }} />
+          <div className={s.timerReadouts}>
+            <div className={s.clock} data-presentation={presentation}>
+              {presentation === "dial" && (
+                <svg className={s.dial} viewBox="0 0 250 250" aria-hidden="true">
+                  <g className={s.ticks}>
+                    {Array.from({ length: 60 }, (_, index) => (
+                      <line
+                        key={index}
+                        x1="125"
+                        y1={index % 5 === 0 ? 12 : 15}
+                        x2="125"
+                        y2={index % 5 === 0 ? 21 : 19}
+                        transform={`rotate(${index * 6} 125 125)`}
+                      />
+                    ))}
+                  </g>
+                  <circle cx="125" cy="125" r="119" className={s.dialTrack} />
+                  <circle
+                    cx="125"
+                    cy="125"
+                    r="119"
+                    className={s.dialArc}
+                    strokeDasharray={2 * Math.PI * 119}
+                    strokeDashoffset={2 * Math.PI * 119 * (1 - progress)}
+                  />
+                </svg>
+              )}
+              <div className={s.clockCenter}>
+                <span className={s.quiet}>{phase}</span>
+                <span className={s.time} role="timer" aria-label="남은 시간">
+                  {countdown(remaining)}
+                </span>
+                <span className={s.quiet}>
+                  {status === "paused"
+                    ? "준비되면 다시 시작해요"
+                    : status === "finished"
+                      ? rest
+                        ? "다시 집중할 준비가 됐어요"
+                        : `실제 집중 ${focusDuration(sessions.at(-1)?.elapsedMs || 0)}`
+                      : idle
+                        ? `${clockLabel(now)} → ${clockLabel(now + remaining)}`
+                        : `${clockLabel(number(data.deadline) || now + remaining)} 종료 예정`}
+                </span>
               </div>
-            )}
+              {presentation === "digits" && (
+                <div
+                  className={s.progress}
+                  role="progressbar"
+                  aria-label="남은 집중 시간"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(progress * 100)}
+                >
+                  <div className={s.progressFill} style={{ width: `${progress * 100}%` }} />
+                </div>
+              )}
+            </div>
+            <FocusTimerAppUsage key={widget.id} data={data} act={act} />
           </div>
           <p className={s.timerStatus} role="status">
             {statusLabel}

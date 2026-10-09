@@ -55,6 +55,7 @@ pub(crate) fn state() -> AppState {
         story_catalog: Mutex::new(story::catalog().unwrap()),
         widget_jobs: Mutex::new(HashMap::new()),
         widget_clocks: Mutex::new(std::collections::BTreeMap::new()),
+        app_usage_tracker: Mutex::new(crate::app_usage_tracking::Tracker::default()),
         last_input: AtomicI64::new(0),
         last_foreground: AtomicI64::new(0),
         last_scene: AtomicI64::new(0),

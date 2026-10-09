@@ -43,3 +43,28 @@ it("preserves a dirty record memo across remote updates and reopening instead of
   expect(screen.getByRole("button", { name: "기록 메모 저장" })).toHaveProperty("disabled", true);
   expect(act).not.toHaveBeenCalled();
 });
+
+it("shows the saved program and its own total separately from actual focus time", () => {
+  render(
+    <FocusTimerStats
+      sessions={[
+        {
+          ...session,
+          appUsage: {
+            target: { id: "app:editor", name: "글쓰기" },
+            elapsedMs: 62000,
+            status: "tracking",
+          },
+        },
+      ]}
+      day="2026-10-07"
+      selectedId="session"
+      onSelect={vi.fn()}
+      onOpenNote={vi.fn()}
+      act={vi.fn<ToolAction>().mockResolvedValue(true)}
+    />,
+  );
+  expect(screen.getByText("25분")).toBeTruthy();
+  expect(screen.getByText("앱 전면 사용")).toBeTruthy();
+  expect(screen.getByText("글쓰기 · 01:02")).toBeTruthy();
+});
