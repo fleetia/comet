@@ -1,4 +1,6 @@
 mod app;
+mod app_usage;
+mod app_usage_tracking;
 mod behavior;
 mod character_animation;
 mod character_animation_states;

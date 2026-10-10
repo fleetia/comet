@@ -2,7 +2,13 @@ import { Button, FormField, TextArea } from "@fleetia/lagrange";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { text, type DataRecord, type ToolAction } from "../toolData";
 import { clockLabel, moveDay, movePeriod, periodAnchor } from "../Planner/plannerData";
-import { focusBuckets, focusDuration, type FocusPeriod, type FocusSession } from "./FocusTimerData";
+import {
+  appUsageTime,
+  focusBuckets,
+  focusDuration,
+  type FocusPeriod,
+  type FocusSession,
+} from "./FocusTimerData";
 import * as s from "./FocusTimer.css";
 
 export function FocusTimerStats({
@@ -173,6 +179,12 @@ export function FocusTimerStats({
                       : "직접 마침"}
                   {session.memo || text(session.noteRef.id) ? " · 메모 있음" : ""}
                 </span>
+                {session.appUsage && (
+                  <span className={s.caption}>
+                    앱 전면 사용 · {session.appUsage.target.name}{" "}
+                    {appUsageTime(session.appUsage.elapsedMs)}
+                  </span>
+                )}
               </span>
               <span>{focusDuration(session.elapsedMs)}</span>
             </span>
@@ -284,6 +296,14 @@ function FocusSessionDetail({
         </dd>
         <dt>노트</dt>
         <dd>{text(session.noteRef.title) || "연결한 노트 없음"}</dd>
+        {session.appUsage && (
+          <>
+            <dt>앱 전면 사용</dt>
+            <dd>
+              {session.appUsage.target.name} · {appUsageTime(session.appUsage.elapsedMs)}
+            </dd>
+          </>
+        )}
       </dl>
       <FormField label="집중 기록 메모">
         <TextArea

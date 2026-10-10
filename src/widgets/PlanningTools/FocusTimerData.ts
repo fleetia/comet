@@ -2,6 +2,12 @@ import { number, record, rows, text, type DataRecord } from "../toolData";
 import { dayDate, moveDay, movePeriod, periodAnchor, WEEKDAYS } from "../Planner/plannerData";
 
 export type FocusSegment = { startAt: number; endAt: number };
+export type FocusUsageTarget = { id: string; name: string };
+export type FocusAppUsage = {
+  target: FocusUsageTarget;
+  elapsedMs: number;
+  status: string;
+};
 export type FocusSession = {
   id: string;
   title: string;
@@ -13,6 +19,7 @@ export type FocusSession = {
   eventRef: DataRecord;
   noteRef: DataRecord;
   segments: FocusSegment[];
+  appUsage?: FocusAppUsage;
   active?: boolean;
 };
 export type FocusPeriod = "day" | "week" | "month" | "year";
@@ -64,10 +71,35 @@ function readSession(session: DataRecord): FocusSession {
     memo: text(session.memo),
     eventRef: record(session.eventRef),
     noteRef: record(session.noteRef),
+    appUsage: readAppUsage(session.appUsage),
     segments: rows(session.segments)
       .map((segment) => ({ startAt: number(segment.startAt), endAt: number(segment.endAt) }))
       .filter((segment) => segment.endAt > segment.startAt),
   };
+}
+
+export function readUsageTarget(value: DataRecord[string] | undefined): FocusUsageTarget | null {
+  const target = record(value);
+  const id = text(target.id),
+    name = text(target.name);
+  return id && name ? { id, name } : null;
+}
+
+export function readAppUsage(value: DataRecord[string] | undefined): FocusAppUsage | undefined {
+  const usage = record(value);
+  const target = readUsageTarget(usage.target);
+  if (!target) return undefined;
+  const elapsed = number(usage.elapsedMs);
+  return {
+    target,
+    elapsedMs: Number.isFinite(elapsed) ? Math.max(0, elapsed) : 0,
+    status: text(usage.status),
+  };
+}
+
+export function appUsageTime(milliseconds: number): string {
+  const seconds = Math.floor(Math.max(0, milliseconds) / 1000);
+  return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
 export function elapsedWithin(session: FocusSession, startAt: number, endAt: number): number {
