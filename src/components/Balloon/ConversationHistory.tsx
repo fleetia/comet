@@ -11,6 +11,7 @@ import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { characterName } from "../characterIdentity";
 import { CharacterHistory } from "../CharacterHistory/CharacterHistory";
 import { responseOrigin } from "./conversationStatus";
+import { ConversationMessageActions, type ConversationSaveRequest } from "./ConversationSave";
 import * as s from "../companion.css";
 import * as ui from "../../lagrange.css";
 
@@ -27,17 +28,19 @@ export function ConversationMessageList({
   characterNames,
   userNames,
   messageSources,
+  onSave,
 }: {
   snapshot: Snapshot;
   messages: Message[];
   characterNames?: Record<string, string>;
   userNames?: Record<string, string>;
   messageSources?: Record<string, string>;
+  onSave?: (message: Message, kind: ConversationSaveRequest["kind"]) => void;
 }): JSX.Element {
   return (
     <>
       {messages.map((message) => (
-        <p className={s.historyMessage} key={message.id}>
+        <div className={s.historyMessage} key={message.id}>
           <span className={s.historyName}>
             {message.role === "user"
               ? (userNames?.[message.id] ??
@@ -53,7 +56,13 @@ export function ConversationMessageList({
             <span className={s.responseOrigin}>{responseOrigin(messageSources?.[message.id])}</span>
           )}
           {message.content}
-        </p>
+          {onSave && (
+            <ConversationMessageActions
+              message={message}
+              onSave={(kind) => onSave(message, kind)}
+            />
+          )}
+        </div>
       ))}
     </>
   );
@@ -63,10 +72,12 @@ export function ConversationLog({
   snapshot,
   sessionId,
   page,
+  onSave,
 }: {
   snapshot: Snapshot;
   sessionId: string;
   page: ConversationMessages;
+  onSave?: (message: Message, kind: ConversationSaveRequest["kind"]) => void;
 }): JSX.Element {
   const [older, setOlder] = useState<ConversationMessages | null>(null);
   const [pending, setPending] = useState(false);
@@ -120,6 +131,7 @@ export function ConversationLog({
           characterNames={{ ...older?.characterNames, ...page.characterNames }}
           userNames={{ ...older?.userNames, ...page.userNames }}
           messageSources={{ ...older?.messageSources, ...page.messageSources }}
+          onSave={onSave}
         />
       )}
     </div>
@@ -134,6 +146,7 @@ export function ConversationHistory({
   error,
   onResume,
   previewConversations,
+  onSave,
 }: {
   snapshot: Snapshot;
   persona: string;
@@ -142,6 +155,7 @@ export function ConversationHistory({
   error: string | null;
   onResume: (sessionId: string) => void;
   previewConversations?: ConversationView[];
+  onSave?: (request: ConversationSaveRequest) => void;
 }): JSX.Element {
   const [selected, setSelected] = useState<ConversationSession | null>(null);
   const [legacy, setLegacy] = useState(false);
@@ -204,6 +218,12 @@ export function ConversationHistory({
             snapshot={snapshot}
             sessionId={selected.id}
             page={page}
+            onSave={
+              onSave
+                ? (message, kind) =>
+                    onSave({ sessionId: selected.id, context: selected.noteContext, message, kind })
+                : undefined
+            }
           />
         )}
         {!page && !pageError && (

@@ -932,7 +932,7 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
     let Ok(_action) = state.action.try_lock() else {
         return Ok(false);
     };
-    let (Ok(db), Ok(runtime), Ok(panel), Ok(mut playback), Ok(mut story), Ok(presence)) = (
+    let (Ok(db), Ok(mut runtime), Ok(panel), Ok(mut playback), Ok(mut story), Ok(presence)) = (
         state.db.try_lock(),
         state.runtime.try_lock(),
         state.panel.try_lock(),
@@ -942,6 +942,20 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
     ) else {
         return Ok(false);
     };
+    if let Some(error) = playback
+        .as_ref()
+        .filter(|line| matches!(line.source.as_str(), "llm" | "question"))
+        .and_then(|line| crate::conversation_notes::validate_reply(&db, &line.id).err())
+    {
+        *playback = None;
+        runtime.phase = crate::types::RuntimePhase::Error;
+        runtime.error = Some(error);
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let state = app.state::<Arc<AppState>>();
+            super::publish(&app, &state);
+        });
+    }
     let characters = crate::characters::collection(&db)?;
     let target = if super::unavailable(&state)
         || (crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?

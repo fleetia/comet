@@ -70,7 +70,11 @@ fn normalize_applications(applications: Vec<Application>) -> Vec<Application> {
 }
 
 #[cfg(any(target_os = "windows", test))]
-fn observation(app_id: Option<String>, idle_seconds: Option<f64>, unlocked: Option<bool>) -> Sample {
+fn observation(
+    app_id: Option<String>,
+    idle_seconds: Option<f64>,
+    unlocked: Option<bool>,
+) -> Sample {
     match unlocked {
         Some(false) => return Sample::inactive("locked"),
         None => return Sample::inactive("unavailable"),
@@ -100,29 +104,71 @@ mod tests {
     fn observations_require_known_unlocked_session_idle_and_identity() {
         let id = Some("app:test".into());
         assert!(observation(id.clone(), Some(59.999), Some(true)).eligible);
-        assert_eq!(observation(id.clone(), Some(60.0), Some(true)), Sample::inactive("idle"));
-        assert_eq!(observation(id.clone(), Some(0.0), Some(false)), Sample::inactive("locked"));
+        assert_eq!(
+            observation(id.clone(), Some(60.0), Some(true)),
+            Sample::inactive("idle")
+        );
+        assert_eq!(
+            observation(id.clone(), Some(0.0), Some(false)),
+            Sample::inactive("locked")
+        );
         for idle in [None, Some(f64::NAN), Some(f64::INFINITY), Some(-1.0)] {
-            assert_eq!(observation(id.clone(), idle, Some(true)), Sample::inactive("unavailable"));
+            assert_eq!(
+                observation(id.clone(), idle, Some(true)),
+                Sample::inactive("unavailable")
+            );
         }
-        assert_eq!(observation(id, Some(0.0), None), Sample::inactive("unavailable"));
-        assert_eq!(observation(None, Some(0.0), Some(true)), Sample::inactive("unavailable"));
+        assert_eq!(
+            observation(id, Some(0.0), None),
+            Sample::inactive("unavailable")
+        );
+        assert_eq!(
+            observation(None, Some(0.0), Some(true)),
+            Sample::inactive("unavailable")
+        );
     }
 
     #[test]
     fn application_list_has_stable_ids_clean_names_and_no_duplicate_processes() {
         let applications = normalize_applications(vec![
-            Application { id: "b".into(), name: " Beta\n".into() },
-            Application { id: "a".into(), name: "alpha".into() },
-            Application { id: "b".into(), name: "second process".into() },
-            Application { id: "".into(), name: "unknown".into() },
-            Application { id: "bad\0id".into(), name: "unknown".into() },
-            Application { id: "blank".into(), name: " \t".into() },
+            Application {
+                id: "b".into(),
+                name: " Beta\n".into(),
+            },
+            Application {
+                id: "a".into(),
+                name: "alpha".into(),
+            },
+            Application {
+                id: "b".into(),
+                name: "second process".into(),
+            },
+            Application {
+                id: "".into(),
+                name: "unknown".into(),
+            },
+            Application {
+                id: "bad\0id".into(),
+                name: "unknown".into(),
+            },
+            Application {
+                id: "blank".into(),
+                name: " \t".into(),
+            },
         ]);
-        assert_eq!(applications, vec![
-            Application { id: "a".into(), name: "alpha".into() },
-            Application { id: "b".into(), name: "Beta".into() },
-        ]);
+        assert_eq!(
+            applications,
+            vec![
+                Application {
+                    id: "a".into(),
+                    name: "alpha".into()
+                },
+                Application {
+                    id: "b".into(),
+                    name: "Beta".into()
+                },
+            ]
+        );
     }
 
     #[cfg(not(target_os = "windows"))]

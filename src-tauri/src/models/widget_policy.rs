@@ -24,6 +24,15 @@ impl WidgetGenerationEligibility {
 }
 
 pub fn widget_generation_eligibility(settings: &Settings) -> WidgetGenerationEligibility {
+    if settings.mode == "chatgpt" {
+        return WidgetGenerationEligibility {
+            allowed: !settings.chatgpt_model.trim().is_empty(),
+            reason: "ChatGPT 계정에서 선택한 모델로 위젯을 제작해요. 모델 크기는 별도로 추정하지 않아요.".into(),
+            model: settings.chatgpt_model.clone(),
+            parameter_billions: None,
+            source: "chatgpt-catalog",
+        };
+    }
     let (model, parameter_billions, source) = if settings.mode == "api" {
         let size = api_size_billions(&settings.api_model);
         (

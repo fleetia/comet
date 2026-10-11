@@ -32,6 +32,7 @@ use std::{
 use tauri::Emitter;
 
 pub(crate) struct AppState {
+    pub(crate) organizer: crate::organizer_runtime::Runtime,
     pub(crate) app_usage_tracker: Mutex<crate::app_usage_tracking::Tracker>,
     pub(crate) db: Mutex<Connection>,
     pub(crate) inference: inference::Inference,
@@ -105,6 +106,16 @@ pub(crate) fn open_session(path: &std::path::Path) -> Result<Connection, String>
     store::expire_generated_recall(&db, chrono::Utc::now().timestamp_millis())?;
     db.execute("DELETE FROM scenes", [])
         .map_err(|error| error.to_string())?;
+    let user = store::active_user_id(&db)?;
+    if crate::organizer::has_incomplete_operations(&db, &user)? {
+        // Finish already-authorized writes before this connection enters AppState's mutex.
+        // Refresh app-owned originals first; recovery never starts a new model request.
+        let recovered = crate::organizer_runtime::collect_comet(&db, &user)
+            .and_then(|()| crate::organizer::recover_operations(&db, &user));
+        if recovered.is_err() {
+            eprintln!("Organizer operation recovery deferred");
+        }
+    }
     Ok(db)
 }
 
@@ -115,8 +126,13 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
     let present_character_ids = presence::present_ids(state, &characters.active)?;
     let mut runtime = lock(&state.runtime)?.clone();
     runtime.present_character_ids = present_character_ids;
+    let playback = lock(&state.playback)?.clone().filter(|line| {
+        !matches!(line.source.as_str(), "llm" | "question")
+            || crate::conversation_notes::validate_reply(&db, &line.id).is_ok()
+    });
     Ok(Snapshot {
         has_api_key: inference::has_api_key(&settings),
+        chatgpt_ready: state.inference.chatgpt.ready(),
         model_ready: models::selected_ready(&state.app_data, &settings),
         local_models: models::model_statuses(&state.app_data),
         device: crate::device::info(),
@@ -132,7 +148,7 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
         prepared_count: store::prepared_scenes(&db)?.len(),
         runtime,
         active_request: tasks::active_request(state)?,
-        playback: lock(&state.playback)?.clone(),
+        playback,
         panel: lock(&state.panel)?.clone(),
         conversation: store::active_conversation(&db)?
             .map(|session| store::conversation_view(&db, &session.id))
@@ -203,6 +219,9 @@ pub(crate) fn interrupt(
     state: &AppState,
     automatic: bool,
 ) -> Result<(u64, Arc<AtomicBool>), String> {
+    if let Some(cancel) = &*lock(&state.organizer.scan_cancel)? {
+        cancel.store(true, Ordering::SeqCst);
+    }
     crate::character_reaction_host::forget_speech(state)?;
     {
         let mut tasks = lock(&state.tasks)?;

@@ -105,6 +105,8 @@ INSERT OR IGNORE INTO kv VALUES('revision','0');").map_err(err)?;
     quiet_hours::migrate(&conn)?;
     crate::diary::initialize(&conn)?;
     crate::generated_widgets::initialize(&conn)?;
+    crate::organizer::initialize(&conn)?;
+    crate::organizer_actions::initialize(&conn)?;
     Ok(conn)
 }
 

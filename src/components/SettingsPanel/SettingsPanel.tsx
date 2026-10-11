@@ -31,7 +31,7 @@ import { AutostartSettings } from "../AutostartSettings/AutostartSettings";
 import { UpdatePanel } from "../UpdatePanel/UpdatePanel";
 import { useSettingsDraft, type SettingsDraft } from "../../hooks/useSettingsDraft";
 import { UserSettings } from "../UserSettings/UserSettings";
-import { ModelSettings } from "../ModelSettings/ModelSettings";
+import { ModelSettings, PROVIDER_LABELS } from "../ModelSettings/ModelSettings";
 import { TalkPackPanel } from "../TalkPackPanel/TalkPackPanel";
 import { WordbookPanel } from "../WordbookPanel/WordbookPanel";
 import { CharacterManager } from "../CharacterManager/CharacterManager";
@@ -77,9 +77,7 @@ function DraftActions({
               }
             />
             <span className={s.quiet}>
-              {label === "AI 연결"
-                ? `${draft.settings.mode === "local" ? "로컬 모델" : "외부 API"} 설정`
-                : label}
+              {label === "AI 연결" ? `${PROVIDER_LABELS[draft.settings.mode]} 설정` : label}
             </span>
           </div>
         }
@@ -116,6 +114,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
     useSettingsNavigation(initialSection);
   const automatic = useSettingsDraft(snapshot.settings, "automatic");
   const model = useSettingsDraft(snapshot.settings, "model");
+  const [organizerDirty, setOrganizerDirty] = useState(false);
   const [widgetsDirty, setWidgetsDirty] = useState(false);
   const [charactersDirty, setCharactersDirty] = useState(false);
   const [wordbookDirty, setWordbookDirty] = useState(false);
@@ -130,7 +129,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
     widgets: widgetsDirty,
     automatic: automatic.hasChanges,
     dialogue: wordbookDirty,
-    model: model.hasChanges,
+    model: model.hasChanges || organizerDirty,
     general: generalDirty || userDirty,
   };
   const hasChanges = Object.values(dirty).some(Boolean);
@@ -399,6 +398,23 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                           허용
                         </Checkbox>
                       </SettingsRow>
+                      <SettingsRow
+                        className={styles.settingsRow}
+                        label="ChatGPT"
+                        description="연결한 ChatGPT 플랜의 사용량을 써서 새 잡담을 만들어요."
+                      >
+                        <Checkbox
+                          className={styles.rowControl}
+                          aria-label="ChatGPT로 새 잡담 만들기"
+                          disabled={!automatic.settings.autonomousEnabled}
+                          checked={automatic.settings.chatgptIdleEnabled}
+                          onChange={(event) =>
+                            automatic.change("chatgptIdleEnabled", event.target.checked)
+                          }
+                        >
+                          허용
+                        </Checkbox>
+                      </SettingsRow>
                     </section>
                   </div>
                 </fieldset>
@@ -415,6 +431,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                 <ModelSettings
                   snapshot={snapshot}
                   draft={model}
+                  onOrganizerDirtyChange={setOrganizerDirty}
                   footer={<DraftActions draft={model} label="AI 연결" blocked={updateBusy} />}
                 />
               )}

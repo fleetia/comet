@@ -248,8 +248,12 @@ pub(crate) async fn run_background(
     if !pending.is_empty() {
         let ready = if settings.mode == "local" {
             inference::is_local_running(&state.inference, &settings).await
+        } else if settings.mode == "chatgpt" {
+            state.inference.chatgpt.ready() && !settings.chatgpt_model.is_empty()
         } else {
-            inference::api_credentials_ready(&settings) && !settings.api_model.is_empty()
+            settings.mode == "api"
+                && inference::api_credentials_ready(&settings)
+                && !settings.api_model.is_empty()
         };
         if ready && now() - state.last_preparation.load(Ordering::SeqCst) >= 15 {
             state.last_preparation.store(now(), Ordering::SeqCst);
@@ -327,15 +331,19 @@ pub(crate) async fn run_background(
             return Ok(());
         }
     }
+    if crate::organizer_runtime::run_next(app, state, epoch, cancel.clone(), false).await? {
+        return Ok(());
+    }
     if crate::generated_widget_commands::maybe_create(app, state, &settings, epoch, cancel.clone())
         .await?
     {
         return Ok(());
     }
-    let generate_enabled = if settings.mode == "api" {
-        settings.api_idle_enabled
-    } else {
-        settings.local_idle_enabled
+    let generate_enabled = match settings.mode.as_str() {
+        "api" => settings.api_idle_enabled,
+        "chatgpt" => settings.chatgpt_idle_enabled,
+        "local" => settings.local_idle_enabled,
+        _ => false,
     };
     if store::current_user(&*lock(&state.db)?)?.is_none()
         || !settings.autonomous_enabled
@@ -349,8 +357,12 @@ pub(crate) async fn run_background(
     }
     let ready = if settings.mode == "local" {
         models::selected_ready(&state.app_data, &settings)
+    } else if settings.mode == "chatgpt" {
+        !settings.chatgpt_model.is_empty() && state.inference.chatgpt.ready()
     } else {
-        !settings.api_model.is_empty() && inference::api_credentials_ready(&settings)
+        settings.mode == "api"
+            && !settings.api_model.is_empty()
+            && inference::api_credentials_ready(&settings)
     };
     if !ready {
         return Ok(());
@@ -375,7 +387,7 @@ pub(crate) async fn run_background(
     if settings.mode == "local" && !resources::background_allowed() {
         return Ok(());
     }
-    if settings.mode == "api" {
+    if matches!(settings.mode.as_str(), "api" | "chatgpt") {
         let _action = lock(&state.action)?;
         if !is_current(state, epoch, &cancel) || !reserve_api_idle(&*lock(&state.db)?, now())? {
             return Ok(());

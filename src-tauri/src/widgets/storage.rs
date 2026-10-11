@@ -449,10 +449,21 @@ fn active_data(db: &Connection) -> Result<BTreeMap<String, Value>> {
 }
 
 pub fn execute(db: &Connection, request: &WidgetRequest, now: i64, entropy: u64) -> Result<()> {
+    let tx = db.unchecked_transaction().map_err(err)?;
+    execute_in_transaction(&tx, request, now, entropy)?;
+    tx.commit().map_err(err)
+}
+
+// The caller owns the transaction, including its durable operation receipt.
+pub(crate) fn execute_in_transaction(
+    tx: &Connection,
+    request: &WidgetRequest,
+    now: i64,
+    entropy: u64,
+) -> Result<()> {
     uuid::Uuid::parse_str(&request.request_id)
         .map_err(|_| "요청 식별자가 올바르지 않아요.".to_string())?;
     let fingerprint = hex::encode(Sha256::digest(serde_json::to_vec(request).map_err(err)?));
-    let tx = db.unchecked_transaction().map_err(err)?;
     let previous: Option<String> = tx
         .query_row(
             "SELECT fingerprint FROM widget_requests WHERE id=?",
@@ -468,7 +479,7 @@ pub fn execute(db: &Connection, request: &WidgetRequest, now: i64, entropy: u64)
             Err("이미 사용한 요청 식별자의 내용이 달라졌어요.".into())
         };
     }
-    let instance = get(&tx, &request.instance_id)?;
+    let instance = get(tx, &request.instance_id)?;
     if !instance.installed || !instance.enabled {
         return Err("설치하고 켠 위젯만 사용할 수 있어요.".into());
     }
@@ -484,7 +495,7 @@ pub fn execute(db: &Connection, request: &WidgetRequest, now: i64, entropy: u64)
             .as_str()
             .filter(|slot| matches!(*slot, "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H"))
             .ok_or("함께 지내는 캐릭터를 골라 주세요.")?;
-        let character = crate::characters::active_character(&tx, &slot.to_ascii_lowercase())?;
+        let character = crate::characters::active_character(tx, &slot.to_ascii_lowercase())?;
         if request.input["owner"]
             .as_str()
             .is_some_and(|owner| owner != character.id)
@@ -492,7 +503,7 @@ pub fn execute(db: &Connection, request: &WidgetRequest, now: i64, entropy: u64)
             return Err("함께 지내는 캐릭터가 바뀌었어요. 다시 골라 주세요.".into());
         }
     }
-    let mut related = active_data(&tx)?;
+    let mut related = active_data(tx)?;
     if instance.kind == "preparation"
         && matches!(request.action.as_str(), "create" | "update")
         && request.input["eventId"]
@@ -515,17 +526,17 @@ pub fn execute(db: &Connection, request: &WidgetRequest, now: i64, entropy: u64)
         }
     }
     let effect = if instance.kind == "preparation" && request.action == "check-promote" {
-        promote_preparation_check(&tx, &instance, request, &mut related, now, entropy)?
+        promote_preparation_check(tx, &instance, request, &mut related, now, entropy)?
     } else {
         super::act(&instance, request, &related, now, entropy)?
     };
-    apply_effect(&tx, instance, effect, now)?;
+    apply_effect(tx, instance, effect, now)?;
     tx.execute(
         "INSERT INTO widget_requests VALUES(?1,?2)",
         params![request.request_id, fingerprint],
     )
     .map_err(err)?;
-    tx.commit().map_err(err)
+    Ok(())
 }
 
 fn promote_preparation_check(
@@ -675,8 +686,11 @@ fn apply_effect(
             ],
         )
         .map_err(err)?;
-        db.execute("INSERT OR IGNORE INTO widget_journal VALUES(?)", [&event.id])
-            .map_err(err)?;
+        db.execute(
+            "INSERT OR IGNORE INTO widget_journal VALUES(?)",
+            [&event.id],
+        )
+        .map_err(err)?;
         if event.event.kind == "item-acquired" {
             collect_item(db, &event.event)?;
         }

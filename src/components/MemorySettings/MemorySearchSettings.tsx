@@ -51,7 +51,13 @@ const STATES: Record<string, string> = {
   uncalibrated: "검색 품질 검증 대기",
 };
 
-export function MemorySearchSettings({ className }: { className?: string }): JSX.Element {
+export function MemorySearchSettings({
+  className,
+  hidden,
+}: {
+  className?: string;
+  hidden?: boolean;
+}): JSX.Element {
   const [status, setStatus] = useState<MemorySearchStatus | null>(isDesktop() ? null : PREVIEW);
   const [error, setError] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -116,7 +122,11 @@ export function MemorySearchSettings({ className }: { className?: string }): JSX
     }
   }
   return (
-    <Surface className={`${styles.panel} ${className ?? ""}`} aria-label="기억 검색 설정">
+    <Surface
+      hidden={hidden}
+      className={`${styles.panel} ${className ?? ""}`}
+      aria-label="기억 검색 설정"
+    >
       <div className={styles.body}>
         <div className={styles.heading}>
           <h2 className={styles.title}>기억 검색</h2>

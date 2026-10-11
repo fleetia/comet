@@ -124,12 +124,22 @@ fn complete(state: &AppState, kind: Kind, epoch: u64, panicked: bool) -> Result<
     }
     tasks.active = None;
     tasks.conversation = None;
+    let cancelled = lock(&state.cancellation)?
+        .as_ref()
+        .is_some_and(|cancel| cancel.load(std::sync::atomic::Ordering::SeqCst));
     if panicked {
         state.nlp.pause_indexing(false);
         let mut status = lock(&state.runtime)?;
         status.phase = RuntimePhase::Error;
+        status.persona = None;
         status.error = Some("작업이 중단됐어요. 다시 시도해 주세요.".into());
         *lock(&state.playback)? = None;
+    } else if cancelled {
+        state.nlp.pause_indexing(false);
+        let mut status = lock(&state.runtime)?;
+        status.phase = RuntimePhase::Idle;
+        status.persona = None;
+        status.error = None;
     }
     Ok(true)
 }
@@ -212,6 +222,55 @@ pub(crate) async fn acquire_gate(
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn cancelled_background_completion_releases_its_busy_state() {
+        let state = crate::app::tests::state();
+        let (epoch, cancel) = {
+            let _action = lock(&state.action).unwrap();
+            reserve(&state, Kind::Background, true).unwrap()
+        };
+        {
+            let mut runtime = lock(&state.runtime).unwrap();
+            runtime.persona = Some("a".into());
+            runtime.error = Some("old error".into());
+        }
+        crate::organizer_runtime::touch(&state);
+        assert!(cancel.load(Ordering::SeqCst));
+        assert!(!complete(&state, Kind::Conversation, epoch, false).unwrap());
+        assert_eq!(lock(&state.runtime).unwrap().phase, RuntimePhase::Loading);
+
+        assert!(complete(&state, Kind::Background, epoch, false).unwrap());
+
+        assert!(active_request(&state).unwrap().is_none());
+        let runtime = lock(&state.runtime).unwrap();
+        assert_eq!(runtime.phase, RuntimePhase::Idle);
+        assert!(runtime.persona.is_none());
+        assert!(runtime.error.is_none());
+    }
+
+    #[test]
+    fn cancelled_background_completion_cannot_reset_a_newer_direct_request() {
+        let state = crate::app::tests::state();
+        let old = {
+            let _action = lock(&state.action).unwrap();
+            reserve(&state, Kind::Background, true).unwrap()
+        };
+        crate::organizer_runtime::touch(&state);
+        let new = {
+            let _action = lock(&state.action).unwrap();
+            reserve_conversation(&state, Some("session"), "new-input").unwrap()
+        };
+        assert!(old.1.load(Ordering::SeqCst));
+
+        assert!(!complete(&state, Kind::Background, old.0, false).unwrap());
+
+        let active = active_request(&state).unwrap().unwrap();
+        assert_eq!(active.epoch, new.0);
+        assert_eq!(active.message_id.as_deref(), Some("new-input"));
+        assert_eq!(lock(&state.runtime).unwrap().phase, RuntimePhase::Loading);
+        assert!(!new.1.load(Ordering::SeqCst));
+    }
 
     #[test]
     fn a_panicking_previous_job_cannot_clear_the_new_reservation() {

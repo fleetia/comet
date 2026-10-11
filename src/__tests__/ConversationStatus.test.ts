@@ -13,6 +13,23 @@ it("reports selected local readiness without consulting another installed model"
   });
 });
 
+it("uses ChatGPT readiness independently of local model and API key readiness", () => {
+  const snapshot = {
+    ...PREVIEW_SNAPSHOT,
+    modelReady: true,
+    hasApiKey: true,
+    settings: { ...PREVIEW_SNAPSHOT.settings, mode: "chatgpt" as const },
+  };
+  expect(aiAvailability(snapshot)).toEqual({
+    ready: false,
+    label: "AI 자유 대화 · ChatGPT 연결 필요",
+  });
+  expect(aiAvailability({ ...snapshot, chatgptReady: true })).toEqual({
+    ready: true,
+    label: "AI 자유 대화 · ChatGPT 연결됨",
+  });
+});
+
 it.each([
   ["https://api.example.com/v1", "model", false, false],
   ["https://api.example.com/v1", "model", true, true],

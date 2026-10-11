@@ -195,6 +195,7 @@ pub fn run() {
                 .or_else(|_| story::catalog())
                 .map_err(std::io::Error::other)?;
             let state = Arc::new(AppState {
+                organizer: crate::organizer_runtime::Runtime::default(),
                 db: Mutex::new(
                     open_session(&app_data.join(DATABASE_FILE)).map_err(std::io::Error::other)?,
                 ),
@@ -247,6 +248,10 @@ pub fn run() {
                 positions: Mutex::new(HashMap::new()),
             });
             app.manage(state.clone());
+            state
+                .inference
+                .configure_chatgpt(&app.config().identifier)
+                .map_err(std::io::Error::other)?;
             crate::character_reaction_host::install(app.handle(), state.clone());
             app.manage(desktop_toys::Runtime::default());
             app.manage(crate::widget_runtime::Runtime::default());
@@ -452,8 +457,35 @@ pub fn run() {
             crate::memo_notes::save_memo_note,
             widget_commands::get_widgets,
             widget_commands::list_usage_applications,
+            crate::chatgpt::get_chatgpt_status,
+            crate::chatgpt::login_chatgpt,
+            crate::chatgpt::cancel_chatgpt_login,
+            crate::chatgpt::select_chatgpt_account,
+            crate::chatgpt::logout_chatgpt,
+            crate::chatgpt::list_chatgpt_models,
+            crate::chatgpt::open_chatgpt_usage,
+            crate::organizer_commands::organizer_status,
+            crate::organizer_commands::organizer_save_settings,
+            crate::organizer_commands::organizer_connect_vault,
+            crate::organizer_commands::organizer_disconnect_vault,
+            crate::organizer_commands::organizer_scan_vault,
+            crate::organizer_commands::organizer_run,
+            crate::organizer_commands::organizer_pause,
+            crate::organizer_commands::organizer_touch,
+            crate::organizer_commands::organizer_search,
+            crate::organizer_commands::organizer_records,
+            crate::organizer_commands::organizer_actions,
+            crate::organizer_commands::organizer_open_source,
+            crate::organizer_commands::organizer_undo,
+            crate::organizer_commands::organizer_open_records,
+            crate::organizer_commands::organizer_open_action,
+            crate::organizer_commands::organizer_pick_folder,
             crate::diary::get_diary,
             crate::diary::update_diary,
+            crate::conversation_notes::get_conversation_notes,
+            crate::conversation_notes::set_conversation_note_context,
+            crate::conversation_notes::open_conversation_note,
+            crate::conversation_notes::save_conversation_note,
             crate::widget_runtime::get_widget_runtime,
             widget_commands::install_widgets,
             widget_commands::set_widget_enabled,
@@ -474,6 +506,7 @@ pub fn run() {
             widget_connections::connect_calendar_apple,
             widget_connections::list_apple_calendars,
             crate::planner_windows::get_planner_tab,
+            crate::planner_windows::get_planner_note_target,
             crate::planner_windows::set_planner_tab,
             crate::planner_windows::preview_planner_recurrence,
             crate::planner_windows::open_planner_settings,
@@ -563,6 +596,14 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("failed to build comet")
         .run(|app, event| match event {
+            tauri::RunEvent::Ready => {
+                let auth_state = app.state::<Arc<AppState>>().inner().clone();
+                let auth_app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = auth_state.inference.chatgpt.initialize().await;
+                    publish(&auth_app, &auth_state);
+                });
+            }
             tauri::RunEvent::ExitRequested { api, code, .. } => {
                 if let Some(state) = app.try_state::<Arc<AppState>>() {
                     if windows::settings_exit_needs_confirmation(&state) {

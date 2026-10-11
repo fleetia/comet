@@ -118,7 +118,8 @@ fn executable_identity(path: &str) -> Option<Application> {
         .unwrap_or(file);
     // The UWP frame host can represent several unrelated applications. Without
     // a per-application identity, omit it rather than combine their usage.
-    if name.is_empty() || normalized.is_empty() || name.eq_ignore_ascii_case("ApplicationFrameHost") {
+    if name.is_empty() || normalized.is_empty() || name.eq_ignore_ascii_case("ApplicationFrameHost")
+    {
         return None;
     }
     // A stable executable identity without retaining user-specific path text.
@@ -158,7 +159,9 @@ pub(super) fn applications() -> Result<Vec<Application>, String> {
     // The callback is synchronous; state stays live for the entire enumeration.
     let result = unsafe { EnumWindows(Some(collect), (&mut state as *mut Enumeration) as LPARAM) };
     if result == 0 || state.overflow {
-        return Err("실행 중인 프로그램 목록을 확인하지 못했어요. 잠시 후 새로고침해 주세요.".into());
+        return Err(
+            "실행 중인 프로그램 목록을 확인하지 못했어요. 잠시 후 새로고침해 주세요.".into(),
+        );
     }
     Ok(state.pids.into_iter().filter_map(application).collect())
 }

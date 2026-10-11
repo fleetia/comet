@@ -61,9 +61,23 @@ impl GenerationBudget {
             timeout: Duration::from_secs(600),
         }
     }
+
+    fn organizer(settings: &Settings, output_tokens: u32) -> Self {
+        if settings.mode != "local" {
+            return Self::conversation(settings, output_tokens);
+        }
+        Self {
+            context_tokens: LOCAL_WIDGET_CONTEXT_TOKENS,
+            output_tokens: output_tokens.min(2048),
+            reasoning_tokens: 0,
+            timeout: Duration::from_secs(180),
+        }
+    }
 }
+
 pub struct Inference {
     pub app_data: PathBuf,
+    pub(crate) chatgpt: crate::chatgpt::Service,
     sidecar_path: PathBuf,
     runtime_dir: PathBuf,
     local: Mutex<Option<LocalServer>>,
@@ -71,11 +85,16 @@ pub struct Inference {
 impl Inference {
     pub fn new(app_data: PathBuf, sidecar_path: PathBuf, runtime_dir: PathBuf) -> Self {
         Self {
+            chatgpt: crate::chatgpt::Service::new(&app_data),
             app_data,
             sidecar_path,
             runtime_dir,
             local: Mutex::new(None),
         }
+    }
+
+    pub(crate) fn configure_chatgpt(&self, identifier: &str) -> Result<(), String> {
+        self.chatgpt.configure(identifier)
     }
 }
 
@@ -524,6 +543,25 @@ pub async fn generate_widget(
     .await
 }
 
+pub(crate) async fn generate_organizer(
+    inference: &Inference,
+    settings: &Settings,
+    messages: &[ChatMessage],
+    schema: Value,
+    max_tokens: u32,
+    cancel: Arc<AtomicBool>,
+) -> Result<Value, String> {
+    generate_with_budget(
+        inference,
+        settings,
+        messages,
+        schema,
+        GenerationBudget::organizer(settings, max_tokens),
+        cancel,
+    )
+    .await
+}
+
 async fn generate_with_budget(
     inference: &Inference,
     settings: &Settings,
@@ -534,6 +572,17 @@ async fn generate_with_budget(
 ) -> Result<Value, String> {
     if cancel.load(Ordering::Acquire) {
         return Err("취소됨".into());
+    }
+    if settings.mode == "chatgpt" {
+        return crate::chatgpt::generate(
+            &inference.chatgpt,
+            settings,
+            messages,
+            schema,
+            budget.timeout,
+            cancel,
+        )
+        .await;
     }
     let local = settings.mode == "local";
     let (url, key, configured) = if local {
@@ -692,22 +741,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn local_reasoning_setting_and_widget_override_reserve_separate_output_budget() {
-        for (enabled, widget, expected_reasoning, expected_context) in [
-            (false, false, 0, 4096),
-            (true, false, 2048, 8192),
-            (false, true, 4096, 16384),
-            (true, true, 4096, 16384),
+    async fn local_generation_paths_reserve_independent_reasoning_and_output_budgets() {
+        for (enabled, kind, output, expected_reasoning, expected_context) in [
+            (false, "conversation", 128, 0, 4096),
+            (true, "conversation", 128, 2048, 8192),
+            (false, "widget", 4096, 4096, 16384),
+            (true, "widget", 4096, 4096, 16384),
+            (false, "organizer", 1200, 0, 16384),
+            (true, "organizer", 1400, 0, 16384),
         ] {
             let settings = Settings {
                 local_reasoning_enabled: enabled,
                 api_token_parameter: "max_tokens".into(),
                 ..Settings::default()
             };
-            let budget = if widget {
-                GenerationBudget::widget(&settings, 4096)
-            } else {
-                GenerationBudget::conversation(&settings, 128)
+            let budget = match kind {
+                "widget" => GenerationBudget::widget(&settings, output),
+                "organizer" => GenerationBudget::organizer(&settings, output),
+                _ => GenerationBudget::conversation(&settings, output),
             };
             let (result, payload) = captured_completion(
                 &settings,
@@ -722,10 +773,7 @@ mod tests {
             );
             assert_eq!(payload["reasoning_budget_tokens"], expected_reasoning);
             assert_eq!(payload["reasoning_format"], "deepseek");
-            assert_eq!(
-                payload["max_tokens"],
-                expected_reasoning + if widget { 4096 } else { 128 }
-            );
+            assert_eq!(payload["max_tokens"], expected_reasoning + output);
             assert_eq!(payload["response_format"]["type"], "json_schema");
             assert_eq!(budget.context_tokens, expected_context);
             assert_eq!(settings.local_reasoning_enabled, enabled);
@@ -733,28 +781,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn api_widget_requests_keep_provider_parameters_and_token_cap_unchanged() {
+    async fn api_widget_and_organizer_requests_keep_provider_parameters_and_token_caps() {
         let settings = Settings {
             mode: "api".into(),
             local_reasoning_enabled: true,
             api_token_parameter: "max_completion_tokens".into(),
             ..Settings::default()
         };
-        let (result, payload) = captured_completion(
-            &settings,
-            GenerationBudget::widget(&settings, 4096),
-            json!({"choices":[{"message":{"content":"{\"ok\":true}"}}]}),
-        )
-        .await;
-        assert_eq!(result.unwrap(), json!({"ok":true}));
-        assert_eq!(payload["max_completion_tokens"], 2048);
-        for key in [
-            "chat_template_kwargs",
-            "reasoning_budget_tokens",
-            "reasoning_format",
-            "max_tokens",
+        for (budget, output) in [
+            (GenerationBudget::widget(&settings, 4096), 2048),
+            (GenerationBudget::organizer(&settings, 1400), 1400),
         ] {
-            assert!(payload.get(key).is_none(), "unexpected API field: {key}");
+            let (result, payload) = captured_completion(
+                &settings,
+                budget,
+                json!({"choices":[{"message":{"content":"{\"ok\":true}"}}]}),
+            )
+            .await;
+            assert_eq!(result.unwrap(), json!({"ok":true}));
+            assert_eq!(payload["max_completion_tokens"], output);
+            for key in [
+                "chat_template_kwargs",
+                "reasoning_budget_tokens",
+                "reasoning_format",
+                "max_tokens",
+            ] {
+                assert!(payload.get(key).is_none(), "unexpected API field: {key}");
+            }
         }
     }
 

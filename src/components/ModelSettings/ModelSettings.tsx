@@ -1,4 +1,6 @@
 import { MemorySearchSettings } from "../MemorySettings/MemorySearchSettings";
+import { ChatGptSettings } from "../ChatGptSettings/ChatGptSettings";
+import { OrganizerSettings } from "../OrganizerSettings/OrganizerSettings";
 import { useState, type JSX, type ReactNode } from "react";
 import {
   Button,
@@ -15,7 +17,14 @@ import type { SettingsDraft } from "../../hooks/useSettingsDraft";
 import * as s from "../../lagrange.css";
 import * as styles from "./modelSettings.css";
 
-type Props = { snapshot: Snapshot; draft: SettingsDraft; footer?: ReactNode };
+type Props = {
+  snapshot: Snapshot;
+  draft: SettingsDraft;
+  footer?: ReactNode;
+  onOrganizerDirtyChange?: (dirty: boolean) => void;
+};
+
+export const PROVIDER_LABELS = { local: "로컬 모델", api: "외부 API", chatgpt: "ChatGPT" };
 
 function isKeylessApiUrl(baseUrl: string): boolean {
   try {
@@ -40,9 +49,16 @@ const FIT_LABELS: Record<LocalModelStatus["fit"], string> = {
   unknown: "이 컴퓨터의 메모리를 확인하지 못했어요",
 };
 
-export function ModelSettings({ snapshot, draft, footer }: Props): JSX.Element {
+export function ModelSettings({
+  snapshot,
+  draft,
+  footer,
+  onOrganizerDirtyChange,
+}: Props): JSX.Element {
   const { settings, apiKey, setApiKey, pending, change, run } = draft;
   const [confirmDownload, setConfirmDownload] = useState(false);
+  const [section, setSection] = useState<"connection" | "organizer">("connection");
+  const [organizerVisited, setOrganizerVisited] = useState(false);
   const recommendedModel = snapshot.localModels.find((model) => model.recommended);
   const memory = snapshot.device.totalMemory;
   const memoryBasis = memory
@@ -89,15 +105,39 @@ export function ModelSettings({ snapshot, draft, footer }: Props): JSX.Element {
   );
   return (
     <div className={styles.root}>
-      <div className={styles.actual}>
+      <div className={styles.actions} role="group" aria-label="AI 연결 영역">
+        <Button
+          variant={section === "connection" ? "primary" : "secondary"}
+          aria-pressed={section === "connection"}
+          onClick={() => setSection("connection")}
+        >
+          대화 연결
+        </Button>
+        <Button
+          variant={section === "organizer" ? "primary" : "secondary"}
+          aria-pressed={section === "organizer"}
+          onClick={() => {
+            setOrganizerVisited(true);
+            setSection("organizer");
+          }}
+        >
+          Ex-brain
+        </Button>
+      </div>
+      <div className={styles.actual} hidden={section !== "connection"}>
         <span className={styles.actualLabel}>
-          현재 사용 · {snapshot.settings.mode === "local" ? "로컬 모델" : "외부 API"}
+          현재 사용 · {PROVIDER_LABELS[snapshot.settings.mode]}
         </span>
         <p className={styles.caption}>
           사용할 방식을 선택하고 저장해요. 연결 테스트만으로 전환하지 않아요.
         </p>
       </div>
-      <fieldset className={styles.configuration} disabled={!!pending} aria-label="대화 모델 설정">
+      <fieldset
+        hidden={section !== "connection"}
+        className={styles.configuration}
+        disabled={!!pending}
+        aria-label="대화 모델 설정"
+      >
         <div className={styles.modeChoices} role="group" aria-label="대화 방식">
           <Button
             variant={settings.mode === "local" ? "primary" : "secondary"}
@@ -117,13 +157,23 @@ export function ModelSettings({ snapshot, draft, footer }: Props): JSX.Element {
           >
             외부 API
           </Button>
+          <Button
+            variant={settings.mode === "chatgpt" ? "primary" : "secondary"}
+            className={styles.modeButton}
+            aria-label="ChatGPT 사용"
+            aria-pressed={settings.mode === "chatgpt"}
+            onClick={() => change("mode", "chatgpt")}
+          >
+            ChatGPT
+          </Button>
           <span className={styles.caption}>
             {settings.mode === snapshot.settings.mode
-              ? `저장한 방식 · ${settings.mode === "local" ? "로컬 모델" : "외부 API"}`
+              ? `저장한 방식 · ${PROVIDER_LABELS[settings.mode]}`
               : "저장 후 전환"}
           </span>
         </div>
         <div className={styles.connectionLayout}>
+          {settings.mode === "chatgpt" && <ChatGptSettings draft={draft} footer={footer} />}
           <Surface className={styles.connectionPanel} hidden={settings.mode !== "local"}>
             <div className={styles.body}>
               <div className={styles.heading}>
@@ -461,7 +511,12 @@ export function ModelSettings({ snapshot, draft, footer }: Props): JSX.Element {
         <p>{selectedModel?.name}: 이 컴퓨터의 메모리로는 실행되지 않거나 매우 느릴 수 있어요.</p>
         {memoryBasis && <p className={styles.caption}>{memoryBasis}</p>}
       </Dialog>
-      <MemorySearchSettings className={styles.memorySearch} />
+      <MemorySearchSettings hidden={section !== "connection"} className={styles.memorySearch} />
+      {organizerVisited && (
+        <div hidden={section !== "organizer"} className={styles.organizer}>
+          <OrganizerSettings onDirtyChange={onOrganizerDirtyChange} />
+        </div>
+      )}
     </div>
   );
 }

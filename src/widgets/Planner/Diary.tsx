@@ -16,6 +16,7 @@ import { localDay, record, rows, text, type DataRecord, type ToolAction } from "
 import type { WidgetSnapshot, WidgetView } from "../types";
 import { DiaryCalendar, MiniCalendar } from "./DiaryCalendar";
 import { DiaryEnvelope, envelopeTitle } from "./DiaryEnvelope";
+import { OrganizerRecords } from "./OrganizerRecords";
 import { DiaryJournal } from "./DiaryJournal";
 import { DiaryNotes } from "./DiaryNotes";
 import { DiaryPage, discardDiaryPageDraft } from "./DiaryPage";
@@ -49,10 +50,12 @@ const VIEWS: [View, string][] = [
   ["day", "하루"],
 ];
 
-const TOOL_MENU: [PlannerToolTab, string][] = [
+type DiaryTool = PlannerToolTab | "organizer";
+const TOOL_MENU: [DiaryTool, string][] = [
   ["plans", "기간 계획"],
   ["templates", "템플릿"],
   ["today", "할 일 관리"],
+  ["organizer", "정리 기록"],
 ];
 const EMPTY_TOOL_STATE: PlannerToolState = { dirty: false, busy: false, blocking: false };
 
@@ -66,15 +69,16 @@ export function Diary(): ReactElement {
   );
   const [pageId, setPageId] = useState("");
   const [envelopeId, setEnvelopeId] = useState("");
-  const [tool, setTool] = useState<PlannerToolTab | null>(() => {
+  const [tool, setTool] = useState<DiaryTool | null>(() => {
     const tab = new URLSearchParams(location.search).get("tab");
-    return tab === "plans" || tab === "templates" ? tab : null;
+    return tab === "plans" || tab === "templates" || tab === "organizer" ? tab : null;
   });
-  const [toolsOpened, setToolsOpened] = useState(tool !== null);
+  const [toolsOpened, setToolsOpened] = useState(tool !== null && tool !== "organizer");
   const [toolState, setToolState] = useState<PlannerToolState>(EMPTY_TOOL_STATE);
   const [toolDismissVersion, setToolDismissVersion] = useState(0);
   const [navigationReady, setNavigationReady] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [requestedNote, setRequestedNote] = useState<{ id: string; version: number } | null>(null);
   const [archived, setArchived] = useState(false);
   const [creating, setCreating] = useState<"page" | "envelope" | null>(null);
   const [name, setName] = useState("");
@@ -181,6 +185,39 @@ export function Diary(): ReactElement {
   }
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
+  useEffect(() => {
+    if (!isDesktop()) return;
+    let active = true;
+    let received = false;
+    let cleanup: (() => void) | undefined;
+    function select(id: string | null): void {
+      if (!active || !id) return;
+      navigateRef.current(() => {
+        setNotesOpen(true);
+        setRequestedNote((previous) => ({ id, version: (previous?.version ?? 0) + 1 }));
+      });
+    }
+    void listen<string>("planner-note", (event) => {
+      received = true;
+      select(event.payload);
+    })
+      .then(async (unlisten) => {
+        if (!active) {
+          unlisten();
+          return;
+        }
+        cleanup = unlisten;
+        const id = await command<string | null>("get_planner_note_target");
+        if (!received) select(id);
+      })
+      .catch((cause: unknown) => {
+        if (active) setFailure(errorText(cause));
+      });
+    return () => {
+      active = false;
+      cleanup?.();
+    };
+  }, []);
   function openDay(date: string, nextView: View = "day"): void {
     navigate(() => {
       setTool(null);
@@ -220,11 +257,12 @@ export function Diary(): ReactElement {
       else cleanup();
     };
     const select = (tab: string): void => {
-      if (!active || !["today", "calendar", "plans", "templates"].includes(tab)) return;
+      if (!active || !["today", "calendar", "plans", "templates", "organizer"].includes(tab))
+        return;
       navigateRef.current(() => {
-        const nextTool = tab === "plans" || tab === "templates" ? tab : null;
+        const nextTool = tab === "plans" || tab === "templates" || tab === "organizer" ? tab : null;
         setTool(nextTool);
-        if (nextTool) setToolsOpened(true);
+        if (nextTool && nextTool !== "organizer") setToolsOpened(true);
         setView(tab === "calendar" ? "month" : "day");
         setDay(localDay());
         setMonth(localDay());
@@ -448,9 +486,9 @@ export function Diary(): ReactElement {
       }
     }
   }
-  function openTool(next: PlannerToolTab): void {
+  function openTool(next: DiaryTool): void {
     navigate(() => {
-      setToolsOpened(true);
+      if (next !== "organizer") setToolsOpened(true);
       setTool(next);
     });
   }
@@ -720,6 +758,7 @@ export function Diary(): ReactElement {
               </Button>
             )}
             <DiaryNotes
+              requestedNote={requestedNote}
               notes={notes}
               diaryAction={diaryAction}
               busy={saving}
@@ -973,11 +1012,11 @@ export function Diary(): ReactElement {
               }}
             >
               {toolsOpened && (
-                <div hidden={!tool} className={s.toolContent}>
+                <div hidden={!tool || tool === "organizer"} className={s.toolContent}>
                   <h1 className={s.title}>{TOOL_MENU.find(([value]) => value === tool)?.[1]}</h1>
                   <Planner
                     dismissVersion={toolDismissVersion}
-                    embeddedTab={tool ?? "plans"}
+                    embeddedTab={tool && tool !== "organizer" ? tool : "plans"}
                     selectedDay={day}
                     onSelectedDayChange={(date) =>
                       navigate(() => {
@@ -990,6 +1029,7 @@ export function Diary(): ReactElement {
                   />
                 </div>
               )}
+              {tool === "organizer" && <OrganizerRecords />}
               {!tool && (
                 <>
                   {notice && (

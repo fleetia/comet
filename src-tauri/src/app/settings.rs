@@ -95,7 +95,7 @@ fn validate_settings(
     if scope == Some(SettingsScope::Automatic) {
         return Ok(());
     }
-    if !["local", "api"].contains(&settings.mode.as_str())
+    if !["local", "api", "chatgpt"].contains(&settings.mode.as_str())
         || !["max_tokens", "max_completion_tokens"].contains(&settings.api_token_parameter.as_str())
     {
         return Err("설정값을 확인해 주세요.".into());
@@ -105,6 +105,11 @@ fn validate_settings(
         if settings.api_model.trim().is_empty() {
             return Err("API 모델명을 입력해 주세요.".into());
         }
+    }
+    if settings.mode == "chatgpt"
+        && (settings.chatgpt_model.trim().is_empty() || settings.chatgpt_model.len() > 200)
+    {
+        return Err("ChatGPT에서 사용할 모델을 선택해 주세요.".into());
     }
     if settings.mode == "local"
         && settings.local_model == LocalModel::Custom
@@ -138,6 +143,7 @@ pub(crate) fn apply_settings(
             random_presence_enabled: settings.random_presence_enabled,
             local_idle_enabled: settings.local_idle_enabled,
             api_idle_enabled: settings.api_idle_enabled,
+            chatgpt_idle_enabled: settings.chatgpt_idle_enabled,
             idle_minutes: settings.idle_minutes,
             quiet_hours: settings.quiet_hours.clone(),
             ..current
@@ -150,6 +156,7 @@ pub(crate) fn apply_settings(
             base_url: settings.base_url.clone(),
             api_model: settings.api_model.clone(),
             api_token_parameter: settings.api_token_parameter.clone(),
+            chatgpt_model: settings.chatgpt_model.clone(),
             ..current
         },
         None => settings.clone(),

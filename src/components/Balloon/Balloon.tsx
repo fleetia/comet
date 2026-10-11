@@ -19,6 +19,13 @@ import { activeCharacter, BALLOON_SPRITE, characterName, spriteUrl } from "../ch
 import { skinStyle, useImageSlice } from "../../hooks/useImageSlice";
 import { balloonTextStyle } from "../balloonTypography";
 import { aiAvailability, responseOrigin } from "./conversationStatus";
+import { OrganizerReceipt } from "./OrganizerReceipt";
+import { ConversationContext } from "./ConversationContext";
+import {
+  ConversationMessageActions,
+  ConversationSave,
+  type ConversationSaveRequest,
+} from "./ConversationSave";
 
 type Props = {
   snapshot: Snapshot;
@@ -123,6 +130,17 @@ export function Balloon({
     content: string;
   } | null>(null);
   const [logOpen, setLogOpen] = useState(false);
+  const [latestUserOpen, setLatestUserOpen] = useState(false);
+  const [choosingResumeNote, setChoosingResumeNote] = useState(false);
+  const [saveSelection, setSaveSelection] = useState<{
+    identity: string;
+    request: ConversationSaveRequest;
+  } | null>(null);
+  const saveRequest = saveSelection?.identity === viewIdentity ? saveSelection.request : null;
+  function selectSave(request: ConversationSaveRequest | null): void {
+    setSaveSelection(request ? { identity: viewIdentity, request } : null);
+  }
+  const [contextBusy, setContextBusy] = useState(false);
   const [sessions, setSessions] = useState<ConversationSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
@@ -137,7 +155,15 @@ export function Balloon({
   const responding = ["loading", "generating"].includes(snapshot.runtime.phase);
   const playing = Boolean(conversation && snapshot.playback);
   const idleBlocked = useRef(false);
-  idleBlocked.current = responding || playing || pending || logOpen || input.length > 0;
+  idleBlocked.current =
+    responding ||
+    playing ||
+    pending ||
+    logOpen ||
+    latestUserOpen ||
+    contextBusy ||
+    Boolean(saveRequest) ||
+    input.length > 0;
   const latestUser = (conversation?.messages ?? snapshot.messages)
     .filter((message) => message.role === "user")
     .at(-1);
@@ -163,6 +189,10 @@ export function Balloon({
   useEffect(() => {
     setDraftReplacement(null);
   }, [viewIdentity, latestUser?.id, responding, playing]);
+  useEffect(() => {
+    setSaveSelection(null);
+    setChoosingResumeNote(false);
+  }, [viewIdentity]);
   useLayoutEffect(() => {
     // A failed send can arrive while the native window still has its previous size,
     // or while an expanded conversation log has scrolled the document.
@@ -199,6 +229,7 @@ export function Balloon({
     setFailedSubmission(null);
     lastSubmission.current = null;
     setLogOpen(false);
+    setLatestUserOpen(false);
   }, [sessionId]);
   useEffect(() => {
     // Async generation can fail after send_message accepted and cleared the editor.
@@ -478,6 +509,9 @@ export function Balloon({
       !sessionId ||
       input.length > 0 ||
       logOpen ||
+      latestUserOpen ||
+      contextBusy ||
+      saveRequest ||
       responding ||
       playing ||
       pending
@@ -497,7 +531,18 @@ export function Balloon({
       }
     }, 1000);
     return () => clearInterval(timer);
-  }, [mode, sessionId, input, logOpen, responding, playing, pending]);
+  }, [
+    mode,
+    sessionId,
+    input,
+    logOpen,
+    latestUserOpen,
+    contextBusy,
+    saveRequest,
+    responding,
+    playing,
+    pending,
+  ]);
   async function send(aiOnly = false): Promise<void> {
     if (
       !snapshot.user ||
@@ -569,6 +614,14 @@ export function Balloon({
     (failedInputIndex < 0 || conversation!.messages.indexOf(latestReply) < failedInputIndex),
   );
   const paused = sessions.find((session) => session.status === "paused");
+  const resumableWork = sessions
+    .filter((session) => session.noteContext)
+    .sort(
+      (left, right) =>
+        (right.noteContext?.linkedAt ?? 0) - (left.noteContext?.linkedAt ?? 0) ||
+        right.updatedAt - left.updatedAt,
+    )[0];
+  const noteContext = conversation?.noteContext ?? conversation?.session.noteContext;
   const recipientName = characterName(
     snapshot,
     target === "all" ? (conversation?.session.participants[0] ?? persona) : target,
@@ -707,87 +760,117 @@ export function Balloon({
           ×
         </IconButton>
       )}
-      {mode === "menu" && (
+      {mode === "menu" && !saveRequest && (
         <>
-          <nav className={s.menu} aria-label="캐릭터 메뉴">
-            <div className={s.menuGroup} role="group" aria-label="대화">
-              <Button
-                variant="quiet"
-                className={s.menuItem}
-                onClick={() => void perform("open_panel", { persona, mode: "input" })}
-              >
-                말 걸기
-              </Button>
-              {paused && (
+          {!choosingResumeNote && (
+            <nav className={s.menu} aria-label="캐릭터 메뉴">
+              <div className={s.menuGroup} role="group" aria-label="대화">
                 <Button
                   variant="quiet"
                   className={s.menuItem}
-                  onClick={() => void perform("resume_chat", { sessionId: paused.id })}
+                  onClick={() => void perform("open_panel", { persona, mode: "input" })}
                 >
-                  이어하기
+                  말 걸기
                 </Button>
-              )}
-              <Button
-                variant="quiet"
-                className={s.menuItem}
-                onClick={() => void perform("talk_now")}
-              >
-                {snapshot.characters.active.length > 1 ? "함께 이야기해 봐" : "혼잣말 들어 보기"}
-              </Button>
-              <Button
-                variant="quiet"
-                className={s.menuItem}
-                onClick={() => void perform("open_panel", { persona, mode: "history" })}
-              >
-                지난 대화
-              </Button>
-            </div>
-            <div className={s.menuGroup} role="group" aria-label="관리">
-              <Button
-                variant="quiet"
-                className={s.menuItem}
-                onClick={() => void perform("open_settings")}
-              >
-                설정
-              </Button>
-            </div>
-            <div className={s.menuGroup} role="group" aria-label="자동 잡담과 표시">
-              {snapshot.runtime.paused ? (
                 <Button
                   variant="quiet"
                   className={s.menuItem}
-                  onClick={() => void perform("set_paused", { paused: false })}
+                  disabled={sessionsLoading}
+                  onClick={() =>
+                    resumableWork
+                      ? void perform("resume_chat", { sessionId: resumableWork.id })
+                      : setChoosingResumeNote(true)
+                  }
                 >
-                  다시 시작
+                  이어서 하기
                 </Button>
-              ) : (
-                <details>
-                  <summary className={s.pauseSummary}>자동 잡담 쉬기</summary>
+                {resumableWork?.noteContext && (
+                  <span className={s.conversationMeta}>
+                    {resumableWork.noteContext.noteRef.title}
+                  </span>
+                )}
+                {paused && (
                   <Button
                     variant="quiet"
                     className={s.menuItem}
-                    onClick={() => void perform("set_paused", { paused: true, minutes: 60 })}
+                    onClick={() => void perform("resume_chat", { sessionId: paused.id })}
                   >
-                    1시간
+                    대화 이어하기
                   </Button>
+                )}
+                <Button
+                  variant="quiet"
+                  className={s.menuItem}
+                  onClick={() => void perform("talk_now")}
+                >
+                  {snapshot.characters.active.length > 1 ? "함께 이야기해 봐" : "혼잣말 들어 보기"}
+                </Button>
+                <Button
+                  variant="quiet"
+                  className={s.menuItem}
+                  onClick={() => void perform("open_panel", { persona, mode: "history" })}
+                >
+                  지난 대화
+                </Button>
+              </div>
+              <div className={s.menuGroup} role="group" aria-label="관리">
+                <Button
+                  variant="quiet"
+                  className={s.menuItem}
+                  onClick={() => void perform("open_settings")}
+                >
+                  설정
+                </Button>
+              </div>
+              <div className={s.menuGroup} role="group" aria-label="자동 잡담과 표시">
+                {snapshot.runtime.paused ? (
                   <Button
                     variant="quiet"
                     className={s.menuItem}
-                    onClick={() => void perform("set_paused", { paused: true })}
+                    onClick={() => void perform("set_paused", { paused: false })}
                   >
-                    다시 시작할 때까지
+                    다시 시작
                   </Button>
-                </details>
-              )}
-              <Button
-                variant="quiet"
-                className={s.menuItem}
-                onClick={() => void perform("hide_boxes")}
-              >
-                캐릭터 숨기기
-              </Button>
+                ) : (
+                  <details>
+                    <summary className={s.pauseSummary}>자동 잡담 쉬기</summary>
+                    <Button
+                      variant="quiet"
+                      className={s.menuItem}
+                      onClick={() => void perform("set_paused", { paused: true, minutes: 60 })}
+                    >
+                      1시간
+                    </Button>
+                    <Button
+                      variant="quiet"
+                      className={s.menuItem}
+                      onClick={() => void perform("set_paused", { paused: true })}
+                    >
+                      다시 시작할 때까지
+                    </Button>
+                  </details>
+                )}
+                <Button
+                  variant="quiet"
+                  className={s.menuItem}
+                  onClick={() => void perform("hide_boxes")}
+                >
+                  캐릭터 숨기기
+                </Button>
+              </div>
+            </nav>
+          )}
+          {choosingResumeNote && (
+            <div className={s.inputContents}>
+              <ConversationContext
+                key={`${userId}:${persona}`}
+                persona={persona}
+                initiallyChoosing
+                onBusyChange={setContextBusy}
+                onClose={() => setChoosingResumeNote(false)}
+              />
             </div>
-          </nav>
+          )}
           {sessionsError && (
             <p className={s.error} role="alert">
               {sessionsError}
@@ -822,9 +905,28 @@ export function Balloon({
           집중 시간 동안에는 대화를 사용할 수 없어요. 집중을 마친 뒤 다시 말 걸어 주세요.
         </p>
       )}
-      {mode === "input" && (
+      {saveRequest && (
+        <div className={s.inputContents}>
+          <ConversationSave
+            key={`${userId}:${saveRequest.sessionId}:${saveRequest.message.id}:${saveRequest.kind}`}
+            snapshot={snapshot}
+            request={saveRequest}
+            onClose={() => selectSave(null)}
+          />
+        </div>
+      )}
+      {mode === "input" && !saveRequest && (
         <div className={s.inputContents} role="region" aria-label="대화 내용과 입력" tabIndex={0}>
           {notice}
+          <ConversationContext
+            key={`${userId}:${sessionId ?? persona}`}
+            sessionId={sessionId}
+            persona={persona}
+            context={noteContext}
+            onBusyChange={setContextBusy}
+            disabled={responding || playing || pending || navigating}
+          />
+          {latestUser && <OrganizerReceipt key={latestUser.id} inputId={latestUser.id} />}
           {conversation && (snapshot.playback || latestReply) && (
             <div
               className={s.conversationSpeech}
@@ -850,6 +952,46 @@ export function Balloon({
               {snapshot.playback ? speech : latestReply?.content}
             </div>
           )}
+          {conversation && latestReply && !snapshot.playback && (
+            <div className={s.notice}>
+              <ConversationMessageActions
+                message={latestReply}
+                onSave={(kind) =>
+                  selectSave({
+                    sessionId: conversation.session.id,
+                    context: noteContext,
+                    message: latestReply,
+                    kind,
+                  })
+                }
+              />
+            </div>
+          )}
+          {conversation && latestUser && (
+            <details
+              className={s.conversationDetails}
+              open={latestUserOpen}
+              onToggle={(event) => setLatestUserOpen(event.currentTarget.open)}
+            >
+              <summary className={s.conversationSummary}>최근에 한 말</summary>
+              {latestUserOpen && (
+                <>
+                  <p className={s.historyMessage}>{latestUser.content}</p>
+                  <ConversationMessageActions
+                    message={latestUser}
+                    onSave={(kind) =>
+                      selectSave({
+                        sessionId: conversation.session.id,
+                        context: noteContext,
+                        message: latestUser,
+                        kind,
+                      })
+                    }
+                  />
+                </>
+              )}
+            </details>
+          )}
           {conversation && (
             <details
               className={s.conversationDetails}
@@ -863,6 +1005,14 @@ export function Balloon({
                   snapshot={snapshot}
                   sessionId={conversation.session.id}
                   page={conversation}
+                  onSave={(message, kind) =>
+                    selectSave({
+                      sessionId: conversation.session.id,
+                      context: noteContext,
+                      message,
+                      kind,
+                    })
+                  }
                 />
               )}
             </details>
@@ -985,7 +1135,7 @@ export function Balloon({
         </div>
       )}
       {mode === "history" && (
-        <>
+        <div style={{ display: saveRequest ? "none" : "contents" }}>
           <ConversationHistory
             key={`${snapshot.user?.id}:${persona}`}
             snapshot={snapshot}
@@ -995,6 +1145,7 @@ export function Balloon({
             error={sessionsError}
             previewConversations={previewConversations}
             onResume={(id) => void perform("resume_chat", { sessionId: id })}
+            onSave={selectSave}
           />
           <div className={s.footer}>
             {snapshot.relationships.map((relationship) => (
@@ -1003,7 +1154,7 @@ export function Balloon({
               </span>
             ))}
           </div>
-        </>
+        </div>
       )}
       {!mode && snapshot.story && (
         <StoryChoices

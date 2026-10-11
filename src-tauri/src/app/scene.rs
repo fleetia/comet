@@ -36,6 +36,10 @@ pub(crate) fn present_line(
     {
         return Ok(false);
     }
+    if direct_reply && matches!(source, "llm" | "question") {
+        // Recheck under the same action boundary as saving/displaying the response.
+        crate::conversation_notes::validate_reply(&db, id)?;
+    }
     let saved = if direct_reply {
         if store::message_displayed(&db, id)? {
             return Ok(false);
@@ -146,6 +150,16 @@ pub(crate) async fn wait_for_displayed_line(
     .await
 }
 
+fn missing_display_line(state: &AppState) -> Result<Option<Playback>, String> {
+    let runtime = lock(&state.runtime)?;
+    if matches!(runtime.phase, crate::types::RuntimePhase::Error) {
+        if let Some(error) = &runtime.error {
+            return Err(error.clone());
+        }
+    }
+    Ok(None)
+}
+
 async fn wait_for_displayed_line_until(
     state: &AppState,
     epoch: u64,
@@ -159,7 +173,8 @@ async fn wait_for_displayed_line_until(
         }
         let playback = lock(&state.playback)?;
         let Some(line) = playback.as_ref() else {
-            return Ok(None);
+            drop(playback);
+            return missing_display_line(state);
         };
         line.id.clone()
     };
@@ -169,10 +184,18 @@ async fn wait_for_displayed_line_until(
             if !is_current(state, epoch, &cancel) {
                 return Ok(None);
             }
+            let db = lock(&state.db)?;
             let mut playback = lock(&state.playback)?;
             let Some(line) = playback.as_ref().filter(|line| line.id == line_id) else {
-                return Ok(None);
+                drop(playback);
+                return missing_display_line(state);
             };
+            if matches!(line.source.as_str(), "llm" | "question") {
+                if let Err(error) = crate::conversation_notes::validate_reply(&db, &line.id) {
+                    *playback = None;
+                    return Err(error);
+                }
+            }
             if line.display_started_at.is_some() {
                 Some(line.clone())
             } else if tokio::time::Instant::now() >= deadline {
@@ -243,10 +266,13 @@ async fn wait_for_valid_line(
             return Ok(false);
         }
         let at = chrono::Utc::now().timestamp_millis();
-        if matches!(line.source.as_str(), "llm" | "question")
-            && !store::recall_valid(&*lock(&state.db)?, &line.id, at)?
-        {
-            return Ok(false);
+        if matches!(line.source.as_str(), "llm" | "question") {
+            let db = lock(&state.db)?;
+            if !store::recall_valid(&db, &line.id, at)?
+                || crate::conversation_notes::validate_reply(&db, &line.id).is_err()
+            {
+                return Ok(false);
+            }
         }
         if at >= until {
             return Ok(true);

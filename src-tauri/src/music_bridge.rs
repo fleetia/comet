@@ -851,7 +851,9 @@ mod tests {
     static SESSION_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     pub(super) fn session_guard() -> std::sync::MutexGuard<'static, ()> {
-        SESSION_TEST.lock().unwrap_or_else(|error| error.into_inner())
+        SESSION_TEST
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
     }
 
     fn upgrade(origin: &str, host: &str) -> Request {

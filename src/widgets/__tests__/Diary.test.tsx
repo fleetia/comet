@@ -124,6 +124,7 @@ beforeEach(() => {
       if (name === "get_widgets") return structuredClone(widgets);
       if (name === "get_diary") return structuredClone(diary);
       if (name === "get_planner_tab") return "today";
+      if (name === "get_planner_note_target") return null;
       if (name === "set_planner_tab") return null;
       if (name === "update_diary") return update(String(args?.action), args?.input as DataRecord);
       if (name === "execute_widget") return execute(args?.request as DataRecord);
@@ -145,6 +146,29 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   vi.useRealTimers();
+});
+
+it("opens the exact stored note from a conversation without changing its location or discarding an editor draft", async () => {
+  diary.notes = [
+    { id: "linked-note", title: "이어갈 작업", body: "독자 검증은 아직", pinned: false },
+  ];
+  await openDiary();
+  function requestNote(): void {
+    for (const [event, callback] of vi.mocked(listen).mock.calls) {
+      if (event === "planner-note") callback({ event, id: 1, payload: "linked-note" });
+    }
+  }
+  act(requestNote);
+  const content = await screen.findByRole("textbox", { name: "메모 내용" });
+  expect(content).toHaveProperty("value", "독자 검증은 아직");
+  fireEvent.change(content, { target: { value: "편집 중인 다음 작업" } });
+  act(requestNote);
+  expect(screen.getByRole("textbox", { name: "메모 내용" })).toHaveProperty(
+    "value",
+    "편집 중인 다음 작업",
+  );
+  expect(diary.notes[0].pinned).toBe(false);
+  expect(actions("update_diary")).toEqual([]);
 });
 
 it("projects month and week calendars into native state and clears it for tools and day pages", async () => {

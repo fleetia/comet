@@ -7,6 +7,11 @@ export function aiAvailability(snapshot: Snapshot): { ready: boolean; label: str
       ? { ready: true, label: "AI 자유 대화 · 로컬 모델 준비됨" }
       : { ready: false, label: "AI 자유 대화 · 모델 준비 필요" };
   }
+  if (snapshot.settings.mode === "chatgpt") {
+    return snapshot.chatgptReady
+      ? { ready: true, label: "AI 자유 대화 · ChatGPT 연결됨" }
+      : { ready: false, label: "AI 자유 대화 · ChatGPT 연결 필요" };
+  }
   let validUrl = false;
   let loopback = false;
   try {
