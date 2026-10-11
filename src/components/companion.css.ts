@@ -221,6 +221,21 @@ export const conversationMeta = style({
   fontSize: vars.typography.size.caption,
   color: vars.color.content.secondary,
 });
+export const conversationDraft = style({
+  fontSize: vars.typography.size.caption,
+  lineHeight: vars.typography.lineHeight.body,
+  display: "-webkit-box",
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+});
+export const conversationDraftBadge = style({
+  padding: `0 ${vars.space.xxs}`,
+  borderRadius: vars.shape.radius.subtle,
+  background: vars.color.surface.canvas,
+  color: vars.color.content.accent,
+  fontWeight: 600,
+});
 export const responseOrigin = style({
   display: "block",
   fontSize: vars.typography.size.caption,

@@ -863,9 +863,13 @@ it("undoes completion against the refreshed revision without touching diary reco
 });
 
 it("searches both memo stores and restores a desktop sheet without mutating Diary notes", async () => {
-  widgets.widgets = [
-    widget("memo", { notes: [{ id: "desktop", body: "  회의 메모\n그대로  ", isOpen: false }] }),
-  ];
+  const desktopNote = {
+    id: "desktop",
+    title: "발표 준비",
+    body: "  회의 메모\n그대로  ",
+    isOpen: false,
+  };
+  widgets.widgets = [widget("memo", { notes: [desktopNote] })];
   diary.notes = [{ id: "persistent", title: "계획", body: "내일 할 일", pinned: true }];
   await openDiary();
   const fallback = vi.mocked(command).getMockImplementation()!;
@@ -873,18 +877,19 @@ it("searches both memo stores and restores a desktop sheet without mutating Diar
     name === "open_memo_note" ? Promise.resolve(undefined) : fallback(name, args),
   );
   fireEvent.change(screen.getByRole("textbox", { name: "메모 검색" }), {
-    target: { value: "회의" },
+    target: { value: "발표" },
   });
   expect(screen.queryByText("계획")).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "계획" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "꺼내기" }));
+  expect(screen.getByRole("heading", { name: "발표 준비" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "회의 메모 그대로" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("open_memo_note", { id: "memo", noteId: "desktop" }),
   );
   expect(actions("update_diary")).toEqual([]);
   expect(actions("execute_widget")).toEqual([]);
   expect(widgets.widgets[0].data).toEqual({
-    notes: [{ id: "desktop", body: "  회의 메모\n그대로  ", isOpen: false }],
+    notes: [desktopNote],
   });
   fireEvent.change(screen.getByRole("textbox", { name: "메모 검색" }), {
     target: { value: "내일" },
@@ -931,3 +936,60 @@ it("shows the collapsed event history only on dated day pages", async () => {
   fireEvent.click(screen.getByRole("button", { name: "메모 모음" }));
   expect(screen.queryByText("함께한 기록")).toBeNull();
 });
+
+it.each(["pinned", "stored"] as const)(
+  "protects the other note draft on close after cancelling the %s editor across search and date changes",
+  async (cancelFirst) => {
+    diary.notes = [
+      { id: "pinned", title: "곁에 둔 생각", body: "계속 쓸 원문", pinned: true },
+      { id: "stored", title: "넣어둔 생각", body: "보관한 원문", pinned: false },
+    ];
+    const titles = { pinned: "곁에 둔 생각", stored: "넣어둔 생각" };
+    const drafts = { pinned: "  계속 쓰던\n초안  ", stored: "  보관 중인\n초안  " };
+    const remaining = cancelFirst === "pinned" ? "stored" : "pinned";
+    await openDiary();
+    const search = screen.getByRole("textbox", { name: "메모 검색" });
+    fireEvent.click(screen.getByRole("button", { name: "곁에 둔 생각 메모 편집" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "메모 내용" }), {
+      target: { value: drafts.pinned },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "넣어둔 메모 1개" }));
+    fireEvent.click(screen.getByRole("button", { name: "넣어둔 생각 메모 열기" }));
+    fireEvent.change(
+      within(screen.getByRole("article", { name: "넣어둔 생각 메모" })).getByRole("textbox", {
+        name: "메모 내용",
+      }),
+      { target: { value: drafts.stored } },
+    );
+    fireEvent.click(
+      within(screen.getByRole("article", { name: `${titles[cancelFirst]} 메모` })).getByRole(
+        "button",
+        { name: "취소" },
+      ),
+    );
+    fireEvent.change(search, { target: { value: "일치하지 않는 검색" } });
+    fireEvent.click(screen.getByRole("button", { name: `${NEXT_DAY} 기록 열기` }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: `${NEXT_DAY} 기록 열기` }).getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    const preventDefault = vi.fn();
+    act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault }));
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(native.destroy).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
+    fireEvent.change(search, { target: { value: "" } });
+    const editor = within(screen.getByRole("article", { name: `${titles[remaining]} 메모` }));
+    expect(editor.getByRole("textbox", { name: "메모 내용" })).toHaveProperty(
+      "value",
+      drafts[remaining],
+    );
+    expect(actions("update_diary")).toEqual([]);
+    expect(actions("execute_widget")).toEqual([]);
+    fireEvent.click(editor.getByRole("button", { name: "취소" }));
+    fireEvent.click(screen.getByRole("button", { name: "다이어리 닫기" }));
+    await waitFor(() => expect(native.destroy).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("dialog")).toBeNull();
+  },
+);

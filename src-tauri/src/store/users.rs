@@ -4,7 +4,12 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 pub const MEMORY_LIFETIME_MILLIS: i64 = 90 * 24 * 60 * 60 * 1000;
 
-fn add_column(conn: &Connection, table: &str, column: &str, definition: &str) -> Result<()> {
+pub(super) fn add_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<()> {
     let exists: bool = conn
         .query_row(
             &format!("SELECT EXISTS(SELECT 1 FROM pragma_table_info('{table}') WHERE name=?1)"),

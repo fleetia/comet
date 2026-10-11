@@ -59,6 +59,18 @@ const NAVIGATION = [
   ["templates", "템플릿"],
 ] as const;
 
+function planScopeLabel(period: string, day: string): string {
+  if (period === "inbox") {
+    return "수집함 · 날짜 없음";
+  }
+  if (period === "someday") {
+    return "언젠가 계획";
+  }
+  const names: Record<string, string> = { week: "주간", month: "월간", year: "연간" };
+  const name = names[period] ?? "기간";
+  return `${name} 계획 · ${periodAnchor(period, day)}–${moveDay(movePeriod(day, period, 1), -1)}`;
+}
+
 export type PlannerToolTab = "today" | "plans" | "templates";
 export type PlannerToolState = { dirty: boolean; busy: boolean; blocking: boolean };
 
@@ -111,7 +123,7 @@ export function Planner({
   onSelectedDayChange?: (day: string) => void;
 } = {}): ReactElement {
   const { snapshot, error: loadError, reload } = useWidgets();
-  const [failure, setFailure] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ message: string; saving: boolean } | null>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
@@ -133,7 +145,7 @@ export function Planner({
     setTab(next);
     if (!embedded && isDesktop()) {
       void command("set_planner_tab", { tab: next }).catch((cause: unknown) =>
-        setFailure(errorText(cause)),
+        setFailure({ message: errorText(cause), saving: false }),
       );
     }
   };
@@ -186,6 +198,7 @@ export function Planner({
   const widgets = snapshot?.widgets ?? [];
   const enabled = (kind: string): WidgetView | undefined =>
     widgets.find((w) => w.kind === kind && w.installed && w.enabled);
+  const todoInstalled = widgets.some((widget) => widget.kind === "todo" && widget.installed);
   const todo = enabled("todo"),
     calendar = enabled("calendar"),
     preparation = enabled("preparation"),
@@ -222,6 +235,7 @@ export function Planner({
   const inboxCount = items.filter(
     (item) => !item.completedAt && inPeriod(item, "inbox", day),
   ).length;
+  const planScope = planScopeLabel(period, planDay);
   const lastSuccess = Math.max(0, ...connections.map((c) => number(c.lastSuccessAt)));
 
   useEffect(() => {
@@ -246,7 +260,7 @@ export function Planner({
         if (!received && !initialTab) select(latest);
       })
       .catch((cause: unknown) => {
-        if (active) setFailure(errorText(cause));
+        if (active) setFailure({ message: errorText(cause), saving: false });
       });
     void getCurrentWindow()
       .onCloseRequested((e) => {
@@ -260,7 +274,7 @@ export function Planner({
         else cleanup();
       })
       .catch((cause: unknown) => {
-        if (active) setFailure(errorText(cause));
+        if (active) setFailure({ message: errorText(cause), saving: false });
       });
     return () => {
       active = false;
@@ -269,9 +283,12 @@ export function Planner({
     };
   }, [embedded]);
 
-  async function run(operation: () => Promise<unknown>): Promise<boolean> {
+  async function run(operation: () => Promise<unknown>, saving = false): Promise<boolean> {
     if (!isDesktop()) {
-      setFailure("미리보기에서는 저장하지 않아요. 실제 조작은 데스크톱 앱에서 할 수 있어요.");
+      setFailure({
+        message: "미리보기에서는 저장하지 않아요. 실제 조작은 데스크톱 앱에서 할 수 있어요.",
+        saving: false,
+      });
       return false;
     }
     if (pending.current) return false;
@@ -283,7 +300,7 @@ export function Planner({
       await operation();
       return true;
     } catch (cause: unknown) {
-      setFailure(errorText(cause));
+      setFailure({ message: errorText(cause), saving });
       reload();
       return false;
     } finally {
@@ -293,19 +310,21 @@ export function Planner({
   }
   const act: ToolAction = (action, input = {}, target = todo) => {
     if (!target) {
-      setFailure("이 도구를 먼저 설치하고 켜 주세요.");
+      setFailure({ message: "이 도구를 먼저 설치하고 켜 주세요.", saving: false });
       return Promise.resolve(false);
     }
-    return run(() =>
-      command("execute_widget", {
-        request: {
-          requestId: crypto.randomUUID(),
-          instanceId: target.id,
-          expectedRevision: target.revision,
-          action,
-          input,
-        },
-      }),
+    return run(
+      () =>
+        command("execute_widget", {
+          request: {
+            requestId: crypto.randomUUID(),
+            instanceId: target.id,
+            expectedRevision: target.revision,
+            action,
+            input,
+          },
+        }),
+      target.kind === "todo" && action === "add",
     );
   };
   function openSettings(kind = "calendar"): void {
@@ -347,7 +366,7 @@ export function Planner({
     const current = items.find((item) => item.id === id);
     const entry = rows(current?.frequencyRecords).find((value) => value.date === date);
     if (frequency && !entry) {
-      setFailure("최신 완료 기록을 불러온 뒤 다시 취소해 주세요.");
+      setFailure({ message: "최신 완료 기록을 불러온 뒤 다시 취소해 주세요.", saving: false });
       reload();
       return;
     }
@@ -400,7 +419,7 @@ export function Planner({
           </button>
         </div>
         <p className={s.caption}>
-          계획 · {plannedDay(item) || "미지정"}　{dueLabel(item) || "기한 없음"}
+          계획 · {plannedDay(item) || "날짜 없음"}　{dueLabel(item) || "기한 없음"}
         </p>
         {!!text(item.memo) && (
           <span className={s.memoPreview}>
@@ -413,39 +432,53 @@ export function Planner({
   }
   function quickInput(isToday: boolean): ReactElement {
     return (
-      <form
-        className={s.quick}
-        onSubmit={async (e) => {
-          e.preventDefault();
-          if (
-            await act("add", {
-              title,
-              listId: visibleList === "all" ? "default" : visibleList,
-              plannedDate: isToday ? day : null,
-              planPeriod: isToday || period === "inbox" ? "none" : period,
-              planAnchor:
-                isToday || ["inbox", "someday"].includes(period)
-                  ? null
-                  : periodAnchor(period, planDay),
-            })
-          )
-            setTitle("");
-        }}
-      >
-        <TextField
-          className={s.grow}
-          aria-label="새 할 일"
-          disabled={busy}
-          placeholder={isToday ? "할 일을 입력하고 Enter" : "이 기간에 하고 싶은 일을 적어 보세요."}
-          required
-          maxLength={500}
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-        <Button type="submit" variant="primary" disabled={busy || !todo}>
-          추가
-        </Button>
-      </form>
+      <>
+        <p className={s.caption} id={`planner-add-scope-${isToday ? "day" : "period"}`}>
+          {isToday
+            ? `새 할 일 계획일 · 선택일 ${day}`
+            : `새 할 일 · ${planScope}${period === "inbox" ? "" : " · 계획일 없음"}`}
+        </p>
+        <form
+          className={s.quick}
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (
+              await act("add", {
+                title,
+                listId: visibleList === "all" ? "default" : visibleList,
+                plannedDate: isToday ? day : null,
+                planPeriod: isToday || period === "inbox" ? "none" : period,
+                planAnchor:
+                  isToday || ["inbox", "someday"].includes(period)
+                    ? null
+                    : periodAnchor(period, planDay),
+              })
+            )
+              setTitle("");
+          }}
+        >
+          <TextField
+            className={s.grow}
+            aria-label="새 할 일"
+            aria-describedby={`planner-add-scope-${isToday ? "day" : "period"}`}
+            disabled={busy}
+            placeholder={
+              isToday
+                ? "할 일을 입력하고 Enter"
+                : period === "inbox"
+                  ? "날짜 없이 할 일을 적어 보세요."
+                  : "이 기간에 하고 싶은 일을 적어 보세요."
+            }
+            required
+            maxLength={500}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+          <Button type="submit" variant="primary" disabled={busy || !todo}>
+            추가
+          </Button>
+        </form>
+      </>
     );
   }
   function prep(): ReactElement {
@@ -499,12 +532,20 @@ export function Planner({
           }
         />
       )}
-      {(loadError || failure) && (
+      {loadError && (
         <div role="alert" className={s.error}>
-          {loadError || failure}{" "}
+          목록을 불러오지 못했어요. {loadError}{" "}
           <Button variant="quiet" size="compact" onClick={reload}>
             다시 불러오기
           </Button>
+        </div>
+      )}
+      {failure && (
+        <div role="alert" className={s.error}>
+          {failure.message}
+          {failure.saving && (
+            <p>저장을 확인하지 못했어요. 입력을 유지했으니 확인한 뒤 다시 제출해 주세요.</p>
+          )}
         </div>
       )}
       {!isDesktop() && (
@@ -534,7 +575,9 @@ export function Planner({
         </div>
       )}
       {!snapshot ? (
-        <div className={s.empty}>할 일을 불러오고 있어요.</div>
+        <div className={s.empty}>
+          {loadError ? "목록을 다시 불러와 주세요." : "할 일을 불러오고 있어요."}
+        </div>
       ) : (
         <Tabs value={tab} onValueChange={selectTab} className={embedded ? s.embeddedTabs : s.tabs}>
           {!embedded && (
@@ -582,13 +625,15 @@ export function Planner({
               <span className={s.caption}>기기 시간대 · {deviceTimeZone()}</span>
               <div className={s.spacer} />
               <span className={s.caption}>
-                할 일 {chosen.length}개 · 완료 {chosen.length - remaining.length}개
+                선택일 {day} · 할 일 {chosen.length}개 · 완료 {chosen.length - remaining.length}개
               </span>
             </div>
             <div className={embedded ? s.embeddedContent : s.split}>
               {!embedded && (
                 <aside className={s.column}>
-                  <h2 className={s.heading}>오늘 일정 · {dailyEvents.length}</h2>
+                  <h2 className={s.heading}>
+                    선택일 {day} 일정 · {dailyEvents.length}개
+                  </h2>
                   {!calendar || (!connections.length && !events.length) ? (
                     <div className={s.empty}>
                       <p className={s.caption}>내 캘린더도 함께 볼 수 있어요.</p>
@@ -608,7 +653,7 @@ export function Planner({
                         </div>
                       )}
                       {!dailyEvents.length && (
-                        <p className={s.caption}>이 날짜에 조회된 일정이 없어요.</p>
+                        <p className={s.caption}>{day}에 조회된 일정이 없어요.</p>
                       )}
                       {dailyEvents.map((e) => (
                         <button
@@ -639,11 +684,17 @@ export function Planner({
               )}
               <section
                 className={s.column}
-                aria-label={day === localDay() ? "오늘 할 일" : "선택 날짜 할 일"}
+                aria-label={
+                  allTasks
+                    ? "모든 날짜 할 일"
+                    : day === localDay()
+                      ? "오늘 할 일"
+                      : "선택 날짜 할 일"
+                }
               >
                 <div className={s.actions}>
                   <h2 className={s.heading}>
-                    {allTasks ? "모든 할 일" : day === localDay() ? "오늘 할 일" : `${day} 할 일`}
+                    {allTasks ? "모든 날짜 할 일" : `${day} 할 일`} · {displayedTasks.length}개
                   </h2>
                   <Button
                     variant="quiet"
@@ -662,14 +713,18 @@ export function Planner({
                       selectTab("plans");
                     }}
                   >
-                    수집함 {inboxCount}
+                    수집함 · 날짜 없음 · 미완료 {inboxCount}개
                   </Button>
                 </div>
                 {!todo ? (
                   <div className={s.empty}>
-                    <p>계정 없이 첫 할 일을 시작해 보세요.</p>
+                    <p>
+                      {todoInstalled
+                        ? "할 일 사용이 꺼져 있어요. 켜면 저장한 항목을 다시 볼 수 있어요."
+                        : "할 일을 설치하면 계정 없이 수집함을 사용할 수 있어요."}
+                    </p>
                     <Button variant="primary" disabled={busy} onClick={() => void enableTodo()}>
-                      할 일 시작하기
+                      {todoInstalled ? "할 일 켜기" : "할 일 설치"}
                     </Button>
                   </div>
                 ) : (
@@ -678,7 +733,9 @@ export function Planner({
                     {!displayedTasks.length && (
                       <div className={s.empty}>
                         <p>
-                          {allTasks ? "저장한 할 일이 없어요." : `${day}에 계획한 할 일이 없어요.`}
+                          {allTasks
+                            ? "모든 날짜와 날짜 없는 항목에 저장한 할 일이 없어요."
+                            : `${day}에 계획한 할 일이 없어요.`}
                         </p>
                         <Button
                           variant="quiet"
@@ -826,6 +883,15 @@ export function Planner({
                     목록 관리
                   </Button>
                 </div>
+                <h2 className={s.heading}>
+                  {planScope} · 표시 {shown.length}개
+                </h2>
+                <p className={s.caption}>
+                  {visibleList === "all"
+                    ? "모든 목록"
+                    : text(lists.find((list) => list.id === visibleList)?.name)}{" "}
+                  · {showCompleted ? "완료 포함" : "미완료만"}
+                </p>
                 <div style={{ overflow: "auto" }}>
                   <table className={s.table}>
                     <thead>
@@ -833,7 +899,7 @@ export function Planner({
                         <th>할 일</th>
                         <th>목록</th>
                         <th>기한·반복</th>
-                        <th>오늘 계획</th>
+                        <th>오늘 계획 · {localDay()}</th>
                         <th>
                           <span className={s.visuallyHidden}>편집</span>
                         </th>
@@ -882,15 +948,20 @@ export function Planner({
                   </table>
                   {!shown.length && (
                     <p className={s.empty}>
-                      이 기간에 계획한 일이 없어요. 위에서 하나씩 추가해 보세요.
+                      {planScope}에 표시할 할 일이 없어요. 위에서 하나씩 추가해 보세요.
                     </p>
                   )}
                 </div>
               </>
             ) : (
               <div className={s.empty}>
+                <p>
+                  {todoInstalled
+                    ? "할 일 사용이 꺼져 있어요. 켜면 저장한 항목을 다시 볼 수 있어요."
+                    : "할 일을 설치하면 계정 없이 수집함을 사용할 수 있어요."}
+                </p>
                 <Button variant="primary" disabled={busy} onClick={() => void enableTodo()}>
-                  할 일 시작하기
+                  {todoInstalled ? "할 일 켜기" : "할 일 설치"}
                 </Button>
               </div>
             )}
@@ -983,7 +1054,7 @@ export function Planner({
               <div className={s.empty}>
                 <p>할 일을 시작하면 템플릿을 사용할 수 있어요.</p>
                 <Button variant="primary" disabled={busy} onClick={() => void enableTodo()}>
-                  할 일 시작하기
+                  {todoInstalled ? "할 일 켜기" : "할 일 설치"}
                 </Button>
               </div>
             )}
@@ -992,7 +1063,9 @@ export function Planner({
       )}
       <footer className={s.footer}>
         {tab === "today"
-          ? `선택 날짜 ${day}에 계획한 일을 모아 봅니다. 모든 할 일 보기도 사용할 수 있어요. 계획 날짜와 기한은 별개입니다.`
+          ? allTasks
+            ? `모든 날짜와 날짜 없는 할 일을 함께 봅니다. 새 할 일의 계획일은 선택일 ${day}입니다.`
+            : `선택일 ${day}에 계획한 일을 모아 봅니다. 계획 날짜와 기한은 별개입니다.`
           : tab === "plans"
             ? "계획 기간은 목표를 묶는 기준입니다. 오늘에 넣어도 기한이나 반복 규칙은 바뀌지 않습니다."
             : tab === "calendar"
@@ -1009,9 +1082,11 @@ export function Planner({
           act={(action, input) => {
             const latest = items.find((item) => item.id === editing.item.id);
             if (!todo || JSON.stringify(latest) !== JSON.stringify(editing.item)) {
-              setFailure(
-                "이 항목이 다른 곳에서 변경되었습니다. 최신 내용을 다시 불러와 확인해 주세요.",
-              );
+              setFailure({
+                message:
+                  "이 항목이 다른 곳에서 변경되었습니다. 최신 내용을 다시 불러와 확인해 주세요.",
+                saving: false,
+              });
               return Promise.resolve(false);
             }
             return act(action, input, todo);
@@ -1025,7 +1100,7 @@ export function Planner({
       )}
       <Dialog
         isOpen={wrap}
-        title="오늘은 여기까지"
+        title={`${day} 하루 마무리`}
         size="small"
         onOpenChange={(open) => {
           if (!busy) setWrap(open);
@@ -1041,11 +1116,12 @@ export function Planner({
         >
           {failure && (
             <p role="alert" className={s.error}>
-              {failure}
+              {failure.message}
             </p>
           )}
           <p className={s.caption}>
-            오늘 {chosen.length - remaining.length}개를 마쳤어요. 남은 일은 옮길 것만 골라요.
+            선택일 {day} · 완료 {chosen.length - remaining.length}개 · 남은 일 {remaining.length}개.
+            옮길 일만 골라요.
           </p>
           {remaining.map((item) => (
             <Checkbox
@@ -1064,7 +1140,7 @@ export function Planner({
             <DateField required value={rollDate} onChange={(e) => setRollDate(e.target.value)} />
           </FormField>
           <p className={s.caption}>
-            선택하지 않은 일은 현재 날짜에 그대로 남아요. 원래 기한과 계획 기간은 유지합니다.
+            선택하지 않은 일은 {day}에 그대로 남아요. 원래 기한과 계획 기간은 유지합니다.
           </p>
           <div className={s.actions}>
             <Button variant="quiet" type="button" onClick={() => setWrap(false)}>
@@ -1083,7 +1159,7 @@ export function Planner({
           items={items}
           act={act}
           busy={busy}
-          failure={failure}
+          failure={failure?.message ?? null}
           onClose={() => setManageLists(false)}
         />
       )}

@@ -355,3 +355,94 @@ it("keeps an unsaved persistent-note draft mounted while search hides it", async
     ),
   );
 });
+
+it("expands stored-note search results and restores the prior collapse choice without pinning", () => {
+  const stored = { ...note, pinned: false, body: "  회의 뒤에\n이어 쓸 내용  " };
+  const diaryAction = vi.fn<DiaryAction>().mockResolvedValue(true);
+  render(<DiaryNotes notes={[stored]} diaryAction={diaryAction} busy={false} />);
+  const search = screen.getByRole("textbox", { name: "메모 검색" });
+  expect(screen.getByRole("button", { name: "넣어둔 메모 1개" })).toHaveProperty(
+    "ariaExpanded",
+    "false",
+  );
+  expect(screen.queryByRole("article", { name: "세션 아이디어 메모" })).toBeNull();
+
+  fireEvent.change(search, { target: { value: "회의" } });
+  expect(screen.getByRole("button", { name: "넣어둔 메모 1개" })).toHaveProperty(
+    "ariaExpanded",
+    "true",
+  );
+  const result = within(screen.getByRole("article", { name: "세션 아이디어 메모" }));
+  expect(result.getByText("세션 아이디어")).toBeTruthy();
+  expect(result.getByText("회의 뒤에 이어 쓸 내용")).toBeTruthy();
+  expect(result.getByRole("button", { name: "세션 아이디어 메모 열기" })).toBeTruthy();
+  fireEvent.change(search, { target: { value: "없는 내용" } });
+  expect(screen.queryByRole("article", { name: "세션 아이디어 메모" })).toBeNull();
+  fireEvent.change(search, { target: { value: "" } });
+  expect(screen.getByRole("button", { name: "넣어둔 메모 1개" })).toHaveProperty(
+    "ariaExpanded",
+    "false",
+  );
+  expect(screen.queryByRole("article", { name: "세션 아이디어 메모" })).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "넣어둔 메모 1개" }));
+  fireEvent.change(search, { target: { value: "회의" } });
+  fireEvent.change(search, { target: { value: "" } });
+  expect(screen.getByRole("button", { name: "넣어둔 메모 1개" })).toHaveProperty(
+    "ariaExpanded",
+    "true",
+  );
+  expect(screen.getByRole("article", { name: "세션 아이디어 메모" })).toBeTruthy();
+  expect(diaryAction).not.toHaveBeenCalled();
+  expect(stored).toEqual({ ...note, pinned: false, body: "  회의 뒤에\n이어 쓸 내용  " });
+});
+
+it("keeps an opened stored draft through search, collapse and save failure using the original ID", async () => {
+  const stored = { ...note, pinned: false };
+  const rawDraft = "  저장 전\n넣어둔 생각  ";
+  const diaryAction = vi.fn<DiaryAction>().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+  const onDirtyChange = vi.fn();
+  render(
+    <DiaryNotes
+      notes={[stored]}
+      diaryAction={diaryAction}
+      busy={false}
+      onDirtyChange={onDirtyChange}
+    />,
+  );
+  const search = screen.getByRole("textbox", { name: "메모 검색" });
+  fireEvent.change(search, { target: { value: "숲" } });
+  fireEvent.click(screen.getByRole("button", { name: "세션 아이디어 메모 열기" }));
+  expect(screen.getByRole("textbox", { name: "메모 내용" })).toHaveProperty("value", note.body);
+  expect(diaryAction).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByRole("textbox", { name: "메모 내용" }), {
+    target: { value: rawDraft },
+  });
+  fireEvent.change(search, { target: { value: "없는 메모" } });
+  expect(screen.queryByRole("textbox", { name: "메모 내용" })).toBeNull();
+  expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  fireEvent.change(search, { target: { value: "" } });
+  expect(screen.queryByRole("textbox", { name: "메모 내용" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "넣어둔 메모 1개" }));
+  expect(screen.getByRole("textbox", { name: "메모 내용" })).toHaveProperty("value", rawDraft);
+
+  fireEvent.click(screen.getByRole("button", { name: "메모 저장" }));
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("저장하지 못했어요"));
+  expect(screen.getByRole("textbox", { name: "메모 내용" })).toHaveProperty("value", rawDraft);
+  expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  const update = {
+    id: note.id,
+    title: note.title,
+    body: rawDraft,
+    expectedTitle: note.title,
+    expectedBody: note.body,
+  };
+  expect(diaryAction.mock.calls).toEqual([["note-update", update]]);
+  fireEvent.click(screen.getByRole("button", { name: "메모 저장" }));
+  await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(false));
+  expect(diaryAction.mock.calls).toEqual([
+    ["note-update", update],
+    ["note-update", update],
+  ]);
+  expect(stored).toEqual({ ...note, pinned: false });
+});

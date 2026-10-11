@@ -389,6 +389,16 @@ pub struct CharacterAnimationStates {
     pub calendar_open: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ActiveRequest {
+    pub epoch: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
@@ -412,6 +422,8 @@ pub struct Snapshot {
     pub relationships: Vec<Relationship>,
     pub prepared_count: usize,
     pub runtime: RuntimeStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_request: Option<ActiveRequest>,
     pub has_api_key: bool,
     pub model_ready: bool,
     pub local_models: Vec<LocalModelStatus>,

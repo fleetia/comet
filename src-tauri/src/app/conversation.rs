@@ -179,9 +179,12 @@ pub(crate) async fn send_message(
             &client_message_id,
             ai_only.unwrap_or(false),
         );
-        let token = super::tasks::reserve(&state, super::tasks::Kind::Conversation, false)?;
+        let token =
+            super::tasks::reserve_conversation(&state, Some(&session.id), &client_message_id)?;
         if registered.is_err() {
-            lock(&state.tasks)?.active = None;
+            let mut tasks = lock(&state.tasks)?;
+            tasks.active = None;
+            tasks.conversation = None;
         }
         *lock(&state.panel)? = Some(PanelState {
             persona: targets[0].clone(),
@@ -269,8 +272,14 @@ pub(crate) fn retry_turn(
             return Ok(());
         }
         store::resume_conversation(&db, chrono::Utc::now().timestamp_millis())?;
-        let token = super::tasks::reserve(&state, super::tasks::Kind::Conversation, false)?;
-        if let Some(session) = store::active_conversation(&db)? {
+        let session = store::active_conversation(&db)?;
+        store::clear_conversation_cancellation(&db, &message_id)?;
+        let token = super::tasks::reserve_conversation(
+            &state,
+            session.as_ref().map(|session| session.id.as_str()),
+            &message_id,
+        )?;
+        if let Some(session) = session {
             *lock(&state.panel)? = Some(PanelState {
                 persona: session.participants[0].clone(),
                 mode: "input".into(),

@@ -223,6 +223,10 @@ it("exports only the personal wordbook entries explicitly selected for sharing",
 it("saves one character keyword lines verbatim without assigning the other slot or touching personal wordbook", async () => {
   render(<CharacterDialogueEditor ids={["local-third"]} onDirtyChange={() => {}} />);
   await screen.findByRole("textbox", { name: "키워드" });
+  expect(screen.getByText("대사 미리보기 · 현재 편집 내용").closest("details")).toHaveProperty(
+    "open",
+    false,
+  );
   fireEvent.change(screen.getByRole("textbox", { name: "제목" }), { target: { value: "인사" } });
   fireEvent.change(screen.getByRole("textbox", { name: "키워드" }), {
     target: { value: "안녕, 반가워" },

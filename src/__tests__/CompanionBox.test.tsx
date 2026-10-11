@@ -106,18 +106,34 @@ it("retries the latest user turn with its original both target after generation 
     <Balloon
       snapshot={{
         ...PREVIEW_SNAPSHOT,
+        panel: { persona: "builtin-a", mode: "input" },
         runtime: { ...PREVIEW_SNAPSHOT.runtime, phase: "error", error: "연결이 끊겼어요" },
-        messages: [
-          {
-            id: "user-turn",
-            role: "user",
-            persona: "both",
-            content: "안녕",
-            expression: null,
+        conversation: {
+          session: {
+            id: "failed-conversation",
+            userId: "preview-user",
+            participants: ["builtin-a", "builtin-b"],
+            status: "active",
+            title: "다 같이 이야기",
             createdAt: 1,
-            status: "complete",
+            updatedAt: 1,
+            draft: "",
+            continuedFrom: null,
           },
-        ],
+          messages: [
+            {
+              id: "user-turn",
+              role: "user",
+              persona: "both",
+              content: "안녕",
+              expression: null,
+              createdAt: 1,
+              status: "complete",
+            },
+          ],
+          nextBefore: null,
+          recovery: { messageId: "user-turn", reason: "incomplete" },
+        },
       }}
     />,
   );

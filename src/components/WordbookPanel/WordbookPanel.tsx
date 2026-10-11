@@ -142,6 +142,7 @@ export function WordbookPanel({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const busy = useRef(false);
+  const editorBody = useRef<HTMLDivElement>(null);
   useEffect(() => {
     setDrafts((previous) => {
       const next = { ...previous };
@@ -222,6 +223,7 @@ export function WordbookPanel({
     setNotice(null);
   }
   function select(id: string): void {
+    if (editorBody.current) editorBody.current.scrollTop = 0;
     setConfirmDelete(false);
     setSelected(id);
     setError(null);
@@ -429,84 +431,7 @@ export function WordbookPanel({
           >
             <fieldset className={w.editor} disabled={pending}>
               <legend className={w.legend}>단어장 항목 편집</legend>
-              <div className={w.editorBody}>
-                {highlight && (
-                  <Surface tone="accent" padding="inline" className={w.heading}>
-                    <strong>{current.entry.title || "새 항목"}</strong>
-                    <span>{current.entry.lines.length} / 8줄</span>
-                  </Surface>
-                )}
-                <details className={w.previewDetails} open={!highlight || undefined}>
-                  <summary>대사 미리보기 · 현재 편집 내용</summary>
-                  <p className={s.quiet}>
-                    공백·줄바꿈·화자 순서를 그대로 확인해요. 실제로 재생하지 않아요.
-                  </p>
-                  <Surface tone="accent" className={w.preview} aria-label="키워드 대사 미리보기">
-                    <PreviewLines lines={current.entry.lines} owners={owners} />
-                  </Surface>
-                </details>
-                <section className={w.matchTest} aria-label="저장된 키워드 테스트">
-                  <strong>입력으로 매칭 확인</strong>
-                  <p className={s.quiet}>
-                    이 목록의 저장된 모든 항목에서 찾아요. 분류 필터와 미저장 수정은 적용하지
-                    않아요. 대소문자를 구분하지 않고 긴 키워드, 같은 길이면 먼저 등록한 항목을
-                    선택해요.
-                  </p>
-                  <div className={w.testControls}>
-                    <FormField label="테스트할 말">
-                      <TextField
-                        value={testInput}
-                        maxLength={2000}
-                        placeholder="예: 안녕, 오늘도 반가워"
-                        onChange={(event) => setTestInput(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" && !event.nativeEvent.isComposing) {
-                            event.preventDefault();
-                            void testMatch();
-                          }
-                        }}
-                      />
-                    </FormField>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={testing || !testInput.trim()}
-                      onClick={() => void testMatch()}
-                    >
-                      {testing ? "확인 중…" : "매칭 테스트"}
-                    </Button>
-                  </div>
-                  <p className={s.quiet}>
-                    대사 재생·대화 전송·AI 호출은 하지 않아요. 실제 대화 상대와 화자에 따른 재생
-                    가능 여부는 별도로 확인해 주세요.
-                  </p>
-                  {testError && (
-                    <p role="alert" className={s.error}>
-                      {testError}
-                    </p>
-                  )}
-                  {testResult?.context === testContext && (
-                    <div role="status" aria-label="매칭 결과">
-                      {testResult.match ? (
-                        <>
-                          <p>
-                            일치한 등록 항목: <strong>{testResult.match.entry.title}</strong> ·
-                            키워드 ‘{testResult.match.keyword}’
-                          </p>
-                          <Surface
-                            tone="accent"
-                            className={w.preview}
-                            aria-label="일치한 등록 대사"
-                          >
-                            <PreviewLines lines={testResult.match.entry.lines} owners={owners} />
-                          </Surface>
-                        </>
-                      ) : (
-                        <p>일치하는 저장된 활성 항목이 없어요.</p>
-                      )}
-                    </div>
-                  )}
-                </section>
+              <div ref={editorBody} className={w.editorBody}>
                 <div className={w.fields}>
                   <FormField label="제목" required>
                     <TextField
@@ -525,68 +450,13 @@ export function WordbookPanel({
                     />
                   </FormField>
                 </div>
-                <p className={s.quiet}>
-                  쉼표나 줄바꿈으로 나눠요. 키워드는 20개까지, 하나당 80자까지 입력할 수 있어요.
-                </p>
-                {duplicateEntries.length > 0 && (
-                  <p role="note" className={w.warning}>
-                    같은 키워드가 다른 항목에도 있어요:{" "}
-                    {duplicateEntries
-                      .map(
-                        (draft) =>
-                          `‘${draft.entry.title || "새 항목"}’${draft.entry.enabled ? "" : " (꺼짐)"}${draft.dirty ? " (미저장)" : ""}`,
-                      )
-                      .join(", ")}
-                    . 저장된 활성 항목 중 긴 일치 키워드가 우선이고, 길이가 같으면 먼저 등록한
-                    항목을 사용해요. 저장 전에는 위 매칭 테스트에 반영되지 않아요.
-                  </p>
-                )}
-                <FormField label="분류 (선택)" className={w.groupField}>
-                  <Select
-                    value={current.entry.group ?? ""}
-                    onChange={(event) =>
-                      update({
-                        ...current.entry,
-                        group: (event.target.value || undefined) as WordbookGroup | undefined,
-                      })
-                    }
-                  >
-                    <option value="">미분류</option>
-                    {GROUPS.map((group) => (
-                      <option key={group.value} value={group.value}>
-                        {group.label}
-                      </option>
-                    ))}
-                  </Select>
-                </FormField>
-                <p className={s.quiet}>
-                  업무·휴식·일상은 정리용 이름이며, 현재 상태에 따라 재생을 제한하지 않아요.
-                </p>
-                <div className={s.row}>
-                  <Checkbox
-                    disabled={pending}
-                    checked={current.entry.enabled}
-                    onChange={(event) =>
-                      update({ ...current.entry, enabled: event.target.checked })
-                    }
-                  >
-                    이 항목 사용
-                  </Checkbox>
-                  <Checkbox
-                    disabled={pending}
-                    checked={current.entry.useForIdle}
-                    onChange={(event) =>
-                      update({ ...current.entry, useForIdle: event.target.checked })
-                    }
-                  >
-                    자동 잡담에도 사용
-                  </Checkbox>
-                </div>
+                <p className={s.quiet}>쉼표·줄바꿈으로 구분 · 최대 20개, 각 80자</p>
                 <div className={w.lineHeading}>
-                  <strong>대사 순서</strong>
+                  <strong>대사 순서 · {current.entry.lines.length} / 8줄</strong>
                   <Button
                     type="button"
                     variant="secondary"
+                    size="compact"
                     disabled={current.entry.lines.length >= 8}
                     onClick={() =>
                       update({
@@ -610,7 +480,7 @@ export function WordbookPanel({
                 </div>
                 {current.entry.lines.map((line, index) => (
                   <div key={index} className={w.line}>
-                    <div className={w.lineControls}>
+                    <div className={w.lineIdentity}>
                       <span className={w.lineNumber}>{String(index + 1).padStart(2, "0")}</span>
                       <label className={s.inline}>
                         <span className={w.legend}>{index + 1}번 화자</span>
@@ -637,6 +507,18 @@ export function WordbookPanel({
                           )}
                         </Select>
                       </label>
+                      <span className={w.lineLimit}>500자까지</span>
+                    </div>
+                    <TextArea
+                      aria-label={`대사 ${index + 1}`}
+                      className={w.lineText}
+                      rows={3}
+                      required
+                      maxLength={500}
+                      value={line.text}
+                      onChange={(event) => changeLine(index, { ...line, text: event.target.value })}
+                    />
+                    <div className={w.lineControls}>
                       <label className={s.inline}>
                         <span className={w.legend}>표정</span>
                         <Select
@@ -673,7 +555,6 @@ export function WordbookPanel({
                           onChange={(motion) => changeLine(index, { ...line, motion })}
                         />
                       </div>
-                      <span className={w.lineLimit}>500자까지</span>
                       <Button
                         type="button"
                         variant="quiet"
@@ -710,17 +591,138 @@ export function WordbookPanel({
                         삭제
                       </Button>
                     </div>
-                    <TextArea
-                      aria-label={`대사 ${index + 1}`}
-                      className={w.lineText}
-                      rows={3}
-                      required
-                      maxLength={500}
-                      value={line.text}
-                      onChange={(event) => changeLine(index, { ...line, text: event.target.value })}
-                    />
                   </div>
                 ))}
+                {duplicateEntries.length > 0 && (
+                  <p role="note" className={w.warning}>
+                    같은 키워드가 다른 항목에도 있어요:{" "}
+                    {duplicateEntries
+                      .map(
+                        (draft) =>
+                          `‘${draft.entry.title || "새 항목"}’${draft.entry.enabled ? "" : " (꺼짐)"}${draft.dirty ? " (미저장)" : ""}`,
+                      )
+                      .join(", ")}
+                    . 저장된 활성 항목 중 긴 일치 키워드가 우선이고, 길이가 같으면 먼저 등록한
+                    항목을 사용해요. 저장 전에는 아래 매칭 테스트에 반영되지 않아요.
+                  </p>
+                )}
+                <details className={w.previewDetails}>
+                  <summary>분류·재생 설정</summary>
+                  <FormField label="분류 (선택)" className={w.groupField}>
+                    <Select
+                      value={current.entry.group ?? ""}
+                      onChange={(event) =>
+                        update({
+                          ...current.entry,
+                          group: (event.target.value || undefined) as WordbookGroup | undefined,
+                        })
+                      }
+                    >
+                      <option value="">미분류</option>
+                      {GROUPS.map((group) => (
+                        <option key={group.value} value={group.value}>
+                          {group.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </FormField>
+                  <p className={s.quiet}>
+                    업무·휴식·일상은 정리용 이름이며, 현재 상태에 따라 재생을 제한하지 않아요.
+                  </p>
+                  <div className={s.row}>
+                    <Checkbox
+                      disabled={pending}
+                      checked={current.entry.enabled}
+                      onChange={(event) =>
+                        update({ ...current.entry, enabled: event.target.checked })
+                      }
+                    >
+                      이 항목 사용
+                    </Checkbox>
+                    <Checkbox
+                      disabled={pending}
+                      checked={current.entry.useForIdle}
+                      onChange={(event) =>
+                        update({ ...current.entry, useForIdle: event.target.checked })
+                      }
+                    >
+                      자동 잡담에도 사용
+                    </Checkbox>
+                  </div>
+                </details>
+                <details className={w.previewDetails}>
+                  <summary>대사 미리보기 · 현재 편집 내용</summary>
+                  <p className={s.quiet}>
+                    공백·줄바꿈·화자 순서를 그대로 확인해요. 실제로 재생하지 않아요.
+                  </p>
+                  <Surface tone="accent" className={w.preview} aria-label="키워드 대사 미리보기">
+                    <PreviewLines lines={current.entry.lines} owners={owners} />
+                  </Surface>
+                </details>
+                <details className={w.previewDetails}>
+                  <summary>입력으로 매칭 확인</summary>
+                  <section className={w.matchTest} aria-label="저장된 키워드 테스트">
+                    <p className={s.quiet}>
+                      이 목록의 저장된 모든 항목에서 찾아요. 분류 필터와 미저장 수정은 적용하지
+                      않아요. 대소문자를 구분하지 않고 긴 키워드, 같은 길이면 먼저 등록한 항목을
+                      선택해요.
+                    </p>
+                    <div className={w.testControls}>
+                      <FormField label="테스트할 말">
+                        <TextField
+                          value={testInput}
+                          maxLength={2000}
+                          placeholder="예: 안녕, 오늘도 반가워"
+                          onChange={(event) => setTestInput(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                              event.preventDefault();
+                              void testMatch();
+                            }
+                          }}
+                        />
+                      </FormField>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={testing || !testInput.trim()}
+                        onClick={() => void testMatch()}
+                      >
+                        {testing ? "확인 중…" : "매칭 테스트"}
+                      </Button>
+                    </div>
+                    <p className={s.quiet}>
+                      대사 재생·대화 전송·AI 호출은 하지 않아요. 실제 대화 상대와 화자에 따른 재생
+                      가능 여부는 별도로 확인해 주세요.
+                    </p>
+                    {testError && (
+                      <p role="alert" className={s.error}>
+                        {testError}
+                      </p>
+                    )}
+                    {testResult?.context === testContext && (
+                      <div role="status" aria-label="매칭 결과">
+                        {testResult.match ? (
+                          <>
+                            <p>
+                              일치한 등록 항목: <strong>{testResult.match.entry.title}</strong> ·
+                              키워드 ‘{testResult.match.keyword}’
+                            </p>
+                            <Surface
+                              tone="accent"
+                              className={w.preview}
+                              aria-label="일치한 등록 대사"
+                            >
+                              <PreviewLines lines={testResult.match.entry.lines} owners={owners} />
+                            </Surface>
+                          </>
+                        ) : (
+                          <p>일치하는 저장된 활성 항목이 없어요.</p>
+                        )}
+                      </div>
+                    )}
+                  </section>
+                </details>
               </div>
               {error && (
                 <p role="alert" className={s.error}>

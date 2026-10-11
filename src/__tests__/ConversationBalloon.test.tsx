@@ -13,6 +13,12 @@ vi.mock("../hooks/useSnapshot", async (load) => ({
 beforeEach(() => {
   vi.mocked(command).mockReset().mockResolvedValue(undefined);
   vi.mocked(isDesktop).mockReturnValue(false);
+  HTMLDialogElement.prototype.showModal = function (): void {
+    this.setAttribute("open", "");
+  };
+  HTMLDialogElement.prototype.close = function (): void {
+    this.removeAttribute("open");
+  };
 });
 afterEach(() => {
   cleanup();
@@ -54,6 +60,27 @@ function conversationSnapshot(): Snapshot {
     ...PREVIEW_SNAPSHOT,
     panel: { persona: "builtin-a", mode: "input" },
     conversation: { session, messages: [seed], nextBefore: null },
+  };
+}
+
+const interruptedInput: Message = {
+  ...seed,
+  id: "interrupted-input",
+  role: "user",
+  content: "  쉬는 동안 들을 이야기\n원문 그대로  ",
+};
+
+function recoverySnapshot(draft = ""): Snapshot {
+  const snapshot = conversationSnapshot();
+  return {
+    ...snapshot,
+    runtime: { ...snapshot.runtime, phase: "idle", error: null },
+    conversation: {
+      session: { ...session, draft },
+      messages: [seed, interruptedInput],
+      nextBefore: null,
+      recovery: { messageId: interruptedInput.id, reason: "cancelled" },
+    },
   };
 }
 
@@ -407,12 +434,13 @@ it.each(["one failing test. one small fix.", "same hero new line. surprise me wi
 
 it("shows runtime failure and retry before the previous response, and clears the label on recovery", () => {
   const snapshot = conversationSnapshot();
-  const failed = {
+  const failed: Snapshot = {
     ...snapshot,
     runtime: { ...snapshot.runtime, phase: "error" as const, error: "답변 생성 실패" },
     conversation: {
       ...snapshot.conversation!,
       messages: [seed, { ...seed, id: "new-question", role: "user", content: "다음 이야기" }],
+      recovery: { messageId: "new-question", reason: "incomplete" },
     },
   };
   const { rerender } = render(<Balloon snapshot={failed} />);
@@ -450,6 +478,7 @@ it.each([null, "답변 생성 실패"])(
             conversation: {
               ...snapshot.conversation!,
               messages: [seed, { ...seed, id: "input", role: "user", content: "다음 이야기" }],
+              recovery: error ? { messageId: "input", reason: "incomplete" } : undefined,
             },
           }}
         />,
@@ -520,6 +549,7 @@ it("reveals identical runtime errors again for sends and retries, without resett
       conversation: {
         ...base.conversation!,
         messages: [seed, { ...seed, id: "failed-input", role: "user", content: "이번 요청" }],
+        recovery: { messageId: "failed-input", reason: "incomplete" },
       },
     };
     const { rerender } = render(<Balloon snapshot={snapshot} />);
@@ -706,9 +736,13 @@ it("restores an accepted input after async failure without replacing newer text"
     conversation: { ...snapshot.conversation!, messages: [seed, latestInput] },
   };
   rerender(<Balloon snapshot={generating} />);
-  const failed = {
+  const failed: Snapshot = {
     ...generating,
     runtime: { ...snapshot.runtime, phase: "error" as const, error: "모델 실행 실패" },
+    conversation: {
+      ...generating.conversation,
+      recovery: { messageId: id, reason: "incomplete" },
+    },
   };
   rerender(<Balloon snapshot={failed} />);
   expect(input).toHaveProperty("value", "  이번 요청\n");
@@ -735,6 +769,7 @@ it("does not describe a partial current-turn reply as a previous answer", () => 
             { ...seed, id: "partial", content: "이번 요청의 첫 답변" },
           ],
           messageSources: { partial: "llm" },
+          recovery: { messageId: "input", reason: "incomplete" },
         },
       }}
     />,
@@ -760,6 +795,7 @@ it("does not call an empty current-turn response a partial answer", () => {
             { ...seed, id: "input", role: "user", content: "다음 이야기" },
             { ...seed, id: "empty", content: "" },
           ],
+          recovery: { messageId: "input", reason: "incomplete" },
         },
       }}
     />,
@@ -843,7 +879,7 @@ it.each(["", "새로 작성한 초안\n보존"])(
       role: "user",
       content: "lighthouse failed",
     };
-    const recovered = {
+    const recovered: Snapshot = {
       ...snapshot,
       runtime: {
         ...snapshot.runtime,
@@ -854,6 +890,7 @@ it.each(["", "새로 작성한 초안\n보존"])(
         ...snapshot.conversation!,
         session: { ...session, draft },
         messages: [seed, failedInput],
+        recovery: { messageId: failedInput.id, reason: "incomplete" },
       },
     };
     const { rerender } = render(<Balloon snapshot={recovered} />);
@@ -887,3 +924,250 @@ it.each(["", "새로 작성한 초안\n보존"])(
     expect(input.value).toBe(draft || failedInput.content);
   },
 );
+
+it("cancels only the displayed request and offers explicit recovery from cancelled idle", async () => {
+  const snapshot = recoverySnapshot("새로 쓰던 초안");
+  const activeRequest = { epoch: 42, sessionId: session.id, messageId: interruptedInput.id };
+  const view = render(
+    <Balloon
+      snapshot={{
+        ...snapshot,
+        activeRequest,
+        runtime: { ...snapshot.runtime, phase: "generating" },
+        conversation: { ...snapshot.conversation!, recovery: undefined },
+      }}
+    />,
+  );
+  const cancel = screen.getByRole("button", { name: "생성 멈추기" });
+  fireEvent.click(cancel);
+  fireEvent.click(cancel);
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("cancel_generation", { request: activeRequest }),
+  );
+  view.rerender(<Balloon snapshot={snapshot} />);
+  expect(
+    vi.mocked(command).mock.calls.filter(([name]) => name === "cancel_generation"),
+  ).toHaveLength(1);
+  expect(screen.getByText("생성을 멈췄어요.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "다시 이야기하기" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "입력 수정" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "AI 연결 확인" })).toBeTruthy();
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "새로 쓰던 초안");
+  expect(command).not.toHaveBeenCalledWith("retry_turn", expect.anything());
+});
+
+it("requires the latest input's recovery marker in an idle input view", () => {
+  const snapshot = recoverySnapshot();
+  const conversation = snapshot.conversation!;
+  const view = render(<Balloon snapshot={snapshot} />);
+  expect(screen.getByRole("button", { name: "다시 이야기하기" })).toBeTruthy();
+  const unavailable: Snapshot[] = [
+    { ...snapshot, conversation: { ...conversation, recovery: undefined } },
+    {
+      ...snapshot,
+      runtime: { ...snapshot.runtime, phase: "error", error: "복구 대상 없는 오류" },
+      conversation: { ...conversation, recovery: undefined },
+    },
+    {
+      ...snapshot,
+      conversation: {
+        ...conversation,
+        messages: [...conversation.messages, { ...interruptedInput, id: "newer-input" }],
+      },
+    },
+    { ...snapshot, runtime: { ...snapshot.runtime, phase: "loading" } },
+    { ...snapshot, playback },
+    { ...snapshot, panel: null },
+  ];
+  for (const next of unavailable) {
+    view.rerender(<Balloon snapshot={next} />);
+    expect(screen.queryByRole("button", { name: "다시 이야기하기" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "입력 수정" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "AI 연결 확인" })).toBeNull();
+  }
+  expect(command).not.toHaveBeenCalledWith("retry_turn", expect.anything());
+});
+
+it("retries a cancelled input once while keeping the newer draft and saved input untouched", async () => {
+  let finish: (() => void) | undefined;
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "retry_turn") {
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    }
+  });
+  const snapshot = recoverySnapshot("  새로 작성한 초안\n보존  ");
+  const original = structuredClone(snapshot.conversation);
+  render(<Balloon snapshot={snapshot} />);
+  const retry = screen.getByRole("button", { name: "다시 이야기하기" });
+  fireEvent.click(retry);
+  fireEvent.click(retry);
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("retry_turn", {
+      messageId: interruptedInput.id,
+      target: interruptedInput.persona,
+    }),
+  );
+  expect(vi.mocked(command).mock.calls.filter(([name]) => name === "retry_turn")).toHaveLength(1);
+  expect(command).not.toHaveBeenCalledWith("send_message", expect.anything());
+  expect(screen.getByRole("textbox")).toHaveProperty("value", original?.session.draft);
+  await act(async () => finish?.());
+  expect(screen.getByRole("textbox")).toHaveProperty("value", original?.session.draft);
+  expect(snapshot.conversation).toEqual(original);
+});
+
+it("does not retry a superseded input after its pending draft save completes", async () => {
+  let finish: (() => void) | undefined;
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "save_conversation_draft") {
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    }
+  });
+  const snapshot = recoverySnapshot();
+  const view = render(<Balloon snapshot={snapshot} />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "새로 적는 초안" } });
+  fireEvent.click(screen.getByRole("button", { name: "다시 이야기하기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("save_conversation_draft", {
+      sessionId: session.id,
+      draft: "새로 적는 초안",
+    }),
+  );
+  view.rerender(
+    <Balloon
+      snapshot={{
+        ...snapshot,
+        conversation: {
+          ...snapshot.conversation!,
+          messages: [seed, { ...interruptedInput, id: "superseding-input" }],
+          recovery: undefined,
+        },
+      }}
+    />,
+  );
+  await act(async () => finish?.());
+  expect(command).not.toHaveBeenCalledWith("retry_turn", expect.anything());
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "새로 적는 초안");
+});
+
+it("does not attach an old draft-save failure to a superseding recovery in the same conversation", async () => {
+  let rejectSave: ((reason: Error) => void) | undefined;
+  const save = vi
+    .fn()
+    .mockResolvedValue(undefined)
+    .mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSave = reject;
+        }),
+    );
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "save_conversation_draft") {
+      await save();
+    }
+  });
+  const snapshot = recoverySnapshot();
+  const view = render(<Balloon snapshot={snapshot} />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "새로 적는 초안" } });
+  fireEvent.click(screen.getByRole("button", { name: "다시 이야기하기" }));
+  await waitFor(() => expect(save).toHaveBeenCalledOnce());
+  view.rerender(
+    <Balloon
+      snapshot={{
+        ...snapshot,
+        conversation: {
+          ...snapshot.conversation!,
+          messages: [seed, { ...interruptedInput, id: "superseding-input", content: "새 요청" }],
+          recovery: { messageId: "superseding-input", reason: "cancelled" },
+        },
+      }}
+    />,
+  );
+  await act(async () => rejectSave?.(new Error("오래된 초안 저장 실패")));
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "새로 적는 초안");
+  expect(screen.getByRole("button", { name: "다시 이야기하기" })).toHaveProperty("disabled", false);
+  expect(command).not.toHaveBeenCalledWith("retry_turn", expect.anything());
+});
+
+it.each(["", interruptedInput.content])(
+  "edits an interrupted input directly when no different draft needs replacing: %s",
+  async (draft) => {
+    render(<Balloon snapshot={recoverySnapshot(draft)} />);
+    fireEvent.click(screen.getByRole("button", { name: "입력 수정" }));
+    const input = screen.getByRole("textbox");
+    expect(input).toHaveProperty("value", interruptedInput.content);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    expect(command).not.toHaveBeenCalledWith("send_message", expect.anything());
+    expect(command).not.toHaveBeenCalledWith("retry_turn", expect.anything());
+  },
+);
+
+it("replaces a different draft with the exact interrupted input only after confirmation", async () => {
+  const snapshot = recoverySnapshot("  새로 쓰고 있는 말\n");
+  const original = structuredClone(snapshot.conversation);
+  render(<Balloon snapshot={snapshot} />);
+  fireEvent.click(screen.getByRole("button", { name: "입력 수정" }));
+  expect(screen.getByRole("dialog", { name: "작성 중인 초안을 바꿀까요?" })).toBeTruthy();
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "  새로 쓰고 있는 말\n");
+  fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "  새로 쓰고 있는 말\n");
+  fireEvent.click(screen.getByRole("button", { name: "입력 수정" }));
+  fireEvent.click(screen.getByRole("button", { name: "초안 바꾸기" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  const input = screen.getByRole("textbox");
+  expect(input).toHaveProperty("value", interruptedInput.content);
+  await waitFor(() => expect(document.activeElement).toBe(input));
+  expect(snapshot.conversation).toEqual(original);
+  expect(command).not.toHaveBeenCalledWith("send_message", expect.anything());
+});
+
+it.each(["conversation", "message"])(
+  "invalidates pending draft replacement when the %s changes",
+  (change) => {
+    const snapshot = recoverySnapshot("지켜야 할 초안");
+    const view = render(<Balloon snapshot={snapshot} />);
+    fireEvent.click(screen.getByRole("button", { name: "입력 수정" }));
+    const replace = screen.getByRole("button", { name: "초안 바꾸기" });
+    const next: Snapshot = {
+      ...snapshot,
+      conversation: {
+        ...snapshot.conversation!,
+        session:
+          change === "conversation"
+            ? { ...session, id: "different-conversation", draft: "새 대화 초안" }
+            : snapshot.conversation!.session,
+        messages: [seed, { ...interruptedInput, id: "new-input", content: "새 입력 원문" }],
+        recovery: { messageId: "new-input", reason: "cancelled" },
+      },
+    };
+    view.rerender(<Balloon snapshot={next} />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(replace);
+    expect(screen.getByRole("textbox")).toHaveProperty(
+      "value",
+      change === "conversation" ? "새 대화 초안" : "지켜야 할 초안",
+    );
+    expect(command).not.toHaveBeenCalledWith("send_message", expect.anything());
+    expect(command).not.toHaveBeenCalledWith("retry_turn", expect.anything());
+  },
+);
+
+it("keeps the draft before opening AI connection settings from recovery", async () => {
+  render(<Balloon snapshot={recoverySnapshot()} />);
+  fireEvent.change(screen.getByRole("textbox"), {
+    target: { value: "  연결 확인 뒤 이어 쓸 말\n" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "AI 연결 확인" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("open_settings"));
+  expect(vi.mocked(command).mock.calls).toEqual([
+    ["save_conversation_draft", { sessionId: session.id, draft: "  연결 확인 뒤 이어 쓸 말\n" }],
+    ["set_settings_section", { section: "model" }],
+    ["open_settings"],
+  ]);
+});

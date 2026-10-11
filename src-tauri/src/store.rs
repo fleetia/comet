@@ -19,13 +19,15 @@ pub use analysis::{
     analysis_failure, analysis_status, defer_analysis, pending_user_messages,
     retry_deferred_analysis, AnalysisStatus,
 };
+#[cfg(test)]
+pub use conversations::conversation_reply_pending;
 pub use conversations::{
-    active_conversation, attach_conversation_message, conversation, conversation_context,
-    conversation_for_message, conversation_message_allowed, conversation_messages,
-    conversation_reply_pending, conversation_view, conversations, create_conversation,
-    pause_conversations, record_conversation_disclosure, save_conversation_draft,
-    set_conversation_participants, set_conversation_status, ConversationMessages,
-    ConversationSession, ConversationView,
+    active_conversation, attach_conversation_message, cancel_conversation_reply,
+    clear_conversation_cancellation, conversation, conversation_context, conversation_for_message,
+    conversation_message_allowed, conversation_messages, conversation_recovery, conversation_view,
+    conversations, create_conversation, pause_conversations, record_conversation_disclosure,
+    save_conversation_draft, set_conversation_participants, set_conversation_status,
+    ConversationMessages, ConversationSession, ConversationView, RecoveryReason,
 };
 #[cfg(test)]
 pub use memory::analyze_apply;
