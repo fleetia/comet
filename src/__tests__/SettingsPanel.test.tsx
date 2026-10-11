@@ -468,6 +468,13 @@ it("preserves personal wordbook whitespace and memory drafts across management t
     memoryRevision: 1,
   };
   const { rerender } = render(<SettingsPanel snapshot={snapshot} initialSection="wordbook" />);
+  const matching = screen.getByText("입력으로 매칭 확인");
+  expect(matching.closest("details")).toHaveProperty("open", false);
+  fireEvent.click(matching);
+  fireEvent.change(screen.getByRole("textbox", { name: "테스트할 말" }), {
+    target: { value: "나중에 확인할 말" },
+  });
+  fireEvent.click(matching);
   fireEvent.change(screen.getByLabelText("대사 1"), {
     target: { value: "  쓰던 말\n\n다음 줄  " },
   });
@@ -478,6 +485,11 @@ it("preserves personal wordbook whitespace and memory drafts across management t
   rerender(<SettingsPanel snapshot={{ ...snapshot, wordbook: [...snapshot.wordbook] }} />);
   fireEvent.click(screen.getByRole("tab", { name: /대사/ }));
   expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "  쓰던 말\n\n다음 줄  ");
+  fireEvent.click(screen.getByText("입력으로 매칭 확인"));
+  expect(screen.getByRole("textbox", { name: "테스트할 말" })).toHaveProperty(
+    "value",
+    "나중에 확인할 말",
+  );
   fireEvent.click(screen.getByRole("tab", { name: /캐릭터/ }));
   fireEvent.click(screen.getByRole("tab", { name: "기억" }));
   expect(screen.getByLabelText("기억 내용")).toHaveProperty("value", "쓰던 기억");

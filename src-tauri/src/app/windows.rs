@@ -44,11 +44,9 @@ impl SettingsSection {
 pub(crate) fn cancel_generation(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
+    request: crate::types::ActiveRequest,
 ) -> Result<(), String> {
-    let epoch = {
-        let _action = lock(&state.action)?;
-        interrupt(&state, false)?.0
-    };
+    let epoch = cancel_request(&state, &request)?;
     phase(
         &app,
         &state,
@@ -58,6 +56,20 @@ pub(crate) fn cancel_generation(
         None,
     );
     Ok(())
+}
+
+fn cancel_request(state: &AppState, request: &crate::types::ActiveRequest) -> Result<u64, String> {
+    let _action = lock(&state.action)?;
+    if unavailable(state)
+        || state.epoch.load(Ordering::SeqCst) != request.epoch
+        || super::tasks::active_request(state)?.as_ref() != Some(request)
+    {
+        return Err("이전 요청은 이미 끝났거나 현재 요청이 바뀌었어요.".into());
+    }
+    if let (Some(session_id), Some(message_id)) = (&request.session_id, &request.message_id) {
+        store::cancel_conversation_reply(&*lock(&state.db)?, session_id, message_id)?;
+    }
+    Ok(interrupt(state, false)?.0)
 }
 
 #[tauri::command]
@@ -515,4 +527,176 @@ pub(crate) fn show_settings_section(
     .build()
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{Message, RuntimePhase};
+
+    fn pending_request(state: &AppState) -> (store::ConversationSession, (u64, Arc<AtomicBool>)) {
+        let _action = lock(&state.action).unwrap();
+        let db = lock(&state.db).unwrap();
+        let session =
+            store::create_conversation(&db, &["builtin-a".into()], None, None, 1).unwrap();
+        store::insert_user_input(
+            &db,
+            &Message {
+                id: "input".into(),
+                role: "user".into(),
+                persona: Some("a".into()),
+                content: "  합성 질문\n원문  ".into(),
+                expression: None,
+                created_at: chrono::Utc::now().timestamp_millis(),
+                status: "complete".into(),
+            },
+            true,
+        )
+        .unwrap();
+        store::save_conversation_draft(&db, &session.id, "새 초안").unwrap();
+        let token =
+            super::super::tasks::reserve_conversation(state, Some(&session.id), "input").unwrap();
+        (session, token)
+    }
+
+    #[test]
+    fn cancelling_current_request_persists_reason_and_rejects_late_results_or_old_clicks() {
+        let state = super::super::tests::state();
+        let (session, old) = pending_request(&state);
+        let request = super::super::tasks::active_request(&state)
+            .unwrap()
+            .unwrap();
+        let raw =
+            serde_json::to_value(store::messages(&lock(&state.db).unwrap(), 100).unwrap()).unwrap();
+        let mut wrong = request.clone();
+        wrong.message_id = Some("other-input".into());
+        assert!(cancel_request(&state, &wrong).is_err());
+        assert!(!old.1.load(Ordering::SeqCst));
+        let epoch = cancel_request(&state, &request).unwrap();
+        assert!(epoch > old.0);
+        assert!(old.1.load(Ordering::SeqCst));
+        assert!(super::super::tasks::active_request(&state)
+            .unwrap()
+            .is_none());
+        assert!(!super::super::set_phase_if_current(
+            &state,
+            old.0,
+            RuntimePhase::Error,
+            None,
+            Some("late failure".into())
+        )
+        .unwrap());
+        {
+            let db = lock(&state.db).unwrap();
+            assert_eq!(
+                store::conversation_recovery(&db, &session.id)
+                    .unwrap()
+                    .unwrap()
+                    .reason,
+                store::RecoveryReason::Cancelled
+            );
+            assert_eq!(
+                store::conversation(&db, &session.id).unwrap().draft,
+                "새 초안"
+            );
+            assert!(store::input_ai_only(&db, "input").unwrap());
+            assert_eq!(
+                serde_json::to_value(store::messages(&db, 100).unwrap()).unwrap(),
+                raw
+            );
+        }
+        let next = {
+            let _action = lock(&state.action).unwrap();
+            store::clear_conversation_cancellation(&lock(&state.db).unwrap(), "input").unwrap();
+            super::super::tasks::reserve_conversation(&state, Some(&session.id), "input").unwrap()
+        };
+        assert!(cancel_request(&state, &request).is_err());
+        assert!(!next.1.load(Ordering::SeqCst));
+        assert_eq!(
+            super::super::tasks::active_request(&state)
+                .unwrap()
+                .unwrap()
+                .epoch,
+            next.0
+        );
+        assert_eq!(
+            store::conversation_recovery(&lock(&state.db).unwrap(), &session.id)
+                .unwrap()
+                .unwrap()
+                .reason,
+            store::RecoveryReason::Incomplete
+        );
+    }
+
+    #[test]
+    fn cancellation_after_final_display_does_not_create_recovery() {
+        let state = super::super::tests::state();
+        let (session, _) = pending_request(&state);
+        let request = super::super::tasks::active_request(&state)
+            .unwrap()
+            .unwrap();
+        {
+            let db = lock(&state.db).unwrap();
+            store::insert_message_with_source(
+                &db,
+                &Message {
+                    id: "reply:input:builtin-a".into(),
+                    role: "assistant".into(),
+                    persona: Some("a".into()),
+                    content: "완료 응답".into(),
+                    expression: Some("평온".into()),
+                    created_at: chrono::Utc::now().timestamp_millis(),
+                    status: "complete".into(),
+                },
+                "llm",
+                None,
+                true,
+            )
+            .unwrap();
+            store::mark_message_displayed(&db, "reply:input:builtin-a", 2).unwrap();
+        }
+        cancel_request(&state, &request).unwrap();
+        let db = lock(&state.db).unwrap();
+        assert!(store::conversation_recovery(&db, &session.id)
+            .unwrap()
+            .is_none());
+        assert!(db
+            .query_row(
+                "SELECT cancelled_message_id FROM conversation_sessions WHERE id=?1",
+                [&session.id],
+                |row| row.get::<_, Option<String>>(0)
+            )
+            .unwrap()
+            .is_none());
+        assert!(cancel_request(&state, &request).is_err());
+    }
+
+    #[test]
+    fn automatic_request_cancellation_uses_epoch_without_marking_a_conversation() {
+        let state = super::super::tests::state();
+        let (session, _) = pending_request(&state);
+        let old = super::super::tasks::active_request(&state)
+            .unwrap()
+            .unwrap();
+        let token = {
+            let _action = lock(&state.action).unwrap();
+            super::super::tasks::reserve(&state, super::super::tasks::Kind::Background, true)
+                .unwrap()
+        };
+        let request = super::super::tasks::active_request(&state)
+            .unwrap()
+            .unwrap();
+        assert!(request.session_id.is_none());
+        assert!(request.message_id.is_none());
+        assert!(cancel_request(&state, &old).is_err());
+        cancel_request(&state, &request).unwrap();
+        assert!(token.1.load(Ordering::SeqCst));
+        assert_eq!(
+            store::conversation_recovery(&lock(&state.db).unwrap(), &session.id)
+                .unwrap()
+                .unwrap()
+                .reason,
+            store::RecoveryReason::Incomplete
+        );
+    }
 }

@@ -37,7 +37,8 @@ it("saves reordered lines verbatim and parses ordinary keyword separators", asyn
   });
   fireEvent.click(screen.getByRole("button", { name: "2번 대사 위로" }));
   expect(screen.getByLabelText("대사 2")).toHaveProperty("value", FIRST.lines[0].text);
-  fireEvent.click(screen.getByLabelText("자동 잡담에도 사용"));
+  fireEvent.click(screen.getByText("분류·재생 설정"));
+  fireEvent.click(screen.getByRole("checkbox", { name: "자동 잡담에도 사용" }));
   fireEvent.click(screen.getByRole("button", { name: "단어장 저장" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("save_wordbook_entry", {
@@ -68,7 +69,8 @@ it("retains each dirty draft across selection, snapshot updates and save failure
 it("creates an enabled entry with idle off and deletes only the selected entry", async () => {
   render(<WordbookPanel entries={[FIRST, SECOND]} />);
   fireEvent.click(screen.getByRole("button", { name: "새 항목 만들기" }));
-  expect(screen.getByLabelText("이 항목 사용")).toHaveProperty("checked", true);
+  fireEvent.click(screen.getByText("분류·재생 설정"));
+  expect(screen.getByRole("checkbox", { name: "이 항목 사용" })).toHaveProperty("checked", true);
   expect(screen.getByLabelText("자동 잡담에도 사용")).toHaveProperty("checked", false);
   fireEvent.change(screen.getByRole("textbox", { name: "제목" }), { target: { value: "간식" } });
   fireEvent.change(screen.getByRole("textbox", { name: "키워드" }), {
@@ -133,6 +135,7 @@ it("discards only a new unsaved entry and returns to the existing dirty entry", 
 it("keeps optional groups organizational, preserves drafts across filtering, and saves only metadata", async () => {
   const original = { ...FIRST, title: "  원래 제목  ", keywords: ["  공백 키워드  "] };
   render(<WordbookPanel entries={[original, { ...SECOND, group: "rest" }]} />);
+  fireEvent.click(screen.getByText("분류·재생 설정"));
   expect(screen.getByRole("combobox", { name: "분류 (선택)" })).toHaveProperty("value", "");
   fireEvent.change(screen.getByRole("combobox", { name: "분류 (선택)" }), {
     target: { value: "work" },
@@ -155,6 +158,7 @@ it("keeps optional groups organizational, preserves drafts across filtering, and
 
 it("creates under the selected group and can return an entry to ungrouped", async () => {
   render(<WordbookPanel entries={[{ ...FIRST, group: "daily" }]} />);
+  fireEvent.click(screen.getByText("분류·재생 설정"));
   fireEvent.change(screen.getByRole("combobox", { name: "분류 (선택)" }), {
     target: { value: "" },
   });
@@ -173,19 +177,89 @@ it("creates under the selected group and can return an entry to ungrouped", asyn
   expect(screen.getByRole("combobox", { name: "분류 (선택)" })).toHaveProperty("value", "daily");
 });
 
-it("exposes a labeled verbatim preview in the personal wordbook", () => {
-  const { container } = render(<WordbookPanel entries={[FIRST]} />);
-  const summary = screen.getByText("대사 미리보기 · 현재 편집 내용");
-  expect(summary.tagName).toBe("SUMMARY");
-  const preview = screen.getByLabelText("키워드 대사 미리보기");
-  expect(preview.querySelector("li span")).toHaveProperty("textContent", FIRST.lines[0].text);
-  fireEvent.click(screen.getByRole("button", { name: "2번 대사 위로" }));
-  expect(Array.from(preview.querySelectorAll("li span")).map((line) => line.textContent)).toEqual([
-    FIRST.lines[1].text,
-    FIRST.lines[0].text,
-  ]);
-  expect(container.querySelector("details")).toBeTruthy();
-  expect(command).not.toHaveBeenCalled();
+it.each([false, true])(
+  "keeps auxiliary controls collapsed until opened (highlight %s)",
+  (highlight) => {
+    render(<WordbookPanel entries={[FIRST]} highlight={highlight} />);
+    for (const label of [
+      "분류·재생 설정",
+      "대사 미리보기 · 현재 편집 내용",
+      "입력으로 매칭 확인",
+    ]) {
+      expect(screen.getByText(label).closest("details")).toHaveProperty("open", false);
+    }
+    expect(screen.getByRole("textbox", { name: "제목" })).toHaveProperty("value", FIRST.title);
+    expect(screen.getByRole("textbox", { name: "대사 1" })).toHaveProperty(
+      "value",
+      FIRST.lines[0].text,
+    );
+    expect(screen.getByRole("textbox", { name: "테스트할 말" }).closest("details")).toHaveProperty(
+      "open",
+      false,
+    );
+    expect(screen.getByRole("combobox", { name: "분류 (선택)" }).closest("details")).toHaveProperty(
+      "open",
+      false,
+    );
+    const summary = screen.getByText("대사 미리보기 · 현재 편집 내용");
+    expect(summary.tagName).toBe("SUMMARY");
+    fireEvent.click(summary);
+    expect(summary.closest("details")).toHaveProperty("open", true);
+    const preview = screen.getByLabelText("키워드 대사 미리보기");
+    expect(preview.querySelector("li span")).toHaveProperty("textContent", FIRST.lines[0].text);
+    fireEvent.click(screen.getByRole("button", { name: "2번 대사 위로" }));
+    expect(Array.from(preview.querySelectorAll("li span")).map((line) => line.textContent)).toEqual(
+      [FIRST.lines[1].text, FIRST.lines[0].text],
+    );
+    expect(command).not.toHaveBeenCalled();
+  },
+);
+
+it("retains entry drafts and matching input and result across closing and reopening controls", async () => {
+  vi.mocked(command).mockResolvedValueOnce({ entry: FIRST, keyword: "안녕" });
+  const { rerender } = render(<WordbookPanel entries={[FIRST, SECOND]} />);
+  const draft = "  접어도 남는 대사\n\n다음 줄  ";
+  fireEvent.change(screen.getByRole("textbox", { name: "대사 1" }), {
+    target: { value: draft },
+  });
+  const settings = screen.getByText("분류·재생 설정");
+  fireEvent.click(settings);
+  fireEvent.change(screen.getByRole("combobox", { name: "분류 (선택)" }), {
+    target: { value: "work" },
+  });
+  fireEvent.click(screen.getByRole("checkbox", { name: "자동 잡담에도 사용" }));
+  fireEvent.click(settings);
+  const matching = screen.getByText("입력으로 매칭 확인");
+  fireEvent.click(matching);
+  fireEvent.change(screen.getByRole("textbox", { name: "테스트할 말" }), {
+    target: { value: "안녕, 다시 만나" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "매칭 테스트" }));
+  await screen.findByLabelText("매칭 결과");
+  fireEvent.click(matching);
+  expect(settings.closest("details")).toHaveProperty("open", false);
+  expect(matching.closest("details")).toHaveProperty("open", false);
+  fireEvent.click(screen.getByRole("button", { name: "작별" }));
+  rerender(<WordbookPanel entries={[{ ...FIRST }, { ...SECOND }]} />);
+  fireEvent.click(screen.getByRole("button", { name: "인사 · 미저장" }));
+  expect(screen.getByRole("textbox", { name: "대사 1" })).toHaveProperty("value", draft);
+  fireEvent.click(settings);
+  expect(screen.getByRole("combobox", { name: "분류 (선택)" })).toHaveProperty("value", "work");
+  expect(screen.getByRole("checkbox", { name: "자동 잡담에도 사용" })).toHaveProperty(
+    "checked",
+    true,
+  );
+  fireEvent.click(matching);
+  expect(screen.getByRole("textbox", { name: "테스트할 말" })).toHaveProperty(
+    "value",
+    "안녕, 다시 만나",
+  );
+  expect(screen.getByLabelText("매칭 결과").textContent).toContain("일치한 등록 항목: 인사");
+  expect(command).toHaveBeenCalledTimes(1);
+  expect(command).toHaveBeenCalledWith("preview_wordbook_match", {
+    entries: [FIRST, SECOND],
+    input: "안녕, 다시 만나",
+  });
 });
 
 it("warns about duplicate keywords across groups without changing registration or blocking edits", () => {
@@ -214,6 +288,7 @@ it("tests saved entries in registration order independent of group filter and un
   fireEvent.change(screen.getByRole("combobox", { name: "분류로 찾기" }), {
     target: { value: "work" },
   });
+  fireEvent.click(screen.getByText("입력으로 매칭 확인"));
   fireEvent.change(screen.getByRole("textbox", { name: "테스트할 말" }), {
     target: { value: "잘 가, 내일 만나" },
   });
@@ -239,6 +314,7 @@ it("uses Enter to test without saving and reports no match only after the backen
   vi.mocked(command).mockResolvedValueOnce(null);
   render(<WordbookPanel entries={[FIRST]} />);
   expect(screen.queryByText("일치하는 저장된 활성 항목이 없어요.")).toBeNull();
+  fireEvent.click(screen.getByText("입력으로 매칭 확인"));
   const input = screen.getByRole("textbox", { name: "테스트할 말" });
   fireEvent.change(input, { target: { value: "다른 말" } });
   fireEvent.keyDown(input, { key: "Enter" });
@@ -258,6 +334,7 @@ it("ignores stale matching responses when the test input changes", async () => {
     }),
   );
   render(<WordbookPanel entries={[FIRST]} />);
+  fireEvent.click(screen.getByText("입력으로 매칭 확인"));
   const input = screen.getByRole("textbox", { name: "테스트할 말" });
   fireEvent.change(input, { target: { value: "안녕" } });
   fireEvent.click(screen.getByRole("button", { name: "매칭 테스트" }));
@@ -273,6 +350,7 @@ it("ignores stale matching responses when the test input changes", async () => {
 it("invalidates a completed match when saved entries update but keeps it across display filters", async () => {
   vi.mocked(command).mockResolvedValueOnce({ entry: FIRST, keyword: "안녕" });
   const { rerender } = render(<WordbookPanel entries={[FIRST]} />);
+  fireEvent.click(screen.getByText("입력으로 매칭 확인"));
   fireEvent.change(screen.getByRole("textbox", { name: "테스트할 말" }), {
     target: { value: "안녕" },
   });
@@ -290,6 +368,7 @@ it("retains input and drafts after test failure and permits a read-only retry", 
   vi.mocked(command).mockRejectedValueOnce(new Error("테스트 연결 실패"));
   render(<WordbookPanel entries={[FIRST]} />);
   fireEvent.change(screen.getByLabelText("대사 1"), { target: { value: "유지할 초안" } });
+  fireEvent.click(screen.getByText("입력으로 매칭 확인"));
   fireEvent.change(screen.getByRole("textbox", { name: "테스트할 말" }), {
     target: { value: "안녕" },
   });
@@ -311,6 +390,7 @@ it("excludes externally deleted entries from tests while retaining their unsaved
   rerender(<WordbookPanel entries={[SECOND]} />);
   expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "삭제되어도 보존할 초안");
   vi.mocked(command).mockResolvedValueOnce(null);
+  fireEvent.click(screen.getByText("입력으로 매칭 확인"));
   fireEvent.change(screen.getByRole("textbox", { name: "테스트할 말" }), {
     target: { value: "안녕" },
   });
@@ -330,6 +410,7 @@ it("invalidates a pending matching response when its saved entry is externally d
     }),
   );
   const { rerender } = render(<WordbookPanel entries={[FIRST, SECOND]} />);
+  fireEvent.click(screen.getByText("입력으로 매칭 확인"));
   fireEvent.change(screen.getByRole("textbox", { name: "테스트할 말" }), {
     target: { value: "안녕" },
   });
@@ -362,6 +443,7 @@ it("includes a newly saved local entry before a snapshot and defers to the next 
   await screen.findByText("단어장에 저장했어요.");
   const saved = vi.mocked(command).mock.calls[0][1]?.entry as WordbookEntry;
   vi.mocked(command).mockResolvedValueOnce({ entry: saved, keyword: "새 키워드" });
+  fireEvent.click(screen.getByText("입력으로 매칭 확인"));
   fireEvent.change(screen.getByRole("textbox", { name: "테스트할 말" }), {
     target: { value: "새 키워드" },
   });
@@ -404,6 +486,7 @@ it("preserves local registration order when saved entries are edited before snap
   const updated = vi.mocked(command).mock.calls[2][1]?.entry as WordbookEntry;
   expect(updated.id).toBe(first.id);
   vi.mocked(command).mockResolvedValueOnce({ entry: updated, keyword: "동일" });
+  fireEvent.click(screen.getByText("입력으로 매칭 확인"));
   fireEvent.change(screen.getByRole("textbox", { name: "테스트할 말" }), {
     target: { value: "동일" },
   });
@@ -433,6 +516,7 @@ it("does not resurrect a saved entry deleted by a newer snapshot before save com
   resolveSave();
   await screen.findByText("단어장에 저장했어요.");
   vi.mocked(command).mockResolvedValueOnce(null);
+  fireEvent.click(screen.getByText("입력으로 매칭 확인"));
   fireEvent.change(screen.getByRole("textbox", { name: "테스트할 말" }), {
     target: { value: "안녕" },
   });

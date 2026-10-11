@@ -46,12 +46,14 @@ export function DiaryDesktopNotes({
       )}
       {notes.map(({ widget, note }) => {
         const id = text(note.id);
-        const preview =
-          text(note.body).replace(/\s+/g, " ").trim() || text(note.title) || "빈 메모";
+        const title = text(note.title);
+        const bodyPreview = text(note.body).replace(/\s+/g, " ").trim();
+        const preview = bodyPreview || title || "빈 메모";
         const unavailable = busy || !widget.installed || !widget.enabled;
         const payload: WidgetDragPayload = { v: 1, kind: "memo", widgetId: widget.id, itemId: id };
         return (
           <article key={`${widget.id}:${id}`} className={s.note}>
+            {title && bodyPreview && <h3 className={s.noteTitle}>{title}</h3>}
             <div className={s.row}>
               <WidgetDragHandle payload={payload} title={preview} disabled={unavailable} />
               <Button

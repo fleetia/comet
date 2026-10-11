@@ -76,6 +76,15 @@ export const noteBody = style({
   fontSize: v.typography.size.caption,
   lineHeight: v.typography.lineHeight.body,
 });
+export const storedNotePreview = style([
+  noteBody,
+  {
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+    overflow: "hidden",
+  },
+]);
 export const textArea = style({
   width: "100%",
   minHeight: 104,

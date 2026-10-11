@@ -44,14 +44,6 @@ export const entryKeywords = style({
     [`${entry}[aria-pressed="true"] &`]: { color: vars.color.content.onAccent },
   },
 });
-export const heading = style({
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: vars.space.lg,
-  minHeight: 28,
-  marginBottom: vars.space.md,
-});
 export const form = style({ minWidth: 0, minHeight: 0, overflow: "hidden", display: "flex" });
 export const editorForm = style({ display: "flex", flex: 1, minWidth: 0, minHeight: 0 });
 export const editor = style({
@@ -95,24 +87,32 @@ export const lineHeading = style({
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  paddingTop: vars.space.md,
+  paddingTop: vars.space.sm,
   borderTop: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
 });
 export const line = style({
   padding: `${vars.space.md} 0 ${vars.space.xl}`,
 });
+export const lineIdentity = style({
+  display: "flex",
+  alignItems: "center",
+  gap: vars.space.sm,
+  marginBottom: vars.space.sm,
+});
+globalStyle(`${lineIdentity} > label`, { flex: 1, minWidth: 0 });
+globalStyle(`${lineIdentity} select`, { width: "100%", minWidth: 0 });
 export const lineControls = style({
   display: "flex",
   alignItems: "center",
   gap: vars.space.sm,
   flexWrap: "wrap",
-  marginBottom: vars.space.sm,
+  marginTop: vars.space.sm,
 });
 globalStyle(`${lineControls} select`, { width: "100%" });
 globalStyle(`${lineControls} > label`, { width: 160 });
 export const lineNumber = style({ width: 32, flexShrink: 0 });
 export const lineLimit = style({
-  marginRight: "auto",
+  flexShrink: 0,
   color: vars.color.content.secondary,
   fontSize: vars.typography.size.caption,
 });

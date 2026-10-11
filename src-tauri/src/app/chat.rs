@@ -83,8 +83,11 @@ fn begin_resume(state: &AppState, session_id: &str) -> Result<(u64, Option<Strin
     if session.participants.iter().any(|id| !active.contains(id)) {
         return Err("그때의 친구들을 다시 함께 지내기로 선택하면 이어갈 수 있어요.".into());
     }
-    let recovery = store::conversation_reply_pending(&db, &session.id)?
-        .then(|| "마지막 답변을 마치지 못했어요. 다시 이야기하기로 이어갈 수 있어요.".to_string());
+    let recovery = store::conversation_recovery(&db, &session.id)?.and_then(|recovery| {
+        (recovery.reason == store::RecoveryReason::Incomplete).then(|| {
+            "마지막 답변을 마치지 못했어요. 다시 이야기하기로 이어갈 수 있어요.".to_string()
+        })
+    });
     let at = chrono::Utc::now().timestamp_millis();
     if session.status == "ended" {
         store::create_conversation(&db, &session.participants, None, Some(&session.id), at)?;
@@ -480,6 +483,48 @@ mod tests {
             store::set_user_name(&db, "바뀐 합성 사용자", 4).unwrap();
         }
         assert!(begin_resume(&state, &session.id).is_err());
+    }
+
+    #[test]
+    fn resume_keeps_user_cancellation_separate_from_runtime_errors_without_starting_a_request() {
+        let state = super::super::tests::state();
+        let session = {
+            let db = lock(&state.db).unwrap();
+            let session =
+                store::create_conversation(&db, &["builtin-a".into()], None, None, 1).unwrap();
+            store::insert_user_input(
+                &db,
+                &Message {
+                    id: "cancelled-input".into(),
+                    role: "user".into(),
+                    persona: Some("a".into()),
+                    content: "멈춘 입력".into(),
+                    expression: None,
+                    created_at: 1,
+                    status: "complete".into(),
+                },
+                true,
+            )
+            .unwrap();
+            store::save_conversation_draft(&db, &session.id, "새 초안").unwrap();
+            store::cancel_conversation_reply(&db, &session.id, "cancelled-input").unwrap();
+            store::pause_conversations(&db).unwrap();
+            session
+        };
+        let (_, error) = begin_resume(&state, &session.id).unwrap();
+        assert!(error.is_none());
+        assert!(super::super::tasks::active_request(&state)
+            .unwrap()
+            .is_none());
+        let db = lock(&state.db).unwrap();
+        let view = store::conversation_view(&db, &session.id).unwrap();
+        assert_eq!(
+            view.recovery.unwrap().reason,
+            store::RecoveryReason::Cancelled
+        );
+        assert_eq!(view.session.draft, "새 초안");
+        assert_eq!(view.messages.len(), 1);
+        assert!(store::input_ai_only(&db, "cancelled-input").unwrap());
     }
 
     #[test]

@@ -35,6 +35,8 @@ pub struct ConversationMessages {
 #[serde(rename_all = "camelCase")]
 pub struct ConversationView {
     pub session: ConversationSession,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery: Option<ConversationRecovery>,
     pub messages: Vec<Message>,
     pub next_before: Option<i64>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -43,6 +45,20 @@ pub struct ConversationView {
     pub user_names: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub message_sources: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationRecovery {
+    pub message_id: String,
+    pub reason: RecoveryReason,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RecoveryReason {
+    Cancelled,
+    Incomplete,
 }
 
 const SESSION_FIELDS: &str =
@@ -80,7 +96,13 @@ pub(super) fn initialize_conversations(conn: &Connection) -> Result<()> {
         );
         UPDATE conversation_sessions SET status='paused' WHERE status='active';",
     )
-    .map_err(err)
+    .map_err(err)?;
+    super::users::add_column(
+        conn,
+        "conversation_sessions",
+        "cancelled_message_id",
+        "TEXT",
+    )
 }
 
 fn session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConversationSession> {
@@ -343,7 +365,8 @@ pub fn attach_conversation_message(conn: &Connection, id: &str, message_id: &str
     };
     conn.execute(
         "UPDATE conversation_sessions SET title=?2,updated_at=MAX(updated_at,?3),
-         draft=CASE WHEN ?4 THEN '' ELSE draft END WHERE id=?1",
+         draft=CASE WHEN ?4 THEN '' ELSE draft END,
+         cancelled_message_id=CASE WHEN ?4 THEN NULL ELSE cancelled_message_id END WHERE id=?1",
         params![id, title, message.created_at, message.role == "user"],
     )
     .map_err(err)?;
@@ -432,10 +455,15 @@ pub fn conversation_messages(
 
 // Recovery is derived from immutable input IDs and presentation receipts. Do not
 // persist a runtime error string, infer success from raw message status, or reroute.
+#[cfg(test)]
 pub fn conversation_reply_pending(conn: &Connection, id: &str) -> Result<bool> {
+    Ok(pending_reply_input(conn, id)?.is_some())
+}
+
+fn pending_reply_input(conn: &Connection, id: &str) -> Result<Option<String>> {
     let session = conversation(conn, id)?;
     if session.status == "ended" {
-        return Ok(false);
+        return Ok(None);
     }
     let latest: Option<String> = conn
         .query_row(
@@ -449,7 +477,7 @@ pub fn conversation_reply_pending(conn: &Connection, id: &str) -> Result<bool> {
         .optional()
         .map_err(err)?;
     let Some(input) = latest else {
-        return Ok(false);
+        return Ok(None);
     };
     let scene_length: Option<usize> = conn
         .query_row(
@@ -463,22 +491,72 @@ pub fn conversation_reply_pending(conn: &Connection, id: &str) -> Result<bool> {
         // A completed scene remains complete even after its recall revision changes.
         for index in 0..length {
             if !super::message_displayed(conn, &format!("scene:{input}:{index}"))? {
-                return Ok(true);
+                return Ok(Some(input));
             }
         }
-        return Ok(false);
+        return Ok(None);
     }
     if super::has_turn_replies(conn, &input, "scene")? {
         // Legacy scenes have no saved line count; never guess missing lines or
         // present a completed historical wordbook reply as a failed model turn.
-        return Ok(false);
+        return Ok(None);
     }
     for target in super::message_targets(conn, &input)? {
         if !super::message_displayed(conn, &format!("reply:{input}:{target}"))? {
-            return Ok(true);
+            return Ok(Some(input));
         }
     }
-    Ok(false)
+    Ok(None)
+}
+
+pub fn conversation_recovery(conn: &Connection, id: &str) -> Result<Option<ConversationRecovery>> {
+    let Some(message_id) = pending_reply_input(conn, id)? else {
+        return Ok(None);
+    };
+    let cancelled: Option<String> = conn
+        .query_row(
+            "SELECT cancelled_message_id FROM conversation_sessions WHERE id=?1",
+            [id],
+            |row| row.get(0),
+        )
+        .map_err(err)?;
+    Ok(Some(ConversationRecovery {
+        reason: if cancelled.as_deref() == Some(message_id.as_str()) {
+            RecoveryReason::Cancelled
+        } else {
+            RecoveryReason::Incomplete
+        },
+        message_id,
+    }))
+}
+
+pub fn cancel_conversation_reply(conn: &Connection, id: &str, message_id: &str) -> Result<()> {
+    let session = conversation(conn, id)?;
+    if session.status != "active" {
+        return Err("현재 대화가 바뀌었어요.".into());
+    }
+    let Some(pending) = pending_reply_input(conn, id)? else {
+        return Ok(());
+    };
+    if pending != message_id {
+        return Err("현재 입력이 바뀌었어요.".into());
+    }
+    conn.execute(
+        "UPDATE conversation_sessions SET cancelled_message_id=?2 WHERE id=?1",
+        params![id, message_id],
+    )
+    .map_err(err)?;
+    Ok(())
+}
+
+pub fn clear_conversation_cancellation(conn: &Connection, message_id: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE conversation_sessions SET cancelled_message_id=NULL
+         WHERE user_id=?1 AND cancelled_message_id=?2",
+        params![active_user_id(conn)?, message_id],
+    )
+    .map_err(err)?;
+    Ok(())
 }
 
 pub fn conversation_view(conn: &Connection, id: &str) -> Result<ConversationView> {
@@ -486,6 +564,7 @@ pub fn conversation_view(conn: &Connection, id: &str) -> Result<ConversationView
     let page = conversation_messages(conn, id, None)?;
     Ok(ConversationView {
         session,
+        recovery: conversation_recovery(conn, id)?,
         messages: page.messages,
         next_before: page.next_before,
         character_names: page.character_names,
@@ -1245,5 +1324,175 @@ mod tests {
         assert!(!conversation_reply_pending(&db, &second.id).unwrap());
         store::set_user_name(&db, "다른 합성 사용자", 4).unwrap();
         assert!(conversation_reply_pending(&db, &first.id).is_err());
+    }
+
+    #[test]
+    fn legacy_conversation_migration_defaults_to_no_user_cancellation_and_preserves_data() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("legacy.sqlite");
+        let db = store::open(&path).unwrap();
+        let session = start(&db);
+        store::insert_user_input(&db, &message("input", "user", "a", "  원문\n보존  "), true)
+            .unwrap();
+        save_conversation_draft(&db, &session.id, "다음 초안\n보존").unwrap();
+        let raw = serde_json::to_value(store::messages(&db, 100).unwrap()).unwrap();
+        let affinity = serde_json::to_value(store::relationships(&db).unwrap()).unwrap();
+        db.execute_batch("ALTER TABLE conversation_sessions DROP COLUMN cancelled_message_id")
+            .unwrap();
+        drop(db);
+
+        for _ in 0..2 {
+            let db = store::open(&path).unwrap();
+            let view = conversation_view(&db, &session.id).unwrap();
+            assert_eq!(view.session.status, "paused");
+            assert_eq!(view.session.draft, "다음 초안\n보존");
+            assert_eq!(
+                view.recovery.unwrap(),
+                ConversationRecovery {
+                    message_id: "input".into(),
+                    reason: RecoveryReason::Incomplete,
+                }
+            );
+            assert!(db
+                .query_row(
+                    "SELECT cancelled_message_id FROM conversation_sessions WHERE id=?1",
+                    [&session.id],
+                    |row| row.get::<_, Option<String>>(0)
+                )
+                .unwrap()
+                .is_none());
+            assert_eq!(
+                serde_json::to_value(store::messages(&db, 100).unwrap()).unwrap(),
+                raw
+            );
+            assert_eq!(
+                serde_json::to_value(store::relationships(&db).unwrap()).unwrap(),
+                affinity
+            );
+            assert!(store::input_ai_only(&db, "input").unwrap());
+            assert_eq!(
+                db.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+                    .unwrap(),
+                "ok"
+            );
+        }
+    }
+
+    #[test]
+    fn cancelled_partial_reply_survives_selection_restart_and_clears_for_retry_completion_or_new_input(
+    ) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("cancelled.sqlite");
+        let db = store::open(&path).unwrap();
+        let session = create_conversation(
+            &db,
+            &["builtin-a".into(), "builtin-b".into()],
+            None,
+            None,
+            1,
+        )
+        .unwrap();
+        store::insert_user_input(
+            &db,
+            &message("input", "user", "all", "  모두에게\n원문  "),
+            true,
+        )
+        .unwrap();
+        append(
+            &db,
+            &session,
+            &message(
+                "reply:input:builtin-a",
+                "assistant",
+                "a",
+                "  이미 표시한 답변  ",
+            ),
+        );
+        store::mark_message_displayed(&db, "reply:input:builtin-a", 2).unwrap();
+        save_conversation_draft(&db, &session.id, "새로 쓰는 초안").unwrap();
+        cancel_conversation_reply(&db, &session.id, "input").unwrap();
+        let raw = serde_json::to_value(store::messages(&db, 100).unwrap()).unwrap();
+        let other = start(&db);
+        assert!(conversation_view(&db, &other.id)
+            .unwrap()
+            .recovery
+            .is_none());
+        assert_eq!(
+            conversation_recovery(&db, &session.id)
+                .unwrap()
+                .unwrap()
+                .reason,
+            RecoveryReason::Cancelled
+        );
+        drop(db);
+
+        let db = store::open(&path).unwrap();
+        assert_eq!(
+            conversation_recovery(&db, &session.id)
+                .unwrap()
+                .unwrap()
+                .reason,
+            RecoveryReason::Cancelled
+        );
+        assert_eq!(
+            serde_json::to_value(store::messages(&db, 100).unwrap()).unwrap(),
+            raw
+        );
+        assert!(store::input_ai_only(&db, "input").unwrap());
+        assert!(store::message_displayed(&db, "reply:input:builtin-a").unwrap());
+        assert_eq!(
+            conversation(&db, &session.id).unwrap().draft,
+            "새로 쓰는 초안"
+        );
+
+        set_conversation_status(&db, &session.id, "active", 3).unwrap();
+        clear_conversation_cancellation(&db, "input").unwrap();
+        assert_eq!(
+            conversation_recovery(&db, &session.id)
+                .unwrap()
+                .unwrap()
+                .reason,
+            RecoveryReason::Incomplete
+        );
+        cancel_conversation_reply(&db, &session.id, "input").unwrap();
+        append(
+            &db,
+            &session,
+            &message(
+                "reply:input:builtin-b",
+                "assistant",
+                "b",
+                "마저 표시한 답변",
+            ),
+        );
+        assert!(conversation_recovery(&db, &session.id).unwrap().is_some());
+        store::mark_message_displayed(&db, "reply:input:builtin-b", 4).unwrap();
+        assert!(conversation_recovery(&db, &session.id).unwrap().is_none());
+        assert_eq!(
+            conversation(&db, &session.id).unwrap().draft,
+            "새로 쓰는 초안"
+        );
+
+        append(
+            &db,
+            &session,
+            &message("new-input", "user", "all", "다음 질문"),
+        );
+        assert_eq!(
+            conversation_recovery(&db, &session.id).unwrap().unwrap(),
+            ConversationRecovery {
+                message_id: "new-input".into(),
+                reason: RecoveryReason::Incomplete,
+            }
+        );
+        assert!(db
+            .query_row(
+                "SELECT cancelled_message_id FROM conversation_sessions WHERE id=?1",
+                [&session.id],
+                |row| row.get::<_, Option<String>>(0)
+            )
+            .unwrap()
+            .is_none());
+        assert!(cancel_conversation_reply(&db, &session.id, "input").is_err());
     }
 }

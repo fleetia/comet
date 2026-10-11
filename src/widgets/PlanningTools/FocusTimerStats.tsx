@@ -1,15 +1,30 @@
 import { Button, FormField, TextArea } from "@fleetia/lagrange";
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { text, type DataRecord, type ToolAction } from "../toolData";
+import { localDay, text, type DataRecord, type ToolAction } from "../toolData";
 import { clockLabel, moveDay, movePeriod, periodAnchor } from "../Planner/plannerData";
 import {
   appUsageTime,
+  elapsedWithin,
   focusBuckets,
   focusDuration,
+  type FocusBucket,
   type FocusPeriod,
   type FocusSession,
 } from "./FocusTimerData";
 import * as s from "./FocusTimer.css";
+
+function bucketRangeLabel(bucket: FocusBucket, period: FocusPeriod): string {
+  const start = new Date(bucket.startAt);
+  const date = localDay(start);
+  if (period === "day") {
+    const end = localDay(new Date(bucket.endAt)) === date ? clockLabel(bucket.endAt) : "24:00";
+    return `${date} ${clockLabel(bucket.startAt)}–${end}`;
+  }
+  if (period === "year") {
+    return `${start.getFullYear()}년 ${start.getMonth() + 1}월`;
+  }
+  return date;
+}
 
 export function FocusTimerStats({
   sessions,
@@ -55,6 +70,11 @@ export function FocusTimerStats({
         : period === "month"
           ? `${anchor.slice(0, 4)}년 ${Number(anchor.slice(5, 7))}월`
           : `${anchor.slice(0, 4)}년`;
+  const scopeStart = chosen?.startAt ?? first?.startAt ?? 0;
+  const scopeEnd = chosen?.endAt ?? last?.endAt ?? 0;
+  const scopeLabel = chosen ? bucketRangeLabel(chosen, period) : label;
+  const chosenScopeName = period === "week" || period === "month" ? "이 날짜" : "선택 구간";
+  const scopeName = chosen ? chosenScopeName : "이 기간";
   function shift(amount: number): void {
     setAnchor(period === "day" ? moveDay(anchor, amount) : movePeriod(anchor, period, amount));
     setBucketKey(null);
@@ -109,7 +129,10 @@ export function FocusTimerStats({
         </Button>
       </div>
       <div className={s.statsSummary}>
-        <strong className={s.total}>{focusDuration(total)}</strong>
+        <div>
+          <span className={s.caption}>{label} 합계</span>
+          <strong className={s.total}>{focusDuration(total)}</strong>
+        </div>
         <span className={s.quiet}>{allIds.size}회 집중</span>
       </div>
       <div
@@ -123,8 +146,8 @@ export function FocusTimerStats({
             className={s.bar}
             type="button"
             aria-pressed={chosen?.key === bucket.key}
-            aria-label={`${bucket.label} ${focusDuration(bucket.elapsedMs)}`}
-            title={`${bucket.label} · ${focusDuration(bucket.elapsedMs)}`}
+            aria-label={`${bucketRangeLabel(bucket, period)} ${focusDuration(bucket.elapsedMs)}`}
+            title={`${bucketRangeLabel(bucket, period)} · ${focusDuration(bucket.elapsedMs)}`}
             onClick={() => setBucketKey(bucket.key === bucketKey ? null : bucket.key)}
           >
             <span className={s.barTrack}>
@@ -139,11 +162,11 @@ export function FocusTimerStats({
       </div>
       <p className={`${s.quiet} ${s.chartCaption}`}>
         {chosen
-          ? `${chosen.label} · ${focusDuration(chosen.elapsedMs)}`
+          ? `${scopeName} · ${scopeLabel} · ${focusDuration(chosen.elapsedMs)}`
           : "휴식과 일시정지를 제외한 실제 집중 시간이에요."}
       </p>
       <div className={s.recordHeading}>
-        <h2 className={s.headingText}>{chosen ? "선택한 기간의 집중" : "집중 기록"}</h2>
+        <h2 className={s.headingText}>{scopeName}의 집중 기록</h2>
         <Button
           variant="quiet"
           size="compact"
@@ -155,9 +178,7 @@ export function FocusTimerStats({
           현재 기간
         </Button>
       </div>
-      {visible.length === 0 && (
-        <p className={s.empty}>아직 집중 기록이 없어요. 이번 집중부터 시간을 쌓아가요.</p>
-      )}
+      {visible.length === 0 && <p className={s.empty}>{scopeLabel}에 집중 기록이 없어요.</p>}
       <div className={s.activityList}>
         {visible.map((session) => (
           <Button
@@ -179,14 +200,19 @@ export function FocusTimerStats({
                       : "직접 마침"}
                   {session.memo || text(session.noteRef.id) ? " · 메모 있음" : ""}
                 </span>
+                <span className={s.caption}>
+                  <strong>
+                    {scopeName} {focusDuration(elapsedWithin(session, scopeStart, scopeEnd))}
+                  </strong>{" "}
+                  · 세션 전체 {focusDuration(session.elapsedMs)}
+                </span>
                 {session.appUsage && (
                   <span className={s.caption}>
-                    앱 전면 사용 · {session.appUsage.target.name}{" "}
+                    앱 전면 사용 · 세션 전체 · {session.appUsage.target.name}{" "}
                     {appUsageTime(session.appUsage.elapsedMs)}
                   </span>
                 )}
               </span>
-              <span>{focusDuration(session.elapsedMs)}</span>
             </span>
           </Button>
         ))}
@@ -277,6 +303,7 @@ function FocusSessionDetail({
       <Button variant="quiet" disabled={busy} onClick={onBack}>
         ‹ 집중 기록
       </Button>
+      <span className={s.caption}>세션 전체 집중</span>
       <strong className={s.detailTime}>{focusDuration(session.elapsedMs)}</strong>
       <p className={s.quiet}>
         {new Date(session.startedAt).toLocaleDateString()} · {clockLabel(session.startedAt)}–
@@ -300,7 +327,8 @@ function FocusSessionDetail({
           <>
             <dt>앱 전면 사용</dt>
             <dd>
-              {session.appUsage.target.name} · {appUsageTime(session.appUsage.elapsedMs)}
+              세션 전체 · {session.appUsage.target.name} ·{" "}
+              {appUsageTime(session.appUsage.elapsedMs)}
             </dd>
           </>
         )}

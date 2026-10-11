@@ -349,7 +349,10 @@ export const activityList = style({
   gap: 0,
   minWidth: 0,
 });
-export const recordButton = style([itemButton, { width: "100%", flex: "none" }]);
+export const recordButton = style([
+  itemButton,
+  { width: "100%", flex: "none", whiteSpace: "normal" },
+]);
 export const recordRow = style([item, { width: "100%" }]);
 export const statsSummary = style({
   display: "flex",

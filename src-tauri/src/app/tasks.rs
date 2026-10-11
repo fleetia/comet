@@ -1,5 +1,5 @@
 use super::{interrupt, is_current, lock, publish, unavailable, AppState};
-use crate::types::RuntimePhase;
+use crate::types::{ActiveRequest, RuntimePhase};
 use futures_util::FutureExt;
 use std::{
     future::Future,
@@ -21,7 +21,23 @@ pub(crate) enum Kind {
 #[derive(Default)]
 pub(crate) struct Registry {
     pub(crate) active: Option<(Kind, u64)>,
+    pub(crate) conversation: Option<(String, String)>,
     handles: Vec<(Kind, tauri::async_runtime::JoinHandle<()>)>,
+}
+
+pub(crate) fn active_request(state: &AppState) -> Result<Option<ActiveRequest>, String> {
+    let tasks = lock(&state.tasks)?;
+    Ok(tasks.active.map(|(_, epoch)| ActiveRequest {
+        epoch,
+        session_id: tasks
+            .conversation
+            .as_ref()
+            .map(|(session, _)| session.clone()),
+        message_id: tasks
+            .conversation
+            .as_ref()
+            .map(|(_, message)| message.clone()),
+    }))
 }
 
 // Called while action is held, so reservation and cancellation are one transition.
@@ -40,6 +56,16 @@ pub(crate) fn reserve(
     status.phase = RuntimePhase::Loading;
     status.persona = None;
     status.error = None;
+    Ok(token)
+}
+
+pub(crate) fn reserve_conversation(
+    state: &AppState,
+    session_id: Option<&str>,
+    message_id: &str,
+) -> Result<(u64, Arc<AtomicBool>), String> {
+    let token = reserve(state, Kind::Conversation, false)?;
+    lock(&state.tasks)?.conversation = session_id.map(|id| (id.into(), message_id.into()));
     Ok(token)
 }
 
@@ -97,6 +123,7 @@ fn complete(state: &AppState, kind: Kind, epoch: u64, panicked: bool) -> Result<
         return Ok(false);
     }
     tasks.active = None;
+    tasks.conversation = None;
     if panicked {
         state.nlp.pause_indexing(false);
         let mut status = lock(&state.runtime)?;
@@ -104,7 +131,7 @@ fn complete(state: &AppState, kind: Kind, epoch: u64, panicked: bool) -> Result<
         status.error = Some("작업이 중단됐어요. 다시 시도해 주세요.".into());
         *lock(&state.playback)? = None;
     }
-    Ok(panicked)
+    Ok(true)
 }
 
 // Only one maintenance operation may run. Native geometry and NLP do not own gate.
@@ -206,6 +233,27 @@ mod tests {
         assert!(complete(&state, Kind::Conversation, new.0, true).unwrap());
         assert!(lock(&state.tasks).unwrap().active.is_none());
         assert_eq!(lock(&state.runtime).unwrap().phase, RuntimePhase::Error);
+    }
+
+    #[test]
+    fn completed_request_identity_is_published_and_old_completion_cannot_clear_retry() {
+        let state = crate::app::tests::state();
+        let old = {
+            let _action = lock(&state.action).unwrap();
+            reserve_conversation(&state, Some("session"), "input").unwrap()
+        };
+        let retry = {
+            let _action = lock(&state.action).unwrap();
+            reserve_conversation(&state, Some("session"), "input").unwrap()
+        };
+        assert!(!complete(&state, Kind::Conversation, old.0, false).unwrap());
+        let current = active_request(&state).unwrap().unwrap();
+        assert_eq!(current.epoch, retry.0);
+        assert_eq!(current.session_id.as_deref(), Some("session"));
+        assert_eq!(current.message_id.as_deref(), Some("input"));
+        assert!(complete(&state, Kind::Conversation, retry.0, false).unwrap());
+        assert!(active_request(&state).unwrap().is_none());
+        assert!(lock(&state.tasks).unwrap().conversation.is_none());
     }
 
     #[tokio::test]

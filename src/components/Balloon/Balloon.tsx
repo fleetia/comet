@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
-import { Button, IconButton, Select, TextArea } from "@fleetia/lagrange";
+import { Button, Dialog, IconButton, Select, TextArea } from "@fleetia/lagrange";
 import type {
   ConversationSession,
   ConversationView,
@@ -71,8 +71,20 @@ export function Balloon({
   const sessionId = conversation?.session.id;
   const userId = snapshot.user?.id;
   const viewIdentity = `${snapshot.user?.id ?? ""}:${mode === "input" && sessionId ? `conversation:${sessionId}` : snapshot.panel ? `${mode}:${snapshot.panel.persona}` : (snapshot.playback?.id ?? "")}`;
-  const currentView = useRef({ identity: viewIdentity, mode, sessionId, userId });
-  currentView.current = { identity: viewIdentity, mode, sessionId, userId };
+  const currentView = useRef({
+    identity: viewIdentity,
+    mode,
+    sessionId,
+    userId,
+    recoveryId: conversation?.recovery?.messageId,
+  });
+  currentView.current = {
+    identity: viewIdentity,
+    mode,
+    sessionId,
+    userId,
+    recoveryId: conversation?.recovery?.messageId,
+  };
   const name = characterName(snapshot, persona);
   const character = activeCharacter(snapshot, persona);
   const textStyle = balloonTextStyle(character?.definition.balloonStyle);
@@ -99,6 +111,12 @@ export function Balloon({
   const [navigating, setNavigating] = useState(false);
   const navigatingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const [draftReplacement, setDraftReplacement] = useState<{
+    identity: string;
+    messageId: string;
+    content: string;
+    previousDraft: string;
+  } | null>(null);
   const [failureRevision, setFailureRevision] = useState(0);
   const [failedSubmission, setFailedSubmission] = useState<{
     id: string;
@@ -111,6 +129,8 @@ export function Balloon({
   const lastActivity = useRef(Date.now());
   const composing = useRef(false);
   const submitting = useRef(false);
+  const currentRequestEpoch = useRef(snapshot.activeRequest?.epoch);
+  currentRequestEpoch.current = snapshot.activeRequest?.epoch;
   const lastSubmission = useRef<{ id: string; content: string } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
@@ -121,20 +141,28 @@ export function Balloon({
   const latestUser = (conversation?.messages ?? snapshot.messages)
     .filter((message) => message.role === "user")
     .at(-1);
-  const canRetry =
+  const recovery = conversation?.recovery;
+  const canRetry = Boolean(
     snapshot.user &&
-    (mode === "input" || !mode) &&
-    snapshot.runtime.phase === "error" &&
-    latestUser;
+    mode === "input" &&
+    latestUser &&
+    recovery?.messageId === latestUser.id &&
+    !responding &&
+    !playing,
+  );
   const visibleError = error || (mode === "input" || !mode ? snapshot.runtime.error : null);
   const availability = aiAvailability(snapshot);
   const latestInputContent =
     latestUser && lastSubmission.current?.id === latestUser.id
       ? lastSubmission.current.content
       : latestUser?.content;
-  const failedContent = visibleError
-    ? (failedSubmission?.content ?? (canRetry ? latestInputContent : null))
-    : null;
+  const failedContent =
+    visibleError || canRetry
+      ? (failedSubmission?.content ?? (canRetry ? latestInputContent : null))
+      : null;
+  useEffect(() => {
+    setDraftReplacement(null);
+  }, [viewIdentity, latestUser?.id, responding, playing]);
   useLayoutEffect(() => {
     // A failed send can arrive while the native window still has its previous size,
     // or while an expanded conversation log has scrolled the document.
@@ -179,6 +207,8 @@ export function Balloon({
       mode !== "input" ||
       !conversation ||
       snapshot.runtime.phase !== "error" ||
+      recovery?.reason !== "incomplete" ||
+      recovery.messageId !== latestUser?.id ||
       !latestUser ||
       draft.current.value.length > 0
     )
@@ -186,7 +216,14 @@ export function Balloon({
     const content = latestInputContent ?? latestUser.content;
     draft.current.value = content;
     setInput(content);
-  }, [mode, sessionId, snapshot.runtime.phase, latestUser?.id]);
+  }, [
+    mode,
+    sessionId,
+    snapshot.runtime.phase,
+    latestUser?.id,
+    recovery?.messageId,
+    recovery?.reason,
+  ]);
   useEffect(() => {
     if (!conversation) return;
     const participants = conversation.session.participants;
@@ -319,6 +356,92 @@ export function Balloon({
       setFailureRevision((revision) => revision + 1);
     }
   }
+  async function cancelGeneration(): Promise<void> {
+    const request = snapshot.activeRequest;
+    if (!request || submitting.current) return;
+    submitting.current = true;
+    setPending(true);
+    const previousView = currentView.current;
+    try {
+      await dispatch("cancel_generation", { request });
+    } catch (cause) {
+      if (
+        currentView.current.identity === previousView.identity &&
+        currentRequestEpoch.current === request.epoch
+      ) {
+        setError(errorText(cause));
+      }
+    } finally {
+      submitting.current = false;
+      setPending(false);
+    }
+  }
+  async function retry(): Promise<void> {
+    if (!canRetry || !latestUser || submitting.current || navigatingRef.current) return;
+    submitting.current = true;
+    setPending(true);
+    setError(null);
+    const previousView = currentView.current;
+    try {
+      await flushDraft();
+      if (
+        currentView.current.identity !== previousView.identity ||
+        currentView.current.recoveryId !== latestUser.id
+      )
+        return;
+      await dispatch("retry_turn", { messageId: latestUser.id, target: latestUser.persona });
+    } catch (cause) {
+      if (
+        currentView.current.identity === previousView.identity &&
+        currentView.current.recoveryId === latestUser.id
+      ) {
+        setError(errorText(cause));
+        setFailureRevision((revision) => revision + 1);
+      }
+    } finally {
+      submitting.current = false;
+      setPending(false);
+    }
+  }
+  function editFailedInput(): void {
+    if (!canRetry || !latestUser || latestInputContent === undefined || pending || navigating)
+      return;
+    if (draft.current.value && draft.current.value !== latestInputContent) {
+      setDraftReplacement({
+        identity: viewIdentity,
+        messageId: latestUser.id,
+        content: latestInputContent,
+        previousDraft: draft.current.value,
+      });
+      return;
+    }
+    draft.current.value = latestInputContent;
+    setInput(latestInputContent);
+    inputRef.current?.focus();
+  }
+  function replaceDraft(): void {
+    if (!draftReplacement) return;
+    setDraftReplacement(null);
+    if (
+      !canRetry ||
+      pending ||
+      navigating ||
+      currentView.current.identity !== draftReplacement.identity ||
+      currentView.current.recoveryId !== draftReplacement.messageId ||
+      draft.current.value !== draftReplacement.previousDraft
+    )
+      return;
+    draft.current.value = draftReplacement.content;
+    setInput(draftReplacement.content);
+    window.requestAnimationFrame(() => {
+      if (
+        currentView.current.identity === draftReplacement.identity &&
+        currentView.current.recoveryId === draftReplacement.messageId
+      ) {
+        inputRef.current?.focus();
+      }
+    });
+  }
   async function openModelSettings(): Promise<void> {
     if (navigatingRef.current) return;
     navigatingRef.current = true;
@@ -340,14 +463,14 @@ export function Balloon({
   const closeCommand = snapshot.panel ? "close_panel" : "skip_talk";
   useEffect(() => {
     function close(event: globalThis.KeyboardEvent): void {
-      if (event.key === "Escape" && !event.isComposing) {
+      if (event.key === "Escape" && !event.isComposing && !draftReplacement) {
         event.preventDefault();
         void leave(closeCommand);
       }
     }
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
-  }, [closeCommand, dispatch]);
+  }, [closeCommand, dispatch, draftReplacement]);
   useEffect(() => {
     lastActivity.current = Date.now();
     if (
@@ -477,6 +600,13 @@ export function Balloon({
           <p className={s.failedInput}>{failedContent}</p>
         </div>
       )}
+      {canRetry && (
+        <p role="status">
+          {recovery?.reason === "cancelled"
+            ? "생성을 멈췄어요."
+            : "답변을 끝내지 못했어요. 보낸 내용은 남아 있어요."}
+        </p>
+      )}
       {visibleError && (
         <p ref={errorRef} className={s.error} role="alert">
           {visibleError}
@@ -484,21 +614,37 @@ export function Balloon({
       )}
       <div className={s.row}>
         {canRetry && (
-          <Button
-            variant="secondary"
-            disabled={pending || responding}
-            onClick={() =>
-              void perform("retry_turn", {
-                messageId: latestUser.id,
-                target: latestUser.persona,
-              })
-            }
-          >
+          <Button variant="secondary" disabled={pending || navigating} onClick={() => void retry()}>
             다시 이야기하기
           </Button>
         )}
-        {responding && (
-          <Button variant="quiet" size="compact" onClick={() => void perform("cancel_generation")}>
+        {canRetry && (
+          <>
+            <Button
+              variant="quiet"
+              size="compact"
+              disabled={pending || navigating}
+              onClick={editFailedInput}
+            >
+              입력 수정
+            </Button>
+            <Button
+              variant="quiet"
+              size="compact"
+              disabled={pending || navigating}
+              onClick={() => void openModelSettings()}
+            >
+              AI 연결 확인
+            </Button>
+          </>
+        )}
+        {responding && snapshot.activeRequest && (
+          <Button
+            variant="quiet"
+            size="compact"
+            disabled={pending}
+            onClick={() => void cancelGeneration()}
+          >
             생성 멈추기
           </Button>
         )}
@@ -894,6 +1040,27 @@ export function Balloon({
         <span className={s.playbackOrigin}>{responseOrigin(snapshot.playback.source)}</span>
       )}
       {mode !== "input" && mode !== "focus" && notice}
+      <Dialog
+        isOpen={Boolean(draftReplacement && canRetry)}
+        title="작성 중인 초안을 바꿀까요?"
+        size="small"
+        closeLabel="초안 교체 닫기"
+        onOpenChange={(open) => {
+          if (!open) setDraftReplacement(null);
+        }}
+      >
+        <p>
+          작성 중인 초안 대신 답변을 마치지 못한 입력을 가져와요. 이미 보낸 원문은 그대로 남아요.
+        </p>
+        <div className={s.row}>
+          <Button variant="quiet" onClick={() => setDraftReplacement(null)}>
+            계속 작성
+          </Button>
+          <Button variant="primary" onClick={replaceDraft}>
+            초안 바꾸기
+          </Button>
+        </div>
+      </Dialog>
     </section>
   );
 }

@@ -144,6 +144,145 @@ it("creates a local Today task without a connected account or an invented due da
   expect(command).not.toHaveBeenCalledWith("list_apple_calendars", expect.anything());
 });
 
+it.each([
+  {
+    installed: false,
+    label: "할 일 설치",
+    message: "할 일을 설치하면 계정 없이 수집함을 사용할 수 있어요.",
+    commandName: "install_widgets",
+    args: { kinds: ["todo"] },
+  },
+  {
+    installed: true,
+    label: "할 일 켜기",
+    message: "할 일 사용이 꺼져 있어요. 켜면 저장한 항목을 다시 볼 수 있어요.",
+    commandName: "set_widget_enabled",
+    args: { id: "todo-id", enabled: true },
+  },
+])(
+  "offers $label for an unavailable inbox without discarding saved tasks",
+  async ({ installed, label, message, commandName, args }) => {
+    const saved = item("kept", "남겨둔 할 일", { plannedDate: null });
+    const value = snapshot([saved]);
+    value.widgets = value.widgets.map((entry) => ({ ...entry, installed, enabled: false }));
+    const view = await renderPlanner(value);
+    fireEvent.click(screen.getByRole("button", { name: /^수집함 / }));
+    expect(
+      within(screen.getByRole("tabpanel", { name: "기간 계획" })).getByText(message),
+    ).toBeTruthy();
+    expect(screen.queryByRole("textbox", { name: "새 할 일" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: label }));
+    await waitFor(() => expect(command).toHaveBeenCalledWith(commandName, args));
+    expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
+    expect(value.widgets[0].data).toEqual({ lists: LISTS, items: [saved] });
+    useSnapshot(snapshot([saved]));
+    view.rerender(<Planner />);
+    expect(screen.getByRole("checkbox", { name: "남겨둔 할 일" })).toBeTruthy();
+  },
+);
+
+it("reloads an inbox read failure while retaining the last loaded tasks and new input", async () => {
+  const value = snapshot([item("kept", "이미 저장한 일", { plannedDate: null })]);
+  const view = await renderPlanner(value);
+  fireEvent.click(screen.getByRole("button", { name: /^수집함 / }));
+  fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
+    target: { value: "아직 저장하지 않은 일" },
+  });
+  vi.mocked(useWidgets).mockReturnValue({ snapshot: value, error: "목록을 읽지 못했어요", reload });
+  view.rerender(<Planner />);
+  expect(screen.getByRole("alert").textContent).toContain("목록을 읽지 못했어요");
+  fireEvent.click(screen.getByRole("button", { name: "다시 불러오기" }));
+  expect(reload).toHaveBeenCalledOnce();
+  expect(screen.getByRole("checkbox", { name: "이미 저장한 일" })).toBeTruthy();
+  expect(screen.getByRole("textbox", { name: "새 할 일" })).toHaveProperty(
+    "value",
+    "아직 저장하지 않은 일",
+  );
+  expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
+});
+
+it("keeps an inbox input after a rejected save and clears it only after a manual retry succeeds", async () => {
+  const value = snapshot([item("kept", "이미 저장한 일", { plannedDate: null })]);
+  await renderPlanner(value);
+  fireEvent.click(screen.getByRole("button", { name: /^수집함 / }));
+  const save = vi.fn().mockRejectedValueOnce(new Error("저장 공간을 사용할 수 없어요"));
+  let finish: ((value: unknown) => void) | undefined;
+  save.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  vi.mocked(command).mockImplementation((name) =>
+    name === "execute_widget" ? save() : Promise.resolve("today"),
+  );
+  fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
+    target: { value: "  다음에 검토할 일  " },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "추가" }));
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("저장 공간"));
+  expect(screen.getByRole("alert").textContent).toContain("입력을 유지했으니");
+  expect(screen.queryByRole("button", { name: "다시 불러오기" })).toBeNull();
+  expect(reload).toHaveBeenCalledOnce();
+  expect(screen.getByRole("textbox", { name: "새 할 일" })).toHaveProperty(
+    "value",
+    "  다음에 검토할 일  ",
+  );
+  expect(screen.getByRole("checkbox", { name: "이미 저장한 일" })).toBeTruthy();
+  expect(save).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("button", { name: "추가" }));
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+  expect(screen.getByRole("textbox", { name: "새 할 일" })).toHaveProperty(
+    "value",
+    "  다음에 검토할 일  ",
+  );
+  expectAction("add", {
+    title: "  다음에 검토할 일  ",
+    listId: "default",
+    plannedDate: null,
+    planPeriod: "none",
+    planAnchor: null,
+  });
+  finish?.("created-task");
+  await waitFor(() =>
+    expect(screen.getByRole("textbox", { name: "새 할 일" })).toHaveProperty("value", ""),
+  );
+  expect(screen.getByRole("checkbox", { name: "이미 저장한 일" })).toBeTruthy();
+  expect(save).toHaveBeenCalledTimes(2);
+});
+
+it("adds an undated inbox task and finds it again after reopening on a different selected date", async () => {
+  const view = await renderPlanner(snapshot([]));
+  fireEvent.click(screen.getByRole("button", { name: "다음 날짜" }));
+  fireEvent.click(screen.getByRole("button", { name: /^수집함 / }));
+  fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
+    target: { value: "언젠가 읽을 자료" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "추가" }));
+  await waitFor(() =>
+    expectAction("add", {
+      title: "언젠가 읽을 자료",
+      listId: "default",
+      plannedDate: null,
+      planPeriod: "none",
+      planAnchor: null,
+    }),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("textbox", { name: "새 할 일" })).toHaveProperty("value", ""),
+  );
+  view.unmount();
+  await renderPlanner(snapshot([item("undated", "언젠가 읽을 자료", { plannedDate: null })]));
+  fireEvent.click(screen.getByRole("button", { name: "이전 날짜" }));
+  expect(screen.queryByRole("checkbox", { name: "언젠가 읽을 자료" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "수집함 · 날짜 없음 · 미완료 1개" }));
+  expect(screen.getByRole("checkbox", { name: "언젠가 읽을 자료" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "오늘" }));
+  fireEvent.click(screen.getByRole("button", { name: "다음 날짜" }));
+  fireEvent.click(screen.getByRole("button", { name: "수집함 · 날짜 없음 · 미완료 1개" }));
+  expect(screen.getByRole("checkbox", { name: "언젠가 읽을 자료" })).toBeTruthy();
+});
+
 it("puts a period task into Today by changing only its planned date", async () => {
   const work = item("review", "월말 자료 살피기", {
     plannedDate: null,
@@ -192,7 +331,7 @@ it("moves only checked unfinished tasks at day end without changing their deadli
     ]),
   );
   fireEvent.click(screen.getByRole("button", { name: "하루 마무리" }));
-  const wrap = within(screen.getByRole("dialog", { name: "오늘은 여기까지" }));
+  const wrap = within(screen.getByRole("dialog", { name: `${TODAY} 하루 마무리` }));
   expect(wrap.queryByRole("checkbox", { name: "책 반납하기" })).toBeNull();
   fireEvent.click(wrap.getByRole("checkbox", { name: "서류 챙기기" }));
   fireEvent.change(wrap.getByLabelText("옮길 날짜"), { target: { value: "2026-09-23" } });
@@ -255,7 +394,7 @@ it("counts today's frequency record as done today and excludes it from day-end c
       }),
     ]),
   );
-  expect(screen.getByText("할 일 1개 · 완료 1개")).toBeTruthy();
+  expect(screen.getByText(`선택일 ${TODAY} · 할 일 1개 · 완료 1개`)).toBeTruthy();
   const checkbox = within(screen.getByRole("region", { name: "오늘 할 일" })).getByRole(
     "checkbox",
     { name: /오늘 산책 목표/ },
@@ -266,9 +405,11 @@ it("counts today's frequency record as done today and excludes it from day-end c
   fireEvent.click(row);
   expect(screen.getByRole("button", { name: "오늘에서 빼기" })).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByRole("button", { name: "하루 마무리" }));
-  const wrap = within(screen.getByRole("dialog", { name: "오늘은 여기까지" }));
+  const wrap = within(screen.getByRole("dialog", { name: `${TODAY} 하루 마무리` }));
   expect(wrap.queryByRole("checkbox", { name: /오늘 산책 목표/ })).toBeNull();
-  expect(wrap.getByText(/오늘 1개를 마쳤어요/)).toBeTruthy();
+  expect(
+    wrap.getByText(`선택일 ${TODAY} · 완료 1개 · 남은 일 0개. 옮길 일만 골라요.`),
+  ).toBeTruthy();
   expect(wrap.getByRole("button", { name: "선택한 0개 옮기기" })).toHaveProperty("disabled", true);
 });
 
@@ -900,7 +1041,7 @@ it("embeds task tools without a second header, navigation, calendar or native cl
   expect(screen.queryByRole("button", { name: "플래너 닫기" })).toBeNull();
   expect(screen.queryByRole("tablist")).toBeNull();
   expect(screen.queryByRole("region", { name: "월간 캘린더", hidden: true })).toBeNull();
-  expect(screen.queryByText("오늘 일정 · 0")).toBeNull();
+  expect(screen.queryByRole("heading", { name: `선택일 ${TODAY} 일정 · 0개` })).toBeNull();
   expect(native.onCloseRequested).not.toHaveBeenCalled();
   expect(listen).not.toHaveBeenCalledWith("planner-tab", expect.anything());
   expect(command).not.toHaveBeenCalledWith("get_planner_tab");
@@ -911,7 +1052,7 @@ it("embeds task tools without a second header, navigation, calendar or native cl
     target: { value: "진행 중인 계획" },
   });
   expect(onStateChange).toHaveBeenLastCalledWith({ dirty: true, busy: false, blocking: false });
-  fireEvent.click(screen.getByRole("button", { name: "수집함 0" }));
+  fireEvent.click(screen.getByRole("button", { name: "수집함 · 날짜 없음 · 미완료 0개" }));
   expect(onNavigate).toHaveBeenCalledWith("plans");
 });
 
@@ -1026,11 +1167,11 @@ it("dismisses embedded dialogs without resetting other planning and template dra
   view.rerender(<Planner embeddedTab="today" dismissVersion={2} onStateChange={onStateChange} />);
   expect(screen.queryByRole("dialog", { name: "할 일 편집" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "하루 마무리" }));
-  expect(screen.getByRole("dialog", { name: "오늘은 여기까지" })).toBeTruthy();
+  expect(screen.getByRole("dialog", { name: `${TODAY} 하루 마무리` })).toBeTruthy();
   view.rerender(
     <Planner embeddedTab="templates" dismissVersion={3} onStateChange={onStateChange} />,
   );
-  expect(screen.queryByRole("dialog", { name: "오늘은 여기까지" })).toBeNull();
+  expect(screen.queryByRole("dialog", { name: `${TODAY} 하루 마무리` })).toBeNull();
   await waitFor(() =>
     expect(onStateChange).toHaveBeenLastCalledWith({ dirty: true, busy: false, blocking: false }),
   );
@@ -1131,4 +1272,92 @@ it("shares the diary date and offers an all-task escape from an empty date scope
   fireEvent.click(screen.getByRole("button", { name: "다음 날짜" }));
   expect(onDay).toHaveBeenCalledWith("2026-09-23");
   expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
+});
+
+it("keeps selected-day totals, quick additions and day-end review scoped while listing every date", async () => {
+  const day = "2026-09-22";
+  const value = snapshot([
+    item("selected-open", "선택일에 남은 일", { plannedDate: day }),
+    item("selected-done", "선택일에 마친 일", { plannedDate: day, completedAt: Date.now() }),
+    item("other", "다른 날에 마친 일", { completedAt: Date.now() }),
+    item("inbox", "날짜 없이 남긴 일", { plannedDate: null }),
+  ]);
+  const original = structuredClone(value);
+  useSnapshot(value);
+  render(<Planner embeddedTab="today" selectedDay={day} />);
+  expect(screen.getByText(`선택일 ${day} · 할 일 2개 · 완료 1개`)).toBeTruthy();
+  expect(screen.getByRole("heading", { name: `${day} 할 일 · 2개` })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "모든 할 일 보기" }));
+  expect(screen.getByRole("heading", { name: "모든 날짜 할 일 · 4개" })).toBeTruthy();
+  expect(screen.getByText(`선택일 ${day} · 할 일 2개 · 완료 1개`)).toBeTruthy();
+  expect(screen.getByText(`새 할 일 계획일 · 선택일 ${day}`)).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "날짜 없이 남긴 일" })).toBeTruthy();
+  fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
+    target: { value: "선택일에 추가할 일" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "추가" }));
+  await waitFor(() =>
+    expectAction("add", {
+      title: "선택일에 추가할 일",
+      listId: "default",
+      plannedDate: day,
+      planPeriod: "none",
+      planAnchor: null,
+    }),
+  );
+  await waitFor(() => expect(screen.queryByText("저장하고 있어요…")).toBeNull());
+  fireEvent.click(screen.getByRole("button", { name: "하루 마무리" }));
+  const wrap = within(screen.getByRole("dialog", { name: `${day} 하루 마무리` }));
+  expect(wrap.getByText(`선택일 ${day} · 완료 1개 · 남은 일 1개. 옮길 일만 골라요.`)).toBeTruthy();
+  expect(wrap.getByRole("checkbox", { name: "선택일에 남은 일" })).toBeTruthy();
+  expect(wrap.queryByRole("checkbox", { name: "날짜 없이 남긴 일" })).toBeNull();
+  expect(wrap.queryByRole("checkbox", { name: "다른 날에 마친 일" })).toBeNull();
+  expect(wrap.getByLabelText("옮길 날짜")).toHaveProperty("value", "2026-09-23");
+  expect(value).toEqual(original);
+});
+
+it("labels inbox counts and period additions with their actual date scope without changing saved plans", async () => {
+  const value = snapshot([
+    item("inbox", "날짜 없는 일", { plannedDate: null }),
+    item("inbox-done", "날짜 없이 마친 일", { plannedDate: null, completedAt: Date.now() }),
+    item("week", "이번 주 계획", { plannedDate: null, planPeriod: "week", planAnchor: TODAY }),
+  ]);
+  const original = structuredClone(value);
+  await renderPlanner(value);
+  fireEvent.click(screen.getByRole("button", { name: "수집함 · 날짜 없음 · 미완료 1개" }));
+  expect(screen.getByRole("heading", { name: "수집함 · 날짜 없음 · 표시 1개" })).toBeTruthy();
+  expect(screen.getByText("새 할 일 · 수집함 · 날짜 없음")).toBeTruthy();
+  fireEvent.click(screen.getByRole("checkbox", { name: "완료 포함" }));
+  expect(screen.getByRole("heading", { name: "수집함 · 날짜 없음 · 표시 2개" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "날짜 없이 마친 일" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "이번 주" }));
+  expect(
+    screen.getByRole("heading", { name: "주간 계획 · 2026-09-21–2026-09-27 · 표시 1개" }),
+  ).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "다음 계획 기간" }));
+  expect(
+    screen.getByRole("heading", { name: "주간 계획 · 2026-09-28–2026-10-04 · 표시 0개" }),
+  ).toBeTruthy();
+  expect(
+    screen.getByText(
+      "주간 계획 · 2026-09-28–2026-10-04에 표시할 할 일이 없어요. 위에서 하나씩 추가해 보세요.",
+    ),
+  ).toBeTruthy();
+  expect(
+    screen.getByText("새 할 일 · 주간 계획 · 2026-09-28–2026-10-04 · 계획일 없음"),
+  ).toBeTruthy();
+  fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
+    target: { value: "다음 주에 해볼 일" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "추가" }));
+  await waitFor(() =>
+    expectAction("add", {
+      title: "다음 주에 해볼 일",
+      listId: "default",
+      plannedDate: null,
+      planPeriod: "week",
+      planAnchor: "2026-09-28",
+    }),
+  );
+  expect(value).toEqual(original);
 });

@@ -131,6 +131,7 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
         relationships: store::relationships(&db)?,
         prepared_count: store::prepared_scenes(&db)?.len(),
         runtime,
+        active_request: tasks::active_request(state)?,
         playback: lock(&state.playback)?.clone(),
         panel: lock(&state.panel)?.clone(),
         conversation: store::active_conversation(&db)?
@@ -203,7 +204,11 @@ pub(crate) fn interrupt(
     automatic: bool,
 ) -> Result<(u64, Arc<AtomicBool>), String> {
     crate::character_reaction_host::forget_speech(state)?;
-    lock(&state.tasks)?.active = None;
+    {
+        let mut tasks = lock(&state.tasks)?;
+        tasks.active = None;
+        tasks.conversation = None;
+    }
     state.automatic.store(automatic, Ordering::SeqCst);
     let mut active = lock(&state.cancellation)?;
     if let Some(cancel) = active.take() {

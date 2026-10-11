@@ -14,6 +14,13 @@ import { responseOrigin } from "./conversationStatus";
 import * as s from "../companion.css";
 import * as ui from "../../lagrange.css";
 
+const sentenceSegmenter = new Intl.Segmenter("ko", { granularity: "sentence" });
+
+function draftPreview(draft: string): string {
+  const text = draft.replace(/\s+/g, " ").trim();
+  return Array.from(sentenceSegmenter.segment(text))[0]?.segment.trim() ?? "";
+}
+
 export function ConversationMessageList({
   snapshot,
   messages,
@@ -233,19 +240,38 @@ export function ConversationHistory({
       {!loading && !error && sessions.length === 0 && (
         <p className={ui.quiet}>아직 묶인 대화가 없어요.</p>
       )}
-      {sessions.map((session) => (
-        <button
-          className={s.conversationItem}
-          key={session.id}
-          onClick={() => setSelected(session)}
-        >
-          <span>{session.title || "새 대화"}</span>
-          <span className={s.conversationMeta}>
-            {new Date(session.updatedAt).toLocaleDateString("ko-KR")} ·{" "}
-            {statusLabels[session.status]}
-          </span>
-        </button>
-      ))}
+      {sessions.map((session) => {
+        const draft = draftPreview(session.draft);
+        const startedAt = new Date(session.createdAt);
+        return (
+          <button
+            className={s.conversationItem}
+            key={session.id}
+            onClick={() => setSelected(session)}
+          >
+            <span>{session.title || "새 대화"}</span>
+            {draft && (
+              <span className={s.conversationDraft}>
+                <span className={s.conversationDraftBadge}>초안</span> {draft}
+              </span>
+            )}
+            <span className={s.conversationMeta}>
+              <time dateTime={startedAt.toISOString()}>
+                시작{" "}
+                {startedAt.toLocaleString("ko-KR", {
+                  year: "numeric",
+                  month: "numeric",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  hour12: false,
+                })}
+              </time>{" "}
+              · {statusLabels[session.status]}
+            </span>
+          </button>
+        );
+      })}
       <Button size="compact" variant="quiet" onClick={() => setLegacy(true)}>
         이전 기록
       </Button>

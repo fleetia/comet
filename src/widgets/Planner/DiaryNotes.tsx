@@ -53,7 +53,27 @@ export function DiaryNotes(
   const [search, setSearch] = useState("");
   const query = search.trim().toLocaleLowerCase();
   const [showStored, setShowStored] = useState(false);
-  const stored = props.notes.filter((note) => !note.pinned && matchesNote(note, query));
+  const [openedStoredIds, setOpenedStoredIds] = useState<string[]>([]);
+  const [pinnedDirty, setPinnedDirty] = useState(false);
+  const [dirtyStored, setDirtyStored] = useState<Record<string, boolean>>({});
+  const report = useRef(props.onDirtyChange);
+  report.current = props.onDirtyChange;
+  const dirty = pinnedDirty || Object.values(dirtyStored).some(Boolean);
+  useEffect(() => {
+    report.current?.(dirty);
+  }, [dirty]);
+  useEffect(
+    () => () => {
+      report.current?.(false);
+    },
+    [],
+  );
+  const reportStoredNote = useCallback((id: string, value: boolean): void => {
+    setDirtyStored((current) => (current[id] === value ? current : { ...current, [id]: value }));
+  }, []);
+  const stored = props.notes.filter((note) => !note.pinned);
+  const storedCount = stored.filter((note) => matchesNote(note, query)).length;
+  const expanded = Boolean(query) || showStored;
   return (
     <section className={s.notes} aria-label="계속 쓸 메모">
       <h2 className={s.subheading}>계속 쓸 메모</h2>
@@ -66,39 +86,61 @@ export function DiaryNotes(
       />
       <DiaryNoteCollection
         {...props}
+        onDirtyChange={setPinnedDirty}
         search={query}
         notes={props.notes.filter((note) => note.pinned)}
       />
       {props.desktop && <DiaryDesktopNotes {...props.desktop} search={query} />}
 
-      {stored.length > 0 && (
+      <div hidden={storedCount === 0}>
         <div className={s.notes}>
           <Button
             variant="quiet"
             size="compact"
-            aria-expanded={showStored}
+            aria-expanded={expanded}
+            disabled={Boolean(query)}
             onClick={() => setShowStored(!showStored)}
           >
-            넣어둔 메모 {stored.length}개
+            넣어둔 메모 {storedCount}개
           </Button>
-          {showStored &&
-            stored.map((note) => (
-              <div key={note.id} className={s.row}>
-                <span className={s.grow}>{note.title}</span>
-                <Button
-                  variant="quiet"
-                  size="compact"
-                  disabled={props.busy}
-                  onClick={() =>
-                    void props.diaryAction("note-update", { id: note.id, pinned: true })
+          {stored.map((note) => (
+            <div key={note.id} hidden={!expanded || !matchesNote(note, query)}>
+              {openedStoredIds.includes(note.id) ? (
+                <DiaryNoteEditor
+                  note={note}
+                  diaryAction={props.diaryAction}
+                  busy={props.busy}
+                  onDirtyChange={reportStoredNote}
+                  onOpenEnvelope={
+                    note.envelopeId && props.envelopeNames && !props.envelopeNames[note.envelopeId]
+                      ? undefined
+                      : props.onOpenEnvelope
                   }
-                >
-                  꺼내기
-                </Button>
-              </div>
-            ))}
+                  envelopeName={
+                    note.envelopeId ? props.envelopeNames?.[note.envelopeId] : undefined
+                  }
+                  inEnvelope={false}
+                  initiallyEditing
+                />
+              ) : (
+                <article className={s.note} aria-label={`${note.title} 메모`}>
+                  <h3 className={s.noteTitle}>{note.title}</h3>
+                  <p className={s.storedNotePreview}>{note.body || "아직 내용이 없어요."}</p>
+                  <Button
+                    variant="quiet"
+                    size="compact"
+                    disabled={props.busy}
+                    aria-label={`${note.title} 메모 열기`}
+                    onClick={() => setOpenedStoredIds((current) => [...current, note.id])}
+                  >
+                    열기
+                  </Button>
+                </article>
+              )}
+            </div>
+          ))}
         </div>
-      )}
+      </div>
     </section>
   );
 }
@@ -249,6 +291,7 @@ function DiaryNoteEditor({
   onOpenEnvelope,
   envelopeName,
   inEnvelope,
+  initiallyEditing = false,
 }: {
   note: DiaryNote;
   diaryAction: DiaryAction;
@@ -257,9 +300,16 @@ function DiaryNoteEditor({
   onOpenEnvelope?: (id: string) => void;
   envelopeName?: string;
   inEnvelope: boolean;
+  initiallyEditing?: boolean;
 }): ReactElement {
   const draftKey = `comet.diary.note-draft:${inEnvelope ? "envelope" : "sidebar"}:${note.id}`;
-  const [draft, setDraft] = useState<NoteDraft | null>(() => readDraft(draftKey));
+  const [draft, setDraft] = useState<NoteDraft | null>(
+    () =>
+      readDraft(draftKey) ??
+      (initiallyEditing
+        ? { title: note.title, body: note.body, baseTitle: note.title, baseBody: note.body }
+        : null),
+  );
   const [draftError, setDraftError] = useState(false);
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState(false);

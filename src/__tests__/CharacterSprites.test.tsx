@@ -230,12 +230,13 @@ it("removes the whole speech header for image and text characters while keeping 
     <Balloon dispatch={dispatch} snapshot={{ ...snapshot, playback: playing("기쁨") }} />,
   );
   expect(screen.queryByText("별꼬리")).toBeNull();
-  expect(screen.getByLabelText("말풍선").querySelector("header")).toBeNull();
+  expect(screen.getByLabelText("말풍선").querySelector(":scope > header")).toBeNull();
+  expect(screen.queryByRole("dialog")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "이야기 닫기" }));
   await waitFor(() => expect(dispatch).toHaveBeenCalledWith("skip_talk", undefined));
   rerender(<Balloon snapshot={{ ...snapshot, playback: playing("평온", "b") }} />);
   expect(screen.queryByText(PREVIEW_SNAPSHOT.characters.installed[1].definition.name)).toBeNull();
-  expect(screen.getByLabelText("말풍선").querySelector("header")).toBeNull();
+  expect(screen.getByLabelText("말풍선").querySelector(":scope > header")).toBeNull();
   rerender(
     <Balloon
       snapshot={{ ...snapshot, playback: playing("기쁨"), panel: { persona: "a", mode: "menu" } }}

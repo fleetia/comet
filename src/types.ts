@@ -168,7 +168,10 @@ export type StoryRequest = {
   prompt: string;
   choices: { id: string; label: string }[];
 };
-export type PanelState = { persona: Persona; mode: "menu" | "input" | "history" | "name" | "focus" };
+export type PanelState = {
+  persona: Persona;
+  mode: "menu" | "input" | "history" | "name" | "focus";
+};
 export type Dispatch = (name: string, args?: Record<string, unknown>) => Promise<void>;
 export type LocalModel =
   | "qwen3.5-4b"
@@ -245,7 +248,10 @@ export type ConversationMessages = {
   characterNames?: Record<string, string>;
   userNames?: Record<string, string>;
 };
-export type ConversationView = ConversationMessages & { session: ConversationSession };
+export type ConversationView = ConversationMessages & {
+  session: ConversationSession;
+  recovery?: { messageId: string; reason: "cancelled" | "incomplete" };
+};
 export type UserIdentity = { id: string; name: string; startedAt: number; endedAt: number | null };
 export type CharacterExportOptions = {
   includeSprites: boolean;
@@ -334,6 +340,7 @@ export type RuntimeStatus = {
   /** Epoch milliseconds of a timed pause; null for an open-ended pause. */
   pausedUntil: number | null;
 };
+export type ActiveRequest = { epoch: number; sessionId?: string; messageId?: string };
 export type Snapshot = {
   animationStates?: { musicPlaying: boolean; calendarOpen: boolean };
   reactions?: Record<string, CharacterReactionRun>;
@@ -354,6 +361,7 @@ export type Snapshot = {
   relationships: Relationship[];
   preparedCount: number;
   runtime: RuntimeStatus;
+  activeRequest?: ActiveRequest;
   hasApiKey: boolean;
   modelReady: boolean;
   localModels: LocalModelStatus[];
