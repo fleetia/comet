@@ -205,8 +205,9 @@ export type QuietHours = {
   end: string;
   weekdays: number[];
 };
+export type ProviderKind = "local" | "api" | "chatgpt";
 export type Settings = {
-  mode: "local" | "api";
+  mode: ProviderKind;
   autonomousEnabled: boolean;
   randomPresenceEnabled: boolean;
   localModel: LocalModel;
@@ -214,6 +215,8 @@ export type Settings = {
   localReasoningEnabled: boolean;
   baseUrl: string;
   apiModel: string;
+  chatgptModel: string;
+  chatgptIdleEnabled: boolean;
   apiTokenParameter: "max_tokens" | "max_completion_tokens";
   localIdleEnabled: boolean;
   apiIdleEnabled: boolean;
@@ -239,7 +242,22 @@ export type ConversationSession = {
   updatedAt: number;
   draft: string;
   continuedFrom: string | null;
+  noteContext?: ConversationNoteContext | null;
 };
+export type NoteReference = {
+  kind: "diary" | "memo";
+  id: string;
+  widgetId?: string;
+  title: string;
+};
+export type ConversationNoteContext = {
+  noteRef: NoteReference;
+  linkedAt: number;
+  checkpoint?: { text: string; savedAt: number } | null;
+  available?: boolean;
+  body?: string;
+};
+export type ConversationNote = { noteRef: NoteReference; body: string };
 export type ConversationMessages = {
   messages: Message[];
   /** Stored origin by message ID; absent legacy origins remain unknown. */
@@ -250,6 +268,7 @@ export type ConversationMessages = {
 };
 export type ConversationView = ConversationMessages & {
   session: ConversationSession;
+  noteContext?: ConversationNoteContext | null;
   recovery?: { messageId: string; reason: "cancelled" | "incomplete" };
 };
 export type UserIdentity = { id: string; name: string; startedAt: number; endedAt: number | null };
@@ -342,6 +361,7 @@ export type RuntimeStatus = {
 };
 export type ActiveRequest = { epoch: number; sessionId?: string; messageId?: string };
 export type Snapshot = {
+  chatgptReady?: boolean;
   animationStates?: { musicPlaying: boolean; calendarOpen: boolean };
   reactions?: Record<string, CharacterReactionRun>;
   user: UserIdentity | null;

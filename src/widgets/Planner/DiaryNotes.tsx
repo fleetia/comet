@@ -13,6 +13,7 @@ type NoteCollectionProps = {
   onOpenEnvelope?: (id: string) => void;
   envelopeNames?: Record<string, string>;
   search?: string;
+  requestedNote?: { id: string; version: number } | null;
 };
 
 function matchesNote(note: DiaryNote, query: string): boolean {
@@ -54,6 +55,13 @@ export function DiaryNotes(
   const query = search.trim().toLocaleLowerCase();
   const [showStored, setShowStored] = useState(false);
   const [openedStoredIds, setOpenedStoredIds] = useState<string[]>([]);
+  useEffect(() => {
+    if (!props.requestedNote) return;
+    setSearch("");
+    setShowStored(true);
+    const id = props.requestedNote.id;
+    setOpenedStoredIds((current) => (current.includes(id) ? current : [...current, id]));
+  }, [props.requestedNote]);
   const [pinnedDirty, setPinnedDirty] = useState(false);
   const [dirtyStored, setDirtyStored] = useState<Record<string, boolean>>({});
   const report = useRef(props.onDirtyChange);
@@ -121,6 +129,9 @@ export function DiaryNotes(
                   }
                   inEnvelope={false}
                   initiallyEditing
+                  openRequest={
+                    props.requestedNote?.id === note.id ? props.requestedNote.version : 0
+                  }
                 />
               ) : (
                 <article className={s.note} aria-label={`${note.title} 메모`}>
@@ -154,6 +165,7 @@ export function DiaryNoteCollection({
   onOpenEnvelope,
   envelopeNames,
   search = "",
+  requestedNote,
 }: NoteCollectionProps): ReactElement {
   const draftKey = `comet.diary.note-compose:${envelopeId || "pinned"}`;
   const [restored] = useState(() => readDraft(draftKey));
@@ -209,6 +221,7 @@ export function DiaryNoteCollection({
             }
             envelopeName={note.envelopeId ? envelopeNames?.[note.envelopeId] : undefined}
             inEnvelope={Boolean(envelopeId)}
+            openRequest={requestedNote?.id === note.id ? requestedNote.version : 0}
           />
         </div>
       ))}
@@ -292,6 +305,7 @@ function DiaryNoteEditor({
   envelopeName,
   inEnvelope,
   initiallyEditing = false,
+  openRequest = 0,
 }: {
   note: DiaryNote;
   diaryAction: DiaryAction;
@@ -301,6 +315,7 @@ function DiaryNoteEditor({
   envelopeName?: string;
   inEnvelope: boolean;
   initiallyEditing?: boolean;
+  openRequest?: number;
 }): ReactElement {
   const draftKey = `comet.diary.note-draft:${inEnvelope ? "envelope" : "sidebar"}:${note.id}`;
   const [draft, setDraft] = useState<NoteDraft | null>(
@@ -314,6 +329,20 @@ function DiaryNoteEditor({
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const article = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!openRequest) return;
+    setDraft(
+      (current) =>
+        current ?? {
+          title: note.title,
+          body: note.body,
+          baseTitle: note.title,
+          baseBody: note.body,
+        },
+    );
+    article.current?.scrollIntoView?.({ block: "nearest" });
+  }, [openRequest]);
   const dirty =
     draft !== null && (draft.title !== draft.baseTitle || draft.body !== draft.baseBody);
   useEffect(() => {
@@ -331,6 +360,7 @@ function DiaryNoteEditor({
   }
   return (
     <article
+      ref={article}
       className={s.note}
       data-location={inEnvelope ? "envelope" : "sidebar"}
       aria-label={`${note.title} 메모`}

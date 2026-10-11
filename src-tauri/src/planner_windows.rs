@@ -6,11 +6,26 @@ use tauri::{Emitter, Manager};
 pub(crate) struct Navigation {
     tab: Mutex<String>,
     settings_target: Mutex<Option<String>>,
+    note_target: Mutex<Option<String>>,
+}
+
+pub(crate) fn open_note(app: &tauri::AppHandle, id: &str) -> Result<(), String> {
+    *crate::lock(&app.state::<Navigation>().note_target)? = Some(id.into());
+    open(app, "today")?;
+    app.emit_to("planner", "planner-note", id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub(crate) fn get_planner_note_target(
+    state: tauri::State<'_, Navigation>,
+) -> Result<Option<String>, String> {
+    Ok(crate::lock(&state.note_target)?.take())
 }
 
 pub(crate) fn open(app: &tauri::AppHandle, tab: &str) -> Result<(), String> {
     let tab = match tab {
-        "plans" | "calendar" | "templates" => tab,
+        "plans" | "calendar" | "templates" | "organizer" => tab,
         _ => "today",
     };
     let navigation = app.state::<Navigation>();
@@ -52,7 +67,7 @@ pub(crate) fn set_planner_tab(
     tab: String,
 ) -> Result<(), String> {
     if window.label() != "planner"
-        || !["today", "plans", "calendar", "templates"].contains(&tab.as_str())
+        || !["today", "plans", "calendar", "templates", "organizer"].contains(&tab.as_str())
     {
         return Err("플래너에서 지원되는 화면을 선택해 주세요.".into());
     }

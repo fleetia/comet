@@ -1403,7 +1403,12 @@ fn advance_app_usage(state: &AppState, db: &rusqlite::Connection, at: i64) -> Re
         })
         .collect();
     let mut tracker = lock(&state.app_usage_tracker)?;
-    tracker.retain(&timers.iter().map(|timer| timer.id.clone()).collect::<Vec<_>>());
+    tracker.retain(
+        &timers
+            .iter()
+            .map(|timer| timer.id.clone())
+            .collect::<Vec<_>>(),
+    );
     if timers.is_empty() {
         tracker.clear();
         return Ok(false);
@@ -1423,7 +1428,9 @@ fn advance_app_usage(state: &AppState, db: &rusqlite::Connection, at: i64) -> Re
 #[tauri::command]
 pub(crate) fn list_usage_applications() -> Value {
     match crate::app_usage::applications() {
-        Ok(applications) => serde_json::json!({"applications":applications,"supported":true,"message":""}),
+        Ok(applications) => {
+            serde_json::json!({"applications":applications,"supported":true,"message":""})
+        }
         Err(message) => serde_json::json!({"applications":[],"supported":false,"message":message}),
     }
 }

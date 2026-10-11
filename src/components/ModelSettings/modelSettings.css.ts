@@ -46,8 +46,9 @@ export const modeChoices = style({
   gap: vars.space.lg,
   minHeight: vars.dimension.control,
   flexShrink: 0,
+  flexWrap: "wrap",
 });
-export const modeButton = style({ width: 176, flexShrink: 0, textAlign: "center" });
+export const modeButton = style({ width: 136, flexShrink: 0, textAlign: "center" });
 export const connectionLayout = style({
   display: "grid",
   gridTemplateColumns: "minmax(0, 800px) 368px",
@@ -137,6 +138,7 @@ export const summaryName = style({
 });
 export const editButton = style({ width: "100%", marginTop: "auto" });
 export const memorySearch = style({ minHeight: 132, flex: "0 1 270px" });
+export const organizer = style({ minHeight: 0, flex: 1, overflowY: "auto" });
 globalStyle(`${root} [hidden]`, { display: "none" });
 
 export const boundary = style({ height: 1, flexShrink: 0, background: vars.color.border.subtle });

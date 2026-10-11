@@ -35,6 +35,8 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
     localReasoningEnabled: false,
     baseUrl: "https://api.openai.com/v1",
     apiModel: "",
+    chatgptModel: "",
+    chatgptIdleEnabled: false,
     apiTokenParameter: "max_tokens",
     localIdleEnabled: false,
     apiIdleEnabled: false,

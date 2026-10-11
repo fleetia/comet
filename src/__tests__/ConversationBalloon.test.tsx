@@ -328,7 +328,7 @@ it("offers the paused conversation in the menu and a linked continuation from en
   const { rerender } = render(
     <Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "builtin-a", mode: "menu" } }} />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "이어하기" }));
+  fireEvent.click(await screen.findByRole("button", { name: "대화 이어하기" }));
   expect(command).toHaveBeenCalledWith("resume_chat", { sessionId: session.id });
   rerender(
     <Balloon

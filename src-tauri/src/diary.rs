@@ -78,7 +78,7 @@ fn err(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
-fn read(db: &Connection) -> Result<DiaryState> {
+pub(crate) fn read(db: &Connection) -> Result<DiaryState> {
     let raw: String = db
         .query_row("SELECT data FROM diary_state WHERE id=1", [], |row| {
             row.get(0)
@@ -318,7 +318,18 @@ fn update(
     input: &Value,
 ) -> Result<DiaryState> {
     let tx = db.unchecked_transaction().map_err(err)?;
-    let mut state = read(&tx)?;
+    let state = update_in_transaction(&tx, expected_revision, action, input)?;
+    tx.commit().map_err(err)?;
+    Ok(state)
+}
+
+pub(crate) fn update_in_transaction(
+    tx: &Connection,
+    expected_revision: u64,
+    action: &str,
+    input: &Value,
+) -> Result<DiaryState> {
+    let mut state = read(tx)?;
     if state.revision != expected_revision {
         return Err(
             "다른 화면에서 다이어리가 변경됐어요. 최신 내용을 불러와 다시 시도해 주세요.".into(),
@@ -327,7 +338,7 @@ fn update(
     let before = state.clone();
     if action == "entry-add" && input["kind"] == "widget" {
         let id = string(input, "refId", 1000, true)?;
-        let widget = crate::widgets::storage::get(&tx, &id)?;
+        let widget = crate::widgets::storage::get(tx, &id)?;
         if !widget.installed {
             return Err("설치된 위젯만 연결할 수 있습니다.".into());
         }
@@ -347,7 +358,7 @@ fn update(
     if action == "move-record" {
         let moved = state.moves.last().ok_or_else(missing)?;
         crate::widgets::storage::move_diary_todo(
-            &tx,
+            tx,
             &moved.todo_id,
             &moved.from_date,
             &moved.to_date,
@@ -365,7 +376,6 @@ fn update(
         )
         .map_err(err)?;
     }
-    tx.commit().map_err(err)?;
     Ok(state)
 }
 

@@ -16,6 +16,8 @@ pub struct ConversationSession {
     pub updated_at: i64,
     pub draft: String,
     pub continued_from: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note_context: Option<crate::conversation_notes::NoteContext>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -35,6 +37,8 @@ pub struct ConversationMessages {
 #[serde(rename_all = "camelCase")]
 pub struct ConversationView {
     pub session: ConversationSession,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note_context: Option<crate::conversation_notes::NoteContextView>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recovery: Option<ConversationRecovery>,
     pub messages: Vec<Message>,
@@ -62,7 +66,7 @@ pub enum RecoveryReason {
 }
 
 const SESSION_FIELDS: &str =
-    "id,user_id,participants,status,title,created_at,updated_at,draft,continued_from";
+    "id,user_id,participants,status,title,created_at,updated_at,draft,continued_from,note_context";
 
 pub(super) fn initialize_conversations(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -102,7 +106,9 @@ pub(super) fn initialize_conversations(conn: &Connection) -> Result<()> {
         "conversation_sessions",
         "cancelled_message_id",
         "TEXT",
-    )
+    )?;
+    super::users::add_column(conn, "conversation_sessions", "note_context", "TEXT")?;
+    crate::conversation_notes::initialize(conn)
 }
 
 fn session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConversationSession> {
@@ -123,6 +129,18 @@ fn session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConversationSession>
         updated_at: row.get(6)?,
         draft: row.get(7)?,
         continued_from: row.get(8)?,
+        note_context: row
+            .get::<_, Option<String>>(9)?
+            .map(|raw| {
+                serde_json::from_str(&raw).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        9,
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })
+            })
+            .transpose()?,
     })
 }
 
@@ -186,18 +204,20 @@ pub fn create_conversation(
 ) -> Result<ConversationSession> {
     let tx = conn.unchecked_transaction().map_err(err)?;
     let participants = active_participants(&tx, participants)?;
+    let mut note_context = None;
     if let Some(parent) = continued_from {
         let parent = conversation(&tx, parent)?;
         if parent.status != "ended" || parent.participants != participants {
             return Err("마친 대화의 같은 캐릭터와 이어서 이야기해 주세요.".into());
         }
+        note_context = parent.note_context;
     }
     let id = uuid::Uuid::new_v4().to_string();
     pause_conversations(&tx)?;
     tx.execute(
-        "INSERT INTO conversation_sessions(id,user_id,participants,status,title,created_at,updated_at,continued_from)
-         VALUES(?1,?2,?3,'active','새 대화',?4,?4,?5)",
-        params![id, active_user_id(&tx)?, serde_json::to_string(&participants).map_err(err)?, at, continued_from],
+        "INSERT INTO conversation_sessions(id,user_id,participants,status,title,created_at,updated_at,continued_from,note_context)
+         VALUES(?1,?2,?3,'active','새 대화',?4,?4,?5,?6)",
+        params![id, active_user_id(&tx)?, serde_json::to_string(&participants).map_err(err)?, at, continued_from, note_context.as_ref().map(serde_json::to_string).transpose().map_err(err)?],
     ).map_err(err)?;
     if let Some(seed) = seed_message_id {
         let message = attachable_message(&tx, &conversation(&tx, &id)?, seed, true)?;
@@ -350,6 +370,9 @@ pub fn attach_conversation_message(conn: &Connection, id: &str, message_id: &str
         .map_err(err)?;
     if inserted == 0 {
         return Ok(());
+    }
+    if message.role == "user" {
+        crate::conversation_notes::capture_input(conn, &session, message_id)?;
     }
     let title = if first_input {
         message
@@ -563,6 +586,10 @@ pub fn conversation_view(conn: &Connection, id: &str) -> Result<ConversationView
     let session = conversation(conn, id)?;
     let page = conversation_messages(conn, id, None)?;
     Ok(ConversationView {
+        note_context: session
+            .note_context
+            .as_ref()
+            .map(|context| crate::conversation_notes::resolve(conn, context)),
         session,
         recovery: conversation_recovery(conn, id)?,
         messages: page.messages,

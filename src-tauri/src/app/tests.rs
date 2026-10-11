@@ -21,6 +21,7 @@ mod model_roster_smoke;
 
 pub(crate) fn state() -> AppState {
     AppState {
+        organizer: crate::organizer_runtime::Runtime::default(),
         db: Mutex::new(store::open(std::path::Path::new(":memory:")).unwrap()),
         inference: inference::Inference::new(PathBuf::new(), PathBuf::new(), PathBuf::new()),
         nlp: crate::nlp::NlpService::new(

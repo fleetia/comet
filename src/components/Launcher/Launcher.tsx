@@ -16,6 +16,7 @@ import {
   type TargetBinding,
 } from "./search";
 import * as styles from "./launcher.css";
+import { aiAvailability } from "../Balloon/conversationStatus";
 
 const PREVIEW_STATE: LauncherState = {
   sessionId: 0,
@@ -41,10 +42,7 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const results = launcherResults(query, snapshot, widgets.snapshot, binding);
   const selected = results.find((result) => result.id === selectedId) ?? results[0];
-  const modelReady =
-    snapshot.settings.mode === "api"
-      ? snapshot.hasApiKey && !!snapshot.settings.apiModel.trim()
-      : snapshot.modelReady;
+  const modelReady = aiAvailability(snapshot).ready;
 
   useEffect(() => {
     inputRef.current?.focus();

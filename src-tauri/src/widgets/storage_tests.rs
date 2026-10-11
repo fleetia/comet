@@ -271,7 +271,9 @@ fn desktop_outcomes_preserve_legacy_data_and_reject_removed_revisions() {
         })
         .unwrap();
     assert_eq!(count, 0);
-    assert!(storage::journal(&db, None, i64::MIN, i64::MAX).unwrap().is_empty());
+    assert!(storage::journal(&db, None, i64::MIN, i64::MAX)
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
@@ -784,7 +786,12 @@ fn event_cleanup_preserves_diary_history_without_a_journal_widget_and_request_de
         retained, 2,
         "Diary events remain after reaction retention expires without installing a journal"
     );
-    assert_eq!(storage::journal(&db, None, i64::MIN, i64::MAX).unwrap().len(), 2);
+    assert_eq!(
+        storage::journal(&db, None, i64::MIN, i64::MAX)
+            .unwrap()
+            .len(),
+        2
+    );
     storage::execute(&db, &old, 600_001, 99).unwrap();
     assert_eq!(instance(&db, "small-match").data["rounds"], 2);
 }
@@ -864,7 +871,9 @@ fn interaction_rejects_a_removed_slot_before_spending_snacks_or_recording_events
     let after = instance(&db, "interaction");
     assert_eq!(after.data, before.data);
     assert_eq!(after.revision, before.revision);
-    assert!(storage::journal(&db, None, i64::MIN, i64::MAX).unwrap().is_empty());
+    assert!(storage::journal(&db, None, i64::MIN, i64::MAX)
+        .unwrap()
+        .is_empty());
     assert!(storage::take_reaction(&db, 101).unwrap().is_none());
     act(
         &db,
@@ -878,7 +887,10 @@ fn interaction_rejects_a_removed_slot_before_spending_snacks_or_recording_events
     assert_eq!(accepted.data["snacks"], 5);
     assert_eq!(accepted.data["touches"], 1);
     assert_eq!(
-        storage::journal(&db, None, i64::MIN, i64::MAX).unwrap()[0].1.event.payload["character"],
+        storage::journal(&db, None, i64::MIN, i64::MAX).unwrap()[0]
+            .1
+            .event
+            .payload["character"],
         "A"
     );
 }
@@ -920,7 +932,12 @@ fn interaction_accepts_all_eight_slots_and_rejects_a_changed_owner_without_side_
     let after = instance(&db, "interaction");
     assert_eq!(after.data, before.data);
     assert_eq!(after.revision, before.revision);
-    assert_eq!(storage::journal(&db, None, i64::MIN, i64::MAX).unwrap().len(), 8);
+    assert_eq!(
+        storage::journal(&db, None, i64::MIN, i64::MAX)
+            .unwrap()
+            .len(),
+        8
+    );
 }
 
 #[test]
@@ -1040,7 +1057,9 @@ fn retired_widgets_keep_saved_data_but_cannot_resume_or_reinstall() {
         assert_eq!(saved.data, data);
     }
     assert_eq!(
-        storage::journal(&db, None, i64::MIN, i64::MAX).unwrap().len(),
+        storage::journal(&db, None, i64::MIN, i64::MAX)
+            .unwrap()
+            .len(),
         super::RETIRED_KINDS.len()
     );
     assert!(storage::snapshot(&db).unwrap().widgets.is_empty());

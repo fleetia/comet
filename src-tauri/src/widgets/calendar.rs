@@ -38,7 +38,7 @@ pub struct Connection {
     #[serde(default)]
     pub calendar_names: BTreeMap<String, String>,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NoteReference {
     pub kind: String,

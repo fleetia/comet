@@ -131,6 +131,10 @@ pub struct Settings {
     pub base_url: String,
     pub api_model: String,
     pub api_token_parameter: String,
+    #[serde(default)]
+    pub chatgpt_model: String,
+    #[serde(default)]
+    pub chatgpt_idle_enabled: bool,
     #[serde(default = "default_autonomous_enabled")]
     pub autonomous_enabled: bool,
     #[serde(default)]
@@ -156,6 +160,8 @@ impl Default for Settings {
             base_url: "https://api.openai.com/v1".into(),
             api_model: String::new(),
             api_token_parameter: "max_completion_tokens".into(),
+            chatgpt_model: String::new(),
+            chatgpt_idle_enabled: false,
             autonomous_enabled: true,
             random_presence_enabled: false,
             local_idle_enabled: false,
@@ -425,6 +431,7 @@ pub struct Snapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_request: Option<ActiveRequest>,
     pub has_api_key: bool,
+    pub chatgpt_ready: bool,
     pub model_ready: bool,
     pub local_models: Vec<LocalModelStatus>,
     #[serde(default)]

@@ -18,7 +18,7 @@ it("previews click reply, a saved draft, continued input, and ended conversation
   fireEvent.click(screen.getByRole("button", { name: "대화 접어 두기" }));
   await waitFor(() => expect(screen.queryByRole("textbox")).toBeNull());
   fireEvent.click(screen.getByRole("button", { name: "메뉴 열어 보기" }));
-  fireEvent.click(await screen.findByRole("button", { name: "이어하기" }));
+  fireEvent.click(await screen.findByRole("button", { name: "대화 이어하기" }));
   expect(screen.getByRole("textbox")).toHaveProperty("value", "미리보기에서 쓰던 말");
   fireEvent.click(screen.getByRole("button", { name: "보내기" }));
   expect(await screen.findByText("응, 듣고 있어. 더 이야기해 줘.")).toBeTruthy();

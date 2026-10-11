@@ -187,10 +187,11 @@ fn automatic_allowed(
     Ok(preference(db)?
         && settings.autonomous_enabled
         && !app::quiet_hours::automatic_blocked(state, settings)?
-        && (if settings.mode == "api" {
-            settings.api_idle_enabled
-        } else {
-            settings.local_idle_enabled
+        && (match settings.mode.as_str() {
+            "api" => settings.api_idle_enabled,
+            "chatgpt" => settings.chatgpt_idle_enabled,
+            "local" => settings.local_idle_enabled,
+            _ => false,
         })
         && !runtime.hidden
         && !runtime.paused
@@ -289,8 +290,12 @@ pub(crate) fn set_widget_creation_automatic(
 fn model_ready(state: &AppState, settings: &Settings) -> bool {
     if settings.mode == "local" {
         models::selected_ready(&state.app_data, settings)
+    } else if settings.mode == "chatgpt" {
+        !settings.chatgpt_model.trim().is_empty() && state.inference.chatgpt.ready()
     } else {
-        !settings.api_model.trim().is_empty() && inference::api_credentials_ready(settings)
+        settings.mode == "api"
+            && !settings.api_model.trim().is_empty()
+            && inference::api_credentials_ready(settings)
     }
 }
 
@@ -436,6 +441,8 @@ async fn generate_definition(
 ) -> Result<generated::GeneratedWidget> {
     let model = if settings.mode == "api" {
         settings.api_model.clone()
+    } else if settings.mode == "chatgpt" {
+        settings.chatgpt_model.clone()
     } else {
         models::selected_path(&state.app_data, settings)
             .and_then(|path| {
