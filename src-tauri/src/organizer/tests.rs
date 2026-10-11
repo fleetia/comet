@@ -130,6 +130,56 @@ fn connected(db: &Connection) -> (tempfile::TempDir, VaultConnection) {
 }
 
 #[test]
+fn nested_output_paths_save_rescan_and_undo_without_changing_the_source() {
+    let db = database();
+    enabled(&db);
+    let temp = tempfile::tempdir().unwrap();
+    fs::create_dir(temp.path().join("자료")).unwrap();
+    let original = temp.path().join("자료").join("원문.md");
+    fs::write(&original, "# 원문\n\n그대로 보존할 내용\n").unwrap();
+    let vault = connect_vault(
+        &db,
+        "user",
+        temp.path(),
+        &[],
+        &[],
+        "Comet/정리 기록",
+        true,
+    )
+    .unwrap();
+    assert_eq!(
+        scan_vault(&db, "user", &vault.id, &AtomicBool::new(false))
+            .unwrap()
+            .scanned,
+        1
+    );
+    let job = claim_job(&db, "user", now()).unwrap().unwrap();
+    assert_eq!(job.source.locator, "자료/원문.md");
+    let record = save_summary(
+        &db,
+        "user",
+        &job.id,
+        &input(),
+        &uuid::Uuid::new_v4().to_string(),
+    )
+    .unwrap();
+    let output = std::path::Path::new(record.output_path.as_ref().unwrap());
+    assert_eq!(fs::read_to_string(output).unwrap(), record.markdown);
+    assert_eq!(
+        scan_vault(&db, "user", &vault.id, &AtomicBool::new(false))
+            .unwrap()
+            .scanned,
+        1
+    );
+    undo_record(&db, "user", &record.id).unwrap();
+    assert!(!output.exists());
+    assert_eq!(
+        fs::read_to_string(original).unwrap(),
+        "# 원문\n\n그대로 보존할 내용\n"
+    );
+}
+
+#[test]
 fn vault_scans_exclude_private_operational_archive_and_generated_documents() {
     let db = database();
     enabled(&db);

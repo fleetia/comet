@@ -536,7 +536,10 @@ mod native {
 
 pub(super) fn read(root: &Path, path: &Path) -> Result<String> {
     relative(
-        path.to_str().ok_or("경로 인코딩이 올바르지 않아요.")?,
+        &path
+            .to_str()
+            .ok_or("경로 인코딩이 올바르지 않아요.")?
+            .replace(std::path::MAIN_SEPARATOR, "/"),
         false,
     )?;
     let file = native::open(root, path, false, false)?;
