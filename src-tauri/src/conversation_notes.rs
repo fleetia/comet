@@ -299,7 +299,6 @@ pub(crate) fn set_conversation_note_context(
             return Err("앱을 종료하고 있어요.".into());
         }
         let db = app::lock(&state.db)?;
-        app::conversation::ensure_available(&db)?;
         if store::current_user(&db)?.is_none() {
             return Err("말풍선에서 이름을 먼저 알려 주세요.".into());
         }
@@ -329,20 +328,30 @@ pub(crate) fn set_conversation_note_context(
                     .as_ref()
                     .is_none_or(|id| session.participants == [id.clone()])
         });
+        let participants = match &active {
+            Some(session) => session.participants.clone(),
+            None => vec![requested
+                .clone()
+                .or_else(|| crate::characters::active_ids(&db).ok()?.into_iter().next())
+                .ok_or("대화할 친구를 선택해 주세요.")?],
+        };
+        let current = crate::characters::active_ids(&db)?;
+        if participants.iter().any(|id| !current.contains(id)) {
+            return Err("대화할 친구를 다시 함께 지내기로 선택해 주세요.".into());
+        }
+        for id in &participants {
+            crate::character_life::wake(&state, id)?;
+        }
+        app::conversation::ensure_available(&db)?;
         let session = match active {
             Some(session) => session,
-            None => {
-                let id = requested
-                    .or_else(|| crate::characters::active_ids(&db).ok()?.into_iter().next())
-                    .ok_or("대화할 친구를 선택해 주세요.")?;
-                store::create_conversation(
-                    &db,
-                    &[id],
-                    None,
-                    None,
-                    chrono::Utc::now().timestamp_millis(),
-                )?
-            }
+            None => store::create_conversation(
+                &db,
+                &participants,
+                None,
+                None,
+                chrono::Utc::now().timestamp_millis(),
+            )?,
         };
         let context = source.map(|source| NoteContext {
             note_ref: source.note_ref,

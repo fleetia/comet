@@ -59,6 +59,7 @@ pub(crate) struct AppState {
     pub(crate) talk_playback: Mutex<Option<talk_host::PreparedTalk>>,
     pub(crate) talk_turn: AtomicBool,
     pub(crate) story: Mutex<Option<story::Request>>,
+    pub(crate) pack_stories: Mutex<crate::pack_stories::Runtime>,
     pub(crate) story_clock: Mutex<story::Clock>,
     pub(crate) story_catalog: Mutex<Vec<story::Scene>>,
     pub(crate) widget_jobs: Mutex<HashMap<String, Arc<AtomicBool>>>,
@@ -79,6 +80,8 @@ pub(crate) struct AppState {
     pub(crate) behavior: Mutex<behavior::Machine>,
     pub(crate) reactions: Mutex<crate::character_reaction_host::Runtime>,
     pub(crate) animation_states: Mutex<crate::character_animation_states::Runtime>,
+    pub(crate) life: Mutex<crate::character_life::Runtime>,
+    pub(crate) guests: Mutex<crate::character_guests::Runtime>,
     pub(crate) positions: Mutex<HashMap<String, (WindowPosition, Instant)>>,
 }
 
@@ -123,9 +126,10 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
     let db = lock(&state.db)?;
     let settings = store::settings(&db)?;
     let characters = characters::collection(&db)?;
-    let present_character_ids = presence::present_ids(state, &characters.active)?;
+    let present_character_ids = crate::character_guests::participant_ids(state, &db)?;
     let mut runtime = lock(&state.runtime)?.clone();
     runtime.present_character_ids = present_character_ids;
+    runtime.guest_character_ids = crate::character_guests::guest_ids(state, &db)?;
     let playback = lock(&state.playback)?.clone().filter(|line| {
         !matches!(line.source.as_str(), "llm" | "question")
             || crate::conversation_notes::validate_reply(&db, &line.id).is_ok()
@@ -162,6 +166,8 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
 }
 
 pub(crate) fn publish(app: &tauri::AppHandle, state: &AppState) {
+    let _ = crate::character_guests::reconcile(state);
+    let _ = crate::character_life::reconcile(state);
     let _ = crate::character_animation_states::refresh(app, state);
     let _ = crate::character_reaction_host::reconcile(app, state);
     if let Ok(data) = snapshot(state) {
@@ -219,6 +225,38 @@ pub(crate) fn interrupt(
     state: &AppState,
     automatic: bool,
 ) -> Result<(u64, Arc<AtomicBool>), String> {
+    let run_id = lock(&state.pack_stories)?
+        .run
+        .as_ref()
+        .map(|run| run.run_id.clone());
+    crate::pack_stories::cancel_deferred(&mut *lock(&state.pack_stories)?);
+    if let Some(run_id) = run_id {
+        crate::character_guests::leave_run_locked(state, &run_id)?;
+    }
+    interrupt_for_conversation(state, automatic)
+}
+
+pub(crate) fn interrupt_with_db(
+    state: &AppState,
+    automatic: bool,
+    db: &rusqlite::Connection,
+) -> Result<(u64, Arc<AtomicBool>), String> {
+    let run_id = lock(&state.pack_stories)?
+        .run
+        .as_ref()
+        .map(|run| run.run_id.clone());
+    crate::pack_stories::flush_cancellations(db, &mut *lock(&state.pack_stories)?)?;
+    crate::pack_stories::cancel_with_progress(db, &mut *lock(&state.pack_stories)?)?;
+    if let Some(run_id) = run_id {
+        crate::character_guests::leave_run_locked(state, &run_id)?;
+    }
+    interrupt_for_conversation(state, automatic)
+}
+
+pub(crate) fn interrupt_for_conversation(
+    state: &AppState,
+    automatic: bool,
+) -> Result<(u64, Arc<AtomicBool>), String> {
     if let Some(cancel) = &*lock(&state.organizer.scan_cancel)? {
         cancel.store(true, Ordering::SeqCst);
     }
@@ -227,6 +265,8 @@ pub(crate) fn interrupt(
         let mut tasks = lock(&state.tasks)?;
         tasks.active = None;
         tasks.conversation = None;
+        tasks.participants = None;
+        tasks.pack_replay = None;
     }
     state.automatic.store(automatic, Ordering::SeqCst);
     let mut active = lock(&state.cancellation)?;

@@ -332,7 +332,7 @@ fn attachable_message(
          JOIN message_users mu ON mu.message_id=m.id
          JOIN message_context mc ON mc.message_id=m.id
          WHERE m.id=?1 AND mu.user_id=?2 AND m.role IN ('user','assistant')
-         AND mc.source NOT IN ('story','archive','imported')
+         AND mc.source NOT IN ('story','scenario','npc','archive','imported')
          AND ((?4=0 AND m.role='assistant') OR EXISTS(
              SELECT 1 FROM message_characters i WHERE i.message_id=m.id
              AND i.character_id IN (SELECT value FROM json_each(?3))))",
@@ -393,6 +393,31 @@ pub fn attach_conversation_message(conn: &Connection, id: &str, message_id: &str
         params![id, title, message.created_at, message.role == "user"],
     )
     .map_err(err)?;
+    Ok(())
+}
+
+pub(super) fn attach_registered_reply(
+    conn: &Connection,
+    session_id: &str,
+    message_id: &str,
+) -> Result<()> {
+    let input = message_id
+        .strip_prefix("scene:")
+        .or_else(|| message_id.strip_prefix("reply:"))
+        .and_then(|value| value.rsplit_once(':'))
+        .map(|(id, _)| id)
+        .ok_or("등록 답변의 입력을 확인할 수 없어요.")?;
+    let session = conversation(conn, session_id)?;
+    let valid: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM conversation_messages cm JOIN messages input ON input.id=cm.message_id JOIN message_users mu ON mu.message_id=input.id JOIN messages reply ON reply.id=?3 JOIN message_users ru ON ru.message_id=reply.id JOIN message_context rc ON rc.message_id=reply.id WHERE cm.conversation_id=?1 AND input.id=?2 AND input.role='user' AND mu.user_id=?4 AND reply.role='assistant' AND ru.user_id=?4 AND rc.source IN ('story','scenario','npc','wordbook','llm'))", params![session_id, input, message_id, session.user_id], |row| row.get(0)).map_err(err)?;
+    if session.status != "active" || !valid {
+        return Err("현재 입력에 대한 등록 답변만 연결할 수 있어요.".into());
+    }
+    conn.execute(
+        "INSERT OR IGNORE INTO conversation_messages VALUES(?1,?2)",
+        params![session_id, message_id],
+    )
+    .map_err(err)?;
+    conn.execute("UPDATE conversation_sessions SET updated_at=MAX(updated_at,COALESCE((SELECT json_extract(data,'$.createdAt') FROM messages WHERE id=?2),updated_at)) WHERE id=?1", params![session_id, message_id]).map_err(err)?;
     Ok(())
 }
 
@@ -502,18 +527,24 @@ fn pending_reply_input(conn: &Connection, id: &str) -> Result<Option<String>> {
     let Some(input) = latest else {
         return Ok(None);
     };
-    let scene_length: Option<usize> = conn
+    let scene_length: Option<(usize, String)> = conn
         .query_row(
-            "SELECT json_array_length(lines) FROM direct_reply_scenes WHERE message_id=?1",
+            "SELECT json_array_length(lines),source FROM direct_reply_scenes WHERE message_id=?1",
             [&input],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()
         .map_err(err)?;
-    if let Some(length) = scene_length {
+    if let Some((length, source)) = scene_length {
         // A completed scene remains complete even after its recall revision changes.
         for index in 0..length {
-            if !super::message_displayed(conn, &format!("scene:{input}:{index}"))? {
+            let id = format!("scene:{input}:{index}");
+            let complete = if matches!(source.as_str(), "scenario" | "npc") {
+                super::message_finished(conn, &id)?
+            } else {
+                super::message_displayed(conn, &id)?
+            };
+            if !complete {
                 return Ok(Some(input));
             }
         }
@@ -646,7 +677,7 @@ pub fn conversation_message_allowed(
          JOIN message_users mu ON mu.message_id=m.id
          JOIN message_context mc ON mc.message_id=m.id
          WHERE m.id=?1 AND mu.user_id=?2 AND json_extract(m.data,'$.status')='complete'
-         AND mc.source NOT IN ('story','archive','imported')
+         AND mc.source NOT IN ('story','scenario','npc','archive','imported')
          AND NOT EXISTS(SELECT 1 FROM memory_exclusions e
              WHERE e.source=m.id AND e.character_id=?3 AND e.user_id=?2))",
             params![message.id, active_user_id(conn)?, target.id],
@@ -693,7 +724,7 @@ pub fn conversation_context(conn: &Connection, id: &str, persona: &str) -> Resul
          JOIN message_context mc ON mc.message_id=m.id
          WHERE (cm.conversation_id=?1 OR cm.conversation_id=?2)
          AND s.user_id=?3 AND mu.user_id=?3 AND json_extract(m.data,'$.status')='complete'
-         AND mc.source NOT IN ('story','archive','imported')
+         AND mc.source NOT IN ('story','scenario','npc','archive','imported')
          AND EXISTS(SELECT 1 FROM message_characters i WHERE i.message_id=m.id AND i.character_id=?4)
          AND NOT EXISTS(SELECT 1 FROM memory_exclusions e WHERE e.source=m.id AND e.character_id=?4 AND e.user_id=?3)
          ORDER BY m.seq DESC LIMIT 24"

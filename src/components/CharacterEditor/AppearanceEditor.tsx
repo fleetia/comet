@@ -18,6 +18,7 @@ import { AnimationEditor, BindingEditor } from "../AnimationEditor/AnimationEdit
 import { EMPTY_ANIMATION, MAX_ANIMATION_CLIPS } from "../AnimationEditor/helpers";
 import { DEFAULT_EXPRESSION, spriteSource } from "../characterIdentity";
 import { CharacterWorkPanel } from "./CharacterWorkPanel";
+import { GestureMotionEditor } from "./GestureMotionEditor";
 import * as common from "../characters.css";
 import * as s from "./CharacterEditor.css";
 
@@ -365,6 +366,7 @@ export function AppearanceEditor({
             적용해요. 동작이 끝나거나 쉬는 동안에는 현재 표정으로 돌아와요.
           </p>
         </div>
+        <GestureMotionEditor definition={definition} onChange={onChange} />
         <details
           className={s.sectionBoundary}
           open={animationOpen}

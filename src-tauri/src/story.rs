@@ -292,11 +292,71 @@ pub fn prepare_from_catalog(
 }
 
 pub fn answer(db: &Connection, request: &Request, choice_id: &str, epoch: u64) -> Result<String> {
+    save_answer(db, request, choice_id, epoch, None)
+}
+
+pub fn answer_for_input(
+    db: &Connection,
+    request: &Request,
+    choice_id: &str,
+    epoch: u64,
+    message_id: &str,
+) -> Result<Vec<crate::types::SceneLine>> {
+    save_answer(db, request, choice_id, epoch, Some(message_id))?;
+    crate::store::saved_reply_scene(db, message_id)?
+        .ok_or("저장한 이야기 답변을 확인할 수 없어요.".into())
+}
+
+pub fn validate_request(db: &Connection, request: &Request, epoch: u64) -> Result<()> {
+    validated_score(db, request, epoch).map(|_| ())
+}
+
+fn validated_score(db: &Connection, request: &Request, epoch: u64) -> Result<i32> {
     if epoch != request.epoch
         || crate::store::active_user_id(db)? != request.user_id
         || crate::characters::active_character(db, &request.persona)?.id != request.character_id
     {
         return Err("이미 지나간 이야기예요.".into());
+    }
+    let answered: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM story_answers WHERE request_id=?1)",
+            [&request.id],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if answered {
+        return Err("이미 답한 이야기예요.".into());
+    }
+    let raw_score: i32 = db
+        .query_row(
+            "SELECT 20+COALESCE(SUM(delta),0) FROM character_affinity WHERE character_id=?1 AND user_id=?2",
+            params![request.character_id, request.user_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if request.scene.chapter > disclosure_level(db, &request.character_id, raw_score.clamp(0, 100))?
+    {
+        return Err("이 이야기는 다음에 이어갈게요.".into());
+    }
+    Ok(raw_score)
+}
+
+fn save_answer(
+    db: &Connection,
+    request: &Request,
+    choice_id: &str,
+    epoch: u64,
+    message_id: Option<&str>,
+) -> Result<String> {
+    let tx = db.unchecked_transaction().map_err(|e| e.to_string())?;
+    let raw_score = validated_score(&tx, request, epoch)?;
+    if let Some(message_id) = message_id {
+        if crate::store::message_user_id(&tx, message_id)? != request.user_id
+            || !crate::store::message_targets(&tx, message_id)?.contains(&request.character_id)
+        {
+            return Err("대화 상대가 바뀌었어요. 새 메시지로 말해 주세요.".into());
+        }
     }
     let choice = request
         .scene
@@ -304,19 +364,6 @@ pub fn answer(db: &Connection, request: &Request, choice_id: &str, epoch: u64) -
         .iter()
         .find(|c| c.id == choice_id)
         .ok_or("선택지를 확인해 주세요.")?;
-    let tx = db.unchecked_transaction().map_err(|e| e.to_string())?;
-    let raw_score: i32 = tx
-        .query_row(
-            "SELECT 20+COALESCE(SUM(delta),0) FROM character_affinity WHERE character_id=?1 AND user_id=?2",
-            params![request.character_id,request.user_id],
-            |r| r.get(0),
-        )
-        .map_err(|e| e.to_string())?;
-    if request.scene.chapter
-        > disclosure_level(&tx, &request.character_id, raw_score.clamp(0, 100))?
-    {
-        return Err("이 이야기는 다음에 이어갈게요.".into());
-    }
     let delta = (raw_score.clamp(0, 100) + choice.delta).clamp(0, 100) - raw_score;
     let changed = tx.execute("INSERT OR IGNORE INTO story_answers(request_id,character_id,scene_id,chapter,choice_id,user_id) VALUES(?1,?2,?3,?4,?5,?6)", params![request.id, request.character_id, request.scene.id, request.scene.chapter, choice_id,request.user_id]).map_err(|e| e.to_string())?;
     if changed == 0 {
@@ -328,6 +375,19 @@ pub fn answer(db: &Connection, request: &Request, choice_id: &str, epoch: u64) -
         &serde_json::json!({"title":request.scene.title,"prompt":request.scene.prompt,"choice":choice.label,"response":choice.response}).to_string(),
         chrono::Utc::now().timestamp_millis(),Some(request.scene.chapter))?;
     crate::store::bump_revision(&tx)?;
+    if let Some(message_id) = message_id {
+        crate::store::save_reply_scene_with_source(
+            &tx,
+            message_id,
+            &[crate::types::SceneLine {
+                persona: request.persona.clone(),
+                expression: "평온".into(),
+                text: choice.response.clone(),
+                motion: Default::default(),
+            }],
+            "story",
+        )?;
+    }
     tx.commit().map_err(|e| e.to_string())?;
     Ok(choice.response.clone())
 }

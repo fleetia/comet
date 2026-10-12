@@ -448,6 +448,112 @@ fn active_data(db: &Connection) -> Result<BTreeMap<String, Value>> {
         .collect())
 }
 
+// Body and widget gestures own the same inventory and reaction cooldown. Creating
+// dormant data here does not install or enable the optional interaction widget.
+#[cfg(test)]
+pub(crate) fn body_interaction(
+    db: &Connection,
+    character_id: &str,
+    action: &str,
+    request_id: &str,
+    now: i64,
+) -> Result<Option<WidgetEvent>> {
+    let slot = crate::characters::active_ids(db)?
+        .iter()
+        .position(|id| id == character_id)
+        .ok_or("활성 캐릭터가 아니에요.")?;
+    body_interaction_at(db, character_id, slot, action, request_id, now)
+}
+
+// A runtime actor ticket is validated by the caller under action before this
+// transaction. This path preserves the shared receipt/inventory/cooldown engine.
+pub(crate) fn body_interaction_with_actor(
+    db: &Connection,
+    actor: &crate::characters::InstalledCharacter,
+    slot: usize,
+    action: &str,
+    request_id: &str,
+    now: i64,
+) -> Result<Option<WidgetEvent>> {
+    if slot >= crate::characters::MAX_ROSTER
+        || crate::characters::get(db, &actor.id)?.definition != actor.definition
+    {
+        return Err("교감 인물이나 정의가 바뀌었어요.".into());
+    }
+    body_interaction_at(db, &actor.id, slot, action, request_id, now)
+}
+
+fn body_interaction_at(
+    db: &Connection,
+    character_id: &str,
+    slot: usize,
+    action: &str,
+    request_id: &str,
+    now: i64,
+) -> Result<Option<WidgetEvent>> {
+    uuid::Uuid::parse_str(request_id)
+        .map_err(|_| "교감 요청 식별자가 올바르지 않아요.".to_string())?;
+    if !matches!(
+        action,
+        "poke" | "stroke" | "cheek-grab" | "snack" | "drink" | "gift"
+    ) {
+        return Err("알 수 없는 교감 동작이에요.".into());
+    }
+    let tx = db.unchecked_transaction().map_err(err)?;
+    let fingerprint = format!("body:{character_id}:{action}");
+    let previous: Option<String> = tx
+        .query_row(
+            "SELECT fingerprint FROM widget_requests WHERE id=?",
+            [request_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(err)?;
+    if let Some(previous) = previous {
+        if previous != fingerprint {
+            return Err("이미 사용한 교감 요청의 내용이 달라졌어요.".into());
+        }
+        return Ok(None);
+    }
+    let mut instance = instances(&tx)?
+        .into_iter()
+        .find(|instance| instance.kind == "interaction")
+        .unwrap_or(WidgetInstance {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind: "interaction".into(),
+            version: 1,
+            installed: false,
+            enabled: false,
+            revision: 0,
+            data: super::toys::initial("interaction"),
+            error: None,
+        });
+    let input = json!({"character":((b'A' + slot as u8) as char).to_string(),"owner":character_id});
+    let effect = super::toys::act("interaction", &instance.data, action, &input, now, 0)?;
+    let draft = effect.events.into_iter().next().map(|mut event| {
+        event.payload["source"] = json!("body");
+        event
+    });
+    instance.data = effect.data;
+    instance.revision += 1;
+    put(&tx, &instance)?;
+    tx.execute(
+        "INSERT INTO widget_requests VALUES(?1,?2)",
+        params![request_id, fingerprint],
+    )
+    .map_err(err)?;
+    tx.commit().map_err(err)?;
+    Ok(draft.map(|event| WidgetEvent {
+        id: request_id.into(),
+        instance_id: instance.id,
+        widget_kind: "interaction".into(),
+        revision: instance.revision,
+        created_at: now,
+        expires_at: now + 30_000,
+        event,
+    }))
+}
+
 pub fn execute(db: &Connection, request: &WidgetRequest, now: i64, entropy: u64) -> Result<()> {
     let tx = db.unchecked_transaction().map_err(err)?;
     execute_in_transaction(&tx, request, now, entropy)?;
@@ -513,14 +619,23 @@ pub(crate) fn execute_in_transaction(
         let id = request.input["eventId"]
             .as_str()
             .ok_or("일정을 선택해 주세요.")?;
-        let known = related
-            .get("calendar")
-            .and_then(|data| data["events"].as_array())
-            .is_some_and(|events| {
-                events
-                    .iter()
-                    .any(|event| event["id"] == id && event["cancelled"] != true)
-            });
+        let known = related.get("calendar").is_some_and(|data| {
+            data["events"].as_array().is_some_and(|events| {
+                events.iter().any(|event| {
+                    event["id"] == id
+                        && event["cancelled"] != true
+                        && event["connectionId"].as_str().is_some_and(|connection_id| {
+                            !connection_id.trim().is_empty()
+                                && (connection_id == "local"
+                                    || data["connections"].as_array().is_some_and(|connections| {
+                                        connections.iter().any(|connection| {
+                                            connection["id"].as_str() == Some(connection_id)
+                                        })
+                                    }))
+                        })
+                })
+            })
+        });
         if !known {
             return Err("현재 조회할 수 있는 일정을 선택해 주세요.".into());
         }

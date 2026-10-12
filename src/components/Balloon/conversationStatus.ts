@@ -50,7 +50,10 @@ export function responseOrigin(source?: string): string {
     case "reaction":
       return "등록 대사 · 반응";
     case "story":
+    case "scenario":
       return "등록 대사 · 이야기";
+    case "npc":
+      return "등록 대사 · 방문";
     case "widget":
       return "위젯 대사";
     case "archive":

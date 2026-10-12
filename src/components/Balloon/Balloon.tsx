@@ -73,6 +73,7 @@ export function Balloon({
     snapshot.characters.active[0] ??
     "a";
   const persona = activeCharacter(snapshot, speaker)?.id ?? speaker;
+  const guestPersona = snapshot.runtime.guestCharacterIds?.includes(persona) ? persona : undefined;
   const mode = snapshot.panel?.mode;
   const conversation = snapshot.conversation;
   const sessionId = conversation?.session.id;
@@ -258,8 +259,8 @@ export function Balloon({
   useEffect(() => {
     if (!conversation) return;
     const participants = conversation.session.participants;
-    setTarget(participants.length > 1 ? "all" : (participants[0] ?? persona));
-  }, [sessionId]);
+    setTarget(guestPersona ?? (participants.length > 1 ? "all" : (participants[0] ?? persona)));
+  }, [sessionId, guestPersona]);
   useEffect(() => {
     if (mode === "input") {
       inputRef.current?.focus({ preventScroll: Boolean(visibleError) });
@@ -318,7 +319,7 @@ export function Balloon({
     snapshot.playback?.id ?? "",
     fullText,
     snapshot.playback?.textSpeed ?? 0,
-    ready && (!mode || mode === "input") && !snapshot.story,
+    ready && (!mode || mode === "input") && (!snapshot.story || mode === "input"),
   );
   const revealing = revealedText !== fullText;
   function persistDraft(current = draft.current): Promise<void> {
@@ -527,7 +528,7 @@ export function Balloon({
         currentView.current.sessionId === sessionId
       ) {
         lastActivity.current = Date.now();
-        void leave("close_panel");
+        void leave("close_panel", { idle: true });
       }
     }, 1000);
     return () => clearInterval(timer);
@@ -543,11 +544,10 @@ export function Balloon({
     playing,
     pending,
   ]);
-  async function send(aiOnly = false): Promise<void> {
+  async function send(): Promise<void> {
     if (
       !snapshot.user ||
       !input.trim() ||
-      (aiOnly && !availability.ready) ||
       submitting.current ||
       responding ||
       playing ||
@@ -572,7 +572,6 @@ export function Balloon({
         content: input.trim(),
         target,
         clientMessageId,
-        ...(aiOnly ? { aiOnly: true } : {}),
         ...(submittedDraft.sessionId ? { sessionId: submittedDraft.sessionId } : {}),
       });
       if (draft.current === submittedDraft) {
@@ -817,6 +816,69 @@ export function Balloon({
                 <Button
                   variant="quiet"
                   className={s.menuItem}
+                  onClick={() => void perform("arm_character_move", { persona })}
+                >
+                  움직이기
+                </Button>
+                <Button
+                  variant="quiet"
+                  className={s.menuItem}
+                  onClick={() => void perform("give_character_snack", { persona })}
+                >
+                  간식 주기
+                </Button>
+                <Button
+                  variant="quiet"
+                  className={s.menuItem}
+                  disabled={!character}
+                  onClick={() =>
+                    character &&
+                    void perform("give_character_item", {
+                      characterId: character.id,
+                      action: "drink",
+                      sessionId: crypto.randomUUID(),
+                    })
+                  }
+                >
+                  음료 건네기
+                </Button>
+                <Button
+                  variant="quiet"
+                  className={s.menuItem}
+                  disabled={!character}
+                  onClick={() =>
+                    character &&
+                    void perform("give_character_item", {
+                      characterId: character.id,
+                      action: "gift",
+                      sessionId: crypto.randomUUID(),
+                    })
+                  }
+                >
+                  선물 건네기
+                </Button>
+                <Button
+                  variant="quiet"
+                  className={s.menuItem}
+                  disabled={!character}
+                  onClick={() =>
+                    character &&
+                    void perform("set_character_sleep", {
+                      characterId: character.id,
+                      sleeping: !snapshot.animationStates?.sleepingCharacterIds?.includes(
+                        character.id,
+                      ),
+                    })
+                  }
+                >
+                  {character &&
+                  snapshot.animationStates?.sleepingCharacterIds?.includes(character.id)
+                    ? "깨우기"
+                    : "재우기"}
+                </Button>
+                <Button
+                  variant="quiet"
+                  className={s.menuItem}
                   onClick={() => void perform("open_settings")}
                 >
                   설정
@@ -1042,8 +1104,7 @@ export function Balloon({
                 등록된 키워드 답장·혼잣말은 모델 없이 사용할 수 있어요.
               </p>
               <p className={s.conversationMeta}>
-                보내기는 등록 대사를 먼저 찾아요. AI에게 묻기는 이번 질문의 키워드 매칭을
-                건너뛰어요.
+                보내기는 등록 대사를 먼저 찾고, 일치하는 대사가 없으면 AI가 답해요.
               </p>
             </div>
             <div className={s.recipientRow}>
@@ -1055,7 +1116,7 @@ export function Balloon({
                   disabled={Boolean(conversation && latestUser) || navigating}
                   onChange={(event) => setTarget(event.target.value as Persona | "all")}
                 >
-                  <option value={conversation?.session.participants[0] ?? persona}>
+                  <option value={guestPersona ?? conversation?.session.participants[0] ?? persona}>
                     {recipientName}
                   </option>
                   {(snapshot.characters.active.length > 1 || target === "all") && (
@@ -1096,22 +1157,6 @@ export function Balloon({
               <span className={ui.quiet} role="status">
                 {responding && <WaitingDots />}
               </span>
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={
-                  !availability.ready ||
-                  !snapshot.user ||
-                  !input.trim() ||
-                  responding ||
-                  playing ||
-                  pending ||
-                  navigating
-                }
-                onClick={() => void send(true)}
-              >
-                AI에게 묻기
-              </Button>
               <Button
                 type="submit"
                 disabled={

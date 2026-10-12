@@ -538,6 +538,85 @@ fn preparation_attachment_validation_and_check_promotion_are_atomic() {
 }
 
 #[test]
+fn preparation_schedule_update_only_accepts_live_calendar_events_and_keeps_other_fields() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    install(&db, directory.path(), &["preparation", "calendar"]);
+    act(
+        &db,
+        "preparation",
+        "create",
+        json!({"title":"여행 준비"}),
+        100,
+        1,
+    );
+    let id = instance(&db, "preparation").data["envelopes"][0]["id"].clone();
+    act(
+        &db,
+        "preparation",
+        "check-add",
+        json!({"id":id,"text":"지켜 둘 체크"}),
+        101,
+        2,
+    );
+    let calendar = instance(&db, "calendar");
+    let mut data = calendar.data;
+    data["connections"] = json!([{"id":"live"},{},{"id":""},{"id":1}]);
+    data["events"] = json!([
+        {"id":"local","title":"내 일정","connectionId":"local"},
+        {"id":"connected","title":"연결 일정","connectionId":"live"},
+        {"id":"disconnected","title":"끊긴 일정","connectionId":"missing"},
+        {"id":"missing-connection","title":"식별자 없는 일정"},
+        {"id":"empty-connection","title":"빈 식별자 일정","connectionId":""},
+        {"id":"numeric-connection","title":"숫자 식별자 일정","connectionId":1},
+        {"id":"cancelled","title":"취소 일정","connectionId":"local","cancelled":true}
+    ]);
+    storage::commit_data(&db, &calendar.id, calendar.revision, data, vec![], 102).unwrap();
+    let before = instance(&db, "preparation").data["envelopes"][0].clone();
+    for event in [
+        "disconnected",
+        "cancelled",
+        "absent",
+        "missing-connection",
+        "empty-connection",
+        "numeric-connection",
+    ] {
+        assert!(storage::execute(
+            &db,
+            &request(
+                &db,
+                "preparation",
+                "update",
+                json!({"id":id,"eventId":event,"eventLabel":"불가"})
+            ),
+            103,
+            1
+        )
+        .is_err());
+        assert_eq!(instance(&db, "preparation").data["envelopes"][0], before);
+    }
+    for event in ["local", "connected", ""] {
+        act(
+            &db,
+            "preparation",
+            "update",
+            json!({"id":id,"eventId":event,"eventLabel":"연결 제목"}),
+            104,
+            3,
+        );
+        let current = instance(&db, "preparation").data["envelopes"][0].clone();
+        assert_eq!(current["checks"], before["checks"]);
+        assert_eq!(current["links"], before["links"]);
+        assert_eq!(current["todoIds"], before["todoIds"]);
+        assert_eq!(current["title"], before["title"]);
+        assert_eq!(current["eventId"], event);
+        if event.is_empty() {
+            assert_eq!(current["eventLabel"], "");
+        }
+    }
+}
+
+#[test]
 fn old_preparation_package_is_upgraded_without_disabling_or_losing_content() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
@@ -1147,4 +1226,129 @@ fn diary_journal_filters_dates_before_pagination_and_preserves_history_after_ret
     );
     assert_eq!(storage::journal(&db, None, 1105, 1106).unwrap().len(), 1);
     assert!(storage::journal(&db, None, 1000, 1000).is_err());
+}
+
+#[test]
+fn body_and_widget_share_inventory_and_cooldown_without_installing_the_widget() {
+    let db = crate::store::open(Path::new(":memory:")).unwrap();
+    let character = crate::characters::active_ids(&db).unwrap()[0].clone();
+    let first = uuid::Uuid::new_v4().to_string();
+    assert!(
+        storage::body_interaction(&db, &character, "poke", &first, 1000)
+            .unwrap()
+            .is_some()
+    );
+    let body = instance(&db, "interaction");
+    assert!(!body.installed && !body.enabled);
+    assert_eq!(body.data["snacks"], 6);
+    assert_eq!(body.data["touches"], 1);
+    assert!(
+        !storage::body_interaction(&db, &character, "poke", &first, 1001)
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(instance(&db, "interaction").data["touches"], 1);
+    assert!(storage::body_interaction(&db, &character, "snack", &first, 1002).is_err());
+    assert!(storage::take_reaction(&db, 1003).unwrap().is_none());
+
+    let directory = tempfile::tempdir().unwrap();
+    install(&db, directory.path(), &["interaction"]);
+    let installed = instance(&db, "interaction");
+    assert_eq!(installed.id, body.id);
+    assert_eq!(installed.data, body.data);
+    act(
+        &db,
+        "interaction",
+        "stroke",
+        json!({"character":"A","owner":character}),
+        2000,
+        0,
+    );
+    assert_eq!(instance(&db, "interaction").data["touches"], 2);
+    assert!(storage::take_reaction(&db, 2001).unwrap().is_none());
+    let snack = uuid::Uuid::new_v4().to_string();
+    assert!(
+        storage::body_interaction(&db, &character, "snack", &snack, 6000)
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(instance(&db, "interaction").data["snacks"], 5);
+    let cheek = uuid::Uuid::new_v4().to_string();
+    assert!(
+        !storage::body_interaction(&db, &character, "cheek-grab", &cheek, 6001)
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(instance(&db, "interaction").data["snacks"], 5);
+    assert_eq!(instance(&db, "interaction").data["touches"], 4);
+}
+
+#[test]
+fn body_interaction_rejects_a_departed_owner_before_creating_data() {
+    let db = crate::store::open(Path::new(":memory:")).unwrap();
+    let active = crate::characters::active_ids(&db).unwrap();
+    crate::characters::apply_roster(&db, vec![active[0].clone()]).unwrap();
+    let rejected = uuid::Uuid::new_v4().to_string();
+    assert!(storage::body_interaction(&db, "not-present", "snack", &rejected, 1000).is_err());
+    assert!(!storage::instances(&db)
+        .unwrap()
+        .iter()
+        .any(|item| item.kind == "interaction"));
+}
+
+#[test]
+fn drink_and_gift_share_body_cooldown_without_spending_items_or_creating_rewards() {
+    let db = crate::store::open(Path::new(":memory:")).unwrap();
+    let owner = crate::characters::active_ids(&db).unwrap()[0].clone();
+    let drink = uuid::Uuid::new_v4().to_string();
+    assert!(
+        storage::body_interaction(&db, &owner, "drink", &drink, 1000)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        storage::body_interaction(&db, &owner, "drink", &drink, 1001)
+            .unwrap()
+            .is_none()
+    );
+    assert!(storage::body_interaction(
+        &db,
+        &owner,
+        "gift",
+        &uuid::Uuid::new_v4().to_string(),
+        1002
+    )
+    .unwrap()
+    .is_none());
+    let shared = instance(&db, "interaction");
+    assert_eq!(shared.data["snacks"], 6);
+    assert_eq!(shared.data["touches"], 0);
+    assert!(!shared.installed && !shared.enabled);
+    assert!(storage::body_interaction(
+        &db,
+        &owner,
+        "gift",
+        &uuid::Uuid::new_v4().to_string(),
+        6000
+    )
+    .unwrap()
+    .is_some());
+    assert!(storage::body_interaction(
+        &db,
+        &owner,
+        "poke",
+        &uuid::Uuid::new_v4().to_string(),
+        6001
+    )
+    .unwrap()
+    .is_none());
+    assert_eq!(instance(&db, "interaction").data["touches"], 1);
+    assert!(storage::take_reaction(&db, 6002).unwrap().is_none());
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM widget_journal", [], |row| row
+            .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert!(crate::store::messages(&db, 100).unwrap().is_empty());
 }

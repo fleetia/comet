@@ -322,6 +322,7 @@ pub fn idle_scene(conn: &Connection, index: usize) -> Result<Vec<SceneLine>> {
     }
     Ok(lines)
 }
+#[cfg(test)]
 pub fn keyword_scene(
     conn: &Connection,
     input: &str,
@@ -333,9 +334,209 @@ pub fn keyword_scene(
         .into_iter()
         .filter(|entry| {
             targets.len() != 1
-                || super::resolve_lines(conn, &entry.lines)
-                    .is_ok_and(|lines| lines.iter().all(|line| targets.contains(&line.persona)))
+                || super::resolve_lines(conn, &entry.lines).map_or(true, |lines| {
+                    lines.iter().all(|line| targets.contains(&line.persona))
+                })
         })
         .collect();
     Ok(crate::wordbook::match_entry(&entries, input).map(|entry| entry.lines.clone()))
+}
+
+pub fn registered_keyword_scene(
+    conn: &Connection,
+    input: &str,
+    targets: &[String],
+) -> Result<Option<Vec<SceneLine>>> {
+    let ids = active_ids(conn)?;
+    let base = dialogue(conn, &ids)?.wordbook;
+    let mut entries = base
+        .into_iter()
+        .enumerate()
+        .map(|(index, entry)| (0_i64, index, entry))
+        .collect::<Vec<_>>();
+    let mut packs = Vec::new();
+    let mut seen = HashSet::new();
+    for id in targets.iter().chain(&ids) {
+        let Ok(actor) = get(conn, id) else {
+            continue;
+        };
+        let Some(pack_id) = actor.pack_id else {
+            continue;
+        };
+        if !seen.insert(pack_id.clone()) {
+            continue;
+        }
+        let (pack, members) = pack_record(conn, &pack_id)?;
+        let seq: i64 = conn
+            .query_row(
+                "SELECT rowid FROM character_packs WHERE id=?1",
+                [&pack_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        packs.push((seq, pack, members));
+    }
+    packs.sort_by_key(|(seq, _, _)| *seq);
+    for (seq, pack, members) in packs {
+        if members.iter().all(|member| ids.contains(member)) {
+            let mut original = CharacterDialogue {
+                wordbook: pack.wordbook,
+                pair_scenes: Vec::new(),
+            };
+            if ids.len() > 1 {
+                scope_wordbook_ids(&mut original, &members)?;
+            }
+            for (order, _, entry) in &mut entries {
+                if original
+                    .wordbook
+                    .iter()
+                    .any(|candidate| candidate.id == entry.id)
+                {
+                    *order = seq;
+                }
+            }
+            continue;
+        }
+        let mut scoped = dialogue(conn, &members)?;
+        if ids.len() > 1 {
+            scope_wordbook_ids(&mut scoped, &members)?;
+        }
+        for (index, mut entry) in scoped.wordbook.into_iter().enumerate() {
+            let mut lines = Vec::new();
+            for line in entry.lines {
+                let id = members
+                    .get(slot_index(&line.persona)?)
+                    .ok_or("등록 대사의 팩 화자를 확인해 주세요.")?;
+                lines.push(SceneLine {
+                    persona: id.clone(),
+                    ..line
+                });
+            }
+            entry.lines = lines;
+            entries.push((seq, index, entry));
+        }
+    }
+    entries.sort_by_key(|(seq, index, _)| (*seq, *index));
+    let entries = entries
+        .into_iter()
+        .map(|(_, _, entry)| entry)
+        .filter(|entry| {
+            targets.len() != 1
+                || entry
+                    .lines
+                    .iter()
+                    .map(|line| active_character(conn, &line.persona).map(|actor| actor.id))
+                    .collect::<Result<Vec<_>>>()
+                    .map_or(true, |ids| ids.iter().all(|id| targets.contains(id)))
+        })
+        .collect::<Vec<_>>();
+    Ok(crate::wordbook::match_entry(&entries, input).map(|entry| entry.lines.clone()))
+}
+
+pub(crate) fn registered_directed_reply(
+    actor_id: &str,
+    relationship: &super::CharacterRelationship,
+    target_name: &str,
+    input: &str,
+) -> Option<Vec<SceneLine>> {
+    if relationship.reply_lines.is_empty()
+        || target_name.is_empty()
+        || !crate::pack_stories::matches_keywords(&[target_name.to_string()], input)
+    {
+        return None;
+    }
+    Some(relationship.reply_lines.iter().map(|line| SceneLine {
+        persona: actor_id.to_string(),
+        expression: line.expression.clone(),
+        text: line.text.clone(),
+        motion: line.motion.clone(),
+    }).collect())
+}
+
+pub fn registered_relation_scene(
+    conn: &Connection,
+    input: &str,
+    targets: &[String],
+) -> Result<Option<Vec<SceneLine>>> {
+    let installed = super::collection(conn)?.installed;
+    for id in targets {
+        let actor = get(conn, id)?;
+        for relationship in &actor.definition.relationships {
+            let Some(mentioned) = installed
+                .iter()
+                .find(|member| member.id == relationship.target_id)
+            else {
+                continue;
+            };
+            if let Some(lines) = registered_directed_reply(
+                &actor.id, relationship, &mentioned.definition.name, input,
+            ) {
+                return Ok(Some(lines));
+            }
+        }
+    }
+    let mentioned = installed
+        .iter()
+        .filter(|actor| {
+            targets.contains(&actor.id)
+                && !actor.definition.name.is_empty()
+                && input
+                    .to_lowercase()
+                    .contains(&actor.definition.name.to_lowercase())
+        })
+        .map(|actor| actor.definition.name.to_lowercase())
+        .collect::<HashSet<_>>()
+        .len();
+    if mentioned > 1 {
+        let active = active_ids(conn)?;
+        let content = dialogue(conn, &active)?;
+        for scene in content.pair_scenes {
+            if let Ok(resolved) = super::resolve_lines(conn, &scene) {
+                if resolved.iter().all(|line| targets.contains(&line.persona)) {
+                    return Ok(Some(resolved));
+                }
+            }
+        }
+        let mut seen = HashSet::new();
+        let mut packs = Vec::new();
+        for id in targets {
+            let Some(pack_id) = get(conn, id)?.pack_id else {
+                continue;
+            };
+            if !seen.insert(pack_id.clone()) {
+                continue;
+            }
+            let (_, members) = pack_record(conn, &pack_id)?;
+            if members.iter().all(|member| active.contains(member)) {
+                continue;
+            }
+            let seq: i64 = conn
+                .query_row(
+                    "SELECT rowid FROM character_packs WHERE id=?1",
+                    [&pack_id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| error.to_string())?;
+            packs.push((seq, members));
+        }
+        packs.sort_by_key(|(seq, _)| *seq);
+        for (_, members) in packs {
+            for scene in dialogue(conn, &members)?.pair_scenes {
+                let mapped = scene
+                    .into_iter()
+                    .map(|line| {
+                        let persona = members
+                            .get(slot_index(&line.persona)?)
+                            .ok_or("등록 관계 대사의 화자를 확인해 주세요.")?
+                            .clone();
+                        Ok(SceneLine { persona, ..line })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                if mapped.iter().all(|line| targets.contains(&line.persona)) {
+                    return Ok(Some(mapped));
+                }
+            }
+        }
+    }
+    Ok(None)
 }

@@ -263,6 +263,15 @@ pub(crate) fn reactions_blocked(state: &AppState) -> Result<bool, String> {
     ))
 }
 
+fn automatic_owners(state: &AppState, db: &Connection) -> Result<Vec<String>, String> {
+    let present = crate::app::presence::present_ids(state, &crate::characters::active_ids(db)?)?;
+    let life = lock(&state.life)?;
+    Ok(present
+        .into_iter()
+        .filter(|id| !life.is_sleeping(id))
+        .collect())
+}
+
 pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
     let geometry = desktop_toys::current_geometry(app).await;
     let timestamp = crate::now();
@@ -276,7 +285,7 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
     }
     let db = lock(&state.db)?;
     let preferences = preferences(&db)?;
-    let present = crate::app::presence::present_ids(state, &crate::characters::active_ids(&db)?)?;
+    let present = automatic_owners(state, &db)?;
     let epoch = state.epoch.load(Ordering::SeqCst);
     let (blocked, conversation, waiting) = tick_conditions(state, &db, fullscreen, timestamp)?;
     let blocked = blocked || present.is_empty();
@@ -379,6 +388,38 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sleeping_people_cannot_own_an_automatic_prank_or_receive_its_effects() {
+        let state = crate::app::tests::state();
+        let ids = crate::characters::active_ids(&lock(&state.db).unwrap()).unwrap();
+        let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
+        crate::character_life::set_sleep(&state, &ids[0], true).unwrap();
+        assert_eq!(
+            automatic_owners(&state, &lock(&state.db).unwrap()).unwrap(),
+            ids[1..]
+        );
+        crate::character_life::set_sleep(&state, &ids[1], true).unwrap();
+        let db = lock(&state.db).unwrap();
+        let owners = automatic_owners(&state, &db).unwrap();
+        assert!(owners.is_empty());
+        let mut machine = Machine::default();
+        machine.begin("previous-prank".into(), 0, 1);
+        let transition = machine.observe(2, owners.is_empty(), false, false, 0, 1);
+        assert!(transition.end_play && transition.discard_reactions);
+        assert_eq!(machine.phase, Phase::Suspended);
+        assert!(machine.actor.is_none());
+        assert_eq!(store::revision(&db).unwrap(), revision);
+        assert!(store::messages(&db, 100).unwrap().is_empty());
+        for table in ["widget_events", "widget_journal", "character_affinity"] {
+            let count: i64 = db
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0, "{table}");
+        }
+    }
 
     #[test]
     fn clearing_claimed_automatic_reaction_cancels_its_epoch_only() {

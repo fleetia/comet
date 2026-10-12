@@ -31,6 +31,225 @@ fn configured() -> (AppState, String) {
     (state, id)
 }
 
+fn configured_gesture(gesture: &str) -> (AppState, String) {
+    let (state, id) = configured();
+    let db = lock(&state.db).unwrap();
+    let mut character = characters::get(&db, &id).unwrap();
+    character.definition.gesture_motions = vec![character_reactions::GestureMotion {
+        id: "direct".into(),
+        gesture: gesture.into(),
+        region_id: None,
+        expression: Some("평온".into()),
+        start: Some(MotionOverride::Static),
+        hold: character_reactions::sustained_gesture(gesture).then_some(MotionOverride::Static),
+        moving_hold: (gesture == "pickup").then_some(MotionOverride::Inherit),
+        end: Some(MotionOverride::Static),
+    }];
+    characters::save(&db, &id, &character.definition).unwrap();
+    drop(db);
+    (state, id)
+}
+
+#[test]
+fn rare_idle_start_rechecks_higher_priority_states_before_owning_the_body() {
+    let (state, id) = configured_gesture("idle-yawn");
+    state.last_input.store(app::now() - 3, Ordering::SeqCst);
+    for condition in ["focus", "rest", "calendar", "music"] {
+        {
+            let mut runtime = lock(&state.animation_states).unwrap();
+            runtime.states = Default::default();
+            match condition {
+                "focus" => runtime.states.focus = true,
+                "rest" => runtime.states.rest = true,
+                "calendar" => runtime.states.calendar_open = true,
+                _ => runtime.states.music_playing = true,
+            }
+        }
+        assert!(
+            prepare_direct(&state, &id, "idle-yawn", None, 7)
+                .unwrap()
+                .is_none(),
+            "{condition}"
+        );
+        assert!(lock(&state.reactions).unwrap().runs.is_empty());
+    }
+    lock(&state.animation_states).unwrap().states = Default::default();
+    assert!(prepare_direct(&state, &id, "idle-yawn", None, 7)
+        .unwrap()
+        .is_some());
+}
+
+#[test]
+fn common_body_talk_uses_the_existing_pack_without_installing_the_interaction_widget() {
+    let state = crate::app::tests::state();
+    let directory = tempfile::tempdir().unwrap();
+    *lock(&state.talk).unwrap() = crate::talk_host::initialize(directory.path());
+    let db = lock(&state.db).unwrap();
+    let id = characters::active_character(&db, "b").unwrap().id;
+    let event = widgets::storage::body_interaction(
+        &db,
+        &id,
+        "stroke",
+        &uuid::Uuid::new_v4().to_string(),
+        chrono::Utc::now().timestamp_millis(),
+    )
+    .unwrap()
+    .unwrap();
+    assert!(widgets::storage::instances(&db)
+        .unwrap()
+        .iter()
+        .filter(|instance| instance.kind == "interaction")
+        .all(|instance| !instance.installed && !instance.enabled));
+    let lines = crate::talk_host::prepare(&state, &db, Some(&event))
+        .unwrap()
+        .unwrap();
+    assert!(!lines.is_empty());
+    assert!(lines.iter().all(|line| line.persona == "b"));
+    assert!(crate::talk_host::current(&state, &db).unwrap());
+    db.execute(
+        "UPDATE widget_instances SET revision=revision+1 WHERE kind='interaction'",
+        [],
+    )
+    .unwrap();
+    assert!(!crate::talk_host::current(&state, &db).unwrap());
+}
+
+#[test]
+fn gesture_phases_ignore_late_completion_and_hold_cycles_until_explicit_release() {
+    let (state, id) = configured_gesture("cheek-grab");
+    let execution = prepare_direct(&state, &id, "cheek-grab", None, 7)
+        .unwrap()
+        .unwrap();
+    let revision = lock(&state.reactions).unwrap().runs[&id]
+        .definition_revision
+        .clone();
+    assert!(acknowledge_current(
+        &state,
+        &id,
+        7,
+        &execution,
+        "finished",
+        Some(1),
+        Some(&revision)
+    )
+    .unwrap());
+    assert_eq!(lock(&state.reactions).unwrap().runs[&id].phase, "hold");
+    assert!(!acknowledge_current(
+        &state,
+        &id,
+        7,
+        &execution,
+        "finished",
+        Some(1),
+        Some(&revision)
+    )
+    .unwrap());
+    assert!(!acknowledge_current(
+        &state,
+        &id,
+        7,
+        &execution,
+        "finished",
+        Some(2),
+        Some(&revision)
+    )
+    .unwrap());
+    assert_eq!(lock(&state.reactions).unwrap().runs[&id].phase, "hold");
+    assert!(end_direct(&state, &id, &execution, false).unwrap());
+    assert_eq!(lock(&state.reactions).unwrap().runs[&id].phase, "end");
+    assert!(!acknowledge_current(
+        &state,
+        &id,
+        7,
+        &execution,
+        "finished",
+        Some(2),
+        Some(&revision)
+    )
+    .unwrap());
+    assert!(acknowledge_current(
+        &state,
+        &id,
+        7,
+        &execution,
+        "finished",
+        Some(3),
+        Some(&revision)
+    )
+    .unwrap());
+    assert!(!lock(&state.reactions).unwrap().runs.contains_key(&id));
+    assert!(!end_direct(&state, &id, &execution, false).unwrap());
+}
+
+#[test]
+fn pickup_activity_selects_one_hold_phase_and_rejects_its_late_cycle_completion() {
+    let (state, id) = configured_gesture("pickup");
+    let execution = prepare_direct(&state, &id, "pickup", None, 7)
+        .unwrap()
+        .unwrap();
+    assert!(update_direct_moving(&state, &id, &execution, true).unwrap());
+    assert_eq!(
+        lock(&state.reactions).unwrap().runs[&id].phase_generation,
+        1
+    );
+    assert!(acknowledge(&state, &id, 7, &execution, "finished").unwrap());
+    let revision = lock(&state.reactions).unwrap().runs[&id]
+        .definition_revision
+        .clone();
+    assert!(lock(&state.reactions).unwrap().runs[&id]
+        .motion
+        .is_inherit());
+    assert!(update_direct_moving(&state, &id, &execution, false).unwrap());
+    assert_eq!(
+        lock(&state.reactions).unwrap().runs[&id].motion,
+        MotionOverride::Static
+    );
+    assert_eq!(
+        lock(&state.reactions).unwrap().runs[&id].phase_generation,
+        3
+    );
+    assert!(!acknowledge_current(
+        &state,
+        &id,
+        7,
+        &execution,
+        "finished",
+        Some(2),
+        Some(&revision)
+    )
+    .unwrap());
+    assert!(end_direct(&state, &id, &execution, false).unwrap());
+    assert!(!update_direct_moving(&state, &id, &execution, true).unwrap());
+    assert_eq!(lock(&state.reactions).unwrap().runs[&id].phase, "end");
+}
+
+#[test]
+fn replacement_cancel_and_definition_edit_cannot_advance_an_old_gesture() {
+    let (state, id) = configured_gesture("pickup");
+    let old = prepare_direct(&state, &id, "pickup", None, 7)
+        .unwrap()
+        .unwrap();
+    let current = prepare_direct(&state, &id, "pickup", None, 7)
+        .unwrap()
+        .unwrap();
+    assert!(!end_direct(&state, &id, &old, false).unwrap());
+    assert!(end_direct(&state, &id, &current, true).unwrap());
+    assert!(!lock(&state.reactions).unwrap().runs.contains_key(&id));
+    let edited = prepare_direct(&state, &id, "pickup", None, 7)
+        .unwrap()
+        .unwrap();
+    {
+        let db = lock(&state.db).unwrap();
+        let mut character = characters::get(&db, &id).unwrap();
+        character.definition.name.push('!');
+        characters::save(&db, &id, &character.definition).unwrap();
+    }
+    assert!(!acknowledge(&state, &id, 7, &edited, "finished").unwrap());
+    assert!(!end_direct(&state, &id, &edited, false).unwrap());
+    reconcile_state(&state, &[]).unwrap();
+    assert!(lock(&state.reactions).unwrap().runs.is_empty());
+}
+
 #[test]
 fn a_drag_blocks_presence_even_without_a_reaction_visual() {
     let mut runtime = Runtime::default();
@@ -42,6 +261,11 @@ fn a_drag_blocks_presence_even_without_a_reaction_visual() {
             generation: 1,
             definition: "definition".into(),
             roster: "roster".into(),
+            actor: crate::character_guests::ActorTicket {
+                id: "character".into(),
+                definition_baseline: "definition".into(),
+                guest_generation: None,
+            },
         },
     );
     assert!(runtime.runs.is_empty());
@@ -166,6 +390,59 @@ fn focus_preserves_physical_reactions_without_starting_speech() {
         assert_eq!(state.epoch.load(Ordering::SeqCst), epoch);
     }
     assert!(lock(&state.playback).unwrap().is_none());
+}
+
+#[test]
+fn a_current_registered_story_keeps_direct_reactions_silent_without_advancing_or_cancelling() {
+    let (state, original_id) = configured();
+    let id = {
+        let db = lock(&state.db).unwrap();
+        let mut pack = characters::factory_pack();
+        pack.characters[0].reactions = characters::get(&db, &original_id)
+            .unwrap()
+            .definition
+            .reactions;
+        let installed = characters::import_pack(&db, &pack).unwrap();
+        characters::apply_roster(&db, vec![installed[0].id.clone()]).unwrap();
+        installed[0].id.clone()
+    };
+    let run = {
+        let db = lock(&state.db).unwrap();
+        let pack_id = characters::get(&db, &id).unwrap().pack_id.unwrap();
+        crate::pack_stories::RunTicket {
+            run_id: "protected-story".into(),
+            input_id: uuid::Uuid::new_v4().to_string(),
+            scope: crate::pack_stories::Scope {
+                user_id: store::active_user_id(&db).unwrap(),
+                pack_id: pack_id.clone(),
+                center_id: id.clone(),
+            },
+            scenario_id: None,
+            stage: crate::pack_stories::Stage::Entry,
+            phase_generation: 1,
+            epoch: 0,
+            participants: vec![id.clone()],
+            pack_baseline: characters::pack_definition_baseline(&db, &pack_id).unwrap(),
+            definition_baselines: std::collections::BTreeMap::from([(
+                id.clone(),
+                characters::character_definition_baseline(&db, &id).unwrap(),
+            )]),
+            last_playback_id: "entry:final".into(),
+            definition: None,
+            ready: true,
+        }
+    };
+    lock(&state.pack_stories).unwrap().run = Some(run.clone());
+    assert!(speech_reason(&state).unwrap().is_some());
+    let prepared = prepare(&state, &id, "click");
+    assert!(prepared.speech.is_none());
+    assert!(lock(&state.reactions).unwrap().runs.contains_key(&id));
+    assert_eq!(state.epoch.load(Ordering::SeqCst), 0);
+    let current = lock(&state.pack_stories).unwrap().run.clone().unwrap();
+    assert_eq!(
+        (current.run_id, current.stage, current.ready),
+        (run.run_id, run.stage, run.ready)
+    );
 }
 
 #[test]

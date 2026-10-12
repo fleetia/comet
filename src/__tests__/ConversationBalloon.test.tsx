@@ -108,6 +108,84 @@ it("shows an unavailable notice during focus without conversation controls and k
   await waitFor(() => expect(command).toHaveBeenCalledWith("close_panel", undefined));
 });
 
+it.each([
+  ["움직이기", "arm_character_move"],
+  ["간식 주기", "give_character_snack"],
+])(
+  "routes the %s menu action to the displayed character and shows command failures",
+  async (label, name) => {
+    vi.mocked(command).mockImplementation(async (commandName) => {
+      if (commandName === name) throw new Error("교감 실행 실패");
+      return [];
+    });
+    render(
+      <Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "builtin-a", mode: "menu" } }} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: label }));
+    await waitFor(() => expect(command).toHaveBeenCalledWith(name, { persona: "builtin-a" }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "교감 실행 실패");
+  },
+);
+
+it("routes drink and gift to the local character with separate interaction receipts", async () => {
+  render(
+    <Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "builtin-a", mode: "menu" } }} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "음료 건네기" }));
+  fireEvent.click(screen.getByRole("button", { name: "선물 건네기" }));
+  const requests = vi.mocked(command).mock.calls.filter(([name]) => name === "give_character_item");
+  expect(requests).toHaveLength(2);
+  expect(requests[0]?.[1]).toEqual({
+    characterId: "builtin-a",
+    action: "drink",
+    sessionId: expect.any(String),
+  });
+  expect(requests[1]?.[1]).toEqual({
+    characterId: "builtin-a",
+    action: "gift",
+    sessionId: expect.any(String),
+  });
+  expect(requests[0]?.[1]?.sessionId).not.toBe(requests[1]?.[1]?.sessionId);
+});
+
+it("offers sleep or wake for the displayed local character independently", async () => {
+  const snapshot: Snapshot = { ...PREVIEW_SNAPSHOT, panel: { persona: "builtin-a", mode: "menu" } };
+  const { rerender } = render(<Balloon snapshot={snapshot} />);
+  fireEvent.click(screen.getByRole("button", { name: "재우기" }));
+  expect(command).toHaveBeenCalledWith("set_character_sleep", {
+    characterId: "builtin-a",
+    sleeping: true,
+  });
+  rerender(
+    <Balloon
+      snapshot={{
+        ...snapshot,
+        animationStates: {
+          ...PREVIEW_SNAPSHOT.animationStates!,
+          sleepingCharacterIds: ["builtin-b"],
+        },
+      }}
+    />,
+  );
+  expect(screen.getByRole("button", { name: "재우기" })).toBeTruthy();
+  rerender(
+    <Balloon
+      snapshot={{
+        ...snapshot,
+        animationStates: {
+          ...PREVIEW_SNAPSHOT.animationStates!,
+          sleepingCharacterIds: ["builtin-a"],
+        },
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "깨우기" }));
+  expect(command).toHaveBeenCalledWith("set_character_sleep", {
+    characterId: "builtin-a",
+    sleeping: false,
+  });
+});
+
 it("opens a reply to the exact displayed line and keeps the close action separate", async () => {
   render(<Balloon snapshot={{ ...PREVIEW_SNAPSHOT, playback }} />);
   const reply = screen.getByRole("button", { name: /에게 답장:/ });
@@ -144,6 +222,31 @@ it("retains the seed and live draft across snapshots, speaker changes, and gener
     screen.getByLabelText(playback.text, { normalizer: (value) => value }).textContent,
   ).toContain(playback.text);
   expect(screen.getByRole("button", { name: "보내기" })).toHaveProperty("disabled", true);
+});
+
+it("reveals a registered input reply while a waiting story is retained behind the editor", () => {
+  vi.useFakeTimers();
+  render(
+    <Balloon
+      snapshot={{
+        ...conversationSnapshot(),
+        playback: { ...playback, textSpeed: 1000 },
+        story: {
+          id: "waiting-story",
+          persona: "builtin-a",
+          title: "다음 이야기",
+          prompt: "이야기를 이어갈까?",
+          choices: [{ id: "continue", label: "계속" }],
+          displayStartedAt: 1,
+        },
+      }}
+    />,
+  );
+  expect(screen.queryByRole("group", { name: "이야기 선택지" })).toBeNull();
+  const text = screen.getByText(playback.text, { normalizer: (value) => value });
+  expect(text.style.visibility).toBe("hidden");
+  act(() => vi.advanceTimersByTime(1000));
+  expect(text.style.visibility).toBe("");
 });
 
 it("saves the draft when focus closes the input before autosave and retains it on resume", async () => {
@@ -318,6 +421,51 @@ it("does not close a new conversation when an older view's draft save completes"
   expect(screen.getByRole("textbox")).toHaveProperty("value", "새 초안");
 });
 
+it("keeps the visible guest recipient while sending through its reopened resident-owned session", async () => {
+  const guest = {
+    ...PREVIEW_SNAPSHOT.characters.installed[1],
+    id: "guest-character",
+    definition: {
+      ...PREVIEW_SNAPSHOT.characters.installed[1].definition,
+      name: "방문자",
+      presenceRole: "npc" as const,
+    },
+  };
+  const snapshot: Snapshot = {
+    ...conversationSnapshot(),
+    runtime: { ...PREVIEW_SNAPSHOT.runtime, guestCharacterIds: [guest.id] },
+    characters: {
+      installed: [...PREVIEW_SNAPSHOT.characters.installed, guest],
+      active: ["builtin-a"],
+    },
+    panel: { persona: guest.id, mode: "menu" },
+    conversation: null,
+  };
+  vi.mocked(isDesktop).mockReturnValue(true);
+  const view = render(<Balloon snapshot={snapshot} />);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_conversations", { persona: guest.id }));
+  expect(screen.queryByRole("alert")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "말 걸기" }));
+  expect(command).toHaveBeenCalledWith("open_panel", { persona: guest.id, mode: "input" });
+  const reopened = { ...session, id: "reopened-resident-session" };
+  view.rerender(<Balloon snapshot={{
+    ...snapshot,
+    panel: { persona: guest.id, mode: "input" },
+    conversation: { session: reopened, messages: [], nextBefore: null },
+  }} />);
+  expect(screen.getByRole("combobox")).toHaveProperty("value", guest.id);
+  const input = screen.getByRole("textbox", { name: "방문자에게 할 말" });
+  fireEvent.change(input, { target: { value: "좋아" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() => expect(command).toHaveBeenCalledWith("send_message", {
+    content: "좋아",
+    target: guest.id,
+    clientMessageId: expect.any(String),
+    sessionId: reopened.id,
+  }));
+  expect(screen.getByRole("button", { name: "대화 끝내기" })).toBeTruthy();
+});
+
 it("offers the paused conversation in the menu and a linked continuation from ended history", async () => {
   vi.mocked(isDesktop).mockReturnValue(true);
   const ended = { ...session, id: "ended", title: "마친 이야기", status: "ended" as const };
@@ -348,12 +496,12 @@ it("pauses only after idle time with no draft, open log, or active reply", async
   await act(async () => {
     vi.advanceTimersByTime(89_000);
   });
-  expect(command).not.toHaveBeenCalledWith("close_panel", { sessionId: session.id });
+  expect(command).not.toHaveBeenCalledWith("close_panel", { sessionId: session.id, idle: true });
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "작성 중" } });
   await act(async () => {
     vi.advanceTimersByTime(100_000);
   });
-  expect(command).not.toHaveBeenCalledWith("close_panel", { sessionId: session.id });
+  expect(command).not.toHaveBeenCalledWith("close_panel", { sessionId: session.id, idle: true });
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "" } });
   rerender(
     <Balloon snapshot={{ ...snapshot, runtime: { ...snapshot.runtime, phase: "generating" } }} />,
@@ -361,12 +509,12 @@ it("pauses only after idle time with no draft, open log, or active reply", async
   await act(async () => {
     vi.advanceTimersByTime(100_000);
   });
-  expect(command).not.toHaveBeenCalledWith("close_panel", { sessionId: session.id });
+  expect(command).not.toHaveBeenCalledWith("close_panel", { sessionId: session.id, idle: true });
   rerender(<Balloon snapshot={snapshot} />);
   await act(async () => {
     vi.advanceTimersByTime(90_000);
   });
-  expect(command).toHaveBeenCalledWith("close_panel", { sessionId: session.id });
+  expect(command).toHaveBeenCalledWith("close_panel", { sessionId: session.id, idle: true });
 });
 
 it.each(["one failing test. one small fix.", "same hero new line. surprise me with a scene."])(
@@ -638,36 +786,38 @@ it("saves the exact draft before opening AI settings without starting a download
   expect(screen.getByRole("textbox")).toHaveProperty("value", value);
 });
 
-it("can ask AI once without changing the next ordinary send", async () => {
+it("uses the same unified send route for the button and Enter", async () => {
   render(<Balloon snapshot={{ ...conversationSnapshot(), modelReady: true }} />);
   const input = screen.getByRole("textbox");
   fireEvent.change(input, { target: { value: "lighthouse가 포함된 긴 질문에 답해 줘" } });
-  fireEvent.click(screen.getByRole("button", { name: "AI에게 묻기" }));
+  expect(screen.queryByRole("button", { name: "AI에게 묻기" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "보내기" }));
   await waitFor(() => expect(input).toHaveProperty("value", ""));
   expect(command).toHaveBeenCalledWith("send_message", {
     content: "lighthouse가 포함된 긴 질문에 답해 줘",
     target: "builtin-a",
     clientMessageId: expect.any(String),
     sessionId: session.id,
-    aiOnly: true,
   });
   fireEvent.change(input, { target: { value: "lighthouse" } });
   fireEvent.keyDown(input, { key: "Enter" });
   await waitFor(() => expect(input).toHaveProperty("value", ""));
   const sends = vi.mocked(command).mock.calls.filter(([name]) => name === "send_message");
   expect(sends).toHaveLength(2);
-  expect(sends[1]![1]).not.toHaveProperty("aiOnly");
+  for (const [, args] of sends) {
+    expect(args).not.toHaveProperty("aiOnly");
+  }
 });
 
 it("keeps ordinary sending available while AI needs setup", () => {
   render(<Balloon snapshot={conversationSnapshot()} />);
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "등록된 키워드" } });
-  expect(screen.getByRole("button", { name: "AI에게 묻기" })).toHaveProperty("disabled", true);
+  expect(screen.queryByRole("button", { name: "AI에게 묻기" })).toBeNull();
   expect(screen.getByRole("button", { name: "보내기" })).toHaveProperty("disabled", false);
   expect(screen.getByRole("button", { name: "AI 연결 설정" })).toBeTruthy();
 });
 
-it("does not double-send an AI request or erase a newer draft", async () => {
+it("does not double-send or erase a newer draft", async () => {
   let finish!: () => void;
   vi.mocked(command).mockImplementation(async (name) => {
     if (name === "send_message")
@@ -678,7 +828,7 @@ it("does not double-send an AI request or erase a newer draft", async () => {
   render(<Balloon snapshot={{ ...conversationSnapshot(), modelReady: true }} />);
   const input = screen.getByRole("textbox");
   fireEvent.change(input, { target: { value: "첫 AI 질문" } });
-  const ask = screen.getByRole("button", { name: "AI에게 묻기" });
+  const ask = screen.getByRole("button", { name: "보내기" });
   fireEvent.click(ask);
   fireEvent.click(ask);
   fireEvent.keyDown(input, { key: "Enter" });
@@ -690,17 +840,17 @@ it("does not double-send an AI request or erase a newer draft", async () => {
   expect(input).toHaveProperty("value", "새로 쓰는 초안");
 });
 
-it("retains an AI input when submission fails", async () => {
+it("retains the input when unified submission fails", async () => {
   vi.mocked(command).mockImplementation(async (name) => {
     if (name === "send_message") throw new Error("모델 실행 실패");
   });
   render(<Balloon snapshot={{ ...conversationSnapshot(), modelReady: true }} />);
   const input = screen.getByRole("textbox");
   fireEvent.change(input, { target: { value: "  lighthouse가 포함된 질문\n" } });
-  fireEvent.click(screen.getByRole("button", { name: "AI에게 묻기" }));
+  fireEvent.click(screen.getByRole("button", { name: "보내기" }));
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "모델 실행 실패");
   expect(input).toHaveProperty("value", "  lighthouse가 포함된 질문\n");
-  expect(screen.getByRole("button", { name: "AI에게 묻기" })).toHaveProperty("disabled", false);
+  expect(screen.getByRole("button", { name: "보내기" })).toHaveProperty("disabled", false);
 });
 
 it("keeps an authored reply's recorded origin after model readiness changes", () => {
@@ -832,7 +982,7 @@ it("preserves origin metadata when loading older conversation pages", async () =
   expect(screen.getByText("앞선 등록 원문").textContent).toContain("  앞선 등록 원문\n\n ");
 });
 
-it.each(["보내기", "AI 연결 설정", "AI에게 묻기"])(
+it.each(["보내기", "AI 연결 설정"])(
   "does not continue %s after another view replaces the saved draft",
   async (action) => {
     let finishSave!: () => void;
@@ -842,7 +992,7 @@ it.each(["보내기", "AI 연결 설정", "AI에게 묻기"])(
           finishSave = resolve;
         });
     });
-    const snapshot = { ...conversationSnapshot(), modelReady: action === "AI에게 묻기" };
+    const snapshot = conversationSnapshot();
     const { rerender } = render(<Balloon snapshot={snapshot} />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "이전 대화 초안" } });
     fireEvent.click(screen.getByRole("button", { name: action }));

@@ -7,13 +7,31 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub(crate) fn ensure_request_available(
+    state: &AppState,
+    db: &rusqlite::Connection,
+) -> Result<(), String> {
+    let status = lock(&state.runtime)?.clone();
+    let settings = crate::store::settings(db)?;
+    if state.launcher_open.load(Ordering::SeqCst)
+        || status.hidden
+        || status.paused
+        || crate::app::unavailable(state)
+        || !settings.autonomous_enabled
+        || crate::app::quiet_hours::automatic_blocked(state, &settings)?
+    {
+        return Err("지금은 이야기가 쉬고 있어요.".into());
+    }
+    crate::app::conversation::ensure_available(db)
+}
+
 pub fn advance(state: &AppState, at: Instant) -> Result<bool, String> {
     let _action = lock(&state.action)?;
     let due = story::tick(&mut *lock(&state.story_clock)?, at);
     if !due {
         return Ok(false);
     }
-    if lock(&state.story)?.is_some() {
+    if lock(&state.story)?.is_some() || lock(&state.pack_stories)?.run.is_some() {
         lock(&state.story_clock)?.elapsed = Duration::ZERO;
         return Ok(false);
     }
@@ -53,10 +71,13 @@ pub fn advance(state: &AppState, at: Instant) -> Result<bool, String> {
         personas.rotate_left(offset);
     }
     for persona in personas {
+        if crate::character_life::sleeping(state, &persona)? {
+            continue;
+        }
         if let Some(mut request) =
             story::prepare_from_catalog(&db, &persona, 0, seed, &lock(&state.story_catalog)?)?
         {
-            let (epoch, _) = crate::app::interrupt(state, true)?;
+            let (epoch, _) = crate::app::interrupt_with_db(state, true, &db)?;
             request.epoch = epoch;
             *lock(&state.story)? = Some(request);
             lock(&state.story_clock)?.elapsed = Duration::ZERO;
@@ -85,17 +106,8 @@ pub fn choose_story(
             .filter(|r| r.id == request_id)
             .cloned()
             .ok_or("이미 지나간 이야기예요.")?;
-        let status = lock(&state.runtime)?.clone();
         let db = lock(&state.db)?;
-        if state.launcher_open.load(Ordering::SeqCst)
-            || status.hidden
-            || status.paused
-            || crate::app::unavailable(&state)
-            || !crate::store::settings(&db)?.autonomous_enabled
-            || crate::app::quiet_hours::automatic_blocked(&state, &crate::store::settings(&db)?)?
-        {
-            return Err("지금은 이야기가 쉬고 있어요.".into());
-        }
+        ensure_request_available(&state, &db)?;
         let text = story::answer(
             &db,
             &request,

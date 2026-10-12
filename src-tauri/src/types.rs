@@ -225,7 +225,7 @@ pub struct Relationship {
     pub score: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SceneLine {
     pub persona: String,
@@ -367,6 +367,8 @@ pub struct RuntimeStatus {
     pub hidden: bool,
     #[serde(default)]
     pub present_character_ids: Vec<String>,
+    #[serde(default)]
+    pub guest_character_ids: Vec<String>,
     pub paused: bool,
     /// Milliseconds; `None` for an open-ended pause. Kept in memory like `paused`.
     #[serde(default)]
@@ -382,6 +384,7 @@ impl Default for RuntimeStatus {
             download: None,
             hidden: false,
             present_character_ids: Vec::new(),
+            guest_character_ids: Vec::new(),
             paused: false,
             paused_until: None,
         }
@@ -393,6 +396,12 @@ impl Default for RuntimeStatus {
 pub struct CharacterAnimationStates {
     pub music_playing: bool,
     pub calendar_open: bool,
+    #[serde(default)]
+    pub focus: bool,
+    #[serde(default)]
+    pub rest: bool,
+    #[serde(default)]
+    pub sleeping_character_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

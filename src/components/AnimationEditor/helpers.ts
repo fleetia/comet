@@ -5,11 +5,100 @@ import type {
   AnimationClip,
   AnimationFrame,
   CharacterAnimation,
+  CharacterDefinition,
 } from "../../types";
 
 export const EMPTY_ANIMATION: CharacterAnimation = { clips: [], bindings: {}, overrides: {} };
 export const MAX_ANIMATION_FRAMES = 64;
 export const MAX_ANIMATION_CLIPS = 32;
+export const SUSTAINED_GESTURES = [
+  "cheek-grab",
+  "pickup",
+  "walk",
+  "fast-walk",
+  "crawl",
+  "climb",
+  "short-fall",
+  "peek",
+];
+
+export function gestureDefinitionError(definition: CharacterDefinition): string | null {
+  const regions = definition.bodyRegions ?? [];
+  const motions = definition.gestureMotions ?? [];
+  const normalized = (value: number): boolean => Number.isFinite(value) && value >= 0 && value <= 1;
+  const validId = (value: string): boolean =>
+    Boolean(value.trim()) &&
+    value === value.trim() &&
+    Array.from(value).length <= 64 &&
+    !/\p{Cc}/u.test(value);
+  if (regions.length > 16 || motions.length > 32)
+    return "부위는 16개, 교감 동작은 32개까지 등록할 수 있어요.";
+  if (
+    new Set(regions.map((region) => region.id)).size !== regions.length ||
+    regions.some(
+      (region) =>
+        !validId(region.id) ||
+        !validId(region.name) ||
+        ![region.x, region.y, region.width, region.height].every(normalized) ||
+        region.width === 0 ||
+        region.height === 0 ||
+        region.x + region.width > 1 ||
+        region.y + region.height > 1 ||
+        (region.grabPoint && ![region.grabPoint.x, region.grabPoint.y].every(normalized)),
+    )
+  )
+    return "부위 이름과 본체 안의 영역·잡는 점을 확인해 주세요.";
+  if (new Set(motions.map((motion) => motion.id)).size !== motions.length)
+    return "교감 동작 ID가 중복돼요.";
+  for (const motion of motions) {
+    if (
+      !validId(motion.id) ||
+      ![
+        "poke",
+        "stroke",
+        "cheek-grab",
+        "pickup",
+        "snack",
+        "wake",
+        "drink",
+        "gift",
+        "idle-yawn",
+        "idle-stretch",
+        "walk",
+        "fast-walk",
+        "crawl",
+        "climb",
+        "short-fall",
+        "peek",
+      ].includes(motion.gesture) ||
+      (motion.regionId && !regions.some((region) => region.id === motion.regionId)) ||
+      (motion.expression && !(motion.expression in definition.expressions))
+    )
+      return "교감 동작의 행동·부위·표정을 확인해 주세요.";
+    if (!motion.start && !motion.hold && !motion.movingHold && !motion.end)
+      return "교감 동작에 시작·유지·종료 중 하나를 연결해 주세요.";
+    const sustained = SUSTAINED_GESTURES.includes(motion.gesture);
+    if (
+      (!sustained && (motion.hold || motion.movingHold)) ||
+      (motion.movingHold && motion.gesture !== "pickup")
+    )
+      return "유지 동작은 볼 잡기와 집기에 연결해 주세요.";
+    for (const [phase, value] of Object.entries(motion).filter(([key]) =>
+      ["start", "hold", "movingHold", "end"].includes(key),
+    ) as [string, import("../../types").MotionOverride][]) {
+      if (value?.mode !== "clip") continue;
+      if (
+        !definition.animation?.clips.some((clip) => clip.id === value.clipId) ||
+        !Number.isInteger(value.intervalMs) ||
+        value.intervalMs < 0 ||
+        value.intervalMs > 60000 ||
+        ((phase === "start" || phase === "end") && (value.repeat || value.intervalMs !== 0))
+      )
+        return "교감 동작의 모션과 반복 간격을 확인해 주세요.";
+    }
+  }
+  return null;
+}
 
 export function sequenceFrames(assets: AnimationAsset[]): AnimationFrame[] {
   return assets.map(({ assetId, width, height }) => ({ assetId, x: 0, y: 0, width, height }));
@@ -52,7 +141,7 @@ export function appendFrames(clip: AnimationClip, frames: AnimationFrame[]): Ani
 
 export function defaultBinding(
   clipId: string,
-  situation: "idle" | "speaking" | "click" | "musicPlaying" | "calendarOpen",
+  situation: keyof CharacterAnimation["bindings"],
 ): AnimationBinding {
   return { clipId, repeat: situation !== "click", intervalMs: situation === "idle" ? 3000 : 0 };
 }

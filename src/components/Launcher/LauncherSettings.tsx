@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
 import { Button } from "@fleetia/lagrange";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { DEFAULT_SHORTCUT, shortcutLabel, type LauncherState } from "./search";
@@ -19,7 +19,7 @@ function capturedShortcut(event: KeyboardEvent<HTMLButtonElement>): string | nul
     .filter(Boolean)
     .join("+");
 }
-export function LauncherSettings(): JSX.Element {
+export function LauncherSettings({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) => void }): JSX.Element {
   const [state, setState] = useState<LauncherState | null>(
     isDesktop()
       ? null
@@ -28,37 +28,55 @@ export function LauncherSettings(): JSX.Element {
   const [recording, setRecording] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState(DEFAULT_SHORTCUT);
+  const mounted = useRef(true);
+  const sequence = useRef(0);
+  const lock = useRef(false);
+  const report = useRef(onDirtyChange);
+  report.current = onDirtyChange;
+  const dirty = Boolean(state && draft !== state.shortcut);
+  useEffect(() => { report.current?.(dirty); }, [dirty]);
   useEffect(() => {
     if (!isDesktop()) return;
-    let active = true;
+    mounted.current = true;
+    const request = ++sequence.current;
     void command<LauncherState>("get_launcher_state")
       .then((value) => {
-        if (active) setState(value);
+        if (mounted.current && request === sequence.current) { setState(value); setDraft(value.shortcut); }
       })
       .catch((cause: unknown) => {
-        if (active) setError(errorText(cause));
+        if (mounted.current && request === sequence.current) setError(errorText(cause));
       });
     return () => {
-      active = false;
+      mounted.current = false;
+      sequence.current += 1;
+      report.current?.(false);
     };
   }, []);
   async function save(shortcut: string): Promise<void> {
-    if (pending) return;
+    if (lock.current || !state || !isDesktop()) return;
+    lock.current = true;
+    const request = ++sequence.current;
     setPending(true);
     setRecording(false);
     setError(null);
     try {
-      setState(await command<LauncherState>("set_launcher_shortcut", { shortcut }));
+      const next = await command<LauncherState>("set_launcher_shortcut", { shortcut });
+      if (!mounted.current || request !== sequence.current) return;
+      setState(next);
+      setDraft(next.shortcut);
     } catch (cause) {
-      setError(errorText(cause));
+      if (mounted.current && request === sequence.current) setError(errorText(cause));
     } finally {
-      setPending(false);
+      lock.current = false;
+      if (mounted.current && request === sequence.current) setPending(false);
     }
   }
   function record(event: KeyboardEvent<HTMLButtonElement>): void {
     if (!recording || event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key === "Escape") {
       event.preventDefault();
+      setDraft(state?.shortcut ?? "");
       setRecording(false);
       return;
     }
@@ -68,7 +86,7 @@ export function LauncherSettings(): JSX.Element {
     }
     event.preventDefault();
     const shortcut = capturedShortcut(event);
-    if (shortcut) void save(shortcut);
+    if (shortcut) { setDraft(shortcut); setRecording(false); setError(null); }
   }
   return (
     <section className={s.section}>
@@ -90,10 +108,12 @@ export function LauncherSettings(): JSX.Element {
         >
           {recording
             ? "사용할 키를 눌러 주세요…"
-            : state?.shortcut
-              ? shortcutLabel(state.shortcut)
+            : draft
+              ? shortcutLabel(draft)
               : "단축키 없음"}
         </Button>
+        <Button variant="primary" disabled={pending || !state || !dirty} onClick={() => void save(draft)}>적용</Button>
+        <Button variant="quiet" disabled={pending || !state || !dirty} onClick={() => { setDraft(state?.shortcut ?? ""); setError(null); }}>변경 취소</Button>
         <Button
           variant="quiet"
           disabled={pending || !state?.shortcut}
@@ -101,13 +121,15 @@ export function LauncherSettings(): JSX.Element {
         >
           단축키 끄기
         </Button>
-        <Button variant="quiet" disabled={pending} onClick={() => void save(DEFAULT_SHORTCUT)}>
+        <Button variant="quiet" disabled={pending || !state} onClick={() => void save(DEFAULT_SHORTCUT)}>
           기본값으로
         </Button>
         <Button
           variant="quiet"
           onClick={() => {
-            void command("open_launcher").catch((cause: unknown) => setError(errorText(cause)));
+            void command("open_launcher").catch((cause: unknown) => {
+              if (mounted.current) setError(errorText(cause));
+            });
           }}
         >
           빠른 실행 열기

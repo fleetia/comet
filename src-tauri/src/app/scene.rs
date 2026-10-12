@@ -32,7 +32,7 @@ pub(crate) fn present_line(
             &store::settings(&db)?,
             lock(&state.runtime)?.paused,
         )?
-        || store::revision(&db)? != revision
+        || (!matches!(source, "scenario" | "npc") && store::revision(&db)? != revision)
     {
         return Ok(false);
     }
@@ -41,10 +41,15 @@ pub(crate) fn present_line(
         crate::conversation_notes::validate_reply(&db, id)?;
     }
     let saved = if direct_reply {
-        if store::message_displayed(&db, id)? {
+        if if matches!(source, "scenario" | "npc") {
+            store::message_finished(&db, id)?
+        } else {
+            store::message_displayed(&db, id)?
+        } {
             return Ok(false);
         }
-        store::saved_reply(&db, id)?
+        let allowed = crate::character_guests::display_ids(state, &db)?;
+        store::saved_reply_for_participants(&db, id, Some(&allowed))?
     } else {
         None
     };
@@ -56,18 +61,36 @@ pub(crate) fn present_line(
     {
         return Ok(false);
     }
-    let resolved = characters::resolve_lines(&db, std::slice::from_ref(line))?;
+    let ticket = lock(&state.tasks)?.participants.clone();
+    let resolved = if let Some(ticket) = &ticket {
+        crate::character_guests::resolve_lines(state, &db, ticket, std::slice::from_ref(line))?
+    } else {
+        characters::resolve_lines(&db, std::slice::from_ref(line))?
+    };
     let line = &resolved[0];
-    if source != "presence" && !presence::is_present(state, &line.persona)? {
+    lock(&state.reactions)?.clear_ambient(&line.persona);
+    if crate::character_life::sleeping(state, &line.persona)? {
         if state.automatic.load(Ordering::SeqCst) {
             return Ok(false);
         }
+        crate::character_life::wake(state, &line.persona)?;
+    }
+    let actor = if let Some(ticket) = &ticket {
+        crate::character_guests::resolve_actor(state, &db, ticket, &line.persona)?
+    } else {
+        characters::active_character(&db, &line.persona)?
+    };
+    let resident = actor.definition.presence_role == crate::pack_stories::PresenceRole::Resident;
+    if source != "presence" && !crate::character_guests::is_present(state, &db, &line.persona)? {
+        if state.automatic.load(Ordering::SeqCst) {
+            return Ok(false);
+        }
+        if !resident {
+            return Err("등록 대사의 NPC가 지금 참가하지 않고 있어요.".into());
+        }
         presence::summon_locked(state, &line.persona)?;
     }
-    let text_speed = characters::active_character(&db, &line.persona)?
-        .definition
-        .balloon_style
-        .text_speed;
+    let text_speed = actor.definition.balloon_style.text_speed;
     if (source == "widget" || (source == "reaction" && lock(&state.widget_playback)?.is_some()))
         && !widget_commands::widget_event_current(state, &db)?
     {
@@ -76,6 +99,21 @@ pub(crate) fn present_line(
     if source == "talk" && !talk_host::current(state, &db)? {
         return Ok(false);
     }
+    if matches!(source, "scenario" | "npc") {
+        let replay = lock(&state.tasks)?
+            .pack_replay
+            .as_ref()
+            .is_some_and(|input| id.starts_with(&format!("scene:{input}:")));
+        if !replay {
+            let run = lock(&state.pack_stories)?
+                .run
+                .clone()
+                .ok_or("이야기 실행이 끝났어요.")?;
+            if run.epoch != epoch || !crate::pack_stories::current(&db, &run)? {
+                return Ok(false);
+            }
+        }
+    }
     let scene_key = if source == "talk" && line_index == 0 {
         lock(&state.talk_playback)?
             .as_ref()
@@ -83,22 +121,27 @@ pub(crate) fn present_line(
     } else {
         None
     };
-    store::insert_message_with_playback(
-        &db,
-        &Message {
-            id: id.into(),
-            role: "assistant".into(),
-            persona: Some(line.persona.clone()),
-            content: line.text.clone(),
-            expression: Some(line.expression.clone()),
-            created_at: chrono::Utc::now().timestamp_millis(),
-            status: "complete".into(),
-        },
-        source,
-        scene_key.as_deref(),
-        direct_reply,
-        Some(line),
-    )?;
+    let message = Message {
+        id: id.into(),
+        role: "assistant".into(),
+        persona: Some(line.persona.clone()),
+        content: line.text.clone(),
+        expression: Some(line.expression.clone()),
+        created_at: chrono::Utc::now().timestamp_millis(),
+        status: "complete".into(),
+    };
+    if ticket.is_some() {
+        store::insert_message_with_actor(&db, &message, source, direct_reply, line, &actor)?;
+    } else {
+        store::insert_message_with_playback(
+            &db,
+            &message,
+            source,
+            scene_key.as_deref(),
+            direct_reply,
+            Some(line),
+        )?;
+    }
     *lock(&state.playback)? = Some(Playback {
         id: id.into(),
         persona: line.persona.clone(),
@@ -134,6 +177,88 @@ pub(crate) fn mark_line_displayed(line: &mut Playback, now: i64) -> bool {
     line.display_started_at = Some(now);
     line.ends_at = now + playback::line_duration_millis(&line.text, line.text_speed);
     true
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LineCompletion {
+    pub playback: Playback,
+    pub finished_at: i64,
+}
+
+pub(crate) fn line_completion_locked(
+    state: &AppState,
+    expected: &Playback,
+    epoch: u64,
+    cancel: &AtomicBool,
+    now: i64,
+) -> Result<Option<LineCompletion>, String> {
+    if !is_current(state, epoch, cancel) {
+        return Ok(None);
+    }
+    let db = lock(&state.db)?;
+    let status = lock(&state.runtime)?.clone();
+    if status.hidden
+        || super::unavailable(state)
+        || crate::widgets::storage::focus_active(&db, now)?
+    {
+        return Ok(None);
+    }
+    if let Some(ticket) = lock(&state.tasks)?.participants.clone() {
+        if ticket.epoch != epoch || crate::character_guests::validate(state, &db, &ticket).is_err()
+        {
+            return Ok(None);
+        }
+    }
+    if matches!(expected.source.as_str(), "scenario" | "npc") {
+        let Some(run) = lock(&state.pack_stories)?.run.clone() else {
+            return Ok(None);
+        };
+        if run.epoch != epoch
+            || !crate::pack_stories::current(&db, &run)?
+            || lock(&state.tasks)?.participants.is_none()
+        {
+            return Ok(None);
+        }
+    }
+    let current = lock(&state.playback)?;
+    let Some(line) = current.as_ref().filter(|line| {
+        line.id == expected.id
+            && line.line_index == expected.line_index
+            && line.line_count == expected.line_count
+            && line.source == expected.source
+            && line.display_started_at == expected.display_started_at
+            && line.ends_at == expected.ends_at
+    }) else {
+        return Ok(None);
+    };
+    if line.display_started_at.is_none() || now < line.ends_at {
+        return Ok(None);
+    }
+    Ok(Some(LineCompletion {
+        playback: line.clone(),
+        finished_at: now,
+    }))
+}
+
+async fn wait_for_completed_line(
+    state: &AppState,
+    epoch: u64,
+    cancel: Arc<AtomicBool>,
+) -> Result<Option<LineCompletion>, String> {
+    let Some(line) = wait_for_displayed_line(state, epoch, cancel.clone()).await? else {
+        return Ok(None);
+    };
+    if !wait_for_valid_line(state, &line, line.ends_at, epoch, cancel.clone()).await? {
+        return Ok(None);
+    }
+    let _action = lock(&state.action)?;
+    line_completion_locked(
+        state,
+        &line,
+        epoch,
+        &cancel,
+        chrono::Utc::now().timestamp_millis(),
+    )
 }
 
 pub(crate) async fn wait_for_displayed_line(
@@ -309,25 +434,63 @@ pub(crate) async fn run_scene(
     epoch: u64,
     cancel: Arc<AtomicBool>,
 ) -> Result<(), String> {
+    run_scene_completed(
+        app,
+        state,
+        lines,
+        source,
+        prefix,
+        direct_reply,
+        epoch,
+        cancel,
+    )
+    .await
+    .map(|_| ())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_scene_completed(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    lines: &[SceneLine],
+    source: &str,
+    prefix: &str,
+    direct_reply: bool,
+    epoch: u64,
+    cancel: Arc<AtomicBool>,
+) -> Result<Option<LineCompletion>, String> {
+    let generic = matches!(source, "scenario" | "npc");
+    let effectful = generic && lock(&state.tasks)?.pack_replay.as_deref() != Some(prefix);
     let (revision, saved) = {
         let _action = lock(&state.action)?;
         if !is_current(state, epoch, &cancel) {
-            return Ok(());
+            return Ok(None);
         }
         let db = lock(&state.db)?;
-        let saved = if direct_reply && source == "wordbook" {
+        let saved = if direct_reply && matches!(source, "wordbook" | "story" | "scenario" | "npc") {
             super::conversation::ensure_current_user_message(&db, prefix)?;
-            store::save_reply_scene(&db, prefix, lines)?;
-            store::saved_reply_scene(&db, prefix)?
+            store::save_reply_scene_with_source(&db, prefix, lines, source)?;
+            if generic {
+                Some(lines.to_vec())
+            } else {
+                store::saved_reply_scene(&db, prefix)?
+            }
         } else {
             None
         };
         (store::revision(&db)?, saved)
     };
     let lines = saved.as_deref().unwrap_or(lines);
+    let mut completed = None;
     for (index, line) in lines.iter().enumerate() {
         let message_id = format!("scene:{prefix}:{index}");
-        if direct_reply && store::message_displayed(&*lock(&state.db)?, &message_id)? {
+        if direct_reply
+            && (if generic {
+                store::message_finished(&*lock(&state.db)?, &message_id)?
+            } else {
+                store::message_displayed(&*lock(&state.db)?, &message_id)?
+            })
+        {
             continue;
         }
         if matches!(source, "llm" | "question") {
@@ -345,19 +508,60 @@ pub(crate) async fn run_scene(
             &cancel,
             direct_reply,
         )? {
-            return Ok(());
+            return Ok(None);
         }
         publish(app, state);
-        wait_for_line(app, state, epoch, cancel.clone()).await?;
+        if effectful {
+            let Some(proof) = wait_for_completed_line(state, epoch, cancel.clone()).await? else {
+                return Ok(None);
+            };
+            {
+                let _action = lock(&state.action)?;
+                let Some(proof) = line_completion_locked(
+                    state,
+                    &proof.playback,
+                    epoch,
+                    &cancel,
+                    proof.finished_at,
+                )?
+                else {
+                    return Ok(None);
+                };
+                let db = lock(&state.db)?;
+                if index + 1 == lines.len() {
+                    if !super::conversation::complete_pack_stage_locked(
+                        state, &db, prefix, &proof, epoch,
+                    )? {
+                        return Ok(None);
+                    }
+                } else {
+                    store::mark_message_finished(
+                        &db,
+                        &proof.playback.id,
+                        proof
+                            .playback
+                            .display_started_at
+                            .ok_or("대사의 표시 시작을 확인할 수 없어요.")?,
+                        proof.playback.ends_at,
+                        proof.finished_at,
+                    )?;
+                }
+                *lock(&state.playback)? = None;
+                completed = Some(proof);
+            }
+            publish(app, state);
+        } else {
+            wait_for_line(app, state, epoch, cancel.clone()).await?;
+        }
         if !is_current(state, epoch, &cancel) {
-            return Ok(());
+            return Ok(None);
         }
         tokio::select! {
-            _ = models::cancelled(cancel.clone()) => return Ok(()),
+            _ = models::cancelled(cancel.clone()) => return Ok(None),
             _ = tokio::time::sleep(Duration::from_millis(220)) => {}
         }
     }
-    Ok(())
+    Ok(completed)
 }
 
 pub(crate) fn start_scene(

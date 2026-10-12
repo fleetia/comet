@@ -32,7 +32,7 @@ function motionBinding(motion: MotionOverride | undefined): AnimationBinding | n
   return undefined;
 }
 
-const SUSTAINED_STATES = ["calendarOpen", "musicPlaying"] as const;
+const SUSTAINED_STATES = ["sleep", "focus", "rest", "calendarOpen", "musicPlaying"] as const;
 type SustainedState = (typeof SUSTAINED_STATES)[number];
 type SustainedRuns = {
   definitionKey: string;
@@ -43,7 +43,7 @@ type SustainedRuns = {
 function nextSustainedRuns(
   previous: SustainedRuns | undefined,
   definitionKey: string,
-  conditions: Snapshot["animationStates"],
+  conditions: Partial<Record<SustainedState, boolean>>,
 ): SustainedRuns {
   const sameDefinition = previous?.definitionKey === definitionKey;
   return {
@@ -84,18 +84,25 @@ export function useCharacterAnimation(
   const animation = character?.definition.animation;
   const available = enabled && !snapshot.runtime.hidden;
   const definitionKey = JSON.stringify([character?.id, character?.definition, available]);
+  const conditions = {
+    sleep: Boolean(
+      character && snapshot.animationStates?.sleepingCharacterIds?.includes(character.id),
+    ),
+    focus: Boolean(snapshot.animationStates?.focus),
+    rest: Boolean(snapshot.animationStates?.rest),
+    calendarOpen: Boolean(snapshot.animationStates?.calendarOpen),
+    musicPlaying: Boolean(snapshot.animationStates?.musicPlaying),
+  };
   const [storedRuns, setSustainedRuns] = useState(() =>
-    nextSustainedRuns(undefined, definitionKey, snapshot.animationStates),
+    nextSustainedRuns(undefined, definitionKey, conditions),
   );
   let sustainedRuns = storedRuns;
   if (
     storedRuns.definitionKey !== definitionKey ||
-    SUSTAINED_STATES.some(
-      (state) => storedRuns.states[state].active !== Boolean(snapshot.animationStates?.[state]),
-    )
+    SUSTAINED_STATES.some((state) => storedRuns.states[state].active !== conditions[state])
   ) {
     // Reconcile condition epochs before rendering, even while speech or another state owns the body.
-    sustainedRuns = nextSustainedRuns(storedRuns, definitionKey, snapshot.animationStates);
+    sustainedRuns = nextSustainedRuns(storedRuns, definitionKey, conditions);
     setSustainedRuns(sustainedRuns);
   }
   const reaction = available ? snapshot.reactions?.[character?.id ?? ""] : undefined;
@@ -108,7 +115,7 @@ export function useCharacterAnimation(
       (snapshot.panel.mode === "input" &&
         snapshot.conversation?.session.status === "active" &&
         snapshot.conversation.session.userId === snapshot.user?.id)) &&
-    !snapshot.story &&
+    (!snapshot.story || snapshot.panel?.mode === "input") &&
     playback?.displayStartedAt != null &&
     activeCharacter(snapshot, playback.persona)?.id === character?.id;
   const speakingStory =
@@ -131,13 +138,16 @@ export function useCharacterAnimation(
   if (binding === undefined && !speaking && !activeReaction && !snapshot.runtime.paused) {
     // Only opt-in bindings participate; an unassigned higher-priority state falls through.
     for (const state of SUSTAINED_STATES) {
-      if (snapshot.animationStates?.[state] && animation?.bindings[state]) {
+      if (
+        conditions[state] &&
+        (animation?.bindings[state] || ["sleep", "focus", "rest"].includes(state))
+      ) {
         const run = sustainedRuns.states[state];
         sustainedState = state;
         sustainedKey = `state:${state}:${run.generation}`;
-        binding = animation.bindings[state];
+        binding = animation?.bindings[state] ?? null;
         // A one-shot keeps ownership as a static pose after completion or preemption.
-        if (!binding.repeat && run.consumed && sustainedRuns.current !== sustainedKey)
+        if (binding && !binding.repeat && run.consumed && sustainedRuns.current !== sustainedKey)
           binding = null;
         trigger = sustainedKey;
         break;
@@ -152,6 +162,8 @@ export function useCharacterAnimation(
     definitionKey,
     activeReaction || sustainedState ? null : expression,
     trigger,
+    activeReaction?.phaseGeneration,
+    activeReaction?.definitionRevision,
     binding,
   ]);
   const sources = useMemo(
@@ -218,18 +230,30 @@ export function useCharacterAnimation(
   const acknowledgement = useRef({ id: "", ready: false, readyAt: 0, finished: false });
   useEffect(() => {
     if (!activeReaction) return;
-    if (acknowledgement.current.id !== activeReaction.id)
+    const phaseKey = JSON.stringify([
+      activeReaction.id,
+      activeReaction.phaseGeneration,
+      activeReaction.definitionRevision,
+    ]);
+    if (acknowledgement.current.id !== phaseKey)
       acknowledgement.current = {
-        id: activeReaction.id,
+        id: phaseKey,
         ready: false,
         readyAt: 0,
         finished: false,
       };
     const ack = acknowledgement.current;
     const send = (phase: "ready" | "finished" | "failed"): void => {
-      void dispatch("acknowledge_character_reaction", { runId: activeReaction.id, phase }).catch(
-        () => undefined,
-      );
+      void dispatch("acknowledge_character_reaction", {
+        runId: activeReaction.id,
+        phase,
+        ...(activeReaction.phaseGeneration === undefined
+          ? {}
+          : { phaseGeneration: activeReaction.phaseGeneration }),
+        ...(activeReaction.definitionRevision === undefined
+          ? {}
+          : { definitionRevision: activeReaction.definitionRevision }),
+      }).catch(() => undefined);
     };
     if (loaded.error) {
       if (!ack.finished) {
@@ -247,9 +271,11 @@ export function useCharacterAnimation(
     const finish = (): void => {
       if (ack.finished) return;
       ack.finished = true;
-      if (activeReaction.event !== "grab-start") setFinishedReaction(activeReaction.id);
+      if (!activeReaction.phaseGeneration && activeReaction.event !== "grab-start")
+        setFinishedReaction(activeReaction.id);
       send("finished");
     };
+    if (activeReaction.phase === "hold") return;
     if (motion?.mode === "clip" && running && clip) {
       if (progress.finished) finish();
       return;
@@ -261,6 +287,9 @@ export function useCharacterAnimation(
   }, [
     activeReaction?.id,
     activeReaction?.event,
+    activeReaction?.phase,
+    activeReaction?.phaseGeneration,
+    activeReaction?.definitionRevision,
     motion?.mode,
     clip?.id,
     running,

@@ -120,6 +120,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
   const [wordbookDirty, setWordbookDirty] = useState(false);
   const [userDirty, setUserDirty] = useState(false);
   const [generalDirty, setGeneralDirty] = useState(false);
+  const [shortcutDirty, setShortcutDirty] = useState(false);
   const [updateBusy, setUpdateBusy] = useState(false);
   const [confirmExit, setConfirmExit] = useState(false);
   const [pauseDuration, setPauseDuration] = useState("60");
@@ -130,7 +131,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
     automatic: automatic.hasChanges,
     dialogue: wordbookDirty,
     model: model.hasChanges || organizerDirty,
-    general: generalDirty || userDirty,
+    general: generalDirty || userDirty || shortcutDirty,
   };
   const hasChanges = Object.values(dirty).some(Boolean);
   useEffect(() => {
@@ -500,7 +501,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                         </Button>
                       </SettingsRow>
                     </section>
-                    <LauncherSettings />
+                    <LauncherSettings onDirtyChange={setShortcutDirty} />
                   </DesktopPreferences>
                   <UpdatePanel onBusyChange={setUpdateBusy} hasUnsavedChanges={hasChanges} />
                 </div>

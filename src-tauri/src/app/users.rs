@@ -28,7 +28,7 @@ fn save_name(state: &AppState, name: &str, first_only: bool) -> Result<(bool, bo
     }
     let changed = store::set_user_name(&db, name, chrono::Utc::now().timestamp_millis())?;
     if changed {
-        interrupt(state, false)?;
+        super::interrupt_with_db(state, false, &db)?;
         *lock(&state.panel)? = None;
         let mut runtime = lock(&state.runtime)?;
         runtime.phase = RuntimePhase::Idle;

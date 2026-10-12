@@ -14,7 +14,7 @@ use std::{
     ptr::NonNull,
     time::{Duration, Instant},
 };
-use tauri::WebviewWindow;
+use tauri::{Manager, WebviewWindow};
 
 // AppKit hands the drag to Window Server and returns immediately. Keep the native
 // observers alive until a button release or cancellation, independent of that return.
@@ -23,6 +23,7 @@ struct Watch {
     session: Session,
     requested_at: Instant,
     started: bool,
+    cancelled: bool,
     observer: Retained<ProtocolObject<dyn NSObjectProtocol>>,
     monitor: Retained<AnyObject>,
     timer: Retained<NSTimer>,
@@ -105,10 +106,32 @@ fn poll(session: &Session) {
         return;
     };
     if !is_current(&window, session) {
-        finish(session, Phase::Cancelled, "invalidated");
+        WATCH.with(|slot| {
+            if let Some(watch) = slot
+                .borrow_mut()
+                .as_mut()
+                .filter(|watch| matches(watch, session))
+            {
+                watch.cancelled = true;
+            }
+        });
+    }
+    let cancelled = WATCH.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .filter(|watch| matches(watch, session))
+            .is_some_and(|watch| watch.cancelled)
+    });
+    let buttons: usize = unsafe { msg_send![class!(NSEvent), pressedMouseButtons] };
+    if cancelled {
+        // Window Server can retain drag ownership until mouse-up after a WebView
+        // blur/hide. Keep the anchor fixed and restore once more at actual release.
+        super::restore(&window, &session.start_position);
+        if buttons & 1 == 0 {
+            finish(session, Phase::Cancelled, "cancelled-button-released");
+        }
         return;
     }
-    let buttons: usize = unsafe { msg_send![class!(NSEvent), pressedMouseButtons] };
     if let Some((phase, reason)) = terminal_phase(started, buttons & 1 != 0, elapsed) {
         finish(session, phase, reason);
     }
@@ -132,9 +155,46 @@ fn terminal_phase(
     }
 }
 
+pub(super) fn cancel(window: &WebviewWindow, session_id: &str) {
+    let session_id = session_id.to_string();
+    let _ = window.run_on_main_thread(move || {
+        WATCH.with(|slot| {
+            if let Some(watch) = slot
+                .borrow_mut()
+                .as_mut()
+                .filter(|watch| watch.session.session_id == session_id)
+            {
+                watch.cancelled = true;
+            }
+        });
+    });
+}
+
 pub(super) fn double_click_ms() -> u64 {
     let seconds: f64 = unsafe { msg_send![class!(NSEvent), doubleClickInterval] };
     (seconds * 1000.0).ceil() as u64
+}
+
+pub(super) fn trace_properties(window: &WebviewWindow) {
+    if !super::trace_enabled() {
+        return;
+    }
+    let window = window.clone();
+    let dispatch = window.clone();
+    let _ = dispatch.run_on_main_thread(move || {
+        let Some(identity) = super::native_handle(&window) else {
+            return;
+        };
+        let native = identity as *mut AnyObject;
+        let movable: bool = unsafe { msg_send![native, isMovableByWindowBackground] };
+        let buttons: usize = unsafe { msg_send![class!(NSEvent), pressedMouseButtons] };
+        let position = window.outer_position().ok();
+        super::trace_record(serde_json::json!({
+            "kind": "native-properties", "window": window.label(), "identity": identity,
+            "backgroundMovable": movable, "leftPressed": buttons & 1 != 0,
+            "physical": position.map(|point| serde_json::json!({ "x": point.x, "y": point.y })),
+        }));
+    });
 }
 
 pub(super) fn begin(window: &WebviewWindow, session: Session) -> Result<(), String> {
@@ -185,7 +245,24 @@ fn drag(window: &WebviewWindow, session: &Session) {
             if kind == 10 {
                 let code: u16 = msg_send![event.as_ptr(), keyCode];
                 if code == 53 {
-                    finish(&token, Phase::Cancelled, "native-escape");
+                    WATCH.with(|slot| {
+                        if let Some(watch) = slot
+                            .borrow_mut()
+                            .as_mut()
+                            .filter(|watch| matches(watch, &token))
+                        {
+                            watch.cancelled = true;
+                        }
+                    });
+                    let app = WATCH.with(|slot| {
+                        slot.borrow()
+                            .as_ref()
+                            .filter(|watch| matches(watch, &token))
+                            .map(|watch| watch.window.app_handle().clone())
+                    });
+                    if let Some(app) = app {
+                        super::cancel_window(&app, &token.window_label);
+                    }
                 }
             }
             event.as_ptr()
@@ -207,6 +284,7 @@ fn drag(window: &WebviewWindow, session: &Session) {
                 session: session.clone(),
                 requested_at: Instant::now(),
                 started: false,
+                cancelled: false,
                 observer,
                 monitor,
                 timer,

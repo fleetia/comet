@@ -59,6 +59,156 @@ fn scene(persona: &str) -> SceneLine {
 }
 
 #[test]
+fn gesture_pack_v7_round_trips_regions_clips_and_legacy_default_fields() {
+    let conn = database();
+    let (mut definition, asset) = reacting();
+    definition.body_regions = vec![reactions::BodyRegion {
+        id: "head".into(),
+        name: "머리".into(),
+        x: 0.1,
+        y: 0.0,
+        width: 0.8,
+        height: 0.5,
+        grab_point: Some(reactions::GrabPoint { x: 0.5, y: 0.2 }),
+    }];
+    definition.gesture_motions = vec![reactions::GestureMotion {
+        id: "head-poke".into(),
+        gesture: "poke".into(),
+        region_id: Some("head".into()),
+        expression: None,
+        start: Some(motion(false)),
+        hold: None,
+        moving_hold: None,
+        end: None,
+    }];
+    let created = create_with_assets(&conn, &definition, &[asset]).unwrap();
+    let pack = export_pack(&conn, std::slice::from_ref(&created.id), &[]).unwrap();
+    assert_eq!(pack.format_version, 7);
+    let round_trip = parse_pack(&pack_json(&pack).unwrap()).unwrap();
+    assert_eq!(
+        round_trip.characters[0].body_regions,
+        definition.body_regions
+    );
+    assert_eq!(
+        round_trip.characters[0].gesture_motions,
+        definition.gesture_motions
+    );
+    let mut too_old = pack.clone();
+    too_old.format_version = 6;
+    assert!(pack_json(&too_old).is_err());
+    let without_images = export_pack_with_options(
+        &conn,
+        &[created.id],
+        &[],
+        &ExportOptions {
+            include_sprites: false,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(without_images.format_version, 7);
+    assert!(without_images.characters[0].gesture_motions[0]
+        .start
+        .as_ref()
+        .unwrap()
+        .is_inherit());
+    parse_pack(&pack_json(&without_images).unwrap()).unwrap();
+    for version in 1..=6 {
+        let mut old = factory_pack();
+        old.format_version = version;
+        old.archive = (version == 4).then_some(archive::CharacterArchive {
+            exported_at: 0,
+            people: vec![],
+            memories: vec![],
+            affinity: vec![],
+            messages: vec![],
+        });
+        if version < 6 {
+            for definition in &mut old.characters {
+                definition.departure_lines = default_departure_lines();
+                definition.return_lines = default_return_lines();
+            }
+        }
+        let parsed = parse_pack(&pack_json(&old).unwrap()).unwrap();
+        assert!(parsed
+            .characters
+            .iter()
+            .all(|character| character.body_regions.is_empty()
+                && character.gesture_motions.is_empty()));
+    }
+}
+
+#[test]
+fn region_precedence_and_gesture_validation_reject_foreign_or_invalid_references() {
+    let (mut definition, _) = reacting();
+    definition.body_regions = vec![
+        reactions::BodyRegion {
+            id: "head".into(),
+            name: "머리".into(),
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 0.5,
+            grab_point: None,
+        },
+        reactions::BodyRegion {
+            id: "cheek".into(),
+            name: "볼".into(),
+            x: 0.1,
+            y: 0.2,
+            width: 0.2,
+            height: 0.2,
+            grab_point: None,
+        },
+    ];
+    let general = reactions::GestureMotion {
+        id: "general".into(),
+        gesture: "poke".into(),
+        region_id: None,
+        expression: None,
+        start: Some(motion(false)),
+        hold: None,
+        moving_hold: None,
+        end: None,
+    };
+    let scoped = reactions::GestureMotion {
+        id: "scoped".into(),
+        region_id: Some("head".into()),
+        ..general.clone()
+    };
+    definition.gesture_motions = vec![general, scoped];
+    validate_definition(&definition).unwrap();
+    assert_eq!(
+        reactions::select_gesture(&definition, "poke", Some("head"), 0)
+            .unwrap()
+            .id,
+        "scoped"
+    );
+    assert_eq!(
+        reactions::select_gesture(&definition, "poke", Some("cheek"), 0)
+            .unwrap()
+            .id,
+        "general"
+    );
+    for kind in 0..5 {
+        let mut invalid = definition.clone();
+        match kind {
+            0 => invalid.body_regions[0].width = 1.1,
+            1 => {
+                invalid.body_regions[0].grab_point = Some(reactions::GrabPoint {
+                    x: f64::NAN,
+                    y: 0.0,
+                })
+            }
+            2 => invalid.gesture_motions[0].region_id = Some("absent".into()),
+            3 => invalid.gesture_motions[0].start = Some(motion(true)),
+            _ => invalid.gesture_motions[0].hold = Some(motion(true)),
+        }
+        assert!(validate_definition(&invalid).is_err(), "case {kind}");
+    }
+}
+
+#[test]
 fn reactions_validate_owned_clips_one_shot_gestures_and_atomic_definition_saves() {
     let conn = database();
     let (definition, asset) = reacting();
@@ -215,7 +365,7 @@ fn pack_and_dialogue_reject_foreign_clips_old_versions_and_unknown_motion_fields
     compatible.format_version = 6;
     validate_pack(&compatible).unwrap();
     parse_pack(&pack_json(&compatible).unwrap()).unwrap();
-    for version in [1, 2, 3, 4, 7] {
+    for version in [1, 2, 3, 4, 9] {
         let mut invalid = pack.clone();
         invalid.format_version = version;
         assert!(validate_pack(&invalid).is_err(), "version {version}");

@@ -1,8 +1,9 @@
-import { Button } from "@fleetia/lagrange";
+import { Button, Dialog } from "@fleetia/lagrange";
 import { useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWidgets } from "../useWidgets";
 import { WidgetFrame } from "../WidgetFrame/WidgetFrame";
+import { useWindowCloseGuard } from "../useWindowCloseGuard";
 import { record, rows, text, type DataRecord } from "../toolData";
 import type { WidgetView } from "../types";
 import type { CharacterCollection } from "../../types";
@@ -26,8 +27,11 @@ export function WidgetTool({
   const [failure, setFailure] = useState<string | null>(null),
     [busy, setBusy] = useState(false);
   const pending = useRef(false);
+  const [draftDirty, setDraftDirty] = useState(false);
+  const [draftBusy, setDraftBusy] = useState(false);
   const [focusHeader, setFocusHeader] = useState<HTMLFieldSetElement | null>(null);
   const widget = snapshot?.widgets.find((item) => item.id === id);
+  const closeGuard = useWindowCloseGuard(draftDirty, draftBusy || (widget?.kind === "preparation" && busy), () => command("close_widget", { id }));
   async function run(operation: () => Promise<void>): Promise<boolean> {
     if (!isDesktop()) {
       setFailure(
@@ -114,13 +118,15 @@ export function WidgetTool({
         );
         break;
       case "focus-timer":
-        content = <TimerTool {...props} headerActionsTarget={focusHeader} />;
+        content = <TimerTool {...props} headerActionsTarget={focusHeader} onSettingsDirtyChange={setDraftDirty} onSettingsBusyChange={setDraftBusy} />;
         break;
       case "clock":
         content = <ClockTool {...props} />;
         break;
       case "preparation":
-        content = <PreparationTool {...props} />;
+        content = (
+          <PreparationTool {...props} onDirtyChange={setDraftDirty} onBusyChange={setDraftBusy} />
+        );
         footer = (
           <Button
             variant="secondary"
@@ -223,7 +229,7 @@ export function WidgetTool({
         ) : undefined
       }
       closeLabel="위젯 닫기"
-      onClose={() => command("close_widget", { id })}
+      onClose={closeGuard.requestClose}
       footer={footer}
       status={status}
     >
@@ -254,6 +260,27 @@ export function WidgetTool({
         {content}
       </fieldset>
       {busy && <p role="status">처리 중…</p>}
+      <Dialog
+        isOpen={closeGuard.confirmClose}
+        title="작성 중인 내용이 있어요"
+        onOpenChange={(open) => {
+          if (!open) closeGuard.keepEditing();
+        }}
+        size="small"
+      >
+        <p>저장하지 않은 내용을 버리고 닫을까요?</p>
+        {closeGuard.closeError && <p role="alert">{closeGuard.closeError}</p>}
+        <Button variant="secondary" onClick={closeGuard.keepEditing}>
+          계속 편집
+        </Button>
+        <Button
+          variant="critical"
+          disabled={busy || draftBusy}
+          onClick={() => void closeGuard.discardAndClose()}
+        >
+          저장하지 않고 닫기
+        </Button>
+      </Dialog>
     </WidgetFrame>
   );
 }

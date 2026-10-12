@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 
+pub(crate) mod rule_editor;
+
 type Result<T> = std::result::Result<T, String>;
 
 pub const MAX_STATE_BYTES: usize = 64 * 1024;
@@ -189,6 +191,7 @@ CREATE TABLE IF NOT EXISTS widget_state_rules(
 id TEXT PRIMARY KEY,widget_id TEXT NOT NULL,definition TEXT NOT NULL,revision INTEGER NOT NULL,
 last_match INTEGER,last_triggered_at INTEGER);
 CREATE INDEX IF NOT EXISTS widget_state_rules_widget ON widget_state_rules(widget_id);
+CREATE TABLE IF NOT EXISTS widget_rule_definitions(widget_id TEXT PRIMARY KEY,revision INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS widget_state_pending(
 id TEXT PRIMARY KEY,rule_id TEXT UNIQUE NOT NULL,widget_id TEXT NOT NULL,expires_at INTEGER NOT NULL,data TEXT NOT NULL);
 DELETE FROM widget_state_pending;
@@ -518,11 +521,34 @@ fn validate_rule_state(db: &Connection, widget_id: &str, state: &Value) -> Resul
     Ok(())
 }
 
+#[cfg(test)]
 pub fn save_rules(
     db: &Connection,
     widget_id: &str,
     rules: Vec<StateRule>,
     current_state: &Value,
+) -> Result<Vec<StateRule>> {
+    save_rules_expected(db, widget_id, rules, current_state, None)
+}
+
+pub(crate) fn rule_baseline(db: &Connection, widget_id: &str) -> Result<String> {
+    valid_id(widget_id)?;
+    db.query_row(
+        "SELECT revision FROM widget_rule_definitions WHERE widget_id=?1",
+        [widget_id],
+        |row| row.get::<_, i64>(0),
+    )
+    .optional()
+    .map_err(err)
+    .map(|revision| revision.unwrap_or(0).to_string())
+}
+
+pub(crate) fn save_rules_expected(
+    db: &Connection,
+    widget_id: &str,
+    rules: Vec<StateRule>,
+    current_state: &Value,
+    expected_baseline: Option<&str>,
 ) -> Result<Vec<StateRule>> {
     valid_id(widget_id)?;
     if rules.len() > MAX_RULES {
@@ -539,6 +565,17 @@ pub fn save_rules(
         validate_rule_state(db, widget_id, current_state)?;
     }
     let tx = db.unchecked_transaction().map_err(err)?;
+    let baseline = rule_baseline(&tx, widget_id)?;
+    if expected_baseline.is_some_and(|expected| expected != baseline) {
+        return Err(
+            "다른 창에서 조건을 변경했어요. 초안은 남아 있어요. 최신 내용을 확인해 주세요.".into(),
+        );
+    }
+    let revision = baseline
+        .parse::<i64>()
+        .map_err(err)?
+        .checked_add(1)
+        .ok_or("조건 수정 횟수가 한도를 넘었어요.")?;
     let old = list_rules(&tx, widget_id)?;
     for rule in &rules {
         let previous: Option<(String, i64)> = tx
@@ -576,6 +613,10 @@ pub fn save_rules(
         [widget_id],
     )
     .map_err(err)?;
+    tx.execute(
+        "INSERT INTO widget_rule_definitions(widget_id,revision) VALUES(?1,?2) ON CONFLICT(widget_id) DO UPDATE SET revision=excluded.revision",
+        params![widget_id, revision],
+    ).map_err(err)?;
     tx.commit().map_err(err)?;
     Ok(rules)
 }
@@ -798,6 +839,155 @@ mod tests {
         let db = Connection::open_in_memory().unwrap();
         initialize(&db).unwrap();
         db
+    }
+
+    #[test]
+    fn rule_definition_baseline_is_atomic_and_independent_of_state() {
+        let db = database();
+        let id = uuid::Uuid::new_v4().to_string();
+        let original = rule(&id);
+        let initial = rule_baseline(&db, &id).unwrap();
+        save_rules_expected(
+            &db,
+            &id,
+            vec![original.clone()],
+            &json!({"count":0}),
+            Some(&initial),
+        )
+        .unwrap();
+        let baseline = rule_baseline(&db, &id).unwrap();
+        evaluate_rules(&db, &id, &json!({"count":5}), 1, 1000).unwrap();
+        assert_eq!(rule_baseline(&db, &id).unwrap(), baseline);
+        let before = db.total_changes();
+        assert!(
+            save_rules_expected(&db, &id, vec![], &json!({"count":0}), Some(&initial))
+                .unwrap_err()
+                .contains("다른 창")
+        );
+        assert_eq!(db.total_changes(), before);
+        assert_eq!(list_rules(&db, &id).unwrap(), vec![original]);
+        save_rules_expected(&db, &id, vec![], &json!({}), Some(&baseline)).unwrap();
+        let empty = rule_baseline(&db, &id).unwrap();
+        save_rules_expected(&db, &id, vec![], &json!({}), Some(&empty)).unwrap();
+        assert_ne!(rule_baseline(&db, &id).unwrap(), empty);
+        assert!(save_rules_expected(&db, &id, vec![rule(&id)], &json!({}), Some(&empty)).is_err());
+    }
+
+    #[test]
+    fn raw_rule_trial_uses_runtime_predicate_without_writes() {
+        use rule_editor::{trial, Draft};
+        let db = database();
+        let id = uuid::Uuid::new_v4().to_string();
+        let original = rule(&id);
+        save_rules(&db, &id, vec![original.clone()], &json!({"count":0})).unwrap();
+        evaluate_rules(&db, &id, &json!({"count":5}), 1, 1000).unwrap();
+        let before = db.total_changes();
+        let pending = db
+            .query_row("SELECT count(*) FROM widget_state_pending", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap();
+        for (field, operator, value, state, present, matched) in [
+            ("count", "eq", "1", r#"{"count":1.0}"#, true, false),
+            ("count", "eq", "1.0", r#"{"count":1.0}"#, true, true),
+            ("count", "ne", "null", "{}", false, false),
+            ("count", "eq", "null", r#"{"count":null}"#, true, true),
+            (
+                "items.0.count",
+                "gte",
+                "3",
+                r#"{"items":[{"count":3}]}"#,
+                true,
+                true,
+            ),
+            ("count", "gt", "3", r#"{"count":3}"#, true, false),
+            ("count", "lte", "3", r#"{"count":3}"#, true, true),
+            ("count", "lt", "3", r#"{"count":2}"#, true, true),
+            (
+                "count",
+                "contains",
+                r#"{"a":1}"#,
+                r#"{"count":[{"a":1}]}"#,
+                true,
+                true,
+            ),
+            (
+                "count",
+                "contains",
+                r#""a""#,
+                r#"{"count":{"a":1}}"#,
+                true,
+                false,
+            ),
+            (
+                "count",
+                "contains",
+                r#""별""#,
+                r#"{"count":"별꼬리"}"#,
+                true,
+                true,
+            ),
+        ] {
+            let mut draft = Draft::from_rule(original.clone()).unwrap();
+            draft.field = field.into();
+            draft.operator = operator.into();
+            draft.value_json = value.into();
+            let condition = draft.parse().unwrap();
+            let result = trial(&db, &id, &condition, state);
+            assert!(result.valid, "{:?}", result.error);
+            assert_eq!(result.field_present, Some(present));
+            assert_eq!(result.matched, Some(matched));
+            assert_eq!(
+                result.matched,
+                Some(matches_rule(
+                    &condition,
+                    &serde_json::from_str(state).unwrap()
+                ))
+            );
+        }
+        let mut draft = Draft::from_rule(original).unwrap();
+        draft.value_json = "9007199254740993".into();
+        let condition = draft.parse().unwrap();
+        assert_eq!(condition.value.as_u64(), Some(9_007_199_254_740_993));
+        assert_eq!(
+            Draft::from_rule(condition.clone()).unwrap().value_json,
+            "9007199254740993"
+        );
+        assert!(!trial(&db, &id, &condition, r#"{"count":9007199254740993}"#).valid);
+        assert_eq!(db.total_changes(), before);
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM widget_state_pending", [], |row| row
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+            pending
+        );
+    }
+
+    #[test]
+    fn trial_validates_the_same_field_body_value_and_json_limits_as_save() {
+        let db = database();
+        let id = uuid::Uuid::new_v4().to_string();
+        for changes in ["field", "text", "number", "value-size"] {
+            let mut draft = rule_editor::Draft::from_rule(rule(&id)).unwrap();
+            match changes {
+                "field" => draft.field = "count..invalid".into(),
+                "text" => draft.text = "줄".repeat(501),
+                "number" => draft.value_json = r#""3""#.into(),
+                _ => draft.value_json = format!("\"{}\"", "x".repeat(4096)),
+            }
+            match draft.parse() {
+                Ok(condition) => {
+                    assert!(!rule_editor::trial(&db, &id, &condition, r#"{"count":3}"#).valid);
+                    assert!(save_rules(&db, &id, vec![condition], &json!({"count":3})).is_err());
+                }
+                Err(_) => assert_eq!(changes, "value-size"),
+            }
+        }
+        let condition = rule(&id);
+        assert!(!rule_editor::trial(&db, &id, &condition, "{").valid);
+        assert!(!rule_editor::trial(&db, &id, &condition, "[]").valid);
     }
 
     fn definition() -> Definition {

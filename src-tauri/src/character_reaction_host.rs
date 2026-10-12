@@ -24,6 +24,13 @@ pub(crate) struct Run {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expression: Option<String>,
     pub motion: MotionOverride,
+    pub phase: String,
+    pub phase_generation: u64,
+    pub definition_revision: String,
+    #[serde(skip)]
+    gesture: Option<character_reactions::GestureMotion>,
+    #[serde(skip)]
+    moving: bool,
     #[serde(skip)]
     definition: String,
     #[serde(skip)]
@@ -36,6 +43,8 @@ pub(crate) struct Run {
     created_at: i64,
     #[serde(skip)]
     ready: bool,
+    #[serde(skip)]
+    actor: Option<crate::character_guests::ActorTicket>,
 }
 
 struct Speech {
@@ -53,6 +62,7 @@ struct Drag {
     generation: u64,
     definition: String,
     roster: String,
+    actor: crate::character_guests::ActorTicket,
 }
 
 #[derive(Default)]
@@ -64,6 +74,32 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
+    pub(crate) fn blocks_character(&self, id: &str) -> bool {
+        self.runs.contains_key(id) || self.dragging.contains_key(id)
+    }
+
+    pub(crate) fn blocks_ambient(&self, id: &str) -> bool {
+        self.dragging.contains_key(id)
+            || self.runs.get(id).is_some_and(|run| {
+                !(character_reactions::ambient_gesture(&run.event)
+                    && character_reactions::sustained_gesture(&run.event))
+            })
+    }
+
+    pub(crate) fn clear_ambient(&mut self, id: &str) {
+        if self
+            .runs
+            .get(id)
+            .is_some_and(|run| character_reactions::ambient_gesture(&run.event))
+        {
+            self.runs.remove(id);
+        }
+    }
+
+    pub(crate) fn clear_character(&mut self, id: &str) {
+        self.runs.remove(id);
+        self.dragging.remove(id);
+    }
     pub(crate) fn blocks_presence(&self) -> bool {
         !self.runs.is_empty() || !self.dragging.is_empty()
     }
@@ -79,6 +115,9 @@ impl Runtime {
                         event: run.event.clone(),
                         expression: run.expression.clone(),
                         motion: run.motion.clone(),
+                        phase: run.phase.clone(),
+                        phase_generation: run.phase_generation,
+                        definition_revision: run.definition_revision.clone(),
                     },
                 )
             })
@@ -115,7 +154,23 @@ pub(crate) fn install(app: &AppHandle, state: Arc<AppState>) {
     });
 }
 
-fn window_identity(window: &WebviewWindow) -> usize {
+pub(crate) fn window_identity(window: &WebviewWindow) -> usize {
+    #[cfg(target_os = "macos")]
+    {
+        window.ns_window().map(|value| value as usize).unwrap_or(0)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        window.hwnd().map(|value| value.0 as usize).unwrap_or(0)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = window;
+        0
+    }
+}
+
+pub(crate) fn native_window_identity(window: &tauri::Window) -> usize {
     #[cfg(target_os = "macos")]
     {
         window.ns_window().map(|value| value as usize).unwrap_or(0)
@@ -133,6 +188,354 @@ fn window_identity(window: &WebviewWindow) -> usize {
 
 fn fingerprint(definition: &CharacterDefinition) -> String {
     serde_json::to_string(definition).unwrap_or_default()
+}
+
+pub(crate) fn definition_revision(definition: &CharacterDefinition) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(fingerprint(definition).as_bytes()))
+}
+
+fn phase_motion(
+    gesture: &character_reactions::GestureMotion,
+    phase: &str,
+    moving: bool,
+) -> MotionOverride {
+    let selected = match phase {
+        "start" => gesture.start.as_ref(),
+        "hold" => {
+            if moving {
+                gesture.moving_hold.as_ref().or(gesture.hold.as_ref())
+            } else {
+                gesture.hold.as_ref()
+            }
+        }
+        "end" => gesture.end.as_ref(),
+        _ => None,
+    };
+    let mut motion = selected.cloned().unwrap_or(MotionOverride::Inherit);
+    if let MotionOverride::Clip {
+        repeat,
+        interval_ms,
+        ..
+    } = &mut motion
+    {
+        *repeat = phase == "hold";
+        *interval_ms = 0;
+    }
+    motion
+}
+
+fn advance_phase(run: &mut Run, phase: &str) {
+    run.phase = phase.into();
+    run.phase_generation += 1;
+    run.ready = false;
+    run.created_at = chrono::Utc::now().timestamp_millis();
+    if let Some(gesture) = &run.gesture {
+        run.motion = phase_motion(gesture, phase, run.moving);
+    }
+}
+
+pub(crate) fn direct_start(
+    app: &AppHandle,
+    state: Arc<AppState>,
+    character_id: &str,
+    gesture: &str,
+    region_id: Option<&str>,
+    window: usize,
+) -> Result<Option<String>> {
+    let mut id = prepare_direct(&state, character_id, gesture, region_id, window)?;
+    if id.is_none()
+        && gesture == "poke"
+        && trigger(app, state.clone(), character_id, "click", window, None)?
+    {
+        id = lock(&state.reactions)?
+            .runs
+            .get(character_id)
+            .map(|run| run.id.clone());
+    }
+    if id.is_none()
+        && ["poke", "stroke", "snack"].contains(&gesture)
+        && trigger(
+            app,
+            state.clone(),
+            character_id,
+            "interaction.touch",
+            window,
+            None,
+        )?
+    {
+        id = lock(&state.reactions)?
+            .runs
+            .get(character_id)
+            .map(|run| run.id.clone());
+    }
+    if id.is_some() {
+        app::publish(app, &state);
+    }
+    Ok(id)
+}
+
+pub(crate) fn ambient_start(
+    app: &AppHandle,
+    state: Arc<AppState>,
+    character_id: &str,
+    gesture: &str,
+    window: usize,
+    token: &str,
+) -> Result<Option<String>> {
+    if !character_reactions::ambient_gesture(gesture) {
+        return Ok(None);
+    }
+    let execution =
+        prepare_direct_checked(&state, character_id, gesture, None, window, Some(token))?;
+    if execution.is_some() {
+        app::publish(app, &state);
+    }
+    Ok(execution)
+}
+
+pub(crate) fn direct_common(
+    app: &AppHandle,
+    state: Arc<AppState>,
+    character_id: &str,
+    event: &crate::widgets::WidgetEvent,
+    window: usize,
+) -> Result<bool> {
+    let Some(body) = app.get_webview_window(&format!("body-{character_id}")) else {
+        return Ok(false);
+    };
+    if window_identity(&body) != window || !body.is_visible().map_err(|error| error.to_string())? {
+        return Ok(false);
+    }
+    let prepared = {
+        let _action = lock(&state.action)?;
+        if !crate::character_guests::window_current(&state, body.label(), window)?
+            || lock(&state.runtime)?.hidden
+            || app::unavailable(&state)
+            || speech_reason(&state)?.is_some()
+        {
+            return Ok(false);
+        }
+        let db = lock(&state.db)?;
+        if crate::character_guests::actor(&state, &db, character_id).is_err()
+            || event.event.kind != "interaction.touch"
+            || event.event.payload["owner"].as_str() != Some(character_id)
+        {
+            return Ok(false);
+        }
+        let token = app::interrupt_with_db(&state, false, &db)?;
+        let lines = crate::talk_host::prepare(&state, &db, Some(event))?;
+        if let Some(lines) = lines {
+            lock(&state.runtime)?.phase = RuntimePhase::Playing;
+            state.last_input.store(app::now(), Ordering::SeqCst);
+            Some((lines, token))
+        } else {
+            let mut status = lock(&state.runtime)?;
+            status.phase = RuntimePhase::Idle;
+            status.persona = None;
+            None
+        }
+    };
+    let Some((lines, token)) = prepared else {
+        app::publish(app, &state);
+        return Ok(false);
+    };
+    scene::start_scene(app.clone(), state.clone(), lines, "talk", token, None);
+    app::publish(app, &state);
+    Ok(true)
+}
+
+fn prepare_direct(
+    state: &AppState,
+    character_id: &str,
+    gesture: &str,
+    region_id: Option<&str>,
+    window: usize,
+) -> Result<Option<String>> {
+    prepare_direct_checked(state, character_id, gesture, region_id, window, None)
+}
+
+fn prepare_direct_checked(
+    state: &AppState,
+    character_id: &str,
+    gesture: &str,
+    region_id: Option<&str>,
+    window: usize,
+    ambient_token: Option<&str>,
+) -> Result<Option<String>> {
+    let _action = lock(&state.action)?;
+    if lock(&state.runtime)?.hidden || app::unavailable(state) {
+        return Ok(None);
+    }
+    if matches!(gesture, "idle-yawn" | "idle-stretch") {
+        let states = &lock(&state.animation_states)?.states;
+        if states.focus || states.rest || states.calendar_open || states.music_playing {
+            return Ok(None);
+        }
+    }
+    if character_reactions::ambient_gesture(gesture)
+        && (!crate::character_life::ambient_allowed(state, character_id)?
+            || lock(&state.reactions)?.blocks_character(character_id)
+            || ambient_token.is_some_and(|token| {
+                !crate::character_life::wandering::accepts_start(state, character_id, token, window)
+                    .unwrap_or(false)
+            }))
+    {
+        return Ok(None);
+    }
+    let db = lock(&state.db)?;
+    let roster = characters::active_ids(&db)?;
+    let Ok(owner) = crate::character_guests::actor(state, &db, character_id) else {
+        return Ok(None);
+    };
+    let actor = crate::character_guests::actor_ticket(state, &db, character_id)?;
+    let authority =
+        crate::character_guests::window_authority(state, &format!("body-{character_id}"), window)?;
+    if actor.guest_generation.is_some() && authority.is_none()
+        || authority.is_some_and(|generation| generation != actor.guest_generation)
+    {
+        return Ok(None);
+    }
+    let definition = owner.definition;
+    if !character_reactions::ambient_gesture(gesture) {
+        crate::character_life::wake(state, character_id)?;
+    }
+    if gesture != "pickup" && lock(&state.reactions)?.dragging.contains_key(character_id) {
+        return Ok(None);
+    }
+    let entropy = uuid::Uuid::new_v4().as_u128() as u64;
+    let selected =
+        character_reactions::select_gesture(&definition, gesture, region_id, entropy).cloned();
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let phase = if selected.start.is_some() {
+        "start"
+    } else if character_reactions::sustained_gesture(gesture) {
+        "hold"
+    } else {
+        "end"
+    };
+    let id = uuid::Uuid::new_v4().to_string();
+    let run = Run {
+        id: id.clone(),
+        event: gesture.into(),
+        expression: selected.expression.clone(),
+        motion: phase_motion(&selected, phase, false),
+        phase: phase.into(),
+        phase_generation: 1,
+        definition_revision: definition_revision(&definition),
+        gesture: Some(selected),
+        moving: false,
+        definition: fingerprint(&definition),
+        window,
+        roster,
+        widget: None,
+        created_at: chrono::Utc::now().timestamp_millis(),
+        ready: false,
+        actor: Some(actor),
+    };
+    lock(&state.reactions)?
+        .runs
+        .insert(character_id.into(), run);
+    Ok(Some(id))
+}
+
+pub(crate) fn direct_end(
+    app: &AppHandle,
+    state: Arc<AppState>,
+    character_id: &str,
+    execution_id: &str,
+    cancelled: bool,
+) -> Result<()> {
+    let changed = end_direct(&state, character_id, execution_id, cancelled)?;
+    if changed {
+        app::publish(app, &state);
+    }
+    Ok(())
+}
+
+fn end_direct(
+    state: &AppState,
+    character_id: &str,
+    execution_id: &str,
+    cancelled: bool,
+) -> Result<bool> {
+    let _action = lock(&state.action)?;
+    let db = lock(&state.db)?;
+    let definition = characters::get(&db, character_id)?.definition;
+    let mut reactions = lock(&state.reactions)?;
+    let Some(run) = reactions.runs.get_mut(character_id).filter(|run| {
+        run.id == execution_id
+            && run.definition == fingerprint(&definition)
+            && run.gesture.is_some()
+            && (cancelled
+                || run.actor.as_ref().is_none_or(|actor| {
+                    crate::character_guests::validate_actor(state, &db, actor).is_ok()
+                }))
+    }) else {
+        return Ok(false);
+    };
+    if cancelled
+        || run
+            .gesture
+            .as_ref()
+            .is_none_or(|motion| motion.end.is_none())
+    {
+        reactions.runs.remove(character_id);
+    } else if run.phase != "end" {
+        advance_phase(run, "end");
+    } else {
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+pub(crate) fn direct_moving(
+    app: &AppHandle,
+    state: Arc<AppState>,
+    character_id: &str,
+    execution_id: &str,
+    moving: bool,
+) -> Result<()> {
+    let changed = update_direct_moving(&state, character_id, execution_id, moving)?;
+    if changed {
+        app::publish(app, &state);
+    }
+    Ok(())
+}
+
+fn update_direct_moving(
+    state: &AppState,
+    character_id: &str,
+    execution_id: &str,
+    moving: bool,
+) -> Result<bool> {
+    let _action = lock(&state.action)?;
+    let db = lock(&state.db)?;
+    let definition = characters::get(&db, character_id)?.definition;
+    let roster = characters::active_ids(&db)?;
+    let mut reactions = lock(&state.reactions)?;
+    let Some(run) = reactions.runs.get_mut(character_id).filter(|run| {
+        (execution_id.is_empty() || run.id == execution_id)
+            && run.event == "pickup"
+            && run.phase != "end"
+            && run.definition == fingerprint(&definition)
+            && run.roster == roster
+            && run.actor.as_ref().is_none_or(|actor| {
+                crate::character_guests::validate_actor(state, &db, actor).is_ok()
+            })
+    }) else {
+        return Ok(false);
+    };
+    if run.moving == moving {
+        return Ok(false);
+    }
+    run.moving = moving;
+    if run.phase == "hold" {
+        advance_phase(run, "hold");
+    }
+    Ok(true)
 }
 
 fn record_displayed(
@@ -205,14 +608,9 @@ pub(crate) fn reconcile(app: &AppHandle, state: &AppState) -> Result<()> {
 fn reconcile_state(state: &AppState, stale_windows: &[String]) -> Result<Vec<String>> {
     let _action = lock(&state.action)?;
     let db = lock(&state.db)?;
-    let members = characters::active_members(&db)?;
-    let present = app::presence::present_ids(
-        state,
-        &members
-            .iter()
-            .map(|member| member.id.clone())
-            .collect::<Vec<_>>(),
-    )?;
+    let members = crate::character_guests::members(state, &db)?;
+    let residents = characters::active_ids(&db)?;
+    let present = crate::character_guests::participant_ids(state, &db)?;
     let status = lock(&state.runtime)?.clone();
     let playback = lock(&state.playback)?.clone();
     let epoch = state.epoch.load(Ordering::SeqCst);
@@ -239,11 +637,10 @@ fn reconcile_state(state: &AppState, stale_windows: &[String]) -> Result<Vec<Str
                         || !crate::widget_commands::event_current(&db, event).unwrap_or(false)
                 })
                 || stale_windows.contains(&run.id)
-                || run.roster
-                    != members
-                        .iter()
-                        .map(|member| member.id.clone())
-                        .collect::<Vec<_>>()
+                || run.roster != residents
+                || run.actor.as_ref().is_some_and(|actor| {
+                    crate::character_guests::validate_actor(state, &db, actor).is_err()
+                })
                 || !members.iter().any(|member| {
                     member.id == **id && fingerprint(&member.definition) == run.definition
                 })
@@ -256,15 +653,14 @@ fn reconcile_state(state: &AppState, stale_windows: &[String]) -> Result<Vec<Str
         reactions.dragging.remove(id);
     }
     // A drag without a configured visual still needs invalidation on visibility/roster changes.
-    let roster_key =
-        serde_json::to_string(&members.iter().map(|member| &member.id).collect::<Vec<_>>())
-            .map_err(|error| error.to_string())?;
+    let roster_key = serde_json::to_string(&residents).map_err(|error| error.to_string())?;
     let stale_drags: Vec<_> = reactions
         .dragging
         .iter()
         .filter(|(id, drag)| {
             blocked
                 || drag.roster != roster_key
+                || crate::character_guests::validate_actor(state, &db, &drag.actor).is_err()
                 || !members.iter().any(|member| {
                     member.id == **id && fingerprint(&member.definition) == drag.definition
                 })
@@ -279,11 +675,18 @@ fn reconcile_state(state: &AppState, stale_windows: &[String]) -> Result<Vec<Str
 
 // Focus suppresses speech. Otherwise, only ambient speech yields to a physical reaction.
 fn speech_reason(state: &AppState) -> Result<Option<&'static str>> {
-    if crate::widgets::storage::focus_active(
-        &*lock(&state.db)?,
-        chrono::Utc::now().timestamp_millis(),
-    )? {
-        return Ok(Some("집중 시간 동안에는 대화를 사용할 수 없어요."));
+    {
+        let db = lock(&state.db)?;
+        if crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())? {
+            return Ok(Some("집중 시간 동안에는 대화를 사용할 수 없어요."));
+        }
+        let run = lock(&state.pack_stories)?.run.clone();
+        if run
+            .as_ref()
+            .is_some_and(|run| crate::pack_stories::current(&db, run).unwrap_or(false))
+        {
+            return Ok(Some("등록 이야기를 읽고 있어요."));
+        }
     }
     if lock(&state.panel)?.is_some() {
         return Ok(Some("메뉴나 입력 화면을 사용하고 있어요."));
@@ -373,13 +776,12 @@ fn handle_gesture(
         let db = lock(&state.db)?;
         let active = characters::active_ids(&db)?;
         if serde_json::to_string(&active).map_err(|error| error.to_string())? != event.roster_key
-            || !active.contains(&event.character_id)
+            || crate::character_guests::validate_actor(&state, &db, &event.actor).is_err()
             || fingerprint(&characters::get(&db, &event.character_id)?.definition)
                 != event.definition_key
         {
             return Ok(());
         }
-        drop(db);
         let mut reactions = lock(&state.reactions)?;
         match event.phase {
             Phase::Started => {
@@ -390,6 +792,7 @@ fn handle_gesture(
                         generation: event.generation,
                         definition: event.definition_key.clone(),
                         roster: event.roster_key.clone(),
+                        actor: event.actor.clone(),
                     },
                 );
                 true
@@ -402,39 +805,92 @@ fn handle_gesture(
                         drag.session_id == event.session_id && drag.generation == event.generation
                     });
                 if matches {
+                    if event.phase == Phase::Ended {
+                        if let Some(generation) = event.actor.guest_generation {
+                            if let Some(position) = event.position.clone() {
+                                crate::character_guests::set_position_locked(
+                                    &state,
+                                    &event.character_id,
+                                    generation,
+                                    position,
+                                )?;
+                            }
+                        } else {
+                            character_gestures::commit_placement(&db, &event)?;
+                        }
+                    }
                     reactions.dragging.remove(&event.character_id);
-                    reactions.runs.remove(&event.character_id);
+                    if event.phase == Phase::Cancelled {
+                        reactions.runs.remove(&event.character_id);
+                    }
                 }
                 matches
             }
+            Phase::Moving | Phase::Stopped => reactions
+                .dragging
+                .get(&event.character_id)
+                .is_some_and(|drag| {
+                    drag.session_id == event.session_id && drag.generation == event.generation
+                }),
         }
     };
     if !accepted {
         return Ok(());
     }
-    if event.phase != Phase::Started {
+    if matches!(event.phase, Phase::Ended | Phase::Cancelled) {
         let _action = lock(&state.action)?;
         cancel_grab_speech(&state, &event.character_id)?;
     }
     match event.phase {
-        Phase::Started => trigger(
+        Phase::Started => {
+            if direct_start(
+                app,
+                state.clone(),
+                &event.character_id,
+                "pickup",
+                event.body_part.as_deref(),
+                window,
+            )?
+            .is_some()
+            {
+                return Ok(());
+            }
+            trigger(
+                app,
+                state,
+                &event.character_id,
+                "grab-start",
+                window,
+                Some((app, &event)),
+            )
+            .map(|_| ())
+        }
+        Phase::Ended => {
+            let authored = lock(&state.reactions)?
+                .runs
+                .get(&event.character_id)
+                .filter(|run| run.event == "pickup" && run.gesture.is_some())
+                .map(|run| run.id.clone());
+            if let Some(id) = authored {
+                return direct_end(app, state, &event.character_id, &id, false);
+            }
+            trigger(
+                app,
+                state,
+                &event.character_id,
+                "release",
+                window,
+                Some((app, &event)),
+            )
+            .map(|_| ())
+        }
+        Phase::Moving | Phase::Stopped => direct_moving(
             app,
             state,
             &event.character_id,
-            "grab-start",
-            window,
-            Some((app, &event)),
-        )
-        .map(|_| ()),
-        Phase::Ended => trigger(
-            app,
-            state,
-            &event.character_id,
-            "release",
-            window,
-            Some((app, &event)),
-        )
-        .map(|_| ()),
+            "",
+            event.phase == Phase::Moving,
+        ),
         Phase::Cancelled => {
             app::publish(app, &state);
             Ok(())
@@ -477,10 +933,21 @@ fn prepare_reaction(
         if status.hidden || app::unavailable(state) {
             return Ok(None);
         }
-        let (definition, roster) = {
+        let (definition, roster, actor) = {
             let db = lock(&state.db)?;
             let roster = characters::active_ids(&db)?;
-            if !roster.iter().any(|id| id == character_id) {
+            let Ok(owner) = crate::character_guests::actor(state, &db, character_id) else {
+                return Ok(None);
+            };
+            let actor = crate::character_guests::actor_ticket(state, &db, character_id)?;
+            let authority = crate::character_guests::window_authority(
+                state,
+                &format!("body-{character_id}"),
+                window,
+            )?;
+            if actor.guest_generation.is_some() && authority.is_none()
+                || authority.is_some_and(|generation| generation != actor.guest_generation)
+            {
                 return Ok(None);
             }
             if let Some((widget, epoch)) = widget {
@@ -492,7 +959,7 @@ fn prepare_reaction(
                     return Ok(None);
                 }
             }
-            let definition = characters::get(&db, character_id)?.definition;
+            let definition = owner.definition;
             if let Some((app, gesture)) = gesture {
                 if !character_gestures::event_registered(app, gesture)
                     || fingerprint(&definition) != gesture.definition_key
@@ -502,12 +969,20 @@ fn prepare_reaction(
                     return Ok(None);
                 }
             }
-            (definition, roster)
+            (definition, roster, actor)
         };
         let at = chrono::Utc::now().timestamp_millis();
         let selection = {
             let reactions = lock(&state.reactions)?;
             if event != "grab-start" && reactions.dragging.contains_key(character_id) {
+                return Ok(None);
+            }
+            if reactions.runs.get(character_id).is_some_and(|run| {
+                run.phase != "end"
+                    && run.gesture.as_ref().is_some_and(|motion| {
+                        character_reactions::sustained_gesture(&motion.gesture)
+                    })
+            }) {
                 return Ok(None);
             }
             let rule_id = definition
@@ -535,12 +1010,18 @@ fn prepare_reaction(
             event: event.into(),
             expression: selection.variant.expression.clone(),
             motion: selection.variant.motion.clone(),
+            phase: "start".into(),
+            phase_generation: 1,
+            definition_revision: definition_revision(&definition),
+            gesture: None,
+            moving: false,
             definition: fingerprint(&definition),
             window,
             roster,
             widget: widget.map(|(event, _)| event.clone()),
             created_at: at,
             ready: false,
+            actor: Some(actor),
         };
         {
             let mut reactions = lock(&state.reactions)?;
@@ -711,19 +1192,30 @@ pub(crate) fn acknowledge_character_reaction(
     state: tauri::State<'_, Arc<AppState>>,
     run_id: String,
     phase: String,
+    phase_generation: Option<u64>,
+    definition_revision: Option<String>,
 ) -> Result<()> {
     let id = window
         .label()
         .strip_prefix("body-")
         .ok_or("캐릭터 본체의 재생만 완료할 수 있어요.")?;
     let identity = window_identity(&window);
-    let changed = acknowledge(&state, id, identity, &run_id, &phase)?;
+    let changed = acknowledge_current(
+        &state,
+        id,
+        identity,
+        &run_id,
+        &phase,
+        phase_generation,
+        definition_revision.as_deref(),
+    )?;
     if changed {
         app::publish(window.app_handle(), &state);
     }
     Ok(())
 }
 
+#[cfg(test)]
 fn acknowledge(
     state: &AppState,
     id: &str,
@@ -731,32 +1223,90 @@ fn acknowledge(
     run_id: &str,
     phase: &str,
 ) -> Result<bool> {
-    let _action = lock(&state.action)?;
-    let mut reactions = lock(&state.reactions)?;
-    let Some(run) = reactions
+    let (generation, revision) = lock(&state.reactions)?
         .runs
-        .get_mut(id)
-        .filter(|run| run.id == run_id && run.window == identity)
-    else {
+        .get(id)
+        .map(|run| (run.phase_generation, run.definition_revision.clone()))
+        .unwrap_or_default();
+    acknowledge_current(
+        state,
+        id,
+        identity,
+        run_id,
+        phase,
+        Some(generation),
+        Some(&revision),
+    )
+}
+
+fn acknowledge_current(
+    state: &AppState,
+    id: &str,
+    identity: usize,
+    run_id: &str,
+    phase: &str,
+    generation: Option<u64>,
+    revision: Option<&str>,
+) -> Result<bool> {
+    let _action = lock(&state.action)?;
+    if lock(&state.runtime)?.hidden || app::unavailable(state) {
+        return Ok(false);
+    }
+    let db = lock(&state.db)?;
+    let current = characters::get(&db, id)?.definition;
+    let roster = characters::active_ids(&db)?;
+    let mut reactions = lock(&state.reactions)?;
+    let Some(run) = reactions.runs.get_mut(id).filter(|run| {
+        run.id == run_id
+            && run.window == identity
+            && run.definition == fingerprint(&current)
+            && run.roster == roster
+            && run.actor.as_ref().is_none_or(|actor| {
+                crate::character_guests::validate_actor(state, &db, actor).is_ok()
+            })
+            && (generation == Some(run.phase_generation)
+                || generation.is_none() && run.gesture.is_none())
+            && (revision == Some(run.definition_revision.as_str())
+                || revision.is_none() && run.gesture.is_none())
+    }) else {
         return Ok(false);
     };
-    let changed = match phase {
+    match phase {
         "ready" => {
             run.ready = true;
-            false
+            Ok(false)
         }
-        "finished" | "failed" => {
-            if run.event == "grab-start" {
+        "failed" => {
+            reactions.runs.remove(id);
+            Ok(true)
+        }
+        "finished" => {
+            if let Some(gesture) = &run.gesture {
+                match run.phase.as_str() {
+                    "start" if character_reactions::sustained_gesture(&gesture.gesture) => {
+                        advance_phase(run, "hold");
+                    }
+                    "start" if gesture.end.is_some() => {
+                        advance_phase(run, "end");
+                    }
+                    "hold" => {
+                        run.ready = true;
+                        return Ok(false);
+                    }
+                    _ => {
+                        reactions.runs.remove(id);
+                    }
+                }
+            } else if run.event == "grab-start" {
                 run.ready = true;
                 run.motion = MotionOverride::Static;
             } else {
                 reactions.runs.remove(id);
             }
-            true
+            Ok(true)
         }
-        _ => return Err("알 수 없는 반응 재생 상태예요.".into()),
-    };
-    Ok(changed)
+        _ => Err("알 수 없는 반응 재생 상태예요.".into()),
+    }
 }
 
 #[derive(Serialize)]

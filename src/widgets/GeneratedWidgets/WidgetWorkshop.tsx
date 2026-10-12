@@ -1,7 +1,9 @@
-import { useRef, useState, type ReactElement } from "react";
-import { Button } from "@fleetia/lagrange";
+import { useEffect, useRef, useState, type ReactElement } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { Button, Dialog } from "@fleetia/lagrange";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { WidgetFrame } from "../WidgetFrame/WidgetFrame";
+import { useWindowCloseGuard } from "../useWindowCloseGuard";
 import { useGeneratedWidgets } from "./useGeneratedWidgets";
 import * as s from "./generatedWidgets.css";
 import * as common from "../../lagrange.css";
@@ -14,40 +16,95 @@ export function WidgetWorkshop(): ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const pending = useRef(false);
+  const mounted = useRef(true);
+  const generation = useRef(0);
+  const importArea = useRef<HTMLTextAreaElement>(null);
+  const [importOpen, setImportOpen] = useState(
+    () => new URLSearchParams(location.search).get("mode") === "import",
+  );
+  const modeSequence = useRef(Number(new URLSearchParams(location.search).get("sequence")) || 0);
+  const closeGuard = useWindowCloseGuard(Boolean(request || importText), false, async () => {
+    await command("close_widget_workshop");
+    generation.current += 1;
+  });
+  useEffect(() => {
+    mounted.current = true;
+    let cleanup: (() => void) | undefined;
+    function receive(value: { mode: string; sequence: number }): void {
+      if (!mounted.current || !value || value.sequence < modeSequence.current) return;
+      modeSequence.current = value.sequence;
+      setImportOpen(value.mode === "import");
+      if (value.mode === "import") importArea.current?.focus();
+    }
+    if (isDesktop())
+      void listen<{ mode: string; sequence: number }>("widget-workshop-mode", (event) =>
+        receive(event.payload),
+      )
+        .then(async (unlisten) => {
+          if (!mounted.current) {
+            unlisten();
+            return;
+          }
+          cleanup = unlisten;
+          receive(await command("get_widget_workshop_mode"));
+        })
+        .catch((cause) => {
+          if (mounted.current) setError(errorText(cause));
+        });
+    return () => {
+      mounted.current = false;
+      generation.current += 1;
+      cleanup?.();
+    };
+  }, []);
   async function run(action: () => Promise<unknown>): Promise<void> {
     if (pending.current) {
       return;
     }
     pending.current = true;
+    const version = ++generation.current;
     setBusy(true);
     setError(null);
     setNotice("");
     try {
       await action();
     } catch (cause) {
-      setError(errorText(cause));
+      if (mounted.current && version === generation.current) setError(errorText(cause));
     } finally {
       pending.current = false;
-      setBusy(false);
-      reload();
+      if (mounted.current && version === generation.current) {
+        setBusy(false);
+        reload();
+      }
     }
   }
   async function generate(): Promise<void> {
+    const submitted = request;
     await run(async () => {
+      const version = generation.current;
       await command("generate_widget", {
-        request,
+        request: submitted,
         id: null,
         expectedRevision: null,
       });
-      setRequest("");
+      if (!mounted.current || version !== generation.current) return;
+      setRequest((current) => (current === submitted ? "" : current));
       setNotice("위젯 창에서 실행을 확인하고 있어요. 오류가 있으면 AI가 이어서 수정해요.");
     });
+  }
+  async function cancel(): Promise<void> {
+    const version = generation.current;
+    try {
+      await command("cancel_widget_generation");
+    } catch (cause) {
+      if (mounted.current && version === generation.current) setError(errorText(cause));
+    }
   }
   return (
     <WidgetFrame
       title="AI 위젯 만들기"
       closeLabel="위젯 제작 닫기"
-      onClose={() => command("close_widget_workshop")}
+      onClose={closeGuard.requestClose}
     >
       <div className={s.body}>
         <p>필요한 도구를 말해 주세요. 지금 선택한 AI가 만들고 사용 중에도 고쳐 줘요.</p>
@@ -77,11 +134,7 @@ export function WidgetWorkshop(): ReactElement {
           {busy && (
             <Button
               variant="secondary"
-              onClick={() =>
-                void command("cancel_widget_generation").catch((cause) =>
-                  setError(errorText(cause)),
-                )
-              }
+              onClick={() => void cancel()}
             >
               제작 중단
             </Button>
@@ -104,13 +157,18 @@ export function WidgetWorkshop(): ReactElement {
         >
           위젯 목록 열기
         </Button>
-        <details className={s.item}>
+        <details
+          className={s.item}
+          open={importOpen}
+          onToggle={(event) => setImportOpen(event.currentTarget.open)}
+        >
           <summary>다른 AI가 만든 위젯 가져오기</summary>
           <p className={s.status}>
             같은 형식의 JSON 정의를 붙여 넣으면 격리 실행 검사 후 사용할 수 있어요. 개인 상태는 공유
             정의에 포함되지 않아요.
           </p>
           <textarea
+            ref={importArea}
             aria-label="위젯 JSON"
             maxLength={98304}
             value={importText}
@@ -121,8 +179,11 @@ export function WidgetWorkshop(): ReactElement {
             disabled={busy || !importText.trim() || !isDesktop()}
             onClick={() =>
               void run(async () => {
-                await command("import_generated_widget", { definition: JSON.parse(importText) });
-                setImportText("");
+                const submitted = importText;
+                const version = generation.current;
+                await command("import_generated_widget", { definition: JSON.parse(submitted) });
+                if (mounted.current && version === generation.current)
+                  setImportText((current) => (current === submitted ? "" : current));
               })
             }
           >
@@ -133,6 +194,23 @@ export function WidgetWorkshop(): ReactElement {
             action, now)를 정의해요.
           </p>
         </details>
+        <Dialog
+          isOpen={closeGuard.confirmClose}
+          title="작성 중인 내용이 있어요"
+          onOpenChange={(open) => {
+            if (!open) closeGuard.keepEditing();
+          }}
+          size="small"
+        >
+          <p>입력한 내용을 버리고 닫을까요? 진행 중인 제작도 중단해요.</p>
+          {closeGuard.closeError && <p role="alert">{closeGuard.closeError}</p>}
+          <Button variant="secondary" onClick={closeGuard.keepEditing}>
+            계속 편집
+          </Button>
+          <Button variant="critical" onClick={() => void closeGuard.discardAndClose()}>
+            저장하지 않고 닫기
+          </Button>
+        </Dialog>
       </div>
     </WidgetFrame>
   );

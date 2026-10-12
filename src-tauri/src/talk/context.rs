@@ -564,6 +564,62 @@ fn project(snapshot: &WidgetSnapshot, now: i64) -> (BTreeMap<String, Value>, BTr
     (values, available)
 }
 
+fn body_interaction_data<'a>(
+    db: &Connection,
+    snapshot: &'a WidgetSnapshot,
+    event: Option<&WidgetEvent>,
+    active: &[String],
+    now: i64,
+) -> Result<Option<&'a Value>, String> {
+    let Some(event) = event.filter(|event| {
+        event.widget_kind == "interaction"
+            && event.event.kind == "interaction.touch"
+            && event.event.payload["source"] == "body"
+            && event.created_at <= now
+            && now.saturating_sub(event.created_at) < 30_000
+            && event.expires_at > now
+    }) else {
+        return Ok(None);
+    };
+    let Some(owner) = event.event.payload["owner"].as_str() else {
+        return Ok(None);
+    };
+    let Some(slot) = active.iter().position(|id| id == owner) else {
+        return Ok(None);
+    };
+    let Some(action) = event.event.payload["action"].as_str().filter(|action| {
+        matches!(
+            *action,
+            "poke" | "stroke" | "cheek-grab" | "snack" | "drink" | "gift"
+        )
+    }) else {
+        return Ok(None);
+    };
+    if event.event.payload["character"] != ((b'A' + slot as u8) as char).to_string() {
+        return Ok(None);
+    }
+    let receipt: Option<String> = db
+        .query_row(
+            "SELECT fingerprint FROM widget_requests WHERE id=?",
+            [&event.id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    if receipt.as_deref() != Some(format!("body:{owner}:{action}").as_str()) {
+        return Ok(None);
+    }
+    Ok(snapshot
+        .widgets
+        .iter()
+        .find(|widget| {
+            widget.instance.kind == "interaction"
+                && widget.instance.id == event.instance_id
+                && widget.instance.revision == event.revision
+        })
+        .map(|widget| &widget.instance.data))
+}
+
 pub fn build(
     db: &Connection,
     event: Option<&WidgetEvent>,
@@ -571,7 +627,21 @@ pub fn build(
     seed: u64,
 ) -> Result<EvalContext, String> {
     let snapshot = storage::snapshot(db)?;
-    let (mut values, available) = project(&snapshot, now_ms);
+    let (mut values, mut available) = project(&snapshot, now_ms);
+    let characters = crate::characters::active_members(db)?;
+    let active = characters
+        .iter()
+        .map(|member| member.id.clone())
+        .collect::<Vec<_>>();
+    let body_data = body_interaction_data(db, &snapshot, event, &active, now_ms)?;
+    if let Some(data) = body_data {
+        available.insert("interaction".into());
+        values.insert("interaction.ready".into(), json!(true));
+        values.insert("interaction.status".into(), json!("body"));
+        for field in ["snacks", "touches"] {
+            values.insert(format!("interaction.{field}"), data[field].clone());
+        }
+    }
     if values["journal.ready"] == true {
         let count: i64 = db
             .query_row("SELECT COUNT(*) FROM widget_journal", [], |row| row.get(0))
@@ -584,7 +654,10 @@ pub fn build(
             values.insert("journal.recentKind".into(), json!(kind));
         }
     }
-    let event = event.filter(|event| !widgets::is_retired(&event.widget_kind));
+    let event = event.filter(|event| {
+        !widgets::is_retired(&event.widget_kind)
+            && (event.event.payload["source"] != "body" || body_data.is_some())
+    });
     if let Some(event) = event {
         values.insert("event.kind".into(), json!(event.event.kind));
         values.insert("event.widget".into(), json!(event.widget_kind));
@@ -601,8 +674,10 @@ pub fn build(
                 .unwrap_or(Value::Null);
             values.insert(format!("event.{field}"), value);
         }
+        if body_data.is_some() && event.event.payload["action"] == "cheek-grab" {
+            values.insert("event.action".into(), json!("stroke"));
+        }
     }
-    let characters = crate::characters::active_members(db)?;
     let relationships = crate::store::relationships(db)?;
     values.insert("dialogue.variant".into(), json!(seed % 5));
     values.insert("character.nadir.present".into(), json!(false));
@@ -622,7 +697,6 @@ pub fn build(
             values.insert("character.nadir.affinity".into(), json!(score));
         }
     }
-    let active = crate::characters::active_ids(db)?;
     Ok(EvalContext {
         values,
         visible: active.clone(),
@@ -640,6 +714,75 @@ pub fn build(
 mod tests {
     use super::*;
     use crate::widgets::{WidgetInstance, WidgetView};
+
+    #[test]
+    fn body_interaction_context_requires_a_fresh_owned_receipt_and_keeps_widget_gates() {
+        let db = crate::store::open(std::path::Path::new(":memory:")).unwrap();
+        let owner = crate::characters::active_ids(&db).unwrap()[1].clone();
+        let event = storage::body_interaction(
+            &db,
+            &owner,
+            "stroke",
+            &uuid::Uuid::new_v4().to_string(),
+            1000,
+        )
+        .unwrap()
+        .unwrap();
+        let program = super::super::validate_source(
+            std::path::Path::new("body.talk"),
+            "format: 1\nscene: body\non: interaction.touch\nwhen: event.action == \"stroke\" and interaction.touches > 0\n---\nB: 교감 대사\n===\n",
+            &registry(),
+        )
+        .unwrap();
+        let context = build(&db, Some(&event), 1001, 0).unwrap();
+        assert_eq!(context.values["interaction.snacks"], 6);
+        assert_eq!(context.values["interaction.touches"], 1);
+        assert!(
+            super::super::simulate(&program, &context, &super::super::History::new())
+                .selected
+                .is_some()
+        );
+        assert!(!build(&db, None, 1001, 0)
+            .unwrap()
+            .available
+            .contains("interaction"));
+        for kind in 0..6 {
+            let mut invalid = event.clone();
+            match kind {
+                0 => invalid.event.payload["source"] = Value::Null,
+                1 => invalid.id = uuid::Uuid::new_v4().to_string(),
+                2 => invalid.event.payload["owner"] = json!("other"),
+                3 => invalid.revision += 1,
+                4 => invalid.expires_at = 1001,
+                _ => invalid.event.payload["character"] = json!("A"),
+            }
+            let context = build(&db, Some(&invalid), 1001, 0).unwrap();
+            assert!(!context.available.contains("interaction"), "case {kind}");
+            assert!(
+                super::super::simulate(&program, &context, &super::super::History::new())
+                    .selected
+                    .is_none(),
+                "case {kind}"
+            );
+        }
+        let cheek = storage::body_interaction(
+            &db,
+            &owner,
+            "cheek-grab",
+            &uuid::Uuid::new_v4().to_string(),
+            6001,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            build(&db, Some(&cheek), 6002, 0).unwrap().values["event.action"],
+            "stroke"
+        );
+        assert!(!build(&db, Some(&event), 6002, 0)
+            .unwrap()
+            .available
+            .contains("interaction"));
+    }
 
     #[test]
     fn core_context_is_typed_and_time_available_without_optional_widgets() {

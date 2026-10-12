@@ -63,6 +63,79 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+
+it("prioritizes direct motions and displayed speech before local sleep, focus, rest and music", () => {
+  character.definition.animation!.bindings = {
+    ...character.definition.animation!.bindings,
+    sleep: { clipId: "happy", repeat: true, intervalMs: 0 },
+    focus: { clipId: "click", repeat: true, intervalMs: 0 },
+    rest: { clipId: "talk", repeat: true, intervalMs: 0 },
+    musicPlaying: { clipId: "idle", repeat: true, intervalMs: 0 },
+  };
+  const all: Snapshot = {
+    ...snapshot,
+    animationStates: {
+      musicPlaying: true,
+      calendarOpen: false,
+      focus: true,
+      rest: true,
+      sleepingCharacterIds: [character.id],
+    },
+  };
+  const { result, rerender } = setup(all);
+  expect(result.current.frames).toBe(frameSets.get("happy"));
+  rerender({ state: withReaction(all, reaction("touch")), expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("click"));
+  rerender({ state: { ...talking(), animationStates: all.animationStates }, expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("talk"));
+  const awake = { ...all, animationStates: { ...all.animationStates!, sleepingCharacterIds: [] } };
+  rerender({ state: awake, expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("click"));
+  const resting = { ...awake, animationStates: { ...awake.animationStates!, focus: false } };
+  rerender({ state: resting, expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("talk"));
+  const music = { ...resting, animationStates: { ...resting.animationStates!, rest: false } };
+  rerender({ state: music, expression: "평온" });
+  expect(result.current.frames).toBe(frameSets.get("idle"));
+});
+
+it("uses a quiet static pose for an unassigned sleep or focus binding and keeps sleep local", () => {
+  character.definition.animation!.bindings.musicPlaying = {
+    clipId: "happy",
+    repeat: true,
+    intervalMs: 0,
+  };
+  const focus: Snapshot = {
+    ...snapshot,
+    animationStates: { musicPlaying: true, calendarOpen: false, focus: true },
+  };
+  const { result, rerender } = setup(focus);
+  expect(result.current.frames).toBeNull();
+  rerender({
+    state: {
+      ...snapshot,
+      animationStates: {
+        musicPlaying: true,
+        calendarOpen: false,
+        sleepingCharacterIds: [character.id],
+      },
+    },
+    expression: "평온",
+  });
+  expect(result.current.frames).toBeNull();
+  rerender({
+    state: {
+      ...snapshot,
+      animationStates: {
+        musicPlaying: true,
+        calendarOpen: false,
+        sleepingCharacterIds: ["another-local-id"],
+      },
+    },
+    expression: "평온",
+  });
+  expect(result.current.frames).toBe(frameSets.get("happy"));
+});
 function talking(): Snapshot {
   return {
     ...snapshot,
@@ -102,6 +175,48 @@ function acknowledgements(): unknown[] {
     .filter(([name]) => name === "acknowledge_character_reaction")
     .map(([, args]) => args);
 }
+
+it("acknowledges gesture phase generations and preserves hold until the host ends it", () => {
+  const start: CharacterReactionRun = {
+    ...reaction("gesture", "cheek-grab"),
+    phase: "start",
+    phaseGeneration: 1,
+    definitionRevision: "revision",
+  };
+  const { result, rerender } = setup(withReaction(snapshot, start));
+  act(() => vi.advanceTimersByTime(1000));
+  expect(acknowledgements()).toContainEqual({
+    runId: "gesture",
+    phase: "finished",
+    phaseGeneration: 1,
+    definitionRevision: "revision",
+  });
+  const hold: CharacterReactionRun = {
+    ...start,
+    phase: "hold",
+    phaseGeneration: 2,
+    motion: { mode: "clip", clipId: "click", repeat: true, intervalMs: 0 },
+  };
+  rerender({ state: withReaction(snapshot, hold), expression: "평온" });
+  expect(result.current.frameIndex).toBe(0);
+  act(() => vi.advanceTimersByTime(5000));
+  expect(result.current.frames).toBe(frameSets.get("click"));
+  expect(acknowledgements()).not.toContainEqual({
+    runId: "gesture",
+    phase: "finished",
+    phaseGeneration: 2,
+    definitionRevision: "revision",
+  });
+  const end: CharacterReactionRun = { ...start, phase: "end", phaseGeneration: 3 };
+  rerender({ state: withReaction(snapshot, end), expression: "평온" });
+  act(() => vi.advanceTimersByTime(1000));
+  expect(acknowledgements()).toContainEqual({
+    runId: "gesture",
+    phase: "finished",
+    phaseGeneration: 3,
+    definitionRevision: "revision",
+  });
+});
 
 it("uses shown dialogue and expression overrides, preserving time across unrelated snapshots", () => {
   const notShown = talking();
@@ -335,6 +450,22 @@ it("animates the actually displayed direct reply alongside input, including line
   inherited.playback!.motion = { mode: "inherit" };
   rerender({ state: inherited, expression: "기쁨" });
   expect(result.current.frames).toBe(frameSets.get("happy"));
+});
+
+it("animates a visible input reply while an unrelated story choice remains pending", () => {
+  const state = directReply();
+  state.story = {
+    id: "pending-story",
+    persona: character.id,
+    title: "다음 선택",
+    prompt: "골라줘",
+    choices: [],
+    displayStartedAt: 1,
+  };
+  const { result } = setup(state);
+  expect(result.current.frames).toBe(frameSets.get("talk"));
+  act(() => vi.advanceTimersByTime(500));
+  expect(result.current.frameIndex).toBe(1);
 });
 
 it("does not speak for input alone, preparation, a retained old answer, folded conversation or another speaker", () => {

@@ -14,6 +14,8 @@ import { ToyTool } from "../ToyTools/ToyTools";
 import { PREVIEW_WIDGETS, useWidgets } from "../useWidgets";
 import { PREVIEW_SNAPSHOT, command } from "../../hooks/useSnapshot";
 import type { WidgetValue, WidgetView } from "../types";
+const native = vi.hoisted(() => ({ onCloseRequested: vi.fn().mockResolvedValue(() => undefined), startDragging: vi.fn() }));
+vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => native }));
 vi.mock("../useWidgets", async (load) => ({
   ...(await load<typeof import("../useWidgets")>()),
   useWidgets: vi.fn(),
@@ -40,6 +42,7 @@ function widget(kind: string, data: WidgetValue): WidgetView {
 }
 const act = vi.fn<() => Promise<boolean>>();
 beforeEach(() => {
+  native.onCloseRequested.mockClear();
   act.mockReset();
   act.mockResolvedValue(true);
   vi.mocked(command).mockReset();
@@ -48,6 +51,24 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+it("protects an edited envelope connection from header and native close until explicit discard", async () => {
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [widget("preparation", { envelopes: [{ id: "envelope", title: "여행", eventId: "", eventLabel: "", checks: [], links: [], todoIds: [] }] }), widget("calendar", { connections: [], events: [{ id: "event", title: "떠나는 날", connectionId: "local" }] })] }, error: null, reload: vi.fn(),
+  });
+  render(<WidgetTool id="preparation" />);
+  fireEvent.click(screen.getByText("일정 연결 · 변경"));
+  fireEvent.change(screen.getByLabelText("봉투에 연결할 일정"), { target: { value: "event" } });
+  fireEvent.click(screen.getByRole("button", { name: "위젯 닫기" }));
+  expect(command).not.toHaveBeenCalledWith("close_widget", expect.anything());
+  fireEvent.click(screen.getByRole("button", { name: "계속 편집" }));
+  const event = { preventDefault: vi.fn() };
+  await reactAct(async () => native.onCloseRequested.mock.calls[0][0](event));
+  expect(event.preventDefault).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("button", { name: "저장하지 않고 닫기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("close_widget", { id: "preparation" }));
+  expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
 });
 it.each(["completion-jar", "device", "guessing", "fishing", "plant", "pet"])(
   "does not reopen the retired %s tool from a stale snapshot",

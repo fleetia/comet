@@ -78,6 +78,7 @@ pub(crate) fn validate_definition(definition: &CharacterDefinition) -> Result<()
         animation::validate_animation(animation, &definition.expressions)?;
     }
     reactions::validate(definition)?;
+    crate::pack_stories::validate_character(definition)?;
     Ok(())
 }
 pub(super) fn validate_scene(lines: &[SceneLine], members: &[CharacterDefinition]) -> Result<()> {
@@ -113,7 +114,7 @@ pub(super) fn validate_pack(pack: &CharacterPack) -> Result<()> {
     super::prepare_pack(pack.clone()).map(|_| ())
 }
 pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
-    if ![1, 2, 3, 4, 5, 6].contains(&pack.format_version)
+    if ![1, 2, 3, 4, 5, 6, 7, 8].contains(&pack.format_version)
         || !(1..=if pack.format_version == 1 {
             2
         } else {
@@ -130,6 +131,20 @@ pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
     {
         return Err("지원하지 않는 팩 버전 또는 잘못된 팩 구성입니다.".into());
     }
+    crate::pack_stories::validate_pack(&pack.characters, &pack.story_definition())?;
+    if pack.format_version < 8
+        && (!pack.story_definition().is_empty()
+            || pack.characters.iter().any(|definition| {
+                definition.presence_role != crate::pack_stories::PresenceRole::Resident
+                    || definition.npc.is_some()
+                    || definition
+                        .relationships
+                        .iter()
+                        .any(|relation| !relation.reply_lines.is_empty())
+            }))
+    {
+        return Err("NPC·이야기 작성 정보는 캐릭터팩 버전 8 이상이 필요해요.".into());
+    }
     if (pack.archive.is_some() && pack.format_version < 4)
         || (pack.format_version == 4 && pack.archive.is_none())
     {
@@ -137,6 +152,9 @@ pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
     }
     if pack.format_version < 6 && has_state_bindings(pack) {
         return Err("지속 상태 동작이 포함된 캐릭터팩은 버전 6 이상이어야 합니다.".into());
+    }
+    if pack.format_version < 7 && has_gestures(pack) {
+        return Err("부위와 교감 동작이 포함된 캐릭터팩은 버전 7 이상이어야 합니다.".into());
     }
     if pack.format_version < 5 && has_reactions_or_motion(pack) {
         return Err(
@@ -261,7 +279,7 @@ pub fn parse_pack(json: &str) -> Result<CharacterPack> {
     }
     let mut value: serde_json::Value =
         serde_json::from_str(json).map_err(|_| "캐릭터팩 JSON을 읽을 수 없습니다.")?;
-    if matches!(value["formatVersion"].as_u64(), Some(2..=6)) {
+    if matches!(value["formatVersion"].as_u64(), Some(2..=7)) {
         convert_pack_speakers(&mut value, false)?;
     }
     if let Some(scenes) = value.get("pairScenes").and_then(|v| v.as_array()) {
@@ -377,6 +395,18 @@ fn convert_pack_speakers(value: &mut serde_json::Value, exporting: bool) -> Resu
         }
     }
     Ok(())
+}
+
+pub(super) fn has_gestures(pack: &CharacterPack) -> bool {
+    pack.characters.iter().any(|definition| {
+        !definition.body_regions.is_empty()
+            || !definition.gesture_motions.is_empty()
+            || definition.animation.as_ref().is_some_and(|animation| {
+                animation.bindings.sleep.is_some()
+                    || animation.bindings.focus.is_some()
+                    || animation.bindings.rest.is_some()
+            })
+    })
 }
 
 pub(super) fn has_reactions_or_motion(pack: &CharacterPack) -> bool {

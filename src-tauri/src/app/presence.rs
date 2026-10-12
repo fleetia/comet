@@ -67,6 +67,7 @@ impl Presence {
     fn choose(
         &mut self,
         active: &[String],
+        sleeping: &[String],
         at: i64,
         seed: u64,
         revision: i64,
@@ -80,12 +81,16 @@ impl Presence {
         }
         let present: Vec<_> = active
             .iter()
-            .filter(|id| !self.absent.contains(*id))
+            .filter(|id| !self.absent.contains(*id) && !sleeping.contains(*id))
             .collect();
         let absent: Vec<_> = active
             .iter()
-            .filter(|id| self.absent.contains(*id))
+            .filter(|id| self.absent.contains(*id) && !sleeping.contains(*id))
             .collect();
+        if present.is_empty() && absent.is_empty() {
+            self.schedule(at, seed);
+            return None;
+        }
         let arriving = present.is_empty() || (!absent.is_empty() && seed & 1 == 0);
         let choices = if arriving { &absent } else { &present };
         let id = (*choices.get((seed as usize / 2) % choices.len())?).clone();
@@ -177,7 +182,8 @@ fn begin(state: &AppState) -> Result<Option<(Ticket, Transition)>, String> {
     }
     let active = characters::active_ids(&db)?;
     let revision = store::revision(&db)?;
-    let transition = lock(&state.presence)?.choose(&active, now(), entropy(), revision);
+    let sleeping = lock(&state.life)?.sleeping_ids();
+    let transition = lock(&state.presence)?.choose(&active, &sleeping, now(), entropy(), revision);
     drop(db);
     let Some(transition) = transition else {
         return Ok(None);
@@ -239,6 +245,7 @@ async fn run(
             || store::revision(&db)? != transition.revision
             || !characters::active_ids(&db)?.contains(&transition.id)
             || lock(&state.presence)?.generation != transition.generation
+            || crate::character_life::sleeping(state, &transition.id)?
         {
             return Ok(());
         }
@@ -251,6 +258,7 @@ async fn run(
                 || store::revision(&db)? != transition.revision
                 || !characters::active_ids(&db)?.contains(&transition.id)
                 || lock(&state.presence)?.generation != transition.generation
+                || crate::character_life::sleeping(state, &transition.id)?
             {
                 return Ok(());
             }
@@ -298,30 +306,34 @@ async fn run(
         return Ok(());
     }
     if !transition.arriving {
-        let changed = {
-            let _action = lock(&state.action)?;
-            let db = lock(&state.db)?;
-            if !is_current(state, epoch, &cancel)
-                || store::revision(&db)? != transition.revision
-                || lock(&state.presence)?.generation != transition.generation
-            {
-                return Ok(());
-            }
-            let active = characters::active_ids(&db)?;
-            let mut presence = lock(&state.presence)?;
-            if !active.contains(&transition.id) {
-                false
-            } else {
-                presence.absent.insert(transition.id.clone());
-                presence.generation = presence.generation.wrapping_add(1);
-                true
-            }
-        };
+        let changed = commit_departure(state, transition, epoch, &cancel)?;
         if changed {
             publish(app, state);
         }
     }
     Ok(())
+}
+
+fn commit_departure(
+    state: &AppState,
+    transition: &Transition,
+    epoch: u64,
+    cancel: &AtomicBool,
+) -> Result<bool, String> {
+    let _action = lock(&state.action)?;
+    let db = lock(&state.db)?;
+    if !is_current(state, epoch, cancel)
+        || store::revision(&db)? != transition.revision
+        || lock(&state.presence)?.generation != transition.generation
+        || crate::character_life::sleeping(state, &transition.id)?
+        || !characters::active_ids(&db)?.contains(&transition.id)
+    {
+        return Ok(false);
+    }
+    let mut presence = lock(&state.presence)?;
+    presence.absent.insert(transition.id.clone());
+    presence.generation = presence.generation.wrapping_add(1);
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -337,26 +349,75 @@ mod tests {
             next_at: 100,
             ..Default::default()
         };
-        let first = presence.choose(&active, 100, 3, 1).unwrap();
+        let first = presence.choose(&active, &[], 100, 3, 1).unwrap();
         assert!(!first.arriving);
         presence.absent.insert(first.id.clone());
         presence.next_at = 101;
-        let second = presence.choose(&active, 101, 5, 1).unwrap();
+        let second = presence.choose(&active, &[], 101, 5, 1).unwrap();
         assert!(!second.arriving);
         presence.absent.insert(second.id.clone());
         presence.next_at = 102;
-        let third = presence.choose(&active, 102, 7, 1).unwrap();
+        let third = presence.choose(&active, &[], 102, 7, 1).unwrap();
         assert!(!third.arriving);
         presence.absent.insert(third.id);
         presence.next_at = 103;
-        let fourth = presence.choose(&active, 103, 9, 1).unwrap();
+        let fourth = presence.choose(&active, &[], 103, 9, 1).unwrap();
         assert!(fourth.arriving);
         assert!(presence.absent.contains(&fourth.id));
         let mut solo = Presence {
             next_at: 100,
             ..Default::default()
         };
-        assert!(!solo.choose(&["one".into()], 100, 1, 1).unwrap().arriving);
+        assert!(
+            !solo
+                .choose(&["one".into()], &[], 100, 1, 1)
+                .unwrap()
+                .arriving
+        );
+    }
+
+    #[test]
+    fn sleeping_residents_are_not_candidates_and_cannot_depart_after_selection() {
+        let state = super::super::tests::state();
+        let active = characters::active_ids(&lock(&state.db).unwrap()).unwrap();
+        let id = active[0].clone();
+        let transition = Transition {
+            id: id.clone(),
+            arriving: false,
+            generation: lock(&state.presence).unwrap().generation,
+            revision: store::revision(&lock(&state.db).unwrap()).unwrap(),
+        };
+        let epoch = state.epoch.load(Ordering::SeqCst);
+        crate::character_life::set_sleep(&state, &id, true).unwrap();
+        assert!(!commit_departure(&state, &transition, epoch, &AtomicBool::new(false)).unwrap());
+        assert!(is_present(&state, &id).unwrap());
+        assert!(lock(&state.presence).unwrap().absent.is_empty());
+        let mut presence = lock(&state.presence).unwrap();
+        presence.next_at = 100;
+        assert_eq!(
+            presence
+                .choose(&active, std::slice::from_ref(&id), 100, 1, 1)
+                .unwrap()
+                .id,
+            active[1]
+        );
+        presence.absent.insert(id.clone());
+        presence.next_at = 101;
+        assert!(presence
+            .choose(
+                std::slice::from_ref(&id),
+                std::slice::from_ref(&id),
+                101,
+                1,
+                1
+            )
+            .is_none());
+        assert!(presence.absent.contains(&id));
+        assert!(presence.next_at > 101);
+        drop(presence);
+        assert!(store::messages(&lock(&state.db).unwrap(), 100)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

@@ -177,6 +177,8 @@ export function Planner({
   const [rollDate, setRollDate] = useState(moveDay(localDay(), 1));
   const [manageLists, setManageLists] = useState(false);
   const [templateDirty, setTemplateDirty] = useState(false);
+  const [preparationDirty, setPreparationDirty] = useState(false);
+  const [preparationBusy, setPreparationBusy] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   useEffect(() => {
     setEditing(null);
@@ -185,15 +187,15 @@ export function Planner({
   }, [dismissVersion]);
   const leaving = useRef(false);
   const returning = useRef(false);
-  const blocking = Boolean(editing || manageLists || wrap);
+  const blocking = Boolean(editing || manageLists || wrap || preparationDirty || preparationBusy);
   const dirty = Boolean(blocking || title.trim() || templateDirty);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
   const report = useRef(onStateChange);
   report.current = onStateChange;
   useEffect(() => {
-    report.current?.({ dirty, busy, blocking });
-  }, [dirty, busy, blocking]);
+    report.current?.({ dirty, busy: busy || preparationBusy, blocking });
+  }, [dirty, busy, preparationBusy, blocking]);
   useEffect(() => () => report.current?.({ dirty: false, busy: false, blocking: false }), []);
   const widgets = snapshot?.widgets ?? [];
   const enabled = (kind: string): WidgetView | undefined =>
@@ -490,6 +492,8 @@ export function Planner({
         widgets={widgets}
         act={act}
         openSettings={openSettings}
+        onDirtyChange={setPreparationDirty}
+        onBusyChange={setPreparationBusy}
       />
     );
   }

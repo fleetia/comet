@@ -1,14 +1,17 @@
-import { useEffect, useState, type ReactElement } from "react";
-import { Button, Checkbox, Select, TextField } from "@fleetia/lagrange";
+import { useEffect, useRef, useState, type ReactElement } from "react";
+import { Button, Checkbox, Dialog, Select, TextField } from "@fleetia/lagrange";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { CharacterCollection, MotionOverride } from "../../types";
-import type { WidgetValue } from "../types";
 import { WidgetFrame } from "../WidgetFrame/WidgetFrame";
 import type { StateRule } from "./types";
+import { useWindowCloseGuard } from "../useWindowCloseGuard";
 import * as s from "./generatedWidgets.css";
 import * as common from "../../lagrange.css";
 
-type Editor = { rules: StateRule[]; state: WidgetValue; characters: CharacterCollection };
+export type RuleDraft = Omit<StateRule, "value"> & { valueJson: string };
+type Editor = { rules: RuleDraft[]; stateJson: string; baseline: string; characters: CharacterCollection };
+type SavedRules = Pick<Editor, "rules" | "baseline">;
+type Trial = { valid: boolean; fieldPresent: boolean | null; matched: boolean | null; error: string | null };
 const OPERATORS = [
   ["eq", "같음"],
   ["ne", "다름"],
@@ -20,73 +23,132 @@ const OPERATORS = [
 ];
 
 export function WidgetStateRules({ id }: { id: string }): ReactElement {
-  const [editor, setEditor] = useState<Editor | null>(null);
-  const [rules, setRules] = useState<StateRule[]>([]);
+  const [loaded, setLoaded] = useState<{ id: string; editor: Editor } | null>(null);
+  const editor = loaded?.id === id ? loaded.editor : null;
+  const [rules, setRules] = useState<RuleDraft[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  useEffect(() => {
-    let active = true;
-    if (isDesktop()) {
-      void command<Editor>("get_widget_rule_editor", { id })
-        .then((value) => {
-          if (active) {
-            setEditor(value);
-            setRules(value.rules);
-          }
-        })
-        .catch((cause) => {
-          if (active) {
-            setError(errorText(cause));
-          }
-        });
-    }
-    return () => {
-      active = false;
-    };
-  }, [id]);
-  function update(ruleId: string, changes: Partial<StateRule>): void {
-    setRules((before) =>
-      before.map((rule) => (rule.id === ruleId ? { ...rule, ...changes } : rule)),
-    );
-    setSaved(false);
+  const [stateJson, setStateJson] = useState("{}");
+  const [trial, setTrial] = useState<{ ruleId: string; result: Trial } | null>(null);
+  const [testing, setTesting] = useState<string | null>(null);
+  const [confirmReload, setConfirmReload] = useState(false);
+  const lock = useRef(false);
+  const mounted = useRef(true);
+  const generation = useRef(0);
+  const trialGeneration = useRef(0);
+  const scope = useRef({ id, version: 0 });
+  if (scope.current.id !== id) scope.current = { id, version: scope.current.version + 1 };
+  const dirty = Boolean(editor && JSON.stringify(rules) !== JSON.stringify(editor.rules));
+  function invalidateTrial(): void {
+    trialGeneration.current += 1;
+    setTrial(null);
+    setTesting(null);
   }
-  function add(): void {
-    setRules((before) => [
-      ...before,
-      {
-        id: crypto.randomUUID(),
-        widgetId: id,
-        characterId: editor?.characters.active[0] ?? editor?.characters.installed[0]?.id ?? "",
-        field: "",
-        operator: "gte",
-        value: 1,
-        text: "",
-        expression: null,
-        motion: null,
-        cooldownMs: 30000,
-        enabled: true,
-      },
-    ]);
-    setSaved(false);
+  function current(version: number, request: number): boolean {
+    return mounted.current && scope.current.version === version && generation.current === request;
   }
-  async function save(): Promise<void> {
+  async function load(): Promise<void> {
+    const version = scope.current.version;
+    const request = ++generation.current;
+    lock.current = true;
     setBusy(true);
     setError(null);
+    setSaved(false);
+    invalidateTrial();
     try {
-      setRules(await command<StateRule[]>("save_widget_state_rules", { id, rules }));
-      setSaved(true);
+      const value = await command<Editor>("get_widget_rule_editor", { id });
+      if (!current(version, request)) return;
+      setLoaded({ id, editor: value });
+      setRules(value.rules);
+      setStateJson(value.stateJson);
     } catch (cause) {
-      setError(errorText(cause));
+      if (current(version, request)) setError(errorText(cause));
     } finally {
-      setBusy(false);
+      if (current(version, request)) { lock.current = false; setBusy(false); }
     }
   }
+  useEffect(() => {
+    mounted.current = true;
+    setLoaded(null);
+    setRules([]);
+    if (isDesktop()) void load();
+    return () => {
+      mounted.current = false;
+      generation.current += 1;
+      trialGeneration.current += 1;
+    };
+  }, [id]);
+  function update(ruleId: string, changes: Partial<RuleDraft>): void {
+    if (lock.current || !editor) return;
+    setRules((before) => before.map((rule) => rule.id === ruleId ? { ...rule, ...changes } : rule));
+    setSaved(false);
+    invalidateTrial();
+  }
+  function add(): void {
+    if (lock.current || !editor || rules.length >= 64) return;
+    setRules((before) => [...before, {
+      id: crypto.randomUUID(), widgetId: id,
+      characterId: editor.characters.active[0] ?? editor.characters.installed[0]?.id ?? "",
+      field: "", operator: "gte", valueJson: "1", text: "", expression: null,
+      motion: null, cooldownMs: 30000, enabled: true,
+    }]);
+    setSaved(false);
+    invalidateTrial();
+  }
+  function cancel(): void {
+    if (lock.current || !editor) return;
+    setRules(editor.rules);
+    setError(null);
+    setSaved(false);
+    invalidateTrial();
+  }
+  async function save(): Promise<void> {
+    if (lock.current || !editor) return;
+    const version = scope.current.version;
+    const request = generation.current;
+    lock.current = true;
+    setBusy(true);
+    setError(null);
+    invalidateTrial();
+    try {
+      const value = await command<SavedRules>("save_widget_state_rules", {
+        id, rules, expectedBaseline: editor.baseline,
+      });
+      if (!current(version, request)) return;
+      setRules(value.rules);
+      setLoaded({ id, editor: { ...editor, ...value } });
+      setSaved(true);
+    } catch (cause) {
+      if (current(version, request)) setError(errorText(cause));
+    } finally {
+      if (current(version, request)) { lock.current = false; setBusy(false); }
+    }
+  }
+  async function test(rule: RuleDraft): Promise<void> {
+    if (lock.current || !editor) return;
+    const version = scope.current.version;
+    const request = generation.current;
+    const sequence = ++trialGeneration.current;
+    setTrial(null);
+    setTesting(rule.id);
+    try {
+      const result = await command<Trial>("test_widget_state_rule", { id, rule, stateJson });
+      if (current(version, request) && sequence === trialGeneration.current)
+        setTrial({ ruleId: rule.id, result });
+    } catch (cause) {
+      if (current(version, request) && sequence === trialGeneration.current)
+        setTrial({ ruleId: rule.id, result: { valid: false, fieldPresent: null, matched: null, error: errorText(cause) } });
+    } finally {
+      if (current(version, request) && sequence === trialGeneration.current) setTesting(null);
+    }
+  }
+  const closeGuard = useWindowCloseGuard(dirty, busy, () => command("close_widget_state_rules", { id }));
   return (
     <WidgetFrame
       title="위젯 상태별 대사"
       closeLabel="상태별 대사 닫기"
-      onClose={() => command("close_widget_state_rules", { id })}
+      onClose={closeGuard.requestClose}
       footer={
         <div className={s.actions}>
           <Button
@@ -99,6 +161,10 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
           <Button variant="primary" disabled={busy || !editor} onClick={() => void save()}>
             저장
           </Button>
+          <Button variant="secondary" disabled={busy || !dirty} onClick={cancel}>수정 취소</Button>
+          <Button variant="secondary" disabled={busy} onClick={() => {
+            if (dirty) setConfirmReload(true); else void load();
+          }}>최신 내용 확인</Button>
           {saved && <span role="status">저장했어요.</span>}
         </div>
       }
@@ -118,13 +184,19 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
         )}
         <details>
           <summary>현재 위젯 상태와 필드 보기</summary>
-          <pre>{JSON.stringify(editor?.state ?? {}, null, 2)}</pre>
+          <pre>{editor?.stateJson ?? "{}"}</pre>
           <p className={s.status}>
-            예: count 또는 timer.remainingMs. 값은 숫자·true/false 또는 텍스트로 입력해요.
+            예: count 또는 timer.remainingMs. 비교값은 JSON으로 입력해요. 텍스트는 "완료"처럼 따옴표로 감싸 주세요.
           </p>
         </details>
+        <label className={s.field}>시험할 전체 상태 JSON
+          <textarea aria-label="시험할 전체 상태 JSON" value={stateJson} disabled={busy || !editor}
+            onChange={(event) => { setStateJson(event.target.value); invalidateTrial(); }} />
+        </label>
+        <p className={s.status}>시험은 이 상태의 조건 일치만 확인해요. 실제 발화·쿨다운·대화 기록은 변경하지 않아요.</p>
+        <fieldset disabled={busy || !editor} style={{ border: 0, padding: 0, margin: 0 }}>
         {rules.length === 0 && <p>연결된 대사가 없어요. ‘조건 추가’로 시작해 보세요.</p>}
-        {rules.map((rule, index) => {
+        {(editor ? rules : []).map((rule, index) => {
           const character = editor?.characters.installed.find(
             (item) => item.id === rule.characterId,
           );
@@ -140,8 +212,10 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
                 <Button
                   variant="secondary"
                   onClick={() => {
+                    if (lock.current) return;
                     setRules((before) => before.filter((item) => item.id !== rule.id));
                     setSaved(false);
+                    invalidateTrial();
                   }}
                 >
                   조건 삭제
@@ -175,16 +249,8 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
                   값
                   <TextField
                     aria-label={`조건 ${index + 1} 값`}
-                    value={typeof rule.value === "string" ? rule.value : JSON.stringify(rule.value)}
-                    onChange={(event) => {
-                      let value: WidgetValue = event.target.value;
-                      try {
-                        value = JSON.parse(event.target.value) as WidgetValue;
-                      } catch {
-                        /* Unquoted text is a string condition. */
-                      }
-                      update(rule.id, { value });
-                    }}
+                    value={rule.valueJson}
+                    onChange={(event) => update(rule.id, { valueJson: event.target.value })}
                   />
                 </label>
               </div>
@@ -275,9 +341,30 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
                   </Select>
                 </label>
               </div>
+              <Button variant="secondary" disabled={testing !== null}
+                onClick={() => void test(rule)}>조건 {index + 1} 시험</Button>
+              {trial?.ruleId === rule.id && <p role={trial.result.valid ? "status" : "alert"}>
+                {!trial.result.valid ? trial.result.error : !trial.result.fieldPresent
+                  ? "필드가 없어요. 조건은 일치하지 않아요."
+                  : trial.result.matched ? "이 상태에서 조건이 일치해요." : "이 상태에서 조건이 일치하지 않아요."}
+              </p>}
             </section>
           );
         })}
+        </fieldset>
+        {closeGuard.closeError && <p role="alert">{closeGuard.closeError}</p>}
+        <Dialog isOpen={closeGuard.confirmClose} title="저장하지 않은 조건이 있어요" size="small"
+          onOpenChange={(open) => { if (!open) closeGuard.keepEditing(); }}>
+          <p>수정한 조건을 버리고 닫을까요?</p>
+          <Button variant="secondary" onClick={closeGuard.keepEditing}>계속 편집</Button>
+          <Button variant="critical" onClick={() => void closeGuard.discardAndClose()}>저장하지 않고 닫기</Button>
+        </Dialog>
+        <Dialog isOpen={confirmReload} title="최신 조건을 확인할까요?" size="small"
+          onOpenChange={setConfirmReload}>
+          <p>지금의 초안을 버리고 다른 창에서 저장한 내용을 불러와요.</p>
+          <Button variant="secondary" onClick={() => setConfirmReload(false)}>계속 편집</Button>
+          <Button variant="critical" onClick={() => { setConfirmReload(false); void load(); }}>초안 버리고 불러오기</Button>
+        </Dialog>
       </div>
     </WidgetFrame>
   );

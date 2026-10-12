@@ -145,6 +145,197 @@ pub struct ReactionRun {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expression: Option<String>,
     pub motion: MotionOverride,
+    pub phase: String,
+    pub phase_generation: u64,
+    pub definition_revision: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GrabPoint {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BodyRegion {
+    pub id: String,
+    pub name: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grab_point: Option<GrabPoint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GestureMotion {
+    pub id: String,
+    pub gesture: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expression: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<MotionOverride>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hold: Option<MotionOverride>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moving_hold: Option<MotionOverride>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<MotionOverride>,
+}
+
+pub fn select_gesture<'a>(
+    definition: &'a CharacterDefinition,
+    gesture: &str,
+    region: Option<&str>,
+    entropy: u64,
+) -> Option<&'a GestureMotion> {
+    let scoped: Vec<_> = definition
+        .gesture_motions
+        .iter()
+        .filter(|motion| {
+            motion.gesture == gesture && motion.region_id.as_deref() == region && region.is_some()
+        })
+        .collect();
+    let candidates = if scoped.is_empty() {
+        definition
+            .gesture_motions
+            .iter()
+            .filter(|motion| motion.gesture == gesture && motion.region_id.is_none())
+            .collect()
+    } else {
+        scoped
+    };
+    if candidates.is_empty() {
+        return None;
+    }
+    Some(candidates[(entropy % candidates.len() as u64) as usize])
+}
+
+pub(crate) fn sustained_gesture(gesture: &str) -> bool {
+    [
+        "cheek-grab",
+        "pickup",
+        "walk",
+        "fast-walk",
+        "crawl",
+        "climb",
+        "short-fall",
+        "peek",
+    ]
+    .contains(&gesture)
+}
+
+pub(crate) fn ambient_gesture(gesture: &str) -> bool {
+    [
+        "walk",
+        "fast-walk",
+        "crawl",
+        "climb",
+        "short-fall",
+        "peek",
+        "idle-yawn",
+        "idle-stretch",
+    ]
+    .contains(&gesture)
+}
+
+fn validate_gestures(definition: &CharacterDefinition) -> Result<()> {
+    if definition.body_regions.len() > 16 || definition.gesture_motions.len() > 32 {
+        return Err("부위는 16개, 교감 동작은 32개까지 등록할 수 있어요.".into());
+    }
+    let normalized = |value: f64| value.is_finite() && (0.0..=1.0).contains(&value);
+    let mut regions = HashSet::new();
+    for region in &definition.body_regions {
+        if !valid_id(&region.id)
+            || !valid_id(&region.name)
+            || !regions.insert(region.id.as_str())
+            || ![region.x, region.y, region.width, region.height]
+                .into_iter()
+                .all(normalized)
+            || region.width == 0.0
+            || region.height == 0.0
+            || region.x + region.width > 1.0
+            || region.y + region.height > 1.0
+            || region
+                .grab_point
+                .as_ref()
+                .is_some_and(|point| !normalized(point.x) || !normalized(point.y))
+        {
+            return Err("부위 ID·이름과 본체 안의 영역·잡는 점(0~1)을 확인해 주세요.".into());
+        }
+    }
+    let mut ids = HashSet::new();
+    for motion in &definition.gesture_motions {
+        if !valid_id(&motion.id)
+            || !ids.insert(&motion.id)
+            || ![
+                "poke",
+                "stroke",
+                "cheek-grab",
+                "pickup",
+                "snack",
+                "wake",
+                "drink",
+                "gift",
+                "idle-yawn",
+                "idle-stretch",
+                "walk",
+                "fast-walk",
+                "crawl",
+                "climb",
+                "short-fall",
+                "peek",
+            ]
+            .contains(&motion.gesture.as_str())
+            || motion
+                .region_id
+                .as_ref()
+                .is_some_and(|id| !regions.contains(id.as_str()))
+            || motion
+                .expression
+                .as_ref()
+                .is_some_and(|expression| !definition.expressions.contains_key(expression))
+            || [
+                motion.start.as_ref(),
+                motion.hold.as_ref(),
+                motion.moving_hold.as_ref(),
+                motion.end.as_ref(),
+            ]
+            .into_iter()
+            .all(|value| value.is_none())
+        {
+            return Err(
+                "교감 동작의 ID·행동·부위·표정과 시작/유지/종료 연결을 확인해 주세요.".into(),
+            );
+        }
+        let sustained = sustained_gesture(&motion.gesture);
+        if !sustained && (motion.hold.is_some() || motion.moving_hold.is_some())
+            || motion.moving_hold.is_some() && motion.gesture != "pickup"
+        {
+            return Err(
+                "유지 동작은 볼 잡기와 집기에, 이동 중 동작은 집기에만 연결해 주세요.".into(),
+            );
+        }
+        for value in [motion.start.as_ref(), motion.end.as_ref()]
+            .into_iter()
+            .flatten()
+        {
+            validate_motion(value, definition, true)?;
+        }
+        for value in [motion.hold.as_ref(), motion.moving_hold.as_ref()]
+            .into_iter()
+            .flatten()
+        {
+            validate_motion(value, definition, false)?;
+        }
+    }
+    Ok(())
 }
 
 pub fn select(
@@ -230,6 +421,7 @@ pub fn validate_motion(
 }
 
 pub fn validate(definition: &CharacterDefinition) -> Result<()> {
+    validate_gestures(definition)?;
     if definition.reactions.len() > 32 {
         return Err("상황별 반응은 캐릭터마다 32개까지 등록할 수 있어요.".into());
     }

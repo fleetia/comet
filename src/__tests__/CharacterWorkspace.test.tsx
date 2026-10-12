@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { CharacterManager } from "../components/CharacterManager/CharacterManager";
 import { CharacterEditor } from "../components/CharacterEditor/CharacterEditor";
+import { CharacterLinePreview } from "../components/CharacterEditor/CharacterLinePreview";
 import { command, PREVIEW_SNAPSHOT } from "../hooks/useSnapshot";
 import type { Snapshot } from "../types";
 
@@ -42,6 +43,41 @@ function selectPanel(name: string): ReturnType<typeof within> {
   return within(screen.getByRole("tabpanel", { name }));
 }
 
+it("requires a new authored preview after hiding or changing its selected draft", () => {
+  const character = structuredClone(PREVIEW_SNAPSHOT.characters.installed[0]);
+  const line = character.definition.greeting[0];
+  const props = { definition: character.definition, character, line, assets: [] };
+  const view = render(<CharacterLinePreview {...props} visible />);
+  fireEvent.click(screen.getByRole("button", { name: "미리보기" }));
+  expect(screen.getByRole("button", { name: "정지" })).toHaveProperty("disabled", false);
+  view.rerender(<CharacterLinePreview {...props} visible={false} />);
+  view.rerender(<CharacterLinePreview {...props} visible />);
+  expect(screen.getByRole("button", { name: "정지" })).toHaveProperty("disabled", true);
+  fireEvent.click(screen.getByRole("button", { name: "미리보기" }));
+  view.rerender(<CharacterLinePreview {...props} line={{ ...line, text: "바꾼 초안" }} visible />);
+  expect(screen.getByRole("button", { name: "정지" })).toHaveProperty("disabled", true);
+  expect(screen.getByText("바꾼 초안")).toBeTruthy();
+  expect(vi.mocked(command)).not.toHaveBeenCalled();
+});
+
+it("keeps a preview for equal asset bytes and stops when draft bytes change under the same source ID", () => {
+  const character = structuredClone(PREVIEW_SNAPSHOT.characters.installed[0]);
+  const asset = { assetId: "draft", mime: "image/png", width: 16, height: 16, data: "first-bytes" };
+  const props = {
+    definition: character.definition,
+    character,
+    line: character.definition.greeting[0],
+    visible: true,
+  };
+  const view = render(<CharacterLinePreview {...props} assets={[asset]} />);
+  fireEvent.click(screen.getByRole("button", { name: "미리보기" }));
+  view.rerender(<CharacterLinePreview {...props} assets={[{ ...asset }]} />);
+  expect(screen.getByRole("button", { name: "정지" })).toHaveProperty("disabled", false);
+  view.rerender(<CharacterLinePreview {...props} assets={[{ ...asset, data: "changed-bytes" }]} />);
+  expect(screen.getByRole("button", { name: "정지" })).toHaveProperty("disabled", true);
+  expect(command).not.toHaveBeenCalled();
+});
+
 it("opens authored lines from the profile, previews the selected draft locally, and keeps save controls outside the scrolling body", async () => {
   render(<CharacterManager embedded snapshot={snapshot} />);
   const profile = screen.getByRole("tabpanel", { name: "프로필" });
@@ -73,7 +109,7 @@ it("opens authored lines from the profile, previews the selected draft locally, 
   );
 });
 
-it("separates six editing tabs and keeps the selected tab when changing characters without changing the roster", async () => {
+it("keeps editing tabs and the selected tab when changing characters without changing the roster", async () => {
   render(<CharacterManager embedded snapshot={snapshot} />);
   const tabs = within(screen.getByRole("tablist", { name: "캐릭터 편집" }));
   expect(tabs.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
@@ -81,6 +117,7 @@ it("separates six editing tabs and keeps the selected tab when changing characte
     "모습·표정",
     "말풍선",
     "대사·반응",
+    "등장·이야기",
     "기억",
     "관리",
   ]);

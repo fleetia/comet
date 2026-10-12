@@ -45,6 +45,9 @@ thread_local! {
 
 fn finish(context: &Context, phase: Phase) {
     if !context.finished.replace(true) {
+        if phase == Phase::Cancelled {
+            context.cancelled.set(true);
+        }
         super::notify(&context.window, &context.session, phase);
     }
 }
@@ -195,7 +198,31 @@ unsafe fn begin_on_window_thread(window: WebviewWindow, session: Session) {
         context.subclass_installed.set(false);
         drop(Rc::from_raw(pointer));
     }
-    finish(&context, Phase::Cancelled);
+    if context.cancelled.get() {
+        super::restore(&context.window, &context.session.start_position);
+    } else {
+        finish(&context, Phase::Cancelled);
+    }
+}
+
+pub(super) fn cancel(window: &WebviewWindow, session_id: &str) {
+    let target = window.clone();
+    let session_id = session_id.to_string();
+    let _ = window.run_on_main_thread(move || {
+        let current = ACTIVE.with(|active| unsafe {
+            active
+                .get()
+                .as_ref()
+                .is_some_and(|context| context.session.session_id == session_id)
+        });
+        if current {
+            if let Ok(handle) = target.hwnd() {
+                unsafe {
+                    PostMessageW(handle.0 as HWND, WM_CANCELMODE, 0, 0);
+                }
+            }
+        }
+    });
 }
 
 pub(super) fn double_click_ms() -> u64 {

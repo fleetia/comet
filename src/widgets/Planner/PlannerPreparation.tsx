@@ -1,5 +1,5 @@
 import { Button, Checkbox, Dialog } from "@fleetia/lagrange";
-import { useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { PreparationTool } from "../PreparationTool/PreparationTool";
 import { useConnectionCommand } from "../useConnectionCommand";
 import { record, rows, text, localDay, type DataRecord, type ToolAction } from "../toolData";
@@ -14,6 +14,8 @@ export function PlannerPreparation({
   widgets,
   act,
   openSettings,
+  onDirtyChange,
+  onBusyChange,
 }: {
   event?: DataRecord;
   calendar?: WidgetView;
@@ -21,9 +23,33 @@ export function PlannerPreparation({
   widgets: WidgetView[];
   act: ToolAction;
   openSettings: (kind?: string) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+  onBusyChange?: (busy: boolean) => void;
 }): ReactElement {
   const [opened, setOpened] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [editorVersion, setEditorVersion] = useState(0);
+  const report = useRef({ onDirtyChange, onBusyChange });
+  report.current = { onDirtyChange, onBusyChange };
+  useEffect(() => {
+    report.current.onDirtyChange?.(dirty);
+    report.current.onBusyChange?.(saving);
+  }, [dirty, saving]);
+  useEffect(
+    () => () => {
+      report.current.onDirtyChange?.(false);
+      report.current.onBusyChange?.(false);
+    },
+    [],
+  );
+  function closeEditor(): void {
+    if (saving) return;
+    if (dirty) setConfirmClose(true);
+    else setOpened(false);
+  }
   const save: ToolAction = async (action, input, target) => {
     setSaveError("");
     const ok = await act(action, input, target);
@@ -166,7 +192,9 @@ export function PlannerPreparation({
         isOpen={opened}
         title={`${text(event.title)} 준비`}
         className={s.dialog}
-        onOpenChange={setOpened}
+        onOpenChange={(open) => {
+          if (!open) closeEditor();
+        }}
         closeLabel="준비 편집 닫기"
       >
         {saveError && (
@@ -177,12 +205,37 @@ export function PlannerPreparation({
         {filteredPreparation && (
           <div className={s.form}>
             <PreparationTool
+              key={editorVersion}
               widget={filteredPreparation}
               widgets={widgets}
-              act={(action, input) => save(action, input, preparation)}
+              act={(action, input, target) => save(action, input, target ?? preparation)}
+              onDirtyChange={setDirty}
+              onBusyChange={setSaving}
             />
           </div>
         )}
+      </Dialog>
+      <Dialog
+        isOpen={confirmClose}
+        title="준비 내용을 버릴까요?"
+        onOpenChange={setConfirmClose}
+        size="small"
+      >
+        <p>저장하지 않은 일정 연결 선택이 있어요.</p>
+        <Button variant="secondary" onClick={() => setConfirmClose(false)}>
+          계속 편집
+        </Button>
+        <Button
+          variant="critical"
+          disabled={saving}
+          onClick={() => {
+            setEditorVersion((value) => value + 1);
+            setConfirmClose(false);
+            setOpened(false);
+          }}
+        >
+          저장하지 않고 닫기
+        </Button>
       </Dialog>
     </section>
   );

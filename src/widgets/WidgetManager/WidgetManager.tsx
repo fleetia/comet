@@ -288,6 +288,13 @@ export function WidgetManager({
           >
             AI로 위젯 만들기
           </Button>
+          <Button
+            variant="secondary"
+            disabled={!canAct}
+            onClick={() => void run("open_widget_workshop", { mode: "import" })}
+          >
+            위젯 JSON 가져오기
+          </Button>
           <Checkbox
             checked={workshop.automatic}
             disabled={!canAct}
@@ -298,8 +305,8 @@ export function WidgetManager({
             대화에서 필요한 도구가 보이면 자동으로 만들기
           </Checkbox>
           <Text as="p" variant="caption" tone="muted">
-            로컬 모델 또는 연결한 OpenAI 호환 API를 사용해요. 현재 AI의 자동 대화 생성 설정이
-            켜져 있을 때 자동 제작하며 최대 5분에 한 번이에요. API 이용량이 발생할 수 있어요. 기본
+            로컬 모델 또는 연결한 OpenAI 호환 API를 사용해요. 현재 AI의 자동 대화 생성 설정이 켜져
+            있을 때 자동 제작하며 최대 5분에 한 번이에요. API 이용량이 발생할 수 있어요. 기본
             JavaScript 실행환경은 앱에 포함되어 있어요.
           </Text>
         </div>

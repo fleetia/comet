@@ -1,4 +1,4 @@
-import { useMemo, useState, type JSX } from "react";
+import { useEffect, useMemo, useState, type JSX } from "react";
 import { Button, Surface } from "@fleetia/lagrange";
 import type {
   AnimationAsset,
@@ -17,21 +17,54 @@ import { CharacterWorkPanel } from "./CharacterWorkPanel";
 import * as common from "../characters.css";
 import * as s from "./CharacterEditor.css";
 
+export type CharacterPreviewLine = {
+  definition: CharacterDefinition;
+  character?: InstalledCharacter;
+  line: CharacterLine;
+  assets: AnimationAsset[];
+  durationMs: number;
+};
+
 export function CharacterLinePreview({
-  definition,
-  character,
-  line,
-  assets,
+  definition: initialDefinition,
+  character: initialCharacter,
+  line: initialLine,
+  assets: initialAssets,
   visible,
+  sequence,
 }: {
   definition: CharacterDefinition;
   character?: InstalledCharacter;
   line: CharacterLine | undefined;
   assets: AnimationAsset[];
   visible: boolean;
+  sequence?: CharacterPreviewLine[];
 }): JSX.Element {
   const [playing, setPlaying] = useState(false);
   const [version, setVersion] = useState(0);
+  const [index, setIndex] = useState(0);
+  const selected = sequence?.[index];
+  const definition = selected?.definition ?? initialDefinition;
+  const character = selected ? selected.character : initialCharacter;
+  const line = selected?.line ?? initialLine;
+  const assets = selected?.assets ?? initialAssets;
+  const previewKey = useMemo(
+    () =>
+      JSON.stringify([
+        initialCharacter?.id,
+        initialDefinition,
+        initialLine,
+        initialAssets,
+        sequence,
+        visible,
+      ]),
+    [initialCharacter?.id, initialDefinition, initialLine, initialAssets, sequence, visible],
+  );
+  useEffect(() => {
+    setPlaying(false);
+    setIndex(0);
+    setVersion((value) => value + 1);
+  }, [previewKey]);
   const expression = line?.expression ?? "평온";
   const animation = definition.animation;
   const binding =
@@ -62,17 +95,30 @@ export function CharacterLinePreview({
   const player = useAnimationPlayer({
     clip,
     binding,
-    runKey: `${version}:${line?.text ?? ""}`,
+    runKey: `${version}:${index}:${line?.text ?? ""}`,
     enabled: playing && visible,
     ready: loaded.ready,
   });
   const style = definition.balloonStyle ?? DEFAULT_BALLOON_STYLE;
   const text = useTypewriter(
-    `${version}:${line?.text ?? ""}`,
+    `${version}:${index}:${line?.text ?? ""}`,
     line?.text ?? "",
     playing && visible ? (style.textSpeed ?? 0) : 0,
     visible,
   );
+  useEffect(() => {
+    if (!playing || !visible || !sequence?.length || (clip && !loaded.ready)) return;
+    const duration = sequence[index]?.durationMs;
+    if (typeof duration !== "number" || !Number.isFinite(duration) || duration <= 0) {
+      setPlaying(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      if (index + 1 < sequence.length) setIndex(index + 1);
+      else setPlaying(false);
+    }, duration);
+    return () => window.clearTimeout(timer);
+  }, [playing, visible, index, previewKey, loaded.ready]);
   const image = spriteSource(character, expression);
   return (
     <CharacterWorkPanel className={s.authoredPreview} aria-label="선택한 대사 미리보기">
@@ -100,6 +146,7 @@ export function CharacterLinePreview({
           variant="primary"
           disabled={!line?.text.trim()}
           onClick={() => {
+            setIndex(0);
             setVersion((value) => value + 1);
             setPlaying(true);
           }}
@@ -109,7 +156,9 @@ export function CharacterLinePreview({
         <Button variant="quiet" disabled={!playing} onClick={() => setPlaying(false)}>
           정지
         </Button>
-        <span className={common.small}>원문 재생</span>
+        <span className={common.small}>
+          원문 재생{sequence && ` · ${index + 1} / ${sequence.length}`}
+        </span>
       </div>
       {loaded.error && (
         <p role="alert" className={common.small}>

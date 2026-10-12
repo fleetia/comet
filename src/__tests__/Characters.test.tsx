@@ -184,6 +184,49 @@ it("exports the current pair without private wordbook selection and treats dialo
   expect(screen.queryByLabelText("가져오기 미리보기")).toBeNull();
 });
 
+it("exports every installed member of the selected pack including an absent NPC without changing the roster", async () => {
+  const resident = { ...extra, packId: "mixed-pack" };
+  const guest = { ...extra, id: "pack-guest", packId: "mixed-pack", definition: { ...extra.definition, name: "방문자", presenceRole: "npc" as const } };
+  vi.mocked(command).mockImplementation(async (name) => name === "get_character_pack_attribution"
+    ? { author: "", sourceUrl: "" } : null);
+  render(<CharacterSharing snapshot={{ ...snapshot, characters: {
+    installed: [...PREVIEW_SNAPSHOT.characters.installed, resident, guest],
+    active: [resident.id],
+  } }} selectedId={resident.id} disabled={false} />);
+  fireEvent.change(screen.getByLabelText("내보낼 대상"), { target: { value: "pack" } });
+  fireEvent.click(screen.getByRole("button", { name: "공유 파일 내보내기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("save_character_pack", {
+    ids: [resident.id, guest.id],
+    wordbookIds: [],
+    options: { includeSprites: true, includeMemories: false, includeAffinity: false, includeMessages: false },
+  }));
+  expect(vi.mocked(command).mock.calls.some(([name]) => name === "apply_character_roster")).toBe(false);
+});
+
+it.each([7, 8])("joins imported residents only and preserves a %i-member roster capacity", async (count) => {
+  const resident = { ...extra, id: "imported-resident", packId: "mixed-pack", definition: { ...extra.definition, sourceId: "mixed-resident" } };
+  const guest = { ...extra, id: "imported-guest", packId: "mixed-pack", definition: { ...extra.definition, sourceId: "mixed-guest", presenceRole: "npc" as const } };
+  const current = Array.from({ length: count }, (_, index) => ({ ...extra, id: `current-${index}` }));
+  vi.mocked(command).mockImplementation(async (name) => name === "choose_character_pack"
+    ? { ...pack, formatVersion: 8, characters: [resident.definition, guest.definition] }
+    : name === "import_character_pack" ? [resident, guest] : undefined);
+  render(<CharacterSharing snapshot={{ ...snapshot, characters: { installed: current, active: current.map((actor) => actor.id) } }} selectedId={current[0].id} disabled={false} />);
+  fireEvent.click(screen.getByRole("button", { name: "공유 파일 가져오기" }));
+  fireEvent.click(await screen.findByRole("button", { name: "내용 확인 후 설치" }));
+  const join = await screen.findByRole("button", { name: "가져온 친구와 함께 지내기" });
+  expect(join).toHaveProperty("disabled", count === 8);
+  if (count === 8) {
+    fireEvent.click(join);
+    expect(vi.mocked(command).mock.calls.some(([name]) => name === "apply_character_roster")).toBe(false);
+    return;
+  }
+  fireEvent.click(join);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("apply_character_roster", {
+    ids: [...current.map((actor) => actor.id), resident.id],
+  }));
+  expect(vi.mocked(command).mock.calls.filter(([name]) => name === "apply_character_roster")).toHaveLength(1);
+});
+
 it("exports only the personal wordbook entries explicitly selected for sharing", async () => {
   const entries = ["공유할 인사", "개인 대사"].map((title, index) => ({
     id: `personal-${index}`,

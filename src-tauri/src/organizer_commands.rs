@@ -15,6 +15,7 @@ use tauri_plugin_dialog::DialogExt;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Status {
+    context: SearchContext,
     settings: records::OrganizerSettings,
     vaults: Vec<records::VaultConnection>,
     progress: records::OrganizerStatus,
@@ -26,6 +27,7 @@ fn status(state: &AppState) -> Result<Status, String> {
     let user = store::active_user_id(&db)?;
     let progress = records::status(&db, &user, &runtime::day())?;
     Ok(Status {
+        context: search_context(&db)?,
         settings: records::get_settings(&db, &user)?,
         vaults: records::list_vaults(&db, &user)?,
         error: lock(&state.organizer.error)?
@@ -34,6 +36,51 @@ fn status(state: &AppState) -> Result<Status, String> {
         progress,
         paused: state.organizer.paused.load(Ordering::SeqCst),
     })
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct SearchContext {
+    user_id: String,
+    revision: i64,
+}
+fn search_context(db: &rusqlite::Connection) -> Result<SearchContext, String> {
+    Ok(SearchContext {
+        user_id: store::active_user_id(db)?,
+        revision: records::scope_revision(db)?,
+    })
+}
+
+#[derive(Serialize)]
+pub(crate) struct SearchTrial {
+    context: SearchContext,
+    hits: Vec<records::SearchHit>,
+}
+fn search_trial(
+    db: &rusqlite::Connection,
+    query: &str,
+    expected_context: SearchContext,
+) -> Result<SearchTrial, String> {
+    let query = query.trim();
+    if query.is_empty() || query.chars().count() > 240 {
+        return Err("검색어는 1~240자로 입력해 주세요.".into());
+    }
+    let context = search_context(db)?;
+    if context != expected_context {
+        return Err("사용자나 검색 연결이 바뀌었어요. 현재 설정에서 다시 검색해 주세요.".into());
+    }
+    runtime::collect_comet(db, &context.user_id)?;
+    let hits = records::search(db, &context.user_id, query, 50)?;
+    Ok(SearchTrial { context, hits })
+}
+
+#[tauri::command]
+pub(crate) fn organizer_search_trial(
+    state: tauri::State<'_, Arc<AppState>>,
+    query: String,
+    expected_context: SearchContext,
+) -> Result<SearchTrial, String> {
+    search_trial(&*lock(&state.db)?, &query, expected_context)
 }
 
 #[tauri::command]
@@ -345,4 +392,140 @@ pub(crate) async fn organizer_pick_folder(app: tauri::AppHandle) -> Result<Optio
                 .map_err(|e| e.to_string())
         })
         .transpose()
+}
+
+#[cfg(test)]
+mod search_trial_tests {
+    use super::*;
+    use crate::types::Message;
+
+    fn database() -> rusqlite::Connection {
+        let db = store::open(Path::new(":memory:")).unwrap();
+        store::set_user_name(&db, "검색 검사", 1).unwrap();
+        db
+    }
+
+    #[test]
+    fn search_trial_uses_saved_scope_and_preserves_settings_messages_and_external_files() {
+        let db = database();
+        let user = store::active_user_id(&db).unwrap();
+        let settings = records::OrganizerSettings {
+            comet_enabled: true,
+            ..Default::default()
+        };
+        records::save_settings(&db, &user, &settings).unwrap();
+        store::insert_user_input(
+            &db,
+            &Message {
+                id: "search-input".into(),
+                role: "user".into(),
+                persona: Some("builtin-a".into()),
+                content: "회의에서 정한 다음 작업".into(),
+                expression: None,
+                created_at: 2,
+                status: "complete".into(),
+            },
+            false,
+        )
+        .unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let content = "# 회의 메모\n\n아직 정리하지 않은 원문";
+        std::fs::write(root.path().join("회의.md"), content).unwrap();
+        let vault =
+            records::connect_vault(&db, &user, root.path(), &[], &[], "Comet", false).unwrap();
+        records::scan_vault(&db, &user, &vault.id, &AtomicBool::new(false)).unwrap();
+        let context = search_context(&db).unwrap();
+        let messages = serde_json::to_value(store::messages(&db, 100).unwrap()).unwrap();
+        let model = serde_json::to_value(store::settings(&db).unwrap()).unwrap();
+        let result = search_trial(&db, "  회의  ", context.clone()).unwrap();
+        assert_eq!(result.context, context);
+        assert!(result
+            .hits
+            .iter()
+            .any(|hit| hit.source.kind == "conversation"));
+        assert!(result.hits.iter().any(|hit| hit.source.kind == "vault"));
+        assert!(result.hits.iter().all(|hit| hit.source.user_id == user));
+        assert_eq!(
+            serde_json::to_value(records::get_settings(&db, &user).unwrap()).unwrap(),
+            serde_json::to_value(settings).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(store::messages(&db, 100).unwrap()).unwrap(),
+            messages
+        );
+        assert_eq!(
+            serde_json::to_value(store::settings(&db).unwrap()).unwrap(),
+            model
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("회의.md")).unwrap(),
+            content
+        );
+        assert!(!root.path().join("Comet").exists());
+        assert_eq!(search_context(&db).unwrap(), context);
+        assert_eq!(
+            records::status(&db, &user, &runtime::day())
+                .unwrap()
+                .requests_today,
+            0
+        );
+    }
+
+    #[test]
+    fn search_trial_rejects_blank_oversized_and_saved_scope_a_b_a_before_collecting() {
+        let db = database();
+        let user = store::active_user_id(&db).unwrap();
+        let settings = records::OrganizerSettings::default();
+        records::save_settings(&db, &user, &settings).unwrap();
+        let original = search_context(&db).unwrap();
+        for query in ["  ".to_string(), "가".repeat(241)] {
+            assert!(search_trial(&db, &query, original.clone()).is_err());
+        }
+        records::save_settings(
+            &db,
+            &user,
+            &records::OrganizerSettings {
+                comet_enabled: true,
+                ..settings.clone()
+            },
+        )
+        .unwrap();
+        records::save_settings(&db, &user, &settings).unwrap();
+        assert!(search_context(&db).unwrap().revision > original.revision);
+        assert!(search_trial(&db, "회의", original).is_err());
+        let source_count: i64 = db
+            .query_row("SELECT COUNT(*) FROM organizer_sources", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(source_count, 0);
+        assert!(search_trial(&db, "회의", search_context(&db).unwrap())
+            .unwrap()
+            .hits
+            .is_empty());
+    }
+
+    #[test]
+    fn active_user_a_b_a_invalidates_saved_search_context_without_changing_settings() {
+        let db = database();
+        let original = search_context(&db).unwrap();
+        let other = serde_json::to_string("another-user").unwrap();
+        db.execute(
+            "UPDATE kv SET value=?1 WHERE key='active_user_id'",
+            [&other],
+        )
+        .unwrap();
+        assert!(search_trial(&db, "회의", original.clone()).is_err());
+        let returned = serde_json::to_string(&original.user_id).unwrap();
+        db.execute(
+            "UPDATE kv SET value=?1 WHERE key='active_user_id'",
+            [&returned],
+        )
+        .unwrap();
+        let current = search_context(&db).unwrap();
+        assert_eq!(current.user_id, original.user_id);
+        assert!(current.revision > original.revision);
+        assert!(search_trial(&db, "회의", original).is_err());
+        assert!(search_trial(&db, "회의", current).unwrap().hits.is_empty());
+    }
 }

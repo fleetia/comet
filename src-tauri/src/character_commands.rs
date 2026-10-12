@@ -1,6 +1,6 @@
 use crate::{
     app::{
-        interrupt, lock, now, publish,
+        lock, now, publish,
         windows::{open_settings_section, SettingsSection},
         AppState,
     },
@@ -257,7 +257,7 @@ fn mutate_inner<T>(
         if roster_changed {
             lock(&state.presence)?.reset(now());
         }
-        interrupt(state, false)?;
+        crate::app::interrupt_with_db(state, false, &db)?;
         *lock(&state.panel)? = None;
         state.idle_sequence.store(0, Ordering::SeqCst);
         state.last_input.store(now(), Ordering::SeqCst);

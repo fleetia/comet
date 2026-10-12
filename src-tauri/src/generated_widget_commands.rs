@@ -303,6 +303,7 @@ fn reactions_blocked(state: &AppState, db: &rusqlite::Connection) -> Result<bool
     let runtime = lock(&state.runtime)?;
     Ok(runtime.hidden
         || runtime.paused
+        || lock(&state.pack_stories)?.run.is_some()
         || !store::settings(db)?.autonomous_enabled
         || app::quiet_hours::automatic_blocked(state, &store::settings(db)?)?
         || state.launcher_open.load(Ordering::SeqCst)
@@ -820,10 +821,48 @@ fn editable_state(db: &rusqlite::Connection, id: &str) -> Result<Value> {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct RuleEditor {
-    rules: Vec<generated::StateRule>,
-    state: Value,
+    rules: Vec<generated::rule_editor::Draft>,
+    state_json: String,
+    baseline: String,
     characters: characters::CharacterCollection,
+}
+
+#[derive(Serialize)]
+pub(crate) struct SavedRules {
+    rules: Vec<generated::rule_editor::Draft>,
+    baseline: String,
+}
+
+fn rule_drafts(rules: Vec<generated::StateRule>) -> Result<Vec<generated::rule_editor::Draft>> {
+    rules
+        .into_iter()
+        .map(generated::rule_editor::Draft::from_rule)
+        .collect()
+}
+
+fn validate_rule_characters(
+    db: &rusqlite::Connection,
+    rules: &[generated::StateRule],
+) -> Result<()> {
+    let roster = characters::collection(db)?;
+    for rule in rules {
+        let character = roster
+            .installed
+            .iter()
+            .find(|item| item.id == rule.character_id)
+            .ok_or("대사를 말할 캐릭터를 선택해 주세요.")?;
+        if let Some(expression) = &rule.expression {
+            if !character.definition.expressions.contains_key(expression) {
+                return Err("캐릭터의 표정을 확인해 주세요.".into());
+            }
+        }
+        if let Some(motion) = &rule.motion {
+            crate::character_reactions::validate_motion(motion, &character.definition, true)?;
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -833,8 +872,10 @@ pub(crate) fn get_widget_rule_editor(
 ) -> Result<RuleEditor> {
     let db = lock(&state.db)?;
     Ok(RuleEditor {
-        rules: generated::list_rules(&db, &id)?,
-        state: editable_state(&db, &id)?,
+        rules: rule_drafts(generated::list_rules(&db, &id)?)?,
+        state_json: serde_json::to_string_pretty(&editable_state(&db, &id)?)
+            .map_err(|error| error.to_string())?,
+        baseline: generated::rule_baseline(&db, &id)?,
         characters: characters::collection(&db)?,
     })
 }
@@ -852,30 +893,44 @@ pub(crate) fn save_widget_state_rules(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
-    rules: Vec<generated::StateRule>,
-) -> Result<Vec<generated::StateRule>> {
+    rules: Vec<generated::rule_editor::Draft>,
+    expected_baseline: String,
+) -> Result<SavedRules> {
+    let rules = rules
+        .into_iter()
+        .map(generated::rule_editor::Draft::parse)
+        .collect::<Result<Vec<_>>>()?;
     let saved = crate::widget_commands::change(&state, |db| {
-        let roster = characters::collection(db)?;
-        for rule in &rules {
-            let character = roster
-                .installed
-                .iter()
-                .find(|item| item.id == rule.character_id)
-                .ok_or("대사를 말할 캐릭터를 선택해 주세요.")?;
-            if let Some(expression) = &rule.expression {
-                if !character.definition.expressions.contains_key(expression) {
-                    return Err("캐릭터의 표정을 확인해 주세요.".into());
-                }
-            }
-            if let Some(motion) = &rule.motion {
-                crate::character_reactions::validate_motion(motion, &character.definition, true)?;
-            }
-        }
+        validate_rule_characters(db, &rules)?;
         let data = editable_state(db, &id)?;
-        generated::save_rules(db, &id, rules, &data)
+        let rules =
+            generated::save_rules_expected(db, &id, rules, &data, Some(&expected_baseline))?;
+        Ok(SavedRules {
+            rules: rule_drafts(rules)?,
+            baseline: generated::rule_baseline(db, &id)?,
+        })
     })?;
     crate::widget_commands::cancel_widget_scene(&app, &state)?;
     Ok(saved)
+}
+
+#[tauri::command]
+pub(crate) fn test_widget_state_rule(
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    rule: generated::rule_editor::Draft,
+    state_json: String,
+) -> Result<generated::rule_editor::Trial> {
+    let db = lock(&state.db)?;
+    editable_state(&db, &id)?;
+    let rule = match rule.parse() {
+        Ok(rule) => rule,
+        Err(error) => return Ok(generated::rule_editor::Trial::invalid(error)),
+    };
+    if let Err(error) = validate_rule_characters(&db, std::slice::from_ref(&rule)) {
+        return Ok(generated::rule_editor::Trial::invalid(error));
+    }
+    Ok(generated::rule_editor::trial(&db, &id, &rule, &state_json))
 }
 
 fn open_editor(app: &tauri::AppHandle, label: &str, query: &str, title: &str) -> Result<()> {
@@ -897,17 +952,111 @@ fn open_editor(app: &tauri::AppHandle, label: &str, query: &str, title: &str) ->
     Ok(())
 }
 
+#[derive(Clone, Serialize, Debug, PartialEq, Eq)]
+pub(crate) struct WorkshopMode {
+    mode: String,
+    sequence: u64,
+}
+
+fn workshop_mode(db: &rusqlite::Connection) -> Result<WorkshopMode> {
+    db.execute_batch("CREATE TEMP TABLE IF NOT EXISTS workshop_mode(slot INTEGER PRIMARY KEY CHECK(slot=1),mode TEXT NOT NULL,sequence INTEGER NOT NULL)").map_err(|error| error.to_string())?;
+    db.query_row(
+        "SELECT mode,sequence FROM workshop_mode WHERE slot=1",
+        [],
+        |row| {
+            Ok(WorkshopMode {
+                mode: row.get(0)?,
+                sequence: row.get(1)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(|error| error.to_string())
+    .map(|value| {
+        value.unwrap_or(WorkshopMode {
+            mode: "create".into(),
+            sequence: 0,
+        })
+    })
+}
+
+fn select_workshop_mode(db: &rusqlite::Connection, mode: Option<&str>) -> Result<WorkshopMode> {
+    let mode = mode.unwrap_or("create");
+    if !matches!(mode, "create" | "import") {
+        return Err("위젯 제작 방식을 확인해 주세요.".into());
+    }
+    let sequence = workshop_mode(db)?
+        .sequence
+        .checked_add(1)
+        .ok_or("위젯 제작창을 다시 열어 주세요.")?;
+    db.execute("INSERT INTO workshop_mode VALUES(1,?1,?2) ON CONFLICT(slot) DO UPDATE SET mode=excluded.mode,sequence=excluded.sequence", params![mode,sequence]).map_err(|error| error.to_string())?;
+    Ok(WorkshopMode {
+        mode: mode.into(),
+        sequence,
+    })
+}
+
 #[tauri::command]
-pub(crate) fn open_widget_workshop(app: tauri::AppHandle) -> Result<()> {
+pub(crate) fn get_widget_workshop_mode(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<WorkshopMode> {
+    workshop_mode(&*lock(&state.db)?)
+}
+
+#[tauri::command]
+pub(crate) fn open_widget_workshop(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    mode: Option<String>,
+) -> Result<()> {
+    let request = {
+        let _action = lock(&state.action)?;
+        select_workshop_mode(&*lock(&state.db)?, mode.as_deref())?
+    };
     open_editor(
         &app,
         "widget-workshop",
-        "view=widget-workshop",
+        &format!(
+            "view=widget-workshop&mode={}&sequence={}",
+            request.mode, request.sequence
+        ),
         "comet · AI 위젯 만들기",
-    )
+    )?;
+    app.emit_to("widget-workshop", "widget-workshop-mode", &request)
+        .map_err(|error| error.to_string())
+}
+
+fn cancel_workshop_job(
+    state: &AppState,
+    db: &rusqlite::Connection,
+    expected_epoch: Option<u64>,
+) -> Result<bool> {
+    let Some(job) = binding(db)? else {
+        return Ok(false);
+    };
+    if job.automatic || job.target.is_some() {
+        return Ok(false);
+    }
+    cancel_bound(state, db, None, false, expected_epoch)
+}
+
+pub(crate) fn cancel_workshop_for_window(
+    app: &tauri::AppHandle,
+    expected_epoch: Option<u64>,
+) -> Result<()> {
+    let state = app.state::<Arc<AppState>>();
+    let changed = {
+        let _action = lock(&state.action)?;
+        cancel_workshop_job(&state, &*lock(&state.db)?, expected_epoch)?
+    };
+    if changed {
+        app::publish(app, &state);
+    }
+    Ok(())
 }
 #[tauri::command]
 pub(crate) fn close_widget_workshop(app: tauri::AppHandle) -> Result<()> {
+    cancel_workshop_for_window(&app, None)?;
     if let Some(window) = app.get_webview_window("widget-workshop") {
         window.destroy().map_err(|e| e.to_string())?;
     }
@@ -1217,6 +1366,49 @@ fn detector_prompt(message: &str, existing: &[String]) -> Vec<ChatMessage> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workshop_mode_is_validated_and_ready_reads_the_latest_monotonic_request() {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        assert_eq!(workshop_mode(&db).unwrap().mode, "create");
+        let first = select_workshop_mode(&db, Some("import")).unwrap();
+        let second = select_workshop_mode(&db, None).unwrap();
+        let last = select_workshop_mode(&db, Some("import")).unwrap();
+        assert!(first.sequence < second.sequence && second.sequence < last.sequence);
+        assert_eq!(workshop_mode(&db).unwrap(), last);
+        assert!(select_workshop_mode(&db, Some("unknown")).is_err());
+        assert_eq!(workshop_mode(&db).unwrap(), last);
+        assert_eq!(
+            db.query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name='workshop_mode'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn workshop_close_only_cancels_its_current_manual_creation() {
+        let state = app::tests::state();
+        let _action = lock(&state.action).unwrap();
+        let db = lock(&state.db).unwrap();
+        let creation = tasks::reserve(&state, tasks::Kind::WidgetGeneration, false).unwrap();
+        bind_generation(&db, creation.0, None, false).unwrap();
+        assert!(cancel_workshop_job(&state, &db, Some(creation.0)).unwrap());
+        assert!(creation.1.load(Ordering::SeqCst));
+        let next = tasks::reserve(&state, tasks::Kind::WidgetGeneration, false).unwrap();
+        bind_generation(&db, next.0, None, false).unwrap();
+        assert!(!cancel_workshop_job(&state, &db, Some(creation.0)).unwrap());
+        bind_generation(&db, next.0, Some("repair-target"), false).unwrap();
+        assert!(!cancel_workshop_job(&state, &db, None).unwrap());
+        assert!(!next.1.load(Ordering::SeqCst));
+        let background = tasks::reserve(&state, tasks::Kind::Background, true).unwrap();
+        bind_generation(&db, background.0, None, true).unwrap();
+        assert!(!cancel_workshop_job(&state, &db, None).unwrap());
+        assert!(!background.1.load(Ordering::SeqCst));
+    }
 
     fn definition() -> generated::Definition {
         generated::Definition{name:"단수".into(),description:"뜨개질 단수".into(),source:"function render(s){return [{type:'number',value:s.count}]} function reduce(s,a){return a.type==='add'?{...s,count:s.count+1}:s}".into(),initial_state:json!({"count":0})}

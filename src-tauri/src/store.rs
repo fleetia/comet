@@ -46,10 +46,14 @@ pub use messages::insert_message;
 pub use messages::{
     context_messages, context_messages_for, expire_generated_recall, has_turn_replies,
     input_ai_only, insert_message_with_playback, insert_user_input, mark_message_displayed,
-    message_displayed, message_identities, message_targets, messages, resume_conversation,
-    save_reply_scene, saved_reply, saved_reply_scene, MessageIdentity,
+    mark_message_finished, message_displayed, message_finished, message_identities,
+    message_targets, messages, reply_scene_source, resume_conversation, save_reply_scene,
+    save_reply_scene_with_source, saved_reply, saved_reply_for_participants, saved_reply_scene,
+    saved_reply_scene_for_participants, select_input_ai_route, select_single_bundle_targets,
+    single_bundle_selected, single_bundle_targets, MessageIdentity,
 };
 use messages::{initialize_identities, initialize_message_context};
+pub(crate) use messages::{insert_message_with_actor, save_generated_bundle};
 #[cfg(test)]
 pub use messages::{insert_message_with_source, insert_message_with_talk};
 pub use search::{
@@ -105,6 +109,7 @@ INSERT OR IGNORE INTO kv VALUES('revision','0');").map_err(err)?;
     quiet_hours::migrate(&conn)?;
     crate::diary::initialize(&conn)?;
     crate::generated_widgets::initialize(&conn)?;
+    crate::pack_stories::initialize(&conn)?;
     crate::organizer::initialize(&conn)?;
     crate::organizer_actions::initialize(&conn)?;
     Ok(conn)
@@ -177,6 +182,24 @@ pub fn delete_scene(conn: &Connection, id: &str) -> Result<()> {
 pub fn window_position(conn: &Connection, label: &str) -> Result<Option<WindowPosition>> {
     get(conn, &format!("window:{label}"))
 }
+pub(crate) fn migrate_body_position(
+    conn: &Connection,
+    label: &str,
+    legacy: Option<&str>,
+) -> Result<Option<WindowPosition>> {
+    if let Some(position) = window_position(conn, label)? {
+        return Ok(Some(position));
+    }
+    let position = legacy
+        .map(|legacy| window_position(conn, legacy))
+        .transpose()?
+        .flatten();
+    if let Some(position) = &position {
+        set_window_position(conn, label, position)?;
+    }
+    Ok(position)
+}
+
 pub fn set_window_position(conn: &Connection, label: &str, pos: &WindowPosition) -> Result<()> {
     put(conn, &format!("window:{label}"), pos)
 }

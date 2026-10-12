@@ -25,7 +25,7 @@ type Props = {
   action?: SharingAction | null;
   onActionChange?: (action: SharingAction | null) => void;
   contentDirty?: boolean;
-  exportScope?: "selected" | "pair";
+  exportScope?: "selected" | "pair" | "pack";
 };
 export function CharacterSharing({
   children,
@@ -117,13 +117,21 @@ export function CharacterSharing({
       void choosePack();
     }
   }, [action]);
+  const packMembers = packId
+    ? snapshot.characters.installed.filter((character) => character.packId === packId)
+    : [];
   const ids =
-    (exportScope ?? scope) === "pair" && active.length > 1
+    (exportScope ?? scope) === "pack"
+      ? packMembers.map((character) => character.id)
+      : (exportScope ?? scope) === "pair" && active.length > 1
       ? active
       : selectedId
         ? [selectedId]
         : [];
-  const joining = installed.map((character) => character.id).filter((id) => !active.includes(id));
+  const joining = installed
+    .filter((character) => character.definition.presenceRole !== "npc")
+    .map((character) => character.id)
+    .filter((id) => !active.includes(id));
   async function run(action: () => Promise<void>): Promise<void> {
     if (lock.current || disabled) return;
     lock.current = true;
@@ -238,6 +246,9 @@ export function CharacterSharing({
                   <option value="pair" disabled={active.length < 2}>
                     함께 지내는 친구들의 조합
                   </option>
+                  <option value="pack" disabled={!packMembers.length}>
+                    팩 전체 내보내기 · NPC 포함
+                  </option>
                 </Select>
               </label>
             )}
@@ -251,6 +262,9 @@ export function CharacterSharing({
                 .join(" + ")}{" "}
               · 저장된 내용으로 내보내요.
             </p>
+            {(exportScope ?? scope) === "pack" && (
+              <p className={ui.quiet}>같은 팩의 상주 친구와 NPC를 모두 포함해요. 함께 지내는 구성은 바뀌지 않아요.</p>
+            )}
             <div className={ui.row} role="group" aria-label="내보내기 구성">
               <Button
                 variant="secondary"

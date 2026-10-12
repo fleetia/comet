@@ -5,6 +5,7 @@ import { command } from "../../hooks/useSnapshot";
 import { Diary } from "../Planner/Diary";
 import type { DiaryState } from "../Planner/diaryTypes";
 import type { DataRecord } from "../toolData";
+import { localDay } from "../toolData";
 import type { WidgetSnapshot, WidgetView } from "../types";
 import { WIDGET_DRAG_TYPE, type WidgetDragPayload } from "../widgetDrag";
 
@@ -146,6 +147,91 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   vi.useRealTimers();
+});
+
+it("creates one quick task on the selected date without duplicating a diary record", async () => {
+  setTasks([]);
+  execute = (request) => {
+    expect(request.expectedRevision).toBe(7);
+    expect(request.input).toEqual({ title: "한 줄 할 일", plannedDate: localDay() });
+    widgets.widgets[0].revision += 1;
+    return "quick-task";
+  };
+  await openDiary();
+  fireEvent.click(screen.getByRole("button", { name: "빠른 할 일 추가" }));
+  fireEvent.change(screen.getByLabelText(/빠른 할 일 제목/), { target: { value: "한 줄 할 일" } });
+  fireEvent.click(screen.getByRole("button", { name: "할 일 저장" }));
+  await waitFor(() => expect(screen.queryByRole("form", { name: "빠른 할 일" })).toBeNull());
+  expect(actions("execute_widget")).toHaveLength(1);
+  expect(actions("update_diary")).toEqual([]);
+});
+
+it("keeps a collapsed quick-task draft and warns before navigation and native close", async () => {
+  await openDiary();
+  fireEvent.click(screen.getByRole("button", { name: "빠른 할 일 추가" }));
+  fireEvent.change(screen.getByLabelText(/빠른 할 일 제목/), { target: { value: "나중에 저장" } });
+  fireEvent.click(screen.getByRole("button", { name: "닫아두기" }));
+  fireEvent.click(screen.getByRole("button", { name: "빠른 할 일 추가" }));
+  expect(screen.getByLabelText(/빠른 할 일 제목/)).toHaveProperty("value", "나중에 저장");
+  fireEvent.click(screen.getByRole("button", { name: "월간" }));
+  expect(screen.getByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
+  const event = { preventDefault: vi.fn() };
+  act(() => native.onCloseRequested.mock.calls[0][0](event));
+  expect(event.preventDefault).toHaveBeenCalledOnce();
+  expect(native.destroy).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "저장하지 않고 닫기" }));
+  expect(native.destroy).toHaveBeenCalledOnce();
+  expect(actions("execute_widget")).toEqual([]);
+});
+
+it("keeps failed quick input for retry and synchronously blocks duplicate submissions", async () => {
+  setTasks([]);
+  execute = () => {
+    throw new Error("저장 실패");
+  };
+  await openDiary();
+  fireEvent.click(screen.getByRole("button", { name: "빠른 할 일 추가" }));
+  fireEvent.change(screen.getByLabelText(/빠른 할 일 제목/), { target: { value: "실패한 제목" } });
+  fireEvent.click(screen.getByRole("button", { name: "할 일 저장" }));
+  await screen.findByRole("alert");
+  expect(screen.getByLabelText(/빠른 할 일 제목/)).toHaveProperty("value", "실패한 제목");
+  execute = () => "retried";
+  const form = screen.getByRole("form", { name: "빠른 할 일" });
+  act(() => {
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+  });
+  await waitFor(() => expect(screen.queryByRole("form", { name: "빠른 할 일" })).toBeNull());
+  expect(actions("execute_widget")).toHaveLength(2);
+});
+
+it("uses no planned date in the collection and enables Todo before creating its quick task", async () => {
+  widgets.widgets = [{ ...widget("todo", { items: [] }), enabled: false }];
+  const original = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "set_widget_enabled") {
+      widgets.widgets[0].enabled = true;
+      widgets.widgets[0].revision = 9;
+      return;
+    }
+    return original(name, args);
+  });
+  execute = (request) => {
+    expect(request.expectedRevision).toBe(9);
+    expect(request.input).toEqual({ title: "날짜 없는 할 일", plannedDate: null });
+    return "collection-task";
+  };
+  await openDiary();
+  fireEvent.click(screen.getByRole("button", { name: "기간 계획" }));
+  fireEvent.click(screen.getByRole("button", { name: "빠른 할 일 추가" }));
+  fireEvent.change(screen.getByLabelText(/빠른 할 일 제목/), {
+    target: { value: "날짜 없는 할 일" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "할 일 저장" }));
+  await waitFor(() => expect(actions("execute_widget")).toHaveLength(1));
+  expect(command).toHaveBeenCalledWith("set_widget_enabled", { id: "todo", enabled: true });
+  expect(actions("update_diary")).toEqual([]);
 });
 
 it("opens the exact stored note from a conversation without changing its location or discarding an editor draft", async () => {

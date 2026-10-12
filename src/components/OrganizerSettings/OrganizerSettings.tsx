@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { Button, Checkbox, FormField, Surface, TextField } from "@fleetia/lagrange";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import {
@@ -6,7 +7,9 @@ import {
   PREVIEW_ORGANIZER_STATUS,
   type OrganizerSettingsValue,
   type OrganizerStatus,
+  type OrganizerSearchHit,
 } from "../../organizer/types";
+import type { Snapshot } from "../../types";
 import * as s from "./organizerSettings.css";
 import * as common from "../../lagrange.css";
 
@@ -49,6 +52,25 @@ export function OrganizerSettings({
   const fetching = useRef(false);
   const lock = useRef(false);
   const epoch = useRef(0);
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<OrganizerSearchHit[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const searchSequence = useRef(0);
+  const searchPending = useRef(false);
+  const context = useRef(status?.context ?? null);
+  function cancelSearchResult(): void {
+    searchSequence.current += 1;
+    searchPending.current = false;
+    setSearching(false);
+    setHits(null);
+    setSearchError(null);
+  }
+  function acceptStatus(next: OrganizerStatus): void {
+    if (JSON.stringify(context.current) !== JSON.stringify(next.context)) cancelSearchResult();
+    context.current = next.context;
+    setStatus(next);
+  }
   dirty.current = settingsDirty;
   const vaultDirty = Boolean(
     root || include || exclude !== DEFAULT_EXCLUDE || outputDir !== "comet-ex-brain" || automatic,
@@ -63,7 +85,7 @@ export function OrganizerSettings({
     try {
       const next = await command<OrganizerStatus>("organizer_status");
       if (mounted.current && version === epoch.current && next) {
-        setStatus(next);
+        acceptStatus(next);
         if (!dirty.current) setSettings(next.settings);
       }
     } catch (cause) {
@@ -79,15 +101,30 @@ export function OrganizerSettings({
     const timer = setInterval(() => {
       if (!document.hidden) void refresh();
     }, 3000);
+    const cleanups: (() => void)[] = [];
+    const retain = (cleanup: () => void): void => { if (mounted.current) cleanups.push(cleanup); else cleanup(); };
+    void listen("organizer-updated", () => void refresh()).then(retain).catch(() => {});
+    void listen<Snapshot>("app-state", (event) => {
+      if ((event.payload.user?.id ?? "legacy-user") !== context.current?.userId) {
+        cancelSearchResult();
+        epoch.current += 1;
+        lock.current = false;
+        setPending(null);
+        void refresh();
+      }
+    }).then(retain).catch(() => {});
     return () => {
       mounted.current = false;
       epoch.current += 1;
+      searchSequence.current += 1;
+      cleanups.forEach((cleanup) => cleanup());
       clearInterval(timer);
     };
   }, []);
   async function run(name: string, args?: Record<string, unknown>): Promise<void> {
     if (lock.current && name !== "organizer_pause") return;
     lock.current = true;
+    if (["organizer_save_settings", "organizer_connect_vault", "organizer_disconnect_vault"].includes(name)) cancelSearchResult();
     const version = ++epoch.current;
     setPending(name);
     setError(null);
@@ -129,6 +166,35 @@ export function OrganizerSettings({
     setSettingsDirty(true);
     setSettings((previous) => ({ ...previous, [key]: value }));
     setNotice(null);
+  }
+  async function search(): Promise<void> {
+    const value = query.trim();
+    const expectedContext = context.current;
+    if (!value || [...value].length > 240 || !expectedContext || searchPending.current || !isDesktop()) return;
+    searchPending.current = true;
+    const sequence = ++searchSequence.current;
+    setSearching(true);
+    setHits(null);
+    setSearchError(null);
+    const current = (): boolean => mounted.current && sequence === searchSequence.current && JSON.stringify(context.current) === JSON.stringify(expectedContext);
+    try {
+      const result = await command<{ context: OrganizerStatus["context"]; hits: OrganizerSearchHit[] }>("organizer_search_trial", { query: value, expectedContext });
+      if (!current()) return;
+      const latest = await command<OrganizerStatus>("organizer_status");
+      if (!current()) return;
+      acceptStatus(latest);
+      if (current() && JSON.stringify(result.context) === JSON.stringify(expectedContext)) setHits(result.hits);
+    } catch (cause) {
+      if (!current()) return;
+      try {
+        const latest = await command<OrganizerStatus>("organizer_status");
+        if (!current()) return;
+        acceptStatus(latest);
+        if (current()) setSearchError(errorText(cause));
+      } catch { if (current()) setSearchError("검색 연결을 다시 확인한 뒤 시도해 주세요."); }
+    } finally {
+      if (mounted.current && sequence === searchSequence.current) { searchPending.current = false; setSearching(false); }
+    }
   }
   const disabled = Boolean(pending || !isDesktop() || !status);
   const valid =
@@ -328,6 +394,18 @@ export function OrganizerSettings({
           </fieldset>
         </details>
       </section>
+      <details className={s.section} onToggle={(event) => { if (!event.currentTarget.open) cancelSearchResult(); }}>
+        <summary>검색 시험</summary>
+        <form onSubmit={(event) => { event.preventDefault(); void search(); }}>
+          <FormField label="검색어"><TextField value={query} maxLength={240} onChange={(event) => { cancelSearchResult(); setQuery(event.target.value); }} /></FormField>
+          <Button type="submit" variant="secondary" disabled={!isDesktop() || !status || !query.trim() || searching}>검색</Button>
+        </form>
+        <p className={s.caption}>저장된 자료 연결에서 찾아요. 설정과 원문은 바꾸지 않아요.</p>
+        {searching && <p role="status">검색 중…</p>}
+        {hits?.length === 0 && <p role="status">검색 결과가 없어요.</p>}
+        {hits && hits.length > 0 && <ul>{hits.map((hit) => <li key={`${hit.source.id}:${hit.recordId ?? "source"}`}><strong>{hit.title}</strong><p>{hit.excerpt}</p></li>)}</ul>}
+        {searchError && <p role="alert" className={common.error}>{searchError}</p>}
+      </details>
       <section className={s.section} aria-label="정리 진행 상황">
         <h3 className={s.heading}>정리 진행 상황</h3>
         {progress && (

@@ -6,7 +6,7 @@ use super::{
 };
 use super::{publish, schedule_idle, unavailable};
 use crate::widget_backgrounds::{self, SCHEME as WIDGET_BACKGROUND_SCHEME};
-use crate::{behavior, desktop_menu, desktop_toys, updater};
+use crate::{behavior, characters, desktop_menu, desktop_toys, updater};
 use crate::{
     character_commands::{self, serve_sprite, SPRITE_SCHEME},
     desktop, device_wake, inference, store, story, story_host, talk_host,
@@ -224,6 +224,7 @@ pub fn run() {
                 talk_playback: Mutex::new(None),
                 talk_turn: AtomicBool::new(true),
                 story: Mutex::new(None),
+                pack_stories: Mutex::new(crate::pack_stories::Runtime::default()),
                 story_clock: Mutex::new(story::Clock::default()),
                 story_catalog: Mutex::new(story_catalog),
                 widget_jobs: Mutex::new(HashMap::new()),
@@ -245,6 +246,8 @@ pub fn run() {
                 behavior: Mutex::new(behavior::Machine::default()),
                 reactions: Mutex::new(crate::character_reaction_host::Runtime::default()),
                 animation_states: Mutex::new(crate::character_animation_states::Runtime::default()),
+                life: Mutex::new(crate::character_life::Runtime::default()),
+                guests: Mutex::new(crate::character_guests::Runtime::default()),
                 positions: Mutex::new(HashMap::new()),
             });
             app.manage(state.clone());
@@ -316,6 +319,19 @@ pub fn run() {
                 }
                 return;
             }
+            if window.label() == "widget-workshop" {
+                if matches!(event, WindowEvent::Destroyed) {
+                    let app = window.app_handle().clone();
+                    let epoch = window.state::<Arc<AppState>>().epoch.load(Ordering::SeqCst);
+                    tauri::async_runtime::spawn(async move {
+                        let _ = crate::generated_widget_commands::cancel_workshop_for_window(
+                            &app,
+                            Some(epoch),
+                        );
+                    });
+                }
+                return;
+            }
             if window.label() == "launcher" {
                 launcher::window_event(window, event);
                 return;
@@ -341,6 +357,33 @@ pub fn run() {
             if !face && !desktop::is_body(window.label()) {
                 return;
             }
+            if let WindowEvent::Destroyed = event {
+                let state = window.state::<Arc<AppState>>();
+                let identity = crate::character_reaction_host::native_window_identity(window);
+                let tracked =
+                    crate::character_guests::forget_window(&state, window.label(), identity)
+                        .unwrap_or(false);
+                let missing = window
+                    .app_handle()
+                    .get_webview_window(window.label())
+                    .is_none_or(|current| {
+                        crate::character_reaction_host::window_identity(&current) == 0
+                    });
+                if tracked || missing {
+                    if missing {
+                        let _ =
+                            crate::character_guests::forget_missing_window(&state, window.label());
+                    }
+                    if !face {
+                        crate::character_gestures::cancel_window(
+                            window.app_handle(),
+                            window.label(),
+                        );
+                    }
+                    crate::character_collision_host::remove(window.app_handle(), window.label());
+                }
+                return;
+            }
             if !face {
                 match event {
                     WindowEvent::Moved(_)
@@ -350,30 +393,48 @@ pub fn run() {
                         window.app_handle(),
                         window.label(),
                     ),
-                    WindowEvent::Destroyed => {
-                        crate::character_gestures::cancel_window(
-                            window.app_handle(),
-                            window.label(),
-                        );
-                        crate::character_collision_host::remove(window.app_handle(), window.label())
-                    }
                     _ => {}
                 }
             }
             let state = window.state::<Arc<AppState>>();
             match event {
                 WindowEvent::Moved(pos) => {
-                    if let Ok(mut positions) = lock(&state.positions) {
-                        positions.insert(
-                            window.label().into(),
-                            (
-                                WindowPosition {
-                                    x: pos.x as f64,
-                                    y: pos.y as f64,
-                                },
-                                Instant::now(),
-                            ),
-                        );
+                    crate::character_gestures::trace_window_moved(window, pos);
+                    if crate::character_guests::window_authority(
+                        &state,
+                        window.label(),
+                        crate::character_reaction_host::native_window_identity(window),
+                    )
+                    .ok()
+                    .flatten()
+                    .is_none()
+                    {
+                        return;
+                    }
+                    if !face {
+                        crate::character_gestures::moved(window.app_handle(), window.label());
+                    }
+                    let resident_face = face
+                        && crate::character_guests::window_authority(
+                            &state,
+                            window.label(),
+                            crate::character_reaction_host::native_window_identity(window),
+                        )
+                        .ok()
+                            == Some(Some(None));
+                    if resident_face {
+                        if let Ok(mut positions) = lock(&state.positions) {
+                            positions.insert(
+                                window.label().into(),
+                                (
+                                    WindowPosition {
+                                        x: pos.x as f64,
+                                        y: pos.y as f64,
+                                    },
+                                    Instant::now(),
+                                ),
+                            );
+                        }
                     }
                     if !face {
                         if let Ok(data) = snapshot(&state) {
@@ -383,13 +444,41 @@ pub fn run() {
                 }
                 WindowEvent::CloseRequested { api, .. } if face => {
                     api.prevent_close();
-                    if let Some(view) = window.app_handle().get_webview_window(window.label()) {
+                    if let Some(view) = window
+                        .app_handle()
+                        .get_webview_window(window.label())
+                        .filter(|view| {
+                            crate::character_reaction_host::window_identity(view)
+                                == crate::character_reaction_host::native_window_identity(window)
+                        })
+                    {
                         let _ = desktop::hide_ambient(&view);
                     }
                 }
                 WindowEvent::CloseRequested { api, .. } => {
                     api.prevent_close();
                     let app = window.app_handle().clone();
+                    let authority = crate::character_guests::window_authority(
+                        &state,
+                        window.label(),
+                        crate::character_reaction_host::native_window_identity(window),
+                    )
+                    .ok()
+                    .flatten();
+                    if let Some(Some(generation)) = authority {
+                        let Some(id) = window.label().strip_prefix("body-") else {
+                            return;
+                        };
+                        let id = id.to_string();
+                        let state = state.inner().clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ = crate::character_guests::close(&app, &state, &id, generation);
+                        });
+                        return;
+                    }
+                    if authority.is_none() {
+                        return;
+                    }
                     tauri::async_runtime::spawn(async move {
                         let state = app.state::<Arc<AppState>>();
                         let _ = hide_boxes(app.clone(), state).await;
@@ -399,7 +488,13 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            crate::character_guests::leave_character_guest,
+            crate::pack_story_commands::get_pack_story_definition,
+            crate::pack_story_commands::save_pack_story_definition,
+            crate::pack_story_commands::trial_pack_story,
+            crate::pack_story_commands::trial_pack_authoring,
             crate::generated_widget_commands::get_generated_widgets,
+            crate::generated_widget_commands::get_widget_workshop_mode,
             crate::generated_widget_commands::open_widget_workshop,
             crate::generated_widget_commands::close_widget_workshop,
             crate::generated_widget_commands::open_widget_state_rules,
@@ -418,10 +513,21 @@ pub fn run() {
             crate::generated_widget_commands::close_generated_widget,
             crate::generated_widget_commands::get_widget_state_rules,
             crate::generated_widget_commands::save_widget_state_rules,
+            crate::generated_widget_commands::test_widget_state_rule,
+            crate::organizer_commands::organizer_search_trial,
             super::autostart::get_autostart_enabled,
             super::autostart::set_autostart_enabled,
             crate::character_gestures::get_character_gesture_settings,
+            crate::character_gestures::trace_character_gesture,
             crate::character_gestures::begin_character_drag,
+            crate::character_gestures::cancel_character_drag,
+            crate::character_gestures::trigger_character_interaction,
+            crate::character_gestures::arm_character_move,
+            crate::character_gestures::give_character_snack,
+            crate::character_life::begin_character_contact,
+            crate::character_life::set_character_sleep,
+            crate::character_life::give_character_item,
+            crate::character_life::wandering::report_character_motion_preference,
             crate::character_reaction_host::trigger_character_reaction,
             crate::character_reaction_host::acknowledge_character_reaction,
             crate::character_reaction_host::get_character_reaction_events,
@@ -729,8 +835,16 @@ pub(crate) fn flush_positions(state: &AppState, all: bool) -> Result<(), String>
         .map(|(id, (pos, _))| (id.clone(), pos.clone()))
         .collect::<Vec<_>>();
     let db = lock(&state.db)?;
+    let residents = characters::active_ids(&db)?;
     for (id, pos) in due {
-        store::set_window_position(&db, &id, &pos)?;
+        let resident_face = id
+            .strip_prefix("face-")
+            .is_some_and(|owner| residents.iter().any(|id| id == owner));
+        let legacy_resident =
+            characters::slot_index(&id).is_ok_and(|slot| residents.get(slot).is_some());
+        if resident_face || legacy_resident {
+            store::set_window_position(&db, &id, &pos)?;
+        }
         positions.remove(&id);
     }
     Ok(())

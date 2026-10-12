@@ -142,11 +142,15 @@ export function TimerTool({
   widgets,
   act,
   headerActionsTarget,
+  onSettingsDirtyChange,
+  onSettingsBusyChange,
 }: {
   widget: WidgetView;
   widgets: WidgetView[];
   act: ToolAction;
   headerActionsTarget?: HTMLElement | null;
+  onSettingsDirtyChange?: (dirty: boolean) => void;
+  onSettingsBusyChange?: (busy: boolean) => void;
 }): ReactElement {
   const data = record(widget.data);
   const [now, setNow] = useState(Date.now());
@@ -722,6 +726,8 @@ export function TimerTool({
           calendar={calendar}
           act={act}
           onClose={() => setSettingsOpen(false)}
+          onDirtyChange={onSettingsDirtyChange}
+          onBusyChange={onSettingsBusyChange}
         />
       )}
     </section>

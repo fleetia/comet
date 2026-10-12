@@ -21,13 +21,152 @@ export type CharacterReactionRun = {
   event: string;
   expression?: string;
   motion: MotionOverride;
+  phase?: "start" | "hold" | "end";
+  phaseGeneration?: number;
+  definitionRevision?: string;
+};
+export type CharacterBodyRegion = {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  grabPoint?: { x: number; y: number };
+};
+export type CharacterGestureMotion = {
+  id: string;
+  gesture:
+    | "poke"
+    | "stroke"
+    | "cheek-grab"
+    | "pickup"
+    | "snack"
+    | "wake"
+    | "drink"
+    | "gift"
+    | "idle-yawn"
+    | "idle-stretch"
+    | "walk"
+    | "fast-walk"
+    | "crawl"
+    | "climb"
+    | "short-fall"
+    | "peek";
+  regionId?: string;
+  expression?: string;
+  start?: MotionOverride;
+  hold?: MotionOverride;
+  movingHold?: MotionOverride;
+  end?: MotionOverride;
 };
 export type ReactionPreview = {
   selection: { ruleId: string; variant: ReactionVariant; speechAllowed: boolean } | null;
   speechReason: string | null;
 };
 export type CharacterLine = { expression: string; text: string; motion?: MotionOverride };
-export type CharacterRelationship = { targetId: string; description: string };
+export type CharacterRelationship = {
+  targetId: string;
+  description: string;
+  replyLines?: CharacterLine[];
+};
+export type CharacterNpc = {
+  inviteKeywords: string[];
+  appearanceKeywords: string[];
+  requiredFlags: string[];
+  entryLines: CharacterLine[];
+  exitPolicy: "sceneEnd" | "topicChange";
+};
+export type StoryFlag = { id: string; public: boolean };
+export type ConditionalKnowledge = {
+  id: string;
+  keywords: string[];
+  text: string;
+  knownBy: string[];
+  requiredFlags: string[];
+};
+export type ScenarioDefinition = {
+  id: string;
+  title: string;
+  centerId: string;
+  participants: string[];
+  keywords: string[];
+  requiredFlags: string[];
+  minAffinity: number;
+  intro: SceneLine[];
+  accept: SceneLine[];
+  decline: SceneLine[];
+  ending: SceneLine[];
+  acceptKeywords: string[];
+  declineKeywords: string[];
+  proceedKeywords: string[];
+  cancelKeywords: string[];
+  acceptNextId: string | null;
+  declineNextId: string | null;
+  allowIncompleteRepeat: boolean;
+  allowRepeat: boolean;
+  completion: { setFlags: string[]; memoryTemplate: string | null };
+};
+export type PackStoryDefinition = {
+  worldRules: string;
+  storyFlags: StoryFlag[];
+  knowledge: ConditionalKnowledge[];
+  scenarios: ScenarioDefinition[];
+};
+export type PackStorySnapshot = {
+  packId: string;
+  definition: PackStoryDefinition;
+  baseline: string;
+  sourceToLocal: Record<string, string>;
+};
+export type AuthoringSubject =
+  | { kind: "npc"; actorId: string }
+  | { kind: "relation"; actorId: string; targetId: string }
+  | { kind: "scenario"; scenarioId: string };
+export type AuthoringStage = "entry" | "intro" | "accept" | "decline" | "ending";
+export type AuthoringState = {
+  stage: AuthoringStage | null;
+  ready: boolean;
+  presentIds: string[];
+  flags: string[];
+  turn: number;
+  waitTurn: number;
+  pendingNextScenarioId: string | null;
+};
+export type AuthoringTrialRequest = {
+  actors: { id: string; packId: string | null; definition: CharacterDefinition }[];
+  definition: PackStoryDefinition;
+  subject: AuthoringSubject;
+  context: {
+    centerId: string;
+    presentIds: string[];
+    flags: string[];
+    affinity: number;
+    turn: number;
+    waitTurn: number;
+    completedScenarioIds: string[];
+    incompleteScenarioIds: string[];
+  };
+  inputs: string[];
+};
+export type AuthoringTrialTrace = {
+  blockedReasons: string[];
+  steps: {
+    input: string | null;
+    source: "registered" | "none";
+    stage: AuthoringStage | null;
+    conditions: { id: string; label: string; matched: boolean }[];
+    blockedReasons: string[];
+    beforeState: AuthoringState;
+    afterState: AuthoringState;
+    lines: SceneLine[];
+    lineDurationsMs: number[];
+    plannedEffects: ScenarioDefinition["completion"];
+    modelRequired: boolean;
+    modelNotRunReason: string | null;
+    presentationAssumed: boolean;
+  }[];
+};
 export type BalloonStyle = {
   fontSize: number;
   fontFamily: string;
@@ -44,7 +183,10 @@ export type AnimationFrame = {
 export type AnimationClip = { id: string; name: string; fps: number; frames: AnimationFrame[] };
 export type AnimationBinding = { clipId: string; repeat: boolean; intervalMs: number };
 export type AnimationBindings = Partial<
-  Record<"idle" | "speaking" | "click" | "musicPlaying" | "calendarOpen", AnimationBinding | null>
+  Record<
+    "idle" | "speaking" | "click" | "musicPlaying" | "calendarOpen" | "sleep" | "focus" | "rest",
+    AnimationBinding | null
+  >
 >;
 export type CharacterAnimation = {
   clips: AnimationClip[];
@@ -60,12 +202,16 @@ export type CharacterDefinition = {
   personality: string;
   instructions: string;
   relationships: CharacterRelationship[];
+  presenceRole?: "resident" | "npc";
+  npc?: CharacterNpc | null;
   expressions: Record<string, string>;
   faceIcon: boolean;
   spriteSize: number;
   balloonStyle?: BalloonStyle;
   animation?: CharacterAnimation | null;
   reactions?: ReactionRule[];
+  bodyRegions?: CharacterBodyRegion[];
+  gestureMotions?: CharacterGestureMotion[];
   greeting: CharacterLine[];
   idleLines: CharacterLine[];
   departureLines: CharacterLine[];
@@ -111,8 +257,8 @@ export type CharacterArchive = {
     characters: { sourceId: string; name: string }[];
   }[];
 };
-export type CharacterPack = {
-  formatVersion: 1 | 2 | 3 | 4 | 5 | 6;
+export type CharacterPack = Partial<PackStoryDefinition> & {
+  formatVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
   name: string;
   author: string;
   sourceUrl?: string;
@@ -153,7 +299,9 @@ export type Playback = SceneLine & {
     | "story"
     | "question"
     | "reaction"
-    | "presence";
+    | "presence"
+    | "npc"
+    | "scenario";
   endsAt: number;
   textSpeed?: number;
   displayStartedAt?: number | null;
@@ -346,6 +494,7 @@ export type RuntimeStatus = {
   phase: RuntimePhase;
   persona: string | null;
   presentCharacterIds: string[];
+  guestCharacterIds?: string[];
   error: string | null;
   download: {
     model: LocalModel;
@@ -362,7 +511,13 @@ export type RuntimeStatus = {
 export type ActiveRequest = { epoch: number; sessionId?: string; messageId?: string };
 export type Snapshot = {
   chatgptReady?: boolean;
-  animationStates?: { musicPlaying: boolean; calendarOpen: boolean };
+  animationStates?: {
+    musicPlaying: boolean;
+    calendarOpen: boolean;
+    focus?: boolean;
+    rest?: boolean;
+    sleepingCharacterIds?: string[];
+  };
   reactions?: Record<string, CharacterReactionRun>;
   user: UserIdentity | null;
   legacyMemoryCount: number;

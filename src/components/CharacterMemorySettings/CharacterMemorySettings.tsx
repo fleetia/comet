@@ -13,6 +13,7 @@ export function CharacterMemorySettings({
   exportDisabled = false,
   memoryDirty,
   onExport,
+  onExportPack,
   onForgot,
 }: {
   character: InstalledCharacter;
@@ -21,6 +22,7 @@ export function CharacterMemorySettings({
   exportDisabled?: boolean;
   memoryDirty: boolean;
   onExport: () => void;
+  onExportPack?: () => void;
   onForgot: () => void;
 }): JSX.Element {
   const [count, setCount] = useState<number | null>(null);
@@ -83,6 +85,11 @@ export function CharacterMemorySettings({
             >
               이 캐릭터 내보내기
             </Button>
+            {onExportPack && (
+              <Button variant="secondary" disabled={disabled || exportDisabled || pending} onClick={onExportPack}>
+                팩 전체 내보내기
+              </Button>
+            )}
           </div>
           <p className={s.quiet}>
             저장된 내용을 내보내요. 기억·친밀도·대화 기록은 포함할 자료를 선택해요.

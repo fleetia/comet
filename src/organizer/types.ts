@@ -45,6 +45,7 @@ export type OrganizerProgress = {
   requestsToday: number;
 };
 export type OrganizerStatus = {
+  context: { userId: string; revision: number };
   settings: OrganizerSettingsValue;
   vaults: VaultConnection[];
   progress: OrganizerProgress;
@@ -75,6 +76,7 @@ export const DEFAULT_ORGANIZER_SETTINGS: OrganizerSettingsValue = {
   dailyRequestLimit: 20,
 };
 export const PREVIEW_ORGANIZER_STATUS: OrganizerStatus = {
+  context: { userId: "preview-user", revision: 0 },
   settings: DEFAULT_ORGANIZER_SETTINGS,
   vaults: [],
   progress: { pending: 0, running: 0, deferred: 0, completed: 0, records: 0, requestsToday: 0 },

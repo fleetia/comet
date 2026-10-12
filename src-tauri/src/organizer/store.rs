@@ -40,7 +40,37 @@ CREATE INDEX organizer_jobs_due ON organizer_jobs(state,next_at,priority);").map
         )
         .map_err(err)?;
     }
+    db.execute_batch("CREATE TABLE IF NOT EXISTS organizer_scope(slot INTEGER PRIMARY KEY CHECK(slot=1),revision INTEGER NOT NULL);
+INSERT OR IGNORE INTO organizer_scope VALUES(1,0);
+CREATE TRIGGER IF NOT EXISTS organizer_settings_scope_insert AFTER INSERT ON organizer_settings BEGIN UPDATE organizer_scope SET revision=revision+1 WHERE slot=1; END;
+CREATE TRIGGER IF NOT EXISTS organizer_settings_scope_update AFTER UPDATE ON organizer_settings BEGIN UPDATE organizer_scope SET revision=revision+1 WHERE slot=1; END;
+CREATE TRIGGER IF NOT EXISTS organizer_settings_scope_delete AFTER DELETE ON organizer_settings BEGIN UPDATE organizer_scope SET revision=revision+1 WHERE slot=1; END;
+CREATE TRIGGER IF NOT EXISTS organizer_vault_scope_insert AFTER INSERT ON organizer_vaults BEGIN UPDATE organizer_scope SET revision=revision+1 WHERE slot=1; END;
+CREATE TRIGGER IF NOT EXISTS organizer_vault_scope_update AFTER UPDATE ON organizer_vaults BEGIN UPDATE organizer_scope SET revision=revision+1 WHERE slot=1; END;
+CREATE TRIGGER IF NOT EXISTS organizer_vault_scope_delete AFTER DELETE ON organizer_vaults BEGIN UPDATE organizer_scope SET revision=revision+1 WHERE slot=1; END;").map_err(err)?;
+    if db
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='kv'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(err)?
+        != 0
+    {
+        db.execute_batch("CREATE TRIGGER IF NOT EXISTS organizer_user_scope_insert AFTER INSERT ON kv WHEN NEW.key='active_user_id' BEGIN UPDATE organizer_scope SET revision=revision+1 WHERE slot=1; END;
+CREATE TRIGGER IF NOT EXISTS organizer_user_scope_update AFTER UPDATE ON kv WHEN NEW.key='active_user_id' AND OLD.value!=NEW.value BEGIN UPDATE organizer_scope SET revision=revision+1 WHERE slot=1; END;
+CREATE TRIGGER IF NOT EXISTS organizer_user_scope_delete AFTER DELETE ON kv WHEN OLD.key='active_user_id' BEGIN UPDATE organizer_scope SET revision=revision+1 WHERE slot=1; END;").map_err(err)?;
+    }
     Ok(())
+}
+
+pub fn scope_revision(db: &Connection) -> Result<i64> {
+    db.query_row(
+        "SELECT revision FROM organizer_scope WHERE slot=1",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(err)
 }
 
 pub fn get_settings(db: &Connection, user_id: &str) -> Result<OrganizerSettings> {

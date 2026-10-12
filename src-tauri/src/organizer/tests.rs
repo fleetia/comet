@@ -8,6 +8,38 @@ fn database() -> Connection {
     db
 }
 
+#[test]
+fn saved_search_scope_revision_detects_settings_and_connections_a_b_a_without_index_churn() {
+    let db = database();
+    let first = scope_revision(&db).unwrap();
+    let settings = OrganizerSettings::default();
+    save_settings(&db, "user", &settings).unwrap();
+    let a = scope_revision(&db).unwrap();
+    save_settings(
+        &db,
+        "user",
+        &OrganizerSettings {
+            comet_enabled: true,
+            ..settings.clone()
+        },
+    )
+    .unwrap();
+    let b = scope_revision(&db).unwrap();
+    save_settings(&db, "user", &settings).unwrap();
+    let returned_a = scope_revision(&db).unwrap();
+    assert!(first < a && a < b && b < returned_a);
+    source(&db, "검색 색인만 갱신", false);
+    assert_eq!(scope_revision(&db).unwrap(), returned_a);
+    let root = tempfile::tempdir().unwrap();
+    let vault = connect_vault(&db, "user", root.path(), &[], &[], "Comet", false).unwrap();
+    let connected = scope_revision(&db).unwrap();
+    disconnect_vault(&db, "user", &vault.id).unwrap();
+    assert!(scope_revision(&db).unwrap() > connected);
+    let before_restart = scope_revision(&db).unwrap();
+    initialize(&db).unwrap();
+    assert_eq!(scope_revision(&db).unwrap(), before_restart);
+}
+
 fn enabled(db: &Connection) {
     save_settings(
         db,
@@ -137,16 +169,7 @@ fn nested_output_paths_save_rescan_and_undo_without_changing_the_source() {
     fs::create_dir(temp.path().join("자료")).unwrap();
     let original = temp.path().join("자료").join("원문.md");
     fs::write(&original, "# 원문\n\n그대로 보존할 내용\n").unwrap();
-    let vault = connect_vault(
-        &db,
-        "user",
-        temp.path(),
-        &[],
-        &[],
-        "Comet/정리 기록",
-        true,
-    )
-    .unwrap();
+    let vault = connect_vault(&db, "user", temp.path(), &[], &[], "Comet/정리 기록", true).unwrap();
     assert_eq!(
         scan_vault(&db, "user", &vault.id, &AtomicBool::new(false))
             .unwrap()

@@ -342,19 +342,22 @@ pub fn pair_prompt_messages(
         relationships,
         latest_user,
         installed,
+        PAIR_PROMPT_BYTES,
     )
 }
+#[allow(clippy::too_many_arguments)]
 fn pair_prompt_messages_for(
-    characters: &[CharacterDefinition; 2],
-    personas: &[String; 2],
-    histories: &[Vec<Message>; 2],
+    characters: &[CharacterDefinition],
+    personas: &[String],
+    histories: &[Vec<Message>],
     memories: &[Memory],
     relationships: &[Relationship],
     latest_user: &Message,
     installed: &[InstalledCharacter],
+    budget: usize,
 ) -> Vec<ChatMessage> {
     let profiles: Vec<Value> = personas.iter().zip(characters).map(|(persona, definition)| {
-        json!({"persona":persona,"name":definition.name,"description":"","personality":definition.personality,
+        json!({"persona":persona,"name":definition.name,"description":"","personality":if characters.len()>2 {pair_text_within(&definition.personality,budget / characters.len().max(1) / 4)} else {definition.personality.clone()},
             "affinity":relationships.iter().find(|r|r.persona==*persona).map_or(20,|r|r.score),"history":[]})
     }).collect();
     let mut data = json!({"characters":profiles,"latestUser":"","memories":[],"allowedExpressions":EXPRESSIONS});
@@ -363,7 +366,7 @@ fn pair_prompt_messages_for(
         !definition.instructions.is_empty() || !definition.relationships.is_empty()
     });
     let guidance_enabled = has_guidance
-        && PAIR_PROMPT_BYTES.saturating_sub(
+        && budget.saturating_sub(
             base_system.len()
                 + 80
                 + data.to_string().len()
@@ -377,7 +380,7 @@ fn pair_prompt_messages_for(
     } else {
         base_system.into()
     };
-    let data_budget = PAIR_PROMPT_BYTES.saturating_sub(system.len() + 80);
+    let data_budget = budget.saturating_sub(system.len() + 80);
     let reserved_history =
         (histories
             .iter()
@@ -394,7 +397,9 @@ fn pair_prompt_messages_for(
     let remaining = data_budget.saturating_sub(data.to_string().len() + reserved_history);
     data["latestUser"] = json!(pair_text_within(&latest_user.content, remaining));
     let guidance_budget = if guidance_enabled {
-        (data_budget.saturating_sub(data.to_string().len() + reserved_history) / 2).min(1800)
+        (data_budget.saturating_sub(data.to_string().len() + reserved_history)
+            / characters.len().max(1))
+        .min(1800)
     } else {
         0
     };
@@ -406,8 +411,8 @@ fn pair_prompt_messages_for(
             guidance_budget,
         );
     }
-    let description_budget =
-        data_budget.saturating_sub(data.to_string().len() + reserved_history) / 2;
+    let description_budget = data_budget.saturating_sub(data.to_string().len() + reserved_history)
+        / characters.len().max(1);
     for (index, definition) in characters.iter().enumerate() {
         data["characters"][index]["description"] = json!(pair_text_within(
             &definition.description,
@@ -425,18 +430,21 @@ fn pair_prompt_messages_for(
         }
         data = candidate;
     }
-    let histories: [Vec<&Message>; 2] = std::array::from_fn(|index| {
-        histories[index]
-            .iter()
-            .filter(|m| {
-                m.id != latest_user.id
-                    && m.status == "complete"
-                    && ["user", "assistant"].contains(&m.role.as_str())
-            })
-            .rev()
-            .take(12)
-            .collect()
-    });
+    let histories: Vec<Vec<&Message>> = histories
+        .iter()
+        .map(|history| {
+            history
+                .iter()
+                .filter(|m| {
+                    m.id != latest_user.id
+                        && m.status == "complete"
+                        && ["user", "assistant"].contains(&m.role.as_str())
+                })
+                .rev()
+                .take(12)
+                .collect()
+        })
+        .collect();
     // Alternate the allocation so one persona's history cannot consume both budgets.
     for depth in 0..12 {
         for (index, history) in histories.iter().enumerate() {
@@ -562,7 +570,37 @@ pub fn roster_pair_prompt(
         relationships,
         latest_user,
         installed,
+        PAIR_PROMPT_BYTES,
     )
+}
+
+pub fn roster_turn_prompt(
+    members: &[crate::characters::InstalledCharacter],
+    histories: &[Vec<Message>],
+    memories: &[Memory],
+    relationships: &[Relationship],
+    latest_user: &Message,
+    installed: &[InstalledCharacter],
+    reserved_bytes: usize,
+) -> Vec<ChatMessage> {
+    let definitions: Vec<_> = members
+        .iter()
+        .map(|member| member.definition.clone())
+        .collect();
+    let ids: Vec<_> = members.iter().map(|member| member.id.clone()).collect();
+    let guidance=" Answer latestUser directly before optional lore. Each persona uses only its own profile instructions, voice, traits, relationships and personal history; never copy another persona's catchphrase or voice. Speak as yourself in first person, never narrate yourself or another speaker's answer.";
+    let mut prompt = pair_prompt_messages_for(
+        &definitions,
+        &ids,
+        histories,
+        memories,
+        relationships,
+        latest_user,
+        installed,
+        PAIR_PROMPT_BYTES.saturating_sub(reserved_bytes + guidance.len()),
+    );
+    prompt[0].content.push_str(guidance);
+    prompt
 }
 
 pub fn roster_scene_prompt(
@@ -930,10 +968,12 @@ mod tests {
         installed[0].definition.instructions = "차근차근 질문하고 대답을 기다린다.".into();
         installed[0].definition.relationships = vec![
             crate::characters::CharacterRelationship {
+                reply_lines: Vec::new(),
                 target_id: installed[2].id.clone(),
                 description: "오래된 친구라 편하게 농담한다.".into(),
             },
             crate::characters::CharacterRelationship {
+                reply_lines: Vec::new(),
                 target_id: "removed-character".into(),
                 description: "삭제된 관계".into(),
             },
@@ -1020,6 +1060,7 @@ mod tests {
             member.definition.instructions = "\0\"😀".repeat(600);
             member.definition.relationships = (0..32)
                 .map(|index| crate::characters::CharacterRelationship {
+                    reply_lines: Vec::new(),
                     target_id: format!("00000000-0000-4000-8000-{:012}", index % 8),
                     description: "\0\"😀".repeat(160),
                 })
@@ -1116,6 +1157,73 @@ mod tests {
                 .unwrap()
                 .definition,
         ]
+    }
+
+    #[test]
+    fn unified_roster_prompt_and_parser_keep_one_to_eight_allowed_actors_in_order_within_budget() {
+        for count in [1, 2, 3, 8] {
+            let mut members = guidance_test_members(count);
+            for (index, member) in members.iter_mut().enumerate() {
+                member.definition.description = "길고 큰 설명\n".repeat(400);
+                member.definition.personality = format!("성격 {index}");
+                member.definition.instructions = format!("고유 말투 {index}");
+            }
+            let latest = pair_test_message("latest", "user", "지금 요청한 원문을 한번만 답해 줘.");
+            let ids = members
+                .iter()
+                .map(|member| member.id.clone())
+                .collect::<Vec<_>>();
+            let histories = vec![vec![latest.clone()]; count];
+            let prompt = roster_turn_prompt(&members, &histories, &[], &[], &latest, &members, 500);
+            assert!(
+                prompt
+                    .iter()
+                    .map(|message| message.content.len() + 40)
+                    .sum::<usize>()
+                    + 500
+                    <= PAIR_PROMPT_BYTES,
+                "count={count}"
+            );
+            let data: Value = serde_json::from_str(&prompt[1].content).unwrap();
+            assert_eq!(data["latestUser"], latest.content);
+            assert_eq!(
+                data["characters"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|actor| actor["persona"].as_str().unwrap().to_string())
+                    .collect::<Vec<_>>(),
+                ids
+            );
+            for (index, member) in members.iter().enumerate() {
+                assert_eq!(
+                    data["characters"][index]["personality"],
+                    member.definition.personality
+                );
+                assert_eq!(
+                    data["characters"][index]["instructions"],
+                    member.definition.instructions
+                );
+            }
+            let value = json!({"lines":ids.iter().map(|id|json!({"persona":id,"expression":"평온","text":"  원문\n그대로  "})).collect::<Vec<_>>()});
+            assert_eq!(
+                parse_lines_for(value.clone(), &ids, count, count, true)
+                    .unwrap()
+                    .len(),
+                count
+            );
+            let mut bad = value.clone();
+            bad["lines"][count - 1]["persona"] = json!("unknown");
+            assert!(parse_lines_for(bad, &ids, count, count, true).is_err());
+            let mut extra = value.clone();
+            extra["effects"] = json!(["changeFlag"]);
+            assert!(parse_lines_for(extra, &ids, count, count, true).is_err());
+            if count > 1 {
+                let mut reversed = value;
+                reversed["lines"].as_array_mut().unwrap().reverse();
+                assert!(parse_lines_for(reversed, &ids, count, count, true).is_err());
+            }
+        }
     }
     #[test]
     fn pair_reply_requires_exact_order_and_validates_both_lines_before_returning() {
@@ -1297,8 +1405,16 @@ mod tests {
             "11111111-1111-4111-8111-111111111111".into(),
             "22222222-2222-4222-8222-222222222222".into(),
         ];
-        let id_prompt =
-            pair_prompt_messages_for(&characters, &ids, &histories, &memories, &[], &latest, &[]);
+        let id_prompt = pair_prompt_messages_for(
+            &characters,
+            &ids,
+            &histories,
+            &memories,
+            &[],
+            &latest,
+            &[],
+            PAIR_PROMPT_BYTES,
+        );
         let id_data: Value = serde_json::from_str(&id_prompt[1].content).unwrap();
         assert!(
             id_prompt

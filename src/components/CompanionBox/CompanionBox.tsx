@@ -26,8 +26,7 @@ export function CompanionBox({
   const character = characterById(snapshot, id);
   const persona = personaOf(snapshot, id);
   const name = character?.definition.name ?? persona?.toUpperCase() ?? "친구";
-  const reaction =
-    !snapshot.runtime.hidden && !snapshot.runtime.paused ? snapshot.reactions?.[id] : undefined;
+  const reaction = !snapshot.runtime.hidden ? snapshot.reactions?.[id] : undefined;
   const expressionKey = reaction?.expression ?? currentExpression(snapshot, persona);
   const expression = expressionLabel(character, expressionKey);
   const sprite = spriteSource(character, expressionKey);
@@ -67,18 +66,26 @@ export function CompanionBox({
     }
   }
   const gestures = useCharacterGestures({
-    enabled: !preview && persona !== null,
+    enabled: !preview && persona !== null && !snapshot.runtime.hidden,
+    regions: character?.definition.bodyRegions,
+    cheekRegionIds: character?.definition.gestureMotions?.flatMap((motion) =>
+      motion.gesture === "cheek-grab" && motion.regionId ? [motion.regionId] : [],
+    ),
+    spriteSize: imageBody ? size : undefined,
     resetKey: JSON.stringify([
       id,
       character?.definition,
       snapshot.runtime.hidden,
       snapshot.runtime.paused,
     ]),
-    onClick: () => {
+    onClick: (bodyPart, sessionId) => {
       setError(null);
-      void dispatch("trigger_character_reaction").catch((cause: unknown) =>
-        setError(errorText(cause)),
-      );
+      void dispatch("trigger_character_interaction", {
+        action: "poke",
+        bodyPart,
+        sessionId,
+        phase: "ended",
+      }).catch((cause: unknown) => setError(errorText(cause)));
     },
     onDoubleClick: () => {
       void open("input");
@@ -103,7 +110,7 @@ export function CompanionBox({
           error ??
           animation.error ??
           (persona
-            ? "클릭: 반응 · 우클릭: 메뉴 · 두 번 클릭: 말 걸기 · 끌기: 이동"
+            ? "클릭: 찌르기 · 문지르기: 쓰다듬기 · 우클릭: 메뉴 · 두 번 클릭: 말 걸기 · Cmd/Ctrl+끌기: 이동"
             : "끌기: 이동 · 이 친구의 대화는 준비 중이에요")
         }
         {...gestures}
@@ -145,7 +152,8 @@ export function CompanionBox({
           disabled={!isDesktop() || preview}
           onClick={() => {
             setError(null);
-            void dispatch("hide_boxes").catch((cause: unknown) => setError(errorText(cause)));
+            void dispatch(snapshot.runtime.guestCharacterIds?.includes(id) ? "leave_character_guest" : "hide_boxes")
+              .catch((cause: unknown) => setError(errorText(cause)));
           }}
         >
           ×

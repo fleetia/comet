@@ -68,7 +68,7 @@ pub(crate) fn change<T>(
     let result = action(&db)?;
     if !was_focused && storage::focus_active(&db, chrono::Utc::now().timestamp_millis())? {
         store::pause_conversations(&db)?;
-        let (epoch, _) = interrupt(state, false)?;
+        let (epoch, _) = crate::app::interrupt_with_db(state, false, &db)?;
         state.widget_epoch.store(epoch, Ordering::SeqCst);
         *lock(&state.panel)? = None;
         storage::discard_pending_during_focus(&db)?;
@@ -868,6 +868,7 @@ pub(crate) fn take_pending_reaction(
     if state.stopping.load(Ordering::SeqCst)
         || status.phase != "idle"
         || lock(&state.panel)?.is_some()
+        || lock(&state.pack_stories)?.run.is_some()
         || now() - state.last_input.load(Ordering::SeqCst) < 3
     {
         return Ok(None);
@@ -903,7 +904,7 @@ pub(crate) fn play_widget_reaction(
                 )?;
                 return Ok(true);
             }
-            let token = interrupt(state, true)?;
+            let token = crate::app::interrupt_with_db(state, true, &db)?;
             state.widget_epoch.store(token.0, Ordering::SeqCst);
             *lock(&state.widget_playback)? = Some(event.clone());
             state.last_input.store(now(), Ordering::SeqCst);

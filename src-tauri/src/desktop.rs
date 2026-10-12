@@ -36,32 +36,38 @@ fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
         let epoch = state.epoch.load(Ordering::SeqCst);
         let app = app.clone();
         let label = window.label().to_string();
+        let identity = crate::character_reaction_host::window_identity(window);
         window.run_on_main_thread(move || {
             let state = app.state::<Arc<AppState>>();
+            let Some(window) = app.get_webview_window(&label).filter(|window| crate::character_reaction_host::window_identity(window) == identity) else { return; };
             // Never wait on locks from the UI thread: the next publish retries a skipped display.
-            let (Ok(db), Ok(runtime), Ok(panel), Ok(playback), Ok(story), Ok(presence)) = (
+            let (Ok(db), Ok(runtime), Ok(panel), Ok(playback), Ok(story), Ok(presence), Ok(guests)) = (
                 state.db.try_lock(), state.runtime.try_lock(),
-                state.panel.try_lock(), state.playback.try_lock(), state.story.try_lock(), state.presence.try_lock(),
+                state.panel.try_lock(), state.playback.try_lock(), state.story.try_lock(), state.presence.try_lock(), state.guests.try_lock(),
             ) else { return; };
             if !passive_show_current(&state, epoch, runtime.hidden) {
                 return;
             }
+            if (is_body(&label) || is_face(&label)) && !crate::character_guests::window_current_locked(&guests, &label, identity) { return; }
             let Ok(characters) = crate::characters::collection(&db) else { return; };
+            let mut status = runtime.clone();
+            let Ok(active) = crate::character_guests::display_ids_locked(&state, &db, &guests, runtime.hidden) else { return; };
+            status.guest_character_ids = active.iter().filter(|id| !characters.active.contains(id)).cloned().collect();
+            let present = active.iter().filter(|id| !characters.active.contains(id) || presence.contains(id)).cloned().collect::<Vec<_>>();
             let wanted = if label == "balloon" {
-                owner_id(&runtime, panel.as_ref(), story.as_ref(), playback.as_ref(), &characters.active)
-                    .is_some_and(|id| presence.contains(id))
+                owner_id(&status, panel.as_ref(), story.as_ref(), playback.as_ref(), &active)
+                    .is_some_and(|id| present.iter().any(|current| current == id))
             } else if let Some(id) = label.strip_prefix(BODY_PREFIX) {
-                presence.contains(id) && characters.active.iter().any(|active| active == id)
+                present.iter().any(|current| current == id) && active.iter().any(|active| active == id)
             } else if let Some(id) = label.strip_prefix(FACE_PREFIX) {
-                presence.contains(id) && characters.active.iter().any(|active| active == id)
+                present.iter().any(|current| current == id) && active.iter().any(|active| active == id)
                     && characters.installed.iter().any(|character| character.id == id
-                        && has_visible_sprite(character, &characters.active, playback.as_ref())
+                        && has_visible_sprite(character, &active, playback.as_ref())
                         && character.definition.face_icon)
             } else { false };
             if !wanted { return; }
-            drop((db, runtime, panel, playback, story));
+            drop((db, runtime, panel, playback, story, presence, guests));
             if state.epoch.load(Ordering::SeqCst) != epoch { return; }
-            let Some(window) = app.get_webview_window(&label) else { return; };
             #[cfg(target_os = "macos")]
             if let Ok(pointer) = window.ns_window() {
                 unsafe {
@@ -82,7 +88,6 @@ fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
                 return;
             }
             crate::character_collision_host::did_show(&window, collision_token);
-            drop(presence);
         }).map_err(|error| error.to_string())
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
@@ -338,10 +343,8 @@ fn saved_body_position(
     if let Some(position) = store::window_position(&db, label)? {
         return Ok(Some(position));
     }
-    match ["a", "b"].get(index) {
-        Some(legacy) => store::window_position(&db, legacy),
-        None => Ok(None),
-    }
+    let legacy = ["a", "b"].get(index).copied();
+    store::migrate_body_position(&db, label, legacy)
 }
 
 struct BodySpec<'a> {
@@ -351,6 +354,70 @@ struct BodySpec<'a> {
     title: &'a str,
     size: (f64, f64),
     visible: bool,
+    guest: bool,
+}
+
+fn guest_initial_position(
+    app: &AppHandle,
+    state: &AppState,
+    id: &str,
+    size: (f64, f64),
+) -> Option<WindowPosition> {
+    let center = crate::character_guests::center_id(state, id)
+        .ok()
+        .flatten()?;
+    let center = app.get_webview_window(&body_label(&center))?;
+    let monitor = center.current_monitor().ok().flatten()?;
+    let area = work_area(&monitor);
+    let scale = monitor.scale_factor();
+    let position = center.outer_position().ok()?;
+    let center_size = center.outer_size().ok()?;
+    let width = size.0 * scale;
+    let height = size.1 * scale;
+    let gap = 16.0 * scale;
+    let occupied = app
+        .webview_windows()
+        .into_values()
+        .filter(|window| is_body(window.label()) && window.label() != body_label(id))
+        .filter_map(|window| {
+            let point = window.outer_position().ok()?;
+            let size = window.outer_size().ok()?;
+            Some(Rect {
+                x: point.x as f64,
+                y: point.y as f64,
+                width: size.width as f64,
+                height: size.height as f64,
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut choices = Vec::new();
+    for column in 0..4 {
+        for side in [-1.0, 1.0] {
+            for row in [-2.0, -1.0, 0.0, 1.0, 2.0] {
+                let x = position.x as f64
+                    + if side < 0.0 {
+                        -(width + gap) * (column + 1) as f64
+                    } else {
+                        center_size.width as f64 + gap + (width + gap) * column as f64
+                    };
+                let y = position.y as f64 + (height + gap) * row;
+                let (x, y) = clamp_position(x, y, width, height, area);
+                let overlap = occupied
+                    .iter()
+                    .map(|other| {
+                        ((x + width).min(other.x + other.width) - x.max(other.x)).max(0.0)
+                            * ((y + height).min(other.y + other.height) - y.max(other.y)).max(0.0)
+                    })
+                    .sum::<f64>();
+                let distance = (x - position.x as f64).hypot(y - position.y as f64);
+                choices.push((overlap, distance, WindowPosition { x, y }));
+            }
+        }
+    }
+    choices
+        .into_iter()
+        .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)))
+        .map(|(_, _, point)| point)
 }
 
 fn create_body(app: &AppHandle, state: &AppState, spec: BodySpec) -> Result<(), String> {
@@ -361,7 +428,16 @@ fn create_body(app: &AppHandle, state: &AppState, spec: BodySpec) -> Result<(), 
         title,
         size,
         visible,
+        guest,
     } = spec;
+    let guest_generation = if guest {
+        crate::character_guests::generation(state, id)?
+    } else {
+        None
+    };
+    if guest && guest_generation.is_none() {
+        return Err("NPC 창을 준비하기 전에 입장이 끝났어요.".into());
+    }
     let label = body_label(id);
     let window = tauri::WebviewWindowBuilder::new(
         app,
@@ -382,8 +458,25 @@ fn create_body(app: &AppHandle, state: &AppState, spec: BodySpec) -> Result<(), 
     .visible(false)
     .build()
     .map_err(|e| e.to_string())?;
+    crate::character_guests::record_window(
+        state,
+        &label,
+        id,
+        crate::character_reaction_host::window_identity(&window),
+        guest_generation,
+    )?;
     let monitors = window.available_monitors().map_err(|e| e.to_string())?;
-    let saved = saved_body_position(state, index, &label)?;
+    let saved = if guest {
+        crate::character_guests::transient_position(state, id)?
+    } else {
+        saved_body_position(state, index, &label)?
+    };
+    let center_position = if guest {
+        guest_initial_position(app, state, id, size)
+    } else {
+        None
+    };
+    let saved = saved.or(center_position);
     let saved_monitor = monitor_at_saved_position(&monitors, saved.as_ref(), monitor_bounds);
     let primary = window.primary_monitor().map_err(|e| e.to_string())?;
     if let Some(monitor) = saved_monitor.or(primary.as_ref()).or(monitors.first()) {
@@ -423,11 +516,35 @@ fn create_body(app: &AppHandle, state: &AppState, spec: BodySpec) -> Result<(), 
     if visible {
         show_passive(app, &window)?;
     }
+    if guest {
+        if let (Some(generation), Ok(position)) = (guest_generation, window.outer_position()) {
+            let _action = super::lock(&state.action)?;
+            crate::character_guests::set_position_locked(
+                state,
+                id,
+                generation,
+                WindowPosition {
+                    x: position.x as f64,
+                    y: position.y as f64,
+                },
+            )?;
+        }
+    }
     Ok(())
 }
 
 pub(crate) fn create_boxes(app: &AppHandle, state: &AppState) -> Result<(), String> {
     reconcile(app, state, &super::snapshot(state)?)
+}
+
+fn display_ids(snapshot: &Snapshot) -> Vec<String> {
+    snapshot
+        .characters
+        .active
+        .iter()
+        .chain(snapshot.runtime.guest_character_ids.iter())
+        .cloned()
+        .collect()
 }
 
 fn character_by_id<'a>(snapshot: &'a Snapshot, id: &str) -> Option<&'a InstalledCharacter> {
@@ -456,6 +573,10 @@ fn has_visible_sprite(
             let speaker = active.iter().find(|id| **id == line.persona).or_else(|| {
                 crate::characters::slot_index(&line.persona)
                     .ok()
+                    .filter(|_| {
+                        character.definition.presence_role
+                            == crate::pack_stories::PresenceRole::Resident
+                    })
                     .and_then(|index| active.get(index))
             });
             speaker.is_some_and(|id| *id == character.id)
@@ -474,7 +595,7 @@ fn body_size(snapshot: &Snapshot, character: Option<&InstalledCharacter>) -> (f6
         Some(character)
             if has_visible_sprite(
                 character,
-                &snapshot.characters.active,
+                &display_ids(snapshot),
                 snapshot.playback.as_ref(),
             ) =>
         {
@@ -495,7 +616,7 @@ fn face_wanted(snapshot: &Snapshot, character: Option<&InstalledCharacter>) -> b
                 && character.definition.face_icon
                 && has_visible_sprite(
                     character,
-                    &snapshot.characters.active,
+                    &display_ids(snapshot),
                     snapshot.playback.as_ref(),
                 )
         })
@@ -557,7 +678,21 @@ fn create_face(app: &AppHandle, id: &str, title: &str, _body_created: bool) -> R
     .build()
     .map_err(|e| e.to_string())?;
     let state = app.state::<Arc<AppState>>();
-    let saved = store::window_position(&*super::lock(&state.db)?, &label)?;
+    let identity = crate::character_reaction_host::window_identity(&body);
+    let guest_generation =
+        crate::character_guests::window_authority(&state, body.label(), identity)?.flatten();
+    crate::character_guests::record_window(
+        &state,
+        &label,
+        id,
+        crate::character_reaction_host::window_identity(&window),
+        guest_generation,
+    )?;
+    let saved = if guest_generation.is_some() {
+        None
+    } else {
+        store::window_position(&*super::lock(&state.db)?, &label)?
+    };
     let monitors = window.available_monitors().map_err(|e| e.to_string())?;
     let saved_monitor = monitor_at_saved_position(&monitors, saved.as_ref(), monitor_bounds);
     let body_monitor = body.current_monitor().map_err(|e| e.to_string())?;
@@ -637,13 +772,36 @@ fn create_face(app: &AppHandle, id: &str, title: &str, _body_created: bool) -> R
 // One body window per roster member, sized to its sprite, with the detached expression tag only
 // when the character asks for one. Windows of characters that left the roster are destroyed.
 fn reconcile(app: &AppHandle, state: &AppState, snapshot: &Snapshot) -> Result<(), String> {
-    let roster = &snapshot.characters.active;
+    let roster = display_ids(snapshot);
     for (index, id) in roster.iter().enumerate() {
         let present = snapshot.runtime.present_character_ids.contains(id);
         let character = character_by_id(snapshot, id);
         let title = character.map_or(id.as_str(), |character| character.definition.name.as_str());
         let size = body_size(snapshot, character);
-        let body = app.get_webview_window(&body_label(id));
+        let mut body = app.get_webview_window(&body_label(id));
+        let expected = if snapshot.runtime.guest_character_ids.contains(id) {
+            crate::character_guests::generation(state, id)?
+        } else {
+            None
+        };
+        if body.as_ref().is_some_and(|window| {
+            crate::character_guests::window_authority(
+                state,
+                window.label(),
+                crate::character_reaction_host::window_identity(window),
+            )
+            .ok()
+            .flatten()
+            .is_some_and(|current| current != expected)
+        }) {
+            if let Some(face) = app.get_webview_window(&face_label(id)) {
+                let _ = face.destroy();
+            }
+            if let Some(window) = body.take() {
+                crate::character_collision_host::remove(app, window.label());
+                window.destroy().map_err(|error| error.to_string())?;
+            }
+        }
         let body_created = body.is_none();
         match body {
             Some(window) => {
@@ -659,11 +817,12 @@ fn reconcile(app: &AppHandle, state: &AppState, snapshot: &Snapshot) -> Result<(
                 state,
                 BodySpec {
                     index,
-                    total: roster.len(),
+                    total: snapshot.characters.active.len(),
                     id,
                     title,
                     size,
                     visible: !snapshot.runtime.hidden && present,
+                    guest: snapshot.runtime.guest_character_ids.contains(id),
                 },
             )?,
         }
@@ -704,14 +863,29 @@ pub(crate) fn sync_boxes(app: &AppHandle, state: &AppState, snapshot: &Snapshot)
 }
 
 fn owner(snapshot: &Snapshot) -> Option<&str> {
-    owner_id(
+    let persona = owner_persona(
         &snapshot.runtime,
         snapshot.panel.as_ref(),
         snapshot.story.as_ref(),
         snapshot.playback.as_ref(),
-        &snapshot.characters.active,
-    )
-    .filter(|id| {
+    )?;
+    let id = if snapshot
+        .runtime
+        .guest_character_ids
+        .iter()
+        .any(|id| id == persona)
+    {
+        Some(persona)
+    } else {
+        owner_id(
+            &snapshot.runtime,
+            snapshot.panel.as_ref(),
+            snapshot.story.as_ref(),
+            snapshot.playback.as_ref(),
+            &snapshot.characters.active,
+        )
+    };
+    id.filter(|id| {
         snapshot
             .runtime
             .present_character_ids
@@ -727,6 +901,25 @@ fn owner_id<'a>(
     playback: Option<&crate::types::Playback>,
     active: &'a [String],
 ) -> Option<&'a str> {
+    owner_persona(runtime, panel, story, playback)
+        .and_then(
+            |persona| match crate::characters::slot_index(persona).ok() {
+                Some(index) => active
+                    .iter()
+                    .filter(|id| !runtime.guest_character_ids.contains(id))
+                    .nth(index),
+                None => active.iter().find(|active| active.as_str() == persona),
+            },
+        )
+        .map(String::as_str)
+}
+
+fn owner_persona<'a>(
+    runtime: &'a crate::types::RuntimeStatus,
+    panel: Option<&'a crate::types::PanelState>,
+    story: Option<&'a crate::story::Request>,
+    playback: Option<&'a crate::types::Playback>,
+) -> Option<&'a str> {
     if runtime.hidden {
         return None;
     }
@@ -741,12 +934,6 @@ fn owner_id<'a>(
                 None
             }
         })
-        .and_then(|persona| match persona {
-            "a" => active.first(),
-            "b" => active.get(1),
-            id => active.iter().find(|active| active.as_str() == id),
-        })
-        .map(String::as_str)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -932,14 +1119,24 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
     let Ok(_action) = state.action.try_lock() else {
         return Ok(false);
     };
-    let (Ok(db), Ok(mut runtime), Ok(panel), Ok(mut playback), Ok(mut story), Ok(presence)) = (
+    let (
+        Ok(db),
+        Ok(mut runtime),
+        Ok(panel),
+        Ok(mut playback),
+        Ok(mut story),
+        Ok(presence),
+        Ok(guests),
+    ) = (
         state.db.try_lock(),
         state.runtime.try_lock(),
         state.panel.try_lock(),
         state.playback.try_lock(),
         state.story.try_lock(),
         state.presence.try_lock(),
-    ) else {
+        state.guests.try_lock(),
+    )
+    else {
         return Ok(false);
     };
     if let Some(error) = playback
@@ -956,30 +1153,40 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
             super::publish(&app, &state);
         });
     }
-    let characters = crate::characters::collection(&db)?;
+    let mut status = runtime.clone();
+    let residents = crate::characters::active_ids(&db)?;
+    let active = crate::character_guests::display_ids_locked(&state, &db, &guests, runtime.hidden)?;
+    status.guest_character_ids = active
+        .iter()
+        .filter(|id| !residents.contains(id))
+        .cloned()
+        .collect();
+    let present = active
+        .iter()
+        .filter(|id| !residents.contains(id) || presence.contains(id))
+        .cloned()
+        .collect::<Vec<_>>();
+    drop((runtime, presence, guests));
     let target = if super::unavailable(&state)
         || (crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
             && panel
                 .as_ref()
                 .is_none_or(|panel| matches!(panel.mode.as_str(), "input" | "name")))
-        || crate::app::quiet_hours::playback_blocked(
-            &state,
-            &store::settings(&db)?,
-            runtime.paused,
-        )? {
+        || crate::app::quiet_hours::playback_blocked(&state, &store::settings(&db)?, status.paused)?
+    {
         None
     } else {
         balloon_target(
-            &runtime,
+            &status,
             panel.as_ref(),
             story.as_ref(),
             playback.as_ref(),
-            &characters.active,
+            &active,
             state.epoch.load(Ordering::SeqCst),
         )
-        .filter(|target| presence.contains(&target.owner))
+        .filter(|target| present.contains(&target.owner))
     };
-    drop((runtime, panel, presence));
+    drop(panel);
     let layout = balloon_layout(app);
     let Ok(mut layout) = layout.try_lock() else {
         return Ok(false);
@@ -1047,7 +1254,7 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
             first_display =
                 crate::app::scene::mark_line_displayed(line, chrono::Utc::now().timestamp_millis());
             if first_display {
-                displayed_message = Some(line.id.clone());
+                displayed_message = line.display_started_at.map(|at| (line.id.clone(), at));
             }
         }
     }
@@ -1058,8 +1265,11 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
         }
     }
     drop((playback, story));
-    if let Some(id) = displayed_message {
+    if let Some((id, at)) = displayed_message {
         store::mark_message_displayed(&db, &id, chrono::Utc::now().timestamp_millis())?;
+        if let Some(ticket) = super::lock(&state.tasks)?.participants.clone() {
+            crate::character_guests::hear_displayed_locked(&state, &db, &ticket, &id, at)?;
+        }
     }
     drop((db, _action));
     if first_display {
@@ -1135,7 +1345,7 @@ pub(crate) async fn resize_balloon(
             snapshot.panel.as_ref(),
             snapshot.story.as_ref(),
             snapshot.playback.as_ref(),
-            &snapshot.characters.active,
+            &display_ids(&snapshot),
             state.epoch.load(Ordering::SeqCst),
         )
         .filter(|target| {
@@ -1467,6 +1677,65 @@ mod tests {
     }
 
     #[test]
+    fn native_guest_uses_explicit_uuid_and_never_claims_a_resident_alias() {
+        let mut data = crate::app::snapshot(&crate::app::tests::state()).unwrap();
+        let guest = &mut data.characters.installed[1];
+        guest.definition.presence_role = crate::pack_stories::PresenceRole::Npc;
+        guest.definition.sprite_size = 32;
+        guest.sprites.insert(
+            "기쁨".into(),
+            crate::character_sprites::SpriteInfo {
+                mime: "image/png".into(),
+                updated_at: 1,
+            },
+        );
+        let id = guest.id.clone();
+        data.characters.active.truncate(1);
+        data.runtime.guest_character_ids = vec![id.clone()];
+        data.runtime.present_character_ids.push(id.clone());
+        data.playback = Some(crate::types::Playback {
+            id: "npc-line".into(),
+            persona: "b".into(),
+            expression: "기쁨".into(),
+            text: "안녕".into(),
+            motion: Default::default(),
+            source: "npc".into(),
+            ends_at: 1,
+            text_speed: 0,
+            display_started_at: None,
+            line_index: 0,
+            line_count: 1,
+        });
+        assert!(owner(&data).is_none());
+        assert!(balloon_target(
+            &data.runtime,
+            None,
+            None,
+            data.playback.as_ref(),
+            &display_ids(&data),
+            0
+        )
+        .is_none());
+        assert_eq!(body_size(&data, character_by_id(&data, &id)), BODY_SIZE);
+        data.playback.as_mut().unwrap().persona = id.clone();
+        assert_eq!(owner(&data), Some(id.as_str()));
+        assert_eq!(
+            balloon_target(
+                &data.runtime,
+                None,
+                None,
+                data.playback.as_ref(),
+                &display_ids(&data),
+                0
+            )
+            .unwrap()
+            .owner,
+            id
+        );
+        assert_eq!(body_size(&data, character_by_id(&data, &id)), (40.0, 40.0));
+    }
+
+    #[test]
     fn native_sprite_fallback_ignores_balloon_and_undeclared_expressions() {
         let mut data = crate::app::snapshot(&crate::app::tests::state()).unwrap();
         let character = &mut data.characters.installed[0];
@@ -1507,6 +1776,38 @@ mod tests {
             body_size(&data, character_by_id(&data, &id)),
             (136.0, 136.0)
         );
+    }
+
+    #[test]
+    fn native_input_keeps_explicit_guest_owner_after_final_playback_clears() {
+        let mut data = crate::app::snapshot(&crate::app::tests::state()).unwrap();
+        data.characters.installed[1].definition.presence_role =
+            crate::pack_stories::PresenceRole::Npc;
+        let guest = data.characters.installed[1].id.clone();
+        data.characters.active.truncate(1);
+        data.runtime.guest_character_ids = vec![guest.clone()];
+        data.runtime.present_character_ids = vec![data.characters.active[0].clone(), guest.clone()];
+        data.runtime.phase = crate::types::RuntimePhase::Idle;
+        data.panel = Some(crate::types::PanelState {
+            persona: guest.clone(),
+            mode: "input".into(),
+        });
+        data.playback = None;
+        assert_eq!(owner(&data), Some(guest.as_str()));
+        let target = balloon_target(
+            &data.runtime,
+            data.panel.as_ref(),
+            None,
+            None,
+            &display_ids(&data),
+            7,
+        )
+        .unwrap();
+        assert_eq!(target.owner, guest);
+        assert!(target.input);
+        assert_eq!(target.key, format!("panel:{guest}:input"));
+        data.runtime.present_character_ids.retain(|id| id != &guest);
+        assert!(owner(&data).is_none());
     }
 
     #[test]

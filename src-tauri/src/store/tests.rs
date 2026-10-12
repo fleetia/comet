@@ -1151,3 +1151,22 @@ fn morphology_still_recovers_particle_and_irregular_inflection_queries() {
     assert_eq!(hits[0].memory.id, "taste");
     assert!(hits[0].methods.iter().any(|method| method == "kiwi"));
 }
+
+#[test]
+fn legacy_placement_is_migrated_once_to_the_local_character_id() {
+    let db = open(std::path::Path::new(":memory:")).unwrap();
+    set_window_position(&db, "a", &WindowPosition { x: 100.0, y: 200.0 }).unwrap();
+    let first = migrate_body_position(&db, "body-local-one", Some("a"))
+        .unwrap()
+        .unwrap();
+    assert_eq!((first.x, first.y), (100.0, 200.0));
+    set_window_position(&db, "a", &WindowPosition { x: 900.0, y: 800.0 }).unwrap();
+    let reordered = migrate_body_position(&db, "body-local-one", Some("b"))
+        .unwrap()
+        .unwrap();
+    assert_eq!((reordered.x, reordered.y), (100.0, 200.0));
+    assert_eq!(window_position(&db, "a").unwrap().unwrap().x, 900.0);
+    assert!(migrate_body_position(&db, "body-new", None)
+        .unwrap()
+        .is_none());
+}

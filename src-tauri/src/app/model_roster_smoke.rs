@@ -71,6 +71,7 @@ fn prepare_roster(
     if let [first, second, ..] = ids.as_slice() {
         let mut definition = characters::get(&db, first)?.definition;
         definition.relationships = vec![characters::CharacterRelationship {
+            reply_lines: Vec::new(),
             target_id: second.clone(),
             description: format!("{}은 내가 별 보는 법을 배우는 스승이라 존중한다.", names[1]),
         }];

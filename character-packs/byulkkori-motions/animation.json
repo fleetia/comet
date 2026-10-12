@@ -1,0 +1,831 @@
+{
+  "clips": [
+    {
+      "id": "idle",
+      "name": "꼬리 인사와 눈 깜빡임",
+      "fps": 8,
+      "frames": [
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 0,
+          "y": 0,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 64,
+          "y": 0,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 128,
+          "y": 0,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 192,
+          "y": 0,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 256,
+          "y": 0,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 320,
+          "y": 0,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 384,
+          "y": 0,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 448,
+          "y": 0,
+          "width": 64,
+          "height": 64
+        }
+      ]
+    },
+    {
+      "id": "poke-head",
+      "name": "머리를 콕",
+      "fps": 8,
+      "frames": [
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 0,
+          "y": 64,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 64,
+          "y": 64,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 128,
+          "y": 64,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 192,
+          "y": 64,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 256,
+          "y": 64,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 320,
+          "y": 64,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 384,
+          "y": 64,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 448,
+          "y": 64,
+          "width": 64,
+          "height": 64
+        }
+      ]
+    },
+    {
+      "id": "poke-body",
+      "name": "몸을 콕",
+      "fps": 8,
+      "frames": [
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 0,
+          "y": 128,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 64,
+          "y": 128,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 128,
+          "y": 128,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 192,
+          "y": 128,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 256,
+          "y": 128,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 320,
+          "y": 128,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 384,
+          "y": 128,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 448,
+          "y": 128,
+          "width": 64,
+          "height": 64
+        }
+      ]
+    },
+    {
+      "id": "stroke-head",
+      "name": "머리 쓰다듬기",
+      "fps": 8,
+      "frames": [
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 0,
+          "y": 192,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 64,
+          "y": 192,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 128,
+          "y": 192,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 192,
+          "y": 192,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 256,
+          "y": 192,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 320,
+          "y": 192,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 384,
+          "y": 192,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 448,
+          "y": 192,
+          "width": 64,
+          "height": 64
+        }
+      ]
+    },
+    {
+      "id": "stroke-body",
+      "name": "몸 쓰다듬기",
+      "fps": 8,
+      "frames": [
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 0,
+          "y": 256,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 64,
+          "y": 256,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 128,
+          "y": 256,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 192,
+          "y": 256,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 256,
+          "y": 256,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 320,
+          "y": 256,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 384,
+          "y": 256,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 448,
+          "y": 256,
+          "width": 64,
+          "height": 64
+        }
+      ]
+    },
+    {
+      "id": "cheek-start",
+      "name": "볼이 당겨짐",
+      "fps": 8,
+      "frames": [
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 0,
+          "y": 320,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 64,
+          "y": 320,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 128,
+          "y": 320,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 192,
+          "y": 320,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 256,
+          "y": 320,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 320,
+          "y": 320,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 384,
+          "y": 320,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 448,
+          "y": 320,
+          "width": 64,
+          "height": 64
+        }
+      ]
+    },
+    {
+      "id": "cheek-hold",
+      "name": "볼 잡고 있기",
+      "fps": 8,
+      "frames": [
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 0,
+          "y": 384,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 64,
+          "y": 384,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 128,
+          "y": 384,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 192,
+          "y": 384,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 256,
+          "y": 384,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 320,
+          "y": 384,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 384,
+          "y": 384,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 448,
+          "y": 384,
+          "width": 64,
+          "height": 64
+        }
+      ]
+    },
+    {
+      "id": "cheek-end",
+      "name": "볼 놓기",
+      "fps": 8,
+      "frames": [
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 0,
+          "y": 448,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 64,
+          "y": 448,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 128,
+          "y": 448,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 192,
+          "y": 448,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 256,
+          "y": 448,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 320,
+          "y": 448,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 384,
+          "y": 448,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 448,
+          "y": 448,
+          "width": 64,
+          "height": 64
+        }
+      ]
+    },
+    {
+      "id": "pickup-start",
+      "name": "집어 들기",
+      "fps": 8,
+      "frames": [
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 0,
+          "y": 512,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 64,
+          "y": 512,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 128,
+          "y": 512,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 192,
+          "y": 512,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 256,
+          "y": 512,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 320,
+          "y": 512,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 384,
+          "y": 512,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 448,
+          "y": 512,
+          "width": 64,
+          "height": 64
+        }
+      ]
+    },
+    {
+      "id": "hang-moving",
+      "name": "움직이며 매달리기",
+      "fps": 8,
+      "frames": [
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 0,
+          "y": 576,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 64,
+          "y": 576,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 128,
+          "y": 576,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 192,
+          "y": 576,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 256,
+          "y": 576,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 320,
+          "y": 576,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 384,
+          "y": 576,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 448,
+          "y": 576,
+          "width": 64,
+          "height": 64
+        }
+      ]
+    },
+    {
+      "id": "hang-still",
+      "name": "가만히 매달리기",
+      "fps": 8,
+      "frames": [
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 0,
+          "y": 640,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 64,
+          "y": 640,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 128,
+          "y": 640,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 192,
+          "y": 640,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 256,
+          "y": 640,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 320,
+          "y": 640,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 384,
+          "y": 640,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 448,
+          "y": 640,
+          "width": 64,
+          "height": 64
+        }
+      ]
+    },
+    {
+      "id": "landing",
+      "name": "내려놓고 자세 잡기",
+      "fps": 8,
+      "frames": [
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 0,
+          "y": 704,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 64,
+          "y": 704,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 128,
+          "y": 704,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 192,
+          "y": 704,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 256,
+          "y": 704,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 320,
+          "y": 704,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 384,
+          "y": 704,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 448,
+          "y": 704,
+          "width": 64,
+          "height": 64
+        }
+      ]
+    },
+    {
+      "id": "snack",
+      "name": "별 과자 먹기",
+      "fps": 8,
+      "frames": [
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 0,
+          "y": 768,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 64,
+          "y": 768,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 128,
+          "y": 768,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 192,
+          "y": 768,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 256,
+          "y": 768,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 320,
+          "y": 768,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 384,
+          "y": 768,
+          "width": 64,
+          "height": 64
+        },
+        {
+          "assetId": "3abf03418d1be0bb2a1f4bba9a4e70c02cbc1201ea93cb383906fe489dd37fce",
+          "x": 448,
+          "y": 768,
+          "width": 64,
+          "height": 64
+        }
+      ]
+    }
+  ],
+  "bindings": {
+    "idle": {
+      "clipId": "idle",
+      "repeat": true,
+      "intervalMs": 5000
+    }
+  },
+  "overrides": {}
+}

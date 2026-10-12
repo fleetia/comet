@@ -18,8 +18,10 @@ import type {
   AnimationClip,
   CharacterAnimation,
   CharacterDefinition,
+  CharacterNpc,
   CharacterLine,
   InstalledCharacter,
+  PackStoryDefinition,
 } from "../../types";
 import { BALLOON_SPRITE, DEFAULT_EXPRESSION, spriteUrl } from "../characterIdentity";
 import { skinStyle, useImageSlice } from "../../hooks/useImageSlice";
@@ -27,9 +29,10 @@ import { balloonTextStyle, DEFAULT_BALLOON_STYLE } from "../balloonTypography";
 import { AppearanceEditor, type AssetSelection } from "./AppearanceEditor";
 import { CharacterWorkPanel } from "./CharacterWorkPanel";
 import { CharacterLinePreview } from "./CharacterLinePreview";
+import { AuthoringTrial } from "./AuthoringTrial";
 import { useTypewriter } from "../../hooks/useTypewriter";
 import * as e from "./CharacterEditor.css";
-import { animationError } from "../AnimationEditor/helpers";
+import { animationError, gestureDefinitionError } from "../AnimationEditor/helpers";
 import { MotionSelect, motionError } from "../MotionSelect/MotionSelect";
 import { ReactionEditor } from "../ReactionEditor/ReactionEditor";
 import { reactionError } from "../ReactionEditor/reactionValidation";
@@ -44,6 +47,10 @@ type Props = {
   definition: CharacterDefinition;
   character?: InstalledCharacter;
   installed?: InstalledCharacter[];
+  presentIds?: string[];
+  packDefinition?: PackStoryDefinition;
+  packBaseline?: string;
+  trialAssets?: Record<string, AnimationAsset[]>;
   onChange: (definition: CharacterDefinition) => void;
   onSave: () => void;
   onCancel?: () => void;
@@ -64,6 +71,7 @@ type Props = {
   canEditCombination?: boolean;
   packName?: string;
   packContent?: ReactNode;
+  lifeContent?: ReactNode | ((visible: boolean) => ReactNode);
   headerActions?: ReactNode;
 };
 
@@ -75,6 +83,7 @@ function Lines({
   clips,
   onChange,
   onSelect,
+  allowEmpty = false,
 }: {
   title: string;
   lines: CharacterLine[];
@@ -83,6 +92,7 @@ function Lines({
   clips: AnimationClip[];
   onChange: (lines: CharacterLine[]) => void;
   onSelect: (index: number) => void;
+  allowEmpty?: boolean;
 }): JSX.Element {
   return (
     <section className={e.authoredGroup} aria-label={`${title} 대사`}>
@@ -174,7 +184,7 @@ function Lines({
             <Button
               variant="quiet"
               type="button"
-              disabled={lines.length <= 1}
+              disabled={!allowEmpty && lines.length <= 1}
               aria-label={`${title} ${index + 1} 삭제`}
               onClick={() => onChange(lines.filter((_, i) => i !== index))}
             >
@@ -388,6 +398,10 @@ export function CharacterEditor({
   definition,
   character,
   installed = [],
+  presentIds,
+  packDefinition,
+  packBaseline,
+  trialAssets = {},
   onChange,
   onSave,
   onCancel,
@@ -408,6 +422,7 @@ export function CharacterEditor({
   canEditCombination = true,
   packName,
   packContent,
+  lifeContent,
   headerActions,
 }: Props): JSX.Element {
   const [previewSelection, setPreviewSelection] = useState<{
@@ -416,6 +431,7 @@ export function CharacterEditor({
   }>({ group: "greeting", index: 0 });
   const [assetSelections, setAssetSelections] = useState<Record<string, AssetSelection>>({});
   const [localDialogueType, setLocalDialogueType] = useState<DialogueType>("lines");
+  const [npcPreviewIndex, setNpcPreviewIndex] = useState(0);
   const dialogueType = controlledDialogueType ?? localDialogueType;
   function chooseDialogueType(type: DialogueType): void {
     setLocalDialogueType(type);
@@ -431,9 +447,42 @@ export function CharacterEditor({
   ): void {
     onChange({ ...definition, [key]: value });
   }
+  function changeNpc(patch: Partial<CharacterNpc>): void {
+    change("npc", {
+      inviteKeywords: [],
+      appearanceKeywords: [],
+      requiredFlags: [],
+      entryLines: [],
+      exitPolicy: "topicChange",
+      ...definition.npc,
+      ...patch,
+    });
+  }
+  function entries(value: string): string[] {
+    return value === "" ? [] : value.split("\n");
+  }
   const expressionKeys = Object.keys(definition.expressions);
   const portrait = spriteUrl(character, DEFAULT_EXPRESSION);
   const relationshipTargets = installed.filter((candidate) => candidate.id !== character?.id);
+  const trialMembers = character
+    ? installed
+        .filter(
+          (member) =>
+            member.id === character.id ||
+            (character.packId !== null && member.packId === character.packId),
+        )
+        .map((member) => (member.id === character.id ? { ...member, definition } : member))
+    : [];
+  if (character && !trialMembers.some((member) => member.id === character.id)) {
+    trialMembers.push({ ...character, definition });
+  }
+  const trialCenter = installed.find(
+    (member) => member.definition.presenceRole !== "npc" && presentIds?.includes(member.id),
+  );
+  const trialActors =
+    trialMembers.some((member) => member.definition.presenceRole !== "npc") || !trialCenter
+      ? trialMembers
+      : [...trialMembers, trialCenter];
   const nextTarget = relationshipTargets.find(
     (candidate) => !definition.relationships.some(({ targetId }) => targetId === candidate.id),
   );
@@ -474,12 +523,15 @@ export function CharacterEditor({
     Array.from(balloonStyle.fontFamily).length <= 100 &&
     (balloonStyle.textColor === null || /^#[0-9a-f]{6}$/i.test(balloonStyle.textColor));
   const dialogueError =
+    gestureDefinitionError(definition) ??
     reactionError(definition) ??
     [
       ...definition.greeting,
       ...definition.idleLines,
       ...definition.departureLines,
       ...definition.returnLines,
+      ...(definition.npc?.entryLines ?? []),
+      ...definition.relationships.flatMap((relationship) => relationship.replyLines ?? []),
     ]
       .map((line) => motionError(line.motion, definition.animation?.clips ?? []))
       .find(Boolean);
@@ -487,6 +539,19 @@ export function CharacterEditor({
     Boolean(definition.name.trim()) &&
     Array.from(definition.instructions).length <= 2000 &&
     validRelationships &&
+    [
+      definition.npc?.entryLines ?? [],
+      ...definition.relationships.map((relationship) => relationship.replyLines ?? []),
+    ].every(
+      (lines) =>
+        lines.length <= 8 &&
+        lines.every(
+          (line) =>
+            Boolean(line.text.trim()) &&
+            Array.from(line.text).length <= 500 &&
+            expressionKeys.includes(line.expression),
+        ),
+    ) &&
     validBalloonStyle &&
     !dialogueError &&
     !animationError(definition.animation, {
@@ -558,6 +623,7 @@ export function CharacterEditor({
           <Tab value="appearance">모습·표정</Tab>
           <Tab value="balloon">말풍선</Tab>
           <Tab value="dialogue">대사·반응</Tab>
+          <Tab value="life">등장·이야기</Tab>
           <span className={e.tabDivider} aria-hidden="true">
             |
           </span>
@@ -664,6 +730,9 @@ export function CharacterEditor({
                     캐릭터에서 따로 설정해요.
                   </p>
                   {definition.relationships.map((relationship, index) => {
+                    const target = relationshipTargets.find(
+                      (member) => member.id === relationship.targetId,
+                    );
                     const missingTarget = !relationshipTargets.some(
                       (target) => target.id === relationship.targetId,
                     );
@@ -733,6 +802,50 @@ export function CharacterEditor({
                             )
                           }
                         />
+                        <details>
+                          <summary>이름을 언급했을 때의 등록 반응</summary>
+                          <Lines
+                            title={`관계 ${index + 1} 반응`}
+                            lines={relationship.replyLines ?? []}
+                            limit={8}
+                            expressions={expressionKeys}
+                            clips={definition.animation?.clips ?? []}
+                            onSelect={() => {}}
+                            allowEmpty
+                            onChange={(replyLines) =>
+                              change(
+                                "relationships",
+                                definition.relationships.map((value, i) =>
+                                  i === index ? { ...value, replyLines } : value,
+                                ),
+                              )
+                            }
+                          />
+                        </details>
+                        {character && target && (
+                          <AuthoringTrial
+                            title={`관계 ${index + 1} 시험`}
+                            actors={
+                              trialActors.some((member) => member.id === target.id)
+                                ? trialActors
+                                : [...trialActors, target]
+                            }
+                            subject={{
+                              kind: "relation",
+                              actorId: character.id,
+                              targetId: target.id,
+                            }}
+                            packId={character.packId}
+                            definition={packDefinition}
+                            baseline={packBaseline}
+                            presentIds={presentIds}
+                            assets={{
+                              ...trialAssets,
+                              [character.id]: trialAssets[character.id] ?? animationAssets,
+                            }}
+                            visible={tab === "profile" && !pending}
+                          />
+                        )}
                       </div>
                     );
                   })}
@@ -920,6 +1033,116 @@ export function CharacterEditor({
             </fieldset>
           </CharacterWorkPanel>
         </div>
+      </TabPanel>
+      <TabPanel value="life" className={s.editorPanel}>
+        <CharacterWorkPanel footer={definitionActions}>
+          <fieldset className={s.fieldset} disabled={pending}>
+            <section aria-label="캐릭터 등장">
+              <h3 className={s.subheading}>역할과 등장</h3>
+              <FormField label="바탕화면 역할">
+                <Select
+                  aria-label="바탕화면 역할"
+                  value={definition.presenceRole ?? "resident"}
+                  onChange={(event) =>
+                    change("presenceRole", event.target.value === "npc" ? "npc" : "resident")
+                  }
+                >
+                  <option value="resident">함께 지내는 친구</option>
+                  <option value="npc" disabled={isTogether}>
+                    잠깐 찾아오는 친구 (NPC)
+                  </option>
+                </Select>
+              </FormField>
+              <p className={s.small}>
+                NPC는 초대나 등록한 이야기에서만 등장해요. 함께 지내는 목록에서 뺀 뒤 역할을 바꿀 수
+                있어요. 이름 언급만으로 초대하지 않아요.
+              </p>
+              {(definition.presenceRole === "npc" || definition.npc) && (
+                <>
+                  <FormField label="명시적인 초대 표현 · 한 줄에 하나">
+                    <TextArea
+                      rows={2}
+                      aria-label="NPC 초대 표현"
+                      value={definition.npc?.inviteKeywords.join("\n") ?? ""}
+                      onChange={(event) =>
+                        changeNpc({ inviteKeywords: entries(event.target.value) })
+                      }
+                    />
+                  </FormField>
+                  <FormField label="등장 키워드 · 한 줄에 하나">
+                    <TextArea
+                      rows={2}
+                      aria-label="NPC 등장 키워드"
+                      value={definition.npc?.appearanceKeywords.join("\n") ?? ""}
+                      onChange={(event) =>
+                        changeNpc({ appearanceKeywords: entries(event.target.value) })
+                      }
+                    />
+                  </FormField>
+                  <FormField label="필요한 이야기 조건 · 한 줄에 하나">
+                    <TextArea
+                      rows={2}
+                      aria-label="NPC 등장 조건"
+                      value={definition.npc?.requiredFlags.join("\n") ?? ""}
+                      onChange={(event) =>
+                        changeNpc({ requiredFlags: entries(event.target.value) })
+                      }
+                    />
+                  </FormField>
+                  <FormField label="머무는 동안">
+                    <Select
+                      aria-label="NPC 퇴장 정책"
+                      value={definition.npc?.exitPolicy ?? "topicChange"}
+                      onChange={(event) =>
+                        changeNpc({
+                          exitPolicy:
+                            event.target.value === "sceneEnd" ? "sceneEnd" : "topicChange",
+                        })
+                      }
+                    >
+                      <option value="topicChange">화제가 바뀔 때까지</option>
+                      <option value="sceneEnd">등록 장면이 끝날 때까지</option>
+                    </Select>
+                  </FormField>
+                  <Lines
+                    title="NPC 입장"
+                    lines={definition.npc?.entryLines ?? []}
+                    limit={8}
+                    expressions={expressionKeys}
+                    clips={definition.animation?.clips ?? []}
+                    onSelect={setNpcPreviewIndex}
+                    allowEmpty
+                    onChange={(entryLines) => changeNpc({ entryLines })}
+                  />
+                  <CharacterLinePreview
+                    definition={definition}
+                    character={character}
+                    line={definition.npc?.entryLines[npcPreviewIndex]}
+                    assets={animationAssets}
+                    visible={tab === "life"}
+                  />
+                  {character && (
+                    <AuthoringTrial
+                      title="NPC 등장 시험"
+                      actors={trialActors}
+                      subject={{ kind: "npc", actorId: character.id }}
+                      packId={character.packId}
+                      definition={packDefinition}
+                      baseline={packBaseline}
+                      presentIds={presentIds}
+                      assets={{
+                        ...trialAssets,
+                        [character.id]: trialAssets[character.id] ?? animationAssets,
+                      }}
+                      visible={tab === "life" && !pending}
+                    />
+                  )}
+                </>
+              )}
+            </section>
+          </fieldset>
+          {typeof lifeContent === "function" ? lifeContent(tab === "life") : lifeContent}
+        </CharacterWorkPanel>
       </TabPanel>
       <TabPanel value="memory" className={s.editorPanel}>
         {(typeof memoryContent === "function"

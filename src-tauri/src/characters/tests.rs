@@ -7,6 +7,10 @@ fn database() -> Connection {
 }
 fn pack() -> CharacterPack {
     CharacterPack {
+        world_rules: String::new(),
+        story_flags: Vec::new(),
+        knowledge: Vec::new(),
+        scenarios: Vec::new(),
         format_version: 1,
         name: "두 친구".into(),
         author: "제작자".into(),
@@ -702,6 +706,7 @@ fn authored_instructions_and_directional_relationships_preserve_local_identity()
     let mut definition = original.definition.clone();
     definition.instructions = "  질문부터 듣고\n짧게 답한다.  ".into();
     definition.relationships = vec![CharacterRelationship {
+        reply_lines: Vec::new(),
         target_id: "builtin-b".into(),
         description: "  B는 오래된 친구.\n가끔 장난친다.  ".into(),
     }];
@@ -762,6 +767,7 @@ fn local_relationship_validation_rejects_new_missing_self_and_duplicate_targets(
     assert!(save(&conn, "builtin-a", &invalid).is_err());
     invalid = original.clone();
     invalid.relationships = vec![CharacterRelationship {
+        reply_lines: Vec::new(),
         target_id: "missing".into(),
         description: "친구".into(),
     }];
@@ -781,6 +787,7 @@ fn local_relationship_validation_rejects_new_missing_self_and_duplicate_targets(
     let mut valid = original;
     valid.instructions = "가".repeat(2000);
     valid.relationships = vec![CharacterRelationship {
+        reply_lines: Vec::new(),
         target_id: "builtin-b".into(),
         description: "가".repeat(500),
     }];
@@ -795,12 +802,14 @@ fn local_relationship_validation_rejects_new_missing_self_and_duplicate_targets(
     valid.relationships = targets[..32]
         .iter()
         .map(|target| CharacterRelationship {
+            reply_lines: Vec::new(),
             target_id: target.id.clone(),
             description: "친구".into(),
         })
         .collect();
     save(&conn, "builtin-a", &valid).unwrap();
     valid.relationships.push(CharacterRelationship {
+        reply_lines: Vec::new(),
         target_id: targets[32].id.clone(),
         description: "친구".into(),
     });
@@ -822,6 +831,7 @@ fn removed_relationship_targets_remain_editable_and_clones_keep_outgoing_relatio
     let mut definition = builtin("a");
     definition.instructions = "천천히 말한다.".into();
     definition.relationships = vec![CharacterRelationship {
+        reply_lines: Vec::new(),
         target_id: target.id.clone(),
         description: "아끼는 동생".into(),
     }];
@@ -860,10 +870,12 @@ fn relationship_pack_roundtrip_remaps_local_ids_without_crossing_reimports() {
     first_definition.instructions = "  지침\n원문  ".into();
     first_definition.relationships = vec![
         CharacterRelationship {
+            reply_lines: Vec::new(),
             target_id: second.id.clone(),
             description: "둘째에게만 다정하다.".into(),
         },
         CharacterRelationship {
+            reply_lines: Vec::new(),
             target_id: "builtin-b".into(),
             description: "팩 밖 친구".into(),
         },
@@ -871,6 +883,7 @@ fn relationship_pack_roundtrip_remaps_local_ids_without_crossing_reimports() {
     save(&conn, &first.id, &first_definition).unwrap();
     let mut second_definition = second.definition.clone();
     second_definition.relationships = vec![CharacterRelationship {
+        reply_lines: Vec::new(),
         target_id: first.id.clone(),
         description: "첫째를 존경한다.".into(),
     }];
@@ -918,6 +931,7 @@ fn relationship_packs_reject_missing_self_unknown_and_excessive_relationships() 
     let conn = database();
     let mut content = pack();
     content.characters[0].relationships = vec![CharacterRelationship {
+        reply_lines: Vec::new(),
         target_id: "not-in-pack".into(),
         description: "친구".into(),
     }];
@@ -931,6 +945,7 @@ fn relationship_packs_reject_missing_self_unknown_and_excessive_relationships() 
     assert!(parse_pack(&unknown.to_string()).is_err());
     content.characters[0].relationships = (0..33)
         .map(|index| CharacterRelationship {
+            reply_lines: Vec::new(),
             target_id: format!("target-{index}"),
             description: "친구".into(),
         })

@@ -33,15 +33,25 @@ impl Runtime {
     ) -> bool {
         let usable =
             |widget: &&WidgetInstance| widget.installed && widget.enabled && widget.error.is_none();
+        let timer = widgets.iter().filter(usable).find(|widget| {
+            widget.kind == "focus-timer"
+                && widget.data["status"] == "running"
+                && widget.data["deadline"]
+                    .as_i64()
+                    .is_some_and(|deadline| deadline > now)
+        });
+        let focus = !blocked && timer.is_some_and(|timer| timer.data["mode"] == "focus");
+        let rest = !blocked && timer.is_some_and(|timer| timer.data["mode"] == "rest");
         let music = widgets.iter().find(|widget| widget.kind == "music");
         let connected_music = music.filter(usable).filter(|widget| {
             widget.data["configured"] == true
                 && matches!(widget.data["status"].as_str(), Some("ready" | "syncing"))
         });
-        if blocked || connected_music.is_none() {
+        if blocked || focus || connected_music.is_none() {
             self.music_after = self.music_after.max(now);
         }
         let music_playing = !blocked
+            && !focus
             && connected_music.is_some_and(|widget| {
                 let observation = &widget.data["observation"];
                 observation["running"] == true
@@ -61,6 +71,9 @@ impl Runtime {
         let next = States {
             music_playing,
             calendar_open,
+            focus,
+            rest,
+            sleeping_character_ids: self.states.sleeping_character_ids.clone(),
         };
         let changed = next != self.states;
         self.states = next;
@@ -82,12 +95,17 @@ pub(crate) fn refresh(app: &tauri::AppHandle, state: &AppState) -> Result<bool, 
         && app.get_webview_window("planner").is_some_and(|window| {
             window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(true)
         });
-    Ok(lock(&state.animation_states)?.update(
+    let sleeping_ids = lock(&state.life)?.sleeping_ids();
+    let mut runtime = lock(&state.animation_states)?;
+    let changed = runtime.update(
         &widgets,
         calendar_visible,
         blocked,
         chrono::Utc::now().timestamp_millis(),
-    ))
+    );
+    let sleeping_changed = runtime.states.sleeping_character_ids != sleeping_ids;
+    runtime.states.sleeping_character_ids = sleeping_ids;
+    Ok(changed || sleeping_changed)
 }
 
 #[cfg(test)]
@@ -112,6 +130,43 @@ mod tests {
             music_after: 100,
             states: States::default(),
         }
+    }
+    #[test]
+    fn only_an_active_timer_selects_focus_or_rest_and_focus_requires_new_music_afterward() {
+        let mut runtime = runtime();
+        let mut timer = music();
+        timer.kind = "focus-timer".into();
+        timer.data = json!({"status":"running","mode":"focus","deadline":200});
+        runtime.update(&[timer.clone(), music()], false, false, 102);
+        assert!(runtime.states.focus);
+        assert!(!runtime.states.rest);
+        assert!(!runtime.states.music_playing);
+        timer.data["mode"] = json!("rest");
+        runtime.update(&[timer.clone(), music()], false, false, 103);
+        assert!(!runtime.states.focus);
+        assert!(runtime.states.rest);
+        assert!(!runtime.states.music_playing);
+        let mut fresh = music();
+        fresh.data["observation"]["observedAt"] = json!(104);
+        runtime.update(&[timer.clone(), fresh], false, false, 105);
+        assert!(runtime.states.music_playing);
+        for reason in 0..5 {
+            let mut invalid = timer.clone();
+            match reason {
+                0 => invalid.installed = false,
+                1 => invalid.enabled = false,
+                2 => invalid.data["status"] = json!("paused"),
+                3 => invalid.data["deadline"] = json!(105),
+                _ => invalid.error = Some("failed".into()),
+            }
+            runtime.update(&[invalid], false, false, 105);
+            assert!(
+                !runtime.states.focus && !runtime.states.rest,
+                "case {reason}"
+            );
+        }
+        runtime.update(&[timer], false, true, 106);
+        assert!(!runtime.states.focus && !runtime.states.rest);
     }
     #[test]
     fn only_fresh_actual_playback_in_this_session_activates_music() {

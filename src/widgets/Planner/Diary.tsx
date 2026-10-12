@@ -82,6 +82,21 @@ export function Diary(): ReactElement {
   const [archived, setArchived] = useState(false);
   const [creating, setCreating] = useState<"page" | "envelope" | null>(null);
   const [name, setName] = useState("");
+  const [quickTaskOpen, setQuickTaskOpen] = useState(false);
+  const [quickTaskTitle, setQuickTaskTitle] = useState("");
+  const [quickTaskDate, setQuickTaskDate] = useState<string | null>(null);
+  const quickTaskVersion = useRef(0);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      quickTaskVersion.current += 1;
+    };
+  }, []);
+  useEffect(() => {
+    if (!quickTaskTitle) setQuickTaskDate(tool || pageId || envelopeId ? null : day);
+  }, [quickTaskTitle, tool, pageId, envelopeId, day]);
   const [editing, setEditing] = useState<DataRecord | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<DataRecord | null>(null);
   const [calendarDraft, setCalendarDraft] = useState<{
@@ -160,7 +175,8 @@ export function Diary(): ReactElement {
     toolState.dirty ||
     toolState.blocking ||
     Boolean(editing) ||
-    Boolean(name);
+    Boolean(name) ||
+    Boolean(quickTaskTitle);
   const close = (): void => {
     if (isDesktop())
       void getCurrentWindow()
@@ -177,6 +193,7 @@ export function Diary(): ReactElement {
       calendarDirty ||
       editing ||
       name ||
+      quickTaskTitle ||
       toolState.blocking ||
       (closing && (notesDirty || toolState.dirty))
     )
@@ -698,6 +715,17 @@ export function Diary(): ReactElement {
           <>
             {!isDesktop() && <span className={s.caption}>예시 데이터</span>}
             <Button
+              variant="quiet"
+              size="compact"
+              disabled={saving}
+              onClick={() => {
+                if (!quickTaskTitle) setQuickTaskDate(tool || pageId || envelopeId ? null : day);
+                setQuickTaskOpen(true);
+              }}
+            >
+              빠른 할 일 추가
+            </Button>
+            <Button
               className={s.notesToggle}
               variant="quiet"
               size="compact"
@@ -1011,6 +1039,62 @@ export function Diary(): ReactElement {
                 scrollPositions.current[bodyScope] = event.currentTarget.scrollTop;
               }}
             >
+              {quickTaskOpen && (
+                <form
+                  className={s.form}
+                  aria-label="빠른 할 일"
+                  onSubmit={async (event) => {
+                    event.preventDefault();
+                    if (
+                      pending.current ||
+                      saving ||
+                      !quickTaskTitle.trim() ||
+                      quickTaskTitle.length > 500
+                    )
+                      return;
+                    const version = quickTaskVersion.current;
+                    if (await createTask(quickTaskTitle, quickTaskDate)) {
+                      if (!mounted.current || version !== quickTaskVersion.current) return;
+                      quickTaskVersion.current += 1;
+                      setQuickTaskTitle("");
+                      setQuickTaskOpen(false);
+                    }
+                  }}
+                >
+                  <FormField label="빠른 할 일 제목" required>
+                    <TextField
+                      autoFocus
+                      maxLength={500}
+                      value={quickTaskTitle}
+                      disabled={saving}
+                      onChange={(event) => {
+                        quickTaskVersion.current += 1;
+                        setQuickTaskTitle(event.target.value);
+                      }}
+                    />
+                  </FormField>
+                  <p className={s.caption}>
+                    {quickTaskDate ? `${quickTaskDate} 할 일` : "날짜 없이 모아두기"}
+                  </p>
+                  <div className={s.toolbar}>
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      disabled={saving || !quickTaskTitle.trim()}
+                    >
+                      할 일 저장
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="quiet"
+                      disabled={saving}
+                      onClick={() => setQuickTaskOpen(false)}
+                    >
+                      닫아두기
+                    </Button>
+                  </div>
+                </form>
+              )}
               {toolsOpened && (
                 <div hidden={!tool || tool === "organizer"} className={s.toolContent}>
                   <h1 className={s.title}>{TOOL_MENU.find(([value]) => value === tool)?.[1]}</h1>
@@ -1363,6 +1447,9 @@ export function Diary(): ReactElement {
               setPageMenuDirty(false);
               setEditing(null);
               setName("");
+              quickTaskVersion.current += 1;
+              setQuickTaskTitle("");
+              setQuickTaskOpen(false);
               setCreating(null);
               setCalendarDraft(null);
               setCalendarDirty(false);

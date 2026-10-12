@@ -17,13 +17,13 @@ export function characterById(snapshot: Snapshot, id: string): InstalledCharacte
   return snapshot.characters.installed.find((character) => character.id === id);
 }
 export function personaOf(snapshot: Snapshot, id: string): Persona | null {
-  return snapshot.characters.active.includes(id) ? id : null;
+  return snapshot.characters.active.includes(id) || snapshot.runtime.guestCharacterIds?.includes(id) ? id : null;
 }
 export function activeCharacter(
   snapshot: Snapshot,
   persona: Persona,
 ): InstalledCharacter | undefined {
-  if (snapshot.characters.active.includes(persona)) return characterById(snapshot, persona);
+  if (snapshot.characters.active.includes(persona) || snapshot.runtime.guestCharacterIds?.includes(persona)) return characterById(snapshot, persona);
   const index = ["a", "b", "c", "d", "e", "f", "g", "h"].indexOf(persona);
   const id = snapshot.characters.active[index];
   return id === undefined ? undefined : characterById(snapshot, id);

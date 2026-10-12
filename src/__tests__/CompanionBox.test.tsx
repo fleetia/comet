@@ -31,7 +31,19 @@ it("hides the characters from the internal X without opening their menu", async 
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 숨기기" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("hide_boxes"));
   expect(command).not.toHaveBeenCalledWith("open_panel", expect.anything());
-  expect(command).not.toHaveBeenCalledWith("trigger_character_reaction");
+  expect(command).not.toHaveBeenCalledWith("trigger_character_interaction", expect.anything());
+});
+
+it("closes only the current NPC through its internal X", async () => {
+  vi.mocked(isDesktop).mockReturnValue(true);
+  render(<CompanionBox id="builtin-b" snapshot={{
+    ...PREVIEW_SNAPSHOT,
+    characters: { ...PREVIEW_SNAPSHOT.characters, active: ["builtin-a"] },
+    runtime: { ...PREVIEW_SNAPSHOT.runtime, guestCharacterIds: ["builtin-b"] },
+  }} />);
+  fireEvent.click(screen.getByRole("button", { name: "캐릭터 숨기기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("leave_character_guest"));
+  expect(command).not.toHaveBeenCalledWith("hide_boxes");
 });
 
 it("waits to confirm a click reaction and routes right click to menu and double click to input", async () => {
@@ -42,20 +54,37 @@ it("waits to confirm a click reaction and routes right click to menu and double 
   const body = screen.getByRole("button", { name: / 반응$/ });
   fireEvent.click(body, { detail: 1 });
   act(() => vi.advanceTimersByTime(499));
-  expect(command).not.toHaveBeenCalledWith("trigger_character_reaction");
+  expect(command).not.toHaveBeenCalledWith("trigger_character_interaction", expect.anything());
   act(() => vi.advanceTimersByTime(1));
-  expect(command).toHaveBeenCalledWith("trigger_character_reaction");
+  expect(command).toHaveBeenCalledWith("trigger_character_interaction", {
+    action: "poke",
+    bodyPart: undefined,
+    sessionId: expect.any(String),
+    phase: "ended",
+  });
   expect(command).not.toHaveBeenCalledWith("open_panel", expect.anything());
 
   fireEvent.contextMenu(body);
   expect(command).toHaveBeenCalledWith("open_panel", { persona: "builtin-a", mode: "menu" });
+  // A fresh pointer-down after closing the menu re-enables activation.
+  const held = new Set<number>();
+  body.setPointerCapture = (id) => {
+    held.add(id);
+  };
+  body.releasePointerCapture = (id) => {
+    held.delete(id);
+  };
+  body.hasPointerCapture = (id) => held.has(id);
+  const down = new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 0, clientY: 0 });
+  Object.defineProperty(down, "pointerId", { value: 1 });
+  fireEvent(body, down);
   fireEvent.click(body, { detail: 1 });
   fireEvent.click(body, { detail: 2 });
   fireEvent.doubleClick(body, { detail: 2 });
   act(() => vi.advanceTimersByTime(500));
   expect(command).toHaveBeenCalledWith("open_panel", { persona: "builtin-a", mode: "input" });
   expect(
-    vi.mocked(command).mock.calls.filter(([name]) => name === "trigger_character_reaction"),
+    vi.mocked(command).mock.calls.filter(([name]) => name === "trigger_character_interaction"),
   ).toHaveLength(1);
 });
 function compose(): HTMLTextAreaElement {

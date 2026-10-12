@@ -38,12 +38,14 @@ export function MotionSelect({
   value,
   clips,
   once = false,
+  continuous = false,
   onChange,
 }: {
   label: string;
   value?: MotionOverride;
   clips: AnimationClip[];
   once?: boolean;
+  continuous?: boolean;
   onChange: (motion: MotionOverride | undefined) => void;
 }): JSX.Element {
   const selected = value?.mode === "clip" ? `clip:${value.clipId}` : (value?.mode ?? "inherit");
@@ -72,7 +74,9 @@ export function MotionSelect({
         ))}
       </Select>
       {value?.mode === "clip" &&
-        (once ? (
+        (continuous ? (
+          <span className={s.hint}>놓을 때까지 반복</span>
+        ) : once ? (
           <span className={s.hint}>한 번 재생</span>
         ) : (
           <>

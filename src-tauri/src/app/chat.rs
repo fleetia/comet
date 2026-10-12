@@ -1,4 +1,6 @@
-use super::{interrupt, lock, now, phase, schedule_idle, unavailable, AppState};
+#[cfg(test)]
+use super::interrupt;
+use super::{lock, now, phase, schedule_idle, unavailable, AppState};
 use crate::{
     characters, store,
     types::{PanelState, RuntimePhase},
@@ -23,23 +25,40 @@ fn begin_reply(state: &AppState, playback_id: &str) -> Result<u64, String> {
         return Err("앱을 종료하고 있어요.".into());
     }
     let db = lock(&state.db)?;
-    super::conversation::ensure_available(&db)?;
     let line = lock(&state.playback)?
         .as_ref()
         .filter(|line| line.id == playback_id && line.display_started_at.is_some())
         .cloned()
         .ok_or("이 말풍선은 이미 지나갔어요. 지난 대화에서 확인해 주세요.")?;
+    let actor = crate::character_guests::actor(state, &db, &line.persona)?;
+    let center = crate::character_guests::center_id(state, &actor.id)?.unwrap_or(actor.id.clone());
+    crate::character_life::wake(state, &actor.id)?;
+    super::conversation::ensure_available(&db)?;
+    let waiting_pack =
+        super::conversation::waiting_pack_run(state, &db, std::slice::from_ref(&center))?;
+    if actor.definition.presence_role == crate::pack_stories::PresenceRole::Npc
+        && waiting_pack.is_none()
+    {
+        return Err("이야기 대사가 끝난 뒤 NPC에게 말 걸어 주세요.".into());
+    }
     let registered = store::current_user(&db)?.is_some();
     if registered {
         store::create_conversation(
             &db,
-            std::slice::from_ref(&line.persona),
-            Some(&line.id),
+            std::slice::from_ref(&center),
+            (actor.definition.presence_role == crate::pack_stories::PresenceRole::Resident
+                && !matches!(line.source.as_str(), "story" | "scenario" | "npc"))
+            .then_some(line.id.as_str()),
             None,
             chrono::Utc::now().timestamp_millis(),
         )?;
     }
-    let epoch = interrupt(state, false)?.0;
+    let epoch = if waiting_pack.is_some() {
+        super::interrupt_for_conversation(state, false)?.0
+    } else {
+        super::interrupt_with_db(state, false, &db)?.0
+    };
+    super::conversation::retain_pack_run(state, &db, waiting_pack, epoch)?;
     *lock(&state.panel)? = Some(PanelState {
         persona: line.persona,
         mode: if registered { "input" } else { "name" }.into(),
@@ -77,12 +96,15 @@ fn begin_resume(state: &AppState, session_id: &str) -> Result<(u64, Option<Strin
         return Err("앱을 종료하고 있어요.".into());
     }
     let db = lock(&state.db)?;
-    super::conversation::ensure_available(&db)?;
     let session = store::conversation(&db, session_id)?;
     let active = characters::active_ids(&db)?;
     if session.participants.iter().any(|id| !active.contains(id)) {
         return Err("그때의 친구들을 다시 함께 지내기로 선택하면 이어갈 수 있어요.".into());
     }
+    for id in &session.participants {
+        crate::character_life::wake(state, id)?;
+    }
+    super::conversation::ensure_available(&db)?;
     let recovery = store::conversation_recovery(&db, &session.id)?.and_then(|recovery| {
         (recovery.reason == store::RecoveryReason::Incomplete).then(|| {
             "마지막 답변을 마치지 못했어요. 다시 이야기하기로 이어갈 수 있어요.".to_string()
@@ -94,7 +116,7 @@ fn begin_resume(state: &AppState, session_id: &str) -> Result<(u64, Option<Strin
     } else {
         store::set_conversation_status(&db, &session.id, "active", at)?;
     }
-    let epoch = interrupt(state, false)?.0;
+    let epoch = super::interrupt_with_db(state, false, &db)?.0;
     *lock(&state.panel)? = Some(PanelState {
         persona: session
             .participants
@@ -126,7 +148,7 @@ pub(crate) fn finish_conversation(
             "ended",
             chrono::Utc::now().timestamp_millis(),
         )?;
-        let epoch = interrupt(&state, false)?.0;
+        let epoch = super::interrupt_with_db(&state, false, &db)?.0;
         *lock(&state.panel)? = None;
         schedule_idle(&state, store::settings(&db)?.idle_minutes);
         epoch
@@ -150,8 +172,15 @@ pub(crate) fn get_conversations(
     state: tauri::State<'_, Arc<AppState>>,
     persona: String,
 ) -> Result<Vec<store::ConversationSession>, String> {
+    conversation_sessions(&state, &persona)
+}
+
+pub(crate) fn conversation_sessions(
+    state: &AppState,
+    persona: &str,
+) -> Result<Vec<store::ConversationSession>, String> {
     let db = lock(&state.db)?;
-    let character = characters::active_character(&db, &persona)?;
+    let character = crate::character_guests::actor(state, &db, persona)?;
     store::conversations(&db, &character.id)
 }
 

@@ -1,5 +1,13 @@
 #[path = "characters/archive.rs"]
 pub mod archive;
+#[path = "characters/bundled_motions.rs"]
+mod bundled_motions;
+#[path = "characters/story_definitions.rs"]
+mod story_definitions;
+pub use story_definitions::{
+    character_definition_baseline, get_pack_story_definition, npc_only_pack,
+    pack_definition_baseline, save_pack_story_definition_expected,
+};
 #[path = "characters/dialogue.rs"]
 mod dialogue;
 #[path = "characters/validation.rs"]
@@ -11,8 +19,14 @@ use crate::character_animation::{
 };
 use crate::character_reactions::{MotionOverride, ReactionRule};
 use crate::character_sprites::{self as sprites, SpriteInfo};
+#[cfg(test)]
+pub use dialogue::keyword_scene;
 use dialogue::remap;
-pub use dialogue::{dialogue, greeting, idle_scene, keyword_scene, save_dialogue};
+pub(crate) use dialogue::registered_directed_reply;
+pub use dialogue::{
+    dialogue, greeting, idle_scene, registered_keyword_scene, registered_relation_scene,
+    save_dialogue,
+};
 use validation::decode_sprite;
 pub(crate) use validation::sprite_slot_allowed;
 pub(crate) use validation::validate_definition;
@@ -66,6 +80,8 @@ pub struct CharacterLine {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CharacterRelationship {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reply_lines: Vec<CharacterLine>,
     pub target_id: String,
     pub description: String,
 }
@@ -87,9 +103,16 @@ impl Default for BalloonStyle {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CharacterDefinition {
+    #[serde(
+        default,
+        skip_serializing_if = "crate::pack_stories::PresenceRole::is_resident"
+    )]
+    pub presence_role: crate::pack_stories::PresenceRole,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub npc: Option<crate::pack_stories::NpcDefinition>,
     pub source_id: String,
     // Accept the retired field in installed data and older packs without retaining it.
     #[serde(
@@ -117,6 +140,10 @@ pub struct CharacterDefinition {
     pub animation: Option<Animation>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reactions: Vec<ReactionRule>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub body_regions: Vec<crate::character_reactions::BodyRegion>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub gesture_motions: Vec<crate::character_reactions::GestureMotion>,
     pub greeting: Vec<CharacterLine>,
     pub idle_lines: Vec<CharacterLine>,
     #[serde(default = "default_departure_lines")]
@@ -129,7 +156,7 @@ fn discard_legacy_version<'de, D: serde::Deserializer<'de>>(
 ) -> std::result::Result<(), D::Error> {
     u32::deserialize(deserializer).map(|_| ())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InstalledCharacter {
     pub id: String,
@@ -164,6 +191,14 @@ pub struct InstalledCharacterPack {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CharacterPack {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub world_rules: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub story_flags: Vec<crate::pack_stories::StoryFlag>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub knowledge: Vec<crate::pack_stories::ConditionalKnowledge>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scenarios: Vec<crate::pack_stories::ScenarioDefinition>,
     pub format_version: u32,
     pub name: String,
     pub author: String,
@@ -183,6 +218,22 @@ pub struct CharacterPack {
     pub archive: Option<archive::CharacterArchive>,
 }
 
+impl CharacterPack {
+    pub fn story_definition(&self) -> crate::pack_stories::PackStoryDefinition {
+        crate::pack_stories::PackStoryDefinition {
+            world_rules: self.world_rules.clone(),
+            story_flags: self.story_flags.clone(),
+            knowledge: self.knowledge.clone(),
+            scenarios: self.scenarios.clone(),
+        }
+    }
+    pub fn set_story_definition(&mut self, value: crate::pack_stories::PackStoryDefinition) {
+        self.world_rules = value.world_rules;
+        self.story_flags = value.story_flags;
+        self.knowledge = value.knowledge;
+        self.scenarios = value.scenarios;
+    }
+}
 pub struct PreparedCharacterPack {
     pack: CharacterPack,
     animation_assets: BTreeMap<String, Vec<PreparedAsset>>,
@@ -347,6 +398,7 @@ fn initialize_with(
 ) -> Result<()> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     tx.execute_batch("CREATE TABLE IF NOT EXISTS characters(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,pack_id TEXT,data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS character_seed(version INTEGER PRIMARY KEY); CREATE TABLE IF NOT EXISTS character_roster(position INTEGER PRIMARY KEY,character_id TEXT NOT NULL UNIQUE); CREATE TABLE IF NOT EXISTS character_packs(id TEXT PRIMARY KEY,data TEXT NOT NULL,members TEXT NOT NULL); CREATE TABLE IF NOT EXISTS character_dialogues(members TEXT PRIMARY KEY,data TEXT NOT NULL);").map_err(|e| e.to_string())?;
+    story_definitions::initialize(&tx)?;
     sprites::initialize(&tx)?;
     animation::initialize(&tx)?;
     archive::initialize(&tx)?;
@@ -370,6 +422,7 @@ fn initialize_with(
             .map_err(|e| e.to_string())?;
     }
     migrate_factory_expressions(&tx)?;
+    bundled_motions::migrate(&tx)?;
     tx.commit().map_err(|e| e.to_string())
 }
 #[cfg(test)]
@@ -513,7 +566,16 @@ pub fn apply_pack(conn: &Connection, pack_id: &str) -> Result<()> {
         if pack.character_ids.is_empty() {
             return Err("이 팩에는 함께 지낼 캐릭터가 남아 있지 않습니다.".into());
         }
-        apply_roster(tx, pack.character_ids)
+        let residents = pack
+            .character_ids
+            .into_iter()
+            .filter(|id| {
+                get(tx, id).is_ok_and(|member| {
+                    member.definition.presence_role == crate::pack_stories::PresenceRole::Resident
+                })
+            })
+            .collect();
+        apply_roster(tx, residents)
     })
 }
 pub fn active_character(conn: &Connection, slot: &str) -> Result<InstalledCharacter> {
@@ -545,7 +607,10 @@ pub fn apply_roster(conn: &Connection, ids: Vec<String>) -> Result<()> {
     }
     with_transaction(conn, |tx| {
         for id in &ids {
-            get(tx, id)?;
+            if get(tx, id)?.definition.presence_role != crate::pack_stories::PresenceRole::Resident
+            {
+                return Err("상주 목록에는 상주 역할의 인물만 골라 주세요.".into());
+            }
         }
         write_roster(tx, &ids)
     })
@@ -578,6 +643,7 @@ pub fn save_with_assets(
 ) -> Result<()> {
     validate_definition(definition)?;
     let old = get(conn, id)?;
+    story_definitions::validate_profile(conn, id, definition)?;
     validate_local_relationships(conn, id, definition, &old.definition.relationships)?;
     let mut edited = definition.clone();
     edited.source_id = old.definition.source_id;
@@ -685,7 +751,8 @@ pub fn clone_character(conn: &Connection, id: &str) -> Result<InstalledCharacter
     with_transaction(conn, |tx| {
         let mut original = get(tx, id)?;
         let relationships = std::mem::take(&mut original.definition.relationships);
-        let mut pack = export_pack(tx, &[id.to_string()], &[])?;
+        let mut pack =
+            export_pack_contents(tx, &[id.to_string()], &[], &ExportOptions::default(), false)?;
         for sprite in &mut pack.sprites {
             sprite.source_id = original.definition.source_id.clone();
         }
@@ -820,7 +887,7 @@ pub fn import_prepared_pack(
         Ok(installed)
     })
 }
-fn pack_record(conn: &Connection, id: &str) -> Result<(CharacterPack, Vec<String>)> {
+pub(crate) fn pack_record(conn: &Connection, id: &str) -> Result<(CharacterPack, Vec<String>)> {
     let (data, members): (String, String) = conn
         .query_row(
             "SELECT data,members FROM character_packs WHERE id=?",
@@ -833,6 +900,7 @@ fn pack_record(conn: &Connection, id: &str) -> Result<(CharacterPack, Vec<String
         serde_json::from_str(&members).map_err(|e| e.to_string())?,
     ))
 }
+#[cfg(test)]
 pub fn export_pack(
     conn: &Connection,
     ids: &[String],
@@ -846,6 +914,16 @@ pub fn export_pack_with_options(
     ids: &[String],
     selected_wordbook: &[WordbookEntry],
     options: &ExportOptions,
+) -> Result<CharacterPack> {
+    export_pack_contents(conn, ids, selected_wordbook, options, true)
+}
+
+fn export_pack_contents(
+    conn: &Connection,
+    ids: &[String],
+    selected_wordbook: &[WordbookEntry],
+    options: &ExportOptions,
+    include_shared_definitions: bool,
 ) -> Result<CharacterPack> {
     if !(1..=MAX_ROSTER).contains(&ids.len())
         || ids.iter().collect::<HashSet<_>>().len() != ids.len()
@@ -866,6 +944,10 @@ pub fn export_pack_with_options(
             .chars()
             .take(80)
             .collect(),
+        world_rules: String::new(),
+        story_flags: Vec::new(),
+        knowledge: Vec::new(),
+        scenarios: Vec::new(),
         author: String::new(),
         source_url: String::new(),
         license: String::new(),
@@ -901,6 +983,7 @@ pub fn export_pack_with_options(
                     .map(|index| CharacterRelationship {
                         target_id: sources[index].clone(),
                         description: relationship.description.clone(),
+                        reply_lines: relationship.reply_lines.clone(),
                     })
             })
             .collect();
@@ -930,7 +1013,7 @@ pub fn export_pack_with_options(
         }
     }
     if options.includes_archive() {
-        let mapping = ids.iter().cloned().zip(sources).collect();
+        let mapping = ids.iter().cloned().zip(sources.iter().cloned()).collect();
         pack.archive = Some(archive::export(
             conn,
             &mapping,
@@ -954,6 +1037,13 @@ pub fn export_pack_with_options(
             }
         }
     }
+    story_definitions::export_extras(
+        conn,
+        &installed,
+        &sources,
+        &mut pack,
+        include_shared_definitions,
+    )?;
     let content = dialogue(conn, ids)?;
     pack.pair_scenes = content.pair_scenes;
     pack.wordbook = content.wordbook;
@@ -971,12 +1061,37 @@ pub fn export_pack_with_options(
     if !options.include_sprites {
         for definition in &mut pack.characters {
             definition.animation = None;
+            for gesture in &mut definition.gesture_motions {
+                for motion in [
+                    &mut gesture.start,
+                    &mut gesture.hold,
+                    &mut gesture.moving_hold,
+                    &mut gesture.end,
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    *motion = motion.without_images();
+                }
+            }
             for line in definition
                 .greeting
                 .iter_mut()
                 .chain(&mut definition.idle_lines)
                 .chain(&mut definition.departure_lines)
                 .chain(&mut definition.return_lines)
+                .chain(
+                    definition
+                        .npc
+                        .iter_mut()
+                        .flat_map(|npc| &mut npc.entry_lines),
+                )
+                .chain(
+                    definition
+                        .relationships
+                        .iter_mut()
+                        .flat_map(|relation| &mut relation.reply_lines),
+                )
             {
                 line.motion = line.motion.without_images();
             }
@@ -999,7 +1114,22 @@ pub fn export_pack_with_options(
             line.motion = line.motion.without_images();
         }
     }
-    pack.format_version = if validation::has_state_bindings(&pack)
+    if !options.include_sprites {
+        for scenario in &mut pack.scenarios {
+            for line in scenario
+                .intro
+                .iter_mut()
+                .chain(&mut scenario.accept)
+                .chain(&mut scenario.decline)
+                .chain(&mut scenario.ending)
+            {
+                line.motion = line.motion.without_images();
+            }
+        }
+    }
+    pack.format_version = if validation::has_gestures(&pack) {
+        7
+    } else if validation::has_state_bindings(&pack)
         || validation::has_authored_presence_lines(&pack)
     {
         6
@@ -1016,6 +1146,15 @@ pub fn export_pack_with_options(
     } else {
         2
     };
+    if !pack.story_definition().is_empty()
+        || pack.characters.iter().any(|d| {
+            d.presence_role != crate::pack_stories::PresenceRole::Resident
+                || d.npc.is_some()
+                || d.relationships.iter().any(|r| !r.reply_lines.is_empty())
+        })
+    {
+        pack.format_version = 8;
+    }
     validation::validate_pack_metadata(&pack)?;
     Ok(pack)
 }

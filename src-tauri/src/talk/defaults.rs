@@ -993,7 +993,7 @@ mod pipeline_tests {
         let program = program(NADIR_AND_STAR_TAIL);
         let current = instance(&db, "calendar");
         let mut data = current.data.clone();
-        data["events"] = json!([{"id":"actual-event","title":"도서관","cancelled":false}]);
+        data["events"] = json!([{"id":"actual-event","connectionId":"local","title":"도서관","cancelled":false}]);
         storage::commit_data(&db, &current.id, current.revision, data, vec![], 1_000).unwrap();
         act(
             &db,

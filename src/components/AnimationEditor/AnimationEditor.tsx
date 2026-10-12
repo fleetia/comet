@@ -27,7 +27,7 @@ import {
 import * as common from "../characters.css";
 import * as s from "./animationEditor.css";
 
-type Situation = "idle" | "speaking" | "click" | "musicPlaying" | "calendarOpen";
+type Situation = keyof CharacterAnimation["bindings"];
 type Props = {
   animation?: CharacterAnimation | null;
   character?: InstalledCharacter;
@@ -153,9 +153,14 @@ export function AnimationEditor({
     [],
   );
   useEffect(() => {
+    chooseVersion.current += 1;
+    setChoosing(false);
+    setError(null);
+  }, [character?.id, animation, clip?.id, visible]);
+  useEffect(() => {
     setPlaying(false);
     setManualIndex(0);
-  }, [clip?.id, visible]);
+  }, [character?.id, clip?.id, visible]);
 
   const sources = useMemo(() => {
     const referenced = new Set(clip?.frames.map((frame) => frame.assetId));
@@ -181,7 +186,11 @@ export function AnimationEditor({
     [character?.animationAssets, assets],
   );
   const previewSize = Math.min(128, Math.max(32, size));
-  const { frames, ready, error: previewError } = useAnimationFrames(clip, sources, previewSize);
+  const {
+    frames,
+    ready,
+    error: previewError,
+  } = useAnimationFrames(visible ? clip : undefined, sources, previewSize);
   const player = useAnimationPlayer({
     clip,
     binding: { repeat: previewRepeat, intervalMs: previewInterval },
@@ -610,6 +619,9 @@ export function AnimationEditor({
                 ["idle", "평소"],
                 ["speaking", "말하는 동안"],
                 ["click", "클릭했을 때"],
+                ["sleep", "자는 동안"],
+                ["focus", "집중하는 동안"],
+                ["rest", "휴식하는 동안"],
                 ["calendarOpen", "캘린더를 보고 있는 동안"],
                 ["musicPlaying", "음악을 재생하는 동안"],
               ] as const

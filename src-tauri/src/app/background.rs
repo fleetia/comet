@@ -40,6 +40,7 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         let quiet_changed = super::quiet_hours::reconcile(&state).unwrap_or(false);
         let animation_changed =
             crate::character_animation_states::refresh(&app, &state).unwrap_or(false);
+        let _ = crate::character_life::tick(&app, &state);
         if quiet_changed || animation_changed {
             super::publish(&app, &state);
         }
@@ -154,6 +155,7 @@ pub(crate) fn begin_background(state: &AppState) -> Result<Option<(u64, Arc<Atom
         || status.hidden
         || status.paused
         || lock(&state.panel)?.is_some()
+        || lock(&state.pack_stories)?.run.is_some()
     {
         return Ok(None);
     }
@@ -162,7 +164,10 @@ pub(crate) fn begin_background(state: &AppState) -> Result<Option<(u64, Arc<Atom
         if storage::focus_active(&db, chrono::Utc::now().timestamp_millis())? {
             return Ok(None);
         }
-        if presence::present_ids(state, &characters::active_ids(&db)?)?.is_empty() {
+        if presence::present_ids(state, &characters::active_ids(&db)?)?
+            .iter()
+            .all(|id| crate::character_life::sleeping(state, id).unwrap_or(true))
+        {
             return Ok(None);
         }
         store::settings(&db)?

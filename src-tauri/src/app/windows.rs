@@ -1,7 +1,7 @@
 use super::presence;
 use super::scene::{next_scene, start_scene};
 use super::unavailable;
-use super::{interrupt, is_current, lock, now, phase, publish, schedule_idle, AppState};
+use super::{is_current, lock, now, phase, publish, schedule_idle, AppState};
 use crate::{behavior, characters, desktop_toys};
 use crate::{desktop, inference, store, types::PanelState, widgets};
 use std::sync::{
@@ -66,10 +66,11 @@ fn cancel_request(state: &AppState, request: &crate::types::ActiveRequest) -> Re
     {
         return Err("이전 요청은 이미 끝났거나 현재 요청이 바뀌었어요.".into());
     }
+    let db = lock(&state.db)?;
     if let (Some(session_id), Some(message_id)) = (&request.session_id, &request.message_id) {
-        store::cancel_conversation_reply(&*lock(&state.db)?, session_id, message_id)?;
+        store::cancel_conversation_reply(&db, session_id, message_id)?;
     }
-    Ok(interrupt(state, false)?.0)
+    Ok(super::interrupt_with_db(state, false, &db)?.0)
 }
 
 #[tauri::command]
@@ -79,43 +80,8 @@ pub(crate) fn open_panel(
     persona: String,
     mode: String,
 ) -> Result<(), String> {
-    if characters::active_character(&*lock(&state.db)?, &persona).is_err()
-        || !["menu", "input", "history"].contains(&mode.as_str())
-    {
-        return Err("열 수 없는 캐릭터 메뉴예요.".into());
-    }
-    let (epoch, _) = {
-        let _action = lock(&state.action)?;
-        if unavailable(&state) {
-            return Ok(());
-        }
-        let db = lock(&state.db)?;
-        let id = characters::active_character(&db, &persona)?.id;
-        presence::summon_locked(&state, &id)?;
-        let focusing = mode == "input"
-            && widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?;
-        if mode == "input" && !focusing && store::current_user(&db)?.is_some() {
-            store::create_conversation(
-                &db,
-                &[id],
-                None,
-                None,
-                chrono::Utc::now().timestamp_millis(),
-            )?;
-        } else {
-            store::pause_conversations(&db)?;
-        }
-        let mode = if focusing {
-            "focus".into()
-        } else if mode == "input" && store::current_user(&db)?.is_none() {
-            "name".into()
-        } else {
-            mode
-        };
-        let token = interrupt(&state, false)?;
-        *lock(&state.panel)? = Some(PanelState { persona, mode });
-        state.last_input.store(now(), Ordering::SeqCst);
-        token
+    let Some(epoch) = begin_panel(&state, &persona, mode)? else {
+        return Ok(());
     };
     desktop::request_balloon_focus(&app)?;
     phase(
@@ -130,26 +96,93 @@ pub(crate) fn open_panel(
     Ok(())
 }
 
+pub(crate) fn begin_panel(
+    state: &AppState,
+    persona: &str,
+    mode: String,
+) -> Result<Option<u64>, String> {
+    if crate::character_guests::actor(state, &*lock(&state.db)?, persona).is_err()
+        || !["menu", "input", "history"].contains(&mode.as_str())
+    {
+        return Err("열 수 없는 캐릭터 메뉴예요.".into());
+    }
+    let epoch = {
+        let _action = lock(&state.action)?;
+        if unavailable(state) {
+            return Ok(None);
+        }
+        let db = lock(&state.db)?;
+        let id = crate::character_guests::actor(state, &db, persona)?.id;
+        let center = crate::character_guests::center_id(state, &id)?.unwrap_or(id.clone());
+        lock(&state.reactions)?.clear_ambient(&id);
+        if mode == "input" {
+            crate::character_life::wake(state, &id)?;
+        }
+        if crate::character_guests::generation(state, &id)?.is_none() {
+            presence::summon_locked(state, &id)?;
+        }
+        let focusing = mode == "input"
+            && widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?;
+        if mode == "input" && !focusing && store::current_user(&db)?.is_some() {
+            store::create_conversation(
+                &db,
+                std::slice::from_ref(&center),
+                None,
+                None,
+                chrono::Utc::now().timestamp_millis(),
+            )?;
+        } else {
+            store::pause_conversations(&db)?;
+        }
+        let mode = if focusing {
+            "focus".into()
+        } else if mode == "input" && store::current_user(&db)?.is_none() {
+            "name".into()
+        } else {
+            mode
+        };
+        let waiting = if matches!(mode.as_str(), "input" | "menu") && !focusing {
+            super::conversation::waiting_story(state, &db, std::slice::from_ref(&id))?
+        } else {
+            None
+        };
+        let waiting_pack = if matches!(mode.as_str(), "input" | "menu") && !focusing {
+            super::conversation::waiting_pack_run(state, &db, std::slice::from_ref(&center))?
+        } else {
+            None
+        };
+        let token = if waiting_pack.is_some() {
+            super::interrupt_for_conversation(state, false)?
+        } else {
+            super::interrupt_with_db(state, false, &db)?
+        };
+        super::conversation::retain_waiting_story(state, waiting, token.0)?;
+        super::conversation::retain_pack_run(state, &db, waiting_pack, token.0)?;
+        *lock(&state.panel)? = Some(PanelState {
+            persona: persona.into(),
+            mode,
+        });
+        state.last_input.store(now(), Ordering::SeqCst);
+        token.0
+    };
+    Ok(Some(epoch))
+}
+
 #[tauri::command]
 pub(crate) fn close_panel(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     session_id: Option<String>,
+    idle: Option<bool>,
 ) -> Result<(), String> {
     let epoch = {
         let _action = lock(&state.action)?;
         let db = lock(&state.db)?;
-        if let Some(id) = session_id {
-            if store::active_conversation(&db)?.is_none_or(|session| session.id != id) {
-                return Ok(());
-            }
-        }
-        store::pause_conversations(&db)?;
-        let epoch = interrupt(&state, false)?.0;
-        *lock(&state.panel)? = None;
-        state.last_input.store(now(), Ordering::SeqCst);
-        let settings = store::settings(&db)?;
-        schedule_idle(&state, settings.idle_minutes);
+        let Some(epoch) =
+            close_panel_locked(&state, &db, session_id.as_deref(), idle.unwrap_or(false))?
+        else {
+            return Ok(());
+        };
         epoch
     };
     phase(
@@ -163,6 +196,48 @@ pub(crate) fn close_panel(
     Ok(())
 }
 
+// Caller holds action and DB; an idle fold only retains a finished, current generic stage.
+pub(crate) fn close_panel_locked(
+    state: &AppState,
+    db: &rusqlite::Connection,
+    session_id: Option<&str>,
+    idle: bool,
+) -> Result<Option<u64>, String> {
+    if let Some(id) = session_id {
+        if store::active_conversation(db)?.is_none_or(|session| session.id != id) {
+            return Ok(None);
+        }
+    }
+    let panel = lock(&state.panel)?.clone();
+    let waiting =
+        if idle && lock(&state.tasks)?.active.is_none() && lock(&state.playback)?.is_none() {
+            if let Some(panel) = panel.filter(|panel| panel.mode == "input") {
+                let actor = crate::character_guests::actor(state, db, &panel.persona)
+                    .map(|actor| actor.id)
+                    .unwrap_or(panel.persona);
+                let center = crate::character_guests::center_id(state, &actor)?.unwrap_or(actor);
+                super::conversation::waiting_pack_run(state, db, std::slice::from_ref(&center))
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+    store::pause_conversations(db)?;
+    let token = if waiting.is_some() {
+        super::interrupt_for_conversation(state, false)?
+    } else {
+        super::interrupt_with_db(state, false, db)?
+    };
+    super::conversation::retain_pack_run(state, db, waiting, token.0)?;
+    *lock(&state.panel)? = None;
+    state.last_input.store(now(), Ordering::SeqCst);
+    schedule_idle(state, store::settings(db)?.idle_minutes);
+    Ok(Some(token.0))
+}
+
 #[tauri::command]
 pub(crate) fn skip_talk(
     app: tauri::AppHandle,
@@ -170,10 +245,11 @@ pub(crate) fn skip_talk(
 ) -> Result<(), String> {
     let (epoch, _) = {
         let _action = lock(&state.action)?;
-        store::pause_conversations(&*lock(&state.db)?)?;
-        let token = interrupt(&state, false)?;
+        let db = lock(&state.db)?;
+        store::pause_conversations(&db)?;
+        let token = super::interrupt_with_db(&state, false, &db)?;
         *lock(&state.panel)? = None;
-        let settings = store::settings(&*lock(&state.db)?)?;
+        let settings = store::settings(&db)?;
         schedule_idle(&state, settings.idle_minutes);
         token
     };
@@ -210,8 +286,11 @@ pub(crate) fn talk_now(
         }
         {
             let db = lock(&state.db)?;
-            super::conversation::ensure_available(&db)?;
             let active = characters::active_ids(&db)?;
+            for id in &active {
+                crate::character_life::wake(&state, id)?;
+            }
+            super::conversation::ensure_available(&db)?;
             if presence::present_ids(&state, &active)?.is_empty() {
                 if let Some(first) = active.first() {
                     presence::summon_locked(&state, first)?;
@@ -310,15 +389,16 @@ pub(crate) async fn hide_boxes(
         preferences.characters_visible = false;
         behavior::save(&db, &preferences)?;
         store::pause_conversations(&db)?;
-        drop(db);
         lock(&state.runtime)?.hidden = true;
         *lock(&state.panel)? = None;
+        let token = super::interrupt_with_db(&state, false, &db)?;
+        drop(db);
         for (label, window) in app.webview_windows() {
             if desktop::is_body(&label) || desktop::is_face(&label) {
                 desktop::hide_ambient(&window)?;
             }
         }
-        interrupt(&state, false)?
+        token
     };
     desktop_toys::clear_automatic(&app);
     phase(
@@ -424,8 +504,9 @@ fn pause_locked(
         || should_cancel_for_pause(paused, state.automatic.load(Ordering::SeqCst)),
         |event| paused && !super::quiet_hours::event_allowed(&event.event),
     );
-    if cancel {
-        let token = interrupt(state, false)?;
+    if cancel || (paused && lock(&state.pack_stories)?.run.is_some()) {
+        let db = lock(&state.db)?;
+        let token = super::interrupt_with_db(state, false, &db)?;
         state.widget_epoch.store(token.0, Ordering::SeqCst);
         Ok(Some(token))
     } else {

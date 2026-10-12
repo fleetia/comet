@@ -52,6 +52,7 @@ pub(crate) fn state() -> AppState {
         talk_playback: Mutex::new(None),
         talk_turn: AtomicBool::new(true),
         story: Mutex::new(None),
+        pack_stories: Mutex::new(crate::pack_stories::Runtime::default()),
         story_clock: Mutex::new(story::Clock::default()),
         story_catalog: Mutex::new(story::catalog().unwrap()),
         widget_jobs: Mutex::new(HashMap::new()),
@@ -73,6 +74,8 @@ pub(crate) fn state() -> AppState {
         behavior: Mutex::new(behavior::Machine::default()),
         reactions: Mutex::new(crate::character_reaction_host::Runtime::default()),
         animation_states: Mutex::new(crate::character_animation_states::Runtime::default()),
+        life: Mutex::new(crate::character_life::Runtime::default()),
+        guests: Mutex::new(crate::character_guests::Runtime::default()),
         positions: Mutex::new(HashMap::new()),
     }
 }
@@ -585,6 +588,7 @@ fn inactive_character_installs_preserve_playback_but_active_definition_edits_can
     let mut edited = definition;
     edited.instructions = "서두르지 않고 짧게 답한다.".into();
     edited.relationships = vec![characters::CharacterRelationship {
+        reply_lines: Vec::new(),
         target_id: "builtin-b".into(),
         description: "가끔 장난을 거는 오랜 친구".into(),
     }];
@@ -616,6 +620,7 @@ fn inactive_relationship_target_rename_and_removal_cancel_stale_character_contex
         let target = characters::clone_character(&db, "builtin-b").unwrap();
         let mut definition = characters::active_character(&db, "a").unwrap().definition;
         definition.relationships = vec![characters::CharacterRelationship {
+            reply_lines: Vec::new(),
             target_id: target.id.clone(),
             description: "함께 자란 친구".into(),
         }];
@@ -2884,6 +2889,92 @@ fn quit_flushes_positions_inside_the_debounce_window() {
     );
     assert!(lock(&state.positions).unwrap().is_empty());
 }
+#[test]
+fn quit_flush_keeps_legacy_and_resident_face_positions_without_saving_guest_or_body_moves() {
+    let state = state();
+    let (resident, guest) = {
+        let _action = lock(&state.action).unwrap();
+        let db = lock(&state.db).unwrap();
+        let resident = crate::characters::active_ids(&db).unwrap()[0].clone();
+        let mut pack = crate::characters::factory_pack();
+        pack.format_version = 8;
+        let mut npc = pack.characters.remove(1);
+        npc.presence_role = crate::pack_stories::PresenceRole::Npc;
+        npc.relationships.clear();
+        npc.npc = Some(crate::pack_stories::NpcDefinition {
+            invite_keywords: vec!["초대".into()],
+            entry_lines: npc.greeting.clone(),
+            ..Default::default()
+        });
+        pack.characters = vec![npc];
+        pack.pair_scenes.clear();
+        pack.wordbook.clear();
+        let guest = crate::characters::import_pack(&db, &pack)
+            .unwrap()
+            .remove(0);
+        let pack_id = guest.pack_id.clone().unwrap();
+        crate::character_guests::admit_locked(
+            &state,
+            &db,
+            &crate::character_guests::Admission {
+                run_id: uuid::Uuid::new_v4().to_string(),
+                request_id: uuid::Uuid::new_v4().to_string(),
+                epoch: 0,
+                center_id: resident.clone(),
+                guest_ids: vec![guest.id.clone()],
+                pack_baseline: crate::characters::pack_definition_baseline(&db, &pack_id).unwrap(),
+                pack_id,
+            },
+        )
+        .unwrap();
+        store::set_window_position(
+            &db,
+            &format!("body-{resident}"),
+            &WindowPosition { x: 40.0, y: 50.0 },
+        )
+        .unwrap();
+        (resident, guest.id)
+    };
+    for label in [
+        "a".to_string(),
+        format!("face-{resident}"),
+        format!("body-{resident}"),
+        format!("face-{guest}"),
+        format!("body-{guest}"),
+        "unknown-window".into(),
+    ] {
+        lock(&state.positions).unwrap().insert(
+            label,
+            (WindowPosition { x: 120.0, y: 240.0 }, Instant::now()),
+        );
+    }
+    flush_positions(&state, true).unwrap();
+    let db = lock(&state.db).unwrap();
+    assert_eq!(store::window_position(&db, "a").unwrap().unwrap().x, 120.0);
+    assert_eq!(
+        store::window_position(&db, &format!("face-{resident}"))
+            .unwrap()
+            .unwrap()
+            .x,
+        120.0
+    );
+    assert_eq!(
+        store::window_position(&db, &format!("body-{resident}"))
+            .unwrap()
+            .unwrap()
+            .x,
+        40.0
+    );
+    for label in [
+        format!("face-{guest}"),
+        format!("body-{guest}"),
+        "unknown-window".into(),
+    ] {
+        assert!(store::window_position(&db, &label).unwrap().is_none());
+    }
+    assert!(lock(&state.positions).unwrap().is_empty());
+}
+
 #[test]
 fn pair_prompt_rejects_questions_removed_from_active_contexts() {
     for reason in ["swapped", "edited", "deleted"] {

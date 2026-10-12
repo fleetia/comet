@@ -165,6 +165,10 @@ fn source_scoped_pair_follows_imported_character_identity_when_slots_swap() {
     let imported = crate::characters::import_pack(
         &db,
         &crate::characters::CharacterPack {
+            world_rules: String::new(),
+            story_flags: Vec::new(),
+            knowledge: Vec::new(),
+            scenarios: Vec::new(),
             archive: None,
             format_version: 1,
             name: "identity test".into(),

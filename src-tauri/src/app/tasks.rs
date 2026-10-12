@@ -22,6 +22,8 @@ pub(crate) enum Kind {
 pub(crate) struct Registry {
     pub(crate) active: Option<(Kind, u64)>,
     pub(crate) conversation: Option<(String, String)>,
+    pub(crate) participants: Option<crate::character_guests::ParticipantTicket>,
+    pub(crate) pack_replay: Option<String>,
     handles: Vec<(Kind, tauri::async_runtime::JoinHandle<()>)>,
 }
 
@@ -64,7 +66,17 @@ pub(crate) fn reserve_conversation(
     session_id: Option<&str>,
     message_id: &str,
 ) -> Result<(u64, Arc<AtomicBool>), String> {
-    let token = reserve(state, Kind::Conversation, false)?;
+    if unavailable(state) {
+        return Err("앱을 정리하고 있어요.".into());
+    }
+    let token = super::interrupt_for_conversation(state, false)?;
+    state.nlp.pause_indexing(true);
+    lock(&state.tasks)?.active = Some((Kind::Conversation, token.0));
+    let mut status = lock(&state.runtime)?;
+    status.phase = RuntimePhase::Loading;
+    status.persona = None;
+    status.error = None;
+    drop(status);
     lock(&state.tasks)?.conversation = session_id.map(|id| (id.into(), message_id.into()));
     Ok(token)
 }
@@ -78,6 +90,22 @@ pub(crate) fn model_test_running(state: &AppState) -> Result<bool, String> {
             .handles
             .iter()
             .any(|(kind, handle)| *kind == Kind::ModelTest && !handle.inner().is_finished()))
+}
+
+pub(crate) fn release_failed_conversation(state: &AppState, epoch: u64) -> Result<bool, String> {
+    let _action = lock(&state.action)?;
+    if state.epoch.load(std::sync::atomic::Ordering::SeqCst) != epoch {
+        return Ok(false);
+    }
+    let mut tasks = lock(&state.tasks)?;
+    if tasks.active != Some((Kind::Conversation, epoch)) {
+        return Ok(false);
+    }
+    tasks.active = None;
+    tasks.conversation = None;
+    tasks.participants = None;
+    tasks.pack_replay = None;
+    Ok(true)
 }
 
 pub(crate) fn spawn(
@@ -222,6 +250,39 @@ pub(crate) async fn acquire_gate(
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn failed_guest_preparation_cannot_release_a_new_conversation() {
+        let state = crate::app::tests::state();
+        let old = {
+            let _action = lock(&state.action).unwrap();
+            reserve_conversation(&state, Some("old-session"), "old-input").unwrap()
+        };
+        let new = {
+            let _action = lock(&state.action).unwrap();
+            reserve_conversation(&state, Some("new-session"), "new-input").unwrap()
+        };
+        lock(&state.tasks).unwrap().pack_replay = Some("new-replay".into());
+
+        assert!(!release_failed_conversation(&state, old.0).unwrap());
+        let active = active_request(&state).unwrap().unwrap();
+        assert_eq!(active.epoch, new.0);
+        assert_eq!(active.message_id.as_deref(), Some("new-input"));
+        assert_eq!(
+            lock(&state.tasks).unwrap().pack_replay.as_deref(),
+            Some("new-replay")
+        );
+        assert_eq!(lock(&state.runtime).unwrap().phase, RuntimePhase::Loading);
+
+        assert!(release_failed_conversation(&state, new.0).unwrap());
+        assert!(active_request(&state).unwrap().is_none());
+        let tasks = lock(&state.tasks).unwrap();
+        assert!(tasks.conversation.is_none());
+        assert!(tasks.participants.is_none());
+        assert!(tasks.pack_replay.is_none());
+        drop(tasks);
+        assert!(!release_failed_conversation(&state, new.0).unwrap());
+    }
 
     #[test]
     fn cancelled_background_completion_releases_its_busy_state() {

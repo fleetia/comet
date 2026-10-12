@@ -175,7 +175,7 @@ pub(crate) fn apply_settings(
     if restore_presence {
         lock(&state.presence)?.reset(super::now());
     }
-    let token = interrupt(state, false)?;
+    let token = super::interrupt_with_db(state, false, &db)?;
     schedule_idle(state, settings.idle_minutes);
     let mut runtime = lock(&state.runtime)?;
     runtime.phase = crate::types::RuntimePhase::Loading;

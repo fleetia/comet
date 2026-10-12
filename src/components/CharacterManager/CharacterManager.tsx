@@ -15,6 +15,7 @@ import {
   type DialogueType,
 } from "../CharacterEditor/CharacterEditor";
 import { CharacterDialogueEditor } from "../CharacterDialogueEditor/CharacterDialogueEditor";
+import { PackStoryEditor, type PackStoryDraft } from "../CharacterEditor/PackStoryEditor";
 import { CharacterSharing, type SharingAction } from "../CharacterSharing/CharacterSharing";
 import { CharacterPackSelector } from "../CharacterPackSelector/CharacterPackSelector";
 import { MemorySettings } from "../MemorySettings/MemorySettings";
@@ -101,8 +102,10 @@ export function CharacterManager({
   const [memoryOwners, setMemoryOwners] = useState<string[]>([]);
   const [memoryDirty, setMemoryDirty] = useState<Record<string, boolean>>({});
   const [memoryVersions, setMemoryVersions] = useState<Record<string, number>>({});
-  const [exportScope, setExportScope] = useState<"selected" | "pair">("selected");
+  const [exportScope, setExportScope] = useState<"selected" | "pair" | "pack">("selected");
   const [drafts, setDrafts] = useState<Record<string, CharacterDefinition>>({});
+  const [storyDrafts, setStoryDrafts] = useState<Record<string, PackStoryDraft>>({});
+  const [storyPending, setStoryPending] = useState(false);
   const [animationAssets, setAnimationAssets] = useState<
     Record<string, Record<string, AnimationAsset>>
   >({});
@@ -135,7 +138,10 @@ export function CharacterManager({
   const selected = installed.find((character) => character.id === selectedId);
   const definition = drafts[selectedId] ?? selected?.definition;
   const dirty = Boolean(drafts[selectedId]);
-  const hasDialogueDrafts = Object.values(dialogueDirty).some(Boolean);
+  const hasStoryDrafts = Object.values(storyDrafts).some(
+    (value) => JSON.stringify(value.definition) !== JSON.stringify(value.saved.definition),
+  );
+  const hasDialogueDrafts = Object.values(dialogueDirty).some(Boolean) || hasStoryDrafts;
   const hasMemoryDrafts = Object.values(memoryDirty).some(Boolean);
   const hasUnsavedChanges =
     Object.keys(drafts).length > 0 || hasDialogueDrafts || sharingDirty || hasMemoryDrafts;
@@ -143,9 +149,13 @@ export function CharacterManager({
     Object.values(pendingTargets).some(Boolean) ||
     Object.values(dialoguePending).some(Boolean) ||
     sharingPending ||
+    storyPending ||
     packPending;
   const selectedPending =
-    Boolean(pendingTargets[selectedId]) || packPending || Boolean(pendingTargets.roster);
+    Boolean(pendingTargets[selectedId]) ||
+    packPending ||
+    storyPending ||
+    Boolean(pendingTargets.roster);
   const rosterBlocked = anyPending || Object.keys(drafts).length > 0 || hasDialogueDrafts;
   const position = active.indexOf(selectedId);
   const together = position >= 0;
@@ -516,6 +526,21 @@ export function CharacterManager({
               >
                 {(packSummary) => (
                   <CharacterEditor
+                    lifeContent={(visible) => (
+                      <PackStoryEditor
+                        packId={selected?.packId ?? null}
+                        presentIds={snapshot.characters.active}
+                        installed={installed.map((member) => ({
+                          ...member,
+                          definition: drafts[member.id] ?? member.definition,
+                        }))}
+                        visible={visible}
+                        drafts={storyDrafts}
+                        onDraftsChange={setStoryDrafts}
+                        onPendingChange={setStoryPending}
+                        characterDirty={Object.keys(drafts).length > 0}
+                      />
+                    )}
                     packContent={packSummary}
                     headerActions={
                       <>
@@ -588,6 +613,10 @@ export function CharacterManager({
                             setExportScope("selected");
                             setSharingAction("export");
                           }}
+                          onExportPack={selected.packId ? () => {
+                            setExportScope("pack");
+                            setSharingAction("export");
+                          } : undefined}
                           onForgot={() => {
                             setMemoryVersions((previous) => ({
                               ...previous,
@@ -615,7 +644,17 @@ export function CharacterManager({
                     isTogether={together}
                     definition={definition}
                     character={selected}
-                    installed={installed}
+                    installed={installed.map((member) => ({
+                      ...member,
+                      definition: drafts[member.id] ?? member.definition,
+                    }))}
+                    presentIds={snapshot.characters.active}
+                    packDefinition={
+                      selected?.packId ? storyDrafts[selected.packId]?.definition : undefined
+                    }
+                    packBaseline={
+                      selected?.packId ? storyDrafts[selected.packId]?.saved.baseline : undefined
+                    }
                     animationAssets={Object.values(animationAssets[selectedId] ?? {})}
                     animationVersion={animationVersions[selectedId] ?? 0}
                     onAnimationChange={changeAnimation}

@@ -270,6 +270,9 @@ pub fn act(
             let text = match action {
                 "stroke" => format!("{}를 쓰다듬었어요.", args.character),
                 "poke" => format!("{}를 콕 찔렀어요.", args.character),
+                "cheek-grab" => format!("{}의 볼을 살짝 잡았어요.", args.character),
+                "drink" => format!("{}에게 음료를 건넸어요.", args.character),
+                "gift" => format!("{}에게 선물을 건넸어요.", args.character),
                 "snack" => {
                     if state.snacks == 0 {
                         return Err("간식 봉지가 비었어요.".into());
@@ -282,7 +285,9 @@ pub fn act(
                 }
                 _ => return Err("알 수 없는 교감 동작입니다.".into()),
             };
-            state.touches = state.touches.saturating_add(1);
+            if !matches!(action, "drink" | "gift") {
+                state.touches = state.touches.saturating_add(1);
+            }
             let events = if state
                 .last_reaction_at
                 .is_none_or(|last| now.saturating_sub(last) >= 5000)

@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { CharacterManager } from "../components/CharacterManager/CharacterManager";
-import { animationError, appendFrames, sheetFrames } from "../components/AnimationEditor/helpers";
+import {
+  animationError,
+  appendFrames,
+  gestureDefinitionError,
+  sheetFrames,
+} from "../components/AnimationEditor/helpers";
 import { command, PREVIEW_SNAPSHOT } from "../hooks/useSnapshot";
 import type { AnimationAsset, CharacterAnimation, CharacterDefinition } from "../types";
 
@@ -64,6 +69,60 @@ function latestSave(): { definition: CharacterDefinition; animationAssets?: Anim
   expect(args).toBeTruthy();
   return args as { definition: CharacterDefinition; animationAssets?: AnimationAsset[] };
 }
+
+it("validates body bounds and phase clip ownership while retaining optional legacy definitions", () => {
+  const definition = structuredClone(PREVIEW_SNAPSHOT.characters.installed[0].definition);
+  expect(gestureDefinitionError(definition)).toBeNull();
+  definition.bodyRegions = [
+    { id: "head", name: "머리", x: 0, y: 0, width: 1, height: 0.5, grabPoint: { x: 0.5, y: 0.2 } },
+  ];
+  definition.gestureMotions = [
+    {
+      id: "cheek",
+      gesture: "cheek-grab",
+      regionId: "head",
+      start: { mode: "static" },
+      hold: { mode: "static" },
+      end: { mode: "static" },
+    },
+  ];
+  expect(gestureDefinitionError(definition)).toBeNull();
+  definition.bodyRegions[0].width = 1.1;
+  expect(gestureDefinitionError(definition)).toMatch(/영역/);
+  definition.bodyRegions[0].width = 1;
+  definition.gestureMotions[0].start = {
+    mode: "clip",
+    clipId: "foreign",
+    repeat: false,
+    intervalMs: 0,
+  };
+  expect(gestureDefinitionError(definition)).toMatch(/모션/);
+});
+
+it("edits body regions and gesture bindings in the existing character draft and common save", async () => {
+  render(<CharacterManager embedded snapshot={PREVIEW_SNAPSHOT} />);
+  const editor = appearance();
+  const summary = editor.getByText("부위와 교감 동작");
+  fireEvent.click(summary);
+  fireEvent.click(editor.getByRole("button", { name: "부위 추가" }));
+  fireEvent.change(editor.getByLabelText("부위 1 이름"), { target: { value: "머리" } });
+  fireEvent.change(editor.getByLabelText("머리 height (%)"), { target: { value: "50" } });
+  fireEvent.click(editor.getByRole("button", { name: "교감 동작 추가" }));
+  fireEvent.change(editor.getByLabelText("교감 1 부위"), {
+    target: { value: (editor.getByLabelText("교감 1 부위") as HTMLSelectElement).options[1].value },
+  });
+  fireEvent.click(screen.getByRole("tab", { name: "프로필" }));
+  fireEvent.click(screen.getByRole("tab", { name: "모습·표정" }));
+  expect(editor.getByLabelText("머리 height (%)")).toHaveProperty("value", "50");
+  fireEvent.click(screen.getByRole("button", { name: "캐릭터 저장" }));
+  await waitFor(() =>
+    expect(latestSave().definition.bodyRegions?.[0]).toMatchObject({ name: "머리", height: 0.5 }),
+  );
+  expect(latestSave().definition.gestureMotions?.[0]).toMatchObject({
+    gesture: "poke",
+    start: { mode: "static" },
+  });
+});
 
 it("keeps advanced animation editing collapsed by default and saves retained drafts atomically", async () => {
   vi.mocked(command).mockImplementation(async (name) => {
@@ -223,6 +282,35 @@ it("rejects stale image selections after character navigation and draft cancella
   expect(vi.mocked(command).mock.calls.filter(([name]) => name === "save_character")).toHaveLength(
     0,
   );
+});
+
+it("discards pending image choices after collapsing and editing the motion while keeping the draft", async () => {
+  let resolve: (assets: AnimationAsset[]) => void = () => {};
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "choose_animation_assets")
+      return new Promise<AnimationAsset[]>((done) => {
+        resolve = done;
+      });
+    if (name === "get_character_dialogue") return { pairScenes: [], wordbook: [] };
+  });
+  render(<CharacterManager embedded snapshot={PREVIEW_SNAPSHOT} />);
+  const editor = createClip();
+  const summary = editor.getByText("고급: 애니메이션 편집");
+  fireEvent.click(editor.getByRole("button", { name: "PNG/APNG 프레임 추가" }));
+  fireEvent.click(summary);
+  await waitFor(() => expect(summary.closest("details")).toHaveProperty("open", false));
+  fireEvent.click(summary);
+  await waitFor(() => expect(summary.closest("details")).toHaveProperty("open", true));
+  await act(async () => resolve([first]));
+  expect(editor.queryByRole("button", { name: "1번 프레임 선택" })).toBeNull();
+  fireEvent.click(editor.getByRole("button", { name: "PNG/APNG 프레임 추가" }));
+  fireEvent.change(editor.getByLabelText("동작 이름"), { target: { value: "이름을 바꾼 동작" } });
+  await act(async () => resolve([second]));
+  expect(editor.queryByRole("button", { name: "1번 프레임 선택" })).toBeNull();
+  expect(editor.getByLabelText("동작 이름")).toHaveProperty("value", "이름을 바꾼 동작");
+  fireEvent.click(editor.getByRole("button", { name: "PNG/APNG 프레임 추가" }));
+  await act(async () => resolve([third]));
+  expect(editor.getByRole("button", { name: "1번 프레임 선택" })).toBeTruthy();
 });
 
 it("imports a sheet in row order and rejects unequal sequence dimensions without altering the draft", async () => {

@@ -344,6 +344,17 @@ pub(crate) fn colliders(app: &AppHandle) -> Vec<Collider> {
         .unwrap_or_default()
 }
 
+// The shape is in WebView logical coordinates. Character movement converts it
+// with that body's scale instead of mixing Quartz points with physical pixels.
+pub(crate) fn body_bounds(app: &AppHandle, label: &str) -> Option<crate::desktop_geometry::Rect> {
+    let runtime = app.try_state::<Runtime>()?;
+    let registry = runtime.0.lock().ok()?;
+    let entry = registry.entries.get(label)?;
+    (!entry.suppressed)
+        .then(|| entry.shape.as_ref().map(|shape| shape.bounds))
+        .flatten()
+}
+
 #[tauri::command]
 pub(crate) async fn set_character_collision(
     window: WebviewWindow,
