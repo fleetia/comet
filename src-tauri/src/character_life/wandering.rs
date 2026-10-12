@@ -118,6 +118,21 @@ fn trace_frame_skip(id: &str, run: &Run, reason: FrameSkip) {
 }
 
 impl Entry {
+    fn context_cancel_required(&self, changes: [bool; 6]) -> bool {
+        changes[..5].iter().any(|changed| *changed)
+            || (changes[5] && (self.run.is_some() || self.restore.is_some()))
+    }
+
+    fn reconcile_idle_anchor(&mut self, allowed: bool) -> bool {
+        if !allowed || self.saved.is_none() || self.run.is_some() || self.restore.is_some() {
+            return false;
+        }
+        let anchor = placement_anchor(self.bounds, self.anchor, self.saved);
+        let changed = anchor != self.anchor;
+        self.anchor = anchor;
+        changed
+    }
+
     fn ready(&mut self, allowed: bool, now: Instant, seed: u64) -> bool {
         if !allowed {
             self.blocked = true;
@@ -191,6 +206,10 @@ fn interval(seed: u64) -> Duration {
 fn random() -> u64 {
     let bytes = *uuid::Uuid::new_v4().as_bytes();
     u64::from_le_bytes(bytes[..8].try_into().expect("UUID prefix"))
+}
+
+fn placement_anchor(bounds: Bounds, fallback: Point, saved: Option<(f64, f64)>) -> Point {
+    bounds.clamp(saved.map_or(fallback, |(x, y)| Point { x, y }), false)
 }
 
 fn intersects(a: Rect, b: Rect) -> bool {
@@ -557,24 +576,31 @@ pub(crate) fn tick(app: &AppHandle, state: &Arc<AppState>) -> Result<()> {
         let definition = character_reaction_host::definition_revision(&member.definition);
         let epoch = state.epoch.load(Ordering::SeqCst);
         let saved = saved_position(state, id)?;
-        let changed = lock(&state.life)?
-            .wandering
-            .entries
-            .get(id)
-            .is_some_and(|entry| {
-                entry.identity != identity
-                    || entry.definition != definition
-                    || entry.bounds.area != bounds.area
-                    || entry.bounds.width != bounds.width
-                    || entry.saved != saved
-                    || entry.epoch != epoch
-            });
-        if changed {
+        let context = lock(&state.life)?.wandering.entries.get(id).map(|entry| {
+            let changes = [
+                entry.identity != identity,
+                entry.definition != definition,
+                entry.bounds.area != bounds.area,
+                entry.bounds.width != bounds.width,
+                entry.saved != saved,
+                entry.epoch != epoch,
+            ];
+            (changes, entry.context_cancel_required(changes))
+        });
+        let context_changes = context.map(|(changes, _)| changes);
+        let changed = context_changes.is_some_and(|changes| changes.into_iter().any(|value| value));
+        let context_cancelled = context.is_some_and(|(_, required)| required);
+        if context_cancelled {
             cancel(app, state, id)?;
         }
-        let start = {
+        let (start, allowed_before, reduced_before) = {
             let _action = lock(&state.action)?;
             let allowed = visible && super::ambient_allowed(state, id)?;
+            let trace_status = if crate::character_gestures::trace_enabled() {
+                Some(lock(&state.runtime)?.clone())
+            } else {
+                None
+            };
             let now = Instant::now();
             let mut life = lock(&state.life)?;
             let reduced = life.wandering.reduced_motion(id, identity);
@@ -583,7 +609,7 @@ pub(crate) fn tick(app: &AppHandle, state: &Arc<AppState>) -> Result<()> {
                 .entries
                 .entry(id.clone())
                 .or_insert_with(|| Entry {
-                    anchor: bounds.clamp(observed, false),
+                    anchor: placement_anchor(bounds, observed, saved),
                     saved,
                     bounds,
                     identity,
@@ -596,13 +622,14 @@ pub(crate) fn tick(app: &AppHandle, state: &Arc<AppState>) -> Result<()> {
                     trace_gate: None,
                 });
             if changed {
-                entry.anchor = bounds.clamp(
-                    if (entry.saved != saved && saved.is_some()) || entry.identity != identity {
+                entry.anchor = placement_anchor(
+                    bounds,
+                    if entry.identity != identity {
                         observed
                     } else {
                         entry.anchor
                     },
-                    false,
+                    saved,
                 );
                 entry.saved = saved;
                 entry.bounds = bounds;
@@ -611,22 +638,57 @@ pub(crate) fn tick(app: &AppHandle, state: &Arc<AppState>) -> Result<()> {
                 entry.epoch = epoch;
                 entry.restore = None;
             }
+            let anchor_reconciled = entry.reconcile_idle_anchor(allowed && !reduced);
+            let entry_was_blocked = entry.blocked;
+            let due_before_ms = entry.due.saturating_duration_since(now).as_millis();
             let ready = entry.ready(allowed && !reduced, now, random());
             if crate::character_gestures::trace_enabled() {
                 let gate = (visible, allowed, reduced);
-                if entry.trace_gate != Some(gate) || ready {
+                if entry.trace_gate != Some(gate)
+                    || ready
+                    || changed
+                    || anchor_reconciled
+                    || (entry_was_blocked && allowed && !reduced)
+                {
+                    let changed_reasons = context_changes
+                        .into_iter()
+                        .flatten()
+                        .zip([
+                            "identity",
+                            "definition",
+                            "work-area",
+                            "body-size",
+                            "saved-home",
+                            "epoch",
+                        ])
+                        .filter_map(|(changed, reason)| changed.then_some(reason))
+                        .collect::<Vec<_>>();
                     crate::character_gestures::trace_record(serde_json::json!({
                         "kind": "wander-gate", "characterId": id, "identity": identity,
                         "visible": visible, "ambientAllowed": allowed, "reducedMotion": reduced,
                         "blocked": entry.blocked, "ready": ready,
+                        "newEntry": context_changes.is_none(), "changedReasons": changed_reasons,
+                        "contextCancelled": context_cancelled,
+                        "epoch": epoch, "entryWasBlocked": entry_was_blocked,
+                        "runtimePhase": trace_status.as_ref().map(|status| status.phase.as_str()),
+                        "runtimePaused": trace_status.as_ref().map(|status| status.paused),
+                        "runtimeHidden": trace_status.as_ref().map(|status| status.hidden),
+                        "secondsSinceInput": crate::app::now().saturating_sub(state.last_input.load(Ordering::SeqCst)),
+                        "anchorReconciled": anchor_reconciled, "dueBeforeMs": due_before_ms,
                         "dueAfterMs": entry.due.saturating_duration_since(now).as_millis(),
                         "actualPhysical": { "x": observed.x, "y": observed.y },
                         "anchorPhysical": { "x": entry.anchor.x, "y": entry.anchor.y },
+                        "savedPhysical": saved, "workAreaPhysical": entry.bounds.area,
+                        "spritePhysical": entry.bounds.sprite,
+                        "bodyWidthPhysical": entry.bounds.width, "bodyHeightPhysical": entry.bounds.height,
+                        "innerWidthPhysical": entry.bounds.sprite.width + entry.bounds.sprite.x * 2.0,
+                        "innerHeightPhysical": entry.bounds.sprite.height + entry.bounds.sprite.y * 2.0,
+                        "scaleFactor": entry.bounds.width / member.definition.sprite_size as f64,
                     }));
                 }
                 entry.trace_gate = Some(gate);
             }
-            if !ready {
+            let start = if !ready {
                 None
             } else {
                 entry.due = now + interval(random());
@@ -670,12 +732,26 @@ pub(crate) fn tick(app: &AppHandle, state: &Arc<AppState>) -> Result<()> {
                     entry.run = Some(run.clone());
                     run
                 })
-            }
+            };
+            (start, allowed, reduced)
         };
-        if !visible
-            || !super::ambient_allowed(state, id)?
-            || lock(&state.life)?.wandering.reduced_motion(id, identity)
-        {
+        let allowed_after = visible && super::ambient_allowed(state, id)?;
+        let reduced_after = lock(&state.life)?.wandering.reduced_motion(id, identity);
+        if !allowed_after || reduced_after {
+            if crate::character_gestures::trace_enabled()
+                && (allowed_after != allowed_before || reduced_after != reduced_before)
+            {
+                let status = lock(&state.runtime)?.clone();
+                crate::character_gestures::trace_record(serde_json::json!({
+                    "kind": "wander-gate-changed-before-start", "characterId": id,
+                    "identity": identity, "ambientAllowedBefore": allowed_before,
+                    "ambientAllowedAfter": allowed_after, "reducedMotionBefore": reduced_before,
+                    "reducedMotionAfter": reduced_after,
+                    "runtimePhase": status.phase.as_str(), "runtimePaused": status.paused,
+                    "runtimeHidden": status.hidden,
+                    "secondsSinceInput": crate::app::now().saturating_sub(state.last_input.load(Ordering::SeqCst)),
+                }));
+            }
             cancel(app, state, id)?;
         } else if let Some(run) = start {
             start_run(app, state, id, run)?;
@@ -961,6 +1037,173 @@ mod tests {
     }
 
     #[test]
+    fn startup_center_observation_does_not_replace_the_restored_home() {
+        let now = Instant::now();
+        let mut entry = entry(now);
+        let home = entry.anchor;
+        let centered = Point {
+            x: -400.0,
+            y: 200.0,
+        };
+        assert_eq!(placement_anchor(entry.bounds, centered, entry.saved), home);
+
+        entry.anchor = centered;
+        assert!(entry.reconcile_idle_anchor(true));
+        assert_eq!(entry.anchor, home);
+        assert!(!entry.reconcile_idle_anchor(true));
+        assert_eq!(entry.saved, Some((home.x, home.y)));
+        assert_eq!(entry.due, now + Duration::from_secs(20));
+    }
+
+    #[test]
+    fn idle_reconciliation_preserves_wandering_and_restore_until_an_accepted_drop() {
+        let now = Instant::now();
+        let mut entry = entry(now);
+        let home = entry.anchor;
+        let plan = plan(entry.bounds, home, &["walk".into()], 0).unwrap();
+        entry.run = Some(Run {
+            token: "request".into(),
+            execution: None,
+            identity: entry.identity,
+            epoch: entry.epoch,
+            definition: entry.definition.clone(),
+            roster: vec!["local".into()],
+            bounds: entry.bounds,
+            plan,
+            started: now,
+            trace_skips: None,
+        });
+        entry.saved = Some((-600.0, 600.0));
+        assert!(!entry.reconcile_idle_anchor(true));
+        assert_eq!(entry.anchor, home);
+        assert_eq!(plan.at(plan.duration), home);
+
+        entry.run = None;
+        entry.restore = Some(Restore {
+            token: "request".into(),
+            identity: entry.identity,
+            anchor: home,
+            bounds: entry.bounds,
+        });
+        assert!(!entry.reconcile_idle_anchor(true));
+        assert_eq!(entry.restore.as_ref().unwrap().anchor, home);
+        entry.restore = None;
+        assert!(!entry.reconcile_idle_anchor(false));
+        assert_eq!(entry.anchor, home);
+        assert!(entry.reconcile_idle_anchor(true));
+        assert_eq!(
+            entry.anchor,
+            Point {
+                x: -600.0,
+                y: 600.0
+            }
+        );
+        assert_eq!(entry.saved, Some((-600.0, 600.0)));
+        assert_eq!(entry.due, now + Duration::from_secs(20));
+    }
+
+    #[test]
+    fn saved_home_keeps_the_existing_sprite_clamp_after_monitor_and_scale_changes() {
+        let mut bounds = bounds();
+        bounds.sprite = Rect {
+            x: 4.0,
+            y: 4.0,
+            width: 176.0,
+            height: 176.0,
+        };
+        bounds.width = 176.0;
+        bounds.height = 176.0;
+        let outside = Some((3040.0, 1804.0));
+        let anchor = placement_anchor(
+            bounds,
+            Point {
+                x: -850.0,
+                y: 700.0,
+            },
+            outside,
+        );
+        assert_eq!(
+            anchor,
+            Point {
+                x: -180.0,
+                y: 820.0
+            }
+        );
+        assert_eq!(
+            anchor.x + bounds.sprite.width + bounds.sprite.x,
+            bounds.area.x + bounds.area.width
+        );
+        assert_eq!(
+            anchor.y + bounds.sprite.height + bounds.sprite.y,
+            bounds.area.y + bounds.area.height
+        );
+        assert_eq!(outside, Some((3040.0, 1804.0)));
+    }
+
+    #[test]
+    fn accepted_drop_with_only_padding_outside_keeps_its_home_after_wandering() {
+        let now = Instant::now();
+        let mut entry = entry(now);
+        let home = Point {
+            x: -1608.0,
+            y: 42.0,
+        };
+        entry.anchor = home;
+        entry.saved = Some((home.x, home.y));
+        assert_eq!(home.x + entry.bounds.sprite.x, entry.bounds.area.x);
+        assert_eq!(home.y + entry.bounds.sprite.y, entry.bounds.area.y);
+        assert!(!entry.reconcile_idle_anchor(true));
+        assert_eq!(entry.anchor, home);
+        let plan = plan(entry.bounds, home, &["walk".into()], 1).unwrap();
+        assert_eq!(plan.at(plan.duration), home);
+        assert_eq!(entry.saved, Some((home.x, home.y)));
+    }
+
+    #[test]
+    fn idle_deadline_survives_fifteen_second_noop_background_epochs() {
+        let now = Instant::now();
+        for seed in [0, 10_000, 25_000] {
+            let mut entry = entry(now);
+            let delay = interval(seed);
+            entry.due = now + delay;
+            for second in 1..=45 {
+                if second % 15 == 0 {
+                    assert!(
+                        !entry.context_cancel_required([false, false, false, false, false, true])
+                    );
+                    entry.epoch += 1;
+                }
+                assert_eq!(entry.due, now + delay);
+                let at = now + Duration::from_secs(second);
+                let ready = entry.ready(true, at, 0);
+                assert_eq!(ready, at >= now + delay);
+                if ready {
+                    assert_eq!(entry.epoch, second / 15);
+                    break;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pending_restore_and_other_context_changes_still_require_cancellation() {
+        let now = Instant::now();
+        let mut entry = entry(now);
+        for changed in 0..5 {
+            let mut changes = [false; 6];
+            changes[changed] = true;
+            assert!(entry.context_cancel_required(changes));
+        }
+        entry.restore = Some(Restore {
+            token: "pending".into(),
+            identity: entry.identity,
+            anchor: entry.anchor,
+            bounds: entry.bounds,
+        });
+        assert!(entry.context_cancel_required([false, false, false, false, false, true]));
+    }
+
+    #[test]
     fn resuming_after_a_long_pause_schedules_fresh_movement_without_catchup() {
         let now = Instant::now();
         let mut entry = entry(now);
@@ -997,6 +1240,7 @@ mod tests {
             started: now,
             trace_skips: None,
         });
+        assert!(entry.context_cancel_required([false, false, false, false, false, true]));
         lock(&state.life)
             .unwrap()
             .wandering

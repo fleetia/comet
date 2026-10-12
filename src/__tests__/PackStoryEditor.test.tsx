@@ -18,6 +18,9 @@ vi.mock("../hooks/useSnapshot", async (load) => ({
   command: vi.fn(),
   isDesktop: () => true,
 }));
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ listen: vi.fn().mockResolvedValue(() => {}) }),
+}));
 const installed = ["a", "b"].flatMap((pack) =>
   PREVIEW_SNAPSHOT.characters.installed.map((actor, index) => ({
     ...actor,

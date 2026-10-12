@@ -2,13 +2,17 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AuthoringTrial } from "../components/CharacterEditor/AuthoringTrial";
 import { CharacterEditor } from "../components/CharacterEditor/CharacterEditor";
-import { command, PREVIEW_SNAPSHOT } from "../hooks/useSnapshot";
+import { TauriEvent } from "@tauri-apps/api/event";
+import { command, isDesktop, PREVIEW_SNAPSHOT } from "../hooks/useSnapshot";
 import type { AuthoringState, AuthoringTrialTrace, PackStoryDefinition } from "../types";
 
 vi.mock("../hooks/useSnapshot", async (load) => ({
   ...(await load<typeof import("../hooks/useSnapshot")>()),
   command: vi.fn(),
+  isDesktop: vi.fn(() => false),
 }));
+const native = vi.hoisted(() => ({ listeners: new Set<() => void>(), listen: vi.fn() }));
+vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => native }));
 
 const actors = PREVIEW_SNAPSHOT.characters.installed.map((actor, index) => ({
   ...actor,
@@ -87,7 +91,69 @@ function run(): void {
 beforeEach(() => {
   vi.mocked(command).mockReset();
   vi.mocked(command).mockResolvedValue(trace());
+  vi.mocked(isDesktop).mockReturnValue(false);
+  native.listeners.clear();
+  native.listen.mockReset().mockImplementation(async (_event: string, callback: () => void) => {
+    native.listeners.add(callback);
+    return () => native.listeners.delete(callback);
+  });
 });
+
+it.each(["window-close", "document-hide"])(
+  "invalidates displayed and pending trials after %s without changing retained definitions",
+  async (cause) => {
+    vi.mocked(isDesktop).mockReturnValue(cause === "window-close");
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    const original = structuredClone({ actors, definition });
+    const view = render(<AuthoringTrial {...props} />);
+    if (cause === "window-close") {
+      await waitFor(() =>
+        expect(native.listen).toHaveBeenCalledWith(
+          TauriEvent.WINDOW_CLOSE_REQUESTED,
+          expect.any(Function),
+        ),
+      );
+    }
+    function close(): void {
+      act(() => {
+        if (cause === "window-close") native.listeners.forEach((callback) => callback());
+        else {
+          hidden.mockReturnValue(true);
+          fireEvent(document, new Event("visibilitychange"));
+        }
+      });
+    }
+    function reopen(): void {
+      hidden.mockReturnValue(false);
+      fireEvent(document, new Event("visibilitychange"));
+      view.rerender(<AuthoringTrial {...props} />);
+    }
+    expand();
+    run();
+    const preview = within(await screen.findByLabelText("선택한 대사 미리보기"));
+    fireEvent.click(preview.getByRole("button", { name: "미리보기" }));
+    expect(preview.getByRole("button", { name: "정지" })).toHaveProperty("disabled", false);
+    close();
+    reopen();
+    expect(screen.queryByLabelText("NPC 등장 시험 결과")).toBeNull();
+    expect(screen.queryByLabelText("선택한 대사 미리보기")).toBeNull();
+    let finish!: (value: AuthoringTrialTrace) => void;
+    vi.mocked(command).mockReturnValueOnce(
+      new Promise<AuthoringTrialTrace>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    run();
+    close();
+    reopen();
+    await act(async () => finish(trace()));
+    expect(screen.queryByLabelText("NPC 등장 시험 결과")).toBeNull();
+    run();
+    await screen.findByLabelText("NPC 등장 시험 결과");
+    expect(command).toHaveBeenCalledTimes(3);
+    expect({ actors, definition }).toEqual(original);
+  },
+);
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
@@ -142,7 +208,24 @@ it("trials edited actor IDs with explicit conditions, state changes and raw regi
   expect(actors).toEqual(source);
 });
 
-it.each(["collapse", "hide", "draft", "baseline", "unmount"])(
+it("labels a registered relationship response without a story stage", async () => {
+  const reply = trace();
+  reply.steps[0].stage = null;
+  vi.mocked(command).mockResolvedValue(reply);
+  render(
+    <AuthoringTrial
+      {...props}
+      subject={{ kind: "relation", actorId: actors[0].id, targetId: actors[1].id }}
+    />,
+  );
+  expand();
+  run();
+  const result = await screen.findByLabelText("NPC 등장 시험 결과");
+  expect(within(result).getByRole("button", { name: "1. 등록 응답" })).toBeTruthy();
+  expect(result.textContent).toContain("출처: 등록 대사");
+});
+
+it.each(["collapse", "hide", "draft", "actorDraft", "assets", "baseline", "unmount"])(
   "rejects a late trial after %s and requires a fresh trial",
   async (change) => {
     let finish!: (value: AuthoringTrialTrace) => void;
@@ -167,6 +250,35 @@ it.each(["collapse", "hide", "draft", "baseline", "unmount"])(
       case "draft":
         view.rerender(
           <AuthoringTrial {...props} definition={{ ...definition, worldRules: "새 초안" }} />,
+        );
+        break;
+      case "actorDraft":
+        view.rerender(
+          <AuthoringTrial
+            {...props}
+            actors={actors.map((actor) => ({
+              ...actor,
+              definition: { ...actor.definition, instructions: "편집한 인물 초안" },
+            }))}
+          />,
+        );
+        break;
+      case "assets":
+        view.rerender(
+          <AuthoringTrial
+            {...props}
+            assets={{
+              [actors[0].id]: [
+                {
+                  assetId: "draft",
+                  mime: "image/png",
+                  width: 16,
+                  height: 16,
+                  data: "changed-bytes",
+                },
+              ],
+            }}
+          />,
         );
         break;
       case "baseline":

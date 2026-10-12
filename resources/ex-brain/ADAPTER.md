@@ -6,7 +6,7 @@
 
 ## 일반 기록 정리 계약
 
-Comet의 일반 Ex-brain 정리는 `src-tauri/src/organizer/`의 자료·작업 저장소, `organizer_runtime.rs`의 수집·모델 실행, `organizer_actions.rs`의 직접 요청 실행기가 담당한다. 아래 위젯 이력용 `exbrain.rs`와는 별도 경로다. 사용자 조작과 기본값은 [확장 사양](../../docs/extensions.md#ex-brain-기록과-업무-정리)을 따른다. 원본 kit의 script·hook·명령을 실행하거나 사용자 전역 설정을 설치하는 기능은 아니다.
+Comet의 일반 Ex-brain 정리는 `src-tauri/src/organizer/`의 자료·작업 저장소, `organizer_runtime.rs`의 수집·모델 실행, `organizer_actions.rs`의 직접 요청 실행기가 담당한다. 아래 위젯 이력용 `exbrain.rs`와는 별도 경로다. 사용자 조작과 기본값의 유지보수 사양은 Fleet의 `20.company-docs/fleetia/comet/20.reference/extensions.md` 중 **Ex-brain 기록과 업무 정리**를 따른다. 원본 kit의 script·hook·명령을 실행하거나 사용자 전역 설정을 설치하는 기능은 아니다.
 
 ### 자료와 소유권
 

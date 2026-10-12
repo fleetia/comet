@@ -71,30 +71,34 @@ function choose(name: string): void {
 it("keeps character memory drafts independent and scopes edits and forgetting without showing internal person labels", async () => {
   render(<CharacterManager snapshot={PREVIEW_SNAPSHOT} />);
   characterTab("기억");
-  fireEvent.change(await screen.findByRole("textbox", { name: "기억 내용" }), {
+  const memoryPanel = () => within(screen.getByRole("tabpanel", { name: "기억" }));
+  fireEvent.change(await memoryPanel().findByRole("textbox", { name: "기억 내용" }), {
     target: { value: "A 초안" },
   });
   expect(screen.queryByRole("button", { name: "캐릭터 저장" })).toBeNull();
   choose("B");
   await waitFor(() =>
-    expect(screen.getByRole("textbox", { name: "기억 내용" })).toHaveProperty(
+    expect(memoryPanel().getByRole("textbox", { name: "기억 내용" })).toHaveProperty(
       "value",
       "커피를 좋아함",
     ),
   );
-  fireEvent.change(screen.getByRole("textbox", { name: "기억 내용" }), {
+  fireEvent.change(memoryPanel().getByRole("textbox", { name: "기억 내용" }), {
     target: { value: "B 초안" },
   });
   choose("A");
-  expect(screen.getByRole("textbox", { name: "기억 내용" })).toHaveProperty("value", "A 초안");
+  expect(memoryPanel().getByRole("textbox", { name: "기억 내용" })).toHaveProperty(
+    "value",
+    "A 초안",
+  );
   expect(screen.queryByText(/현재 사용자|이전 사용자|person-1/)).toBeNull();
   fireEvent.click(
-    within(screen.getByRole("region", { name: "캐릭터의 기억" })).getByText("기억의 근거", {
+    within(memoryPanel().getByRole("region", { name: "캐릭터의 기억" })).getByText("기억의 근거", {
       selector: "summary",
     }),
   );
   expect(screen.getAllByText("나는 커피가 좋아").length).toBeGreaterThan(0);
-  fireEvent.click(screen.getByRole("button", { name: "기억 저장" }));
+  fireEvent.click(memoryPanel().getByRole("button", { name: "기억 저장" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("edit_memory", {
       id: "m-a",
@@ -103,9 +107,12 @@ it("keeps character memory drafts independent and scopes edits and forgetting wi
     }),
   );
   choose("B");
-  expect(screen.getByRole("textbox", { name: "기억 내용" })).toHaveProperty("value", "B 초안");
-  fireEvent.click(screen.getByRole("button", { name: "이 기억 지우기" }));
-  fireEvent.click(screen.getByRole("button", { name: "기억 삭제 확인" }));
+  expect(memoryPanel().getByRole("textbox", { name: "기억 내용" })).toHaveProperty(
+    "value",
+    "B 초안",
+  );
+  fireEvent.click(memoryPanel().getByRole("button", { name: "이 기억 지우기" }));
+  fireEvent.click(memoryPanel().getByRole("button", { name: "기억 삭제 확인" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("delete_memory", { id: "m-b", characterId: "builtin-b" }),
   );

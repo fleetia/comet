@@ -304,7 +304,6 @@ async fn actual_registered_cast_and_knowledge_quality() {
         .await
         {
             outcome = Err(error);
-            break;
         }
     }
     inference::stop_local(&state.inference).await;

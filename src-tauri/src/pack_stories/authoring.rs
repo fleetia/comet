@@ -457,7 +457,7 @@ fn relation_step(
         output,
         "targetName",
         "상대 이름 언급",
-        matches_keywords(&[target.definition.name.clone()], input),
+        matches_keywords(std::slice::from_ref(&target.definition.name), input),
     );
     condition(
         output,

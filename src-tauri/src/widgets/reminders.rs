@@ -205,7 +205,7 @@ fn due_targets(
         .into_iter()
         .filter(|target| {
             let starts = target["at"].as_i64().unwrap_or_default();
-            let original = starts >= now
+            let original = (settings.lead_minutes == 0 || starts >= now)
                 && crossed(
                     after,
                     now,
@@ -718,6 +718,102 @@ mod tests {
         assert!(advance(&db, &mut clocks, 1_000_001, false)
             .unwrap()
             .os
+            .is_empty());
+    }
+
+    #[test]
+    fn zero_lead_delivers_after_start_once_without_restart_replay() {
+        let db = Connection::open_in_memory().unwrap();
+        storage::initialize(&db).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        storage::install(&db, directory.path(), &["calendar".into()]).unwrap();
+        let calendar = storage::instances(&db).unwrap().remove(0);
+        let starts = 1_600_000;
+        let mut value = data();
+        value["events"][0]["connectionId"] = json!("local");
+        value["reminders"]["leadMinutes"] = json!(0);
+        value["reminders"]["characterEnabled"] = json!(false);
+        value["reminders"]["osEnabled"] = json!(true);
+        value["reminders"]["soundEnabled"] = json!(true);
+        storage::commit_data(
+            &db,
+            &calendar.id,
+            calendar.revision,
+            value,
+            vec![],
+            starts - 1000,
+        )
+        .unwrap();
+        let mut clocks = BTreeMap::new();
+        assert!(advance(&db, &mut clocks, starts - 500, false)
+            .unwrap()
+            .os
+            .is_empty());
+        let result = advance(&db, &mut clocks, starts + 500, false).unwrap();
+        assert_eq!(result.os.len(), 1);
+        assert!(result.os[0].sound_enabled);
+        let saved = storage::get(&db, &calendar.id).unwrap();
+        assert_eq!(
+            saved.data["alertState"]["lastNotification"]["observedAt"],
+            starts + 500
+        );
+        assert_eq!(saved.data["events"][0]["startAt"], starts);
+        assert!(storage::take_reaction(&db, starts + 500).unwrap().is_none());
+        assert!(advance(&db, &mut clocks, starts + 1000, false)
+            .unwrap()
+            .os
+            .is_empty());
+        let mut restarted = BTreeMap::new();
+        for now in [starts + 500, starts + 1000] {
+            assert!(advance(&db, &mut restarted, now, false)
+                .unwrap()
+                .os
+                .is_empty());
+        }
+    }
+
+    #[test]
+    fn zero_lead_does_not_deliver_when_reminders_or_calendar_are_disabled() {
+        for (reminders_enabled, calendar_enabled) in [(false, true), (true, false)] {
+            let db = Connection::open_in_memory().unwrap();
+            storage::initialize(&db).unwrap();
+            let directory = tempfile::tempdir().unwrap();
+            storage::install(&db, directory.path(), &["calendar".into()]).unwrap();
+            let calendar = storage::instances(&db).unwrap().remove(0);
+            let mut value = data();
+            value["events"][0]["connectionId"] = json!("local");
+            value["reminders"]["leadMinutes"] = json!(0);
+            value["reminders"]["enabled"] = json!(reminders_enabled);
+            value["reminders"]["osEnabled"] = json!(true);
+            storage::commit_data(
+                &db,
+                &calendar.id,
+                calendar.revision,
+                value,
+                vec![],
+                1_599_000,
+            )
+            .unwrap();
+            if !calendar_enabled {
+                storage::set_enabled(&db, &calendar.id, false).unwrap();
+            }
+            let mut clocks = BTreeMap::new();
+            for now in [1_599_500, 1_600_500] {
+                let result = advance(&db, &mut clocks, now, false).unwrap();
+                assert!(result.os.is_empty());
+                assert!(!result.changed);
+            }
+        }
+    }
+
+    #[test]
+    fn positive_lead_still_skips_already_started_targets() {
+        let mut value = data();
+        value["events"][0]["connectionId"] = json!("local");
+        value["reminders"]["leadMinutes"] = json!(1);
+        assert!(crossed(1_539_500, 1_600_500, 1_540_000));
+        assert!(due_targets(&value, None, 1_539_500, 1_600_500)
+            .unwrap()
             .is_empty());
     }
 

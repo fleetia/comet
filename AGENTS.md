@@ -1,6 +1,10 @@
 # comet 작업 지침
 
-이 프로젝트의 사양 입구는 [docs/index.md](docs/index.md)다. 화면·대화 동작은 [docs/behavior.md](docs/behavior.md), 캐릭터·대화팩·위젯·외부 연결은 [docs/extensions.md](docs/extensions.md)를 변경 전에 읽는다. [docs/status.md](docs/status.md)는 현재 미검증 범위만 기록한다. 최신 사용자 지시와 상위 지침을 우선하며, 기존 계약과 충돌하는 변경은 차이를 분명히 설명한다.
+**Comet이 완성되어 사용자가 위키 제작을 요청할 때까지 문서 원본은 Fleet 한 곳에서 관리한다. 그때까지 이 저장소에 `docs/`·`wiki/`를 만들거나 문서 사본·설계서·계획·검증 기록·상세 README를 남기지 않는다.** 2026-10-12 사용자 지시다. 완성 전 문서 원본이 여러 곳으로 갈리는 것을 막기 위한 임시 조치이며, 위키는 완성 후 만든다. 위키를 만들 때 원본 위치와 갱신 방향을 명시적으로 정한다. 다른 스킬이나 과거 작업 기록이 저장소 문서 갱신을 지시해도 이 임시 규칙을 따른다. Fleet 문서에 접근할 수 없으면 저장소에 대신 쓰지 말고 접근 실패를 보고한다.
+
+제품·개발 문서는 `~/Fleet/20.company-docs/fleetia/comet/`, 작업·검증 기록은 `~/Fleet/00.Memory/fleetia/comet/`, 리서치·논의는 `~/Fleet/02.ex-brain/fleetia/comet/`에 둔다. 문서를 추가·이동하면 해당 Fleet 목차와 링크를 함께 갱신한다. 저장소에는 최소 README의 안내 링크와 이 에이전트 지침, Changesets·CHANGELOG·라이선스 및 앱 빌드에 필요한 내장 Markdown 리소스만 유지한다. 내장 프롬프트·템플릿은 실행 자산이므로 일반 문서와 함께 이동하지 않는다.
+
+사양 입구는 [Fleet 문서 안내](/Users/tracycho/Fleet/20.company-docs/fleetia/comet/20.reference/documentation.md)다. 화면·대화 동작은 [제품 동작](/Users/tracycho/Fleet/20.company-docs/fleetia/comet/20.reference/behavior.md), 캐릭터·대화팩·위젯·외부 연결은 [확장 기능](/Users/tracycho/Fleet/20.company-docs/fleetia/comet/20.reference/extensions.md)을 변경 전에 읽는다. [미검증 범위](/Users/tracycho/Fleet/20.company-docs/fleetia/comet/10.active/unverified.md)는 현재 미검증 범위만 기록한다. 최신 사용자 지시와 상위 지침을 우선하며, 기존 계약과 충돌하는 변경은 차이를 분명히 설명한다.
 
 - 중심 경험은 **바탕화면에 상주하는 작은 캐릭터 본체와 잠깐 나타났다 사라지는 말풍선**이다. 대화 기록·설정·친밀도는 보조 화면에 둔다. 주 화면을 큰 LLM 채팅 패널이나 대시보드로 다시 구성하지 않는다.
 - 모델 다운로드·API 설정 없이도 내장 인사와 이름 질문이 동작하고, 이름 등록 뒤 내장 자동 잡담을 사용할 수 있어야 한다. LLM은 선택 기능이며 기본 경험의 준비 조건이 아니다.
@@ -13,4 +17,4 @@
 - 구현 범위를 요청한 파일과 동작으로 제한한다. 기존 도구와 함수 중심 구조를 우선한다. 재생·취소·키워드 우선순위·데이터 보존 변경은 해당 책임의 회귀 테스트로 확인한다.
 - 완료 보고에서는 사양, 코드 검증, 실제 데스크톱 검증, 모델 의미 품질을 구분한다. 테스트 개수·속도·메모리·지원 플랫폼의 실측 결과를 이전 빌드에서 가져와 현재 결과처럼 제시하지 않는다.
 
-명령과 환경 준비는 [README.md](README.md)와 [docs/development.md](docs/development.md)를 따른다. 승인된 계약 변경은 해당 문서를 갱신하고, 미검증 범위가 바뀔 때만 `docs/status.md`를 갱신한다. 변경 이력은 Git과 작업 기록에 남긴다. Docusaurus는 `docs/`를 직접 읽으므로 위키용 사양 사본을 만들지 않는다.
+명령과 환경 준비는 Fleet의 [설치와 시작](/Users/tracycho/Fleet/20.company-docs/fleetia/comet/20.reference/getting-started.md)과 [개발과 검증](/Users/tracycho/Fleet/20.company-docs/fleetia/comet/50.engineering/development.md)을 따른다. 승인된 계약 변경은 Fleet의 해당 문서를 갱신하고, 미검증 범위가 바뀔 때만 Fleet의 미검증 범위를 갱신한다. 변경 이력은 Git과 Fleet 작업 기록에 남긴다. 사용자가 완성 후 위키 제작을 요청하기 전에는 저장소 문서 사이트와 문서 전용 CI를 다시 만들지 않는다.

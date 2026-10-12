@@ -109,6 +109,9 @@ export function CharacterManager({
   const [animationAssets, setAnimationAssets] = useState<
     Record<string, Record<string, AnimationAsset>>
   >({});
+  const trialAssets = Object.fromEntries(
+    Object.entries(animationAssets).map(([id, assets]) => [id, Object.values(assets)]),
+  );
   const [animationVersions, setAnimationVersions] = useState<Record<string, number>>({});
   const animationPickerGeneration = useRef(0);
   const selectedIdRef = useRef(selectedId);
@@ -534,6 +537,7 @@ export function CharacterManager({
                           ...member,
                           definition: drafts[member.id] ?? member.definition,
                         }))}
+                        trialAssets={trialAssets}
                         visible={visible}
                         drafts={storyDrafts}
                         onDraftsChange={setStoryDrafts}
@@ -655,6 +659,7 @@ export function CharacterManager({
                     packBaseline={
                       selected?.packId ? storyDrafts[selected.packId]?.saved.baseline : undefined
                     }
+                    trialAssets={trialAssets}
                     animationAssets={Object.values(animationAssets[selectedId] ?? {})}
                     animationVersion={animationVersions[selectedId] ?? 0}
                     onAnimationChange={changeAnimation}

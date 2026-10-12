@@ -11,11 +11,6 @@ __pycache__/
 test-results/
 src-tauri/gen/
 
-# Docusaurus wiki
-wiki/.docusaurus/
-wiki/build/
-wiki/.cache-loader/
-
 # NLP build cache and local model export artifacts
 crates/comet-nlp/target/
 nlp/artifacts/

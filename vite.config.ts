@@ -15,8 +15,7 @@ export default defineConfig({
     environment: "jsdom",
     include: ["src/**/*.test.{ts,tsx}"],
     restoreMocks: true,
-    // Concurrent jsdom character editors exceed the normal 5s limit under CPU contention.
-    // Keep file isolation and every assertion; bound workers instead of extending timeouts.
+    // Bound concurrent jsdom editors while keeping file isolation and the default 5s timeout.
     maxWorkers: 2,
   },
 });

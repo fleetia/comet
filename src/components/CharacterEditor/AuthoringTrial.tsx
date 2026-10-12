@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState, type JSX } from "react";
+import { useCallback, useEffect, useRef, useState, type JSX } from "react";
+import { TauriEvent } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Button, Checkbox, FormField, Select, TextArea, TextField } from "@fleetia/lagrange";
-import { command, errorText } from "../../hooks/useSnapshot";
+import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type {
   AnimationAsset,
   AuthoringState,
@@ -118,13 +120,42 @@ export function AuthoringTrial({
   useEffect(() => {
     setPresentIds(initialPresentIds ?? residents.map((actor) => actor.id));
   }, [scope, initialPresenceKey]);
-  useEffect(() => {
+  const invalidate = useCallback((): void => {
+    generation.current += 1;
     setTrace(null);
     setStepIndex(0);
     setError(null);
     setBusy(false);
     pending.current = false;
-  }, [key]);
+  }, []);
+  useEffect(invalidate, [key, invalidate]);
+  useEffect(() => {
+    let live = true;
+    let unlisten: (() => void) | undefined;
+    function visibility(): void {
+      if (document.hidden) invalidate();
+    }
+    document.addEventListener("visibilitychange", visibility);
+    if (isDesktop()) {
+      void (async (): Promise<void> => {
+        try {
+          const cleanup = await getCurrentWindow().listen(
+            TauriEvent.WINDOW_CLOSE_REQUESTED,
+            invalidate,
+          );
+          if (live) unlisten = cleanup;
+          else cleanup();
+        } catch (cause) {
+          if (live) setError(errorText(cause));
+        }
+      })();
+    }
+    return () => {
+      live = false;
+      document.removeEventListener("visibilitychange", visibility);
+      unlisten?.();
+    };
+  }, [invalidate]);
   useEffect(() => {
     if (!visible || !expanded || draftDefinition || !packId || snapshot) return;
     let current = true;
@@ -369,7 +400,12 @@ export function AuthoringTrial({
                 variant={index === stepIndex ? "primary" : "secondary"}
                 onClick={() => setStepIndex(index)}
               >
-                {index + 1}. {value.stage ? STAGES[value.stage] : "등록 응답 없음"}
+                {index + 1}.{" "}
+                {value.stage
+                  ? STAGES[value.stage]
+                  : value.source === "registered"
+                    ? "등록 응답"
+                    : "등록 응답 없음"}
               </Button>
             ))}
           </div>
