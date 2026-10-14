@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { Icon, type IconName } from "@comet/icon";
+import { useSlidingIndicator } from "./useSlidingIndicator";
 
 import * as styles from "./styles.css";
 
@@ -38,6 +39,9 @@ export function Tabs({
   ...props
 }: TabsProps): ReactElement {
   const id = useId();
+  const { containerRef, indicatorRef } = useSlidingIndicator(
+    ':scope > button[aria-selected="true"]',
+  );
   const buttons = useRef<Array<HTMLButtonElement | null>>([]);
   const [internalValue, setInternalValue] = useState(defaultValue);
   const selectedValue = value ?? internalValue;
@@ -90,7 +94,13 @@ export function Tabs({
 
   return (
     <div {...props} className={[styles.tabs, className].filter(Boolean).join(" ")}>
-      <div role="tablist" aria-label={label} className={styles.tabList}>
+      <div ref={containerRef} role="tablist" aria-label={label} className={styles.tabList}>
+        <span
+          ref={indicatorRef}
+          aria-hidden
+          hidden
+          className={`${styles.indicator} ${styles.tabIndicator}`}
+        />
         {items.map((item, index) => {
           const itemId = `${id}-${encodeURIComponent(item.value)}`;
           return (
@@ -126,7 +136,6 @@ export function Tabs({
             aria-labelledby={`${itemId}-tab`}
             hidden={activeIndex !== index}
             tabIndex={0}
-            className={styles.tabPanel}
           >
             {item.content}
           </div>
@@ -167,6 +176,7 @@ export function SegmentedControl({
   ...props
 }: SegmentedControlProps): ReactElement {
   const id = useId();
+  const { containerRef, indicatorRef } = useSlidingIndicator(":scope > label:has(input:checked)");
   const inputs = useRef<Array<HTMLInputElement | null>>([]);
   const defaultSelection = defaultValue ?? options.find((option) => !option.disabled)?.value;
 
@@ -192,11 +202,18 @@ export function SegmentedControl({
   return (
     <div
       {...props}
+      ref={containerRef}
       role="radiogroup"
       aria-label={label}
       aria-disabled={disabled || undefined}
       className={[styles.segmentedControl, className].filter(Boolean).join(" ")}
     >
+      <span
+        ref={indicatorRef}
+        aria-hidden
+        hidden
+        className={`${styles.indicator} ${styles.segmentIndicator}`}
+      />
       {options.map((option, index) => (
         <label key={option.value} className={styles.segment}>
           <input

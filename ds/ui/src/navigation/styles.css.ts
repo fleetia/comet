@@ -1,16 +1,46 @@
 import { style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
 
-import { slideIn, stateTransition } from "../motion/motion.css";
+import { reducedMotionQuery, stateTransition } from "../motion/motion.css";
 
 export const tabs = style({ display: "flex", flexDirection: "column", gap: 12 });
-export const tabList = style({ display: "flex", alignItems: "center", flexWrap: "wrap" });
+export const tabList = style({
+  position: "relative",
+  isolation: "isolate",
+  display: "flex",
+  alignItems: "center",
+  flexWrap: "nowrap",
+  minWidth: 0,
+  overflowX: "auto",
+  padding: 4,
+  margin: -4,
+  scrollbarWidth: "none",
+  selectors: { "&::-webkit-scrollbar": { display: "none" } },
+});
+export const indicator = style({
+  position: "absolute",
+  left: 0,
+  top: 0,
+  zIndex: 0,
+  pointerEvents: "none",
+  borderRadius: "999px",
+  transition: `transform ${tokens["duration/duration-base"]} ${tokens["easing/ease-out"]}, width ${tokens["duration/duration-base"]} ${tokens["easing/ease-out"]}`,
+  selectors: { "&[data-disabled]": { opacity: 0.45 } },
+  "@media": { [reducedMotionQuery]: { transition: "none" } },
+});
+export const tabIndicator = style({
+  background: tokens["color/component/selected-icon-alpha-140"],
+});
+export const segmentIndicator = style({ background: tokens["color/primary"] });
 export const tab = style([
   stateTransition,
   {
     boxSizing: "border-box",
+    position: "relative",
+    zIndex: 1,
     appearance: "none",
     display: "inline-flex",
+    flexShrink: 0,
     alignItems: "center",
     justifyContent: "center",
     gap: 7,
@@ -33,6 +63,7 @@ export const tab = style([
         color: tokens["color/comet"],
         fontWeight: 600,
       },
+      [`${tabList}[data-indicator-ready] &[aria-selected="true"]`]: { background: "transparent" },
       '&:hover:not(:disabled):not([aria-selected="true"])': {
         background: tokens["color/component/selected-icon-alpha-80"],
       },
@@ -42,32 +73,27 @@ export const tab = style([
   },
 ]);
 
-export const tabPanel = style({
-  selectors: {
-    "&:not([hidden])": {
-      animation: `${slideIn} ${tokens["duration/duration-base"]} ${tokens["easing/ease-out"]}`,
-    },
-  },
-  "@media": {
-    "(prefers-reduced-motion: reduce)": {
-      selectors: {
-        "&:not([hidden])": { animation: "none" },
-      },
-    },
-  },
-});
-
 export const segmentedControl = style({
+  position: "relative",
+  isolation: "isolate",
   display: "inline-flex",
   alignItems: "center",
-  flexWrap: "wrap",
+  flexWrap: "nowrap",
+  maxWidth: "100%",
+  overflowX: "auto",
+  padding: 4,
+  margin: -4,
+  scrollbarWidth: "none",
+  selectors: { "&::-webkit-scrollbar": { display: "none" } },
 });
 export const segment = style([
   stateTransition,
   {
     boxSizing: "border-box",
     position: "relative",
+    zIndex: 1,
     display: "inline-flex",
+    flexShrink: 0,
     alignItems: "center",
     justifyContent: "center",
     height: 26,
@@ -85,6 +111,9 @@ export const segment = style([
         background: tokens["color/primary"],
         color: tokens["color/on-primary"],
         fontWeight: 600,
+      },
+      [`${segmentedControl}[data-indicator-ready] &:has(input:checked)`]: {
+        background: "transparent",
       },
       "&:has(input:focus-visible)": {
         outline: `2px solid ${tokens["color/focus-ring"]}`,
