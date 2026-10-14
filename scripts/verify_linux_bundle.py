@@ -83,7 +83,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('package', type=Path)
     args = parser.parse_args()
-    root = Path(__file__).resolve().parent.parent
+    root = Path(__file__).resolve().parent.parent / 'apps/comet'
     version = json.loads((root / 'package.json').read_text())['version']
     product = json.loads((root / 'src-tauri/tauri.conf.json').read_text())['productName']
     verify_package(args.package, version, product)

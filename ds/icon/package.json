@@ -1,0 +1,19 @@
+{
+  "name": "@comet/icon",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./icons/*": "./src/icons/*.tsx"
+  },
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "check:generated": "node scripts/generate.mjs --check"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0"
+  }
+}

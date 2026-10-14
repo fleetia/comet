@@ -1,5 +1,6 @@
 packages:
-  - '.'
+  - "apps/*"
+  - "ds/*"
 
 allowBuilds:
   esbuild: false

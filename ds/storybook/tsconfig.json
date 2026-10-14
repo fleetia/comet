@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "types": ["vite/client", "node"]
+  },
+  "include": [
+    ".storybook/**/*",
+    "stories",
+    "vite.config.ts",
+    "../ui/src",
+    "../icon/src",
+    "../token/src"
+  ]
+}

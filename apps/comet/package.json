@@ -1,0 +1,48 @@
+{
+  "name": "comet",
+  "version": "0.12.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc -b && vite build",
+    "test": "vitest run",
+    "test:widgets": "vitest run src/widgets/GeneratedWidgets",
+    "test:widgets:host": "cargo test --manifest-path src-tauri/Cargo.toml --lib generated_widget && cargo test --manifest-path src-tauri/Cargo.toml --lib models::widget_policy && cargo test --manifest-path src-tauri/Cargo.toml --lib exbrain::tests && cargo test --manifest-path src-tauri/Cargo.toml --lib inference::tests",
+    "test:widgets:browser": "node scripts/widget-harness/run.mjs",
+    "check": "tsc --noEmit -p tsconfig.json && oxlint src",
+    "tauri": "tauri",
+    "desktop": "tauri dev",
+    "prepare:sidecar": "node scripts/prepare-sidecar.mjs",
+    "build:desktop": "corepack pnpm prepare:sidecar && corepack pnpm prepare:nlp && tauri build",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "talk": "cargo run --manifest-path src-tauri/Cargo.toml --example talk --",
+    "prepare:nlp": "node scripts/prepare-nlp.mjs",
+    "test:native-runtime": "node --test scripts/test-native-runtime.mjs"
+  },
+  "dependencies": {
+    "@comet/icon": "workspace:*",
+    "@comet/token": "workspace:*",
+    "@fleetia/lagrange": "file:vendor/fleetia-lagrange-0.1.1.tgz",
+    "@tauri-apps/api": "^2.11.1",
+    "@vanilla-extract/css": "^1.21.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vanilla-extract/vite-plugin": "^5.2.6",
+    "@vitejs/plugin-react": "^6.1.1",
+    "jsdom": "^30.0.1",
+    "oxfmt": "^0.68.0",
+    "oxlint": "^1.83.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0"
+  }
+}

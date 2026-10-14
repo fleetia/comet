@@ -15,6 +15,5 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "types": ["vite/client"]
-  },
-  "include": ["src"]
+  }
 }

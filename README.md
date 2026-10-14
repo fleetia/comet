@@ -10,4 +10,4 @@
 - [설치 파일](https://github.com/fleetia/comet/releases/latest)
 - [에이전트 작업 지침](AGENTS.md)
 
-프로그램 소스는 [GNU AGPL-3.0-only](LICENSE), 별꼬리 자산은 [별도 이용 조건](examples/character-packs/byulkkori.LICENSE.txt)을 따릅니다.
+프로그램 소스는 [GNU AGPL-3.0-only](LICENSE), 별꼬리 자산은 [별도 이용 조건](apps/comet/examples/character-packs/byulkkori.LICENSE.txt)을 따릅니다.

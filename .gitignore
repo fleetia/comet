@@ -1,19 +1,19 @@
 node_modules/
 .pnpm-store/
 dist/
-src-tauri/target/
-src-tauri/binaries/*
-!src-tauri/binaries/.gitkeep
+apps/comet/src-tauri/target/
+apps/comet/src-tauri/binaries/*
+!apps/comet/src-tauri/binaries/.gitkeep
 *.tsbuildinfo
 __pycache__/
 .DS_Store
 .idea/
 test-results/
-src-tauri/gen/
+apps/comet/src-tauri/gen/
 
 # NLP build cache and local model export artifacts
-crates/comet-nlp/target/
-nlp/artifacts/
+apps/comet/crates/comet-nlp/target/
+apps/comet/nlp/artifacts/
 
 # Local Windows QA downloads and reports
 work/windows-qa-*/
