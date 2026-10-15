@@ -122,6 +122,20 @@ export const select = style({
   cursor: "pointer",
 });
 export const multipleSelect = style({ height: "auto", minHeight: 90, padding: "6px 11px" });
+export const selectWithLeading = style({ paddingLeft: 32 });
+export const selectLeading = style({
+  position: "absolute",
+  left: 12,
+  top: "50%",
+  transform: "translateY(-50%)",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: 14,
+  height: 14,
+  pointerEvents: "none",
+  zIndex: 1,
+});
 export const selectIcon = style({
   position: "absolute",
   right: 11,

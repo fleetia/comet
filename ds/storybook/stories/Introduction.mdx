@@ -1,5 +1,5 @@
 import { Meta } from "@storybook/addon-docs/blocks";
-import { SourceReferences } from "./SourceReferences";
+import { SourceReferences, SourceInventory } from "./SourceReferences";
 
 <Meta title="시작하기" />
 
@@ -46,9 +46,9 @@ Figma의 공통 컴포넌트, 아이콘, 토큰을 내부 워크스페이스 패
 
 왼쪽의 **Foundations**에서 토큰 전체를 검색하고 두 색상 모드를 비교할 수 있습니다. **Motion**에서는 움직임 곡선·길이·크기를 확인하고 등장·퇴장, 차례로 나타나기와 움직임 줄이기를 조작합니다. **Icon**에서는 아이콘 전체를 검색하거나 크기와 접근 가능한 이름을 조절합니다. **UI**의 각 컴포넌트에는 사용 안내, Props 표, 조절 가능한 기본 예제와 상태별 예제가 있습니다.
 
-상단 **색상 모드** 메뉴는 현재 예제의 `data-comet-theme`를 바꿉니다. Storybook의 기본 밝은 Canvas에 맞춰 처음에는 Light 모드를 사용합니다. 토큰 모드 전환은 Canvas 배경을 변경하지 않으며, 어두운 배경이 필요하면 Storybook 기본 Backgrounds 도구로 선택합니다. UI 컴포넌트의 폰트는 토큰의 IBM Plex Sans KR을 사용하며, 설치되어 있지 않으면 시스템 sans-serif로 표시합니다. 이 카탈로그는 외부 웹 폰트를 자동 다운로드하지 않습니다.
+상단 **색상 모드** 메뉴로 Light와 Dark를 바꾸면 컴포넌트·Canvas·Docs·사이드바가 함께 전환됩니다. 처음에는 Light 모드를 사용하며, Backgrounds의 **색상 모드 따르기**가 토큰의 하늘 배경을 표시합니다. 필요한 경우 Backgrounds에서 배경을 따로 고를 수 있습니다.
 
-예제에 공통 배경이나 장식용 컨테이너를 추가하지 않으며, Canvas는 Storybook 기본 설정을 사용합니다. 배경은 Surface 컴포넌트나 색상 토큰 미리보기처럼 예제 자체에 필요한 경우에만 표시합니다.
+카탈로그는 로컬에 포함한 IBM Plex Sans KR·IBM Plex Mono·Orbit·Jua·Gowun Dodum 폰트를 사용하므로 실행 중 외부 폰트를 내려받지 않습니다. UI 패키지를 사용하는 앱에서는 필요한 폰트를 별도로 준비합니다. 예제에 장식용 공통 패널을 추가하지 않으며, Surface나 미리보기처럼 컴포넌트 자체에 필요한 배경만 사용합니다.
 
 상단 **움직임** 메뉴는 운영체제 설정을 따르거나 카탈로그 전체에 움직임 줄이기를 적용합니다. 운영체제에서 움직임을 줄였다면 카탈로그에서도 애니메이션과 전환이 꺼집니다. 앱에서는 `ThemeRoot motion="reduced"`로 원하는 영역에 같은 설정을 적용할 수 있습니다. 기다림 점은 멈춘 상태에서도 세 개 모두 보여 진행 중임을 표시합니다.
 
@@ -85,7 +85,11 @@ export function Example() {
 
 ## Figma 기준 컴포넌트
 
-현재 패키지의 UI 컴포넌트와 원본 노드 연결입니다. 표는 `@comet/ui/figma/components.json`에서 읽습니다.
+입력·선택·대화·위젯·카드·목록·캘린더·습관·가계부·집중 기록의 재사용 표현을 제공합니다. 상태 변경은 native HTML 또는 컴포넌트 props로 노출하고, 데이터 저장과 앱 동작은 소비자가 소유합니다.
+
+<SourceInventory />
+
+표는 `@comet/ui/figma/`의 컴포넌트별 원본 연결에서 읽습니다. 같은 원본의 문구·아이콘·선택 상태를 별도 컴포넌트로 늘리지 않습니다.
 
 <SourceReferences />
 

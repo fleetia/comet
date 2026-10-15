@@ -1,0 +1,412 @@
+{
+  "fileKey": "aWNznF6uo5AlqF0YokiXZY",
+  "components": [
+    {
+      "export": "NoteCard",
+      "sources": [
+        {
+          "id": "49:52711",
+          "name": "Note/Card"
+        },
+        {
+          "id": "283:34387",
+          "name": "Card/Note Preview"
+        }
+      ]
+    },
+    {
+      "export": "EnvelopeCard",
+      "sources": [
+        {
+          "id": "49:52862",
+          "name": "Envelope/Card"
+        },
+        {
+          "id": "283:34386",
+          "name": "Card/Envelope Preview"
+        }
+      ]
+    },
+    {
+      "export": "OrganizationCard",
+      "sources": [
+        {
+          "id": "49:53152",
+          "name": "Record/Organization"
+        },
+        {
+          "id": "283:34382",
+          "name": "Card/Activity Log"
+        },
+        {
+          "id": "214:8356",
+          "name": "List/Organizer Record Choice"
+        }
+      ]
+    },
+    {
+      "export": "CharacterCard",
+      "sources": [
+        {
+          "id": "283:31854",
+          "name": "Card/Character"
+        }
+      ]
+    },
+    {
+      "export": "AddCard",
+      "sources": [
+        {
+          "id": "122:23495",
+          "name": "Card/Add Character"
+        },
+        {
+          "id": "107:14243",
+          "name": "Card/Customize"
+        }
+      ]
+    },
+    {
+      "export": "SettingsLinkCard",
+      "sources": [
+        {
+          "id": "122:26427",
+          "name": "Card/Settings Link"
+        }
+      ]
+    },
+    {
+      "export": "AnimationCard",
+      "sources": [
+        {
+          "id": "122:24970",
+          "name": "Card/Animation"
+        }
+      ]
+    },
+    {
+      "export": "RecordSourceLink",
+      "sources": [
+        {
+          "id": "109:1323",
+          "name": "Record/Source Link"
+        }
+      ]
+    },
+    {
+      "export": "RecordPageEntry",
+      "sources": [
+        {
+          "id": "49:53023",
+          "name": "Record/Page Entry"
+        }
+      ]
+    },
+    {
+      "export": "RecordTimelineRow",
+      "sources": [
+        {
+          "id": "49:54278",
+          "name": "Record/Timeline Row"
+        }
+      ]
+    },
+    {
+      "export": "RecordQuickAdd",
+      "sources": [
+        {
+          "id": "49:54129",
+          "name": "Record/Quick Add"
+        }
+      ]
+    },
+    {
+      "export": "EnvelopeHeader",
+      "sources": [
+        {
+          "id": "49:58177",
+          "name": "Envelope/Header"
+        }
+      ]
+    },
+    {
+      "export": "TaskRow",
+      "sources": [
+        {
+          "id": "49:50897",
+          "name": "List/Task Row"
+        },
+        {
+          "id": "255:25094",
+          "name": "List/Diary Task Row"
+        },
+        {
+          "id": "49:58249",
+          "name": "Envelope/Checklist Row"
+        }
+      ]
+    },
+    {
+      "export": "ChecklistAdd",
+      "sources": [
+        {
+          "id": "49:58249",
+          "name": "Envelope/Checklist Row"
+        }
+      ]
+    },
+    {
+      "export": "SettingsRow",
+      "sources": [
+        {
+          "id": "49:48169",
+          "name": "List/Settings Row Interaction"
+        }
+      ]
+    },
+    {
+      "export": "SettingControlRow",
+      "sources": [
+        {
+          "id": "49:58384",
+          "name": "List/Setting Control Row"
+        }
+      ]
+    },
+    {
+      "export": "ManageListRow",
+      "sources": [
+        {
+          "id": "49:58442",
+          "name": "List/Manage Row"
+        }
+      ]
+    },
+    {
+      "export": "ContentChoice",
+      "sources": [
+        {
+          "id": "283:31724",
+          "name": "List/Character/Compact"
+        },
+        {
+          "id": "283:31735",
+          "name": "List/Conversation Preview"
+        },
+        {
+          "id": "283:31837",
+          "name": "List/Launcher Result"
+        },
+        {
+          "id": "203:8311",
+          "name": "List/Reference Choice"
+        },
+        {
+          "id": "203:8322",
+          "name": "List/Location Choice"
+        },
+        {
+          "id": "214:8358",
+          "name": "List/Story Choice"
+        },
+        {
+          "id": "203:8321",
+          "name": "List/Memory Choice"
+        },
+        {
+          "id": "214:8357",
+          "name": "List/Conversation Choice"
+        },
+        {
+          "id": "214:8359",
+          "name": "List/Scene Choice"
+        }
+      ]
+    },
+    {
+      "export": "ContentRow",
+      "sources": [
+        {
+          "id": "283:34381",
+          "name": "List/Knowledge Source"
+        },
+        {
+          "id": "118:19305",
+          "name": "List/Character/Dialogue"
+        },
+        {
+          "id": "122:23514",
+          "name": "List/Character/Visitor"
+        },
+        {
+          "id": "118:22299",
+          "name": "List/Memory Source"
+        },
+        {
+          "id": "103:11659",
+          "name": "List/Story Summary"
+        }
+      ]
+    },
+    {
+      "export": "ResourceLink",
+      "sources": [
+        {
+          "id": "283:31752",
+          "name": "List/Resource Link"
+        }
+      ]
+    },
+    {
+      "export": "SettingsSummary",
+      "sources": [
+        {
+          "id": "283:34388",
+          "name": "List/Settings Summary"
+        }
+      ]
+    },
+    {
+      "export": "GestureAssignment",
+      "sources": [
+        {
+          "id": "283:34380",
+          "name": "List/Gesture Assignment"
+        }
+      ]
+    },
+    {
+      "export": "SceneSummary",
+      "sources": [
+        {
+          "id": "114:17807",
+          "name": "List/Scene Summary"
+        }
+      ]
+    },
+    {
+      "export": "StatusLink",
+      "sources": [
+        {
+          "id": "118:17816",
+          "name": "List/Status Link"
+        }
+      ]
+    },
+    {
+      "export": "SidebarItem",
+      "sources": [
+        {
+          "id": "208:8721",
+          "name": "Navigation/Sidebar Item"
+        }
+      ]
+    },
+    {
+      "export": "ProfileLink",
+      "sources": [
+        {
+          "id": "85:300",
+          "name": "Navigation/Profile Link"
+        }
+      ]
+    }
+  ],
+  "contentAssets": [
+    {
+      "id": "283:31841",
+      "name": "Asset/Card/Character/122-23463",
+      "export": "CharacterCard",
+      "prop": "artwork"
+    },
+    {
+      "id": "283:31844",
+      "name": "Asset/Card/Character/122-23416",
+      "export": "CharacterCard",
+      "prop": "artwork"
+    },
+    {
+      "id": "283:31688",
+      "name": "Asset/List/Character/Compact/118-19206",
+      "export": "ContentChoice",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31691",
+      "name": "Asset/List/Character/Compact/122-22057",
+      "export": "ContentChoice",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31711",
+      "name": "Asset/List/Character/Compact/118-19219",
+      "export": "ContentChoice",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31714",
+      "name": "Asset/List/Character/Compact/118-19236",
+      "export": "ContentChoice",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31727",
+      "name": "Asset/List/Conversation Preview/101-11375",
+      "export": "ContentChoice",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31734",
+      "name": "Asset/List/Conversation Preview/101-11434",
+      "export": "ContentChoice",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31748",
+      "name": "Asset/List/Resource Link/108-15828",
+      "export": "ResourceLink",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31751",
+      "name": "Asset/List/Resource Link/108-15841",
+      "export": "ResourceLink",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31772",
+      "name": "Asset/List/Launcher Result/91-2398",
+      "export": "ContentChoice",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31804",
+      "name": "Asset/List/Launcher Result/91-2439",
+      "export": "ContentChoice",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31812",
+      "name": "Asset/List/Launcher Result/91-2422",
+      "export": "ContentChoice",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31816",
+      "name": "Asset/List/Launcher Result/91-2462",
+      "export": "ContentChoice",
+      "prop": "leading"
+    }
+  ],
+  "designContexts": [
+    "320:10316",
+    "320:10220",
+    "218:8420",
+    "218:8450",
+    "218:8440",
+    "218:8415",
+    "218:8430",
+    "218:8460",
+    "118:17816"
+  ]
+}

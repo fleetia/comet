@@ -158,6 +158,8 @@ export type SegmentedControlProps = Omit<
   options: readonly SegmentOption[];
   label: string;
   name?: string;
+  appearance?: "plain" | "contained";
+  size?: "compact" | "display-mode";
   disabled?: boolean;
   value?: string;
   defaultValue?: string;
@@ -168,6 +170,8 @@ export function SegmentedControl({
   options,
   label,
   name,
+  appearance = "plain",
+  size = "compact",
   disabled = false,
   value,
   defaultValue,
@@ -206,7 +210,13 @@ export function SegmentedControl({
       role="radiogroup"
       aria-label={label}
       aria-disabled={disabled || undefined}
-      className={[styles.segmentedControl, className].filter(Boolean).join(" ")}
+      className={[
+        styles.segmentedControl,
+        appearance === "contained" && styles.contained,
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
       <span
         ref={indicatorRef}
@@ -215,7 +225,12 @@ export function SegmentedControl({
         className={`${styles.indicator} ${styles.segmentIndicator}`}
       />
       {options.map((option, index) => (
-        <label key={option.value} className={styles.segment}>
+        <label
+          key={option.value}
+          className={[styles.segment, size === "display-mode" && styles.displayModeSegment]
+            .filter(Boolean)
+            .join(" ")}
+        >
           <input
             type="radio"
             ref={(element) => {

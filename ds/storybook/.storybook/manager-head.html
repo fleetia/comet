@@ -1,0 +1,21 @@
+<style>
+  #storybook-explorer-tree .sidebar-item {
+    border-radius: var(--comet-radius-radius-10);
+  }
+
+  #storybook-explorer-tree .sidebar-item[data-selected="true"],
+  #storybook-explorer-tree .sidebar-item[data-selected="true"]:hover,
+  #storybook-explorer-tree .sidebar-item[data-selected="true"]:focus {
+    background: var(--comet-color-selected);
+    color: var(--comet-color-selected-ink);
+  }
+
+  #storybook-explorer-tree .sidebar-item[data-selected="true"] svg {
+    color: var(--comet-color-selected-ink);
+  }
+
+  #storybook-explorer-tree .sidebar-item:has(:focus-visible) {
+    outline: 2px solid var(--comet-color-focus-ring);
+    outline-offset: -2px;
+  }
+</style>

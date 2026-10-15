@@ -1,5 +1,9 @@
 import type { Preview } from "@storybook/react-vite";
+import { useEffect } from "storybook/preview-api";
+import { themes, tokens } from "@comet/token";
+import { ThemedDocsContainer } from "./ThemedDocsContainer";
 import "@comet/token/styles.css";
+import "./fonts.css";
 import "../stories/catalog.css";
 
 const preview: Preview = {
@@ -29,22 +33,38 @@ const preview: Preview = {
       },
     },
   },
-  initialGlobals: { theme: "light", motion: "system" },
+  initialGlobals: { theme: "light", motion: "system", backgrounds: { value: "theme" } },
   parameters: {
+    docs: { container: ThemedDocsContainer },
+    backgrounds: {
+      options: {
+        light: { name: "light", value: themes.light["color/document/backdrop-panel/sky"] },
+        dark: { name: "dark", value: themes.dark["color/document/backdrop-panel/sky"] },
+        theme: { name: "색상 모드 따르기", value: tokens["color/document/backdrop-panel/sky"] },
+      },
+    },
     options: {
       storySort: { order: ["시작하기", "Foundations", "Icon", "UI"] },
     },
   },
   decorators: [
-    (Story, context) => (
-      <div
-        className="comet-catalog"
-        data-comet-theme={context.globals.theme === "light" ? "light" : "dark"}
-        data-comet-motion={context.globals.motion === "reduced" ? "reduced" : undefined}
-      >
-        <Story />
-      </div>
-    ),
+    (Story, context) => {
+      const theme = context.globals.theme === "dark" ? "dark" : "light";
+      useEffect(() => {
+        document.documentElement.dataset.cometTheme = theme;
+      }, [theme]);
+
+      return (
+        <div
+          className="comet-catalog"
+          data-comet-theme={theme}
+          data-comet-motion={context.globals.motion === "reduced" ? "reduced" : undefined}
+          style={{ color: tokens["color/ink"], colorScheme: theme }}
+        >
+          <Story />
+        </div>
+      );
+    },
   ],
 };
 

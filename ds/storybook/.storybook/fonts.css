@@ -1,0 +1,43 @@
+@font-face {
+  font-family: "Orbit";
+  src: url("./fonts/orbit/Orbit-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans KR";
+  src: url("./fonts/ibmplexsanskr/IBMPlexSansKR-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans KR";
+  src: url("./fonts/ibmplexsanskr/IBMPlexSansKR-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("./fonts/ibmplexmono/IBMPlexMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Jua";
+  src: url("./fonts/jua/Jua-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Gowun Dodum";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/gowundodum/GowunDodum-Regular.ttf") format("truetype");
+}

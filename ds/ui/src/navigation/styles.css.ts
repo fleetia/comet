@@ -133,3 +133,21 @@ export const segmentInput = style({
   clipPath: "inset(50%)",
   whiteSpace: "nowrap",
 });
+
+export const contained = style({
+  margin: 0,
+  padding: 3,
+  gap: 2,
+  minHeight: 34,
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: 16,
+  background: tokens["color/card"],
+});
+
+export const displayModeSegment = style({
+  width: 90,
+  height: 30,
+  borderRadius: 15,
+  fontSize: 13,
+  lineHeight: "18px",
+});

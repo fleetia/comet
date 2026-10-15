@@ -10,7 +10,8 @@
   ],
   "exports": {
     ".": "./src/index.ts",
-    "./figma/components.json": "./figma/components.json"
+    "./figma/components.json": "./figma/components.json",
+    "./figma/*.json": "./figma/*.json"
   },
   "dependencies": {
     "@comet/icon": "workspace:*",

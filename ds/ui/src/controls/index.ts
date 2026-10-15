@@ -9,3 +9,8 @@ export { Switch, type SwitchProps } from "./Switch";
 export { Slider, type SliderProps } from "./Slider";
 export { Stepper, type StepperProps } from "./Stepper";
 export type { FieldProps } from "./Field";
+
+export * from "./ExtendedInputs";
+export * from "./ExtendedSelections";
+export { ColorControl, type ColorControlProps } from "./ColorControl";
+export * from "./ExtendedActions";

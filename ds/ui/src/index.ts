@@ -32,3 +32,17 @@ export {
   type SegmentOption,
 } from "./navigation/Navigation";
 export { Surface, MenuItem, type SurfaceProps, type MenuItemProps } from "./surface/Surface";
+
+export * from "./choices";
+
+export * from "./planner";
+
+export * from "./records";
+
+export * from "./conversation";
+
+export * from "./widgets";
+
+export * from "./overlays";
+
+export { MetadataChip, type MetadataChipProps } from "./display/MetadataChip";

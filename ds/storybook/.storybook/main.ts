@@ -11,6 +11,7 @@ const config: StorybookConfig = {
     },
   },
   stories: ["../stories/**/*.mdx", "../stories/**/*.stories.tsx"],
+  staticDirs: ["../public"],
   addons: ["@storybook/addon-docs"],
   docs: { defaultName: "사용 안내" },
   typescript: {

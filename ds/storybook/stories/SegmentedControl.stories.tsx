@@ -88,3 +88,19 @@ export const ReducedMotion: Story = {
     </div>
   ),
 };
+
+export const Contained: Story = { name: "표면 포함", args: { appearance: "contained" } };
+
+export const DisplayMode: Story = {
+  name: "화면 모드 선택",
+  args: {
+    size: "display-mode",
+    label: "화면 색상",
+    defaultValue: "system",
+    options: [
+      { value: "system", label: "시스템 따라" },
+      { value: "dark", label: "어둡게" },
+      { value: "light", label: "밝게" },
+    ],
+  },
+};

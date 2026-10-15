@@ -1,0 +1,2175 @@
+{
+  "fileKey": "aWNznF6uo5AlqF0YokiXZY",
+  "pageId": "39:41568",
+  "nodes": [
+    {
+      "id": "49:47960",
+      "name": "Button/Primary",
+      "variantCount": 5,
+      "kind": "component",
+      "exports": ["Button"]
+    },
+    {
+      "id": "49:47992",
+      "name": "Button/Ghost",
+      "variantCount": 5,
+      "kind": "component",
+      "exports": ["Button"]
+    },
+    {
+      "id": "49:48527",
+      "name": "Button/Small",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["Button"]
+    },
+    {
+      "id": "49:48534",
+      "name": "Button/Selected",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["Button"]
+    },
+    {
+      "id": "49:48554",
+      "name": "Button/Link",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["Button"]
+    },
+    {
+      "id": "49:48567",
+      "name": "Button/Danger",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["Button"]
+    },
+    {
+      "id": "198:8419",
+      "name": "Button/Leading Icon",
+      "variantCount": 6,
+      "kind": "component",
+      "exports": ["Button"]
+    },
+    {
+      "id": "49:48583",
+      "name": "Button/Icon",
+      "variantCount": 10,
+      "kind": "component",
+      "exports": ["IconButton"]
+    },
+    {
+      "id": "118:21933",
+      "name": "Button/Provider",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["ProviderButton"]
+    },
+    {
+      "id": "49:48055",
+      "name": "Chip/Quick",
+      "variantCount": 5,
+      "kind": "component",
+      "exports": ["ActionChip"]
+    },
+    {
+      "id": "49:48789",
+      "name": "Chip/Status",
+      "variantCount": 5,
+      "kind": "component",
+      "exports": ["StatusChip"]
+    },
+    {
+      "id": "49:48820",
+      "name": "Chip/Context",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["ContextChip"]
+    },
+    {
+      "id": "49:48843",
+      "name": "Keycap",
+      "variantCount": 4,
+      "kind": "component",
+      "exports": ["Keycap"]
+    },
+    {
+      "id": "49:48872",
+      "name": "Chip/Category",
+      "variantCount": 5,
+      "kind": "component",
+      "exports": ["CategoryChip"]
+    },
+    {
+      "id": "49:48902",
+      "name": "Chip/Toggle",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ToggleChip"]
+    },
+    {
+      "id": "49:48917",
+      "name": "Badge/Number",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["Badge"]
+    },
+    {
+      "id": "49:48924",
+      "name": "Status/Live",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["StatusIndicator"]
+    },
+    {
+      "id": "49:48933",
+      "name": "Color/Dot",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ColorSwatch"]
+    },
+    {
+      "id": "49:48958",
+      "name": "Chip/Metadata",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["MetadataChip"]
+    },
+    {
+      "id": "292:31010",
+      "name": "Chip/Calendar",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["CalendarChip"]
+    },
+    {
+      "id": "292:31029",
+      "name": "Chip/Category",
+      "variantCount": 6,
+      "kind": "component",
+      "exports": ["CategoryChoice"]
+    },
+    {
+      "id": "292:31061",
+      "name": "Button/Icon Counter",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["CounterButton"]
+    },
+    {
+      "id": "114:17855",
+      "name": "Chip/Count Link",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["CountChip"]
+    },
+    {
+      "id": "103:14390",
+      "name": "Chip/Prompt",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["PromptChip"]
+    },
+    {
+      "id": "214:8354",
+      "name": "Input/Category Chip/Work",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["CategoryChoice"]
+    },
+    {
+      "id": "114:17867",
+      "name": "Chip/Count Choice",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["CountChip"]
+    },
+    {
+      "id": "214:8355",
+      "name": "Input/Category Chip/Exercise",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["CategoryChoice"]
+    },
+    {
+      "id": "49:52711",
+      "name": "Note/Card",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["NoteCard"]
+    },
+    {
+      "id": "49:52862",
+      "name": "Envelope/Card",
+      "variantCount": 4,
+      "kind": "component",
+      "exports": ["EnvelopeCard"]
+    },
+    {
+      "id": "49:53023",
+      "name": "Record/Page Entry",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["RecordPageEntry"]
+    },
+    {
+      "id": "49:53152",
+      "name": "Record/Organization",
+      "variantCount": 4,
+      "kind": "component",
+      "exports": ["OrganizationCard"]
+    },
+    {
+      "id": "49:54129",
+      "name": "Record/Quick Add",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["RecordQuickAdd"]
+    },
+    {
+      "id": "49:54278",
+      "name": "Record/Timeline Row",
+      "variantCount": 6,
+      "kind": "component",
+      "exports": ["RecordTimelineRow"]
+    },
+    {
+      "id": "49:58177",
+      "name": "Envelope/Header",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["EnvelopeHeader"]
+    },
+    {
+      "id": "49:58249",
+      "name": "Envelope/Checklist Row",
+      "variantCount": 4,
+      "kind": "component",
+      "exports": ["TaskRow", "ChecklistAdd"]
+    },
+    {
+      "id": "283:31854",
+      "name": "Card/Character",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["CharacterCard"]
+    },
+    {
+      "id": "283:34382",
+      "name": "Card/Activity Log",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["OrganizationCard"]
+    },
+    {
+      "id": "283:34386",
+      "name": "Card/Envelope Preview",
+      "variantCount": 4,
+      "kind": "component",
+      "exports": ["EnvelopeCard"]
+    },
+    {
+      "id": "283:34387",
+      "name": "Card/Note Preview",
+      "variantCount": 4,
+      "kind": "component",
+      "exports": ["NoteCard"]
+    },
+    {
+      "id": "283:31841",
+      "name": "Asset/Card/Character/122-23463",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "CharacterCard",
+      "prop": "artwork"
+    },
+    {
+      "id": "283:31844",
+      "name": "Asset/Card/Character/122-23416",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "CharacterCard",
+      "prop": "artwork"
+    },
+    {
+      "id": "214:8356",
+      "name": "List/Organizer Record Choice",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["OrganizationCard"]
+    },
+    {
+      "id": "109:1323",
+      "name": "Record/Source Link",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["RecordSourceLink"]
+    },
+    {
+      "id": "122:23495",
+      "name": "Card/Add Character",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["AddCard"]
+    },
+    {
+      "id": "122:26427",
+      "name": "Card/Settings Link",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["SettingsLinkCard"]
+    },
+    {
+      "id": "107:14243",
+      "name": "Card/Customize",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["AddCard"]
+    },
+    {
+      "id": "122:24970",
+      "name": "Card/Animation",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["AnimationCard"]
+    },
+    {
+      "id": "49:49023",
+      "name": "Balloon/Speaker",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["Balloon"]
+    },
+    {
+      "id": "49:49126",
+      "name": "Balloon/Content",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["Balloon"]
+    },
+    {
+      "id": "49:49229",
+      "name": "Balloon/Tail",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["Balloon"]
+    },
+    {
+      "id": "49:49326",
+      "name": "Capsule/Input",
+      "variantCount": 4,
+      "kind": "component",
+      "exports": ["InputCapsule"]
+    },
+    {
+      "id": "49:54716",
+      "name": "Constellation/Choice",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["ConstellationChoice"]
+    },
+    {
+      "id": "49:54763",
+      "name": "Capsule/Reference Memo",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["ReferenceMemo"]
+    },
+    {
+      "id": "49:59696",
+      "name": "Constellation/Choices",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ConstellationChoices"]
+    },
+    {
+      "id": "49:48316",
+      "name": "Orbit/Node Interaction",
+      "variantCount": 5,
+      "kind": "component",
+      "exports": ["OrbitNode"]
+    },
+    {
+      "id": "49:49472",
+      "name": "Orbit/Node",
+      "variantCount": 8,
+      "kind": "component",
+      "exports": ["OrbitNode"]
+    },
+    {
+      "id": "49:54801",
+      "name": "Orbit/Breadcrumb",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["OrbitBreadcrumb"]
+    },
+    {
+      "id": "49:60381",
+      "name": "Orbit/Expanded Menu",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["OrbitExpandedMenu"]
+    },
+    {
+      "id": "49:51142",
+      "name": "Surface/Window",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["Surface"]
+    },
+    {
+      "id": "49:51346",
+      "name": "Surface/Sheet",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["Surface"]
+    },
+    {
+      "id": "49:51503",
+      "name": "Popover/Content",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["Surface"]
+    },
+    {
+      "id": "49:51640",
+      "name": "Popover/Color Picker",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["ColorPicker"]
+    },
+    {
+      "id": "49:48250",
+      "name": "Menu/Item",
+      "variantCount": 5,
+      "kind": "component",
+      "exports": ["MenuItem"]
+    },
+    {
+      "id": "49:51716",
+      "name": "Menu/Context",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["ContextMenu"]
+    },
+    {
+      "id": "49:51867",
+      "name": "Notification/Comet",
+      "variantCount": 4,
+      "kind": "component",
+      "exports": ["CometNotification"]
+    },
+    {
+      "id": "49:54892",
+      "name": "Notification/OS",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["OsNotification"]
+    },
+    {
+      "id": "49:48619",
+      "name": "Input/Text",
+      "variantCount": 5,
+      "kind": "component",
+      "exports": ["TextInput"]
+    },
+    {
+      "id": "49:48659",
+      "name": "Input/Select",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["Select"]
+    },
+    {
+      "id": "49:48683",
+      "name": "Input/Stepper",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["Stepper"]
+    },
+    {
+      "id": "49:48700",
+      "name": "Input/Switch",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["Switch"]
+    },
+    {
+      "id": "49:48721",
+      "name": "Input/Check",
+      "variantCount": 4,
+      "kind": "component",
+      "exports": ["Checkbox"]
+    },
+    {
+      "id": "49:48739",
+      "name": "Input/Slider",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["Slider"]
+    },
+    {
+      "id": "49:55057",
+      "name": "Input/Segment",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["SegmentedControl"]
+    },
+    {
+      "id": "49:58478",
+      "name": "Input/Segmented",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["SegmentedControl"]
+    },
+    {
+      "id": "255:24978",
+      "name": "Input/Segment/Display Mode",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["SegmentedControl"]
+    },
+    {
+      "id": "280:31698",
+      "name": "Choice/Segment",
+      "variantCount": 4,
+      "kind": "component",
+      "exports": ["ChoiceButton"]
+    },
+    {
+      "id": "292:31074",
+      "name": "Input/Textarea",
+      "variantCount": 6,
+      "kind": "component",
+      "exports": ["Textarea"]
+    },
+    {
+      "id": "292:31491",
+      "name": "Input/Search",
+      "variantCount": 4,
+      "kind": "component",
+      "exports": ["SearchInput"]
+    },
+    {
+      "id": "292:31710",
+      "name": "Checkbox/Label Row",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["CheckboxRow"]
+    },
+    {
+      "id": "292:31949",
+      "name": "Input/Amount",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["AmountInput"]
+    },
+    {
+      "id": "292:32150",
+      "name": "Input/Message",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["MessageInput"]
+    },
+    {
+      "id": "292:32161",
+      "name": "Input/Text Surface",
+      "variantCount": 5,
+      "kind": "component",
+      "exports": ["TextSurfaceInput"]
+    },
+    {
+      "id": "287:30954",
+      "name": "Icon/Editor Property/Sticker",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "PropertyItem",
+      "prop": "icon"
+    },
+    {
+      "id": "287:30958",
+      "name": "Icon/Editor Property/Time",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "PropertyItem",
+      "prop": "icon"
+    },
+    {
+      "id": "287:30961",
+      "name": "Icon/Editor Property/Text",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "PropertyItem",
+      "prop": "icon"
+    },
+    {
+      "id": "287:30967",
+      "name": "Icon/Editor Property/Anniversary",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "PropertyItem",
+      "prop": "icon"
+    },
+    {
+      "id": "287:30973",
+      "name": "Icon/Editor Property/Date",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "PropertyItem",
+      "prop": "icon"
+    },
+    {
+      "id": "287:30977",
+      "name": "Icon/Editor Property/Background",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "PropertyItem",
+      "prop": "icon"
+    },
+    {
+      "id": "287:30998",
+      "name": "Editor/Property Item",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["PropertyItem"]
+    },
+    {
+      "id": "203:8312",
+      "name": "Input/Checkbox Row/Compact",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["CheckboxRow"]
+    },
+    {
+      "id": "203:8318",
+      "name": "Input/Radio Row",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["Radio"]
+    },
+    {
+      "id": "214:8348",
+      "name": "Input/Checkbox Row/Export",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["CheckboxRow"]
+    },
+    {
+      "id": "214:8353",
+      "name": "Input/Radio Row/App Usage",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["RadioRow"]
+    },
+    {
+      "id": "203:8313",
+      "name": "Input/Checkbox Row/Inline",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["CheckboxRow"]
+    },
+    {
+      "id": "203:8319",
+      "name": "Input/Checkbox Row/Friend",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["CheckboxRow"]
+    },
+    {
+      "id": "214:8351",
+      "name": "Input/Radio Row/Date",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["RadioRow"]
+    },
+    {
+      "id": "214:8352",
+      "name": "Input/Radio Row/Date Light",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["RadioRow"]
+    },
+    {
+      "id": "118:29912",
+      "name": "Checkbox/Description Row",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["CheckboxRow"]
+    },
+    {
+      "id": "112:17564",
+      "name": "Radio/Option Row",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["RadioRow"]
+    },
+    {
+      "id": "94:12955",
+      "name": "Input/Range Value",
+      "variantCount": 0,
+      "kind": "internal",
+      "reason": "Opacity-zero range-value measurement layer; no standalone visible control."
+    },
+    {
+      "id": "275:29182",
+      "name": "Select/Field",
+      "variantCount": 7,
+      "kind": "component",
+      "exports": ["SelectField"]
+    },
+    {
+      "id": "275:29041",
+      "name": "Select content/Chevron",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "275:29092",
+      "name": "Select content/Chevron",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29225",
+      "name": "Select content/Dot · 7",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29228",
+      "name": "Select content/Dot · 8",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29232",
+      "name": "Select content/Expression · (・_・) 평온",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29247",
+      "name": "Select content/Expression · 장난",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29250",
+      "name": "Select content/Expression · (・_・) 평온",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29255",
+      "name": "Select content/Link · 연결하기",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29271",
+      "name": "Select content/Motion · 몸 쓰다듬기",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29290",
+      "name": "Select content/Motion · 조용히 잠들기",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29306",
+      "name": "Select content/Motion · 앉아서 쉬기",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29312",
+      "name": "Select content/Note · 책 모임 아이디어 · 끝에 덧붙이기",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29319",
+      "name": "Select content/Repeat · 매주 토",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29324",
+      "name": "Select content/Speaker · 달토끼",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29329",
+      "name": "Select content/Widget · 뜨개질 단수 세기",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29342",
+      "name": "Select content/Expression · 평온",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29357",
+      "name": "Select content/Expression · 기쁨",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29362",
+      "name": "Select content/Link · 연결하기",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29378",
+      "name": "Select content/Motion · 머리 쓰다듬기",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29388",
+      "name": "Select content/Motion · 꼬리 인사와 눈 깜빡임 · 5초마다",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29407",
+      "name": "Select content/Motion · 책을 보며 집중하기",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29428",
+      "name": "Select content/Motion · 꼬리와 손으로 음악 듣기",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "278:29434",
+      "name": "Select content/Pack · 달빛 산책 팩",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SelectField",
+      "prop": "children / leading"
+    },
+    {
+      "id": "203:8314",
+      "name": "Input/Segment/Compact",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ChoiceButton"]
+    },
+    {
+      "id": "203:8317",
+      "name": "Input/Weekday",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ChoiceButton"]
+    },
+    {
+      "id": "203:8316",
+      "name": "Input/Segment/List",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ChoiceButton"]
+    },
+    {
+      "id": "203:8323",
+      "name": "Input/Weekday/Compact",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ChoiceButton"]
+    },
+    {
+      "id": "112:19212",
+      "name": "Choice/Period",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["ChoiceButton"]
+    },
+    {
+      "id": "108:13795",
+      "name": "Input/Multiline Editor",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["MultilineEditor"]
+    },
+    {
+      "id": "95:11516",
+      "name": "Input/Number",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["NumberInput"]
+    },
+    {
+      "id": "100:396",
+      "name": "Input/Shortcut",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["ShortcutInput"]
+    },
+    {
+      "id": "108:13780",
+      "name": "Input/Title",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["TitleInput"]
+    },
+    {
+      "id": "118:25699",
+      "name": "Input/URL",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["URLInput"]
+    },
+    {
+      "id": "118:18070",
+      "name": "Input/Time",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["TimeInput"]
+    },
+    {
+      "id": "280:31706",
+      "name": "Swatch/Color",
+      "variantCount": 7,
+      "kind": "component",
+      "exports": ["ColorSwatch"]
+    },
+    {
+      "id": "283:30261",
+      "name": "Choice/Character",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ChoiceTile"]
+    },
+    {
+      "id": "283:30284",
+      "name": "Choice/Element Shape",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ChoiceTile"]
+    },
+    {
+      "id": "283:30360",
+      "name": "Choice/Widget Shape",
+      "variantCount": 1,
+      "kind": "component",
+      "exports": ["ChoiceTile"]
+    },
+    {
+      "id": "283:30505",
+      "name": "Choice/Animation Frame",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ChoiceTile"]
+    },
+    {
+      "id": "283:30556",
+      "name": "Choice/Expression",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ChoiceTile"]
+    },
+    {
+      "id": "287:9219",
+      "name": "Choice/Theme",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["ChoiceTile"]
+    },
+    {
+      "id": "283:30197",
+      "name": "Asset/Character/01",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30235",
+      "name": "Asset/Character/02",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30239",
+      "name": "Asset/Character/03",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30255",
+      "name": "Asset/Character/04",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30259",
+      "name": "Asset/Character/05",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30263",
+      "name": "Asset/Element Shape/01",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30269",
+      "name": "Asset/Element Shape/02",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30277",
+      "name": "Asset/Element Shape/03",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30280",
+      "name": "Asset/Element Shape/04",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30283",
+      "name": "Asset/Element Shape/05",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30287",
+      "name": "Asset/Widget Shape/01",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30295",
+      "name": "Asset/Widget Shape/02",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30298",
+      "name": "Asset/Widget Shape/03",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30301",
+      "name": "Asset/Widget Shape/04",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30304",
+      "name": "Asset/Widget Shape/05",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30307",
+      "name": "Asset/Widget Shape/06",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30310",
+      "name": "Asset/Widget Shape/07",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30313",
+      "name": "Asset/Widget Shape/08",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30316",
+      "name": "Asset/Widget Shape/09",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30319",
+      "name": "Asset/Widget Shape/10",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30322",
+      "name": "Asset/Widget Shape/11",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30325",
+      "name": "Asset/Widget Shape/12",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30328",
+      "name": "Asset/Widget Shape/13",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30332",
+      "name": "Asset/Widget Shape/14",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30335",
+      "name": "Asset/Widget Shape/15",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30338",
+      "name": "Asset/Widget Shape/16",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30341",
+      "name": "Asset/Widget Shape/17",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30344",
+      "name": "Asset/Widget Shape/18",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30347",
+      "name": "Asset/Widget Shape/19",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30350",
+      "name": "Asset/Widget Shape/20",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30353",
+      "name": "Asset/Widget Shape/21",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30356",
+      "name": "Asset/Widget Shape/22",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30359",
+      "name": "Asset/Widget Shape/23",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30372",
+      "name": "Asset/Animation Frame/01",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30408",
+      "name": "Asset/Animation Frame/02",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30444",
+      "name": "Asset/Animation Frame/03",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30456",
+      "name": "Asset/Animation Frame/04",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30468",
+      "name": "Asset/Animation Frame/05",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30480",
+      "name": "Asset/Animation Frame/06",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30492",
+      "name": "Asset/Animation Frame/07",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "283:30504",
+      "name": "Asset/Animation Frame/08",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ChoiceTile",
+      "prop": "graphic"
+    },
+    {
+      "id": "118:28507",
+      "name": "Color/Hue Control",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["ColorControl"]
+    },
+    {
+      "id": "118:28502",
+      "name": "Color/Lightness Control",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["ColorControl"]
+    },
+    {
+      "id": "203:8315",
+      "name": "Input/Anchor Choice",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ChoiceTile"]
+    },
+    {
+      "id": "214:8349",
+      "name": "Choice/Widget Shape/Circle",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ChoiceTile"]
+    },
+    {
+      "id": "214:8350",
+      "name": "Choice/Widget Shape/Cloud",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ChoiceTile"]
+    },
+    {
+      "id": "203:8324",
+      "name": "Card/Desktop Layout",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ChoiceTile"]
+    },
+    {
+      "id": "203:8320",
+      "name": "Choice/Expression",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ChoiceTile"]
+    },
+    {
+      "id": "118:29583",
+      "name": "Choice/Body Part",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["ChoiceTile"]
+    },
+    {
+      "id": "94:10998",
+      "name": "Choice/Cup",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["ChoiceTile"]
+    },
+    {
+      "id": "95:10742",
+      "name": "Choice/Widget Preview",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["ChoiceTile"]
+    },
+    {
+      "id": "49:51996",
+      "name": "Habit/Day",
+      "variantCount": 5,
+      "kind": "component",
+      "exports": ["HabitDay"]
+    },
+    {
+      "id": "49:54006",
+      "name": "Calendar/Day Cell",
+      "variantCount": 6,
+      "kind": "component",
+      "exports": ["CalendarDayCell"]
+    },
+    {
+      "id": "49:54094",
+      "name": "Calendar/Time Block",
+      "variantCount": 5,
+      "kind": "component",
+      "exports": ["CalendarTimeBlock"]
+    },
+    {
+      "id": "49:54530",
+      "name": "Calendar/Summary Card",
+      "variantCount": 4,
+      "kind": "component",
+      "exports": ["CalendarSummaryCard"]
+    },
+    {
+      "id": "49:55297",
+      "name": "Habit/Row",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["HabitRow"]
+    },
+    {
+      "id": "49:61076",
+      "name": "Habit/Week Table",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["HabitWeekTable"]
+    },
+    {
+      "id": "283:34383",
+      "name": "Calendar/Day Header",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["CalendarDayHeader"]
+    },
+    {
+      "id": "283:34384",
+      "name": "Calendar/Timed Event",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["CalendarTimedEvent"]
+    },
+    {
+      "id": "283:34385",
+      "name": "Habit/Day Cell",
+      "variantCount": 5,
+      "kind": "component",
+      "exports": ["HabitDayCell"]
+    },
+    {
+      "id": "49:53630",
+      "name": "Calendar/Day Ring",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["CalendarDayRing"]
+    },
+    {
+      "id": "49:56787",
+      "name": "Calendar/Week",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["CalendarWeek"]
+    },
+    {
+      "id": "49:59368",
+      "name": "Calendar/Month",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["CalendarMonth"]
+    },
+    {
+      "id": "118:19768",
+      "name": "Calendar/Day Number",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["CalendarDayNumber"]
+    },
+    {
+      "id": "120:23676",
+      "name": "Calendar/Period Progress",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["CalendarPeriodProgress"]
+    },
+    {
+      "id": "49:48169",
+      "name": "List/Settings Row Interaction",
+      "variantCount": 5,
+      "kind": "component",
+      "exports": ["SettingsRow"]
+    },
+    {
+      "id": "49:50897",
+      "name": "List/Task Row",
+      "variantCount": 7,
+      "kind": "component",
+      "exports": ["TaskRow"]
+    },
+    {
+      "id": "49:58384",
+      "name": "List/Setting Control Row",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["SettingControlRow"]
+    },
+    {
+      "id": "49:58442",
+      "name": "List/Manage Row",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["ManageListRow"]
+    },
+    {
+      "id": "255:25094",
+      "name": "List/Diary Task Row",
+      "variantCount": 4,
+      "kind": "component",
+      "exports": ["TaskRow"]
+    },
+    {
+      "id": "283:31724",
+      "name": "List/Character/Compact",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ContentChoice"]
+    },
+    {
+      "id": "283:31735",
+      "name": "List/Conversation Preview",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["ContentChoice"]
+    },
+    {
+      "id": "283:31752",
+      "name": "List/Resource Link",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["ResourceLink"]
+    },
+    {
+      "id": "283:31837",
+      "name": "List/Launcher Result",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ContentChoice"]
+    },
+    {
+      "id": "283:34380",
+      "name": "List/Gesture Assignment",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["GestureAssignment"]
+    },
+    {
+      "id": "283:34381",
+      "name": "List/Knowledge Source",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ContentRow"]
+    },
+    {
+      "id": "283:34388",
+      "name": "List/Settings Summary",
+      "variantCount": 12,
+      "kind": "component",
+      "exports": ["SettingsSummary"]
+    },
+    {
+      "id": "292:32176",
+      "name": "Navigation/Tab",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["Tabs"]
+    },
+    {
+      "id": "283:31688",
+      "name": "Asset/List/Character/Compact/118-19206",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ContentChoice",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31691",
+      "name": "Asset/List/Character/Compact/122-22057",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ContentChoice",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31711",
+      "name": "Asset/List/Character/Compact/118-19219",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ContentChoice",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31714",
+      "name": "Asset/List/Character/Compact/118-19236",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ContentChoice",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31727",
+      "name": "Asset/List/Conversation Preview/101-11375",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ContentChoice",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31734",
+      "name": "Asset/List/Conversation Preview/101-11434",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ContentChoice",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31748",
+      "name": "Asset/List/Resource Link/108-15828",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ResourceLink",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31751",
+      "name": "Asset/List/Resource Link/108-15841",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ResourceLink",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31772",
+      "name": "Asset/List/Launcher Result/91-2398",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ContentChoice",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31804",
+      "name": "Asset/List/Launcher Result/91-2439",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ContentChoice",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31812",
+      "name": "Asset/List/Launcher Result/91-2422",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ContentChoice",
+      "prop": "leading"
+    },
+    {
+      "id": "283:31816",
+      "name": "Asset/List/Launcher Result/91-2462",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "ContentChoice",
+      "prop": "leading"
+    },
+    {
+      "id": "280:30865",
+      "name": "Icon/Summary/Ex-brain",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SettingsSummary",
+      "prop": "leading"
+    },
+    {
+      "id": "280:30868",
+      "name": "Icon/Summary/Chevron",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SettingsSummary",
+      "prop": "leading"
+    },
+    {
+      "id": "280:30872",
+      "name": "Icon/Summary/별꼬리 말풍선",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SettingsSummary",
+      "prop": "leading"
+    },
+    {
+      "id": "280:30877",
+      "name": "Icon/Summary/집중 타이머",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SettingsSummary",
+      "prop": "leading"
+    },
+    {
+      "id": "280:30881",
+      "name": "Icon/Summary/시계·기념일",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SettingsSummary",
+      "prop": "leading"
+    },
+    {
+      "id": "280:30885",
+      "name": "Icon/Summary/알림",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SettingsSummary",
+      "prop": "leading"
+    },
+    {
+      "id": "280:30890",
+      "name": "Icon/Summary/음악 정보",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SettingsSummary",
+      "prop": "leading"
+    },
+    {
+      "id": "280:30894",
+      "name": "Icon/Summary/할 일",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SettingsSummary",
+      "prop": "leading"
+    },
+    {
+      "id": "280:30900",
+      "name": "Icon/Summary/캘린더",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SettingsSummary",
+      "prop": "leading"
+    },
+    {
+      "id": "280:30904",
+      "name": "Icon/Summary/준비 봉투",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SettingsSummary",
+      "prop": "leading"
+    },
+    {
+      "id": "280:30909",
+      "name": "Icon/Summary/메모",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SettingsSummary",
+      "prop": "leading"
+    },
+    {
+      "id": "280:30912",
+      "name": "Icon/Summary/날씨",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SettingsSummary",
+      "prop": "leading"
+    },
+    {
+      "id": "280:30915",
+      "name": "Icon/Summary/뜨개질 단수 세기",
+      "variantCount": 0,
+      "kind": "content-asset",
+      "export": "SettingsSummary",
+      "prop": "leading"
+    },
+    {
+      "id": "118:19305",
+      "name": "List/Character/Dialogue",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["ContentRow"]
+    },
+    {
+      "id": "122:23514",
+      "name": "List/Character/Visitor",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["ContentRow"]
+    },
+    {
+      "id": "203:8311",
+      "name": "List/Reference Choice",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ContentChoice"]
+    },
+    {
+      "id": "203:8322",
+      "name": "List/Location Choice",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ContentChoice"]
+    },
+    {
+      "id": "214:8358",
+      "name": "List/Story Choice",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ContentChoice"]
+    },
+    {
+      "id": "118:22299",
+      "name": "List/Memory Source",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["ContentRow"]
+    },
+    {
+      "id": "114:17807",
+      "name": "List/Scene Summary",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["SceneSummary"]
+    },
+    {
+      "id": "103:11659",
+      "name": "List/Story Summary",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["ContentRow"]
+    },
+    {
+      "id": "203:8321",
+      "name": "List/Memory Choice",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ContentChoice"]
+    },
+    {
+      "id": "214:8357",
+      "name": "List/Conversation Choice",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ContentChoice"]
+    },
+    {
+      "id": "214:8359",
+      "name": "List/Scene Choice",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["ContentChoice"]
+    },
+    {
+      "id": "208:8721",
+      "name": "Navigation/Sidebar Item",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["SidebarItem"]
+    },
+    {
+      "id": "85:300",
+      "name": "Navigation/Profile Link",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["ProfileLink"]
+    },
+    {
+      "id": "118:17816",
+      "name": "List/Status Link",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["StatusLink"]
+    },
+    {
+      "id": "49:48446",
+      "name": "Widget/Row Interaction",
+      "variantCount": 5,
+      "kind": "component",
+      "exports": ["WidgetRow"]
+    },
+    {
+      "id": "49:49735",
+      "name": "Widget/Row",
+      "variantCount": 9,
+      "kind": "component",
+      "exports": ["WidgetRow"]
+    },
+    {
+      "id": "49:50327",
+      "name": "Widget/Expanded",
+      "variantCount": 7,
+      "kind": "component",
+      "exports": ["WidgetExpanded"]
+    },
+    {
+      "id": "49:54992",
+      "name": "Widget/Collapsed Bar",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["WidgetCollapsedBar"]
+    },
+    {
+      "id": "287:10122",
+      "name": "Widget/Stack Summary",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["WidgetStackSummary"]
+    },
+    {
+      "id": "287:9258",
+      "name": "Widget/Counter · Freeform",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["CounterWidget"]
+    },
+    {
+      "id": "287:9419",
+      "name": "Widget/Envelope · Stack",
+      "variantCount": 7,
+      "kind": "component",
+      "exports": ["WidgetRow"]
+    },
+    {
+      "id": "287:9629",
+      "name": "Widget/Clock · Stack",
+      "variantCount": 7,
+      "kind": "component",
+      "exports": ["WidgetRow"]
+    },
+    {
+      "id": "287:9773",
+      "name": "Widget/Focus Timer · Stack",
+      "variantCount": 8,
+      "kind": "component",
+      "exports": ["WidgetRow"]
+    },
+    {
+      "id": "287:9905",
+      "name": "Widget/Music · Stack",
+      "variantCount": 5,
+      "kind": "component",
+      "exports": ["WidgetRow"]
+    },
+    {
+      "id": "287:10019",
+      "name": "Widget/Weather · Stack",
+      "variantCount": 5,
+      "kind": "component",
+      "exports": ["WidgetRow"]
+    },
+    {
+      "id": "287:31331",
+      "name": "Widget/Travel Summary",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["TravelSummary"]
+    },
+    {
+      "id": "274:27824",
+      "name": "Trip/Info Row",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["TripInfoRow"]
+    },
+    {
+      "id": "287:30897",
+      "name": "Chart/Bar Item",
+      "variantCount": 5,
+      "kind": "component",
+      "exports": ["ChartBarItem"]
+    },
+    {
+      "id": "256:9197",
+      "name": "Flow/AI Widget Creation",
+      "variantCount": 4,
+      "kind": "workflow",
+      "reason": "Complete AI widget request/import/install flow is outside component scope. The standalone progress display maps to child 256:9074."
+    },
+    {
+      "id": "94:12413",
+      "name": "Widget/Clock · Freeform",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["ClockWidget"]
+    },
+    {
+      "id": "94:12481",
+      "name": "Widget/Focus Timer · Freeform",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["FocusTimerFreeform"]
+    },
+    {
+      "id": "94:12448",
+      "name": "Widget/Music · Freeform",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["MusicFreeform"]
+    },
+    {
+      "id": "94:12587",
+      "name": "Widget/Weather · Freeform",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["WeatherWidget"]
+    },
+    {
+      "id": "94:12533",
+      "name": "Widget/Envelope · Freeform",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["EnvelopeFreeform"]
+    },
+    {
+      "id": "94:12506",
+      "name": "Widget/Memo · Freeform",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["MemoWidget"]
+    },
+    {
+      "id": "49:52030",
+      "name": "Ledger/Quick Add",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["LedgerQuickAdd"]
+    },
+    {
+      "id": "49:52169",
+      "name": "Ledger/Day Header",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["LedgerDayHeader"]
+    },
+    {
+      "id": "49:52403",
+      "name": "Ledger/12 Month Forecast",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["Ledger12MonthForecast"]
+    },
+    {
+      "id": "49:52503",
+      "name": "Ledger/Monthly Budget",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["LedgerMonthlyBudget"]
+    },
+    {
+      "id": "49:52576",
+      "name": "Ledger/Category Summary",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["LedgerCategorySummary"]
+    },
+    {
+      "id": "49:58318",
+      "name": "Ledger/Recurring Row",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["LedgerRecurringRow"]
+    },
+    {
+      "id": "49:58531",
+      "name": "Ledger/Recurring Costs",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["LedgerRecurringCosts"]
+    },
+    {
+      "id": "287:31254",
+      "name": "Ledger/Row",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["LedgerRow"]
+    },
+    {
+      "id": "287:31268",
+      "name": "Ledger/Category Tile",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["LedgerCategoryTile"]
+    },
+    {
+      "id": "49:53311",
+      "name": "Focus/App Usage",
+      "variantCount": 4,
+      "kind": "component",
+      "exports": ["FocusAppUsage"]
+    },
+    {
+      "id": "49:55088",
+      "name": "Focus/Program Row",
+      "variantCount": 3,
+      "kind": "component",
+      "exports": ["FocusProgramRow"]
+    },
+    {
+      "id": "49:58913",
+      "name": "Focus/Records Panel",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["FocusRecordsPanel"]
+    },
+    {
+      "id": "49:59146",
+      "name": "Focus/Program Picker",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["FocusProgramPicker"]
+    },
+    {
+      "id": "256:9195",
+      "name": "Widget/Focus Timer/Interactive",
+      "variantCount": 8,
+      "kind": "component",
+      "exports": ["FocusTimerWidget"]
+    },
+    {
+      "id": "256:9196",
+      "name": "Widget/Focus Timer/App Usage Picker",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["AppUsagePicker"]
+    },
+    {
+      "id": "287:31274",
+      "name": "Focus/Record Row",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["FocusRecordRow"]
+    }
+  ]
+}
