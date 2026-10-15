@@ -39,6 +39,18 @@ function preview(): DiaryState {
       },
     ],
     moves: [],
+    timeRecords: [
+      { id: "preview-work", date, startMinute: 540, endMinute: 720, categoryId: "work", title: "오전 작업" },
+      { id: "preview-walk", date, startMinute: 750, endMinute: 780, categoryId: "exercise", title: "산책" },
+    ],
+    habits: [
+      { id: "preview-habit", title: "하루 20분 읽기", description: "잠들기 전 책 한 권", color: "record", weekdays: [0, 1, 2, 3, 4, 5, 6], weeklyGoal: 7, mode: "check", target: 1, startDate: date, reminderTime: null, archived: false },
+    ],
+    habitChecks: [],
+    ledgerEntries: [
+      { id: "preview-lunch", date, kind: "expense", amount: 12000, category: "food", title: "점심", memo: "" },
+    ],
+    ledgerRecurring: [],
   };
 }
 

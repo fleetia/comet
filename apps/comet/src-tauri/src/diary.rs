@@ -1,4 +1,8 @@
+mod habits;
+mod ledger;
+pub(crate) mod runtime;
 mod schema;
+mod time;
 pub(crate) use schema::initialize;
 
 use crate::app::{lock, AppState};
@@ -18,6 +22,22 @@ pub(crate) struct DiaryState {
     pages: Vec<Page>,
     notes: Vec<Note>,
     moves: Vec<Move>,
+    #[serde(default)]
+    habits: Vec<habits::Habit>,
+    #[serde(default)]
+    habit_checks: Vec<habits::HabitCheck>,
+    #[serde(default)]
+    habit_feedback_enabled: bool,
+    #[serde(default)]
+    ledger_entries: Vec<ledger::LedgerEntry>,
+    #[serde(default)]
+    ledger_recurring: Vec<ledger::RecurringExpense>,
+    #[serde(default)]
+    ledger_settings: ledger::LedgerSettings,
+    #[serde(default)]
+    time_records: Vec<time::TimeRecord>,
+    #[serde(default)]
+    time_categories: Vec<time::TimeCategory>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -27,6 +47,8 @@ struct Page {
     title: String,
     date: Option<String>,
     entries: Vec<Entry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    goal_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -41,6 +63,16 @@ struct Entry {
     item_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     time: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    record_date: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rating: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    review: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_page_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_entry_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -157,6 +189,15 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
     if !input.is_object() {
         return Err("다이어리 입력 형식이 올바르지 않습니다.".into());
     }
+    if action.starts_with("habit-") {
+        return habits::mutate(state, action, input);
+    }
+    if action.starts_with("ledger-") {
+        return ledger::mutate(state, action, input);
+    }
+    if action.starts_with("time-") {
+        return time::mutate(state, action, input);
+    }
     match action {
         "page-create" => {
             let selected = optional_string(input, "date", 10)?.map(date).transpose()?;
@@ -170,6 +211,7 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
                 title,
                 date: selected,
                 entries: vec![],
+                goal_id: optional_string(input, "goalId", 200)?,
             });
         }
         "page-update" | "page-delete" => {
@@ -179,14 +221,55 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
                 .iter()
                 .position(|page| page.id == id)
                 .ok_or_else(missing)?;
+            if input.get("expectedPage").is_some()
+                && input["expectedPage"] != serde_json::to_value(&state.pages[at]).map_err(err)?
+            {
+                return Err("이 페이지가 다른 화면에서 바뀌었어요. 입력을 유지했으니 최신 내용을 확인해 주세요.".into());
+            }
             if action == "page-delete" {
                 state.pages.remove(at);
             } else {
                 state.pages[at].title =
                     string(input, "title", 500, state.pages[at].date.is_none())?;
+                if input.get("goalId").is_some() {
+                    state.pages[at].goal_id = optional_string(input, "goalId", 200)?;
+                }
             }
         }
         "entry-add" | "entry-update" | "entry-delete" => {
+            let record_date = optional_string(input, "recordDate", 10)?
+                .map(date)
+                .transpose()?;
+            let rating = match input.get("rating") {
+                None | Some(Value::Null) => None,
+                Some(value) => Some(
+                    value
+                        .as_u64()
+                        .filter(|value| *value <= 5)
+                        .ok_or("별점은 0부터 5까지의 정수여야 합니다.")? as u8,
+                ),
+            };
+            let review = match input.get("review") {
+                None | Some(Value::Null) => None,
+                Some(_) => Some(string(input, "review", 20000, false)?),
+            };
+            let source_page_id = optional_string(input, "sourcePageId", 200)?;
+            let source_entry_id = optional_string(input, "sourceEntryId", 200)?;
+            if let Some(source_id) = &source_page_id {
+                let source = state
+                    .pages
+                    .iter()
+                    .find(|page| &page.id == source_id)
+                    .ok_or("원본 페이지를 찾을 수 없습니다.")?;
+                if source_entry_id
+                    .as_ref()
+                    .is_some_and(|id| !source.entries.iter().any(|entry| &entry.id == id))
+                {
+                    return Err("원본 기록을 찾을 수 없습니다.".into());
+                }
+            } else if source_entry_id.is_some() {
+                return Err("원본 기록의 페이지가 필요합니다.".into());
+            }
             let page_id = string(input, "pageId", 200, true)?;
             let page = state
                 .pages
@@ -223,6 +306,11 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
                     item_id,
                     text: string(input, "text", 20000, true)?,
                     time: time(input, "time")?,
+                    record_date,
+                    rating,
+                    review,
+                    source_page_id,
+                    source_entry_id,
                 });
             } else {
                 let id = string(input, "id", 200, true)?;
@@ -231,6 +319,12 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
                     .iter()
                     .position(|entry| entry.id == id)
                     .ok_or_else(missing)?;
+                if input.get("expectedEntry").is_some()
+                    && input["expectedEntry"]
+                        != serde_json::to_value(&page.entries[at]).map_err(err)?
+                {
+                    return Err("이 기록이 다른 화면에서 바뀌었어요. 입력을 보존했으니 최신 내용을 확인해 주세요.".into());
+                }
                 if action == "entry-delete" {
                     page.entries.remove(at);
                 } else {
@@ -247,6 +341,19 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
                     entry.text = string(input, "text", 20000, true)?;
                     if input.get("time").is_some() {
                         entry.time = time(input, "time")?;
+                    }
+                    if input.get("recordDate").is_some() {
+                        entry.record_date = record_date;
+                    }
+                    if input.get("rating").is_some() {
+                        entry.rating = rating;
+                    }
+                    if input.get("review").is_some() {
+                        entry.review = review;
+                    }
+                    if input.get("sourcePageId").is_some() {
+                        entry.source_page_id = source_page_id;
+                        entry.source_entry_id = source_entry_id;
                     }
                 }
             }

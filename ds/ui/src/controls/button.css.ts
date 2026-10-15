@@ -126,7 +126,17 @@ export const iconSizes = styleVariants({
   regular: { width: 44, height: 44, borderRadius: tokens["radius/radius-22"] },
 });
 export const compactGhost = style({ width: 30, height: 30, borderRadius: 15 });
+export const compactSurface = style({ borderRadius: tokens["radius/radius-16"] });
 export const iconVariants = styleVariants({
+  surface: [
+    pressable,
+    {
+      background: tokens["color/card"],
+      borderColor: tokens["color/card-border"],
+      color: tokens["color/ink-2"],
+      selectors: { "&:hover:not(:disabled)": { background: tokens["color/hover"] } },
+    },
+  ],
   primary: [
     pressable,
     {

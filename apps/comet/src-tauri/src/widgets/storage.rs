@@ -974,6 +974,7 @@ fn collect_item(db: &Connection, event: &EventDraft) -> Result<()> {
     put(db, &collection)
 }
 
+#[cfg(test)]
 pub fn advance(db: &Connection, now: i64) -> Result<bool> {
     advance_with_continuity(db, now, true)
 }

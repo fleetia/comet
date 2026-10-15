@@ -269,9 +269,19 @@ describe("numeric controls", () => {
     const change = vi.fn();
     function Example(): ReactElement {
       const [value, setValue] = useState("25");
-      return <Stepper label="집중 시간" value={value} min={1} max={120}
-        onChange={(event) => setValue(event.currentTarget.value)}
-        onValueChange={(next) => { change(next); setValue(String(next)); }} />;
+      return (
+        <Stepper
+          label="집중 시간"
+          value={value}
+          min={1}
+          max={120}
+          onChange={(event) => setValue(event.currentTarget.value)}
+          onValueChange={(next) => {
+            change(next);
+            setValue(String(next));
+          }}
+        />
+      );
     }
     render(<Example />);
     const input = screen.getByRole<HTMLInputElement>("spinbutton", { name: "집중 시간" });

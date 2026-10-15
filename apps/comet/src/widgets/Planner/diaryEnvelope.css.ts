@@ -12,6 +12,8 @@ export const page = style({
   border: `1px solid ${tokens["color/card-border"]}`,
   background: tokens["color/card-2"],
   color: tokens["color/ink"],
+  boxSizing: "border-box",
+  minHeight: "100%",
 });
 export const section = style({
   display: "flex",

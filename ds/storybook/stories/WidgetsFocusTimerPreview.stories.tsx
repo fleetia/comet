@@ -11,7 +11,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "집중 설정의 읽기 전용 미리보기입니다. 타이머 위젯과 같은 고리·숫자 표시를 재사용하며 시작·완료 동작은 제공하지 않습니다.",
+          "집중 설정의 읽기 전용 미리보기입니다. 타이머 위젯과 같은 고리·숫자 표시를 재사용하며 시작·완료 동작은 제공하지 않습니다. [Figma 설정 미리보기](https://www.figma.com/design/aWNznF6uo5AlqF0YokiXZY?node-id=118-5996)와 [집중 타이머 원본](https://www.figma.com/design/aWNznF6uo5AlqF0YokiXZY?node-id=256-9195)에 대응합니다.",
       },
     },
   },

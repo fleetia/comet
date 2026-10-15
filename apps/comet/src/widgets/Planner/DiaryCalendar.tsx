@@ -23,9 +23,12 @@ import {
   ruleOf,
   WEEKDAYS,
 } from "./plannerData";
-import type { DiaryEntry, DiaryPage } from "./diaryTypes";
+import type { DiaryAction, DiaryEntry, DiaryPage, DiaryState } from "./diaryTypes";
 import { focusDuration, type FocusSession } from "../PlanningTools/FocusTimerData";
+import { DiaryTimeEditor, type DiaryTimeTimelineControls } from "./DiaryTimeEditor";
+import { manualTimeSegments } from "./diaryTime";
 import * as s from "./diary.css";
+import * as timeStyles from "./diaryTime.css";
 
 type Appointment =
   | { source: "external"; event: DataRecord; at: number }
@@ -117,6 +120,10 @@ export type DiaryCalendarProps = {
   items: DataRecord[];
   envelopes: DataRecord[];
   focusSessions?: FocusSession[];
+  state?: DiaryState;
+  onAction?: DiaryAction;
+  busy?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
   onDay: (date: string) => void;
   onEvent: (event: DataRecord, date: string) => void;
   onEnvelope: (id: string) => void;
@@ -133,6 +140,10 @@ export function DiaryCalendar({
   items,
   envelopes,
   focusSessions = [],
+  state,
+  onAction,
+  busy = false,
+  onDirtyChange,
   onDay,
   onEvent,
   onEnvelope,
@@ -288,25 +299,49 @@ export function DiaryCalendar({
     const schedule: CalendarWeekEvent[] = dates.flatMap((date) => {
       const beginning = new Date(`${date}T00:00:00`).getTime();
       const ending = new Date(`${moveDay(date, 1)}T00:00:00`).getTime();
+      const elapsed =
+        date < localDay()
+          ? 1440
+          : date > localDay()
+            ? 0
+            : new Date().getHours() * 60 + new Date().getMinutes();
+      const manual: CalendarWeekEvent[] = state
+        ? manualTimeSegments(state, date, elapsed).map((segment) => ({
+            id: segment.id,
+            dayId: date,
+            startMinute: segment.startMinute,
+            durationMinutes: segment.endMinute - segment.startMinute,
+            color: segment.color,
+            state: segment.kind === "planned" ? "planned" : "past",
+            children: segment.displayLabel,
+            title: segment.label,
+            "aria-label": `${date} ${segment.label} 시간 기록 수정`,
+          }))
+        : [];
       const focus: CalendarWeekEvent[] = focusSessions
         .filter((session) => session.recordTimeline !== false)
-        .flatMap((session) => session.segments
-          .filter((segment) => segment.startAt < ending && segment.endAt > beginning)
-          .map((segment, index) => {
+        .flatMap((session) =>
+          session.segments.flatMap((segment, index) => {
             const startAt = Math.max(beginning, segment.startAt);
             const endAt = Math.min(ending, segment.endAt);
-            return {
-              id: `focus:${date}:${session.id}:${index}`,
-              dayId: date,
-              startMinute: Math.max(0, (startAt - beginning) / 60000),
-              durationMinutes: (endAt - startAt) / 60000,
-              state: "past" as const,
-              color: "focus" as const,
-              children: session.title,
-              "aria-label": `${session.title} · ${focusDuration(endAt - startAt)} 집중 기록`,
-            };
-          }));
-      return [...focus, ...eventsOn(visibleEvents, date)
+            if (endAt <= startAt) return [];
+            const label = `${session.title} 집중 · ${focusDuration(endAt - startAt)}`;
+            return [
+              {
+                id: `focus:${date}:${session.id}:${index}`,
+                dayId: date,
+                startMinute: (startAt - beginning) / 60000,
+                durationMinutes: (endAt - startAt) / 60000,
+                color: "focus",
+                state: session.active ? "activeFocus" : "past",
+                children: session.title,
+                title: label,
+                "aria-label": `${date} ${label}`,
+              } satisfies CalendarWeekEvent,
+            ];
+          }),
+        );
+      const appointments: CalendarWeekEvent[] = eventsOn(visibleEvents, date)
         .filter((event) => !event.allDay)
         .map((event) => {
           const startAt = Math.max(beginning, eventStart(event));
@@ -320,31 +355,68 @@ export function DiaryCalendar({
             children: text(event.title),
             "aria-label": `${text(event.title)} 일정 상세`,
           };
-        })];
+        });
+      return [...manual, ...focus, ...appointments];
     });
+    function weekCalendar(controls?: DiaryTimeTimelineControls): ReactElement {
+      return (
+        <div className={timeStyles.weekTimeline}>
+          {controls?.toolbar}
+          <CalendarWeek
+            days={dates.map((date, index) => ({
+              id: date,
+              day: String(dayDate(date).getDate()),
+              weekday: WEEKDAYS[index],
+              label: date,
+              today: date === localDay(),
+            }))}
+            events={schedule}
+            selection={controls?.selection}
+            interactionDisabled={controls?.disabled || busy}
+            onRangeSelect={
+              controls ? (date, range) => controls.onRangeSelect(range, date.id) : undefined
+            }
+            onDayClick={(date) => onDay(date.id)}
+            onEventClick={(block) => {
+              if (controls?.disabled || busy) return;
+              if (block.id.startsWith("focus:")) {
+                onDay(block.dayId);
+                return;
+              }
+              const recordId = block.id.startsWith("manual:")
+                ? block.id.slice(7).replace(/:planned$/, "")
+                : undefined;
+              const record = state?.timeRecords?.find(
+                (record) => record.id === recordId && record.date === block.dayId,
+              );
+              if (record) {
+                controls?.onRecordClick(record);
+                return;
+              }
+              const event = visibleEvents.find(
+                (value) => `${block.dayId}:${text(value.id)}` === block.id,
+              );
+              if (event) onEvent(event, block.dayId);
+            }}
+          />
+          {controls?.overlay && <div className={timeStyles.weekOverlay}>{controls.overlay}</div>}
+        </div>
+      );
+    }
     return (
       <div className={s.weekWorkspace}>
-        <CalendarWeek
-          days={dates.map((date, index) => ({
-            id: date,
-            day: String(dayDate(date).getDate()),
-            weekday: WEEKDAYS[index],
-            label: date,
-            today: date === localDay(),
-          }))}
-          events={schedule}
-          onDayClick={(date) => onDay(date.id)}
-          onEventClick={(block) => {
-            if (block.id.startsWith("focus:")) {
-              onDay(block.dayId);
-              return;
-            }
-            const event = visibleEvents.find(
-              (value) => `${block.dayId}:${text(value.id)}` === block.id,
-            );
-            if (event) onEvent(event, block.dayId);
-          }}
-        />
+        {state && onAction ? (
+          <DiaryTimeEditor
+            state={state}
+            date={day}
+            onAction={onAction}
+            busy={busy}
+            onDirtyChange={onDirtyChange}
+            renderTimeline={weekCalendar}
+          />
+        ) : (
+          weekCalendar()
+        )}
         <section className={s.week} aria-label="주간 다이어리">
           {dates.map((date, index) => {
             const notes = pageFor(date)?.entries.filter((entry) => entry.kind === "note") ?? [];

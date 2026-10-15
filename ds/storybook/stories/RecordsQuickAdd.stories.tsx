@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useArgs } from "storybook/preview-api";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { RecordQuickAdd, type RecordQuickAddProps } from "@comet/ui";
+import { RecordQuickAdd, TextInput, type RecordQuickAddProps } from "@comet/ui";
 const meta = {
   title: "UI/Records/QuickAdd",
   component: RecordQuickAdd,
@@ -80,3 +80,39 @@ export const Editable: Story = {
   },
 };
 export const Disabled: Story = { args: { value: "초안을 보존합니다.", disabled: true } };
+export const CollectionPage: Story = {
+  args: {
+    layout: "page",
+    kind: "memo",
+    label: "페이지에 기록할 내용",
+    placeholder: "제목이나 한 줄 감상 · Enter로 기록",
+  },
+  parameters: { controls: { disable: true } },
+  render: (args) => {
+    const [value, setValue] = useState("");
+    const [date, setDate] = useState("2026-10-15");
+    const [last, setLast] = useState("");
+    return (
+      <div style={{ width: "min(680px, 100%)" }}>
+        <RecordQuickAdd
+          {...args}
+          value={value}
+          onValueChange={setValue}
+          trailing={
+            <TextInput
+              type="date"
+              aria-label="기록 날짜"
+              value={date}
+              onChange={(event) => setDate(event.target.value)}
+            />
+          }
+          onAdd={(content) => {
+            setLast(`${date || "날짜 없음"}: ${content}`);
+            setValue("");
+          }}
+        />
+        <p aria-live="polite">{last}</p>
+      </div>
+    );
+  },
+};

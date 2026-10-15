@@ -638,6 +638,77 @@ fn rest_can_be_skipped_and_suspension_never_starts_an_automatic_break() {
 }
 
 #[test]
+fn non_continuous_storage_advance_saves_expired_focus_without_a_break_or_late_notifications() {
+    for channel in ["bubble", "os", "both"] {
+        for restarting in [true, false] {
+            let db = rusqlite::Connection::open_in_memory().unwrap();
+            storage::initialize(&db).unwrap();
+            let directory = tempfile::tempdir().unwrap();
+            storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
+            let instance = storage::instances(&db)
+                .unwrap()
+                .into_iter()
+                .find(|widget| widget.kind == "focus-timer")
+                .unwrap();
+            let started_at = 1_000_000;
+            let mut data = initial();
+            data["settings"]["finishNotification"] = json!(channel);
+            let started = run(&data, "start", json!({"durationMs":60_000}), started_at);
+            storage::commit_data(
+                &db,
+                &instance.id,
+                instance.revision,
+                started.data,
+                vec![],
+                started_at,
+            )
+            .unwrap();
+            let mut clocks = BTreeMap::new();
+            if !restarting {
+                clocks.insert("focus-completions".into(), started_at + 10_000);
+            }
+            let recovered_at = started_at + 180_000;
+            assert!(storage::advance_with_continuity(&db, recovered_at, false).unwrap());
+            let recovered = storage::get(&db, &instance.id).unwrap();
+            assert_eq!(recovered.data["status"], "finished");
+            assert_eq!(recovered.data["mode"], "focus");
+            assert_eq!(recovered.data["completedFocusPending"], false);
+            assert!(recovered.data["deadline"].is_null());
+            assert_eq!(recovered.data["sessions"].as_array().unwrap().len(), 1);
+            assert_eq!(recovered.data["sessions"][0]["elapsedMs"], 60_000);
+            assert_eq!(
+                recovered.data["sessions"][0]["endedAt"],
+                started_at + 60_000
+            );
+            assert!(storage::journal(&db, None, started_at, recovered_at + 1)
+                .unwrap()
+                .is_empty());
+            assert!(
+                crate::widgets::reminders::advance(&db, &mut clocks, recovered_at, false)
+                    .unwrap()
+                    .os
+                    .is_empty()
+            );
+            assert!(storage::take_reaction(&db, recovered_at).unwrap().is_none());
+            assert!(!storage::advance_with_continuity(&db, recovered_at + 500, true).unwrap());
+            assert!(crate::widgets::reminders::advance(
+                &db,
+                &mut clocks,
+                recovered_at + 500,
+                false
+            )
+            .unwrap()
+            .os
+            .is_empty());
+            assert_eq!(
+                storage::get(&db, &instance.id).unwrap().data,
+                recovered.data
+            );
+        }
+    }
+}
+
+#[test]
 fn settings_migrate_preserve_independent_fields_and_capture_timeline_choice() {
     let mut legacy = initial();
     legacy["settings"] = json!({"restDurationMs":300000});

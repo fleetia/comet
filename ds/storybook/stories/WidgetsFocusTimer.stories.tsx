@@ -148,4 +148,7 @@ export const RestComplete: Story = {
 };
 export const Collapsed: Story = { name: "접힌 표시", args: { view: "collapsed" } };
 export const Digits: Story = { name: "숫자판", args: { presentation: "digits" } };
-export const LongerBreak: Story = { name: "다른 휴식 길이", args: { phase: "rest-complete", timeDescription: "쉬는 시간 10분이 끝났어요" } };
+export const LongerBreak: Story = {
+  name: "다른 휴식 길이",
+  args: { phase: "rest-complete", timeDescription: "쉬는 시간 10분이 끝났어요" },
+};

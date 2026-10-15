@@ -1,6 +1,9 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { PreparationCreate } from "../PreparationTool/PreparationCreate";
+import {
+  PreparationCreate,
+  type PreparationCreateResult,
+} from "../PreparationTool/PreparationCreate";
 import { PreparationSettings } from "../PreparationTool/PreparationSettings";
 import type { WidgetView } from "../types";
 
@@ -12,11 +15,11 @@ it("keeps the identical creation request after a lost response and guards double
     .fn()
     .mockImplementationOnce(
       () =>
-        new Promise<boolean>((_, reject) => {
+        new Promise<PreparationCreateResult>((_, reject) => {
           rejectRequest = reject;
         }),
     )
-    .mockResolvedValueOnce(true);
+    .mockResolvedValueOnce("created");
   render(<PreparationCreate events={[]} busy={false} onCreate={onCreate} onClose={vi.fn()} />);
   fireEvent.change(screen.getByRole("textbox", { name: "봉투 이름" }), {
     target: { value: "여행 준비" },
@@ -44,7 +47,7 @@ it("keeps the identical creation request after a lost response and guards double
 });
 
 it("creates a dated envelope and excludes an unselected event", async () => {
-  const onCreate = vi.fn().mockResolvedValue(false);
+  const onCreate = vi.fn().mockResolvedValue("unknown");
   render(
     <PreparationCreate
       events={[{ id: "event", title: "모임", allDay: true, startDate: "2026-10-31" }]}
@@ -67,6 +70,84 @@ it("creates a dated envelope and excludes an unselected event", async () => {
     tasks: [],
     reminderDays: null,
   });
+});
+
+it("unlocks a rejected draft after its linked event disappears and creates a new request", async () => {
+  let rejectCreation: (result: PreparationCreateResult) => void = () => {};
+  const onCreate = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise<PreparationCreateResult>((resolve) => {
+          rejectCreation = resolve;
+        }),
+    )
+    .mockResolvedValueOnce("unknown");
+  const onClose = vi.fn();
+  const { rerender } = render(
+    <PreparationCreate
+      events={[{ id: "event", title: "모임", allDay: true, startDate: "2026-10-31" }]}
+      busy={false}
+      onCreate={onCreate}
+      onClose={onClose}
+    />,
+  );
+  fireEvent.change(screen.getByRole("textbox", { name: "봉투 이름" }), {
+    target: { value: "모임 준비" },
+  });
+  fireEvent.change(screen.getByLabelText("챙길 것"), { target: { value: "카메라\n충전기" } });
+  fireEvent.click(screen.getByRole("radio", { name: "일정에 연결" }));
+  fireEvent.change(screen.getByLabelText("일정"), { target: { value: "event" } });
+  fireEvent.click(screen.getByRole("button", { name: "만들기" }));
+  await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+  rerender(<PreparationCreate events={[]} busy={false} onCreate={onCreate} onClose={onClose} />);
+  rejectCreation("rejected");
+  await waitFor(() =>
+    expect(screen.getByRole("textbox", { name: "봉투 이름" })).toHaveProperty("disabled", false),
+  );
+  expect(screen.getByRole("textbox", { name: "봉투 이름" })).toHaveProperty("value", "모임 준비");
+  expect(screen.getByLabelText("챙길 것")).toHaveProperty("value", "카메라\n충전기");
+  expect(screen.getByRole("alert").textContent).toContain("저장하지 않았어요");
+  expect(screen.getByRole("button", { name: "만들기" })).toHaveProperty("disabled", true);
+  fireEvent.click(screen.getByRole("radio", { name: "날짜 없이" }));
+  fireEvent.click(screen.getByRole("button", { name: "만들기" }));
+  await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(2));
+  expect(onCreate.mock.calls[1][0]).toEqual({
+    title: "모임 준비",
+    checks: ["카메라", "충전기"],
+    tasks: [],
+    reminderDays: null,
+  });
+  expect(onCreate.mock.calls[1][1]).not.toBe(onCreate.mock.calls[0][1]);
+});
+
+it("replays an unknown creation unchanged even when its event leaves the latest snapshot", async () => {
+  const onCreate = vi.fn().mockResolvedValueOnce("unknown").mockResolvedValueOnce("created");
+  const onClose = vi.fn();
+  const { rerender } = render(
+    <PreparationCreate
+      events={[{ id: "event", title: "모임", allDay: true, startDate: "2026-10-31" }]}
+      busy={false}
+      onCreate={onCreate}
+      onClose={onClose}
+    />,
+  );
+  fireEvent.change(screen.getByRole("textbox", { name: "봉투 이름" }), {
+    target: { value: "모임 준비" },
+  });
+  fireEvent.click(screen.getByRole("radio", { name: "일정에 연결" }));
+  fireEvent.change(screen.getByLabelText("일정"), { target: { value: "event" } });
+  fireEvent.click(screen.getByRole("button", { name: "만들기" }));
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("저장"));
+  rerender(<PreparationCreate events={[]} busy={false} onCreate={onCreate} onClose={onClose} />);
+  expect(screen.getByRole("textbox", { name: "봉투 이름" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "같은 요청으로 다시 시도" })).toHaveProperty(
+    "disabled",
+    false,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "같은 요청으로 다시 시도" }));
+  await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(2));
+  expect(onCreate.mock.calls[1]).toEqual(onCreate.mock.calls[0]);
 });
 
 it("saves preparation settings independently and preserves the saved value on failure", async () => {

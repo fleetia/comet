@@ -405,7 +405,9 @@ export function DiaryPage({
   async function removeEntry(entry: DiaryEntry): Promise<void> {
     if (!page) return;
     await mutate(async () => {
-      if (await onDiaryAction("entry-delete", { pageId: page.id, id: entry.id })) {
+      if (
+        await onDiaryAction("entry-delete", { pageId: page.id, id: entry.id, expectedEntry: entry })
+      ) {
         if (mounted.current) discardEntry(entry.id);
       } else if (mounted.current) {
         setErrors((current) => ({

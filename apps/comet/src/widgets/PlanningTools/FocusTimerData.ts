@@ -20,8 +20,8 @@ export type FocusSession = {
   noteRef: DataRecord;
   segments: FocusSegment[];
   appUsage?: FocusAppUsage;
-  active?: boolean;
   recordTimeline?: boolean;
+  active?: boolean;
 };
 export type FocusPeriod = "day" | "week" | "month" | "year";
 export type FocusBucket = {

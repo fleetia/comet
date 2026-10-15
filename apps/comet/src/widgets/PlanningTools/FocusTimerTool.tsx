@@ -161,7 +161,7 @@ export function TimerTool({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [completingTodo, setCompletingTodo] = useState(false);
-  const completingTodoLock = useRef(false);
+  const completingTodoLock = useRef<string | null>(null);
   const previous = useRef({ id: widget.id, draft: savedDraft(widget) });
   const saved = savedDraft(widget);
   const savedKey = JSON.stringify(saved);
@@ -220,6 +220,7 @@ export function TimerTool({
   const tasks = allTasks.filter((item) => item.completedAt === null);
   const selectedTodoId = tasks.some((item) => item.id === draft.todoId) ? draft.todoId : "";
   const linked = allTasks.find((item) => item.id === data.todoId);
+  const todoCompletionKey = `${todo?.id}:${todo?.revision}:${text(linked?.id)}`;
   const remaining = Math.max(
     0,
     idle
@@ -587,20 +588,35 @@ export function TimerTool({
                 <Checkbox
                   label={`${text(linked.title)} 완료로 표시`}
                   checked={typeof linked.completedAt === "number"}
-                  disabled={completingTodo || typeof linked.completedAt === "number"}
-                  onChange={async () => {
-                    if (completingTodoLock.current) return;
-                    completingTodoLock.current = true;
+                  disabled={
+                    completingTodo ||
+                    completingTodoLock.current === todoCompletionKey ||
+                    typeof linked.completedAt === "number"
+                  }
+                  onChange={async (event) => {
+                    if (
+                      !event.currentTarget.checked ||
+                      event.currentTarget.disabled ||
+                      typeof linked.completedAt === "number" ||
+                      completingTodoLock.current === todoCompletionKey
+                    ) {
+                      return;
+                    }
+                    completingTodoLock.current = todoCompletionKey;
                     setCompletingTodo(true);
                     setError("");
+                    let saved = false;
                     try {
-                      if (!(await act("complete", { id: text(linked.id) }, todo))) {
+                      saved = await act("complete", { id: text(linked.id) }, todo);
+                      if (!saved) {
                         setError("할 일을 완료로 표시하지 못했어요. 다시 시도해 주세요.");
                       }
                     } catch (cause: unknown) {
                       setError(errorText(cause));
                     } finally {
-                      completingTodoLock.current = false;
+                      if (!saved && completingTodoLock.current === todoCompletionKey) {
+                        completingTodoLock.current = null;
+                      }
                       setCompletingTodo(false);
                     }
                   }}

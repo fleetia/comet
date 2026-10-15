@@ -1,6 +1,6 @@
-import { useState, type JSX } from "react";
+import { useId, useState, type JSX } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { SegmentedControl } from "@comet/ui";
+import { Button, Radio, SegmentedControl } from "@comet/ui";
 
 const options = [
   { value: "day", label: "일" },
@@ -25,6 +25,28 @@ function ControlledSegments(): JSX.Element {
         onValueChange={setValue}
       />
       <output aria-live="polite">선택된 값: {value}</output>
+    </div>
+  );
+}
+
+function FormAssociatedSegments(): JSX.Element {
+  const formId = useId();
+  const name = `${formId}-period`;
+  return (
+    <div className="comet-catalog-stack">
+      <form id={formId} className="comet-catalog-stack">
+        <SegmentedControl
+          label="보기 단위"
+          name={name}
+          options={options}
+          defaultValue="week"
+          size="display-mode"
+        />
+        <Button type="reset" variant="ghost">
+          처음 선택으로
+        </Button>
+      </form>
+      <Radio form={formId} name={name} value="all" label="전체 기간 · 폼 밖의 선택지" />
     </div>
   );
 }
@@ -57,6 +79,19 @@ export const WithDisabledOption: Story = {
 };
 export const Disabled: Story = { name: "전체 비활성", args: { disabled: true } };
 export const Controlled: Story = { name: "값 연결", render: () => <ControlledSegments /> };
+export const SharedForm: Story = {
+  name: "폼 밖의 선택지 · 초기화",
+  render: () => <FormAssociatedSegments />,
+  parameters: {
+    controls: { disable: true },
+    docs: {
+      description: {
+        story:
+          "같은 name과 form을 가진 바깥 라디오도 하나의 선택 그룹으로 동작합니다. 바깥 선택지를 고르면 세그먼트 배경이 사라지고, 폼을 초기화하면 기본 선택으로 돌아옵니다.",
+      },
+    },
+  },
+};
 export const UnequalLabels: Story = {
   name: "가로 이동 · 다른 너비",
   args: { options: unequalOptions },

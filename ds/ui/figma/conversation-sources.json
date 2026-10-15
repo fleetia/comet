@@ -254,6 +254,19 @@
       ]
     },
     {
+      "export": "FocusTimerPreview",
+      "sources": [
+        {
+          "id": "118:5996",
+          "name": "FocusTimerPreview · 설정 미리보기"
+        },
+        {
+          "id": "256:9195",
+          "name": "Widget/Focus Timer/Interactive"
+        }
+      ]
+    },
+    {
       "export": "FocusTimerWidget",
       "sources": [
         {

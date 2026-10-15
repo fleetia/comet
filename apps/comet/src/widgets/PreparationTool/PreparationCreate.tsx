@@ -6,6 +6,8 @@ import { eventTime } from "../Planner/plannerData";
 import { PLANNER_TEMPLATES, templateItems } from "../Planner/templateCatalog";
 import * as s from "../Planner/diaryEnvelope.css";
 
+export type PreparationCreateResult = "created" | "rejected" | "unknown";
+
 export function PreparationCreate({
   events,
   busy,
@@ -15,7 +17,7 @@ export function PreparationCreate({
 }: {
   events: DataRecord[];
   busy: boolean;
-  onCreate: (input: DataRecord, requestId: string) => Promise<boolean>;
+  onCreate: (input: DataRecord, requestId: string) => Promise<PreparationCreateResult>;
   onClose: () => void;
   onDirtyChange?: (dirty: boolean) => void;
 }): ReactElement {
@@ -44,7 +46,9 @@ export function PreparationCreate({
   const template = PLANNER_TEMPLATES.find((value) => value.id === templateId);
   const disabled = busy || saving;
   const locked = disabled || Boolean(attempt);
-  const valid = name.trim() && (when !== "event" || selectedEvent) && (when !== "date" || date);
+  const valid = Boolean(
+    attempt || (name.trim() && (when !== "event" || selectedEvent) && (when !== "date" || date)),
+  );
 
   async function create(): Promise<void> {
     if (pending.current || disabled || !valid) return;
@@ -81,7 +85,11 @@ export function PreparationCreate({
     };
     setAttempt(request);
     try {
-      if (!(await onCreate(request.input, request.id))) {
+      const result = await onCreate(request.input, request.id);
+      if (result === "rejected") {
+        setAttempt(null);
+        setError("봉투를 저장하지 않았어요. 입력한 내용을 확인하고 다시 만들어 주세요.");
+      } else if (result === "unknown") {
         setError("봉투 저장을 확인하지 못했어요. 다시 시도하면 같은 요청으로 결과를 확인해요.");
       }
     } catch {

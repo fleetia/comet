@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act as reactAct, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { TimerTool } from "./FocusTimerTool";
 import type { DataRecord, ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
@@ -167,6 +168,8 @@ describe("focus workspace", () => {
 });
 
 it("shows automatic rest behind the focus completion card and keeps todo completion explicit", async () => {
+  vi.useRealTimers();
+  const user = userEvent.setup();
   const timer = widget("focus-timer", {
     status: "running",
     mode: "rest",
@@ -195,7 +198,7 @@ it("shows automatic rest behind the focus completion card and keeps todo complet
   const view = render(<TimerTool widget={timer} widgets={[todo]} act={action} />);
   expect(screen.getByText("집중 시간이 끝났어요")).toBeTruthy();
   expect(action).not.toHaveBeenCalled();
-  await click("기획서 마무리 완료로 표시", "checkbox");
+  await user.click(screen.getByRole("checkbox", { name: "기획서 마무리 완료로 표시" }));
   expect(action).toHaveBeenCalledExactlyOnceWith("complete", { id: "task" }, todo);
   view.rerender(
     <TimerTool
@@ -213,6 +216,7 @@ it("shows automatic rest behind the focus completion card and keeps todo complet
   const completed = screen.getByRole("checkbox", { name: "기획서 마무리 완료로 표시" });
   expect(completed).toHaveProperty("checked", true);
   expect(completed).toHaveProperty("disabled", true);
+  await user.click(completed);
   fireEvent.click(completed);
   expect(action).toHaveBeenCalledTimes(1);
   await reactAct(async () =>
@@ -233,6 +237,49 @@ it("shows automatic rest behind the focus completion card and keeps todo complet
   expect(screen.getByText("잠깐 쉬어 가요")).toBeTruthy();
   await click("휴식 건너뛰기");
   expect(action).toHaveBeenLastCalledWith("continue");
+});
+
+it("submits todo completion once while saving and retries only after a failed attempt", async () => {
+  vi.useRealTimers();
+  const user = userEvent.setup();
+  const timer = widget("focus-timer", {
+    status: "finished",
+    mode: "focus",
+    todoId: "task",
+    durationMs: 1500000,
+    remainingMs: 0,
+  });
+  const todo = widget("todo", {
+    items: [{ id: "task", title: "기획서 마무리", completedAt: null }],
+  });
+  let finishAttempt: (saved: boolean) => void = () => {};
+  action.mockReturnValueOnce(
+    new Promise<boolean>((resolve) => {
+      finishAttempt = resolve;
+    }),
+  );
+  const view = render(<TimerTool widget={timer} widgets={[todo]} act={action} />);
+  const checkbox = screen.getByRole("checkbox", { name: "기획서 마무리 완료로 표시" });
+  checkbox.focus();
+  await user.keyboard(" ");
+  expect(action).toHaveBeenCalledExactlyOnceWith("complete", { id: "task" }, todo);
+  expect(checkbox).toHaveProperty("disabled", true);
+  await user.click(checkbox);
+  fireEvent.click(checkbox);
+  expect(action).toHaveBeenCalledTimes(1);
+  await reactAct(async () => finishAttempt(false));
+  expect(checkbox).toHaveProperty("disabled", false);
+  expect(screen.getByRole("alert").textContent).toContain("다시 시도");
+  await user.click(checkbox);
+  expect(action).toHaveBeenCalledTimes(2);
+  expect(checkbox).toHaveProperty("disabled", true);
+  await user.click(checkbox);
+  fireEvent.click(checkbox);
+  expect(action).toHaveBeenCalledTimes(2);
+  view.rerender(<TimerTool widget={timer} widgets={[{ ...todo, revision: 3 }]} act={action} />);
+  expect(checkbox).toHaveProperty("disabled", false);
+  await user.click(checkbox);
+  expect(action).toHaveBeenCalledTimes(3);
 });
 
 it("submits the completion memo and transition atomically while retaining rejected drafts", async () => {

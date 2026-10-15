@@ -1,6 +1,16 @@
 import { Button, Dialog, FormField, TextArea, TextField } from "../../ui";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
-import { DiaryDesktopNotes, type DesktopNotesProps } from "./DiaryDesktopNotes";
+import {
+  Button as CometButton,
+  IconButton,
+  NoteCard,
+  SearchInput,
+  SegmentedControl,
+} from "@comet/ui";
+import { DiaryDesktopNoteDetail, desktopNotes, type DesktopNotesProps } from "./DiaryDesktopNotes";
+import { DiaryNoteDetail } from "./DiaryNoteDetail";
+import { text } from "../toolData";
+import * as ns from "./diaryNotes.css";
 import type { DiaryAction, DiaryNote } from "./diaryTypes";
 import * as s from "./diaryEnvelope.css";
 
@@ -52,21 +62,17 @@ export function DiaryNotes(
   props: NoteCollectionProps & { desktop?: DesktopNotesProps },
 ): ReactElement {
   const [search, setSearch] = useState("");
-  const query = search.trim().toLocaleLowerCase();
-  const [showStored, setShowStored] = useState(false);
-  const [openedStoredIds, setOpenedStoredIds] = useState<string[]>([]);
-  useEffect(() => {
-    if (!props.requestedNote) return;
-    setSearch("");
-    setShowStored(true);
-    const id = props.requestedNote.id;
-    setOpenedStoredIds((current) => (current.includes(id) ? current : [...current, id]));
-  }, [props.requestedNote]);
-  const [pinnedDirty, setPinnedDirty] = useState(false);
-  const [dirtyStored, setDirtyStored] = useState<Record<string, boolean>>({});
+  const [view, setView] = useState("all");
+  const [selection, setSelection] = useState<string | null>(null);
+  const [composeRequest, setComposeRequest] = useState(0);
+  const [creating, setCreating] = useState(
+    () => readDraft("comet.diary.note-compose:pinned") !== null,
+  );
+  const [composerDirty, setComposerDirty] = useState(false);
+  const [dirtyNotes, setDirtyNotes] = useState<Record<string, boolean>>({});
   const report = useRef(props.onDirtyChange);
   report.current = props.onDirtyChange;
-  const dirty = pinnedDirty || Object.values(dirtyStored).some(Boolean);
+  const dirty = composerDirty || Object.values(dirtyNotes).some(Boolean);
   useEffect(() => {
     report.current?.(dirty);
   }, [dirty]);
@@ -76,80 +82,207 @@ export function DiaryNotes(
     },
     [],
   );
-  const reportStoredNote = useCallback((id: string, value: boolean): void => {
-    setDirtyStored((current) => (current[id] === value ? current : { ...current, [id]: value }));
+  const reportNote = useCallback((id: string, value: boolean): void => {
+    setDirtyNotes((current) => (current[id] === value ? current : { ...current, [id]: value }));
   }, []);
-  const stored = props.notes.filter((note) => !note.pinned);
-  const storedCount = stored.filter((note) => matchesNote(note, query)).length;
-  const expanded = Boolean(query) || showStored;
+  useEffect(() => {
+    if (!props.requestedNote) return;
+    setSearch("");
+    setView("all");
+    setCreating(false);
+    setSelection(`diary:${props.requestedNote.id}`);
+  }, [props.requestedNote]);
+  const query = search.trim().toLocaleLowerCase();
+  const desktop = desktopNotes(props.desktop?.widgets ?? []);
+  const visibleDiary =
+    view === "desktop" ? [] : props.notes.filter((note) => matchesNote(note, query));
+  const visibleDesktop = desktop.filter(
+    ({ note }) =>
+      (view !== "desktop" || note.isOpen) &&
+      `${text(note.title)} ${text(note.body)}`.toLocaleLowerCase().includes(query),
+  );
+  const visibleKeys = [
+    ...visibleDiary.map((note) => `diary:${note.id}`),
+    ...visibleDesktop.map((item) => item.key),
+  ];
+  const active = selection && visibleKeys.includes(selection) ? selection : visibleKeys[0];
+  const total = visibleKeys.length;
+  function choose(key: string): void {
+    setSelection(key);
+    setCreating(false);
+  }
   return (
-    <section className={s.notes} aria-label="계속 쓸 메모">
-      <h2 className={s.subheading}>계속 쓸 메모</h2>
-      <p className={s.caption}>모든 날짜에서 함께 보는 메모 · 날짜가 바뀌어도 곁에 두어요</p>
-      <TextField
-        aria-label="메모 검색"
-        placeholder="제목이나 내용 검색"
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-      />
-      <DiaryNoteCollection
-        {...props}
-        onDirtyChange={setPinnedDirty}
-        search={query}
-        notes={props.notes.filter((note) => note.pinned)}
-      />
-      {props.desktop && <DiaryDesktopNotes {...props.desktop} search={query} />}
-
-      <div hidden={storedCount === 0}>
-        <div className={s.notes}>
-          <Button
-            variant="quiet"
-            size="compact"
-            aria-expanded={expanded}
-            disabled={Boolean(query)}
-            onClick={() => setShowStored(!showStored)}
-          >
-            넣어둔 메모 {storedCount}개
-          </Button>
-          {stored.map((note) => (
-            <div key={note.id} hidden={!expanded || !matchesNote(note, query)}>
-              {openedStoredIds.includes(note.id) ? (
-                <DiaryNoteEditor
-                  note={note}
-                  diaryAction={props.diaryAction}
-                  busy={props.busy}
-                  onDirtyChange={reportStoredNote}
-                  onOpenEnvelope={
-                    note.envelopeId && props.envelopeNames && !props.envelopeNames[note.envelopeId]
-                      ? undefined
-                      : props.onOpenEnvelope
-                  }
-                  envelopeName={
-                    note.envelopeId ? props.envelopeNames?.[note.envelopeId] : undefined
-                  }
-                  inEnvelope={false}
-                  initiallyEditing
-                  openRequest={
-                    props.requestedNote?.id === note.id ? props.requestedNote.version : 0
-                  }
-                />
-              ) : (
-                <article className={s.note} aria-label={`${note.title} 메모`}>
-                  <h3 className={s.noteTitle}>{note.title}</h3>
-                  <p className={s.storedNotePreview}>{note.body || "아직 내용이 없어요."}</p>
-                  <Button
-                    variant="quiet"
-                    size="compact"
-                    disabled={props.busy}
-                    aria-label={`${note.title} 메모 열기`}
-                    onClick={() => setOpenedStoredIds((current) => [...current, note.id])}
+    <section className={ns.page} aria-label="계속 쓸 메모">
+      <div className={ns.toolbar}>
+        <h1 className={ns.title}>메모</h1>
+        <SegmentedControl
+          label="메모 보기"
+          appearance="contained"
+          options={[
+            { value: "all", label: "모든 메모" },
+            { value: "desktop", label: "바탕화면에 꺼낸 것" },
+          ]}
+          value={view}
+          onValueChange={setView}
+        />
+        <IconButton
+          icon="plus"
+          variant="primary"
+          aria-label="새 메모 쓰기"
+          disabled={props.busy}
+          onClick={() => {
+            setCreating(true);
+            setComposeRequest((value) => value + 1);
+          }}
+        />
+      </div>
+      <div className={ns.columns}>
+        <div className={ns.list}>
+          <SearchInput
+            aria-label="메모 검색"
+            placeholder="제목이나 내용"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <div className={ns.cards} aria-label="메모 목록">
+            {visibleDiary.map((note) => (
+              <NoteCard
+                key={note.id}
+                className={ns.preview}
+                layout="preview"
+                title={note.title || "빈 메모"}
+                description={
+                  <span className={ns.previewBody}>{note.body || "아직 내용이 없어요."}</span>
+                }
+                kind="envelope"
+                tag={note.envelopeId ? props.envelopeNames?.[note.envelopeId] : undefined}
+                selected={!creating && active === `diary:${note.id}`}
+                aria-label={`${note.title} 메모 열기`}
+                onClick={() => choose(`diary:${note.id}`)}
+              />
+            ))}
+            {visibleDesktop.map(({ key, note }) => (
+              <NoteCard
+                key={key}
+                className={ns.preview}
+                layout="preview"
+                title={text(note.title) || "빈 메모"}
+                description={
+                  <span className={ns.previewBody}>{text(note.body) || "아직 내용이 없어요."}</span>
+                }
+                tag={note.isOpen ? "바탕화면에 있어요" : undefined}
+                selected={!creating && active === key}
+                aria-label={`${text(note.title) || text(note.body) || "빈 메모"} 메모 열기`}
+                onClick={() => choose(key)}
+              />
+            ))}
+          </div>
+          <p className={ns.listFooter}>
+            {total
+              ? `메모 ${total}개 · 날짜 없이 이어 써요`
+              : query
+                ? "검색한 메모가 없어요."
+                : "아직 메모가 없어요."}
+          </p>
+          {props.desktop && (
+            <CometButton
+              variant="link"
+              size="small"
+              disabled={props.desktop.busy}
+              onClick={() => void props.desktop?.onCreate()}
+            >
+              + 새 바탕화면 메모
+            </CometButton>
+          )}
+        </div>
+        <div className={ns.detailHost}>
+          <div className={ns.detailHost} hidden={!creating}>
+            <DiaryNoteCollection
+              {...props}
+              notes={[]}
+              onDirtyChange={setComposerDirty}
+              createRequest={composeRequest}
+              onCreatingChange={setCreating}
+              composeOnly
+            />
+          </div>
+          {props.notes.map((note) => (
+            <div
+              key={note.id}
+              className={ns.detailHost}
+              hidden={creating || active !== `diary:${note.id}`}
+            >
+              <DiaryNoteDetail
+                id={`diary:${note.id}`}
+                note={note}
+                storageKey={`comet.diary.note-draft:sidebar:${note.id}`}
+                busy={props.busy}
+                onDirtyChange={reportNote}
+                onSave={(draft, base) =>
+                  props.diaryAction("note-update", {
+                    id: note.id,
+                    title: draft.title,
+                    body: draft.body,
+                    expectedTitle: base.title,
+                    expectedBody: base.body,
+                  })
+                }
+                onDelete={() => props.diaryAction("note-delete", { id: note.id })}
+                header={(disabled) => (
+                  <CometButton
+                    variant="ghost"
+                    size="small"
+                    disabled={disabled}
+                    onClick={() =>
+                      void props.diaryAction("note-update", { id: note.id, pinned: !note.pinned })
+                    }
                   >
-                    열기
-                  </Button>
-                </article>
-              )}
+                    {note.pinned ? "넣어두기" : "곁에 꺼내두기"}
+                  </CometButton>
+                )}
+                details={() =>
+                  note.envelopeId &&
+                  props.envelopeNames?.[note.envelopeId] &&
+                  props.onOpenEnvelope ? (
+                    <div className={ns.metadata}>
+                      <div className={ns.metadataRow}>
+                        <div className={ns.metadataCopy}>
+                          <span className={ns.metadataLabel}>연결</span>
+                          <span className={ns.caption}>준비 봉투에서도 함께 보는 메모예요.</span>
+                        </div>
+                        <CometButton
+                          variant="ghost"
+                          size="small"
+                          onClick={() => props.onOpenEnvelope?.(note.envelopeId!)}
+                        >
+                          {props.envelopeNames[note.envelopeId]}
+                        </CometButton>
+                      </div>
+                    </div>
+                  ) : null
+                }
+              />
             </div>
           ))}
+          {props.desktop &&
+            desktop.map((item) => (
+              <div
+                key={item.key}
+                className={ns.detailHost}
+                hidden={creating || active !== item.key}
+              >
+                <DiaryDesktopNoteDetail
+                  {...props.desktop!}
+                  item={item}
+                  onDirtyChange={reportNote}
+                />
+              </div>
+            ))}
+          {!creating && !active && (
+            <div className={ns.empty}>
+              <p className={ns.caption}>메모를 골라 펼치거나 새 생각을 적어 보세요.</p>
+            </div>
+          )}
         </div>
       </div>
     </section>
@@ -166,10 +299,23 @@ export function DiaryNoteCollection({
   envelopeNames,
   search = "",
   requestedNote,
-}: NoteCollectionProps): ReactElement {
+  createRequest = 0,
+  onCreatingChange,
+  composeOnly = false,
+}: NoteCollectionProps & {
+  createRequest?: number;
+  onCreatingChange?: (creating: boolean) => void;
+  composeOnly?: boolean;
+}): ReactElement {
   const draftKey = `comet.diary.note-compose:${envelopeId || "pinned"}`;
   const [restored] = useState(() => readDraft(draftKey));
   const [creating, setCreating] = useState(restored !== null);
+  useEffect(() => {
+    if (createRequest) setCreating(true);
+  }, [createRequest]);
+  useEffect(() => {
+    onCreatingChange?.(creating);
+  }, [creating, onCreatingChange]);
   const [title, setTitle] = useState(restored?.title ?? "");
   const [body, setBody] = useState(restored?.body ?? "");
   const [error, setError] = useState("");
@@ -202,7 +348,7 @@ export function DiaryNoteCollection({
           임시 보관 공간에 초안을 남기지 못했어요. 창을 닫기 전에 메모를 저장해 주세요.
         </p>
       )}
-      {notes.length === 0 && (
+      {notes.length === 0 && !composeOnly && (
         <p className={s.caption}>
           {envelopeId ? "준비하면서 떠오른 생각을 담아두세요." : "아직 꺼내둔 메모가 없어요."}
         </p>
@@ -227,7 +373,7 @@ export function DiaryNoteCollection({
       ))}
       {creating ? (
         <form
-          className={s.note}
+          className={composeOnly ? ns.detail : s.note}
           onSubmit={async (event) => {
             event.preventDefault();
             if (!title.trim() || busy) return;
@@ -287,11 +433,11 @@ export function DiaryNoteCollection({
             </Button>
           </div>
         </form>
-      ) : (
+      ) : !composeOnly ? (
         <Button variant="quiet" size="compact" disabled={busy} onClick={() => setCreating(true)}>
           + 메모 쓰기
         </Button>
-      )}
+      ) : null}
     </div>
   );
 }

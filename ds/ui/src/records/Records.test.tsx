@@ -4,7 +4,13 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { EnvelopeCard, NoteCard } from "./Cards";
 import { ContentChoice, SettingsSummary, SidebarItem, TaskRow } from "./Lists";
-import { ChecklistAdd, EnvelopeHeader, RecordPageEntry, RecordQuickAdd, RecordSourceLink } from "./Records";
+import {
+  ChecklistAdd,
+  EnvelopeHeader,
+  RecordPageEntry,
+  RecordQuickAdd,
+  RecordSourceLink,
+} from "./Records";
 
 afterEach(cleanup);
 
@@ -63,10 +69,12 @@ it("keeps card selection buttons from submitting forms and exposes envelope prog
 it("shows archived envelopes as stored and opens a linked event through the consumer", async () => {
   const user = userEvent.setup();
   const open = vi.fn();
-  const { rerender } = render(<>
-    <EnvelopeCard title="모임" archived completed={1} total={5} />
-    <EnvelopeHeader title="모임" completed={1} total={5} onOpenEvent={open} />
-  </>);
+  const { rerender } = render(
+    <>
+      <EnvelopeCard title="모임" archived completed={1} total={5} />
+      <EnvelopeHeader title="모임" completed={1} total={5} onOpenEvent={open} />
+    </>,
+  );
   const progress = screen.getByRole<HTMLProgressElement>("progressbar", { name: "보관한 봉투" });
   expect(progress.value / progress.max).toBe(1);
   expect(screen.queryByText("20%")).toBeNull();

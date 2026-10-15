@@ -16,7 +16,7 @@ const meta = {
   },
   argTypes: {
     icon: { control: "select", options: iconNames },
-    variant: { control: "radio", options: ["primary", "ghost"] },
+    variant: { control: "radio", options: ["primary", "ghost", "surface"] },
     size: { control: "radio", options: ["compact", "regular"] },
     "aria-label": {
       control: "text",
@@ -38,4 +38,8 @@ export const Playground: Story = { name: "기본" };
 export const Selected: Story = { name: "선택", args: { selected: true, "aria-pressed": true } };
 export const Primary: Story = { name: "강조", args: { variant: "primary" } };
 export const Compact: Story = { name: "작은 크기", args: { size: "compact" } };
+export const Surface: Story = {
+  name: "화면 탐색",
+  args: { variant: "surface", size: "compact", icon: "chevleft", "aria-label": "이전 날짜" },
+};
 export const Disabled: Story = { name: "비활성", args: { disabled: true } };

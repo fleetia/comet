@@ -603,6 +603,9 @@ export function DiaryEnvelope({
           <section className={s.section} aria-label="봉투 자료">
             <h2 className={s.subheading}>자료와 링크</h2>
             <Surface variant="card" className={s.listCard}>
+              {!rows(envelope.links).length && (
+                <p className={s.caption}>아직 모아 둔 자료가 없어요.</p>
+              )}
               <ul className={s.linkList}>
                 {rows(envelope.links).map((link) => (
                   <li key={text(link.id)} className={s.row}>

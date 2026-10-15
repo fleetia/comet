@@ -92,8 +92,6 @@ it("keeps note edits after save failure and refuses to overwrite a note changed 
       onDirtyChange={onDirtyChange}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "세션 아이디어 메모 메뉴" }));
-  fireEvent.click(screen.getByRole("button", { name: "편집" }));
   fireEvent.change(screen.getByLabelText("메모 내용"), { target: { value: "내가 쓰던 생각" } });
   fireEvent.click(screen.getByRole("button", { name: "메모 저장" }));
   await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("저장하지 못했어요"));
@@ -106,7 +104,7 @@ it("keeps note edits after save failure and refuses to overwrite a note changed 
       onDirtyChange={onDirtyChange}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "메모 저장" }));
+  expect(screen.queryByRole("button", { name: "메모 저장" })).toBeNull();
   expect(diaryAction).toHaveBeenCalledTimes(1);
   expect(screen.getByRole("alert").textContent).toContain("다른 곳에서 이 메모가 바뀌었어요");
   fireEvent.click(screen.getByRole("button", { name: "최신 내용 다시 불러오기" }));
@@ -187,8 +185,6 @@ it("retries linking a created task without creating a duplicate after partial fa
 it("restores an unfinished note after reopening and saves against the original content", async () => {
   const diaryAction = vi.fn<DiaryAction>().mockResolvedValue(true);
   const view = render(<DiaryNotes notes={[note]} diaryAction={diaryAction} busy={false} />);
-  fireEvent.click(screen.getByRole("button", { name: "세션 아이디어 메모 메뉴" }));
-  fireEvent.click(screen.getByRole("button", { name: "편집" }));
   fireEvent.change(screen.getByLabelText("메모 내용"), {
     target: { value: "다음 장면은 숲길에서\n나중에 이어 쓰기" },
   });
@@ -208,7 +204,7 @@ it("restores an unfinished note after reopening and saves against the original c
       expectedBody: "숲에서 만난 사람",
     }),
   );
-  await waitFor(() => expect(screen.queryByLabelText("메모 내용")).toBeNull());
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("자동 저장됨"));
 });
 
 it("keeps a memo readable after its envelope is removed without offering a broken link", () => {
@@ -221,7 +217,10 @@ it("keeps a memo readable after its envelope is removed without offering a broke
       envelopeNames={{}}
     />,
   );
-  expect(screen.getByText("숲에서 만난 사람")).toBeTruthy();
+  expect(screen.getByRole("textbox", { name: "메모 내용" })).toHaveProperty(
+    "value",
+    "숲에서 만난 사람",
+  );
   expect(screen.queryByRole("button", { name: /준비 봉투 펼치기/ })).toBeNull();
 });
 
@@ -335,15 +334,13 @@ it("keeps an unsaved persistent-note draft mounted while search hides it", async
       onDirtyChange={onDirtyChange}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "세션 아이디어 메모 메뉴" }));
-  fireEvent.click(screen.getByRole("button", { name: "편집" }));
   fireEvent.change(screen.getByLabelText("메모 내용"), { target: { value: "  저장 전\n내용  " } });
-  fireEvent.change(screen.getByRole("textbox", { name: "메모 검색" }), {
+  fireEvent.change(screen.getByRole("searchbox", { name: "메모 검색" }), {
     target: { value: "다른 메모" },
   });
   expect(screen.queryByRole("textbox", { name: "메모 내용" })).toBeNull();
   expect(onDirtyChange).toHaveBeenLastCalledWith(true);
-  fireEvent.change(screen.getByRole("textbox", { name: "메모 검색" }), { target: { value: "" } });
+  fireEvent.change(screen.getByRole("searchbox", { name: "메모 검색" }), { target: { value: "" } });
   expect(screen.getByRole("textbox", { name: "메모 내용" })).toHaveProperty(
     "value",
     "  저장 전\n내용  ",
@@ -357,48 +354,23 @@ it("keeps an unsaved persistent-note draft mounted while search hides it", async
   );
 });
 
-it("expands stored-note search results and restores the prior collapse choice without pinning", () => {
+it("shows stored notes in the shared list and restores selection after search without pinning", () => {
   const stored = { ...note, pinned: false, body: "  회의 뒤에\n이어 쓸 내용  " };
   const diaryAction = vi.fn<DiaryAction>().mockResolvedValue(true);
   render(<DiaryNotes notes={[stored]} diaryAction={diaryAction} busy={false} />);
-  const search = screen.getByRole("textbox", { name: "메모 검색" });
-  expect(screen.getByRole("button", { name: "넣어둔 메모 1개" })).toHaveProperty(
-    "ariaExpanded",
-    "false",
-  );
-  expect(screen.queryByRole("article", { name: "세션 아이디어 메모" })).toBeNull();
-
+  const search = screen.getByRole("searchbox", { name: "메모 검색" });
+  expect(screen.getByRole("button", { name: "세션 아이디어 메모 열기" })).toBeTruthy();
   fireEvent.change(search, { target: { value: "회의" } });
-  expect(screen.getByRole("button", { name: "넣어둔 메모 1개" })).toHaveProperty(
-    "ariaExpanded",
-    "true",
-  );
-  const result = within(screen.getByRole("article", { name: "세션 아이디어 메모" }));
-  expect(result.getByText("세션 아이디어")).toBeTruthy();
-  expect(result.getByText("회의 뒤에 이어 쓸 내용")).toBeTruthy();
-  expect(result.getByRole("button", { name: "세션 아이디어 메모 열기" })).toBeTruthy();
+  expect(screen.getByRole("textbox", { name: "메모 내용" })).toHaveProperty("value", stored.body);
   fireEvent.change(search, { target: { value: "없는 내용" } });
   expect(screen.queryByRole("article", { name: "세션 아이디어 메모" })).toBeNull();
   fireEvent.change(search, { target: { value: "" } });
-  expect(screen.getByRole("button", { name: "넣어둔 메모 1개" })).toHaveProperty(
-    "ariaExpanded",
-    "false",
-  );
-  expect(screen.queryByRole("article", { name: "세션 아이디어 메모" })).toBeNull();
-
-  fireEvent.click(screen.getByRole("button", { name: "넣어둔 메모 1개" }));
-  fireEvent.change(search, { target: { value: "회의" } });
-  fireEvent.change(search, { target: { value: "" } });
-  expect(screen.getByRole("button", { name: "넣어둔 메모 1개" })).toHaveProperty(
-    "ariaExpanded",
-    "true",
-  );
-  expect(screen.getByRole("article", { name: "세션 아이디어 메모" })).toBeTruthy();
+  expect(screen.getByRole("textbox", { name: "메모 내용" })).toHaveProperty("value", stored.body);
   expect(diaryAction).not.toHaveBeenCalled();
   expect(stored).toEqual({ ...note, pinned: false, body: "  회의 뒤에\n이어 쓸 내용  " });
 });
 
-it("keeps an opened stored draft through search, collapse and save failure using the original ID", async () => {
+it("keeps a selected stored draft through search and save failure using the original ID", async () => {
   const stored = { ...note, pinned: false };
   const rawDraft = "  저장 전\n넣어둔 생각  ";
   const diaryAction = vi.fn<DiaryAction>().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
@@ -411,7 +383,7 @@ it("keeps an opened stored draft through search, collapse and save failure using
       onDirtyChange={onDirtyChange}
     />,
   );
-  const search = screen.getByRole("textbox", { name: "메모 검색" });
+  const search = screen.getByRole("searchbox", { name: "메모 검색" });
   fireEvent.change(search, { target: { value: "숲" } });
   fireEvent.click(screen.getByRole("button", { name: "세션 아이디어 메모 열기" }));
   expect(screen.getByRole("textbox", { name: "메모 내용" })).toHaveProperty("value", note.body);
@@ -423,8 +395,6 @@ it("keeps an opened stored draft through search, collapse and save failure using
   expect(screen.queryByRole("textbox", { name: "메모 내용" })).toBeNull();
   expect(onDirtyChange).toHaveBeenLastCalledWith(true);
   fireEvent.change(search, { target: { value: "" } });
-  expect(screen.queryByRole("textbox", { name: "메모 내용" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "넣어둔 메모 1개" }));
   expect(screen.getByRole("textbox", { name: "메모 내용" })).toHaveProperty("value", rawDraft);
 
   fireEvent.click(screen.getByRole("button", { name: "메모 저장" }));
@@ -439,7 +409,7 @@ it("keeps an opened stored draft through search, collapse and save failure using
     expectedBody: note.body,
   };
   expect(diaryAction.mock.calls).toEqual([["note-update", update]]);
-  fireEvent.click(screen.getByRole("button", { name: "메모 저장" }));
+  fireEvent.click(screen.getByRole("button", { name: "다시 저장" }));
   await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(false));
   expect(diaryAction.mock.calls).toEqual([
     ["note-update", update],
@@ -521,4 +491,23 @@ it("keeps a date draft from overwriting a schedule changed while the editor was 
   );
   expect(dialog.getByLabelText("봉투 날짜")).toHaveProperty("value", "2026-10-21");
   expect(props.act).not.toHaveBeenCalled();
+});
+
+it("shows an empty resource state without removing the add-link controls", () => {
+  const view = render(<DiaryEnvelope {...envelopeProps()} />);
+  const resources = within(screen.getByRole("region", { name: "봉투 자료" }));
+  expect(resources.getByText("아직 모아 둔 자료가 없어요.")).toBeTruthy();
+  fireEvent.click(resources.getByText("자료 링크 추가"));
+  expect(resources.getByRole("textbox", { name: "자료 이름" })).toBeTruthy();
+  view.rerender(
+    <DiaryEnvelope
+      {...envelopeProps()}
+      envelope={{
+        ...envelope,
+        links: [{ id: "link", title: "준비 자료", url: "https://example.com" }],
+      }}
+    />,
+  );
+  expect(resources.queryByText("아직 모아 둔 자료가 없어요.")).toBeNull();
+  expect(resources.getByRole("link", { name: /준비 자료/ })).toBeTruthy();
 });

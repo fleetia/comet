@@ -98,11 +98,10 @@ function showToday(): void {
 
 function showPage(title: string): void {
   fireEvent.click(screen.getByRole("link", { name: "내 페이지" }));
-  fireEvent.click(
-    within(screen.getByRole("navigation", { name: "내 페이지 목록" })).getByRole("button", {
-      name: title,
-    }),
-  );
+  const option = screen.getByRole("option", { name: title }) as HTMLOptionElement;
+  fireEvent.change(screen.getByRole("combobox", { name: "내 페이지 선택" }), {
+    target: { value: option.value },
+  });
 }
 
 function chooseDay(date: string): void {
@@ -463,6 +462,7 @@ it("moves a dated Todo from a collection using the Todo's actual date while pres
   update = () => ({ ...diary, revision: 4 });
   await openDiary();
   showPage("읽은 책");
+  fireEvent.click(opened().getByRole("button", { name: "할 일·위젯 연결과 기존 기록 편집" }));
   fireEvent.click(opened().getByRole("button", { name: "책 반납 날짜 옮기기" }));
   fireEvent.change(opened().getByLabelText("책 반납 옮길 날짜"), {
     target: { value: "2026-10-06" },
@@ -494,6 +494,7 @@ it("gives a previously undated collection Todo its first plan without inventing 
   execute = () => null;
   await openDiary();
   showPage("모아둔 생각");
+  fireEvent.click(opened().getByRole("button", { name: "할 일·위젯 연결과 기존 기록 편집" }));
   fireEvent.click(opened().getByRole("button", { name: "자료 모으기 날짜 옮기기" }));
   fireEvent.change(opened().getByLabelText("자료 모으기 옮길 날짜"), {
     target: { value: "2026-10-06" },
@@ -858,7 +859,7 @@ it("adds an original desktop memo reference from persistent notes to an undated 
   await openDiary();
   showPage("생각 모음");
   showNotes();
-  fireEvent.click(screen.getByRole("button", { name: "원본 메모 연결" }));
+  fireEvent.click(screen.getByRole("button", { name: "페이지에 연결" }));
   await screen.findByText("이 페이지에 연결했어요.");
   expect(actions("update_diary")).toEqual([
     {
@@ -923,25 +924,31 @@ it("keeps the calendar and embedded task manager on one date and preserves pinne
   chooseDay(NEXT_DAY);
   showNotes();
   expect(
-    within(screen.getByRole("region", { name: "계속 쓸 메모" })).getByText("모든 날짜의 안내"),
-  ).toBeTruthy();
+    within(screen.getByRole("region", { name: "계속 쓸 메모" })).getByRole("textbox", {
+      name: "메모 내용",
+    }),
+  ).toHaveProperty("value", "모든 날짜의 안내");
   await showTasks("today");
   expect(await screen.findByRole("checkbox", { name: "다음 날 작업" })).toBeTruthy();
-  expect(screen.queryByRole("checkbox", { name: "오늘 작업" })).toBeNull();
+  expect(screen.getByRole("checkbox", { name: "오늘 작업" })).toBeTruthy();
   showNotes();
   expect(
-    within(screen.getByRole("region", { name: "계속 쓸 메모" })).getByText("모든 날짜의 안내"),
-  ).toBeTruthy();
+    within(screen.getByRole("region", { name: "계속 쓸 메모" })).getByRole("textbox", {
+      name: "메모 내용",
+    }),
+  ).toHaveProperty("value", "모든 날짜의 안내");
   await showTasks("today");
-  fireEvent.click(screen.getByRole("button", { name: "이전 날짜" }));
+  fireEvent.change(screen.getByLabelText("새 할 일 계획일"), { target: { value: DAY } });
   expect(screen.getByRole("checkbox", { name: "오늘 작업" })).toBeTruthy();
-  expect(screen.getByText("10월 3일 토요일")).toBeTruthy();
+  expect(screen.getByLabelText("새 할 일 계획일")).toHaveProperty("value", DAY);
   showToday();
   expect(screen.getByRole("checkbox", { name: "오늘 작업" })).toBeTruthy();
   showNotes();
   expect(
-    within(screen.getByRole("region", { name: "계속 쓸 메모" })).getByText("모든 날짜의 안내"),
-  ).toBeTruthy();
+    within(screen.getByRole("region", { name: "계속 쓸 메모" })).getByRole("textbox", {
+      name: "메모 내용",
+    }),
+  ).toHaveProperty("value", "모든 날짜의 안내");
   expect(actions("execute_widget")).toEqual([]);
   expect(actions("update_diary")).toEqual([]);
 });
@@ -1050,15 +1057,17 @@ it("searches both memo stores and restores a desktop sheet without mutating Diar
   vi.mocked(command).mockImplementation((name, args) =>
     name === "open_memo_note" ? Promise.resolve(undefined) : fallback(name, args),
   );
-  fireEvent.change(screen.getByRole("textbox", { name: "메모 검색" }), {
+  fireEvent.change(screen.getByRole("searchbox", { name: "메모 검색" }), {
     target: { value: "발표" },
   });
   expect(
-    within(screen.getByRole("region", { name: "계속 쓸 메모" })).queryByText("계획"),
-  ).toBeTruthy();
+    within(screen.getByRole("region", { name: "계속 쓸 메모" })).queryByRole("button", {
+      name: "계획 메모 열기",
+    }),
+  ).toBeNull();
   expect(screen.queryByRole("heading", { name: "계획" })).toBeNull();
-  expect(screen.getByRole("heading", { name: "발표 준비" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "회의 메모 그대로" }));
+  expect(screen.getByRole("textbox", { name: "메모 제목" })).toHaveProperty("value", "발표 준비");
+  fireEvent.click(screen.getByRole("button", { name: "바탕화면에 꺼내기" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("open_memo_note", { id: "memo", noteId: "desktop" }),
   );
@@ -1067,7 +1076,7 @@ it("searches both memo stores and restores a desktop sheet without mutating Diar
   expect(widgets.widgets[0].data).toEqual({
     notes: [desktopNote],
   });
-  fireEvent.change(screen.getByRole("textbox", { name: "메모 검색" }), {
+  fireEvent.change(screen.getByRole("searchbox", { name: "메모 검색" }), {
     target: { value: "내일" },
   });
   expect(screen.queryByRole("button", { name: "회의 메모 그대로" })).toBeNull();
@@ -1089,22 +1098,25 @@ it("locks desktop memo creation and restore together and exposes command failure
         })
       : fallback(name, args),
   );
-  fireEvent.click(screen.getByRole("button", { name: "+ 새 메모" }));
+  fireEvent.click(screen.getByRole("button", { name: "+ 새 바탕화면 메모" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("create_memo_note", { id: "memo" }));
-  expect(screen.getByRole("button", { name: "+ 새 메모" })).toHaveProperty("disabled", true);
-  expect(screen.getByRole("button", { name: "넣기" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "+ 새 바탕화면 메모" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  expect(screen.getByRole("button", { name: "넣어두기" })).toHaveProperty("disabled", true);
   await act(async () => finish?.());
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: "넣기" })).toHaveProperty("disabled", false),
+    expect(screen.getByRole("button", { name: "넣어두기" })).toHaveProperty("disabled", false),
   );
   vi.mocked(command).mockImplementation((name, args) =>
     name === "request_close_memo_note"
       ? Promise.reject(new Error("메모 저장 실패"))
       : fallback(name, args),
   );
-  fireEvent.click(screen.getByRole("button", { name: "넣기" }));
+  fireEvent.click(screen.getByRole("button", { name: "넣어두기" }));
   expect((await screen.findByRole("alert")).textContent).toContain("메모 저장 실패");
-  expect(screen.getByRole("button", { name: "남길 메모" })).toBeTruthy();
+  expect(screen.getByRole("textbox", { name: "메모 내용" })).toHaveProperty("value", "남길 메모");
   expect(actions("close_memo_note")).toEqual([]);
 });
 
@@ -1128,12 +1140,10 @@ it.each(["pinned", "stored"] as const)(
     const remaining = cancelFirst === "pinned" ? "stored" : "pinned";
     await openDiary();
     showNotes();
-    const search = screen.getByRole("textbox", { name: "메모 검색" });
-    fireEvent.click(screen.getByRole("button", { name: "곁에 둔 생각 메모 편집" }));
+    const search = screen.getByRole("searchbox", { name: "메모 검색" });
     fireEvent.change(screen.getByRole("textbox", { name: "메모 내용" }), {
       target: { value: drafts.pinned },
     });
-    fireEvent.click(screen.getByRole("button", { name: "넣어둔 메모 1개" }));
     fireEvent.click(screen.getByRole("button", { name: "넣어둔 생각 메모 열기" }));
     fireEvent.change(
       within(screen.getByRole("article", { name: "넣어둔 생각 메모" })).getByRole("textbox", {
@@ -1141,10 +1151,11 @@ it.each(["pinned", "stored"] as const)(
       }),
       { target: { value: drafts.stored } },
     );
+    fireEvent.click(screen.getByRole("button", { name: `${titles[cancelFirst]} 메모 열기` }));
     fireEvent.click(
       within(screen.getByRole("article", { name: `${titles[cancelFirst]} 메모` })).getByRole(
         "button",
-        { name: "취소" },
+        { name: "변경 취소" },
       ),
     );
     fireEvent.change(search, { target: { value: "일치하지 않는 검색" } });
@@ -1159,6 +1170,7 @@ it.each(["pinned", "stored"] as const)(
     expect(native.destroy).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
     fireEvent.change(search, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: `${titles[remaining]} 메모 열기` }));
     const editor = within(screen.getByRole("article", { name: `${titles[remaining]} 메모` }));
     expect(editor.getByRole("textbox", { name: "메모 내용" })).toHaveProperty(
       "value",
@@ -1166,9 +1178,290 @@ it.each(["pinned", "stored"] as const)(
     );
     expect(actions("update_diary")).toEqual([]);
     expect(actions("execute_widget")).toEqual([]);
-    fireEvent.click(editor.getByRole("button", { name: "취소" }));
+    fireEvent.click(editor.getByRole("button", { name: "변경 취소" }));
     fireEvent.click(screen.getByRole("button", { name: "다이어리 닫기" }));
     await waitFor(() => expect(native.destroy).toHaveBeenCalledOnce());
     expect(screen.queryByRole("dialog")).toBeNull();
   },
 );
+
+it("keeps collection writing when navigation is cancelled and clears it only after confirmed discard", async () => {
+  diary.pages = [{ id: "books", title: "읽은 책", date: null, entries: [] }];
+  await openDiary();
+  showPage("읽은 책");
+  fireEvent.change(screen.getByLabelText("페이지에 기록할 내용"), {
+    target: { value: "  이어 쓸 기록  " },
+  });
+  showToday();
+  expect(screen.getByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
+  expect(screen.getByLabelText("페이지에 기록할 내용")).toHaveProperty("value", "  이어 쓸 기록  ");
+  expect(localStorage.getItem("comet:diary-collection-draft:books")).toContain("이어 쓸 기록");
+  showToday();
+  fireEvent.click(screen.getByRole("button", { name: "저장하지 않고 이동" }));
+  await waitFor(() => expect(screen.queryByLabelText("페이지에 기록할 내용")).toBeNull());
+  expect(localStorage.getItem("comet:diary-collection-draft:books")).toBeNull();
+  showPage("읽은 책");
+  expect(screen.getByLabelText("페이지에 기록할 내용")).toHaveProperty("value", "");
+  expect(actions("update_diary")).toEqual([]);
+});
+
+it("opens a collection record's original dated page through the normal guarded navigation", async () => {
+  diary.pages = [
+    {
+      id: "books",
+      title: "읽은 책",
+      date: null,
+      entries: [
+        { id: "book", kind: "note", text: "책 감상", sourcePageId: "daily", sourceEntryId: "note" },
+      ],
+    },
+    {
+      id: "daily",
+      title: "",
+      date: NEXT_DAY,
+      entries: [{ id: "note", kind: "note", text: "원본 한 줄 기록" }],
+    },
+  ];
+  await openDiary();
+  showPage("읽은 책");
+  fireEvent.click(screen.getByRole("link", { name: "10월 4일 한 줄 기록에서" }));
+  await waitFor(() => expect(screen.queryByLabelText("페이지에 기록할 내용")).toBeNull());
+  expect(screen.getByRole("radio", { name: "한 줄 기록" })).toHaveProperty("checked", true);
+  expect(opened().getByRole("textbox", { name: "메모 내용" })).toHaveProperty(
+    "value",
+    "원본 한 줄 기록",
+  );
+  expect(actions("update_diary")).toEqual([]);
+});
+
+it("discards the active weekly editor across week navigation and guards a fresh draft again", async () => {
+  await openDiary();
+  fireEvent.click(screen.getByRole("radio", { name: "주" }));
+  const separateJournalDraft = JSON.stringify({
+    body: "별도 한 줄 기록 초안",
+    drafts: {},
+    kind: "note",
+    time: "",
+    envelopeId: "",
+    createdTask: null,
+  });
+  localStorage.setItem(`comet:diary-draft:day:${DAY}`, separateJournalDraft);
+  fireEvent.click(screen.getByRole("button", { name: "시간 입력" }));
+  fireEvent.change(screen.getByLabelText("시간 기록 제목"), { target: { value: "이전 주 초안" } });
+  fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+  fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
+  expect(screen.getByLabelText("시간 기록 제목")).toHaveProperty("value", "이전 주 초안");
+  fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+  fireEvent.click(screen.getByRole("button", { name: "저장하지 않고 이동" }));
+  expect(screen.queryByLabelText("시간 기록 제목")).toBeNull();
+  expect(localStorage.getItem(`comet:diary-draft:day:${DAY}`)).toBe(separateJournalDraft);
+  fireEvent.click(screen.getByRole("button", { name: "시간 입력" }));
+  const editor = within(screen.getByRole("dialog", { name: "시간 칠하기" }));
+  expect(editor.getByText("2026-10-10")).toBeTruthy();
+  expect(editor.getByLabelText("시간 기록 제목")).toHaveProperty("value", "");
+  fireEvent.change(editor.getByLabelText("시간 기록 제목"), {
+    target: { value: "이번 주 새 초안" },
+  });
+  fireEvent.click(screen.getByRole("link", { name: "오늘" }));
+  expect(screen.getByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
+  expect(editor.getByLabelText("시간 기록 제목")).toHaveProperty("value", "이번 주 새 초안");
+  expect(actions("update_diary")).toEqual([]);
+}, 15000);
+
+it("clears only the discarded weekly editor when notes hide the calendar and retains separate planning and note drafts", async () => {
+  setTasks([]);
+  await openDiary();
+  await showTasks("plans");
+  fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
+    target: { value: "별도 기간 계획 초안" },
+  });
+  showNotes();
+  fireEvent.click(screen.getByRole("button", { name: "새 메모 쓰기" }));
+  fireEvent.change(screen.getByLabelText("새 메모 내용"), {
+    target: { value: "  별도 메모\n초안  " },
+  });
+  showToday();
+  fireEvent.click(screen.getByRole("radio", { name: "주" }));
+  fireEvent.click(screen.getByRole("button", { name: "시간 입력" }));
+  fireEvent.change(screen.getByLabelText("시간 기록 제목"), {
+    target: { value: "버릴 시간 초안" },
+  });
+  showNotes();
+  fireEvent.click(screen.getByRole("button", { name: "저장하지 않고 이동" }));
+  expect(screen.queryByLabelText("시간 기록 제목")).toBeNull();
+  expect(screen.getByLabelText("새 메모 내용")).toHaveProperty("value", "  별도 메모\n초안  ");
+  await showTasks("plans");
+  expect(screen.queryByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeNull();
+  expect(screen.getByRole("textbox", { name: "새 할 일" })).toHaveProperty(
+    "value",
+    "별도 기간 계획 초안",
+  );
+  showNotes();
+  expect(screen.getByLabelText("새 메모 내용")).toHaveProperty("value", "  별도 메모\n초안  ");
+  expect(actions("update_diary")).toEqual([]);
+}, 15000);
+
+it("clears a discarded collection's in-memory writing when notes only hide its page", async () => {
+  diary.pages = [{ id: "books", title: "읽은 책", date: null, entries: [] }];
+  await openDiary();
+  showPage("읽은 책");
+  fireEvent.change(screen.getByLabelText("페이지에 기록할 내용"), {
+    target: { value: "  버릴 기록 원문  " },
+  });
+  showNotes();
+  fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
+  expect(screen.getByLabelText("페이지에 기록할 내용")).toHaveProperty(
+    "value",
+    "  버릴 기록 원문  ",
+  );
+  showNotes();
+  fireEvent.click(screen.getByRole("button", { name: "저장하지 않고 이동" }));
+  expect(screen.getByLabelText("페이지에 기록할 내용")).toHaveProperty("value", "");
+  expect(localStorage.getItem("comet:diary-collection-draft:books")).toBeNull();
+  fireEvent.click(screen.getByRole("link", { name: "내 페이지" }));
+  expect(screen.queryByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeNull();
+  expect(screen.getByLabelText("페이지에 기록할 내용")).toHaveProperty("value", "");
+  fireEvent.change(screen.getByLabelText("페이지에 기록할 내용"), { target: { value: "새 입력" } });
+  fireEvent.click(screen.getByRole("button", { name: "다이어리 닫기" }));
+  expect(screen.getByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeTruthy();
+  expect(native.destroy).not.toHaveBeenCalled();
+});
+
+it("accepts a drop immediately after opening a collection directly from the weekly calendar", async () => {
+  widgets.widgets = [widget("memo", { notes: [{ id: "note-1", body: "원본 메모" }] })];
+  diary.pages = [{ id: "books", title: "읽은 책", date: null, entries: [] }];
+  update = () => ({ ...diary, revision: 4 });
+  await openDiary();
+  fireEvent.click(screen.getByRole("radio", { name: "주" }));
+  fireEvent.click(screen.getByRole("link", { name: "내 페이지" }));
+  expect(screen.getByLabelText("페이지에 기록할 내용")).toBeTruthy();
+  dropItem(screen.getByLabelText("펼친 페이지"), {
+    v: 1,
+    kind: "memo",
+    widgetId: "memo",
+    itemId: "note-1",
+  });
+  await screen.findByText("이 페이지에 연결했어요.");
+  expect(actions("update_diary")).toEqual([
+    {
+      expectedRevision: 3,
+      action: "entry-add",
+      input: {
+        pageId: "books",
+        kind: "widget",
+        refId: "memo",
+        itemId: "note-1",
+        text: "원본 메모",
+      },
+    },
+  ]);
+  expect(actions("execute_widget")).toEqual([]);
+}, 15000);
+
+it("routes native habit and ledger navigation to the matching screen and preserves the native tab value", async () => {
+  await openDiary();
+  for (const [tab, label] of [
+    ["habits", "습관 기록"],
+    ["ledger", "가계부"],
+  ] as const) {
+    act(() => {
+      for (const [event, callback] of vi.mocked(listen).mock.calls) {
+        if (event === "planner-tab") callback({ event, id: 1, payload: tab });
+      }
+    });
+    expect(await screen.findByRole("region", { name: label })).toBeTruthy();
+    await waitFor(() => expect(actions("set_planner_tab").at(-1)).toEqual({ tab }));
+  }
+  expect(screen.queryByRole("region", { name: "습관 기록" })).toBeNull();
+  expect(actions("update_diary")).toEqual([]);
+});
+
+it("unlocks a rejected envelope draft and creates a new request from the refreshed widget revision", async () => {
+  const preparation = widget("preparation", { envelopes: [] });
+  widgets.widgets = [preparation];
+  execute = () => {
+    preparation.revision = 8;
+    throw new Error("PREPARATION_CREATE_REJECTED: 연결할 일정이 없어졌어요.");
+  };
+  await openDiary();
+  fireEvent.click(screen.getByRole("link", { name: /^준비 봉투/ }));
+  const sidebar = within(screen.getByRole("navigation", { name: "준비 봉투 목록" }));
+  expect(sidebar.queryByRole("heading", { name: "준비 봉투" })).toBeNull();
+  expect(sidebar.getByRole("heading", { name: "준비 중 · 0" })).toBeTruthy();
+  expect(opened().getAllByRole("heading", { level: 1 })).toHaveLength(1);
+  expect(screen.getAllByRole("button", { name: "새 준비 봉투" })).toHaveLength(1);
+  fireEvent.click(opened().getByRole("button", { name: "새 준비 봉투" }));
+  const form = within(screen.getByRole("dialog", { name: "새 준비 봉투" }));
+  fireEvent.change(form.getByRole("textbox", { name: "봉투 이름" }), {
+    target: { value: "이어 쓸 준비" },
+  });
+  fireEvent.click(form.getByRole("button", { name: "만들기" }));
+  await waitFor(() =>
+    expect(form.getByRole("textbox", { name: "봉투 이름" })).toHaveProperty("disabled", false),
+  );
+  expect(form.getByRole("textbox", { name: "봉투 이름" })).toHaveProperty("value", "이어 쓸 준비");
+  fireEvent.change(form.getByRole("textbox", { name: "봉투 이름" }), {
+    target: { value: "고친 준비" },
+  });
+  execute = (request) => {
+    preparation.data = {
+      envelopes: [{ id: "created-envelope", ...(request.input as DataRecord) }],
+    };
+    return "created-envelope";
+  };
+  fireEvent.click(form.getByRole("button", { name: "만들기" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "새 준비 봉투" })).toBeNull());
+  const requests = actions("execute_widget").map(({ request }) => request as DataRecord);
+  expect(requests).toHaveLength(2);
+  expect(requests[0]).toMatchObject({ expectedRevision: 7, input: { title: "이어 쓸 준비" } });
+  expect(requests[1]).toMatchObject({ expectedRevision: 8, input: { title: "고친 준비" } });
+  expect(requests[1].requestId).not.toBe(requests[0].requestId);
+  expect(await opened().findByRole("heading", { name: "고친 준비" })).toBeTruthy();
+});
+
+it("retries an uncertain envelope create with the same request after its linked event disappears", async () => {
+  const preparation = widget("preparation", { envelopes: [] });
+  const calendar = widget("calendar", {
+    events: [
+      { id: "event", title: "함께 갈 일정", connectionId: "local", startDate: DAY, allDay: true },
+    ],
+  });
+  widgets.widgets = [preparation, calendar];
+  execute = () => {
+    preparation.revision = 8;
+    calendar.data = { events: [] };
+    throw new Error("저장 응답을 받지 못했어요.");
+  };
+  await openDiary();
+  fireEvent.click(screen.getByRole("link", { name: /^준비 봉투/ }));
+  fireEvent.click(opened().getByRole("button", { name: "새 준비 봉투" }));
+  const form = within(screen.getByRole("dialog", { name: "새 준비 봉투" }));
+  fireEvent.change(form.getByRole("textbox", { name: "봉투 이름" }), {
+    target: { value: "같은 요청의 준비" },
+  });
+  fireEvent.click(form.getByRole("radio", { name: "일정에 연결" }));
+  fireEvent.change(form.getByRole("combobox", { name: "일정" }), { target: { value: "event" } });
+  fireEvent.click(form.getByRole("button", { name: "만들기" }));
+  const retry = await form.findByRole("button", { name: "같은 요청으로 다시 시도" });
+  await waitFor(() => expect(retry).toHaveProperty("disabled", false));
+  expect(form.getByRole("textbox", { name: "봉투 이름" })).toHaveProperty("disabled", true);
+  await waitFor(() => expect(form.queryByRole("option", { name: /함께 갈 일정/ })).toBeNull());
+  execute = (request) => {
+    preparation.data = {
+      envelopes: [{ id: "restored-envelope", ...(request.input as DataRecord) }],
+    };
+    return "restored-envelope";
+  };
+  fireEvent.click(retry);
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "새 준비 봉투" })).toBeNull());
+  const requests = actions("execute_widget").map(({ request }) => request);
+  expect(requests).toHaveLength(2);
+  expect(requests[1]).toEqual(requests[0]);
+  expect(requests[1]).toMatchObject({
+    expectedRevision: 7,
+    input: { eventId: "event", title: "같은 요청의 준비" },
+  });
+  expect(await opened().findByRole("heading", { name: "같은 요청의 준비" })).toBeTruthy();
+});

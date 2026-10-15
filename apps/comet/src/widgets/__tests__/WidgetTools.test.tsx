@@ -14,7 +14,10 @@ import { ToyTool } from "../ToyTools/ToyTools";
 import { PREVIEW_WIDGETS, useWidgets } from "../useWidgets";
 import { PREVIEW_SNAPSHOT, command } from "../../hooks/useSnapshot";
 import type { WidgetValue, WidgetView } from "../types";
-const native = vi.hoisted(() => ({ onCloseRequested: vi.fn().mockResolvedValue(() => undefined), startDragging: vi.fn() }));
+const native = vi.hoisted(() => ({
+  onCloseRequested: vi.fn().mockResolvedValue(() => undefined),
+  startDragging: vi.fn(),
+}));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => native }));
 vi.mock("../useWidgets", async (load) => ({
   ...(await load<typeof import("../useWidgets")>()),
@@ -55,7 +58,30 @@ afterEach(() => {
 
 it("protects an edited envelope connection from header and native close until explicit discard", async () => {
   vi.mocked(useWidgets).mockReturnValue({
-    snapshot: { ...PREVIEW_WIDGETS, widgets: [widget("preparation", { envelopes: [{ id: "envelope", title: "여행", eventId: "", eventLabel: "", checks: [], links: [], todoIds: [] }] }), widget("calendar", { connections: [], events: [{ id: "event", title: "떠나는 날", connectionId: "local" }] })] }, error: null, reload: vi.fn(),
+    snapshot: {
+      ...PREVIEW_WIDGETS,
+      widgets: [
+        widget("preparation", {
+          envelopes: [
+            {
+              id: "envelope",
+              title: "여행",
+              eventId: "",
+              eventLabel: "",
+              checks: [],
+              links: [],
+              todoIds: [],
+            },
+          ],
+        }),
+        widget("calendar", {
+          connections: [],
+          events: [{ id: "event", title: "떠나는 날", connectionId: "local" }],
+        }),
+      ],
+    },
+    error: null,
+    reload: vi.fn(),
   });
   render(<WidgetTool id="preparation" />);
   fireEvent.click(screen.getByText("일정 연결 · 변경"));

@@ -8,9 +8,10 @@ import {
 } from "react";
 import { Icon, type IconName } from "@comet/icon";
 import { tokens } from "@comet/token";
-import { Button, Select, TextInput } from "../controls";
+import { AmountInput, Button, Select, TextInput } from "../controls";
 import { classes, cssVar, progressStyle, ratio } from "./shared";
 import * as styles from "./planner.css";
+import * as ledgerStyles from "./ledger.css";
 
 const ledgerColors = {
   food: tokens["color/ledger-food"],
@@ -149,13 +150,13 @@ export function LedgerQuickAdd({
         });
       }}
     >
-      <span className={styles.quickAmount}>
-        <TextInput
+      <span className={ledgerStyles.amountField}>
+        <AmountInput
           aria-label="금액 (원)"
           name="amount"
-          type="number"
-          min="0"
-          step="any"
+          inputMode="numeric"
+          pattern="(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)"
+          maxLength={16}
           required
           placeholder="금액"
           value={amount}
@@ -163,6 +164,9 @@ export function LedgerQuickAdd({
           disabled={disabled}
           onChange={(event) => onAmountChange?.(event.target.value)}
         />
+        <span aria-hidden="true" className={ledgerStyles.currency}>
+          원
+        </span>
       </span>
       <span className={styles.quickCategory}>
         <Select

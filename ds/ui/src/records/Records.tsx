@@ -29,6 +29,8 @@ export type RecordPageEntryProps = Omit<HTMLAttributes<HTMLElement>, "title" | "
   ratingLabel?: string;
   onMenu?: () => void;
   menuLabel?: string;
+  layout?: "fixed" | "fill";
+  divided?: boolean;
 };
 
 export function RecordPageEntry({
@@ -40,6 +42,8 @@ export function RecordPageEntry({
   ratingLabel,
   onMenu,
   menuLabel = "기록 메뉴",
+  layout = "fixed",
+  divided = true,
   className,
   ...props
 }: RecordPageEntryProps): ReactElement {
@@ -51,6 +55,8 @@ export function RecordPageEntry({
         styles.recordEntry,
         source && styles.recordEntryLinked,
         review && styles.recordEntryReview,
+        layout === "fill" && styles.recordEntryFill,
+        !divided && styles.recordEntryFirst,
         className,
       ]
         .filter(Boolean)
@@ -192,6 +198,8 @@ export type RecordQuickAddProps = Omit<
   kindLabel?: string;
   placeholder?: string;
   disabled?: boolean;
+  layout?: "default" | "page";
+  trailing?: ReactNode;
 };
 
 export const RecordQuickAdd = forwardRef<HTMLFormElement, RecordQuickAddProps>(
@@ -207,6 +215,8 @@ export const RecordQuickAdd = forwardRef<HTMLFormElement, RecordQuickAddProps>(
       kindLabel = "기록 종류",
       placeholder = "지금 떠오른 생각을 적어 보세요",
       disabled = false,
+      layout = "default",
+      trailing,
       className,
       ...props
     },
@@ -215,7 +225,9 @@ export const RecordQuickAdd = forwardRef<HTMLFormElement, RecordQuickAddProps>(
     <form
       {...props}
       ref={ref}
-      className={[styles.quickAdd, className].filter(Boolean).join(" ")}
+      className={[styles.quickAdd, layout === "page" && styles.pageQuickAdd, className]
+        .filter(Boolean)
+        .join(" ")}
       onSubmit={(event) => {
         event.preventDefault();
         if (!disabled && value.trim()) {
@@ -223,22 +235,24 @@ export const RecordQuickAdd = forwardRef<HTMLFormElement, RecordQuickAddProps>(
         }
       }}
     >
-      <span className={styles.quickKindWrap}>
-        <select
-          className={styles.quickKind}
-          aria-label={kindLabel}
-          value={kind}
-          disabled={disabled}
-          onChange={(event) => onKindChange(event.currentTarget.value)}
-        >
-          {kinds.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <Icon name="chevdown" size={13} className={styles.kindChevron} />
-      </span>
+      {layout !== "page" && (
+        <span className={styles.quickKindWrap}>
+          <select
+            className={styles.quickKind}
+            aria-label={kindLabel}
+            value={kind}
+            disabled={disabled}
+            onChange={(event) => onKindChange(event.currentTarget.value)}
+          >
+            {kinds.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <Icon name="chevdown" size={13} className={styles.kindChevron} />
+        </span>
+      )}
       <input
         className={styles.bareInput}
         aria-label={label}
@@ -247,6 +261,7 @@ export const RecordQuickAdd = forwardRef<HTMLFormElement, RecordQuickAddProps>(
         disabled={disabled}
         onChange={(event) => onValueChange(event.currentTarget.value)}
       />
+      {trailing}
       <button type="submit" hidden disabled={disabled}>
         추가
       </button>
@@ -354,16 +369,28 @@ export function EnvelopeHeader({
             </>
           )}
           {onOpenEvent ? (
-            <button type="button" className={styles.textAction} disabled={disabled} onClick={onOpenEvent}>
+            <button
+              type="button"
+              className={styles.textAction}
+              disabled={disabled}
+              onClick={onOpenEvent}
+            >
               {eventLabel}
             </button>
-          ) : eventHref && (
-            <a href={eventHref} className={styles.textAction}>
-              {eventLabel}
-            </a>
+          ) : (
+            eventHref && (
+              <a href={eventHref} className={styles.textAction}>
+                {eventLabel}
+              </a>
+            )
           )}
           {onChangeDate && (
-            <button type="button" className={styles.textAction} onClick={onChangeDate} disabled={disabled}>
+            <button
+              type="button"
+              className={styles.textAction}
+              onClick={onChangeDate}
+              disabled={disabled}
+            >
               {changeDateLabel}
             </button>
           )}

@@ -848,6 +848,11 @@ pub fn act(
                         state.notes.remove(at);
                     } else {
                         let item = &mut state.notes[at];
+                        if let Some(expected) = input.get("expectedTitle") {
+                            if expected.as_str() != Some(item.title.as_str()) {
+                                return Err("다른 화면에서 이 메모의 제목이 변경됐어요. 내용을 확인한 뒤 다시 저장해 주세요.".into());
+                            }
+                        }
                         if let Some(expected) = input.get("expectedBody") {
                             if expected.as_str() != Some(item.body.as_str()) {
                                 return Err("다른 화면에서 이 메모가 변경됐어요. 내용을 확인한 뒤 다시 저장해 주세요.".into());
@@ -1341,9 +1346,16 @@ mod tests {
         .data;
         let key = todos["items"][0]["id"].clone();
         let related = BTreeMap::from([("todo".into(), todos.clone())]);
-        let started = act(
+        let configured = run(
             "focus-timer",
             &initial("focus-timer"),
+            "configure-settings",
+            json!({"autoStartRest":false}),
+            0,
+        );
+        let started = act(
+            "focus-timer",
+            &configured.data,
             "start",
             &json!({"durationMs":10000,"todoId":key}),
             &related,
@@ -1615,4 +1627,41 @@ mod tests {
         );
         assert_eq!(formatted.data["anniversaries"], clock.data["anniversaries"]);
     }
+    #[test]
+    fn memo_autosave_rejects_a_concurrent_title_change() {
+        let note = run(
+            "memo",
+            &initial("memo"),
+            "add",
+            json!({"title":"원래 제목","body":"  본문\n  "}),
+            1,
+        );
+        let key = &note.data["notes"][0]["id"];
+        let changed = run(
+            "memo",
+            &note.data,
+            "update",
+            json!({"id":key,"title":"다른 창의 제목"}),
+            2,
+        );
+        assert!(act(
+            "memo",
+            &changed.data,
+            "update",
+            &json!({"id":key,"body":"저장할 초안","expectedTitle":"원래 제목","expectedBody":"  본문\n  "}),
+            &BTreeMap::new(),
+            3,
+            7,
+        ).is_err());
+        let saved = run(
+            "memo",
+            &changed.data,
+            "update",
+            json!({"id":key,"body":"저장할 초안","expectedTitle":"다른 창의 제목","expectedBody":"  본문\n  "}),
+            3,
+        );
+        assert_eq!(saved.data["notes"][0]["title"], "다른 창의 제목");
+        assert_eq!(saved.data["notes"][0]["body"], "저장할 초안");
+    }
+
 }

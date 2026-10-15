@@ -133,7 +133,9 @@ export const EnvelopeCard = forwardRef<HTMLButtonElement, EnvelopeCardProps>(
       {description && <span className={styles.caption}>{description}</span>}
       <span className={styles.envelopeProgress}>
         <progress
-          className={[styles.progress, archived && styles.archivedProgress].filter(Boolean).join(" ")}
+          className={[styles.progress, archived && styles.archivedProgress]
+            .filter(Boolean)
+            .join(" ")}
           value={archived ? 1 : Math.max(0, Math.min(completed, total))}
           max={archived ? 1 : Math.max(1, total)}
           aria-label={archived ? "보관한 봉투" : progressLabel}
@@ -141,7 +143,11 @@ export const EnvelopeCard = forwardRef<HTMLButtonElement, EnvelopeCardProps>(
           {completed}/{total}
         </progress>
         <span className={styles.envelopePercent}>
-          {archived ? <Icon name="check" size={16} /> : `${total > 0 ? Math.round(Math.max(0, Math.min(1, completed / total)) * 100) : 0}%`}
+          {archived ? (
+            <Icon name="check" size={16} />
+          ) : (
+            `${total > 0 ? Math.round(Math.max(0, Math.min(1, completed / total)) * 100) : 0}%`
+          )}
         </span>
       </span>
     </button>

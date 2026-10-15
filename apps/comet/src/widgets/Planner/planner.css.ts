@@ -1,5 +1,6 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { semanticVars as v, componentVars, themeVars, vnextVars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 
 export const window = style({
   height: "100dvh",
@@ -59,6 +60,78 @@ export const embeddedPanel = style({
   selectors: { "&[hidden]": { display: "none" } },
 });
 export const embeddedContent = style({ minWidth: 0 });
+export const diaryTasks = style({ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 });
+export const diaryQuickAdd = style({
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  minHeight: 46,
+  padding: "0 8px 0 14px",
+  border: `1px solid ${tokens["color/input-border"]}`,
+  borderRadius: tokens["radius/radius-16"],
+  background: tokens["color/input"],
+  color: tokens["color/ink-3"],
+  minWidth: 0,
+  "@media": { "(max-width: 800px)": { flexWrap: "wrap", padding: "10px 12px" } },
+});
+globalStyle(`${diaryQuickAdd} > span:first-of-type`, { flex: 1, minWidth: 100 });
+globalStyle(`${diaryQuickAdd} > span:first-of-type input`, { width: "100%" });
+export const diaryDate = style({ width: 128 });
+export const diaryTaskGroup = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+  minWidth: 0,
+});
+export const diaryGroupHeading = style({
+  display: "flex",
+  alignItems: "baseline",
+  gap: 10,
+  padding: "0 4px 2px",
+  flexWrap: "wrap",
+});
+export const diaryGroupTitle = style({
+  margin: 0,
+  color: tokens["color/ink"],
+  fontSize: 14,
+  lineHeight: "19px",
+  fontWeight: 600,
+});
+export const diaryGroupMeta = style({
+  color: tokens["color/ink-3"],
+  fontSize: 12.5,
+  lineHeight: "17px",
+  margin: 0,
+});
+export const diaryTaskCard = style({
+  minWidth: 0,
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: tokens["radius/radius-16"],
+  background: tokens["color/card"],
+  overflow: "hidden",
+});
+export const diaryTaskTitle = style({
+  appearance: "none",
+  border: 0,
+  padding: 0,
+  background: "transparent",
+  color: "inherit",
+  font: "inherit",
+  textAlign: "left",
+  cursor: "pointer",
+  overflowWrap: "anywhere",
+  selectors: {
+    "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: 2 },
+  },
+});
+export const diaryTaskDetails = style({ padding: "0 12px 8px 44px", minWidth: 0 });
+export const diaryTaskFooter = style({
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  padding: "0 4px",
+  flexWrap: "wrap",
+});
 export const toolbar = style({
   display: "flex",
   alignItems: "center",

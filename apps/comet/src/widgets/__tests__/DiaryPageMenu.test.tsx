@@ -24,8 +24,8 @@ it("preserves an unsaved free-page title after failure and retries the same chan
   fireEvent.click(screen.getByRole("button", { name: "제목 저장" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(onAction.mock.calls).toEqual([
-    ["page-update", { id: "page", title: "읽고 싶은 책" }],
-    ["page-update", { id: "page", title: "읽고 싶은 책" }],
+    ["page-update", { id: "page", title: "읽고 싶은 책", expectedPage: page }],
+    ["page-update", { id: "page", title: "읽고 싶은 책", expectedPage: page }],
   ]);
 });
 
@@ -55,5 +55,8 @@ it("requires a fresh confirmation when the dated page changes while deletion is 
   fireEvent.click(screen.getByRole("button", { name: "페이지 삭제…" }));
   fireEvent.click(screen.getByRole("button", { name: "페이지 삭제" }));
   await waitFor(() => expect(onDeleted).toHaveBeenCalledOnce());
-  expect(onAction).toHaveBeenCalledWith("page-delete", { id: "page" });
+  expect(onAction).toHaveBeenCalledWith("page-delete", {
+    id: "page",
+    expectedPage: { ...dated, entries: [{ id: "new", kind: "note", text: "다른 창에서 쓴 내용" }] },
+  });
 });

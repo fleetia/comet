@@ -22,13 +22,14 @@ const meta = {
     overdue: { control: "boolean" },
     selected: { control: "boolean" },
     disabled: { control: "boolean" },
+    divider: { control: "boolean" },
     onCompletedChange: { control: false, action: "완료 상태 변경" },
   },
   parameters: {
     docs: {
       description: {
         component:
-          "List/Task Row·List/Diary Task Row·Envelope/Checklist Row의 완료 체크와 내용을 제공합니다. completed는 소비자가 관리하고 체크 변경은 onCompletedChange로 전달합니다. description·envelope·due·list·repeat의 유무로 관련 표시 상태를 조합합니다. 행 선택·드래그·일정 변경은 소비자 책임입니다.",
+          "List/Task Row·List/Diary Task Row·Envelope/Checklist Row의 완료 체크와 내용을 제공합니다. completed는 소비자가 관리하고 체크 변경은 onCompletedChange로 전달합니다. description·envelope·due·list·repeat의 유무로 관련 표시 상태를 조합합니다. diary는 반복이 없어도 메타데이터 열 너비를 유지하며 목록 첫 행은 divider=false로 표시합니다. 행 선택·드래그·일정 변경은 소비자 책임입니다.",
       },
     },
   },
@@ -68,6 +69,7 @@ export const Undated: Story = {
 export const Diary: Story = {
   args: {
     layout: "diary",
+    divider: false,
     description: "준비할 내용을 적어 두기",
     envelope: "준비 봉투",
     repeat: "반복",

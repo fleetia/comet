@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, Dialog, FormField, TextField } from "../../ui";
+import { Button, Dialog } from "../../ui";
+import { OrganizationCard, SearchInput, SegmentedControl } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type {
   OrganizerAction,
@@ -8,7 +9,7 @@ import type {
   OrganizerStatus,
   SourceDocument,
 } from "../../organizer/types";
-import * as s from "../../components/OrganizerSettings/organizerSettings.css";
+import * as s from "./diaryOrganizer.css";
 import * as common from "../../lagrange.css";
 
 const STATES: Record<string, string> = {
@@ -27,6 +28,8 @@ export function OrganizerRecords(): JSX.Element {
   const [actions, setActions] = useState<OrganizerAction[]>([]);
   const [status, setStatus] = useState<OrganizerStatus | null>(null);
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [selectedId, setSelectedId] = useState("");
   const currentQuery = useRef(query);
   currentQuery.current = query;
   const [hits, setHits] = useState<OrganizerSearchHit[] | null>(null);
@@ -106,20 +109,33 @@ export function OrganizerRecords(): JSX.Element {
       if (mounted.current && version === epoch.current) setPending(false);
     }
   }
+  const entries = [
+    ...directActions.map((action) => ({
+      id: `action:${action.id}`,
+      kind: "direct",
+      title: action.title,
+      createdAt: action.createdAt,
+      state: action.undone ? "undone" : "saved",
+      action,
+      record: null,
+    })),
+    ...records.map((record) => ({
+      id: `record:${record.id}`,
+      kind: "summary",
+      title: record.title,
+      createdAt: record.createdAt,
+      state: record.state,
+      action: null,
+      record,
+    })),
+  ]
+    .filter((entry) => filter === "all" || entry.kind === filter)
+    .sort((a, b) => b.createdAt - a.createdAt);
+  const selected = entries.find((entry) => entry.id === selectedId) ?? entries[0];
+  const selectedRecord = selected?.record;
+  const selectedAction = selected?.action;
   return (
     <section className={s.panel} aria-label="Ex-brain 정리 기록">
-      <h1 className={s.heading}>정리 기록</h1>
-      <p className={s.caption}>
-        Comet과 연결한 Vault에서 근거를 찾고, 정리한 내용과 변경을 확인해요.
-      </p>
-      {status && (
-        <p className={s.caption}>
-          완료 {status.progress.completed} · 대기 {status.progress.pending} · 처리 중{" "}
-          {status.progress.running} · 보류 {status.progress.deferred} · 오늘 자동 호출{" "}
-          {status.progress.requestsToday}/{status.settings.dailyRequestLimit}
-          {status.paused ? " · 일시정지" : ""}
-        </p>
-      )}
       <form
         className={s.actions}
         onSubmit={(event) => {
@@ -127,25 +143,42 @@ export function OrganizerRecords(): JSX.Element {
           if (query.trim()) void run("organizer_search", { query: query.trim() });
         }}
       >
-        <FormField label="기록·원문 검색">
-          <TextField
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              if (!event.target.value) setHits(null);
-            }}
-          />
-        </FormField>
+        <SearchInput
+          className={s.search}
+          aria-label="기록·원문 검색"
+          placeholder="기록·원문 검색"
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            if (!event.target.value) setHits(null);
+          }}
+        />
         <Button
           type="submit"
           variant="secondary"
+          size="compact"
           disabled={pending || !isDesktop() || !query.trim()}
         >
           검색
         </Button>
+        <SegmentedControl
+          label="정리 기록 종류"
+          appearance="contained"
+          value={filter}
+          options={[
+            { value: "all", label: "전체" },
+            { value: "summary", label: "자료 정리" },
+            { value: "direct", label: "직접 요청" },
+          ]}
+          onValueChange={(value) => {
+            setFilter(value);
+            setHits(null);
+          }}
+        />
         {hits && (
           <Button
             variant="quiet"
+            size="compact"
             onClick={() => {
               setHits(null);
               setQuery("");
@@ -155,116 +188,147 @@ export function OrganizerRecords(): JSX.Element {
           </Button>
         )}
       </form>
-      {hits ? (
-        <div className={s.section} aria-label="검색 결과">
-          {hits.length === 0 && <p>일치하는 자료가 없어요.</p>}
-          {hits.map((hit) => (
-            <article className={s.item} key={`${hit.source.id}:${hit.recordId ?? "source"}`}>
-              <h2 className={s.heading}>{hit.title}</h2>
-              <p className={s.text}>{hit.excerpt}</p>
-              <p className={s.caption}>{hit.source.locator}</p>
-              <Button
-                variant="quiet"
-                disabled={pending}
-                onClick={() =>
-                  void run("organizer_open_source", {
-                    sourceId: hit.source.id,
-                    recordId: hit.recordId,
-                  })
-                }
-              >
-                열기
-              </Button>
-            </article>
-          ))}
-        </div>
-      ) : (
-        <div className={s.section}>
-          {records.length === 0 && directActions.length === 0 && (
-            <p className={s.caption}>
-              아직 정리 기록이 없어요. AI 연결의 Ex-brain에서 자료를 연결하거나 캐릭터에게 기록을
-              부탁해 보세요.
-            </p>
+      {status && (
+        <p className={s.caption}>
+          완료 {status.progress.completed} · 대기 {status.progress.pending} · 처리 중{" "}
+          {status.progress.running} · 보류 {status.progress.deferred}
+          {status.paused ? " · 일시정지" : ""}
+        </p>
+      )}
+      <div className={s.layout}>
+        <div className={s.list} aria-label={hits ? "검색 결과" : "정리 기록 목록"}>
+          {hits ? (
+            <>
+              {hits.length === 0 && <p className={s.caption}>일치하는 자료가 없어요.</p>}
+              {hits.map((hit) => (
+                <OrganizationCard
+                  key={`${hit.source.id}:${hit.recordId ?? "source"}`}
+                  title={hit.title}
+                  description={hit.excerpt}
+                  timestamp={hit.source.title}
+                  statusLabel="검색 결과"
+                  onClick={() =>
+                    void run("organizer_open_source", {
+                      sourceId: hit.source.id,
+                      recordId: hit.recordId,
+                    })
+                  }
+                  disabled={pending}
+                />
+              ))}
+            </>
+          ) : (
+            <>
+              {entries.length === 0 && (
+                <p className={s.caption}>
+                  아직 정리 기록이 없어요. AI 연결의 Ex-brain에서 자료를 연결하거나 캐릭터에게
+                  기록을 부탁해 보세요.
+                </p>
+              )}
+              {entries.map((entry) => (
+                <OrganizationCard
+                  key={entry.id}
+                  title={entry.title}
+                  selected={selected?.id === entry.id}
+                  timestamp={new Date(entry.createdAt).toLocaleString()}
+                  description={entry.kind === "direct" ? "직접 요청" : entry.record?.source.title}
+                  status={
+                    entry.state === "undone"
+                      ? "reverted"
+                      : entry.state === "conflict" || entry.state === "failed"
+                        ? "conflict"
+                        : entry.state === "prepared"
+                          ? "confirmation"
+                          : "saved"
+                  }
+                  statusLabel={STATES[entry.state] ?? "상태 확인 필요"}
+                  onClick={() => setSelectedId(entry.id)}
+                />
+              ))}
+            </>
           )}
-          {directActions.map((action) => (
-            <article className={s.item} key={action.id}>
-              <h2 className={s.heading}>{action.title}</h2>
-              <p className={s.caption}>
-                {new Date(action.createdAt).toLocaleString()} · 직접 요청
-                {action.undone ? " · 되돌림" : " · 저장됨"}
-              </p>
-              {action.error && (
+        </div>
+        <article className={s.detail} aria-label="선택한 정리 기록">
+          {selected ? (
+            <>
+              <header>
+                <h2 className={s.heading}>{selected.title}</h2>
+                <p className={s.caption}>
+                  {new Date(selected.createdAt).toLocaleString()} ·{" "}
+                  {STATES[selected.state] ?? "상태 확인 필요"}
+                </p>
+              </header>
+              {selectedRecord && (
+                <>
+                  <p className={s.text}>{selectedRecord.markdown}</p>
+                  <div className={s.source}>
+                    <p className={s.caption}>
+                      출처 · {selectedRecord.source.title} · {selectedRecord.source.locator}
+                    </p>
+                    {selectedRecord.outputPath && (
+                      <p className={s.caption}>저장 위치 · {selectedRecord.outputPath}</p>
+                    )}
+                  </div>
+                </>
+              )}
+              {selectedAction?.error && (
                 <p role="alert" className={common.error}>
-                  {action.error}
+                  {selectedAction.error}
+                </p>
+              )}
+              {selectedAction && (
+                <p className={s.caption}>
+                  캐릭터에게 직접 요청해 저장한 기록이에요. 결과와 원문을 열어 확인할 수 있어요.
                 </p>
               )}
               <div className={s.actions}>
-                <Button
-                  variant="secondary"
-                  disabled={pending}
-                  onClick={() => void run("organizer_open_action", { operationId: action.id })}
-                >
-                  결과 열기
-                </Button>
-                {action.sourceId && (
+                {selectedAction && (
                   <Button
                     variant="secondary"
                     disabled={pending}
-                    onClick={() => void run("organizer_open_source", { sourceId: action.sourceId })}
+                    onClick={() =>
+                      void run("organizer_open_action", { operationId: selectedAction.id })
+                    }
+                  >
+                    결과 열기
+                  </Button>
+                )}
+                {(selectedRecord || selectedAction?.sourceId) && (
+                  <Button
+                    variant="secondary"
+                    disabled={pending || !isDesktop() || selectedRecord?.source.active === false}
+                    onClick={() =>
+                      void run("organizer_open_source", {
+                        sourceId: selectedRecord?.source.id ?? selectedAction?.sourceId,
+                      })
+                    }
                   >
                     원문 열기
                   </Button>
                 )}
                 <Button
                   variant="quiet"
-                  disabled={pending || !isDesktop() || action.undone}
-                  onClick={() => void run("organizer_undo", { operationId: action.id })}
-                >
-                  되돌리기
-                </Button>
-              </div>
-            </article>
-          ))}
-          {records.map((record) => (
-            <article className={s.item} key={record.id}>
-              <h2 className={s.heading}>{record.title}</h2>
-              <p className={s.caption}>
-                {new Date(record.createdAt).toLocaleString()} ·{" "}
-                {STATES[record.state] ?? "상태 확인 필요"}
-              </p>
-              <details>
-                <summary>정리 내용</summary>
-                <p className={s.text}>{record.markdown}</p>
-              </details>
-              <p className={s.caption}>
-                출처 · {record.source.title} · {record.source.locator}
-              </p>
-              {record.outputPath && <p className={s.caption}>저장 위치 · {record.outputPath}</p>}
-              <div className={s.actions}>
-                <Button
-                  variant="secondary"
-                  disabled={pending || !record.source.active || !isDesktop()}
-                  onClick={() => void run("organizer_open_source", { sourceId: record.source.id })}
-                >
-                  원문 열기
-                </Button>
-                <Button
-                  variant="quiet"
                   disabled={
                     pending ||
                     !isDesktop() ||
-                    record.state === "undone" ||
-                    record.state === "conflict"
+                    selected.state === "undone" ||
+                    selected.state === "conflict"
                   }
-                  onClick={() => void run("organizer_undo", { operationId: record.operationId })}
+                  onClick={() =>
+                    void run("organizer_undo", {
+                      operationId: selectedRecord?.operationId ?? selectedAction?.id,
+                    })
+                  }
                 >
                   되돌리기
                 </Button>
               </div>
-            </article>
-          ))}
-        </div>
-      )}
+            </>
+          ) : (
+            <p className={s.caption}>정리한 내용을 이곳에서 확인할 수 있어요.</p>
+          )}
+        </article>
+      </div>
       {(error || status?.error) && (
         <p className={common.error} role="alert">
           {error || status?.error}

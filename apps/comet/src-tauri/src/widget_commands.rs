@@ -357,7 +357,25 @@ fn execute_with_created_id(
     } else {
         None
     };
-    storage::execute_in_transaction(&tx, request, now, entropy)?;
+    let preparation_creation = request.action == "create"
+        && before
+            .as_ref()
+            .is_some_and(|instance| instance.kind == "preparation");
+    let already_applied = preparation_creation
+        && tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM widget_requests WHERE id=?1)",
+            [&request.request_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if let Err(error) = storage::execute_in_transaction(&tx, request, now, entropy) {
+        tx.rollback().map_err(|error| error.to_string())?;
+        return Err(if preparation_creation && !already_applied {
+            format!("PREPARATION_CREATE_REJECTED:{error}")
+        } else {
+            error
+        });
+    }
     let saved: Option<Option<String>> = tx.query_row(
         "SELECT created_id FROM widget_request_results WHERE request_id=?1",
         [&request.request_id],
@@ -1045,6 +1063,166 @@ mod tests {
                 "수정한 내용"
             );
         }
+    }
+
+    #[test]
+    fn preparation_creation_rejection_preserves_data_and_allows_an_edited_request() {
+        for events in [
+            serde_json::json!([{"id":"event","title":"모임","connectionId":"local","cancelled":true}]),
+            serde_json::json!([]),
+        ] {
+            let db = rusqlite::Connection::open_in_memory().unwrap();
+            storage::initialize(&db).unwrap();
+            let directory = tempfile::tempdir().unwrap();
+            storage::install(
+                &db,
+                directory.path(),
+                &["todo".into(), "preparation".into(), "calendar".into()],
+            )
+            .unwrap();
+            let instances = storage::instances(&db).unwrap();
+            let preparation = instances
+                .iter()
+                .find(|item| item.kind == "preparation")
+                .unwrap();
+            let todo = instances.iter().find(|item| item.kind == "todo").unwrap();
+            let calendar = instances
+                .iter()
+                .find(|item| item.kind == "calendar")
+                .unwrap();
+            let mut calendar_data = calendar.data.clone();
+            calendar_data["events"] = events;
+            storage::commit_data(
+                &db,
+                &calendar.id,
+                calendar.revision,
+                calendar_data,
+                vec![],
+                1,
+            )
+            .unwrap();
+            let request = WidgetRequest {
+                request_id: uuid::Uuid::new_v4().to_string(),
+                instance_id: preparation.id.clone(),
+                expected_revision: preparation.revision,
+                action: "create".into(),
+                input: serde_json::json!({
+                    "title":"모임 준비","eventId":"event","eventLabel":"모임",
+                    "checks":["카메라"],"tasks":[{"title":"예약 확인"}]
+                }),
+            };
+            let error = execute_with_created_id(&db, &request, 100, 1).unwrap_err();
+            assert_eq!(
+                error,
+                "PREPARATION_CREATE_REJECTED:현재 조회할 수 있는 일정을 선택해 주세요."
+            );
+            assert_eq!(
+                storage::get(&db, &preparation.id).unwrap().data,
+                preparation.data
+            );
+            assert_eq!(storage::get(&db, &todo.id).unwrap().data, todo.data);
+            for table in ["widget_requests", "widget_request_results"] {
+                let count: i64 = db
+                    .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                        row.get(0)
+                    })
+                    .unwrap();
+                assert_eq!(count, 0);
+            }
+            let edited = WidgetRequest {
+                request_id: uuid::Uuid::new_v4().to_string(),
+                input: serde_json::json!({
+                    "title":"모임 준비","checks":["카메라"],"tasks":[{"title":"예약 확인"}]
+                }),
+                ..request.clone()
+            };
+            let id = execute_with_created_id(&db, &edited, 200, 2)
+                .unwrap()
+                .unwrap();
+            let saved = storage::get(&db, &preparation.id).unwrap();
+            assert_eq!(saved.data["envelopes"][0]["id"], id);
+            assert_eq!(saved.data["envelopes"][0]["checks"][0]["text"], "카메라");
+            assert_eq!(
+                storage::get(&db, &todo.id).unwrap().data["items"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                1
+            );
+            let stale = WidgetRequest {
+                request_id: uuid::Uuid::new_v4().to_string(),
+                ..edited
+            };
+            assert!(execute_with_created_id(&db, &stale, 300, 3)
+                .unwrap_err()
+                .starts_with("PREPARATION_CREATE_REJECTED:"));
+            assert_eq!(storage::get(&db, &preparation.id).unwrap().data, saved.data);
+        }
+    }
+
+    #[test]
+    fn preparation_creation_receipt_replays_before_changed_event_and_revision_validation() {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        storage::initialize(&db).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        storage::install(
+            &db,
+            directory.path(),
+            &["todo".into(), "preparation".into(), "calendar".into()],
+        )
+        .unwrap();
+        let instances = storage::instances(&db).unwrap();
+        let preparation = instances
+            .iter()
+            .find(|item| item.kind == "preparation")
+            .unwrap();
+        let todo = instances.iter().find(|item| item.kind == "todo").unwrap();
+        let calendar = instances
+            .iter()
+            .find(|item| item.kind == "calendar")
+            .unwrap();
+        let mut data = calendar.data.clone();
+        data["events"] = serde_json::json!([{"id":"event","title":"모임","connectionId":"local"}]);
+        storage::commit_data(&db, &calendar.id, calendar.revision, data, vec![], 1).unwrap();
+        let request = WidgetRequest {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            instance_id: preparation.id.clone(),
+            expected_revision: preparation.revision,
+            action: "create".into(),
+            input: serde_json::json!({
+                "title":"모임 준비","eventId":"event","eventLabel":"모임",
+                "tasks":[{"title":"예약 확인"}]
+            }),
+        };
+        let id = execute_with_created_id(&db, &request, 100, 1)
+            .unwrap()
+            .unwrap();
+        let saved = storage::get(&db, &preparation.id).unwrap().data;
+        let tasks = storage::get(&db, &todo.id).unwrap().data;
+        storage::set_enabled(&db, &preparation.id, false).unwrap();
+        for events in [
+            serde_json::json!([{"id":"event","title":"모임","connectionId":"local","cancelled":true}]),
+            serde_json::json!([]),
+        ] {
+            let current = storage::get(&db, &calendar.id).unwrap();
+            let mut data = current.data;
+            data["events"] = events;
+            storage::commit_data(&db, &calendar.id, current.revision, data, vec![], 200).unwrap();
+            assert_eq!(
+                execute_with_created_id(&db, &request, 300, 3).unwrap(),
+                Some(id.clone())
+            );
+            assert_eq!(storage::get(&db, &preparation.id).unwrap().data, saved);
+            assert_eq!(storage::get(&db, &todo.id).unwrap().data, tasks);
+        }
+        let mut changed = request.clone();
+        changed.input["title"] = serde_json::json!("다른 입력");
+        let error = execute_with_created_id(&db, &changed, 400, 4).unwrap_err();
+        assert_eq!(error, "이미 사용한 요청 식별자의 내용이 달라졌어요.");
+        assert_eq!(
+            execute_with_created_id(&db, &request, 500, 5).unwrap(),
+            Some(id)
+        );
     }
 
     #[test]

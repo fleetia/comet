@@ -146,6 +146,7 @@ export type HabitWeekTableProps = HTMLAttributes<HTMLDivElement> & {
   onAdd?: () => void;
   addLabel?: string;
   summaryLabel?: ReactNode;
+  disabled?: boolean;
 };
 export function HabitWeekTable({
   days,
@@ -154,6 +155,7 @@ export function HabitWeekTable({
   onAdd,
   addLabel = "새 습관",
   summaryLabel = "최근 7일",
+  disabled = false,
   className,
   ...props
 }: HabitWeekTableProps): JSX.Element {
@@ -182,11 +184,64 @@ export function HabitWeekTable({
           />
         ))}
         <div className={styles.tableFooter}>
-          <button type="button" className={styles.link} onClick={onAdd}>
+          <button type="button" className={styles.link} onClick={onAdd} disabled={disabled}>
             + {addLabel}
           </button>
           <span className={styles.muted}>● 했어요　● 못 했어요　◌ 아직　 누를 때마다 바뀌어요</span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+export type HabitMonthCalendarProps = HTMLAttributes<HTMLDivElement> & {
+  label: string;
+  color?: PlannerColor;
+  days: readonly ((HabitDayData & { day: number; selected?: boolean }) | null)[];
+  onDayChange?: (day: HabitDayData) => void;
+};
+
+export function HabitMonthCalendar({
+  label,
+  color = "record",
+  days,
+  onDayChange,
+  className,
+  ...props
+}: HabitMonthCalendarProps): JSX.Element {
+  return (
+    <div {...props} className={classes(styles.habitMonth, className)}>
+      <strong className={styles.habitMonthLabel}>{label}</strong>
+      <div className={styles.habitMonthGrid}>
+        {["월", "화", "수", "목", "금", "토", "일"].map((weekday) => (
+          <span key={weekday} className={styles.habitMonthWeekday}>
+            {weekday}
+          </span>
+        ))}
+        {days.map((day, index) =>
+          day ? (
+            <button
+              type="button"
+              key={day.id}
+              disabled={day.disabled}
+              aria-label={`${day.label}: ${stateLabels[day.state]}`}
+              aria-pressed={day.selected}
+              aria-current={day.today ? "date" : undefined}
+              data-state={day.state}
+              style={colorStyle(color)}
+              className={classes(
+                styles.habitMonthDay,
+                (day.state === "done" || day.state === "goalMet") && styles.habitStates.done,
+                day.state === "missed" && styles.habitStates.missed,
+              )}
+              onClick={() => onDayChange?.(day)}
+            >
+              {day.day}
+            </button>
+          ) : (
+            <span key={`empty-${index}`} />
+          ),
+        )}
       </div>
     </div>
   );
