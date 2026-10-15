@@ -470,6 +470,9 @@ it("keeps the visible guest recipient while sending through its reopened residen
     expect(command).toHaveBeenCalledWith("get_conversations", { persona: guest.id }),
   );
   expect(screen.queryByRole("alert")).toBeNull();
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "말 걸기" })).toHaveProperty("disabled", false),
+  );
   fireEvent.click(screen.getByRole("button", { name: "말 걸기" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("open_panel", { persona: guest.id, mode: "input" }),
@@ -509,7 +512,10 @@ it("offers the paused conversation in the menu and a linked continuation from en
   const { rerender } = render(
     <Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "builtin-a", mode: "menu" } }} />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "이어서 하기" }));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "이어서 하기" })).toHaveProperty("disabled", false),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "이어서 하기" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("resume_chat", { sessionId: session.id }),
   );
