@@ -103,14 +103,27 @@ export const categoryButton = style({
 export const categoryChoice = style({ background: "transparent", fontWeight: 400 });
 export const categorySizes = styleVariants({
   regular: { height: 32, padding: "0 12px 0 10px", borderRadius: 15, fontSize: 13 },
-  compact: { height: 26, padding: "0 9px 0 7px", borderRadius: 12, fontSize: 12 },
+  compact: { height: 26, minHeight: 26, padding: "0 9px 0 7px", borderRadius: 12, fontSize: 12 },
   medium: { height: 30, padding: "0 12px 0 10px", borderRadius: 14, fontSize: 12.5 },
 });
 export const categorySelected = style({
-  borderColor: tokens["color/cat-work"],
+  borderWidth: 1.5,
   background: tokens["color/component/cat-work-alpha-200"],
   color: tokens["color/ink"],
   fontWeight: 600,
+});
+export const categorySelectedColors = styleVariants({
+  work: { borderColor: tokens["color/cat-work"] },
+  record: { borderColor: tokens["color/cat-record"] },
+  life: { borderColor: tokens["color/cat-life"] },
+  exercise: { borderColor: tokens["color/cat-exercise"] },
+  rest: { borderColor: tokens["color/cat-rest"] },
+  focus: { borderColor: tokens["color/cat-focus"] },
+});
+export const categorySelectedSizes = styleVariants({
+  regular: { height: 33, minHeight: 33 },
+  compact: { height: 27, minHeight: 27 },
+  medium: { height: 31, minHeight: 31 },
 });
 export const prompt = style({
   height: 30,

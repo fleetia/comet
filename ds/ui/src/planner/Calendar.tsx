@@ -1,6 +1,8 @@
 import {
   Fragment,
   useId,
+  useRef,
+  useState,
   type ButtonHTMLAttributes,
   type CSSProperties,
   type HTMLAttributes,
@@ -540,6 +542,9 @@ export type CalendarRingSegment = {
   endMinute: number;
   color: PlannerColor;
   label: string;
+  displayLabel?: string;
+  detail?: string;
+  interactive?: boolean;
   kind?: "recorded" | "planned" | "event" | "focus";
 };
 export type CalendarDayRingProps = Omit<HTMLAttributes<HTMLDivElement>, "children"> & {
@@ -547,6 +552,15 @@ export type CalendarDayRingProps = Omit<HTMLAttributes<HTMLDivElement>, "childre
   value: ReactNode;
   centerLabel?: ReactNode;
   showCategoryControls?: boolean;
+  layout?: "fixed" | "fill";
+  showSegmentLabels?: boolean;
+  currentMinute?: number;
+  currentTimeLabel?: string;
+  toolbar?: ReactNode;
+  overlay?: ReactNode;
+  selection?: { startMinute: number; endMinute: number };
+  onRangeSelect?: (range: { startMinute: number; endMinute: number }) => void;
+  interactionDisabled?: boolean;
   caption?: ReactNode;
   selectedColor?: PlannerColor;
   onColorChange?: (color: PlannerColor) => void;
@@ -556,10 +570,13 @@ export type CalendarDayRingProps = Omit<HTMLAttributes<HTMLDivElement>, "childre
 function ringPath(startMinute: number, endMinute: number, inner: number, outer: number): string {
   const point = (minute: number, radius: number): string => {
     const angle = (minute / 1440) * Math.PI * 2 - Math.PI / 2;
-    return `${316 + radius * Math.cos(angle)},${296 + radius * Math.sin(angle)}`;
+    return `${286 + radius * Math.cos(angle)},${286 + radius * Math.sin(angle)}`;
   };
   const start = Math.max(0, Math.min(1439.99, startMinute));
   const end = Math.max(start + 0.01, Math.min(1440, endMinute));
+  if (end - start === 1440) {
+    return `M ${point(0, outer)} A ${outer},${outer} 0 0 1 ${point(720, outer)} A ${outer},${outer} 0 0 1 ${point(1440, outer)} L ${point(1440, inner)} A ${inner},${inner} 0 0 0 ${point(720, inner)} A ${inner},${inner} 0 0 0 ${point(0, inner)} Z`;
+  }
   const large = end - start > 720 ? 1 : 0;
   return `M ${point(start, outer)} A ${outer},${outer} 0 ${large} 1 ${point(end, outer)} L ${point(end, inner)} A ${inner},${inner} 0 ${large} 0 ${point(start, inner)} Z`;
 }
@@ -575,6 +592,15 @@ export function CalendarDayRing({
   value,
   centerLabel = "오늘 칠한 시간",
   showCategoryControls = true,
+  layout = "fixed",
+  showSegmentLabels = false,
+  currentMinute,
+  currentTimeLabel,
+  toolbar,
+  overlay,
+  selection,
+  onRangeSelect,
+  interactionDisabled = false,
   caption,
   selectedColor,
   onColorChange,
@@ -584,43 +610,175 @@ export function CalendarDayRing({
   ...props
 }: CalendarDayRingProps): JSX.Element {
   const id = useId();
+  const drag = useRef<{ pointerId: number; start: number; end: number } | null>(null);
+  const [dragRange, setDragRange] = useState<{ startMinute: number; endMinute: number }>();
+  const [keyboardMinute, setKeyboardMinute] = useState(0);
+  const [keyboardAnchor, setKeyboardAnchor] = useState<number>();
+  const selectedRange = dragRange ?? selection;
+  function pointerMinute(svg: SVGSVGElement, clientX: number, clientY: number): number | null {
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      return null;
+    }
+    const x = ((clientX - rect.left) / rect.width) * 572 - 286;
+    const y = ((clientY - rect.top) / rect.height) * 572 - 286;
+    const radius = Math.hypot(x, y);
+    if (radius < 190 || radius > 252) {
+      return null;
+    }
+    const turn = (Math.atan2(y, x) + Math.PI * 2.5) % (Math.PI * 2);
+    return Math.min(1430, Math.floor((turn / (Math.PI * 2)) * 144) * 10);
+  }
+  function rangeBetween(start: number, end: number): { startMinute: number; endMinute: number } {
+    return { startMinute: Math.min(start, end), endMinute: Math.max(start, end) + 10 };
+  }
+  const visibleSegments = segments.filter(
+    (segment) =>
+      Number.isFinite(segment.startMinute) &&
+      Number.isFinite(segment.endMinute) &&
+      segment.endMinute > segment.startMinute &&
+      segment.startMinute < 1440 &&
+      segment.endMinute > 0,
+  );
+  const now =
+    typeof currentMinute === "number" &&
+    Number.isFinite(currentMinute) &&
+    currentMinute >= 0 &&
+    currentMinute < 1440
+      ? currentMinute
+      : undefined;
+  const nowAngle = now === undefined ? 0 : (now / 1440) * Math.PI * 2 - Math.PI / 2;
+  const nowLabel =
+    currentTimeLabel ??
+    (now === undefined
+      ? ""
+      : `지금 ${Math.floor(now / 60)}:${String(Math.floor(now % 60)).padStart(2, "0")}`);
   return (
-    <div {...props} className={classes(styles.ring, className)}>
-      {showCategoryControls && (
-        <div className={styles.ringToolbar}>
-          <span className={styles.muted}>칠할 분류</span>
-          {ringCategories.map((category) => (
-            <button
-              key={category.color}
-              type="button"
-              className={styles.ringCategory}
-              aria-pressed={selectedColor === category.color}
-              onClick={() => onColorChange?.(category.color)}
-            >
-              <span aria-hidden className={styles.dot} style={colorStyle(category.color)} />
-              {category.label}
-            </button>
-          ))}
-          <span className={styles.muted}>한 칸 = 10분</span>
-        </div>
-      )}
-      <svg viewBox="0 0 632 592" className={styles.ringSvg} role="group" aria-labelledby={id}>
-        <title id={id}>하루 시간 기록</title>
-        {Array.from({ length: 144 }, (_, index) => (
-          <path
-            key={index}
-            d={ringPath(index * 10 + 0.4, (index + 1) * 10 - 0.4, 192, 236)}
-            className={styles.ringTrack}
-          />
+    <div
+      {...props}
+      className={classes(styles.ring, layout === "fill" && styles.ringFill, className)}
+    >
+      {toolbar ??
+        (showCategoryControls && (
+          <div className={styles.ringToolbar}>
+            <span className={styles.muted}>칠할 분류</span>
+            {ringCategories.map((category) => (
+              <button
+                key={category.color}
+                type="button"
+                className={styles.ringCategory}
+                style={colorStyle(category.color)}
+                aria-pressed={selectedColor === category.color}
+                onClick={() => onColorChange?.(category.color)}
+              >
+                <span aria-hidden className={styles.dot} style={colorStyle(category.color)} />
+                {category.label}
+              </button>
+            ))}
+            <span className={styles.ringHint}>한 칸 = 10분</span>
+          </div>
         ))}
-        {segments
-          .filter(
-            (segment) =>
-              Number.isFinite(segment.startMinute) &&
-              Number.isFinite(segment.endMinute) &&
-              segment.endMinute > segment.startMinute,
-          )
-          .map((segment) => (
+      <div className={styles.ringCanvas}>
+        <svg
+          viewBox="0 0 572 572"
+          className={styles.ringSvg}
+          role="group"
+          aria-labelledby={id}
+          tabIndex={onRangeSelect && !interactionDisabled ? 0 : undefined}
+          aria-describedby={onRangeSelect ? `${id}-instructions` : undefined}
+          data-editable={Boolean(onRangeSelect) && !interactionDisabled}
+          onPointerDown={(event) => {
+            if (!onRangeSelect || interactionDisabled || event.button !== 0) {
+              return;
+            }
+            const minute = pointerMinute(event.currentTarget, event.clientX, event.clientY);
+            if (minute === null) {
+              return;
+            }
+            event.preventDefault();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            drag.current = { pointerId: event.pointerId, start: minute, end: minute };
+            setDragRange(rangeBetween(minute, minute));
+          }}
+          onPointerMove={(event) => {
+            const current = drag.current;
+            if (!current || current.pointerId !== event.pointerId) {
+              return;
+            }
+            const minute = pointerMinute(event.currentTarget, event.clientX, event.clientY);
+            if (minute === null) {
+              return;
+            }
+            current.end =
+              Math.abs(minute - current.end) > 720 ? (current.end > 720 ? 1430 : 0) : minute;
+            setDragRange(rangeBetween(current.start, current.end));
+          }}
+          onPointerUp={(event) => {
+            const current = drag.current;
+            if (!current || current.pointerId !== event.pointerId) {
+              return;
+            }
+            drag.current = null;
+            setDragRange(undefined);
+            if (!interactionDisabled) {
+              onRangeSelect?.(rangeBetween(current.start, current.end));
+            }
+          }}
+          onPointerCancel={() => {
+            drag.current = null;
+            setDragRange(undefined);
+          }}
+          onLostPointerCapture={() => {
+            drag.current = null;
+            setDragRange(undefined);
+          }}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget || !onRangeSelect || interactionDisabled) {
+              return;
+            }
+            if (event.key === "Escape") {
+              setDragRange(undefined);
+              setKeyboardAnchor(undefined);
+              return;
+            }
+            if (["Enter", " "].includes(event.key)) {
+              event.preventDefault();
+              onRangeSelect(rangeBetween(keyboardAnchor ?? keyboardMinute, keyboardMinute));
+              setKeyboardAnchor(undefined);
+              setDragRange(undefined);
+              return;
+            }
+            if (
+              !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(
+                event.key,
+              )
+            ) {
+              return;
+            }
+            event.preventDefault();
+            let next = keyboardMinute + (["ArrowLeft", "ArrowUp"].includes(event.key) ? -10 : 10);
+            if (event.key === "Home") {
+              next = 0;
+            }
+            if (event.key === "End") {
+              next = 1430;
+            }
+            next = Math.max(0, Math.min(1430, next));
+            const anchor = event.shiftKey ? (keyboardAnchor ?? keyboardMinute) : next;
+            setKeyboardMinute(next);
+            setKeyboardAnchor(event.shiftKey ? anchor : undefined);
+            setDragRange(rangeBetween(anchor, next));
+          }}
+        >
+          <title id={id}>하루 시간 기록</title>
+          {Array.from({ length: 144 }, (_, index) => (
+            <path
+              key={index}
+              d={ringPath(index * 10 + 0.4, (index + 1) * 10 - 0.4, 192, 236)}
+              className={styles.ringTrack}
+            />
+          ))}
+          {visibleSegments.map((segment) => (
             <path
               key={segment.id}
               d={ringPath(
@@ -632,12 +790,20 @@ export function CalendarDayRing({
               className={styles.ringSegment}
               style={{ [cssVar(styles.fill)]: plannerColors[segment.color] } as CSSProperties}
               data-kind={segment.kind ?? "recorded"}
-              role={onSegmentClick ? "button" : undefined}
-              tabIndex={onSegmentClick ? 0 : undefined}
+              role={onSegmentClick && segment.interactive !== false ? "button" : undefined}
+              tabIndex={onSegmentClick && segment.interactive !== false ? 0 : undefined}
               aria-label={segment.label}
-              onClick={() => onSegmentClick?.(segment)}
+              onClick={() => {
+                if (segment.interactive !== false) {
+                  onSegmentClick?.(segment);
+                }
+              }}
               onKeyDown={(event) => {
-                if (onSegmentClick && (event.key === "Enter" || event.key === " ")) {
+                if (
+                  onSegmentClick &&
+                  segment.interactive !== false &&
+                  (event.key === "Enter" || event.key === " ")
+                ) {
                   event.preventDefault();
                   onSegmentClick(segment);
                 }
@@ -646,46 +812,132 @@ export function CalendarDayRing({
               <title>{segment.label}</title>
             </path>
           ))}
-        {Array.from({ length: 144 }, (_, index) => {
-          const angle = (index / 144) * Math.PI * 2 - Math.PI / 2;
-          return (
-            <line
-              key={`divider-${index}`}
-              x1={316 + 192 * Math.cos(angle)}
-              y1={296 + 192 * Math.sin(angle)}
-              x2={316 + 236 * Math.cos(angle)}
-              y2={296 + 236 * Math.sin(angle)}
-              className={styles.ringDivider}
+          {Array.from({ length: 144 }, (_, index) => {
+            const angle = (index / 144) * Math.PI * 2 - Math.PI / 2;
+            return (
+              <line
+                key={`divider-${index}`}
+                x1={286 + 192 * Math.cos(angle)}
+                y1={286 + 192 * Math.sin(angle)}
+                x2={286 + 236 * Math.cos(angle)}
+                y2={286 + 236 * Math.sin(angle)}
+                className={styles.ringDivider}
+              />
+            );
+          })}
+          {Array.from({ length: 8 }, (_, index) => {
+            const hour = index * 3;
+            const angle = (hour / 24) * Math.PI * 2 - Math.PI / 2;
+            return (
+              <text
+                key={hour}
+                x={286 + 136 * Math.cos(angle)}
+                y={290 + 136 * Math.sin(angle)}
+                textAnchor="middle"
+                className={styles.ringLabel}
+              >
+                {hour}
+              </text>
+            );
+          })}
+          {selectedRange && (
+            <path
+              d={ringPath(selectedRange.startMinute, selectedRange.endMinute, 192, 236)}
+              className={styles.ringSelection}
+              pointerEvents="none"
             />
-          );
-        })}
-        {Array.from({ length: 8 }, (_, index) => {
-          const hour = index * 3;
-          const angle = (hour / 24) * Math.PI * 2 - Math.PI / 2;
-          return (
-            <text
-              key={hour}
-              x={316 + 136 * Math.cos(angle)}
-              y={300 + 136 * Math.sin(angle)}
-              textAnchor="middle"
-              className={styles.ringLabel}
-            >
-              {hour}
-            </text>
-          );
-        })}
-        <text x={316} y={270} textAnchor="middle" className={styles.ringCaption}>
-          {centerLabel}
-        </text>
-        <text x={316} y={310} textAnchor="middle" className={styles.ringCenter}>
-          {value}
-        </text>
-        <text x={316} y={340} textAnchor="middle" className={styles.ringCaption}>
-          {caption}
-        </text>
-      </svg>
+          )}
+          {showSegmentLabels &&
+            visibleSegments.map((segment) => {
+              const minute =
+                (Math.max(0, segment.startMinute) + Math.min(1440, segment.endMinute)) / 2;
+              const angle = (minute / 1440) * Math.PI * 2 - Math.PI / 2;
+              const x = 286 + 262 * Math.cos(angle);
+              const y = 286 + 262 * Math.sin(angle);
+              const anchor =
+                Math.cos(angle) > 0.2 ? "start" : Math.cos(angle) < -0.2 ? "end" : "middle";
+              const label = segment.displayLabel ?? segment.label;
+              return (
+                <g key={`label-${segment.id}`} aria-hidden="true" className={styles.ringAnnotation}>
+                  <line
+                    x1={286 + 240 * Math.cos(angle)}
+                    y1={286 + 240 * Math.sin(angle)}
+                    x2={286 + 256 * Math.cos(angle)}
+                    y2={286 + 256 * Math.sin(angle)}
+                    className={styles.ringConnector}
+                  />
+                  <text x={x} y={y} textAnchor={anchor} className={styles.ringSegmentLabel}>
+                    {label.length > 16 ? `${label.slice(0, 15)}…` : label}
+                  </text>
+                  {segment.detail && (
+                    <text x={x} y={y + 16} textAnchor={anchor} className={styles.ringSegmentDetail}>
+                      {segment.detail}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+          {now !== undefined && (
+            <g role="img" aria-label={nowLabel} className={styles.ringNow}>
+              <circle
+                cx={286 + 214 * Math.cos(nowAngle)}
+                cy={286 + 214 * Math.sin(nowAngle)}
+                r={15}
+                className={styles.ringNowHalo}
+              />
+              <circle
+                cx={286 + 214 * Math.cos(nowAngle)}
+                cy={286 + 214 * Math.sin(nowAngle)}
+                r={7}
+                className={styles.ringNowDot}
+              />
+              <text
+                x={286 + 264 * Math.cos(nowAngle)}
+                y={290 + 264 * Math.sin(nowAngle)}
+                textAnchor={Math.cos(nowAngle) > 0 ? "start" : "end"}
+                className={styles.ringNowLabel}
+              >
+                {nowLabel}
+              </text>
+            </g>
+          )}
+          <text x={286} y={258} textAnchor="middle" className={styles.ringCenterLabel}>
+            {centerLabel}
+          </text>
+          <text x={286} y={302} textAnchor="middle" className={styles.ringCenter}>
+            {value}
+          </text>
+          <text x={286} y={324} textAnchor="middle" className={styles.ringCaption}>
+            {caption}
+          </text>
+        </svg>
+        {overlay && <div className={styles.ringOverlay}>{overlay}</div>}
+      </div>
+      {onRangeSelect && (
+        <span id={`${id}-instructions`} className={styles.ringInstructions}>
+          원을 드래그해 10분 단위로 선택합니다. 키보드는 방향키로 이동하고 Shift와 방향키로 범위를
+          늘린 뒤 Enter를 누르세요.
+        </span>
+      )}
+      {onRangeSelect && (
+        <span className={styles.ringInstructions} aria-live="polite">
+          {dragRange &&
+            `${Math.floor(dragRange.startMinute / 60)}시 ${dragRange.startMinute % 60}분부터 ${Math.floor(dragRange.endMinute / 60)}시 ${dragRange.endMinute % 60}분까지 선택`}
+        </span>
+      )}
       <div className={styles.ringLegend}>
-        {legend ?? "칠한 칸　 ·　 일정　 ·　 집중 · 자동　 ·　 예정"}
+        {legend ??
+          [
+            { kind: "recorded", label: "칠한 칸" },
+            { kind: "event", label: "일정" },
+            { kind: "focus", label: "집중 · 자동" },
+            { kind: "planned", label: "예정" },
+          ].map((item) => (
+            <span key={item.kind} className={styles.ringLegendItem}>
+              <span aria-hidden="true" className={styles.ringLegendMark} data-kind={item.kind} />
+              {item.label}
+            </span>
+          ))}
       </div>
     </div>
   );

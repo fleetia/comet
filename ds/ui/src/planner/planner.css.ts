@@ -113,15 +113,22 @@ export const habitRow = style([
   base,
   {
     display: "grid",
-    gridTemplateColumns: "minmax(150px, 1fr) auto minmax(80px, 100px)",
+    gridTemplateColumns: "minmax(150px, 1fr) auto 96px",
     alignItems: "center",
-    gap: 16,
+    gap: 0,
     minHeight: 54,
     padding: "6px 16px",
+    borderBottom: `1px solid ${tokens["color/divider"]}`,
   },
 ]);
 export const habitSelected = style({ background: tokens["color/selected"] });
-export const habitDays = style({ display: "flex", alignItems: "center", gap: 16 });
+export const habitDays = style({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-around",
+  gap: 16,
+  padding: "0 8px",
+});
 export const habitToday = style({
   padding: 8,
   margin: -8,
@@ -130,7 +137,14 @@ export const habitToday = style({
 export const habitSummary = style({ textAlign: "right" });
 export const habitTable = style([
   card,
-  { padding: 0, width: 780, maxWidth: "100%", overflowX: "auto" },
+  {
+    padding: 0,
+    width: "100%",
+    maxWidth: "100%",
+    overflowX: "auto",
+    borderRadius: tokens["radius/radius-20"],
+    background: tokens["color/card-2"],
+  },
 ]);
 export const habitTableInner = style({ minWidth: 740 });
 export const tableHeader = style([
@@ -144,6 +158,35 @@ export const tableFooter = style([
     justifyContent: "space-between",
     padding: "10px 18px",
     borderTop: `1px solid ${tokens["color/divider"]}`,
+  },
+]);
+
+export const habitMonth = style([
+  card,
+  { width: "100%", padding: 12, gap: 8, borderRadius: tokens["radius/radius-18"] },
+]);
+export const habitMonthLabel = style({ fontSize: 12, fontWeight: 600, lineHeight: "16px" });
+export const habitMonthGrid = style({
+  display: "grid",
+  gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+  rowGap: 4,
+  justifyItems: "center",
+});
+export const habitMonthWeekday = style([muted, { fontSize: 10, lineHeight: "14px" }]);
+export const habitMonthDay = style([
+  habitDay,
+  {
+    fontSize: 11,
+    fontWeight: 400,
+    color: tokens["color/ink-3"],
+    selectors: {
+      '&[data-state="done"], &[data-state="goalMet"]': { color: tokens["color/check-ink"] },
+      '&[aria-current="date"]': {
+        outline: `1px dashed ${tokens["color/cat-record"]}`,
+        outlineOffset: -1,
+      },
+      '&[aria-pressed="true"]': { boxShadow: `0 0 0 1px ${tokens["color/selected-icon"]}` },
+    },
   },
 ]);
 
@@ -328,36 +371,130 @@ export const weekEvent = style({
   pointerEvents: "none",
 });
 export const weekEventBlock = style({ height: "100%", minHeight: 0, pointerEvents: "auto" });
-export const ring = style([card, { width: 632, maxWidth: "100%", padding: 16 }]);
-export const ringToolbar = style([row, { gap: 8, flexWrap: "wrap", fontSize: 12 }]);
+export const ring = style([
+  card,
+  {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 10,
+    width: 632,
+    maxWidth: "100%",
+    padding: "16px 20px",
+    borderRadius: tokens["radius/radius-22"],
+  },
+]);
+export const ringFill = style({ width: "100%" });
+export const ringToolbar = style([row, { width: "100%", gap: 8, flexWrap: "wrap", fontSize: 12 }]);
+export const ringHint = style([muted, { marginLeft: "auto" }]);
+export const ringCanvas = style({
+  position: "relative",
+  width: "100%",
+  maxWidth: 572,
+  marginBlock: "auto",
+});
 export const ringSvg = style({
   display: "block",
   width: "100%",
+  maxWidth: 572,
   height: "auto",
+  flexShrink: 0,
+  aspectRatio: "1",
   overflow: "visible",
+  selectors: {
+    '&[data-editable="true"]': { touchAction: "none", cursor: "crosshair" },
+    "&:focus-visible": {
+      outline: `2px solid ${tokens["color/focus-ring"]}`,
+      outlineOffset: 4,
+      borderRadius: "50%",
+    },
+  },
+});
+export const ringSelection = style({
+  fill: `color-mix(in srgb, ${tokens["color/comet"]} 20%, transparent)`,
+  stroke: tokens["color/comet"],
+  strokeWidth: 2,
+  strokeDasharray: "4 3",
+});
+export const ringOverlay = style({
+  position: "absolute",
+  inset: 0,
+  display: "grid",
+  placeItems: "center",
+  pointerEvents: "none",
+});
+export const ringInstructions = style({
+  position: "absolute",
+  width: 1,
+  height: 1,
+  padding: 0,
+  overflow: "hidden",
+  clipPath: "inset(50%)",
+  whiteSpace: "nowrap",
 });
 export const ringSegment = style({
   fill: fill,
   stroke: tokens["color/card-2"],
   strokeWidth: 0.8,
-  cursor: "pointer",
   selectors: {
+    '&[role="button"]': { cursor: "pointer" },
+    '&[data-kind="event"]': { fill: "transparent", stroke: fill, strokeWidth: 1.2 },
     '&[data-kind="planned"]': { fill: "transparent", stroke: fill, strokeDasharray: "3 2" },
     "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}` },
   },
 });
 export const ringCenter = style({
   fill: tokens["color/ink"],
-  fontSize: 30,
+  fontSize: 34,
   fontFamily: `${tokens["typography/display/title-sm/fontFamily"]}, sans-serif`,
 });
-export const ringCaption = style({ fill: tokens["color/ink-3"], fontSize: 12 });
-export const ringLabel = style({ fill: tokens["color/ink-2"], fontSize: 11 });
+export const ringCenterLabel = style({ fill: tokens["color/ink-2"], fontSize: 12.5 });
+export const ringCaption = style({ fill: tokens["color/ink-3"], fontSize: 11.5 });
+export const ringLabel = style({
+  fill: tokens["color/ink-3"],
+  fontSize: 12,
+  fontFamily: `${tokens["typography/display/title-sm/fontFamily"]}, sans-serif`,
+});
+export const ringAnnotation = style({ pointerEvents: "none" });
+export const ringConnector = style({ stroke: tokens["color/card-border"], strokeWidth: 1 });
+export const ringSegmentLabel = style({ fill: tokens["color/ink"], fontSize: 12.5 });
+export const ringSegmentDetail = style({ fill: tokens["color/ink-3"], fontSize: 11 });
+export const ringNow = style({ pointerEvents: "none" });
+export const ringNowHalo = style({ fill: tokens["color/comet"], opacity: 0.2 });
+export const ringNowDot = style({
+  fill: tokens["color/comet"],
+  stroke: tokens["color/document/backdrop-panel/sky"],
+  strokeWidth: 2,
+});
+export const ringNowLabel = style({ fill: tokens["color/comet"], fontSize: 12.5 });
 export const ringLegend = style([
   row,
-  muted,
-  { justifyContent: "center", flexWrap: "wrap", gap: 14 },
+  secondary,
+  { width: "100%", justifyContent: "center", flexWrap: "wrap", gap: 18 },
 ]);
+export const ringLegendItem = style([row, { gap: 6 }]);
+export const ringLegendMark = style({
+  boxSizing: "border-box",
+  width: 14,
+  height: 8,
+  borderRadius: 2,
+  background: tokens["color/cat-work"],
+  selectors: {
+    '&[data-kind="event"]': {
+      background: "transparent",
+      border: `1.2px solid ${tokens["color/event-google"]}`,
+    },
+    '&[data-kind="focus"]': {
+      background: tokens["color/cat-exercise"],
+      height: 2.4,
+      borderRadius: 0,
+    },
+    '&[data-kind="planned"]': {
+      background: "transparent",
+      border: `1.2px dashed ${tokens["color/ink-3"]}`,
+    },
+  },
+});
 
 export const ledgerTile = style({
   display: "inline-flex",
@@ -625,13 +762,14 @@ export const ringCategory = style([
   {
     gap: 6,
     border: `1px solid ${tokens["color/card-border"]}`,
-    borderRadius: 16,
-    padding: "5px 9px",
-    fontSize: 12,
+    borderRadius: 15,
+    minHeight: 32,
+    padding: "5px 11px",
+    fontSize: 13,
     selectors: {
       '&[aria-pressed="true"]': {
-        background: tokens["color/selected"],
-        borderColor: tokens["color/selected-border"],
+        background: `color-mix(in srgb, ${accent} 20%, transparent)`,
+        borderColor: accent,
       },
     },
   },

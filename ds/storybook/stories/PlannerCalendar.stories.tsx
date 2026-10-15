@@ -42,7 +42,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "날짜·일정·분류별 시간은 props로 전달합니다. 날짜 계산·외부 캘린더 연결·저장은 소비자 책임입니다. DayCell의 날짜/일정/더 보기, Week의 날짜/10분 슬롯/일정 동작을 각각 callback으로 연결합니다. DayRing은 startMinute/endMinute(0–1440) 데이터로 그리는 차트이며 원본 그림을 고정하지 않습니다.",
+          "날짜·일정·분류별 시간은 props로 전달합니다. 날짜 계산·외부 캘린더 연결·저장은 소비자 책임입니다. DayCell의 날짜/일정/더 보기, Week의 날짜/10분 슬롯/일정 동작을 각각 callback으로 연결합니다. DayRing은 startMinute/endMinute(0–1440) 데이터로 그리는 차트이며 원본 그림을 고정하지 않습니다. layout=fill은 부모 너비를 채우고 원은 가운데 572px 정사각형 안에 유지합니다. currentMinute와 showSegmentLabels로 현재 시각과 각 구간의 displayLabel/detail을 표시합니다.",
       },
     },
   },
@@ -274,30 +274,67 @@ export const Week: Story = {
   render: () => <WeekExample />,
 };
 const segments: CalendarRingSegment[] = [
-  { id: "walk", startMinute: 360, endMinute: 410, color: "exercise", label: "아침 산책 · 50분" },
-  { id: "work", startMinute: 540, endMinute: 720, color: "work", label: "메일 정리 · 3시간" },
-  { id: "lunch", startMinute: 720, endMinute: 780, color: "life", label: "점심 · 1시간" },
+  {
+    id: "walk",
+    startMinute: 360,
+    endMinute: 410,
+    color: "exercise",
+    label: "아침 산책 · 50분",
+    displayLabel: "아침 산책",
+    detail: "운동",
+  },
+  {
+    id: "work",
+    startMinute: 540,
+    endMinute: 720,
+    color: "work",
+    label: "메일 정리 · 3시간",
+    displayLabel: "메일 정리",
+    detail: "일",
+  },
+  {
+    id: "lunch",
+    startMinute: 720,
+    endMinute: 780,
+    color: "life",
+    label: "점심 · 1시간",
+    displayLabel: "점심",
+    detail: "생활",
+  },
   {
     id: "focus",
     startMinute: 790,
     endMinute: 860,
     color: "focus",
     label: "기획서 초안 · 집중",
+    displayLabel: "기획서 초안",
+    detail: "집중 · 자동",
     kind: "focus",
   },
-  { id: "book", startMinute: 860, endMinute: 900, color: "comet", label: "책 모임", kind: "event" },
+  {
+    id: "book",
+    startMinute: 860,
+    endMinute: 900,
+    color: "comet",
+    label: "책 모임",
+    detail: "일정 · comet",
+    kind: "event",
+  },
   {
     id: "plan",
     startMinute: 1020,
     endMinute: 1080,
     color: "work",
     label: "회의 준비 · 예정",
+    displayLabel: "회의 준비",
+    detail: "예정",
     kind: "planned",
   },
 ];
 function RingExample(): JSX.Element {
   const [color, setColor] = useState<PlannerColor>("exercise");
   const [selected, setSelected] = useState<CalendarRingSegment>();
+  const [selection, setSelection] = useState<{ startMinute: number; endMinute: number }>();
   return (
     <div>
       <CalendarDayRing
@@ -307,8 +344,13 @@ function RingExample(): JSX.Element {
         selectedColor={color}
         onColorChange={setColor}
         onSegmentClick={setSelected}
+        selection={selection}
+        onRangeSelect={setSelection}
       />
       <output aria-live="polite">{selected?.label}</output>
+      <output aria-live="polite">
+        {selection && `${selection.startMinute}분부터 ${selection.endMinute}분까지 선택`}
+      </output>
     </div>
   );
 }
@@ -316,4 +358,22 @@ export const DayRing: Story = {
   parameters: { controls: { disable: true } },
   name: "Day Ring · 데이터 차트",
   render: () => <RingExample />,
+};
+export const DayRingScreen: Story = {
+  parameters: { controls: { disable: true } },
+  name: "Day Ring · 다이어리 화면",
+  render: () => (
+    <div style={{ width: 822, maxWidth: "100%" }}>
+      <CalendarDayRing
+        layout="fill"
+        segments={segments}
+        value="6시간 40분"
+        caption="오전 6시부터 지금 오후 3:24까지"
+        selectedColor="work"
+        currentMinute={15 * 60 + 24}
+        currentTimeLabel="지금 3:24"
+        showSegmentLabels
+      />
+    </div>
+  ),
 };

@@ -19,7 +19,15 @@ import {
   plannedDay,
   ruleOf,
 } from "./plannerData";
-import type { DiaryNote } from "./diaryTypes";
+import type { DiaryAction, DiaryNote, DiaryState } from "./diaryTypes";
+import { DiaryTimeEditor } from "./DiaryTimeEditor";
+import {
+  diaryTimeCategories,
+  manualTimeSegments,
+  recordedTimeMinutes,
+  timeDuration,
+} from "./diaryTime";
+import { habitCompleted, habitScheduled } from "./diaryHabitData";
 import * as s from "./diary.css";
 
 export function DiaryToday({
@@ -34,6 +42,11 @@ export function DiaryToday({
   onTasks,
   onEvent,
   onNotes,
+  state,
+  onDiaryAction,
+  onDirtyChange,
+  onHabits,
+  onLedger,
 }: {
   day: string;
   widgets: WidgetView[];
@@ -45,7 +58,12 @@ export function DiaryToday({
   onTask: (item: DataRecord) => void;
   onTasks: () => void;
   onEvent: (event: DataRecord) => void;
-  onNotes: () => void;
+  onNotes: (id: string) => void;
+  state?: DiaryState;
+  onDiaryAction?: DiaryAction;
+  onDirtyChange?: (dirty: boolean) => void;
+  onHabits?: () => void;
+  onLedger?: () => void;
 }): ReactElement {
   const [now, setNow] = useState(Date.now());
   const [tab, setTab] = useState("summary");
@@ -71,6 +89,8 @@ export function DiaryToday({
           color: "focus" as const,
           kind: "focus" as const,
           label: `${session.title} · ${focusDuration(Math.min(end, segment.endAt) - Math.max(start, segment.startAt))}`,
+          displayLabel: session.title,
+          detail: "집중 · 자동",
         })),
     ),
     ...appointments
@@ -82,9 +102,20 @@ export function DiaryToday({
         color: event.connectionId === "local" ? ("comet" as const) : ("google" as const),
         kind: "event" as const,
         label: `${eventTime(event)} · ${text(event.title)}`,
+        displayLabel: text(event.title),
+        detail: eventTime(event),
       })),
   ];
   const tasks = items.filter((item) => plannedDay(item) === day);
+  const currentMinute = new Date(now).getHours() * 60 + new Date(now).getMinutes();
+  const elapsed = day < localDay() ? 1440 : day > localDay() ? 0 : currentMinute;
+  const manual = state ? manualTimeSegments(state, day, elapsed) : [];
+  const habits = (state?.habits ?? []).filter(
+    (habit) => !habit.archived && habitScheduled(habit, day),
+  );
+  const spent = (state?.ledgerEntries ?? []).filter(
+    (entry) => entry.date === day && entry.kind === "expense",
+  );
   const completedIds = new Set(
     tasks
       .filter((item) =>
@@ -96,19 +127,50 @@ export function DiaryToday({
   );
   return (
     <div className={s.todayLayout}>
-      <CalendarDayRing
-        className={s.todayRing}
-        segments={segments}
-        centerLabel="집중한 시간"
-        showCategoryControls={false}
-        value={focusDuration(total)}
-        caption="실제 집중한 시간 · 일정은 안쪽 링에 보여요"
-        legend="집중한 시간　 ·　 연결된 일정"
-      />
+      {state && onDiaryAction ? (
+        <DiaryTimeEditor
+          key={day}
+          className={s.todayRing}
+          state={state}
+          date={day}
+          onAction={onDiaryAction}
+          onDirtyChange={onDirtyChange}
+          busy={busy}
+          additionalSegments={segments}
+          currentMinute={currentMinute}
+          onAdditionalSegmentClick={(segment) => {
+            const event = appointments.find((item) => `event:${text(item.id)}` === segment.id);
+            if (event) onEvent(event);
+          }}
+        />
+      ) : (
+        <CalendarDayRing
+          className={s.todayRing}
+          layout="fill"
+          currentMinute={
+            day === localDay()
+              ? new Date(now).getHours() * 60 + new Date(now).getMinutes()
+              : undefined
+          }
+          currentTimeLabel={
+            day === localDay()
+              ? `지금 ${new Date(now).toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" })}`
+              : undefined
+          }
+          showSegmentLabels
+          segments={segments}
+          centerLabel="집중한 시간"
+          showCategoryControls={false}
+          value={focusDuration(total)}
+          caption="실제 집중한 시간 · 일정은 안쪽 링에 보여요"
+          legend="집중한 시간　 ·　 연결된 일정"
+        />
+      )}
       <aside className={s.todaySummary} aria-label="오늘 요약">
         {journal && (
           <SegmentedControl
             label="오늘 보기"
+            appearance="contained"
             value={tab}
             options={[
               { value: "summary", label: "요약" },
@@ -120,8 +182,24 @@ export function DiaryToday({
         <div hidden={tab !== "summary"} className={s.todaySummary}>
           <CalendarSummaryCard
             kind="categoryTime"
-            title="집중한 시간"
+            title={state ? "분류별 시간" : "집중한 시간"}
             metrics={[
+              ...(state
+                ? diaryTimeCategories(state)
+                    .map((category) => {
+                      const minutes = recordedTimeMinutes(
+                        manual.filter((segment) => state.timeRecords?.some((record) => record.categoryId === category.id && segment.id === `manual:${record.id}`)),
+                      );
+                      return {
+                        id: category.id,
+                        label: category.name,
+                        value: minutes * 60000,
+                        valueLabel: timeDuration(minutes),
+                        color: category.color,
+                      };
+                    })
+                    .filter((metric) => metric.value > 0)
+                : []),
               {
                 id: "focus",
                 label: "집중",
@@ -148,6 +226,32 @@ export function DiaryToday({
           >
             {!tasks.length && <p className={s.caption}>이날 계획한 할 일이 없어요.</p>}
           </CalendarSummaryCard>
+          {state && (
+            <>
+              <CalendarSummaryCard
+                kind="habits"
+                onViewAll={onHabits}
+                habits={habits.map((habit) => ({
+                  id: habit.id,
+                  label: habit.title,
+                  done: habitCompleted(
+                    habit,
+                    state.habitChecks?.find(
+                      (check) => check.habitId === habit.id && check.date === day,
+                    ),
+                  ),
+                }))}
+              >
+                {!habits.length && <p className={s.caption}>이날 예정된 습관이 없어요.</p>}
+              </CalendarSummaryCard>
+              <CalendarSummaryCard
+                kind="spending"
+                amount={`${spent.reduce((sum, entry) => sum + entry.amount, 0).toLocaleString("ko-KR")}원`}
+                description={`${spent.length}건`}
+                onViewAll={onLedger}
+              />
+            </>
+          )}
           <section className={s.summaryCard} aria-label="오늘 일정">
             <h3 className={s.summaryTitle}>오늘 일정</h3>
             {!appointments.length && <p className={s.caption}>이날 예정된 일정이 없어요.</p>}
@@ -168,7 +272,7 @@ export function DiaryToday({
               title={note.title}
               description={note.body.split(/\r?\n/)[0]}
               layout="preview"
-              onClick={onNotes}
+              onClick={() => onNotes(note.id)}
             />
           ))}
         </div>

@@ -5,6 +5,19 @@ import type { WidgetView } from "../types";
 
 afterEach(cleanup);
 
+it("opens the selected note and routes habit and spending summaries", () => {
+  const onNotes = vi.fn(), onHabits = vi.fn(), onLedger = vi.fn();
+  const notes = [{ id: "first", title: "첫 메모", body: "본문", pinned: false }, { id: "second", title: "둘째 메모", body: "본문", pinned: false }];
+  render(<DiaryToday day="2026-10-08" widgets={[]} items={[]} events={[]} notes={notes} busy={false} onTask={vi.fn()} onTasks={vi.fn()} onEvent={vi.fn()} onNotes={onNotes} onHabits={onHabits} onLedger={onLedger} state={{revision:0,pages:[],notes,moves:[],ledgerEntries:[{id:"expense",date:"2026-10-08",kind:"expense",amount:12000,category:"food",title:"점심",memo:""},{id:"income",date:"2026-10-08",kind:"income",amount:50000,category:"other",title:"수입",memo:""}]}} />);
+  fireEvent.click(screen.getByRole("button", { name: /둘째 메모/ }));
+  expect(onNotes).toHaveBeenCalledExactlyOnceWith("second");
+  fireEvent.click(within(screen.getByRole("region", {name:"오늘의 습관"})).getByRole("button", {name:"모두 보기"}));
+  expect(onHabits).toHaveBeenCalledOnce();
+  expect(screen.getByText("12,000원")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", {name:"가계부"}));
+  expect(onLedger).toHaveBeenCalledOnce();
+});
+
 it("shows real focus intervals clipped to the selected day and routes the exact task", () => {
   const onTask = vi.fn();
   const task = { id: "task", title: "초안 마무리", plannedDate: "2026-10-08", completedAt: null };

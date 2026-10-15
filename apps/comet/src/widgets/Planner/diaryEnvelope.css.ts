@@ -1,12 +1,17 @@
 import { style } from "@vanilla-extract/css";
 import { semanticVars as v, vnextVars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 
 export const page = style({
   display: "flex",
   flexDirection: "column",
-  gap: 28,
+  gap: 22,
   minWidth: 0,
-  padding: "0 0 24px",
+  padding: 22,
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: tokens["radius/radius-22"],
+  background: tokens["color/card-2"],
+  boxSizing: "border-box",
   minHeight: "100%",
   color: v.color.content.primary,
 });
@@ -133,7 +138,7 @@ export const dateBanner = style([
 export const columns = style({
   display: "grid",
   gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)",
-  gap: 32,
+  gap: 24,
   minHeight: 390,
   "@media": { "(max-width: 1080px)": { gridTemplateColumns: "minmax(0,1fr)", gap: 24 } },
 });

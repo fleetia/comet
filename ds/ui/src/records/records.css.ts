@@ -305,6 +305,8 @@ export const recordEntry = style([
 ]);
 export const recordEntryLinked = style({ minHeight: 70, borderTop: 0 });
 export const recordEntryReview = style({ minHeight: 67 });
+export const recordEntryFill = style({ width: "100%", paddingTop: 12, fontSize: 14, lineHeight: "20px" });
+export const recordEntryFirst = style({ borderTop: 0 });
 export const date = style({
   width: 66,
   flexShrink: 0,
@@ -379,6 +381,7 @@ export const quickAdd = style([
     background: tokens["color/input"],
   },
 ]);
+export const pageQuickAdd = style({ width: "100%", height: 46, padding: "6px 8px 6px 16px", borderRadius: tokens["radius/radius-16"], fontSize: 14 });
 export const quickKind = style({
   appearance: "none",
   border: `1px solid ${tokens["color/card-border"]}`,
@@ -465,6 +468,7 @@ export const taskSelected = style({
   borderRadius: 12,
 });
 export const taskDiary = style({ width: 1180, minHeight: 40, padding: "6px 12px" });
+export const taskWithoutDivider = style({ borderTop: "none" });
 export const taskEnvelope = style({ width: 420, minHeight: 40, gap: 10, padding: "9px 12px" });
 export const taskText = style({ display: "flex", alignItems: "center", gap: 6, minWidth: 0 });
 export const taskTitle = style({ fontSize: 14, lineHeight: "19px" });

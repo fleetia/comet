@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HabitDay, HabitWeekTable } from "./Habit";
@@ -213,10 +213,102 @@ describe("planner composition", () => {
   });
 
   it("can show a recorded-time ring without offering manual painting controls", () => {
-    render(<CalendarDayRing segments={[]} value="0분" centerLabel="집중한 시간" showCategoryControls={false} />);
+    render(
+      <CalendarDayRing
+        segments={[]}
+        value="0분"
+        centerLabel="집중한 시간"
+        showCategoryControls={false}
+      />,
+    );
     expect(screen.getByText("집중한 시간")).toBeDefined();
     expect(screen.queryByText("칠할 분류")).toBeNull();
     expect(screen.queryByRole("button", { name: "일" })).toBeNull();
+  });
+
+  it("shows data labels and the supplied current time without creating marks outside the day", () => {
+    const segment = {
+      id: "focus",
+      startMinute: 540,
+      endMinute: 600,
+      color: "focus" as const,
+      label: "기획서 집중 · 1시간",
+      displayLabel: "기획서 집중",
+      detail: "집중 · 자동",
+    };
+    const { rerender } = render(
+      <CalendarDayRing
+        segments={[
+          segment,
+          { ...segment, id: "before", startMinute: -60, endMinute: 0, displayLabel: "전날 기록" },
+          {
+            ...segment,
+            id: "after",
+            startMinute: 1440,
+            endMinute: 1500,
+            displayLabel: "다음 날 기록",
+          },
+        ]}
+        value="1시간"
+        layout="fill"
+        showSegmentLabels
+        currentMinute={9 * 60 + 24}
+        legend="집중 기록"
+      />,
+    );
+    expect(screen.getByText("기획서 집중")).toBeDefined();
+    expect(screen.getByText("집중 · 자동")).toBeDefined();
+    expect(screen.getByRole("img", { name: "지금 9:24" })).toBeDefined();
+    expect(screen.queryByText("전날 기록")).toBeNull();
+    expect(screen.queryByText("다음 날 기록")).toBeNull();
+    rerender(<CalendarDayRing segments={[segment]} value="1시간" currentMinute={Number.NaN} />);
+    expect(screen.queryByText("기획서 집중")).toBeNull();
+    expect(screen.queryByRole("img")).toBeNull();
+  });
+
+  it("selects midnight and extended ranges from the keyboard and ignores disabled painting", () => {
+    const select = vi.fn();
+    const { rerender } = render(
+      <CalendarDayRing segments={[]} value="0분" onRangeSelect={select} />,
+    );
+    const ring = screen.getByRole("group", { name: "하루 시간 기록" });
+    fireEvent.keyDown(ring, { key: "End" });
+    fireEvent.keyDown(ring, { key: "Enter" });
+    expect(select).toHaveBeenLastCalledWith({ startMinute: 1430, endMinute: 1440 });
+    fireEvent.keyDown(ring, { key: "Home", shiftKey: true });
+    fireEvent.keyDown(ring, { key: "Enter" });
+    expect(select).toHaveBeenLastCalledWith({ startMinute: 0, endMinute: 1440 });
+    rerender(
+      <CalendarDayRing segments={[]} value="0분" onRangeSelect={select} interactionDisabled />,
+    );
+    fireEvent.keyDown(ring, { key: "Enter" });
+    expect(select).toHaveBeenCalledTimes(2);
+  });
+
+  it("paints pointer ranges in ten-minute cells and cancels interrupted drags", () => {
+    const select = vi.fn();
+    render(<CalendarDayRing segments={[]} value="0분" onRangeSelect={select} />);
+    const ring = screen.getByRole("group", { name: "하루 시간 기록" });
+    vi.spyOn(ring, "getBoundingClientRect").mockReturnValue({ left: 0, top: 0, width: 572, height: 572, x: 0, y: 0, bottom: 572, right: 572, toJSON: () => ({}) });
+    Object.defineProperty(ring, "setPointerCapture", { value: vi.fn() });
+    function pointer(type: string, minute: number): void {
+      const angle = minute / 1440 * Math.PI * 2 - Math.PI / 2;
+      const event = new Event(type, { bubbles: true });
+      Object.assign(event, { button: 0, pointerId: 1, clientX: 286 + 214 * Math.cos(angle), clientY: 286 + 214 * Math.sin(angle) });
+      fireEvent(ring, event);
+    }
+    pointer("pointerdown", 365);
+    pointer("pointermove", 545);
+    pointer("pointerup", 545);
+    expect(select).toHaveBeenCalledExactlyOnceWith({ startMinute: 360, endMinute: 550 });
+    pointer("pointerdown", 1435);
+    pointer("pointermove", 5);
+    pointer("pointerup", 5);
+    expect(select).toHaveBeenLastCalledWith({ startMinute: 1430, endMinute: 1440 });
+    pointer("pointerdown", 365);
+    pointer("pointercancel", 365);
+    pointer("pointerup", 365);
+    expect(select).toHaveBeenCalledTimes(2);
   });
 
   it("does not create a hidden note editor when the records consumer supplies no note", () => {

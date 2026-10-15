@@ -370,5 +370,16 @@ fn old_diary_entries_without_item_ids_remain_readable() {
         .entries
         .iter()
         .all(|entry| entry.item_id.is_none()));
-    assert_eq!(serde_json::to_value(state).unwrap(), old);
+    let migrated = serde_json::to_value(&state).unwrap();
+    for key in ["revision", "pages", "notes", "moves"] {
+        assert_eq!(migrated[key], old[key], "legacy {key} must be preserved");
+    }
+    assert!(state.habits.is_empty());
+    assert!(state.habit_checks.is_empty());
+    assert!(!state.habit_feedback_enabled);
+    assert!(state.ledger_entries.is_empty());
+    assert!(state.ledger_recurring.is_empty());
+    assert_eq!(state.ledger_settings, ledger::LedgerSettings::default());
+    assert!(state.time_records.is_empty());
+    assert!(state.time_categories.is_empty());
 }

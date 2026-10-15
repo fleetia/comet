@@ -30,6 +30,7 @@ export type TaskRowProps = Omit<
   repeat?: ReactNode;
   envelope?: ReactNode;
   layout?: "task" | "diary" | "envelope";
+  divider?: boolean;
 };
 
 export const TaskRow = forwardRef<HTMLDivElement, TaskRowProps>(
@@ -49,6 +50,7 @@ export const TaskRow = forwardRef<HTMLDivElement, TaskRowProps>(
       repeat,
       envelope,
       layout = "task",
+      divider = true,
       className,
       ...props
     },
@@ -61,6 +63,7 @@ export const TaskRow = forwardRef<HTMLDivElement, TaskRowProps>(
         styles.task,
         layout === "diary" && styles.taskDiary,
         layout === "envelope" && styles.taskEnvelope,
+        !divider && styles.taskWithoutDivider,
         selected && styles.taskSelected,
         className,
       ]
@@ -105,9 +108,9 @@ export const TaskRow = forwardRef<HTMLDivElement, TaskRowProps>(
           {list}
         </span>
       )}
-      {repeat && (
+      {(repeat || layout === "diary") && (
         <span className={styles.taskRepeat}>
-          <Icon name="repeat" size={13} />
+          {repeat && <Icon name="repeat" size={13} />}
           {repeat}
         </span>
       )}

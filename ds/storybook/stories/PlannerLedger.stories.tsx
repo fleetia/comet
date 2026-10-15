@@ -48,7 +48,7 @@ function QuickAddExample(): JSX.Element {
     <div className="comet-catalog-stack">
       <LedgerQuickAdd
         categories={categories}
-        defaultAmount="4500"
+        defaultAmount="4,500"
         defaultCategory="cafe"
         onAdd={setAdded}
       />

@@ -10,5 +10,5 @@ pub(crate) fn initialize(db: &Connection) -> Result<(), String> {
         [serde_json::json!({ "revision": 0, "pages": [], "notes": [], "moves": [] }).to_string()],
     )
     .map_err(|error| error.to_string())?;
-    Ok(())
+    super::runtime::initialize(db)
 }

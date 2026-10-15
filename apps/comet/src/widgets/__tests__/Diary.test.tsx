@@ -98,11 +98,10 @@ function showToday(): void {
 
 function showPage(title: string): void {
   fireEvent.click(screen.getByRole("link", { name: "내 페이지" }));
-  fireEvent.click(
-    within(screen.getByRole("navigation", { name: "내 페이지 목록" })).getByRole("button", {
-      name: title,
-    }),
-  );
+  const option = screen.getByRole("option", { name: title }) as HTMLOptionElement;
+  fireEvent.change(screen.getByRole("combobox", { name: "내 페이지 선택" }), {
+    target: { value: option.value },
+  });
 }
 
 function chooseDay(date: string): void {
@@ -858,7 +857,7 @@ it("adds an original desktop memo reference from persistent notes to an undated 
   await openDiary();
   showPage("생각 모음");
   showNotes();
-  fireEvent.click(screen.getByRole("button", { name: "원본 메모 연결" }));
+  fireEvent.click(screen.getByRole("button", { name: "페이지에 연결" }));
   await screen.findByText("이 페이지에 연결했어요.");
   expect(actions("update_diary")).toEqual([
     {
@@ -923,25 +922,31 @@ it("keeps the calendar and embedded task manager on one date and preserves pinne
   chooseDay(NEXT_DAY);
   showNotes();
   expect(
-    within(screen.getByRole("region", { name: "계속 쓸 메모" })).getByText("모든 날짜의 안내"),
-  ).toBeTruthy();
+    within(screen.getByRole("region", { name: "계속 쓸 메모" })).getByRole("textbox", {
+      name: "메모 내용",
+    }),
+  ).toHaveProperty("value", "모든 날짜의 안내");
   await showTasks("today");
   expect(await screen.findByRole("checkbox", { name: "다음 날 작업" })).toBeTruthy();
-  expect(screen.queryByRole("checkbox", { name: "오늘 작업" })).toBeNull();
+  expect(screen.getByRole("checkbox", { name: "오늘 작업" })).toBeTruthy();
   showNotes();
   expect(
-    within(screen.getByRole("region", { name: "계속 쓸 메모" })).getByText("모든 날짜의 안내"),
-  ).toBeTruthy();
+    within(screen.getByRole("region", { name: "계속 쓸 메모" })).getByRole("textbox", {
+      name: "메모 내용",
+    }),
+  ).toHaveProperty("value", "모든 날짜의 안내");
   await showTasks("today");
-  fireEvent.click(screen.getByRole("button", { name: "이전 날짜" }));
+  fireEvent.change(screen.getByLabelText("새 할 일 계획일"), { target: { value: DAY } });
   expect(screen.getByRole("checkbox", { name: "오늘 작업" })).toBeTruthy();
-  expect(screen.getByText("10월 3일 토요일")).toBeTruthy();
+  expect(screen.getByLabelText("새 할 일 계획일")).toHaveProperty("value", DAY);
   showToday();
   expect(screen.getByRole("checkbox", { name: "오늘 작업" })).toBeTruthy();
   showNotes();
   expect(
-    within(screen.getByRole("region", { name: "계속 쓸 메모" })).getByText("모든 날짜의 안내"),
-  ).toBeTruthy();
+    within(screen.getByRole("region", { name: "계속 쓸 메모" })).getByRole("textbox", {
+      name: "메모 내용",
+    }),
+  ).toHaveProperty("value", "모든 날짜의 안내");
   expect(actions("execute_widget")).toEqual([]);
   expect(actions("update_diary")).toEqual([]);
 });
@@ -1050,15 +1055,17 @@ it("searches both memo stores and restores a desktop sheet without mutating Diar
   vi.mocked(command).mockImplementation((name, args) =>
     name === "open_memo_note" ? Promise.resolve(undefined) : fallback(name, args),
   );
-  fireEvent.change(screen.getByRole("textbox", { name: "메모 검색" }), {
+  fireEvent.change(screen.getByRole("searchbox", { name: "메모 검색" }), {
     target: { value: "발표" },
   });
   expect(
-    within(screen.getByRole("region", { name: "계속 쓸 메모" })).queryByText("계획"),
-  ).toBeTruthy();
+    within(screen.getByRole("region", { name: "계속 쓸 메모" })).queryByRole("button", {
+      name: "계획 메모 열기",
+    }),
+  ).toBeNull();
   expect(screen.queryByRole("heading", { name: "계획" })).toBeNull();
-  expect(screen.getByRole("heading", { name: "발표 준비" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "회의 메모 그대로" }));
+  expect(screen.getByRole("textbox", { name: "메모 제목" })).toHaveProperty("value", "발표 준비");
+  fireEvent.click(screen.getByRole("button", { name: "바탕화면에 꺼내기" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("open_memo_note", { id: "memo", noteId: "desktop" }),
   );
@@ -1067,7 +1074,7 @@ it("searches both memo stores and restores a desktop sheet without mutating Diar
   expect(widgets.widgets[0].data).toEqual({
     notes: [desktopNote],
   });
-  fireEvent.change(screen.getByRole("textbox", { name: "메모 검색" }), {
+  fireEvent.change(screen.getByRole("searchbox", { name: "메모 검색" }), {
     target: { value: "내일" },
   });
   expect(screen.queryByRole("button", { name: "회의 메모 그대로" })).toBeNull();
@@ -1089,22 +1096,25 @@ it("locks desktop memo creation and restore together and exposes command failure
         })
       : fallback(name, args),
   );
-  fireEvent.click(screen.getByRole("button", { name: "+ 새 메모" }));
+  fireEvent.click(screen.getByRole("button", { name: "+ 새 바탕화면 메모" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("create_memo_note", { id: "memo" }));
-  expect(screen.getByRole("button", { name: "+ 새 메모" })).toHaveProperty("disabled", true);
-  expect(screen.getByRole("button", { name: "넣기" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "+ 새 바탕화면 메모" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  expect(screen.getByRole("button", { name: "넣어두기" })).toHaveProperty("disabled", true);
   await act(async () => finish?.());
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: "넣기" })).toHaveProperty("disabled", false),
+    expect(screen.getByRole("button", { name: "넣어두기" })).toHaveProperty("disabled", false),
   );
   vi.mocked(command).mockImplementation((name, args) =>
     name === "request_close_memo_note"
       ? Promise.reject(new Error("메모 저장 실패"))
       : fallback(name, args),
   );
-  fireEvent.click(screen.getByRole("button", { name: "넣기" }));
+  fireEvent.click(screen.getByRole("button", { name: "넣어두기" }));
   expect((await screen.findByRole("alert")).textContent).toContain("메모 저장 실패");
-  expect(screen.getByRole("button", { name: "남길 메모" })).toBeTruthy();
+  expect(screen.getByRole("textbox", { name: "메모 내용" })).toHaveProperty("value", "남길 메모");
   expect(actions("close_memo_note")).toEqual([]);
 });
 
@@ -1128,12 +1138,10 @@ it.each(["pinned", "stored"] as const)(
     const remaining = cancelFirst === "pinned" ? "stored" : "pinned";
     await openDiary();
     showNotes();
-    const search = screen.getByRole("textbox", { name: "메모 검색" });
-    fireEvent.click(screen.getByRole("button", { name: "곁에 둔 생각 메모 편집" }));
+    const search = screen.getByRole("searchbox", { name: "메모 검색" });
     fireEvent.change(screen.getByRole("textbox", { name: "메모 내용" }), {
       target: { value: drafts.pinned },
     });
-    fireEvent.click(screen.getByRole("button", { name: "넣어둔 메모 1개" }));
     fireEvent.click(screen.getByRole("button", { name: "넣어둔 생각 메모 열기" }));
     fireEvent.change(
       within(screen.getByRole("article", { name: "넣어둔 생각 메모" })).getByRole("textbox", {
@@ -1141,10 +1149,11 @@ it.each(["pinned", "stored"] as const)(
       }),
       { target: { value: drafts.stored } },
     );
+    fireEvent.click(screen.getByRole("button", { name: `${titles[cancelFirst]} 메모 열기` }));
     fireEvent.click(
       within(screen.getByRole("article", { name: `${titles[cancelFirst]} 메모` })).getByRole(
         "button",
-        { name: "취소" },
+        { name: "변경 취소" },
       ),
     );
     fireEvent.change(search, { target: { value: "일치하지 않는 검색" } });
@@ -1159,6 +1168,7 @@ it.each(["pinned", "stored"] as const)(
     expect(native.destroy).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
     fireEvent.change(search, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: `${titles[remaining]} 메모 열기` }));
     const editor = within(screen.getByRole("article", { name: `${titles[remaining]} 메모` }));
     expect(editor.getByRole("textbox", { name: "메모 내용" })).toHaveProperty(
       "value",
@@ -1166,7 +1176,7 @@ it.each(["pinned", "stored"] as const)(
     );
     expect(actions("update_diary")).toEqual([]);
     expect(actions("execute_widget")).toEqual([]);
-    fireEvent.click(editor.getByRole("button", { name: "취소" }));
+    fireEvent.click(editor.getByRole("button", { name: "변경 취소" }));
     fireEvent.click(screen.getByRole("button", { name: "다이어리 닫기" }));
     await waitFor(() => expect(native.destroy).toHaveBeenCalledOnce());
     expect(screen.queryByRole("dialog")).toBeNull();
