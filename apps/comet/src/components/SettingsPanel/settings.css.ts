@@ -1,6 +1,7 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { semanticVars as vars } from "@fleetia/lagrange/theme";
 import { tokens } from "@comet/token";
+import settingsNight from "../../assets/figma/settings-night.svg";
 import * as common from "../../lagrange.css";
 import * as windowHeader from "../WindowHeader/windowHeader.css";
 export const window = style({
@@ -10,11 +11,17 @@ export const window = style({
   overflow: "hidden",
   color: vars.color.content.primary,
   background: tokens["color/glass-window"],
-  backdropFilter: tokens["backdrop/backdrop-window"],
+  backgroundImage: `url("${settingsNight}")`,
+  backgroundSize: "cover",
+  backgroundPosition: "center top",
+  backgroundRepeat: "no-repeat",
   border: `1px solid ${tokens["color/glass-border"]}`,
   borderRadius: tokens["radius/radius-22"],
   boxSizing: "border-box",
   fontSize: vars.typography.size.body,
+});
+globalStyle(`${window} dialog::backdrop`, {
+  borderRadius: tokens["radius/radius-22"],
 });
 export const preview = style({
   height: 720,

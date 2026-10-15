@@ -605,6 +605,7 @@ pub(crate) fn show_settings_section(
     .inner_size(preferred_size.0, preferred_size.1)
     .min_inner_size(960.0, 640.0)
     .decorations(false)
+    .transparent(true)
     .maximizable(false)
     .build()
     .map_err(|e| e.to_string())?;
