@@ -1,4 +1,4 @@
-import { Button, Checkbox, DateField, FormField, Select } from "@fleetia/lagrange";
+import { Button, Checkbox, DateField, FormField, Select } from "../../ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { localDay, text, type DataRecord, type ToolAction } from "../toolData";
 import { PLANNER_TEMPLATES, templateItems } from "./templateCatalog";

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { DEFAULT_APPEARANCE } from "../widgetAppearance";
 import { command, isDesktop } from "../../hooks/useSnapshot";
 import { WidgetDisplay } from "../WidgetDisplay/WidgetDisplay";
 import { PREVIEW_WIDGETS, useWidgets } from "../useWidgets";
@@ -162,4 +163,37 @@ it("keeps a missing weather condition unknown and gives overflow content its own
   Object.defineProperty(content, "clientHeight", { value: 300 });
   moveContent();
   expect(startDragging).toHaveBeenCalledTimes(1);
+});
+
+it("uses the Figma clock for backend-initialized default appearance and preserves custom layouts", () => {
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: snapshot(
+      widget("clock", { format: "24h", anniversaries: [], appearance: DEFAULT_APPEARANCE }),
+    ),
+    error: null,
+    reload: vi.fn(),
+  });
+  render(<WidgetDisplay id="clock" />);
+  expect(screen.queryByText("기념일을 설정해 주세요.")).toBeNull();
+  expect(screen.getByRole("region", { name: "위젯 표시 내용" }).textContent).toMatch(
+    /\d{1,2}:\d{2}/,
+  );
+  expect(screen.getByRole("main").style.backgroundColor).toBe("");
+});
+
+it("labels a cached weather observation as stale in the freeform widget", () => {
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: snapshot(
+      widget("weather", {
+        status: "error",
+        appearance: DEFAULT_APPEARANCE,
+        observation: { name: "서울", temperature: 21, temperatureUnit: "°C", weatherCode: 0 },
+      }),
+    ),
+    error: null,
+    reload: vi.fn(),
+  });
+  render(<WidgetDisplay id="weather" />);
+  expect(screen.getByText("21°C")).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toContain("이전 정보");
 });

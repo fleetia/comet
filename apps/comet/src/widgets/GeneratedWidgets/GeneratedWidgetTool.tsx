@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { Button, TextField } from "@fleetia/lagrange";
+import { Button, TextField } from "../../ui";
 import { listen } from "@tauri-apps/api/event";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { WidgetFrame } from "../WidgetFrame/WidgetFrame";

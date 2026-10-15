@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { TauriEvent } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Button, Checkbox, FormField, Select, TextArea, TextField } from "@fleetia/lagrange";
+import { Button, Checkbox, FormField, Select, TextArea, TextField } from "../../ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type {
   AnimationAsset,

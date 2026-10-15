@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { ActionBar, Button, Select, SelectableListRow, Surface, TextArea } from "@fleetia/lagrange";
+import { ActionBar, Button, Select, SelectableListRow, Surface, TextArea } from "../../ui";
 import { command, errorText } from "../../hooks/useSnapshot";
 import type { CharacterDialogue, InstalledCharacter, SceneLine, WordbookEntry } from "../../types";
 import { MotionSelect, motionError, motionOwner } from "../MotionSelect/MotionSelect";

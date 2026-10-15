@@ -1,5 +1,9 @@
-import { Button, Checkbox, Dialog, Heading, Inline, Surface, Text } from "@fleetia/lagrange";
-import { useCallback, useEffect, useId, useRef, useState, type ReactElement } from "react";
+import { Button, Checkbox, Dialog, Heading, Inline, Surface, Text } from "../../ui";
+import { SettingControlRow, SettingsSummary, Switch } from "@comet/ui";
+import { Icon, SparkleIcon } from "@comet/icon";
+import { WidgetDetailPreview } from "./WidgetDetailPreview";
+import { ClockSettings } from "../PlanningTools/PlanningTools";
+import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { WindowHeader } from "../../components/WindowHeader/WindowHeader";
@@ -7,11 +11,11 @@ import { useWidgets } from "../useWidgets";
 import { useGeneratedWidgets } from "../GeneratedWidgets/useGeneratedWidgets";
 import { useWidgetRuntime } from "../useWidgetRuntime";
 import type { WidgetView, WindowState } from "../types";
-import { type ToolAction } from "../toolData";
+import { record, type ToolAction } from "../toolData";
 import * as common from "../../lagrange.css";
 import { CONFIGURABLE_WIDGETS, DISPLAY_KINDS, WidgetSettings } from "./WidgetSettings";
 import { GeneratedWidgetSettings } from "./GeneratedWidgetSettings";
-import { WidgetCatalog, type WidgetListEntry } from "./WidgetCatalog";
+import { WIDGET_ICONS, WidgetCatalog, type WidgetListEntry } from "./WidgetCatalog";
 import { WidgetGuide } from "./WidgetGuide";
 import * as details from "./widgetDetails.css";
 import * as styles from "./widgetManager.css";
@@ -31,25 +35,31 @@ export function WidgetManager({
   embedded = false,
   active = true,
   onDirtyChange,
+  onBusyChange,
 }: {
   embedded?: boolean;
   active?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
+  onBusyChange?: (busy: boolean) => void;
 }): ReactElement {
   const { snapshot, error, reload } = useWidgets();
   const { workshop, error: generatedError, reload: reloadGenerated } = useGeneratedWidgets();
   const runtime = useWidgetRuntime(active);
   const [installTarget, setInstallTarget] = useState<string | null>(null);
-  const [experimentsOpen, setExperimentsOpen] = useState(false);
-  const experimentsId = useId();
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [inspectorSlot, setInspectorSlot] = useState<HTMLDivElement | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
   const [visitedSettings, setVisitedSettings] = useState<string[]>([]);
+  const targetRevision = useRef(0);
   useEffect(() => {
     if (!isDesktop()) return;
     let active = true;
+    const revision = targetRevision.current;
     let unlisten: (() => void) | undefined;
     function choose(kind: string | null): void {
       if (!active || !kind) return;
+      targetRevision.current += 1;
+      setDetailOpen(true);
       setFocused(kind);
       setVisitedSettings((before) => [...new Set([...before, kind])]);
     }
@@ -60,7 +70,8 @@ export function WidgetManager({
           return;
         }
         unlisten = cleanup;
-        choose(await command<string | null>("get_planner_settings_target"));
+        const kind = await command<string | null>("get_planner_settings_target");
+        if (targetRevision.current === revision) choose(kind);
       })
       .catch(() => {
         /* The settings list remains available if an optional deep link fails. */
@@ -69,6 +80,10 @@ export function WidgetManager({
       active = false;
       unlisten?.();
     };
+  }, []);
+  const [settingsBusy, setSettingsBusy] = useState<Record<string, boolean>>({});
+  const reportBusy = useCallback((id: string, busy: boolean): void => {
+    setSettingsBusy((previous) => (previous[id] === busy ? previous : { ...previous, [id]: busy }));
   }, []);
   const [settingsDirty, setSettingsDirty] = useState<Record<string, boolean>>({});
   const reportDirty = useCallback((id: string, dirty: boolean): void => {
@@ -80,6 +95,8 @@ export function WidgetManager({
     onDirtyChange?.(Object.values(settingsDirty).some(Boolean));
   }, [settingsDirty, onDirtyChange]);
   function focusWidget(kind: string): void {
+    targetRevision.current += 1;
+    setDetailOpen(true);
     setFocused(kind);
     setVisitedSettings((previous) => [
       ...new Set([...previous, ...(selectedId ? [selectedId] : []), kind]),
@@ -92,7 +109,12 @@ export function WidgetManager({
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const pending = useRef(false);
-  const canAct = isDesktop() && !busy;
+  const nestedBusy = Object.values(settingsBusy).some(Boolean);
+  useEffect(() => {
+    onBusyChange?.(busy || nestedBusy);
+  }, [busy, nestedBusy, onBusyChange]);
+  useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
+  const canAct = isDesktop() && !busy && !nestedBusy;
 
   async function run(name: string, args?: Record<string, unknown>): Promise<boolean> {
     if (!canAct || pending.current) {
@@ -181,6 +203,7 @@ export function WidgetManager({
       return {
         ...item,
         installed: Boolean(view?.installed),
+        enabled: Boolean(view?.enabled),
         status: view?.status ?? "not-installed",
         attention: Boolean(view && ["setup", "error", "install-error"].includes(view.status)),
       };
@@ -193,6 +216,7 @@ export function WidgetManager({
           description: item.definition.description,
           category: "generated",
           installed: true,
+          enabled: item.enabled,
           status: !item.enabled ? "disabled" : item.status === "ready" ? "enabled" : item.status,
           attention: item.status !== "ready",
         }) as const,
@@ -263,55 +287,44 @@ export function WidgetManager({
       </section>
     ) : undefined;
   const catalogFooter = (
-    <footer className={styles.footer}>
+    <section className={styles.experiments} aria-label="실험 기능">
+      <h2 className={styles.directorySectionTitle}>실험 기능</h2>
+      <div className={styles.experimentRows}>
+        <SettingsSummary
+          title="AI 위젯 만들기"
+          description={
+            workshop.generationEligibility.reason || "연결한 AI로 필요한 위젯을 만들어요"
+          }
+          leading={
+            <span className={styles.experimentIcon}>
+              <SparkleIcon size={18} />
+            </span>
+          }
+          trailing={<span>열기…</span>}
+          disabled={!canAct}
+          onClick={() => void run("open_widget_workshop")}
+        />
+        <SettingControlRow
+          title="대화 중에 자동으로 만들기"
+          description="AI로 새 잡담 만들기가 켜져 있을 때만 동작해요"
+          control={
+            <Switch
+              aria-label="대화에서 필요한 도구가 보이면 자동으로 만들기"
+              checked={workshop.automatic}
+              disabled={!canAct}
+              onChange={(event) =>
+                void run("set_widget_creation_automatic", { enabled: event.target.checked })
+              }
+            />
+          }
+        />
+      </div>
       {busy && (
         <Text variant="caption" role="status">
           처리하고 있어요.
         </Text>
       )}
-      <section className={styles.experiments} aria-label="실험 기능">
-        <button
-          type="button"
-          className={styles.experimentsToggle}
-          aria-expanded={experimentsOpen}
-          aria-controls={experimentsId}
-          onClick={() => setExperimentsOpen((open) => !open)}
-        >
-          <span aria-hidden="true">{experimentsOpen ? "⌄" : "›"}</span>
-          <span>실험 기능</span>
-        </button>
-        <div id={experimentsId} className={styles.experimentsBody} hidden={!experimentsOpen}>
-          <Button
-            variant="secondary"
-            disabled={!canAct}
-            onClick={() => void run("open_widget_workshop")}
-          >
-            AI로 위젯 만들기
-          </Button>
-          <Button
-            variant="secondary"
-            disabled={!canAct}
-            onClick={() => void run("open_widget_workshop", { mode: "import" })}
-          >
-            위젯 JSON 가져오기
-          </Button>
-          <Checkbox
-            checked={workshop.automatic}
-            disabled={!canAct}
-            onChange={() =>
-              void run("set_widget_creation_automatic", { enabled: !workshop.automatic })
-            }
-          >
-            대화에서 필요한 도구가 보이면 자동으로 만들기
-          </Checkbox>
-          <Text as="p" variant="caption" tone="muted">
-            로컬 모델 또는 연결한 OpenAI 호환 API를 사용해요. 현재 AI의 자동 대화 생성 설정이 켜져
-            있을 때 자동 제작하며 최대 5분에 한 번이에요. API 이용량이 발생할 수 있어요. 기본
-            JavaScript 실행환경은 앱에 포함되어 있어요.
-          </Text>
-        </div>
-      </section>
-    </footer>
+    </section>
   );
 
   return (
@@ -360,13 +373,40 @@ export function WidgetManager({
           </Text>
         )
       ) : (
-        <div className={styles.workspace}>
-          <WidgetCatalog entries={entries} selectedId={selectedId} onSelect={focusWidget}>
-            {catalogFooter}
-          </WidgetCatalog>
+        <div className={styles.directoryWorkspace}>
+          {detailOpen && (
+            <Button
+              variant="quiet"
+              size="compact"
+              className={styles.backButton}
+              onClick={() => {
+                targetRevision.current += 1;
+                setDetailOpen(false);
+              }}
+            >
+              ‹ 위젯
+            </Button>
+          )}
+          <div hidden={detailOpen} className={styles.directory}>
+            <WidgetCatalog
+              entries={entries}
+              selectedId={selectedId}
+              onSelect={focusWidget}
+              disabled={!canAct}
+              onToggle={(id, enabled) => {
+                const view = findView(id);
+                if (view?.installed) void run("set_widget_enabled", { id: view.id, enabled });
+                else if (catalog.some((item) => item.id === id)) install(id);
+                else void run("set_generated_widget_enabled", { id, enabled });
+              }}
+            >
+              {catalogFooter}
+            </WidgetCatalog>
+          </div>
           {(entry || generated) && (
             <section
               className={styles.detail}
+              hidden={!detailOpen}
               aria-label={`${generated?.definition.name ?? entry?.name} 설정`}
             >
               {generatedWidgets
@@ -394,16 +434,19 @@ export function WidgetManager({
                 <div className={styles.officialView} hidden={Boolean(generated)}>
                   <Surface className={details.header}>
                     <div className={styles.identity}>
-                      <Heading level={3} variant="subsection">
-                        {entry.name}
-                      </Heading>
+                      <div className={details.titleRow}>
+                        <span className={details.icon}>
+                          <Icon name={WIDGET_ICONS[entry.id] || "hash"} size={18} />
+                        </span>
+                        <h1 className={details.title}>{entry.name}</h1>
+                      </div>
                       <Text variant="caption" tone="muted">
                         {entry.description}
                       </Text>
                     </div>
                     <div className={details.state}>
                       {widget?.installed && (
-                        <Checkbox
+                        <Switch
                           aria-label="위젯 사용"
                           checked={widget.enabled}
                           disabled={!canAct || (!widget.enabled && widget.missing.length > 0)}
@@ -413,9 +456,7 @@ export function WidgetManager({
                               enabled: event.target.checked,
                             })
                           }
-                        >
-                          사용
-                        </Checkbox>
+                        />
                       )}
                       {widget?.installed && (
                         <Text variant="caption" tone="muted">
@@ -436,6 +477,24 @@ export function WidgetManager({
                         </Text>
                       )}
                     </div>
+                    {widget?.installed && <WidgetDetailPreview widget={widget} />}
+                    {widget?.installed &&
+                      widget.kind === "weather" &&
+                      record(widget.data).configured === true && (
+                        <Button
+                          variant="secondary"
+                          disabled={!canAct || !widget.enabled}
+                          onClick={() => void run("refresh_connection_widget", { id: widget.id })}
+                        >
+                          정보 다시 조회
+                        </Button>
+                      )}
+                    {widget?.installed && widget.kind === "clock" && (
+                      <fieldset className={styles.settings} disabled={!canAct || !widget.enabled}>
+                        <ClockSettings widget={widget} act={act} />
+                      </fieldset>
+                    )}
+                    <div ref={setInspectorSlot} />
                     <div className={details.actions}>
                       {widget?.installed && !isToy && (
                         <Button
@@ -567,9 +626,15 @@ export function WidgetManager({
                           <div className={styles.settings}>
                             <WidgetSettings
                               widget={item}
+                              widgets={widgets}
+                              onOpenRelated={focusWidget}
+                              sideContainer={
+                                item.id === widget?.id && detailOpen ? inspectorSlot : null
+                              }
                               active={active && !generated && item.id === widget?.id}
                               act={act}
                               onDirtyChange={reportDirty}
+                              onBusyChange={reportBusy}
                               related={item.id === widget?.id ? relatedContent : undefined}
                               disabled={!canAct || !item.enabled}
                               displayControls={

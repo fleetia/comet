@@ -1,4 +1,4 @@
-import { Button } from "@fleetia/lagrange";
+import { Button } from "../../ui";
 import { useState, type ReactElement } from "react";
 import { record, rows, text, type DataRecord } from "../toolData";
 import type { WidgetValue } from "../types";

@@ -3,10 +3,13 @@ import { listen } from "@tauri-apps/api/event";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 
 export const SETTINGS_SECTIONS = [
-  { id: "characters", label: "캐릭터", group: "관리" },
+  { id: "characters", label: "친구들", group: "관리" },
   { id: "widgets", label: "위젯", group: "관리" },
-  { id: "automatic", label: "자동 대화", group: "대화" },
+  { id: "automatic", label: "대화", group: "대화" },
   { id: "dialogue", label: "대사", group: "대화" },
+  { id: "desktop", label: "바탕화면", group: "앱" },
+  { id: "organizer", label: "Ex-brain", group: "앱" },
+  { id: "user", label: "사용자", group: "앱" },
   { id: "model", label: "AI 연결", group: "앱" },
   { id: "general", label: "일반", group: "앱" },
 ] as const;
@@ -16,7 +19,7 @@ function sectionFrom(value: unknown): SettingsSection | null {
   if (value === "memory") {
     return "characters";
   }
-  if (value === "updates" || value === "user") {
+  if (value === "updates") {
     return "general";
   }
   if (value === "wordbook" || value === "talk") {
@@ -52,9 +55,9 @@ export function useSettingsNavigation(initialSection?: string): {
     if (!next) return;
     select(value);
     if (isDesktop()) {
-      void command("set_settings_section", { section: next }).catch((cause: unknown) =>
-        setNavigationError(errorText(cause)),
-      );
+      void command("set_settings_section", {
+        section: next === "desktop" || next === "user" || next === "organizer" ? "general" : next,
+      }).catch((cause: unknown) => setNavigationError(errorText(cause)));
     }
   }
   useEffect(() => {

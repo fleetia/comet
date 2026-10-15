@@ -108,3 +108,53 @@ it("waits for explicit catalog retry after a model-list failure", async () => {
   });
   expect(modelCalls()).toHaveLength(2);
 });
+
+it("locks each Figma draft scope while its save is pending", async () => {
+  let finish!: () => void;
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_chatgpt_status") return connected;
+    if (name === "list_chatgpt_models")
+      return [
+        { slug: "one", displayName: "하나" },
+        { slug: "two", displayName: "둘" },
+      ];
+    if (name === "save_settings")
+      return new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+  });
+  function FigmaSettings(): React.JSX.Element {
+    const saved = useMemo(
+      () => ({ ...PREVIEW_SNAPSHOT.settings, mode: "chatgpt" as const, chatgptModel: "one" }),
+      [],
+    );
+    const model = useSettingsDraft(saved, "model");
+    const automatic = useSettingsDraft(saved, "automatic");
+    return (
+      <ChatGptSettings
+        draft={model}
+        automaticDraft={automatic}
+        inspectorHeader={<h1>AI</h1>}
+        footer={<button onClick={() => void model.run("save_settings")}>모델 저장</button>}
+        automaticFooter={
+          <button onClick={() => void automatic.run("save_settings")}>자동 저장</button>
+        }
+      />
+    );
+  }
+  render(<FigmaSettings />);
+  const model = await screen.findByRole("combobox", { name: "ChatGPT 모델" });
+  await waitFor(() => expect(model).toHaveProperty("disabled", false));
+  fireEvent.change(model, { target: { value: "two" } });
+  fireEvent.click(screen.getByRole("button", { name: "모델 저장" }));
+  await waitFor(() => expect(model).toHaveProperty("disabled", true));
+  await act(async () => finish());
+  await waitFor(() => expect(model).toHaveProperty("disabled", false));
+  const automatic = screen.getByRole("switch", { name: "ChatGPT로 새 잡담 만들기" });
+  fireEvent.click(automatic);
+  fireEvent.click(screen.getByRole("button", { name: "자동 저장" }));
+  await waitFor(() => expect(automatic).toHaveProperty("disabled", true));
+  expect(model).toHaveProperty("disabled", false);
+  await act(async () => finish());
+  await waitFor(() => expect(automatic).toHaveProperty("disabled", false));
+});

@@ -1,5 +1,6 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { semanticVars as v, componentVars, vnextVars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 
 export const window = style({
   height: "100dvh",
@@ -7,44 +8,51 @@ export const window = style({
   flexDirection: "column",
   overflow: "hidden",
   color: v.color.content.primary,
-  background: v.color.surface.canvas,
+  background: tokens["color/glass-window"],
+  backdropFilter: tokens["backdrop/backdrop-window"],
+  border: `1px solid ${tokens["color/glass-border"]}`,
+  borderRadius: tokens["radius/radius-22"],
+  boxSizing: "border-box",
   fontSize: v.typography.size.body,
 });
 export const header = style({
   flexShrink: 0,
-  background: v.color.surface.raised,
-  padding: "0 16px",
-  minHeight: 40,
+  background: "transparent",
+  borderBottom: `1px solid ${tokens["color/divider"]}`,
+  padding: "0 18px",
+  minHeight: 48,
 });
 export const layout = style({
   display: "grid",
-  gridTemplateColumns: "244px 244px minmax(0, 1fr)",
-  gap: 16,
-  padding: 16,
+  gridTemplateColumns: "96px minmax(0, 1fr)",
   flex: 1,
   minHeight: 0,
+  overflow: "hidden",
+  selectors: {
+    '&[data-collection="true"]': { gridTemplateColumns: "96px 280px minmax(0, 1fr)" },
+  },
   "@media": {
-    "(max-width: 1400px)": {
-      gridTemplateColumns: "184px 220px minmax(0,1fr)",
-      gap: 12,
-      padding: 12,
+    "(max-width: 820px)": {
+      gridTemplateColumns: "80px minmax(0, 1fr)",
+      selectors: {
+        '&[data-collection="true"]': { gridTemplateColumns: "80px 220px minmax(0, 1fr)" },
+      },
     },
-    "(max-width: 1080px)": { gridTemplateColumns: "220px minmax(0,1fr)" },
-    "(max-width: 780px)": { gridTemplateColumns: "180px minmax(0,1fr)", gap: 8, padding: 8 },
   },
 });
 export const surface = style({
   minWidth: 0,
   minHeight: 0,
-  background: v.color.surface.raised,
-  borderRadius: vnextVars.radius.parent,
+  background: tokens["color/card"],
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: tokens["radius/radius-18"],
 });
 export const notes = style({
   minWidth: 0,
   minHeight: 0,
   overflowY: "auto",
+  padding: "26px 28px",
   background: "transparent",
-  "@media": { "(max-width: 1080px)": { display: "none" } },
 });
 export const notesOpen = style({
   "@media": {
@@ -52,15 +60,16 @@ export const notesOpen = style({
       display: "block",
       position: "absolute",
       zIndex: 4,
-      top: 56,
+      top: 60,
       left: 12,
       bottom: 12,
       width: 268,
       padding: 12,
-      borderRadius: vnextVars.radius.parent,
-      background: v.color.surface.raised,
-      border: `1px solid ${v.color.border.subtle}`,
-      boxShadow: "0 8px 32px #10101520",
+      borderRadius: tokens["radius/radius-18"],
+      background: tokens["color/glass-panel"],
+      backdropFilter: tokens["backdrop/backdrop-panel"],
+      border: `1px solid ${tokens["color/glass-border"]}`,
+      boxShadow: `0 8px 32px ${tokens["color/surface-shadow"]}`,
     },
   },
 });
@@ -68,18 +77,28 @@ export const notesToggle = style({
   display: "none",
   "@media": { "(max-width: 1080px)": { display: "inline-flex" } },
 });
-export const index = style([surface, { padding: 12, overflowY: "auto" }]);
-export const page = style([
+export const index = style([
   surface,
   {
-    display: "flex",
-    flexDirection: "column",
-    overflow: "hidden",
-    padding: 24,
-    gap: 20,
-    "@media": { "(max-width: 1120px)": { padding: 16 } },
+    margin: "74px 0 24px 26px",
+    padding: 16,
+    overflowY: "auto",
+    background: tokens["color/card-2"],
   },
 ]);
+export const page = style({
+  minWidth: 0,
+  minHeight: 0,
+  display: "flex",
+  flexDirection: "column",
+  overflow: "hidden",
+  padding: "18px 26px 24px",
+  gap: 16,
+  background: "transparent",
+  border: 0,
+  borderRadius: 0,
+  "@media": { "(max-width: 820px)": { padding: "16px" } },
+});
 export const body = style({
   flex: 1,
   minHeight: 0,
@@ -114,16 +133,18 @@ export const toolbar = style({
 });
 export const spread = style({ flex: 1 });
 export const title = style({
-  fontSize: v.typography.size.headingMd,
-  lineHeight: v.typography.lineHeight.tight,
-  fontWeight: 600,
+  fontFamily: tokens["typography/display/page/fontFamily"],
+  fontSize: 26,
+  lineHeight: "34px",
+  fontWeight: 400,
   margin: 0,
 });
 export const indexTitle = style({
-  fontSize: v.typography.size.headingSm,
-  lineHeight: v.typography.lineHeight.compact,
-  fontWeight: 600,
-  margin: "0 0 18px",
+  fontFamily: tokens["typography/display/title-sm/fontFamily"],
+  fontSize: 15,
+  lineHeight: "22px",
+  fontWeight: 400,
+  margin: "4px 0 20px",
 });
 export const caption = style({
   color: v.color.content.secondary,
@@ -145,9 +166,9 @@ export const sectionTitle = style({
 export const navItem = style({
   width: "100%",
   border: 0,
-  borderRadius: 0,
+  borderRadius: tokens["radius/radius-10"],
   minHeight: 56,
-  padding: "9px 8px",
+  padding: "10px",
   background: "transparent",
   color: v.color.content.primary,
   font: "inherit",
@@ -157,11 +178,12 @@ export const navItem = style({
   overflowWrap: "anywhere",
   selectors: {
     '&[aria-current="page"]': {
-      background: componentVars.navigation.selectedSurface,
-      color: componentVars.navigation.selectedText,
-      borderRadius: vnextVars.radius.control,
+      background: tokens["color/selected"],
+      color: tokens["color/selected-ink"],
+      boxShadow: `inset 0 0 0 1px ${tokens["color/selected-border"]}`,
+      borderRadius: tokens["radius/radius-10"],
     },
-    "&:hover:not([aria-current=page])": { background: v.color.surface.muted },
+    "&:hover:not([aria-current=page])": { background: tokens["color/hover"] },
     "&:focus-visible": { outline: `2px solid ${v.color.interaction.focus}`, outlineOffset: -2 },
   },
 });
@@ -182,7 +204,15 @@ export const toolContent = style({
   gap: 20,
   selectors: { "&[hidden]": { display: "none" } },
 });
-export const viewSwitch = style({ display: "flex", gap: 0, alignItems: "center" });
+export const viewSwitch = style({
+  display: "flex",
+  gap: 3,
+  padding: 3,
+  alignItems: "center",
+  background: tokens["color/card"],
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: tokens["radius/radius-pill"],
+});
 export const viewButton = style([
   navItem,
   {
@@ -191,7 +221,7 @@ export const viewButton = style([
     minHeight: 32,
     padding: "7px 16px",
     border: 0,
-    borderRadius: vnextVars.radius.control,
+    borderRadius: tokens["radius/radius-pill"],
     textAlign: "center",
   },
 ]);
@@ -373,7 +403,7 @@ export const allDay = style({
   alignItems: "center",
   minWidth: 0,
   borderRadius: vnextVars.radius.control,
-  background: v.color.surface.muted,
+  background: tokens["color/component/cat-rest-alpha-80"],
   margin: "1px 6px",
   height: 26,
   alignSelf: "center",
@@ -462,3 +492,88 @@ export const legend = style([
 ]);
 globalStyle(`${window} button`, { maxWidth: "100%" });
 globalStyle(`${window} input, ${window} select`, { minWidth: 0 });
+
+export const rail = style({
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: 4,
+  height: "100%",
+  overflowY: "auto",
+  padding: "12px 10px 18px",
+  background: tokens["color/rail"],
+  borderRight: `1px solid ${tokens["color/card-border"]}`,
+});
+export const railHeader = style({ minHeight: 28, width: "100%", marginBottom: 4 });
+export const railDivider = style({ height: 12, flexShrink: 0 });
+export const pageNavigation = style({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 16,
+  minHeight: 40,
+  flexShrink: 0,
+});
+export const todayLayout = style({
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) 340px",
+  gap: 18,
+  minHeight: 0,
+  flex: 1,
+  "@media": {
+    "(max-width: 1100px)": { gridTemplateColumns: "minmax(0, 1fr) 280px" },
+    "(max-width: 850px)": { gridTemplateColumns: "minmax(0, 1fr)" },
+  },
+});
+export const todayRing = style({
+  display: "flex",
+  flexDirection: "column",
+  width: "100%",
+  height: "100%",
+  minHeight: 440,
+  background: tokens["color/card-2"],
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: tokens["radius/radius-22"],
+  padding: "16px 12px 12px",
+});
+globalStyle(`${todayRing} > svg`, { flex: 1, height: 0, minHeight: 0, width: "100%" });
+export const todaySummary = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: 12,
+  minWidth: 0,
+});
+export const todayJournal = style({
+  minWidth: 0,
+  padding: 16,
+  borderRadius: tokens["radius/radius-18"],
+  background: tokens["color/card-2"],
+  border: `1px solid ${tokens["color/card-border"]}`,
+});
+export const summaryCard = style({
+  padding: 16,
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: tokens["radius/radius-18"],
+  background: tokens["color/card-2"],
+});
+export const summaryTitle = style({ fontSize: 13, fontWeight: 600, marginBottom: 12 });
+export const summaryEvent = style({
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  padding: "8px 0",
+  border: 0,
+  background: "transparent",
+  color: tokens["color/ink"],
+  cursor: "pointer",
+  font: "inherit",
+  textAlign: "left",
+  width: "100%",
+});
+
+export const weekWorkspace = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: 24,
+  minWidth: 0,
+});

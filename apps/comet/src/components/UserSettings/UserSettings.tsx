@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, Checkbox, Dialog, FormField, Surface, TextField } from "@fleetia/lagrange";
+import { Button, Checkbox, Surface } from "../../ui";
+import { SettingsSummary, TextInput } from "@comet/ui";
+import { MemoryIcon, PetIcon } from "@comet/icon";
+import { spriteSource } from "../characterIdentity";
+import * as figma from "../SettingsPanel/figmaSettings.css";
 import type { MemoryPage, Snapshot } from "../../types";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import * as s from "../../lagrange.css";
@@ -14,6 +18,7 @@ export function UserSettings({
 }): JSX.Element {
   const [name, setName] = useState(snapshot.user?.name ?? "");
   const [savedName, setSavedName] = useState(snapshot.user?.name ?? "");
+  const [showLegacy, setShowLegacy] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,20 +53,38 @@ export function UserSettings({
       setPending(false);
     }
   }
+  const character = snapshot.characters.installed.find((item) =>
+    snapshot.characters.active.includes(item.id),
+  );
+  const sprite = spriteSource(character, "기쁨");
   return (
-    <div className={styles.workspace}>
-      <Surface className={styles.namePanel} role="region" aria-label="사용자 이름">
-        <div className={styles.nameBody}>
-          <div className={styles.heading}>
-            <h2 className={styles.title}>{savedName ? "이름" : "어떻게 불러드릴까요?"}</h2>
+    <div className={figma.split}>
+      <aside className={figma.inspector}>
+        <div className={styles.profileIdentity}>
+          <span className={styles.largeAvatar}>{Array.from(savedName || "여행자")[0]}</span>
+          <h1>{savedName || "여행자"}</h1>
+          <p className={figma.caption}>친구들이 부르는 이름</p>
+        </div>
+        <div className={styles.preview}>
+          <div className={figma.balloon}>
+            <p className={figma.speaker}>{character?.definition.name}</p>
+            <p className={figma.copy}>{savedName || "여행자"}, 오늘 하루 어땠어?</p>
           </div>
-          <Surface tone="accent" padding="inline" className={styles.identity}>
-            <span className={styles.caption}>현재 이름</span>
-            <strong className={styles.identityName} title={savedName}>
-              {savedName || "이름 등록 전"}
-            </strong>
-          </Surface>
+          {sprite ? (
+            <img className={figma.previewSprite} src={sprite} alt={character?.definition.name} />
+          ) : (
+            <PetIcon size={104} />
+          )}
+        </div>
+        <p className={figma.caption}>
+          친구들은 이 이름으로 부르고, 이 이름으로 만난 기억과 친밀도를 쌓아요.
+        </p>
+      </aside>
+      <div className={figma.right}>
+        <section className={figma.section} aria-label="사용자 이름">
+          <h2 className={figma.sectionTitle}>이름</h2>
           <form
+            className={figma.group}
             onSubmit={(event) => {
               event.preventDefault();
               if (valid && dirty) {
@@ -70,9 +93,11 @@ export function UserSettings({
               }
             }}
           >
-            <fieldset disabled={pending} className={styles.form}>
-              <FormField className={styles.nameField} label="캐릭터가 부를 이름">
-                <TextField
+            <fieldset disabled={pending} className={styles.nameForm}>
+              <div className={styles.nameRow}>
+                <TextInput
+                  label="부를 이름"
+                  className={styles.nameInput}
                   value={name}
                   autoComplete="off"
                   onChange={(event) => {
@@ -81,40 +106,38 @@ export function UserSettings({
                     setError(null);
                   }}
                 />
-              </FormField>
-              <p className={styles.caption}>앞뒤 공백을 제외한 1~40자</p>
-              <div className={styles.actions}>
-                <Button
-                  className={styles.nameAction}
-                  type="submit"
-                  variant="primary"
-                  disabled={!valid || !dirty}
-                >
-                  {pending ? "저장 중…" : savedName ? "이름 변경" : "이름 저장"}
+                <Button type="submit" variant="secondary" disabled={!valid || !dirty}>
+                  {savedName ? "바꾸기…" : "이름 저장"}
                 </Button>
-                {savedName && (
-                  <Button
-                    className={styles.nameAction}
-                    type="button"
-                    disabled={!dirty}
-                    variant="quiet"
-                    onClick={() => setName(savedName)}
-                  >
-                    변경 취소
-                  </Button>
-                )}
-                <span className={styles.caption}>
-                  {dirty ? "현재 이름과 달라요." : "현재 이름과 같아요."}
-                </span>
               </div>
+              {confirm && (
+                <div className={styles.inlineConfirm} role="group" aria-label="이름 변경 확인">
+                  <strong>‘{trimmed}’(으)로 새로 만날까요?</strong>
+                  <p className={figma.caption}>
+                    기억과 친밀도, 이야기 진행을 처음부터 시작해요. 지금까지의 기록은 ‘{savedName}
+                    ’의 기억으로 남고, 친구들은 가끔 ‘{savedName}’를 예전에 알던 사람으로
+                    이야기해요.
+                  </p>
+                  <div className={styles.confirmActions}>
+                    <Button
+                      variant="secondary"
+                      disabled={pending}
+                      onClick={() => setConfirm(false)}
+                    >
+                      취소
+                    </Button>
+                    <Button variant="primary" disabled={pending} onClick={() => void save()}>
+                      {pending ? "저장 중…" : "바꾸기"}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </fieldset>
           </form>
-          <p className={styles.caption}>
-            {savedName
-              ? "이름을 바꾸면 기억·친밀도·스토리 진행을 새로 쌓아요. 이전 기록은 보존되며, 예전 이름으로 돌아가도 관계가 이어지지 않아요."
-              : "이름을 저장하면 캐릭터와 대화를 나누고 함께한 일을 기억할 수 있어요."}
+          <p className={figma.caption}>
+            앞뒤 공백을 빼고 1~40자예요. 예전 이름으로 돌아가도 관계는 이어지지 않아요.
           </p>
-          {error && !confirm && (
+          {error && (
             <p role="alert" className={s.error}>
               {error}
             </p>
@@ -124,40 +147,31 @@ export function UserSettings({
               {notice}
             </p>
           )}
-        </div>
-      </Surface>
-      <LegacyMemories snapshot={snapshot} />
-      <Dialog
-        isOpen={confirm}
-        onOpenChange={(open) => {
-          if (!pending) setConfirm(open);
-        }}
-        onCancel={(event) => {
-          if (pending) event.preventDefault();
-        }}
-        title="이 이름으로 새로 만날까요?"
-        size="small"
-        footer={
-          <div className={s.row}>
-            <Button variant="secondary" disabled={pending} onClick={() => setConfirm(false)}>
-              취소
+          {dirty && !confirm && (
+            <Button variant="quiet" size="compact" onClick={() => setName(savedName)}>
+              변경 취소
             </Button>
-            <Button variant="primary" disabled={pending} onClick={() => void save()}>
-              이름 변경 확인
-            </Button>
-          </div>
-        }
-      >
-        <p>
-          {trimmed}(으)로 새로 만나요. 기억과 친밀도, 스토리 진행은 처음부터 시작해요. 지금까지의
-          기록은 보존하고, 그 사람과의 기억은 서서히 잊어요.
-        </p>
-        {error && (
-          <p role="alert" className={s.error}>
-            {error}
-          </p>
+          )}
+        </section>
+        {!!snapshot.legacyMemoryCount && (
+          <section className={figma.section}>
+            <h2 className={figma.sectionTitle}>이전 기록</h2>
+            <SettingsSummary
+              className={figma.summary}
+              title="주인을 정하지 않은 기억"
+              count={`${snapshot.legacyMemoryCount}개`}
+              description="어떻게 간직할지 정하기 전에는 대화에서 떠올리지 않아요"
+              leading={
+                <span className={figma.icon}>
+                  <MemoryIcon size={20} />
+                </span>
+              }
+              onClick={() => setShowLegacy(true)}
+            />
+            {showLegacy && <LegacyMemories snapshot={snapshot} />}
+          </section>
         )}
-      </Dialog>
+      </div>
     </div>
   );
 }

@@ -301,7 +301,7 @@ it("saves one character keyword lines verbatim without assigning the other slot 
   );
 });
 
-it("renders installed names and custom expressions while keeping historical speaker identity", () => {
+it("renders installed names and custom expressions while keeping historical speaker identity", async () => {
   const custom: Snapshot = {
     ...snapshot,
     characters: {
@@ -362,7 +362,7 @@ it("renders installed names and custom expressions while keeping historical spea
   expect(screen.getByText("예전 친구")).toBeTruthy();
   rerender(<Balloon snapshot={{ ...custom, panel: { persona: "a", mode: "menu" } }} />);
   fireEvent.click(screen.getByRole("button", { name: "설정" }));
-  expect(command).toHaveBeenCalledWith("open_settings", undefined);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("open_settings", undefined));
   expect(vi.mocked(command).mock.calls.some(([name]) => name === "set_settings_section")).toBe(
     false,
   );

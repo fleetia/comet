@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
-import { Button, Checkbox, FormField, Select, Surface } from "@fleetia/lagrange";
+import { Button, Checkbox, FormField, Select, Surface } from "../../ui";
+import {
+  Button as CometButton,
+  Checkbox as CometCheckbox,
+  Select as CometSelect,
+  SettingControlRow,
+  Switch,
+} from "@comet/ui";
+import { SparkleIcon, UserIcon } from "@comet/icon";
+import * as figma from "../SettingsPanel/figmaSettings.css";
+import * as ai from "../ModelSettings/aiSettings.css";
 import type { SettingsDraft } from "../../hooks/useSettingsDraft";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import * as styles from "../ModelSettings/modelSettings.css";
@@ -31,9 +41,17 @@ const PREVIEW: ChatgptStatus = {
 export function ChatGptSettings({
   draft,
   footer,
+  inspectorHeader,
+  supportingContent,
+  automaticDraft,
+  automaticFooter,
 }: {
   draft: SettingsDraft;
   footer?: ReactNode;
+  inspectorHeader?: ReactNode;
+  supportingContent?: ReactNode;
+  automaticDraft?: SettingsDraft;
+  automaticFooter?: ReactNode;
 }): JSX.Element {
   const [status, setStatus] = useState<ChatgptStatus | null>(isDesktop() ? null : PREVIEW);
   const [models, setModels] = useState<ChatgptModel[]>([]);
@@ -110,11 +128,233 @@ export function ChatGptSettings({
   }
   const account = status?.accounts.find((value) => value.id === status.activeAccountId);
   const loginPending = status?.loginPending || pending === "login_chatgpt";
-  const busy = Boolean(pending || loginPending || !isDesktop());
+  const busy = Boolean(pending || loginPending || draft.pending || !isDesktop());
   const missingModel =
     modelsLoaded &&
     Boolean(draft.settings.chatgptModel) &&
     !models.some((model) => model.slug === draft.settings.chatgptModel);
+  if (inspectorHeader)
+    return (
+      <div className={figma.split}>
+        <aside className={figma.inspector}>
+          {inspectorHeader}
+          <div className={ai.connectionStatus}>
+            <div className={figma.controls}>
+              <span className={figma.icon}>
+                <UserIcon size={26} />
+              </span>
+              <div className={figma.noteCopy}>
+                <strong>{account?.label || "내 ChatGPT 계정"}</strong>
+                <span className={figma.caption}>
+                  {loginPending
+                    ? "브라우저에서 로그인 중"
+                    : account?.connected
+                      ? `로그인됨 · 계정 ${status?.accounts.length || 0}개`
+                      : "연결 필요"}
+                </span>
+              </div>
+            </div>
+            {!!status?.accounts.length && (
+              <CometSelect
+                aria-label="ChatGPT 계정"
+                value={status.activeAccountId ?? ""}
+                disabled={busy}
+                onChange={(event) =>
+                  void run("select_chatgpt_account", { accountId: event.target.value })
+                }
+              >
+                {!status.activeAccountId && <option value="">계정 선택</option>}
+                {status.accounts.map((value) => (
+                  <option key={value.id} value={value.id}>
+                    {value.label}
+                    {value.connected ? "" : " · 다시 연결 필요"}
+                  </option>
+                ))}
+              </CometSelect>
+            )}
+          </div>
+          <CometCheckbox
+            checked={consent}
+            disabled={busy}
+            onChange={(event) => setConsent(event.target.checked)}
+            label="대화와 고른 자료를 ChatGPT로 보내는 데 동의해요"
+          />
+          <p className={figma.caption}>
+            내 플랜의 사용량을 써요. 기존 ChatGPT 대화나 기억은 가져오지 않아요.
+          </p>
+          <div className={figma.controls}>
+            <CometButton
+              variant="ghost"
+              size="small"
+              disabled={busy || !consent}
+              onClick={() =>
+                void run("login_chatgpt", {
+                  ...(account ? { accountId: account.id } : {}),
+                  consent: true,
+                })
+              }
+            >
+              {account ? "다시 연결" : "ChatGPT로 로그인"}
+            </CometButton>
+            {account && (
+              <CometButton
+                variant="ghost"
+                size="small"
+                disabled={busy}
+                onClick={() => void run("logout_chatgpt", { accountId: account.id })}
+              >
+                로그아웃
+              </CometButton>
+            )}
+            {!!status?.accounts.length && (
+              <CometButton
+                variant="link"
+                size="small"
+                disabled={busy || !consent}
+                onClick={() => void run("login_chatgpt", { consent: true })}
+              >
+                계정 추가…
+              </CometButton>
+            )}
+            {loginPending && (
+              <CometButton
+                variant="ghost"
+                size="small"
+                disabled={pending === "cancel_chatgpt_login"}
+                onClick={() => void run("cancel_chatgpt_login")}
+              >
+                로그인 취소
+              </CometButton>
+            )}
+          </div>
+          <p className={figma.caption}>
+            로그인 정보는 운영체제 보안 저장소에만 두고 화면이나 기억에 남기지 않아요.
+          </p>
+          <div className={figma.note}>
+            <SparkleIcon size={13} />
+            <p className={figma.caption}>
+              AI가 없어도 인사, 단어장, 대화팩 대사는 그대로 동작해요.
+            </p>
+          </div>
+          {error && (
+            <p role="alert" className={s.error}>
+              {error}
+            </p>
+          )}
+          {status?.notice && (
+            <p role="status" className={figma.caption}>
+              {status.notice}
+            </p>
+          )}
+          {!status && !error && <p role="status">연결 상태를 확인하고 있어요.</p>}
+        </aside>
+        <div className={figma.right}>
+          <section className={figma.section}>
+            <h2 className={figma.sectionTitle}>모델</h2>
+            <div className={figma.group}>
+              <SettingControlRow
+                className={figma.row}
+                title="ChatGPT 모델"
+                description="계정에서 쓸 수 있는 모델 중에서 골라요"
+                control={
+                  <CometSelect
+                    aria-label="ChatGPT 모델"
+                    value={draft.settings.chatgptModel}
+                    disabled={!account?.connected || busy || !models.length}
+                    onChange={(event) => draft.change("chatgptModel", event.target.value)}
+                  >
+                    {!draft.settings.chatgptModel && <option value="">계정의 기본 모델</option>}
+                    {missingModel && (
+                      <option value={draft.settings.chatgptModel}>
+                        {draft.settings.chatgptModel} · 사용할 수 없음
+                      </option>
+                    )}
+                    {models.map((model) => (
+                      <option key={model.slug} value={model.slug}>
+                        {model.displayName}
+                      </option>
+                    ))}
+                  </CometSelect>
+                }
+              />
+              <SettingControlRow
+                className={figma.row}
+                title="모델 목록"
+                description="마지막으로 불러온 목록을 써요"
+                control={
+                  <CometButton
+                    variant="ghost"
+                    size="small"
+                    disabled={busy || !account?.connected}
+                    onClick={() => {
+                      modelAccount.current = null;
+                      setError(null);
+                      void refresh();
+                    }}
+                  >
+                    다시 불러오기
+                  </CometButton>
+                }
+              />
+              <SettingControlRow
+                className={figma.row}
+                title="플랜과 사용량"
+                description="사용량이 모자라면 다른 결제로 넘어가지 않고 알려 줘요"
+                control={
+                  <CometButton
+                    variant="link"
+                    size="small"
+                    disabled={!isDesktop()}
+                    onClick={() => void run("open_chatgpt_usage")}
+                  >
+                    ChatGPT에서 확인 ↗
+                  </CometButton>
+                }
+              />
+            </div>
+            {missingModel && (
+              <p role="alert" className={s.error}>
+                저장한 모델을 이 계정에서 사용할 수 없어요. 사용할 모델을 다시 선택해 주세요.
+              </p>
+            )}
+            {status?.requestBlocked && account && (
+              <CometButton
+                variant="ghost"
+                disabled={busy}
+                onClick={() => void run("select_chatgpt_account", { accountId: account.id })}
+              >
+                사용량 확인 후 다시 시도
+              </CometButton>
+            )}
+          </section>
+          {automaticDraft && (
+            <section className={figma.section}>
+              <h2 className={figma.sectionTitle}>자동 잡담</h2>
+              <div className={figma.group}>
+                <SettingControlRow
+                  className={figma.row}
+                  title="ChatGPT로 새 잡담 만들기"
+                  description="플랜 사용량을 써요 · 대화 설정에서도 바꿀 수 있어요"
+                  control={
+                    <Switch
+                      aria-label="ChatGPT로 새 잡담 만들기"
+                      checked={automaticDraft.settings.chatgptIdleEnabled}
+                      disabled={Boolean(automaticDraft.pending)}
+                      onChange={(event) =>
+                        automaticDraft.change("chatgptIdleEnabled", event.target.checked)
+                      }
+                    />
+                  }
+                />
+              </div>
+              {automaticDraft.hasChanges && automaticFooter}
+            </section>
+          )}
+          {supportingContent}
+          {footer}
+        </div>
+      </div>
+    );
   return (
     <Surface className={styles.connectionPanel} aria-label="ChatGPT 연결">
       <div className={styles.body}>

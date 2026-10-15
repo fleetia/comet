@@ -1,4 +1,4 @@
-import { Button, Checkbox, Dialog } from "@fleetia/lagrange";
+import { Button, Checkbox, Dialog } from "../../ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { PreparationTool } from "../PreparationTool/PreparationTool";
 import { useConnectionCommand } from "../useConnectionCommand";

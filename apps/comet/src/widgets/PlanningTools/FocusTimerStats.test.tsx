@@ -107,7 +107,7 @@ it("distinguishes a selected date from a midnight-spanning session while preserv
   expect(screen.getByText("2026-10-05 – 2026-10-11 합계")).toBeTruthy();
   expect(screen.getByText("25분")).toBeTruthy();
 
-  fireEvent.click(screen.getByRole("button", { name: "일" }));
+  fireEvent.click(screen.getByRole("radio", { name: "일" }));
   expect(screen.getByText("2026-10-08 합계")).toBeTruthy();
   expect(record().textContent).toContain("이 기간 10분 · 세션 전체 25분");
   fireEvent.click(screen.getByRole("button", { name: "2026-10-08 00:00–04:00 10분" }));
@@ -115,7 +115,7 @@ it("distinguishes a selected date from a midnight-spanning session while preserv
   expect(record().textContent).toContain("선택 구간 10분 · 세션 전체 25분");
   expect(record().textContent).toContain("앱 전면 사용 · 세션 전체 · 글쓰기 07:00");
 
-  fireEvent.click(screen.getByRole("button", { name: "년" }));
+  fireEvent.click(screen.getByRole("radio", { name: "년" }));
   fireEvent.click(screen.getByRole("button", { name: "2026년 10월 25분" }));
   expect(screen.getByText("2026년 합계")).toBeTruthy();
   expect(screen.getByText("선택 구간 · 2026년 10월 · 25분")).toBeTruthy();

@@ -1,4 +1,4 @@
-import { Button, Dialog, FormField, TextArea, TextField } from "@fleetia/lagrange";
+import { Button, Dialog, FormField, TextArea, TextField } from "../../ui";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { DiaryDesktopNotes, type DesktopNotesProps } from "./DiaryDesktopNotes";
 import type { DiaryAction, DiaryNote } from "./diaryTypes";

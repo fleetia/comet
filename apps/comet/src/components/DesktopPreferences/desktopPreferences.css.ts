@@ -1,4 +1,5 @@
 import { style } from "@vanilla-extract/css";
+import { tokens } from "@comet/token";
 import { semanticVars as vars } from "@fleetia/lagrange/theme";
 
 export const toys = style({
@@ -8,16 +9,19 @@ export const toys = style({
   gap: vars.space.md,
 });
 export const toyChoices = style({
-  display: "grid",
-  gridTemplateColumns: "144fr 196fr 196fr 144fr",
-  gap: vars.space.lg,
-  minHeight: vars.dimension.row,
-  "@media": {
-    "(max-width: 1400px)": {
-      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-      gap: `${vars.space.sm} ${vars.space.lg}`,
-    },
-  },
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 6,
+  alignItems: "center",
+});
+export const toyPreview = style({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 14,
+  minHeight: 120,
+  borderRadius: 18,
+  background: tokens["color/card"],
 });
 export const saveBar = style({
   flexShrink: 0,

@@ -5,11 +5,12 @@ import {
   DateField,
   Dialog,
   Rule,
-  Select,
   TextArea,
   TextField,
-} from "@fleetia/lagrange";
+} from "../../ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
+import { Icon } from "@comet/icon";
+import { ContentChoice } from "@comet/ui";
 import { localDay, record, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { CalendarColors } from "../Planner/CalendarColors";
@@ -69,6 +70,7 @@ export function CalendarTool({
     [clientId, setClientId] = useState(""),
     [clientSecret, setClientSecret] = useState(""),
     [calendarIds, setCalendarIds] = useState("primary");
+  const [connectionOpen, setConnectionOpen] = useState(false);
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
   const [appleCalendars, setAppleCalendars] = useState<AppleCalendarList | null>(null);
   const [appleIds, setAppleIds] = useState<string[]>([]);
@@ -140,6 +142,7 @@ export function CalendarTool({
   }
   function editConnection(connection: DataRecord): void {
     resetConnection();
+    setConnectionOpen(true);
     setEditingConnectionId(text(connection.id));
     setProvider(text(connection.provider));
     setName(text(connection.name));
@@ -206,7 +209,7 @@ export function CalendarTool({
     );
   }
   return (
-    <fieldset className={s.body} disabled={busy || appleBusy}>
+    <fieldset className={mode === "settings" ? settings.root : s.body} disabled={busy || appleBusy}>
       {error && !disconnect && (
         <p role="alert" className={c.error}>
           {error}
@@ -282,63 +285,76 @@ export function CalendarTool({
         ))}
       {mode === "settings" && (
         <>
-          <section className={s.section} aria-label="캘린더 연결 관리">
-            <h2 className={s.sectionTitle}>캘린더 연결 관리</h2>
-            {connections.map((connection) => (
-              <section className={s.item} key={text(connection.id)}>
-                <h2>{text(connection.name)}</h2>
-                <p className={c.quiet}>
-                  {{ google: "Google Calendar", apple: "Apple 캘린더 · 이 Mac", ics: "ICS 구독" }[
-                    text(connection.provider)
-                  ] || "캘린더"}{" "}
-                  ·{" "}
-                  {{
-                    ready: "조회 완료",
-                    syncing: "조회 중",
-                    stale: "이전 정보",
-                    offline: "오프라인",
-                    "auth-error": "다시 인증 필요",
-                    "permission-needed": "권한 필요",
-                  }[text(connection.status)] || "연결 확인 필요"}
-                </p>
-                <p className={c.quiet}>
-                  마지막 성공:{" "}
-                  {typeof connection.lastSuccessAt === "number"
-                    ? new Date(connection.lastSuccessAt).toLocaleString()
-                    : "아직 없음"}
-                </p>
-                {text(connection.error) && <p className={c.error}>{text(connection.error)}</p>}
-                <CalendarColors
-                  connections={connections}
-                  events={rows(d.events)}
-                  colors={record(d.calendarColors)}
-                  connectionId={text(connection.id)}
-                  disabled={busy || appleBusy}
-                  onChange={(input) => void act("set-calendar-color", input)}
-                />
-                <div className={s.row}>
-                  <Button
-                    variant="secondary"
-                    onClick={() =>
-                      void run("refresh_calendar", {
-                        id: widget.id,
-                        connectionId: text(connection.id),
-                      })
-                    }
-                  >
-                    다시 조회
-                  </Button>
-                  <Button variant="secondary" onClick={() => editConnection(connection)}>
-                    다시 연결·캘린더 선택
-                  </Button>
-                  <Button variant="secondary" onClick={() => setDisconnect(connection)}>
-                    연결 해제
-                  </Button>
-                </div>
-              </section>
-            ))}
+          <section className={settings.connectionSection} aria-label="캘린더 연결 관리">
+            <div className={settings.connectionHeading}>
+              <h2 className={settings.heading}>연결한 캘린더</h2>
+              <Button variant="secondary" size="compact" onClick={() => setConnectionOpen(true)}>
+                + 캘린더 연결…
+              </Button>
+            </div>
+            <div hidden={connectionOpen} className={settings.connectionList}>
+              {connections.map((connection) => (
+                <section className={settings.connectionCard} key={text(connection.id)}>
+                  <div className={settings.connectionName}>
+                    <span className={settings.calendarIcon}>
+                      <Icon name="calendar" size={18} />
+                    </span>
+                    <h3 className={settings.name}>{text(connection.name)}</h3>
+                  </div>
+                  <p className={c.quiet}>
+                    {{ google: "Google Calendar", apple: "Apple 캘린더 · 이 Mac", ics: "ICS 구독" }[
+                      text(connection.provider)
+                    ] || "캘린더"}{" "}
+                    ·{" "}
+                    {{
+                      ready: "조회 완료",
+                      syncing: "조회 중",
+                      stale: "이전 정보",
+                      offline: "오프라인",
+                      "auth-error": "다시 인증 필요",
+                      "permission-needed": "권한 필요",
+                    }[text(connection.status)] || "연결 확인 필요"}
+                  </p>
+                  <p className={c.quiet}>
+                    마지막 성공:{" "}
+                    {typeof connection.lastSuccessAt === "number"
+                      ? new Date(connection.lastSuccessAt).toLocaleString()
+                      : "아직 없음"}
+                  </p>
+                  {text(connection.error) && <p className={c.error}>{text(connection.error)}</p>}
+                  <CalendarColors
+                    connections={connections}
+                    events={rows(d.events)}
+                    colors={record(d.calendarColors)}
+                    connectionId={text(connection.id)}
+                    disabled={busy || appleBusy}
+                    onChange={(input) => void act("set-calendar-color", input)}
+                  />
+                  <div className={s.row}>
+                    <Button
+                      variant="secondary"
+                      onClick={() =>
+                        void run("refresh_calendar", {
+                          id: widget.id,
+                          connectionId: text(connection.id),
+                        })
+                      }
+                    >
+                      다시 조회
+                    </Button>
+                    <Button variant="secondary" onClick={() => editConnection(connection)}>
+                      다시 연결·캘린더 선택
+                    </Button>
+                    <Button variant="secondary" onClick={() => setDisconnect(connection)}>
+                      연결 해제
+                    </Button>
+                  </div>
+                </section>
+              ))}
+            </div>
             <form
-              className={s.composer}
+              hidden={!connectionOpen}
+              className={settings.connectionForm}
               onSubmit={async (e) => {
                 e.preventDefault();
                 const input =
@@ -370,6 +386,7 @@ export function CalendarTool({
                   )
                 ) {
                   resetConnection();
+                  setConnectionOpen(false);
                 }
               }}
             >
@@ -381,21 +398,40 @@ export function CalendarTool({
                   다시 연결하는 동안 마지막 조회 일정과 내장 할 일은 보존합니다.
                 </p>
               )}
-              <FormField className={c.field} label="연결 방식">
-                <Select
-                  value={provider}
-                  disabled={editingConnectionId !== null}
-                  onChange={(e) => {
-                    clearError();
-                    setProvider(e.target.value);
-                    setAppleError(null);
-                  }}
-                >
-                  <option value="ics">ICS / webcal 구독</option>
-                  <option value="google">Google Calendar 읽기 연결</option>
-                  <option value="apple">Apple 캘린더 읽기 연결 · macOS</option>
-                </Select>
-              </FormField>
+              <div className={settings.providerChoices} aria-label="캘린더 연결 방식">
+                {(
+                  [
+                    {
+                      value: "apple",
+                      title: "Apple 캘린더",
+                      description: "이 Mac의 캘린더 계정을 읽어요",
+                    },
+                    {
+                      value: "google",
+                      title: "Google 캘린더",
+                      description: "브라우저에서 읽기 권한만 승인해요",
+                    },
+                    {
+                      value: "ics",
+                      title: "구독 주소",
+                      description: "webcal이나 https로 시작하는 주소",
+                    },
+                  ] as const
+                ).map((option) => (
+                  <ContentChoice
+                    key={option.value}
+                    title={option.title}
+                    description={option.description}
+                    selected={provider === option.value}
+                    disabled={editingConnectionId !== null}
+                    onClick={() => {
+                      clearError();
+                      setProvider(option.value);
+                      setAppleError(null);
+                    }}
+                  />
+                ))}
+              </div>
               <FormField className={c.field} label="연결 이름" required>
                 <TextField maxLength={100} value={name} onChange={(e) => setName(e.target.value)} />
               </FormField>
@@ -510,6 +546,9 @@ export function CalendarTool({
                   </FormField>
                 </>
               )}
+              <p className={settings.readOnlyNotice}>
+                연결한 캘린더는 읽기만 해요. 구독 주소와 인증 정보는 비밀번호처럼 다뤄 주세요.
+              </p>
               <Rule variant="structural" />
               <Button
                 type="submit"
@@ -528,6 +567,16 @@ export function CalendarTool({
                   : provider === "apple"
                     ? "선택한 Apple 캘린더 연결"
                     : "브라우저에서 Google 읽기 연결"}
+              </Button>
+              <Button
+                variant="quiet"
+                type="button"
+                onClick={() => {
+                  resetConnection();
+                  setConnectionOpen(false);
+                }}
+              >
+                취소
               </Button>
               {connectionDirty && (
                 <Button variant="quiet" type="button" onClick={resetConnection}>

@@ -2,12 +2,14 @@ import type { HTMLAttributes, JSX, ReactNode } from "react";
 import { Icon } from "@comet/icon";
 import { tokens } from "@comet/token";
 import clockShape from "./assets/clock-freeform-imgCssClipShapePath.svg";
+import clockOpaqueShape from "./assets/clock-freeform-opaque.svg";
 import clockOutline from "./assets/clock-freeform-imgSvg031.svg";
 import focusShape from "./assets/focus-freeform-imgCssClipShapePath.svg";
 import focusOutline from "./assets/focus-freeform-imgSvg051.svg";
 import musicShape from "./assets/music-freeform-imgCssClipShapePath.svg";
 import musicOutline from "./assets/music-freeform-imgSvg041.svg";
 import weatherShape from "./assets/weather-freeform-imgCssClipShapePath.svg";
+import weatherOpaqueShape from "./assets/weather-freeform-opaque.svg";
 import weatherOutline from "./assets/weather-freeform-imgSvg091.svg";
 import envelopeShape from "./assets/envelope-freeform-imgCssClipShapePath.svg";
 import envelopeOutline from "./assets/envelope-freeform-imgSvg071.svg";
@@ -20,13 +22,22 @@ import counterOutline from "./assets/counter-imgSvg081.svg";
 import * as styles from "./widgets.css";
 
 const skins = {
-  clock: { width: 184, height: 184, shape: clockShape, outline: clockOutline, left: 0, top: 0 },
+  clock: {
+    width: 184,
+    height: 184,
+    shape: clockShape,
+    opaqueShape: clockOpaqueShape,
+    outline: clockOutline,
+    left: 0,
+    top: 0,
+  },
   focus: { width: 156, height: 168, shape: focusShape, outline: focusOutline, left: 0, top: 0 },
   music: { width: 336, height: 112, shape: musicShape, outline: musicOutline, left: 0, top: 0 },
   weather: {
     width: 230,
     height: 150,
     shape: weatherShape,
+    opaqueShape: weatherOpaqueShape,
     outline: weatherOutline,
     left: 8.41,
     top: 16.38,
@@ -63,8 +74,9 @@ function FreeformSkin({
   className,
   style,
   children,
+  opaque = false,
   ...props
-}: HTMLAttributes<HTMLDivElement> & { skin: keyof typeof skins }): JSX.Element {
+}: HTMLAttributes<HTMLDivElement> & { skin: keyof typeof skins; opaque?: boolean }): JSX.Element {
   const design = skins[skin];
   return (
     <div
@@ -73,7 +85,7 @@ function FreeformSkin({
       style={{ width: design.width, height: design.height, ...style }}
     >
       <img
-        src={design.shape}
+        src={opaque && "opaqueShape" in design ? design.opaqueShape : design.shape}
         alt=""
         className={styles.asset}
         style={{ left: design.left, top: design.top }}
@@ -87,6 +99,7 @@ export type ClockWidgetProps = HTMLAttributes<HTMLDivElement> & {
   time: string;
   date: string;
   badge?: string;
+  opaque?: boolean;
 };
 export function ClockWidget({ time, date, badge, ...props }: ClockWidgetProps): JSX.Element {
   return (
@@ -170,6 +183,7 @@ export type WeatherWidgetProps = HTMLAttributes<HTMLDivElement> & {
   temperature: string;
   condition: string;
   location: string;
+  opaque?: boolean;
 };
 export function WeatherWidget({
   temperature,

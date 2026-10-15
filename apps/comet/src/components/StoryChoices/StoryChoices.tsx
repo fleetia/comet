@@ -1,5 +1,6 @@
 import { useRef, useState, type CSSProperties, type JSX } from "react";
-import { Button } from "@fleetia/lagrange";
+import { ConstellationChoice } from "@comet/ui";
+import { Button } from "../../ui";
 import type { Dispatch, StoryRequest } from "../../types";
 import { errorText } from "../../hooks/useSnapshot";
 import * as s from "./story.css";
@@ -36,15 +37,14 @@ export function StoryChoices({ story, dispatch, textStyle }: Props): JSX.Element
       </p>
       <div className={s.choices} role="group" aria-label="이야기 선택지">
         {story.choices.map((choice) => (
-          <Button
+          <ConstellationChoice
             key={choice.id}
-            variant="secondary"
             disabled={pending}
             className={s.choice}
             onClick={() => void choose(choice.id)}
           >
             {choice.label}
-          </Button>
+          </ConstellationChoice>
         ))}
         <Button variant="quiet" disabled={pending} onClick={() => void choose()}>
           다음에 듣기

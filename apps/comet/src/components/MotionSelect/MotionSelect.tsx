@@ -1,5 +1,5 @@
 import type { JSX } from "react";
-import { Checkbox, FormField, Select, TextField } from "@fleetia/lagrange";
+import { Checkbox, FormField, Select, TextField } from "../../ui";
 import {
   CHARACTER_SLOTS,
   type AnimationClip,

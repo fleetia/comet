@@ -7,7 +7,7 @@ import {
   Select,
   TextArea,
   TextField,
-} from "@fleetia/lagrange";
+} from "../../ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { localDay, number, record, text, type DataRecord, type ToolAction } from "../toolData";

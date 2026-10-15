@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX } from "react";
-import { Button } from "@fleetia/lagrange";
+import { Button } from "../../ui";
 import type {
   ConversationMessages,
   ConversationSession,

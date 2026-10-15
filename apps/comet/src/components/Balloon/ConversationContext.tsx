@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, TextField } from "@fleetia/lagrange";
+import { Button, TextField } from "../../ui";
 import { command, errorText } from "../../hooks/useSnapshot";
 import type { ConversationNote, ConversationNoteContext, NoteReference } from "../../types";
 import * as s from "../companion.css";

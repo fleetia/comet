@@ -1,10 +1,20 @@
-import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
-import { Button } from "@fleetia/lagrange";
+import { Fragment, useEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
+import { Button } from "../../ui";
+import {
+  ChatIcon,
+  EnterIcon,
+  GearIcon,
+  GridIcon,
+  PlusIcon,
+  SearchIcon,
+  TogetherIcon,
+  WarnIcon,
+} from "@comet/icon";
+import { Keycap } from "@comet/ui";
 import { listen } from "@tauri-apps/api/event";
 import type { Snapshot } from "../../types";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWidgets } from "../../widgets/useWidgets";
-import { WindowHeader } from "../WindowHeader/WindowHeader";
 import {
   bindTarget,
   DEFAULT_SHORTCUT,
@@ -24,7 +34,14 @@ const PREVIEW_STATE: LauncherState = {
   shortcutRegistered: true,
   shortcutError: null,
 };
-const GLYPHS = { settings: "⚙", widget: "◇", chat: "﹥", target: "◌", notice: "!", todo: "＋" };
+const RESULT_ICONS = {
+  settings: GearIcon,
+  widget: GridIcon,
+  chat: ChatIcon,
+  target: TogetherIcon,
+  notice: WarnIcon,
+  todo: PlusIcon,
+};
 export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
   const widgets = useWidgets();
   const [query, setQuery] = useState("");
@@ -223,15 +240,9 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
         }
       }}
     >
-      <WindowHeader
-        className={styles.header}
-        title="빠른 실행"
-        label="빠른 실행 닫기"
-        onClose={close}
-      />
       <div className={styles.search}>
         <span className={styles.searchIcon} aria-hidden="true">
-          ⌕
+          <SearchIcon size={24} />
         </span>
         <input
           ref={inputRef}
@@ -245,7 +256,7 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
           aria-describedby="launcher-hint"
           autoComplete="off"
           spellCheck={false}
-          placeholder="무엇을 할까요?"
+          placeholder="말 걸거나 찾기"
           maxLength={2100}
           value={query}
           readOnly={pending}
@@ -258,6 +269,17 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
             composing.current = false;
           }}
         />
+        <Button
+          variant="quiet"
+          size="compact"
+          className={styles.pickFriend}
+          onClick={() => {
+            edit(">");
+            inputRef.current?.focus();
+          }}
+        >
+          <Keycap>&gt;</Keycap> 친구 고르기
+        </Button>
       </div>
       <p id="launcher-hint" className={styles.hint}>
         {query.startsWith(">")
@@ -271,30 +293,35 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
         aria-label="실행 후보"
         aria-busy={pending}
       >
-        {results.map((result) => (
-          <li
-            key={result.id}
-            id={`launcher-${result.id}`}
-            role="option"
-            aria-selected={result.id === selected?.id}
-            aria-disabled={!result.action && result.kind !== "target"}
-            className={styles.result}
-            onPointerMove={() => {
-              if (!pending && selected?.id !== result.id) setSelectedId(result.id);
-            }}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => void execute(result)}
-          >
-            <span className={styles.glyph} aria-hidden="true">
-              {GLYPHS[result.kind]}
-            </span>
-            <span className={styles.resultText}>
-              <span className={styles.title}>{result.title}</span>
-              <span className={styles.detail}>{result.detail}</span>
-            </span>
-            {result.id === selected?.id && <span aria-hidden="true">↵</span>}
-          </li>
-        ))}
+        {results.map((result, index) => {
+          const ResultIcon = RESULT_ICONS[result.kind];
+          return (
+            <Fragment key={result.id}>
+            {!query.trim() && (index === 0 || (result.kind !== "target" && results[index - 1]?.kind === "target")) && <li role="presentation" className={styles.groupLabel}>{result.kind === "target" ? "말 걸기" : "자주 쓰는 것"}</li>}
+            <li
+              id={`launcher-${result.id}`}
+              role="option"
+              aria-selected={result.id === selected?.id}
+              aria-disabled={!result.action && result.kind !== "target"}
+              className={styles.result}
+              onPointerMove={() => {
+                if (!pending && selected?.id !== result.id) setSelectedId(result.id);
+              }}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => void execute(result)}
+            >
+              <span className={styles.glyph} aria-hidden="true">
+                <ResultIcon size={20} />
+              </span>
+              <span className={styles.resultText}>
+                <span className={styles.title}>{result.title}</span>
+                <span className={styles.detail}>{result.detail}</span>
+              </span>
+              {result.id === selected?.id && <Keycap><EnterIcon size={12} /></Keycap>}
+            </li>
+            </Fragment>
+          );
+        })}
       </ul>
       {(error || widgets.error) && (
         <div className={styles.error} role="alert">
@@ -335,13 +362,13 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
       <footer className={styles.footer}>
         <span className={styles.keys}>
           <span>
-            <kbd>↑ ↓</kbd> 선택
+            <Keycap>↑ ↓</Keycap> 선택
           </span>
           <span>
-            <kbd>↵</kbd> 실행
+            <Keycap>↵</Keycap> 실행
           </span>
           <span>
-            <kbd>esc</kbd> 닫기
+            <Keycap>esc</Keycap> 닫기
           </span>
         </span>
         <span role="status">

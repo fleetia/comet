@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, Dialog, Surface } from "@fleetia/lagrange";
+import { Button, Dialog, Surface } from "../../ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { InstalledCharacter } from "../../types";
 import { CharacterWorkPanel } from "../CharacterEditor/CharacterWorkPanel";

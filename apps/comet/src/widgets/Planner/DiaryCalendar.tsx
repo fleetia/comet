@@ -1,4 +1,10 @@
-import { Button } from "@fleetia/lagrange";
+import { Button } from "../../ui";
+import {
+  CalendarDayNumber,
+  CalendarTimedEvent,
+  CalendarWeek,
+  type CalendarWeekEvent,
+} from "@comet/ui";
 import { useState, type DragEvent, type ReactElement } from "react";
 import { hasWidgetDrag, readWidgetDrag, type WidgetDragPayload } from "../widgetDrag";
 import { localDay, text, type DataRecord } from "../toolData";
@@ -6,6 +12,7 @@ import { allDaySegments, monthDays } from "./calendarLayout";
 import {
   dayDate,
   eventStart,
+  eventEnd,
   eventsOn,
   eventTime,
   frequencyRecords,
@@ -229,15 +236,14 @@ export function DiaryCalendar({
         className={s.eventRow}
         style={eventColor ? { borderLeftColor: eventColor(event) } : undefined}
       >
-        <button
-          type="button"
+        <CalendarTimedEvent
+          title={text(event.title)}
+          time={event.allDay ? "종일" : eventTime(event).split("–")[0]}
+          color={event.connectionId === "local" ? "comet" : "google"}
           className={s.calendarRow}
-          title={`${eventTime(event)} ${text(event.title)}`}
           aria-label={`${eventTime(event)} ${text(event.title)} ${event.connectionId === "local" ? "Comet 일정" : "연결 일정"} 열기`}
           onClick={() => onEvent(event, date)}
-        >
-          {event.allDay ? "○" : eventTime(event).split("–")[0]} {text(event.title)}
-        </button>
+        />
         {envelope && envelopeLink(envelope)}
       </div>
     );
@@ -276,80 +282,117 @@ export function DiaryCalendar({
     const dates = Array.from({ length: 7 }, (_, index) => moveDay(start, index));
     const reflectionDay = dates[6];
     const reflection = pageFor(reflectionDay)?.entries.find((entry) => entry.kind === "note");
+    const schedule: CalendarWeekEvent[] = dates.flatMap((date) =>
+      eventsOn(visibleEvents, date)
+        .filter((event) => !event.allDay)
+        .map((event) => {
+          const beginning = new Date(`${date}T00:00:00`).getTime();
+          const startAt = Math.max(beginning, eventStart(event));
+          return {
+            id: `${date}:${text(event.id)}`,
+            dayId: date,
+            startMinute: Math.max(0, (startAt - beginning) / 60000),
+            durationMinutes: Math.max(1, Math.min(1440, (eventEnd(event) - startAt) / 60000)),
+            state: "planned" as const,
+            color: event.connectionId === "local" ? ("comet" as const) : ("google" as const),
+            children: text(event.title),
+            "aria-label": `${text(event.title)} 일정 상세`,
+          };
+        }),
+    );
     return (
-      <section className={s.week} aria-label="주간 다이어리">
-        {dates.map((date, index) => {
-          const notes = pageFor(date)?.entries.filter((entry) => entry.kind === "note") ?? [];
-          const hasContent =
-            appointments(date, true).length > 0 ||
-            tasks(date).length > 0 ||
-            datedEnvelopes(date).length > 0 ||
-            linkedCount(date) > 0 ||
-            notes.length > 0;
-          return (
-            <section
-              className={`${s.weekDay} ${dropDate === date ? s.dropActive : ""}`}
-              key={date}
-              aria-label={`${date} 기록`}
-              onDragOver={(event) => dragOver(event, date)}
-              onDragLeave={() => setDropDate(null)}
-              onDrop={(event) => drop(event, date)}
-            >
-              <button
-                type="button"
-                className={s.weekTitle}
-                aria-label={`${date} 하루 펼치기`}
-                onClick={() => onDay(date)}
+      <div className={s.weekWorkspace}>
+        <CalendarWeek
+          days={dates.map((date, index) => ({
+            id: date,
+            day: String(dayDate(date).getDate()),
+            weekday: WEEKDAYS[index],
+            label: date,
+            today: date === localDay(),
+          }))}
+          events={schedule}
+          onDayClick={(date) => onDay(date.id)}
+          onEventClick={(block) => {
+            const event = visibleEvents.find(
+              (value) => `${block.dayId}:${text(value.id)}` === block.id,
+            );
+            if (event) onEvent(event, block.dayId);
+          }}
+        />
+        <section className={s.week} aria-label="주간 다이어리">
+          {dates.map((date, index) => {
+            const notes = pageFor(date)?.entries.filter((entry) => entry.kind === "note") ?? [];
+            const hasContent =
+              appointments(date, true).length > 0 ||
+              tasks(date).length > 0 ||
+              datedEnvelopes(date).length > 0 ||
+              linkedCount(date) > 0 ||
+              notes.length > 0;
+            return (
+              <section
+                className={`${s.weekDay} ${dropDate === date ? s.dropActive : ""}`}
+                key={date}
+                aria-label={`${date} 기록`}
+                onDragOver={(event) => dragOver(event, date)}
+                onDragLeave={() => setDropDate(null)}
+                onDrop={(event) => drop(event, date)}
               >
-                {dayDate(date).getDate()} {WEEKDAYS[index]}
-                {date === localDay() && <span className={s.today}>오늘</span>}
-              </button>
-              {onCreateEvent && (
-                <Button
-                  variant="quiet"
-                  size="compact"
-                  aria-label={`${date} 일정 추가`}
-                  onClick={() => onCreateEvent(date)}
+                <button
+                  type="button"
+                  className={s.weekTitle}
+                  aria-label={`${date} 하루 펼치기`}
+                  onClick={() => onDay(date)}
                 >
-                  + 일정
-                </Button>
-              )}
-              <div className={s.weekContent}>
-                {appointments(date, true).map((appointment) => appointmentRow(appointment, date))}
-                {datedEnvelopes(date).map(envelopeRow)}
-                {tasks(date).map((item) => taskRow(item, date))}
-                {linkedRow(date)}
-                {notes.length > 0 && (
-                  <button
-                    type="button"
-                    className={s.weekNote}
-                    onClick={() => onDay(date)}
-                    aria-label={`${date} 메모 이어 쓰기`}
+                  {dayDate(date).getDate()} {WEEKDAYS[index]}
+                  {date === localDay() && <span className={s.today}>오늘</span>}
+                </button>
+                {onCreateEvent && (
+                  <Button
+                    variant="quiet"
+                    size="compact"
+                    aria-label={`${date} 일정 추가`}
+                    onClick={() => onCreateEvent(date)}
                   >
-                    {notes.map((entry) => entry.text).join("\n")}
-                  </button>
+                    + 일정
+                  </Button>
                 )}
-                {!hasContent && (
-                  <button type="button" className={s.weekNote} onClick={() => onDay(date)}>
-                    ＋ 이날에 적기
-                  </button>
-                )}
-              </div>
-            </section>
-          );
-        })}
-        <button
-          type="button"
-          className={s.weekReflection}
-          onClick={() => onDay(reflectionDay)}
-          aria-label="이번 주에 남길 말, 일요일 페이지에 이어 쓰기"
-        >
-          <strong>이번 주에 남길 말</strong>
-          <span className={s.excerpt}>
-            {reflection?.text || "한 주를 돌아보고, 일요일 페이지에 적어 보세요."}
-          </span>
-        </button>
-      </section>
+                <div className={s.weekContent}>
+                  {appointments(date, true).map((appointment) => appointmentRow(appointment, date))}
+                  {datedEnvelopes(date).map(envelopeRow)}
+                  {tasks(date).map((item) => taskRow(item, date))}
+                  {linkedRow(date)}
+                  {notes.length > 0 && (
+                    <button
+                      type="button"
+                      className={s.weekNote}
+                      onClick={() => onDay(date)}
+                      aria-label={`${date} 메모 이어 쓰기`}
+                    >
+                      {notes.map((entry) => entry.text).join("\n")}
+                    </button>
+                  )}
+                  {!hasContent && (
+                    <button type="button" className={s.weekNote} onClick={() => onDay(date)}>
+                      ＋ 이날에 적기
+                    </button>
+                  )}
+                </div>
+              </section>
+            );
+          })}
+          <button
+            type="button"
+            className={s.weekReflection}
+            onClick={() => onDay(reflectionDay)}
+            aria-label="이번 주에 남길 말, 일요일 페이지에 이어 쓰기"
+          >
+            <strong>이번 주에 남길 말</strong>
+            <span className={s.excerpt}>
+              {reflection?.text || "한 주를 돌아보고, 일요일 페이지에 적어 보세요."}
+            </span>
+          </button>
+        </section>
+      </div>
     );
   }
 
@@ -398,7 +441,9 @@ export function DiaryCalendar({
                   data-today={date === localDay()}
                   data-selected={date === day}
                 >
-                  {dayDate(date).getDate()}
+                  <CalendarDayNumber today={date === localDay()}>
+                    {dayDate(date).getDate()}
+                  </CalendarDayNumber>
                 </button>
               </div>
             ))}

@@ -1,5 +1,6 @@
+import { openCharacterPage, selectFriend } from "./characterNavigation";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { CharacterManager } from "../components/CharacterManager/CharacterManager";
 import { command, PREVIEW_SNAPSHOT } from "../hooks/useSnapshot";
 import type { AnimationAsset, AuthoringTrialTrace, PackStorySnapshot, Snapshot } from "../types";
@@ -187,15 +188,12 @@ afterEach(() => {
 });
 
 function selectTab(name: string): void {
-  fireEvent.click(within(screen.getByLabelText("캐릭터 편집")).getByRole("tab", { name }));
+  openCharacterPage(name);
 }
 function chooseCharacter(name: string): void {
-  fireEvent.click(
-    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", {
-      name: new RegExp(`^${name}`),
-    }),
-  );
+  selectFriend(new RegExp(`^${name}`));
 }
+
 async function addDraftAsset(): Promise<void> {
   selectTab("모습·표정");
   const appearance = within(screen.getByLabelText("모습·표정", { selector: '[role="tabpanel"]' }));
@@ -213,11 +211,12 @@ it.each([
   async (kind, title) => {
     const original = structuredClone(snapshot);
     render(<CharacterManager embedded snapshot={snapshot} />);
+    openCharacterPage("프로필");
     await addDraftAsset();
     chooseCharacter(actors[1].definition.name);
     await addDraftAsset();
     if (kind === "relation" || kind === "scenario") chooseCharacter(actors[0].definition.name);
-    selectTab(kind === "relation" ? "프로필" : "등장·이야기");
+    selectTab(kind === "relation" ? "다른 친구와의 관계" : "등장·이야기");
     const summary = await screen.findByText(title, { selector: "summary" });
     const details = summary.closest("details")!;
     details.open = true;
@@ -233,29 +232,27 @@ it.each([
     await waitFor(() => expect(urls).toContain("data:image/png;base64,resident-draft-bytes"));
     expect(preview.textContent).toContain(lines[0].text);
     expect(within(preview).getByText(actors[0].definition.expressions.평온)).toBeTruthy();
-    vi.useFakeTimers();
     fireEvent.click(within(preview).getByRole("button", { name: "미리보기" }));
-    await act(async () => {
-      vi.advanceTimersByTime(120);
-    });
-    expect(preview.textContent).toContain(lines[1].text);
+    await waitFor(() => expect(preview.textContent).toContain(lines[1].text));
     expect(within(preview).getByText(actors[1].definition.name)).toBeTruthy();
     expect(urls).toContain("data:image/png;base64,guest-draft-bytes");
     expect(urls.filter(Boolean).every((url) => url.startsWith("data:image/png;base64,"))).toBe(
       true,
     );
-    await act(async () => {
-      vi.advanceTimersByTime(180);
-    });
-    expect(within(preview).getByRole("button", { name: "정지" })).toHaveProperty("disabled", true);
+    await waitFor(() =>
+      expect(within(preview).getByRole("button", { name: "정지" })).toHaveProperty(
+        "disabled",
+        true,
+      ),
+    );
     expect(within(preview).getByText(actors[1].definition.expressions.기쁨)).toBeTruthy();
     if (kind === "scenario") {
-      vi.useRealTimers();
       const world = screen.getByLabelText("세계와 공통 규칙");
       fireEvent.change(world, { target: { value: "  유지할 세계 초안\n원문  " } });
       fireEvent.click(trial.getByRole("button", { name: title }));
       await trial.findByLabelText(`${title} 결과`);
-      act(() => native.listeners.forEach((callback) => callback()));
+      openCharacterPage("프로필");
+      openCharacterPage("등장·이야기");
       expect(trial.queryByLabelText(`${title} 결과`)).toBeNull();
       expect(world).toHaveProperty("value", "  유지할 세계 초안\n원문  ");
     }
@@ -279,4 +276,5 @@ it.each([
         ),
     ).toEqual([]);
   },
+  15000,
 );

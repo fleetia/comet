@@ -1,4 +1,4 @@
-import { Button, Dialog } from "@fleetia/lagrange";
+import { Button, Dialog } from "../../ui";
 import { useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWidgets } from "../useWidgets";

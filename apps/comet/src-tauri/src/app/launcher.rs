@@ -477,6 +477,7 @@ pub(crate) struct ExecuteRequest {
 pub(crate) enum LauncherAction {
     Settings {
         section: Option<windows::SettingsSection>,
+        widget_kind: Option<String>,
     },
     Widget {
         id: String,
@@ -515,6 +516,22 @@ pub(crate) fn accept_execution(state: &AppState, session_id: u64) -> Result<(), 
     Ok(())
 }
 
+fn accept_settings_execution(
+    state: &AppState,
+    session_id: u64,
+    section: Option<windows::SettingsSection>,
+    widget_kind: Option<&str>,
+) -> Result<(), String> {
+    let _action = lock(&state.action)?;
+    if let Some(kind) = widget_kind {
+        if section != Some(windows::SettingsSection::Widgets) {
+            return Err("위젯 대상은 위젯 설정에서만 열 수 있어요.".into());
+        }
+        crate::planner_windows::validate_widget_settings_kind(kind)?;
+    }
+    accept_execution(state, session_id)
+}
+
 #[tauri::command]
 pub(crate) async fn execute_launcher(
     app: tauri::AppHandle,
@@ -533,14 +550,23 @@ pub(crate) async fn execute_launcher(
     };
     let result = async {
         match request.action {
-            LauncherAction::Settings { section } => {
-                {
-                    let _action = lock(&state.action)?;
-                    accept_execution(&state, request.session_id)?;
-                }
-                match section {
-                    Some(section) => windows::open_settings_section(app.clone(), section),
-                    None => windows::open_settings(app.clone()).await,
+            LauncherAction::Settings {
+                section,
+                widget_kind,
+            } => {
+                accept_settings_execution(
+                    &state,
+                    request.session_id,
+                    section,
+                    widget_kind.as_deref(),
+                )?;
+                if let Some(kind) = widget_kind {
+                    crate::planner_windows::open_widget_settings(app.clone(), &kind)
+                } else {
+                    match section {
+                        Some(section) => windows::open_settings_section(app.clone(), section),
+                        None => windows::open_settings(app.clone()).await,
+                    }
                 }
             }
             LauncherAction::Widget {
@@ -719,6 +745,78 @@ mod native_focus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_actions_keep_legacy_navigation_and_optional_widget_targets() {
+        let legacy: LauncherAction = serde_json::from_value(serde_json::json!({
+            "type": "settings", "section": "widgets"
+        }))
+        .unwrap();
+        assert!(matches!(
+            legacy,
+            LauncherAction::Settings {
+                section: Some(windows::SettingsSection::Widgets),
+                widget_kind: None
+            }
+        ));
+        let targeted: LauncherAction = serde_json::from_value(serde_json::json!({
+            "type": "settings", "section": "widgets", "widgetKind": "focus-timer"
+        }))
+        .unwrap();
+        assert!(matches!(targeted, LauncherAction::Settings {
+            section: Some(windows::SettingsSection::Widgets), widget_kind: Some(kind)
+        } if kind == "focus-timer"));
+    }
+
+    #[test]
+    fn widget_settings_acceptance_rejects_invalid_targets_and_cancelled_sessions() {
+        let state = crate::app::tests::state();
+        let session = {
+            let _action = lock(&state.action).unwrap();
+            begin_session(&state).unwrap()
+        };
+        claim_execution(&state, session).unwrap();
+        for (section, kind) in [
+            (Some(windows::SettingsSection::General), "focus-timer"),
+            (None, "focus-timer"),
+            (Some(windows::SettingsSection::Widgets), "unknown"),
+            (Some(windows::SettingsSection::Widgets), "collection"),
+        ] {
+            assert!(accept_settings_execution(&state, session, section, Some(kind)).is_err());
+            assert!(lock(&state.launcher).unwrap().cancellable);
+        }
+        state.launcher_open.store(false, Ordering::SeqCst);
+        assert!(accept_settings_execution(
+            &state,
+            session,
+            Some(windows::SettingsSection::Widgets),
+            Some("focus-timer")
+        )
+        .is_err());
+        let next = {
+            let _action = lock(&state.action).unwrap();
+            begin_session(&state).unwrap()
+        };
+        claim_execution(&state, next).unwrap();
+        assert!(accept_settings_execution(
+            &state,
+            session,
+            Some(windows::SettingsSection::Widgets),
+            Some("focus-timer")
+        )
+        .is_err());
+        for kind in ["focus-timer", "music", "weather", "ball"] {
+            accept_settings_execution(
+                &state,
+                next,
+                Some(windows::SettingsSection::Widgets),
+                Some(kind),
+            )
+            .unwrap();
+        }
+        assert!(!lock(&state.launcher).unwrap().cancellable);
+        assert_eq!(state.launcher_session.load(Ordering::SeqCst), next);
+    }
 
     #[test]
     fn default_disabled_and_invalid_shortcuts_are_distinct() {

@@ -44,11 +44,11 @@ it("keeps a failed check visible and permits a later manual retry", async () => 
   });
   render(<UpdatePanel />);
   await waitFor(() => expect(command).toHaveBeenCalledWith("get_update_status"));
-  fireEvent.click(screen.getByRole("button", { name: "업데이트 확인" }));
+  fireEvent.click(screen.getByRole("button", { name: "지금 확인" }));
   expect(await screen.findByRole("alert")).toHaveProperty(
     "textContent",
     "Error: 업데이트 서버에 연결하지 못했어요.",
   );
-  expect(screen.getByRole("button", { name: "업데이트 확인" })).toHaveProperty("disabled", false);
+  expect(screen.getByRole("button", { name: "지금 확인" })).toHaveProperty("disabled", false);
   expect(screen.queryByRole("button", { name: "설치하고 다시 시작" })).toBeNull();
 });

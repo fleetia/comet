@@ -1,4 +1,4 @@
-import { Button, Surface, TextField } from "@fleetia/lagrange";
+import { Button, Surface, TextField } from "../../ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { record, rows, text, number, type DataRecord } from "../toolData";
@@ -6,6 +6,7 @@ import { useConnectionCommand } from "../useConnectionCommand";
 import type { WidgetValue, WidgetView } from "../types";
 import { MusicTool } from "../MusicTool/MusicTool";
 import { MusicSettings } from "../MusicTool/MusicSettings";
+import * as weather from "./weatherSettings.css";
 import * as c from "../../lagrange.css";
 import * as s from "../tools.css";
 function stamp(value: WidgetValue | undefined): string {
@@ -38,12 +39,21 @@ function weatherLabel(code: number): string {
 type Props = {
   widget: WidgetView;
   mode?: "settings" | "tool";
+  sideContainer?: HTMLElement | null;
+  disabled?: boolean;
+  onBusyChange?: (busy: boolean) => void;
   onDirtyChange?: (dirty: boolean) => void;
 };
 export function ConnectionTool(props: Props): ReactElement {
   if (props.widget.kind === "music") {
     return props.mode === "settings" ? (
-      <MusicSettings widget={props.widget} onDirtyChange={props.onDirtyChange} />
+      <MusicSettings
+        widget={props.widget}
+        disabled={props.disabled}
+        onBusyChange={props.onBusyChange}
+        sideContainer={props.sideContainer}
+        onDirtyChange={props.onDirtyChange}
+      />
     ) : (
       <MusicTool widget={props.widget} />
     );
@@ -85,7 +95,7 @@ function InformationConnectionTool({ widget, mode = "tool", onDirtyChange }: Pro
         </>
       )}
       {mode === "settings" && widget.kind === "weather" && (
-        <section className={s.section} aria-label="날씨 지역 설정">
+        <section className={weather.settings} aria-label="날씨 지역 설정">
           <div className={s.weatherHeading}>
             <h2 className={s.sectionTitle}>지역과 연결</h2>
             <p className={c.quiet}>
@@ -218,7 +228,10 @@ function WeatherRegion({
               region.latitude === currentRegion.latitude &&
               region.longitude === currentRegion.longitude;
             return (
-              <div className={s.regionResult} key={number(region.id)}>
+              <div
+                className={`${weather.result} ${current ? weather.current : ""}`}
+                key={number(region.id)}
+              >
                 <span>
                   {text(region.name)} · {text(region.admin1)} · {text(region.country)}
                 </span>

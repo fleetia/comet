@@ -1,5 +1,6 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { semanticVars as vars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 
 export const eyebrow = style({
   fontSize: vars.typography.size.caption,
@@ -42,6 +43,8 @@ export const error = style({
   marginTop: vars.space.sm,
   lineHeight: vars.typography.lineHeight.body,
   overflowWrap: "anywhere",
+  borderRadius: tokens["radius/radius-10"],
+  border: `1px solid ${tokens["color/component/danger-alpha-100"]}`,
 });
 export const success = style({
   fontSize: vars.typography.size.label,
@@ -61,8 +64,8 @@ export const previewSettings = style({
 export const settingsTitle = style({
   fontFamily: vars.typography.family.display,
   fontSize: vars.typography.size.headingMd,
-  fontWeight: 600,
-  letterSpacing: "-0.025em",
+  fontWeight: 500,
+  letterSpacing: "-0.035em",
   marginBottom: vars.space.sm,
 });
 export const section = style({
@@ -101,12 +104,18 @@ export const choice = style({
   },
 });
 export const memory = style({
-  padding: `${vars.space.md} 0`,
+  padding: vars.space.md,
+  marginBlock: vars.space.xs,
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: tokens["radius/radius-12"],
+  background: tokens["color/card"],
 });
 export const progress = style({
   width: "100%",
   accentColor: vars.color.status.positive,
   height: 7,
+  borderRadius: 7,
+  overflow: "hidden",
 });
 export const emptyHint = style({
   marginTop: vars.space.md,

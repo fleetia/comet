@@ -1,188 +1,240 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
-
-export const workspace = style({ height: "100%", minHeight: 0, minWidth: 0 });
-export const layout = style({
-  display: "grid",
-  gridTemplateColumns: "320px minmax(0,1fr)",
-  gap: vars.space.lg,
+import { tokens } from "@comet/token";
+export const workspace = style({
   height: "100%",
   minHeight: 0,
-  "@media": {
-    "(max-width: 1280px)": { gridTemplateColumns: "224px minmax(0,1fr)" },
-    "(max-width: 1000px)": { gridTemplateColumns: "192px minmax(0,1fr)" },
+  minWidth: 0,
+  containerType: "inline-size",
+});
+export const layout = style({
+  display: "grid",
+  gridTemplateColumns: "372px minmax(0,1fr)",
+  gap: 28,
+  height: "100%",
+  minHeight: 0,
+  "@container": {
+    "(max-width: 1050px)": { gridTemplateColumns: "300px minmax(0,1fr)", gap: 24 },
+    "(max-width: 780px)": { gridTemplateColumns: "240px minmax(0,1fr)", gap: 16 },
   },
 });
-export const entries = style({ minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex" });
+export const inspector = style({
+  alignSelf: "start",
+  display: "flex",
+  flexDirection: "column",
+  gap: 14,
+  minWidth: 0,
+  minHeight: 0,
+  maxHeight: "100%",
+  boxSizing: "border-box",
+  padding: "18px 20px 20px",
+  borderRadius: 24,
+  border: `1px solid ${tokens["color/chip-border"]}`,
+  background: `radial-gradient(ellipse at 50% 0, ${tokens["color/component/cat-rest-alpha-160"]}, transparent 70%), ${tokens["color/card-2"]}`,
+});
+export const listHeading = style({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 8,
+});
+export const pageTitle = style({
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  margin: 0,
+  fontFamily: tokens["typography/display/title/fontFamily"],
+  fontSize: 22,
+  fontWeight: 400,
+  lineHeight: "28px",
+});
+export const searchRow = style({ display: "flex", gap: 8, minWidth: 0 });
+globalStyle(`${searchRow} > span:first-child`, { flex: 1, minWidth: 0 });
+globalStyle(`${searchRow} > span:last-child`, { flex: "0 0 110px", width: 110 });
+globalStyle(`${searchRow} input`, { width: "100%" });
+globalStyle(`${searchRow} select`, { width: 110 });
 export const listBody = style({
-  flex: 1,
   minHeight: 0,
   overflowY: "auto",
-  padding: vars.space.lg,
-  scrollbarGutter: "stable",
-});
-export const sectionTitle = style({
-  fontSize: vars.typography.size.headingSm,
-  lineHeight: vars.typography.lineHeight.compact,
-  fontWeight: 600,
-  margin: `0 0 ${vars.space.md}`,
-});
-export const entry = style({
-  width: "100%",
   display: "grid",
-  gap: vars.space.xs,
-  textAlign: "left",
-  minHeight: 64,
-  overflowWrap: "anywhere",
-  whiteSpace: "normal",
+  gap: 16,
+  paddingRight: 1,
 });
-export const entryKeywords = style({
-  fontSize: vars.typography.size.caption,
-  lineHeight: vars.typography.lineHeight.body,
-  color: vars.color.content.secondary,
+export const listGroup = style({ display: "grid", gap: 6 });
+export const listGroupTitle = style({
+  margin: 0,
+  fontSize: 12,
+  lineHeight: "16px",
+  color: tokens["color/ink-3"],
+  fontWeight: 400,
+});
+export const entryGroup = style({
+  overflow: "hidden",
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: 16,
+  background: tokens["color/card"],
+});
+export const entryRow = style({
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  minWidth: 0,
+  padding: "10px 12px",
   selectors: {
-    [`${entry}[aria-pressed="true"] &`]: { color: vars.color.content.onAccent },
+    "& + &": { borderTop: `1px solid ${tokens["color/divider"]}` },
+    '&[data-selected="true"]': { background: tokens["color/component/primary-alpha-160"] },
   },
 });
-export const form = style({ minWidth: 0, minHeight: 0, overflow: "hidden", display: "flex" });
-export const editorForm = style({ display: "flex", flex: 1, minWidth: 0, minHeight: 0 });
+export const entry = style({
+  display: "grid",
+  gap: 3,
+  minWidth: 0,
+  flex: 1,
+  padding: 0,
+  border: 0,
+  background: "transparent",
+  textAlign: "left",
+  color: tokens["color/ink"],
+  cursor: "pointer",
+  font: "inherit",
+  fontSize: 14,
+  selectors: {
+    "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: 3 },
+  },
+});
+export const caption = style({
+  margin: 0,
+  fontSize: 12,
+  lineHeight: "17px",
+  color: tokens["color/ink-3"],
+});
+export const entryKeywords = style([
+  caption,
+  { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+]);
+export const editorForm = style({ display: "flex", minWidth: 0, minHeight: 0 });
 export const editor = style({
   display: "flex",
   flexDirection: "column",
   flex: 1,
-  border: 0,
-  margin: 0,
-  padding: 0,
   minWidth: 0,
   minHeight: 0,
+  padding: 0,
+  margin: 0,
+  border: 0,
 });
 export const editorBody = style({
   flex: 1,
   minHeight: 0,
   overflowY: "auto",
-  padding: vars.space.lg,
-  scrollbarGutter: "stable",
-});
-export const fields = style({
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 0.6fr) minmax(0,1fr)",
-  gap: vars.space.lg,
-});
-export const keywordsInput = style({
-  height: vars.dimension.control,
-  minHeight: vars.dimension.control,
-  resize: "vertical",
+  display: "flex",
+  flexDirection: "column",
+  gap: 18,
+  paddingRight: 2,
 });
 export const legend = style({
   position: "absolute",
   width: 1,
   height: 1,
-  padding: 0,
-  margin: -1,
   overflow: "hidden",
   clipPath: "inset(50%)",
-  whiteSpace: "nowrap",
 });
-export const lineHeading = style({
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  paddingTop: vars.space.sm,
-  borderTop: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
+export const section = style({ display: "grid", gap: 8, minWidth: 0 });
+export const sectionTitle = style({
+  margin: 0,
+  fontFamily: tokens["typography/display/label-display/fontFamily"],
+  fontSize: 14,
+  lineHeight: "18px",
+  color: tokens["color/ink-2"],
+  fontWeight: 400,
+});
+export const editorCard = style({
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: 18,
+  background: tokens["color/card"],
+  overflow: "hidden",
+});
+export const fields = style({
+  display: "grid",
+  gridTemplateColumns: "minmax(0,1fr) 170px",
+  padding: 16,
+  gap: 20,
+  "@container": { "(max-width: 900px)": { gridTemplateColumns: "minmax(0,1fr) 130px", gap: 12 } },
+});
+export const keywordField = style({
+  display: "grid",
+  gap: 8,
+  padding: "12px 16px",
+  borderTop: `1px solid ${tokens["color/divider"]}`,
+});
+export const keywordsInput = style({ height: 34, minHeight: 34, resize: "vertical" });
+export const linesSection = style({
+  display: "grid",
+  gap: 8,
+  padding: "12px 16px",
+  borderTop: `1px solid ${tokens["color/divider"]}`,
 });
 export const line = style({
-  padding: `${vars.space.md} 0 ${vars.space.xl}`,
+  display: "grid",
+  gridTemplateColumns: "104px minmax(0,1fr) 24px",
+  alignItems: "start",
+  gap: 8,
+  minWidth: 0,
 });
-export const lineIdentity = style({
-  display: "flex",
-  alignItems: "center",
-  gap: vars.space.sm,
-  marginBottom: vars.space.sm,
+export const lineText = style({ minHeight: 34, height: 34, resize: "vertical" });
+export const lineAdvanced = style({
+  gridColumn: "1 / -1",
+  fontSize: 11,
+  lineHeight: "16px",
+  color: tokens["color/ink-3"],
 });
-globalStyle(`${lineIdentity} > label`, { flex: 1, minWidth: 0 });
-globalStyle(`${lineIdentity} select`, { width: "100%", minWidth: 0 });
 export const lineControls = style({
   display: "flex",
+  gap: 8,
   alignItems: "center",
-  gap: vars.space.sm,
   flexWrap: "wrap",
-  marginTop: vars.space.sm,
+  marginTop: 8,
 });
-globalStyle(`${lineControls} select`, { width: "100%" });
-globalStyle(`${lineControls} > label`, { width: 160 });
-export const lineNumber = style({ width: 32, flexShrink: 0 });
-export const lineLimit = style({
-  flexShrink: 0,
-  color: vars.color.content.secondary,
-  fontSize: vars.typography.size.caption,
+export const toggleRows = style({
+  display: "grid",
+  gridTemplateColumns: "repeat(2,minmax(0,1fr))",
+  borderTop: `1px solid ${tokens["color/divider"]}`,
 });
-export const motion = style({ minWidth: 160 });
-globalStyle(`${motion} > div`, { alignItems: "center", margin: 0, padding: 0 });
-globalStyle(`${motion} > div > div:first-child > div:first-child`, {
-  position: "absolute",
-  width: 1,
-  height: 1,
-  overflow: "hidden",
-  clipPath: "inset(50%)",
+globalStyle(`${toggleRows} > div + div`, { borderLeft: `1px solid ${tokens["color/divider"]}` });
+export const warning = style({
+  margin: 0,
+  padding: 12,
+  borderRadius: 12,
+  border: `1px solid ${tokens["color/card-border"]}`,
+  background: tokens["color/card"],
+  fontSize: 12,
+  lineHeight: "18px",
 });
-globalStyle(`${listBody} > button:last-child`, { width: "100%", marginTop: vars.space.sm });
-export const lineText = style({ minHeight: 70, height: 70 });
-export const actions = style({
-  display: "flex",
-  flexWrap: "wrap",
-  alignItems: "center",
-  gap: vars.space.sm,
+export const previewDetails = style({ fontSize: 12, color: tokens["color/ink-2"] });
+globalStyle(`${previewDetails} > summary`, { cursor: "pointer", padding: "5px 0" });
+export const matchTest = style({
+  padding: "10px 16px",
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: 16,
+  background: tokens["color/card"],
 });
+export const testControls = style({ display: "flex", alignItems: "end", gap: 10 });
+globalStyle(`${testControls} > div`, { flex: 1, minWidth: 0 });
+export const preview = style({ whiteSpace: "pre-wrap", overflowWrap: "anywhere" });
+export const previewLines = style({ margin: 0, paddingLeft: 20 });
+export const previewText = style({ display: "block", whiteSpace: "pre-wrap" });
+export const saveBar = style({ paddingTop: 16, flexShrink: 0 });
+export const actions = style({ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" });
 export const saveStatus = style({
   marginRight: "auto",
-  fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
-});
-export const saveBar = style({
-  flexShrink: 0,
-  padding: `${vars.space.md} ${vars.space.lg}`,
-  borderTop: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
-  background: vars.color.surface.raised,
+  fontSize: 12,
+  color: tokens["color/ink-3"],
 });
 export const confirmation = style({
-  padding: vars.space.md,
   display: "grid",
-  gap: vars.space.sm,
-  color: vars.color.content.primary,
-  background: vars.color.surface.muted,
-  fontSize: vars.typography.size.body,
-});
-export const preview = style({
-  minHeight: 128,
-  marginBottom: vars.space.lg,
-  whiteSpace: "pre-wrap",
-  overflowWrap: "anywhere",
-});
-
-export const groupField = style({ maxWidth: 240 });
-export const previewDetails = style({ marginBottom: vars.space.md });
-globalStyle(`${previewDetails} > summary`, {
-  cursor: "pointer",
-  fontWeight: 600,
-  padding: `${vars.space.sm} 0`,
-});
-export const previewLines = style({ margin: 0, paddingLeft: vars.space.lg });
-export const previewText = style({ display: "block", whiteSpace: "pre-wrap" });
-export const matchTest = style({
-  marginBottom: vars.space.lg,
-  padding: vars.space.md,
-  background: vars.color.surface.muted,
-});
-export const testControls = style({
-  display: "flex",
-  alignItems: "end",
-  gap: vars.space.sm,
-  flexWrap: "wrap",
-});
-globalStyle(`${testControls} > div`, { flex: "1 1 240px" });
-export const warning = style({
-  padding: vars.space.md,
-  borderLeft: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
-  background: vars.color.surface.muted,
-  fontSize: vars.typography.size.body,
+  gap: 10,
+  padding: 14,
+  marginTop: 10,
+  borderRadius: 16,
+  background: tokens["color/card"],
+  fontSize: 13,
 });

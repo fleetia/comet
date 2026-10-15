@@ -8,9 +8,11 @@ import {
   TabPanel,
   Tabs,
   TextField,
-} from "@fleetia/lagrange";
+} from "../../ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { createPortal } from "react-dom";
+import { Icon } from "@comet/icon";
+import { WidgetExpanded } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import {
   localDay,
@@ -118,22 +120,19 @@ function ToolbarIcon({
 }: {
   name: "bell" | "settings" | "expand" | "collapse";
 }): ReactElement {
-  const paths = {
-    bell: "M6 8a4 4 0 0 1 8 0v3l2 3H4l2-3V8M8 16a2 2 0 0 0 4 0",
-    settings: "M3 5h14M3 10h14M3 15h14M7 3v4M13 8v4M8 13v4",
-    expand: "M7 3H3v4M13 3h4v4M3 13v4h4M17 13v4h-4",
-    collapse: "M3 7h4V3M17 7h-4V3M7 17v-4H3M13 17v-4h4",
-  };
   return (
-    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <path
-        d={paths[name]}
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <Icon
+      name={
+        name === "collapse"
+          ? "chevleft"
+          : name === "expand"
+            ? "chev"
+            : name === "settings"
+              ? "gear"
+              : name
+      }
+      size={16}
+    />
   );
 }
 
@@ -238,7 +237,6 @@ export function TimerTool({
   const progress = duration > 0 ? Math.max(0, Math.min(1, remaining / duration)) : 0;
   const sessions = focusSessions(data, now);
   const restDuration = number(record(data.settings).restDurationMs) || 300000;
-  const phase = idle ? "집중 시간" : rest ? "휴식 시간" : "남은 집중 시간";
   const statusLabel =
     status === "running"
       ? rest
@@ -405,7 +403,7 @@ export function TimerTool({
       {notice && <p className={s.notice}>{notice}</p>}
       {calendar && <PlannerAlertNotice widget={calendar} act={act} />}
       <div className={s.layout} data-expanded={expanded} data-resizing={resizeWidth !== null}>
-        <section className={s.timer} aria-label="타이머 조작">
+        <WidgetExpanded className={s.timer} title="집중 타이머" aria-label="타이머 조작">
           <div className={s.timerTop}>
             <span className={s.eyebrow}>FOCUS TIMER</span>
             <div className={s.modes} role="group" aria-label="타이머 표시 방식">
@@ -480,18 +478,6 @@ export function TimerTool({
             <div className={s.clock} data-presentation={presentation}>
               {presentation === "dial" && (
                 <svg className={s.dial} viewBox="0 0 250 250" aria-hidden="true">
-                  <g className={s.ticks}>
-                    {Array.from({ length: 60 }, (_, index) => (
-                      <line
-                        key={index}
-                        x1="125"
-                        y1={index % 5 === 0 ? 12 : 15}
-                        x2="125"
-                        y2={index % 5 === 0 ? 21 : 19}
-                        transform={`rotate(${index * 6} 125 125)`}
-                      />
-                    ))}
-                  </g>
                   <circle cx="125" cy="125" r="119" className={s.dialTrack} />
                   <circle
                     cx="125"
@@ -504,7 +490,6 @@ export function TimerTool({
                 </svg>
               )}
               <div className={s.clockCenter}>
-                <span className={s.quiet}>{phase}</span>
                 <span className={s.time} role="timer" aria-label="남은 시간">
                   {countdown(remaining)}
                 </span>
@@ -533,7 +518,6 @@ export function TimerTool({
                 </div>
               )}
             </div>
-            <FocusTimerAppUsage key={widget.id} data={data} act={act} />
           </div>
           <p className={s.timerStatus} role="status">
             {statusLabel}
@@ -654,7 +638,11 @@ export function TimerTool({
               ? "집중 중에는 캐릭터 대화가 잠시 쉬어요."
               : "할 일 완료와 횟수 기록은 직접 선택해요."}
           </p>
-        </section>
+          <details className={s.appUsageDetails}>
+            <summary>앱 전면 사용</summary>
+            <FocusTimerAppUsage key={widget.id} data={data} act={act} />
+          </details>
+        </WidgetExpanded>
         <aside
           ref={context}
           className={s.context}
@@ -691,6 +679,7 @@ export function TimerTool({
                 day={localDay(new Date(now))}
                 selectedId={selectedSession}
                 onSelect={setSelectedSession}
+                onNotes={() => setTab("notes")}
                 act={act}
                 onOpenNote={(ref) => {
                   setRequestedNote(ref);
@@ -715,6 +704,7 @@ export function TimerTool({
                 onConnect={connectNote}
                 onMemoChange={(memo) => setDraft({ ...draft, memo })}
                 onSaveMemo={saveMemo}
+                onRecords={() => setTab("stats")}
               />
             </TabPanel>
           </Tabs>

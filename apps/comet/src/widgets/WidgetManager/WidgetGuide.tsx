@@ -1,4 +1,4 @@
-import { Heading, Text } from "@fleetia/lagrange";
+import { Heading, Text } from "../../ui";
 import type { ReactElement, ReactNode } from "react";
 import { isDesktop } from "../../hooks/useSnapshot";
 import type { WidgetRuntime, WidgetView } from "../types";

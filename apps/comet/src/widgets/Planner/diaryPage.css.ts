@@ -1,12 +1,13 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { semanticVars as v } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 
 export const page = style({
   display: "flex",
   flexDirection: "column",
   minWidth: 0,
-  gap: v.space.xl,
-  paddingBottom: v.space.xl,
+  gap: 32,
+  paddingBottom: 32,
 });
 
 export const log = style({
@@ -17,9 +18,10 @@ export const log = style({
 
 export const heading = style({
   margin: `0 0 ${v.space.lg}`,
-  fontSize: v.typography.size.headingSm,
-  fontWeight: 600,
-  lineHeight: v.typography.lineHeight.compact,
+  fontFamily: tokens["typography/display/title-sm/fontFamily"],
+  fontSize: 17,
+  fontWeight: 400,
+  lineHeight: "24px",
 });
 
 export const appointments = style({ display: "grid", gap: v.space.sm });
@@ -29,6 +31,8 @@ export const appointment = style({
   flexWrap: "wrap",
   gap: v.space.md,
   minHeight: 64,
+  paddingBlock: 10,
+  borderBottom: `1px solid ${tokens["color/divider"]}`,
 });
 export const records = style({ minWidth: 0 });
 
@@ -37,8 +41,9 @@ export const line = style({
   alignItems: "center",
   gap: v.space.sm,
   minWidth: 0,
-  padding: `${v.space.xs} 0`,
-  minHeight: 45,
+  padding: "10px 0",
+  minHeight: 48,
+  borderBottom: `1px solid ${tokens["color/divider"]}`,
 });
 
 export const rowActions = style({
@@ -122,7 +127,7 @@ export const writing = style({
   minHeight: 32,
   padding: `${v.space.xs} ${v.space.xs}`,
   border: "1px solid transparent",
-  borderRadius: v.shape.radius.subtle,
+  borderRadius: tokens["radius/radius-10"],
   background: "transparent",
   color: v.color.content.primary,
   fontFamily: v.typography.family.ui,
@@ -135,7 +140,7 @@ export const writing = style({
     "&:focus": {
       outline: `1px solid ${v.color.interaction.focus}`,
       outlineOffset: 1,
-      background: v.color.surface.raised,
+      background: tokens["color/input"],
     },
     "&::placeholder": { color: v.color.content.secondary },
     "&:disabled": { color: v.color.content.secondary },
@@ -148,9 +153,12 @@ export const date = style({ width: 152, minWidth: 130 });
 export const composer = style({
   display: "flex",
   flexDirection: "column",
-  gap: v.space.sm,
+  gap: 12,
   minWidth: 0,
-  paddingTop: v.space.md,
+  padding: 16,
+  borderRadius: tokens["radius/radius-14"],
+  background: tokens["color/component/cat-rest-alpha-80"],
+  border: `1px solid ${tokens["color/card-border"]}`,
 });
 
 export const composerBody = style({ minHeight: 76 });
@@ -186,8 +194,8 @@ export const addLine = style({
   minHeight: 52,
   background: "transparent",
   border: 0,
-  borderRadius: v.shape.radius.subtle,
-  padding: `${v.space.sm} 0`,
+  borderRadius: tokens["radius/radius-10"],
+  padding: "10px 8px",
   color: v.color.content.secondary,
   font: "inherit",
   fontSize: v.typography.size.body,

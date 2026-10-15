@@ -6,7 +6,7 @@ import {
   SelectableListRow,
   Surface,
   TextArea,
-} from "@fleetia/lagrange";
+} from "../../ui";
 import type { Memory, MemoryPage } from "../../types";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import * as s from "../../lagrange.css";

@@ -11,7 +11,7 @@ export type LauncherState = {
   shortcutError: string | null;
 };
 export type LauncherAction =
-  | { type: "settings"; section: SettingsSection | null }
+  | { type: "settings"; section: SettingsSection | null; widgetKind?: string }
   | { type: "widget"; id: string; expectedRevision: number }
   | { type: "chat"; content: string; target: string; clientMessageId: string }
   | { type: "addTodo"; id: string; expectedRevision: number; title: string; requestId: string };
@@ -156,7 +156,7 @@ function widgetResult(
     kind: "widget",
     action: available
       ? { type: "widget", id: instance.id, expectedRevision: instance.revision }
-      : { type: "settings", section: "widgets" },
+      : { type: "settings", section: "widgets", widgetKind: entry.id },
   };
 }
 /** Saves the whole input, as typed, to the undated inbox only when this row is chosen. */
@@ -241,7 +241,7 @@ export function launcherResults(
   if (!normalized || settingsRank >= 0) candidates.push({ result: settings, rank: settingsRank });
   for (const section of SETTINGS_SECTIONS) {
     const rank = score(normalized, [section.label, ...(SECTION_ALIASES[section.id] ?? [])]);
-    if ((!normalized && section.id === "widgets") || (normalized && rank >= 0))
+    if (normalized && rank >= 0)
       candidates.push({
         rank,
         result: {
@@ -261,7 +261,7 @@ export function launcherResults(
       ...(WIDGET_ALIASES[entry.id] ?? []),
       `${entry.name} 열기`,
     ]);
-    if (normalized ? rank < 0 : !["todo", "ball", "memo"].includes(entry.id)) continue;
+    if (normalized ? rank < 0 : !["focus-timer", "memo"].includes(entry.id)) continue;
     if (!widgets) {
       candidates.push({
         rank,
@@ -287,14 +287,19 @@ export function launcherResults(
     // Last row, so Enter keeps sending the sentence as conversation.
     const todo = todoResult(normalized, widgets, results);
     if (todo) results.push(todo);
-  } else
-    results.push({
-      id: "target:all",
-      title: "친구에게 말 걸기",
-      detail: ">를 입력하면 친구를 고를 수 있어요",
-      preview: "모두에게 또는 한 친구에게 말을 걸어요.",
-      kind: "target",
-    });
+  } else {
+    const targets = targetResults(snapshot, "").map((result) => ({
+      ...result,
+      title: result.recipient ? `${result.recipient.name}에게 말 걸기` : "모두에게 말 걸기",
+      detail: result.recipient ? "바탕화면에 있어요" : "친구들이 순서대로 답해요",
+    }));
+    const order = ["widget:focus-timer", "widget:memo", "settings"];
+    return [
+      ...targets.filter((result) => result.recipient),
+      ...targets.filter((result) => !result.recipient),
+      ...results.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id)),
+    ];
+  }
   return results;
 }
 export function shortcutLabel(shortcut: string): string {

@@ -5,11 +5,31 @@ use crate::{
     AppState,
 };
 use std::sync::{atomic::Ordering, Arc, Mutex};
-use tauri::{AppHandle, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewWindow};
+
+#[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+pub(crate) struct OrbitAnchor {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BalloonPlacement {
+    orbit_anchor: Option<OrbitAnchor>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BalloonAnchorEvent<'a> {
+    content_key: &'a str,
+    orbit_anchor: Option<OrbitAnchor>,
+}
 
 const BODY_SIZE: (f64, f64) = (112.0, 88.0);
 const SPRITE_PADDING: f64 = 8.0;
 const FACE_SIZE: (f64, f64) = (120.0, 36.0);
+const ORBIT_MAX_SIZE: (f64, f64) = (640.0, 600.0);
 const BODY_PREFIX: &str = "body-";
 const FACE_PREFIX: &str = "face-";
 
@@ -331,6 +351,47 @@ fn balloon_rect(body: Rect, area: Rect, scale: f64, size: (f64, f64)) -> Rect {
         width,
         height,
     }
+}
+
+fn balloon_placement(
+    body: Rect,
+    area: Rect,
+    scale: f64,
+    size: (f64, f64),
+    orbit_anchor: Option<OrbitAnchor>,
+) -> (Rect, BalloonPlacement) {
+    let Some(anchor) = orbit_anchor else {
+        return (
+            balloon_rect(body, area, scale, size),
+            BalloonPlacement::default(),
+        );
+    };
+    let width = (size.0.clamp(48.0, ORBIT_MAX_SIZE.0) * scale).min(area.width);
+    let height = (size.1.clamp(32.0, ORBIT_MAX_SIZE.1) * scale).min(area.height);
+    let center = (body.x + body.width / 2.0, body.y + body.height / 2.0);
+    let (x, y) = clamp_position(
+        center.0 - anchor.x * scale,
+        center.1 - anchor.y * scale,
+        width,
+        height,
+        area,
+    );
+    // Match the physical position passed to Tauri, including fractional logical anchors.
+    let rect = Rect {
+        x: x.round(),
+        y: y.round(),
+        width,
+        height,
+    };
+    (
+        rect,
+        BalloonPlacement {
+            orbit_anchor: Some(OrbitAnchor {
+                x: (center.0 - rect.x) / scale,
+                y: (center.1 - rect.y) / scale,
+            }),
+        },
+    )
 }
 
 // Positions saved before the roster existed live under the old a/b labels.
@@ -983,6 +1044,7 @@ fn balloon_target(
 struct BalloonLayout {
     target: Option<BalloonTarget>,
     size: Option<(f64, f64)>,
+    orbit_anchor: Option<OrbitAnchor>,
     focus_requested: bool,
     keep_visible_during_measurement: bool,
 }
@@ -1002,6 +1064,7 @@ impl BalloonLayout {
                 && self.target.as_ref().is_some_and(|previous| previous.input)
                 && target.as_ref().is_some_and(|current| current.input);
             self.size = None;
+            self.orbit_anchor = None;
         }
         if target.is_none() {
             self.focus_requested = false;
@@ -1018,12 +1081,19 @@ impl BalloonLayout {
         std::mem::take(&mut self.focus_requested)
     }
 
-    fn measured(&mut self, target: BalloonTarget, key: &str, size: (f64, f64)) -> bool {
+    fn measured(
+        &mut self,
+        target: BalloonTarget,
+        key: &str,
+        size: (f64, f64),
+        orbit_anchor: Option<OrbitAnchor>,
+    ) -> bool {
         if target.key != key {
             return false;
         }
         self.sync(Some(target));
         self.size = Some(size);
+        self.orbit_anchor = orbit_anchor;
         self.keep_visible_during_measurement = false;
         true
     }
@@ -1041,11 +1111,38 @@ pub(crate) fn request_balloon_focus(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn measured_balloon_size(width: f64, height: f64) -> Result<(f64, f64), String> {
+fn measured_balloon_size(width: f64, height: f64, orbit: bool) -> Result<(f64, f64), String> {
     if !width.is_finite() || !height.is_finite() {
         return Err("말풍선 크기가 올바르지 않습니다.".into());
     }
-    Ok((width.clamp(48.0, 320.0), height.clamp(32.0, 520.0)))
+    let maximum = if orbit {
+        ORBIT_MAX_SIZE
+    } else {
+        (320.0, 520.0)
+    };
+    Ok((width.clamp(48.0, maximum.0), height.clamp(32.0, maximum.1)))
+}
+
+fn validate_orbit_anchor(
+    anchor: Option<OrbitAnchor>,
+    size: (f64, f64),
+    menu: bool,
+) -> Result<(), String> {
+    if let Some(anchor) = anchor {
+        if !menu {
+            return Err("궤도 기준점은 캐릭터 메뉴에서만 사용할 수 있어요.".into());
+        }
+        if !anchor.x.is_finite()
+            || !anchor.y.is_finite()
+            || anchor.x < 0.0
+            || anchor.y < 0.0
+            || anchor.x > size.0
+            || anchor.y > size.1
+        {
+            return Err("궤도 기준점이 말풍선 영역을 벗어났어요.".into());
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn get_balloon(app: &AppHandle) -> Result<WebviewWindow, String> {
@@ -1077,7 +1174,8 @@ fn position_balloon(
     window: &WebviewWindow,
     id: &str,
     size: (f64, f64),
-) -> Result<(), String> {
+    orbit_anchor: Option<OrbitAnchor>,
+) -> Result<BalloonPlacement, String> {
     let body = app
         .get_webview_window(&body_label(id))
         .ok_or("캐릭터 창이 없습니다.")?;
@@ -1088,7 +1186,7 @@ fn position_balloon(
         .ok_or("화면 영역을 확인할 수 없습니다.")?;
     let position = body.outer_position().map_err(|e| e.to_string())?;
     let body_size = body.outer_size().map_err(|e| e.to_string())?;
-    let rect = balloon_rect(
+    let (rect, placement) = balloon_placement(
         Rect {
             x: position.x as f64,
             y: position.y as f64,
@@ -1098,6 +1196,7 @@ fn position_balloon(
         work_area(&monitor),
         monitor.scale_factor(),
         size,
+        orbit_anchor,
     );
     window
         .set_position(PhysicalPosition::new(
@@ -1110,14 +1209,15 @@ fn position_balloon(
             rect.width.round() as u32,
             rect.height.round() as u32,
         ))
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    Ok(placement)
 }
 
-fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
+fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, String> {
     let state = app.state::<Arc<AppState>>();
     // A worker may be waiting on this thread, so retry contended state without blocking the UI.
     let Ok(_action) = state.action.try_lock() else {
-        return Ok(false);
+        return Ok(None);
     };
     let (
         Ok(db),
@@ -1137,7 +1237,7 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
         state.guests.try_lock(),
     )
     else {
-        return Ok(false);
+        return Ok(None);
     };
     if let Some(error) = playback
         .as_ref()
@@ -1189,18 +1289,18 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
     drop(panel);
     let layout = balloon_layout(app);
     let Ok(mut layout) = layout.try_lock() else {
-        return Ok(false);
+        return Ok(None);
     };
     let size = layout.sync(target.clone());
     let Some(window) = app.get_webview_window("balloon") else {
-        return Ok(true);
+        return Ok(Some(BalloonPlacement::default()));
     };
     if target.is_some()
         && size.is_none()
         && layout.keep_visible_during_measurement
         && window.is_visible().unwrap_or(false)
     {
-        return Ok(true);
+        return Ok(Some(BalloonPlacement::default()));
     }
     let (Some(target), Some(size)) = (target, size) else {
         window.hide().map_err(|error| error.to_string())?;
@@ -1213,9 +1313,18 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
                 );
             }
         }
-        return Ok(true);
+        return Ok(Some(BalloonPlacement::default()));
     };
-    position_balloon(app, &window, &target.owner, size)?;
+    let placement = position_balloon(app, &window, &target.owner, size, layout.orbit_anchor)?;
+    window
+        .emit(
+            "balloon-orbit-anchor",
+            BalloonAnchorEvent {
+                content_key: &target.key,
+                orbit_anchor: placement.orbit_anchor,
+            },
+        )
+        .map_err(|error| error.to_string())?;
     #[cfg(target_os = "macos")]
     {
         let pointer = window.ns_window().map_err(|error| error.to_string())?;
@@ -1279,12 +1388,12 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<bool, String> {
             super::publish(&app, &state);
         });
     }
-    Ok(true)
+    Ok(Some(placement))
 }
 
 fn sync_measured_balloon(
     app: &AppHandle,
-) -> Result<tokio::sync::oneshot::Receiver<Result<bool, String>>, String> {
+) -> Result<tokio::sync::oneshot::Receiver<Result<Option<BalloonPlacement>, String>>, String> {
     let (send, receive) = tokio::sync::oneshot::channel();
     let app = app.clone();
     let scheduler = app.clone();
@@ -1298,11 +1407,11 @@ fn sync_measured_balloon(
 
 async fn await_balloon_sync(
     app: &AppHandle,
-    mut pending: tokio::sync::oneshot::Receiver<Result<bool, String>>,
-) -> Result<(), String> {
+    mut pending: tokio::sync::oneshot::Receiver<Result<Option<BalloonPlacement>, String>>,
+) -> Result<BalloonPlacement, String> {
     for attempt in 0..50 {
-        if pending.await.map_err(|error| error.to_string())?? {
-            return Ok(());
+        if let Some(placement) = pending.await.map_err(|error| error.to_string())?? {
+            return Ok(placement);
         }
         if attempt == 49 {
             break;
@@ -1331,13 +1440,14 @@ pub(crate) async fn resize_balloon(
     width: f64,
     height: f64,
     content_key: &str,
-) -> Result<(), String> {
-    let size = measured_balloon_size(width, height)?;
+    orbit_anchor: Option<OrbitAnchor>,
+) -> Result<BalloonPlacement, String> {
+    let size = measured_balloon_size(width, height, orbit_anchor.is_some())?;
     let state = app.state::<Arc<AppState>>();
     {
         let _action = super::lock(&state.action)?;
         if super::unavailable(&state) {
-            return Ok(());
+            return Ok(BalloonPlacement::default());
         }
         let snapshot = super::snapshot(&state)?;
         let Some(target) = balloon_target(
@@ -1354,10 +1464,21 @@ pub(crate) async fn resize_balloon(
                 .present_character_ids
                 .contains(&target.owner)
         }) else {
-            return Ok(());
+            return Ok(BalloonPlacement::default());
         };
-        if !super::lock(&balloon_layout(app))?.measured(target, content_key, size) {
-            return Ok(());
+        if target.key != content_key {
+            return Ok(BalloonPlacement::default());
+        }
+        validate_orbit_anchor(
+            orbit_anchor,
+            size,
+            snapshot
+                .panel
+                .as_ref()
+                .is_some_and(|panel| panel.mode == "menu"),
+        )?;
+        if !super::lock(&balloon_layout(app))?.measured(target, content_key, size, orbit_anchor) {
+            return Ok(BalloonPlacement::default());
         }
     }
     await_balloon_sync(app, sync_measured_balloon(app)?).await
@@ -1874,16 +1995,16 @@ mod tests {
             ..first.clone()
         };
         assert_eq!(layout.sync(Some(first.clone())), None);
-        assert!(layout.measured(first.clone(), &first.key, (108.0, 56.0)));
+        assert!(layout.measured(first.clone(), &first.key, (108.0, 56.0), None));
         assert_eq!(layout.sync(Some(first.clone())), Some((108.0, 56.0)));
         assert_eq!(layout.sync(Some(second.clone())), None);
-        assert!(!layout.measured(second.clone(), &first.key, (320.0, 180.0)));
+        assert!(!layout.measured(second.clone(), &first.key, (320.0, 180.0), None));
         assert_eq!(layout.sync(Some(second.clone())), None);
-        assert!(layout.measured(second.clone(), &second.key, (212.0, 93.0)));
+        assert!(layout.measured(second.clone(), &second.key, (212.0, 93.0), None));
         assert_eq!(layout.sync(Some(second)), Some((212.0, 93.0)));
         assert_eq!(layout.sync(None), None);
         assert_eq!(layout.sync(Some(first.clone())), None);
-        assert!(layout.measured(first.clone(), &first.key, (108.0, 56.0)));
+        assert!(layout.measured(first.clone(), &first.key, (108.0, 56.0), None));
         let restarted = BalloonTarget { epoch: 2, ..first };
         assert_eq!(layout.sync(Some(restarted.clone())), Some((108.0, 56.0)));
         assert_eq!(layout.target.as_ref().unwrap().epoch, 2);
@@ -1976,7 +2097,7 @@ mod tests {
             epoch: 1,
             input: true,
         };
-        assert!(layout.measured(panel.clone(), &panel.key, (320.0, 240.0)));
+        assert!(layout.measured(panel.clone(), &panel.key, (320.0, 240.0), None));
         let reopened = BalloonTarget { epoch: 2, ..panel };
         assert_eq!(layout.sync(Some(reopened.clone())), Some((320.0, 240.0)));
         assert_eq!(layout.target.as_ref().unwrap().epoch, 2);
@@ -1996,9 +2117,9 @@ mod tests {
         layout.focus_requested = true;
         assert_eq!(layout.sync(Some(panel.clone())), None);
         assert!(!layout.take_focus_request());
-        assert!(!layout.measured(panel.clone(), "playback:old", (120.0, 80.0)));
+        assert!(!layout.measured(panel.clone(), "playback:old", (120.0, 80.0), None));
         assert!(!layout.take_focus_request());
-        assert!(layout.measured(panel.clone(), &panel.key, (320.0, 240.0)));
+        assert!(layout.measured(panel.clone(), &panel.key, (320.0, 240.0), None));
         assert!(layout.take_focus_request());
         assert!(!layout.take_focus_request());
 
@@ -2007,9 +2128,9 @@ mod tests {
             ..panel
         };
         assert_eq!(layout.sync(Some(response.clone())), None);
-        assert!(layout.measured(response.clone(), &response.key, (320.0, 300.0)));
+        assert!(layout.measured(response.clone(), &response.key, (320.0, 300.0), None));
         assert!(!layout.take_focus_request());
-        assert!(layout.measured(response.clone(), &response.key, (320.0, 400.0)));
+        assert!(layout.measured(response.clone(), &response.key, (320.0, 400.0), None));
         assert!(!layout.take_focus_request());
     }
 
@@ -2022,7 +2143,7 @@ mod tests {
             epoch: 1,
             input: true,
         };
-        assert!(layout.measured(panel.clone(), &panel.key, (320.0, 240.0)));
+        assert!(layout.measured(panel.clone(), &panel.key, (320.0, 240.0), None));
         assert!(!layout.take_focus_request());
         layout.focus_requested = true;
         let reopened = BalloonTarget { epoch: 2, ..panel };
@@ -2032,7 +2153,7 @@ mod tests {
         layout.focus_requested = true;
         assert_eq!(layout.sync(None), None);
         assert!(!layout.take_focus_request());
-        assert!(layout.measured(reopened.clone(), &reopened.key, (320.0, 240.0)));
+        assert!(layout.measured(reopened.clone(), &reopened.key, (320.0, 240.0), None));
         assert!(!layout.take_focus_request());
     }
 
@@ -2045,7 +2166,7 @@ mod tests {
             epoch: 1,
             input: true,
         };
-        assert!(layout.measured(panel.clone(), &panel.key, (320.0, 240.0)));
+        assert!(layout.measured(panel.clone(), &panel.key, (320.0, 240.0), None));
         let response = BalloonTarget {
             key: "panel:a:input:playback:reply".into(),
             owner: "two".into(),
@@ -2055,7 +2176,7 @@ mod tests {
         assert!(layout.keep_visible_during_measurement);
         assert_eq!(layout.sync(Some(response.clone())), None);
         assert!(layout.keep_visible_during_measurement);
-        assert!(!layout.measured(response.clone(), &panel.key, (320.0, 240.0)));
+        assert!(!layout.measured(response.clone(), &panel.key, (320.0, 240.0), None));
         assert!(layout.keep_visible_during_measurement);
         assert!(!layout.take_focus_request());
 
@@ -2065,7 +2186,12 @@ mod tests {
         };
         assert_eq!(layout.sync(Some(next_response.clone())), None);
         assert!(layout.keep_visible_during_measurement);
-        assert!(layout.measured(next_response.clone(), &next_response.key, (320.0, 300.0)));
+        assert!(layout.measured(
+            next_response.clone(),
+            &next_response.key,
+            (320.0, 300.0),
+            None
+        ));
         assert!(!layout.keep_visible_during_measurement);
         assert_eq!(layout.sync(Some(next_response)), Some((320.0, 300.0)));
     }
@@ -2081,7 +2207,7 @@ mod tests {
         };
         assert_eq!(layout.sync(Some(panel.clone())), None);
         assert!(!layout.keep_visible_during_measurement);
-        assert!(layout.measured(panel.clone(), &panel.key, (320.0, 240.0)));
+        assert!(layout.measured(panel.clone(), &panel.key, (320.0, 240.0), None));
         let response = BalloonTarget {
             key: "panel:a:input:playback:reply".into(),
             ..panel.clone()
@@ -2093,11 +2219,11 @@ mod tests {
         assert_eq!(layout.sync(Some(response.clone())), None);
         assert!(!layout.keep_visible_during_measurement);
 
-        assert!(layout.measured(response.clone(), &response.key, (320.0, 300.0)));
+        assert!(layout.measured(response.clone(), &response.key, (320.0, 300.0), None));
         layout.focus_requested = true;
         assert_eq!(layout.sync(Some(panel.clone())), None);
         assert!(!layout.keep_visible_during_measurement);
-        assert!(layout.measured(panel.clone(), &panel.key, (320.0, 240.0)));
+        assert!(layout.measured(panel.clone(), &panel.key, (320.0, 240.0), None));
         assert!(layout.take_focus_request());
         let menu = BalloonTarget {
             key: "panel:a:menu".into(),
@@ -2111,15 +2237,257 @@ mod tests {
     #[test]
     fn balloon_measurements_reject_nonfinite_dimensions_and_clamp_both_axes() {
         for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            assert!(measured_balloon_size(invalid, 50.0).is_err());
-            assert!(measured_balloon_size(100.0, invalid).is_err());
+            for orbit in [false, true] {
+                assert!(measured_balloon_size(invalid, 50.0, orbit).is_err());
+                assert!(measured_balloon_size(100.0, invalid, orbit).is_err());
+            }
         }
-        assert_eq!(measured_balloon_size(-10.0, 0.0).unwrap(), (48.0, 32.0));
         assert_eq!(
-            measured_balloon_size(1000.0, 1000.0).unwrap(),
+            measured_balloon_size(-10.0, 0.0, false).unwrap(),
+            (48.0, 32.0)
+        );
+        assert_eq!(
+            measured_balloon_size(1000.0, 1000.0, false).unwrap(),
             (320.0, 520.0)
         );
-        assert_eq!(measured_balloon_size(82.5, 39.5).unwrap(), (82.5, 39.5));
+        assert_eq!(
+            measured_balloon_size(82.5, 39.5, false).unwrap(),
+            (82.5, 39.5)
+        );
+    }
+
+    #[test]
+    fn expanded_orbits_keep_their_size_and_normal_panels_restore_the_smaller_limit() {
+        let expanded = measured_balloon_size(900.0, 900.0, true).unwrap();
+        let normal = measured_balloon_size(900.0, 900.0, false).unwrap();
+        assert_eq!(expanded, (640.0, 600.0));
+        assert_eq!(normal, (320.0, 520.0));
+        let anchor = Some(OrbitAnchor { x: 500.0, y: 550.0 });
+        assert!(validate_orbit_anchor(anchor, expanded, true).is_ok());
+        assert!(validate_orbit_anchor(anchor, expanded, false).is_err());
+        let target = BalloonTarget {
+            key: "panel:one:menu".into(),
+            owner: "one".into(),
+            epoch: 1,
+            input: false,
+        };
+        let mut layout = BalloonLayout::default();
+        assert!(layout.measured(target.clone(), &target.key, expanded, anchor));
+        assert_eq!(layout.size, Some(expanded));
+        assert!(layout.measured(target.clone(), &target.key, normal, None));
+        assert_eq!(layout.size, Some(normal));
+        assert_eq!(layout.orbit_anchor, None);
+        for scale in [1.0, 2.0] {
+            for area in [
+                Rect {
+                    x: -2560.0,
+                    y: 50.0,
+                    width: 2560.0,
+                    height: 1390.0,
+                },
+                Rect {
+                    x: -500.0,
+                    y: 20.0,
+                    width: 500.0,
+                    height: 400.0,
+                },
+            ] {
+                let body = Rect {
+                    x: area.x + 10.0,
+                    y: area.y + 10.0,
+                    width: 112.0 * scale,
+                    height: 88.0 * scale,
+                };
+                let (frame, placement) = balloon_placement(body, area, scale, expanded, anchor);
+                assert_eq!(frame.width, (640.0 * scale).min(area.width));
+                assert_eq!(frame.height, (600.0 * scale).min(area.height));
+                assert!(frame.x >= area.x && frame.y >= area.y);
+                assert!(frame.x + frame.width <= area.x + area.width);
+                assert!(frame.y + frame.height <= area.y + area.height);
+                let actual = placement.orbit_anchor.unwrap();
+                assert_eq!(frame.x + actual.x * scale, body.x + body.width / 2.0);
+                assert_eq!(frame.y + actual.y * scale, body.y + body.height / 2.0);
+                let (panel, placement) = balloon_placement(body, area, scale, expanded, None);
+                assert_eq!(panel, balloon_rect(body, area, scale, normal));
+                assert_eq!(placement.orbit_anchor, None);
+            }
+        }
+    }
+
+    #[test]
+    fn orbit_tracks_the_real_body_center_across_scale_and_movement() {
+        let anchor = OrbitAnchor { x: 154.0, y: 254.0 };
+        for scale in [1.0, 2.0] {
+            let area = Rect {
+                x: -2560.0,
+                y: 50.0,
+                width: 2560.0,
+                height: 1390.0,
+            };
+            let body = Rect {
+                x: area.x + 700.0 * scale,
+                y: area.y + 350.0 * scale,
+                width: 112.0 * scale,
+                height: 88.0 * scale,
+            };
+            let (first, placement) =
+                balloon_placement(body, area, scale, (320.0, 340.0), Some(anchor));
+            assert_eq!(placement.orbit_anchor, Some(anchor));
+            assert_eq!(first.x + anchor.x * scale, body.x + body.width / 2.0);
+            assert_eq!(first.y + anchor.y * scale, body.y + body.height / 2.0);
+            let moved = Rect {
+                x: body.x + 40.0 * scale,
+                y: body.y + 20.0 * scale,
+                ..body
+            };
+            let (next, next_placement) =
+                balloon_placement(moved, area, scale, (320.0, 340.0), Some(anchor));
+            assert_eq!(next_placement, placement);
+            assert_eq!(next.x - first.x, 40.0 * scale);
+            assert_eq!(next.y - first.y, 20.0 * scale);
+            let (normal, normal_placement) =
+                balloon_placement(body, area, scale, (320.0, 340.0), None);
+            assert_eq!(normal, balloon_rect(body, area, scale, (320.0, 340.0)));
+            assert_eq!(normal_placement.orbit_anchor, None);
+        }
+    }
+
+    #[test]
+    fn clamped_orbit_reports_the_actual_anchor_on_all_monitor_edges() {
+        let requested = OrbitAnchor {
+            x: 154.25,
+            y: 254.25,
+        };
+        for (area, scale) in [
+            (
+                Rect {
+                    x: 0.0,
+                    y: 28.0,
+                    width: 1440.0,
+                    height: 840.0,
+                },
+                1.0,
+            ),
+            (
+                Rect {
+                    x: -2560.0,
+                    y: 50.0,
+                    width: 2560.0,
+                    height: 1390.0,
+                },
+                2.0,
+            ),
+        ] {
+            for x in [area.x, area.x + area.width - 112.0 * scale] {
+                for y in [area.y, area.y + area.height - 88.0 * scale] {
+                    let body = Rect {
+                        x,
+                        y,
+                        width: 112.0 * scale,
+                        height: 88.0 * scale,
+                    };
+                    let (frame, placement) =
+                        balloon_placement(body, area, scale, (320.0, 340.0), Some(requested));
+                    let actual = placement.orbit_anchor.unwrap();
+                    assert_ne!(actual, requested);
+                    assert!(frame.x >= area.x && frame.y >= area.y);
+                    assert!(frame.x + frame.width <= area.x + area.width);
+                    assert!(frame.y + frame.height <= area.y + area.height);
+                    assert_eq!(frame.x + actual.x * scale, body.x + body.width / 2.0);
+                    assert_eq!(frame.y + actual.y * scale, body.y + body.height / 2.0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn orbit_measurements_require_menu_and_finite_in_bounds_coordinates() {
+        let size = (320.0, 340.0);
+        let anchor = OrbitAnchor { x: 154.0, y: 254.0 };
+        assert!(validate_orbit_anchor(Some(anchor), size, true).is_ok());
+        assert!(validate_orbit_anchor(Some(anchor), size, false).is_err());
+        assert!(validate_orbit_anchor(None, size, false).is_ok());
+        for anchor in [
+            OrbitAnchor {
+                x: f64::NAN,
+                y: 1.0,
+            },
+            OrbitAnchor {
+                x: 1.0,
+                y: f64::INFINITY,
+            },
+            OrbitAnchor {
+                x: f64::NEG_INFINITY,
+                y: 1.0,
+            },
+            OrbitAnchor { x: -0.5, y: 1.0 },
+            OrbitAnchor { x: 1.0, y: -0.5 },
+            OrbitAnchor { x: 320.5, y: 1.0 },
+            OrbitAnchor { x: 1.0, y: 340.5 },
+        ] {
+            assert!(validate_orbit_anchor(Some(anchor), size, true).is_err());
+        }
+    }
+
+    #[test]
+    fn orbit_cache_rejects_stale_keys_and_clears_for_panels_owners_and_hiding() {
+        let mut layout = BalloonLayout::default();
+        let menu = BalloonTarget {
+            key: "panel:one:menu".into(),
+            owner: "one".into(),
+            epoch: 1,
+            input: false,
+        };
+        let anchor = Some(OrbitAnchor { x: 154.0, y: 254.0 });
+        assert!(layout.measured(menu.clone(), &menu.key, (320.0, 340.0), anchor));
+        layout.sync(Some(menu.clone()));
+        assert_eq!(layout.orbit_anchor, anchor);
+        assert!(!layout.measured(menu.clone(), "panel:old:menu", (320.0, 340.0), None));
+        assert_eq!(layout.orbit_anchor, anchor);
+        // An in-menu pause/resume panel can have the same dimensions and content key.
+        assert!(layout.measured(menu.clone(), &menu.key, (320.0, 340.0), None));
+        assert_eq!(layout.orbit_anchor, None);
+        assert!(layout.measured(menu.clone(), &menu.key, (320.0, 340.0), anchor));
+        layout.sync(Some(BalloonTarget {
+            owner: "two".into(),
+            ..menu.clone()
+        }));
+        assert_eq!(layout.orbit_anchor, None);
+        assert!(layout.measured(menu.clone(), &menu.key, (320.0, 340.0), anchor));
+        layout.sync(Some(BalloonTarget {
+            key: "panel:one:input".into(),
+            input: true,
+            ..menu.clone()
+        }));
+        assert_eq!(layout.orbit_anchor, None);
+        assert!(layout.measured(menu.clone(), &menu.key, (320.0, 340.0), anchor));
+        layout.sync(None);
+        assert_eq!(layout.orbit_anchor, None);
+        assert_eq!(layout.size, None);
+    }
+
+    #[test]
+    fn orbit_placement_response_and_movement_event_keep_the_frontend_wire_contract() {
+        assert_eq!(
+            serde_json::to_value(BalloonPlacement::default()).unwrap(),
+            serde_json::json!({"orbitAnchor": null})
+        );
+        let anchor = Some(OrbitAnchor { x: 56.0, y: 44.0 });
+        assert_eq!(
+            serde_json::to_value(BalloonPlacement {
+                orbit_anchor: anchor
+            })
+            .unwrap(),
+            serde_json::json!({"orbitAnchor": {"x":56.0,"y":44.0}})
+        );
+        assert_eq!(
+            serde_json::to_value(BalloonAnchorEvent {
+                content_key: "panel:one:menu",
+                orbit_anchor: anchor
+            })
+            .unwrap(),
+            serde_json::json!({"contentKey":"panel:one:menu", "orbitAnchor":{"x":56.0,"y":44.0}})
+        );
     }
 
     #[test]

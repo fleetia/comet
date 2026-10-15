@@ -1,5 +1,6 @@
 import { style, styleVariants } from "@vanilla-extract/css";
 import { semanticVars as vars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 
 const window = style({
   display: "flex",
@@ -8,21 +9,27 @@ const window = style({
   minWidth: 0,
   overflow: "hidden",
   color: vars.color.content.primary,
+  border: `1px solid ${tokens["color/glass-border"]}`,
+  borderRadius: tokens["radius/radius-18"],
+  backdropFilter: tokens["backdrop/backdrop-panel"],
+  boxSizing: "border-box",
 });
 export const frame = styleVariants({
-  tool: [window, { background: vars.color.surface.canvas }],
-  note: [window, { background: vars.color.surface.raised }],
+  tool: [window, { background: tokens["color/glass-window"] }],
+  note: [window, { background: tokens["color/glass-widget"] }],
 });
 export const fixedHeader = style({ flexShrink: 0 });
 export const header = styleVariants({
   tool: {
-    padding: `${vars.space.xs} ${vars.space.lg}`,
-    minHeight: "32px",
+    padding: "6px 16px",
+    minHeight: 44,
     boxSizing: "border-box",
+    borderBottom: `1px solid ${tokens["color/divider"]}`,
   },
   note: {
     padding: `${vars.space.xs} ${vars.space.sm}`,
-    background: vars.color.surface.muted,
+    background: "transparent",
+    borderBottom: `1px solid ${tokens["color/divider"]}`,
   },
 });
 export const status = style({
@@ -39,7 +46,7 @@ const body = style({
   overscrollBehavior: "contain",
 });
 export const content = styleVariants({
-  tool: [body, { padding: `${vars.space.sm} ${vars.space.lg} ${vars.space.lg}` }],
+  tool: [body, { padding: "16px 20px 20px" }],
   note: [body, { display: "flex", flexDirection: "column" }],
 });
 const actionArea = style({

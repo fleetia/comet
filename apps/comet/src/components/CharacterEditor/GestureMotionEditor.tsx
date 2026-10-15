@@ -1,5 +1,5 @@
 import type { JSX } from "react";
-import { Button, FormField, Select, TextField } from "@fleetia/lagrange";
+import { Button, FormField, Select, TextField } from "../../ui";
 import type { CharacterBodyRegion, CharacterDefinition, CharacterGestureMotion } from "../../types";
 import { MotionSelect } from "../MotionSelect/MotionSelect";
 import { SUSTAINED_GESTURES } from "../AnimationEditor/helpers";
@@ -27,9 +27,11 @@ const GESTURES = [
 export function GestureMotionEditor({
   definition,
   onChange,
+  defaultOpen = false,
 }: {
   definition: CharacterDefinition;
   onChange: (definition: CharacterDefinition) => void;
+  defaultOpen?: boolean;
 }): JSX.Element {
   const regions = definition.bodyRegions ?? [];
   const motions = definition.gestureMotions ?? [];
@@ -48,7 +50,7 @@ export function GestureMotionEditor({
     });
   }
   return (
-    <details>
+    <details open={defaultOpen || undefined}>
       <summary className={common.disclosureSummary}>부위와 교감 동작</summary>
       <p className={common.small}>
         영역과 잡는 점은 본체 너비·높이의 백분율로 지정해요. 겹치는 부위는 작은 영역을 먼저

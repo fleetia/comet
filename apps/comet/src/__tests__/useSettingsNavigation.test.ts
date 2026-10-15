@@ -23,12 +23,12 @@ beforeEach(() => {
 afterEach(cleanup);
 
 it.each([
-  ["wordbook", "dialogue"],
-  ["talk", "dialogue"],
-  ["user", "general"],
+  ["wordbook", "dialogue", "dialogue"],
+  ["talk", "dialogue", "dialogue"],
+  ["user", "user", "general"],
 ])(
-  "maps legacy %s destinations to %s without discarding visited sections",
-  async (legacy, section) => {
+  "opens %s as %s without discarding visited sections",
+  async (legacy, section, persistedSection) => {
     vi.mocked(command).mockResolvedValue(legacy);
     const { result } = renderHook(() => useSettingsNavigation(legacy));
     expect(result.current.section).toBe(section);
@@ -39,7 +39,9 @@ it.each([
     act(() => result.current.navigate("characters"));
     act(() => result.current.navigate(legacy));
     expect(result.current.section).toBe(section);
-    expect(command).toHaveBeenLastCalledWith("set_settings_section", { section });
+    expect(command).toHaveBeenLastCalledWith("set_settings_section", {
+      section: persistedSection,
+    });
     expect([...result.current.visited]).toEqual([section, "model", "characters"]);
   },
 );

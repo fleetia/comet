@@ -296,11 +296,13 @@ export function FocusRecordsPanel({
       <div hidden={activeTab !== "notes"}>
         <div className={styles.stack}>
           {notesHeader}
-          <Textarea
-            {...note}
-            label={note?.label ?? "이번 집중 메모"}
-            className={classes(styles.notes, note?.className)}
-          />
+          {note && (
+            <Textarea
+              {...note}
+              label={note.label ?? "이번 집중 메모"}
+              className={classes(styles.notes, note.className)}
+            />
+          )}
           {notesContent}
           {notesActions && <div className={styles.row}>{notesActions}</div>}
         </div>

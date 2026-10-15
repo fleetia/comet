@@ -1,17 +1,11 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
-import {
-  ActionBar,
-  Button,
-  Checkbox,
-  Inline,
-  SaveStatus,
-  SectionHeader,
-  SettingsRow,
-  Surface,
-} from "@fleetia/lagrange";
+import { ActionBar, Button, Inline, SaveStatus } from "../../ui";
+import { Icon, CalendarIcon, RemoveIcon } from "@comet/icon";
+import { SettingControlRow, SettingsSummary, Switch, ToggleChip } from "@comet/ui";
+import { useWidgets } from "../../widgets/useWidgets";
+import * as figma from "../SettingsPanel/figmaSettings.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
-import * as s from "../../lagrange.css";
 import * as layout from "../SettingsPanel/settings.css";
 import * as styles from "./desktopPreferences.css";
 
@@ -31,6 +25,7 @@ export function DesktopPreferences({
   onDirtyChange?: (dirty: boolean) => void;
   children?: ReactNode;
 }): JSX.Element {
+  const widgets = useWidgets();
   const [preferences, setPreferences] = useState<Preferences>({
     charactersVisible: !hidden,
     pranksEnabled: false,
@@ -117,98 +112,184 @@ export function DesktopPreferences({
     }
   }
   return (
-    <Surface className={layout.generalMain}>
-      <div className={layout.panelBody}>
-        {children}
-        <section className={layout.settingsSection}>
-          <SectionHeader title="바탕화면 장난" headingVariant="subsection" rule="none" />
-          <SettingsRow
-            className={layout.settingsRow}
-            label={<span id="pranks-label">장난 모드</span>}
-            description="10~20분마다 하나씩 · 최대 30초"
-          >
-            <Checkbox
-              className={layout.rowControl}
-              aria-labelledby="pranks-label"
-              checked={preferences.pranksEnabled}
-              disabled={pending || !loaded}
-              onChange={(event) => edit({ ...preferences, pranksEnabled: event.target.checked })}
-            >
-              장난 허용
-            </Checkbox>
-          </SettingsRow>
-          <Surface tone="inset" className={styles.toys}>
-            <p className={layout.rowLabel}>사용할 장난감</p>
-            <div className={styles.toyChoices}>
-              {toys.map((toy) => (
-                <Checkbox
-                  key={toy.id}
-                  checked={preferences.allowedToys.includes(toy.id)}
-                  disabled={pending || !loaded}
-                  onChange={(event) =>
-                    edit({
-                      ...preferences,
-                      allowedToys: event.target.checked
-                        ? [...preferences.allowedToys, toy.id]
-                        : preferences.allowedToys.filter((id) => id !== toy.id),
-                    })
-                  }
-                >
-                  {toy.name}
-                </Checkbox>
-              ))}
-            </div>
-            <div className={styles.cleanup}>
-              <Button
-                variant="quiet"
-                className={styles.cleanupButton}
-                disabled={pending || !loaded}
-                onClick={() => {
-                  void command("clear_desktop_toys").catch((cause: unknown) =>
-                    setError(errorText(cause)),
-                  );
-                }}
-              >
-                장난감 모두 정리
-              </Button>
-              <span className={s.quiet}>꺼내 둔 장난감만 정리</span>
-            </div>
-          </Surface>
-        </section>
-      </div>
-      <footer className={styles.saveBar}>
-        <ActionBar
-          className={layout.footerBar}
-          status={
-            <div className={layout.footerStatus}>
-              <SaveStatus
-                state={pending ? "saving" : error ? "error" : notice ? "saved" : "idle"}
-                message={error ?? notice ?? (dirty ? "변경사항 있음" : "변경사항 없음")}
-              />
-              <span className={s.quiet}>장난 모드·허용 목록</span>
-            </div>
+    <div className={figma.split}>
+      <aside className={figma.inspector}>
+        <h1 className={figma.inspectorTitle}>
+          <span className={figma.icon}>
+            <CalendarIcon size={18} />
+          </span>
+          바탕화면
+        </h1>
+        <p className={figma.caption}>친구와 함께 놀 장난감을 고르고, 바탕화면에 꺼내요.</p>
+        <div className={styles.toyPreview}>
+          {toys
+            .filter((toy) => preferences.allowedToys.includes(toy.id))
+            .map((toy) => (
+              <span className={figma.icon} key={toy.id}>
+                <Icon
+                  name={toy.id === "ball" ? "ball2" : toy.id === "paper-plane" ? "plane" : "bubble"}
+                  size={24}
+                />
+              </span>
+            ))}
+        </div>
+        <Button
+          variant="secondary"
+          className={figma.fullButton}
+          disabled={pending || !loaded}
+          onClick={() =>
+            void command("clear_desktop_toys").catch((cause: unknown) => setError(errorText(cause)))
           }
         >
-          <Inline className={layout.footerActions} gap="sm">
+          <RemoveIcon size={15} />
+          장난감 모두 정리
+        </Button>
+      </aside>
+      <div className={figma.right}>
+        {children}
+        <section className={figma.section}>
+          <h2 className={figma.sectionTitle}>장난 모드</h2>
+          <div className={figma.group}>
+            <SettingControlRow
+              className={figma.row}
+              title="장난 모드"
+              description="10~20분마다 하나씩, 30초까지 장난쳐요"
+              control={
+                <Switch
+                  aria-label="장난 모드"
+                  checked={preferences.pranksEnabled}
+                  disabled={pending || !loaded}
+                  onChange={(event) =>
+                    edit({ ...preferences, pranksEnabled: event.target.checked })
+                  }
+                />
+              }
+            />
+            <SettingControlRow
+              className={figma.row}
+              title="친구가 꺼내도 되는 장난감"
+              control={
+                <div className={styles.toyChoices}>
+                  {toys.map((toy) => (
+                    <ToggleChip
+                      key={toy.id}
+                      pressed={preferences.allowedToys.includes(toy.id)}
+                      disabled={pending || !loaded}
+                      onClick={() =>
+                        edit({
+                          ...preferences,
+                          allowedToys: preferences.allowedToys.includes(toy.id)
+                            ? preferences.allowedToys.filter((id) => id !== toy.id)
+                            : [...preferences.allowedToys, toy.id],
+                        })
+                      }
+                    >
+                      {toy.name}
+                    </ToggleChip>
+                  ))}
+                </div>
+              }
+            />
+          </div>
+        </section>
+        <section className={figma.section}>
+          <div className={figma.controls}>
+            <h2 className={figma.sectionTitle}>장난감</h2>
             <Button
-              variant="quiet"
-              className={layout.cancelButton}
-              disabled={pending || !loaded || !dirty}
-              onClick={() => edit(saved.current)}
+              variant="secondary"
+              size="compact"
+              disabled={pending || !loaded}
+              onClick={() =>
+                void command("clear_desktop_toys").catch((cause: unknown) =>
+                  setError(errorText(cause)),
+                )
+              }
             >
-              변경 취소
+              모두 정리
             </Button>
-            <Button
-              variant="primary"
-              className={styles.saveButton}
-              disabled={pending || !loaded || !dirty}
-              onClick={() => void save()}
+          </div>
+          <div className={figma.summaryGrid}>
+            {toys.map((toy) => (
+              <SettingsSummary
+                key={toy.id}
+                className={figma.summary}
+                title={toy.name}
+                description={
+                  toy.id === "ball"
+                    ? "던지면 튀기며 굴러가요"
+                    : toy.id === "paper-plane"
+                      ? "끌어서 날리면 천천히 내려앉아요"
+                      : "누르면 톡 터져요"
+                }
+                leading={
+                  <span className={figma.icon}>
+                    <Icon
+                      name={
+                        toy.id === "ball" ? "ball2" : toy.id === "paper-plane" ? "plane" : "bubble"
+                      }
+                      size={20}
+                    />
+                  </span>
+                }
+                trailing={<span>꺼내기</span>}
+                disabled={
+                  pending ||
+                  !loaded ||
+                  !widgets.snapshot?.widgets.some(
+                    (item) => item.kind === toy.id && item.installed && item.enabled,
+                  )
+                }
+                onClick={() => {
+                  const target = widgets.snapshot?.widgets.find(
+                    (item) => item.kind === toy.id && item.installed && item.enabled,
+                  );
+                  if (target)
+                    void command("execute_widget", {
+                      request: {
+                        requestId: crypto.randomUUID(),
+                        instanceId: target.id,
+                        expectedRevision: target.revision,
+                        action: "desktop-open",
+                        input: {},
+                      },
+                    }).catch((cause: unknown) => setError(errorText(cause)));
+                }}
+              />
+            ))}
+          </div>
+          <p className={figma.caption}>꺼낸 장난감은 끌어서 옮기고, 우클릭으로 하나씩 정리해요.</p>
+        </section>
+        {(dirty || pending || error || notice) && (
+          <footer className={styles.saveBar}>
+            <ActionBar
+              className={layout.footerBar}
+              status={
+                <SaveStatus
+                  state={pending ? "saving" : error ? "error" : notice ? "saved" : "idle"}
+                  message={error ?? notice ?? "저장하지 않은 변경이 있어요."}
+                />
+              }
             >
-              장난 설정 저장
-            </Button>
-          </Inline>
-        </ActionBar>
-      </footer>
-    </Surface>
+              <Inline gap="sm">
+                <Button
+                  variant="quiet"
+                  disabled={pending || !loaded || !dirty}
+                  onClick={() => edit(saved.current)}
+                >
+                  변경 취소
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={pending || !loaded || !dirty}
+                  onClick={() => void save()}
+                >
+                  장난 설정 저장
+                </Button>
+              </Inline>
+            </ActionBar>
+          </footer>
+        )}
+      </div>
+    </div>
   );
 }

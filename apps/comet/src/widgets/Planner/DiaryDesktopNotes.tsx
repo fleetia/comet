@@ -1,4 +1,4 @@
-import { Button, Dialog } from "@fleetia/lagrange";
+import { Button, Dialog } from "../../ui";
 import { useState, type ReactElement } from "react";
 import { WidgetDragHandle } from "../WidgetDragHandle";
 import { record, rows, text, type ToolAction } from "../toolData";

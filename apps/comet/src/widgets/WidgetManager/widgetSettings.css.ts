@@ -1,5 +1,6 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { semanticVars as vars, vnextVars } from "@fleetia/lagrange/theme";
+import { semanticVars as vars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 import * as appearanceStyles from "../WidgetAppearance/widgetAppearance.css";
 
 export const settings = style({
@@ -12,15 +13,17 @@ export const settings = style({
   height: "100%",
   padding: 0,
   overflow: "hidden",
-  borderRadius: vnextVars.radius.parent,
+  borderRadius: tokens["radius/radius-18"],
+  background: tokens["color/card"],
+  border: `1px solid ${tokens["color/card-border"]}`,
 });
 export const body = style({
   display: "flex",
   flexDirection: "column",
   flex: 1,
   minHeight: 0,
-  gap: vars.space.lg,
-  padding: vars.space.lg,
+  gap: 24,
+  padding: 20,
   overflowY: "auto",
   overscrollBehavior: "contain",
 });
@@ -64,7 +67,7 @@ export const observationSummary = style({
 export const actions = style({
   flexShrink: 0,
   minWidth: 0,
-  padding: vars.space.lg,
+  padding: "14px 20px",
   borderTop: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
 });
 globalStyle(`${actions}[hidden]`, { display: "none" });

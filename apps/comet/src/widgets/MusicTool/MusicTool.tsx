@@ -1,4 +1,4 @@
-import { Button, Tab, TabList, TabPanel, Tabs } from "@fleetia/lagrange";
+import { Button, Tab, TabList, TabPanel, Tabs } from "../../ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { isDesktop } from "../../hooks/useSnapshot";
 import { record, text, type DataRecord } from "../toolData";

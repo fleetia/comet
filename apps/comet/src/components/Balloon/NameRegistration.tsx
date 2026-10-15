@@ -1,5 +1,5 @@
 import { useRef, useState, type JSX } from "react";
-import { Button, TextField } from "@fleetia/lagrange";
+import { Button, TextField } from "../../ui";
 import type { Dispatch } from "../../types";
 import { errorText } from "../../hooks/useSnapshot";
 import * as s from "../companion.css";

@@ -100,7 +100,7 @@ describe("local command and conversation routing", () => {
     };
     expect(results("우유 사기", withoutTodo).at(-1)).toMatchObject({
       id: "widget:todo",
-      action: { type: "settings", section: "widgets" },
+      action: { type: "settings", section: "widgets", widgetKind: "todo" },
     });
     expect(results("우유 사기", null).some((result) => result.kind === "todo")).toBe(false);
   });
@@ -110,6 +110,7 @@ describe("local command and conversation routing", () => {
     expect(results("공던지기", { ...widgets, widgets: [] })[0].action).toEqual({
       type: "settings",
       section: "widgets",
+      widgetKind: "ball",
     });
     expect(
       results("공던지기", {
@@ -145,7 +146,7 @@ describe("local command and conversation routing", () => {
     const result = results("공", pendingSetup)[0];
     expect(result.title).toBe("공 설정 열기");
     expect(result.preview).toContain("사용 준비가 필요");
-    expect(result.action).toEqual({ type: "settings", section: "widgets" });
+    expect(result.action).toEqual({ type: "settings", section: "widgets", widgetKind: "ball" });
   });
   it("explicit conversation bypasses settings and maps B to its real ID", () => {
     expect(results(">B 설정")[0].action).toEqual({
@@ -212,6 +213,76 @@ it("previews only chat rows and uses arrows and Enter for the selected row", asy
       action: { type: "chat", target: "all", content: "설정", clientMessageId: expect.any(String) },
     },
   });
+});
+it.each(["missing", "disabled", "setup"] as const)(
+  "carries the selected %s widget settings target through the current launcher session",
+  async (status) => {
+    widgetState = {
+      ...widgets,
+      widgets:
+        status === "missing"
+          ? widgets.widgets.filter((item) => item.kind !== "focus-timer")
+          : widgets.widgets.map((item) =>
+              item.kind === "focus-timer"
+                ? {
+                    ...item,
+                    installed: true,
+                    enabled: status !== "disabled",
+                    status: status === "setup" ? "setup" : "disabled",
+                  }
+                : item,
+            ),
+    };
+    const input = await compose("집중");
+    expect(screen.getByRole("option", { selected: true }).textContent).toContain("집중 타이머");
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(input.value).toBe(""));
+    expect(executed()).toEqual([
+      [
+        "execute_launcher",
+        {
+          request: {
+            sessionId: 1,
+            action: { type: "settings", section: "widgets", widgetKind: "focus-timer" },
+          },
+        },
+      ],
+    ]);
+    expect(command).not.toHaveBeenCalledWith("open_planner_settings", expect.anything());
+    expect(command).not.toHaveBeenCalledWith("install_widgets", expect.anything());
+    expect(command).not.toHaveBeenCalledWith("set_widget_enabled", expect.anything());
+  },
+);
+it("preserves the instance id and revision when launching an available widget", async () => {
+  widgetState = {
+    ...widgets,
+    widgets: widgets.widgets.map((item) =>
+      item.kind === "focus-timer"
+        ? {
+            ...item,
+            id: "focus-instance",
+            revision: 27,
+            installed: true,
+            enabled: true,
+            status: "enabled",
+          }
+        : item,
+    ),
+  };
+  const input = await compose("집중");
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() => expect(input.value).toBe(""));
+  expect(executed()).toEqual([
+    [
+      "execute_launcher",
+      {
+        request: {
+          sessionId: 1,
+          action: { type: "widget", id: "focus-instance", expectedRevision: 27 },
+        },
+      },
+    ],
+  ]);
 });
 it("leaves IME Enter, arrows and Escape to composition", async () => {
   const input = await compose("공 던지기");

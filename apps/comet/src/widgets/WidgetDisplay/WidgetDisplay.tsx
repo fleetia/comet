@@ -1,4 +1,5 @@
-import { IconButton } from "@fleetia/lagrange";
+import { ClockWidget, WeatherWidget } from "@comet/ui";
+import { IconButton } from "../../ui";
 import { useEffect, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWindowDrag } from "../../hooks/useWindowDrag";
@@ -6,12 +7,14 @@ import { useWidgets } from "../useWidgets";
 import { localDay, record, rows, text } from "../toolData";
 import type { WidgetView } from "../types";
 import {
+  DEFAULT_APPEARANCE,
   backgroundPosition,
   getWidgetAppearance,
   placementAlignment,
   widgetBackgroundUrl,
 } from "../widgetAppearance";
 import * as s from "./widgetDisplay.css";
+import { transparentDocument } from "../../components/companion.css";
 
 function useNow(): number {
   const [now, setNow] = useState(Date.now());
@@ -58,10 +61,39 @@ function batteryStatus(status: string): string {
   );
 }
 
-function DisplayContent({ widget, now }: { widget: WidgetView; now: number }): ReactElement {
+function DisplayContent({
+  widget,
+  now,
+  freeform,
+}: {
+  widget: WidgetView;
+  now: number;
+  freeform: boolean;
+}): ReactElement {
   const data = record(widget.data);
   if (widget.kind === "clock") {
     const anniversaries = rows(data.anniversaries);
+    if (freeform) {
+      const day = anniversaries[0];
+      return (
+        <ClockWidget
+          opaque
+          time={new Date(now).toLocaleTimeString(undefined, {
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: data.format === "12h",
+          })}
+          date={new Date(now).toLocaleDateString("ko-KR", {
+            month: "long",
+            day: "numeric",
+            weekday: "short",
+          })}
+          badge={
+            day ? `${text(day.title)} ${dDayLabel(dayDifference(text(day.date), now))}` : undefined
+          }
+        />
+      );
+    }
     return anniversaries.length > 0 ? (
       <div className={s.list}>
         {anniversaries.map((item) => (
@@ -80,6 +112,30 @@ function DisplayContent({ widget, now }: { widget: WidgetView; now: number }): R
     if (!data.observation) {
       return <p>날씨를 조회하면 여기에 보여요.</p>;
     }
+    if (freeform)
+      return (
+        <>
+          <WeatherWidget
+            opaque
+            temperature={
+              typeof observation.temperature === "number"
+                ? `${observation.temperature}${text(observation.temperatureUnit)}`
+                : "—"
+            }
+            condition={
+              typeof observation.weatherCode === "number"
+                ? weatherLabel(observation.weatherCode)
+                : "상태 확인 불가"
+            }
+            location={text(observation.name)}
+          />
+          {data.status !== "ready" && (
+            <span className={s.stale} role="status">
+              이전 정보 · 갱신이 필요해요
+            </span>
+          )}
+        </>
+      );
     return (
       <div className={s.list}>
         {data.status !== "ready" && <span className={s.stale}>이전 정보</span>}
@@ -130,18 +186,33 @@ export function WidgetDisplay({ id }: { id: string }): ReactElement {
   const appearance = getWidgetAppearance(widget?.data ?? {});
   const imageUrl = widget ? widgetBackgroundUrl(widget) : null;
   const drag = useWindowDrag(isDesktop(), setDragError);
+  const freeform = Boolean(
+    widget &&
+    ["clock", "weather"].includes(widget.kind) &&
+    !imageUrl &&
+    Object.entries(DEFAULT_APPEARANCE).every(
+      ([key, value]) => appearance[key as keyof typeof appearance] === value,
+    ),
+  );
+  useEffect(() => {
+    if (!freeform) return;
+    document.documentElement.classList.add(transparentDocument);
+    return () => document.documentElement.classList.remove(transparentDocument);
+  }, [freeform]);
 
   const alignment = placementAlignment(appearance.textPosition);
   return (
     <main
-      className={widget ? s.frame : `${s.frame} ${s.loading}`}
+      className={
+        widget ? `${s.frame} ${freeform ? s.freeformFrame : ""}` : `${s.frame} ${s.loading}`
+      }
       aria-label={entry?.name ?? "위젯 표시"}
       onPointerDown={drag.onPointerDown}
       onPointerMove={drag.onPointerMove}
       onPointerUp={drag.reset}
       onPointerCancel={drag.reset}
       style={
-        widget
+        widget && !freeform
           ? {
               backgroundColor: appearance.backgroundColor,
               backgroundImage: imageUrl ? `url("${imageUrl}")` : undefined,
@@ -169,7 +240,7 @@ export function WidgetDisplay({ id }: { id: string }): ReactElement {
       </IconButton>
       {widget ? (
         <div
-          className={s.content}
+          className={`${s.content} ${freeform ? s.freeformContent : ""}`}
           role="region"
           aria-label="위젯 표시 내용"
           tabIndex={0}
@@ -179,7 +250,7 @@ export function WidgetDisplay({ id }: { id: string }): ReactElement {
             }
           }}
         >
-          <DisplayContent widget={widget} now={now} />
+          <DisplayContent widget={widget} now={now} freeform={freeform} />
         </div>
       ) : (
         <p role={error ? "alert" : "status"}>

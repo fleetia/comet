@@ -1,12 +1,9 @@
 import { useState, type JSX, type ReactNode } from "react";
-import {
-  Button,
-  Checkbox,
-  FormField,
-  SelectableListRow,
-  Surface,
-  TextField,
-} from "@fleetia/lagrange";
+import { ChoiceTile, SettingsSummary } from "@comet/ui";
+import { Icon } from "@comet/icon";
+import { AppearancePreview } from "./AppearancePreview";
+import * as appearance from "./appearance.css";
+import { Button, Checkbox, FormField, Surface, TextField } from "../../ui";
 import type {
   AnimationAsset,
   AnimationBinding,
@@ -62,6 +59,8 @@ export function AppearanceEditor({
     onSelectionChange?.(value);
   }
   const [addingExpression, setAddingExpression] = useState(false);
+  const [interactionOpen, setInteractionOpen] = useState(false);
+  const [showAllMotions, setShowAllMotions] = useState(false);
   const [newKey, setNewKey] = useState("");
   const keys = [
     DEFAULT_EXPRESSION,
@@ -69,7 +68,6 @@ export function AppearanceEditor({
   ].filter((key) => key in definition.expressions);
   const expression = selection.id in definition.expressions ? selection.id : DEFAULT_EXPRESSION;
   const animation = definition.animation ?? EMPTY_ANIMATION;
-  const portrait = spriteSource(character, expression);
   const hasImage = Boolean(character?.sprites[expression]);
   const candidate = newKey.trim();
   const canAdd =
@@ -120,11 +118,40 @@ export function AppearanceEditor({
     });
     setSelection({ type: "expression", id: DEFAULT_EXPRESSION });
   }
+  if (interactionOpen) {
+    return (
+      <section className={appearance.interaction} aria-label="부위와 교감 동작 편집">
+        <Button variant="quiet" onClick={() => setInteractionOpen(false)}>
+          ‹ 모습·표정
+        </Button>
+        <GestureMotionEditor definition={definition} onChange={onChange} defaultOpen />
+        {footer}
+      </section>
+    );
+  }
   return (
-    <section className={s.appearanceLayout} aria-label="표정과 동작 자산">
-      <CharacterWorkPanel className={s.assetList} role="complementary" aria-label="캐릭터 자산">
-        <div className={s.assetHeading}>
-          <strong>표정 · {keys.length}개</strong>
+    <section className={appearance.layout} aria-label="표정과 동작 자산">
+      <aside className={appearance.aside}>
+        <AppearancePreview
+          definition={definition}
+          character={character}
+          assets={assets}
+          selection={selection}
+          onSelect={setSelection}
+          visible={visible}
+        />
+        <p className={appearance.caption}>크기는 설정 › 바탕화면에서 모든 친구에게 같이 바꿔요.</p>
+        <SettingsSummary
+          title="부위와 교감 동작"
+          description={`부위 ${definition.bodyRegions?.length ?? 0}개 · 교감 동작 ${definition.gestureMotions?.length ?? 0}개`}
+          leading={<Icon name="paw" size={20} />}
+          onClick={() => setInteractionOpen(true)}
+          className={appearance.summary}
+        />
+      </aside>
+      <CharacterWorkPanel className={appearance.inspector} footer={footer}>
+        <div className={appearance.contentHeading}>
+          <h3 className={appearance.sectionTitle}>표정 {keys.length}개</h3>
           <Button
             variant="quiet"
             type="button"
@@ -132,7 +159,7 @@ export function AppearanceEditor({
             disabled={keys.length >= 24}
             onClick={() => setAddingExpression(!addingExpression)}
           >
-            + 추가
+            ＋ 표정 추가
           </Button>
         </div>
         <div hidden={!addingExpression} className={common.expressionAdd}>
@@ -149,80 +176,76 @@ export function AppearanceEditor({
               }
             }}
           />
-          <Button variant="secondary" type="button" disabled={!canAdd} onClick={addExpression}>
+          <Button variant="secondary" disabled={!canAdd} onClick={addExpression}>
             표정 추가
           </Button>
         </div>
-        <div className={s.assetItems}>
-          {keys.map((key) => (
-            <SelectableListRow
-              key={key}
-              className={s.assetRow}
-              selected={selection.type === "expression" && expression === key}
-              aria-label={`${key} 표정 선택`}
-              onClick={() => setSelection({ type: "expression", id: key })}
-            >
-              <span>{key}</span>
-              <span className={s.assetMeta}>
-                {key === DEFAULT_EXPRESSION ? "기본 표정" : definition.expressions[key]}
-              </span>
-            </SelectableListRow>
-          ))}
+        <div className={appearance.expressionGrid}>
+          {keys.map((key) => {
+            const image = spriteSource(character, key);
+            return (
+              <ChoiceTile
+                key={key}
+                kind="expression"
+                label={key}
+                graphic={
+                  image ? (
+                    <img className={appearance.expressionThumbnail} src={image} alt="" />
+                  ) : (
+                    <span>{definition.expressions[key]}</span>
+                  )
+                }
+                selected={selection.type === "expression" && expression === key}
+                aria-label={`${key} 표정 선택`}
+                className={appearance.expressionTile}
+                badge={key === DEFAULT_EXPRESSION ? "기본" : undefined}
+                onClick={() => setSelection({ type: "expression", id: key })}
+              />
+            );
+          })}
         </div>
-        <div className={s.assetHeading}>
-          <strong>동작 · {animation.clips.length}개</strong>
+        <div className={appearance.contentHeading}>
+          <h3 className={appearance.sectionTitle}>
+            동작 {animation.clips.length} / {MAX_ANIMATION_CLIPS}
+          </h3>
+          {animation.clips.length > 8 && (
+            <Button variant="quiet" onClick={() => setShowAllMotions((value) => !value)}>
+              {showAllMotions ? "접기" : `${animation.clips.length}개 모두 보기`}
+            </Button>
+          )}
           <Button
             variant="quiet"
-            type="button"
             disabled={animation.clips.length >= MAX_ANIMATION_CLIPS}
             onClick={addMotion}
           >
-            동작 추가
+            ＋ 동작 추가
           </Button>
         </div>
-        <div className={s.assetItems}>
-          {animation.clips.map((clip) => (
-            <SelectableListRow
+        <div className={appearance.motionGrid}>
+          {(showAllMotions ? animation.clips : animation.clips.slice(0, 8)).map((clip) => (
+            <SettingsSummary
               key={clip.id}
-              className={s.assetRow}
+              title={clip.name || "이름 없는 동작"}
+              description={`${clip.frames.length}장 · 초당 ${clip.fps}`}
+              leading={<Icon name="play" size={20} />}
+              trailing={null}
               selected={selection.type === "motion" && selection.id === clip.id}
+              className={appearance.motionTile}
               aria-label={`${clip.name || "이름 없는 동작"} 동작 선택`}
               onClick={() => setSelection({ type: "motion", id: clip.id })}
-            >
-              <span>{clip.name || "이름 없는 동작"}</span>
-              <span className={s.assetMeta}>
-                {clip.frames.length}프레임 · {clip.fps}fps
-              </span>
-            </SelectableListRow>
+            />
           ))}
         </div>
-        <p className={common.small}>표정 최대 24개 · 동작 최대 {MAX_ANIMATION_CLIPS}개</p>
-      </CharacterWorkPanel>
-      <CharacterWorkPanel className={s.inspector} footer={footer}>
-        <div hidden={selection.type !== "expression"}>
+        <details
+          className={appearance.expressionInspector}
+          hidden={selection.type !== "expression"}
+        >
+          <summary className={common.disclosureSummary}>선택한 표정 편집</summary>
           <div className={common.sectionHeader}>
             <h3 className={common.subheading}>{expression}</h3>
             <span className={common.small}>이미지 변경 즉시 반영</span>
           </div>
           <div className={s.expressionTop}>
-            <Surface tone="accent" className={s.previewStage} aria-label={`${expression} 이미지`}>
-              {portrait ? (
-                <img
-                  className={s.expressionImage}
-                  src={portrait}
-                  alt={`${expression} 표정 이미지`}
-                />
-              ) : (
-                <span>{definition.expressions[expression]}</span>
-              )}
-              {!hasImage && (
-                <span className={common.small}>
-                  {character?.sprites[DEFAULT_EXPRESSION]
-                    ? "이 표정의 이미지가 없어 평온 이미지로 표시해요."
-                    : "텍스트 표정으로 표시해요."}
-                </span>
-              )}
-            </Surface>
             <div className={s.expressionAttributes}>
               <div className={s.fields}>
                 <FormField label="표정 이름">
@@ -310,7 +333,7 @@ export function AppearanceEditor({
               />
             </Surface>
           </div>
-        </div>
+        </details>
         <div className={s.commonSettings}>
           <h4 className={common.subheading}>캐릭터 공통 표시</h4>
           <div className={s.fields}>
@@ -366,7 +389,6 @@ export function AppearanceEditor({
             적용해요. 동작이 끝나거나 쉬는 동안에는 현재 표정으로 돌아와요.
           </p>
         </div>
-        <GestureMotionEditor definition={definition} onChange={onChange} />
         <details
           className={s.sectionBoundary}
           open={animationOpen}

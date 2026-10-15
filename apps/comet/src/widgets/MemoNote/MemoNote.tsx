@@ -1,4 +1,4 @@
-import { Button, IconButton } from "@fleetia/lagrange";
+import { Button, IconButton } from "../../ui";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";

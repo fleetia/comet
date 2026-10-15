@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
-import { Button, Dialog, IconButton, Select, TextArea } from "@fleetia/lagrange";
+import { Button, Dialog, IconButton, Select, TextArea } from "../../ui";
+import { SendIcon, CloseIcon } from "@comet/icon";
+import { WaitingDots } from "@comet/ui";
 import type {
   ConversationSession,
   ConversationView,
@@ -12,6 +14,7 @@ import { useBalloonSizing } from "../../hooks/useBalloonSizing";
 import { useTypewriter } from "../../hooks/useTypewriter";
 import * as s from "../companion.css";
 import * as ui from "../../lagrange.css";
+import { CharacterOrbit } from "./CharacterOrbit";
 import { NameRegistration } from "./NameRegistration";
 import { ConversationHistory, ConversationLog } from "./ConversationHistory";
 import { StoryChoices } from "../StoryChoices/StoryChoices";
@@ -33,19 +36,6 @@ type Props = {
   dispatch?: Dispatch;
   previewConversations?: ConversationView[];
 };
-
-function WaitingDots(): JSX.Element {
-  return (
-    <>
-      <span className={s.waitingLabel}>답변 준비 중</span>
-      <span className={s.waitingDots} aria-hidden="true">
-        <span className={s.waitingDot}>.</span>
-        <span className={s.waitingDot}>.</span>
-        <span className={s.waitingDot}>.</span>
-      </span>
-    </>
-  );
-}
 
 export function shouldSubmit(
   event: Pick<KeyboardEvent<HTMLTextAreaElement>, "key" | "shiftKey" | "nativeEvent">,
@@ -117,6 +107,7 @@ export function Balloon({
   const [target, setTarget] = useState<Persona | "all">(persona);
   const [pending, setPending] = useState(false);
   const [navigating, setNavigating] = useState(false);
+  const [orbitCloseRequest, setOrbitCloseRequest] = useState(0);
   const navigatingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [draftReplacement, setDraftReplacement] = useState<{
@@ -307,10 +298,16 @@ export function Balloon({
       : snapshot.playback
         ? `playback:${snapshot.playback.id}`
         : `runtime:${snapshot.runtime.phase}:${snapshot.runtime.persona ?? ""}`;
-  const { elementRef: balloonRef, ready } = useBalloonSizing(
+  const orbitMenu = mode === "menu" && !choosingResumeNote && !saveRequest;
+  const {
+    elementRef: balloonRef,
+    ready,
+    orbitAnchor,
+    native: sizingNative,
+  } = useBalloonSizing(
     preview,
     contentKey,
-    imageReady,
+    orbitMenu || imageReady,
     `${textStyle.fontSize}:${textStyle.fontFamily ?? ""}`,
     setError,
   );
@@ -357,35 +354,39 @@ export function Balloon({
       });
     };
   }, [sessionId, mode, userId]);
-  async function leave(name: string, args?: Record<string, unknown>): Promise<void> {
-    if (navigatingRef.current) return;
+  async function leave(name: string, args?: Record<string, unknown>): Promise<boolean> {
+    if (navigatingRef.current) return false;
     navigatingRef.current = true;
     setNavigating(true);
     setError(null);
     const previousView = currentView.current;
     try {
       await flushDraft();
-      if (currentView.current.identity !== previousView.identity) return;
+      if (currentView.current.identity !== previousView.identity) return false;
       await dispatch(
         name,
         name === "close_panel" && previousView.mode === "input" && previousView.sessionId
           ? { ...args, sessionId: previousView.sessionId }
           : args,
       );
+      return true;
     } catch (cause) {
       if (currentView.current.identity === previousView.identity) setError(errorText(cause));
+      return false;
     } finally {
       navigatingRef.current = false;
       setNavigating(false);
     }
   }
-  async function perform(name: string, args?: Record<string, unknown>): Promise<void> {
+  async function perform(name: string, args?: Record<string, unknown>): Promise<boolean> {
     setError(null);
     try {
       await dispatch(name, args);
+      return true;
     } catch (cause) {
       setError(errorText(cause));
       setFailureRevision((revision) => revision + 1);
+      return false;
     }
   }
   async function cancelGeneration(): Promise<void> {
@@ -495,7 +496,12 @@ export function Balloon({
   const closeCommand = snapshot.panel ? "close_panel" : "skip_talk";
   useEffect(() => {
     function close(event: globalThis.KeyboardEvent): void {
-      if (event.key === "Escape" && !event.isComposing && !draftReplacement) {
+      if (
+        event.key === "Escape" &&
+        !event.defaultPrevented &&
+        !event.isComposing &&
+        !draftReplacement
+      ) {
         event.preventDefault();
         void leave(closeCommand);
       }
@@ -706,8 +712,8 @@ export function Balloon({
   return (
     <section
       ref={balloonRef}
-      className={`${s.balloon} ${mode ? s.balloonPanel : ""} ${preview ? s.balloonPreview : ""} ${skin && (!imageReady || slice) ? s.balloonSkinned : ""}`}
-      style={skinned}
+      className={`${s.balloon} ${mode ? s.balloonPanel : ""} ${orbitMenu ? s.balloonOrbit : ""} ${preview && !orbitMenu ? s.balloonPreview : ""} ${!orbitMenu && skin && (!imageReady || slice) ? s.balloonSkinned : ""}`}
+      style={orbitMenu ? undefined : skinned}
       aria-label={mode ? labels[mode] : "말풍선"}
       onPointerMove={() => {
         lastActivity.current = Date.now();
@@ -725,7 +731,7 @@ export function Balloon({
         lastActivity.current = Date.now();
       }}
     >
-      {mode ? (
+      {mode && mode !== "menu" ? (
         <header className={s.balloonHeader}>
           {(mode === "input" || mode === "history") && (
             <Button
@@ -753,174 +759,82 @@ export function Balloon({
           className={s.balloonClose}
           size="compact"
           variant="quiet"
-          label="이야기 닫기"
-          onClick={() => void leave(closeCommand)}
+          label={mode ? "패널 닫기" : "이야기 닫기"}
+          onClick={() => {
+            if (orbitMenu) setOrbitCloseRequest((request) => request + 1);
+            else void leave(closeCommand);
+          }}
         >
-          ×
+          <CloseIcon size={14} />
         </IconButton>
       )}
       {mode === "menu" && !saveRequest && (
         <>
           {!choosingResumeNote && (
-            <nav className={s.menu} aria-label="캐릭터 메뉴">
-              <div className={s.menuGroup} role="group" aria-label="대화">
-                <Button
-                  variant="quiet"
-                  className={s.menuItem}
-                  onClick={() => void perform("open_panel", { persona, mode: "input" })}
-                >
-                  말 걸기
-                </Button>
-                <Button
-                  variant="quiet"
-                  className={s.menuItem}
-                  disabled={sessionsLoading}
-                  onClick={() =>
-                    resumableWork
-                      ? void perform("resume_chat", { sessionId: resumableWork.id })
-                      : setChoosingResumeNote(true)
-                  }
-                >
-                  이어서 하기
-                </Button>
-                {resumableWork?.noteContext && (
-                  <span className={s.conversationMeta}>
-                    {resumableWork.noteContext.noteRef.title}
-                  </span>
-                )}
-                {paused && (
-                  <Button
-                    variant="quiet"
-                    className={s.menuItem}
-                    onClick={() => void perform("resume_chat", { sessionId: paused.id })}
-                  >
-                    대화 이어하기
-                  </Button>
-                )}
-                <Button
-                  variant="quiet"
-                  className={s.menuItem}
-                  onClick={() => void perform("talk_now")}
-                >
-                  {snapshot.characters.active.length > 1 ? "함께 이야기해 봐" : "혼잣말 들어 보기"}
-                </Button>
-                <Button
-                  variant="quiet"
-                  className={s.menuItem}
-                  onClick={() => void perform("open_panel", { persona, mode: "history" })}
-                >
-                  지난 대화
-                </Button>
-              </div>
-              <div className={s.menuGroup} role="group" aria-label="관리">
-                <Button
-                  variant="quiet"
-                  className={s.menuItem}
-                  onClick={() => void perform("arm_character_move", { persona })}
-                >
-                  움직이기
-                </Button>
-                <Button
-                  variant="quiet"
-                  className={s.menuItem}
-                  onClick={() => void perform("give_character_snack", { persona })}
-                >
-                  간식 주기
-                </Button>
-                <Button
-                  variant="quiet"
-                  className={s.menuItem}
-                  disabled={!character}
-                  onClick={() =>
-                    character &&
-                    void perform("give_character_item", {
-                      characterId: character.id,
-                      action: "drink",
-                      sessionId: crypto.randomUUID(),
-                    })
-                  }
-                >
-                  음료 건네기
-                </Button>
-                <Button
-                  variant="quiet"
-                  className={s.menuItem}
-                  disabled={!character}
-                  onClick={() =>
-                    character &&
-                    void perform("give_character_item", {
-                      characterId: character.id,
-                      action: "gift",
-                      sessionId: crypto.randomUUID(),
-                    })
-                  }
-                >
-                  선물 건네기
-                </Button>
-                <Button
-                  variant="quiet"
-                  className={s.menuItem}
-                  disabled={!character}
-                  onClick={() =>
-                    character &&
-                    void perform("set_character_sleep", {
-                      characterId: character.id,
-                      sleeping: !snapshot.animationStates?.sleepingCharacterIds?.includes(
-                        character.id,
-                      ),
-                    })
-                  }
-                >
-                  {character &&
-                  snapshot.animationStates?.sleepingCharacterIds?.includes(character.id)
-                    ? "깨우기"
-                    : "재우기"}
-                </Button>
-                <Button
-                  variant="quiet"
-                  className={s.menuItem}
-                  onClick={() => void perform("open_settings")}
-                >
-                  설정
-                </Button>
-              </div>
-              <div className={s.menuGroup} role="group" aria-label="자동 잡담과 표시">
-                {snapshot.runtime.paused ? (
-                  <Button
-                    variant="quiet"
-                    className={s.menuItem}
-                    onClick={() => void perform("set_paused", { paused: false })}
-                  >
-                    다시 시작
-                  </Button>
-                ) : (
-                  <details>
-                    <summary className={s.pauseSummary}>자동 잡담 쉬기</summary>
-                    <Button
-                      variant="quiet"
-                      className={s.menuItem}
-                      onClick={() => void perform("set_paused", { paused: true, minutes: 60 })}
-                    >
-                      1시간
-                    </Button>
-                    <Button
-                      variant="quiet"
-                      className={s.menuItem}
-                      onClick={() => void perform("set_paused", { paused: true })}
-                    >
-                      다시 시작할 때까지
-                    </Button>
-                  </details>
-                )}
-                <Button
-                  variant="quiet"
-                  className={s.menuItem}
-                  onClick={() => void perform("hide_boxes")}
-                >
-                  캐릭터 숨기기
-                </Button>
-              </div>
-            </nav>
+            <CharacterOrbit
+              key={contentKey}
+              closeRequest={orbitCloseRequest}
+              anchor={orbitAnchor ?? undefined}
+              ready={ready && (!sizingNative || Boolean(orbitAnchor))}
+              name={name}
+              character={character}
+              paused={snapshot.runtime.paused}
+              pausedUntil={snapshot.runtime.pausedUntil}
+              sleeping={Boolean(
+                character && snapshot.animationStates?.sleepingCharacterIds?.includes(character.id),
+              )}
+              busy={navigating || sessionsLoading}
+              onClose={() => leave(closeCommand)}
+              onAction={(action) => {
+                switch (action) {
+                  case "chat":
+                    return perform("open_panel", { persona, mode: "input" });
+                  case "resume":
+                    if (resumableWork)
+                      return perform("resume_chat", { sessionId: resumableWork.id });
+                    else if (paused) return perform("resume_chat", { sessionId: paused.id });
+                    else setChoosingResumeNote(true);
+                    return true;
+                  case "together":
+                    return perform("talk_now");
+                  case "history":
+                    return perform("open_panel", { persona, mode: "history" });
+                  case "settings":
+                    return perform("open_settings");
+                  case "hide":
+                    return perform("hide_boxes");
+                  case "move":
+                    return perform("arm_character_move", { persona });
+                  case "snack":
+                    return perform("give_character_snack", { persona });
+                  case "drink":
+                  case "gift":
+                    if (character)
+                      return perform("give_character_item", {
+                        characterId: character.id,
+                        action,
+                        sessionId: crypto.randomUUID(),
+                      });
+                    return false;
+                  case "sleep":
+                    if (character)
+                      return perform("set_character_sleep", {
+                        characterId: character.id,
+                        sleeping: !snapshot.animationStates?.sleepingCharacterIds?.includes(
+                          character.id,
+                        ),
+                      });
+                    return false;
+                  case "pause":
+                    return perform("set_paused", { paused: false });
+                  case "pause-hour":
+                    return perform("set_paused", { paused: true, minutes: 60 });
+                  case "pause-restart":
+                    return perform("set_paused", { paused: true });
+                }
+                return false;
+              }}
+            />
           )}
           {choosingResumeNote && (
             <div className={s.inputContents}>
@@ -938,21 +852,6 @@ export function Balloon({
               {sessionsError}
             </p>
           )}
-          <div className={s.footer}>
-            <span>
-              {name}와 친밀도{" "}
-              {snapshot.relationships.find((relationship) => relationship.persona === persona)
-                ?.score ?? 20}
-              /100
-            </span>
-            {snapshot.runtime.paused && (
-              <span>
-                {snapshot.runtime.pausedUntil
-                  ? `${new Date(snapshot.runtime.pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}까지 자동 잡담 쉬는 중`
-                  : "자동 잡담 쉬는 중"}
-              </span>
-            )}
-          </div>
         </>
       )}
       {mode === "name" && !snapshot.user && (
@@ -1100,12 +999,6 @@ export function Balloon({
                   </Button>
                 )}
               </div>
-              <p className={s.conversationMeta}>
-                등록된 키워드 답장·혼잣말은 모델 없이 사용할 수 있어요.
-              </p>
-              <p className={s.conversationMeta}>
-                보내기는 등록 대사를 먼저 찾고, 일치하는 대사가 없으면 AI가 답해요.
-              </p>
             </div>
             <div className={s.recipientRow}>
               <label className={ui.quiet}>
@@ -1126,46 +1019,50 @@ export function Balloon({
               </label>
               <span className={ui.quiet}>Shift + Enter 줄바꿈</span>
             </div>
-            <TextArea
-              resize="none"
-              ref={inputRef}
-              className={s.input}
-              aria-label={target === "all" ? "모두에게 할 말" : `${recipientName}에게 할 말`}
-              value={input}
-              rows={3}
-              disabled={!snapshot.user || navigating}
-              maxLength={2000}
-              placeholder="하고 싶은 이야기를 적어 줘."
-              onChange={(event) => {
-                draft.current.value = event.target.value;
-                setInput(event.target.value);
-              }}
-              onCompositionStart={() => {
-                composing.current = true;
-              }}
-              onCompositionEnd={() => {
-                composing.current = false;
-              }}
-              onKeyDown={(event) => {
-                if (shouldSubmit(event, composing.current)) {
-                  event.preventDefault();
-                  void send();
-                }
-              }}
-            />
-            <div className={s.recipientRow}>
-              <span className={ui.quiet} role="status">
-                {responding && <WaitingDots />}
-              </span>
+            <div className={s.inputCapsule}>
+              <TextArea
+                resize="none"
+                ref={inputRef}
+                className={s.input}
+                aria-label={target === "all" ? "모두에게 할 말" : `${recipientName}에게 할 말`}
+                value={input}
+                rows={3}
+                disabled={!snapshot.user || navigating}
+                maxLength={2000}
+                placeholder="하고 싶은 이야기를 적어 줘."
+                onChange={(event) => {
+                  draft.current.value = event.target.value;
+                  setInput(event.target.value);
+                }}
+                onCompositionStart={() => {
+                  composing.current = true;
+                }}
+                onCompositionEnd={() => {
+                  composing.current = false;
+                }}
+                onKeyDown={(event) => {
+                  if (shouldSubmit(event, composing.current)) {
+                    event.preventDefault();
+                    void send();
+                  }
+                }}
+              />
               <Button
                 type="submit"
+                className={s.capsuleSend}
+                aria-label={pending ? "전송 중" : "보내기"}
                 disabled={
                   !snapshot.user || !input.trim() || responding || playing || pending || navigating
                 }
               >
-                {pending ? "전송 중" : "보내기"}
+                <SendIcon size={18} />
               </Button>
             </div>
+            {responding && (
+              <div className={s.recipientRow}>
+                <WaitingDots label="답변 준비 중" />
+              </div>
+            )}
             {conversation && (
               <Button
                 variant="quiet"
@@ -1209,6 +1106,7 @@ export function Balloon({
           textStyle={textStyle}
         />
       )}
+      {!mode && !snapshot.story && <span className={s.speakerName}>{name}</span>}
       {!mode && !snapshot.story && (
         <div
           className={s.speech}
@@ -1226,7 +1124,7 @@ export function Balloon({
               {speech}
             </button>
           ) : responding ? (
-            <WaitingDots />
+            <WaitingDots label="답변 준비 중" />
           ) : (
             ""
           )}

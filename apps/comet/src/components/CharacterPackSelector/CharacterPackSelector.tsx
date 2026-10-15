@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, FormField, Inline, Select } from "@fleetia/lagrange";
+import { Button, ChoiceTile } from "@comet/ui";
+import { FriendArtwork } from "../CharacterManager/FriendsLibrary";
+import * as styles from "./characterPacks.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { CharacterCollection, InstalledCharacterPack } from "../../types";
 import * as ui from "../../lagrange.css";
@@ -100,11 +102,7 @@ export function CharacterPackSelector({
       )}
       {packs === null &&
         (error ? (
-          <Button
-            variant="secondary"
-            disabled={busy}
-            onClick={() => setRevision((value) => value + 1)}
-          >
+          <Button variant="ghost" disabled={busy} onClick={() => setRevision((value) => value + 1)}>
             팩 목록 다시 불러오기
           </Button>
         ) : (
@@ -120,33 +118,58 @@ export function CharacterPackSelector({
       )}
       {packs && packs.length > 0 && (
         <>
-          <Inline wrap align="end" gap="md" className={s.packControls}>
-            <FormField className={s.packField} label="설치한 캐릭터 팩">
-              <Select
-                value={selected?.id ?? ""}
-                disabled={busy}
-                onChange={(event) => {
-                  setSelectedId(event.target.value);
-                  setError(null);
-                  setNotice(null);
-                }}
-              >
-                <option value="">팩을 선택해 주세요</option>
-                {packs.map((pack, index) => (
-                  <option key={pack.id} value={pack.id}>
-                    {index + 1}. {pack.name} · {pack.characterIds.length}명
-                  </option>
-                ))}
-              </Select>
-            </FormField>
-            <Button
-              variant="primary"
-              disabled={busy || !selected || isApplied}
-              onClick={() => void apply()}
-            >
-              {pending ? "전환 중…" : isApplied ? "함께 지내는 중" : "이 팩으로 함께 지내기"}
-            </Button>
-          </Inline>
+          <div className={styles.packList} role="radiogroup" aria-label="설치한 캐릭터 팩">
+            {packs.map((pack, index) => (
+              <section className={styles.pack} key={pack.id}>
+                <header className={styles.packHeading}>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={selected?.id === pack.id}
+                    disabled={busy}
+                    className={styles.packName}
+                    aria-label={`${index + 1}. ${pack.name} · ${pack.characterIds.length}명`}
+                    onClick={() => {
+                      setSelectedId(pack.id);
+                      setError(null);
+                      setNotice(null);
+                    }}
+                  >
+                    {pack.name}
+                  </button>
+                  {currentPack?.id === pack.id && (
+                    <span className={styles.caption}>함께 지내는 중</span>
+                  )}
+                </header>
+                <div className={styles.characters}>
+                  {pack.characterIds.map((id) => {
+                    const character = characters.installed.find((friend) => friend.id === id);
+                    if (!character) return null;
+                    return (
+                      <ChoiceTile
+                        key={id}
+                        kind="character"
+                        label={character.definition.name}
+                        graphic={<FriendArtwork character={character} compact />}
+                        description={characters.active.includes(id) ? "함께 지내는 중" : "보유 중"}
+                        selected={selected?.id === pack.id}
+                        className={styles.character}
+                        disabled={busy}
+                        onClick={() => {
+                          setSelectedId(pack.id);
+                          setError(null);
+                          setNotice(null);
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+          <Button disabled={busy || !selected || isApplied} onClick={() => void apply()}>
+            {pending ? "전환 중…" : isApplied ? "함께 지내는 중" : "이 팩으로 함께 지내기"}
+          </Button>
           {selected && (
             <p className={ui.quiet}>
               함께 지낼 순서:{" "}

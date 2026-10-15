@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { Button, Checkbox, Dialog, Select, TextField } from "@fleetia/lagrange";
+import { Button, Checkbox, Dialog, Select, TextField } from "../../ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { CharacterCollection, MotionOverride } from "../../types";
 import { WidgetFrame } from "../WidgetFrame/WidgetFrame";

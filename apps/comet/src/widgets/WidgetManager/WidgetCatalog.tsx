@@ -1,5 +1,6 @@
-import { useEffect, useId, useRef, useState, type ReactElement, type ReactNode } from "react";
-import { SelectableListRow, Surface, Text, TextField } from "@fleetia/lagrange";
+import { useState, type ReactElement, type ReactNode } from "react";
+import { Icon, ChevIcon, type IconName } from "@comet/icon";
+import { SearchInput, Switch } from "@comet/ui";
 import type { WidgetView } from "../types";
 import * as styles from "./widgetCatalog.css";
 
@@ -9,16 +10,26 @@ export type WidgetListEntry = {
   description: string;
   category: string;
   installed: boolean;
+  enabled?: boolean;
   status: WidgetView["status"] | "draft";
   attention: boolean;
 };
-
-const GROUPS = [
-  ["daily", "하루 도구"],
-  ["play", "놀이 상자"],
-  ["information", "생활 정보"],
-  ["generated", "AI·가져온 위젯"],
-] as const;
+export const WIDGET_ICONS: Record<string, IconName> = {
+  todo: "todo",
+  calendar: "calendar",
+  "focus-timer": "timer",
+  preparation: "envelope",
+  clock: "clock",
+  memo: "memo",
+  weather: "cloud",
+  music: "music",
+  interaction: "poke",
+  "small-match": "dice",
+  fortune: "crystal",
+  ball: "ball2",
+  "paper-plane": "plane",
+  bubbles: "bubble",
+};
 const STATUS: Record<WidgetListEntry["status"], string> = {
   "not-installed": "미설치",
   "install-error": "설치 오류",
@@ -28,147 +39,105 @@ const STATUS: Record<WidgetListEntry["status"], string> = {
   enabled: "켜짐",
   draft: "실행 검사 대기",
 };
-const STORAGE_KEY = "comet.widget-groups";
-
-function readExpanded(selected?: WidgetListEntry): Record<string, boolean> {
-  const defaults = {
-    daily: true,
-    generated: true,
-    ...(selected ? { [selected.category]: true } : {}),
-  };
-  try {
-    const stored: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
-    if (stored && typeof stored === "object" && !Array.isArray(stored)) {
-      return Object.fromEntries(GROUPS.map(([id]) => [id, Reflect.get(stored, id) === true]));
-    }
-  } catch {
-    // An unavailable browser store must not prevent browsing widgets.
-  }
-  return defaults;
-}
-
+const GROUPS = [
+  ["daily", "하루 도구"],
+  ["play", "놀이 상자"],
+  ["information", "생활 정보"],
+  ["generated", "AI·가져온 위젯"],
+] as const;
 export function WidgetCatalog({
   entries,
   selectedId,
   onSelect,
+  onToggle,
+  disabled = false,
   children,
 }: {
   entries: WidgetListEntry[];
   selectedId?: string;
   onSelect: (id: string) => void;
+  onToggle?: (id: string, checked: boolean) => void;
+  disabled?: boolean;
   children?: ReactNode;
 }): ReactElement {
-  const prefix = useId();
   const [search, setSearch] = useState("");
-  const [expanded, setExpanded] = useState(() =>
-    readExpanded(entries.find((item) => item.id === selectedId)),
-  );
-  const [searchCollapse, setSearchCollapse] = useState<{ query: string; groups: string[] }>({
-    query: "",
-    groups: [],
-  });
-  const previousSelection = useRef(selectedId);
-  const selectedGroupId = entries.find((item) => item.id === selectedId)?.category;
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(expanded));
-    } catch {
-      // Folding still works for this window when storage is unavailable.
-    }
-  }, [expanded]);
   const query = search.trim().toLocaleLowerCase();
-  const isSearching = query.length > 0;
-  const installedCount = entries.filter((item) => item.installed).length;
-  const matching = entries.filter((item) => {
-    const groupName = GROUPS.find(([id]) => id === item.category)?.[1] ?? "";
-    return `${item.name} ${item.description} ${groupName}`.toLocaleLowerCase().includes(query);
-  });
-  const selectionMatches = matching.some((item) => item.id === selectedId);
-  useEffect(() => {
-    if (previousSelection.current !== selectedId && selectedGroupId) {
-      setExpanded((before) => ({ ...before, [selectedGroupId]: true }));
-      setSearchCollapse({ query: "", groups: [] });
-      if (!selectionMatches) {
-        setSearch("");
-      }
-    }
-    previousSelection.current = selectedId;
-  }, [selectedId, selectedGroupId, selectionMatches]);
-  return (
-    <Surface className={styles.catalog} role="region" aria-label="위젯 목록">
-      <div className={styles.title}>
-        <strong>위젯 · {entries.length}개</strong>
-        <Text variant="caption" tone="muted">
-          설치 {installedCount}개
-        </Text>
-      </div>
-      <TextField
-        type="search"
-        aria-label="위젯 검색"
-        placeholder="위젯 검색"
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-      />
-      <div className={styles.list}>
-        {GROUPS.map(([id, label]) => {
-          const items = matching.filter((item) => item.category === id);
-          if (items.length === 0) {
-            return null;
-          }
-          const collapsed = searchCollapse.query === query ? searchCollapse.groups : [];
-          const open = isSearching ? !collapsed.includes(id) : expanded[id] === true;
-          return (
-            <section className={styles.group} key={id} aria-label={label}>
+  const groupOf = (item: WidgetListEntry): string =>
+    item.id === "clock" ? "daily" : item.category;
+  const matching = entries.filter((item) =>
+    `${item.name} ${item.description} ${GROUPS.find(([id]) => id === groupOf(item))?.[1] || ""}`
+      .toLocaleLowerCase()
+      .includes(query),
+  );
+  function group(id: string): ReactNode {
+    const items = matching.filter((item) => groupOf(item) === id);
+    if (!items.length) return null;
+    const label = GROUPS.find(([key]) => key === id)![1];
+    return (
+      <section className={styles.group} aria-label={label} key={id}>
+        <h2 className={styles.groupHeading}>
+          {label}
+          <span>{items.length}</span>
+        </h2>
+        <div className={styles.rows}>
+          {items.map((item) => (
+            <div className={styles.entry} key={item.id}>
               <button
                 type="button"
-                className={styles.groupToggle}
-                aria-label={`${label} ${items.length}개`}
-                aria-expanded={open}
-                aria-controls={`${prefix}-${id}`}
-                onClick={() => {
-                  if (isSearching) {
-                    setSearchCollapse({
-                      query,
-                      groups: open ? [...collapsed, id] : collapsed.filter((value) => value !== id),
-                    });
-                  } else {
-                    setExpanded((before) => ({ ...before, [id]: !open }));
-                  }
-                }}
+                className={styles.entryButton}
+                aria-label={`${item.name} ${STATUS[item.status]}`}
+                aria-pressed={selectedId === item.id}
+                onClick={() => onSelect(item.id)}
               >
-                <span aria-hidden="true">{open ? "⌄" : "›"}</span>
-                <span>{label}</span>
-                <span className={styles.count}>{items.length}</span>
+                <span className={styles.iconTile}>
+                  <Icon name={WIDGET_ICONS[item.id] || "hash"} size={18} />
+                </span>
+                <span className={styles.entryCopy}>
+                  <strong className={styles.entryName}>{item.name}</strong>
+                  <span className={styles.description}>
+                    {item.attention ? STATUS[item.status] : item.description}
+                  </span>
+                </span>
+                <ChevIcon size={14} />
               </button>
-              <div id={`${prefix}-${id}`} hidden={!open}>
-                {items.map((item) => (
-                  <SelectableListRow
-                    key={item.id}
-                    selected={selectedId === item.id}
-                    className={styles.entry}
-                    aria-label={`${item.name} ${STATUS[item.status]}`}
-                    aria-pressed={selectedId === item.id}
-                    onClick={() => onSelect(item.id)}
-                  >
-                    <span className={styles.entryName}>{item.name}</span>
-                    {(item.installed || item.attention) && (
-                      <span className={styles.status} data-attention={item.attention}>
-                        {STATUS[item.status]}
-                      </span>
-                    )}
-                  </SelectableListRow>
-                ))}
-              </div>
-            </section>
-          );
-        })}
-        {matching.length === 0 && (
-          <Text as="p" variant="caption" tone="muted" className={styles.empty}>
-            찾는 위젯이 없어요. 검색어를 바꿔 보세요.
-          </Text>
-        )}
+              <Switch
+                aria-label={`${item.name} 사용`}
+                checked={item.installed && (item.enabled ?? item.status === "enabled")}
+                disabled={disabled || !onToggle}
+                onChange={(event) => onToggle?.(item.id, event.target.checked)}
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
+  return (
+    <section className={styles.catalog} aria-label="위젯 목록">
+      <header className={styles.title}>
+        <div className={styles.headingCopy}>
+          <h1>위젯</h1>
+          <p>모두 {entries.length}개 · 켜고 끄거나, 눌러서 자세히 정해요</p>
+        </div>
+        <SearchInput
+          aria-label="위젯 검색"
+          placeholder="위젯 찾기"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+      </header>
+      <div className={styles.list}>
+        <div className={styles.column}>{group("daily")}</div>
+        <div className={styles.column}>{group("play")}</div>
+        <div className={styles.column}>
+          {group("information")}
+          {group("generated")}
+          {children}
+        </div>
       </div>
-      {children}
-    </Surface>
+      {matching.length === 0 && (
+        <p className={styles.empty}>찾는 위젯이 없어요. 검색어를 바꿔 보세요.</p>
+      )}
+    </section>
   );
 }

@@ -91,7 +91,19 @@ pub(crate) fn open_planner_settings(
             ["todo", "calendar", "focus-timer", "preparation"].contains(&value.as_str())
         })
         .unwrap_or_else(|| "calendar".into());
-    *crate::lock(&app.state::<Navigation>().settings_target)? = Some(kind.clone());
+    open_widget_settings(app, &kind)
+}
+
+pub(crate) fn validate_widget_settings_kind(kind: &str) -> Result<(), String> {
+    if crate::widgets::is_retired(kind) {
+        return Err("더 이상 지원하지 않는 위젯이에요.".into());
+    }
+    crate::widgets::manifest(kind).map(|_| ())
+}
+
+pub(crate) fn open_widget_settings(app: tauri::AppHandle, kind: &str) -> Result<(), String> {
+    validate_widget_settings_kind(kind)?;
+    *crate::lock(&app.state::<Navigation>().settings_target)? = Some(kind.into());
     open_settings_section(app.clone(), SettingsSection::Widgets)?;
     app.emit_to("settings", "planner-settings-target", kind)
         .map_err(|e| e.to_string())

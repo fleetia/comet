@@ -70,6 +70,45 @@ async function openDiary(): Promise<void> {
   render(<Diary />);
   await screen.findByRole("navigation", { name: "내 다이어리 목차" });
   await waitFor(() => expect(command).toHaveBeenCalledWith("get_planner_tab"));
+  showJournal();
+}
+
+function showJournal(): void {
+  const journal = screen.queryByRole("radio", { name: "한 줄 기록" });
+  if (journal) fireEvent.click(journal);
+}
+
+function showNotes(): void {
+  fireEvent.click(screen.getByRole("link", { name: /^메모/ }));
+}
+
+async function showTasks(view: "plans" | "templates" | "today"): Promise<void> {
+  if (!screen.queryByRole("radiogroup", { name: "할 일 보기" })) {
+    fireEvent.click(screen.getByRole("link", { name: /^할 일/ }));
+  }
+  if (screen.queryByRole("dialog", { name: "작성 중인 내용이 있어요" })) return;
+  const label = view === "plans" ? "기간별" : view === "templates" ? "템플릿" : "날짜별";
+  fireEvent.click(await screen.findByRole("radio", { name: label }));
+}
+
+function showToday(): void {
+  fireEvent.click(screen.getByRole("link", { name: "오늘" }));
+  showJournal();
+}
+
+function showPage(title: string): void {
+  fireEvent.click(screen.getByRole("link", { name: "내 페이지" }));
+  fireEvent.click(
+    within(screen.getByRole("navigation", { name: "내 페이지 목록" })).getByRole("button", {
+      name: title,
+    }),
+  );
+}
+
+function chooseDay(date: string): void {
+  fireEvent.click(screen.getByRole("link", { name: "캘린더" }));
+  fireEvent.click(screen.getByRole("button", { name: `${date} 하루 펼치기` }));
+  showJournal();
 }
 
 function opened(): ReturnType<typeof within> {
@@ -173,7 +212,7 @@ it("keeps a collapsed quick-task draft and warns before navigation and native cl
   fireEvent.click(screen.getByRole("button", { name: "닫아두기" }));
   fireEvent.click(screen.getByRole("button", { name: "빠른 할 일 추가" }));
   expect(screen.getByLabelText(/빠른 할 일 제목/)).toHaveProperty("value", "나중에 저장");
-  fireEvent.click(screen.getByRole("button", { name: "월간" }));
+  fireEvent.click(screen.getByRole("radio", { name: "월" }));
   expect(screen.getByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
   const event = { preventDefault: vi.fn() };
@@ -223,7 +262,7 @@ it("uses no planned date in the collection and enables Todo before creating its 
     return "collection-task";
   };
   await openDiary();
-  fireEvent.click(screen.getByRole("button", { name: "기간 계획" }));
+  await showTasks("plans");
   fireEvent.click(screen.getByRole("button", { name: "빠른 할 일 추가" }));
   fireEvent.change(screen.getByLabelText(/빠른 할 일 제목/), {
     target: { value: "날짜 없는 할 일" },
@@ -260,14 +299,14 @@ it("opens the exact stored note from a conversation without changing its locatio
 it("projects month and week calendars into native state and clears it for tools and day pages", async () => {
   await openDiary();
   await waitFor(() => expect(actions("set_planner_tab").at(-1)).toEqual({ tab: "today" }));
-  fireEvent.click(screen.getByRole("button", { name: "월간" }));
+  fireEvent.click(screen.getByRole("radio", { name: "월" }));
   await waitFor(() => expect(actions("set_planner_tab").at(-1)).toEqual({ tab: "calendar" }));
   const calendarWrites = actions("set_planner_tab").length;
-  fireEvent.click(screen.getByRole("button", { name: "주간" }));
+  fireEvent.click(screen.getByRole("radio", { name: "주" }));
   expect(actions("set_planner_tab")).toHaveLength(calendarWrites);
-  fireEvent.click(screen.getByRole("button", { name: "기간 계획" }));
+  await showTasks("plans");
   await waitFor(() => expect(actions("set_planner_tab").at(-1)).toEqual({ tab: "plans" }));
-  fireEvent.click(screen.getByRole("button", { name: "하루" }));
+  showToday();
   await waitFor(() => expect(actions("set_planner_tab").at(-1)).toEqual({ tab: "today" }));
 });
 
@@ -285,7 +324,7 @@ it("waits for startup navigation before publishing a calendar condition", async 
   expect(actions("set_planner_tab")).toEqual([]);
   await act(async () => finishNavigation("calendar"));
   await waitFor(() => expect(actions("set_planner_tab")).toEqual([{ tab: "calendar" }]));
-  expect(screen.getByRole("button", { name: "월간" }).getAttribute("aria-current")).toBe("page");
+  expect(screen.getByRole("radio", { name: "월" })).toHaveProperty("checked", true);
 });
 
 it("links the exact returned Todo IDs and uses fresh widget revisions before a widgets-state event", async () => {
@@ -378,7 +417,8 @@ it("opens its own new undated page after another page was created elsewhere, the
   };
   await openDiary();
   expect(opened().getByRole("checkbox", { name: "오늘 준비" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "새 페이지" }));
+  fireEvent.click(screen.getByRole("link", { name: "내 페이지" }));
+  fireEvent.click(opened().getByRole("button", { name: "새 페이지" }));
   const dialog = within(screen.getByRole("dialog", { name: "새 페이지" }));
   fireEvent.change(dialog.getByRole("textbox", { name: "페이지 이름" }), {
     target: { value: "읽은 책" },
@@ -404,7 +444,7 @@ it("opens its own new undated page after another page was created elsewhere, the
   expect(actions("update_diary")).toEqual([
     { expectedRevision: 4, action: "page-create", input: { title: "읽은 책", date: null } },
   ]);
-  fireEvent.click(screen.getByRole("button", { name: `${NEXT_DAY} 기록 열기` }));
+  chooseDay(NEXT_DAY);
   expect(opened().getByRole("checkbox", { name: "내일 준비" })).toBeTruthy();
   expect(opened().queryByRole("checkbox", { name: "오늘 준비" })).toBeNull();
 });
@@ -422,7 +462,7 @@ it("moves a dated Todo from a collection using the Todo's actual date while pres
   ];
   update = () => ({ ...diary, revision: 4 });
   await openDiary();
-  fireEvent.click(screen.getByRole("button", { name: "읽은 책" }));
+  showPage("읽은 책");
   fireEvent.click(opened().getByRole("button", { name: "책 반납 날짜 옮기기" }));
   fireEvent.change(opened().getByLabelText("책 반납 옮길 날짜"), {
     target: { value: "2026-10-06" },
@@ -453,7 +493,7 @@ it("gives a previously undated collection Todo its first plan without inventing 
   ];
   execute = () => null;
   await openDiary();
-  fireEvent.click(screen.getByRole("button", { name: "모아둔 생각" }));
+  showPage("모아둔 생각");
   fireEvent.click(opened().getByRole("button", { name: "자료 모으기 날짜 옮기기" }));
   fireEvent.change(opened().getByLabelText("자료 모으기 옮길 날짜"), {
     target: { value: "2026-10-06" },
@@ -502,10 +542,10 @@ it("shows an independently dated envelope in the day, month and week and opens t
   await openDiary();
   expect(opened().getByRole("button", { name: /주말 준비/ })).toBeTruthy();
   expect(opened().queryByRole("button", { name: /보관한 준비/ })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "월간" }));
+  fireEvent.click(screen.getByRole("radio", { name: "월" }));
   expect(opened().getByRole("button", { name: /주말 준비/ })).toBeTruthy();
   expect(opened().queryByRole("button", { name: /보관한 준비/ })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "주간" }));
+  fireEvent.click(screen.getByRole("radio", { name: "주" }));
   fireEvent.click(opened().getByRole("button", { name: /주말 준비/ }));
   expect(opened().getByRole("heading", { name: "주말 준비" })).toBeTruthy();
   expect(opened().getByText("10월 3일 토요일")).toBeTruthy();
@@ -531,7 +571,7 @@ it("owns native close protection for both journal drafts and embedded planning t
     "아직 쓰는 중",
   );
 
-  fireEvent.click(screen.getByRole("button", { name: "기간 계획" }));
+  await showTasks("plans");
   fireEvent.click(screen.getByRole("button", { name: "저장하지 않고 이동" }));
   const input = await screen.findByRole("textbox", { name: "새 할 일" });
   expect(screen.getByRole("navigation", { name: "내 다이어리 목차" })).toBeTruthy();
@@ -553,7 +593,7 @@ it("owns native close protection for both journal drafts and embedded planning t
 it("returns external calendar shortcuts to the same diary and retains planning drafts", async () => {
   setTasks([]);
   await openDiary();
-  fireEvent.click(screen.getByRole("button", { name: "기간 계획" }));
+  await showTasks("plans");
   fireEvent.change(await screen.findByRole("textbox", { name: "새 할 일" }), {
     target: { value: "아직 제출하지 않은 계획" },
   });
@@ -564,7 +604,7 @@ it("returns external calendar shortcuts to the same diary and retains planning d
   });
   expect(opened().getByRole("heading", { name: "2026년 10월" })).toBeTruthy();
   expect(screen.queryByRole("textbox", { name: "새 할 일" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "기간 계획" }));
+  await showTasks("plans");
   expect(screen.getByRole("textbox", { name: "새 할 일" })).toHaveProperty(
     "value",
     "아직 제출하지 않은 계획",
@@ -573,20 +613,33 @@ it("returns external calendar shortcuts to the same diary and retains planning d
   expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
 });
 
+it("shows the calendar when an external shortcut arrives from the memo screen", async () => {
+  await openDiary();
+  showNotes();
+  expect(screen.getByRole("link", { name: /^메모/ }).getAttribute("aria-current")).toBe("page");
+  act(() => {
+    for (const [event, callback] of vi.mocked(listen).mock.calls) {
+      if (event === "planner-tab") callback({ event, id: 1, payload: "calendar" });
+    }
+  });
+  expect(opened().getByRole("heading", { name: "2026년 10월" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: "캘린더" }).getAttribute("aria-current")).toBe("page");
+});
+
 it("retains template choices across journal navigation and confirms unsaved template changes on close", async () => {
   setTasks([]);
   await openDiary();
-  fireEvent.click(screen.getByRole("button", { name: "템플릿" }));
+  await showTasks("templates");
   await screen.findByRole("navigation", { name: "템플릿 종류" });
   fireEvent.click(screen.getByRole("button", { name: "건강 관리" }));
   const choice = screen.getAllByRole("checkbox")[0];
   fireEvent.click(choice);
-  fireEvent.click(screen.getByRole("button", { name: "하루" }));
+  showToday();
   expect(opened().getByRole("heading", { name: "10월 3일 토요일" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "다이어리 닫기" }));
   expect(screen.getByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
-  fireEvent.click(screen.getByRole("button", { name: "템플릿" }));
+  await showTasks("templates");
   expect(screen.getByRole("button", { name: "건강 관리" }).getAttribute("aria-pressed")).toBe(
     "true",
   );
@@ -599,7 +652,8 @@ it("retains template choices across journal navigation and confirms unsaved temp
 it("closes a clean event editor when an external shortcut opens a diary tool", async () => {
   setTasks([]);
   await openDiary();
-  fireEvent.click(screen.getByRole("button", { name: "+ 일정" }));
+  fireEvent.click(screen.getByRole("radio", { name: "월" }));
+  fireEvent.click(screen.getByRole("button", { name: "새 일정" }));
   expect(screen.getByRole("dialog", { name: "새 일정" })).toBeTruthy();
   act(() => {
     for (const [event, callback] of vi.mocked(listen).mock.calls) {
@@ -614,10 +668,10 @@ it("closes a clean event editor when an external shortcut opens a diary tool", a
 it("discards an open tool dialog without clearing other planning drafts", async () => {
   setTasks([]);
   await openDiary();
-  fireEvent.click(screen.getByRole("button", { name: "템플릿" }));
+  await showTasks("templates");
   await screen.findByRole("navigation", { name: "템플릿 종류" });
   fireEvent.click(screen.getAllByRole("checkbox")[0]);
-  fireEvent.click(screen.getByRole("button", { name: "기간 계획" }));
+  await showTasks("plans");
   fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
     target: { value: "보존할 계획" },
   });
@@ -630,9 +684,9 @@ it("discards an open tool dialog without clearing other planning drafts", async 
   fireEvent.click(screen.getByRole("button", { name: "저장하지 않고 이동" }));
   expect(screen.queryByRole("dialog", { name: "목록 관리" })).toBeNull();
   expect(opened().getByRole("heading", { name: "2026년 10월" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "기간 계획" }));
+  await showTasks("plans");
   expect(screen.getByRole("textbox", { name: "새 할 일" })).toHaveProperty("value", "보존할 계획");
-  fireEvent.click(screen.getByRole("button", { name: "템플릿" }));
+  await showTasks("templates");
   expect(screen.getAllByRole("checkbox")[0]).toHaveProperty("checked", false);
 });
 
@@ -648,7 +702,7 @@ it("creates a local calendar event from a month date and edits the same event wi
     return "local-event";
   };
   await openDiary();
-  fireEvent.click(screen.getByRole("button", { name: "월간" }));
+  fireEvent.click(screen.getByRole("radio", { name: "월" }));
   fireEvent.doubleClick(screen.getByTitle(`${NEXT_DAY} 빈 곳을 두 번 눌러 일정 추가`));
   const creator = within(screen.getByRole("dialog", { name: "새 일정" }));
   expect(creator.getByLabelText("시작 날짜")).toHaveProperty("value", NEXT_DAY);
@@ -700,7 +754,7 @@ it.each(["update-event", "delete-event"] as const)(
     widgets.widgets = [widget("calendar", { connections: [], events: [event] })];
     execute = () => null;
     await openDiary();
-    fireEvent.click(screen.getByRole("button", { name: "월간" }));
+    fireEvent.click(screen.getByRole("radio", { name: "월" }));
     fireEvent.click(screen.getByRole("button", { name: "산책" }));
     fireEvent.click(screen.getByRole("button", { name: "일정 편집" }));
     const editor = within(screen.getByRole("dialog", { name: "일정 편집" }));
@@ -746,7 +800,7 @@ it("rejects saving or deleting an event changed elsewhere and preserves the edit
   };
   widgets.widgets = [widget("calendar", { connections: [], events: [event] })];
   await openDiary();
-  fireEvent.click(screen.getByRole("button", { name: "월간" }));
+  fireEvent.click(screen.getByRole("radio", { name: "월" }));
   fireEvent.click(screen.getByRole("button", { name: "산책" }));
   fireEvent.click(screen.getByRole("button", { name: "일정 편집" }));
   const editor = within(screen.getByRole("dialog", { name: "일정 편집" }));
@@ -778,7 +832,7 @@ it("moves the original dated Todo when dropped onto a calendar date without crea
   setTasks([item]);
   update = () => ({ ...diary, revision: 4 });
   await openDiary();
-  fireEvent.click(screen.getByRole("button", { name: "월간" }));
+  fireEvent.click(screen.getByRole("radio", { name: "월" }));
   dropItem(screen.getByTitle(`${NEXT_DAY} 빈 곳을 두 번 눌러 일정 추가`), {
     v: 1,
     kind: "todo",
@@ -802,7 +856,8 @@ it("adds an original desktop memo reference from persistent notes to an undated 
   diary.pages = [{ id: "collection", title: "생각 모음", date: null, entries: [] }];
   update = () => ({ ...diary, revision: 4 });
   await openDiary();
-  fireEvent.click(screen.getByRole("button", { name: "생각 모음" }));
+  showPage("생각 모음");
+  showNotes();
   fireEvent.click(screen.getByRole("button", { name: "원본 메모 연결" }));
   await screen.findByText("이 페이지에 연결했어요.");
   expect(actions("update_diary")).toEqual([
@@ -861,24 +916,32 @@ it.each([
   },
 );
 
-it("keeps the calendar and embedded task manager on one date without filtering pinned notes", async () => {
+it("keeps the calendar and embedded task manager on one date and preserves pinned notes through the memo destination", async () => {
   setTasks([task("one", "오늘 작업"), task("two", "다음 날 작업", NEXT_DAY)]);
   diary.notes = [{ id: "pinned", title: "늘 보는 메모", body: "모든 날짜의 안내", pinned: true }];
   await openDiary();
-  fireEvent.click(screen.getByRole("button", { name: `${NEXT_DAY} 기록 열기` }));
-  expect(screen.getByText("모든 날짜의 안내")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "할 일 관리" }));
+  chooseDay(NEXT_DAY);
+  showNotes();
+  expect(
+    within(screen.getByRole("region", { name: "계속 쓸 메모" })).getByText("모든 날짜의 안내"),
+  ).toBeTruthy();
+  await showTasks("today");
   expect(await screen.findByRole("checkbox", { name: "다음 날 작업" })).toBeTruthy();
   expect(screen.queryByRole("checkbox", { name: "오늘 작업" })).toBeNull();
-  expect(screen.getByText("모든 날짜의 안내")).toBeTruthy();
+  showNotes();
+  expect(
+    within(screen.getByRole("region", { name: "계속 쓸 메모" })).getByText("모든 날짜의 안내"),
+  ).toBeTruthy();
+  await showTasks("today");
   fireEvent.click(screen.getByRole("button", { name: "이전 날짜" }));
   expect(screen.getByRole("checkbox", { name: "오늘 작업" })).toBeTruthy();
-  expect(
-    screen.getByRole("button", { name: `${DAY} 기록 열기` }).getAttribute("aria-pressed"),
-  ).toBe("true");
-  fireEvent.click(screen.getByRole("button", { name: "기록으로 돌아가기" }));
+  expect(screen.getByText("10월 3일 토요일")).toBeTruthy();
+  showToday();
   expect(screen.getByRole("checkbox", { name: "오늘 작업" })).toBeTruthy();
-  expect(screen.getByText("모든 날짜의 안내")).toBeTruthy();
+  showNotes();
+  expect(
+    within(screen.getByRole("region", { name: "계속 쓸 메모" })).getByText("모든 날짜의 안내"),
+  ).toBeTruthy();
   expect(actions("execute_widget")).toEqual([]);
   expect(actions("update_diary")).toEqual([]);
 });
@@ -926,8 +989,8 @@ it("shows complete event details and the selected-day agenda before explicit edi
   expect(actions("execute_widget")).toEqual([]);
   fireEvent.click(detail.getByRole("button", { name: "약속 닫기" }));
   expect(body.scrollTop).toBe(180);
-  fireEvent.click(screen.getByRole("button", { name: "할 일 관리" }));
-  fireEvent.click(screen.getByRole("button", { name: "기록으로 돌아가기" }));
+  await showTasks("today");
+  showToday();
   expect(body.scrollTop).toBe(180);
 });
 
@@ -982,6 +1045,7 @@ it("searches both memo stores and restores a desktop sheet without mutating Diar
   widgets.widgets = [widget("memo", { notes: [desktopNote] })];
   diary.notes = [{ id: "persistent", title: "계획", body: "내일 할 일", pinned: true }];
   await openDiary();
+  showNotes();
   const fallback = vi.mocked(command).getMockImplementation()!;
   vi.mocked(command).mockImplementation((name, args) =>
     name === "open_memo_note" ? Promise.resolve(undefined) : fallback(name, args),
@@ -989,7 +1053,9 @@ it("searches both memo stores and restores a desktop sheet without mutating Diar
   fireEvent.change(screen.getByRole("textbox", { name: "메모 검색" }), {
     target: { value: "발표" },
   });
-  expect(screen.queryByText("계획")).toBeTruthy();
+  expect(
+    within(screen.getByRole("region", { name: "계속 쓸 메모" })).queryByText("계획"),
+  ).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "계획" })).toBeNull();
   expect(screen.getByRole("heading", { name: "발표 준비" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "회의 메모 그대로" }));
@@ -1005,12 +1071,15 @@ it("searches both memo stores and restores a desktop sheet without mutating Diar
     target: { value: "내일" },
   });
   expect(screen.queryByRole("button", { name: "회의 메모 그대로" })).toBeNull();
-  expect(screen.getByText("계획")).toBeTruthy();
+  expect(
+    within(screen.getByRole("region", { name: "계속 쓸 메모" })).getByText("계획"),
+  ).toBeTruthy();
 });
 
 it("locks desktop memo creation and restore together and exposes command failures", async () => {
   widgets.widgets = [widget("memo", { notes: [{ id: "one", body: "남길 메모", isOpen: true }] })];
   await openDiary();
+  showNotes();
   const fallback = vi.mocked(command).getMockImplementation()!;
   let finish: (() => void) | undefined;
   vi.mocked(command).mockImplementation((name, args) =>
@@ -1043,7 +1112,7 @@ it("shows the collapsed event history only on dated day pages", async () => {
   diary.pages = [{ id: "undated", title: "메모 모음", date: null, entries: [] }];
   await openDiary();
   expect(screen.getByText("함께한 기록").closest("details")).toHaveProperty("open", false);
-  fireEvent.click(screen.getByRole("button", { name: "메모 모음" }));
+  showPage("메모 모음");
   expect(screen.queryByText("함께한 기록")).toBeNull();
 });
 
@@ -1058,6 +1127,7 @@ it.each(["pinned", "stored"] as const)(
     const drafts = { pinned: "  계속 쓰던\n초안  ", stored: "  보관 중인\n초안  " };
     const remaining = cancelFirst === "pinned" ? "stored" : "pinned";
     await openDiary();
+    showNotes();
     const search = screen.getByRole("textbox", { name: "메모 검색" });
     fireEvent.click(screen.getByRole("button", { name: "곁에 둔 생각 메모 편집" }));
     fireEvent.change(screen.getByRole("textbox", { name: "메모 내용" }), {
@@ -1078,11 +1148,10 @@ it.each(["pinned", "stored"] as const)(
       ),
     );
     fireEvent.change(search, { target: { value: "일치하지 않는 검색" } });
-    fireEvent.click(screen.getByRole("button", { name: `${NEXT_DAY} 기록 열기` }));
+    chooseDay(NEXT_DAY);
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(
-      screen.getByRole("button", { name: `${NEXT_DAY} 기록 열기` }).getAttribute("aria-pressed"),
-    ).toBe("true");
+    expect(screen.getByRole("heading", { name: "10월 4일 일요일", level: 1 })).toBeTruthy();
+    showNotes();
 
     const preventDefault = vi.fn();
     act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault }));

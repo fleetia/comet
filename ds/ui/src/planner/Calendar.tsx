@@ -545,6 +545,8 @@ export type CalendarRingSegment = {
 export type CalendarDayRingProps = Omit<HTMLAttributes<HTMLDivElement>, "children"> & {
   segments: readonly CalendarRingSegment[];
   value: ReactNode;
+  centerLabel?: ReactNode;
+  showCategoryControls?: boolean;
   caption?: ReactNode;
   selectedColor?: PlannerColor;
   onColorChange?: (color: PlannerColor) => void;
@@ -571,6 +573,8 @@ const ringCategories = [
 export function CalendarDayRing({
   segments,
   value,
+  centerLabel = "오늘 칠한 시간",
+  showCategoryControls = true,
   caption,
   selectedColor,
   onColorChange,
@@ -582,22 +586,24 @@ export function CalendarDayRing({
   const id = useId();
   return (
     <div {...props} className={classes(styles.ring, className)}>
-      <div className={styles.ringToolbar}>
-        <span className={styles.muted}>칠할 분류</span>
-        {ringCategories.map((category) => (
-          <button
-            key={category.color}
-            type="button"
-            className={styles.ringCategory}
-            aria-pressed={selectedColor === category.color}
-            onClick={() => onColorChange?.(category.color)}
-          >
-            <span aria-hidden className={styles.dot} style={colorStyle(category.color)} />
-            {category.label}
-          </button>
-        ))}
-        <span className={styles.muted}>한 칸 = 10분</span>
-      </div>
+      {showCategoryControls && (
+        <div className={styles.ringToolbar}>
+          <span className={styles.muted}>칠할 분류</span>
+          {ringCategories.map((category) => (
+            <button
+              key={category.color}
+              type="button"
+              className={styles.ringCategory}
+              aria-pressed={selectedColor === category.color}
+              onClick={() => onColorChange?.(category.color)}
+            >
+              <span aria-hidden className={styles.dot} style={colorStyle(category.color)} />
+              {category.label}
+            </button>
+          ))}
+          <span className={styles.muted}>한 칸 = 10분</span>
+        </div>
+      )}
       <svg viewBox="0 0 632 592" className={styles.ringSvg} role="group" aria-labelledby={id}>
         <title id={id}>하루 시간 기록</title>
         {Array.from({ length: 144 }, (_, index) => (
@@ -669,7 +675,7 @@ export function CalendarDayRing({
           );
         })}
         <text x={316} y={270} textAnchor="middle" className={styles.ringCaption}>
-          오늘 칠한 시간
+          {centerLabel}
         </text>
         <text x={316} y={310} textAnchor="middle" className={styles.ringCenter}>
           {value}

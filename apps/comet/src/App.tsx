@@ -1,5 +1,5 @@
 import type { JSX } from "react";
-import { Button } from "@fleetia/lagrange";
+import { Button } from "./ui";
 import { CompanionBox } from "./components/CompanionBox/CompanionBox";
 import { FaceTag } from "./components/FaceTag/FaceTag";
 import { Balloon } from "./components/Balloon/Balloon";

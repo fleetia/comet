@@ -1,9 +1,10 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { semanticVars as vars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 
 import * as common from "../../lagrange.css";
 
-export const root = style({ display: "grid", gap: vars.space.xs, minWidth: 0 });
+export const root = style({ display: "grid", gap: vars.space.sm, minWidth: 0 });
 export const toolbar = style({
   display: "flex",
   gap: vars.space.sm,
@@ -15,7 +16,10 @@ export const titleField = style({ flex: "1 1 180px", minWidth: 0 });
 export const item = style({
   display: "grid",
   gap: vars.space.xxs,
-  padding: `${vars.space.xs} 0`,
+  padding: vars.space.sm,
+  borderRadius: tokens["radius/radius-12"],
+  background: tokens["color/card"],
+  border: `1px solid ${tokens["color/card-border"]}`,
 });
 export const itemMain = style({
   display: "flex",

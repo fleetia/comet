@@ -1,3 +1,4 @@
+import { openCharacterPage } from "./characterNavigation";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { CompanionBox } from "../components/CompanionBox/CompanionBox";
@@ -224,25 +225,25 @@ it("skins the balloon with the speaker's balloon image once its size is known", 
   }
 });
 
-it("removes the whole speech header for image and text characters while keeping close and panel controls", async () => {
+it("shows the Figma speaker label for image and text characters while keeping close and panel controls", async () => {
   const dispatch = vi.fn().mockResolvedValue(undefined);
   const { rerender } = render(
     <Balloon dispatch={dispatch} snapshot={{ ...snapshot, playback: playing("기쁨") }} />,
   );
-  expect(screen.queryByText("별꼬리")).toBeNull();
+  expect(screen.getByText("별꼬리")).toBeTruthy();
   expect(screen.getByLabelText("말풍선").querySelector(":scope > header")).toBeNull();
   expect(screen.queryByRole("dialog")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "이야기 닫기" }));
   await waitFor(() => expect(dispatch).toHaveBeenCalledWith("skip_talk", undefined));
   rerender(<Balloon snapshot={{ ...snapshot, playback: playing("평온", "b") }} />);
-  expect(screen.queryByText(PREVIEW_SNAPSHOT.characters.installed[1].definition.name)).toBeNull();
+  expect(screen.getByText(PREVIEW_SNAPSHOT.characters.installed[1].definition.name)).toBeTruthy();
   expect(screen.getByLabelText("말풍선").querySelector(":scope > header")).toBeNull();
   rerender(
     <Balloon
       snapshot={{ ...snapshot, playback: playing("기쁨"), panel: { persona: "a", mode: "menu" } }}
     />,
   );
-  expect(screen.getByText("무엇을 할까?")).toBeTruthy();
+  expect(screen.getByLabelText("무엇을 할까?")).toBeTruthy();
   expect(screen.getByRole("button", { name: "패널 닫기" })).toBeTruthy();
 });
 
@@ -305,7 +306,8 @@ it("adds and removes expressions, protects the default one, and gates images on 
       dirty={false}
     />,
   );
-  fireEvent.click(screen.getByRole("tab", { name: "모습·표정" }));
+  openCharacterPage("프로필");
+  openCharacterPage("모습·표정");
   expect(screen.queryByRole("button", { name: "평온 표정 삭제" })).toBeNull();
   expect(screen.getByText("캐릭터를 먼저 저장하면 표정마다 이미지를 넣을 수 있어요.")).toBeTruthy();
   for (const button of screen.getAllByRole("button", { name: /^(?!말풍선).* 이미지 선택$/ })) {
@@ -340,6 +342,7 @@ it("adds and removes expressions, protects the default one, and gates images on 
       dirty={false}
     />,
   );
+  openCharacterPage("모습·표정");
   fireEvent.click(screen.getByRole("button", { name: "기쁨 표정 선택" }));
   const joy = screen.getByLabelText("기쁨 이미지");
   expect(within(joy).getByRole("img").getAttribute("src")).toContain(
@@ -353,11 +356,11 @@ it("adds and removes expressions, protects the default one, and gates images on 
   fireEvent.click(screen.getByRole("button", { name: "기쁨 표정 선택" }));
   fireEvent.click(screen.getByRole("button", { name: "기쁨 이미지 제거" }));
   expect(onSprite).toHaveBeenLastCalledWith("기쁨", true);
-  fireEvent.click(screen.getByRole("tab", { name: "말풍선" }));
+  openCharacterPage("말풍선");
   expect(screen.getByLabelText("말풍선 이미지").textContent).toBe("기본");
   fireEvent.click(screen.getByRole("button", { name: "말풍선 이미지 선택" }));
   expect(onSprite).toHaveBeenLastCalledWith("$balloon", false);
   expect(screen.queryByRole("button", { name: "말풍선 이미지 제거" })).toBeNull();
-  fireEvent.click(screen.getByRole("tab", { name: "대사·반응" }));
+  openCharacterPage("대사·반응");
   expect(screen.getByLabelText("인사 1 표정")).toBeTruthy();
 });

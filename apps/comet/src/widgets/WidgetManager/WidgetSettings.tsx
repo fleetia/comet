@@ -1,39 +1,63 @@
 import { useEffect, useId, useState, type ReactElement, type ReactNode } from "react";
-import { Button, Surface, Text } from "@fleetia/lagrange";
+import { Button, Surface, Text } from "../../ui";
 import { CalendarTool } from "../CalendarTool/CalendarTool";
 import { ConnectionObservation, ConnectionTool } from "../ConnectionTools/ConnectionTools";
-import { ClockSettings } from "../PlanningTools/PlanningTools";
+import { FocusWidgetSettings } from "../PlanningTools/FocusWidgetSettings";
+import { PreparationSettings } from "../PreparationTool/PreparationSettings";
+import { ClockTool } from "../PlanningTools/PlanningTools";
 import { WidgetAppearance } from "../WidgetAppearance/WidgetAppearance";
 import type { ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import * as styles from "./widgetSettings.css";
 
-export const CONFIGURABLE_WIDGETS = ["calendar", "weather", "music", "clock"];
+export const CONFIGURABLE_WIDGETS = [
+  "calendar",
+  "weather",
+  "music",
+  "clock",
+  "focus-timer",
+  "preparation",
+];
 export const DISPLAY_KINDS = ["clock", "weather"];
 const SETTINGS_LABELS: Record<string, string> = {
   calendar: "캘린더 연결과 알림",
   weather: "지역과 연결",
   music: "음악 앱 연결",
-  clock: "시계 형식",
+  clock: "기념일",
+  "focus-timer": "집중 타이머 설정",
+  preparation: "준비 봉투 설정",
 };
 
 export function WidgetSettings({
   widget,
+  widgets = [],
+  sideContainer,
+  onOpenRelated,
   active,
   act,
   onDirtyChange,
+  onBusyChange,
   displayControls,
   related,
   disabled,
 }: {
   widget: WidgetView;
+  widgets?: WidgetView[];
+  sideContainer?: HTMLElement | null;
+  onOpenRelated?: (kind: string) => void;
   active: boolean;
   act: ToolAction;
   onDirtyChange: (id: string, dirty: boolean) => void;
+  onBusyChange?: (id: string, busy: boolean) => void;
   displayControls?: ReactNode;
   related?: ReactNode;
   disabled?: boolean;
 }): ReactElement {
+  const [connectionBusy, setConnectionBusy] = useState(false);
+  useEffect(() => {
+    onBusyChange?.(widget.id, connectionBusy);
+    return () => onBusyChange?.(widget.id, false);
+  }, [widget.id, connectionBusy, onBusyChange]);
   const [connectionDirty, setConnectionDirty] = useState(false);
   const [appearanceDirty, setAppearanceDirty] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
@@ -61,9 +85,39 @@ export function WidgetSettings({
               />
             )}
             {["weather", "music"].includes(widget.kind) && (
-              <ConnectionTool widget={widget} mode="settings" onDirtyChange={setConnectionDirty} />
+              <ConnectionTool
+                widget={widget}
+                disabled={disabled}
+                onBusyChange={setConnectionBusy}
+                sideContainer={sideContainer}
+                mode="settings"
+                onDirtyChange={setConnectionDirty}
+              />
             )}
-            {widget.kind === "clock" && <ClockSettings widget={widget} act={configure} />}
+            {widget.kind === "focus-timer" && (
+              <FocusWidgetSettings
+                widget={widget}
+                calendar={widgets.find((item) => item.kind === "calendar" && item.installed)}
+                act={configure}
+                onDirtyChange={setConnectionDirty}
+                onBusyChange={setConnectionBusy}
+              />
+            )}
+            {widget.kind === "preparation" && (
+              <PreparationSettings
+                widgets={widgets}
+                onOpenRelated={(item) => onOpenRelated?.(item.kind)}
+              />
+            )}
+            {widget.kind === "clock" && (
+              <ClockTool
+                widget={widget}
+                widgets={[]}
+                act={configure}
+                compact
+                onDirtyChange={setConnectionDirty}
+              />
+            )}
           </fieldset>
           {related}
         </section>

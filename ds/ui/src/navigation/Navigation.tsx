@@ -27,6 +27,8 @@ export type TabsProps = Omit<HTMLAttributes<HTMLDivElement>, "onChange" | "defau
   value?: string;
   defaultValue?: string;
   onValueChange?: (value: string) => void;
+  onReselect?: (value: string) => void;
+  externalPanels?: Readonly<Record<string, { tabId: string; panelId: string }>>;
 };
 
 export function Tabs({
@@ -35,7 +37,9 @@ export function Tabs({
   value,
   defaultValue,
   onValueChange,
+  onReselect,
   className,
+  externalPanels,
   ...props
 }: TabsProps): ReactElement {
   const id = useId();
@@ -111,12 +115,12 @@ export function Tabs({
               }}
               type="button"
               role="tab"
-              id={`${itemId}-tab`}
-              aria-controls={`${itemId}-panel`}
+              id={externalPanels?.[item.value]?.tabId ?? `${itemId}-tab`}
+              aria-controls={externalPanels?.[item.value]?.panelId ?? `${itemId}-panel`}
               aria-selected={activeIndex === index}
               tabIndex={activeIndex === index ? 0 : -1}
               disabled={item.disabled}
-              onClick={() => activate(index)}
+              onClick={() => (activeIndex === index ? onReselect?.(item.value) : activate(index))}
               onKeyDown={(event) => handleKeyDown(event, index)}
               className={styles.tab}
             >
@@ -127,6 +131,7 @@ export function Tabs({
         })}
       </div>
       {items.map((item, index) => {
+        if (externalPanels?.[item.value]) return null;
         const itemId = `${id}-${encodeURIComponent(item.value)}`;
         return (
           <div

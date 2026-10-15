@@ -11,11 +11,12 @@ export const prompt = style({
   lineHeight: vars.typography.lineHeight.body,
   margin: `${vars.space.sm} 0 ${vars.space.lg}`,
 });
-export const choices = style({ display: "flex", flexDirection: "column", gap: vars.space.sm });
+export const choices = style({ display: "flex", flexDirection: "column", gap: vars.space.md, alignItems: "flex-start", paddingInline: vars.space.sm });
 export const choice = style({
   whiteSpace: "normal",
   height: "auto",
   minHeight: 36,
+  maxWidth: "100%",
   textAlign: "left",
   justifyContent: "flex-start",
   overflowWrap: "anywhere",

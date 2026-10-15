@@ -1,8 +1,8 @@
 import { useEffect, useState, type JSX } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Button, SectionHeader, Surface } from "@fleetia/lagrange";
+import { Button, Surface } from "../../ui";
 import { version } from "../../../package.json";
-import cometIcon from "../../../src-tauri/icons/source.svg";
+import cometIcon from "../../assets/figma/comet-about.svg";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import * as s from "../../lagrange.css";
 import * as styles from "./updatePanel.css";
@@ -97,21 +97,17 @@ export function UpdatePanel({
   const available = status.version && ["available", "error"].includes(status.phase);
   const message = error ?? status.message;
   return (
-    <Surface tone="accent" className={styles.panel} aria-labelledby="app-update-title">
+    <Surface tone="accent" className={styles.panel} aria-label="comet 업데이트">
       <div className={styles.identity}>
-        <img src={cometIcon} alt="" width={40} height={40} />
+        <span className={styles.appTile}>
+          <img src={cometIcon} alt="" width={66} height={66} />
+        </span>
         <div className={styles.identityCopy}>
           <p className={styles.appName}>comet</p>
-          <p className={styles.caption}>설치 버전 · {version}</p>
+          <p className={styles.caption}>버전 {version}</p>
         </div>
       </div>
       <section className={styles.update}>
-        <SectionHeader
-          title="앱 업데이트"
-          headingId="app-update-title"
-          headingVariant="subsection"
-          rule="none"
-        />
         <div className={styles.status} role="status" aria-live="polite">
           {status.phase === "idle" && <p className={styles.caption}>업데이트 확인 전</p>}
           {status.phase === "checking" && <p>새 버전을 확인하고 있어요.</p>}
@@ -156,7 +152,7 @@ export function UpdatePanel({
             disabled={busy}
             onClick={() => void run(false)}
           >
-            업데이트 확인
+            지금 확인
           </Button>
           {available && (
             <Button disabled={busy || hasUnsavedChanges} onClick={() => void run(true)}>
@@ -165,11 +161,6 @@ export function UpdatePanel({
           )}
         </div>
       </section>
-      <p className={styles.about}>
-        바탕화면에서 함께 지내는
-        <br />
-        작은 친구들
-      </p>
     </Surface>
   );
 }

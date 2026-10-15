@@ -1,12 +1,14 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { ThemeRoot } from "@fleetia/lagrange";
+import { ThemeRoot } from "@comet/ui";
 import "@fleetia/lagrange/styles.css";
 import { App } from "./App";
 import * as desktop from "./desktop.css";
 import { command, isDesktop } from "./hooks/useSnapshot";
+import "./fonts.css";
 
-document.documentElement.classList.add(desktop.documentRoot);
+document.documentElement.classList.add(desktop.documentRoot, desktop.theme);
+document.documentElement.dataset.cometTheme = "dark";
 
 if (isDesktop()) {
   let lastTouch = 0;
@@ -25,7 +27,7 @@ if (isDesktop()) {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ThemeRoot themeClassName={desktop.theme} className={desktop.root}>
+    <ThemeRoot theme="dark" className={`${desktop.theme} ${desktop.root}`}>
       <App />
     </ThemeRoot>
   </StrictMode>,

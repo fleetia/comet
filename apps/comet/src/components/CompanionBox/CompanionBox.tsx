@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX } from "react";
-import { IconButton } from "@fleetia/lagrange";
+import { IconButton } from "../../ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useCharacterGestures } from "../../hooks/useCharacterGestures";
 import { useCharacterCollision } from "../../hooks/useCharacterCollision";

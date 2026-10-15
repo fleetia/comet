@@ -56,6 +56,9 @@ importers:
       '@comet/token':
         specifier: workspace:*
         version: link:../../ds/token
+      '@comet/ui':
+        specifier: workspace:*
+        version: link:../../ds/ui
       '@fleetia/lagrange':
         specifier: file:vendor/fleetia-lagrange-0.1.1.tgz
         version: file:apps/comet/vendor/fleetia-lagrange-0.1.1.tgz(react-dom@19.3.0(react@19.3.0))(react@19.3.0)

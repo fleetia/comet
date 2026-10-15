@@ -10,7 +10,7 @@ import {
   TabPanel,
   Tabs,
   TextField,
-} from "@fleetia/lagrange";
+} from "../../ui";
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";

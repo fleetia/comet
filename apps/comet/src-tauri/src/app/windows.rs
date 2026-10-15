@@ -270,8 +270,9 @@ pub(crate) async fn resize_balloon(
     width: f64,
     height: f64,
     content_key: String,
-) -> Result<(), String> {
-    desktop::resize_balloon(&app, width, height, &content_key).await
+    orbit_anchor: Option<desktop::OrbitAnchor>,
+) -> Result<desktop::BalloonPlacement, String> {
+    desktop::resize_balloon(&app, width, height, &content_key, orbit_anchor).await
 }
 
 #[tauri::command]

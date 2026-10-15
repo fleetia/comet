@@ -1,12 +1,26 @@
-import { style } from "@vanilla-extract/css";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
+import { globalFontFace } from "@vanilla-extract/css";
 
-const family = '"Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif';
-
-export const localFonts = style({
-  vars: {
-    [vars.typography.family.display]: family,
-    [vars.typography.family.ui]: family,
-    [vars.typography.family.data]: family,
-  },
+globalFontFace("Orbit", {
+  src: 'url("/fonts/orbit/Orbit-Regular.ttf") format("truetype")',
+  fontWeight: 400,
+  fontStyle: "normal",
+  fontDisplay: "swap",
+});
+globalFontFace("IBM Plex Sans KR", {
+  src: 'url("/fonts/ibmplexsanskr/IBMPlexSansKR-Regular.ttf") format("truetype")',
+  fontWeight: 400,
+  fontStyle: "normal",
+  fontDisplay: "swap",
+});
+globalFontFace("IBM Plex Sans KR", {
+  src: 'url("/fonts/ibmplexsanskr/IBMPlexSansKR-SemiBold.ttf") format("truetype")',
+  fontWeight: 600,
+  fontStyle: "normal",
+  fontDisplay: "swap",
+});
+globalFontFace("IBM Plex Mono", {
+  src: 'url("/fonts/ibmplexmono/IBMPlexMono-Regular.ttf") format("truetype")',
+  fontWeight: 400,
+  fontStyle: "normal",
+  fontDisplay: "swap",
 });

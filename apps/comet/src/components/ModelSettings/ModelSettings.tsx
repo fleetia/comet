@@ -1,31 +1,40 @@
+import { useState, type CSSProperties, type JSX, type ReactNode } from "react";
+import { BoltIcon, ImportIcon, MemoryIcon, PauseIcon, ShieldIcon, SparkleIcon } from "@comet/icon";
+import {
+  Button,
+  SegmentedControl,
+  Select,
+  SettingControlRow,
+  SettingsSummary,
+  Switch,
+  TextInput,
+} from "@comet/ui";
+import { Dialog, Inline } from "../../ui";
 import { MemorySearchSettings } from "../MemorySettings/MemorySearchSettings";
 import { ChatGptSettings } from "../ChatGptSettings/ChatGptSettings";
 import { OrganizerSettings } from "../OrganizerSettings/OrganizerSettings";
-import { useState, type JSX, type ReactNode } from "react";
-import {
-  Button,
-  Checkbox,
-  Dialog,
-  FormField,
-  Inline,
-  Select,
-  Surface,
-  TextField,
-} from "@fleetia/lagrange";
 import type { LocalModel, LocalModelStatus, Settings, Snapshot } from "../../types";
 import type { SettingsDraft } from "../../hooks/useSettingsDraft";
-import * as s from "../../lagrange.css";
-import * as styles from "./modelSettings.css";
+import * as common from "../../lagrange.css";
+import * as figma from "../SettingsPanel/figmaSettings.css";
+import * as styles from "./aiSettings.css";
 
 type Props = {
   snapshot: Snapshot;
   draft: SettingsDraft;
+  automaticDraft?: SettingsDraft;
+  automaticFooter?: ReactNode;
   footer?: ReactNode;
+  onOpenOrganizer?: () => void;
   onOrganizerDirtyChange?: (dirty: boolean) => void;
 };
-
 export const PROVIDER_LABELS = { local: "로컬 모델", api: "외부 API", chatgpt: "ChatGPT" };
-
+const FIT_LABELS: Record<LocalModelStatus["fit"], string> = {
+  fits: "이 컴퓨터에 알맞아요",
+  tight: "메모리를 많이 써서 느릴 수 있어요",
+  insufficient: "이 컴퓨터의 메모리로는 실행이 어려울 수 있어요",
+  unknown: "이 컴퓨터의 메모리를 확인하지 못했어요",
+};
 function isKeylessApiUrl(baseUrl: string): boolean {
   try {
     const url = new URL(baseUrl.trim());
@@ -41,449 +50,454 @@ function isKeylessApiUrl(baseUrl: string): boolean {
     return false;
   }
 }
-
-const FIT_LABELS: Record<LocalModelStatus["fit"], string> = {
-  fits: "이 컴퓨터에 알맞아요",
-  tight: "메모리를 많이 써서 느릴 수 있어요",
-  insufficient: "이 컴퓨터의 메모리로는 실행이 어려울 수 있어요",
-  unknown: "이 컴퓨터의 메모리를 확인하지 못했어요",
-};
-
 export function ModelSettings({
   snapshot,
   draft,
+  automaticDraft,
+  automaticFooter,
   footer,
   onOrganizerDirtyChange,
+  onOpenOrganizer,
 }: Props): JSX.Element {
   const { settings, apiKey, setApiKey, pending, change, run } = draft;
   const [confirmDownload, setConfirmDownload] = useState(false);
-  const [section, setSection] = useState<"connection" | "organizer">("connection");
+  const [organizerOpen, setOrganizerOpen] = useState(false);
   const [organizerVisited, setOrganizerVisited] = useState(false);
-  const recommendedModel = snapshot.localModels.find((model) => model.recommended);
-  const memory = snapshot.device.totalMemory;
-  const memoryBasis = memory
-    ? `메모리 ${Math.round(memory / 2 ** 30)}GB, ${snapshot.device.appleSilicon ? "Apple Silicon" : "CPU 실행"} 기준 추정`
-    : null;
+  const [editingKey, setEditingKey] = useState(false);
+  const selectedModel = snapshot.localModels.find((model) => model.id === settings.localModel);
+  const customModel = settings.localModel === "custom";
   const activeDownload = snapshot.runtime.download;
   const downloading =
     activeDownload !== null && ["downloading", "verifying"].includes(activeDownload.status);
-  const customModel = settings.localModel === "custom";
-  const selectedModel = snapshot.localModels.find((model) => model.id === settings.localModel);
   const download = activeDownload?.model === settings.localModel ? activeDownload : null;
   const received = download?.received ?? selectedModel?.downloadedBytes ?? 0;
   const total = download?.total || selectedModel?.size || 0;
-  const percent = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : null;
-  const showProgress =
-    !customModel && (download !== null || (!selectedModel?.ready && received > 0));
-  const downloadingModel = snapshot.localModels.find((model) => model.id === activeDownload?.model);
-  const canTestLocal = customModel
-    ? settings.localModelPath.trim().length > 0
-    : selectedModel?.ready === true;
+  const percent = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0;
+  const ready = customModel ? !!settings.localModelPath.trim() : selectedModel?.ready === true;
   const keylessApi = isKeylessApiUrl(settings.baseUrl);
   const hasSavedApiKey = snapshot.hasApiKey && settings.baseUrl === snapshot.settings.baseUrl;
-  let downloadLabel = received > 0 ? "이어받기" : "모델 내려받기";
-  if (selectedModel?.ready) {
-    downloadLabel = "모델 준비 완료";
-  } else if (download?.status === "verifying") {
-    downloadLabel = "모델 파일 확인 중";
-  } else if (download?.status === "downloading") {
-    downloadLabel = "내려받는 중";
-  }
-  const connectionResult = (
-    <Surface tone="inset" className={styles.result} role={draft.notice ? "status" : undefined}>
-      <div className={styles.resultHeading}>
-        <span>연결 테스트</span>
-        <span className={styles.caption}>
-          {draft.notice ? "결과 확인" : "아직 테스트하지 않았어요."}
+  const tested = draft.notice === "연결을 확인했어요.";
+  const providerHeader = (
+    <>
+      <h1 className={figma.inspectorTitle}>
+        <span className={figma.icon}>
+          <SparkleIcon size={18} />
         </span>
-      </div>
-      <p className={styles.resultMessage}>
-        {draft.notice || "테스트하면 이곳에서 응답을 확인할 수 있어요."}
-      </p>
-      <p className={styles.caption}>테스트만으로 사용 방식이 바뀌지 않아요.</p>
-    </Surface>
+        대화에 쓸 AI
+      </h1>
+      <SegmentedControl
+        label="대화 방식"
+        value={settings.mode}
+        onValueChange={(value) => change("mode", value as Settings["mode"])}
+        disabled={!!pending}
+        appearance="contained"
+        options={[
+          { value: "local", label: "이 기기의 모델" },
+          { value: "chatgpt", label: "ChatGPT" },
+          { value: "api", label: "외부 API" },
+        ]}
+        className={styles.provider}
+      />
+      {settings.mode !== snapshot.settings.mode && (
+        <p className={figma.caption}>
+          <span>현재 사용 · {PROVIDER_LABELS[snapshot.settings.mode]}</span> ·{" "}
+          <span>저장 후 전환</span>
+        </p>
+      )}
+    </>
   );
+  const noAi = (
+    <div className={figma.note}>
+      <SparkleIcon size={13} />
+      <p className={figma.caption}>AI가 없어도 인사, 단어장, 대화팩 대사는 그대로 동작해요.</p>
+    </div>
+  );
+  const extras = (
+    <>
+      <MemorySearchSettings compact />
+      <section className={figma.section}>
+        <h2 className={figma.sectionTitle}>기억과 업무 정리</h2>
+        <SettingsSummary
+          className={figma.summary}
+          title="Ex-brain"
+          description="기록과 검색을 부탁하고, 쉬는 동안 자료를 정리해요"
+          leading={
+            <span className={figma.icon}>
+              <MemoryIcon size={20} />
+            </span>
+          }
+          onClick={() => {
+            if (onOpenOrganizer) {
+              onOpenOrganizer();
+              return;
+            }
+            setOrganizerVisited(true);
+            setOrganizerOpen(true);
+          }}
+        />
+      </section>
+    </>
+  );
+  const save = (draft.hasChanges || pending || draft.error || draft.notice) && footer;
   return (
     <div className={styles.root}>
-      <div className={styles.actions} role="group" aria-label="AI 연결 영역">
-        <Button
-          variant={section === "connection" ? "primary" : "secondary"}
-          aria-pressed={section === "connection"}
-          onClick={() => setSection("connection")}
-        >
-          대화 연결
-        </Button>
-        <Button
-          variant={section === "organizer" ? "primary" : "secondary"}
-          aria-pressed={section === "organizer"}
-          onClick={() => {
-            setOrganizerVisited(true);
-            setSection("organizer");
-          }}
-        >
-          Ex-brain
-        </Button>
-      </div>
-      <div className={styles.actual} hidden={section !== "connection"}>
-        <span className={styles.actualLabel}>
-          현재 사용 · {PROVIDER_LABELS[snapshot.settings.mode]}
-        </span>
-        <p className={styles.caption}>
-          사용할 방식을 선택하고 저장해요. 연결 테스트만으로 전환하지 않아요.
-        </p>
-      </div>
-      <fieldset
-        hidden={section !== "connection"}
-        className={styles.configuration}
-        disabled={!!pending}
-        aria-label="대화 모델 설정"
-      >
-        <div className={styles.modeChoices} role="group" aria-label="대화 방식">
-          <Button
-            variant={settings.mode === "local" ? "primary" : "secondary"}
-            className={styles.modeButton}
-            aria-label="로컬 모델 사용"
-            aria-pressed={settings.mode === "local"}
-            onClick={() => change("mode", "local")}
-          >
-            로컬 모델
-          </Button>
-          <Button
-            variant={settings.mode === "api" ? "primary" : "secondary"}
-            className={styles.modeButton}
-            aria-label="외부 API 사용"
-            aria-pressed={settings.mode === "api"}
-            onClick={() => change("mode", "api")}
-          >
-            외부 API
-          </Button>
-          <Button
-            variant={settings.mode === "chatgpt" ? "primary" : "secondary"}
-            className={styles.modeButton}
-            aria-label="ChatGPT 사용"
-            aria-pressed={settings.mode === "chatgpt"}
-            onClick={() => change("mode", "chatgpt")}
-          >
-            ChatGPT
-          </Button>
-          <span className={styles.caption}>
-            {settings.mode === snapshot.settings.mode
-              ? `저장한 방식 · ${PROVIDER_LABELS[settings.mode]}`
-              : "저장 후 전환"}
-          </span>
-        </div>
-        <div className={styles.connectionLayout}>
-          {settings.mode === "chatgpt" && <ChatGptSettings draft={draft} footer={footer} />}
-          <Surface className={styles.connectionPanel} hidden={settings.mode !== "local"}>
-            <div className={styles.body}>
-              <div className={styles.heading}>
-                <h2 className={styles.title}>이 기기에서 대화하기</h2>
-                <span className={styles.caption}>
-                  {customModel
-                    ? "직접 지정한 파일"
-                    : selectedModel?.ready
-                      ? "준비 완료"
-                      : "모델 준비 필요"}
-                </span>
-              </div>
-              <FormField className={styles.field} label="로컬 모델">
-                <Select
-                  value={settings.localModel}
-                  disabled={!!pending || downloading}
-                  onChange={(event) => change("localModel", event.target.value as LocalModel)}
-                >
-                  {snapshot.localModels.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.name} · {model.description}
-                      {model.recommended ? " · 이 컴퓨터 추천" : ""}
-                    </option>
-                  ))}
-                  <option value="custom">직접 지정한 GGUF 파일</option>
-                </Select>
-              </FormField>
-              {customModel ? (
-                <FormField
-                  className={styles.field}
-                  label="GGUF 파일 경로"
-                  description="이 기기에 있는 GGUF 파일의 절대 경로예요."
-                >
-                  <div className={styles.fileField}>
-                    <TextField
-                      spellCheck={false}
-                      value={settings.localModelPath}
-                      onChange={(event) => change("localModelPath", event.target.value)}
-                      placeholder="/path/to/model.gguf"
-                    />
-                    <Button
-                      variant="secondary"
-                      disabled={!!pending}
-                      onClick={() => void run("pick_model_file")}
+      <div className={styles.connection} hidden={organizerOpen}>
+        {settings.mode === "chatgpt" ? (
+          <ChatGptSettings
+            draft={draft}
+            automaticDraft={automaticDraft}
+            automaticFooter={automaticFooter}
+            footer={save}
+            inspectorHeader={providerHeader}
+            supportingContent={extras}
+          />
+        ) : (
+          <div className={figma.split}>
+            <aside className={figma.inspector}>
+              {providerHeader}
+              {settings.mode === "local" ? (
+                <>
+                  <div className={styles.downloadPresentation}>
+                    <div
+                      className={styles.ring}
+                      role="progressbar"
+                      aria-label="모델 다운로드 진행률"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={ready ? 100 : percent}
                     >
-                      파일 선택
-                    </Button>
+                      <span
+                        className={styles.ringFill}
+                        style={{ "--model-progress": `${ready ? 100 : percent}%` } as CSSProperties}
+                      />
+                      <div className={styles.ringValue}>
+                        <strong>{ready ? "준비됨" : `${percent}%`}</strong>
+                        <span>
+                          {download?.status === "verifying"
+                            ? "파일 확인 중"
+                            : downloading && download
+                              ? "내려받는 중"
+                              : ready
+                                ? "대화할 수 있어요"
+                                : "모델 준비 필요"}
+                        </span>
+                      </div>
+                    </div>
+                    <strong>
+                      {customModel ? "직접 지정한 GGUF" : selectedModel?.name || "모델 선택"}
+                    </strong>
+                    <p className={figma.caption}>
+                      {customModel
+                        ? settings.localModelPath || "선택한 파일 없음"
+                        : `${(received / 1_000_000_000).toFixed(2)}GB / ${(total / 1_000_000_000).toFixed(2)}GB`}
+                    </p>
                   </div>
-                </FormField>
+                  <div className={styles.centerActions}>
+                    {downloading ? (
+                      <Button
+                        variant="ghost"
+                        size="small"
+                        disabled={!!pending}
+                        onClick={() => void run("cancel_download")}
+                      >
+                        <PauseIcon size={15} />
+                        멈추기
+                      </Button>
+                    ) : !customModel && !ready ? (
+                      <Button
+                        variant="ghost"
+                        size="small"
+                        disabled={!!pending || !selectedModel}
+                        onClick={() =>
+                          selectedModel?.fit === "insufficient"
+                            ? setConfirmDownload(true)
+                            : void run("download_model")
+                        }
+                      >
+                        <ImportIcon size={15} />
+                        {received ? "이어받기" : "내려받기"}
+                      </Button>
+                    ) : null}
+                  </div>
+                </>
               ) : (
                 <>
-                  <p className={styles.caption}>
-                    {selectedModel?.name} Q4_K_M · 다운로드{" "}
-                    {((selectedModel?.size ?? 0) / 1_000_000_000).toFixed(2)} GB
-                  </p>
-                  {selectedModel && (
-                    <p className={styles.caption}>
-                      {FIT_LABELS[selectedModel.fit]}
-                      {selectedModel.widgetCreation ? " · 위젯 제작 가능" : ""}
-                      {memoryBasis ? ` · ${memoryBasis}` : ""}
+                  <div className={styles.connectionStatus}>
+                    <div className={figma.controls}>
+                      <span className={figma.icon}>
+                        <BoltIcon size={26} />
+                      </span>
+                      <div className={figma.noteCopy}>
+                        <strong>{tested ? "연결됨" : "연결 확인 전"}</strong>
+                        <span className={figma.caption}>
+                          {draft.notice || "응답은 직접 확인한 뒤 표시해요"}
+                        </span>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="small"
+                      disabled={
+                        !!pending ||
+                        !settings.baseUrl ||
+                        !settings.apiModel ||
+                        (!apiKey.trim() && !hasSavedApiKey && !keylessApi)
+                      }
+                      onClick={() => void run("test_connection")}
+                    >
+                      다시 확인
+                    </Button>
+                  </div>
+                  <div className={styles.sharingNote}>
+                    <ShieldIcon size={16} />
+                    <p className={figma.caption}>
+                      외부 API를 쓰면 대화 내용과 관련 기억 일부가 그 서비스로 보내져요.
                     </p>
-                  )}
+                  </div>
+                  <p className={figma.caption}>확인만으로 쓰는 방식이 바뀌지는 않아요.</p>
                 </>
               )}
-              {recommendedModel && recommendedModel.id !== settings.localModel && (
-                <div className={styles.actions}>
-                  <span className={styles.caption}>이 컴퓨터 추천: {recommendedModel.name}</span>
-                  <Button
-                    variant="secondary"
-                    disabled={!!pending || downloading}
-                    onClick={() => change("localModel", recommendedModel.id)}
-                  >
-                    추천 모델 선택
-                  </Button>
-                </div>
-              )}
-              <Checkbox
-                className={styles.field}
-                checked={settings.localReasoningEnabled}
-                onChange={(event) => change("localReasoningEnabled", event.target.checked)}
-              >
-                로컬 추론 모드
-              </Checkbox>
-              <p className={styles.caption}>
-                지원하는 모델이 답변 전에 더 생각하도록 해요. 응답이 느려질 수 있어요. 로컬 모델로
-                위젯을 만들거나 수정할 때는 이 설정과 관계없이 추론 모드를 켜요.
-              </p>
-              <div className={styles.actions}>
-                {!customModel && (
-                  <Button
-                    className={styles.downloadButton}
-                    variant="primary"
-                    disabled={!!pending || downloading || !selectedModel || selectedModel.ready}
-                    onClick={() =>
-                      selectedModel?.fit === "insufficient"
-                        ? setConfirmDownload(true)
-                        : void run("download_model")
-                    }
-                  >
-                    {downloadLabel}
-                  </Button>
-                )}
-                {downloading && (
-                  <Button
-                    variant="secondary"
-                    disabled={!!pending}
-                    onClick={() => void run("cancel_download")}
-                  >
-                    다운로드 중단
-                  </Button>
-                )}
-                <Button
-                  className={styles.testButton}
-                  variant="secondary"
-                  disabled={!!pending || downloading || !canTestLocal}
-                  onClick={() => void run("test_local_model")}
-                >
-                  {pending === "test_local_model" ? "테스트 중…" : "테스트하기"}
-                </Button>
-                <span className={styles.caption}>
-                  저장하지 않은 모델 선택과 추론 모드도 테스트할 수 있어요.
-                </span>
-              </div>
-              {downloading && !download && (
-                <p className={styles.caption}>
-                  {downloadingModel?.name} 파일을 준비하고 있어요. 완료하거나 중단한 뒤 다른 모델을
-                  내려받을 수 있어요.
-                </p>
-              )}
+              {noAi}
               {download?.error && (
-                <p className={s.error} role="alert">
+                <p className={common.error} role="alert">
                   {download.error}
                 </p>
               )}
-              {showProgress && (
-                <>
-                  <progress
-                    className={s.progress}
-                    max={100}
-                    value={percent ?? undefined}
-                    aria-label="모델 다운로드 진행률"
-                  />
-                  <p className={styles.caption}>
-                    {percent === null ? "용량 확인 중" : `${percent}%`} ·{" "}
-                    {(received / 1_000_000).toFixed(0)} MB
-                    {total > 0 ? ` / ${(total / 1_000_000).toFixed(0)} MB` : ""}
-                    {download?.status === "cancelled" ? " · 중단됨" : ""}
-                    {download?.status === "verifying" ? " · 파일 검증 중" : ""}
-                    {download?.status === "error" ? " · 다운로드 실패" : ""}
-                  </p>
-                </>
-              )}
-              <div className={styles.boundary} />
-              {connectionResult}
-              <p className={styles.caption}>
-                기본 인사와 등록 대사는 모델 설치 없이도 사용할 수 있어요.
-              </p>
               {snapshot.runtime.error && (
-                <p className={s.error} role="alert">
+                <p className={common.error} role="alert">
                   {snapshot.runtime.error}
                 </p>
               )}
+            </aside>
+            <div className={figma.right}>
+              <fieldset className={figma.form} disabled={!!pending} aria-label="대화 모델 설정">
+                {settings.mode === "local" ? (
+                  <section className={figma.section}>
+                    <h2 className={figma.sectionTitle}>이 기기의 모델</h2>
+                    <div className={figma.group}>
+                      <SettingControlRow
+                        className={figma.row}
+                        title="모델"
+                        description={
+                          selectedModel
+                            ? `${(selectedModel.size / 1_000_000_000).toFixed(2)}GB · ${FIT_LABELS[selectedModel.fit]}`
+                            : "직접 고른 GGUF 파일"
+                        }
+                        control={
+                          <Select
+                            aria-label="로컬 모델"
+                            value={settings.localModel}
+                            disabled={downloading}
+                            onChange={(event) =>
+                              change("localModel", event.target.value as LocalModel)
+                            }
+                          >
+                            {snapshot.localModels.map((model) => (
+                              <option key={model.id} value={model.id}>
+                                {model.name} · {model.description}
+                                {model.recommended ? " · 이 컴퓨터 추천" : ""}
+                              </option>
+                            ))}
+                            <option value="custom">직접 지정한 GGUF 파일</option>
+                          </Select>
+                        }
+                      />
+                      <SettingControlRow
+                        className={figma.row}
+                        title="생각하고 답하기"
+                        description="답하기 전에 더 생각해요. 느려질 수 있어요"
+                        control={
+                          <Switch
+                            aria-label="로컬 추론 모드"
+                            checked={settings.localReasoningEnabled}
+                            onChange={(event) =>
+                              change("localReasoningEnabled", event.target.checked)
+                            }
+                          />
+                        }
+                      />
+                      <SettingControlRow
+                        className={figma.row}
+                        title="직접 고른 모델 파일 (GGUF)"
+                        description={settings.localModelPath || "없음"}
+                        control={
+                          <Button
+                            variant="ghost"
+                            size="small"
+                            onClick={() => {
+                              change("localModel", "custom");
+                              void run("pick_model_file");
+                            }}
+                          >
+                            파일 고르기…
+                          </Button>
+                        }
+                      />
+                      {customModel && (
+                        <SettingControlRow
+                          className={figma.row}
+                          title="GGUF 파일 경로"
+                          control={
+                            <TextInput
+                              aria-label="GGUF 파일 경로"
+                              className={styles.textField}
+                              value={settings.localModelPath}
+                              onChange={(event) => change("localModelPath", event.target.value)}
+                            />
+                          }
+                        />
+                      )}
+                      <SettingControlRow
+                        className={figma.row}
+                        title="연결 확인"
+                        description={draft.notice || "모델 준비가 끝나면 짧은 응답으로 확인해요"}
+                        control={
+                          <Button
+                            variant="ghost"
+                            size="small"
+                            disabled={downloading || !ready}
+                            onClick={() => void run("test_local_model")}
+                          >
+                            {pending === "test_local_model" ? "확인 중…" : "확인하기"}
+                          </Button>
+                        }
+                      />
+                    </div>
+                  </section>
+                ) : (
+                  <>
+                    <section className={figma.section}>
+                      <h2 className={figma.sectionTitle}>외부 API</h2>
+                      <div className={figma.group}>
+                        <SettingControlRow
+                          className={figma.row}
+                          title="API 주소"
+                          control={
+                            <TextInput
+                              type="url"
+                              aria-label="API 주소"
+                              className={styles.textField}
+                              value={settings.baseUrl}
+                              spellCheck={false}
+                              onChange={(event) => change("baseUrl", event.target.value)}
+                            />
+                          }
+                        />
+                        <SettingControlRow
+                          className={figma.row}
+                          title="모델 이름"
+                          description="서비스에 적힌 이름 그대로 적어요"
+                          control={
+                            <TextInput
+                              aria-label="모델 이름"
+                              className={styles.textField}
+                              value={settings.apiModel}
+                              spellCheck={false}
+                              onChange={(event) => change("apiModel", event.target.value)}
+                            />
+                          }
+                        />
+                        <SettingControlRow
+                          className={figma.row}
+                          title="API 키"
+                          description="운영체제 보안 저장소에 보관해요"
+                          control={
+                            hasSavedApiKey && !editingKey ? (
+                              <div className={styles.keyActions}>
+                                <span className={figma.caption}>저장됨</span>
+                                <Button
+                                  variant="ghost"
+                                  size="small"
+                                  onClick={() => setEditingKey(true)}
+                                >
+                                  바꾸기…
+                                </Button>
+                                <Button
+                                  variant="link"
+                                  size="small"
+                                  disabled={settings.baseUrl !== snapshot.settings.baseUrl}
+                                  onClick={() => void run("clear_api_key")}
+                                >
+                                  지우기
+                                </Button>
+                              </div>
+                            ) : (
+                              <TextInput
+                                type="password"
+                                aria-label="API 키"
+                                className={styles.textField}
+                                value={apiKey}
+                                autoComplete="off"
+                                placeholder={
+                                  keylessApi ? "키 없이 연결 가능" : "API 키를 입력해 주세요"
+                                }
+                                onChange={(event) => setApiKey(event.target.value)}
+                              />
+                            )
+                          }
+                        />
+                        <SettingControlRow
+                          className={figma.row}
+                          title="응답 길이를 정하는 이름"
+                          description="API마다 이름이 달라요"
+                          control={
+                            <Select
+                              aria-label="응답 길이 매개변수"
+                              value={settings.apiTokenParameter}
+                              onChange={(event) =>
+                                change(
+                                  "apiTokenParameter",
+                                  event.target.value as Settings["apiTokenParameter"],
+                                )
+                              }
+                            >
+                              <option value="max_tokens">max_tokens</option>
+                              <option value="max_completion_tokens">max_completion_tokens</option>
+                            </Select>
+                          }
+                        />
+                      </div>
+                    </section>
+                    {automaticDraft && (
+                      <section className={figma.section}>
+                        <h2 className={figma.sectionTitle}>자동 잡담</h2>
+                        <div className={figma.group}>
+                          <SettingControlRow
+                            className={figma.row}
+                            title="API로 새 잡담 만들기"
+                            description="자동 요청에 제공자 요금이 붙을 수 있어요 · 대화 설정에서도 바꿀 수 있어요"
+                            control={
+                              <Switch
+                                aria-label="API로 새 잡담 만들기"
+                                checked={automaticDraft.settings.apiIdleEnabled}
+                                disabled={Boolean(automaticDraft.pending)}
+                                onChange={(event) =>
+                                  automaticDraft.change("apiIdleEnabled", event.target.checked)
+                                }
+                              />
+                            }
+                          />
+                        </div>
+                        {automaticDraft.hasChanges && automaticFooter}
+                      </section>
+                    )}
+                  </>
+                )}
+              </fieldset>
+              {extras}
+              {save}
             </div>
-            {settings.mode === "local" && footer}
-          </Surface>
-          <Surface className={styles.connectionPanel} hidden={settings.mode !== "api"}>
-            <div className={styles.body}>
-              <div className={styles.heading}>
-                <h2 className={styles.title}>외부 API 연결</h2>
-                <span className={styles.caption}>
-                  {hasSavedApiKey ? "키 저장됨" : keylessApi ? "키 없이 연결 가능" : "연결 설정"}
-                </span>
-              </div>
-              <FormField className={styles.field} label="API 주소">
-                <TextField
-                  type="url"
-                  spellCheck={false}
-                  value={settings.baseUrl}
-                  onChange={(event) => change("baseUrl", event.target.value)}
-                  placeholder="https://api.example.com/v1"
-                />
-              </FormField>
-              <FormField className={styles.field} label="모델 이름">
-                <TextField
-                  value={settings.apiModel}
-                  spellCheck={false}
-                  onChange={(event) => change("apiModel", event.target.value)}
-                  placeholder="사용할 모델의 정확한 이름"
-                />
-              </FormField>
-              <FormField
-                className={styles.field}
-                label="API 키"
-                description="입력한 키는 운영체제 보안 저장소에 보관해요. 이 기기의 localhost 주소는 키 없이 연결할 수 있어요."
-              >
-                <TextField
-                  type="password"
-                  autoComplete="off"
-                  value={apiKey}
-                  onChange={(event) => setApiKey(event.target.value)}
-                  placeholder={
-                    hasSavedApiKey
-                      ? "저장된 키 사용 · 변경할 때만 입력"
-                      : keylessApi
-                        ? "키 없이 연결 가능"
-                        : "API 키를 입력해 주세요"
-                  }
-                />
-              </FormField>
-              {snapshot.hasApiKey && (
-                <div className={styles.actions}>
-                  <Button
-                    variant="secondary"
-                    disabled={!!pending || settings.baseUrl !== snapshot.settings.baseUrl}
-                    onClick={() => void run("clear_api_key")}
-                  >
-                    {pending === "clear_api_key" ? "키 삭제 중…" : "저장된 API 키 삭제"}
-                  </Button>
-                  {settings.baseUrl !== snapshot.settings.baseUrl && (
-                    <span className={styles.caption}>
-                      주소를 변경한 상태예요. 삭제하려면 저장된 주소로 되돌려 주세요.
-                    </span>
-                  )}
-                </div>
-              )}
-              <FormField className={styles.field} label="응답 길이 매개변수">
-                <Select
-                  value={settings.apiTokenParameter}
-                  onChange={(event) =>
-                    change("apiTokenParameter", event.target.value as Settings["apiTokenParameter"])
-                  }
-                >
-                  <option value="max_tokens">max_tokens</option>
-                  <option value="max_completion_tokens">max_completion_tokens</option>
-                </Select>
-              </FormField>
-              <div className={styles.actions}>
-                <Button
-                  className={styles.testButton}
-                  variant="secondary"
-                  disabled={
-                    !!pending ||
-                    !settings.baseUrl ||
-                    !settings.apiModel ||
-                    (!apiKey.trim() && !hasSavedApiKey && !keylessApi)
-                  }
-                  onClick={() => void run("test_connection")}
-                >
-                  {pending === "test_connection" ? "연결 확인 중…" : "연결 테스트"}
-                </Button>
-                <span className={styles.caption}>
-                  테스트 요청에도 제공자 요금이 발생할 수 있어요.
-                </span>
-              </div>
-              <div className={styles.boundary} />
-              {connectionResult}
-              {snapshot.runtime.error && (
-                <p className={s.error} role="alert">
-                  {snapshot.runtime.error}
-                </p>
-              )}
-            </div>
-            {settings.mode === "api" && footer}
-          </Surface>
-          <Surface hidden={settings.mode !== "local"} className={styles.summary}>
-            <div className={styles.heading}>
-              <h2 className={styles.title}>외부 API</h2>
-              <span className={styles.caption}>다른 방식</span>
-            </div>
-            <p className={styles.summaryName}>{settings.apiModel || "모델 미지정"}</p>
-            <p className={styles.caption}>{settings.baseUrl || "주소 미지정"}</p>
-            <p className={styles.caption}>
-              {settings.apiTokenParameter} · {keylessApi ? "키 없이 연결 가능" : "키 필요"}
-            </p>
-            <Button
-              className={styles.editButton}
-              variant="secondary"
-              onClick={() => change("mode", "api")}
-            >
-              이 방식 편집
-            </Button>
-          </Surface>
-          <Surface hidden={settings.mode !== "api"} className={styles.summary}>
-            <div className={styles.heading}>
-              <h2 className={styles.title}>로컬 모델</h2>
-              <span className={styles.caption}>다른 방식</span>
-            </div>
-            <p className={styles.summaryName}>{selectedModel?.name ?? "직접 지정한 GGUF 파일"}</p>
-            <p className={styles.caption}>
-              {customModel
-                ? settings.localModelPath || "파일 미지정"
-                : selectedModel?.ready
-                  ? "준비 완료"
-                  : "모델 준비 필요"}
-            </p>
-            <p className={styles.caption}>
-              {customModel
-                ? "GGUF"
-                : `다운로드 ${((selectedModel?.size ?? 0) / 1_000_000_000).toFixed(2)} GB`}
-            </p>
-            <Button
-              className={styles.editButton}
-              variant="secondary"
-              onClick={() => change("mode", "local")}
-            >
-              이 방식 편집
-            </Button>
-          </Surface>
+          </div>
+        )}
+      </div>
+      {organizerVisited && (
+        <div hidden={!organizerOpen} className={styles.organizer}>
+          <Button variant="ghost" size="small" onClick={() => setOrganizerOpen(false)}>
+            ‹ AI 연결
+          </Button>
+          <OrganizerSettings onDirtyChange={onOrganizerDirtyChange} />
         </div>
-      </fieldset>
+      )}
       <Dialog
         isOpen={confirmDownload}
         onOpenChange={setConfirmDownload}
@@ -492,11 +506,10 @@ export function ModelSettings({
         size="small"
         footer={
           <Inline gap="sm">
-            <Button variant="secondary" onClick={() => setConfirmDownload(false)}>
+            <Button variant="ghost" onClick={() => setConfirmDownload(false)}>
               취소
             </Button>
             <Button
-              variant="primary"
               disabled={!!pending || downloading}
               onClick={() => {
                 setConfirmDownload(false);
@@ -509,14 +522,10 @@ export function ModelSettings({
         }
       >
         <p>{selectedModel?.name}: 이 컴퓨터의 메모리로는 실행되지 않거나 매우 느릴 수 있어요.</p>
-        {memoryBasis && <p className={styles.caption}>{memoryBasis}</p>}
+        {snapshot.device.totalMemory && (
+          <p>메모리 {Math.round(snapshot.device.totalMemory / 2 ** 30)}GB 기준 추정</p>
+        )}
       </Dialog>
-      <MemorySearchSettings hidden={section !== "connection"} className={styles.memorySearch} />
-      {organizerVisited && (
-        <div hidden={section !== "organizer"} className={styles.organizer}>
-          <OrganizerSettings onDirtyChange={onOrganizerDirtyChange} />
-        </div>
-      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, Dialog, FormField, TextField } from "@fleetia/lagrange";
+import { Button, Dialog, FormField, TextField } from "../../ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type {
   OrganizerAction,

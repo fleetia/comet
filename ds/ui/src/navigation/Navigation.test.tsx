@@ -211,3 +211,43 @@ it("retains the current controlled radio value when its form resets", () => {
   expect(screen.getByRole<HTMLInputElement>("radio", { name: "내일" }).checked).toBe(true);
   expect(new FormData(form).get("day")).toBe("tomorrow");
 });
+
+it("connects external tab panels without creating duplicate empty panels", async () => {
+  const user = userEvent.setup();
+  const onValueChange = vi.fn();
+  const onReselect = vi.fn();
+  render(
+    <>
+      <Tabs
+        label="설정"
+        items={[
+          { value: "friends", label: "친구들", content: null },
+          { value: "general", label: "일반", content: null },
+        ]}
+        value="friends"
+        onValueChange={onValueChange}
+        onReselect={onReselect}
+        externalPanels={{
+          friends: { tabId: "friends-tab", panelId: "friends-panel" },
+          general: { tabId: "general-tab", panelId: "general-panel" },
+        }}
+      />
+      <section role="tabpanel" id="friends-panel" aria-labelledby="friends-tab">
+        친구 내용
+      </section>
+      <section role="tabpanel" id="general-panel" aria-labelledby="general-tab" hidden>
+        일반 내용
+      </section>
+    </>,
+  );
+  expect(screen.getAllByRole("tabpanel", { hidden: true })).toHaveLength(2);
+  const friends = screen.getByRole("tab", { name: "친구들" });
+  expect(friends.getAttribute("aria-controls")).toBe(screen.getByRole("tabpanel").id);
+  await user.click(friends);
+  expect(onReselect).toHaveBeenCalledExactlyOnceWith("friends");
+  expect(onValueChange).not.toHaveBeenCalled();
+  friends.focus();
+  await user.keyboard("{ArrowRight}");
+  expect(document.activeElement).toBe(screen.getByRole("tab", { name: "일반" }));
+  expect(onValueChange).toHaveBeenCalledExactlyOnceWith("general");
+});

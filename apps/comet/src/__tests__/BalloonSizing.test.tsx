@@ -2,15 +2,24 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Balloon } from "../components/Balloon/Balloon";
 import { PREVIEW_SNAPSHOT, command } from "../hooks/useSnapshot";
+import { listen } from "@tauri-apps/api/event";
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn().mockResolvedValue(vi.fn()),
+}));
 
 vi.mock("../hooks/useSnapshot", async (load) => ({
   ...(await load<typeof import("../hooks/useSnapshot")>()),
   command: vi.fn().mockResolvedValue(undefined),
   isDesktop: () => true,
 }));
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  document.documentElement.dataset.cometMotion = "reduced";
+});
 afterEach(() => {
   cleanup();
+  delete document.documentElement.dataset.cometMotion;
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   window.history.replaceState(null, "", "/");
@@ -125,6 +134,7 @@ it("waits for fonts and discards a previous content measurement before acknowled
       width: 140,
       height: 48,
       contentKey: "panel:b:menu",
+      orbitAnchor: { x: 70, y: 24 },
     });
   } finally {
     Object.defineProperty(document, "fonts", { configurable: true, value: oldFonts });
@@ -224,3 +234,157 @@ it.each([
     expect(screen.getByRole("textbox")).toHaveProperty("value", "tell me something new");
   },
 );
+
+it("preserves wide anchored branches and clears the anchor for an ordinary panel", async () => {
+  let width = 320;
+  let height = 340;
+  window.history.replaceState(null, "", "/?view=balloon");
+  vi.stubGlobal(
+    "ResizeObserver",
+    vi.fn(function () {
+      return { observe: vi.fn(), disconnect: vi.fn() };
+    }),
+  );
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback): number => {
+    callback(0);
+    return 1;
+  });
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return this.hasAttribute("data-character-orbit-anchor")
+      ? new DOMRect(128, 228, 52, 52)
+      : new DOMRect(0, 0, width, height);
+  });
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversations") return [];
+    if (name === "resize_balloon")
+      return { orbitAnchor: args?.orbitAnchor ? { x: 60, y: 254 } : null };
+  });
+  const { container, rerender } = render(
+    <Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "a", mode: "menu" } }} />,
+  );
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("resize_balloon", {
+      width: 320,
+      height: 340,
+      contentKey: "panel:a:menu",
+      orbitAnchor: { x: 154, y: 254 },
+    }),
+  );
+  await waitFor(() => expect(container.querySelector('circle[cx="60"][cy="254"]')).not.toBeNull());
+  const previousListener = vi.mocked(listen).mock.calls.at(-1)?.[1];
+  width = 600;
+  height = 420;
+  fireEvent.click(screen.getByRole("button", { name: "교감" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenLastCalledWith("resize_balloon", {
+      width: 600,
+      height: 420,
+      contentKey: "panel:a:menu",
+      orbitAnchor: { x: 154, y: 254 },
+    }),
+  );
+  width = 640;
+  height = 500;
+  fireEvent.click(screen.getByRole("button", { name: "자동 잡담 쉬기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenLastCalledWith("resize_balloon", {
+      width: 640,
+      height: 500,
+      contentKey: "panel:a:menu",
+      orbitAnchor: { x: 154, y: 254 },
+    }),
+  );
+  rerender(<Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "a", mode: "input" } }} />);
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("resize_balloon", {
+      width: 320,
+      height: 500,
+      contentKey: "panel:a:input",
+    }),
+  );
+  width = 320;
+  height = 340;
+  rerender(<Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "b", mode: "menu" } }} />);
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("resize_balloon", {
+      width: 320,
+      height: 340,
+      contentKey: "panel:b:menu",
+      orbitAnchor: { x: 154, y: 254 },
+    }),
+  );
+  act(() =>
+    previousListener?.({
+      event: "balloon-orbit-anchor",
+      id: 1,
+      payload: { contentKey: "panel:a:menu", orbitAnchor: { x: 19, y: 33 } },
+    }),
+  );
+  expect(container.querySelector('circle[cx="19"][cy="33"]')).toBeNull();
+});
+
+it("keeps interaction Escape inside the orbit before closing the panel", async () => {
+  const dispatch = vi.fn().mockResolvedValue([]);
+  render(
+    <Balloon
+      preview
+      dispatch={dispatch}
+      snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "a", mode: "menu" } }}
+    />,
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "교감" })).toHaveProperty("disabled", false),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "교감" }));
+  fireEvent.keyDown(screen.getByRole("button", { name: "간식 주기" }), { key: "Escape" });
+  expect(screen.getByRole("button", { name: "말 걸기" })).toBeDefined();
+  expect(dispatch).not.toHaveBeenCalledWith("close_panel");
+  await waitFor(() => expect(screen.queryByRole("button", { name: "간식 주기" })).toBeNull());
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "말 걸기" })).toHaveProperty("disabled", false),
+  );
+  fireEvent.keyDown(screen.getByRole("button", { name: "말 걸기" }), { key: "Escape" });
+  await waitFor(() => expect(dispatch).toHaveBeenCalledWith("close_panel", undefined));
+});
+
+it("routes the outer close control through the orbit before dispatching once", async () => {
+  const dispatch = vi.fn().mockResolvedValue([]);
+  render(
+    <Balloon
+      preview
+      dispatch={dispatch}
+      snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "a", mode: "menu" } }}
+    />,
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "교감" })).toHaveProperty("disabled", false),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "교감" }));
+  fireEvent.click(screen.getByRole("button", { name: "패널 닫기" }));
+  await waitFor(() => expect(dispatch).toHaveBeenCalledWith("close_panel", undefined));
+  expect(dispatch.mock.calls.filter(([name]) => name === "close_panel")).toHaveLength(1);
+});
+
+it("restores the menu when an action fails after its exit", async () => {
+  const dispatch = vi.fn(async (name: string) => {
+    if (name === "open_settings") throw new Error("설정을 열지 못했어요.");
+  });
+  render(
+    <Balloon
+      preview
+      dispatch={dispatch}
+      snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "a", mode: "menu" } }}
+    />,
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "설정" })).toHaveProperty("disabled", false),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "설정" }));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "설정을 열지 못했어요.");
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "설정" })).toHaveProperty("disabled", false),
+  );
+});

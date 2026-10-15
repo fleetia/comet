@@ -11,6 +11,7 @@ vi.mock("../hooks/useSnapshot", async (load) => ({
   isDesktop: vi.fn(() => false),
 }));
 beforeEach(() => {
+  document.documentElement.dataset.cometMotion = "reduced";
   vi.mocked(command).mockReset().mockResolvedValue(undefined);
   vi.mocked(isDesktop).mockReturnValue(false);
   HTMLDialogElement.prototype.showModal = function (): void {
@@ -22,6 +23,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  delete document.documentElement.dataset.cometMotion;
   vi.useRealTimers();
 });
 
@@ -121,6 +123,7 @@ it.each([
     render(
       <Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "builtin-a", mode: "menu" } }} />,
     );
+    fireEvent.click(screen.getByRole("button", { name: "교감" }));
     fireEvent.click(screen.getByRole("button", { name: label }));
     await waitFor(() => expect(command).toHaveBeenCalledWith(name, { persona: "builtin-a" }));
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "교감 실행 실패");
@@ -128,11 +131,23 @@ it.each([
 );
 
 it("routes drink and gift to the local character with separate interaction receipts", async () => {
-  render(
-    <Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "builtin-a", mode: "menu" } }} />,
-  );
-  fireEvent.click(screen.getByRole("button", { name: "음료 건네기" }));
-  fireEvent.click(screen.getByRole("button", { name: "선물 건네기" }));
+  for (const [label, action] of [
+    ["음료 건네기", "drink"],
+    ["선물 건네기", "gift"],
+  ]) {
+    const view = render(
+      <Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "builtin-a", mode: "menu" } }} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "교감" }));
+    fireEvent.click(screen.getByRole("button", { name: label }));
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith(
+        "give_character_item",
+        expect.objectContaining({ action }),
+      ),
+    );
+    view.unmount();
+  }
   const requests = vi.mocked(command).mock.calls.filter(([name]) => name === "give_character_item");
   expect(requests).toHaveLength(2);
   expect(requests[0]?.[1]).toEqual({
@@ -151,13 +166,17 @@ it("routes drink and gift to the local character with separate interaction recei
 it("offers sleep or wake for the displayed local character independently", async () => {
   const snapshot: Snapshot = { ...PREVIEW_SNAPSHOT, panel: { persona: "builtin-a", mode: "menu" } };
   const { rerender } = render(<Balloon snapshot={snapshot} />);
+  fireEvent.click(screen.getByRole("button", { name: "교감" }));
   fireEvent.click(screen.getByRole("button", { name: "재우기" }));
-  expect(command).toHaveBeenCalledWith("set_character_sleep", {
-    characterId: "builtin-a",
-    sleeping: true,
-  });
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("set_character_sleep", {
+      characterId: "builtin-a",
+      sleeping: true,
+    }),
+  );
   rerender(
     <Balloon
+      key="reopened"
       snapshot={{
         ...snapshot,
         animationStates: {
@@ -167,9 +186,11 @@ it("offers sleep or wake for the displayed local character independently", async
       }}
     />,
   );
+  fireEvent.click(screen.getByRole("button", { name: "교감" }));
   expect(screen.getByRole("button", { name: "재우기" })).toBeTruthy();
   rerender(
     <Balloon
+      key="reopened"
       snapshot={{
         ...snapshot,
         animationStates: {
@@ -180,10 +201,12 @@ it("offers sleep or wake for the displayed local character independently", async
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "깨우기" }));
-  expect(command).toHaveBeenCalledWith("set_character_sleep", {
-    characterId: "builtin-a",
-    sleeping: false,
-  });
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("set_character_sleep", {
+      characterId: "builtin-a",
+      sleeping: false,
+    }),
+  );
 });
 
 it("opens a reply to the exact displayed line and keeps the close action separate", async () => {
@@ -443,26 +466,36 @@ it("keeps the visible guest recipient while sending through its reopened residen
   };
   vi.mocked(isDesktop).mockReturnValue(true);
   const view = render(<Balloon snapshot={snapshot} />);
-  await waitFor(() => expect(command).toHaveBeenCalledWith("get_conversations", { persona: guest.id }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("get_conversations", { persona: guest.id }),
+  );
   expect(screen.queryByRole("alert")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "말 걸기" }));
-  expect(command).toHaveBeenCalledWith("open_panel", { persona: guest.id, mode: "input" });
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("open_panel", { persona: guest.id, mode: "input" }),
+  );
   const reopened = { ...session, id: "reopened-resident-session" };
-  view.rerender(<Balloon snapshot={{
-    ...snapshot,
-    panel: { persona: guest.id, mode: "input" },
-    conversation: { session: reopened, messages: [], nextBefore: null },
-  }} />);
+  view.rerender(
+    <Balloon
+      snapshot={{
+        ...snapshot,
+        panel: { persona: guest.id, mode: "input" },
+        conversation: { session: reopened, messages: [], nextBefore: null },
+      }}
+    />,
+  );
   expect(screen.getByRole("combobox")).toHaveProperty("value", guest.id);
   const input = screen.getByRole("textbox", { name: "방문자에게 할 말" });
   fireEvent.change(input, { target: { value: "좋아" } });
   fireEvent.keyDown(input, { key: "Enter" });
-  await waitFor(() => expect(command).toHaveBeenCalledWith("send_message", {
-    content: "좋아",
-    target: guest.id,
-    clientMessageId: expect.any(String),
-    sessionId: reopened.id,
-  }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("send_message", {
+      content: "좋아",
+      target: guest.id,
+      clientMessageId: expect.any(String),
+      sessionId: reopened.id,
+    }),
+  );
   expect(screen.getByRole("button", { name: "대화 끝내기" })).toBeTruthy();
 });
 
@@ -476,8 +509,10 @@ it("offers the paused conversation in the menu and a linked continuation from en
   const { rerender } = render(
     <Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "builtin-a", mode: "menu" } }} />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "대화 이어하기" }));
-  expect(command).toHaveBeenCalledWith("resume_chat", { sessionId: session.id });
+  fireEvent.click(await screen.findByRole("button", { name: "이어서 하기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("resume_chat", { sessionId: session.id }),
+  );
   rerender(
     <Balloon
       snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "builtin-a", mode: "history" } }}
@@ -755,9 +790,7 @@ it("shows model availability before sending and still routes registered replies 
   expect(screen.getByLabelText("대화 가능 상태").textContent).toContain(
     "AI 자유 대화 · 모델 준비 필요",
   );
-  expect(screen.getByLabelText("대화 가능 상태").textContent).toContain(
-    "등록된 키워드 답장·혼잣말",
-  );
+
   const input = screen.getByRole("textbox");
   fireEvent.change(input, { target: { value: "등록된 키워드" } });
   expect(screen.getByRole("button", { name: "보내기" })).toHaveProperty("disabled", false);

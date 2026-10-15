@@ -1,5 +1,6 @@
-import { globalStyle, keyframes, style, styleVariants } from "@vanilla-extract/css";
+import { globalStyle, style, styleVariants } from "@vanilla-extract/css";
 import { semanticVars as vars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 
 export const bodyFrame = style({ position: "relative", width: "100%", height: "100dvh" });
 export const bodyClose = style({
@@ -14,9 +15,9 @@ export const body = style({
   height: "100%",
   minHeight: 60,
   padding: "24px 8px 10px",
-  border: `${vars.border.width.hairline} solid ${vars.color.border.strong}`,
-  borderRadius: vars.shape.radius.subtle,
-  background: vars.color.surface.raised,
+  border: `1px solid ${tokens["color/glass-border"]}`,
+  borderRadius: tokens["radius/radius-18"],
+  background: tokens["color/glass-panel"],
   display: "flex",
   flexDirection: "column",
   alignItems: "center",
@@ -106,14 +107,40 @@ export const balloon = style({
   height: "auto",
   minHeight: 32,
   maxHeight: 520,
-  background: vars.color.surface.raised,
-  border: `${vars.border.width.hairline} solid ${vars.color.border.strong}`,
-  borderRadius: vars.shape.radius.subtle,
+  color: tokens["color/ink"],
+  background: tokens["color/glass-panel"],
+  border: `1px solid ${tokens["color/glass-border"]}`,
+  borderRadius: tokens["radius/radius-22"],
+  backdropFilter: "blur(12px)",
+  boxShadow: `inset 0 1px 0 ${tokens["color/surface-highlight"]}`,
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
 });
 export const balloonPanel = style({ width: 320, minHeight: 110 });
+export const balloonOrbit = style({
+  width: "max-content",
+  maxWidth: 640,
+  maxHeight: 600,
+  minHeight: 340,
+  background: "transparent",
+  border: 0,
+  borderRadius: 0,
+  boxShadow: "none",
+  backdropFilter: "none",
+  overflow: "hidden",
+});
+export const orbitTree = style({ position: "relative", flexShrink: 0 });
+export const orbitAnchor = style({
+  display: "block",
+  width: 52,
+  height: 52,
+  pointerEvents: "none",
+});
+export const readableOrbit = style({});
+const orbitTextShadow =
+  "-1px -1px 0 #0a0f26, 0 -1px 0 #0a0f26, 1px -1px 0 #0a0f26, -1px 0 0 #0a0f26, 1px 0 0 #0a0f26, -1px 1px 0 #0a0f26, 0 1px 0 #0a0f26, 1px 1px 0 #0a0f26, 0 1px 3px rgba(0,0,0,0.8)";
+globalStyle(`${readableOrbit} [data-orbit-label]`, { textShadow: orbitTextShadow });
 // Keep input sections in normal block flow inside one bounded viewport. As flex
 // siblings, an expanded log and failure notice squeezed the reply down to its labels.
 export const inputContents = style({
@@ -126,18 +153,23 @@ export const balloonSkinned = style({
   imageRendering: "pixelated",
   background: "transparent",
   borderColor: "transparent",
+  borderRadius: 0,
+  boxShadow: "none",
+  backdropFilter: "none",
 });
-export const balloonClose = style({ position: "absolute", top: 2, right: 2, zIndex: 1 });
+export const balloonClose = style({ position: "absolute", top: 6, right: 6, zIndex: 1 });
 export const balloonPreview = style({
   maxWidth: "min(320px, 100%)",
+  selectors: { [`&${balloonOrbit}`]: { maxWidth: "min(640px, 100%)" } },
 });
 export const balloonHeader = style({
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  padding: "7px 12px",
+  padding: "12px 16px 4px",
   fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
+  color: tokens["color/ink-2"],
+  fontWeight: 600,
   flexShrink: 0,
 });
 globalStyle(`${balloonHeader} > span`, {
@@ -149,7 +181,7 @@ globalStyle(`${balloonHeader} > span`, {
 globalStyle(`${balloonHeader} > button`, { flexShrink: 0 });
 export const speech = style({
   maxHeight: 400,
-  padding: `${vars.space.sm} ${vars.space.xxl} ${vars.space.sm} ${vars.space.md}`,
+  padding: "10px 36px 16px 18px",
   fontSize: 19,
   lineHeight: 1.65,
   letterSpacing: "-0.025em",
@@ -177,7 +209,7 @@ export const replySpeech = style({
 });
 export const conversationSpeech = style([
   speech,
-  { padding: "10px 14px", maxHeight: 150, flex: "1 1 auto", minHeight: 38 },
+  { padding: "12px 18px", maxHeight: 150, flex: "1 1 auto", minHeight: 38 },
 ]);
 export const conversationDetails = style({
   margin: "0 14px",
@@ -258,9 +290,11 @@ export const conversationItem = style({
   display: "flex",
   flexDirection: "column",
   gap: vars.space.xs,
-  padding: `${vars.space.md} 0`,
-  background: "transparent",
-  border: 0,
+  padding: vars.space.md,
+  marginBottom: vars.space.sm,
+  borderRadius: tokens["radius/radius-12"],
+  background: tokens["color/card"],
+  border: `1px solid ${tokens["color/card-border"]}`,
   textAlign: "left",
   color: vars.color.content.primary,
   fontSize: vars.typography.size.label,
@@ -269,38 +303,6 @@ export const conversationItem = style({
   ":focus-visible": { outline: `2px solid ${vars.color.interaction.focus}`, outlineOffset: -2 },
 });
 export const speechReveal = style({ position: "absolute", inset: 0 });
-const waitingPulse = keyframes({
-  "0%, 80%, 100%": { opacity: 0.3 },
-  "40%": { opacity: 1 },
-});
-export const waitingDots = style({
-  display: "inline-flex",
-  justifyContent: "space-between",
-  width: "1.2em",
-});
-export const waitingDot = style({
-  width: "0.3em",
-  textAlign: "center",
-  opacity: 0.3,
-  animation: `${waitingPulse} 1.2s ease-in-out infinite`,
-  selectors: {
-    "&:nth-child(2)": { animationDelay: "0.16s" },
-    "&:nth-child(3)": { animationDelay: "0.32s" },
-  },
-  "@media": {
-    "(prefers-reduced-motion: reduce)": { animation: "none", opacity: 1 },
-  },
-});
-export const waitingLabel = style({
-  position: "absolute",
-  width: 1,
-  height: 1,
-  padding: 0,
-  margin: -1,
-  overflow: "hidden",
-  clipPath: "inset(50%)",
-  whiteSpace: "nowrap",
-});
 export const footer = style({
   padding: "6px 14px 10px",
   fontSize: vars.typography.size.caption,
@@ -310,7 +312,7 @@ export const footer = style({
   flexShrink: 0,
 });
 export const menu = style({
-  padding: `${vars.space.xs} ${vars.space.sm}`,
+  padding: `${vars.space.sm} ${vars.space.sm} ${vars.space.md}`,
   display: "flex",
   flexDirection: "column",
   gap: vars.space.xs,
@@ -332,7 +334,7 @@ export const pauseSummary = style({
 });
 export const form = style({
   maxHeight: 290,
-  padding: "12px 14px",
+  padding: "14px 16px 16px",
   display: "flex",
   flexDirection: "column",
   gap: 10,
@@ -341,7 +343,44 @@ export const form = style({
   overflowY: "auto",
 });
 export const recipient = style({ width: "auto", maxWidth: 120 });
-export const input = style({ minHeight: 68 });
+export const inputCapsule = style({
+  display: "flex",
+  alignItems: "flex-end",
+  gap: 10,
+  padding: "8px 8px 8px 18px",
+  borderRadius: 24,
+  border: `1px solid ${tokens["color/capsule-border"]}`,
+  background: tokens["color/glass-capsule"],
+  boxShadow: `0 12px 28px ${tokens["color/surface-shadow"]}`,
+});
+export const input = style({
+  flex: 1,
+  width: "100%",
+  minHeight: 40,
+  height: 40,
+  maxHeight: 110,
+  padding: "6px 0",
+  border: 0,
+  background: "transparent",
+  fontSize: 14,
+  lineHeight: "20px",
+});
+export const capsuleSend = style({
+  width: 34,
+  height: 34,
+  minHeight: 34,
+  minWidth: 34,
+  padding: 0,
+  borderRadius: "50%",
+  flexShrink: 0,
+});
+export const speakerName = style({
+  display: "block",
+  padding: "16px 36px 0 18px",
+  color: tokens["color/byul-ink"],
+  fontSize: 12,
+  fontWeight: 600,
+});
 export const row = style({
   display: "flex",
   gap: 9,
@@ -362,6 +401,10 @@ export const historyMessage = style({
   lineHeight: 1.65,
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
+  padding: vars.space.md,
+  borderRadius: tokens["radius/radius-12"],
+  background: tokens["color/card"],
+  border: `1px solid ${tokens["color/card-border"]}`,
 });
 export const historyName = style({
   display: "block",
@@ -387,6 +430,7 @@ export const preview = style({
   margin: "0 auto",
   padding: "46px 24px 32px",
   minHeight: "100dvh",
+  color: tokens["color/ink"],
 });
 export const previewTitle = style({
   fontSize: vars.typography.size.headingSm,
@@ -403,9 +447,12 @@ export const stage = style({
   justifyContent: "flex-end",
   padding: `${vars.space.xl} 0 ${vars.space.xxl}`,
   marginBottom: 20,
+  border: `1px solid ${tokens["color/glass-border"]}`,
+  borderRadius: tokens["radius/radius-22"],
+  background: tokens["color/document/backdrop-panel/sky"],
 });
 export const stageBalloon = style({
-  width: 320,
+  width: "max-content",
   maxWidth: "100%",
   marginBottom: 18,
   transition: "transform 180ms ease",
@@ -425,4 +472,26 @@ export const resting = style({
   alignItems: "center",
   color: vars.color.content.secondary,
   fontSize: vars.typography.size.label,
+});
+
+export const orbitPauseStatus = style({
+  position: "absolute",
+  top: 306,
+  left: 0,
+  width: 296,
+  margin: "4px 12px 12px",
+  textShadow: orbitTextShadow,
+  color: "var(--comet-color-ink-2)",
+  fontSize: 12,
+  textAlign: "center",
+});
+export const orbitError = style({
+  position: "absolute",
+  top: 284,
+  left: 8,
+  width: 288,
+  margin: 0,
+  color: tokens["color/ink"],
+  fontSize: 12,
+  textShadow: orbitTextShadow,
 });

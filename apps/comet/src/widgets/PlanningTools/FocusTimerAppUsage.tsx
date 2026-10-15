@@ -1,4 +1,4 @@
-import { Button, Dialog, FormField, Select } from "@fleetia/lagrange";
+import { Button, Dialog, FormField, Select } from "../../ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { record, rows, text, type DataRecord, type ToolAction } from "../toolData";

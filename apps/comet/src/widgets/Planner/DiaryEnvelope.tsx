@@ -6,7 +6,7 @@ import {
   FormField,
   Select,
   TextField,
-} from "@fleetia/lagrange";
+} from "../../ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { localDay, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";

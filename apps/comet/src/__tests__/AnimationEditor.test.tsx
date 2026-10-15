@@ -1,3 +1,9 @@
+import {
+  openCharacterPage,
+  selectFriend,
+  addNewFriend,
+  openCharacterLibrary,
+} from "./characterNavigation";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { CharacterManager } from "../components/CharacterManager/CharacterManager";
@@ -37,27 +43,19 @@ beforeEach(() => {
   );
 });
 function appearance(): ReturnType<typeof within> {
-  fireEvent.click(
-    within(screen.getByRole("tablist", { name: "캐릭터 편집" })).getByRole("tab", {
-      name: "모습·표정",
-    }),
-  );
+  openCharacterPage("모습·표정");
   const panel = within(screen.getByRole("tabpanel", { name: "모습·표정" }));
   const motion = panel.queryAllByRole("button", { name: /동작 선택$/ })[0];
   if (motion) fireEvent.click(motion);
   return panel;
 }
 function chooseCharacter(name: RegExp): void {
-  fireEvent.click(
-    within(screen.getByRole("complementary", { name: "설치된 캐릭터" })).getByRole("button", {
-      name,
-    }),
-  );
+  selectFriend(name);
 }
 function createClip(): ReturnType<typeof within> {
   const editor = appearance();
   const animation = within(editor.getByRole("region", { name: "표정과 동작 자산" }));
-  fireEvent.click(animation.getByRole("button", { name: "동작 추가" }));
+  fireEvent.click(animation.getByRole("button", { name: /동작 추가$/ }));
   fireEvent.change(animation.getByLabelText("동작 이름"), { target: { value: "깜빡" } });
   return editor;
 }
@@ -101,6 +99,7 @@ it("validates body bounds and phase clip ownership while retaining optional lega
 
 it("edits body regions and gesture bindings in the existing character draft and common save", async () => {
   render(<CharacterManager embedded snapshot={PREVIEW_SNAPSHOT} />);
+  openCharacterPage("프로필");
   const editor = appearance();
   const summary = editor.getByText("부위와 교감 동작");
   fireEvent.click(summary);
@@ -111,8 +110,8 @@ it("edits body regions and gesture bindings in the existing character draft and 
   fireEvent.change(editor.getByLabelText("교감 1 부위"), {
     target: { value: (editor.getByLabelText("교감 1 부위") as HTMLSelectElement).options[1].value },
   });
-  fireEvent.click(screen.getByRole("tab", { name: "프로필" }));
-  fireEvent.click(screen.getByRole("tab", { name: "모습·표정" }));
+  openCharacterPage("프로필");
+  openCharacterPage("모습·표정");
   expect(editor.getByLabelText("머리 height (%)")).toHaveProperty("value", "50");
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 저장" }));
   await waitFor(() =>
@@ -130,6 +129,7 @@ it("keeps advanced animation editing collapsed by default and saves retained dra
     if (name === "get_character_dialogue") return { pairScenes: [], wordbook: [] };
   });
   render(<CharacterManager embedded snapshot={PREVIEW_SNAPSHOT} />);
+  openCharacterPage("프로필");
   const summary = appearance().getByText("고급: 애니메이션 편집");
   const advanced = summary.closest("details");
   expect(advanced).toHaveProperty("open", false);
@@ -149,8 +149,8 @@ it("keeps advanced animation editing collapsed by default and saves retained dra
   fireEvent.change(editor.getByLabelText("시트 칸 너비(px)"), { target: { value: "96" } });
   fireEvent.click(summary);
   await waitFor(() => expect(advanced).toHaveProperty("open", false));
-  fireEvent.click(screen.getByRole("tab", { name: "프로필" }));
-  fireEvent.click(screen.getByRole("tab", { name: "모습·표정" }));
+  openCharacterPage("프로필");
+  openCharacterPage("모습·표정");
   expect(advanced).toHaveProperty("open", false);
   fireEvent.click(summary);
   await waitFor(() => expect(advanced).toHaveProperty("open", true));
@@ -218,6 +218,7 @@ it("preserves animation images through character and tab changes, failed save an
   });
   const dirty = vi.fn();
   render(<CharacterManager embedded snapshot={PREVIEW_SNAPSHOT} onDirtyChange={dirty} />);
+  openCharacterPage("프로필");
   const editor = createClip();
   fireEvent.click(
     within(editor.getByRole("region", { name: "표정과 동작 자산" })).getByRole("button", {
@@ -228,23 +229,17 @@ it("preserves animation images through character and tab changes, failed save an
   fireEvent.change(editor.getByLabelText("동작 속도(fps)"), { target: { value: "12" } });
   chooseCharacter(/^B/);
   expect(editor.getByLabelText("편집할 동작")).toHaveProperty("value", "");
-  expect(
-    within(screen.getByRole("complementary", { name: "설치된 캐릭터" })).getByRole("button", {
-      name: "조합 내보내기",
-    }),
-  ).toHaveProperty("disabled", false);
+  openCharacterLibrary();
+  expect(screen.getByRole("button", { name: "내보내기…" })).toHaveProperty("disabled", false);
+  selectFriend(/^B/);
+  openCharacterPage("모습·표정");
   chooseCharacter(/^A/);
   expect(editor.getByLabelText("동작 속도(fps)")).toHaveProperty("value", "12");
-  expect(
-    within(screen.getByRole("complementary", { name: "설치된 캐릭터" })).getByRole("button", {
-      name: "조합 내보내기",
-    }),
-  ).toHaveProperty("disabled", true);
-  fireEvent.click(
-    within(screen.getByRole("tablist", { name: "캐릭터 편집" })).getByRole("tab", {
-      name: "프로필",
-    }),
-  );
+  openCharacterLibrary();
+  expect(screen.getByRole("button", { name: "내보내기…" })).toHaveProperty("disabled", true);
+  selectFriend(/^A/);
+  openCharacterPage("모습·표정");
+  openCharacterPage("프로필");
   appearance();
   expect(editor.getByLabelText("동작 이름")).toHaveProperty("value", "깜빡");
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 저장" }));
@@ -255,6 +250,7 @@ it("preserves animation images through character and tab changes, failed save an
   expect(dirty).toHaveBeenLastCalledWith(true);
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 수정 취소" }));
   expect(editor.queryByLabelText("동작 이름")).toBeNull();
+  openCharacterPage("프로필");
   expect(dirty).toHaveBeenLastCalledWith(false);
 });
 
@@ -268,6 +264,7 @@ it("rejects stale image selections after character navigation and draft cancella
     if (name === "get_character_dialogue") return { pairScenes: [], wordbook: [] };
   });
   render(<CharacterManager embedded snapshot={PREVIEW_SNAPSHOT} />);
+  openCharacterPage("프로필");
   const editor = createClip();
   fireEvent.click(editor.getByRole("button", { name: "PNG/APNG 프레임 추가" }));
   chooseCharacter(/^B/);
@@ -294,6 +291,7 @@ it("discards pending image choices after collapsing and editing the motion while
     if (name === "get_character_dialogue") return { pairScenes: [], wordbook: [] };
   });
   render(<CharacterManager embedded snapshot={PREVIEW_SNAPSHOT} />);
+  openCharacterPage("프로필");
   const editor = createClip();
   const summary = editor.getByText("고급: 애니메이션 편집");
   fireEvent.click(editor.getByRole("button", { name: "PNG/APNG 프레임 추가" }));
@@ -321,6 +319,7 @@ it("imports a sheet in row order and rejects unequal sequence dimensions without
     if (name === "get_character_dialogue") return { pairScenes: [], wordbook: [] };
   });
   render(<CharacterManager embedded snapshot={PREVIEW_SNAPSHOT} />);
+  openCharacterPage("프로필");
   const editor = createClip();
   fireEvent.change(editor.getByLabelText("시트 칸 너비(px)"), { target: { value: "16" } });
   fireEvent.change(editor.getByLabelText("시트 칸 높이(px)"), { target: { value: "16" } });
@@ -389,6 +388,7 @@ it("clears deleted clip mappings and prunes expression overrides when the expres
       }}
     />,
   );
+  openCharacterPage("프로필");
   const editor = appearance();
   fireEvent.click(editor.getByRole("button", { name: "기쁨 표정 선택" }));
   fireEvent.click(editor.getByRole("button", { name: "기쁨 표정 삭제" }));
@@ -445,11 +445,8 @@ it("creates a new character with draft images and ignores image selection finish
   });
   const dirty = vi.fn();
   render(<CharacterManager embedded snapshot={PREVIEW_SNAPSHOT} onDirtyChange={dirty} />);
-  fireEvent.click(
-    within(screen.getByRole("complementary", { name: "설치된 캐릭터" })).getByRole("button", {
-      name: "추가",
-    }),
-  );
+  openCharacterPage("프로필");
+  addNewFriend();
   fireEvent.change(
     within(screen.getByRole("tabpanel", { name: "프로필" })).getByLabelText("이름"),
     { target: { value: "새 친구" } },
@@ -476,6 +473,8 @@ it("creates a new character with draft images and ignores image selection finish
     }),
   );
   expect(editor.getByLabelText("동작 이름")).toHaveProperty("value", "깜빡");
+  openCharacterPage("프로필");
   expect(screen.getByRole("button", { name: "캐릭터 저장" })).toHaveProperty("disabled", true);
+  openCharacterPage("프로필");
   expect(dirty).toHaveBeenLastCalledWith(false);
 });

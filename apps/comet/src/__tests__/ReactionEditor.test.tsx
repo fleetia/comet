@@ -1,3 +1,4 @@
+import { openCharacterPage, selectFriend } from "./characterNavigation";
 import { useState, type JSX } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -96,11 +97,8 @@ it("keeps reaction candidates and ordinary line motion in the character draft ac
       embedded
     />,
   );
-  fireEvent.click(
-    within(screen.getByRole("tablist", { name: "캐릭터 편집" })).getByRole("tab", {
-      name: "대사·반응",
-    }),
-  );
+  openCharacterPage("프로필");
+  openCharacterPage("대사·반응");
   const dialoguePanel = () => within(screen.getByRole("tabpanel", { name: "대사·반응" }));
   fireEvent.click(dialoguePanel().getByRole("button", { name: "사건 반응" }));
   fireEvent.click(dialoguePanel().getByRole("button", { name: "반응 추가" }));
@@ -123,13 +121,9 @@ it("keeps reaction candidates and ordinary line motion in the character draft ac
   });
   fireEvent.click(dialoguePanel().getByRole("button", { name: "인사·수다·출입" }));
   fireEvent.change(dialoguePanel().getByLabelText("인사 1 동작"), { target: { value: "static" } });
-  fireEvent.click(
-    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^B/ }),
-  );
+  selectFriend(/^B/);
   expect(dialoguePanel().queryByLabelText("반응 1 후보 1 대사")).toBeNull();
-  fireEvent.click(
-    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^A/ }),
-  );
+  selectFriend(/^A/);
   fireEvent.click(dialoguePanel().getByRole("button", { name: "사건 반응" }));
   expect(dialoguePanel().getByLabelText("반응 1 후보 1 대사")).toHaveProperty(
     "value",

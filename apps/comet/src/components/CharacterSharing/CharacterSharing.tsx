@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
-import { Button, Checkbox, Dialog, Select, TextField, Surface } from "@fleetia/lagrange";
+import { Button, Checkbox, Dialog, Select, TextField, Surface } from "../../ui";
 import { command, errorText } from "../../hooks/useSnapshot";
 import type {
   CharacterExportOptions,
@@ -8,6 +8,7 @@ import type {
   Snapshot,
 } from "../../types";
 import { CharacterPackPreview } from "../CharacterPackPreview/CharacterPackPreview";
+import { CharacterImportPreview } from "./CharacterImportPreview";
 import * as ui from "../../lagrange.css";
 import * as s from "../characters.css";
 
@@ -124,10 +125,10 @@ export function CharacterSharing({
     (exportScope ?? scope) === "pack"
       ? packMembers.map((character) => character.id)
       : (exportScope ?? scope) === "pair" && active.length > 1
-      ? active
-      : selectedId
-        ? [selectedId]
-        : [];
+        ? active
+        : selectedId
+          ? [selectedId]
+          : [];
   const joining = installed
     .filter((character) => character.definition.presenceRole !== "npc")
     .map((character) => character.id)
@@ -263,7 +264,9 @@ export function CharacterSharing({
               · 저장된 내용으로 내보내요.
             </p>
             {(exportScope ?? scope) === "pack" && (
-              <p className={ui.quiet}>같은 팩의 상주 친구와 NPC를 모두 포함해요. 함께 지내는 구성은 바뀌지 않아요.</p>
+              <p className={ui.quiet}>
+                같은 팩의 상주 친구와 NPC를 모두 포함해요. 함께 지내는 구성은 바뀌지 않아요.
+              </p>
             )}
             <div className={ui.row} role="group" aria-label="내보내기 구성">
               <Button
@@ -523,7 +526,43 @@ export function CharacterSharing({
         }
         size="large"
       >
-        {content}
+        {action === "import" ? (
+          <CharacterImportPreview
+            pack={pack}
+            activeCount={active.length}
+            installed={installed.length > 0}
+            joinDisabled={
+              contentDirty || joining.length === 0 || active.length + joining.length > 8
+            }
+            pending={pending || disabled}
+            error={error}
+            notice={notice}
+            onChoose={() => void choosePack()}
+            onCancel={() => {
+              setPack(null);
+              setInstalled([]);
+              onActionChange?.(null);
+            }}
+            onInstall={() =>
+              void run(async () => {
+                if (!pack) return;
+                const values = await command<InstalledCharacter[]>("import_character_pack", {
+                  pack,
+                });
+                setInstalled(values);
+                setNotice("목록에 설치했어요. 함께 지낼지 선택해 주세요.");
+              })
+            }
+            onJoin={() =>
+              void run(async () => {
+                await command("apply_character_roster", { ids: [...active, ...joining] });
+                setNotice("가져온 친구가 함께 지내기 시작했어요.");
+              })
+            }
+          />
+        ) : (
+          content
+        )}
       </Dialog>
     </>
   );

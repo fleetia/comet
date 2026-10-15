@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
-import { IconButton } from "@fleetia/lagrange";
+import { IconButton } from "../../ui";
+import { CloseIcon } from "@comet/icon";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { errorText, isDesktop } from "../../hooks/useSnapshot";
 import cometIcon from "../../../src-tauri/icons/source.svg";
@@ -14,6 +15,7 @@ type Props = {
   preview?: boolean;
   onClose?: () => Promise<void>;
   title?: string;
+  nativeControls?: boolean;
 };
 
 export function WindowHeader({
@@ -24,6 +26,7 @@ export function WindowHeader({
   preview = false,
   onClose,
   title,
+  nativeControls = false,
 }: Props): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const headerRef = useRef<HTMLElement>(null);
@@ -111,6 +114,39 @@ export function WindowHeader({
     <>
       <header ref={headerRef} className={className}>
         <div className={s.header}>
+          {nativeControls && (
+            <div className={s.trafficControls} aria-label="창 제어">
+              <button
+                type="button"
+                className={s.trafficClose}
+                aria-label={label}
+                disabled={!enabled}
+                onClick={() => void close()}
+              />
+              <button
+                type="button"
+                className={s.trafficMinimize}
+                aria-label="최소화"
+                disabled={!enabled}
+                onClick={() =>
+                  void getCurrentWindow()
+                    .minimize()
+                    .catch((cause: unknown) => setError(errorText(cause)))
+                }
+              />
+              <button
+                type="button"
+                className={s.trafficMaximize}
+                aria-label="창 크기 전환"
+                disabled={!enabled}
+                onClick={() =>
+                  void getCurrentWindow()
+                    .toggleMaximize()
+                    .catch((cause: unknown) => setError(errorText(cause)))
+                }
+              />
+            </div>
+          )}
           <div className={s.title}>
             {title ? (
               <div className={s.brand} title={title}>
@@ -131,18 +167,20 @@ export function WindowHeader({
           </div>
           <div ref={actionsRef} className={s.actions}>
             {actions}
-            <IconButton
-              className={s.close}
-              variant="quiet"
-              size="compact"
-              label={label}
-              disabled={!enabled}
-              onMouseDown={(event) => event.stopPropagation()}
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={() => void close()}
-            >
-              ×
-            </IconButton>
+            {!nativeControls && (
+              <IconButton
+                className={s.close}
+                variant="quiet"
+                size="compact"
+                label={label}
+                disabled={!enabled}
+                onMouseDown={(event) => event.stopPropagation()}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => void close()}
+              >
+                <CloseIcon size={16} />
+              </IconButton>
+            )}
           </div>
         </div>
       </header>

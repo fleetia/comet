@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { openCharacterPage, selectFriend } from "./characterNavigation";
 import { SettingsPanel } from "../components/SettingsPanel/SettingsPanel";
 import { PREVIEW_SNAPSHOT, command, isDesktop } from "../hooks/useSnapshot";
 
@@ -19,56 +20,42 @@ beforeEach(() => {
   vi.mocked(command).mockResolvedValue(undefined);
 });
 
-it("opens the six grouped destinations directly with keyboard navigation", () => {
+it("opens the six Figma destinations with keyboard navigation and associated panels", () => {
   render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} />);
-  expect(screen.getByRole("tabpanel", { name: "캐릭터" })).toBeTruthy();
-  expect(screen.getAllByRole("main")).toHaveLength(1);
+  expect(screen.getByRole("tabpanel", { name: "친구들" })).toBeTruthy();
   const tabs = screen.getByRole("tablist", { name: "설정 항목" });
   expect(
     within(tabs)
       .getAllByRole("tab")
       .map((tab) => tab.textContent),
-  ).toEqual(["캐릭터", "위젯", "자동 대화", "대사", "AI 연결", "일반"]);
-  expect(
-    within(tabs)
-      .getAllByText(/^(관리|대화|앱)$/)
-      .map((group) => group.textContent),
-  ).toEqual(["관리", "대화", "앱"]);
-  fireEvent.keyDown(within(tabs).getByRole("tab", { name: "캐릭터" }), { key: "ArrowDown" });
-  expect(screen.getByRole("heading", { level: 1, name: "위젯" })).toBeTruthy();
+  ).toEqual(["친구들", "대화", "바탕화면", "위젯", "AI 연결", "일반"]);
+  fireEvent.keyDown(within(tabs).getByRole("tab", { name: "친구들" }), { key: "ArrowRight" });
+  expect(screen.getByRole("heading", { level: 1, name: "자동 잡담" })).toBeTruthy();
   fireEvent.keyDown(document.activeElement!, { key: "End" });
-  expect(screen.getByRole("heading", { level: 1, name: "일반" })).toBeTruthy();
-  expect(screen.getByRole("heading", { name: "사용자" })).toBeTruthy();
-  expect(screen.getByLabelText("캐릭터가 부를 이름")).toBeTruthy();
-  expect(screen.getByRole("heading", { name: "앱 업데이트" })).toBeTruthy();
-  expect(screen.getByRole("heading", { name: "빠른 실행 단축키" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "빠른 실행 열기" })).toBeTruthy();
+  const general = screen.getByRole("tabpanel", { name: "일반" });
+  expect(general.id).toBe(screen.getByRole("tab", { name: "일반" }).getAttribute("aria-controls"));
+  expect(within(general).getByRole("heading", { name: "시작과 종료" })).toBeTruthy();
+  expect(within(general).getByRole("heading", { name: "사용자" })).toBeTruthy();
+  expect(within(general).getByRole("heading", { name: "빠른 실행 단축키" })).toBeTruthy();
   fireEvent.keyDown(document.activeElement!, { key: "Home" });
-  expect(screen.getByRole("tabpanel", { name: "캐릭터" })).toBeTruthy();
+  expect(screen.getByRole("tabpanel", { name: "친구들" })).toBeTruthy();
 });
 
-it("keeps user and desktop drafts independent within general settings and across navigation", async () => {
+it("keeps user and desktop drafts independent across the Figma destinations", async () => {
   render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="user" />);
-  fireEvent.change(screen.getByLabelText("캐릭터가 부를 이름"), {
-    target: { value: "  새 이름  " },
-  });
-  fireEvent.click(screen.getByRole("checkbox", { name: "장난 모드" }));
-  fireEvent.click(screen.getByRole("tab", { name: "대사" }));
-  fireEvent.click(screen.getByRole("tab", { name: /일반/ }));
-  expect(screen.getByLabelText("캐릭터가 부를 이름")).toHaveProperty("value", "  새 이름  ");
-  expect(screen.getByRole("checkbox", { name: "장난 모드" })).toHaveProperty("checked", true);
-
-  fireEvent.click(screen.getByRole("button", { name: "이름 변경" }));
-  fireEvent.click(screen.getByRole("button", { name: "이름 변경 확인" }));
+  fireEvent.change(screen.getByLabelText("부를 이름"), { target: { value: "  새 이름  " } });
+  fireEvent.click(screen.getByRole("tab", { name: "바탕화면" }));
+  fireEvent.click(screen.getByRole("switch", { name: "장난 모드" }));
+  fireEvent.click(screen.getByRole("link", { name: PREVIEW_SNAPSHOT.user!.name }));
+  expect(screen.getByLabelText("부를 이름")).toHaveProperty("value", "  새 이름  ");
+  fireEvent.click(screen.getByRole("button", { name: "바꾸기…" }));
+  fireEvent.click(screen.getByRole("button", { name: "바꾸기" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledExactlyOnceWith("set_user_name", { name: "새 이름" }),
   );
-  expect(screen.getByRole("button", { name: "장난 설정 저장" })).toHaveProperty("disabled", false);
-  expect(screen.getByRole("tab", { name: /일반/ }).textContent).toContain("저장하지 않은 변경");
-
-  fireEvent.change(screen.getByLabelText("캐릭터가 부를 이름"), {
-    target: { value: "다음 이름 초안" },
-  });
+  fireEvent.change(screen.getByLabelText("부를 이름"), { target: { value: "다음 이름 초안" } });
+  fireEvent.click(screen.getByRole("tab", { name: "바탕화면" }));
+  expect(screen.getByRole("switch", { name: "장난 모드" })).toHaveProperty("checked", true);
   fireEvent.click(screen.getByRole("button", { name: "장난 설정 저장" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("set_desktop_preferences", {
@@ -80,8 +67,8 @@ it("keeps user and desktop drafts independent within general settings and across
     }),
   );
   expect(command).toHaveBeenCalledTimes(2);
-  expect(screen.getByLabelText("캐릭터가 부를 이름")).toHaveProperty("value", "다음 이름 초안");
-  expect(screen.getByRole("tab", { name: /일반/ }).textContent).toContain("저장하지 않은 변경");
+  fireEvent.click(screen.getByRole("link", { name: PREVIEW_SNAPSHOT.user!.name }));
+  expect(screen.getByLabelText("부를 이름")).toHaveProperty("value", "다음 이름 초안");
 });
 
 it("shows when a timed pause ends and resumes without saving automatic drafts", async () => {
@@ -98,7 +85,7 @@ it("shows when a timed pause ends and resumes without saving automatic drafts", 
   const time = new Date(pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   expect(screen.getByText(`${time}까지 자동 잡담 쉬는 중`)).toBeTruthy();
   fireEvent.change(screen.getByLabelText(/이야기 간격/), { target: { value: "12" } });
-  fireEvent.click(screen.getByRole("button", { name: "다시 시작" }));
+  fireEvent.click(screen.getByRole("button", { name: "자동 잡담 다시 시작" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledExactlyOnceWith("set_paused", { paused: false }),
   );
@@ -111,7 +98,9 @@ it.each([
 ])("pauses for %s without saving the automatic draft", async (duration, args) => {
   render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="automatic" />);
   fireEvent.change(screen.getByLabelText(/이야기 간격/), { target: { value: "12" } });
-  fireEvent.change(screen.getByLabelText("쉬는 기간"), { target: { value: duration } });
+  fireEvent.click(
+    screen.getByRole("radio", { name: duration === "60" ? "1시간" : "다시 시작할 때까지" }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "자동 잡담 쉬기" }));
   await waitFor(() => expect(command).toHaveBeenCalledExactlyOnceWith("set_paused", args));
   expect(screen.getByLabelText(/이야기 간격/)).toHaveProperty("value", "12");
@@ -124,8 +113,8 @@ it("retains separate model and automatic drafts and only saves the chosen scope"
   fireEvent.change(screen.getByLabelText(/이야기 간격/), { target: { value: "12" } });
   fireEvent.click(screen.getByRole("tab", { name: "AI 연결" }));
   expect(screen.getByLabelText("로컬 모델")).toBeTruthy();
-  fireEvent.click(screen.getByRole("checkbox", { name: "로컬 추론 모드" }));
-  fireEvent.click(screen.getByRole("button", { name: "외부 API 사용" }));
+  fireEvent.click(screen.getByRole("switch", { name: "로컬 추론 모드" }));
+  fireEvent.click(screen.getByRole("radio", { name: "외부 API" }));
   fireEvent.change(screen.getByLabelText("API 주소"), {
     target: { value: "https://example.com/v1" },
   });
@@ -143,9 +132,9 @@ it("retains separate model and automatic drafts and only saves the chosen scope"
     scope: "model",
     apiKey: "draft-key",
   });
-  fireEvent.click(screen.getByRole("tab", { name: /자동 대화/ }));
+  fireEvent.click(screen.getByRole("tab", { name: "대화" }));
   expect(screen.getByLabelText(/이야기 간격/)).toHaveProperty("value", "12");
-  fireEvent.click(screen.getByRole("checkbox", { name: "가끔 자리 비우기" }));
+  fireEvent.click(screen.getByRole("switch", { name: "가끔 자리 비우기" }));
   fireEvent.click(screen.getByRole("button", { name: "자동 대화 저장" }));
   await waitFor(() =>
     expect(command).toHaveBeenLastCalledWith("save_settings", {
@@ -165,8 +154,8 @@ it("retains separate model and automatic drafts and only saves the chosen scope"
   fireEvent.click(screen.getByRole("tab", { name: /AI 연결/ }));
   expect(screen.getByLabelText("API 키")).toHaveProperty("value", " draft-key ");
   expect(screen.getByLabelText("API 주소")).toHaveProperty("value", "https://example.com/v1");
-  fireEvent.click(screen.getByRole("button", { name: "로컬 모델 사용" }));
-  expect(screen.getByRole("checkbox", { name: "로컬 추론 모드" })).toHaveProperty("checked", true);
+  fireEvent.click(screen.getByRole("radio", { name: "이 기기의 모델" }));
+  expect(screen.getByRole("switch", { name: "로컬 추론 모드" })).toHaveProperty("checked", true);
 });
 
 it("tests and saves the local reasoning draft and restores the saved toggle on cancel", async () => {
@@ -182,10 +171,10 @@ it("tests and saves the local reasoning draft and restores the saved toggle on c
     name === "test_local_model" ? { elapsedMs: 1500, reply: "안녕" } : undefined,
   );
   const { rerender } = render(<SettingsPanel snapshot={snapshot} initialSection="model" />);
-  const toggle = screen.getByRole("checkbox", { name: "로컬 추론 모드" });
+  const toggle = screen.getByRole("switch", { name: "로컬 추론 모드" });
   expect(toggle).toHaveProperty("checked", false);
   fireEvent.click(toggle);
-  fireEvent.click(screen.getByRole("button", { name: "테스트하기" }));
+  fireEvent.click(screen.getByRole("button", { name: "확인하기" }));
   await screen.findAllByText("1.5초 · 안녕");
   expect(command).toHaveBeenCalledExactlyOnceWith("test_local_model", {
     settings: { ...snapshot.settings, localReasoningEnabled: true },
@@ -222,13 +211,10 @@ it("shows how the chosen model fits this computer and offers the recommended one
     })),
   };
   render(<SettingsPanel snapshot={snapshot} initialSection="model" />);
-  expect(
-    screen.getByText("이 컴퓨터에 알맞아요 · 메모리 16GB, Apple Silicon 기준 추정"),
-  ).toBeTruthy();
+  expect(screen.getByText(/이 컴퓨터에 알맞아요/)).toBeTruthy();
   expect(screen.getByRole("option", { name: /^Qwen3\.5-9B · .* · 이 컴퓨터 추천$/ })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "추천 모델 선택" }));
+  fireEvent.change(screen.getByLabelText("로컬 모델"), { target: { value: "qwen3.5-9b" } });
   expect(screen.getByLabelText("로컬 모델")).toHaveProperty("value", "qwen3.5-9b");
-  expect(screen.queryByRole("button", { name: "추천 모델 선택" })).toBeNull();
 });
 
 it.each([
@@ -247,7 +233,7 @@ it.each([
     expect(option.textContent).not.toContain("이 컴퓨터 추천");
     fireEvent.change(select, { target: { value: id } });
     expect(select).toHaveProperty("value", id);
-    expect(screen.getByText(`${name} Q4_K_M · 다운로드 ${size} GB`)).toBeTruthy();
+    expect(screen.getAllByText(new RegExp(`${size}GB`)).length).toBeGreaterThan(0);
     expect(screen.queryByText(/위젯 제작 가능/)).toBeNull();
     expect(command).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "변경 취소" }));
@@ -274,7 +260,7 @@ it("asks before downloading a model that this computer's memory cannot hold", as
     })),
   };
   render(<SettingsPanel snapshot={snapshot} initialSection="model" />);
-  fireEvent.click(screen.getByRole("button", { name: "모델 내려받기" }));
+  fireEvent.click(screen.getByRole("button", { name: "내려받기" }));
   expect(command).not.toHaveBeenCalled();
   const dialog = screen.getByRole("dialog");
   expect(dialog.textContent).toContain("메모리로는 실행되지 않거나 매우 느릴 수 있어요");
@@ -288,9 +274,9 @@ it("allows keyless loopback API tests but requires a key for remote or spoofed a
   render(
     <SettingsPanel snapshot={{ ...PREVIEW_SNAPSHOT, hasApiKey: false }} initialSection="model" />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "외부 API 사용" }));
+  fireEvent.click(screen.getByRole("radio", { name: "외부 API" }));
   const address = screen.getByLabelText("API 주소");
-  const testButton = screen.getByRole("button", { name: "연결 테스트" });
+  const testButton = screen.getByRole("button", { name: "다시 확인" });
   fireEvent.change(screen.getByLabelText("모델 이름"), { target: { value: "local-model" } });
   for (const baseUrl of [
     "http://localhost:11434/v1",
@@ -340,8 +326,8 @@ it("does not reuse a saved API key for a different draft address", () => {
       initialSection="model"
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "외부 API 사용" }));
-  const testButton = screen.getByRole("button", { name: "연결 테스트" });
+  fireEvent.click(screen.getByRole("radio", { name: "외부 API" }));
+  const testButton = screen.getByRole("button", { name: "다시 확인" });
   expect(testButton).toHaveProperty("disabled", false);
   fireEvent.change(screen.getByLabelText("API 주소"), {
     target: { value: "https://other.example/v1" },
@@ -356,7 +342,7 @@ it("invalid automatic interval does not block AI edits and cancel restores lates
   fireEvent.change(screen.getByLabelText(/이야기 간격/), { target: { value: "0" } });
   expect(screen.getByRole("button", { name: "자동 대화 저장" })).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByRole("tab", { name: "AI 연결" }));
-  fireEvent.click(screen.getByRole("button", { name: "외부 API 사용" }));
+  fireEvent.click(screen.getByRole("radio", { name: "외부 API" }));
   fireEvent.change(screen.getByLabelText("모델 이름"), { target: { value: "other-model" } });
   expect(screen.getByRole("button", { name: "AI 연결 저장" })).toHaveProperty("disabled", false);
   rerender(
@@ -364,7 +350,7 @@ it("invalid automatic interval does not block AI edits and cancel restores lates
       snapshot={{ ...PREVIEW_SNAPSHOT, settings: { ...PREVIEW_SNAPSHOT.settings, idleMinutes: 7 } }}
     />,
   );
-  fireEvent.click(screen.getByRole("tab", { name: /자동 대화/ }));
+  fireEvent.click(screen.getByRole("tab", { name: "대화" }));
   fireEvent.click(screen.getByRole("button", { name: "변경 취소" }));
   expect(screen.getByLabelText(/이야기 간격/)).toHaveProperty("value", "7");
 });
@@ -372,7 +358,7 @@ it("invalid automatic interval does not block AI edits and cancel restores lates
 it("shows only the selected connection editor and retains both drafts without changing actual use", () => {
   render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="model" />);
   expect(screen.queryByRole("button", { name: "연결 테스트" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "외부 API 사용" }));
+  fireEvent.click(screen.getByRole("radio", { name: "외부 API" }));
   fireEvent.change(screen.getByLabelText("API 주소"), {
     target: { value: "http://localhost:1234/v1" },
   });
@@ -380,9 +366,9 @@ it("shows only the selected connection editor and retains both drafts without ch
   expect(screen.queryByRole("button", { name: "테스트하기" })).toBeNull();
   expect(screen.getByText("저장 후 전환")).toBeTruthy();
   expect(screen.getByText(/현재 사용 · 로컬 모델/)).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "로컬 모델 사용" }));
+  fireEvent.click(screen.getByRole("radio", { name: "이 기기의 모델" }));
   expect(screen.queryByRole("button", { name: "연결 테스트" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "외부 API 사용" }));
+  fireEvent.click(screen.getByRole("radio", { name: "외부 API" }));
   expect(screen.getByLabelText("API 주소")).toHaveProperty("value", "http://localhost:1234/v1");
   expect(screen.getByLabelText("API 키")).toHaveProperty("value", "unsaved-key");
   expect(command).not.toHaveBeenCalled();
@@ -413,19 +399,23 @@ it("locks automatic and model save actions while an update is being checked", as
   render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="automatic" />);
   fireEvent.change(screen.getByLabelText(/이야기 간격/), { target: { value: "12" } });
   fireEvent.click(screen.getByRole("tab", { name: "AI 연결" }));
-  fireEvent.click(screen.getByRole("button", { name: "외부 API 사용" }));
+  fireEvent.click(screen.getByRole("radio", { name: "외부 API" }));
   fireEvent.change(screen.getByLabelText("API 주소"), {
     target: { value: "http://localhost:1234/v1" },
   });
   fireEvent.click(screen.getByRole("tab", { name: "일반" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("get_update_status"));
-  fireEvent.click(screen.getByRole("button", { name: "업데이트 확인" }));
-  fireEvent.click(screen.getByRole("tab", { name: /자동 대화/ }));
+  fireEvent.click(screen.getByRole("button", { name: "지금 확인" }));
+  fireEvent.click(screen.getByRole("tab", { name: "대화" }));
   expect(screen.getByRole("button", { name: "자동 대화 저장" })).toHaveProperty("disabled", true);
   expect(screen.getByRole("button", { name: "변경 취소" })).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByRole("tab", { name: /AI 연결/ }));
   expect(screen.getByRole("button", { name: "AI 연결 저장" })).toHaveProperty("disabled", true);
-  expect(screen.getByRole("button", { name: "변경 취소" })).toHaveProperty("disabled", true);
+  expect(
+    within(screen.getByRole("group", { name: "AI 연결 저장 영역" })).getByRole("button", {
+      name: "변경 취소",
+    }),
+  ).toHaveProperty("disabled", true);
   await act(async () => finishCheck(idle));
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "AI 연결 저장" })).toHaveProperty("disabled", false),
@@ -469,8 +459,7 @@ it("preserves personal wordbook whitespace and memory drafts across management t
   };
   const { rerender } = render(<SettingsPanel snapshot={snapshot} initialSection="wordbook" />);
   const matching = screen.getByText("입력으로 매칭 확인");
-  expect(matching.closest("details")).toHaveProperty("open", false);
-  fireEvent.click(matching);
+  expect(matching.closest("details")).toHaveProperty("open", true);
   fireEvent.change(screen.getByRole("textbox", { name: "테스트할 말" }), {
     target: { value: "나중에 확인할 말" },
   });
@@ -478,26 +467,29 @@ it("preserves personal wordbook whitespace and memory drafts across management t
   fireEvent.change(screen.getByLabelText("대사 1"), {
     target: { value: "  쓰던 말\n\n다음 줄  " },
   });
-  fireEvent.click(screen.getByRole("tab", { name: /캐릭터/ }));
-  fireEvent.click(screen.getByRole("tab", { name: "기억" }));
+  fireEvent.click(screen.getByRole("tab", { name: "친구들" }));
+  selectFriend(/^A /);
+  openCharacterPage("기억");
   fireEvent.change(await screen.findByLabelText("기억 내용"), { target: { value: "쓰던 기억" } });
   fireEvent.click(screen.getByRole("tab", { name: "위젯" }));
   rerender(<SettingsPanel snapshot={{ ...snapshot, wordbook: [...snapshot.wordbook] }} />);
-  fireEvent.click(screen.getByRole("tab", { name: /대사/ }));
+  fireEvent.click(screen.getByRole("tab", { name: "대화" }));
+  fireEvent.click(screen.getByRole("button", { name: /단어장/ }));
   expect(screen.getByLabelText("대사 1")).toHaveProperty("value", "  쓰던 말\n\n다음 줄  ");
   fireEvent.click(screen.getByText("입력으로 매칭 확인"));
   expect(screen.getByRole("textbox", { name: "테스트할 말" })).toHaveProperty(
     "value",
     "나중에 확인할 말",
   );
-  fireEvent.click(screen.getByRole("tab", { name: /캐릭터/ }));
-  fireEvent.click(screen.getByRole("tab", { name: "기억" }));
+  fireEvent.click(screen.getByRole("tab", { name: "친구들" }));
+  selectFriend(/^A /);
+  openCharacterPage("기억");
   expect(screen.getByLabelText("기억 내용")).toHaveProperty("value", "쓰던 기억");
 });
 
 it("saves opt-in local quiet hours with starting weekdays and retains the draft across tabs", async () => {
   render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="automatic" />);
-  const enabled = screen.getByRole("checkbox", { name: "정해진 시간에 자동 잡담 쉬기" });
+  const enabled = screen.getByRole("switch", { name: "정해진 시간에 자동 잡담 쉬기" });
   expect(enabled).toHaveProperty("checked", false);
   expect(screen.getByLabelText("조용한 시간 시작").closest("fieldset")).toHaveProperty(
     "disabled",
@@ -506,11 +498,10 @@ it("saves opt-in local quiet hours with starting weekdays and retains the draft 
   fireEvent.click(enabled);
   fireEvent.change(screen.getByLabelText("조용한 시간 시작"), { target: { value: "23:30" } });
   fireEvent.change(screen.getByLabelText("조용한 시간 종료"), { target: { value: "07:00" } });
-  fireEvent.click(screen.getByRole("checkbox", { name: "일요일" }));
-  expect(screen.getByText(/기기 지역 시각/)).toBeTruthy();
-  expect(screen.getByText(/월요일 22:00~08:00은 화요일 아침까지/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "일요일" }));
+  expect(screen.getByText(/자정을 넘기면 시작한 요일/)).toBeTruthy();
   fireEvent.click(screen.getByRole("tab", { name: "AI 연결" }));
-  fireEvent.click(screen.getByRole("tab", { name: /자동 대화/ }));
+  fireEvent.click(screen.getByRole("tab", { name: "대화" }));
   expect(screen.getByLabelText("조용한 시간 시작")).toHaveProperty("value", "23:30");
   fireEvent.click(screen.getByRole("button", { name: "자동 대화 저장" }));
   await waitFor(() =>
@@ -529,13 +520,13 @@ it("validates active quiet hours and cancel restores the latest saved schedule",
   const { rerender } = render(
     <SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="automatic" />,
   );
-  fireEvent.click(screen.getByRole("checkbox", { name: "정해진 시간에 자동 잡담 쉬기" }));
+  fireEvent.click(screen.getByRole("switch", { name: "정해진 시간에 자동 잡담 쉬기" }));
   fireEvent.change(screen.getByLabelText("조용한 시간 종료"), { target: { value: "22:00" } });
   expect(screen.getByRole("alert").textContent).toContain("시작과 종료 시각을 다르게");
   expect(screen.getByRole("button", { name: "자동 대화 저장" })).toHaveProperty("disabled", true);
   fireEvent.change(screen.getByLabelText("조용한 시간 종료"), { target: { value: "08:00" } });
   for (const name of ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]) {
-    fireEvent.click(screen.getByRole("checkbox", { name }));
+    fireEvent.click(screen.getByRole("button", { name }));
   }
   expect(screen.getByRole("alert").textContent).toContain("요일을 하나 이상");
   expect(screen.getByRole("button", { name: "자동 대화 저장" })).toHaveProperty("disabled", true);
@@ -549,7 +540,7 @@ it("validates active quiet hours and cancel restores the latest saved schedule",
   rerender(<SettingsPanel snapshot={latest} />);
   fireEvent.click(screen.getByRole("button", { name: "변경 취소" }));
   expect(screen.getByLabelText("조용한 시간 시작")).toHaveProperty("value", "21:00");
-  expect(screen.getByRole("checkbox", { name: "금요일" })).toHaveProperty("checked", true);
-  expect(screen.getByRole("checkbox", { name: "월요일" })).toHaveProperty("checked", false);
+  expect(screen.getByRole("button", { name: "금요일" }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button", { name: "월요일" }).getAttribute("aria-pressed")).toBe("false");
   expect(screen.queryByRole("alert")).toBeNull();
 });

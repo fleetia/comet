@@ -8,7 +8,7 @@ import {
   Select,
   TextArea,
   TextField,
-} from "@fleetia/lagrange";
+} from "../../ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type {
   AnimationAsset,

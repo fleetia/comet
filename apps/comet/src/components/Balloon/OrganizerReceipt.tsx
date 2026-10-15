@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX } from "react";
-import { Button } from "@fleetia/lagrange";
+import { Button } from "../../ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { OrganizerAction } from "../../organizer/types";
 import * as s from "../companion.css";

@@ -1,4 +1,5 @@
 import { style } from "@vanilla-extract/css";
+import { tokens } from "@comet/token";
 import { semanticVars as vars } from "@fleetia/lagrange/theme";
 
 export const panel = style({
@@ -7,26 +8,45 @@ export const panel = style({
   maxWidth: 792,
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.md,
+  gap: 14,
+  padding: "18px 20px 20px",
+  borderRadius: 24,
+  background: `radial-gradient(ellipse at 50% 0, ${tokens["color/component/cat-rest-alpha-160"]}, transparent 70%), ${tokens["color/card-2"]}`,
+  borderColor: tokens["color/chip-border"],
 });
 export const identity = style({
   display: "flex",
+  flexDirection: "column",
   alignItems: "center",
-  gap: vars.space.md,
-  minHeight: 48,
+  gap: 14,
+  padding: "12px 0 4px",
 });
-export const identityCopy = style({ display: "grid", gap: vars.space.xs });
+export const appTile = style({
+  width: 108,
+  height: 108,
+  display: "grid",
+  placeItems: "center",
+  borderRadius: 30,
+  background: `linear-gradient(160deg, #fff7de, #eee8ff)`,
+  boxShadow: `0 18px 40px ${tokens["color/window-shadow"]}`,
+});
+export const identityCopy = style({ display: "grid", gap: 2, textAlign: "center" });
 export const appName = style({
-  fontSize: vars.typography.size.headingSm,
-  lineHeight: vars.typography.lineHeight.compact,
+  margin: 0,
+  fontFamily: tokens["typography/display/page/fontFamily"],
+  fontSize: 32,
+  lineHeight: "38px",
+  fontWeight: 400,
 });
 export const caption = style({
   fontSize: vars.typography.size.caption,
   lineHeight: vars.typography.lineHeight.body,
 });
 export const update = style({
-  borderTop: `${vars.border.width.hairline} solid ${vars.color.surface.raised}`,
-  paddingTop: vars.space.md,
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: 16,
+  padding: 14,
+  background: tokens["color/card"],
   display: "flex",
   flexDirection: "column",
   gap: vars.space.md,
@@ -38,7 +58,7 @@ export const about = style({
   borderTop: `${vars.border.width.hairline} solid ${vars.color.surface.raised}`,
 });
 export const actions = style({ display: "flex", flexWrap: "wrap", gap: vars.space.md });
-export const updateButton = style({ width: 144 });
+export const updateButton = style({ minWidth: 88 });
 
 export const status = style({
   minHeight: vars.dimension.row,

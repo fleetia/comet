@@ -34,7 +34,7 @@ it("keeps display controls available and preserves appearance edits when collaps
       displayControls={<button type="button">바탕화면 표시</button>}
     />,
   );
-  expect(screen.getByRole("combobox", { name: "시계 형식" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "기념일 추가…" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "바탕화면 표시" })).toBeTruthy();
   expect(screen.queryByRole("radiogroup", { name: "글자 위치" })).toBeNull();
   expect(screen.queryByRole("button", { name: "표시 설정 저장" })).toBeNull();

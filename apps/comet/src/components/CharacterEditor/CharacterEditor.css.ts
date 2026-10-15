@@ -1,5 +1,6 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { semanticVars as vars, vnextVars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 
 export const title = style({
   fontSize: vars.typography.size.headingMd,
@@ -10,14 +11,30 @@ export const title = style({
 });
 export const profileLayout = style({
   display: "grid",
-  gridTemplateColumns: "minmax(0, 880fr) minmax(0, 544fr)",
-  gap: vars.space.lg,
+  gridTemplateColumns: "372px minmax(0,1fr)",
+  gap: 28,
+  padding: "0 28px 26px",
   minHeight: 0,
   height: "100%",
   minWidth: 0,
-  "@media": { "(max-width: 1280px)": { gridTemplateColumns: "minmax(0, 1.5fr) minmax(0, 1fr)" } },
+  alignItems: "start",
+  "@media": {
+    "(max-width: 1050px)": { gridTemplateColumns: "minmax(250px,32%) minmax(0,1fr)" },
+    "(max-width: 740px)": { gridTemplateColumns: "1fr" },
+  },
 });
-export const profileMain = style({ minWidth: 0, minHeight: 0 });
+export const profileMain = style({
+  gridColumn: 2,
+  gridRow: 1,
+  minWidth: 0,
+  minHeight: 0,
+  background: "transparent",
+  border: 0,
+  boxShadow: "none",
+  backdropFilter: "none",
+  overflow: "visible",
+  "@media": { "(max-width: 740px)": { gridColumn: 1, gridRow: 2 } },
+});
 export const profileAside = style({
   display: "flex",
   flexDirection: "column",
@@ -140,7 +157,7 @@ export const dialogueTypes = style({
 });
 export const dialogueContents = style({ minWidth: 0 });
 
-export const instructionsInput = style({ minHeight: 192 });
+export const instructionsInput = style({ minHeight: 78, height: 78 });
 
 export const heroHeader = style({
   display: "flex",
@@ -230,7 +247,7 @@ export const contextHeading = style({
   minHeight: 56,
   paddingInline: vars.space.md,
 });
-export const authoredSummary = style({ marginTop: vars.space.md });
+export const authoredSummary = style({ marginTop: 10, width: "100%" });
 export const detailRow = style({
   display: "grid",
   gridTemplateColumns: "140px minmax(0,1fr)",
@@ -335,4 +352,16 @@ globalStyle(`${dialogueTypes} > button`, {
 globalStyle(`${dialogueTypes} > button:first-child`, {
   width: 184,
   "@media": { "(max-width: 1280px)": { width: "auto" } },
+});
+
+export const relationshipWorkspace = style({
+  height: "100%",
+  minHeight: 0,
+  padding: "0 28px 28px",
+});
+globalStyle(`${profileMain} > [data-character-scroll="body"]`, { padding: 0, overflow: "visible" });
+globalStyle(`${profileMain} > [data-character-footer="fixed"]`, { padding: "16px 0 0" });
+globalStyle(`${profileMain} input, ${profileMain} textarea`, {
+  background: tokens["color/input"],
+  borderColor: tokens["color/input-border"],
 });

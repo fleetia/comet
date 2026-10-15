@@ -1,32 +1,50 @@
 import { style } from "@vanilla-extract/css";
-import { semanticVars as vars, vnextVars } from "@fleetia/lagrange/theme";
+import { semanticVars as vars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 
 export const header = style({
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) auto",
+  display: "flex",
+  flexDirection: "column",
+  alignSelf: "start",
   gap: vars.space.md,
-  padding: vars.space.lg,
-  alignItems: "center",
+  padding: "18px 20px",
+  alignItems: "stretch",
   flexShrink: 0,
-  borderRadius: vnextVars.radius.parent,
+  borderRadius: tokens["radius/radius-22"],
+  border: `1px solid ${tokens["color/card-border"]}`,
+  background: `radial-gradient(ellipse at 50% 0%, ${tokens["color/icon-tile"]}, transparent 75%), ${tokens["color/card"]}`,
 });
 export const state = style({
   display: "flex",
   alignItems: "center",
   flexWrap: "wrap",
   gap: vars.space.md,
-  gridRow: 2,
-  gridColumn: "1 / -1",
+
   selectors: { "&:empty": { display: "none" } },
-  "@media": { "(max-width: 1000px)": { gridColumn: "1" } },
 });
 export const actions = style({
   display: "flex",
   alignItems: "center",
-  justifyContent: "flex-end",
+  justifyContent: "flex-start",
   flexWrap: "wrap",
   gap: vars.space.sm,
-  "@media": {
-    "(max-width: 1000px)": { gridRow: 2, gridColumn: "2" },
-  },
+});
+
+export const titleRow = style({ display: "flex", alignItems: "center", gap: 10 });
+export const icon = style({
+  display: "grid",
+  placeItems: "center",
+  width: 36,
+  height: 36,
+  borderRadius: 18,
+  background: tokens["color/icon-tile"],
+  color: tokens["color/icon-tile-ink"],
+});
+export const title = style({
+  margin: 0,
+  fontSize: 22,
+  lineHeight: "28px",
+  fontFamily: tokens["typography/display/title/fontFamily"],
+  fontWeight: 400,
+  color: tokens["color/ink"],
 });

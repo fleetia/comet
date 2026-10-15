@@ -1,3 +1,4 @@
+import { openCharacterPage } from "./characterNavigation";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AuthoringTrial } from "../components/CharacterEditor/AuthoringTrial";
@@ -433,6 +434,8 @@ it("wires relationship and NPC trials to the edited definition through their exi
     dirty: true,
   };
   const view = render(<CharacterEditor {...editorProps} />);
+  openCharacterPage("프로필");
+  openCharacterPage("다른 친구와의 관계");
   const relation = screen.getByText("관계 1 시험", { selector: "summary" }).closest("details")!;
   relation.open = true;
   fireEvent(relation, new Event("toggle"));
@@ -450,7 +453,8 @@ it("wires relationship and NPC trials to the edited definition through their exi
   view.rerender(
     <CharacterEditor {...editorProps} character={guest} definition={guest.definition} />,
   );
-  fireEvent.click(screen.getByRole("tab", { name: "등장·이야기" }));
+  openCharacterPage("프로필");
+  openCharacterPage("등장·이야기");
   expand();
   run();
   await waitFor(() =>

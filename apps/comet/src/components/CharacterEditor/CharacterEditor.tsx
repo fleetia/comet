@@ -1,4 +1,8 @@
 import { useEffect, useId, useState, type JSX, type ReactNode } from "react";
+import { SettingsSummary } from "@comet/ui";
+import { ChevLeftIcon, Icon } from "@comet/icon";
+import { FriendOverview, FriendProfilePreview } from "./FriendOverview";
+import * as detail from "./friendDetail.css";
 import {
   Button,
   ActionBar,
@@ -12,7 +16,7 @@ import {
   TextArea,
   TextField,
   SettingsRow,
-} from "@fleetia/lagrange";
+} from "../../ui";
 import type {
   AnimationAsset,
   AnimationClip,
@@ -73,6 +77,15 @@ type Props = {
   packContent?: ReactNode;
   lifeContent?: ReactNode | ((visible: boolean) => ReactNode);
   headerActions?: ReactNode;
+  onBack?: () => void;
+  onTalk?: () => void;
+  onHistory?: () => void;
+  onTogetherChange?: (together: boolean) => void;
+  togetherDisabled?: boolean;
+  onRemove?: () => void;
+  removeDisabled?: boolean;
+  onExport?: () => void;
+  statusDescription?: string;
 };
 
 function Lines({
@@ -420,10 +433,17 @@ export function CharacterEditor({
   dialogueType: controlledDialogueType,
   onDialogueTypeChange,
   canEditCombination = true,
-  packName,
-  packContent,
   lifeContent,
   headerActions,
+  onBack,
+  onTalk,
+  onHistory,
+  onTogetherChange,
+  togetherDisabled,
+  onRemove,
+  removeDisabled,
+  onExport,
+  statusDescription,
 }: Props): JSX.Element {
   const [previewSelection, setPreviewSelection] = useState<{
     group: "greeting" | "idleLines" | "departureLines" | "returnLines";
@@ -437,7 +457,12 @@ export function CharacterEditor({
     setLocalDialogueType(type);
     onDialogueTypeChange?.(type);
   }
-  const [tab, setTab] = useState(memoryTabRequest > 0 ? "memory" : "profile");
+  const [tab, setTab] = useState(
+    memoryTabRequest > 0 ? "memory" : character ? "overview" : "profile",
+  );
+  useEffect(() => {
+    setTab(memoryTabRequest > 0 ? "memory" : character ? "overview" : "profile");
+  }, [character?.id]);
   useEffect(() => {
     if (memoryTabRequest > 0) setTab("memory");
   }, [memoryTabRequest]);
@@ -462,7 +487,6 @@ export function CharacterEditor({
     return value === "" ? [] : value.split("\n");
   }
   const expressionKeys = Object.keys(definition.expressions);
-  const portrait = spriteUrl(character, DEFAULT_EXPRESSION);
   const relationshipTargets = installed.filter((candidate) => candidate.id !== character?.id);
   const trialMembers = character
     ? installed
@@ -586,8 +610,14 @@ export function CharacterEditor({
     >
       <div className={s.compactActions}>
         {dirty && onCancel && (
-          <Button size="compact" variant="secondary" disabled={pending} onClick={onCancel}>
-            캐릭터 수정 취소
+          <Button
+            size="compact"
+            variant="secondary"
+            disabled={pending}
+            onClick={onCancel}
+            aria-label="캐릭터 수정 취소"
+          >
+            취소
           </Button>
         )}
         <Button
@@ -595,42 +625,89 @@ export function CharacterEditor({
           variant="primary"
           disabled={pending || !valid || !dirty}
           onClick={onSave}
+          aria-label="캐릭터 저장"
         >
-          {pending ? "저장 중…" : "캐릭터 저장"}
+          {pending ? "저장 중…" : "완료"}
         </Button>
       </div>
     </ActionBar>
   );
   return (
     <Tabs className={s.editor} value={tab} onValueChange={setTab}>
-      <div className={s.editorHeader}>
-        <div className={e.heroHeader}>
-          <span className={s.characterFace} aria-hidden="true">
-            {portrait ? (
-              <img className={s.characterPortrait} src={portrait} alt="" />
-            ) : (
-              definition.expressions[DEFAULT_EXPRESSION]
-            )}
+      {tab !== "overview" && (
+        <nav className={detail.breadcrumbs} aria-label="친구 편집 경로">
+          <Button
+            variant="quiet"
+            size="compact"
+            aria-label="친구들로 돌아가기"
+            onClick={() => {
+              setTab("overview");
+              onBack?.();
+            }}
+          >
+            <ChevLeftIcon size={15} />
+            친구들
+          </Button>
+          <Icon name="chev" size={13} />
+          <Button
+            variant="quiet"
+            size="compact"
+            aria-label="친구 정보로 돌아가기"
+            onClick={() => setTab("overview")}
+          >
+            {definition.name || "새 친구"}
+          </Button>
+          <Icon name="chev" size={13} />
+          <span className={detail.currentCrumb}>
+            {
+              {
+                profile: "프로필",
+                appearance: "모습·표정",
+                balloon: "말풍선",
+                dialogue: "대사·반응",
+                life: "등장·이야기",
+                relationships: "다른 친구와의 관계",
+                memory: "기억",
+                settings: "관리",
+              }[tab]
+            }
           </span>
-          <div className={e.heroIdentity}>
-            <h2 className={e.title}>{definition.name || "새 캐릭터"}</h2>
-            <p className={e.packCaption}>{packName ?? "새 캐릭터"}</p>
-          </div>
-          <div className={e.headerActions}>{headerActions}</div>
-        </div>
-        <TabList aria-label="캐릭터 편집" className={e.navigation}>
-          <Tab value="profile">프로필</Tab>
-          <Tab value="appearance">모습·표정</Tab>
-          <Tab value="balloon">말풍선</Tab>
-          <Tab value="dialogue">대사·반응</Tab>
-          <Tab value="life">등장·이야기</Tab>
-          <span className={e.tabDivider} aria-hidden="true">
-            |
-          </span>
-          <Tab value="memory">기억</Tab>
-          <Tab value="settings">관리</Tab>
-        </TabList>
-      </div>
+        </nav>
+      )}
+      <TabList aria-label="캐릭터 편집" hidden>
+        <Tab value="overview">친구 정보</Tab>
+        <Tab value="profile">프로필</Tab>
+        <Tab value="appearance">모습·표정</Tab>
+        <Tab value="balloon">말풍선</Tab>
+        <Tab value="dialogue">대사·반응</Tab>
+        <Tab value="life">등장·이야기</Tab>
+        <Tab value="relationships">다른 친구와의 관계</Tab>
+        <Tab value="memory">기억</Tab>
+        <Tab value="settings">관리</Tab>
+      </TabList>
+      <TabPanel value="overview" className={s.editorPanel}>
+        {
+          <FriendOverview
+            character={character}
+            definition={definition}
+            installed={installed}
+            isTogether={isTogether}
+            statusDescription={statusDescription}
+            togetherDisabled={togetherDisabled}
+            removeDisabled={removeDisabled}
+            onTogetherChange={onTogetherChange}
+            onBack={onBack}
+            onTalk={onTalk}
+            onExport={onExport}
+            onRemove={onRemove}
+            onOpen={(page) => {
+              if (page === "history") onHistory?.();
+              else setTab(page);
+            }}
+            headerActions={headerActions}
+          />
+        }
+      </TabPanel>
       <TabPanel value="profile" className={s.editorPanel}>
         <fieldset className={`${s.fieldset} ${e.fullHeight}`} disabled={pending}>
           <div className={e.profileLayout}>
@@ -638,18 +715,17 @@ export function CharacterEditor({
               <section aria-label="기본 정보">
                 <h3 className={s.subheading}>기본 정보</h3>
                 <div className={s.basicFields}>
-                  <FormField className={s.inlineField} label="이름">
+                  <FormField className={s.inlineField} label="이름" required>
                     <TextField
                       required
+                      aria-label="이름"
                       maxLength={40}
                       value={definition.name}
                       onChange={(event) => change("name", event.target.value)}
                     />
                   </FormField>
                   <FormField className={s.inlineField} label="소개">
-                    <TextArea
-                      className={s.personalityInput}
-                      rows={1}
+                    <TextField
                       maxLength={500}
                       value={definition.description}
                       onChange={(event) => change("description", event.target.value)}
@@ -688,215 +764,184 @@ export function CharacterEditor({
                   주세요.
                 </p>
                 <div className={e.sectionBoundary}>
-                  <Surface tone="inset" padding="compact" className={e.authoredSummary}>
-                    <div className={e.authoredHeading}>
-                      <strong>작성한 대사</strong>
-                      <Button
-                        variant="quiet"
-                        onClick={() => {
-                          setTab("dialogue");
-                          chooseDialogueType("lines");
-                        }}
-                      >
-                        대사·반응 편집
-                      </Button>
-                    </div>
-                    <div className={e.detailRow}>
-                      <span className={s.small}>인사 · {definition.greeting.length}줄</span>
-                      <span>{definition.greeting[0]?.text}</span>
-                    </div>
-                    <div className={e.detailRow}>
-                      <span className={s.small}>자동 수다 · {definition.idleLines.length}줄</span>
-                      <span>{definition.idleLines[0]?.text}</span>
-                    </div>
-                    <div className={e.detailRow}>
-                      <span className={s.small}>떠남 · {definition.departureLines.length}줄</span>
-                      <span>{definition.departureLines[0]?.text}</span>
-                    </div>
-                    <div className={e.detailRow}>
-                      <span className={s.small}>복귀 · {definition.returnLines.length}줄</span>
-                      <span>{definition.returnLines[0]?.text}</span>
-                    </div>
-                  </Surface>
+                  <SettingsSummary
+                    aria-label="대사·반응 편집"
+                    title="대사·반응 편집"
+                    className={e.authoredSummary}
+                    variant="badges"
+                    leading={
+                      <span className={detail.iconTile}>
+                        <Icon name="quote" size={20} />
+                      </span>
+                    }
+                    badges={[
+                      `인사 ${definition.greeting.length}줄`,
+                      `자동 수다 ${definition.idleLines.length}줄`,
+                      `떠날 때 ${definition.departureLines.length}줄`,
+                      `돌아올 때 ${definition.returnLines.length}줄`,
+                    ]}
+                    onClick={() => {
+                      setTab("dialogue");
+                      chooseDialogueType("lines");
+                    }}
+                  />
                 </div>
               </section>
             </CharacterWorkPanel>
-            <div className={e.profileAside}>
-              <CharacterWorkPanel className={e.relationshipPanel}>
-                <section aria-label="다른 캐릭터와의 관계">
-                  <h3 className={s.subheading}>다른 캐릭터와의 관계</h3>
-                  <p className={s.small}>
-                    이 캐릭터가 상대를 어떻게 생각하고 대하는지 적어요. 상대의 관점은 상대
-                    캐릭터에서 따로 설정해요.
-                  </p>
-                  {definition.relationships.map((relationship, index) => {
-                    const target = relationshipTargets.find(
-                      (member) => member.id === relationship.targetId,
-                    );
-                    const missingTarget = !relationshipTargets.some(
-                      (target) => target.id === relationship.targetId,
-                    );
-                    return (
-                      <div className={s.relationshipRow} key={index}>
-                        <div className={s.relationshipControls}>
-                          <Select
-                            aria-label={`관계 ${index + 1} 대상`}
-                            value={relationship.targetId}
-                            onChange={(event) =>
-                              change(
-                                "relationships",
-                                definition.relationships.map((value, i) =>
-                                  i === index ? { ...value, targetId: event.target.value } : value,
-                                ),
-                              )
-                            }
-                          >
-                            {missingTarget && (
-                              <option value={relationship.targetId} disabled>
-                                삭제된 캐릭터 · {relationship.targetId.slice(-8)}
-                              </option>
-                            )}
-                            {relationshipTargets
-                              .filter(
-                                (target) =>
-                                  target.id === relationship.targetId ||
-                                  !definition.relationships.some(
-                                    ({ targetId }) => targetId === target.id,
-                                  ),
-                              )
-                              .map((target) => (
-                                <option key={target.id} value={target.id}>
-                                  {targetName(target)}
-                                </option>
-                              ))}
-                          </Select>
-                          <Button
-                            variant="quiet"
-                            size="compact"
-                            type="button"
-                            aria-label={`관계 ${index + 1} 삭제`}
-                            onClick={() =>
-                              change(
-                                "relationships",
-                                definition.relationships.filter((_, i) => i !== index),
-                              )
-                            }
-                          >
-                            삭제
-                          </Button>
-                        </div>
-                        <TextArea
-                          aria-label={`관계 ${index + 1} 설명`}
-                          className={s.textarea}
-                          rows={2}
-                          maxLength={500}
-                          required
-                          placeholder="예: 오래된 친구라 편하게 장난치지만 힘들어하면 먼저 챙겨요."
-                          value={relationship.description}
-                          onChange={(event) =>
-                            change(
-                              "relationships",
-                              definition.relationships.map((value, i) =>
-                                i === index ? { ...value, description: event.target.value } : value,
-                              ),
-                            )
-                          }
-                        />
-                        <details>
-                          <summary>이름을 언급했을 때의 등록 반응</summary>
-                          <Lines
-                            title={`관계 ${index + 1} 반응`}
-                            lines={relationship.replyLines ?? []}
-                            limit={8}
-                            expressions={expressionKeys}
-                            clips={definition.animation?.clips ?? []}
-                            onSelect={() => {}}
-                            allowEmpty
-                            onChange={(replyLines) =>
-                              change(
-                                "relationships",
-                                definition.relationships.map((value, i) =>
-                                  i === index ? { ...value, replyLines } : value,
-                                ),
-                              )
-                            }
-                          />
-                        </details>
-                        {character && target && (
-                          <AuthoringTrial
-                            title={`관계 ${index + 1} 시험`}
-                            actors={
-                              trialActors.some((member) => member.id === target.id)
-                                ? trialActors
-                                : [...trialActors, target]
-                            }
-                            subject={{
-                              kind: "relation",
-                              actorId: character.id,
-                              targetId: target.id,
-                            }}
-                            packId={character.packId}
-                            definition={packDefinition}
-                            baseline={packBaseline}
-                            presentIds={presentIds}
-                            assets={{
-                              ...trialAssets,
-                              [character.id]: trialAssets[character.id] ?? animationAssets,
-                            }}
-                            visible={tab === "profile" && !pending}
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
-                  <Button
-                    variant="secondary"
-                    size="compact"
-                    type="button"
-                    disabled={!nextTarget || definition.relationships.length >= MAX_RELATIONSHIPS}
-                    onClick={() => {
-                      if (nextTarget) {
-                        change("relationships", [
-                          ...definition.relationships,
-                          { targetId: nextTarget.id, description: "" },
-                        ]);
-                      }
-                    }}
-                  >
-                    관계 추가
-                  </Button>
-                  {relationshipTargets.length === 0 && (
-                    <p className={s.small}>다른 캐릭터를 추가하면 관계를 설정할 수 있어요.</p>
-                  )}
-                </section>
-              </CharacterWorkPanel>
-              <Surface
-                tone="accent"
-                className={e.identityPreview}
-                aria-label="캐릭터 정체성 미리보기"
-              >
-                <div className={e.portrait} aria-hidden="true">
-                  {portrait ? (
-                    <img className={s.characterPortrait} src={portrait} alt="" />
-                  ) : (
-                    definition.expressions[DEFAULT_EXPRESSION]
-                  )}
-                </div>
-                <div>
-                  <strong>{definition.name || "새 캐릭터"}</strong>
-                  <p>
-                    {character ? (isTogether ? "함께 지내는 중" : "쉬는 중") : "아직 저장하지 않음"}
-                  </p>
-                  <p>
-                    표정 {expressionKeys.length}개 · 동작 {definition.animation?.clips.length ?? 0}
-                    개
-                  </p>
-                  <p>{definition.description}</p>
-                </div>
-              </Surface>
-              <div className={e.attributionPanel}>{packContent}</div>
-            </div>
+            <FriendProfilePreview character={character} definition={definition} />
           </div>
+        </fieldset>
+      </TabPanel>
+      <TabPanel value="relationships" className={s.editorPanel}>
+        <fieldset className={`${s.fieldset} ${e.relationshipWorkspace}`} disabled={pending}>
+          <CharacterWorkPanel footer={definitionActions}>
+            <section aria-label="다른 캐릭터와의 관계">
+              <h3 className={s.subheading}>다른 캐릭터와의 관계</h3>
+              <p className={s.small}>
+                이 캐릭터가 상대를 어떻게 생각하고 대하는지 적어요. 상대의 관점은 상대 캐릭터에서
+                따로 설정해요.
+              </p>
+              {definition.relationships.map((relationship, index) => {
+                const target = relationshipTargets.find(
+                  (member) => member.id === relationship.targetId,
+                );
+                const missingTarget = !relationshipTargets.some(
+                  (target) => target.id === relationship.targetId,
+                );
+                return (
+                  <div className={s.relationshipRow} key={index}>
+                    <div className={s.relationshipControls}>
+                      <Select
+                        aria-label={`관계 ${index + 1} 대상`}
+                        value={relationship.targetId}
+                        onChange={(event) =>
+                          change(
+                            "relationships",
+                            definition.relationships.map((value, i) =>
+                              i === index ? { ...value, targetId: event.target.value } : value,
+                            ),
+                          )
+                        }
+                      >
+                        {missingTarget && (
+                          <option value={relationship.targetId} disabled>
+                            삭제된 캐릭터 · {relationship.targetId.slice(-8)}
+                          </option>
+                        )}
+                        {relationshipTargets
+                          .filter(
+                            (target) =>
+                              target.id === relationship.targetId ||
+                              !definition.relationships.some(
+                                ({ targetId }) => targetId === target.id,
+                              ),
+                          )
+                          .map((target) => (
+                            <option key={target.id} value={target.id}>
+                              {targetName(target)}
+                            </option>
+                          ))}
+                      </Select>
+                      <Button
+                        variant="quiet"
+                        size="compact"
+                        type="button"
+                        aria-label={`관계 ${index + 1} 삭제`}
+                        onClick={() =>
+                          change(
+                            "relationships",
+                            definition.relationships.filter((_, i) => i !== index),
+                          )
+                        }
+                      >
+                        삭제
+                      </Button>
+                    </div>
+                    <TextArea
+                      aria-label={`관계 ${index + 1} 설명`}
+                      className={s.textarea}
+                      rows={2}
+                      maxLength={500}
+                      required
+                      placeholder="예: 오래된 친구라 편하게 장난치지만 힘들어하면 먼저 챙겨요."
+                      value={relationship.description}
+                      onChange={(event) =>
+                        change(
+                          "relationships",
+                          definition.relationships.map((value, i) =>
+                            i === index ? { ...value, description: event.target.value } : value,
+                          ),
+                        )
+                      }
+                    />
+                    <details>
+                      <summary>이름을 언급했을 때의 등록 반응</summary>
+                      <Lines
+                        title={`관계 ${index + 1} 반응`}
+                        lines={relationship.replyLines ?? []}
+                        limit={8}
+                        expressions={expressionKeys}
+                        clips={definition.animation?.clips ?? []}
+                        onSelect={() => {}}
+                        allowEmpty
+                        onChange={(replyLines) =>
+                          change(
+                            "relationships",
+                            definition.relationships.map((value, i) =>
+                              i === index ? { ...value, replyLines } : value,
+                            ),
+                          )
+                        }
+                      />
+                    </details>
+                    {character && target && (
+                      <AuthoringTrial
+                        title={`관계 ${index + 1} 시험`}
+                        actors={
+                          trialActors.some((member) => member.id === target.id)
+                            ? trialActors
+                            : [...trialActors, target]
+                        }
+                        subject={{
+                          kind: "relation",
+                          actorId: character.id,
+                          targetId: target.id,
+                        }}
+                        packId={character.packId}
+                        definition={packDefinition}
+                        baseline={packBaseline}
+                        presentIds={presentIds}
+                        assets={{
+                          ...trialAssets,
+                          [character.id]: trialAssets[character.id] ?? animationAssets,
+                        }}
+                        visible={tab === "relationships" && !pending}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+              <Button
+                variant="secondary"
+                size="compact"
+                type="button"
+                disabled={!nextTarget || definition.relationships.length >= MAX_RELATIONSHIPS}
+                onClick={() => {
+                  if (nextTarget) {
+                    change("relationships", [
+                      ...definition.relationships,
+                      { targetId: nextTarget.id, description: "" },
+                    ]);
+                  }
+                }}
+              >
+                관계 추가
+              </Button>
+              {relationshipTargets.length === 0 && (
+                <p className={s.small}>다른 캐릭터를 추가하면 관계를 설정할 수 있어요.</p>
+              )}
+            </section>
+          </CharacterWorkPanel>
         </fieldset>
       </TabPanel>
       <TabPanel value="appearance" className={s.editorPanel}>

@@ -1,4 +1,4 @@
-import { Button } from "@fleetia/lagrange";
+import { Button } from "../../ui";
 import { useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { localDay, text, type DataRecord } from "../toolData";
 import { CalendarColors } from "./CalendarColors";

@@ -68,7 +68,8 @@ it("requests Apple access only from the explicit button and connects only select
       act={act}
     />,
   );
-  fireEvent.change(screen.getByLabelText("연결 방식"), { target: { value: "apple" } });
+  fireEvent.click(screen.getByRole("button", { name: "+ 캘린더 연결…" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Apple 캘린더/ }));
   expect(command).not.toHaveBeenCalledWith("list_apple_calendars", expect.anything());
   expect(screen.getByText(/macOS는 조회에도 전체 접근 권한/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "macOS 권한 확인하고 캘린더 목록 읽기" }));
@@ -117,6 +118,7 @@ it("keeps an Apple permission denial recoverable without connecting or clearing 
     "disabled",
     true,
   );
+  fireEvent.click(screen.getByRole("button", { name: "취소" }));
   expect(screen.getByRole("heading", { name: "기존 연결" })).toBeTruthy();
   expect(command).not.toHaveBeenCalledWith("connect_calendar_apple", expect.anything());
   expect(command).not.toHaveBeenCalledWith("disconnect_calendar", expect.anything());
@@ -138,13 +140,17 @@ it("clears an earlier ICS command error during Apple setup while preserving the 
   );
   fireEvent.click(screen.getByRole("button", { name: "다시 조회" }));
   expect((await screen.findByRole("alert")).textContent).toBe(message);
-  fireEvent.change(screen.getByLabelText("연결 방식"), { target: { value: "apple" } });
+  fireEvent.click(screen.getByRole("button", { name: "+ 캘린더 연결…" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Apple 캘린더/ }));
   expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.getAllByText(message)).toHaveLength(1);
 
+  fireEvent.click(screen.getByRole("button", { name: "취소" }));
   vi.mocked(command).mockRejectedValueOnce(message);
   fireEvent.click(screen.getByRole("button", { name: "다시 조회" }));
   expect((await screen.findByRole("alert")).textContent).toBe(message);
+  fireEvent.click(screen.getByRole("button", { name: "+ 캘린더 연결…" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Apple 캘린더/ }));
   vi.mocked(command).mockResolvedValueOnce({
     supported: true,
     authorization: "full-access",
@@ -284,6 +290,7 @@ it("clears the private ICS URL only after successful connection", async () => {
     />,
   );
   expect(command).not.toHaveBeenCalledWith("connect_calendar_ics", expect.anything());
+  fireEvent.click(screen.getByRole("button", { name: "+ 캘린더 연결…" }));
   fireEvent.change(screen.getByLabelText(/^연결 이름\s*\*?$/), { target: { value: "개인" } });
   fireEvent.change(screen.getByLabelText(/^ICS \/ webcal 구독 주소\s*\*?$/), {
     target: { value: "https://example.com/private-token.ics" },
@@ -462,6 +469,8 @@ it("preserves collapsed reminder edits and saves only on explicit form submissio
       widget={widget("calendar", { connections: [], events: [] })}
     />,
   );
+  expect(screen.queryByRole("textbox", { name: /^연결 이름/ })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "+ 캘린더 연결…" }));
   expect(screen.getByRole("textbox", { name: /^연결 이름/ })).toBeTruthy();
   const disclosure = screen.getByText("일정과 생활 알림", { selector: "summary" });
   expect(disclosure.closest("details")).toHaveProperty("open", false);

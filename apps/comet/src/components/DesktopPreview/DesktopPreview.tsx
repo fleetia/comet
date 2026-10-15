@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type JSX } from "react";
-import { Button } from "@fleetia/lagrange";
+import { Button } from "../../ui";
 import { CompanionBox } from "../CompanionBox/CompanionBox";
 import { Balloon } from "../Balloon/Balloon";
 import { SettingsPanel } from "../SettingsPanel/SettingsPanel";

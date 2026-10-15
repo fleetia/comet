@@ -1,5 +1,6 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { semanticVars as vars, componentVars } from "@fleetia/lagrange/theme";
+import { semanticVars as vars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 
 export const window = style({
   height: "auto",
@@ -8,25 +9,30 @@ export const window = style({
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
-  background: vars.color.surface.canvas,
+  background: tokens["color/glass-panel"],
+  border: `1px solid ${tokens["color/glass-border"]}`,
+  borderRadius: 24,
+  backdropFilter: tokens["backdrop/backdrop-window"],
+  boxSizing: "border-box",
   color: vars.color.content.primary,
 });
 export const header = style({
-  height: 32,
-  flexShrink: 0,
-  padding: "0 12px",
+  height: 0,
 });
 export const search = style({
   display: "flex",
   alignItems: "center",
-  gap: 12,
-  margin: "12px 16px 8px",
-  padding: "4px 0 10px",
+  gap: 14,
+  minHeight: 66,
+  margin: 0,
+  padding: "0 18px 0 20px",
+  borderBottom: `1px solid ${tokens["color/divider"]}`,
   flexShrink: 0,
 });
 export const searchIcon = style({
-  fontSize: 24,
-  color: vars.color.content.secondary,
+  display: "flex",
+  alignItems: "center",
+  color: tokens["color/selected-icon"],
   lineHeight: 1,
 });
 export const input = style({
@@ -35,24 +41,28 @@ export const input = style({
   border: 0,
   background: "transparent",
   color: vars.color.content.primary,
-  fontSize: 19,
+  fontSize: 20,
+  fontFamily: tokens["typography/sans/body/fontFamily"],
   padding: "6px 0",
   outline: "none",
-  selectors: { "&:focus-visible": { outline: "none" } },
+  selectors: {
+    "&:focus-visible": { outline: "none" },
+    "&::placeholder": { color: tokens["color/ink-3"] },
+  },
 });
 export const hint = style({
-  padding: "0 16px 8px",
-  margin: 0,
-  flexShrink: 0,
-  fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
+  position: "absolute",
+  width: 1,
+  height: 1,
+  overflow: "hidden",
+  clipPath: "inset(50%)",
 });
 export const results = style({
   listStyle: "none",
   margin: 0,
-  padding: "0 8px 8px",
+  padding: "8px 10px 10px",
   flex: "0 1 auto",
-  maxHeight: 282,
+  maxHeight: 380,
   minHeight: 48,
   overflowY: "auto",
 });
@@ -60,24 +70,29 @@ export const result = style({
   display: "flex",
   alignItems: "center",
   gap: 12,
-  minHeight: 47,
-  padding: "7px 12px",
+  minHeight: 54,
+  padding: "9px 12px",
   cursor: "pointer",
-  borderRadius: 4,
+  borderRadius: tokens["radius/radius-12"],
+  border: "1px solid transparent",
   selectors: {
     '&[aria-selected="true"]': {
-      background: componentVars.navigation.selectedSurface,
-      color: componentVars.navigation.selectedText,
+      background: tokens["color/selected"],
+      color: tokens["color/selected-ink"],
+      borderColor: tokens["color/selected-border"],
     },
     '&[aria-disabled="true"]': { cursor: "default" },
   },
 });
 export const glyph = style({
-  width: 25,
-  textAlign: "center",
-  fontSize: 18,
+  width: 36,
+  height: 36,
+  display: "grid",
+  placeItems: "center",
+  borderRadius: tokens["radius/radius-10"],
+  background: tokens["color/icon-tile"],
+  color: tokens["color/icon-tile-ink"],
   flexShrink: 0,
-  opacity: 0.75,
 });
 export const resultText = style({
   display: "flex",
@@ -88,6 +103,7 @@ export const resultText = style({
 });
 export const title = style({
   fontSize: vars.typography.size.body,
+  fontWeight: 600,
   overflow: "hidden",
   whiteSpace: "nowrap",
   textOverflow: "ellipsis",
@@ -100,13 +116,14 @@ export const detail = style({
   textOverflow: "ellipsis",
 });
 globalStyle(`${result}[aria-selected="true"] ${detail}`, {
-  color: componentVars.navigation.selectedText,
+  color: tokens["color/selected-ink"],
+  opacity: 0.8,
 });
 export const preview = style({
   flexShrink: 0,
   borderTop: `1px solid ${vars.color.border.subtle}`,
   padding: "11px 20px",
-  background: vars.color.surface.muted,
+  background: tokens["color/component/selected-icon-alpha-80"],
   display: "flex",
   flexDirection: "column",
   gap: 6,
@@ -129,13 +146,15 @@ export const footer = style({
   justifyContent: "space-between",
   gap: 8,
   alignItems: "center",
-  padding: "7px 16px",
+  minHeight: 42,
+  padding: "8px 18px",
   flexShrink: 0,
   fontSize: vars.typography.size.caption,
   color: vars.color.content.secondary,
   borderTop: `1px solid ${vars.color.border.subtle}`,
 });
-export const keys = style({ display: "flex", gap: 12 });
+export const keys = style({ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" });
+globalStyle(`${keys} > span`, { display: "inline-flex", alignItems: "center", gap: 5 });
 globalStyle(`${keys} kbd`, { font: "inherit", color: vars.color.content.primary });
 export const error = style({
   margin: "0 16px 8px",
@@ -146,5 +165,27 @@ export const error = style({
   fontSize: vars.typography.size.caption,
   background: vars.color.status.criticalSurface,
   color: vars.color.status.critical,
+  borderRadius: tokens["radius/radius-10"],
 });
 export const errorActions = style({ display: "flex", gap: 8, marginTop: 8 });
+
+export const pickFriend = style({
+  flexShrink: 0,
+  display: "inline-flex",
+  gap: 6,
+  border: `1px solid ${tokens["color/chip-border"]}`,
+  background: tokens["color/chip"],
+  borderRadius: 13,
+  height: 26,
+  minHeight: 26,
+  padding: "0 10px 0 6px",
+  fontSize: 12,
+  color: tokens["color/ink-2"],
+  "@media": { "(max-width: 420px)": { fontSize: 0, padding: "0 4px", gap: 0 } },
+});
+
+export const groupLabel = style({
+  padding: "8px 12px 4px",
+  fontSize: 12,
+  color: tokens["color/ink-3"],
+});

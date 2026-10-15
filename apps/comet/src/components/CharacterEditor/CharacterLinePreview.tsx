@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type JSX } from "react";
-import { Button, Surface } from "@fleetia/lagrange";
+import { Button, Surface } from "../../ui";
 import type {
   AnimationAsset,
   CharacterDefinition,

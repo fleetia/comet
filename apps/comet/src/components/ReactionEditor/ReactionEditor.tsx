@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from "react";
-import { Button, Checkbox, FormField, Select, TextArea, TextField } from "@fleetia/lagrange";
+import { Button, Checkbox, FormField, Select, TextArea, TextField } from "../../ui";
 import type {
   AnimationAsset,
   AnimationBinding,

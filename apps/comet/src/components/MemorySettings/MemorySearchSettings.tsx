@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, Checkbox, Surface } from "@fleetia/lagrange";
+import { Button, Checkbox, Surface } from "../../ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
+import { Button as CometButton, SettingControlRow, Switch } from "@comet/ui";
+import { ImportIcon } from "@comet/icon";
+import * as figma from "../SettingsPanel/figmaSettings.css";
 import type { MemorySearchStatus, NlpModel } from "../../types";
 import * as s from "../../lagrange.css";
 import * as styles from "./memorySearchSettings.css";
@@ -54,9 +57,11 @@ const STATES: Record<string, string> = {
 export function MemorySearchSettings({
   className,
   hidden,
+  compact = false,
 }: {
   className?: string;
   hidden?: boolean;
+  compact?: boolean;
 }): JSX.Element {
   const [status, setStatus] = useState<MemorySearchStatus | null>(isDesktop() ? null : PREVIEW);
   const [error, setError] = useState<string | null>(null);
@@ -121,6 +126,119 @@ export function MemorySearchSettings({
       if (mounted.current) setError(errorText(cause));
     }
   }
+  if (compact)
+    return (
+      <section className={figma.section} aria-label="기억 검색 설정" hidden={hidden}>
+        <h2 className={figma.sectionTitle}>기억 찾기</h2>
+        <div className={figma.group}>
+          {status ? (
+            (["kiwi", "semantic"] as const).map((model) => {
+              const info = status.nlp[model];
+              const downloading = ["downloading", "verifying"].includes(info.state);
+              return (
+                <div key={model}>
+                  <SettingControlRow
+                    className={figma.row}
+                    title={model === "kiwi" ? "한국어 분석" : "뜻으로 찾기"}
+                    description={`${model === "kiwi" ? "조사나 어미가 달라도 기억을 찾아요" : "표현이 달라도 비슷한 기억을 찾아요"}${info.totalBytes ? ` · ${(info.totalBytes / 1_000_000).toFixed(0)}MB` : ""}`}
+                    control={
+                      info.installed ? (
+                        <div className={styles.actions}>
+                          <Switch
+                            aria-label={`${LABELS[model]} 사용`}
+                            checked={info.enabled}
+                            disabled={!!pending || !isDesktop()}
+                            onChange={(event) =>
+                              void run("set_memory_search_settings", {
+                                settings: {
+                                  ...status.nlp.settings,
+                                  [model === "kiwi" ? "kiwiEnabled" : "semanticEnabled"]:
+                                    event.target.checked,
+                                },
+                              })
+                            }
+                          />
+                          <CometButton
+                            variant="ghost"
+                            size="small"
+                            disabled={!!pending}
+                            onClick={() => setConfirmRemove(model)}
+                          >
+                            제거
+                          </CometButton>
+                        </div>
+                      ) : downloading ? (
+                        <CometButton
+                          variant="ghost"
+                          size="small"
+                          onClick={() => void cancel(model)}
+                        >
+                          다운로드 중단
+                        </CometButton>
+                      ) : info.state === "unavailable" ? (
+                        <span className={figma.caption}>준비 중</span>
+                      ) : (
+                        <CometButton
+                          aria-label={`${LABELS[model]} 내려받기`}
+                          variant="ghost"
+                          size="small"
+                          disabled={!!pending || !isDesktop()}
+                          onClick={() => void run("download_nlp_model", { model })}
+                        >
+                          <ImportIcon size={15} />
+                          내려받기
+                        </CometButton>
+                      )
+                    }
+                  />
+                  {downloading && (
+                    <progress
+                      aria-label={`${LABELS[model]} 다운로드 진행`}
+                      max={info.totalBytes || 1}
+                      value={info.downloadedBytes}
+                    />
+                  )}
+                  {confirmRemove === model && (
+                    <div className={styles.confirmation}>
+                      <p className={figma.caption}>
+                        검색 모델과 다시 만들 수 있는 색인을 제거해요. 원문과 기억은 그대로 남아요.
+                      </p>
+                      <CometButton
+                        variant="ghost"
+                        disabled={!!pending}
+                        onClick={() => void run("remove_nlp_model", { model })}
+                      >
+                        {LABELS[model]} 제거 확인
+                      </CometButton>
+                      <CometButton
+                        variant="ghost"
+                        disabled={!!pending}
+                        onClick={() => setConfirmRemove(null)}
+                      >
+                        제거 취소
+                      </CometButton>
+                    </div>
+                  )}
+                  {info.error && <p className={figma.caption}>{info.error}</p>}
+                </div>
+              );
+            })
+          ) : (
+            <p role="status">검색 설정을 불러오고 있어요.</p>
+          )}
+        </div>
+        {(error || fetchError) && (
+          <p role="alert" className={s.error}>
+            {error || fetchError}
+          </p>
+        )}
+        {notice && (
+          <p role="status" className={s.success}>
+            {notice}
+          </p>
+        )}
+      </section>
+    );
   return (
     <Surface
       hidden={hidden}

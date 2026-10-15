@@ -12,11 +12,16 @@ vi.mock("../hooks/useSnapshot", async (load) => ({
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({ listen: vi.fn().mockResolvedValue(() => {}) }),
 }));
+let previousMotion: string | undefined;
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  if (previousMotion === undefined) delete document.documentElement.dataset.cometMotion;
+  else document.documentElement.dataset.cometMotion = previousMotion;
 });
 beforeEach(() => {
+  previousMotion = document.documentElement.dataset.cometMotion;
+  document.documentElement.dataset.cometMotion = "reduced";
   vi.mocked(command)
     .mockReset()
     .mockImplementation(async (name) =>
@@ -36,11 +41,16 @@ it("hides the characters from the internal X without opening their menu", async 
 
 it("closes only the current NPC through its internal X", async () => {
   vi.mocked(isDesktop).mockReturnValue(true);
-  render(<CompanionBox id="builtin-b" snapshot={{
-    ...PREVIEW_SNAPSHOT,
-    characters: { ...PREVIEW_SNAPSHOT.characters, active: ["builtin-a"] },
-    runtime: { ...PREVIEW_SNAPSHOT.runtime, guestCharacterIds: ["builtin-b"] },
-  }} />);
+  render(
+    <CompanionBox
+      id="builtin-b"
+      snapshot={{
+        ...PREVIEW_SNAPSHOT,
+        characters: { ...PREVIEW_SNAPSHOT.characters, active: ["builtin-a"] },
+        runtime: { ...PREVIEW_SNAPSHOT.runtime, guestCharacterIds: ["builtin-b"] },
+      }}
+    />,
+  );
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 숨기기" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("leave_character_guest"));
   expect(command).not.toHaveBeenCalledWith("hide_boxes");
@@ -182,8 +192,9 @@ it("shows foreground generation while automatic conversation is paused", () => {
       }}
     />,
   );
-  expect(screen.getByRole("status").textContent).toBe("답변 준비 중...");
-  expect(screen.getByRole("status").querySelector('[aria-hidden="true"]')?.textContent).toBe("...");
+  expect(
+    screen.getByRole("status", { name: "답변 준비 중" }).querySelectorAll('[aria-hidden="true"]'),
+  ).toHaveLength(3);
 });
 
 it("shows waiting dots until dialogue arrives and clears them when generation stops", () => {
@@ -191,11 +202,11 @@ it("shows waiting dots until dialogue arrives and clears them when generation st
   const { rerender } = render(
     <Balloon snapshot={{ ...snapshot, runtime: { ...snapshot.runtime, phase: "loading" } }} />,
   );
-  expect(screen.getByText("답변 준비 중")).toBeTruthy();
+  expect(screen.getByRole("status", { name: "답변 준비 중" })).toBeTruthy();
   rerender(
     <Balloon snapshot={{ ...snapshot, runtime: { ...snapshot.runtime, phase: "generating" } }} />,
   );
-  expect(screen.getByText("답변 준비 중")).toBeTruthy();
+  expect(screen.getByRole("status", { name: "답변 준비 중" })).toBeTruthy();
   rerender(
     <Balloon
       snapshot={{
@@ -215,10 +226,10 @@ it("shows waiting dots until dialogue arrives and clears them when generation st
     />,
   );
   expect(screen.getByText("안녕!")).toBeTruthy();
-  expect(screen.queryByText("답변 준비 중")).toBeNull();
+  expect(screen.queryByRole("status", { name: "답변 준비 중" })).toBeNull();
   for (const phase of ["idle", "error"] as const) {
     rerender(<Balloon snapshot={{ ...snapshot, runtime: { ...snapshot.runtime, phase } }} />);
-    expect(screen.queryByText("답변 준비 중")).toBeNull();
+    expect(screen.queryByRole("status", { name: "답변 준비 중" })).toBeNull();
   }
 });
 
@@ -364,23 +375,38 @@ it("routes grouped menu actions and retains an input draft through a menu round 
   await waitFor(() =>
     expect(command).toHaveBeenLastCalledWith("open_panel", { persona: "builtin-b", mode: "menu" }),
   );
-  rerender(<Balloon snapshot={{ ...snapshot, panel: { persona: "b", mode: "menu" } }} />);
-  for (const group of ["대화", "관리", "자동 잡담과 표시"]) {
-    expect(screen.getByLabelText(group)).toBeTruthy();
+  const menuSnapshot = { ...snapshot, panel: { persona: "b" as const, mode: "menu" as const } };
+  function reopenMenu(): void {
+    rerender(<Balloon snapshot={{ ...snapshot, panel: null }} />);
+    rerender(<Balloon snapshot={menuSnapshot} />);
   }
-  expect(screen.queryByRole("button", { name: "캐릭터 관리" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "위젯 관리" })).toBeNull();
-  fireEvent.click(screen.getByText("자동 잡담 쉬기"));
-  for (const [label, name, args] of [
-    ["설정", "open_settings", undefined],
-    ["다시 시작할 때까지", "set_paused", { paused: true }],
-    ["캐릭터 숨기기", "hide_boxes", undefined],
-    ["1시간", "set_paused", { paused: true, minutes: 60 }],
-    ["말 걸기", "open_panel", { persona: "builtin-b", mode: "input" }],
-  ] as const) {
-    fireEvent.click(screen.getByRole("button", { name: label }));
-    await waitFor(() => expect(command).toHaveBeenLastCalledWith(name, args));
-  }
+  rerender(<Balloon snapshot={menuSnapshot} />);
+  expect(screen.getByRole("group", { name: /함께하기$/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "설정" }));
+  await waitFor(() => expect(command).toHaveBeenLastCalledWith("open_settings", undefined));
+  reopenMenu();
+  fireEvent.click(screen.getByRole("button", { name: "교감" }));
+  fireEvent.click(screen.getByRole("button", { name: "자동 잡담 쉬기" }));
+  fireEvent.click(screen.getByRole("button", { name: "다시 시작할 때까지" }));
+  await waitFor(() => expect(command).toHaveBeenLastCalledWith("set_paused", { paused: true }));
+  rerender(
+    <Balloon snapshot={{ ...menuSnapshot, runtime: { ...snapshot.runtime, paused: true } }} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "다시 시작" }));
+  await waitFor(() => expect(command).toHaveBeenLastCalledWith("set_paused", { paused: false }));
+  rerender(<Balloon snapshot={menuSnapshot} />);
+  fireEvent.click(screen.getByRole("button", { name: "자동 잡담 쉬기" }));
+  fireEvent.click(screen.getByRole("button", { name: "1시간" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenLastCalledWith("set_paused", { paused: true, minutes: 60 }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "캐릭터 숨기기" }));
+  await waitFor(() => expect(command).toHaveBeenLastCalledWith("hide_boxes", undefined));
+  reopenMenu();
+  fireEvent.click(screen.getByRole("button", { name: "말 걸기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenLastCalledWith("open_panel", { persona: "builtin-b", mode: "input" }),
+  );
   rerender(<Balloon snapshot={snapshot} />);
   expect(screen.getByRole("textbox")).toHaveProperty("value", "  아직 쓰던 말\n다음 줄");
 });
@@ -399,6 +425,7 @@ it("shows when a timed pause ends and offers only resume while paused", () => {
   const end = new Date(until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   expect(screen.getByText(`${end}까지 자동 잡담 쉬는 중`)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "1시간" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "교감" }));
   expect(screen.getByRole("button", { name: "다시 시작" })).toBeTruthy();
 });
 

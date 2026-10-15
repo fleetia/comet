@@ -1,4 +1,4 @@
-import { Button, Checkbox, FormField, TextField } from "@fleetia/lagrange";
+import { Button, Checkbox, FormField, TextField } from "../../ui";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";

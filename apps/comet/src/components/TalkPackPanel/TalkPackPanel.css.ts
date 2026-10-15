@@ -1,85 +1,85 @@
 import { style } from "@vanilla-extract/css";
-import { semanticVars as vars, vnextVars } from "@fleetia/lagrange/theme";
-export const workspace = style({
-  display: "grid",
-  gridTemplateColumns: "368px minmax(0,800px)",
-  maxWidth: 1184,
-  gap: vars.space.lg,
-  minHeight: 0,
-  alignItems: "start",
-  "@media": { "(max-width: 1280px)": { gridTemplateColumns: "224px minmax(0,1fr)" } },
+import { tokens } from "@comet/token";
+export const scene = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: 14,
+  padding: "16px 14px 12px",
+  borderRadius: 18,
+  background: tokens["color/input"],
+  border: `1px dashed ${tokens["color/card-border"]}`,
 });
-export const catalogue = style({
-  display: "grid",
-  gap: vars.space.sm,
-  alignContent: "start",
-  minHeight: 232,
-  maxHeight: "100%",
-  overflowY: "auto",
-});
-export const catalogueHeading = style({ minHeight: 28 });
-export const list = style({
-  display: "grid",
-  gap: vars.space.sm,
-  listStyle: "none",
-  padding: 0,
-  margin: 0,
-});
-export const item = style({
-  display: "grid",
-  width: "100%",
-  textAlign: "left",
-  gap: vars.space.xs,
-  minHeight: 56,
-});
-export const caption = style({
-  fontSize: vars.typography.size.caption,
-  lineHeight: vars.typography.lineHeight.body,
-  color: vars.color.content.secondary,
-  selectors: {
-    [`${item}[aria-pressed="true"] &`]: { color: vars.color.content.onAccent },
-  },
-});
-export const detail = style({
-  display: "grid",
-  gap: vars.space.lg,
-  alignContent: "start",
-  minHeight: 464,
+export const firstBalloon = style({
+  width: 248,
+  maxWidth: "100%",
   minWidth: 0,
-  maxHeight: "100%",
-  overflowY: "auto",
-  "@media": { "(max-height: 700px)": { minHeight: 0 } },
+  boxSizing: "border-box",
 });
-export const header = style({
+export const secondBalloon = style({
+  width: 212,
+  maxWidth: "100%",
+  minWidth: 0,
+  boxSizing: "border-box",
+  alignSelf: "flex-end",
+});
+export const sceneCharacters = style({
   display: "flex",
   alignItems: "center",
-  minHeight: vars.dimension.control,
   justifyContent: "space-between",
-  gap: vars.space.lg,
+  padding: "6px 18px 0",
 });
-export const status = style({
-  background: vars.color.surface.muted,
-  padding: `${vars.space.xs} ${vars.space.md}`,
-  borderRadius: vnextVars.radius.inset,
-  minWidth: 164,
-  fontSize: vars.typography.size.caption,
-});
-export const context = style({
+export const byul = style({ position: "relative", display: "block", width: 72, height: 72 });
+export const byulBody = style({ position: "absolute", top: "12.5%", left: "20.31%" });
+export const byulFace = style({ position: "absolute", top: "23.44%", left: "12.5%" });
+export const nadir = style({
   display: "grid",
-  gap: vars.space.sm,
-  minHeight: 128,
-  alignContent: "start",
+  placeItems: "center",
+  width: 60,
+  height: 60,
+  borderRadius: 18,
+  color: tokens["color/ink"],
+  background: tokens["color/glass-capsule"],
+  border: `1px solid ${tokens["color/live"]}`,
+  boxShadow: `0 0 15px ${tokens["color/component/live-alpha-160"]}`,
+  fontSize: 12,
 });
-export const actions = style({
+export const note = style({
+  margin: 0,
+  paddingTop: 14,
+  borderTop: `1px solid ${tokens["color/divider"]}`,
+  color: tokens["color/ink-2"],
+  fontSize: 12.5,
+  lineHeight: "18px",
+});
+export const installedCard = style({
   display: "flex",
   alignItems: "center",
-  flexWrap: "wrap",
-  gap: vars.space.lg,
+  gap: 12,
+  minWidth: 0,
+  minHeight: 74,
+  padding: "12px 14px 12px 16px",
+  background: tokens["color/card"],
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: 18,
 });
-export const actionButton = style({ minWidth: 120 });
-export const manuscript = style({
-  borderTop: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
-  paddingTop: vars.space.lg,
-  display: "grid",
-  gap: vars.space.lg,
+export const packCopy = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: 3,
+  flex: 1,
+  minWidth: 0,
+  padding: 0,
+  border: 0,
+  font: "inherit",
+  color: tokens["color/ink"],
+  textAlign: "left",
+  background: "transparent",
+  cursor: "pointer",
+  selectors: {
+    "&:focus-visible": {
+      outline: `2px solid ${tokens["color/focus-ring"]}`,
+      outlineOffset: 3,
+      borderRadius: 6,
+    },
+  },
 });

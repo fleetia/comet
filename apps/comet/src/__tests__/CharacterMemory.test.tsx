@@ -1,3 +1,4 @@
+import { openCharacterPage, selectFriend } from "./characterNavigation";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { CharacterManager } from "../components/CharacterManager/CharacterManager";
@@ -56,20 +57,15 @@ beforeEach(() => {
 });
 
 function characterTab(name: string): void {
-  fireEvent.click(
-    within(screen.getByRole("tablist", { name: "캐릭터 편집" })).getByRole("tab", { name }),
-  );
+  openCharacterPage(name);
 }
 function choose(name: string): void {
-  fireEvent.click(
-    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", {
-      name: new RegExp(`^${name}`),
-    }),
-  );
+  selectFriend(new RegExp(`^${name}`));
 }
 
 it("keeps character memory drafts independent and scopes edits and forgetting without showing internal person labels", async () => {
   render(<CharacterManager snapshot={PREVIEW_SNAPSHOT} />);
+  openCharacterPage("프로필");
   characterTab("기억");
   const memoryPanel = () => within(screen.getByRole("tabpanel", { name: "기억" }));
   fireEvent.change(await memoryPanel().findByRole("textbox", { name: "기억 내용" }), {
@@ -120,6 +116,7 @@ it("keeps character memory drafts independent and scopes edits and forgetting wi
 
 it("requires counted confirmation to forget one character and opens individual export from its settings", async () => {
   render(<CharacterManager snapshot={PREVIEW_SNAPSHOT} />);
+  openCharacterPage("프로필");
   characterTab("관리");
   const forget = await screen.findByRole("button", { name: "이 캐릭터의 기억 전체 잊기 (1개)" });
   fireEvent.click(forget);
@@ -170,7 +167,7 @@ it("offers independent export choices and presets reset private flags while pres
 
 it("registers a trimmed name, leaves same-name changes alone, and explicitly confirms a new relationship", async () => {
   const { rerender } = render(<UserSettings snapshot={{ ...PREVIEW_SNAPSHOT, user: null }} />);
-  fireEvent.change(screen.getByLabelText("캐릭터가 부를 이름"), { target: { value: "  민수  " } });
+  fireEvent.change(screen.getByLabelText("부를 이름"), { target: { value: "  민수  " } });
   fireEvent.click(screen.getByRole("button", { name: "이름 저장" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("set_user_name", { name: "민수" }));
   rerender(
@@ -181,18 +178,20 @@ it("registers a trimmed name, leaves same-name changes alone, and explicitly con
       }}
     />,
   );
-  fireEvent.change(screen.getByLabelText("캐릭터가 부를 이름"), { target: { value: "민수 " } });
-  expect(screen.getByRole("button", { name: "이름 변경" })).toHaveProperty("disabled", true);
-  fireEvent.change(screen.getByLabelText("캐릭터가 부를 이름"), { target: { value: "지연" } });
-  fireEvent.click(screen.getByRole("button", { name: "이름 변경" }));
+  fireEvent.change(screen.getByLabelText("부를 이름"), { target: { value: "민수 " } });
+  expect(screen.getByRole("button", { name: "바꾸기…" })).toHaveProperty("disabled", true);
+  fireEvent.change(screen.getByLabelText("부를 이름"), { target: { value: "지연" } });
+  fireEvent.click(screen.getByRole("button", { name: "바꾸기…" }));
   expect(command).toHaveBeenCalledTimes(1);
-  expect(screen.getByRole("dialog").textContent).toContain("스토리 진행은 처음부터 시작");
-  fireEvent.click(screen.getByRole("button", { name: "이름 변경 확인" }));
+  expect(screen.getByRole("group", { name: "이름 변경 확인" }).textContent).toContain(
+    "이야기 진행을 처음부터 시작",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "바꾸기" }));
   await waitFor(() => expect(command).toHaveBeenLastCalledWith("set_user_name", { name: "지연" }));
   await screen.findByText("이름을 저장했어요.");
-  fireEvent.change(screen.getByLabelText("캐릭터가 부를 이름"), { target: { value: "민수" } });
-  fireEvent.click(screen.getByRole("button", { name: "이름 변경" }));
-  fireEvent.click(screen.getByRole("button", { name: "이름 변경 확인" }));
+  fireEvent.change(screen.getByLabelText("부를 이름"), { target: { value: "민수" } });
+  fireEvent.click(screen.getByRole("button", { name: "바꾸기…" }));
+  fireEvent.click(screen.getByRole("button", { name: "바꾸기" }));
   await waitFor(() => expect(command).toHaveBeenLastCalledWith("set_user_name", { name: "민수" }));
   expect(command).toHaveBeenCalledTimes(3);
 });
@@ -201,24 +200,25 @@ it("rejects blank and overlong names and preserves a failed registration draft",
   vi.mocked(command).mockRejectedValue(new Error("이름 저장 실패"));
   render(<UserSettings snapshot={{ ...PREVIEW_SNAPSHOT, user: null }} />);
   for (const name of ["  ", "가".repeat(41)]) {
-    fireEvent.change(screen.getByLabelText("캐릭터가 부를 이름"), { target: { value: name } });
+    fireEvent.change(screen.getByLabelText("부를 이름"), { target: { value: name } });
     expect(screen.getByRole("button", { name: "이름 저장" })).toHaveProperty("disabled", true);
   }
-  fireEvent.change(screen.getByLabelText("캐릭터가 부를 이름"), { target: { value: "유저" } });
+  fireEvent.change(screen.getByLabelText("부를 이름"), { target: { value: "유저" } });
   fireEvent.click(screen.getByRole("button", { name: "이름 저장" }));
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "이름 저장 실패");
-  expect(screen.getByLabelText("캐릭터가 부를 이름")).toHaveProperty("value", "유저");
+  expect(screen.getByLabelText("부를 이름")).toHaveProperty("value", "유저");
 });
 
 it("routes legacy memory destinations into the selected character and moves search settings to AI connection", async () => {
   vi.mocked(isDesktop).mockReturnValue(false);
   render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="memory" />);
-  expect(screen.getByRole("tab", { name: "기억", selected: true })).toBeTruthy();
+  expect(screen.getByRole("tab", { name: "친구들", selected: true })).toBeTruthy();
+  expect(screen.getByRole("tabpanel", { name: "기억" })).toBeTruthy();
   expect(
     within(screen.getByRole("tablist", { name: "설정 항목" })).queryByRole("tab", { name: "기억" }),
   ).toBeNull();
   fireEvent.click(screen.getByRole("tab", { name: "AI 연결" }));
-  expect(screen.getByRole("heading", { name: "기억 검색" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "기억 찾기" })).toBeTruthy();
 });
 
 it("allows settings navigation before registration and asks for a name in the balloon", () => {
@@ -245,6 +245,7 @@ it("assigns legacy memory explicitly to selected characters only", async () => {
       : undefined,
   );
   render(<UserSettings snapshot={{ ...PREVIEW_SNAPSHOT, legacyMemoryCount: 1 }} />);
+  fireEvent.click(screen.getByRole("button", { name: /주인을 정하지 않은 기억/ }));
   fireEvent.click(await screen.findByLabelText("커피를 좋아함"));
   expect(screen.getByRole("button", { name: "선택한 기억 배분" })).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByLabelText("B"));
@@ -292,18 +293,16 @@ it("reads a character history page with the original name, keeping imported reco
 
 it("keeps failed rename and bulk-forget confirmations open with their errors visible for retry", async () => {
   const { unmount } = render(<UserSettings snapshot={PREVIEW_SNAPSHOT} />);
-  fireEvent.change(screen.getByLabelText("캐릭터가 부를 이름"), { target: { value: "지연" } });
-  fireEvent.click(screen.getByRole("button", { name: "이름 변경" }));
+  fireEvent.change(screen.getByLabelText("부를 이름"), { target: { value: "지연" } });
+  fireEvent.click(screen.getByRole("button", { name: "바꾸기…" }));
   vi.mocked(command).mockRejectedValueOnce(new Error("변경 실패"));
-  fireEvent.click(screen.getByRole("button", { name: "이름 변경 확인" }));
-  expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveProperty(
-    "textContent",
-    "변경 실패",
-  );
-  fireEvent.click(screen.getByRole("button", { name: "이름 변경 확인" }));
-  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  fireEvent.click(screen.getByRole("button", { name: "바꾸기" }));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "변경 실패");
+  fireEvent.click(screen.getByRole("button", { name: "바꾸기" }));
+  await waitFor(() => expect(screen.queryByRole("group", { name: "이름 변경 확인" })).toBeNull());
   unmount();
   render(<CharacterManager snapshot={PREVIEW_SNAPSHOT} />);
+  openCharacterPage("프로필");
   characterTab("관리");
   fireEvent.click(await screen.findByRole("button", { name: "이 캐릭터의 기억 전체 잊기 (1개)" }));
   vi.mocked(command).mockRejectedValueOnce(new Error("잊기 실패"));

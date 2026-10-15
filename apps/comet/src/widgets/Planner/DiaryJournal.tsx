@@ -1,4 +1,4 @@
-import { Button } from "@fleetia/lagrange";
+import { Button } from "../../ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import * as s from "./diaryEnvelope.css";

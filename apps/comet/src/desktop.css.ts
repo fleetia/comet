@@ -1,11 +1,18 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { vnextThemeClass, semanticVars as vars } from "@fleetia/lagrange/theme";
-import { localFonts } from "./fonts.css";
+import { tokens } from "@comet/token";
+import { semanticVars as vars } from "@fleetia/lagrange/theme";
 import * as shared from "./lagrange.css";
 
-export const theme = style([vnextThemeClass, localFonts]);
+export { theme } from "./theme.css";
 
-export const documentRoot = style({ minHeight: "100%" });
+export const documentRoot = style({
+  minHeight: "100%",
+  colorScheme: "dark",
+  color: tokens["color/ink"],
+  fontFamily: `${tokens["typography/sans/body/fontFamily"]}, sans-serif`,
+  fontSize: tokens["typography/sans/body/fontSize"],
+  lineHeight: tokens["typography/sans/body/lineHeight"],
+});
 export const root = style({ minHeight: "100dvh" });
 
 globalStyle(`${documentRoot} body`, { WebkitFontSmoothing: "antialiased" });
@@ -35,12 +42,14 @@ globalStyle(`${root} ${shared.settings}`, {
 globalStyle(`${root} ${shared.settingsTitle}`, {
   color: vars.color.content.accent,
   fontFamily: vars.typography.family.display,
+  fontWeight: tokens["typography/display/page/fontWeight"],
   lineHeight: vars.typography.lineHeight.tight,
   margin: `0 0 ${vars.space.sm}`,
 });
 globalStyle(`${root} ${shared.sectionTitle}`, {
   color: vars.color.content.accent,
   fontFamily: vars.typography.family.display,
+  fontWeight: tokens["typography/display/title-sm/fontWeight"],
   lineHeight: vars.typography.lineHeight.compact,
   fontSize: vars.typography.size.headingSm,
   marginBottom: vars.space.lg,
@@ -60,7 +69,6 @@ globalStyle(`${root} ${shared.section}`, {
 globalStyle(`${root} ${shared.choice}`, {
   flex: "0 1 auto",
   padding: `${vars.space.sm} ${vars.space.md}`,
-  borderWidth: 0,
 });
 
 export const pageHeader = style({

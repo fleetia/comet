@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, SectionHeader, SelectableListRow, Surface } from "@fleetia/lagrange";
+import { Button } from "../../ui";
+import { Balloon as PreviewBalloon, SettingControlRow, Switch } from "@comet/ui";
+import { ChatIcon, ImportIcon, TogetherIcon } from "@comet/icon";
+import byulBody from "../../assets/figma/talk-byul-body.svg";
+import byulFace from "../../assets/figma/talk-byul-face.svg";
+import * as figma from "../SettingsPanel/figmaSettings.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { TalkPack } from "../../types";
 import * as s from "../../lagrange.css";
@@ -70,93 +75,141 @@ export function TalkPackPanel(): JSX.Element {
     }
   }
   return (
-    <section className={t.workspace} aria-label="대화팩">
-      <Surface className={t.catalogue}>
-        <SectionHeader
-          className={t.catalogueHeading}
-          title="동봉 대화팩"
-          headingVariant="subsection"
-          rule="none"
-        />
-        <p className={s.quiet}>
-          설치됨 {packs?.filter((pack) => pack.installed).length ?? 0} · 추가 가능{" "}
-          {packs?.filter((pack) => !pack.installed).length ?? 0}
+    <section className={figma.split} aria-label="대화팩">
+      <aside className={figma.inspector}>
+        <h1 className={figma.inspectorTitle}>
+          <span className={figma.icon}>
+            <ChatIcon size={18} />
+          </span>
+          대화팩
+        </h1>
+        <p className={figma.caption}>
+          시간·날씨·위젯에 맞춰 친구들이 이야기해요. 대화팩은 대사만 담아요.
         </p>
-        {packs === null ? (
-          <p className={s.quiet} role="status">
-            대화팩 목록을 읽고 있어요.
-          </p>
-        ) : (
-          <ul className={t.list} aria-label="대화팩 목록">
-            {packs.map((pack) => (
-              <li key={pack.id}>
-                <SelectableListRow
-                  className={t.item}
-                  selected={selected?.id === pack.id}
-                  disabled={pending !== null}
-                  onClick={() => {
-                    setSelectedId(pack.id);
-                    setError(null);
-                    setNotice(null);
-                  }}
-                  aria-label={`${pack.name} 선택`}
-                >
-                  <strong>{pack.name}</strong>
-                  <span className={t.caption}>
-                    {pack.bundled ? "동봉" : "직접 추가한 팩"} ·{" "}
-                    {pack.installed ? "설치됨" : "설치 안 됨"}
-                    {pack.defaultInstalled ? " · 기본 설치" : ""}
-                  </span>
-                </SelectableListRow>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Surface>
-      <Surface className={t.detail}>
+        <div className={t.scene} aria-label="나디르와 별꼬리 대화 예시">
+          <PreviewBalloon className={t.firstBalloon} speaker="byulkkori" tail="left">
+            구름이 조금 꼈네. 산책하기 딱 좋겠다!
+          </PreviewBalloon>
+          <PreviewBalloon className={t.secondBalloon} speaker="nadir" tail="right">
+            그럼 간식도 챙겨 갈까요.
+          </PreviewBalloon>
+          <div className={t.sceneCharacters}>
+            <span className={t.byul}>
+              <img src={byulBody} alt="" className={t.byulBody} />
+              <img src={byulFace} alt="" className={t.byulFace} />
+            </span>
+            <span className={t.nadir}>(¬‿¬)</span>
+          </div>
+        </div>
+        <p className={figma.caption}>나디르와 별꼬리 팩 · 날씨 위젯이 ‘구름 조금’일 때</p>
+        <p className={t.note}>팩을 끄면 그 팩의 대사만 쉬어요. 단어장과 반응 대사는 그대로예요.</p>
         {selected && (
-          <>
-            <div className={t.header}>
-              <SectionHeader title={selected.name} headingVariant="subsection" rule="none" />
-              <span className={t.status}>{selected.installed ? "설치됨" : "설치 안 됨"}</span>
+          <div className={figma.note}>
+            <div className={figma.noteCopy}>
+              <h2 className={figma.sectionTitle}>{selected.name}</h2>
+              <p className={figma.caption}>{selected.description}</p>
             </div>
-            {selected.description && <p>{selected.description}</p>}
-            <Surface tone="accent" className={t.context}>
-              <strong>
-                {selected.id === "nadir-and-star-tail"
-                  ? "나디르와 별꼬리가 이야기해요"
-                  : "함께 지내는 친구가 이야기해요"}
-              </strong>
-              <p>
-                {selected.id === "nadir-and-star-tail"
-                  ? "나디르·별꼬리가 함께 지낼 때 재생돼요."
-                  : "함께 지내는 1~8명 중 무작위로 화자를 골라요."}
-              </p>
-            </Surface>
-            <div className={t.actions}>
-              <Button
-                className={t.actionButton}
-                variant={selected.installed ? "secondary" : "primary"}
-                disabled={pending !== null || (!selected.installed && !selected.bundled)}
-                aria-label={`${selected.name} ${selected.installed ? "제거" : "설치"}`}
-                onClick={() => void run(selected, !selected.installed)}
-              >
-                {pending === selected.id
-                  ? selected.installed
-                    ? "제거 중…"
-                    : "설치 중…"
-                  : selected.installed
-                    ? "대화팩 제거"
-                    : "대화팩 설치"}
-              </Button>
-              <span className={s.quiet}>
-                {selected.installed
-                  ? "이 팩의 대화만 멈춰요."
-                  : "설치하면 잠시 뒤 대사가 반영돼요."}
-              </span>
-            </div>
-          </>
+          </div>
         )}
+      </aside>
+      <div className={figma.right}>
+        <section className={figma.section}>
+          <h2 className={figma.sectionTitle}>설치한 대화팩</h2>
+          <div className={figma.summaryGrid}>
+            {packs
+              ?.filter((pack) => pack.installed)
+              .map((pack) => (
+                <div key={pack.id} className={t.installedCard}>
+                  <span className={figma.icon}>
+                    {pack.id === "nadir-and-star-tail" ? (
+                      <TogetherIcon size={20} />
+                    ) : (
+                      <ChatIcon size={20} />
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    className={t.packCopy}
+                    disabled={pending !== null}
+                    aria-label={`${pack.name} 선택`}
+                    onClick={() => {
+                      setSelectedId(pack.id);
+                      setError(null);
+                      setNotice(null);
+                    }}
+                  >
+                    <strong>{pack.name}</strong>
+                    <span className={figma.caption}>
+                      {pack.description || "앱에 포함된 대화팩"}
+                    </span>
+                  </button>
+                  <Switch
+                    aria-label={`${pack.name} 사용`}
+                    checked
+                    disabled={pending !== null}
+                    onChange={() => void run(pack, false)}
+                  />
+                </div>
+              ))}
+          </div>
+          {packs && !packs.some((pack) => pack.installed) && (
+            <p className={figma.caption}>설치한 대화팩이 없어요.</p>
+          )}
+        </section>
+        <section className={figma.section}>
+          <h2 className={figma.sectionTitle}>더 받을 수 있는 대화팩</h2>
+          <div className={figma.group}>
+            {packs
+              ?.filter((pack) => !pack.installed)
+              .map((pack) => (
+                <SettingControlRow
+                  key={pack.id}
+                  className={figma.row}
+                  title={
+                    <button
+                      type="button"
+                      className={t.packCopy}
+                      disabled={pending !== null}
+                      aria-label={`${pack.name} 선택`}
+                      onClick={() => {
+                        setSelectedId(pack.id);
+                        setError(null);
+                        setNotice(null);
+                      }}
+                    >
+                      {pack.name}
+                    </button>
+                  }
+                  description={pack.description}
+                  control={
+                    <Button
+                      variant="secondary"
+                      size="compact"
+                      aria-label={`${pack.name} 설치`}
+                      disabled={pending !== null || !pack.bundled}
+                      onClick={() => void run(pack, true)}
+                    >
+                      <ImportIcon size={15} />
+                      {pending === pack.id ? "설치 중…" : "설치"}
+                    </Button>
+                  }
+                />
+              ))}
+          </div>
+          <p className={figma.caption}>설치하면 잠시 뒤에 대사가 반영돼요.</p>
+        </section>
+        <section className={figma.section} aria-label="나만의 대본">
+          <h2 className={figma.sectionTitle}>나만의 대본</h2>
+          <div className={figma.group}>
+            <SettingControlRow
+              className={figma.row}
+              title="대본 편집기"
+              description="원문 작성·검사·저장은 별도 talk editor에서 해요. 유효하게 저장된 파일은 실행 중 자동으로 다시 읽어요."
+              control={<span className={figma.caption}>talk/index.talk</span>}
+            />
+          </div>
+        </section>
+        {packs === null && !error && <p role="status">대화팩 목록을 읽고 있어요.</p>}
         {error && (
           <p className={s.error} role="alert">
             {error}
@@ -167,15 +220,7 @@ export function TalkPackPanel(): JSX.Element {
             {notice}
           </p>
         )}
-        <section className={t.manuscript} aria-label="나만의 대본">
-          <strong>나만의 대본</strong>
-          <p className={s.quiet}>
-            원문 작성·검사·저장은 별도 talk editor에서 해요. 유효하게 저장된 파일은 실행 중 자동으로
-            다시 읽어요.
-          </p>
-          <p className={s.quiet}>talk/index.talk · 사용자 원문 보관</p>
-        </section>
-      </Surface>
+      </div>
     </section>
   );
 }

@@ -1,5 +1,6 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { semanticVars as v, componentVars, vnextVars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 
 export const root = style({
   width: "100%",
@@ -10,6 +11,7 @@ export const root = style({
   flexDirection: "column",
   color: v.color.content.primary,
 });
+export const settingsFields = style({ border: 0, padding: 0, margin: 0, minWidth: 0 });
 export const toolbar = style({
   display: "flex",
   justifyContent: "flex-end",
@@ -18,50 +20,32 @@ export const toolbar = style({
 });
 export const layout = style({
   display: "grid",
-  gridTemplateColumns: "minmax(0, 448px) minmax(0, 1fr)",
+  gridTemplateColumns: "310px minmax(0, 1fr)",
+  alignItems: "start",
+  gap: 22,
+  padding: 20,
   flex: 1,
   minHeight: 0,
-  overflow: "hidden",
-  transition: "grid-template-columns 280ms cubic-bezier(0.22, 1, 0.36, 1)",
-  selectors: {
-    '&[data-expanded="false"]': {
-      gridTemplateColumns: "minmax(0, 380px) minmax(0, 1fr)",
-    },
-  },
-  "@media": {
-    "(max-width: 650px)": {
-      selectors: {
-        '&[data-expanded="true"][data-resizing="false"]': {
-          gridTemplateColumns: "minmax(0, 1fr)",
-          overflowY: "auto",
-        },
-      },
-    },
-    "(prefers-reduced-motion: reduce)": { transition: "none" },
-  },
+  overflowY: "auto",
+  selectors: { '&[data-expanded="false"]': { gridTemplateColumns: "minmax(0, 310px) 0" } },
+  "@media": { "(max-width: 680px)": { gridTemplateColumns: "minmax(0, 1fr)", padding: 12 } },
 });
 export const timer = style({
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "stretch",
-  padding: v.space.xl,
+  width: "100%",
+  maxWidth: 310,
   minWidth: 0,
-  minHeight: 0,
-  overflowY: "auto",
-  gap: 0,
-  "@media": {
-    "(max-width: 650px)": {
-      selectors: {
-        '[data-resizing="false"] &': { width: "100%", maxWidth: 380, margin: "0 auto" },
-      },
-    },
-  },
+  padding: 16,
+  border: `1px solid ${tokens["color/glass-border-soft"]}`,
+  borderRadius: tokens["radius/radius-22"],
+  background: tokens["color/glass-widget"],
+  backdropFilter: tokens["backdrop/backdrop-panel"],
+  boxShadow: `inset 0 1px 0 ${tokens["color/window-highlight"]}, 0 14px 34px ${tokens["color/surface-shadow"]}`,
 });
 export const focusSetup = style({
   display: "flex",
   flexDirection: "column",
   gap: v.space.sm,
-  marginTop: v.space.xl,
+  marginTop: 0,
   minWidth: 0,
 });
 export const focusField = style({ gap: v.space.sm });
@@ -123,16 +107,18 @@ export const related = style({
 });
 export const clock = style({
   position: "relative",
-  width: "min(100%, 210px)",
+  width: "min(100%, 160px)",
   flexShrink: 0,
   aspectRatio: "1",
   margin: "0 auto",
   display: "grid",
   placeItems: "center",
+  borderRadius: "50%",
+  background: "transparent",
   transition: "width 280ms cubic-bezier(0.22, 1, 0.36, 1), margin 280ms ease",
   selectors: {
     '[data-expanded="false"] &': {
-      width: "min(100%, 210px)",
+      width: "min(100%, 160px)",
       margin: "0 auto",
     },
   },
@@ -177,11 +163,11 @@ export const dial = style({
   inset: 0,
   overflow: "visible",
 });
-export const dialTrack = style({ fill: "none", stroke: v.color.border.subtle, strokeWidth: 3 });
+export const dialTrack = style({ fill: "none", stroke: tokens["color/track"], strokeWidth: 11 });
 export const dialArc = style({
   fill: "none",
-  stroke: v.color.content.accent,
-  strokeWidth: 3,
+  stroke: tokens["color/cat-focus"],
+  strokeWidth: 11,
   strokeLinecap: "round",
   transform: "rotate(-90deg)",
   transformOrigin: "125px 125px",
@@ -196,9 +182,9 @@ export const clockCenter = style({
   position: "relative",
 });
 export const time = style({
-  fontFamily: v.typography.family.data,
+  fontFamily: tokens["typography/display/timer/fontFamily"],
   fontVariantNumeric: "tabular-nums",
-  fontSize: "clamp(46px, 8vw, 60px)",
+  fontSize: tokens["typography/display/timer/fontSize"],
   lineHeight: 1.2,
   letterSpacing: "-.055em",
   selectors: { '[data-presentation="digits"] &': { fontSize: "clamp(56px, 10vw, 78px)" } },
@@ -247,38 +233,13 @@ export const row = style({
   gap: v.space.sm,
   flexWrap: "wrap",
 });
-export const mainAction = style({ width: "100%", minHeight: 42 });
+export const mainAction = style({ width: "100%", minHeight: 36 });
 export const context = style({
   minWidth: 0,
   minHeight: 0,
   overflowY: "auto",
-  padding: 0,
-  borderLeft: `1px solid ${v.color.border.subtle}`,
-  opacity: 1,
-  transform: "translateX(0)",
-  visibility: "visible",
-  transition: "opacity 180ms ease, transform 280ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s",
-  selectors: {
-    '[data-expanded="false"] &': {
-      opacity: 0,
-      transform: "translateX(-16px)",
-      visibility: "hidden",
-      pointerEvents: "none",
-      transitionDelay: "0s, 0s, 280ms",
-    },
-  },
-  "@media": {
-    "(max-width: 650px)": {
-      selectors: {
-        '[data-expanded="true"][data-resizing="false"] &': {
-          borderLeft: 0,
-          borderTop: `1px solid ${v.color.border.subtle}`,
-          overflowY: "visible",
-        },
-      },
-    },
-    "(prefers-reduced-motion: reduce)": { transition: "none", transitionDelay: "0s" },
-  },
+  background: "transparent",
+  selectors: { '[data-expanded="false"] &': { visibility: "hidden", pointerEvents: "none" } },
 });
 export const tabs = style({ minWidth: 0 });
 export const tabList = style({
@@ -290,7 +251,7 @@ export const tabList = style({
     [`${root} ${context} &`]: { borderBottom: `1px solid ${v.color.border.subtle}` },
   },
 });
-export const tabPanel = style({ padding: v.space.xl, minWidth: 0 });
+export const tabPanel = style({ padding: 0, minWidth: 0 });
 export const pane = style({
   display: "flex",
   flexDirection: "column",
@@ -523,3 +484,7 @@ globalStyle(`${meta} dt`, { color: v.color.content.secondary });
 globalStyle(`${meta} dd`, { margin: 0, overflowWrap: "anywhere" });
 globalStyle(`${root} input, ${root} select, ${root} textarea`, { minWidth: 0 });
 globalStyle(`${timer} p, ${timer} h1`, { margin: 0 });
+
+export const recordsPanel = style({ width: "100%", maxWidth: "none", boxSizing: "border-box" });
+
+export const appUsageDetails = style({ fontSize: 11, color: tokens["color/ink-3"], marginTop: 8 });

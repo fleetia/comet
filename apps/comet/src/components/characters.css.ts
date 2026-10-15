@@ -1,5 +1,6 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { semanticVars as vars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 
 export const page = style({
   padding: vars.space.lg,
@@ -15,16 +16,11 @@ export const embedded = style({
 });
 export const header = style({ marginBottom: vars.space.md });
 export const layout = style({
-  display: "grid",
+  display: "flex",
+  flexDirection: "column",
   flex: 1,
   minHeight: 0,
-  gridTemplateColumns: "224px minmax(0,1fr)",
-  alignItems: "stretch",
-  gap: vars.space.lg,
-  "@media": {
-    "(max-width: 1280px)": { gridTemplateColumns: "192px minmax(0,1fr)", gap: vars.space.lg },
-    "(max-width: 850px)": { gridTemplateColumns: "160px minmax(0,1fr)", gap: vars.space.md },
-  },
+  minWidth: 0,
 });
 export const list = style({
   display: "flex",
@@ -89,16 +85,7 @@ export const libraryActions = style({
   gap: vars.space.sm,
   margin: `${vars.space.sm} 0`,
 });
-export const detail = style({
-  display: "flex",
-  flexDirection: "column",
-  alignSelf: "stretch",
-  minWidth: 0,
-  minHeight: 0,
-  paddingLeft: 0,
-  borderLeft: 0,
-  "@media": { "(max-width: 680px)": { paddingLeft: vars.space.sm } },
-});
+export const detail = style({ display: "contents" });
 export const editor = style({
   display: "flex",
   flexDirection: "column",
@@ -116,7 +103,7 @@ export const editorHeader = style({
 export const editorPanel = style({
   flex: 1,
   minHeight: 0,
-  overflow: "hidden",
+  overflow: "auto",
   padding: 0,
 });
 export const fieldset = style({ border: 0, padding: 0, margin: 0, minWidth: 0 });
@@ -133,8 +120,8 @@ export const sectionHeader = style({
 });
 export const subheading = style({
   color: vars.color.content.primary,
-  fontFamily: vars.typography.family.ui,
-  fontSize: vars.typography.size.headingSm,
+  fontFamily: tokens["typography/display/label-display/fontFamily"],
+  fontSize: 14,
   lineHeight: vars.typography.lineHeight.compact,
   fontWeight: 600,
   margin: `0 0 ${vars.space.sm}`,
@@ -158,10 +145,10 @@ export const characterPortrait = style({
 export const basicFields = style({
   display: "grid",
   alignItems: "start",
-  gridTemplateColumns: "minmax(160px,0.6fr) minmax(0,1.6fr)",
+  gridTemplateColumns: "200px minmax(0,1fr)",
   gap: vars.space.lg,
   minWidth: 0,
-  "@media": { "(max-width: 1280px)": { gridTemplateColumns: "1fr" } },
+  "@media": { "(max-width: 820px)": { gridTemplateColumns: "1fr" } },
 });
 export const inlineField = style({
   display: "grid",
@@ -171,8 +158,8 @@ export const inlineField = style({
   minWidth: 0,
 });
 export const personalityInput = style({
-  minHeight: 96,
-  height: 96,
+  minHeight: 52,
+  height: 52,
 });
 export const expressionAdd = style({
   display: "grid",
@@ -389,3 +376,5 @@ export const rosterOrder = style({
   gap: vars.space.sm,
 });
 globalStyle(`${libraryActions} > button`, { width: "100%" });
+
+globalStyle(`${basicFields} > div:nth-child(n+3)`, { gridColumn: "1 / -1" });

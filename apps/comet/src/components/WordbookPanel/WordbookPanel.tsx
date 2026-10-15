@@ -1,14 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import {
-  Button,
-  Checkbox,
-  FormField,
-  Select,
-  SelectableListRow,
-  Surface,
-  TextArea,
-  TextField,
-} from "@fleetia/lagrange";
+import { Button, FormField, Select, Surface, TextArea, TextField } from "../../ui";
+import { SearchInput, SettingControlRow, Switch } from "@comet/ui";
+import { CloseIcon, PlusIcon, TextIcon } from "@comet/icon";
 import { command, errorText } from "../../hooks/useSnapshot";
 import type {
   InstalledCharacter,
@@ -129,6 +122,7 @@ export function WordbookPanel({
   const latestEntries = useRef(entries);
   latestEntries.current = entries;
   const [pending, setPending] = useState(false);
+  const [search, setSearch] = useState("");
   const [groupFilter, setGroupFilter] = useState<"all" | "ungrouped" | WordbookGroup>("all");
   const [testInput, setTestInput] = useState("");
   const [testing, setTesting] = useState(false);
@@ -167,13 +161,19 @@ export function WordbookPanel({
       (draft) => !entries.some((entry) => entry.id === draft.entry.id),
     ),
   ].filter((draft) => !removed.includes(draft.entry.id));
-  const filteredList = list.filter((draft) =>
-    groupFilter === "all"
-      ? true
-      : groupFilter === "ungrouped"
-        ? !draft.entry.group
-        : draft.entry.group === groupFilter,
-  );
+  const filteredList = list
+    .filter((draft) =>
+      `${draft.entry.title} ${draft.keywords}`
+        .toLocaleLowerCase()
+        .includes(search.trim().toLocaleLowerCase()),
+    )
+    .filter((draft) =>
+      groupFilter === "all"
+        ? true
+        : groupFilter === "ungrouped"
+          ? !draft.entry.group
+          : draft.entry.group === groupFilter,
+    );
   // Retained drafts may belong to externally deleted entries. Only the current snapshot
   // and confirmed saves awaiting its next update are authoritative for matching.
   const awaitingSnapshot = localSaves?.snapshot === entries ? localSaves.entries : [];
@@ -365,125 +365,170 @@ export function WordbookPanel({
   return (
     <section className={w.workspace} aria-label={title}>
       <div className={w.layout}>
-        <Surface className={w.entries} padding="flush" aria-label="단어장 항목 목록">
+        <aside className={w.inspector} aria-label="단어장 항목 목록">
+          <div className={w.listHeading}>
+            <h1 className={w.pageTitle}>
+              <TextIcon size={22} />
+              단어장
+            </h1>
+            <Button
+              type="button"
+              variant="primary"
+              size="compact"
+              disabled={pending || list.length >= 100}
+              onClick={create}
+            >
+              <PlusIcon size={15} />새 항목 만들기
+            </Button>
+          </div>
+          <p className={s.quiet}>
+            {highlight
+              ? "이 말이 들어 있으면 정해 둔 대사로 바로 답해요. AI 없이 재생하고, 친구를 바꿔도 남아요."
+              : description}
+          </p>
+          <div className={w.searchRow}>
+            <SearchInput
+              aria-label="단어장 검색"
+              placeholder="제목이나 키워드"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            <Select
+              aria-label="분류로 찾기"
+              value={groupFilter}
+              onChange={(event) => setGroupFilter(event.target.value as typeof groupFilter)}
+            >
+              <option value="all">모든 분류</option>
+              <option value="ungrouped">미분류</option>
+              {GROUPS.map((group) => (
+                <option key={group.value} value={group.value}>
+                  {group.label}
+                </option>
+              ))}
+            </Select>
+          </div>
           <div className={w.listBody}>
-            <h2 className={w.sectionTitle}>{highlight ? "내 단어장" : title}</h2>
-            <p className={s.quiet}>
-              {highlight ? "개인 항목 · 캐릭터를 바꿔도 유지" : description}
-            </p>
-            <FormField label="분류로 찾기">
-              <Select
-                value={groupFilter}
-                onChange={(event) => setGroupFilter(event.target.value as typeof groupFilter)}
-              >
-                <option value="all">전체 · {list.length}개</option>
-                <option value="ungrouped">미분류</option>
-                {GROUPS.map((group) => (
-                  <option key={group.value} value={group.value}>
-                    {group.label}
-                  </option>
-                ))}
-              </Select>
-            </FormField>
-            <p className={s.quiet}>분류는 목록 정리용이에요. 재생 조건은 바뀌지 않아요.</p>
             {filteredList.length === 0 && <p className={s.quiet}>이 분류에 항목이 없어요.</p>}
             {!filteredList.some((draft) => draft.entry.id === selected) && (
               <p className={s.quiet}>현재 편집 중인 항목은 다른 분류에 있어요. 초안은 유지돼요.</p>
             )}
-            {filteredList.map((draft) => (
-              <SelectableListRow
-                key={draft.entry.id}
-                type="button"
-                className={w.entry}
-                selected={selected === draft.entry.id}
-                aria-label={`${draft.entry.title || "새 항목"}${draft.dirty ? " · 미저장" : ""}${!draft.entry.enabled ? " · 꺼짐" : ""}`}
-                disabled={pending}
-                onClick={() => select(draft.entry.id)}
-              >
-                <span>
-                  {draft.entry.title || "새 항목"}
-                  {draft.dirty ? " · 미저장" : ""}
-                  {!draft.entry.enabled ? " · 꺼짐" : ""}
-                </span>
-                <span className={w.entryKeywords}>
-                  {groupLabel(draft.entry.group)} ·{" "}
-                  {draft.entry.keywords.join(", ") || "키워드 없음"} · {draft.entry.lines.length}줄
-                </span>
-              </SelectableListRow>
-            ))}
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={pending || list.length >= 100}
-              onClick={create}
-            >
-              새 항목 만들기
-            </Button>
+            {[undefined, ...GROUPS.map((group) => group.value)].map((group) => {
+              const items = filteredList.filter((draft) => draft.entry.group === group);
+              if (!items.length) return null;
+              return (
+                <section className={w.listGroup} key={group || "ungrouped"}>
+                  <h2 className={w.listGroupTitle}>
+                    {groupLabel(group)} · {items.length}
+                  </h2>
+                  <div className={w.entryGroup}>
+                    {items.map((draft) => (
+                      <div
+                        className={w.entryRow}
+                        key={draft.entry.id}
+                        data-selected={selected === draft.entry.id}
+                      >
+                        <button
+                          type="button"
+                          className={w.entry}
+                          disabled={pending}
+                          aria-label={`${draft.entry.title || "새 항목"}${draft.dirty ? " · 미저장" : ""}${!draft.entry.enabled ? " · 꺼짐" : ""}`}
+                          aria-pressed={selected === draft.entry.id}
+                          onClick={() => select(draft.entry.id)}
+                        >
+                          <strong>{draft.entry.title || "새 항목"}</strong>
+                          <span className={w.entryKeywords}>
+                            {draft.entry.keywords.join(", ") || "새 항목"} ·{" "}
+                            {draft.entry.lines.length}줄
+                          </span>
+                        </button>
+                        <Switch
+                          aria-label={`${draft.entry.title || "새 항목"} 사용`}
+                          checked={draft.entry.enabled}
+                          disabled={pending}
+                          onChange={(event) => {
+                            const enabled = event.target.checked;
+                            setDrafts((previous) => ({
+                              ...previous,
+                              [draft.entry.id]: {
+                                ...draft,
+                                entry: { ...draft.entry, enabled },
+                                dirty: true,
+                              },
+                            }));
+                            setNotice(null);
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
           </div>
-        </Surface>
-        <Surface className={w.form} padding="flush">
-          <form
-            className={w.editorForm}
-            onSubmit={(event) => {
-              event.preventDefault();
-              void save();
-            }}
-          >
-            <fieldset className={w.editor} disabled={pending}>
-              <legend className={w.legend}>단어장 항목 편집</legend>
-              <div ref={editorBody} className={w.editorBody}>
-                <div className={w.fields}>
-                  <FormField label="제목" required>
-                    <TextField
-                      maxLength={80}
-                      value={current.entry.title}
-                      onChange={(event) => update({ ...current.entry, title: event.target.value })}
-                    />
-                  </FormField>
-                  <FormField label="키워드" required>
-                    <TextArea
-                      className={w.keywordsInput}
-                      rows={1}
-                      placeholder="안녕, 반가워"
-                      value={current.keywords}
-                      onChange={(event) => update(current.entry, event.target.value)}
-                    />
-                  </FormField>
-                </div>
-                <p className={s.quiet}>쉼표·줄바꿈으로 구분 · 최대 20개, 각 80자</p>
-                <div className={w.lineHeading}>
-                  <strong>대사 순서 · {current.entry.lines.length} / 8줄</strong>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="compact"
-                    disabled={current.entry.lines.length >= 8}
-                    onClick={() =>
-                      update({
-                        ...current.entry,
-                        lines: [
-                          ...current.entry.lines,
-                          {
-                            persona:
-                              !singleCharacter && current.entry.lines.at(-1)?.persona === "a"
-                                ? "b"
-                                : "a",
-                            expression: "평온",
-                            text: "",
-                          },
-                        ],
-                      })
-                    }
-                  >
-                    대사 추가
-                  </Button>
-                </div>
-                {current.entry.lines.map((line, index) => (
-                  <div key={index} className={w.line}>
-                    <div className={w.lineIdentity}>
-                      <span className={w.lineNumber}>{String(index + 1).padStart(2, "0")}</span>
-                      <label className={s.inline}>
-                        <span className={w.legend}>{index + 1}번 화자</span>
+          <p className={s.quiet}>분류는 목록 정리용이에요. 재생 조건은 바뀌지 않아요.</p>
+        </aside>
+        <form
+          className={w.editorForm}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void save();
+          }}
+        >
+          <fieldset className={w.editor} disabled={pending}>
+            <legend className={w.legend}>단어장 항목 편집</legend>
+            <div ref={editorBody} className={w.editorBody}>
+              <section className={w.section}>
+                <h2 className={w.sectionTitle}>
+                  {current.persisted ? current.entry.title || "항목 편집" : "새 항목"}
+                </h2>
+                <div className={w.editorCard}>
+                  <div className={w.fields}>
+                    <FormField label="제목" required>
+                      <TextField
+                        maxLength={80}
+                        value={current.entry.title}
+                        onChange={(event) =>
+                          update({ ...current.entry, title: event.target.value })
+                        }
+                      />
+                    </FormField>
+                    <FormField label="분류 (선택)">
+                      <Select
+                        value={current.entry.group ?? ""}
+                        onChange={(event) =>
+                          update({
+                            ...current.entry,
+                            group: (event.target.value || undefined) as WordbookGroup | undefined,
+                          })
+                        }
+                      >
+                        <option value="">미분류</option>
+                        {GROUPS.map((group) => (
+                          <option key={group.value} value={group.value}>
+                            {group.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </FormField>
+                  </div>
+                  <div className={w.keywordField}>
+                    <FormField label="키워드" required>
+                      <TextArea
+                        className={w.keywordsInput}
+                        rows={1}
+                        placeholder="안녕, 반가워"
+                        value={current.keywords}
+                        onChange={(event) => update(current.entry, event.target.value)}
+                      />
+                    </FormField>
+                    <p className={s.quiet}>
+                      쉼표·줄바꿈으로 나눠요. 입력에 이 말이 들어 있으면 재생해요.
+                    </p>
+                  </div>
+                  <div className={w.linesSection}>
+                    <p className={w.caption}>대사</p>
+                    {current.entry.lines.map((line, index) => (
+                      <div className={w.line} key={index}>
                         <Select
                           aria-label={`${index + 1}번 화자`}
                           value={line.persona}
@@ -497,176 +542,174 @@ export function WordbookPanel({
                         >
                           {Array.from(
                             { length: singleCharacter ? 1 : speakerCount },
-                            (_, index) => (
-                              <option key={index} value={String.fromCharCode(97 + index)}>
+                            (_, position) => (
+                              <option key={position} value={String.fromCharCode(97 + position)}>
                                 {singleCharacter
                                   ? "이 캐릭터"
-                                  : `${String.fromCharCode(65 + index)}${owners[index] ? ` · ${owners[index]?.definition.name}` : ""}`}
+                                  : owners[position]?.definition.name ||
+                                    String.fromCharCode(65 + position)}
                               </option>
                             ),
                           )}
                         </Select>
-                      </label>
-                      <span className={w.lineLimit}>500자까지</span>
-                    </div>
-                    <TextArea
-                      aria-label={`대사 ${index + 1}`}
-                      className={w.lineText}
-                      rows={3}
-                      required
-                      maxLength={500}
-                      value={line.text}
-                      onChange={(event) => changeLine(index, { ...line, text: event.target.value })}
-                    />
-                    <div className={w.lineControls}>
-                      <label className={s.inline}>
-                        <span className={w.legend}>표정</span>
-                        <Select
-                          aria-label={`${index + 1}번 표정`}
-                          value={line.expression}
+                        <TextArea
+                          aria-label={`대사 ${index + 1}`}
+                          className={w.lineText}
+                          rows={1}
+                          required
+                          maxLength={500}
+                          value={line.text}
                           onChange={(event) =>
-                            changeLine(index, { ...line, expression: event.target.value })
+                            changeLine(index, { ...line, text: event.target.value })
+                          }
+                        />
+                        <Button
+                          type="button"
+                          variant="quiet"
+                          size="compact"
+                          aria-label={`${index + 1}번 대사 삭제`}
+                          disabled={current.entry.lines.length === 1}
+                          onClick={() =>
+                            update({
+                              ...current.entry,
+                              lines: current.entry.lines.filter(
+                                (_, position) => position !== index,
+                              ),
+                            })
                           }
                         >
-                          {[
-                            ...new Set([
-                              ...Object.keys(
-                                motionOwner(line.persona, owners)?.definition.expressions ??
-                                  Object.fromEntries(
-                                    EXPRESSIONS.map((expression) => [expression, expression]),
+                          <CloseIcon size={14} />
+                        </Button>
+                        <details className={w.lineAdvanced}>
+                          <summary>{index + 1}번 대사 표정·동작·순서</summary>
+                          <div className={w.lineControls}>
+                            <Select
+                              aria-label={`${index + 1}번 표정`}
+                              value={line.expression}
+                              onChange={(event) =>
+                                changeLine(index, { ...line, expression: event.target.value })
+                              }
+                            >
+                              {[
+                                ...new Set([
+                                  ...Object.keys(
+                                    motionOwner(line.persona, owners)?.definition.expressions ??
+                                      Object.fromEntries(
+                                        EXPRESSIONS.map((expression) => [expression, expression]),
+                                      ),
                                   ),
-                              ),
-                              line.expression,
-                            ]),
-                          ].map((expression) => (
-                            <option key={expression} value={expression}>
-                              {expression}
-                            </option>
-                          ))}
-                        </Select>
-                      </label>
-                      <div className={w.motion}>
-                        <MotionSelect
-                          label={`${index + 1}번 대사`}
-                          value={line.motion}
-                          clips={
-                            motionOwner(line.persona, owners)?.definition.animation?.clips ?? []
-                          }
-                          onChange={(motion) => changeLine(index, { ...line, motion })}
-                        />
+                                  line.expression,
+                                ]),
+                              ].map((expression) => (
+                                <option key={expression} value={expression}>
+                                  {expression}
+                                </option>
+                              ))}
+                            </Select>
+                            <MotionSelect
+                              label={`${index + 1}번 대사`}
+                              value={line.motion}
+                              clips={
+                                motionOwner(line.persona, owners)?.definition.animation?.clips ?? []
+                              }
+                              onChange={(motion) => changeLine(index, { ...line, motion })}
+                            />
+                            <Button
+                              type="button"
+                              variant="quiet"
+                              size="compact"
+                              aria-label={`${index + 1}번 대사 위로`}
+                              disabled={index === 0}
+                              onClick={() => moveLine(index, -1)}
+                            >
+                              위로
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="quiet"
+                              size="compact"
+                              aria-label={`${index + 1}번 대사 아래로`}
+                              disabled={index === current.entry.lines.length - 1}
+                              onClick={() => moveLine(index, 1)}
+                            >
+                              아래로
+                            </Button>
+                          </div>
+                        </details>
                       </div>
-                      <Button
-                        type="button"
-                        variant="quiet"
-                        size="compact"
-                        aria-label={`${index + 1}번 대사 위로`}
-                        disabled={index === 0}
-                        onClick={() => moveLine(index, -1)}
-                      >
-                        위로
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="quiet"
-                        size="compact"
-                        aria-label={`${index + 1}번 대사 아래로`}
-                        disabled={index === current.entry.lines.length - 1}
-                        onClick={() => moveLine(index, 1)}
-                      >
-                        아래로
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="quiet"
-                        size="compact"
-                        aria-label={`${index + 1}번 대사 삭제`}
-                        disabled={current.entry.lines.length === 1}
-                        onClick={() =>
-                          update({
-                            ...current.entry,
-                            lines: current.entry.lines.filter((_, position) => position !== index),
-                          })
-                        }
-                      >
-                        삭제
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-                {duplicateEntries.length > 0 && (
-                  <p role="note" className={w.warning}>
-                    같은 키워드가 다른 항목에도 있어요:{" "}
-                    {duplicateEntries
-                      .map(
-                        (draft) =>
-                          `‘${draft.entry.title || "새 항목"}’${draft.entry.enabled ? "" : " (꺼짐)"}${draft.dirty ? " (미저장)" : ""}`,
-                      )
-                      .join(", ")}
-                    . 저장된 활성 항목 중 긴 일치 키워드가 우선이고, 길이가 같으면 먼저 등록한
-                    항목을 사용해요. 저장 전에는 아래 매칭 테스트에 반영되지 않아요.
-                  </p>
-                )}
-                <details className={w.previewDetails}>
-                  <summary>분류·재생 설정</summary>
-                  <FormField label="분류 (선택)" className={w.groupField}>
-                    <Select
-                      value={current.entry.group ?? ""}
-                      onChange={(event) =>
+                    ))}
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="compact"
+                      disabled={current.entry.lines.length >= 8}
+                      onClick={() =>
                         update({
                           ...current.entry,
-                          group: (event.target.value || undefined) as WordbookGroup | undefined,
+                          lines: [
+                            ...current.entry.lines,
+                            {
+                              persona:
+                                !singleCharacter && current.entry.lines.at(-1)?.persona === "a"
+                                  ? "b"
+                                  : "a",
+                              expression: "평온",
+                              text: "",
+                            },
+                          ],
                         })
                       }
                     >
-                      <option value="">미분류</option>
-                      {GROUPS.map((group) => (
-                        <option key={group.value} value={group.value}>
-                          {group.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </FormField>
-                  <p className={s.quiet}>
-                    업무·휴식·일상은 정리용 이름이며, 현재 상태에 따라 재생을 제한하지 않아요.
-                  </p>
-                  <div className={s.row}>
-                    <Checkbox
-                      disabled={pending}
-                      checked={current.entry.enabled}
-                      onChange={(event) =>
-                        update({ ...current.entry, enabled: event.target.checked })
-                      }
-                    >
-                      이 항목 사용
-                    </Checkbox>
-                    <Checkbox
-                      disabled={pending}
-                      checked={current.entry.useForIdle}
-                      onChange={(event) =>
-                        update({ ...current.entry, useForIdle: event.target.checked })
-                      }
-                    >
-                      자동 잡담에도 사용
-                    </Checkbox>
+                      <PlusIcon size={15} />
+                      대사 추가
+                    </Button>
                   </div>
-                </details>
-                <details className={w.previewDetails}>
-                  <summary>대사 미리보기 · 현재 편집 내용</summary>
-                  <p className={s.quiet}>
-                    공백·줄바꿈·화자 순서를 그대로 확인해요. 실제로 재생하지 않아요.
-                  </p>
-                  <Surface tone="accent" className={w.preview} aria-label="키워드 대사 미리보기">
-                    <PreviewLines lines={current.entry.lines} owners={owners} />
-                  </Surface>
-                </details>
-                <details className={w.previewDetails}>
+                  <div className={w.toggleRows}>
+                    <SettingControlRow
+                      title="이 항목 사용"
+                      control={
+                        <Switch
+                          aria-label="이 항목 사용"
+                          checked={current.entry.enabled}
+                          onChange={(event) =>
+                            update({ ...current.entry, enabled: event.target.checked })
+                          }
+                        />
+                      }
+                    />
+                    <SettingControlRow
+                      title="자동 잡담에도 사용"
+                      control={
+                        <Switch
+                          aria-label="자동 잡담에도 사용"
+                          checked={current.entry.useForIdle}
+                          onChange={(event) =>
+                            update({ ...current.entry, useForIdle: event.target.checked })
+                          }
+                        />
+                      }
+                    />
+                  </div>
+                </div>
+              </section>
+              {duplicateEntries.length > 0 && (
+                <p role="note" className={w.warning}>
+                  같은 키워드가 다른 항목에도 있어요:{" "}
+                  {duplicateEntries
+                    .map(
+                      (draft) =>
+                        `‘${draft.entry.title || "새 항목"}’${draft.entry.enabled ? "" : " (꺼짐)"}${draft.dirty ? " (미저장)" : ""}`,
+                    )
+                    .join(", ")}
+                  . 저장된 활성 항목 중 긴 일치 키워드가 우선이고, 길이가 같으면 먼저 등록한 항목을
+                  사용해요. 저장 전에는 아래 매칭 테스트에 반영되지 않아요.
+                </p>
+              )}
+              <section className={w.section}>
+                <h2 className={w.sectionTitle}>맞는지 확인</h2>
+                <details className={w.previewDetails} open>
                   <summary>입력으로 매칭 확인</summary>
                   <section className={w.matchTest} aria-label="저장된 키워드 테스트">
-                    <p className={s.quiet}>
-                      이 목록의 저장된 모든 항목에서 찾아요. 분류 필터와 미저장 수정은 적용하지
-                      않아요. 대소문자를 구분하지 않고 긴 키워드, 같은 길이면 먼저 등록한 항목을
-                      선택해요.
-                    </p>
                     <div className={w.testControls}>
                       <FormField label="테스트할 말">
                         <TextField
@@ -692,8 +735,8 @@ export function WordbookPanel({
                       </Button>
                     </div>
                     <p className={s.quiet}>
-                      대사 재생·대화 전송·AI 호출은 하지 않아요. 실제 대화 상대와 화자에 따른 재생
-                      가능 여부는 별도로 확인해 주세요.
+                      저장된 모든 활성 항목에서 찾아요. 분류와 미저장 수정은 반영하지 않아요. 대사
+                      재생·AI 호출은 하지 않아요.
                     </p>
                     {testError && (
                       <p role="alert" className={s.error}>
@@ -708,13 +751,9 @@ export function WordbookPanel({
                               일치한 등록 항목: <strong>{testResult.match.entry.title}</strong> ·
                               키워드 ‘{testResult.match.keyword}’
                             </p>
-                            <Surface
-                              tone="accent"
-                              className={w.preview}
-                              aria-label="일치한 등록 대사"
-                            >
+                            <div aria-label="일치한 등록 대사">
                               <PreviewLines lines={testResult.match.entry.lines} owners={owners} />
-                            </Surface>
+                            </div>
                           </>
                         ) : (
                           <p>일치하는 저장된 활성 항목이 없어요.</p>
@@ -723,62 +762,84 @@ export function WordbookPanel({
                     )}
                   </section>
                 </details>
-              </div>
-              {error && (
-                <p role="alert" className={s.error}>
-                  {error}
+              </section>
+              <details className={w.previewDetails}>
+                <summary>대사 미리보기 · 현재 편집 내용</summary>
+                <p className={s.quiet}>
+                  공백·줄바꿈·화자 순서를 그대로 확인해요. 실제로 재생하지 않아요.
                 </p>
-              )}
-              {notice && (
-                <p role="status" className={s.success}>
-                  {notice}
-                </p>
-              )}
-              <div className={w.saveBar}>
-                <div className={w.actions}>
-                  <span className={w.saveStatus} role="status">
-                    {!valid
-                      ? "제목·키워드·대사를 채워 주세요."
-                      : current.dirty
-                        ? "이 항목 변경사항 있음"
-                        : "저장된 항목"}
-                  </span>
+                <Surface tone="accent" className={w.preview} aria-label="키워드 대사 미리보기">
+                  <PreviewLines lines={current.entry.lines} owners={owners} />
+                </Surface>
+              </details>
+            </div>
+            {error && (
+              <p role="alert" className={s.error}>
+                {error}
+              </p>
+            )}
+            {notice && (
+              <p role="status" className={s.success}>
+                {notice}
+              </p>
+            )}
+            <div className={w.saveBar}>
+              <div className={w.actions}>
+                <span className={w.saveStatus} role="status">
+                  {!valid
+                    ? "제목·키워드·대사를 채워 주세요."
+                    : current.dirty
+                      ? "이 항목 변경사항 있음"
+                      : "저장된 항목"}
+                </span>
+                <Button
+                  type="button"
+                  variant="quiet"
+                  disabled={pending || (!current.dirty && current.persisted)}
+                  onClick={cancel}
+                >
+                  수정 취소
+                </Button>
+                <Button type="submit" variant="primary" disabled={!valid || !current.dirty}>
+                  {pending ? "처리 중…" : "단어장 저장"}
+                </Button>
+                {current.persisted && (
                   <Button
                     type="button"
                     variant="quiet"
-                    disabled={pending || (!current.dirty && current.persisted)}
-                    onClick={cancel}
+                    disabled={pending}
+                    onClick={() => setConfirmDelete(true)}
                   >
-                    수정 취소
+                    항목 삭제
                   </Button>
-                  <Button type="submit" variant="primary" disabled={!valid || !current.dirty}>
-                    {pending ? "처리 중…" : "단어장 저장"}
-                  </Button>
-                  {current.persisted && (
-                    <Button type="button" variant="quiet" onClick={() => setConfirmDelete(true)}>
-                      항목 삭제
-                    </Button>
-                  )}
-                </div>
-                {confirmDelete && (
-                  <div className={w.confirmation} aria-label="삭제 확인">
-                    <p>
-                      ‘{current.entry.title}’ 항목을 삭제할까요? 삭제한 대사는 되돌릴 수 없어요.
-                    </p>
-                    <div className={w.actions}>
-                      <Button type="button" variant="secondary" onClick={() => void remove()}>
-                        항목 삭제 확인
-                      </Button>
-                      <Button type="button" variant="quiet" onClick={() => setConfirmDelete(false)}>
-                        삭제 취소
-                      </Button>
-                    </div>
-                  </div>
                 )}
               </div>
-            </fieldset>
-          </form>
-        </Surface>
+              {confirmDelete && (
+                <div className={w.confirmation}>
+                  <p>이 항목을 지울까요? 저장된 대사도 함께 지워요.</p>
+                  <div className={w.actions}>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={pending}
+                      onClick={() => void remove()}
+                    >
+                      항목 삭제 확인
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="quiet"
+                      disabled={pending}
+                      onClick={() => setConfirmDelete(false)}
+                    >
+                      삭제 취소
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </fieldset>
+        </form>
       </div>
     </section>
   );

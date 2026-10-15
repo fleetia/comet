@@ -1,6 +1,73 @@
-import { style, styleVariants } from "@vanilla-extract/css";
+import { keyframes, style, styleVariants } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
-import { stateTransition } from "../motion/motion.css";
+import { fadeIn, reducedMotionQuery, stateTransition } from "../motion/motion.css";
+
+export { reducedMotionQuery };
+
+export const fold = keyframes({
+  from: {
+    opacity: "var(--comet-orbit-exit-opacity, 1)",
+    transform: "var(--comet-orbit-exit-transform, scale(1))",
+  },
+  to: { opacity: 0, transform: "scale(0)" },
+});
+const fadeOut = keyframes({ from: { opacity: 1 }, to: { opacity: 0 } });
+const unfold = keyframes({
+  from: { visibility: "hidden", opacity: 0, transform: "scale(0)" },
+  to: { visibility: "visible", opacity: 1, transform: "scale(1)" },
+});
+export const visual = style({
+  position: "absolute",
+  inset: 0,
+  selectors: {
+    '&[data-state="closed"]': { display: "none" },
+    '&[data-open="false"]': { pointerEvents: "none" },
+  },
+});
+export const hubEntrance = style({
+  animationName: unfold,
+  animationDuration: tokens["duration/duration-pop"],
+  animationTimingFunction: tokens["easing/ease-bounce"],
+  animationFillMode: "backwards",
+  selectors: {
+    [`${visual}[data-state="exiting"] &`]: {
+      animationName: fold,
+      animationDuration: `calc(${tokens["duration/duration-fast"]} * 0.75)`,
+      animationTimingFunction: tokens["easing/ease-standard"],
+      animationFillMode: "both",
+    },
+  },
+  "@media": { [reducedMotionQuery]: { animation: "none" } },
+});
+export const nodeEntrance = style({
+  animationName: unfold,
+  animationDuration: tokens["duration/duration-base"],
+  animationTimingFunction: tokens["easing/ease-out"],
+  animationFillMode: "backwards",
+  selectors: {
+    [`${visual}[data-state="exiting"] &`]: {
+      animationName: fold,
+      animationDuration: `calc(${tokens["duration/duration-fast"]} * 0.65)`,
+      animationTimingFunction: tokens["easing/ease-standard"],
+      animationFillMode: "both",
+    },
+  },
+  "@media": { [reducedMotionQuery]: { animation: "none" } },
+});
+export const lineEntrance = style({
+  animationName: fadeIn,
+  animationDuration: tokens["duration/duration-base"],
+  animationDelay: tokens["duration/duration-pop"],
+  animationFillMode: "backwards",
+  selectors: {
+    [`${visual}[data-state="exiting"] &`]: {
+      animationName: fadeOut,
+      animationDuration: `calc(${tokens["duration/duration-fast"]} * 0.75)`,
+      animationFillMode: "both",
+    },
+  },
+  "@media": { [reducedMotionQuery]: { animation: "none" } },
+});
 
 export const node = style([
   stateTransition,
@@ -99,7 +166,6 @@ export const menu = style({
 export const compact = style({ width: 310, height: 340 });
 export const play = style({ height: 330 });
 export const lines = style({ position: "absolute", top: 0, left: 0, pointerEvents: "none" });
-export const crumbPosition = style({ position: "absolute", top: 0, left: 4 });
 export const item = style({ position: "absolute", display: "grid", placeItems: "center" });
 export const itemLabel = style({
   position: "absolute",

@@ -1,6 +1,6 @@
-import { Checkbox, FormField, TextField } from "@fleetia/lagrange";
+import { Checkbox, FormField, TextField } from "../../ui";
 import type { QuietHours } from "../../types";
-import * as s from "../../styles.css";
+import * as s from "../../lagrange.css";
 import * as d from "../../desktop.css";
 
 export function quietHoursError(settings: QuietHours): string | null {

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
-import { Button } from "@fleetia/lagrange";
+import { Button } from "../../ui";
+import { Keycap } from "@comet/ui";
+import * as styles from "./launcherSettings.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { DEFAULT_SHORTCUT, shortcutLabel, type LauncherState } from "./search";
 import * as s from "../../lagrange.css";
@@ -19,7 +21,7 @@ function capturedShortcut(event: KeyboardEvent<HTMLButtonElement>): string | nul
     .filter(Boolean)
     .join("+");
 }
-export function LauncherSettings({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) => void }): JSX.Element {
+export function LauncherSettings({ onDirtyChange, compact = false }: { onDirtyChange?: (dirty: boolean) => void; compact?: boolean }): JSX.Element {
   const [state, setState] = useState<LauncherState | null>(
     isDesktop()
       ? null
@@ -89,12 +91,12 @@ export function LauncherSettings({ onDirtyChange }: { onDirtyChange?: (dirty: bo
     if (shortcut) { setDraft(shortcut); setRecording(false); setError(null); }
   }
   return (
-    <section className={s.section}>
-      <h2 className={s.sectionTitle}>빠른 실행 단축키</h2>
-      <p className={s.quiet}>
+    <section className={compact ? styles.compact : s.section}>
+      <h2 className={compact ? styles.label : s.sectionTitle}>빠른 실행 단축키</h2>
+      {!compact && <p className={s.quiet}>
         설정과 위젯을 찾거나 친구에게 말을 걸어요. 트레이의 ‘빠른 실행’으로도 열 수 있어요.
-      </p>
-      <div className={s.row}>
+      </p>}
+      <div className={compact ? styles.controls : s.row}>
         <Button
           variant="secondary"
           disabled={pending || !state}
@@ -109,9 +111,10 @@ export function LauncherSettings({ onDirtyChange }: { onDirtyChange?: (dirty: bo
           {recording
             ? "사용할 키를 눌러 주세요…"
             : draft
-              ? shortcutLabel(draft)
+              ? <Keycap>{shortcutLabel(draft)}</Keycap>
               : "단축키 없음"}
         </Button>
+        {(!compact || dirty) && <>
         <Button variant="primary" disabled={pending || !state || !dirty} onClick={() => void save(draft)}>적용</Button>
         <Button variant="quiet" disabled={pending || !state || !dirty} onClick={() => { setDraft(state?.shortcut ?? ""); setError(null); }}>변경 취소</Button>
         <Button
@@ -134,7 +137,9 @@ export function LauncherSettings({ onDirtyChange }: { onDirtyChange?: (dirty: bo
         >
           빠른 실행 열기
         </Button>
+        </>}
       </div>
+      {compact && !dirty && <details className={styles.options}><summary>단축키 관리</summary><div className={s.row}><Button variant="quiet" size="compact" onClick={() => void save("")} disabled={pending}>끄기</Button><Button variant="quiet" size="compact" onClick={() => void save(DEFAULT_SHORTCUT)} disabled={pending}>기본값으로</Button><Button variant="quiet" size="compact" onClick={() => void command("open_launcher").catch((cause: unknown) => setError(errorText(cause)))}>빠른 실행 열기</Button></div></details>}
       {recording && (
         <p className={s.quiet} role="status">
           ⌘, Ctrl 또는 Alt와 함께 눌러 주세요. Esc로 취소해요.

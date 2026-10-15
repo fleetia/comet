@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
-import { Button, Checkbox, SectionHeader, SettingsRow } from "@fleetia/lagrange";
+import { Button, Checkbox, SectionHeader, SettingsRow } from "../../ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import * as s from "../../lagrange.css";
 import * as layout from "../SettingsPanel/settings.css";
+import { SettingControlRow, Switch } from "@comet/ui";
+import * as figma from "../SettingsPanel/figmaSettings.css";
 
-export function AutostartSettings({ active }: { active: boolean }): JSX.Element {
+export function AutostartSettings({
+  active,
+  compact = false,
+}: {
+  active: boolean;
+  compact?: boolean;
+}): JSX.Element {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +48,31 @@ export function AutostartSettings({ active }: { active: boolean }): JSX.Element 
     return () => window.removeEventListener("focus", refresh);
   }, [active, run]);
 
+  if (compact)
+    return (
+      <div aria-busy={pending}>
+        <SettingControlRow
+          className={figma.row}
+          title="로그인하면 comet 열기"
+          control={
+            <Switch
+              aria-label="로그인하면 comet 열기"
+              checked={enabled === true}
+              disabled={!isDesktop() || pending || enabled === null}
+              onChange={(event) => void run(event.target.checked)}
+            />
+          }
+        />
+        {error && (
+          <p className={s.error} role="alert">
+            {error}
+            <Button variant="quiet" size="compact" disabled={pending} onClick={() => void run()}>
+              다시 확인
+            </Button>
+          </p>
+        )}
+      </div>
+    );
   return (
     <section className={layout.sectionBody} aria-labelledby="autostart-title" aria-busy={pending}>
       <SectionHeader

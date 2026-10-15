@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement } from "react";
-import { Button, Checkbox, Heading, Inline, Text } from "@fleetia/lagrange";
+import { Button, Checkbox, Heading, Inline, Text } from "../../ui";
 import { command, errorText } from "../../hooks/useSnapshot";
 import type { GeneratedWidget, GenerationEligibility } from "../GeneratedWidgets/types";
 import * as common from "../../lagrange.css";

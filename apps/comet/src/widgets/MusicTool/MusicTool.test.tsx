@@ -315,3 +315,46 @@ it("lets a remembered Spotify connection be forgotten while awaiting automatic r
   await waitFor(() => expect(screen.queryByRole("button", { name: "로컬 연결 해제" })).toBeNull());
   expect(screen.getByText("Spotify 확장 연결을 기다리고 있어요.")).toBeTruthy();
 });
+
+it("saves the preview-side draft through the settings form and blocks both sides while saving", async () => {
+  const side = document.createElement("aside");
+  document.body.append(side);
+  const onBusyChange = vi.fn();
+  let finish: (value: null) => void = () => {};
+  vi.mocked(command).mockImplementation(
+    async () =>
+      new Promise<null>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  try {
+    const view = render(
+      <MusicSettings widget={widget()} sideContainer={side} onBusyChange={onBusyChange} />,
+    );
+    const artwork = within(side).getByRole("switch", { name: "앨범 아트 표시" });
+    expect(within(side).getByText("밤의 산책")).toBeTruthy();
+    fireEvent.click(artwork);
+    expect(artwork).toHaveProperty("checked", false);
+    expect(command).not.toHaveBeenCalled();
+    const save = screen.getByRole("button", { name: "연결 설정 저장" });
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("configure_connection_widget", {
+        id: "music",
+        input: expect.objectContaining({ provider: "music", showArtwork: false }),
+      }),
+    );
+    expect(artwork.matches(":disabled")).toBe(true);
+    expect(save.matches(":disabled")).toBe(true);
+    expect(onBusyChange).toHaveBeenLastCalledWith(true);
+    finish(null);
+    await waitFor(() => expect(save.matches(":disabled")).toBe(false));
+    expect(onBusyChange).toHaveBeenLastCalledWith(false);
+    view.rerender(<MusicSettings widget={widget()} sideContainer={side} disabled />);
+    expect(artwork.matches(":disabled")).toBe(true);
+    expect(save.matches(":disabled")).toBe(true);
+  } finally {
+    cleanup();
+    side.remove();
+  }
+});

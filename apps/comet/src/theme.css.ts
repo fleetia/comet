@@ -1,0 +1,212 @@
+import { assignVars, style } from "@vanilla-extract/css";
+import { tokenNames, tokens, themes } from "@comet/token";
+import {
+  createSelectIndicatorTexture,
+  themeVars,
+  vnextVars,
+  type LagrangeTheme,
+} from "@fleetia/lagrange/theme";
+
+// Retained layout components consume both contracts, including component aliases.
+const legacyTheme = {
+  semantic: {
+    colorScheme: "dark",
+    color: {
+      surface: {
+        canvas: tokens["color/sky"],
+        raised: tokens["color/glass-panel"],
+        muted: tokens["color/card-2"],
+      },
+      content: {
+        primary: tokens["color/ink"],
+        secondary: tokens["color/ink-2"],
+        accent: tokens["color/primary"],
+        onAccent: tokens["color/on-primary"],
+      },
+      border: {
+        strong: tokens["color/input-border"],
+        subtle: tokens["color/line"],
+      },
+      interaction: {
+        primary: tokens["color/primary"],
+        primaryHover: tokens["color/primary-hover"],
+        focus: tokens["color/focus-ring"],
+        focusSurface: tokens["color/hover"],
+      },
+      selection: {
+        indicator: tokens["color/selected-border"],
+        surface: tokens["color/primary"],
+      },
+      status: {
+        positive: tokens["color/nadir-ink"],
+        positiveSurface: tokens["color/component/list-green-alpha-180"],
+        critical: tokens["color/danger"],
+        criticalSurface: tokens["color/component/danger-alpha-100"],
+      },
+    },
+    typography: {
+      family: {
+        display: `${tokens["typography/display/title/fontFamily"]}, sans-serif`,
+        ui: `${tokens["typography/sans/body/fontFamily"]}, sans-serif`,
+        data: '"IBM Plex Mono", monospace',
+      },
+      size: {
+        caption: tokens["typography/sans/caption/fontSize"],
+        label: tokens["typography/sans/body/fontSize"],
+        body: tokens["typography/sans/body/fontSize"],
+        data: tokens["typography/sans/caption/fontSize"],
+        headingSm: tokens["typography/display/title-sm/fontSize"],
+        headingMd: tokens["typography/display/page/fontSize"],
+        headingLg: tokens["typography/display/stat/fontSize"],
+      },
+      lineHeight: { tight: "1.25", compact: "1.385", body: "1.462" },
+    },
+    space: {
+      none: "0",
+      xxs: tokens["spacing/space-4"],
+      xs: tokens["spacing/space-6"],
+      sm: tokens["spacing/space-8"],
+      md: tokens["spacing/space-12"],
+      lg: tokens["spacing/space-16"],
+      xl: tokens["spacing/space-26"],
+      xxl: tokens["spacing/space-40"],
+    },
+    dimension: {
+      control: tokens["size/control-36"],
+      row: tokens["spacing/space-32"],
+      ruleGap: tokens["spacing/space-8"],
+    },
+    shape: { radius: { none: "0", subtle: tokens["radius/radius-9"] } },
+    border: { width: { hairline: "1px" } },
+    material: { canvasTexture: "none", canvasTextureSize: "auto" },
+  },
+  component: {
+    control: {
+      height: tokens["size/control-36"],
+      compactHeight: tokens["spacing/space-32"],
+      text: tokens["color/ink"],
+      placeholder: tokens["color/component/placeholder"],
+      border: tokens["color/input-border"],
+      hoverBorder: tokens["color/ink-3"],
+      focusSurface: tokens["color/input"],
+      focusIndicator: tokens["color/focus-ring"],
+      invalidSurface: tokens["color/component/danger-alpha-100"],
+      invalidIndicator: tokens["color/danger"],
+      disabledText: tokens["color/ink-3"],
+      disabledSurface: tokens["color/card-2"],
+      selectIndicator: createSelectIndicatorTexture(themes.dark["color/ink-2"]),
+    },
+    button: {
+      primaryText: tokens["color/on-primary"],
+      primaryBackground: tokens["color/primary"],
+      primaryHoverBackground: tokens["color/primary-hover"],
+      secondaryText: tokens["color/ink"],
+      secondaryHoverBackground: tokens["color/chip"],
+      quietText: tokens["color/ink-2"],
+      quietHoverText: tokens["color/ink"],
+      quietHoverBackground: tokens["color/hover"],
+      criticalText: tokens["color/danger"],
+      criticalHoverBackground: tokens["color/component/danger-alpha-100"],
+      focusIndicator: tokens["color/focus-ring"],
+      disabledText: tokens["color/ink-3"],
+      disabledBackground: tokens["color/card-2"],
+      disabledBorder: tokens["color/card-border"],
+    },
+    choice: {
+      text: tokens["color/ink"],
+      border: tokens["color/input-border"],
+      checkIndicator: tokens["color/primary"],
+      selectedIndicator: tokens["color/primary"],
+      selectedSurface: tokens["color/selected"],
+      activeSurface: tokens["color/hover"],
+      focusSurface: tokens["color/component/focus-ring-alpha-160"],
+      critical: tokens["color/danger"],
+      disabledText: tokens["color/ink-3"],
+      disabledSurface: tokens["color/card-2"],
+    },
+    table: {
+      rowHeight: tokens["spacing/space-32"],
+      text: tokens["color/ink"],
+      captionText: tokens["color/ink-2"],
+      headerText: tokens["color/ink-2"],
+      headerSurface: tokens["color/card-2"],
+      rowHoverSurface: tokens["color/hover"],
+      rowSelectedSurface: tokens["color/selected"],
+      rowSelectedIndicator: tokens["color/selected-border"],
+      rowMutedText: tokens["color/ink-3"],
+      rowCriticalText: tokens["color/danger"],
+      rowCriticalSurface: tokens["color/component/danger-alpha-100"],
+      rowDivider: tokens["color/divider"],
+      structuralBorder: tokens["color/line"],
+      totalText: tokens["color/primary"],
+      totalSurface: tokens["color/card"],
+      emptyText: tokens["color/ink-3"],
+    },
+    rule: {
+      strong: tokens["color/line"],
+      subtle: tokens["color/divider"],
+      gap: tokens["spacing/space-8"],
+    },
+    chart: {
+      text: tokens["color/ink"],
+      mutedText: tokens["color/ink-2"],
+      chrome: tokens["color/line"],
+      tick: tokens["color/ink-3"],
+      surface: tokens["color/card"],
+      alternate: tokens["color/cat-focus"],
+      pigmentDark: tokens["color/primary"],
+      pigmentLight: tokens["color/glass-panel"],
+      pigmentFiber: tokens["color/ink-3"],
+    },
+    overlay: {
+      backdrop: tokens["color/scrim"],
+      surface: tokens["color/document/backdrop-panel/sky"],
+      border: tokens["color/glass-border-soft"],
+      text: tokens["color/ink"],
+    },
+    navigation: {
+      text: tokens["color/ink-2"],
+      hoverText: tokens["color/ink"],
+      hoverSurface: tokens["color/hover"],
+      selectedText: tokens["color/selected-ink"],
+      selectedSurface: tokens["color/selected"],
+      selectedIndicator: tokens["color/selected-border"],
+      separator: tokens["color/divider"],
+    },
+    range: {
+      track: tokens["color/track"],
+      activeTrack: tokens["color/primary"],
+      thumb: tokens["color/knob"],
+      focusIndicator: tokens["color/focus-ring"],
+      disabledTrack: tokens["color/track"],
+      disabledThumb: tokens["color/ink-3"],
+    },
+  },
+} satisfies LagrangeTheme;
+
+export const theme = style({
+  selectors: {
+    '&[data-comet-theme="dark"]': {
+      // Desktop content behind a native window must not reduce text contrast.
+      vars: {
+        [tokenNames["color/glass-window"]]: "rgb(16 23 58)",
+        [tokenNames["color/glass-panel"]]: "rgb(22 30 68)",
+        [tokenNames["color/glass-widget"]]: "rgb(20 28 64)",
+        [tokenNames["color/glass-capsule"]]: "rgb(20 28 64)",
+        [tokenNames["color/glass-pill"]]: "rgb(24 33 76)",
+        [tokenNames["color/glass-tail"]]: "rgb(22 30 68)",
+      },
+    },
+  },
+  vars: {
+    ...assignVars(themeVars, legacyTheme),
+    ...assignVars(vnextVars, {
+      surface: { accent: tokens["color/component/primary-alpha-80"] },
+      radius: {
+        parent: tokens["radius/radius-22"],
+        inset: tokens["radius/radius-12"],
+        control: tokens["radius/radius-9"],
+      },
+    }),
+  },
+});

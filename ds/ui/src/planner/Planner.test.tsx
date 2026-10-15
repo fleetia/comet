@@ -212,6 +212,18 @@ describe("planner composition", () => {
     expect(change).toHaveBeenCalledOnce();
   });
 
+  it("can show a recorded-time ring without offering manual painting controls", () => {
+    render(<CalendarDayRing segments={[]} value="0분" centerLabel="집중한 시간" showCategoryControls={false} />);
+    expect(screen.getByText("집중한 시간")).toBeDefined();
+    expect(screen.queryByText("칠할 분류")).toBeNull();
+    expect(screen.queryByRole("button", { name: "일" })).toBeNull();
+  });
+
+  it("does not create a hidden note editor when the records consumer supplies no note", () => {
+    render(<FocusRecordsPanel tab="records" />);
+    expect(screen.queryByLabelText("이번 집중 메모")).toBeNull();
+  });
+
   it("submits the original ledger fields and leaves disabled input inactive", async () => {
     const user = userEvent.setup();
     const add = vi.fn();

@@ -1,4 +1,4 @@
-import { Button } from "@fleetia/lagrange";
+import { Button } from "../../ui";
 import { useId, useRef, useState, type ReactElement } from "react";
 import { frequencyRecords, ruleOf } from "../Planner/plannerData";
 import { localDay, number, rows, text, type DataRecord, type ToolAction } from "../toolData";

@@ -1,4 +1,4 @@
-import { FormField, Button, Select, TextField } from "@fleetia/lagrange";
+import { FormField, Button, Select, TextField } from "../../ui";
 import { useState, type ReactElement } from "react";
 import type { WidgetView } from "../types";
 import { number, record, text, type ToolAction } from "../toolData";

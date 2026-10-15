@@ -1,5 +1,6 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { semanticVars as vars, componentVars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 
 export const root = style({
   display: "flex",
@@ -29,6 +30,7 @@ const cover = style({
   flexShrink: 0,
   objectFit: "cover",
   background: vars.color.surface.muted,
+  borderRadius: tokens["radius/radius-14"],
   selectors: { [`${root}[data-expanded="true"] &`]: { width: 128, height: 128 } },
   "@media": {
     "(max-width: 520px)": {
@@ -91,23 +93,28 @@ export const range = style({
 });
 globalStyle(`${range}::-webkit-slider-runnable-track`, {
   background: componentVars.range.track,
-  height: 2,
+  height: 4,
+  borderRadius: 4,
 });
 globalStyle(`${range}::-webkit-slider-thumb`, {
   appearance: "none",
   WebkitAppearance: "none",
-  width: 8,
-  height: 8,
-  marginTop: -3,
-  borderRadius: 0,
+  width: 12,
+  height: 12,
+  marginTop: -4,
+  borderRadius: "50%",
   background: componentVars.range.thumb,
 });
-globalStyle(`${range}::-moz-range-track`, { background: componentVars.range.track, height: 2 });
+globalStyle(`${range}::-moz-range-track`, {
+  background: componentVars.range.track,
+  height: 4,
+  borderRadius: 4,
+});
 globalStyle(`${range}::-moz-range-thumb`, {
-  width: 8,
-  height: 8,
+  width: 12,
+  height: 12,
   border: 0,
-  borderRadius: 0,
+  borderRadius: "50%",
   background: componentVars.range.thumb,
 });
 export const time = style({

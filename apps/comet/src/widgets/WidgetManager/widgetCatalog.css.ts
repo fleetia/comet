@@ -1,77 +1,111 @@
-import { style } from "@vanilla-extract/css";
-import { semanticVars as vars, vnextVars } from "@fleetia/lagrange/theme";
-
+import { globalStyle, style } from "@vanilla-extract/css";
+import { tokens } from "@comet/token";
 export const catalog = style({
-  minWidth: 0,
-  minHeight: 0,
-  padding: vars.space.md,
-  borderRadius: vnextVars.radius.parent,
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.sm,
+  minWidth: 0,
+  minHeight: 0,
+  height: "100%",
+  gap: 24,
   overflow: "hidden",
 });
 export const title = style({
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
+  gap: 20,
+  minWidth: 0,
   flexShrink: 0,
-  minHeight: 24,
 });
+export const headingCopy = style({ display: "flex", alignItems: "baseline", gap: 14 });
+globalStyle(`${headingCopy} h1`, {
+  margin: 0,
+  fontFamily: tokens["typography/display/page/fontFamily"],
+  fontSize: 26,
+  lineHeight: "32px",
+  fontWeight: 400,
+});
+globalStyle(`${headingCopy} p`, { margin: 0, color: tokens["color/ink-2"], fontSize: 12 });
 export const list = style({
+  display: "grid",
+  gridTemplateColumns: "repeat(3,minmax(0,1fr))",
+  gap: 20,
   minHeight: 0,
   flex: 1,
   overflowY: "auto",
-  overscrollBehavior: "contain",
+  alignItems: "start",
+  "@media": { "(max-width: 1050px)": { gap: 16 } },
 });
-export const group = style({ marginBottom: vars.space.md });
-export const groupToggle = style({
-  display: "grid",
-  gridTemplateColumns: "16px minmax(0, 1fr) auto",
+export const column = style({ display: "grid", alignContent: "start", minWidth: 0, gap: 20 });
+export const group = style({ display: "grid", gap: 8, minWidth: 0 });
+export const groupHeading = style({
+  display: "flex",
   alignItems: "center",
-  gap: vars.space.xs,
-  width: "100%",
-  minHeight: 40,
-  padding: `${vars.space.xs} ${vars.space.sm}`,
-  border: 0,
-  background: "transparent",
-  color: vars.color.content.primary,
-  textAlign: "left",
-  font: "inherit",
-  fontWeight: 600,
-  borderRadius: vars.shape.radius.subtle,
-  cursor: "pointer",
-  selectors: {
-    "&:focus-visible": { outline: `2px solid ${vars.color.interaction.focus}`, outlineOffset: -2 },
-  },
-});
-export const count = style({
-  fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
+  gap: 8,
+  fontFamily: tokens["typography/display/label-display/fontFamily"],
+  fontSize: 14,
+  lineHeight: "18px",
+  color: tokens["color/ink-2"],
   fontWeight: 400,
+  margin: 0,
+});
+export const rows = style({
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: 18,
+  background: tokens["color/card"],
+  overflow: "hidden",
 });
 export const entry = style({
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) auto",
-  gap: vars.space.xs,
-  width: "100%",
-  minHeight: 36,
-  padding: `${vars.space.xs} ${vars.space.sm}`,
-  border: 0,
-  fontSize: vars.typography.size.label,
-  lineHeight: vars.typography.lineHeight.body,
-  borderRadius: vars.shape.radius.subtle,
-});
-export const entryName = style({
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
   minWidth: 0,
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
+  minHeight: 54,
+  padding: "9px 12px",
+  selectors: { "& + &": { borderTop: `1px solid ${tokens["color/divider"]}` } },
 });
-export const status = style({
-  fontSize: vars.typography.size.caption,
-  opacity: 0.7,
-  whiteSpace: "nowrap",
-  selectors: { '&[data-attention="true"]': { fontWeight: 700, opacity: 1 } },
+export const entryButton = style({
+  display: "flex",
+  alignItems: "center",
+  minWidth: 0,
+  flex: 1,
+  gap: 10,
+  color: tokens["color/ink"],
+  background: "transparent",
+  padding: 0,
+  border: 0,
+  font: "inherit",
+  textAlign: "left",
+  cursor: "pointer",
+  selectors: {
+    "&:focus-visible": {
+      outline: `2px solid ${tokens["color/focus-ring"]}`,
+      outlineOffset: 3,
+      borderRadius: 8,
+    },
+  },
 });
-export const empty = style({ padding: `${vars.space.lg} 0` });
+export const iconTile = style({
+  display: "grid",
+  placeItems: "center",
+  width: 32,
+  height: 32,
+  flexShrink: 0,
+  borderRadius: 16,
+  color: tokens["color/icon-tile-ink"],
+  background: tokens["color/icon-tile"],
+});
+export const entryCopy = style({ display: "grid", gap: 2, minWidth: 0, flex: 1 });
+export const entryName = style({
+  fontSize: 14,
+  fontWeight: 600,
+  lineHeight: "19px",
+  overflowWrap: "anywhere",
+});
+export const description = style({
+  fontSize: 12,
+  lineHeight: "16px",
+  color: tokens["color/ink-3"],
+  overflowWrap: "anywhere",
+});
+export const empty = style({ margin: 0, color: tokens["color/ink-2"], fontSize: 13 });

@@ -86,3 +86,22 @@ export const loading = style({
   background: "transparent",
   color: vars.color.content.secondary,
 });
+
+export const freeformFrame = style({
+  padding: 0,
+  border: 0,
+  borderRadius: 0,
+  background: "transparent",
+  boxShadow: "none",
+  textShadow: "none",
+  alignItems: "center",
+  justifyContent: "center",
+});
+export const freeformContent = style({
+  display: "grid",
+  placeItems: "center",
+  maxWidth: "100%",
+  padding: 0,
+  background: "transparent",
+  overflow: "auto",
+});

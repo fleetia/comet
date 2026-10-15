@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Button, Dialog } from "@fleetia/lagrange";
+import { Button, Dialog } from "../../ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { WidgetFrame } from "../WidgetFrame/WidgetFrame";
 import { useWindowCloseGuard } from "../useWindowCloseGuard";

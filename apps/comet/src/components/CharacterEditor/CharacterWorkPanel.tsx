@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Surface, type SurfaceProps } from "@fleetia/lagrange";
+import { Surface, type SurfaceProps } from "../../ui";
 import * as s from "./CharacterEditor.css";
 
 export function CharacterWorkPanel({

@@ -1,4 +1,5 @@
-import { Button, FormField, TextArea } from "@fleetia/lagrange";
+import { Button, FormField, TextArea } from "../../ui";
+import { FocusRecordsPanel } from "@comet/ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { localDay, text, type DataRecord, type ToolAction } from "../toolData";
 import { clockLabel, moveDay, movePeriod, periodAnchor } from "../Planner/plannerData";
@@ -33,6 +34,7 @@ export function FocusTimerStats({
   onSelect,
   onOpenNote,
   act,
+  onNotes,
 }: {
   sessions: FocusSession[];
   day: string;
@@ -40,6 +42,7 @@ export function FocusTimerStats({
   onSelect: (id: string | null) => void;
   onOpenNote: (ref: DataRecord) => void;
   act: ToolAction;
+  onNotes?: () => void;
 }): ReactElement {
   const [period, setPeriod] = useState<FocusPeriod>("week");
   const [anchor, setAnchor] = useState(day);
@@ -89,138 +92,92 @@ export function FocusTimerStats({
       />
     );
   return (
-    <section className={s.pane} aria-label="집중 통계">
-      <div className={s.presets} aria-label="통계 기간">
-        {(
-          [
-            ["day", "일"],
-            ["week", "주"],
-            ["month", "월"],
-            ["year", "년"],
-          ] as const
-        ).map(([value, title]) => (
-          <Button
-            key={value}
-            variant="quiet"
-            size="compact"
-            className={s.preset}
-            aria-pressed={period === value}
-            onClick={() => {
-              setPeriod(value);
-              setBucketKey(null);
-            }}
-          >
-            {title}
-          </Button>
-        ))}
-      </div>
-      <div className={s.heading}>
-        <Button
-          variant="quiet"
-          size="compact"
-          aria-label="이전 통계 기간"
-          onClick={() => shift(-1)}
-        >
-          ‹
-        </Button>
-        <span className={s.quiet}>{label}</span>
-        <Button variant="quiet" size="compact" aria-label="다음 통계 기간" onClick={() => shift(1)}>
-          ›
-        </Button>
-      </div>
-      <div className={s.statsSummary}>
-        <div>
-          <span className={s.caption}>{label} 합계</span>
-          <strong className={s.total}>{focusDuration(total)}</strong>
-        </div>
-        <span className={s.quiet}>{allIds.size}회 집중</span>
-      </div>
-      <div
-        className={s.chart}
-        data-dense={buckets.length > 12}
-        aria-label={`${label} 실제 집중 시간 그래프`}
-      >
-        {buckets.map((bucket) => (
-          <button
-            key={bucket.key}
-            className={s.bar}
-            type="button"
-            aria-pressed={chosen?.key === bucket.key}
-            aria-label={`${bucketRangeLabel(bucket, period)} ${focusDuration(bucket.elapsedMs)}`}
-            title={`${bucketRangeLabel(bucket, period)} · ${focusDuration(bucket.elapsedMs)}`}
-            onClick={() => setBucketKey(bucket.key === bucketKey ? null : bucket.key)}
-          >
-            <span className={s.barTrack}>
-              <span
-                className={s.barFill}
-                style={{ height: `${(bucket.elapsedMs / maximum) * 100}%` }}
-              />
+    <FocusRecordsPanel
+      className={s.recordsPanel}
+      aria-label="집중 통계"
+      tab="records"
+      onTabChange={(tab) => {
+        if (tab === "notes") onNotes?.();
+      }}
+      period={period}
+      onPeriodChange={(value) => {
+        if (value === "day" || value === "week" || value === "month" || value === "year") {
+          setPeriod(value);
+          setBucketKey(null);
+        }
+      }}
+      periodLabel={`${label} 합계`}
+      total={focusDuration(total)}
+      summary={`${allIds.size}회 집중`}
+      onPrevious={() => shift(-1)}
+      onNext={() => shift(1)}
+      bars={buckets.map((bucket) => ({
+        id: bucket.key,
+        label: bucket.label,
+        valueLabel: focusDuration(bucket.elapsedMs),
+        value: bucket.elapsedMs,
+        max: maximum,
+        current: chosen?.key === bucket.key,
+        role: "button",
+        tabIndex: 0,
+        "aria-pressed": chosen?.key === bucket.key,
+        "aria-label": `${bucketRangeLabel(bucket, period)} ${focusDuration(bucket.elapsedMs)}`,
+        onClick: () => setBucketKey(bucket.key === bucketKey ? null : bucket.key),
+        onKeyDown: (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setBucketKey(bucket.key === bucketKey ? null : bucket.key);
+          }
+        },
+      }))}
+      help={
+        <>
+          {chosen
+            ? `${scopeName} · ${scopeLabel} · ${focusDuration(chosen.elapsedMs)}`
+            : "휴식과 일시정지를 제외한 실제 집중 시간이에요."}
+          {visible.length === 0 && (
+            <span className={s.caption}>{scopeLabel}에 집중 기록이 없어요.</span>
+          )}
+        </>
+      }
+      recordsLabel={`${scopeName}의 집중 기록`}
+      records={visible.map((session) => ({
+        id: session.id,
+        time: `${clockLabel(session.startedAt)}–${clockLabel(session.endedAt)}`,
+        title: session.title,
+        duration: focusDuration(elapsedWithin(session, scopeStart, scopeEnd)),
+        description: (
+          <>
+            {session.active
+              ? "집중 중"
+              : session.outcome === "completed"
+                ? "시간 종료"
+                : "직접 마침"}
+            {session.memo || text(session.noteRef.id) ? " · 메모 있음" : ""}
+            <span className={s.caption}>
+              {scopeName} {focusDuration(elapsedWithin(session, scopeStart, scopeEnd))} · 세션 전체{" "}
+              {focusDuration(session.elapsedMs)}
             </span>
-            <span className={s.barLabel}>{bucket.label}</span>
-          </button>
-        ))}
-      </div>
-      <p className={`${s.quiet} ${s.chartCaption}`}>
-        {chosen
-          ? `${scopeName} · ${scopeLabel} · ${focusDuration(chosen.elapsedMs)}`
-          : "휴식과 일시정지를 제외한 실제 집중 시간이에요."}
-      </p>
-      <div className={s.recordHeading}>
-        <h2 className={s.headingText}>{scopeName}의 집중 기록</h2>
-        <Button
-          variant="quiet"
-          size="compact"
-          onClick={() => {
-            setAnchor(day);
-            setBucketKey(null);
-          }}
-        >
-          현재 기간
-        </Button>
-      </div>
-      {visible.length === 0 && <p className={s.empty}>{scopeLabel}에 집중 기록이 없어요.</p>}
-      <div className={s.activityList}>
-        {visible.map((session) => (
-          <Button
-            key={session.id}
-            variant="quiet"
-            className={s.recordButton}
-            onClick={() => onSelect(session.id)}
-            aria-label={`${session.title} 집중 기록 상세`}
-          >
-            <span className={s.recordRow}>
-              <span className={s.quiet}>{clockLabel(session.startedAt)}</span>
-              <span className={s.grow}>
-                <span className={s.itemTitle}>{session.title}</span>
-                <span className={s.caption}>
-                  {session.active
-                    ? "집중 중"
-                    : session.outcome === "completed"
-                      ? "시간 종료"
-                      : "직접 마침"}
-                  {session.memo || text(session.noteRef.id) ? " · 메모 있음" : ""}
-                </span>
-                <span className={s.caption}>
-                  <strong>
-                    {scopeName} {focusDuration(elapsedWithin(session, scopeStart, scopeEnd))}
-                  </strong>{" "}
-                  · 세션 전체 {focusDuration(session.elapsedMs)}
-                </span>
-                {session.appUsage && (
-                  <span className={s.caption}>
-                    앱 전면 사용 · 세션 전체 · {session.appUsage.target.name}{" "}
-                    {appUsageTime(session.appUsage.elapsedMs)}
-                  </span>
-                )}
+            {session.appUsage && (
+              <span className={s.caption}>
+                앱 전면 사용 · 세션 전체 · {session.appUsage.target.name}{" "}
+                {appUsageTime(session.appUsage.elapsedMs)}
               </span>
-            </span>
-          </Button>
-        ))}
-      </div>
-      {sessions.length > 0 && first && last && (
-        <p className={s.quiet}>새로 남긴 집중 구간을 기준으로 집계해요.</p>
-      )}
-    </section>
+            )}
+          </>
+        ),
+        role: "button",
+        tabIndex: 0,
+        "aria-label": `${session.title} 집중 기록 상세`,
+        onClick: () => onSelect(session.id),
+        onKeyDown: (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSelect(session.id);
+          }
+        },
+      }))}
+    />
   );
 }
 

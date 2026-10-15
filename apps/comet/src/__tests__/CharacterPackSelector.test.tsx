@@ -1,3 +1,4 @@
+import { openCharacterPage, selectFriend, openFriendPacks } from "./characterNavigation";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { CharacterManager } from "../components/CharacterManager/CharacterManager";
@@ -74,10 +75,10 @@ it("previews the selected installation and replaces the roster only after applyi
     });
   });
   const { rerender } = render(<CharacterPackSelector {...props} />);
-  const select = await screen.findByLabelText("설치한 캐릭터 팩");
-  expect(select).toHaveProperty("value", "pair");
+  const select = await screen.findByRole("radio", { name: "1. 별 친구 · 2명" });
+  expect(select.getAttribute("aria-checked")).toBe("true");
   expect(screen.getByRole("button", { name: "함께 지내는 중" })).toHaveProperty("disabled", true);
-  fireEvent.change(select, { target: { value: "solo-pack" } });
+  fireEvent.click(await screen.findByRole("radio", { name: "2. 별 친구 · 1명" }));
   expect(screen.getByText(/함께 지낼 순서: 모래/)).toBeTruthy();
   expect(command).toHaveBeenCalledTimes(1);
   const apply = screen.getByRole("button", { name: "이 팩으로 함께 지내기" });
@@ -104,7 +105,7 @@ it("treats a mixed or reordered roster as different from the pack order", async 
       characters={{ ...characters, active: ["builtin-b", "builtin-a"] }}
     />,
   );
-  fireEvent.change(await screen.findByLabelText("설치한 캐릭터 팩"), { target: { value: "pair" } });
+  fireEvent.click(await screen.findByRole("radio", { name: "1. 별 친구 · 2명" }));
   expect(screen.getByText(/함께 지낼 순서: A → B/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "이 팩으로 함께 지내기" })).toHaveProperty(
     "disabled",
@@ -126,11 +127,12 @@ it("retains the selection on apply failure and allows a retry without claiming s
     throw new Error("팩을 적용하지 못했어요.");
   });
   render(<CharacterPackSelector {...props} />);
-  const select = await screen.findByLabelText("설치한 캐릭터 팩");
-  fireEvent.change(select, { target: { value: "solo-pack" } });
+  fireEvent.click(await screen.findByRole("radio", { name: "2. 별 친구 · 1명" }));
   fireEvent.click(screen.getByRole("button", { name: "이 팩으로 함께 지내기" }));
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "팩을 적용하지 못했어요.");
-  expect(select).toHaveProperty("value", "solo-pack");
+  expect(screen.getByRole("radio", { name: "2. 별 친구 · 1명" }).getAttribute("aria-checked")).toBe(
+    "true",
+  );
   expect(screen.getByRole("button", { name: "이 팩으로 함께 지내기" })).toHaveProperty(
     "disabled",
     false,
@@ -172,21 +174,17 @@ it("refreshes changed membership, rejects a removed selection, and ignores late 
   const remaining = { ...characters, installed: characters.installed.slice(0, 2) };
   vi.mocked(command).mockResolvedValue([packs[0]]);
   rerender(<CharacterPackSelector {...props} characters={remaining} />);
-  const select = await screen.findByLabelText("설치한 캐릭터 팩");
+  const select = await screen.findByRole("radio", { name: "1. 별 친구 · 2명" });
   finishOld(packs);
   await waitFor(() =>
-    expect(within(select).queryByRole("option", { name: "2. 별 친구 · 1명" })).toBeNull(),
+    expect(within(select).queryByRole("radio", { name: "2. 별 친구 · 1명" })).toBeNull(),
   );
   vi.mocked(command).mockResolvedValue(packs);
   rerender(<CharacterPackSelector {...props} />);
-  fireEvent.change(await screen.findByLabelText("설치한 캐릭터 팩"), {
-    target: { value: "solo-pack" },
-  });
+  fireEvent.click(await screen.findByRole("radio", { name: "2. 별 친구 · 1명" }));
   vi.mocked(command).mockResolvedValue([packs[0]]);
   rerender(<CharacterPackSelector {...props} characters={remaining} />);
-  await waitFor(() =>
-    expect(screen.getByLabelText("설치한 캐릭터 팩")).toHaveProperty("value", ""),
-  );
+  await waitFor(() => expect(screen.queryByRole("radio", { checked: true })).toBeNull());
   expect(screen.getByRole("button", { name: "이 팩으로 함께 지내기" })).toHaveProperty(
     "disabled",
     true,
@@ -195,22 +193,20 @@ it("refreshes changed membership, rejects a removed selection, and ignores late 
 
 it("blocks pack application for a draft on another character and unlocks after cancelling", async () => {
   render(<CharacterManager embedded snapshot={{ ...PREVIEW_SNAPSHOT, characters }} />);
+  openCharacterPage("프로필");
   fireEvent.change(screen.getByLabelText("이름"), { target: { value: "수정 중인 A" } });
-  fireEvent.click(
-    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^B/ }),
-  );
-  fireEvent.click(screen.getByRole("button", { name: "설치한 팩으로 바꾸기" }));
-  const select = await screen.findByLabelText("설치한 캐릭터 팩");
+  selectFriend(/^B/);
+  openFriendPacks();
+  const select = await screen.findByRole("radio", { name: "1. 별 친구 · 2명" });
   expect(select).toHaveProperty("disabled", true);
   expect(screen.getByText(/수정 중인 캐릭터와 대사를 저장하거나 취소/)).toBeTruthy();
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "닫기" }));
-  fireEvent.click(
-    within(screen.getByLabelText("설치된 캐릭터")).getByRole("button", { name: /^수정 중인 A/ }),
-  );
+  selectFriend(/^수정 중인 A/);
+  openCharacterPage("프로필");
   expect(screen.getByLabelText("이름")).toHaveProperty("value", "수정 중인 A");
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 수정 취소" }));
-  fireEvent.click(screen.getByRole("button", { name: "설치한 팩으로 바꾸기" }));
-  expect(screen.getByLabelText("설치한 캐릭터 팩")).toHaveProperty("disabled", false);
+  openFriendPacks();
+  expect(screen.getByRole("radio", { name: "1. 별 친구 · 2명" })).toHaveProperty("disabled", false);
 });
 
 it("locks character and dialogue edits during an unresolved pack switch", async () => {
@@ -233,13 +229,12 @@ it("locks character and dialogue edits during an unresolved pack switch", async 
     return { pairScenes: [], wordbook: [] };
   });
   render(<CharacterManager embedded snapshot={{ ...PREVIEW_SNAPSHOT, characters }} />);
-  fireEvent.click(screen.getByRole("tab", { name: "대사·반응" }));
+  openCharacterPage("프로필");
+  openCharacterPage("대사·반응");
   fireEvent.click(screen.getByRole("button", { name: "키워드" }));
   await screen.findByRole("textbox", { name: "제목" });
-  fireEvent.click(screen.getByRole("button", { name: "설치한 팩으로 바꾸기" }));
-  fireEvent.change(await screen.findByLabelText("설치한 캐릭터 팩"), {
-    target: { value: "solo-pack" },
-  });
+  openFriendPacks();
+  fireEvent.click(await screen.findByRole("radio", { name: "2. 별 친구 · 1명" }));
   fireEvent.click(screen.getByRole("button", { name: "이 팩으로 함께 지내기" }));
   expect(screen.getByLabelText("이름").matches(":disabled")).toBe(true);
   expect(screen.getByLabelText("등록 대사 대상").matches(":disabled")).toBe(true);
