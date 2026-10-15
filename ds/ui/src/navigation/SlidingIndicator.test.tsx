@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { SegmentedControl, Tabs } from "./Navigation";
@@ -65,12 +65,13 @@ it("follows native segment selection and form reset without creating a second se
   expect(marker.style.width).toBe("162px");
   const form = screen.getByRole<HTMLFormElement>("form");
   expect(new FormData(form).get("date")).toBe("tomorrow");
-  await act(async () => {
+  act(() => {
     form.reset();
-    await Promise.resolve();
   });
-  expect(marker.style.transform).toBe("translateX(0px)");
-  expect(marker.style.width).toBe("54px");
+  await waitFor(() => {
+    expect(marker.style.transform).toBe("translateX(0px)");
+    expect(marker.style.width).toBe("54px");
+  });
   expect(new FormData(form).get("date")).toBe("today");
 });
 
@@ -145,3 +146,32 @@ it.each([true, false])(
     expect(marker.hidden).toBe(false);
   },
 );
+
+it("hides the highlight for a radio outside its form with the same form owner", async () => {
+  const user = userEvent.setup();
+  render(
+    <>
+      <form id="date-form">
+        <SegmentedControl label="날짜" name="shared-date" options={options} size="display-mode" />
+      </form>
+      <label>
+        <input type="radio" name="shared-date" value="external" form="date-form" />
+        외부 선택
+      </label>
+    </>,
+  );
+  const today = screen.getByRole<HTMLInputElement>("radio", { name: "오늘" });
+  const external = screen.getByRole<HTMLInputElement>("radio", { name: "외부 선택" });
+  const marker = screen
+    .getByRole("radiogroup")
+    .querySelector<HTMLSpanElement>('[aria-hidden="true"]')!;
+  expect(external.form).toBe(today.form);
+  expect(marker.hidden).toBe(false);
+  // jsdom does not uncheck radios across form= associations.
+  today.checked = false;
+  await user.click(external);
+  expect(external.checked).toBe(true);
+  expect(marker.hidden).toBe(true);
+  await user.click(screen.getByRole("radio", { name: "내일의 모든 기록" }));
+  expect(marker.hidden).toBe(false);
+});
