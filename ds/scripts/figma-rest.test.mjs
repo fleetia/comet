@@ -7,11 +7,8 @@ import {
   PAGE_IDS,
   createSnapshot,
   diffSnapshots,
-  downloadImages,
   fetchFile,
-  fetchImageUrls,
   prepare,
-  validateChanges,
   validateSnapshot,
 } from "./figma-rest.mjs";
 
@@ -102,17 +99,8 @@ function move(node, dx, dy) {
   for (const child of node.children ?? []) move(child, dx, dy);
 }
 
-function pngResponse(bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0])) {
-  return {
-    ok: true,
-    headers: { get: () => String(bytes.byteLength) },
-    body: new ReadableStream({
-      start(controller) {
-        controller.enqueue(bytes);
-        controller.close();
-      },
-    }),
-  };
+function jsonResponse(data) {
+  return new Response(JSON.stringify(data), { headers: { "content-type": "application/json" } });
 }
 
 const temporaryRoots = [];
@@ -160,7 +148,7 @@ describe("Figma REST snapshots", () => {
   });
 
   it.each(["geometry", "hidden-fill", "binding", "dimensions", "metadata"])(
-    "detects %s changes",
+    "retains the context needed to report %s changes",
     (change) => {
       const original = file();
       const current = structuredClone(original);
@@ -171,12 +159,13 @@ describe("Figma REST snapshots", () => {
       if (change === "binding") detail.boundVariables.fills[0].id = "VariableID:2:9";
       if (change === "dimensions") set.children[0].absoluteBoundingBox.width += 1;
       if (change === "metadata") current.componentSets["1:1"].description = "Changed description";
-      expect(
-        diffSnapshots(
-          createSnapshot(original).snapshot,
-          createSnapshot(current).snapshot,
-        ).changed.map(({ id }) => id),
-      ).toEqual(["1:1"]);
+      const baseline = createSnapshot(original).snapshot;
+      const snapshot = createSnapshot(current).snapshot;
+      const diff = diffSnapshots(baseline, snapshot);
+      expect(diff.changed.map(({ id }) => id)).toEqual(["1:1"]);
+      expect(diff.changed[0].name).toBe("Button");
+      expect(diff.changed[0].context).toEqual(snapshot.entries[0].context);
+      expect(diff.changed[0].context).not.toEqual(baseline.entries[0].context);
     },
   );
 
@@ -193,29 +182,53 @@ describe("Figma REST snapshots", () => {
     expect(diff.added.map(({ id }) => id)).toEqual(["5:1"]);
     expect(diff.changed.map(({ id }) => id)).toEqual(["4:1"]);
     expect(diff.removed.map(({ id }) => id)).toEqual(["1:1"]);
-    expect(diff.removed[0].url).toContain("node-id=1-1");
+    expect(diff.removed[0]).toMatchObject({
+      name: "Button",
+      url: `https://www.figma.com/design/${FILE_KEY}?node-id=1-1`,
+    });
   });
 
-  it("rejects missing pages, invalid baselines, and duplicate roots", () => {
+  it("stabilizes root and object key order without discarding internal stacking changes", () => {
+    const original = file();
+    original.document.children[0].children.push(component("5:1", "Badge", 500, 0));
+    const current = structuredClone(original);
+    current.document.children.reverse();
+    current.document.children[1].children.reverse();
+    current.components["2:1"] = { componentSetId: "1:1", name: "size=Small" };
+    current.version = "new-file-version";
+    current.lastModified = "2026-10-16T00:00:00Z";
+    expect(JSON.stringify(createSnapshot(current).snapshot)).toBe(
+      JSON.stringify(createSnapshot(original).snapshot),
+    );
+    current.document.children[1].children[1].children[0].children.push(
+      component("6:1", "Overlay", 150, 220),
+    );
+    const beforeReorder = createSnapshot(current).snapshot;
+    current.document.children[1].children[1].children[0].children.reverse();
+    expect(diffSnapshots(beforeReorder, createSnapshot(current).snapshot).changed).toHaveLength(1);
+  });
+
+  it("rejects incomplete pages, duplicate roots, v1 baselines, and mismatched context hashes", () => {
     const current = file();
     current.document.children[1] = null;
     expect(() => createSnapshot(current)).toThrow("complete icons page");
     const baseline = createSnapshot(file()).snapshot;
+    expect(() => validateSnapshot({ ...baseline, schemaVersion: 1 })).toThrow("Invalid");
     expect(() => validateSnapshot({ ...baseline, fileKey: "other" })).toThrow("Invalid");
     expect(() =>
       validateSnapshot({ ...baseline, entries: [...baseline.entries, baseline.entries[0]] }),
     ).toThrow("duplicate");
-    expect(() =>
-      validateSnapshot({ ...baseline, entries: [{ ...baseline.entries[0], hash: "invalid" }] }),
-    ).toThrow("Invalid");
+    const corrupt = structuredClone(baseline);
+    corrupt.entries[0].context.node.name = "Tampered";
+    expect(() => validateSnapshot(corrupt)).toThrow("context or hash");
+    delete corrupt.entries[0].context;
+    expect(() => validateSnapshot(corrupt)).toThrow("context or hash");
   });
 });
 
 describe("Figma requests and preparation", () => {
-  it("requests full page trees with paths and safely reports authentication failures", async () => {
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValue({ ok: false, status: 403, json: () => ({ err: "secret-token" }) });
+  it("requests complete page trees with paths and safely reports authentication failures", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("secret-token", { status: 403 }));
     await expect(fetchFile({ token: "secret-token", fetchImpl })).rejects.toThrow("HTTP 403");
     const [url, options] = fetchImpl.mock.calls[0];
     expect(new URL(url).searchParams.get("geometry")).toBe("paths");
@@ -226,99 +239,51 @@ describe("Figma requests and preparation", () => {
     expect(options.signal).toBeInstanceOf(AbortSignal);
   });
 
-  it("records null renders and pins all image requests to the snapshot version", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => ({ images: { "1:1": "https://s3-alpha.figma.com/example.png", "4:1": null } }),
-    });
-    const renders = await fetchImageUrls({
-      ids: ["1:1", "4:1"],
-      version: "exact-version",
-      token: "token",
-      fetchImpl,
-    });
-    expect(new URL(fetchImpl.mock.calls[0][0]).searchParams.get("version")).toBe("exact-version");
-    expect(renders.imageUrls).toHaveLength(1);
-    expect(renders.renderFailures).toEqual([
-      { id: "4:1", reason: "Figma returned no allowed HTTPS render URL" },
-    ]);
-  });
-
-  it("downloads PNGs without credentials and rejects redirects, untrusted hosts, and invalid bytes", async () => {
-    const root = await setupRoot();
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce(pngResponse())
-      .mockResolvedValueOnce(pngResponse(Buffer.from("not an image")));
-    const result = await downloadImages({
-      root,
-      imageUrls: [
-        { id: "1:1", url: "https://s3-alpha.figma.com/image.png" },
-        { id: "2:1", url: "https://figma-alpha-api.s3.us-west-2.amazonaws.com/image.png" },
-      ],
-      fetchImpl,
-    });
-    expect(result.imageFiles).toEqual([
-      { id: "1:1", path: "test-results/figma-sync/images/1-1.png" },
-    ]);
-    expect(result.renderFailures.map(({ id }) => id)).toEqual(["2:1"]);
-    expect(fetchImpl.mock.calls[0][1].headers).toBeUndefined();
-    expect(fetchImpl.mock.calls[0][1].redirect).toBe("error");
-    await expect(
-      downloadImages({
-        root,
-        imageUrls: [{ id: "1:1", url: "https://example.com/image.png" }],
-        fetchImpl,
-      }),
-    ).rejects.toThrow("Invalid");
-    await expect(
-      downloadImages({
-        root,
-        imageUrls: [{ id: "../escape", url: "https://figma.com/image.png" }],
-        fetchImpl,
-      }),
-    ).rejects.toThrow("Invalid");
-  });
-
-  it("rejects oversized renders even when Content-Length is absent", async () => {
-    const root = await setupRoot();
-    const fetchImpl = vi.fn().mockResolvedValue({
-      ...pngResponse(Buffer.alloc(20 * 1024 * 1024 + 1)),
-      headers: { get: () => null },
-    });
-    const result = await downloadImages({
-      root,
-      imageUrls: [{ id: "1:1", url: "https://figma.com/image.png" }],
-      fetchImpl,
-    });
-    expect(result.imageFiles).toEqual([]);
-    expect(result.renderFailures).toHaveLength(1);
-  });
-
-  it("requires an explicit baseline-only initialization before network access", async () => {
-    const root = await setupRoot();
+  it("fails on missing credentials, network errors, invalid JSON, or API error envelopes", async () => {
     const fetchImpl = vi.fn();
-    await expect(prepare({ root, env: { FIGMA_TOKEN: "token" }, fetchImpl })).rejects.toThrow(
-      "baseline-only",
-    );
+    await expect(fetchFile({ token: "", fetchImpl })).rejects.toThrow("FIGMA_TOKEN");
     expect(fetchImpl).not.toHaveBeenCalled();
+    fetchImpl.mockRejectedValueOnce(new Error("secret-token"));
+    await expect(fetchFile({ token: "token", fetchImpl })).rejects.toThrow("failed or timed out");
+    fetchImpl.mockResolvedValueOnce(new Response("not-json"));
+    await expect(fetchFile({ token: "token", fetchImpl })).rejects.toThrow("invalid JSON");
+    fetchImpl.mockResolvedValueOnce(jsonResponse({ err: "secret-token" }));
+    await expect(fetchFile({ token: "token", fetchImpl })).rejects.toThrow("error response");
   });
 
-  it("prepares an initial snapshot without changing the committed baseline or rendering nodes", async () => {
+  it.each([true, false])(
+    "bounds response size with Content-Length present=%s",
+    async (hasLength) => {
+      let chunks = 0;
+      const response = new Response(
+        new ReadableStream({
+          pull(controller) {
+            chunks += 1;
+            if (chunks > 51) controller.close();
+            else controller.enqueue(new Uint8Array(1024 * 1024));
+          },
+        }),
+        { headers: hasLength ? { "content-length": String(51 * 1024 * 1024) } : {} },
+      );
+      const fetchImpl = vi.fn().mockResolvedValue(response);
+      await expect(fetchFile({ token: "token", fetchImpl })).rejects.toThrow("size limit");
+    },
+  );
+
+  it("automatically prepares an initial snapshot without changing the committed baseline", async () => {
     const root = await setupRoot();
     const output = join(root, "github-output");
-    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: () => file() });
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(file()));
     const result = await prepare({
       root,
-      env: { FIGMA_TOKEN: "token", FIGMA_BASELINE_ONLY: "true", GITHUB_OUTPUT: output },
+      env: { FIGMA_TOKEN: "token", GITHUB_OUTPUT: output },
       fetchImpl,
     });
     expect(result.changed).toBe(true);
-    expect(result.changes.baselineInitialization).toBe(true);
-    expect(result.changes.nodes).toEqual([]);
-    expect(result.changes.coverage.variables).toBe("not-fetched-professional-plan");
+    expect(result.baselineInitialization).toBe(true);
+    expect(result.diff).toEqual({ added: [], changed: [], removed: [] });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(await readFile(output, "utf8")).toBe("changed=true\nbaseline_only=true\n");
+    expect(await readFile(output, "utf8")).toBe("changed=true\nbaseline_initialization=true\n");
     await expect(readFile(join(root, "ds/automation/figma-baseline.json"))).rejects.toMatchObject({
       code: "ENOENT",
     });
@@ -331,7 +296,7 @@ describe("Figma requests and preparation", () => {
     ).toEqual(result.snapshot);
   });
 
-  it("writes only changed node contexts, reports removals, and preserves the committed baseline", async () => {
+  it("captures changed and removed component context without mutating the committed baseline", async () => {
     const root = await setupRoot();
     const original = file();
     const baseline = createSnapshot(original).snapshot;
@@ -340,48 +305,51 @@ describe("Figma requests and preparation", () => {
     current.document.children[0].children[0].children[0].children[0].fillGeometry[0].path =
       "M0 0L25 25";
     current.document.children[1].children = [];
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce({ ok: true, json: () => current })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => ({ images: { "1:1": "https://s3-alpha.figma.com/example.png" } }),
-      })
-      .mockResolvedValueOnce(pngResponse());
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(current));
     const result = await prepare({ root, env: { FIGMA_TOKEN: "token" }, fetchImpl });
     expect(result.changed).toBe(true);
-    expect(result.changes.changed.map(({ id }) => id)).toEqual(["1:1"]);
-    expect(result.changes.removed.map(({ id }) => id)).toEqual(["4:1"]);
-    expect(result.changes.nodes).toEqual([
-      { id: "1:1", kind: "ui", path: "test-results/figma-sync/nodes/1-1.json" },
-    ]);
-    expect(result.changes.sourceVersion).toBe("version-1");
-    expect(result.changes.imageFiles).toEqual([
-      { id: "1:1", path: "test-results/figma-sync/images/1-1.png" },
-    ]);
-    expect(validateChanges(result.changes)).toEqual(result.changes);
-    const context = JSON.parse(await readFile(join(root, result.changes.nodes[0].path), "utf8"));
-    expect(context.node.children[0].children[0].fillGeometry[0].path).toBe("M0 0L25 25");
+    expect(result.baselineInitialization).toBe(false);
+    expect(result.diff.changed.map(({ id }) => id)).toEqual(["1:1"]);
+    expect(result.diff.removed.map(({ id }) => id)).toEqual(["4:1"]);
+    expect(
+      result.snapshot.entries[0].context.node.children[0].children[0].fillGeometry[0].path,
+    ).toBe("M0 0L25 25");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(
       JSON.parse(await readFile(join(root, "ds/automation/figma-baseline.json"), "utf8")),
     ).toEqual(baseline);
-    expect(() =>
-      validateChanges({
-        ...result.changes,
-        nodes: [{ ...result.changes.nodes[0], path: "../../escape" }],
-      }),
-    ).toThrow("context manifest");
   });
 
-  it("reports unchanged state and refuses to reset an established baseline", async () => {
+  it("reports unchanged state and keeps tracking a renamed previously discovered icon", async () => {
     const root = await setupRoot();
-    await saveBaseline(root, createSnapshot(file()).snapshot);
-    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: () => file() });
-    const result = await prepare({ root, env: { FIGMA_TOKEN: "token" }, fetchImpl });
+    const current = file();
+    current.document.children[1].children.push(component("5:1", "Icon/new", 500, 200));
+    await saveBaseline(root, createSnapshot(current).snapshot);
+    const output = join(root, "github-output");
+    const fetchImpl = vi.fn().mockResolvedValueOnce(jsonResponse(current));
+    const result = await prepare({
+      root,
+      env: { FIGMA_TOKEN: "token", GITHUB_OUTPUT: output },
+      fetchImpl,
+    });
     expect(result.changed).toBe(false);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    await expect(
-      prepare({ root, env: { FIGMA_TOKEN: "token", FIGMA_BASELINE_ONLY: "true" }, fetchImpl }),
-    ).rejects.toThrow("cannot overwrite");
+    expect(await readFile(output, "utf8")).toBe("changed=false\nbaseline_initialization=false\n");
+    current.document.children[1].children[1].name = "Renamed icon";
+    fetchImpl.mockResolvedValueOnce(jsonResponse(current));
+    const renamed = await prepare({ root, env: { FIGMA_TOKEN: "token" }, fetchImpl });
+    expect(renamed.diff.changed.map(({ id }) => id)).toEqual(["5:1"]);
+    expect(renamed.diff.removed).toEqual([]);
+  });
+
+  it("refuses a corrupt existing baseline before network access", async () => {
+    const root = await setupRoot();
+    const snapshot = createSnapshot(file()).snapshot;
+    snapshot.entries[0].hash = "0".repeat(64);
+    await saveBaseline(root, snapshot);
+    const fetchImpl = vi.fn();
+    await expect(prepare({ root, env: { FIGMA_TOKEN: "token" }, fetchImpl })).rejects.toThrow(
+      "context or hash",
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

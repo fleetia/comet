@@ -5,52 +5,27 @@ import {
   constants,
   fstatSync,
   lstatSync,
-  mkdirSync,
   mkdtempSync,
   openSync,
   readFileSync,
-  renameSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
-import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { FILE_KEY, stableStringify, validateChanges, validateSnapshot } from "./figma-rest.mjs";
+import { diffSnapshots, FILE_KEY, stableStringify, validateSnapshot } from "./figma-rest.mjs";
 
 const REPOSITORY = "fleetia/comet";
 const BRANCH = "codex/figma-sync";
 const BOT_NAME = "github-actions[bot]";
 const BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com";
 const BASELINE = "ds/automation/figma-baseline.json";
-const PREPARE = "test-results/figma-sync";
-const PROPOSAL = "test-results/figma-proposal";
-const MAX_PATCH_BYTES = 20 * 1024 * 1024;
-const CODE_PREFIXES = [
-  "ds/ui/src/",
-  "ds/ui/figma/",
-  "ds/icon/src/",
-  "ds/icon/figma/",
-  "ds/token/src/",
-  "ds/token/figma/",
-  "ds/storybook/stories/",
-];
-
-export function isAllowedPath(path, baseline = false) {
-  // Control characters make Git patch path parsing ambiguous.
-  return (
-    typeof path === "string" &&
-    // eslint-disable-next-line no-control-regex
-    !/[\x00-\x1f\x7f\\]/.test(path) &&
-    path.split("/").every((part) => part && !part.startsWith(".")) &&
-    !["package.json", "AGENTS.md", "CLAUDE.md"].includes(path.split("/").at(-1)) &&
-    /\.(?:ts|tsx|css|json|svg|mdx)$/.test(path) &&
-    ((baseline && path === BASELINE) ||
-      path === "ds/token/styles.css" ||
-      CODE_PREFIXES.some((prefix) => path.startsWith(prefix)))
-  );
-}
+const NEXT_BASELINE = "test-results/figma-sync/next-baseline.json";
+const MAX_SNAPSHOT_BYTES = 50 * 1024 * 1024;
+const MAX_BODY_BYTES = 50_000;
+const REPORT_START = "<!-- figma-report:start -->";
+const REPORT_END = "<!-- figma-report:end -->";
+const AUTO_CLOSED = "<!-- figma-report:closed-after-revert -->";
 
 function gitRunner(root, args, { env = {}, input } = {}) {
   const inherited = Object.fromEntries(
@@ -85,293 +60,228 @@ function gitRunner(root, args, { env = {}, input } = {}) {
       },
       input,
       encoding: "utf8",
-      maxBuffer: MAX_PATCH_BYTES + 1024 * 1024,
+      maxBuffer: MAX_SNAPSHOT_BYTES + 1024 * 1024,
       stdio: ["pipe", "pipe", "pipe"],
     },
   );
 }
 
-function context({
-  root = process.cwd(),
-  env = process.env,
-  gitImpl = gitRunner,
-  fetchImpl = fetch,
-} = {}) {
-  const git = (args, options) => gitImpl(root, args, options);
-  const sha = env.FIGMA_BASE_SHA;
-  if (typeof sha !== "string" || !/^[a-f0-9]{40}$/.test(sha))
-    throw new Error("FIGMA_BASE_SHA must be a full commit SHA");
-  if (git(["rev-parse", "HEAD"]).trim() !== sha)
-    throw new Error("Checkout no longer matches FIGMA_BASE_SHA");
-  return { root, env, git, sha, fetchImpl };
-}
-
-function nulList(text) {
-  return text.split("\0").filter(Boolean);
-}
-
-function changedPaths(git) {
-  return [
-    ...new Set([
-      ...nulList(
-        git([
-          "diff",
-          "--name-only",
-          "--no-renames",
-          "--no-ext-diff",
-          "--no-textconv",
-          "-z",
-          "HEAD",
-          "--",
-        ]),
-      ),
-      ...nulList(git(["ls-files", "--others", "--exclude-standard", "-z"])),
-    ]),
-  ];
-}
-
-function regularPath(root, path, allowMissing = false) {
-  const parts = path.split("/");
+function readSnapshot(root) {
+  const parts = NEXT_BASELINE.split("/");
   for (let i = 1; i <= parts.length; i++) {
-    const absolute = resolve(root, ...parts.slice(0, i));
-    let stat;
-    try {
-      stat = lstatSync(absolute);
-    } catch (error) {
-      if (error.code === "ENOENT" && allowMissing) return null;
-      throw error;
-    }
-    if (stat.isSymbolicLink() || (i < parts.length ? !stat.isDirectory() : !stat.isFile())) {
-      throw new Error(
-        "Proposal and artifact paths must be regular files with no symlink ancestors",
-      );
-    }
-    if (i === parts.length) return stat;
+    const stat = lstatSync(resolve(root, ...parts.slice(0, i)));
+    if (stat.isSymbolicLink() || (i < parts.length ? !stat.isDirectory() : !stat.isFile()))
+      throw new Error("Figma snapshot must be a regular file without symlink ancestors");
   }
-}
-
-function checkPaths(root, paths, baseline = false) {
-  for (const path of paths) {
-    if (!isAllowedPath(path, baseline))
-      throw new Error(`Proposal contains a forbidden path: ${JSON.stringify(path)}`);
-    regularPath(root, path, true);
-  }
-}
-
-function checkIndex(git, paths, env = {}) {
-  if (paths.length === 0) return;
-  for (const item of nulList(git(["ls-files", "--stage", "-z", "--", ...paths], { env }))) {
-    if (!/^100644 [a-f0-9]{40} 0\t/.test(item))
-      throw new Error("Proposal index contains a symlink, executable, or submodule");
-  }
-}
-
-function inside(path, parent) {
-  const suffix = relative(parent, path);
-  return (
-    suffix === "" || (!suffix.startsWith(`..${sep}`) && suffix !== ".." && !isAbsolute(suffix))
-  );
-}
-
-function temporaryRoot(root, env) {
-  if (env.RUNNER_TEMP === undefined) return tmpdir();
-  const path = env.RUNNER_TEMP;
-  if (
-    typeof path !== "string" ||
-    !isAbsolute(path) ||
-    inside(path, root) ||
-    inside(path, tmpdir()) ||
-    inside(path, "/tmp") ||
-    (env.GITHUB_WORKSPACE && inside(path, env.GITHUB_WORKSPACE)) ||
-    [...path].some((char) => char.charCodeAt(0) < 32)
-  ) {
-    throw new Error("RUNNER_TEMP must be outside the checkout and model-writable temporary roots");
-  }
-  for (let ancestor = resolve(path); ; ancestor = dirname(ancestor)) {
-    const stat = lstatSync(ancestor);
-    if (!stat.isDirectory() || stat.isSymbolicLink())
-      throw new Error("RUNNER_TEMP must have no symlink ancestors");
-    if (dirname(ancestor) === ancestor) break;
-  }
-  return path;
-}
-
-function withIndex(git, callback, tempRoot = tmpdir()) {
-  const directory = mkdtempSync(resolve(tempRoot, "figma-index-"));
-  const objects = resolve(directory, "objects");
-  mkdirSync(objects);
-  const env = {
-    GIT_INDEX_FILE: resolve(directory, "index"),
-    GIT_OBJECT_DIRECTORY: objects,
-    GIT_ALTERNATE_OBJECT_DIRECTORIES: git([
-      "rev-parse",
-      "--path-format=absolute",
-      "--git-path",
-      "objects",
-    ]).trim(),
-  };
-  try {
-    git(["read-tree", "HEAD"], { env });
-    return callback(env);
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
-}
-
-function artifactFile(root, path, maxBytes) {
-  regularPath(root, path);
-  const absolute = resolve(root, path);
-  const fd = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const fd = openSync(resolve(root, NEXT_BASELINE), constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const stat = fstatSync(fd);
-    if (!stat.isFile() || stat.nlink !== 1 || stat.size > maxBytes)
-      throw new Error(`Invalid artifact: ${path}`);
-    return readFileSync(fd, "utf8");
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size > MAX_SNAPSHOT_BYTES)
+      throw new Error("Invalid or oversized Figma snapshot");
+    return validateSnapshot(JSON.parse(readFileSync(fd, "utf8")));
   } finally {
     closeSync(fd);
   }
 }
 
-function jsonFile(root, path, maxBytes = 2 * 1024 * 1024) {
-  return JSON.parse(artifactFile(root, path, maxBytes));
+function snapshotAt(git, ref) {
+  const entry = git(["ls-tree", "-z", ref, "--", BASELINE]);
+  if (!entry) return null;
+  if (!/^100644 blob [a-f0-9]{40}\tds\/automation\/figma-baseline\.json\0$/.test(entry))
+    throw new Error("Committed Figma baseline must be a regular JSON file");
+  const size = Number(git(["cat-file", "-s", `${ref}:${BASELINE}`]).trim());
+  if (!Number.isSafeInteger(size) || size > MAX_SNAPSHOT_BYTES)
+    throw new Error("Committed Figma baseline is too large");
+  return validateSnapshot(JSON.parse(git(["show", `${ref}:${BASELINE}`])));
 }
 
-function writeArtifact(root, path, contents) {
-  regularPath(root, path, true);
-  const target = resolve(root, path);
-  mkdirSync(dirname(target), { recursive: true });
-  regularPath(root, path, true);
-  const temporary = `${target}.${randomUUID()}.tmp`;
+function candidateTree(git, sha, snapshot) {
+  const directory = mkdtempSync(resolve(tmpdir(), "figma-report-index-"));
+  const env = { GIT_INDEX_FILE: resolve(directory, "index") };
   try {
-    writeFileSync(temporary, contents, { flag: "wx", mode: 0o644 });
-    regularPath(root, path, true);
-    renameSync(temporary, target);
+    const blob = git(["hash-object", "-w", "--stdin"], {
+      input: `${JSON.stringify(snapshot, null, 2)}\n`,
+    }).trim();
+    git(["read-tree", sha], { env });
+    git(["update-index", "--add", "--cacheinfo", `100644,${blob},${BASELINE}`], { env });
+    return git(["write-tree"], { env }).trim();
   } finally {
-    rmSync(temporary, { force: true });
+    rmSync(directory, { recursive: true, force: true });
   }
 }
 
-export function validateResult(result) {
-  if (
-    !result ||
-    result.status !== "complete" ||
-    typeof result.summary !== "string" ||
-    result.summary.length > 4000 ||
-    !Array.isArray(result.limitations) ||
-    result.limitations.length > 20 ||
-    result.limitations.some((item) => typeof item !== "string" || item.length > 500) ||
-    Object.keys(result).some((key) => !["status", "summary", "limitations"].includes(key))
-  ) {
-    throw new Error("The model must report a complete, bounded proposal result");
-  }
-  return result;
-}
-
-function prepared(root) {
-  return {
-    changes: validateChanges(jsonFile(root, `${PREPARE}/changes.json`)),
-    snapshot: validateSnapshot(jsonFile(root, `${PREPARE}/next-baseline.json`)),
-  };
-}
-
-export function bundle(options = {}) {
-  const { root, git, env } = context(options);
-  const result = validateResult(jsonFile(root, `${PROPOSAL}/result.json`, 32 * 1024));
-  const tempRoot = temporaryRoot(root, env);
-  const paths = changedPaths(git);
-  checkPaths(root, paths);
-  const patch = withIndex(
-    git,
-    (env) => {
-      if (paths.length) git(["add", "-A", "--", ...paths], { env });
-      checkIndex(git, paths, env);
-      return git(
-        [
-          "diff",
-          "--cached",
-          "--binary",
-          "--full-index",
-          "--no-ext-diff",
-          "--no-textconv",
-          "--no-renames",
-          "HEAD",
-          "--",
-        ],
-        { env },
-      );
-    },
-    tempRoot,
+function markdown(value, max = 250) {
+  const text = String(value);
+  return (
+    (text.length > max ? `${text.slice(0, max)}…` : text)
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\x00-\x1f\x7f]/g, " ")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/@/g, "@\u200b")
+      .replace(/[\\`*_{}[\]()#+\-.!|]/g, "\\$&")
   );
-  if (Buffer.byteLength(patch) > MAX_PATCH_BYTES) throw new Error("Proposal patch exceeds 20 MiB");
-  const artifactPath = env.RUNNER_TEMP
-    ? mkdtempSync(resolve(tempRoot, "figma-proposal-"))
-    : resolve(root, PROPOSAL);
-  writeArtifact(artifactPath, "proposal.patch", patch);
-  writeArtifact(artifactPath, "result.json", `${JSON.stringify(result, null, 2)}\n`);
-  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `artifact_path=${artifactPath}\n`);
-  return { paths, artifactPath };
 }
 
-export function apply(options = {}) {
-  const { root, git, env: contextEnv } = context(options);
-  if (changedPaths(git).length) throw new Error("Applying a proposal requires a clean checkout");
-  const { snapshot, changes } = prepared(root);
-  const hasPatch = regularPath(root, `${PROPOSAL}/proposal.patch`, true) !== null;
-  if (!hasPatch && !changes.baselineOnly) throw new Error("Proposal patch is missing");
-  if (changes.baselineOnly && hasPatch)
-    throw new Error("Baseline initialization must not include a model patch");
-  if (!changes.baselineOnly) {
-    validateResult(jsonFile(root, `${PROPOSAL}/result.json`, 32 * 1024));
-    const patch = artifactFile(root, `${PROPOSAL}/proposal.patch`, MAX_PATCH_BYTES);
-    if (patch) {
-      const numstat = nulList(git(["apply", "--numstat", "-z", "--"], { input: patch }));
-      const paths = numstat.map((line) => {
-        const match = /^(?:\d+|-)\t(?:\d+|-)\t(.+)$/.exec(line);
-        if (!match) throw new Error("Proposal patch contains an unsupported rename or path");
-        return match[1];
-      });
-      checkPaths(root, paths);
-      withIndex(
-        git,
-        (env) => {
-          git(["apply", "--cached", "--binary", "--whitespace=nowarn", "--"], {
-            env,
-            input: patch,
-          });
-          const actual = nulList(
-            git(
-              [
-                "diff",
-                "--cached",
-                "--name-only",
-                "--no-renames",
-                "--no-ext-diff",
-                "--no-textconv",
-                "-z",
-                "HEAD",
-                "--",
-              ],
-              { env },
-            ),
-          );
-          checkPaths(root, actual);
-          checkIndex(git, actual, env);
-        },
-        temporaryRoot(root, contextEnv),
-      );
-      git(["apply", "--check", "--binary", "--whitespace=nowarn", "--"], { input: patch });
-      git(["apply", "--binary", "--whitespace=nowarn", "--"], { input: patch });
+function display(value) {
+  return value === undefined ? "(없음)" : markdown(stableStringify(value));
+}
+
+function keyedNodes(value) {
+  return (
+    Array.isArray(value) &&
+    value.every((item) => item && typeof item === "object" && typeof item.id === "string") &&
+    new Set(value.map((item) => item.id)).size === value.length
+  );
+}
+
+export function propertyChanges(before, after, limit = 40) {
+  const changes = [];
+  let truncated = false;
+  function emit(path, previous, next) {
+    if (changes.length < limit) changes.push({ path, before: previous, after: next });
+    else truncated = true;
+  }
+  function visit(previous, next, path) {
+    if (truncated || Object.is(previous, next)) return;
+    if (Array.isArray(previous) && Array.isArray(next)) {
+      if (keyedNodes(previous) && keyedNodes(next)) {
+        const oldNodes = new Map(previous.map((item) => [item.id, item]));
+        const newNodes = new Map(next.map((item) => [item.id, item]));
+        const oldOrder = previous.map((item) => item.id).filter((id) => newNodes.has(id));
+        const newOrder = next.map((item) => item.id).filter((id) => oldNodes.has(id));
+        if (JSON.stringify(oldOrder) !== JSON.stringify(newOrder))
+          emit(`${path}.순서`, oldOrder, newOrder);
+        for (const id of new Set([...oldNodes.keys(), ...newNodes.keys()]))
+          visit(oldNodes.get(id), newNodes.get(id), `${path}[id=${id}]`);
+      } else {
+        for (let i = 0; i < Math.max(previous.length, next.length); i++)
+          visit(previous[i], next[i], `${path}[${i}]`);
+      }
+    } else if (
+      previous &&
+      next &&
+      typeof previous === "object" &&
+      typeof next === "object" &&
+      !Array.isArray(previous) &&
+      !Array.isArray(next)
+    ) {
+      for (const key of [...new Set([...Object.keys(previous), ...Object.keys(next)])].sort())
+        visit(
+          Object.hasOwn(previous, key) ? previous[key] : undefined,
+          Object.hasOwn(next, key) ? next[key] : undefined,
+          path ? `${path}.${key}` : key,
+        );
+    } else {
+      emit(path || "컴포넌트", previous, next);
     }
   }
-  checkPaths(root, [BASELINE], true);
-  writeArtifact(root, BASELINE, `${JSON.stringify(snapshot, null, 2)}\n`);
-  return { baselineOnly: changes.baselineOnly };
+  visit(before, after, "");
+  return { changes, truncated };
 }
 
-function githubClient({ env, fetchImpl }) {
-  if (env.GITHUB_REPOSITORY !== REPOSITORY || typeof env.GH_TOKEN !== "string" || !env.GH_TOKEN) {
-    throw new Error("Publishing requires fleetia/comet and GH_TOKEN");
+function componentLink(entry) {
+  return `[${markdown(entry.context.node.name || entry.id)}](https://www.figma.com/design/${FILE_KEY}?node-id=${entry.id.replace(":", "-")})`;
+}
+
+export function reportBody(baseline, snapshot, sha, snapshotSha) {
+  if (
+    ![sha, snapshotSha].every((value) => typeof value === "string" && /^[a-f0-9]{40}$/.test(value))
+  )
+    throw new Error("Report links require full commit SHAs");
+  const changes = baseline ? diffSnapshots(baseline, snapshot) : null;
+  const lines = [
+    REPORT_START,
+    baseline
+      ? "매시간 Figma를 조회해 main의 기준 스냅샷과 비교한 변경 보고입니다. 이 PR은 비교 데이터만 갱신하며 디자인시스템 코드를 수정하거나 AI를 실행하지 않습니다."
+      : "Figma 변경 감지를 시작할 최초 기준 스냅샷을 등록합니다. 처음 수집한 상태이며, 기존 디자인의 변경이나 코드와의 일치 여부를 뜻하지 않습니다.",
+    "",
+    `[Figma 원본](https://www.figma.com/design/${FILE_KEY}) · [전체 스냅샷](https://github.com/${REPOSITORY}/blob/${snapshotSha}/${BASELINE}) · [전체 JSON 차이](https://github.com/${REPOSITORY}/compare/${sha}...${snapshotSha})`,
+    "",
+    baseline
+      ? `추가 ${changes.added.length}개 · 변경 ${changes.changed.length}개 · 삭제 ${changes.removed.length}개`
+      : `기준 컴포넌트 ${snapshot.entries.length}개를 등록합니다.`,
+    "",
+    "UI·아이콘 컴포넌트의 속성, 하위 노드, 연결된 메타데이터를 비교합니다. 스냅샷은 JSON 데이터이며 화면 이미지는 포함하지 않습니다. 사용하지 않는 변수와 모든 변수 모드는 감지 범위에 포함하지 않습니다.",
+  ];
+  let budget = 40_000 - Buffer.byteLength(lines.join("\n"));
+  let omitted = false;
+  const previous = new Map(baseline?.entries.map((entry) => [entry.id, entry]) ?? []);
+  const groups = changes
+    ? [
+        ["추가", changes.added],
+        ["변경", changes.changed],
+        ["삭제", changes.removed],
+      ]
+    : [["최초 수집", snapshot.entries]];
+  for (const [label, entries] of groups) {
+    for (const entry of entries) {
+      const details = ["", `### ${label}: ${componentLink(entry)}`, ""];
+      if (label === "변경") {
+        const old = previous.get(entry.id);
+        const difference = propertyChanges(
+          { kind: old.kind, ...old.context },
+          { kind: entry.kind, ...entry.context },
+        );
+        details.push("| 속성 경로 | 이전 | 현재 |", "| --- | --- | --- |");
+        for (const change of difference.changes)
+          details.push(
+            `| ${markdown(change.path, 400)} | ${display(change.before)} | ${display(change.after)} |`,
+          );
+        if (difference.truncated)
+          details.push("", "추가 속성 차이는 전체 JSON 차이에서 확인하세요.");
+      } else {
+        details.push(
+          `${markdown(entry.kind)} · 노드 ${markdown(entry.id)}${label === "삭제" ? " · 삭제된 노드의 Figma 링크는 열리지 않을 수 있습니다." : ""}`,
+        );
+      }
+      const size = Buffer.byteLength(details.join("\n"));
+      if (size > budget) {
+        omitted = true;
+        continue;
+      }
+      budget -= size;
+      lines.push(...details);
+    }
   }
+  if (omitted)
+    lines.push(
+      "",
+      "본문 길이 제한으로 일부 컴포넌트를 생략했습니다. 전체 JSON 차이에서 모든 변경을 확인하세요.",
+    );
+  lines.push(
+    "",
+    "이 PR을 머지하면 다음 비교의 기준만 갱신되며, 디자인시스템 코드에 변경을 반영하는 것은 아닙니다. 자동 머지는 수행하지 않습니다.",
+    REPORT_END,
+  );
+  return lines.join("\n");
+}
+
+function reportRange(body) {
+  if (
+    typeof body !== "string" ||
+    body.split(REPORT_START).length !== 2 ||
+    body.split(REPORT_END).length !== 2
+  )
+    throw new Error("Existing report markers were removed or changed; refusing to overwrite it");
+  const start = body.indexOf(REPORT_START);
+  const end = body.indexOf(REPORT_END) + REPORT_END.length;
+  if (end < start) throw new Error("Existing report markers are out of order");
+  return { start, end };
+}
+
+function replaceReport(body, report) {
+  const { start, end } = reportRange(body);
+  const updated = `${body.slice(0, start)}${report}${body.slice(end)}`;
+  if (Buffer.byteLength(updated) > MAX_BODY_BYTES)
+    throw new Error("Report and manual notes exceed the PR body size limit");
+  return updated;
+}
+
+function githubClient(env, fetchImpl) {
+  if (env.GITHUB_REPOSITORY !== REPOSITORY || typeof env.GH_TOKEN !== "string" || !env.GH_TOKEN)
+    throw new Error("Publishing requires fleetia/comet and GH_TOKEN");
   return async (path, { method = "GET", body, allowMissing = false } = {}) => {
     let response;
     try {
@@ -396,43 +306,6 @@ function githubClient({ env, fetchImpl }) {
   };
 }
 
-function listPulls(api) {
-  return api(
-    `/pulls?${new URLSearchParams({ state: "all", head: `fleetia:${BRANCH}`, base: "main", sort: "updated", direction: "desc", per_page: "100" })}`,
-  );
-}
-
-export function validateExistingProposal(pulls, head, commitEmails, recoverOrphan = false) {
-  const branchPulls = pulls.filter(
-    (item) => item.head?.repo?.full_name === REPOSITORY && item.head.ref === BRANCH,
-  );
-  if (!head) return null;
-  if (commitEmails.some((emails) => emails !== `${BOT_EMAIL}\t${BOT_EMAIL}`)) {
-    throw new Error("Existing proposal branch contains human commits; refusing to overwrite it");
-  }
-  const pull =
-    branchPulls.find((item) => item.state === "open") ??
-    branchPulls.find((item) => item.head.sha === head);
-  if (
-    !pull &&
-    recoverOrphan &&
-    commitEmails.length === 1 &&
-    branchPulls.every(
-      (item) => item.user?.login === BOT_NAME && item.state === "closed" && item.merged_at,
-    )
-  )
-    return null;
-  if (
-    !pull ||
-    pull.user?.login !== BOT_NAME ||
-    pull.head.sha !== head ||
-    (pull.state === "open" ? pull.draft !== true : !pull.merged_at)
-  ) {
-    throw new Error("Existing proposal branch is not an untouched bot draft or merged bot PR");
-  }
-  return pull.state === "open" ? pull : null;
-}
-
 function gitAuth(token) {
   return {
     GIT_TERMINAL_PROMPT: "0",
@@ -448,175 +321,192 @@ function gitAuth(token) {
   };
 }
 
-function quoteModelText(text) {
-  return (
-    text
-      // eslint-disable-next-line no-control-regex
-      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "")
-      .replace(/\r/g, "")
-      .split("\n")
-      .map((line) => `> ${line}`)
-      .join("\n")
-  );
+function ownPull(pull) {
+  return pull.head?.repo?.full_name === REPOSITORY && pull.head.ref === BRANCH;
 }
 
-function pullBody(changes, result) {
-  const lines = [
-    changes.baselineOnly
-      ? "Figma 변경 감지를 시작할 기준 스냅샷을 등록합니다. 기존 코드와 디자인의 일치 여부를 검증한 기준은 아닙니다."
-      : "Figma FILE_UPDATE 이후 감지된 컴포넌트 변경을 디자인시스템 코드 변경안으로 준비했습니다.",
-    "",
-    `[Figma 원본](https://www.figma.com/design/${FILE_KEY})`,
-    "",
-    `추가 ${changes.added.length}개 · 변경 ${changes.changed.length}개 · 삭제 ${changes.removed.length}개`,
-    "",
-    "디자인시스템 검사와 테스트를 통과했습니다. 앱 적용·앱 빌드·데스크톱 실행은 포함하지 않습니다.",
-    "",
-    "현재 Figma Professional 플랜에서는 Variables REST API를 사용할 수 없어, 컴포넌트에 반영된 값과 바인딩을 비교합니다. 사용하지 않는 변수와 모든 모드의 변경은 감지 범위에 포함하지 않습니다.",
-  ];
-  if (result) {
-    lines.push("", "자동 생성 요약:", "", quoteModelText(result.summary));
-    if (result.limitations.length)
-      lines.push("", "자동 생성기가 보고한 제한:", "", ...result.limitations.map(quoteModelText));
+export function validateExistingProposal(pulls, head, commitEmails, recoverOrphan = false) {
+  const history = pulls.filter(ownPull);
+  const open = history.find((pull) => pull.state === "open");
+  const pull = open ?? history.find((item) => item.head.sha === head);
+  const latest = history[0];
+  if (
+    latest?.state === "closed" &&
+    !latest.merged_at &&
+    !(latest.user?.login === BOT_NAME && latest.body?.includes(AUTO_CLOSED))
+  )
+    throw new Error(
+      "A report PR was closed without merging; refusing to recreate it automatically",
+    );
+  if (!head) {
+    if (open) throw new Error("An open report PR has no branch; refusing to replace it");
+    return null;
   }
-  return lines.join("\n");
+  if (commitEmails.some((emails) => emails !== `${BOT_EMAIL}\t${BOT_EMAIL}`))
+    throw new Error("Existing report branch contains human commits; refusing to overwrite it");
+  if (!pull && recoverOrphan && commitEmails.length === 1) return null;
+  if (
+    !pull ||
+    pull.user?.login !== BOT_NAME ||
+    pull.head.sha !== head ||
+    pull.base?.ref !== "main" ||
+    pull.base?.repo?.full_name !== REPOSITORY ||
+    (pull.state === "open"
+      ? pull.draft !== true
+      : !pull.merged_at && !pull.body?.includes(AUTO_CLOSED))
+  )
+    throw new Error("Existing report branch is not an untouched bot draft or completed bot PR");
+  if (pull.state === "open") {
+    reportRange(pull.body);
+    return pull;
+  }
+  return null;
 }
 
-export async function publish(options = {}) {
-  const ctx = context(options);
-  const { root, env, git, sha } = ctx;
-  const api = githubClient(ctx);
-  const { changes, snapshot } = prepared(root);
-  if (stableStringify(validateSnapshot(jsonFile(root, BASELINE))) !== stableStringify(snapshot))
-    throw new Error("Staged baseline differs from the trusted preparation artifact");
-  const result = changes.baselineOnly
-    ? null
-    : validateResult(jsonFile(root, `${PROPOSAL}/result.json`, 32 * 1024));
-  const paths = changedPaths(git);
-  checkPaths(root, paths, true);
-  if (!paths.includes(BASELINE)) throw new Error("Proposal must update the Figma baseline");
+export async function publish({
+  root = process.cwd(),
+  env = process.env,
+  gitImpl = gitRunner,
+  fetchImpl = fetch,
+} = {}) {
+  const git = (args, options) => gitImpl(root, args, options);
+  const sha = env.FIGMA_BASE_SHA;
+  if (typeof sha !== "string" || !/^[a-f0-9]{40}$/.test(sha))
+    throw new Error("FIGMA_BASE_SHA must be a full commit SHA");
+  if (git(["rev-parse", "HEAD"]).trim() !== sha)
+    throw new Error("Checkout no longer matches FIGMA_BASE_SHA");
+  const snapshot = readSnapshot(root);
+  const baseline = snapshotAt(git, sha);
+  const changed = !baseline || stableStringify(baseline) !== stableStringify(snapshot);
+  const api = githubClient(env, fetchImpl);
   const auth = gitAuth(env.GH_TOKEN);
   const remote = `https://github.com/${REPOSITORY}.git`;
   const assertRemoteBase = () => {
-    const remoteHead = git(["ls-remote", remote, "refs/heads/main"], { env: auth })
-      .trim()
-      .split(/\s+/)[0];
-    if (remoteHead !== sha)
+    if (git(["ls-remote", remote, "refs/heads/main"], { env: auth }).trim().split(/\s+/)[0] !== sha)
       throw new Error("main advanced; rerun the workflow against the latest main");
   };
   assertRemoteBase();
-  git(["add", "-A", "--", ...paths]);
-  const staged = nulList(
-    git([
+  const [ref, pulls] = await Promise.all([
+    api(`/git/ref/heads/${BRANCH}`, { allowMissing: true }),
+    api(
+      `/pulls?${new URLSearchParams({ state: "all", head: `fleetia:${BRANCH}`, base: "main", sort: "updated", direction: "desc", per_page: "100" })}`,
+    ),
+  ]);
+  if (!Array.isArray(pulls)) throw new Error("GitHub returned an invalid PR list");
+  const head = ref?.object?.sha ?? "";
+  const tree = changed ? candidateTree(git, sha, snapshot) : null;
+  let commitEmails = [];
+  let recoverOrphan = false;
+  let pending = null;
+  let pendingParent = "";
+  if (head) {
+    if (!/^[a-f0-9]{40}$/.test(head)) throw new Error("Invalid remote report SHA");
+    git(["fetch", "--no-tags", remote, `+refs/heads/${BRANCH}:refs/figma/report`], { env: auth });
+    if (git(["rev-parse", "refs/figma/report"]).trim() !== head)
+      throw new Error("Report branch changed during validation; retry");
+    const mergeBase = git(["merge-base", sha, head]).trim();
+    commitEmails = git(["log", "--format=%ae%x09%ce", `${mergeBase}..${head}`])
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+    const paths = git([
       "diff",
-      "--cached",
       "--name-only",
       "--no-renames",
       "--no-ext-diff",
       "--no-textconv",
       "-z",
-      "HEAD",
+      mergeBase,
+      head,
       "--",
-    ]),
-  );
-  checkPaths(root, staged, true);
-  checkIndex(git, staged);
-  const [ref, pulls] = await Promise.all([
-    api(`/git/ref/heads/${BRANCH}`, { allowMissing: true }),
-    listPulls(api),
-  ]);
-  const existingHead = ref?.object?.sha ?? "";
-  let commitEmails = [];
-  let recoverOrphan = false;
-  if (existingHead) {
-    if (!/^[a-f0-9]{40}$/.test(existingHead)) throw new Error("Invalid remote proposal SHA");
-    git(["fetch", "--no-tags", remote, `+refs/heads/${BRANCH}:refs/figma/proposal`], { env: auth });
-    if (git(["rev-parse", "refs/figma/proposal"]).trim() !== existingHead)
-      throw new Error("Proposal branch changed during validation; retry");
-    const mergeBase = git(["merge-base", sha, "refs/figma/proposal"]).trim();
-    commitEmails = git(["log", "--format=%ae%x09%ce", `${mergeBase}..refs/figma/proposal`])
-      .trim()
-      .split("\n")
+    ])
+      .split("\0")
       .filter(Boolean);
-    const hasCurrentPull = pulls.some(
-      (item) =>
-        item.head?.repo?.full_name === REPOSITORY &&
-        item.head.ref === BRANCH &&
-        (item.state === "open" || item.head.sha === existingHead),
-    );
-    if (
-      !hasCurrentPull &&
+    if (paths.some((path) => path !== BASELINE))
+      throw new Error("Existing report branch changes files other than the Figma baseline");
+    pending = snapshotAt(git, head);
+    pendingParent = git(["show", "--no-patch", "--format=%P", head]).trim();
+    recoverOrphan =
+      !pulls.some((pull) => ownPull(pull) && (pull.state === "open" || pull.head.sha === head)) &&
       commitEmails.length === 1 &&
-      git(["show", "--no-patch", "--format=%P", "refs/figma/proposal"]).trim() === sha &&
-      git(["rev-parse", "refs/figma/proposal^{tree}"]).trim() === git(["write-tree"]).trim()
-    ) {
-      const orphanPaths = nulList(
-        git([
-          "diff",
-          "--name-only",
-          "--no-renames",
-          "--no-ext-diff",
-          "--no-textconv",
-          "-z",
-          sha,
-          "refs/figma/proposal",
-          "--",
-        ]),
-      );
-      checkPaths(root, orphanPaths, true);
-      for (const item of nulList(
-        git(["ls-tree", "-r", "-z", "refs/figma/proposal", "--", ...orphanPaths]),
-      )) {
-        if (!/^100644 blob [a-f0-9]{40}\t/.test(item))
-          throw new Error("Orphan proposal contains non-regular files");
-      }
-      recoverOrphan = orphanPaths.length > 0;
-    }
+      pendingParent === sha &&
+      git(["rev-parse", `${head}^{tree}`]).trim() === tree;
   }
-  const existingPull = validateExistingProposal(pulls, existingHead, commitEmails, recoverOrphan);
-  git(
-    [
-      "-c",
-      "commit.gpgsign=false",
-      "commit",
-      "-m",
-      changes.baselineOnly
-        ? "chore: Figma 변경 감지 기준 등록"
-        : "feat: Figma 디자인시스템 변경 반영",
-    ],
-    {
-      env: {
-        GIT_AUTHOR_NAME: BOT_NAME,
-        GIT_AUTHOR_EMAIL: BOT_EMAIL,
-        GIT_COMMITTER_NAME: BOT_NAME,
-        GIT_COMMITTER_EMAIL: BOT_EMAIL,
-      },
-    },
-  );
+  const existing = validateExistingProposal(pulls, head, commitEmails, recoverOrphan);
+  const refreshPull = async (expectedHead = head) => {
+    const fresh = await api(`/pulls/${existing.number}`);
+    if (!validateExistingProposal([fresh], expectedHead, commitEmails))
+      throw new Error("Report PR changed during validation; retry");
+    return fresh;
+  };
+  if (!changed) {
+    if (!existing) return { status: "unchanged" };
+    assertRemoteBase();
+    if (
+      git(["ls-remote", remote, `refs/heads/${BRANCH}`], { env: auth })
+        .trim()
+        .split(/\s+/)[0] !== head
+    )
+      throw new Error("Report branch changed before closing; retry");
+    const fresh = await refreshPull();
+    const { start, end } = reportRange(fresh.body);
+    const original = fresh.body.slice(start, end);
+    const body = replaceReport(
+      fresh.body,
+      original.replace(
+        REPORT_END,
+        `\nFigma가 main 기준 상태로 돌아와 이 보고를 자동으로 닫았습니다.\n${AUTO_CLOSED}\n${REPORT_END}`,
+      ),
+    );
+    await api(`/pulls/${existing.number}`, { method: "PATCH", body: { state: "closed", body } });
+    return { status: "closed", url: `https://github.com/${REPOSITORY}/pull/${existing.number}` };
+  }
+  const samePending =
+    existing &&
+    pending &&
+    pendingParent === sha &&
+    stableStringify(pending) === stableStringify(snapshot);
+  const title = baseline ? "chore: Figma 컴포넌트 변경 보고" : "chore: Figma 변경 감지 기준 등록";
+  const commit = samePending
+    ? head
+    : git(["-c", "commit.gpgsign=false", "commit-tree", tree, "-p", sha], {
+        input: `${title}\n`,
+        env: {
+          GIT_AUTHOR_NAME: BOT_NAME,
+          GIT_AUTHOR_EMAIL: BOT_EMAIL,
+          GIT_COMMITTER_NAME: BOT_NAME,
+          GIT_COMMITTER_EMAIL: BOT_EMAIL,
+        },
+      }).trim();
+  const report = reportBody(baseline, snapshot, sha, commit);
+  const fresh = existing ? await refreshPull() : null;
+  let body = fresh ? replaceReport(fresh.body, report) : report;
+  if (samePending) {
+    if (fresh.body === body && fresh.title === title)
+      return {
+        status: "unchanged",
+        url: `https://github.com/${REPOSITORY}/pull/${existing.number}`,
+      };
+    assertRemoteBase();
+    await api(`/pulls/${existing.number}`, { method: "PATCH", body: { title, body } });
+    return { status: "updated", url: `https://github.com/${REPOSITORY}/pull/${existing.number}` };
+  }
   assertRemoteBase();
   git(
     [
       "push",
-      `--force-with-lease=refs/heads/${BRANCH}:${existingHead}`,
+      `--force-with-lease=refs/heads/${BRANCH}:${head}`,
       remote,
-      `HEAD:refs/heads/${BRANCH}`,
+      `${commit}:refs/heads/${BRANCH}`,
     ],
     { env: auth },
   );
-  const body = pullBody(changes, result);
-  const pull = existingPull
-    ? await api(`/pulls/${existingPull.number}`, { method: "PATCH", body: { body } })
+  if (existing) body = replaceReport((await refreshPull(commit)).body, report);
+  const pull = existing
+    ? await api(`/pulls/${existing.number}`, { method: "PATCH", body: { title, body } })
     : await api("/pulls", {
         method: "POST",
-        body: {
-          title: changes.baselineOnly
-            ? "chore: Figma 변경 감지 기준 등록"
-            : "feat: Figma 디자인시스템 변경 반영",
-          head: BRANCH,
-          base: "main",
-          draft: true,
-          body,
-        },
+        body: { title, head: BRANCH, base: "main", draft: true, body },
       });
   if (
     typeof pull.html_url !== "string" ||
@@ -624,53 +514,15 @@ export async function publish(options = {}) {
   )
     throw new Error("GitHub returned an invalid PR URL");
   if (env.GITHUB_STEP_SUMMARY)
-    appendFileSync(env.GITHUB_STEP_SUMMARY, `Figma 디자인시스템 변경안: ${pull.html_url}\n`);
-  return { url: pull.html_url };
-}
-
-export async function dedupe(options = {}) {
-  const ctx = context(options);
-  const api = githubClient(ctx);
-  const { changes, snapshot } = prepared(ctx.root);
-  let changed =
-    changes.baselineOnly ||
-    changes.added.length + changes.changed.length + changes.removed.length > 0;
-  if (changed) {
-    const pulls = await listPulls(api);
-    const open = pulls.find(
-      (pull) =>
-        pull.state === "open" &&
-        pull.user?.login === BOT_NAME &&
-        pull.head?.repo?.full_name === REPOSITORY &&
-        pull.head.ref === BRANCH,
-    );
-    if (open) {
-      const content = await api(
-        `/contents/${BASELINE}?${new URLSearchParams({ ref: open.head.sha })}`,
-        { allowMissing: true },
-      );
-      if (
-        content?.encoding === "base64" &&
-        typeof content.content === "string" &&
-        content.size <= 2 * 1024 * 1024
-      ) {
-        const existing = validateSnapshot(
-          JSON.parse(Buffer.from(content.content, "base64").toString("utf8")),
-        );
-        changed = stableStringify(existing) !== stableStringify(snapshot);
-      }
-    }
-  }
-  if (ctx.env.GITHUB_OUTPUT) appendFileSync(ctx.env.GITHUB_OUTPUT, `changed=${changed}\n`);
-  return { changed };
+    appendFileSync(env.GITHUB_STEP_SUMMARY, `Figma 변경 보고: ${pull.html_url}\n`);
+  return { status: existing ? "updated" : "created", url: pull.html_url };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const commands = { bundle, apply, publish, dedupe };
   try {
-    if (process.argv.length !== 3 || !Object.hasOwn(commands, process.argv[2]))
-      throw new Error("Usage: node ds/scripts/figma-proposal.mjs bundle|apply|publish|dedupe");
-    console.log(JSON.stringify(await commands[process.argv[2]]()));
+    if (process.argv.length !== 3 || process.argv[2] !== "publish")
+      throw new Error("Usage: node ds/scripts/figma-proposal.mjs publish");
+    console.log(JSON.stringify(await publish()));
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;

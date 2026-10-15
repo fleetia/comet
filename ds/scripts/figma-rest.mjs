@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -8,10 +8,7 @@ export const PAGE_IDS = { ui: "39:41568", icons: "39:41567" };
 const OUTPUT_PATH = "test-results/figma-sync";
 const BASELINE_PATH = "ds/automation/figma-baseline.json";
 const NODE_ID = /^\d+:\d+$/;
-const COVERAGE = {
-  components: "resolved-values-and-bindings",
-  variables: "not-fetched-professional-plan",
-};
+const MAX_RESPONSE_BYTES = 50 * 1024 * 1024;
 
 export function stableStringify(value) {
   function normalize(item) {
@@ -35,138 +32,56 @@ export function stableStringify(value) {
   return JSON.stringify(normalize(value));
 }
 
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function hashContext(context) {
+  return createHash("sha256").update(stableStringify(context)).digest("hex");
+}
+
 export function validateSnapshot(snapshot) {
   if (
-    !snapshot ||
-    snapshot.schemaVersion !== 1 ||
+    !isRecord(snapshot) ||
+    snapshot.schemaVersion !== 2 ||
     snapshot.fileKey !== FILE_KEY ||
     !Array.isArray(snapshot.entries) ||
     Object.keys(snapshot).some((key) => !["schemaVersion", "fileKey", "entries"].includes(key))
-  )
+  ) {
     throw new Error("Invalid Figma REST baseline");
+  }
   const ids = new Set();
   for (const entry of snapshot.entries) {
     if (
-      !entry ||
+      !isRecord(entry) ||
       typeof entry.id !== "string" ||
       !NODE_ID.test(entry.id) ||
       typeof entry.kind !== "string" ||
       !Object.hasOwn(PAGE_IDS, entry.kind) ||
       typeof entry.hash !== "string" ||
       !/^[a-f0-9]{64}$/.test(entry.hash) ||
-      Object.keys(entry).some((key) => !["id", "kind", "hash"].includes(key)) ||
+      Object.keys(entry).some((key) => !["id", "kind", "hash", "context"].includes(key)) ||
       ids.has(entry.id)
-    )
+    ) {
       throw new Error("Invalid or duplicate Figma REST baseline entry");
+    }
+    const context = entry.context;
+    if (
+      !isRecord(context) ||
+      Object.keys(context).some(
+        (key) => !["node", "components", "componentSets", "styles"].includes(key),
+      ) ||
+      ![context.node, context.components, context.componentSets, context.styles].every(isRecord) ||
+      context.node.id !== entry.id ||
+      typeof context.node.name !== "string" ||
+      !["COMPONENT", "COMPONENT_SET"].includes(context.node.type) ||
+      hashContext(context) !== entry.hash
+    ) {
+      throw new Error("Invalid Figma REST baseline context or hash");
+    }
     ids.add(entry.id);
   }
   return snapshot;
-}
-
-export function validateChanges(changes) {
-  const keys = [
-    "schemaVersion",
-    "fileKey",
-    "baselineOnly",
-    "baselineInitialization",
-    "sourceVersion",
-    "sourceLastModified",
-    "coverage",
-    "added",
-    "changed",
-    "removed",
-    "nodes",
-    "imageUrls",
-    "imageFiles",
-    "renderFailures",
-  ];
-  if (
-    !changes ||
-    changes.schemaVersion !== 1 ||
-    changes.fileKey !== FILE_KEY ||
-    typeof changes.baselineOnly !== "boolean" ||
-    changes.baselineInitialization !== changes.baselineOnly ||
-    ![changes.sourceVersion, changes.sourceLastModified].every(
-      (value) => value === null || typeof value === "string",
-    ) ||
-    stableStringify(changes.coverage) !== stableStringify(COVERAGE) ||
-    Object.keys(changes).some((key) => !keys.includes(key)) ||
-    keys.some((key) => !Object.hasOwn(changes, key))
-  )
-    throw new Error("Invalid Figma REST change manifest");
-  const allEntries = [];
-  for (const key of ["added", "changed", "removed"]) {
-    if (!Array.isArray(changes[key])) throw new Error("Invalid Figma REST change entries");
-    for (const entry of changes[key]) {
-      if (
-        !entry ||
-        Object.keys(entry).some((field) => !["id", "kind", "hash", "url"].includes(field)) ||
-        typeof entry.id !== "string" ||
-        entry.url !==
-          `https://www.figma.com/design/${FILE_KEY}?node-id=${entry.id.replace(":", "-")}`
-      ) {
-        throw new Error("Invalid Figma REST change entry link");
-      }
-      allEntries.push({ id: entry.id, kind: entry.kind, hash: entry.hash });
-    }
-  }
-  validateSnapshot({ schemaVersion: 1, fileKey: FILE_KEY, entries: allEntries });
-  const expectedNodes = [...changes.added, ...changes.changed].map(({ id, kind }) => ({
-    id,
-    kind,
-    path: `${OUTPUT_PATH}/nodes/${id.replace(":", "-")}.json`,
-  }));
-  if (
-    stableStringify(changes.nodes) !== stableStringify(expectedNodes) ||
-    !Array.isArray(changes.imageUrls) ||
-    !Array.isArray(changes.imageFiles) ||
-    !Array.isArray(changes.renderFailures) ||
-    (changes.baselineOnly && allEntries.length > 0)
-  ) {
-    throw new Error("Invalid Figma REST node context manifest");
-  }
-  const expectedIds = new Set(expectedNodes.map(({ id }) => id));
-  const urlIds = new Set();
-  for (const entry of changes.imageUrls) {
-    if (
-      !entry ||
-      !expectedIds.has(entry.id) ||
-      urlIds.has(entry.id) ||
-      Object.keys(entry).some((key) => !["id", "url"].includes(key)) ||
-      !allowedImageUrl(entry.url)
-    ) {
-      throw new Error("Invalid Figma render URL manifest");
-    }
-    urlIds.add(entry.id);
-  }
-  const renderedIds = new Set();
-  for (const entry of changes.imageFiles) {
-    if (
-      !entry ||
-      !urlIds.has(entry.id) ||
-      renderedIds.has(entry.id) ||
-      Object.keys(entry).some((key) => !["id", "path"].includes(key)) ||
-      entry.path !== `${OUTPUT_PATH}/images/${entry.id.replace(":", "-")}.png`
-    ) {
-      throw new Error("Invalid Figma render file manifest");
-    }
-    renderedIds.add(entry.id);
-  }
-  for (const entry of changes.renderFailures) {
-    if (
-      !entry ||
-      !expectedIds.has(entry.id) ||
-      renderedIds.has(entry.id) ||
-      Object.keys(entry).some((key) => !["id", "reason"].includes(key)) ||
-      typeof entry.reason !== "string" ||
-      !entry.reason
-    ) {
-      throw new Error("Invalid Figma render failure manifest");
-    }
-    renderedIds.add(entry.id);
-  }
-  if (renderedIds.size !== expectedIds.size) throw new Error("Incomplete Figma render manifest");
-  return changes;
 }
 
 function origin(node) {
@@ -243,7 +158,6 @@ export function createSnapshot(response, iconIds = []) {
   ) {
     throw new Error("Figma returned an invalid file response");
   }
-  const nodes = new Map();
   const mappedIcons = new Set(iconIds);
   const entries = [];
   for (const [kind, pageId] of Object.entries(PAGE_IDS)) {
@@ -260,13 +174,15 @@ export function createSnapshot(response, iconIds = []) {
         (node.type === "COMPONENT" && (parentType !== "COMPONENT_SET" || mappedIcons.has(node.id)));
       const selected = kind === "ui" || mappedIcons.has(node.id) || node.name?.startsWith("Icon/");
       if (root && selected) {
-        const context = { node: normalizeNode(node), ...metadataFor(node, response) };
+        const context = JSON.parse(
+          stableStringify({ node: normalizeNode(node), ...metadataFor(node, response) }),
+        );
         entries.push({
           id: node.id,
           kind,
-          hash: createHash("sha256").update(stableStringify(context)).digest("hex"),
+          hash: hashContext(context),
+          context,
         });
-        nodes.set(node.id, context);
         return;
       }
       for (const child of node.children ?? []) visit(child, node.type);
@@ -274,8 +190,8 @@ export function createSnapshot(response, iconIds = []) {
     for (const node of page.children) visit(node, page.type);
   }
   entries.sort((a, b) => a.id.localeCompare(b.id, "en"));
-  const snapshot = validateSnapshot({ schemaVersion: 1, fileKey: FILE_KEY, entries });
-  return { snapshot, nodes };
+  const snapshot = validateSnapshot({ schemaVersion: 2, fileKey: FILE_KEY, entries });
+  return { snapshot };
 }
 
 export function diffSnapshots(baseline, current) {
@@ -285,6 +201,7 @@ export function diffSnapshots(baseline, current) {
   const after = new Map(current.entries.map((entry) => [entry.id, entry]));
   const describe = (entry) => ({
     ...entry,
+    name: entry.context.node.name,
     url: `https://www.figma.com/design/${FILE_KEY}?node-id=${entry.id.replace(":", "-")}`,
   });
   return {
@@ -312,9 +229,32 @@ async function requestFigma(path, token, fetchImpl) {
     throw new Error("Figma API request failed or timed out");
   }
   if (!response.ok) throw new Error(`Figma API request failed (HTTP ${response.status})`);
+  if (!response.body || Number(response.headers?.get("content-length")) > MAX_RESPONSE_BYTES) {
+    await response.body?.cancel();
+    throw new Error("Figma API response is missing or exceeds the size limit");
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_RESPONSE_BYTES) {
+        await reader.cancel();
+        throw new Error("Response size limit exceeded");
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } catch {
+    throw new Error("Figma API response failed, timed out, or exceeded the size limit");
+  } finally {
+    reader.releaseLock();
+  }
   let data;
   try {
-    data = await response.json();
+    data = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   } catch {
     throw new Error("Figma API returned invalid JSON");
   }
@@ -329,185 +269,42 @@ export async function fetchFile({ token, fetchImpl = fetch }) {
   return requestFigma(`/v1/files/${FILE_KEY}?${params}`, token, fetchImpl);
 }
 
-export async function fetchImageUrls({ ids, version, token, fetchImpl = fetch }) {
-  const imageUrls = [];
-  const renderFailures = [];
-  if (typeof version !== "string" || !version) {
-    return {
-      imageUrls,
-      renderFailures: ids.map((id) => ({
-        id,
-        reason: "Figma response has no version to pin renders",
-      })),
-    };
-  }
-  for (let offset = 0; offset < ids.length; offset += 50) {
-    const batch = ids.slice(offset, offset + 50);
-    const params = new URLSearchParams({
-      ids: batch.join(","),
-      format: "png",
-      scale: "1",
-      version,
-    });
-    try {
-      const data = await requestFigma(`/v1/images/${FILE_KEY}?${params}`, token, fetchImpl);
-      for (const id of batch) {
-        const url = data.images?.[id];
-        if (allowedImageUrl(url)) {
-          imageUrls.push({ id, url });
-        } else renderFailures.push({ id, reason: "Figma returned no allowed HTTPS render URL" });
-      }
-    } catch (error) {
-      for (const id of batch) renderFailures.push({ id, reason: error.message });
-    }
-  }
-  return { imageUrls, renderFailures };
-}
-
-function allowedImageUrl(value) {
-  if (typeof value !== "string" || !URL.canParse(value)) return false;
-  const url = new URL(value);
-  return (
-    url.protocol === "https:" &&
-    !url.username &&
-    !url.password &&
-    !url.port &&
-    (url.hostname === "figma.com" ||
-      url.hostname.endsWith(".figma.com") ||
-      /^figma-alpha-api\.s3(?:\.[a-z0-9-]+)?\.amazonaws\.com$/.test(url.hostname))
-  );
-}
-
-export async function downloadImages({ imageUrls, root, fetchImpl = fetch }) {
-  const imageFiles = [];
-  const renderFailures = [];
-  const perFileLimit = 20 * 1024 * 1024;
-  const totalLimit = 100 * 1024 * 1024;
-  let totalBytes = 0;
-  const directory = resolve(root, OUTPUT_PATH, "images");
-  await rm(directory, { recursive: true, force: true });
-  await mkdir(directory, { recursive: true });
-  for (const { id, url } of imageUrls) {
-    if (typeof id !== "string" || !NODE_ID.test(id) || !allowedImageUrl(url)) {
-      throw new Error("Invalid Figma image download target");
-    }
-    const abort = new AbortController();
-    const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(60_000)]);
-    try {
-      const response = await fetchImpl(url, { redirect: "error", signal });
-      if (!response.ok || !response.body) throw new Error("Render download failed");
-      const declaredBytes = Number(response.headers?.get("content-length"));
-      if (declaredBytes > perFileLimit || declaredBytes + totalBytes > totalLimit) {
-        throw new Error("Render download exceeds size limit");
-      }
-      const reader = response.body.getReader();
-      const chunks = [];
-      let bytes = 0;
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        bytes += value.byteLength;
-        totalBytes += value.byteLength;
-        if (bytes > perFileLimit || totalBytes > totalLimit) {
-          await reader.cancel();
-          throw new Error("Render download exceeds size limit");
-        }
-        chunks.push(Buffer.from(value));
-      }
-      const image = Buffer.concat(chunks);
-      if (!image.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
-        throw new Error("Render download is not PNG");
-      }
-      const path = `${OUTPUT_PATH}/images/${id.replace(":", "-")}.png`;
-      await writeFile(resolve(root, path), image);
-      imageFiles.push({ id, path });
-    } catch {
-      renderFailures.push({
-        id,
-        reason: "PNG download failed, exceeded its size limit, or returned invalid data",
-      });
-    } finally {
-      abort.abort();
-    }
-  }
-  return { imageFiles, renderFailures };
-}
-
 export async function prepare({ root = process.cwd(), env = process.env, fetchImpl = fetch } = {}) {
-  if (![undefined, "true", "false"].includes(env.FIGMA_BASELINE_ONLY)) {
-    throw new Error("FIGMA_BASELINE_ONLY must be true or false");
-  }
-  const baselineOnly = env.FIGMA_BASELINE_ONLY === "true";
   let baseline;
   try {
     baseline = validateSnapshot(JSON.parse(await readFile(resolve(root, BASELINE_PATH), "utf8")));
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
-    if (!baselineOnly) {
-      throw new Error(
-        "Figma baseline is missing; run a manual baseline-only workflow and merge its PR first",
-      );
-    }
   }
-  if (baselineOnly && baseline)
-    throw new Error("A Figma baseline already exists; baseline-only cannot overwrite it");
   const mapping = JSON.parse(await readFile(resolve(root, "ds/icon/figma/icons.json"), "utf8"));
-  if (mapping.fileKey !== FILE_KEY || !Array.isArray(mapping.icons))
+  if (
+    mapping.fileKey !== FILE_KEY ||
+    !Array.isArray(mapping.icons) ||
+    mapping.icons.some((icon) => typeof icon?.id !== "string" || !NODE_ID.test(icon.id))
+  ) {
     throw new Error("Invalid Figma icon mapping");
+  }
   const response = await fetchFile({ token: env.FIGMA_TOKEN, fetchImpl });
-  const { snapshot, nodes } = createSnapshot(
-    response,
-    mapping.icons.map((icon) => icon.id),
-  );
-  const diff = baselineOnly
+  const { snapshot } = createSnapshot(response, [
+    ...mapping.icons.map((icon) => icon.id),
+    ...(baseline?.entries.filter((entry) => entry.kind === "icons").map((entry) => entry.id) ?? []),
+  ]);
+  const baselineInitialization = !baseline;
+  const diff = baselineInitialization
     ? { added: [], changed: [], removed: [] }
     : diffSnapshots(baseline, snapshot);
-  const changedEntries = [...diff.added, ...diff.changed];
-  const changed = baselineOnly || changedEntries.length > 0 || diff.removed.length > 0;
-  const renders = baselineOnly
-    ? { imageUrls: [], renderFailures: [] }
-    : await fetchImageUrls({
-        ids: changedEntries.map(({ id }) => id),
-        version: response.version,
-        token: env.FIGMA_TOKEN,
-        fetchImpl,
-      });
-  const downloads = await downloadImages({ imageUrls: renders.imageUrls, root, fetchImpl });
-  const changes = {
-    schemaVersion: 1,
-    fileKey: FILE_KEY,
-    baselineOnly,
-    baselineInitialization: baselineOnly,
-    sourceVersion: response.version ?? null,
-    sourceLastModified: response.lastModified ?? null,
-    coverage: COVERAGE,
-    ...diff,
-    nodes: changedEntries.map(({ id, kind }) => ({
-      id,
-      kind,
-      path: `${OUTPUT_PATH}/nodes/${id.replace(":", "-")}.json`,
-    })),
-    imageUrls: renders.imageUrls,
-    imageFiles: downloads.imageFiles,
-    renderFailures: [...renders.renderFailures, ...downloads.renderFailures],
-  };
-  validateChanges(changes);
+  const changed =
+    baselineInitialization || Object.values(diff).some((entries) => entries.length > 0);
   const output = resolve(root, OUTPUT_PATH);
   await mkdir(output, { recursive: true });
-  await rm(resolve(output, "nodes"), { recursive: true, force: true });
-  await mkdir(resolve(output, "nodes"));
-  for (const entry of changes.nodes) {
-    await writeFile(
-      resolve(root, entry.path),
-      `${JSON.stringify({ fileKey: FILE_KEY, sourceVersion: changes.sourceVersion, ...nodes.get(entry.id) }, null, 2)}\n`,
+  await writeFile(resolve(output, "next-baseline.json"), `${JSON.stringify(snapshot, null, 2)}\n`);
+  if (env.GITHUB_OUTPUT) {
+    await appendFile(
+      env.GITHUB_OUTPUT,
+      `changed=${changed}\nbaseline_initialization=${baselineInitialization}\n`,
     );
   }
-  await writeFile(resolve(output, "next-baseline.json"), `${JSON.stringify(snapshot, null, 2)}\n`);
-  await writeFile(resolve(output, "changes.json"), `${JSON.stringify(changes, null, 2)}\n`);
-  if (env.GITHUB_OUTPUT) {
-    await appendFile(env.GITHUB_OUTPUT, `changed=${changed}\nbaseline_only=${baselineOnly}\n`);
-  }
-  return { changed, baselineOnly, changes, snapshot };
+  return { changed, baselineInitialization, snapshot, diff };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
@@ -517,7 +314,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   } else {
     try {
       const result = await prepare();
-      console.log(JSON.stringify({ changed: result.changed, baselineOnly: result.baselineOnly }));
+      console.log(
+        JSON.stringify({
+          changed: result.changed,
+          baselineInitialization: result.baselineInitialization,
+        }),
+      );
     } catch (error) {
       console.error(error.message);
       process.exitCode = 1;
