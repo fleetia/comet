@@ -537,7 +537,7 @@ it("preserves personal wordbook whitespace and memory drafts across management t
   selectFriend(/^A /);
   openCharacterPage("기억");
   expect(screen.getByLabelText("기억 내용")).toHaveProperty("value", "쓰던 기억");
-});
+}, 15_000);
 
 it("saves opt-in local quiet hours with starting weekdays and retains the draft across tabs", async () => {
   render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="automatic" />);

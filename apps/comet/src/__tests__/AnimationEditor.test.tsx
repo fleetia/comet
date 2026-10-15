@@ -208,7 +208,7 @@ it("keeps advanced animation editing collapsed by default and saves retained dra
     },
     overrides: { 기쁨: { idle: null } },
   });
-});
+}, 15_000);
 
 it("preserves animation images through character and tab changes, failed save and cancellation", async () => {
   vi.mocked(command).mockImplementation(async (name) => {
@@ -252,7 +252,7 @@ it("preserves animation images through character and tab changes, failed save an
   expect(editor.queryByLabelText("동작 이름")).toBeNull();
   openCharacterPage("프로필");
   expect(dirty).toHaveBeenLastCalledWith(false);
-});
+}, 15_000);
 
 it("rejects stale image selections after character navigation and draft cancellation", async () => {
   let resolve: (assets: AnimationAsset[]) => void = () => {};

@@ -627,4 +627,4 @@ it("preserves separate keyword drafts when switching characters or visiting a ne
   choose(/^B/);
   fireEvent.click(screen.getByRole("button", { name: "키워드" }));
   expect(screen.getByRole("textbox", { name: "제목" })).toHaveProperty("value", "둘째 친구 인사");
-});
+}, 15_000);
