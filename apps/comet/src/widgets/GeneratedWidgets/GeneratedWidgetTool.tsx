@@ -18,6 +18,7 @@ export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
   const running = useRef(false);
   const mounted = useRef(true);
   const controller = useRef<AbortController | null>(null);
+  const executingUserAction = useRef(false);
   const repairs = useRef(0);
   const loadGeneration = useRef(0);
   const reloadNeeded = useRef(false);
@@ -42,7 +43,7 @@ export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
     }
   }
   function advance(): void {
-    if (!mounted.current || running.current || loading.current) {
+    if (!mounted.current || document.hidden || running.current || loading.current) {
       return;
     }
     if (reloadNeeded.current) {
@@ -51,13 +52,20 @@ export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
     } else if (!suspended.current) {
       const action = pendingActions.current.shift();
       if (action !== undefined) {
-        void executeRef.current(action);
+        void executeRef.current(action, true);
       }
     }
   }
   async function execute(action: WidgetValue | null, userAction = false): Promise<void> {
     const before = current.current;
-    if (!mounted.current || !before || !before.installed || !before.enabled || suspended.current) {
+    if (
+      !mounted.current ||
+      (!userAction && document.hidden) ||
+      !before ||
+      !before.installed ||
+      !before.enabled ||
+      suspended.current
+    ) {
       return;
     }
     if (running.current || loading.current || reloadNeeded.current) {
@@ -72,6 +80,7 @@ export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
     setError(null);
     const abort = new AbortController();
     controller.current = abort;
+    executingUserAction.current = userAction;
     let interpreterFailed = false;
     let failed = false;
     try {
@@ -116,10 +125,10 @@ export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
       accept(after);
       setView(result.view);
     } catch (cause) {
-      failed = true;
       if (!mounted.current || abort.signal.aborted) {
         return;
       }
+      failed = true;
       pendingActions.current = [];
       const message = errorText(cause);
       setError(message);
@@ -163,6 +172,7 @@ export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
           pendingActions.current = [];
         }
         running.current = false;
+        executingUserAction.current = false;
         if (mounted.current) {
           setBusy(false);
           advance();
@@ -177,6 +187,7 @@ export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
     current.current = null;
     pendingActions.current = [];
     running.current = false;
+    executingUserAction.current = false;
     loading.current = false;
     suspended.current = false;
     reloadNeeded.current = false;
@@ -233,6 +244,16 @@ export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
       }
     }
     reloadRef.current = reload;
+    function visibility(): void {
+      if (document.hidden) {
+        if (!executingUserAction.current) {
+          controller.current?.abort();
+        }
+      } else {
+        void reload();
+      }
+    }
+    document.addEventListener("visibilitychange", visibility);
     void listen("generated-widgets-changed", () => void reload()).then((unlisten) => {
       if (!disposed) {
         cleanup = unlisten;
@@ -242,7 +263,7 @@ export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
       }
     });
     const timer = window.setInterval(() => {
-      if (suspended.current) {
+      if (document.hidden || suspended.current) {
         return;
       }
       if (current.current?.status === "draft") {
@@ -259,6 +280,7 @@ export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
       controller.current?.abort();
       controller.current = null;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", visibility);
       cleanup?.();
     };
   }, [id]);

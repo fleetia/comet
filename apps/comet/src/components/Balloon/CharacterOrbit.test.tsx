@@ -40,7 +40,9 @@ it("preserves the main DOM and fans interaction and pause choices from their par
   expect(view.container.querySelector("[data-character-orbit-anchor]")).toBe(marker);
   expect(view.container.firstElementChild?.getAttribute("style")).toContain("width: 640px");
   fireEvent.click(screen.getByRole("button", { name: "자동 잡담 쉬기 접기" }));
-  await waitFor(() => expect(screen.queryByRole("button", { name: "1시간" })).toBeNull());
+  await waitFor(() =>
+    expect(view.container.querySelector('[data-character-orbit-branch="pause"]')).toBeNull(),
+  );
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "자동 잡담 쉬기" }));
   fireEvent.click(screen.getByRole("button", { name: "교감 접기" }));
   await waitFor(() => expect(screen.queryByRole("group", { name: "별꼬리 교감" })).toBeNull());

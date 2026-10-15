@@ -184,7 +184,11 @@ export function ModelSettings({
                       </div>
                     </div>
                     <strong>
-                      {customModel ? "직접 지정한 GGUF" : selectedModel?.name || "모델 선택"}
+                      {customModel
+                        ? "직접 지정한 GGUF"
+                        : selectedModel
+                          ? `${selectedModel.name} · ${selectedModel.quantization}`
+                          : "모델 선택"}
                     </strong>
                     <p className={figma.caption}>
                       {customModel
@@ -280,7 +284,7 @@ export function ModelSettings({
                         title="모델"
                         description={
                           selectedModel
-                            ? `${(selectedModel.size / 1_000_000_000).toFixed(2)}GB · ${FIT_LABELS[selectedModel.fit]}`
+                            ? `${(selectedModel.size / 1_000_000_000).toFixed(2)}GB · ${FIT_LABELS[selectedModel.fit]}${selectedModel.widgetCreation ? " · 위젯 제작 가능" : ""}`
                             : "직접 고른 GGUF 파일"
                         }
                         control={
@@ -294,7 +298,7 @@ export function ModelSettings({
                           >
                             {snapshot.localModels.map((model) => (
                               <option key={model.id} value={model.id}>
-                                {model.name} · {model.description}
+                                {model.name} · {model.quantization} · {model.description}
                                 {model.recommended ? " · 이 컴퓨터 추천" : ""}
                               </option>
                             ))}

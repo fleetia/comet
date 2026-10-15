@@ -469,40 +469,14 @@ fn query_terms(words: impl Iterator<Item = String>) -> Vec<String> {
         .collect()
 }
 
-fn candidates_with_term_coverage(
-    conn: &Connection,
-    terms: &[String],
-    candidates: &[String],
-    raw_only: bool,
-) -> Result<BTreeSet<String>> {
-    if terms.is_empty() || candidates.is_empty() {
-        return Ok(BTreeSet::new());
-    }
-    // Use FTS itself for term coverage so unicode61 case/accent normalization
-    // and token boundaries are identical to candidate generation.
-    let ids = serde_json::to_string(candidates).map_err(err)?;
-    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-    let mut statement = conn.prepare("SELECT memory_id FROM memory_fts WHERE memory_fts MATCH ?1 AND memory_id IN (SELECT value FROM json_each(?2))").map_err(err)?;
-    for term in terms {
-        let expression = format!("{}\"{term}\"*", if raw_only { "raw : " } else { "" });
-        let matching = statement
-            .query_map(params![expression, ids], |row| row.get::<_, String>(0))
-            .map_err(err)?;
-        for id in matching {
-            *counts.entry(id.map_err(err)?).or_default() += 1;
-        }
-    }
+fn required_term_coverage(terms: &[String]) -> usize {
     // A lone keyword remains useful. For a question with multiple content terms,
     // one shared topic is insufficient evidence for the requested detail.
-    let required = if terms.len() == 1 {
+    if terms.len() == 1 {
         1
     } else {
         (terms.len() * 2).div_ceil(3).max(2)
-    };
-    Ok(counts
-        .into_iter()
-        .filter_map(|(id, count)| (count >= required).then_some(id))
-        .collect())
+    }
 }
 
 pub fn revalidate_search_hits(conn: &Connection, hits: &[MemorySearchHit]) -> Result<Vec<Memory>> {
@@ -590,23 +564,41 @@ fn search_scoped(
         clauses.push(format!("({})", expression(&kiwi_terms)));
     }
     if !clauses.is_empty() {
-        let mut statement = conn.prepare("SELECT memory_id FROM memory_fts JOIN memories m ON m.id=memory_id WHERE memory_fts MATCH ?1 AND m.deleted=0 AND m.expired=0 AND (?2='null' OR m.character_id IN (SELECT value FROM json_each(?2))) ORDER BY bm25(memory_fts),m.id LIMIT 20").map_err(err)?;
+        // Qualify before ranking/limiting: short partial matches must not crowd
+        // out a longer memory that covers the requested detail. FTS itself keeps
+        // unicode61 normalization and prefixes identical to candidate generation.
+        let mut statement = conn.prepare("WITH query_terms(expression,method,required) AS (
+            SELECT 'raw : \"'||value||'\"*','raw',?5 FROM json_each(?3)
+            UNION ALL SELECT '\"'||value||'\"*','kiwi',?6 FROM json_each(?4)
+        ), qualified AS (
+            SELECT memory_id,method FROM query_terms JOIN memory_fts ON memory_fts MATCH expression
+            JOIN memories target ON target.id=memory_id
+            WHERE target.deleted=0 AND target.expired=0
+            AND (?2='null' OR target.character_id IN (SELECT value FROM json_each(?2)))
+            GROUP BY memory_id,method HAVING COUNT(*)>=required
+        )
+        SELECT memory_id,EXISTS(SELECT 1 FROM qualified q WHERE q.memory_id=memory_fts.memory_id AND method='kiwi')
+        FROM memory_fts JOIN memories m ON m.id=memory_id
+        WHERE memory_fts MATCH ?1 AND m.deleted=0 AND m.expired=0
+        AND (?2='null' OR m.character_id IN (SELECT value FROM json_each(?2)))
+        AND memory_id IN (SELECT memory_id FROM qualified)
+        ORDER BY bm25(memory_fts),m.id LIMIT 20").map_err(err)?;
         let lexical = statement
-            .query_map(params![clauses.join(" OR "), scope], |row| {
-                row.get::<_, String>(0)
-            })
+            .query_map(
+                params![
+                    clauses.join(" OR "),
+                    scope,
+                    serde_json::to_string(&raw_terms).map_err(err)?,
+                    serde_json::to_string(&kiwi_terms).map_err(err)?,
+                    required_term_coverage(&raw_terms),
+                    required_term_coverage(&kiwi_terms),
+                ],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?)),
+            )
             .map_err(err)?
             .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(err)?;
-        // Surface words and lemmas represent separate evidence paths: a word
-        // and its lemma must not inflate the count for one shared concept.
-        let raw_matches = candidates_with_term_coverage(conn, &raw_terms, &lexical, true)?;
-        let kiwi_matches = candidates_with_term_coverage(conn, &kiwi_terms, &lexical, false)?;
-        let qualified = lexical.into_iter().filter_map(|id| {
-            let kiwi_match = kiwi_matches.contains(&id);
-            (raw_matches.contains(&id) || kiwi_match).then_some((id, kiwi_match))
-        });
-        for (rank, (id, kiwi_match)) in qualified.enumerate() {
+        for (rank, (id, kiwi_match)) in lexical.into_iter().enumerate() {
             let entry = ranks.entry(id).or_default();
             entry.0 += 1.0 / (61 + rank) as f64;
             entry.1.insert("lexical".into());

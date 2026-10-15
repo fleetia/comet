@@ -92,6 +92,45 @@ fn adding_ai_input_metadata_preserves_existing_history() {
     assert_eq!(super::revision(&db).unwrap(), revision);
 }
 #[test]
+fn fresh_idle_interval_is_five_minutes_and_saved_two_minutes_survives_reopen() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("settings.sqlite");
+    let conn = open(&path).unwrap();
+    assert_eq!(settings(&conn).unwrap().idle_minutes, 5);
+    assert!(get::<Value>(&conn, "settings").unwrap().is_none());
+
+    let mut legacy = serde_json::to_value(Settings::default()).unwrap();
+    legacy.as_object_mut().unwrap().remove("localModel");
+    legacy.as_object_mut().unwrap().remove("localModelPath");
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("localReasoningEnabled");
+    legacy["idleMinutes"] = json!(2);
+    legacy["localIdleEnabled"] = json!(true);
+    let original = legacy.to_string();
+    conn.execute("INSERT INTO kv VALUES('settings', ?1)", [&original])
+        .unwrap();
+    assert_eq!(settings(&conn).unwrap().idle_minutes, 2);
+    drop(conn);
+
+    let reopened = open(&path).unwrap();
+    let stored = settings(&reopened).unwrap();
+    assert_eq!(stored.idle_minutes, 2);
+    assert!(stored.local_idle_enabled);
+    assert_eq!(stored.local_model, LocalModel::Qwen35_4B);
+    let raw: String = reopened
+        .query_row("SELECT value FROM kv WHERE key='settings'", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(raw, original);
+    save_settings(&reopened, &stored).unwrap();
+    drop(reopened);
+    assert_eq!(settings(&open(&path).unwrap()).unwrap().idle_minutes, 2);
+}
+
+#[test]
 fn generated_recall_expires_without_changing_authored_history_or_user_memory() {
     let conn = open(Path::new(":memory:")).unwrap();
     let user = message("user", "user", "나는 차를 좋아해");
@@ -1108,6 +1147,41 @@ fn lexical_coverage_does_not_override_independent_semantic_candidates() {
     )
     .unwrap()
     .is_empty());
+}
+
+#[test]
+fn lexical_coverage_is_checked_before_the_candidate_limit() {
+    let conn = open(Path::new(":memory:")).unwrap();
+    for index in 0..100 {
+        let id = format!("background-{index}");
+        conn.execute(
+            "INSERT INTO memories(id,content,source,updated) VALUES(?1,'음료 기록',?1,0)",
+            [id],
+        )
+        .unwrap();
+    }
+    for index in 0..30 {
+        let id = format!("partial-{index}");
+        conn.execute(
+            "INSERT INTO memories(id,content,source,updated) VALUES(?1,'취향 취향 취향 취향',?1,0)",
+            [id],
+        )
+        .unwrap();
+    }
+    let content = format!("음료 취향은 차다. {}", "긴 개인 기록이다. ".repeat(30));
+    conn.execute(
+        "INSERT INTO memories(id,content,source,updated) VALUES('answer',?1,'answer',0)",
+        [content],
+    )
+    .unwrap();
+    for (query, terms) in [
+        ("음료 취향", Vec::new()),
+        ("어떤 것을 마시지", vec!["음료".into(), "취향".into()]),
+    ] {
+        let hits = search_memories(&conn, query, &terms, None).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].memory.id, "answer");
+    }
 }
 
 #[test]

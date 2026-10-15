@@ -7,6 +7,8 @@ pub enum LocalModel {
     Qwen35_4B,
     #[serde(rename = "qwen3.5-9b")]
     Qwen35_9B,
+    #[serde(rename = "qwen3.5-27b")]
+    Qwen35_27B,
     #[serde(rename = "qwen3.8-2b-distill")]
     Qwen38_2B,
     #[serde(rename = "qwen3.8-4b-distill")]
@@ -19,6 +21,10 @@ pub enum LocalModel {
     Gemma4_12B,
     #[serde(rename = "ministral-3-8b")]
     Ministral3_8B,
+    #[serde(rename = "ministral-3-14b")]
+    Ministral3_14B,
+    #[serde(rename = "ministral-3-14b-q5-k-m")]
+    Ministral3_14BQ5,
     #[serde(rename = "kanana-1.5-2.1b-instruct-2505")]
     Kanana15_2_1B,
     #[serde(rename = "kanana-1.5-8b-instruct-2505")]
@@ -33,6 +39,8 @@ pub struct LocalModelStatus {
     pub id: LocalModel,
     pub name: String,
     pub description: String,
+    #[serde(default = "default_quantization")]
+    pub quantization: String,
     pub size: u64,
     pub ready: bool,
     pub downloaded_bytes: u64,
@@ -43,6 +51,10 @@ pub struct LocalModelStatus {
     /// Above the 9B line that widget creation and repair require.
     #[serde(default)]
     pub widget_creation: bool,
+}
+
+fn default_quantization() -> String {
+    "Q4_K_M".into()
 }
 
 /// An estimate from the file size and this computer's memory, not a measurement.
@@ -166,7 +178,7 @@ impl Default for Settings {
             random_presence_enabled: false,
             local_idle_enabled: false,
             api_idle_enabled: false,
-            idle_minutes: 2,
+            idle_minutes: 5,
             quiet_hours: QuietHours::default(),
         }
     }
@@ -509,11 +521,14 @@ mod tests {
     }
 
     #[test]
-    fn experimental_kanana_selection_round_trips_without_changing_defaults() {
+    fn experimental_model_selections_round_trip_without_changing_defaults() {
         assert_eq!(Settings::default().local_model, LocalModel::Qwen35_4B);
         for (model, id) in [
             (LocalModel::Kanana15_2_1B, "kanana-1.5-2.1b-instruct-2505"),
             (LocalModel::Kanana15_8B, "kanana-1.5-8b-instruct-2505"),
+            (LocalModel::Qwen35_27B, "qwen3.5-27b"),
+            (LocalModel::Ministral3_14B, "ministral-3-14b"),
+            (LocalModel::Ministral3_14BQ5, "ministral-3-14b-q5-k-m"),
         ] {
             let settings = Settings {
                 local_model: model,
@@ -539,14 +554,14 @@ mod tests {
             .unwrap()
             .remove("localReasoningEnabled");
         legacy.as_object_mut().unwrap().remove("autonomousEnabled");
-        legacy["idleMinutes"] = serde_json::json!(5);
+        legacy["idleMinutes"] = serde_json::json!(2);
         let settings: Settings = serde_json::from_value(legacy).unwrap();
         assert_eq!(settings.local_model, LocalModel::Qwen35_4B);
         assert_eq!(settings.local_model_path, "");
         assert!(!settings.local_reasoning_enabled);
         assert!(settings.autonomous_enabled);
-        assert_eq!(settings.idle_minutes, 5);
-        assert_eq!(Settings::default().idle_minutes, 2);
+        assert_eq!(settings.idle_minutes, 2);
+        assert_eq!(Settings::default().idle_minutes, 5);
         let selected = Settings {
             local_model: LocalModel::Qwen35_9B,
             local_reasoning_enabled: true,
@@ -558,6 +573,7 @@ mod tests {
         let reopened: Settings = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         assert_eq!(reopened.local_model, LocalModel::Qwen35_9B);
         assert!(reopened.local_reasoning_enabled);
+        assert_eq!(reopened.idle_minutes, 2);
         assert_eq!(
             serde_json::to_value(reopened).unwrap()["localModel"],
             "qwen3.5-9b"

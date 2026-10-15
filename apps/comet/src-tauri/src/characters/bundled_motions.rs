@@ -53,14 +53,23 @@ fn without_motions(mut pack: CharacterPack) -> CharacterPack {
 
 pub(super) fn migrate(conn: &Connection) -> Result<()> {
     let replacement = byulkkori_pack();
+    let previous = previous_motion_pack();
     for (version, baseline) in [
-        (2, without_motions(replacement.clone())),
-        (3, earlier_pack(replacement.clone(), 13)),
-        (4, earlier_pack(replacement.clone(), 22)),
+        (2, without_motions(previous.clone())),
+        (3, earlier_pack(previous.clone(), 13)),
+        (4, earlier_pack(previous, 22)),
     ] {
         migrate_version(conn, version, &baseline, &replacement)?;
     }
     Ok(())
+}
+
+fn previous_motion_pack() -> CharacterPack {
+    let packs: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+        "../../content/previous-character-packs-v2.json"
+    ))
+    .expect("previous motion packages must be valid");
+    parse_pack(&packs[0].to_string()).expect("previous Byulkkori motion package must be valid")
 }
 
 fn migrate_version(
@@ -209,7 +218,7 @@ mod tests {
         initialize_for_tests(&conn).unwrap();
         conn.execute("DELETE FROM character_seed WHERE version>=2", [])
             .unwrap();
-        let pack = without_motions(byulkkori_pack());
+        let pack = without_motions(previous_motion_pack());
         let installed = import_pack(&conn, &pack).unwrap().remove(0);
         apply_roster(&conn, vec![installed.id.clone()]).unwrap();
         (conn, installed)
@@ -247,7 +256,7 @@ mod tests {
             initialize_for_tests(&conn).unwrap();
             conn.execute("DELETE FROM character_seed WHERE version>=3", [])
                 .unwrap();
-            let old_pack = earlier_pack(byulkkori_pack(), count);
+            let old_pack = earlier_pack(previous_motion_pack(), count);
             let original = import_pack(&conn, &old_pack).unwrap().remove(0);
             let old_assets = animation::all(&conn, &original.id).unwrap();
             initialize(&conn).unwrap();
@@ -275,7 +284,7 @@ mod tests {
             initialize_for_tests(&conn).unwrap();
             conn.execute("DELETE FROM character_seed WHERE version>=3", [])
                 .unwrap();
-            let old_pack = earlier_pack(byulkkori_pack(), 13);
+            let old_pack = earlier_pack(previous_motion_pack(), 13);
             let original = import_pack(&conn, &old_pack).unwrap().remove(0);
             match change {
                 0 => {

@@ -120,8 +120,115 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
     }
     migrate_defaults(&root);
     migrate_packs(&root);
+    if let Err(error) = upgrade_bundled_dialogue(&root) {
+        eprintln!(".talk dialogue migration: {error}");
+    }
     migrate_encryption(&root);
     Ok(root)
+}
+
+fn upgrade_bundled_dialogue(root: &Path) -> Result<(), String> {
+    let marker = app_data_of(root)?.join(".talk-dialogue-v3");
+    if marker.try_exists().map_err(|error| error.to_string())? || !root.exists() {
+        return Ok(());
+    }
+    let previous = [
+        (
+            "packs/byulkkori/situations/solo.talk",
+            &[
+                include_str!("../../content/previous-byulkkori-solo.talk"),
+                include_str!("../../content/previous-byulkkori-solo-v2.talk"),
+                include_str!("../../content/previous-byulkkori-solo-local.talk"),
+            ],
+            defaults::BYULKKORI,
+            "situations/solo.talk",
+        ),
+        (
+            "packs/nadir-and-star-tail/situations/index.talk",
+            &[
+                include_str!("../../content/previous-nadir-situations.talk"),
+                include_str!("../../content/previous-nadir-situations-v2.talk"),
+                include_str!("../../content/previous-nadir-situations-local.talk"),
+            ],
+            defaults::NADIR_AND_STAR_TAIL,
+            "situations/index.talk",
+        ),
+        (
+            "situations/index.talk",
+            &[
+                include_str!("../../content/previous-nadir-situations.talk"),
+                include_str!("../../content/previous-nadir-situations-v2.talk"),
+                include_str!("../../content/previous-nadir-situations-local.talk"),
+            ],
+            defaults::NADIR_AND_STAR_TAIL,
+            "situations/index.talk",
+        ),
+    ];
+    let entry = root.join("index.talk");
+    let mut originals = BTreeMap::new();
+    let mut replacements = BTreeMap::new();
+    let mut bytes = 0;
+    for name in super::files::list_files(&entry)? {
+        let document = super::files::read(&entry, &name)?;
+        bytes += document.source.len();
+        if bytes > 4 * 1024 * 1024 {
+            return Err("대본 전체는 4 MiB 이하여야 해요.".into());
+        }
+        let original = super::encryption::read_bytes(&root.join(&name))?;
+        if hex::encode(Sha256::digest(&original)) != document.revision {
+            return Err("기본 대본을 읽는 동안 파일이 바뀌었어요.".into());
+        }
+        if let Some((_, old, pack, path)) = previous.iter().find(|(path, _, _, _)| *path == name) {
+            if old
+                .iter()
+                .map(|source| super::encryption::decode(source.as_bytes()))
+                .collect::<Result<Vec<_>, _>>()?
+                .contains(&document.source)
+            {
+                let new = defaults::pack(pack)
+                    .and_then(|pack| pack.files.iter().find(|(name, _)| name == path))
+                    .ok_or("기본 대본을 찾지 못했어요.")?
+                    .1;
+                replacements.insert(
+                    name.clone(),
+                    super::encryption::encode(&super::encryption::decode(new.as_bytes())?)?,
+                );
+            }
+        }
+        originals.insert(name, original);
+    }
+    if !replacements.is_empty() {
+        let staging = app_data_of(root)?.join(format!(".talk-dialogue-{}", uuid::Uuid::new_v4()));
+        let staged = (|| {
+            for (name, original) in &originals {
+                let path = staging.join(name);
+                fs::create_dir_all(path.parent().ok_or("대본 경로가 잘못됐어요.")?)
+                    .map_err(|error| error.to_string())?;
+                super::files::atomic_write(&path, replacements.get(name).unwrap_or(original))?;
+            }
+            super::load_bundle(&staging, &super::context::registry())
+                .map_err(|errors| serde_json::to_string(&errors).unwrap_or_default())?;
+            Ok::<(), String>(())
+        })();
+        let _ = fs::remove_dir_all(&staging);
+        staged?;
+        for (name, original) in &originals {
+            if super::encryption::read_bytes(&root.join(name))? != *original {
+                return Err("기본 대본을 갱신하는 동안 파일이 바뀌었어요.".into());
+            }
+        }
+        let mut applied: Vec<&String> = Vec::new();
+        for (name, data) in &replacements {
+            if let Err(error) = super::files::atomic_write(&root.join(name), data) {
+                for previous in applied.iter().rev() {
+                    super::files::atomic_write(&root.join(previous), &originals[*previous])?;
+                }
+                return Err(error);
+            }
+            applied.push(name);
+        }
+    }
+    super::files::atomic_write(&marker, b"1\n")
 }
 
 fn migrate_defaults(root: &Path) {
@@ -864,5 +971,174 @@ mod tests {
         ));
         assert_eq!(active.program.as_ref().unwrap().scenes.len(), seeded);
         assert_eq!(active.generation, 3);
+    }
+}
+
+#[cfg(test)]
+mod dialogue_upgrade_tests {
+    use super::*;
+
+    const OLD_SOLO: &str = include_str!("../../content/previous-byulkkori-solo.talk");
+    const OLD_PAIR: &str = include_str!("../../content/previous-nadir-situations.talk");
+
+    fn reset_upgrade(app_data: &Path) {
+        fs::remove_file(app_data.join(".talk-dialogue-v3")).unwrap();
+    }
+
+    fn source(path: &Path) -> String {
+        super::super::encryption::decode(&fs::read(path).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn stock_sources_upgrade_without_changing_authored_files_or_history_keys() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = initialize_files(directory.path()).unwrap();
+        install_bundled_pack(&root, defaults::NADIR_AND_STAR_TAIL).unwrap();
+        let solo = root.join("packs/byulkkori/situations/solo.talk");
+        let pair = root.join("packs/nadir-and-star-tail/situations/index.talk");
+        fs::write(&solo, OLD_SOLO).unwrap();
+        fs::write(&pair, OLD_PAIR).unwrap();
+        let authored = root.join("packs/byulkkori/widgets/todo.talk");
+        let authored_source = format!("{}\n#  사용자 원문\n  \n", source(&authored));
+        let authored_bytes = super::super::encryption::encode(&authored_source).unwrap();
+        fs::write(&authored, &authored_bytes).unwrap();
+        let before = super::super::load_bundle(&root, &super::super::context::registry()).unwrap();
+        reset_upgrade(directory.path());
+        initialize_files(directory.path()).unwrap();
+        let after = super::super::load_bundle(&root, &super::super::context::registry()).unwrap();
+        // The two inputs contribute 16 solo scenes and 8 pair scenes in total.
+        assert_eq!(after.scenes.len(), before.scenes.len() + 24);
+        let added: std::collections::BTreeSet<_> = after
+            .scenes
+            .iter()
+            .filter(|scene| !before.scenes.iter().any(|old| old.key == scene.key))
+            .map(|scene| scene.id.as_str())
+            .collect();
+        assert_eq!(
+            added,
+            [
+                "solo.corner",
+                "solo.little-mistake",
+                "solo.make-believe",
+                "solo.quiet-company",
+                "solo.tiny-game",
+                "solo.tail-balance",
+                "solo.bookmark",
+                "solo.tiny-dance",
+                "solo.pretend-snack",
+                "solo.cloud-shapes",
+                "solo.little-voice",
+                "solo.tail-curl",
+                "solo.slow-step",
+                "solo.imaginary-rain",
+                "solo.round-and-star",
+                "solo.staying-near",
+                "situation.unfinished-syllable",
+                "situation.small-game",
+                "situation.shared-quiet",
+                "situation.margin-note",
+                "situation.tea-pause",
+                "situation.glove-check",
+                "situation.page-corner",
+                "situation.comfortable-silence",
+            ]
+            .into_iter()
+            .collect()
+        );
+        for scene in &before.scenes {
+            assert!(after.scenes.iter().any(|current| current.key == scene.key));
+        }
+        assert_eq!(fs::read(&authored).unwrap(), authored_bytes);
+        assert_eq!(source(&authored), authored_source);
+        let first = (fs::read(&solo).unwrap(), fs::read(&pair).unwrap());
+        initialize_files(directory.path()).unwrap();
+        assert_eq!((fs::read(&solo).unwrap(), fs::read(&pair).unwrap()), first);
+        fs::write(&solo, OLD_SOLO).unwrap();
+        initialize_files(directory.path()).unwrap();
+        assert_eq!(fs::read(&solo).unwrap(), OLD_SOLO.as_bytes());
+        assert!(!root.join("packs/byulkkori/widgets/pet.talk").exists());
+        assert!(!root
+            .join("packs/nadir-and-star-tail/widgets/plant.talk")
+            .exists());
+    }
+
+    #[test]
+    fn published_and_local_expansions_both_receive_the_combined_scripts() {
+        for (old_solo, old_pair) in [
+            (
+                include_str!("../../content/previous-byulkkori-solo-v2.talk"),
+                include_str!("../../content/previous-nadir-situations-v2.talk"),
+            ),
+            (
+                include_str!("../../content/previous-byulkkori-solo-local.talk"),
+                include_str!("../../content/previous-nadir-situations-local.talk"),
+            ),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let root = initialize_files(directory.path()).unwrap();
+            install_bundled_pack(&root, defaults::NADIR_AND_STAR_TAIL).unwrap();
+            let solo = root.join("packs/byulkkori/situations/solo.talk");
+            let pair = root.join("packs/nadir-and-star-tail/situations/index.talk");
+            let expected = (source(&solo), source(&pair));
+            fs::write(&solo, old_solo).unwrap();
+            fs::write(&pair, old_pair).unwrap();
+            fs::write(directory.path().join(".talk-dialogue-v2"), b"1\n").unwrap();
+            reset_upgrade(directory.path());
+            initialize_files(directory.path()).unwrap();
+            assert_eq!((source(&solo), source(&pair)), expected);
+            super::super::load_bundle(&root, &super::super::context::registry()).unwrap();
+        }
+    }
+
+    #[test]
+    fn edited_sources_and_deleted_packs_are_never_replaced_or_resurrected() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = initialize_files(directory.path()).unwrap();
+        install_bundled_pack(&root, defaults::NADIR_AND_STAR_TAIL).unwrap();
+        let solo = root.join("packs/byulkkori/situations/solo.talk");
+        let authored_source = format!(
+            "{}\n# 내가 고친 대사  \n",
+            super::super::encryption::decode(OLD_SOLO.as_bytes()).unwrap()
+        );
+        let authored_bytes = super::super::encryption::encode(&authored_source).unwrap();
+        fs::write(&solo, &authored_bytes).unwrap();
+        remove_pack(&root, defaults::NADIR_AND_STAR_TAIL).unwrap();
+        reset_upgrade(directory.path());
+        initialize_files(directory.path()).unwrap();
+        assert_eq!(fs::read(&solo).unwrap(), authored_bytes);
+        assert_eq!(source(&solo), authored_source);
+        assert!(!root.join("packs/nadir-and-star-tail").exists());
+        fs::remove_file(&solo).unwrap();
+        initialize_files(directory.path()).unwrap();
+        assert!(!solo.exists());
+        assert!(!root.join("packs/nadir-and-star-tail").exists());
+    }
+
+    #[test]
+    fn conflicting_user_import_leaves_the_entire_upgrade_unapplied() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = initialize_files(directory.path()).unwrap();
+        let solo = root.join("packs/byulkkori/situations/solo.talk");
+        fs::write(&solo, OLD_SOLO).unwrap();
+        let entry = root.join("packs/byulkkori/index.talk");
+        let authored = format!("{}\nimport \"./custom.talk\"\n", source(&entry));
+        let authored_bytes = super::super::encryption::encode(&authored).unwrap();
+        fs::write(&entry, &authored_bytes).unwrap();
+        let custom = root.join("packs/byulkkori/custom.talk");
+        fs::write(
+            &custom,
+            super::super::encryption::encode(
+                "format: 1\nscene: solo.bookmark\non: idle\n---\nA: 私の原文\n===\n",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        super::super::load_bundle(&root, &super::super::context::registry()).unwrap();
+        reset_upgrade(directory.path());
+        assert!(upgrade_bundled_dialogue(&root).is_err());
+        assert_eq!(fs::read(&solo).unwrap(), OLD_SOLO.as_bytes());
+        assert_eq!(fs::read(&entry).unwrap(), authored_bytes);
+        assert!(!directory.path().join(".talk-dialogue-v3").exists());
+        super::super::load_bundle(&root, &super::super::context::registry()).unwrap();
     }
 }

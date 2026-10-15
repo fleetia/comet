@@ -19,21 +19,25 @@ struct ModelSpec {
     name: &'static str,
     parameter_billions: f64,
     description: &'static str,
+    quantization: &'static str,
     file: &'static str,
     size: u64,
     sha256: &'static str,
     url: &'static str,
 }
 
-const CATALOG: [LocalModel; 10] = [
+const CATALOG: [LocalModel; 13] = [
     LocalModel::Qwen35_4B,
     LocalModel::Qwen35_9B,
+    LocalModel::Qwen35_27B,
     LocalModel::Qwen38_2B,
     LocalModel::Qwen38_4B,
     LocalModel::Qwen38_9B,
     LocalModel::Gemma4E4B,
     LocalModel::Gemma4_12B,
     LocalModel::Ministral3_8B,
+    LocalModel::Ministral3_14B,
+    LocalModel::Ministral3_14BQ5,
     LocalModel::Kanana15_2_1B,
     LocalModel::Kanana15_8B,
 ];
@@ -41,60 +45,91 @@ const CATALOG: [LocalModel; 10] = [
 fn spec(model: LocalModel) -> Option<ModelSpec> {
     Some(match model {
         LocalModel::Qwen35_4B => ModelSpec {
+            quantization: "Q4_K_M",
             parameter_billions: 4.,
             name: "Qwen3.5-4B", description: "기본 · 가벼운 모델", file: "Qwen3.5-4B-Q4_K_M.gguf", size: 2_740_937_888,
             sha256: "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
             url: "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/e87f176479d0855a907a41277aca2f8ee7a09523/Qwen3.5-4B-Q4_K_M.gguf",
         },
         LocalModel::Qwen35_9B => ModelSpec {
+            quantization: "Q4_K_M",
             parameter_billions: 9.,
             name: "Qwen3.5-9B", description: "메모리를 더 사용하는 모델", file: "Qwen3.5-9B-Q4_K_M.gguf", size: 5_680_522_464,
             sha256: "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8",
             url: "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/3885219b6810b007914f3a7950a8d1b469d598a5/Qwen3.5-9B-Q4_K_M.gguf",
         },
+        LocalModel::Qwen35_27B => ModelSpec {
+            quantization: "Q4_K_M",
+            parameter_billions: 27.,
+            name: "Qwen3.5-27B", description: "대형 모델 비교용 · 수동 선택 · 실험 · 실제 대화 미검증", file: "Qwen3.5-27B-Q4_K_M.gguf", size: 16_740_812_704,
+            sha256: "84b5f7f112156d63836a01a69dc3f11a6ba63b10a23b8ca7a7efaf52d5a2d806",
+            url: "https://huggingface.co/unsloth/Qwen3.5-27B-GGUF/resolve/3221f178a6b842d04f1fb42f1c413534adcc0a6a/Qwen3.5-27B-Q4_K_M.gguf",
+        },
         LocalModel::Qwen38_2B => ModelSpec {
+            quantization: "Q4_K_M",
             parameter_billions: 2.,
             name: "Qwen3.8-2B-Distill", description: "가장 가벼운 실험용", file: "Qwen3.8-2B-Q4_K_M.gguf", size: 1_312_164_224,
             sha256: "4aa0fb13c431514262f259d420ecc95a8714df58ac2a2384514e20b93983f0ff",
             url: "https://huggingface.co/empero-ai/Qwen3.8-2B-Distill-GGUF/resolve/f4f73582d0b149595450c719b9a7521a03894f9c/Qwen3.8-2B-Q4_K_M.gguf",
         },
         LocalModel::Qwen38_4B => ModelSpec {
+            quantization: "Q4_K_M",
             parameter_billions: 4.,
             name: "Qwen3.8-4B-Distill", description: "상시 구동 후보", file: "Qwen3.8-4B-Q4_K_M.gguf", size: 2_783_446_304,
             sha256: "dec96e8cf2e11b613bb46513dec485377f9ca5a351e71712ee0e244f287c6790",
             url: "https://huggingface.co/empero-ai/Qwen3.8-4B-Distill-GGUF/resolve/391fc7d103e3942a408def3e4f51c2f85d464417/Qwen3.8-4B-Q4_K_M.gguf",
         },
         LocalModel::Qwen38_9B => ModelSpec {
+            quantization: "Q4_K_M",
             parameter_billions: 9.,
             name: "Qwen3.8-9B-Distill", description: "Qwen 계열 품질 상한", file: "Qwen3.8-9B-Q4_K_M.gguf", size: 5_780_090_176,
             sha256: "df13d66021cef676f82be74053220fd75af6bf2a6a7fb77f5222ab9e50744a7a",
             url: "https://huggingface.co/empero-ai/Qwen3.8-9B-Distill-GGUF/resolve/760121cd70bb4c36b2b5ec58eb765e0df5987efe/Qwen3.8-9B-Q4_K_M.gguf",
         },
         LocalModel::Gemma4E4B => ModelSpec {
+            quantization: "Q4_K_M",
             parameter_billions: 4.,
             name: "Gemma 4 E4B", description: "Qwen 외 4B급 비교용", file: "gemma-4-E4B-it-Q4_K_M.gguf", size: 4_977_171_584,
             sha256: "85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87",
             url: "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/bfc15c382204943c3a8fff0c750b94ae2364d7a3/gemma-4-E4B-it-Q4_K_M.gguf",
         },
         LocalModel::Gemma4_12B => ModelSpec {
+            quantization: "Q4_K_M",
             parameter_billions: 12.,
             name: "Gemma 4 12B", description: "고품질 비교용 · 메모리 많이 사용", file: "gemma-4-12b-it-Q4_K_M.gguf", size: 7_121_861_440,
             sha256: "0a270ec9fe6b34f4a0d33992b6135117b484ebc4766ab76b51d4ae8c457e4c42",
             url: "https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/resolve/fc034cfff751157913579611efad8462ac1be606/gemma-4-12b-it-Q4_K_M.gguf",
         },
         LocalModel::Ministral3_8B => ModelSpec {
+            quantization: "Q4_K_M",
             parameter_billions: 8.,
             name: "Ministral 3 8B", description: "Mistral 계열 비교용", file: "Ministral-3-8B-Instruct-2512-Q4_K_M.gguf", size: 5_198_386_720,
             sha256: "5dbc3647eb563b9f8d3c70ec3d906cce84b86bb35c5e0b8a36e7df3937ab7174",
             url: "https://huggingface.co/unsloth/Ministral-3-8B-Instruct-2512-GGUF/resolve/3731507ec3e867db16d620f73e14d689125758f4/Ministral-3-8B-Instruct-2512-Q4_K_M.gguf",
         },
+        LocalModel::Ministral3_14B => ModelSpec {
+            quantization: "Q4_K_M",
+            parameter_billions: 14.,
+            name: "Ministral 3 14B Instruct", description: "Mistral 계열 14B 비교용 · 수동 선택 · 실험 · 실제 대화 미검증", file: "Ministral-3-14B-Instruct-2512-Q4_K_M.gguf", size: 8_239_067_840,
+            sha256: "76ce697c065f2e40f1e8e958118b02cab38e2c10a6015f7d7908036a292dc8c8",
+            url: "https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/resolve/9b948841b705cc11285ff274b84ba6c885908b19/Ministral-3-14B-Instruct-2512-Q4_K_M.gguf",
+        },
+        LocalModel::Ministral3_14BQ5 => ModelSpec {
+            quantization: "Q5_K_M",
+            parameter_billions: 14.,
+            name: "Ministral 3 14B Instruct", description: "정밀도 비교용 · 수동 선택 · 실험 · 실제 대화 미검증", file: "Ministral-3-14B-Instruct-2512-Q5_K_M.gguf", size: 9_620_566_720,
+            sha256: "4b97b4b19859f3959e9f80367bcb0ec31a3ab27ace99e37d9220dbebf09f3da9",
+            url: "https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/resolve/9b948841b705cc11285ff274b84ba6c885908b19/Ministral-3-14B-Instruct-2512-Q5_K_M.gguf",
+        },
         LocalModel::Kanana15_2_1B => ModelSpec {
+            quantization: "Q4_K_M",
             parameter_billions: 2.1,
             name: "Kanana 1.5 2.1B Instruct", description: "한국어 경량 비교용 · 실험 · 실제 대화 미검증", file: "kakaocorp.kanana-1.5-2.1b-instruct-2505.Q4_K_M.gguf", size: 1_522_796_768,
             sha256: "24d3db59d0af2c85c0afc0bbc99da1174b73ef6728bce2650bd91bec28ad1c81",
             url: "https://huggingface.co/DevQuasar/kakaocorp.kanana-1.5-2.1b-instruct-2505-GGUF/resolve/4d3b6203857d893ebfcaca6c51901e3ea1d00d00/kakaocorp.kanana-1.5-2.1b-instruct-2505.Q4_K_M.gguf",
         },
         LocalModel::Kanana15_8B => ModelSpec {
+            quantization: "Q4_K_M",
             parameter_billions: 8.,
             name: "Kanana 1.5 8B Instruct", description: "한국어 8B 비교용 · 실험 · 실제 대화 미검증 · CPU 지연 가능", file: "kakaocorp.kanana-1.5-8b-instruct-2505.Q4_K_M.gguf", size: 4_920_765_472,
             sha256: "f7ae0cc1de2396647dce4a82fb4943136bcc785339ee8944c6818184c983d287",
@@ -164,12 +199,17 @@ fn fit(model_bytes: u64, total_memory: Option<u64>) -> ModelFit {
     }
 }
 
-/// New Korean-focused candidates stay manually selectable until their actual app quality
+/// Experimental candidates stay manually selectable until their actual app quality
 /// has been accepted. Keep existing device recommendations unchanged in the meantime.
 fn automatic_recommendation_eligible(model: LocalModel) -> bool {
     !matches!(
         model,
-        LocalModel::Kanana15_2_1B | LocalModel::Kanana15_8B | LocalModel::Custom
+        LocalModel::Kanana15_2_1B
+            | LocalModel::Kanana15_8B
+            | LocalModel::Qwen35_27B
+            | LocalModel::Ministral3_14B
+            | LocalModel::Ministral3_14BQ5
+            | LocalModel::Custom
     )
 }
 
@@ -217,6 +257,7 @@ pub fn model_statuses(app_data: &Path) -> Vec<LocalModelStatus> {
                 id: model,
                 name: spec.name.into(),
                 description: spec.description.into(),
+                quantization: spec.quantization.into(),
                 size: spec.size,
                 ready,
                 downloaded_bytes,
@@ -552,6 +593,7 @@ mod tests {
         assert_eq!(recommended(device(8, true)), Some(LocalModel::Qwen38_2B));
         assert_eq!(recommended(device(16, true)), Some(LocalModel::Qwen35_9B));
         assert_eq!(recommended(device(24, true)), Some(LocalModel::Gemma4_12B));
+        assert_eq!(recommended(device(128, true)), Some(LocalModel::Gemma4_12B));
         assert_eq!(recommended(device(32, false)), Some(LocalModel::Qwen35_4B));
         assert_eq!(recommended(device(36, false)), Some(LocalModel::Qwen35_4B));
         assert_eq!(recommended(device(4, true)), None);
@@ -623,6 +665,74 @@ mod tests {
                 assert!(suggestion.is_none_or(automatic_recommendation_eligible));
             }
         }
+    }
+    #[test]
+    fn large_experimental_candidates_are_pinned_manual_choices_with_distinct_quantizations() {
+        let directory = tempfile::tempdir().unwrap();
+        let statuses = model_statuses(directory.path());
+        for (model, repo, revision, file, size, hash, quantization, parameters) in [
+            (
+                LocalModel::Qwen35_27B,
+                "unsloth/Qwen3.5-27B-GGUF",
+                "3221f178a6b842d04f1fb42f1c413534adcc0a6a",
+                "Qwen3.5-27B-Q4_K_M.gguf",
+                16_740_812_704,
+                "84b5f7f112156d63836a01a69dc3f11a6ba63b10a23b8ca7a7efaf52d5a2d806",
+                "Q4_K_M",
+                27.,
+            ),
+            (
+                LocalModel::Ministral3_14B,
+                "unsloth/Ministral-3-14B-Instruct-2512-GGUF",
+                "9b948841b705cc11285ff274b84ba6c885908b19",
+                "Ministral-3-14B-Instruct-2512-Q4_K_M.gguf",
+                8_239_067_840,
+                "76ce697c065f2e40f1e8e958118b02cab38e2c10a6015f7d7908036a292dc8c8",
+                "Q4_K_M",
+                14.,
+            ),
+            (
+                LocalModel::Ministral3_14BQ5,
+                "unsloth/Ministral-3-14B-Instruct-2512-GGUF",
+                "9b948841b705cc11285ff274b84ba6c885908b19",
+                "Ministral-3-14B-Instruct-2512-Q5_K_M.gguf",
+                9_620_566_720,
+                "4b97b4b19859f3959e9f80367bcb0ec31a3ab27ace99e37d9220dbebf09f3da9",
+                "Q5_K_M",
+                14.,
+            ),
+        ] {
+            let spec = spec(model).unwrap();
+            assert_eq!(spec.size, size);
+            assert_eq!(spec.sha256, hash);
+            assert_eq!(spec.file, file);
+            assert_eq!(spec.quantization, quantization);
+            assert_eq!(spec.parameter_billions, parameters);
+            assert_eq!(
+                spec.url,
+                format!("https://huggingface.co/{repo}/resolve/{revision}/{file}")
+            );
+            assert!(!automatic_recommendation_eligible(model));
+            let status = statuses.iter().find(|status| status.id == model).unwrap();
+            assert_eq!(status.quantization, quantization);
+            assert!(status.description.contains("수동 선택"));
+            assert!(status.description.contains("실험"));
+            assert!(status.description.contains("실제 대화 미검증"));
+            assert!(!status.recommended);
+            assert!(!status.ready);
+            assert!(status.widget_creation);
+            let settings = Settings {
+                local_model: model,
+                ..Settings::default()
+            };
+            assert_eq!(
+                selected_path(directory.path(), &settings),
+                Some(directory.path().join("models").join(file))
+            );
+            assert!(!selected_ready(directory.path(), &settings));
+            assert!(widget_generation_eligibility(&settings).allowed);
+        }
+        assert_eq!(Settings::default().local_model, LocalModel::Qwen35_4B);
     }
     #[test]
     fn catalog_lists_every_pinned_model_once_and_excludes_custom() {

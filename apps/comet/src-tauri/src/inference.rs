@@ -419,6 +419,117 @@ async fn completion(
     }
 }
 
+fn local_messages(messages: &[ChatMessage]) -> Vec<ChatMessage> {
+    let mut result: Vec<ChatMessage> = Vec::new();
+    let mut has_user = false;
+    for message in messages {
+        // Character-led conversations still need a user role before their first reply.
+        if message.role == "assistant" && !has_user {
+            result.push(ChatMessage {
+                role: "user".into(),
+                content: String::new(),
+            });
+            has_user = true;
+        }
+        has_user |= message.role == "user";
+        if let Some(previous) = result.last_mut().filter(|last| last.role == message.role) {
+            previous.content.push_str("\n\n");
+            previous.content.push_str(&message.content);
+        } else {
+            result.push(message.clone());
+        }
+    }
+    result
+}
+
+fn parse_generated_json(content: &str) -> Result<Value, String> {
+    serde_json::from_str(content).map_err(|_| {
+        "모델이 요청한 JSON 형식으로 답하지 않았습니다. 모델 설정을 확인해 주세요.".into()
+    })
+}
+
+async fn local_completion_without_reasoning(
+    http: &reqwest::Client,
+    url: &str,
+    key: Option<&str>,
+    mut payload: Value,
+    budget: GenerationBudget,
+    cancel: Arc<AtomicBool>,
+) -> Result<Value, String> {
+    let base = url.trim_end_matches('/');
+    let base = base.strip_suffix("/v1").unwrap_or(base);
+    for path in ["apply-template", "completion"] {
+        if cancel.load(Ordering::Acquire) {
+            return Err("취소됨".into());
+        }
+        let mut request = http
+            .post(format!("{base}/{path}"))
+            .timeout(budget.timeout)
+            .json(&payload);
+        if let Some(value) = key.filter(|s| !s.is_empty()) {
+            request = request.bearer_auth(value);
+        }
+        let response = request.send().await.map_err(|error| {
+            if error.is_timeout() {
+                "API 응답 시간이 초과되었습니다."
+            } else {
+                "API에 연결할 수 없습니다. 주소·네트워크를 확인해 주세요."
+            }
+        })?;
+        if !response.status().is_success() {
+            return Err(match response.status().as_u16() {
+                401 | 403 => "API 인증에 실패했습니다. 이 주소에 저장한 키를 확인해 주세요.".into(),
+                429 => "API 요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.".into(),
+                status => format!("API 요청 실패 (HTTP {status})."),
+            });
+        }
+        let body = response_body(response).await?;
+        if cancel.load(Ordering::Acquire) {
+            return Err("취소됨".into());
+        }
+        if path == "apply-template" {
+            let prompt = body
+                .get("prompt")
+                .and_then(Value::as_str)
+                .filter(|prompt| !prompt.trim().is_empty())
+                .ok_or("로컬 모델이 대화 입력을 만들지 못했습니다.")?;
+            payload = json!({
+                "prompt":prompt,
+                "json_schema":payload["response_format"]["json_schema"]["schema"],
+                "n_predict":budget.output_tokens,
+                "temperature":payload["temperature"],
+                "stream":false,
+                "reasoning_budget_tokens":0,
+            });
+            continue;
+        }
+        if body.get("stop_type").and_then(Value::as_str) == Some("limit")
+            || body.get("stopped_limit").and_then(Value::as_bool) == Some(true)
+        {
+            return Err("모델 응답이 토큰 한도에 도달했습니다. 요청을 더 작게 나눠 주세요.".into());
+        }
+        if body.get("truncated").and_then(Value::as_bool) == Some(true) {
+            return Err(
+                "모델 입력이 컨텍스트 한도에 도달했습니다. 요청을 더 작게 나눠 주세요.".into(),
+            );
+        }
+        if body.get("stop").and_then(Value::as_bool) != Some(true)
+            || !matches!(
+                body.get("stop_type").and_then(Value::as_str),
+                Some("eos" | "word")
+            )
+        {
+            return Err("로컬 모델의 응답이 정상적으로 끝나지 않았습니다.".into());
+        }
+        let content = body
+            .get("content")
+            .and_then(Value::as_str)
+            .ok_or("API 응답에 대화 내용이 없습니다.")?;
+        return parse_generated_json(content);
+    }
+    Err("API 요청 실패".into())
+}
+
 async fn completion_request(
     url: &str,
     key: Option<&str>,
@@ -442,9 +553,20 @@ async fn completion_request(
     let mut payload = json!({"model":settings.api_model,"messages":messages,"stream":false,"temperature":temperature,"response_format":{"type":"json_schema","json_schema":{"name":"response","strict":true,"schema":schema}}});
     payload[token_parameter] = json!(budget.output_tokens + budget.reasoning_tokens);
     if settings.mode == "local" {
+        // Some GGUF templates require alternating roles even when filtered history omits a reply.
+        payload["messages"] = json!(local_messages(messages));
         payload["chat_template_kwargs"] = json!({"enable_thinking":budget.reasoning_tokens > 0});
         payload["reasoning_format"] = json!("deepseek");
         payload["reasoning_budget_tokens"] = json!(budget.reasoning_tokens);
+        if budget.reasoning_tokens == 0 {
+            // Native completion keeps JSON grammar separate from the chat reasoning parser.
+            return tokio::time::timeout(
+                budget.timeout,
+                local_completion_without_reasoning(&http, url, key, payload, budget, cancel),
+            )
+            .await
+            .map_err(|_| "API 응답 시간이 초과되었습니다.".to_string())?;
+        }
     }
     for attempt in 0..2 {
         let mut request = http
@@ -498,9 +620,7 @@ async fn completion_request(
             .and_then(|s| s.strip_suffix("```"))
             .unwrap_or(trimmed)
             .trim();
-        return serde_json::from_str(json_text).map_err(|_| {
-            "모델이 요청한 JSON 형식으로 답하지 않았습니다. 모델 설정을 확인해 주세요.".into()
-        });
+        return parse_generated_json(json_text);
     }
     Err("API 요청 실패".into())
 }
@@ -680,64 +800,103 @@ mod tests {
 
     use super::*;
 
+    async fn read_completion_request(socket: &mut tokio::net::TcpStream) -> (String, Value) {
+        use tokio::io::AsyncReadExt;
+        let mut request = Vec::new();
+        let (header_end, content_length) = loop {
+            let mut chunk = [0; 4096];
+            let count = socket.read(&mut chunk).await.unwrap();
+            assert!(count > 0 && request.len() + count <= 65536);
+            request.extend_from_slice(&chunk[..count]);
+            if let Some(index) = request.windows(4).position(|part| part == b"\r\n\r\n") {
+                let headers = String::from_utf8_lossy(&request[..index]).to_ascii_lowercase();
+                let length = headers
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length: "))
+                    .unwrap()
+                    .parse::<usize>()
+                    .unwrap();
+                if request.len() >= index + 4 + length {
+                    break (index + 4, length);
+                }
+            }
+        };
+        (
+            String::from_utf8_lossy(&request[..header_end]).into_owned(),
+            serde_json::from_slice(&request[header_end..header_end + content_length]).unwrap(),
+        )
+    }
+
+    async fn completion_server(
+        responses: Vec<(u16, String)>,
+    ) -> (String, tokio::task::JoinHandle<Vec<(String, Value)>>) {
+        use tokio::{io::AsyncWriteExt, net::TcpListener};
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let mut requests = Vec::new();
+            for (status, body) in responses {
+                let (mut socket, _) =
+                    tokio::time::timeout(Duration::from_secs(2), listener.accept())
+                        .await
+                        .expect("expected completion request")
+                        .unwrap();
+                requests.push(read_completion_request(&mut socket).await);
+                // A client may reject an oversized body before the complete write.
+                let _ = socket
+                    .write_all(
+                        format!(
+                            "HTTP/1.1 {status} Mock\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                        .as_bytes(),
+                    )
+                    .await;
+            }
+            assert!(
+                tokio::time::timeout(Duration::from_millis(50), listener.accept())
+                    .await
+                    .is_err()
+            );
+            requests
+        });
+        (format!("http://{address}"), server)
+    }
+
     async fn captured_completion(
         settings: &Settings,
         budget: GenerationBudget,
         body: Value,
+        messages: &[ChatMessage],
     ) -> (Result<Value, String>, Value) {
-        use tokio::{
-            io::{AsyncReadExt, AsyncWriteExt},
-            net::TcpListener,
+        let native = settings.mode == "local" && budget.reasoning_tokens == 0;
+        let responses = if native {
+            vec![
+                (200, json!({"prompt":"formatted chat"}).to_string()),
+                (200, json!({"content":body.pointer("/choices/0/message/content"),"stop":true,"stop_type":"eos"}).to_string()),
+            ]
+        } else {
+            vec![(200, body.to_string())]
         };
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut request = Vec::new();
-            let (header_end, content_length) = loop {
-                let mut chunk = [0; 4096];
-                let count = socket.read(&mut chunk).await.unwrap();
-                assert!(count > 0 && request.len() + count <= 65536);
-                request.extend_from_slice(&chunk[..count]);
-                if let Some(index) = request.windows(4).position(|part| part == b"\r\n\r\n") {
-                    let headers = String::from_utf8_lossy(&request[..index]).to_ascii_lowercase();
-                    let length = headers
-                        .lines()
-                        .find_map(|line| line.strip_prefix("content-length: "))
-                        .unwrap()
-                        .parse::<usize>()
-                        .unwrap();
-                    if request.len() >= index + 4 + length {
-                        break (index + 4, length);
-                    }
-                }
-            };
-            let payload: Value =
-                serde_json::from_slice(&request[header_end..header_end + content_length]).unwrap();
-            let body = body.to_string();
-            socket
-                .write_all(
-                    format!(
-                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                        body.len()
-                    )
-                    .as_bytes(),
-                )
-                .await
-                .unwrap();
-            payload
-        });
+        let (url, server) = completion_server(responses).await;
         let result = completion(
-            &format!("http://{address}"),
+            &url,
             None,
             settings,
-            &[],
+            messages,
             json!({"type":"object","properties":{"ok":{"type":"boolean"}}}),
             budget,
             Arc::new(AtomicBool::new(false)),
         )
         .await;
-        (result, server.await.unwrap())
+        let requests = server.await.unwrap();
+        if native {
+            assert!(requests[0].0.starts_with("POST /apply-template "));
+            assert!(requests[1].0.starts_with("POST /completion "));
+        } else {
+            assert!(requests[0].0.starts_with("POST /chat/completions "));
+        }
+        (result, requests[0].1.clone())
     }
 
     #[tokio::test]
@@ -764,6 +923,7 @@ mod tests {
                 &settings,
                 budget,
                 json!({"choices":[{"message":{"content":"{\"ok\":true}","reasoning_content":"{\"ok\":false}"},"finish_reason":"stop"}]}),
+                &[],
             )
             .await;
             assert_eq!(result.unwrap(), json!({"ok":true}));
@@ -796,6 +956,7 @@ mod tests {
                 &settings,
                 budget,
                 json!({"choices":[{"message":{"content":"{\"ok\":true}"}}]}),
+                &[],
             )
             .await;
             assert_eq!(result.unwrap(), json!({"ok":true}));
@@ -826,6 +987,7 @@ mod tests {
                 &settings,
                 GenerationBudget::conversation(&settings, 128),
                 json!({"choices":[{"message":message,"finish_reason":"stop"}]}),
+                &[],
             )
             .await;
             assert!(result.is_err());
@@ -834,9 +996,310 @@ mod tests {
             &settings,
             GenerationBudget::widget(&settings, 4096),
             json!({"choices":[{"message":{"content":"{\"ok\":true}"},"finish_reason":"length"}]}),
+            &[],
         )
         .await;
         assert!(result.unwrap_err().contains("토큰 한도"));
+    }
+
+    #[tokio::test]
+    async fn local_transport_normalizes_role_boundaries_without_editing_history_or_api_requests() {
+        let messages: Vec<ChatMessage> = [
+            ("system", "현재 사용자: 민수"),
+            ("assistant", "[a] 오늘 뭐 마시고 싶어?"),
+            ("assistant", "[b] 난 커피를 마시려는데 너는?"),
+            ("user", "  정정할게.\n커피 말고 차야.  "),
+            ("user", "내 음료 취향을 알려 줘."),
+            ("assistant", "첫 화자의 답"),
+            ("assistant", "둘째 화자의 답\n "),
+            ("user", "이어서 말해 줘."),
+        ]
+        .into_iter()
+        .map(|(role, content)| ChatMessage {
+            role: role.into(),
+            content: content.into(),
+        })
+        .collect();
+        let original = serde_json::to_value(&messages).unwrap();
+        for mode in ["local", "api"] {
+            let settings = Settings {
+                mode: mode.into(),
+                ..Settings::default()
+            };
+            let (result, payload) = captured_completion(
+                &settings,
+                GenerationBudget::conversation(&settings, 128),
+                json!({"choices":[{"message":{"content":"{\"ok\":true}"}}]}),
+                &messages,
+            )
+            .await;
+            assert_eq!(result.unwrap(), json!({"ok":true}));
+            if mode == "local" {
+                assert_eq!(
+                    payload["messages"],
+                    json!([
+                        {"role":"system","content":"현재 사용자: 민수"},
+                        {"role":"user","content":""},
+                        {"role":"assistant","content":"[a] 오늘 뭐 마시고 싶어?\n\n[b] 난 커피를 마시려는데 너는?"},
+                        {"role":"user","content":"  정정할게.\n커피 말고 차야.  \n\n내 음료 취향을 알려 줘."},
+                        {"role":"assistant","content":"첫 화자의 답\n\n둘째 화자의 답\n "},
+                        {"role":"user","content":"이어서 말해 줘."}
+                    ])
+                );
+            } else {
+                assert_eq!(payload["messages"], original);
+            }
+            assert_eq!(serde_json::to_value(&messages).unwrap(), original);
+        }
+    }
+
+    #[tokio::test]
+    async fn local_reasoning_off_preserves_template_prompt_schema_key_and_output_budget() {
+        let settings = Settings::default();
+        let budget = GenerationBudget::conversation(&settings, 256);
+        let prompt = "  <model>\noriginal template output\n ";
+        for (schema, temperature) in [
+            (
+                json!({"type":"object","properties":{"ok":{"type":"boolean"}}}),
+                0.7,
+            ),
+            (
+                json!({"type":"object","properties":{"memories":{"type":"array"}}}),
+                0.1,
+            ),
+        ] {
+            let (url, server) = completion_server(vec![
+                (200, json!({"prompt":prompt}).to_string()),
+                (
+                    200,
+                    json!({"content":"{\"ok\":true}","stop":true,"stop_type":"eos"}).to_string(),
+                ),
+            ])
+            .await;
+            let result = completion(
+                &format!("{url}/v1"),
+                Some("synthetic-local-key"),
+                &settings,
+                &[],
+                schema.clone(),
+                budget,
+                Arc::new(AtomicBool::new(false)),
+            )
+            .await
+            .unwrap();
+            assert_eq!(result, json!({"ok":true}));
+            let requests = server.await.unwrap();
+            for request in &requests {
+                assert!(request
+                    .0
+                    .to_ascii_lowercase()
+                    .contains("authorization: bearer synthetic-local-key"));
+            }
+            assert!(requests[0].0.starts_with("POST /apply-template "));
+            assert_eq!(
+                requests[0].1["chat_template_kwargs"]["enable_thinking"],
+                false
+            );
+            assert_eq!(
+                requests[0].1["response_format"]["json_schema"]["schema"],
+                schema
+            );
+            assert!(requests[1].0.starts_with("POST /completion "));
+            assert_eq!(
+                requests[1].1,
+                json!({
+                    "prompt":prompt,"json_schema":schema,"n_predict":256,
+                    "temperature":temperature,"stream":false,"reasoning_budget_tokens":0,
+                })
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn local_reasoning_off_rejects_invalid_or_incomplete_responses_without_retry() {
+        let settings = Settings::default();
+        let successful_template = json!({"prompt":"chat"}).to_string();
+        let final_json = "{\"ok\":true}";
+        let mut cases = vec![
+            (true, 200, json!({}).to_string(), "대화 입력"),
+            (true, 200, json!({"prompt":" \n"}).to_string(), "대화 입력"),
+            (true, 200, "not-json".into(), "올바른 JSON"),
+            (true, 400, "secret-api-key".into(), "400"),
+            (false, 422, "secret-api-key".into(), "422"),
+            (false, 200, "not-json".into(), "올바른 JSON"),
+            (
+                false,
+                200,
+                json!({"content":final_json,"stop":false,"stop_type":"eos"}).to_string(),
+                "정상적으로",
+            ),
+            (
+                false,
+                200,
+                json!({"content":final_json,"stop":true,"stop_type":"none"}).to_string(),
+                "정상적으로",
+            ),
+            (
+                false,
+                200,
+                json!({"content":final_json,"stop":true,"stop_type":"limit"}).to_string(),
+                "토큰 한도",
+            ),
+            (
+                false,
+                200,
+                json!({"content":final_json,"stop":true,"stop_type":"eos","stopped_limit":true})
+                    .to_string(),
+                "토큰 한도",
+            ),
+            (
+                false,
+                200,
+                json!({"content":final_json,"stop":true,"stop_type":"eos","truncated":true})
+                    .to_string(),
+                "컨텍스트 한도",
+            ),
+            (
+                false,
+                200,
+                json!({"content":null,"stop":true,"stop_type":"eos"}).to_string(),
+                "대화 내용",
+            ),
+            (
+                false,
+                200,
+                json!({"content":"```json\n{}\n```","stop":true,"stop_type":"eos"}).to_string(),
+                "요청한 JSON",
+            ),
+        ];
+        for template in [true, false] {
+            cases.push((
+                template,
+                200,
+                json!({"prompt":"x".repeat(256*1024),"content":"x".repeat(256*1024)}).to_string(),
+                "허용 크기",
+            ));
+        }
+        for (template, status, body, expected) in cases {
+            let mut responses = Vec::new();
+            if !template {
+                responses.push((200, successful_template.clone()));
+            }
+            responses.push((status, body));
+            let (url, server) = completion_server(responses).await;
+            let error = completion(
+                &url,
+                None,
+                &settings,
+                &[],
+                json!({}),
+                GenerationBudget::conversation(&settings, 32),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .await
+            .unwrap_err();
+            assert!(error.contains(expected), "{error}; expected {expected}");
+            assert!(!error.contains("secret-api-key"));
+            assert_eq!(server.await.unwrap().len(), if template { 1 } else { 2 });
+        }
+    }
+
+    #[tokio::test]
+    async fn local_reasoning_off_cancels_in_both_request_headers_and_bodies() {
+        use tokio::{io::AsyncWriteExt, net::TcpListener};
+        for (phase, body_started) in [(0, false), (0, true), (1, false), (1, true), (2, false)] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let cancel = Arc::new(AtomicBool::new(false));
+            let server_cancel = cancel.clone();
+            let (started, ready) = tokio::sync::oneshot::channel();
+            let (finished, finish) = tokio::sync::oneshot::channel();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let (headers, _) = read_completion_request(&mut socket).await;
+                assert!(headers.starts_with("POST /apply-template "));
+                if phase == 1 {
+                    let body = json!({"prompt":"chat"}).to_string();
+                    socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+                    drop(socket);
+                    socket = listener.accept().await.unwrap().0;
+                    let (headers, _) = read_completion_request(&mut socket).await;
+                    assert!(headers.starts_with("POST /completion "));
+                }
+                if phase == 2 {
+                    server_cancel.store(true, Ordering::Release);
+                    let body = json!({"prompt":"chat"}).to_string();
+                    socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+                } else if body_started {
+                    socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 10000\r\nConnection: close\r\n\r\n{\"secret").await.unwrap();
+                }
+                started.send(()).unwrap();
+                let _ = finish.await;
+                drop(socket);
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(50), listener.accept())
+                        .await
+                        .is_err()
+                );
+            });
+            let settings = Settings::default();
+            let url = format!("http://{address}");
+            let request = completion(
+                &url,
+                None,
+                &settings,
+                &[],
+                json!({}),
+                GenerationBudget::conversation(&settings, 32),
+                cancel.clone(),
+            );
+            let interrupt = async {
+                ready.await.unwrap();
+                cancel.store(true, Ordering::Release);
+            };
+            let (result, ()) = tokio::time::timeout(Duration::from_secs(2), async {
+                tokio::join!(request, interrupt)
+            })
+            .await
+            .unwrap();
+            assert_eq!(result.unwrap_err(), "취소됨");
+            finished.send(()).unwrap();
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn local_reasoning_off_shares_one_timeout_across_both_responses() {
+        use tokio::{io::AsyncWriteExt, net::TcpListener};
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            for body in [
+                json!({"prompt":"chat"}),
+                json!({"content":"{}","stop":true,"stop_type":"eos"}),
+            ] {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                read_completion_request(&mut socket).await;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                let body = body.to_string();
+                let _ = socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await;
+            }
+        });
+        let settings = Settings::default();
+        let mut budget = GenerationBudget::conversation(&settings, 32);
+        budget.timeout = Duration::from_millis(170);
+        let result = completion(
+            &format!("http://{address}"),
+            None,
+            &settings,
+            &[],
+            json!({}),
+            budget,
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await;
+        assert!(result.unwrap_err().contains("시간이 초과"));
+        server.await.unwrap();
     }
 
     #[cfg(unix)]

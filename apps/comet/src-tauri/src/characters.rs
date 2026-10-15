@@ -21,8 +21,8 @@ use crate::character_reactions::{MotionOverride, ReactionRule};
 use crate::character_sprites::{self as sprites, SpriteInfo};
 #[cfg(test)]
 pub use dialogue::keyword_scene;
-use dialogue::remap;
 pub(crate) use dialogue::registered_directed_reply;
+use dialogue::remap;
 pub use dialogue::{
     dialogue, greeting, idle_scene, registered_keyword_scene, registered_relation_scene,
     save_dialogue,
@@ -338,44 +338,61 @@ pub(crate) fn initialize_for_tests(conn: &Connection) -> Result<()> {
     })
 }
 
+fn factory_expression_replacement(
+    definition: &CharacterDefinition,
+    factory: &CharacterPack,
+) -> Option<BTreeMap<String, String>> {
+    let previous = match definition.source_id.as_str() {
+        "nadir" => [
+            "안경을 고쳐 쓰는 나디르",
+            "조금 웃는 나디르",
+            "한쪽 눈썹을 올린 나디르",
+            "음절을 짚는 나디르",
+            "말끝을 고르는 나디르",
+            "작게 웃음을 참는 나디르",
+        ],
+        "star-tail" => [
+            "꼬리를 살랑이는 별꼬리",
+            "폴짝 웃는 별꼬리",
+            "고개를 갸웃한 별꼬리",
+            "꼬리를 동그랗게 만 별꼬리",
+            "살짝 처진 별꼬리",
+            "한쪽 눈을 찡긋한 별꼬리",
+        ],
+        _ => return None,
+    };
+    let previous = EXPRESSIONS
+        .iter()
+        .zip(previous)
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect::<BTreeMap<_, _>>();
+    if definition.expressions != previous {
+        return None;
+    }
+    let replacement = factory
+        .characters
+        .iter()
+        .find(|candidate| candidate.source_id == definition.source_id)?;
+    Some(replacement.expressions.clone())
+}
+
+fn normalized_factory_pack(mut pack: CharacterPack, factory: &CharacterPack) -> CharacterPack {
+    for definition in &mut pack.characters {
+        if let Some(expressions) = factory_expression_replacement(definition, factory) {
+            definition.expressions = expressions;
+        }
+    }
+    pack
+}
+
 fn migrate_factory_expressions(conn: &Connection) -> Result<()> {
     let factory = nadir_pack();
     for mut character in collection(conn)?.installed {
-        let previous = match character.definition.source_id.as_str() {
-            "nadir" => [
-                "안경을 고쳐 쓰는 나디르",
-                "조금 웃는 나디르",
-                "한쪽 눈썹을 올린 나디르",
-                "음절을 짚는 나디르",
-                "말끝을 고르는 나디르",
-                "작게 웃음을 참는 나디르",
-            ],
-            "star-tail" => [
-                "꼬리를 살랑이는 별꼬리",
-                "폴짝 웃는 별꼬리",
-                "고개를 갸웃한 별꼬리",
-                "꼬리를 동그랗게 만 별꼬리",
-                "살짝 처진 별꼬리",
-                "한쪽 눈을 찡긋한 별꼬리",
-            ],
-            _ => continue,
-        };
-        let previous = EXPRESSIONS
-            .iter()
-            .zip(previous)
-            .map(|(key, value)| (key.to_string(), value.to_string()))
-            .collect::<BTreeMap<_, _>>();
-        if character.definition.expressions != previous {
-            continue;
-        }
-        let Some(replacement) = factory
-            .characters
-            .iter()
-            .find(|definition| definition.source_id == character.definition.source_id)
+        let Some(expressions) = factory_expression_replacement(&character.definition, &factory)
         else {
             continue;
         };
-        character.definition.expressions = replacement.expressions.clone();
+        character.definition.expressions = expressions;
         conn.execute(
             "UPDATE characters SET data=?1 WHERE id=?2",
             params![
@@ -385,6 +402,134 @@ fn migrate_factory_expressions(conn: &Connection) -> Result<()> {
         )
         .map_err(|error| error.to_string())?;
     }
+    Ok(())
+}
+
+fn previous_dialogue_packs() -> Vec<CharacterPack> {
+    // v0 snapshots are the published pre-presence packs from f5e6615 and 2302220.
+    // v1 preserves the original v6 dialogue; v2 freezes both inputs to the combined expansion.
+    [
+        include_str!("../content/previous-character-packs-v1.json"),
+        include_str!("../content/previous-character-packs-v0.json"),
+        include_str!("../content/previous-character-packs-v2.json"),
+    ]
+    .into_iter()
+    .flat_map(|json| {
+        serde_json::from_str::<Vec<serde_json::Value>>(json)
+            .expect("previous bundled character packages must be valid")
+    })
+    .map(|pack| parse_pack(&pack.to_string()).expect("previous character package must be valid"))
+    .collect()
+}
+
+fn with_factory_dialogue(
+    mut definition: CharacterDefinition,
+    factory: &CharacterDefinition,
+) -> CharacterDefinition {
+    definition.greeting = factory.greeting.clone();
+    definition.idle_lines = factory.idle_lines.clone();
+    definition.departure_lines = factory.departure_lines.clone();
+    definition.return_lines = factory.return_lines.clone();
+    definition
+}
+
+fn migrate_factory_dialogue(conn: &Connection) -> Result<()> {
+    if conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM character_seed WHERE version=5)",
+            [],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|error| error.to_string())?
+    {
+        return Ok(());
+    }
+    let latest = [byulkkori_pack(), nadir_pack()];
+    let previous = previous_dialogue_packs()
+        .into_iter()
+        .map(|old| normalized_factory_pack(old, &latest[1]))
+        .collect::<Vec<_>>();
+    let candidates = previous
+        .iter()
+        .filter_map(|old| {
+            latest
+                .iter()
+                .find(|new| {
+                    old.characters
+                        .iter()
+                        .map(|definition| &definition.source_id)
+                        .eq(new
+                            .characters
+                            .iter()
+                            .map(|definition| &definition.source_id))
+                })
+                .map(|new| (old, new))
+        })
+        .collect::<Vec<_>>();
+    // A saved pack and its live members must all still be the shipped original.
+    // Local dialogue overrides live separately and are never rewritten here.
+    for installed in installed_packs(conn)? {
+        let (mut pack, members) = pack_record(conn, &installed.id)?;
+        let normalized = normalized_factory_pack(pack.clone(), &latest[1]);
+        for (old, new) in &candidates {
+            let expected = CharacterPack {
+                sprites: Vec::new(),
+                animation_assets: Vec::new(),
+                archive: None,
+                ..(*old).clone()
+            };
+            if serde_json::to_value(&normalized).map_err(|error| error.to_string())?
+                != serde_json::to_value(&expected).map_err(|error| error.to_string())?
+                || members.len() != old.characters.len()
+                || members.iter().zip(&old.characters).any(|(id, definition)| {
+                    !get(conn, id).is_ok_and(|character| character.definition == *definition)
+                })
+            {
+                continue;
+            }
+            pack.format_version = pack.format_version.max(6);
+            pack.characters = pack
+                .characters
+                .into_iter()
+                .zip(&new.characters)
+                .map(|(definition, factory)| with_factory_dialogue(definition, factory))
+                .collect();
+            pack.pair_scenes = new.pair_scenes.clone();
+            conn.execute(
+                "UPDATE character_packs SET data=?1 WHERE id=?2",
+                params![
+                    serde_json::to_string(&pack).map_err(|error| error.to_string())?,
+                    installed.id
+                ],
+            )
+            .map_err(|error| error.to_string())?;
+        }
+    }
+    for character in collection(conn)?.installed {
+        for (old, new) in &candidates {
+            let Some(index) = old
+                .characters
+                .iter()
+                .position(|definition| *definition == character.definition)
+            else {
+                continue;
+            };
+            conn.execute(
+                "UPDATE characters SET data=?1 WHERE id=?2",
+                params![
+                    serde_json::to_string(&with_factory_dialogue(
+                        character.definition.clone(),
+                        &new.characters[index],
+                    ))
+                    .map_err(|error| error.to_string())?,
+                    character.id
+                ],
+            )
+            .map_err(|error| error.to_string())?;
+        }
+    }
+    conn.execute("INSERT INTO character_seed VALUES(5)", [])
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -423,6 +568,7 @@ fn initialize_with(
     }
     migrate_factory_expressions(&tx)?;
     bundled_motions::migrate(&tx)?;
+    migrate_factory_dialogue(&tx)?;
     tx.commit().map_err(|e| e.to_string())
 }
 #[cfg(test)]

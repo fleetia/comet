@@ -71,6 +71,28 @@ it("keeps user and desktop drafts independent across the Figma destinations", as
   expect(screen.getByLabelText("부를 이름")).toHaveProperty("value", "다음 이름 초안");
 });
 
+it.each([5, 2])(
+  "keeps the supplied %i-minute idle interval when saving automatic settings",
+  async (idleMinutes) => {
+    const snapshot = {
+      ...PREVIEW_SNAPSHOT,
+      settings: { ...PREVIEW_SNAPSHOT.settings, idleMinutes },
+    };
+    render(<SettingsPanel snapshot={snapshot} initialSection="automatic" />);
+    expect(PREVIEW_SNAPSHOT.settings.idleMinutes).toBe(5);
+    expect(screen.getByLabelText(/이야기 간격/)).toHaveProperty("value", String(idleMinutes));
+    fireEvent.click(screen.getByRole("switch", { name: "가끔 자리 비우기" }));
+    fireEvent.click(screen.getByRole("button", { name: "자동 대화 저장" }));
+    await waitFor(() =>
+      expect(command).toHaveBeenLastCalledWith("save_settings", {
+        settings: { ...snapshot.settings, randomPresenceEnabled: true },
+        scope: "automatic",
+        apiKey: null,
+      }),
+    );
+  },
+);
+
 it("shows when a timed pause ends and resumes without saving automatic drafts", async () => {
   const pausedUntil = new Date(2026, 9, 3, 14, 30).getTime();
   render(
@@ -239,6 +261,36 @@ it.each([
     fireEvent.click(screen.getByRole("button", { name: "변경 취소" }));
     expect(select).toHaveProperty("value", "qwen3.5-4b");
     fireEvent.change(select, { target: { value: id } });
+    fireEvent.click(screen.getByRole("button", { name: "AI 연결 저장" }));
+    await waitFor(() =>
+      expect(command).toHaveBeenLastCalledWith("save_settings", {
+        settings: { ...PREVIEW_SNAPSHOT.settings, localModel: id },
+        scope: "model",
+        apiKey: null,
+      }),
+    );
+  },
+);
+
+it.each([
+  ["qwen3.5-27b", "Qwen3.5-27B", "Q4_K_M", "16.74"],
+  ["ministral-3-14b", "Ministral 3 14B Instruct", "Q4_K_M", "8.24"],
+  ["ministral-3-14b-q5-k-m", "Ministral 3 14B Instruct", "Q5_K_M", "9.62"],
+])(
+  "selects manual experimental model %s with its actual quantization",
+  async (id, name, quantization, size) => {
+    render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="model" />);
+    const select = screen.getByLabelText("로컬 모델");
+    expect(select).toHaveProperty("value", "qwen3.5-4b");
+    const option = screen.getByRole("option", { name: new RegExp(`^${name} · ${quantization} ·`) });
+    expect(option.textContent).toContain("수동 선택");
+    expect(option.textContent).toContain("실험");
+    expect(option.textContent).not.toContain("이 컴퓨터 추천");
+    fireEvent.change(select, { target: { value: id } });
+    expect(screen.getByText(`${name} · ${quantization}`)).toBeTruthy();
+    expect(screen.getByText(`0.00GB / ${size}GB`)).toBeTruthy();
+    expect(screen.getByText(/위젯 제작 가능/)).toBeTruthy();
+    expect(command).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "AI 연결 저장" }));
     await waitFor(() =>
       expect(command).toHaveBeenLastCalledWith("save_settings", {

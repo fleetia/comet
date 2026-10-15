@@ -173,10 +173,12 @@ fn addon_keeps_public_profiles_and_greeting_alternatives_after_import() {
         pack.characters[0].return_lines,
         pack.characters[1].return_lines
     );
-    assert_eq!(pack.pair_scenes.len(), 15);
+    assert_eq!(pack.pair_scenes.len(), 25);
     for character in &pack.characters {
         assert_eq!(character.greeting.len(), 5);
-        assert!(character.idle_lines.len() >= 5);
+        assert_eq!(character.idle_lines.len(), 21);
+        assert_eq!(character.departure_lines.len(), 5);
+        assert_eq!(character.return_lines.len(), 5);
         let public = serde_json::to_string(character).unwrap();
         for secret in ["불로불사", "악마", "리치", "수명", "소환 사고"] {
             assert!(!public.contains(secret), "public profile exposed {secret}");
@@ -1668,4 +1670,458 @@ fn official_byulkkori_attribution_uses_requested_display_label_without_a_source_
         .unwrap();
     assert_eq!(entry["author"], pack.author);
     assert_eq!(entry["sourceUrl"], pack.source_url);
+}
+
+#[test]
+fn bundled_dialogue_expansion_keeps_the_frozen_original_and_authored_greeting_contract() {
+    let previous = previous_dialogue_packs();
+    assert_eq!(previous[0].characters[0].greeting.len(), 1);
+    assert_eq!(previous[0].characters[0].idle_lines.len(), 3);
+    assert_eq!(previous[1].pair_scenes.len(), 5);
+    let pack = byulkkori_pack();
+    let definition = &pack.characters[0];
+    assert_eq!(definition.greeting.len(), 7);
+    assert_eq!(definition.idle_lines.len(), 33);
+    assert_eq!(definition.departure_lines.len(), 7);
+    assert_eq!(definition.return_lines.len(), 7);
+    let conn = Connection::open_in_memory().unwrap();
+    initialize(&conn).unwrap();
+    for _ in 0..20 {
+        let greeting = greeting(&conn, "a").unwrap();
+        assert_eq!(greeting.len(), 1);
+        assert!(definition
+            .greeting
+            .iter()
+            .any(|line| line.text == greeting[0].text));
+    }
+    let id = active_ids(&conn).unwrap().remove(0);
+    let mut edited = get(&conn, &id).unwrap().definition;
+    edited.greeting = vec![
+        CharacterLine {
+            expression: "평온".into(),
+            text: "  첫 줄\n둘째 줄  ".into(),
+            motion: Default::default(),
+        },
+        CharacterLine {
+            expression: "기쁨".into(),
+            text: " 마지막 줄\n ".into(),
+            motion: Default::default(),
+        },
+    ];
+    save(&conn, &id, &edited).unwrap();
+    initialize(&conn).unwrap();
+    let lines = greeting(&conn, "a").unwrap();
+    assert_eq!(
+        lines.iter().map(|line| &line.text).collect::<Vec<_>>(),
+        edited
+            .greeting
+            .iter()
+            .map(|line| &line.text)
+            .collect::<Vec<_>>()
+    );
+}
+
+fn assert_dialogue_upgrade(
+    before: &CharacterDefinition,
+    after: &CharacterDefinition,
+    factory: &CharacterDefinition,
+) {
+    assert_eq!(after.greeting, factory.greeting);
+    assert_eq!(after.idle_lines, factory.idle_lines);
+    assert_eq!(after.departure_lines, factory.departure_lines);
+    assert_eq!(after.return_lines, factory.return_lines);
+    assert_eq!(after.animation, before.animation);
+    assert_eq!(after.body_regions, before.body_regions);
+    assert_eq!(after.gesture_motions, before.gesture_motions);
+    assert_eq!(after.source_id, before.source_id);
+    assert_eq!(after.name, before.name);
+}
+
+#[test]
+fn dialogue_upgrade_keeps_published_motion_assets_and_uses_its_own_marker() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("motion-dialogue-upgrade.sqlite");
+    let conn = crate::store::open(&path).unwrap();
+    let old = previous_dialogue_packs()
+        .into_iter()
+        .find(|pack| pack.characters[0].animation.is_some())
+        .unwrap();
+    let stock = import_pack(&conn, &old).unwrap().remove(0);
+    let edited = import_pack(&conn, &old).unwrap().remove(0);
+    let mut authored = edited.definition.clone();
+    authored.gesture_motions[0].expression = Some("걱정".into());
+    save(&conn, &edited.id, &authored).unwrap();
+    let assets = animation::all(&conn, &stock.id).unwrap();
+    let sprites = sprites::all(&conn, &stock.id).unwrap();
+    conn.execute("DELETE FROM character_seed WHERE version=5", [])
+        .unwrap();
+    initialize(&conn).unwrap();
+    let updated = get(&conn, &stock.id).unwrap();
+    assert_dialogue_upgrade(
+        &stock.definition,
+        &updated.definition,
+        &byulkkori_pack().characters[0],
+    );
+    assert_eq!(updated.pack_id, stock.pack_id);
+    assert_eq!(get(&conn, &edited.id).unwrap().definition, authored);
+    assert_eq!(
+        conn.query_row(
+            "SELECT COUNT(*) FROM character_seed WHERE version IN (2,3,4,5)",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap(),
+        4
+    );
+    drop(conn);
+    let reopened = crate::store::open(&path).unwrap();
+    assert_eq!(
+        get(&reopened, &stock.id).unwrap().definition,
+        updated.definition
+    );
+    assert_eq!(get(&reopened, &edited.id).unwrap().definition, authored);
+    let reopened_assets = animation::all(&reopened, &stock.id).unwrap();
+    assert_eq!(reopened_assets.len(), assets.len());
+    for (before, after) in assets.iter().zip(reopened_assets) {
+        assert_eq!(after.asset_id, before.asset_id);
+        assert_eq!(after.info, before.info);
+        assert_eq!(after.bytes, before.bytes);
+    }
+    assert_eq!(sprites::all(&reopened, &stock.id).unwrap(), sprites);
+}
+
+#[test]
+fn idle_dialogue_accepts_sixty_four_lines_and_rejects_overflow_without_saving() {
+    let conn = crate::store::open(std::path::Path::new(":memory:")).unwrap();
+    let mut definition = get(&conn, "builtin-a").unwrap().definition;
+    definition.idle_lines = vec![definition.idle_lines[0].clone(); 64];
+    save(&conn, "builtin-a", &definition).unwrap();
+    let accepted = get(&conn, "builtin-a").unwrap().definition;
+    definition.idle_lines.push(definition.idle_lines[0].clone());
+    assert!(save(&conn, "builtin-a", &definition).is_err());
+    assert_eq!(get(&conn, "builtin-a").unwrap().definition, accepted);
+}
+
+#[test]
+fn stock_dialogue_upgrade_preserves_edits_deletions_identity_and_personal_data() {
+    let conn = crate::store::open(std::path::Path::new(":memory:")).unwrap();
+    let previous = previous_dialogue_packs();
+    let solo = import_pack(&conn, &previous[0]).unwrap().remove(0);
+    let pair = import_pack(&conn, &previous[1]).unwrap();
+    let edited = import_pack(&conn, &previous[0]).unwrap().remove(0);
+    let mut authored = edited.definition.clone();
+    authored.name = "내가 지은 별꼬리".into();
+    authored.greeting[0].text = "  내 인사\n두 번째 줄  ".into();
+    save(&conn, &edited.id, &authored).unwrap();
+    let authored_raw: String = conn
+        .query_row(
+            "SELECT data FROM characters WHERE id=?1",
+            [&edited.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let deleted = import_pack(&conn, &previous[0]).unwrap().remove(0);
+    remove(&conn, &deleted.id).unwrap();
+    let mut other_source = previous[0].characters[0].clone();
+    other_source.source_id = "user-owned-source".into();
+    let other = create(&conn, &other_source).unwrap();
+    let ids = pair
+        .iter()
+        .map(|character| character.id.clone())
+        .collect::<Vec<_>>();
+    apply_roster(&conn, ids.clone()).unwrap();
+    let local = CharacterDialogue {
+        pair_scenes: vec![vec![SceneLine {
+            persona: "a".into(),
+            expression: "평온".into(),
+            text: "  둘이 하는 내 이야기\n원문  ".into(),
+            motion: Default::default(),
+        }]],
+        wordbook: Vec::new(),
+    };
+    save_dialogue(&conn, &ids, &local).unwrap();
+    crate::store::insert_message(
+        &conn,
+        &crate::types::Message {
+            id: "before-upgrade".into(),
+            role: "assistant".into(),
+            persona: Some("a".into()),
+            content: "  이전 인사\n원문  ".into(),
+            expression: Some("평온".into()),
+            created_at: 123,
+            status: "complete".into(),
+        },
+    )
+    .unwrap();
+    conn.execute("INSERT INTO memories(id,content,source,updated,deleted,locked) VALUES('stock-upgrade-memory','기억 원문','source',123,0,0)", []).unwrap();
+    conn.execute("INSERT INTO character_affinity(source,character_id,day,delta,fingerprint) VALUES('stock-upgrade-source',?1,'2026-10-07',5,'fingerprint')", [&pair[0].id]).unwrap();
+    let messages = serde_json::to_value(crate::store::messages(&conn, 10).unwrap()).unwrap();
+    let memories = serde_json::to_value(crate::store::memories(&conn).unwrap()).unwrap();
+    let affinity = serde_json::to_value(crate::store::relationships(&conn).unwrap()).unwrap();
+    conn.execute("DELETE FROM character_seed WHERE version=5", [])
+        .unwrap();
+
+    initialize(&conn).unwrap();
+    assert_dialogue_upgrade(
+        &solo.definition,
+        &get(&conn, &solo.id).unwrap().definition,
+        &byulkkori_pack().characters[0],
+    );
+    for (character, expected) in pair.iter().zip(nadir_pack().characters) {
+        assert_dialogue_upgrade(
+            &character.definition,
+            &get(&conn, &character.id).unwrap().definition,
+            &expected,
+        );
+    }
+    assert_dialogue_upgrade(
+        &solo.definition,
+        &pack_record(&conn, solo.pack_id.as_ref().unwrap())
+            .unwrap()
+            .0
+            .characters[0],
+        &byulkkori_pack().characters[0],
+    );
+    assert_eq!(
+        pack_record(&conn, pair[0].pack_id.as_ref().unwrap())
+            .unwrap()
+            .0
+            .pair_scenes
+            .len(),
+        25
+    );
+    assert_eq!(active_ids(&conn).unwrap(), ids);
+    assert_eq!(get(&conn, &edited.id).unwrap().definition, authored);
+    assert_eq!(
+        conn.query_row(
+            "SELECT data FROM characters WHERE id=?1",
+            [&edited.id],
+            |row| row.get::<_, String>(0)
+        )
+        .unwrap(),
+        authored_raw
+    );
+    assert_eq!(get(&conn, &other.id).unwrap().definition, other_source);
+    assert!(get(&conn, &deleted.id).is_err());
+    assert_eq!(
+        serde_json::to_value(dialogue(&conn, &ids).unwrap()).unwrap(),
+        serde_json::to_value(&local).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(crate::store::messages(&conn, 10).unwrap()).unwrap(),
+        messages
+    );
+    assert_eq!(
+        serde_json::to_value(crate::store::memories(&conn).unwrap()).unwrap(),
+        memories
+    );
+    assert_eq!(
+        serde_json::to_value(crate::store::relationships(&conn).unwrap()).unwrap(),
+        affinity
+    );
+    let migrated = serde_json::to_value(collection(&conn).unwrap()).unwrap();
+    initialize(&conn).unwrap();
+    assert_eq!(
+        serde_json::to_value(collection(&conn).unwrap()).unwrap(),
+        migrated
+    );
+    assert!(get(&conn, &deleted.id).is_err());
+    // A deliberate edit back to the previous text is not another upgrade target.
+    save(&conn, &solo.id, &previous[0].characters[0]).unwrap();
+    initialize(&conn).unwrap();
+    assert_eq!(
+        get(&conn, &solo.id).unwrap().definition,
+        previous[0].characters[0]
+    );
+}
+
+#[test]
+fn historical_stock_dialogue_upgrades_preserve_edits_deletions_and_identity_after_reopen() {
+    let raw: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+        "../../content/previous-character-packs-v0.json"
+    ))
+    .unwrap();
+    let mut originals: Vec<_> = raw
+        .into_iter()
+        .map(|value| parse_pack(&value.to_string()).unwrap())
+        .collect();
+    let mut old_expressions = originals[2].clone();
+    let maps: [BTreeMap<String, String>; 2] = serde_json::from_str(r#"[
+        {"평온":"안경을 고쳐 쓰는 나디르","기쁨":"조금 웃는 나디르","호기심":"한쪽 눈썹을 올린 나디르","생각중":"음절을 짚는 나디르","걱정":"말끝을 고르는 나디르","장난":"작게 웃음을 참는 나디르"},
+        {"평온":"꼬리를 살랑이는 별꼬리","기쁨":"폴짝 웃는 별꼬리","호기심":"고개를 갸웃한 별꼬리","생각중":"꼬리를 동그랗게 만 별꼬리","걱정":"살짝 처진 별꼬리","장난":"한쪽 눈을 찡긋한 별꼬리"}
+    ]"#).unwrap();
+    for (definition, expressions) in old_expressions.characters.iter_mut().zip(maps) {
+        definition.expressions = expressions;
+    }
+    originals.push(old_expressions);
+
+    for old in originals {
+        let latest = if old.characters[0].source_id == "character-1" {
+            byulkkori_pack()
+        } else {
+            nadir_pack()
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("historical-upgrade.sqlite");
+        let conn = crate::store::open(&path).unwrap();
+        let stock = import_pack(&conn, &old).unwrap();
+        let stock_pack_id = stock[0].pack_id.clone().unwrap();
+        let ids = stock
+            .iter()
+            .map(|character| character.id.clone())
+            .collect::<Vec<_>>();
+        apply_roster(&conn, ids.clone()).unwrap();
+        let edited = import_pack(&conn, &old).unwrap();
+        let mut authored = edited[0].definition.clone();
+        authored.greeting[0].text = "  내가 고친 인사\n그대로  ".into();
+        authored.departure_lines[0].text = "  내가 고친 출발\n ".into();
+        save(&conn, &edited[0].id, &authored).unwrap();
+        // The pre-existing expression migration may run independently of dialogue updates.
+        migrate_factory_expressions(&conn).unwrap();
+        let authored_raw: String = conn
+            .query_row(
+                "SELECT data FROM characters WHERE id=?1",
+                [&edited[0].id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let edited_pack_id = edited[0].pack_id.clone().unwrap();
+        let edited_pack_raw: String = conn
+            .query_row(
+                "SELECT data FROM character_packs WHERE id=?1",
+                [&edited_pack_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let deleted = import_pack(&conn, &old).unwrap();
+        let deleted_pack_id = deleted[0].pack_id.clone().unwrap();
+        for character in &deleted {
+            remove(&conn, &character.id).unwrap();
+        }
+        let local = CharacterDialogue {
+            pair_scenes: vec![vec![SceneLine {
+                persona: "a".into(),
+                expression: "평온".into(),
+                text: "  원래 내 대사\n ".into(),
+                motion: Default::default(),
+            }]],
+            wordbook: Vec::new(),
+        };
+        save_dialogue(&conn, &ids, &local).unwrap();
+        crate::store::insert_message(
+            &conn,
+            &crate::types::Message {
+                id: "historical-message".into(),
+                role: "assistant".into(),
+                persona: Some("a".into()),
+                content: "  이전 기록\n ".into(),
+                expression: Some("평온".into()),
+                created_at: 123,
+                status: "complete".into(),
+            },
+        )
+        .unwrap();
+        conn.execute("INSERT INTO memories(id,content,source,updated,deleted,locked) VALUES('historical-memory','기억 원문','source',123,0,0)", []).unwrap();
+        conn.execute("INSERT INTO character_affinity(source,character_id,day,delta,fingerprint) VALUES('historical-source',?1,'2026-10-07',5,'fingerprint')", [&stock[0].id]).unwrap();
+        let messages = serde_json::to_value(crate::store::messages(&conn, 10).unwrap()).unwrap();
+        let memories = serde_json::to_value(crate::store::memories(&conn).unwrap()).unwrap();
+        let affinity = serde_json::to_value(crate::store::relationships(&conn).unwrap()).unwrap();
+        let identities = crate::store::message_identities(&conn, 10).unwrap();
+        let installed_ids = collection(&conn)
+            .unwrap()
+            .installed
+            .into_iter()
+            .map(|character| character.id)
+            .collect::<Vec<_>>();
+        conn.execute("DELETE FROM character_seed WHERE version=5", [])
+            .unwrap();
+
+        initialize(&conn).unwrap();
+        for (character, expected) in stock.iter().zip(&latest.characters) {
+            assert_dialogue_upgrade(
+                &character.definition,
+                &get(&conn, &character.id).unwrap().definition,
+                expected,
+            );
+        }
+        let record = pack_record(&conn, &stock_pack_id).unwrap().0;
+        assert_eq!(record.format_version, old.format_version.max(6));
+        for ((before, after), factory) in old
+            .characters
+            .iter()
+            .zip(&record.characters)
+            .zip(&latest.characters)
+        {
+            assert_dialogue_upgrade(before, after, factory);
+        }
+        assert_eq!(
+            serde_json::to_value(&record.pair_scenes).unwrap(),
+            serde_json::to_value(&latest.pair_scenes).unwrap()
+        );
+        assert!(parse_pack(&pack_json(&record).unwrap()).is_ok());
+        assert_eq!(active_ids(&conn).unwrap(), ids);
+        assert_eq!(
+            collection(&conn)
+                .unwrap()
+                .installed
+                .into_iter()
+                .map(|character| character.id)
+                .collect::<Vec<_>>(),
+            installed_ids
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT data FROM characters WHERE id=?1",
+                [&edited[0].id],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            authored_raw
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT data FROM character_packs WHERE id=?1",
+                [&edited_pack_id],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            edited_pack_raw
+        );
+        assert!(deleted
+            .iter()
+            .all(|character| get(&conn, &character.id).is_err()));
+        assert!(pack_record(&conn, &deleted_pack_id).is_err());
+        let after = serde_json::to_value(collection(&conn).unwrap()).unwrap();
+        drop(conn);
+
+        let reopened = crate::store::open(&path).unwrap();
+        assert_eq!(
+            serde_json::to_value(collection(&reopened).unwrap()).unwrap(),
+            after
+        );
+        assert_eq!(
+            serde_json::to_value(dialogue(&reopened, &ids).unwrap()).unwrap(),
+            serde_json::to_value(&local).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(crate::store::messages(&reopened, 10).unwrap()).unwrap(),
+            messages
+        );
+        assert_eq!(
+            serde_json::to_value(crate::store::memories(&reopened).unwrap()).unwrap(),
+            memories
+        );
+        assert_eq!(
+            serde_json::to_value(crate::store::relationships(&reopened).unwrap()).unwrap(),
+            affinity
+        );
+        assert_eq!(
+            crate::store::message_identities(&reopened, 10).unwrap(),
+            identities
+        );
+        assert!(deleted
+            .iter()
+            .all(|character| get(&reopened, &character.id).is_err()));
+        assert!(pack_record(&reopened, &deleted_pack_id).is_err());
+    }
 }

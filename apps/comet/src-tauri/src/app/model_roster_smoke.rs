@@ -147,7 +147,10 @@ async fn direct_sample(
                             .is_some_and(|text| !text.is_empty() && previous.text.starts_with(text))
                 });
                 included_in_prompt = included.is_some();
-                Some(json!({"id":id,"original":previous,"includedMessage":included}))
+                Some(json!({
+                    "id":id,"original":previous,"includedMessage":included,
+                    "syntheticDisplayReceiptRecorded":store::message_displayed(&db, &id)?
+                }))
             } else {
                 None
             };
@@ -203,11 +206,12 @@ async fn direct_sample(
         )?;
         let (lines, revision) = result?;
         for line in &lines {
+            let reply_id = conversation::reply_id(&name, &line.persona);
             if !scene::present_line(
                 state,
                 line,
                 "llm",
-                &conversation::reply_id(&name, &line.persona),
+                &reply_id,
                 shown,
                 targets.len(),
                 revision,
@@ -216,6 +220,12 @@ async fn direct_sample(
                 true,
             )? {
                 return Err("Synthetic direct reply was rejected before history insertion".into());
+            }
+            // Stand in for a native display acknowledgement, after history insertion succeeds.
+            let synthetic_displayed_at = chrono::Utc::now().timestamp_millis();
+            {
+                let db = lock(&state.db)?;
+                store::mark_message_displayed(&db, &reply_id, synthetic_displayed_at)?;
             }
             shown += 1;
             previous_line = Some(line.clone());
@@ -363,7 +373,12 @@ async fn actual_model_roster_and_guidance_smoke() {
             "model":model,"counts":counts,"syntheticOnly":true,"runtimeStopped":!running,
             "allScenariosGenerated":complete,"outcomes":outcomes,
             "meaningQuality":"ungraded; review original response text manually",
-            "scope":"production direct generation and synthetic present_line history without display receipts; production automatic prompt/generation/parser; no native UI verification",
+            "scope":"production direct generation and synthetic present_line history/display receipts; production automatic prompt/generation/parser; no native UI verification",
+            "displayReceipts":{
+                "syntheticOnly":true,"nativeUiVerified":false,
+                "source":"store::mark_message_displayed after successful present_line",
+                "timestampSource":"synthetic acknowledgement using the harness wall clock"
+            },
             "directSearchScope":"Each group invokes generate_turn's search again instead of run_turn's one captured search; the fixture asserts empty memories for equivalence",
             "samples":sample_path
         })).unwrap(),

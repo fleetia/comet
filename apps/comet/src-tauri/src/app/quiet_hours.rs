@@ -580,8 +580,8 @@ mod tests {
             assert!(cancel.load(Ordering::SeqCst));
             let delay = state.next_idle.load(Ordering::SeqCst) - before;
             assert!(
-                (96..=145).contains(&delay),
-                "fresh 2-minute interval: {delay}"
+                (240..=361).contains(&delay),
+                "fresh 5-minute interval: {delay}"
             );
             let next_idle = state.next_idle.load(Ordering::SeqCst);
             assert!(!reconcile_at(&state, at("2026-09-29 09:00:01")).unwrap());

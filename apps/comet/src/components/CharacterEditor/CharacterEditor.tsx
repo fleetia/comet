@@ -1014,7 +1014,7 @@ export function CharacterEditor({
                   <Lines
                     title="자동 수다"
                     lines={definition.idleLines}
-                    limit={32}
+                    limit={64}
                     expressions={expressionKeys}
                     clips={definition.animation?.clips ?? []}
                     onSelect={(index) => setPreviewSelection({ group: "idleLines", index })}

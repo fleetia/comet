@@ -324,12 +324,15 @@ export type Dispatch = (name: string, args?: Record<string, unknown>) => Promise
 export type LocalModel =
   | "qwen3.5-4b"
   | "qwen3.5-9b"
+  | "qwen3.5-27b"
   | "qwen3.8-2b-distill"
   | "qwen3.8-4b-distill"
   | "qwen3.8-9b-distill"
   | "gemma-4-e4b"
   | "gemma-4-12b"
   | "ministral-3-8b"
+  | "ministral-3-14b"
+  | "ministral-3-14b-q5-k-m"
   | "kanana-1.5-2.1b-instruct-2505"
   | "kanana-1.5-8b-instruct-2505"
   | "custom";
@@ -337,6 +340,7 @@ export type LocalModelStatus = {
   id: LocalModel;
   name: string;
   description: string;
+  quantization: "Q4_K_M" | "Q5_K_M";
   size: number;
   ready: boolean;
   downloadedBytes: number;

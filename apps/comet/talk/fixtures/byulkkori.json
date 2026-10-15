@@ -1824,6 +1824,149 @@
       ],
       "values": {},
       "expectedScene": "quad.make-room"
+    },
+    {
+      "id": "solo.tail-balance",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "dialogue.variant": 0
+      },
+      "expectedScene": "solo.tail-balance"
+    },
+    {
+      "id": "solo.bookmark",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "dialogue.variant": 0
+      },
+      "expectedScene": "solo.bookmark"
+    },
+    {
+      "id": "solo.tiny-dance",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "dialogue.variant": 0
+      },
+      "expectedScene": "solo.tiny-dance"
+    },
+    {
+      "id": "solo.pretend-snack",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "dialogue.variant": 0
+      },
+      "expectedScene": "solo.pretend-snack"
+    },
+    {
+      "id": "solo.cloud-shapes",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "dialogue.variant": 0
+      },
+      "expectedScene": "solo.cloud-shapes"
+    },
+    {
+      "id": "solo.little-voice",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "dialogue.variant": 0
+      },
+      "expectedScene": "solo.little-voice"
+    },
+    {
+      "id": "solo.tail-curl",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "dialogue.variant": 0
+      },
+      "expectedScene": "solo.tail-curl"
+    },
+    {
+      "id": "solo.slow-step",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "dialogue.variant": 0
+      },
+      "expectedScene": "solo.slow-step"
+    },
+    {
+      "id": "solo.imaginary-rain",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "dialogue.variant": 0
+      },
+      "expectedScene": "solo.imaginary-rain"
+    },
+    {
+      "id": "solo.round-and-star",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "dialogue.variant": 0
+      },
+      "expectedScene": "solo.round-and-star"
+    },
+    {
+      "id": "solo.staying-near",
+      "path": "situations/solo.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "dialogue.variant": 0
+      },
+      "expectedScene": "solo.staying-near"
     }
   ]
 }

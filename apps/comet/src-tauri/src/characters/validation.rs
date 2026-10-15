@@ -36,7 +36,7 @@ pub(crate) fn validate_definition(definition: &CharacterDefinition) -> Result<()
             .iter()
             .any(|(key, value)| !valid_expression_key(key) || !bounded(value, 40, true))
         || !(1..=8).contains(&definition.greeting.len())
-        || !(1..=32).contains(&definition.idle_lines.len())
+        || !(1..=64).contains(&definition.idle_lines.len())
         || !(1..=8).contains(&definition.departure_lines.len())
         || !(1..=8).contains(&definition.return_lines.len())
     {

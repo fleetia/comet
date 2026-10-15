@@ -2,13 +2,14 @@ import { createHash } from 'node:crypto';
 import { copyFile, lstat, readlink, symlink } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
 
-export const sidecarRelease = 'b10970';
+// Binary release referenced by llama.cpp v0.6.0.
+export const sidecarRelease = 'b11429';
 // Sizes/digests come from the pinned upstream GitHub release assets.
 export const sidecarTargets = {
-  'darwin-arm64': { triple: 'aarch64-apple-darwin', asset: 'macos-arm64.tar.gz', size: 11149707, sha: '7fa278a70b90afae3c3e5dd33553d4d11ebfde62725a03ff2fe6f0d3d1e29b59' },
-  'win32-x64': { triple: 'x86_64-pc-windows-msvc', asset: 'win-cpu-x64.zip', size: 18428751, sha: '2c6d6516c04e95caa080d8eb917743e71858c73985acbb6739ad61b14e68b298' },
-  'win32-x64-vulkan': { triple: 'x86_64-pc-windows-msvc', asset: 'win-vulkan-x64.zip', size: 31675940, sha: 'f17091a433feb686d9e17378a8a2fc53a1437d64c1bf302ab6fb3072b4afcf0d' },
-  'linux-x64': { triple: 'x86_64-unknown-linux-gnu', asset: 'ubuntu-x64.tar.gz', size: 16845010, sha: '923d35d37e8975bac09f5fd39c73b16a69c5d5ba122ef122fb4926ff4605ea54' },
+  'darwin-arm64': { triple: 'aarch64-apple-darwin', asset: 'macos-arm64.tar.gz', size: 11971406, sha: '740288ec6887be94280a5dfa25b5e23a78285cab104519e6c7e218904ee82459' },
+  'win32-x64': { triple: 'x86_64-pc-windows-msvc', asset: 'win-cpu-x64.zip', size: 19398918, sha: '1283323272b04cd07905816a597a0da810918102de958f4ff6f7bbaa70ed2efe' },
+  'win32-x64-vulkan': { triple: 'x86_64-pc-windows-msvc', asset: 'win-vulkan-x64.zip', size: 33337769, sha: '1bfe78ad9168b79fa02bf67f6af9f5e17a966d824d77238517f7bef12ac73b36' },
+  'linux-x64': { triple: 'x86_64-unknown-linux-gnu', asset: 'ubuntu-x64.tar.gz', size: 17693462, sha: 'f6d25dde8f51133143d1453da4fd5f73b145127177612a283bf7995957af3392' },
 };
 export const nlpTargets = {
   'darwin-arm64': { triple: 'aarch64-apple-darwin', kiwi: ['kiwi_mac_arm64_v0.24.0.tgz', 41310974, '87eda17f319c371824d5a2cc2e497eda6327ba3ddbf08a018db967f61ddbe48d'],

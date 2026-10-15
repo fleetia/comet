@@ -7,10 +7,10 @@ import { test } from 'node:test';
 import { sidecarRelease, sidecarTargets, nlpTargets, verifyArchive, isSidecarLibrary, isNlpLibrary, copyRuntimeFiles } from './native-runtime.mjs';
 
 test('Linux preparation selects pinned x86_64 CPU releases without changing existing hosts', () => {
-  assert.equal(sidecarRelease, 'b10970');
+  assert.equal(sidecarRelease, 'b11429');
   assert.deepEqual(sidecarTargets['linux-x64'], {
-    triple: 'x86_64-unknown-linux-gnu', asset: 'ubuntu-x64.tar.gz', size: 16845010,
-    sha: '923d35d37e8975bac09f5fd39c73b16a69c5d5ba122ef122fb4926ff4605ea54',
+    triple: 'x86_64-unknown-linux-gnu', asset: 'ubuntu-x64.tar.gz', size: 17693462,
+    sha: 'f6d25dde8f51133143d1453da4fd5f73b145127177612a283bf7995957af3392',
   });
   assert.equal(nlpTargets['linux-x64'].triple, sidecarTargets['linux-x64'].triple);
   assert.deepEqual(nlpTargets['linux-x64'].kiwi, ['kiwi_lnx_x86_64_v0.24.0.tgz', 75078544, '577768800258154da5fe6665081c73dafd6a0c39c8e091325d2b2bef8b5fb5d8']);

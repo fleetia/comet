@@ -224,7 +224,13 @@ mod tests {
             let policy = widget_generation_eligibility(&settings);
             assert_eq!(
                 policy.allowed,
-                local_model == LocalModel::Gemma4_12B,
+                matches!(
+                    local_model,
+                    LocalModel::Gemma4_12B
+                        | LocalModel::Qwen35_27B
+                        | LocalModel::Ministral3_14B
+                        | LocalModel::Ministral3_14BQ5
+                ),
                 "{local_model:?}"
             );
             assert_eq!(policy.source, "catalog");
@@ -269,6 +275,8 @@ mod tests {
             ("gemma-4-E4B-it", Some(4.), false),
             ("ministral-3-8b", Some(8.), false),
             ("gemma-4-12b", Some(12.), true),
+            ("ministral-3-14b", Some(14.), true),
+            ("qwen3.5-27b", Some(27.), true),
             ("qwen3:32b", Some(32.), true),
         ] {
             let settings = Settings {

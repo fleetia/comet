@@ -82,6 +82,10 @@ function writes(): string[] {
       ["update_generated_state", "report_generated_result", "generate_widget"].includes(name),
     );
 }
+function visibility(hidden: boolean): void {
+  vi.spyOn(document, "hidden", "get").mockReturnValue(hidden);
+  document.dispatchEvent(new Event("visibilitychange"));
+}
 
 beforeEach(() => {
   vi.mocked(listen).mockReset();
@@ -94,6 +98,146 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+it("waits for visibility before rendering or ticking and renders immediately on return", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  visibility(true);
+  render(<GeneratedWidgetTool id="counter" />);
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("get_generated_widget", { id: "counter" }),
+  );
+  await act(async () => vi.advanceTimersByTime(5000));
+  expect(runWidget).not.toHaveBeenCalled();
+  act(() => visibility(false));
+  expect(await screen.findByText("0")).toBeTruthy();
+  expect(runWidget).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(runWidget).mock.calls[0][2]).toBeNull();
+  await act(async () => vi.advanceTimersByTime(1000));
+  expect(vi.mocked(runWidget).mock.calls[1][2]).toEqual({ type: "tick" });
+  expect(writes()).toEqual([]);
+});
+
+it.each(["resolve", "reject"] as const)(
+  "cancels a hidden tick without repairing its late %s and preserves queued input on return",
+  async (outcome) => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const tick = deferred<WidgetResult>();
+    let stored = INPUT;
+    vi.mocked(command).mockImplementation((name, args) => {
+      if (name === "update_generated_state") {
+        stored = {
+          ...stored,
+          revision: stored.revision + 1,
+          state: (args as { value: GeneratedWidget["state"] }).value,
+        };
+      }
+      return Promise.resolve(stored);
+    });
+    vi.mocked(runWidget)
+      .mockResolvedValueOnce(inputResult("처음"))
+      .mockReturnValueOnce(tick.promise)
+      .mockResolvedValueOnce(inputResult("처음"))
+      .mockResolvedValueOnce(inputResult("남겨 둔 입력"));
+    render(<GeneratedWidgetTool id="counter" />);
+    await screen.findByRole("textbox", { name: "메모" });
+    act(() => vi.advanceTimersByTime(1000));
+    edit("남겨 둔 입력");
+    const signal = vi.mocked(runWidget).mock.calls[1][4];
+    act(() => visibility(true));
+    expect(signal?.aborted).toBe(true);
+    await act(async () => {
+      if (outcome === "resolve") tick.resolve(inputResult("취소된 주기 갱신"));
+      else tick.reject(new Error("위젯 실행이 1초 제한을 넘었어요."));
+    });
+    await act(async () => vi.advanceTimersByTime(5000));
+    expect(runWidget).toHaveBeenCalledTimes(2);
+    expect(writes()).toEqual([]);
+    expect(screen.queryByRole("alert")).toBeNull();
+    act(() => visibility(false));
+    await waitFor(() => expect(stored.state).toEqual({ value: "남겨 둔 입력" }));
+    expect(vi.mocked(runWidget).mock.calls.map((call) => call[2])).toEqual([
+      null,
+      { type: "tick" },
+      null,
+      { type: "edit", value: "남겨 둔 입력" },
+    ]);
+    expect(writes()).toEqual(["update_generated_state"]);
+    expect(screen.getByRole("textbox", { name: "메모" })).toHaveProperty("value", "남겨 둔 입력");
+  },
+);
+
+it("finishes a submitted user action once while hidden and reloads its committed state on return", async () => {
+  const action = deferred<WidgetResult>();
+  let stored = READY;
+  vi.mocked(command).mockImplementation((name, args) => {
+    if (name === "update_generated_state") {
+      stored = {
+        ...stored,
+        revision: stored.revision + 1,
+        state: (args as { value: GeneratedWidget["state"] }).value,
+      };
+    }
+    return Promise.resolve(stored);
+  });
+  vi.mocked(runWidget)
+    .mockResolvedValueOnce(result(0))
+    .mockReturnValueOnce(action.promise)
+    .mockResolvedValue(result(1));
+  render(<GeneratedWidgetTool id="counter" />);
+  fireEvent.click(await screen.findByRole("button", { name: "한 단 더" }));
+  const signal = vi.mocked(runWidget).mock.calls[1][4];
+  act(() => visibility(true));
+  expect(signal?.aborted).toBe(false);
+  await act(async () => action.resolve(result(1)));
+  expect(stored.state).toEqual({ count: 1 });
+  act(() => visibility(false));
+  await waitFor(() => expect(runWidget).toHaveBeenCalledTimes(3));
+  expect(vi.mocked(runWidget).mock.calls[2][1]).toEqual({ count: 1 });
+  expect(writes()).toEqual(["update_generated_state"]);
+});
+
+it("still reports a visible interpreter failure and asks AI to repair its matching revision", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  const failed: GeneratedWidget = {
+    ...READY,
+    revision: 2,
+    status: "error",
+    error: "syntax failure",
+  };
+  const repaired: GeneratedWidget = {
+    ...READY,
+    revision: 3,
+    definition: { ...READY.definition, source: "repaired source" },
+  };
+  vi.mocked(command).mockImplementation((name) =>
+    Promise.resolve(
+      name === "report_generated_result" ? failed : name === "generate_widget" ? repaired : READY,
+    ),
+  );
+  vi.mocked(runWidget)
+    .mockResolvedValueOnce(result(0))
+    .mockRejectedValueOnce(new Error("syntax failure"))
+    .mockResolvedValue(result(0));
+  render(<GeneratedWidgetTool id="counter" />);
+  fireEvent.click(await screen.findByRole("button", { name: "한 단 더" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("generate_widget", {
+      id: "counter",
+      expectedRevision: 2,
+      request: "기존 기능과 사용자 상태를 유지하며 실행 오류를 수정해 주세요: syntax failure",
+    }),
+  );
+  expect(command).toHaveBeenCalledWith("report_generated_result", {
+    id: "counter",
+    expectedRevision: 1,
+    error: "syntax failure",
+  });
+  expect(writes()).toEqual(["report_generated_result", "generate_widget"]);
+  expect(screen.queryByRole("alert")).toBeNull();
+  await act(async () => vi.advanceTimersByTime(1000));
+  expect(vi.mocked(runWidget).mock.calls[2][0]).toBe("repaired source");
 });
 
 it.each(["resolve", "reject"] as const)(

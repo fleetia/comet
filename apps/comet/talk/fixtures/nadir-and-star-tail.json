@@ -2923,6 +2923,74 @@
         "character.nadir.affinity": 20
       },
       "expectedScene": "situation.margin-note"
+    },
+    {
+      "id": "situation.tea-pause",
+      "path": "situations/index.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "expectedScene": "situation.tea-pause"
+    },
+    {
+      "id": "situation.glove-check",
+      "path": "situations/index.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "expectedScene": "situation.glove-check"
+    },
+    {
+      "id": "situation.page-corner",
+      "path": "situations/index.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "expectedScene": "situation.page-corner"
+    },
+    {
+      "id": "situation.comfortable-silence",
+      "path": "situations/index.talk",
+      "trigger": "idle",
+      "available": [],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "expectedScene": "situation.comfortable-silence"
     }
   ]
 }

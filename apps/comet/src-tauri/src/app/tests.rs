@@ -3279,3 +3279,208 @@ async fn a_late_test_result_cannot_commit_over_a_new_conversation() {
     );
     assert_eq!(lock(&state.runtime).unwrap().phase, RuntimePhase::Loading);
 }
+
+mod retry_display_tests {
+    use crate::store::{
+        self, insert_message, insert_message_with_playback, insert_message_with_source,
+        mark_message_displayed, message_displayed, messages, save_reply_scene, saved_reply,
+        saved_reply_scene,
+    };
+    use crate::types::{Message, SceneLine};
+    use rusqlite::{params, Connection};
+
+    fn setup(conn: &Connection) -> (Message, SceneLine, Message) {
+        let at = chrono::Utc::now().timestamp_millis();
+        store::set_user_name(conn, "첫 사용자", at).unwrap();
+        let input = Message {
+            id: "input".into(),
+            role: "user".into(),
+            persona: Some("all".into()),
+            content: "고마워".into(),
+            expression: None,
+            created_at: at,
+            status: "complete".into(),
+        };
+        insert_message(conn, &input).unwrap();
+        let line = SceneLine {
+            persona: "builtin-a".into(),
+            text: "  저장된 답변\n공백 보존  ".into(),
+            expression: "평온".into(),
+            motion: crate::character_reactions::MotionOverride::Static,
+        };
+        let reply = Message {
+            id: "reply:input:builtin-a".into(),
+            role: "assistant".into(),
+            persona: Some(line.persona.clone()),
+            content: line.text.clone(),
+            expression: Some(line.expression.clone()),
+            created_at: at,
+            status: "complete".into(),
+        };
+        store::record_recall(conn, &reply.id, &[], at).unwrap();
+        store::inherit_recall(conn, &reply.id, std::slice::from_ref(&input.id)).unwrap();
+        insert_message_with_playback(conn, &reply, "llm", None, true, Some(&line)).unwrap();
+        (input, line, reply)
+    }
+
+    #[test]
+    fn retry_display_metadata_and_scene_are_immutable_and_survive_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("retry.sqlite");
+        let db = store::open(&path).unwrap();
+        let (input, line, reply) = setup(&db);
+        let lines = vec![
+            line.clone(),
+            SceneLine {
+                persona: "builtin-b".into(),
+                ..line.clone()
+            },
+        ];
+        save_reply_scene(&db, &input.id, &lines).unwrap();
+        let changed = SceneLine {
+            text: "바꾼 본문".into(),
+            motion: Default::default(),
+            ..line.clone()
+        };
+        insert_message_with_playback(
+            &db,
+            &Message {
+                content: changed.text.clone(),
+                ..reply.clone()
+            },
+            "wordbook",
+            None,
+            true,
+            Some(&changed),
+        )
+        .unwrap();
+        save_reply_scene(&db, &input.id, &[changed]).unwrap();
+        let raw = serde_json::to_value(messages(&db, 10).unwrap()).unwrap();
+        let affinity = serde_json::to_value(store::relationships(&db).unwrap()).unwrap();
+        assert_eq!(
+            db.query_row("SELECT COUNT(*) FROM character_affinity", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        drop(db);
+        let db = store::open(&path).unwrap();
+        let (saved, source) = saved_reply(&db, &reply.id).unwrap().unwrap();
+        assert_eq!(source, "llm");
+        assert_eq!(saved.text, line.text);
+        assert_eq!(saved.motion, line.motion);
+        assert_eq!(
+            serde_json::to_value(saved_reply_scene(&db, &input.id).unwrap().unwrap()).unwrap(),
+            serde_json::to_value(lines).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(messages(&db, 10).unwrap()).unwrap(),
+            raw
+        );
+        assert!(!message_displayed(&db, &reply.id).unwrap());
+        mark_message_displayed(&db, &reply.id, 1).unwrap();
+        mark_message_displayed(&db, &reply.id, 2).unwrap();
+        assert!(message_displayed(&db, &reply.id).unwrap());
+        assert_eq!(
+            serde_json::to_value(store::relationships(&db).unwrap()).unwrap(),
+            affinity
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT shown_at FROM message_presentations WHERE message_id=?1",
+                [&reply.id],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn retry_display_rejects_legacy_raw_without_inventing_metadata() {
+        let db = store::open(std::path::Path::new(":memory:")).unwrap();
+        let (_, _, reply) = setup(&db);
+        let legacy = Message {
+            id: "legacy".into(),
+            ..reply
+        };
+        insert_message_with_source(&db, &legacy, "llm", None, true).unwrap();
+        assert!(saved_reply(&db, &legacy.id)
+            .unwrap_err()
+            .contains("이전 버전"));
+        assert_eq!(
+            messages(&db, 10).unwrap().last().unwrap().content,
+            legacy.content
+        );
+        assert!(!message_displayed(&db, &legacy.id).unwrap());
+    }
+
+    #[test]
+    fn retry_display_never_revives_changed_owners_characters_or_recall_sources() {
+        for scenario in [
+            "revision",
+            "character",
+            "removed",
+            "user",
+            "excluded",
+            "dependency",
+        ] {
+            let state = crate::app::tests::state();
+            let (input, reply, raw) = {
+                let db = state.db.lock().unwrap();
+                let (input, line, reply) = setup(&db);
+                save_reply_scene(&db, &input.id, &[line]).unwrap();
+                let raw = serde_json::to_value(messages(&db, 10).unwrap()).unwrap();
+                (input, reply, raw)
+            };
+            if matches!(scenario, "character" | "removed") {
+                // Production character edits own revision/cancellation in this boundary;
+                // the low-level storage helpers deliberately do not invalidate on their own.
+                crate::character_commands::mutate(&state, |db| {
+                    if scenario == "character" {
+                        let mut character = crate::characters::active_character(db, "builtin-a")?;
+                        character.definition.description = "변경된 설정".into();
+                        crate::characters::save(db, &character.id, &character.definition)
+                    } else {
+                        crate::characters::apply_roster(db, vec!["builtin-b".into()])
+                    }
+                })
+                .unwrap();
+            } else {
+                let db = state.db.lock().unwrap();
+                match scenario {
+                    "revision" => {
+                        store::bump_revision(&db).unwrap();
+                    }
+                    "user" => {
+                        store::set_user_name(&db, "다른 사용자", input.created_at + 1).unwrap();
+                    }
+                    "excluded" => {
+                        db.execute(
+                            "INSERT INTO memory_exclusions VALUES('builtin-a',?1,?2)",
+                            params![store::active_user_id(&db).unwrap(), input.id],
+                        )
+                        .unwrap();
+                    }
+                    _ => {
+                        // A missing dependency invalidates replay even if revision is unchanged.
+                        db.execute(
+                            "INSERT INTO recall_dependencies VALUES(?1,'deleted-memory',0)",
+                            [&reply.id],
+                        )
+                        .unwrap();
+                    }
+                }
+            }
+            let db = state.db.lock().unwrap();
+            assert!(saved_reply(&db, &reply.id).is_err(), "{scenario}");
+            if scenario != "dependency" {
+                assert!(saved_reply_scene(&db, &input.id).is_err(), "{scenario}");
+            }
+            assert_eq!(
+                serde_json::to_value(messages(&db, 10).unwrap()).unwrap(),
+                raw
+            );
+        }
+    }
+}
