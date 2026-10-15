@@ -14,6 +14,7 @@ export function useSlidingIndicator(selector: string): {
       return;
     }
     let isDisposed = false;
+    let resetTimeout: number | undefined;
     const update = (): void => {
       if (isDisposed) {
         return;
@@ -34,8 +35,13 @@ export function useSlidingIndicator(selector: string): {
       );
     };
     function scheduleUpdate(): void {
-      // Read after native reset and React's controlled radio restoration.
+      // Read after React's controlled radio restoration.
       queueMicrotask(update);
+    }
+    function scheduleResetUpdate(): void {
+      // Trusted reset events may run microtasks before restoring native defaults.
+      window.clearTimeout(resetTimeout);
+      resetTimeout = window.setTimeout(update, 0);
     }
     update();
     const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
@@ -47,7 +53,7 @@ export function useSlidingIndicator(selector: string): {
     }
     const input = container.querySelector<HTMLInputElement>('input[type="radio"]');
     const form = input?.form;
-    const changeRoot = form ?? container.ownerDocument;
+    const changeRoot = container.ownerDocument;
     function handleRadioChange(event: Event): void {
       const target = event.target;
       if (
@@ -64,13 +70,14 @@ export function useSlidingIndicator(selector: string): {
     if (input) {
       changeRoot.addEventListener("change", handleRadioChange);
     }
-    form?.addEventListener("reset", scheduleUpdate);
+    form?.addEventListener("reset", scheduleResetUpdate);
     window.addEventListener("resize", update);
     return () => {
       isDisposed = true;
+      window.clearTimeout(resetTimeout);
       observer?.disconnect();
       changeRoot.removeEventListener("change", handleRadioChange);
-      form?.removeEventListener("reset", scheduleUpdate);
+      form?.removeEventListener("reset", scheduleResetUpdate);
       window.removeEventListener("resize", update);
     };
   });
