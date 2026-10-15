@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "storybook dev --host 127.0.0.1 --port 6006 --no-open",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "check:stories": "storybook index --output-file ../../test-results/storybook-index.json --disable-telemetry"
+    "check:stories": "node -e \"require('node:fs').mkdirSync('../../test-results', { recursive: true })\" && storybook index --output-file ../../test-results/storybook-index.json --disable-telemetry"
   },
   "dependencies": {
     "@comet/icon": "workspace:*",

@@ -280,7 +280,7 @@ export function ModelSettings({
                     <h2 className={figma.sectionTitle}>이 기기의 모델</h2>
                     <div className={figma.group}>
                       <SettingControlRow
-                        className={figma.row}
+                        className={`${figma.row} ${styles.modelRow}`}
                         title="모델"
                         description={
                           selectedModel
@@ -289,6 +289,7 @@ export function ModelSettings({
                         }
                         control={
                           <Select
+                            className={styles.modelSelect}
                             aria-label="로컬 모델"
                             value={settings.localModel}
                             disabled={downloading}

@@ -22,6 +22,14 @@ export const organizer = style({
   selectors: { "&[hidden]": { display: "none" } },
 });
 export const provider = style({ width: "100%", justifyContent: "center" });
+export const modelRow = style({
+  width: "100%",
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr)",
+  alignItems: "start",
+  gap: 8,
+});
+export const modelSelect = style({ width: "100%" });
 export const downloadPresentation = style({
   display: "flex",
   flexDirection: "column",
