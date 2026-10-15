@@ -1,19 +1,19 @@
 import { style } from "@vanilla-extract/css";
-import { semanticVars as v, vnextVars } from "@fleetia/lagrange/theme";
 import { tokens } from "@comet/token";
+import { semanticVars as v, vnextVars } from "@fleetia/lagrange/theme";
 
 export const page = style({
   display: "flex",
   flexDirection: "column",
-  gap: 22,
+  gap: 18,
   minWidth: 0,
-  padding: 22,
+  padding: "20px 22px",
+  borderRadius: tokens["radius/radius-20"],
   border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-22"],
   background: tokens["color/card-2"],
+  color: tokens["color/ink"],
   boxSizing: "border-box",
   minHeight: "100%",
-  color: v.color.content.primary,
 });
 export const section = style({
   display: "flex",
@@ -28,7 +28,13 @@ export const heading = style({
   fontWeight: 600,
   lineHeight: v.typography.lineHeight.tight,
 });
-export const subheading = style({ margin: 0, fontSize: v.typography.size.label, fontWeight: 600 });
+export const subheading = style({
+  margin: 0,
+  fontSize: 13,
+  lineHeight: "18px",
+  color: tokens["color/ink-2"],
+  fontWeight: 600,
+});
 export const caption = style({
   margin: 0,
   color: v.color.content.secondary,
@@ -51,7 +57,10 @@ export const form = style({
   minWidth: 0,
 });
 export const checklist = style({ display: "flex", flexDirection: "column", gap: v.space.xs });
-export const checkRow = style([row, { padding: `${v.space.xs} 0`, minHeight: 34 }]);
+export const checkRow = style([
+  row,
+  { padding: "6px 12px", minHeight: 40, boxSizing: "border-box" },
+]);
 export const notes = style({
   display: "flex",
   flexDirection: "column",
@@ -138,15 +147,11 @@ export const dateBanner = style([
 export const columns = style({
   display: "grid",
   gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)",
-  gap: 24,
-  minHeight: 390,
-  "@media": { "(max-width: 1080px)": { gridTemplateColumns: "minmax(0,1fr)", gap: 24 } },
+  gap: 18,
+  "@media": { "(max-width: 980px)": { gridTemplateColumns: "minmax(0,1fr)" } },
 });
-export const column = style({ display: "flex", flexDirection: "column", gap: 28, minWidth: 0 });
-export const related = style([
-  section,
-  { paddingTop: 20, borderTop: `1px solid ${v.color.border.subtle}`, marginTop: "auto" },
-]);
+export const column = style({ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 });
+export const related = style([section, { gap: 4 }]);
 export const footer = style([row, { justifyContent: "space-between", paddingTop: 12 }]);
 
 export const itemTitle = style({
@@ -176,4 +181,51 @@ export const desktopMemoPreview = style({
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
   justifyContent: "flex-start",
+});
+
+export const listCard = style({
+  padding: 0,
+  overflow: "hidden",
+  boxShadow: "none",
+  borderRadius: tokens["radius/radius-16"],
+});
+export const listItem = style({
+  selectors: { "& + &": { borderTop: `1px solid ${tokens["color/divider"]}` } },
+});
+export const archivePrompt = style({
+  padding: "12px 14px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  boxShadow: "none",
+});
+export const envelopeGroups = style({ display: "flex", flexDirection: "column", gap: 10 });
+export const envelopeGroup = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: 8,
+  scrollMarginTop: 8,
+});
+export const envelopeCard = style({ width: "100%" });
+export const createForm = style({ display: "flex", flexDirection: "column", gap: 10 });
+export const createField = style({
+  display: "grid",
+  gridTemplateColumns: "76px minmax(0,1fr)",
+  alignItems: "center",
+  gap: 12,
+  minHeight: 34,
+});
+export const createLabel = style({
+  textAlign: "right",
+  fontSize: 13,
+  lineHeight: "18px",
+  color: tokens["color/ink-2"],
+});
+export const createControl = style({
+  minWidth: 0,
+  display: "flex",
+  flexDirection: "column",
+  gap: 6,
 });

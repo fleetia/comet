@@ -1,10 +1,43 @@
-import { Button, Checkbox, Dialog, FormField, Select, TextField } from "../../ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { SettingControlRow, Stepper, Switch } from "@comet/ui";
+import { SegmentedControl, SettingControlRow, Stepper, Switch } from "@comet/ui";
+import { Button, Dialog, FormField, Select, TextField } from "../../ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
-import { number, record, type DataRecord, type ToolAction } from "../toolData";
+import { number, record, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import * as s from "./FocusTimer.css";
+
+type SettingsDraft = {
+  rest: string;
+  autoStartRest: boolean;
+  finishNotification: string;
+  finishSoundEnabled: boolean;
+  lead: string;
+  recordTimeline: boolean;
+};
+function readSettings(widget: WidgetView): SettingsDraft {
+  const settings = record(record(widget.data).settings);
+  return {
+    rest: String((number(settings.restDurationMs) || 300000) / 60000),
+    autoStartRest: settings.autoStartRest === true,
+    finishNotification: text(settings.finishNotification) || "bubble",
+    finishSoundEnabled: settings.finishSoundEnabled === true,
+    lead:
+      typeof settings.linkedEventLeadMinutes === "number"
+        ? String(settings.linkedEventLeadMinutes)
+        : "off",
+    recordTimeline: settings.recordTimeline !== false,
+  };
+}
+function payload(draft: SettingsDraft): DataRecord {
+  return {
+    restDurationMs: Math.round(Number(draft.rest) * 60000),
+    autoStartRest: draft.autoStartRest,
+    finishNotification: draft.finishNotification,
+    finishSoundEnabled: draft.finishSoundEnabled,
+    linkedEventLeadMinutes: draft.lead === "off" ? null : Number(draft.lead),
+    recordTimeline: draft.recordTimeline,
+  };
+}
 
 export function FocusTimerSettings({
   widget,
@@ -23,139 +56,107 @@ export function FocusTimerSettings({
   onBusyChange?: (busy: boolean) => void;
   embedded?: boolean;
 }): ReactElement {
-  const [rest, setRest] = useState(() =>
-    String((number(record(record(widget.data).settings).restDurationMs) || 300000) / 60000),
-  );
+  const saved = readSettings(widget);
+  const savedKey = JSON.stringify(saved);
+  const [draft, setDraft] = useState(saved);
+  const [base, setBase] = useState(saved);
   const reminders = record(record(calendar?.data).reminders);
-  const savedLead = typeof reminders.leadMinutes === "number" ? reminders.leadMinutes : 10;
-  const [lead, setLead] = useState(() => {
-    if (reminders.enabled !== true) return "off";
-    const saved = savedLead;
-    return [0, 5, 10, 15, 30].includes(saved) ? String(saved) : "custom";
-  });
-  const [custom, setCustom] = useState(() => String(savedLead));
-  const [osEnabled, setOsEnabled] = useState(reminders.osEnabled === true);
-  const [soundEnabled, setSoundEnabled] = useState(reminders.soundEnabled === true);
-  const [moodFocusStart, setMoodFocusStart] = useState(reminders.moodFocusStart === true);
+  const savedCheer = reminders.moodFocusStart === true;
+  const [cheer, setCheer] = useState(savedCheer);
+  const [cheerBase, setCheerBase] = useState(savedCheer);
+  const [busy, setBusy] = useState(false);
+  const [permissionBusy, setPermissionBusy] = useState(false);
   const [permission, setPermission] = useState("unknown");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [pending, setPending] = useState({ rest: false, alerts: false, permission: false });
-  const locks = useRef({ rest: false, alerts: false, permission: false });
-  const busy = pending.rest || pending.alerts || pending.permission;
-  const saving = pending.rest || pending.alerts;
-  const savedRest = (number(record(record(widget.data).settings).restDurationMs) || 300000) / 60000;
-  const [restBase, setRestBase] = useState(savedRest);
-  const [alertsBase, setAlertsBase] = useState(reminders);
-  const restSavedRevision = useRef<number | null>(null);
-  const alertsSavedRevision = useRef<number | null>(null);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [customLead, setCustomLead] = useState(
+    !["off", "0", "5", "10", "15", "30"].includes(saved.lead),
+  );
+  const savedRevision = useRef<number | null>(null);
+  const cheerSavedRevision = useRef<number | null>(null);
+  const locked = useRef(false);
+  const permissionLock = useRef(false);
   const mounted = useRef(true);
   const generation = useRef(0);
   const permissionRequest = useRef(0);
   const latest = useRef({ widget, calendar });
   latest.current = { widget, calendar };
-  const target = useRef(`${widget.id}:${calendar?.id ?? ""}`);
   const scope = `${widget.id}:${calendar?.id ?? ""}`;
-  if (target.current !== scope) {
-    target.current = scope;
+  const previousScope = useRef(scope);
+  if (previousScope.current !== scope) {
+    previousScope.current = scope;
     generation.current += 1;
   }
-  const [confirmClose, setConfirmClose] = useState(false);
   const report = useRef({ onDirtyChange, onBusyChange });
   report.current = { onDirtyChange, onBusyChange };
-  const restDirty = Number(rest) !== restBase || !rest.trim();
-  const alertsLead = lead === "custom" ? Number(custom) : Number(lead);
-  const baseLead = typeof alertsBase.leadMinutes === "number" ? alertsBase.leadMinutes : 10;
-  const alertsDirty =
-    (lead !== "off") !== (alertsBase.enabled === true) ||
-    (lead !== "off" && alertsLead !== baseLead) ||
-    osEnabled !== (alertsBase.osEnabled === true) ||
-    soundEnabled !== (alertsBase.soundEnabled === true) ||
-    (embedded && moodFocusStart !== (alertsBase.moodFocusStart === true));
-  const restConflict =
-    restDirty &&
-    savedRest !== restBase &&
-    (restSavedRevision.current === null || widget.revision > restSavedRevision.current);
-  const alertKey = (value: DataRecord): string =>
-    JSON.stringify([
-      value.enabled === true,
-      typeof value.leadMinutes === "number" ? value.leadMinutes : 10,
-      value.osEnabled === true,
-      value.soundEnabled === true,
-      ...(embedded ? [value.moodFocusStart === true] : []),
-    ]);
-  const alertsConflict =
-    alertsDirty &&
-    alertKey(reminders) !== alertKey(alertsBase) &&
-    (alertsSavedRevision.current === null ||
-      (calendar?.revision ?? 0) > alertsSavedRevision.current);
-  function loadAlerts(value: DataRecord): void {
-    const minutes = typeof value.leadMinutes === "number" ? value.leadMinutes : 10;
-    setLead(
-      value.enabled === true
-        ? [0, 5, 10, 15, 30].includes(minutes)
-          ? String(minutes)
-          : "custom"
-        : "off",
-    );
-    setCustom(String(minutes));
-    setOsEnabled(value.osEnabled === true);
-    setSoundEnabled(value.soundEnabled === true);
-    setMoodFocusStart(value.moodFocusStart === true);
-    setAlertsBase(value);
-  }
+  const dirty = JSON.stringify(draft) !== JSON.stringify(base);
+  const cheerDirty = cheer !== cheerBase;
+  const conflict =
+    dirty &&
+    savedKey !== JSON.stringify(base) &&
+    (savedRevision.current === null || widget.revision > savedRevision.current);
+  const cheerConflict =
+    cheerDirty &&
+    savedCheer !== cheerBase &&
+    (cheerSavedRevision.current === null || (calendar?.revision ?? 0) > cheerSavedRevision.current);
   useEffect(() => {
-    restSavedRevision.current = null;
-    alertsSavedRevision.current = null;
-    setRest(String(savedRest));
-    setRestBase(savedRest);
-    loadAlerts(reminders);
-    locks.current = { rest: false, alerts: false, permission: false };
-    setPending({ rest: false, alerts: false, permission: false });
+    setDraft(saved);
+    setBase(saved);
+    setCheer(savedCheer);
+    setCheerBase(savedCheer);
+    setCustomLead(!["off", "0", "5", "10", "15", "30"].includes(saved.lead));
+    savedRevision.current = null;
+    cheerSavedRevision.current = null;
+    locked.current = false;
+    setBusy(false);
     setError("");
     setNotice("");
   }, [scope]);
   useEffect(() => {
     if (
-      !restDirty &&
-      !locks.current.rest &&
-      (restSavedRevision.current === null || widget.revision > restSavedRevision.current)
+      !dirty &&
+      !locked.current &&
+      (savedRevision.current === null || widget.revision > savedRevision.current)
     ) {
-      restSavedRevision.current = null;
-      setRest(String(savedRest));
-      setRestBase(savedRest);
+      savedRevision.current = null;
+      setDraft(saved);
+      setBase(saved);
+      setCustomLead(!["off", "0", "5", "10", "15", "30"].includes(saved.lead));
     }
-  }, [widget.revision, savedRest, restDirty]);
+  }, [widget.revision, savedKey, dirty]);
   useEffect(() => {
     if (
-      !alertsDirty &&
-      !locks.current.alerts &&
-      (alertsSavedRevision.current === null ||
-        (calendar?.revision ?? 0) > alertsSavedRevision.current)
+      !cheerDirty &&
+      !locked.current &&
+      (cheerSavedRevision.current === null ||
+        (calendar?.revision ?? 0) > cheerSavedRevision.current)
     ) {
-      alertsSavedRevision.current = null;
-      loadAlerts(reminders);
+      cheerSavedRevision.current = null;
+      setCheer(savedCheer);
+      setCheerBase(savedCheer);
     }
-  }, [calendar?.revision, alertKey(reminders), alertsDirty]);
+  }, [calendar?.revision, savedCheer, cheerDirty]);
   useEffect(() => {
-    report.current.onDirtyChange?.(restDirty || Boolean(calendar && alertsDirty));
-    report.current.onBusyChange?.(saving);
-  }, [restDirty, alertsDirty, calendar, saving]);
+    report.current.onDirtyChange?.(dirty || Boolean(calendar && cheerDirty));
+    report.current.onBusyChange?.(busy);
+  }, [dirty, cheerDirty, calendar, busy]);
   useEffect(() => {
     mounted.current = true;
     const version = generation.current;
     const request = ++permissionRequest.current;
-    if (isDesktop())
+    if (isDesktop()) {
       void command<string>("get_planner_notification_permission")
         .then((value) => {
           if (
             mounted.current &&
-            version === generation.current &&
-            request === permissionRequest.current
+            generation.current === version &&
+            permissionRequest.current === request
           )
             setPermission(value);
         })
         .catch(() => {});
+    }
     return () => {
       mounted.current = false;
       generation.current += 1;
@@ -164,134 +165,141 @@ export function FocusTimerSettings({
     };
   }, []);
   async function requestPermission(): Promise<void> {
-    if (locks.current.permission) return;
-    locks.current.permission = true;
-    const version = generation.current;
+    if (permissionLock.current) return;
+    permissionLock.current = true;
+    setPermissionBusy(true);
     const request = ++permissionRequest.current;
-    setPending((value) => ({ ...value, permission: true }));
-    setError("");
+    const version = generation.current;
     try {
       const value = await command<string>("request_planner_notification_permission");
       if (
         mounted.current &&
-        version === generation.current &&
-        request === permissionRequest.current
+        generation.current === version &&
+        permissionRequest.current === request
       )
         setPermission(value);
     } catch (cause: unknown) {
-      if (mounted.current && version === generation.current) setError(errorText(cause));
+      if (mounted.current && generation.current === version) setError(errorText(cause));
     } finally {
-      if (version === generation.current) {
-        locks.current.permission = false;
-        if (mounted.current) setPending((value) => ({ ...value, permission: false }));
-      }
+      permissionLock.current = false;
+      if (mounted.current) setPermissionBusy(false);
     }
   }
-  async function save(scope: "all" | "rest" | "alerts" = "all"): Promise<void> {
-    if (locks.current.rest || locks.current.alerts) return;
-    const restMinutes = Number(rest);
-    const leadMinutes = lead === "custom" ? Number(custom) : Number(lead);
+  async function save(onlyCheer = false): Promise<void> {
+    if (locked.current) return;
     if (
-      scope !== "alerts" &&
-      (!Number.isFinite(restMinutes) || restMinutes < 1 || restMinutes > 180)
+      !onlyCheer &&
+      (!draft.rest.trim() ||
+        !Number.isFinite(Number(draft.rest)) ||
+        Number(draft.rest) < 1 ||
+        Number(draft.rest) > 180)
     ) {
       setError("휴식 시간은 1~180분으로 입력해 주세요.");
       return;
     }
     if (
-      scope !== "rest" &&
-      lead !== "off" &&
-      ((lead === "custom" && !custom.trim()) ||
-        !Number.isInteger(leadMinutes) ||
-        leadMinutes < 0 ||
-        leadMinutes > 120)
+      !onlyCheer &&
+      draft.lead !== "off" &&
+      (!draft.lead.trim() ||
+        !Number.isInteger(Number(draft.lead)) ||
+        Number(draft.lead) < 0 ||
+        Number(draft.lead) > 120)
     ) {
-      setError("일정 알람은 시작 시각부터 120분 전까지 설정할 수 있어요.");
+      setError("연결한 일정 알림은 시작 시각부터 120분 전까지 설정할 수 있어요.");
       return;
     }
-    if ((scope !== "alerts" && restConflict) || (scope !== "rest" && alertsConflict)) {
+    if ((!onlyCheer && conflict) || cheerConflict) {
       setError("다른 곳에서 설정이 바뀌었어요. 최신 저장값을 확인한 뒤 다시 입력해 주세요.");
       return;
     }
     const version = generation.current;
-    const restTarget = widget;
-    const alertTarget = calendar;
-    let restSaved = false;
-    locks.current.rest = scope !== "alerts";
-    locks.current.alerts = scope !== "rest" && Boolean(calendar);
-    setPending((value) => ({ ...value, rest: locks.current.rest, alerts: locks.current.alerts }));
+    const timerTarget = widget;
+    const calendarTarget = calendar;
+    let timerSaved = false;
+    locked.current = true;
+    setBusy(true);
     setError("");
     setNotice("");
     try {
-      if (scope !== "alerts") {
-        const ok = await act(
-          "configure-settings",
-          { restDurationMs: Math.round(restMinutes * 60000) },
-          restTarget,
-        );
-        if (!mounted.current || version !== generation.current) return;
+      if (!onlyCheer) {
+        const ok = await act("configure-settings", payload(draft), timerTarget);
+        if (!mounted.current || generation.current !== version) return;
         if (!ok) {
-          setError("휴식 시간을 저장하지 못했어요. 입력은 남아 있어요.");
+          setError("집중 설정을 저장하지 못했어요. 입력은 남아 있어요.");
           return;
         }
-        const currentRest =
-          (number(record(record(latest.current.widget.data).settings).restDurationMs) || 300000) /
-          60000;
-        if (latest.current.widget.revision > restTarget.revision && currentRest !== restMinutes) {
-          setError("휴식 시간이 다른 곳에서 바뀌었어요. 입력을 확인해 주세요.");
-          return;
-        }
-        restSaved = true;
-        restSavedRevision.current = restTarget.revision;
-        setRestBase(restMinutes);
-        setRest(String(restMinutes));
-      }
-      if (calendar && scope !== "rest") {
-        const input: DataRecord = {
-          ...reminders,
-          enabled: lead !== "off",
-          leadMinutes: lead === "off" ? baseLead : leadMinutes,
-          osEnabled,
-          soundEnabled,
-          ...(embedded ? { moodFocusStart } : {}),
-        };
-        const ok = await act("configure-alerts", input, alertTarget);
-        if (!mounted.current || version !== generation.current) return;
-        if (!ok) {
-          if (scope === "all")
-            setNotice("휴식 시간은 저장했어요. 일정 알람 설정을 다시 저장해 주세요.");
-          setError("일정 알림을 저장하지 못했어요. 입력은 남아 있어요.");
-          return;
-        }
-        const currentCalendar = latest.current.calendar;
         if (
-          currentCalendar &&
-          currentCalendar.revision > alertTarget!.revision &&
-          alertKey(record(record(currentCalendar.data).reminders)) !== alertKey(input)
+          latest.current.widget.revision > timerTarget.revision &&
+          JSON.stringify(readSettings(latest.current.widget)) !== JSON.stringify(draft)
         ) {
-          if (restSaved) setNotice("휴식 시간은 저장했어요. 일정 알람 설정을 다시 확인해 주세요.");
-          setError("일정 알림이 다른 곳에서 바뀌었어요. 입력을 확인해 주세요.");
+          setError("집중 설정이 다른 곳에서 바뀌었어요. 입력은 남아 있어요.");
           return;
         }
-        alertsSavedRevision.current = alertTarget!.revision;
-        setAlertsBase(input);
+        timerSaved = true;
+        savedRevision.current = latest.current.widget.revision;
+        setBase(draft);
       }
-      if (scope === "all") {
-        if (embedded) setNotice("설정을 저장했어요.");
-        else onClose();
-      } else setNotice(scope === "rest" ? "휴식 시간을 저장했어요." : "일정 알림을 저장했어요.");
+      if (calendarTarget && cheerDirty) {
+        const current = latest.current.calendar;
+        if (
+          !current ||
+          (record(record(current.data).reminders).moodFocusStart === true) !== cheerBase
+        ) {
+          setError("응원 설정이 다른 곳에서 바뀌었어요. 입력은 남아 있어요.");
+          return;
+        }
+        const input = { ...record(record(current.data).reminders), moodFocusStart: cheer };
+        const ok = await act("configure-alerts", input, current);
+        if (!mounted.current || generation.current !== version) return;
+        if (!ok) {
+          if (timerSaved) setNotice("집중 설정은 저장했어요. 응원 설정을 다시 저장해 주세요.");
+          setError("응원 설정을 저장하지 못했어요. 입력은 남아 있어요.");
+          return;
+        }
+        const newest = latest.current.calendar;
+        if (
+          newest &&
+          newest.revision > current.revision &&
+          (record(record(newest.data).reminders).moodFocusStart === true) !== cheer
+        ) {
+          setError("응원 설정이 다른 곳에서 바뀌었어요. 입력은 남아 있어요.");
+          return;
+        }
+        cheerSavedRevision.current = newest?.revision ?? current.revision;
+        setCheerBase(cheer);
+      }
+      if (embedded || onlyCheer) setNotice("설정을 저장했어요.");
+      else onClose();
     } catch (cause: unknown) {
-      if (mounted.current && version === generation.current) {
-        if (restSaved) setNotice("휴식 시간은 저장했어요. 일정 알람 설정을 다시 저장해 주세요.");
+      if (mounted.current && generation.current === version) {
+        if (timerSaved) setNotice("집중 설정은 저장했어요. 응원 설정을 다시 저장해 주세요.");
         setError(errorText(cause));
       }
     } finally {
-      if (version === generation.current) {
-        locks.current.rest = false;
-        locks.current.alerts = false;
-        if (mounted.current) setPending((value) => ({ ...value, rest: false, alerts: false }));
+      if (generation.current === version) {
+        locked.current = false;
+        if (mounted.current) setBusy(false);
       }
     }
+  }
+  function cancelChanges(): void {
+    const value =
+      savedRevision.current !== null && widget.revision <= savedRevision.current ? base : saved;
+    setDraft(value);
+    setBase(value);
+    setCustomLead(!["off", "0", "5", "10", "15", "30"].includes(value.lead));
+    const nextCheer =
+      cheerSavedRevision.current !== null && (calendar?.revision ?? 0) <= cheerSavedRevision.current
+        ? cheerBase
+        : savedCheer;
+    setCheer(nextCheer);
+    setCheerBase(nextCheer);
+    setError("");
+  }
+  function close(): void {
+    if (busy) return;
+    if (dirty || cheerDirty) setConfirmClose(true);
+    else onClose();
   }
   const form = (
     <form
@@ -304,9 +312,10 @@ export function FocusTimerSettings({
         void save();
       }}
     >
-      {embedded ? (
+      <section className={s.pane} aria-label="시간">
+        <h3 className={s.headingText}>시간</h3>
         <SettingControlRow
-          title="기본 휴식 시간"
+          title="휴식 시간"
           description="다음 휴식부터 적용해요"
           control={
             <Stepper
@@ -315,196 +324,171 @@ export function FocusTimerSettings({
               min={1}
               max={180}
               unit="분"
-              value={Number(rest)}
-              onValueChange={(minutes) => setRest(String(minutes))}
+              value={draft.rest}
+              onChange={(event) => setDraft({ ...draft, rest: event.target.value })}
+              onValueChange={(value) => setDraft({ ...draft, rest: String(value) })}
             />
           }
         />
-      ) : (
-        <FormField label="휴식 시간 (분)">
-          <TextField
-            disabled={busy}
-            type="number"
-            min={1}
-            max={180}
-            value={rest}
-            onChange={(event) => setRest(event.target.value)}
-          />
-        </FormField>
-      )}
-      {record(widget.data).mode === "rest" && <p className={s.quiet}>다음 휴식부터 적용해요.</p>}
-      {restConflict && (
-        <p role="alert" className={s.error}>
-          휴식 시간이 다른 곳에서 바뀌었어요.
-        </p>
-      )}
-      <div className={s.row}>
-        <Button
-          type="button"
-          variant="secondary"
-          disabled={busy || !restDirty || restConflict}
-          onClick={() => void save("rest")}
-        >
-          휴식 시간 저장
-        </Button>
-        <Button
-          type="button"
-          variant="quiet"
-          disabled={busy || !restDirty}
-          onClick={() => {
-            const value =
-              restSavedRevision.current !== null && widget.revision <= restSavedRevision.current
-                ? restBase
-                : savedRest;
-            setRest(String(value));
-            setRestBase(value);
-            setError("");
-          }}
-        >
-          휴식 변경 취소
-        </Button>
-      </div>
-      {calendar ? (
-        <>
-          <FormField label="일정 시작 알람">
-            <Select disabled={busy} value={lead} onChange={(event) => setLead(event.target.value)}>
-              <option value="off">알람 없음</option>
+        <SettingControlRow
+          title="집중이 끝나면 휴식 바로 시작"
+          control={
+            <Switch
+              aria-label="집중이 끝나면 휴식 바로 시작"
+              checked={draft.autoStartRest}
+              disabled={busy}
+              onChange={(event) => setDraft({ ...draft, autoStartRest: event.target.checked })}
+            />
+          }
+        />
+      </section>
+      <section className={s.pane} aria-label="알림">
+        <h3 className={s.headingText}>알림</h3>
+        <SettingControlRow
+          title="끝날 때 알리기"
+          control={
+            <SegmentedControl
+              label="끝날 때 알리기"
+              value={draft.finishNotification}
+              disabled={busy}
+              options={[
+                { value: "bubble", label: "말풍선" },
+                { value: "os", label: "OS 알림" },
+                { value: "both", label: "둘 다" },
+              ]}
+              onValueChange={(value) => setDraft({ ...draft, finishNotification: value })}
+            />
+          }
+        />
+        <SettingControlRow
+          title="알림 소리"
+          control={
+            <Select
+              aria-label="알림 소리"
+              disabled={busy}
+              value={draft.finishSoundEnabled ? "system" : "off"}
+              onChange={(event) =>
+                setDraft({ ...draft, finishSoundEnabled: event.target.value === "system" })
+              }
+            >
+              <option value="system">시스템 설정을 따름</option>
+              <option value="off">소리 없음</option>
+            </Select>
+          }
+        />
+        <SettingControlRow
+          title="연결한 일정 시작 전 알리기"
+          description="일정에 이어 둔 집중만 알려요"
+          control={
+            <Select
+              aria-label="연결한 일정 시작 전 알리기"
+              disabled={busy}
+              value={customLead ? "custom" : draft.lead}
+              onChange={(event) => {
+                setCustomLead(event.target.value === "custom");
+                setDraft({
+                  ...draft,
+                  lead: event.target.value === "custom" ? "5" : event.target.value,
+                });
+              }}
+            >
+              <option value="off">알림 없음</option>
               <option value="0">시작 시각</option>
-              {[5, 10, 15, 30].map((value) => (
-                <option key={value} value={value}>
-                  {value}분 전
+              {[5, 10, 15, 30].map((minutes) => (
+                <option key={minutes} value={minutes}>
+                  {minutes}분 전
                 </option>
               ))}
               <option value="custom">직접 설정</option>
             </Select>
+          }
+        />
+        {customLead && (
+          <FormField label="알람 시간 직접 입력 (분 전)">
+            <TextField
+              type="number"
+              min={0}
+              max={120}
+              disabled={busy}
+              value={draft.lead}
+              onChange={(event) => setDraft({ ...draft, lead: event.target.value })}
+            />
           </FormField>
-          {(lead === "custom" || !["off", "0", "5", "10", "15", "30"].includes(lead)) && (
-            <FormField label="알람 시간 직접 입력 (분 전)">
-              <TextField
-                disabled={busy}
-                type="number"
-                min={0}
-                max={120}
-                value={lead === "custom" ? custom : lead}
-                onChange={(event) => {
-                  setLead("custom");
-                  setCustom(event.target.value);
-                }}
-              />
-            </FormField>
-          )}
-          {embedded ? (
-            <SettingControlRow
-              title="OS 알림도 받기"
-              control={
-                <Switch
-                  aria-label="OS 알림도 받기"
-                  disabled={busy}
-                  checked={osEnabled}
-                  onChange={(event) => setOsEnabled(event.target.checked)}
-                />
-              }
-            />
-          ) : (
-            <Checkbox
-              disabled={busy}
-              checked={osEnabled}
-              onChange={(event) => setOsEnabled(event.target.checked)}
-            >
-              OS 알림도 받기
-            </Checkbox>
-          )}
-          {embedded ? (
-            <SettingControlRow
-              title="알림 소리"
-              control={
-                <Switch
-                  aria-label="알림 소리"
-                  disabled={busy}
-                  checked={soundEnabled}
-                  onChange={(event) => setSoundEnabled(event.target.checked)}
-                />
-              }
-            />
-          ) : (
-            <Checkbox
-              disabled={busy}
-              checked={soundEnabled}
-              onChange={(event) => setSoundEnabled(event.target.checked)}
-            >
-              알림 소리
-            </Checkbox>
-          )}
-          {embedded && (
-            <SettingControlRow
-              title="친구가 시작할 때 응원하기"
-              description="무드메이커 · 조용한 시간에는 쉬어요"
-              control={
-                <Switch
-                  aria-label="친구가 시작할 때 응원하기"
-                  disabled={busy}
-                  checked={moodFocusStart}
-                  onChange={(event) => setMoodFocusStart(event.target.checked)}
-                />
-              }
-            />
-          )}
-          <p className={s.quiet}>
-            일정 알람에 공통으로 적용해요. 집중 중 캐릭터는 조용히 있고, OS 알림은 선택한 설정을
-            따라요.
-          </p>
-          <p className={s.quiet}>
+        )}
+        <p className={s.quiet}>OS 알림이 꺼져 있으면 말풍선으로만 알려요.</p>
+        <div className={s.row}>
+          <span className={s.quiet}>
             OS 알림:{" "}
-            {{
-              granted: "허용됨",
-              denied: "꺼짐 · 시스템 설정에서 변경",
-              prompt: "권한 요청 전",
-              system: "시스템 설정을 따름",
-              unknown: "확인 필요",
-            }[permission] || permission}
-          </p>
+            {(
+              {
+                granted: "허용됨",
+                denied: "꺼짐 · 시스템 설정에서 변경",
+                prompt: "권한 요청 전",
+                system: "시스템 설정을 따름",
+                unknown: "확인 필요",
+              } as Record<string, string>
+            )[permission] || permission}
+          </span>
           <Button
             type="button"
             variant="quiet"
-            disabled={busy}
+            disabled={busy || permissionBusy}
             onClick={() => void requestPermission()}
           >
             OS 알림 권한 요청
           </Button>
-          {alertsConflict && (
-            <p role="alert" className={s.error}>
-              일정 알림이 다른 곳에서 바뀌었어요.
-            </p>
-          )}
-          <div className={s.row}>
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={busy || !alertsDirty || alertsConflict}
-              onClick={() => void save("alerts")}
-            >
-              일정 알림 저장
-            </Button>
-            <Button
-              type="button"
-              variant="quiet"
-              disabled={busy || !alertsDirty}
-              onClick={() => {
-                loadAlerts(
-                  alertsSavedRevision.current !== null &&
-                    calendar.revision <= alertsSavedRevision.current
-                    ? alertsBase
-                    : reminders,
-                );
-                setError("");
-              }}
-            >
-              알림 변경 취소
-            </Button>
-          </div>
-        </>
-      ) : (
-        <p className={s.quiet}>캘린더를 켜면 일정 알람도 설정할 수 있어요.</p>
+        </div>
+      </section>
+      <section className={s.pane} aria-label="집중하는 동안">
+        <h3 className={s.headingText}>집중하는 동안</h3>
+        <SettingControlRow
+          title="친구들 조용히 하기"
+          description="말을 걸면 앱 안내로 집중 중이라고 알려요"
+          control={<span className={s.quiet}>항상 켜짐</span>}
+        />
+        <SettingControlRow
+          title="시간표에 집중 칸 칠하기"
+          description="다음 집중부터 다이어리 하루·주 보기에 자동으로 남아요"
+          control={
+            <Switch
+              aria-label="시간표에 집중 칸 칠하기"
+              disabled={busy}
+              checked={draft.recordTimeline}
+              onChange={(event) => setDraft({ ...draft, recordTimeline: event.target.checked })}
+            />
+          }
+        />
+        <SettingControlRow
+          title="친구가 시작할 때 응원하기"
+          description={
+            calendar
+              ? "무드메이커 · 조용한 시간에는 쉬어요"
+              : "캘린더를 켜면 무드메이커 응원을 설정할 수 있어요"
+          }
+          control={
+            <Switch
+              aria-label="친구가 시작할 때 응원하기"
+              disabled={busy || !calendar}
+              checked={cheer}
+              onChange={(event) => setCheer(event.target.checked)}
+            />
+          }
+        />
+        {cheerDirty && (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={busy || cheerConflict}
+            onClick={() => void save(true)}
+          >
+            응원 설정 저장
+          </Button>
+        )}
+      </section>
+      {(conflict || cheerConflict) && (
+        <p role="alert" className={s.error}>
+          설정이 다른 곳에서 바뀌었어요. 변경 취소로 최신 값을 확인해 주세요.
+        </p>
       )}
       {notice && <p role="status">{notice}</p>}
       {error && (
@@ -513,11 +497,19 @@ export function FocusTimerSettings({
         </p>
       )}
       <div className={s.row}>
-        <Button variant="primary" type="submit" disabled={busy}>
+        <Button variant="primary" type="submit" disabled={busy || conflict || cheerConflict}>
           {busy ? "저장 중…" : "설정 저장"}
         </Button>
+        <Button
+          type="button"
+          variant="quiet"
+          disabled={busy || (!dirty && !cheerDirty)}
+          onClick={cancelChanges}
+        >
+          변경 취소
+        </Button>
         {!embedded && (
-          <Button variant="quiet" disabled={saving} onClick={onClose}>
+          <Button type="button" variant="quiet" disabled={busy} onClick={close}>
             취소
           </Button>
         )}
@@ -532,14 +524,11 @@ export function FocusTimerSettings({
         <Dialog
           isOpen
           onOpenChange={(open) => {
-            if (!open && !saving) {
-              if (restDirty || alertsDirty) setConfirmClose(true);
-              else onClose();
-            }
+            if (!open) close();
           }}
           title="집중 설정"
           closeLabel="설정 닫기"
-          size="small"
+          size="medium"
         >
           {form}
         </Dialog>
@@ -553,7 +542,7 @@ export function FocusTimerSettings({
         <Button variant="secondary" onClick={() => setConfirmClose(false)}>
           계속 편집
         </Button>
-        <Button variant="critical" disabled={saving} onClick={onClose}>
+        <Button variant="critical" disabled={busy} onClick={onClose}>
           변경을 버리고 닫기
         </Button>
       </Dialog>

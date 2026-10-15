@@ -4,7 +4,13 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { EnvelopeCard, NoteCard } from "./Cards";
 import { ContentChoice, SettingsSummary, SidebarItem, TaskRow } from "./Lists";
-import { ChecklistAdd, RecordPageEntry, RecordQuickAdd, RecordSourceLink } from "./Records";
+import {
+  ChecklistAdd,
+  EnvelopeHeader,
+  RecordPageEntry,
+  RecordQuickAdd,
+  RecordSourceLink,
+} from "./Records";
 
 afterEach(cleanup);
 
@@ -57,6 +63,26 @@ it("keeps card selection buttons from submitting forms and exposes envelope prog
   const progress = screen.getByRole<HTMLProgressElement>("progressbar", { name: "준비 진행률" });
   expect(progress.value).toBe(3);
   expect(progress.max).toBe(5);
+  expect(screen.getByText("60%")).toBeTruthy();
+});
+
+it("shows archived envelopes as stored and opens a linked event through the consumer", async () => {
+  const user = userEvent.setup();
+  const open = vi.fn();
+  const { rerender } = render(
+    <>
+      <EnvelopeCard title="모임" archived completed={1} total={5} />
+      <EnvelopeHeader title="모임" completed={1} total={5} onOpenEvent={open} />
+    </>,
+  );
+  const progress = screen.getByRole<HTMLProgressElement>("progressbar", { name: "보관한 봉투" });
+  expect(progress.value / progress.max).toBe(1);
+  expect(screen.queryByText("20%")).toBeNull();
+  await user.click(screen.getByRole("button", { name: "일정 보기" }));
+  expect(open).toHaveBeenCalledTimes(1);
+  rerender(<EnvelopeHeader title="모임" completed={1} total={5} disabled onOpenEvent={open} />);
+  await user.click(screen.getByRole("button", { name: "일정 보기" }));
+  expect(open).toHaveBeenCalledTimes(1);
 });
 
 it("submits the unmodified quick-add draft and selected kind while ignoring blank input", async () => {

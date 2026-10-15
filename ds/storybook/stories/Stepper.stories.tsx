@@ -39,7 +39,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "숫자 입력과 감소·증가 버튼을 조합합니다. min·max·step을 적용하며 직접 숫자를 입력할 수 있습니다. 입력에는 aria-label 등으로 이름을 주고 버튼 이름은 decreaseLabel·increaseLabel로 구체화하세요. value를 사용하면 onValueChange도 연결합니다.",
+          "숫자 입력과 감소·증가 버튼을 조합합니다. min·max·step을 적용하며 직접 숫자를 입력할 수 있습니다. 입력에는 aria-label 등으로 이름을 주고 버튼 이름은 decreaseLabel·increaseLabel로 구체화하세요. value를 사용하면 onValueChange도 연결합니다. 지우는 중의 빈 초안은 문자열 value와 onChange로 보존하며, onValueChange는 유효한 숫자와 증감 동작만 전달합니다.",
       },
     },
   },

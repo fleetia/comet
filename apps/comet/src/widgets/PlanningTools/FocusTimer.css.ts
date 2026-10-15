@@ -1,6 +1,5 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { semanticVars as v, componentVars, vnextVars } from "@fleetia/lagrange/theme";
-import { tokens } from "@comet/token";
+import { semanticVars as v, vnextVars } from "@fleetia/lagrange/theme";
 
 export const root = style({
   width: "100%",
@@ -30,25 +29,7 @@ export const layout = style({
   selectors: { '&[data-expanded="false"]': { gridTemplateColumns: "minmax(0, 310px) 0" } },
   "@media": { "(max-width: 680px)": { gridTemplateColumns: "minmax(0, 1fr)", padding: 12 } },
 });
-export const timer = style({
-  width: "100%",
-  maxWidth: 310,
-  minWidth: 0,
-  padding: 16,
-  border: `1px solid ${tokens["color/glass-border-soft"]}`,
-  borderRadius: tokens["radius/radius-22"],
-  background: tokens["color/glass-widget"],
-  backdropFilter: tokens["backdrop/backdrop-panel"],
-  boxShadow: `inset 0 1px 0 ${tokens["color/window-highlight"]}, 0 14px 34px ${tokens["color/surface-shadow"]}`,
-});
-export const focusSetup = style({
-  display: "flex",
-  flexDirection: "column",
-  gap: v.space.sm,
-  marginTop: 0,
-  minWidth: 0,
-});
-export const focusField = style({ gap: v.space.sm });
+export const timer = style({ width: "100%", maxWidth: 310, minWidth: 0 });
 export const inlineField = style({
   display: "grid",
   gridTemplateColumns: "auto minmax(0, 1fr)",
@@ -57,39 +38,6 @@ export const inlineField = style({
 });
 export const optionalSetup = style({
   selectors: { '[data-expanded="false"] &': { display: "none" } },
-});
-export const timerTop = style({
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: v.space.sm,
-});
-export const eyebrow = style({
-  fontFamily: v.typography.family.data,
-  letterSpacing: ".08em",
-  color: v.color.content.secondary,
-  fontSize: 10,
-});
-export const modes = style({
-  display: "flex",
-  gap: v.space.xxs,
-  padding: v.space.xxs,
-  background: v.color.surface.muted,
-  borderRadius: vnextVars.radius.control,
-});
-export const mode = style({
-  selectors: {
-    '&[aria-pressed="true"]': {
-      background: v.color.surface.raised,
-      color: v.color.content.primary,
-    },
-  },
-});
-export const title = style({
-  fontFamily: v.typography.family.display,
-  fontSize: v.typography.size.headingSm,
-  lineHeight: v.typography.lineHeight.compact,
-  minWidth: 0,
 });
 export const quiet = style({
   color: v.color.content.secondary,
@@ -105,117 +53,6 @@ export const related = style({
   fontSize: v.typography.size.caption,
   overflowWrap: "anywhere",
 });
-export const clock = style({
-  position: "relative",
-  width: "min(100%, 160px)",
-  flexShrink: 0,
-  aspectRatio: "1",
-  margin: "0 auto",
-  display: "grid",
-  placeItems: "center",
-  borderRadius: "50%",
-  background: "transparent",
-  transition: "width 280ms cubic-bezier(0.22, 1, 0.36, 1), margin 280ms ease",
-  selectors: {
-    '[data-expanded="false"] &': {
-      width: "min(100%, 160px)",
-      margin: "0 auto",
-    },
-  },
-  "@media": { "(prefers-reduced-motion: reduce)": { transition: "none" } },
-});
-export const timerReadouts = style({
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  flexWrap: "wrap",
-  gap: v.space.md,
-  margin: `${v.space.md} 0 ${v.space.lg}`,
-  minWidth: 0,
-});
-export const appUsage = style({
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "flex-start",
-  flex: "1 1 140px",
-  minWidth: 0,
-  maxWidth: "100%",
-  gap: v.space.xs,
-  padding: v.space.md,
-  borderRadius: vnextVars.radius.control,
-  background: v.color.surface.muted,
-});
-export const appUsageName = style({
-  fontSize: v.typography.size.caption,
-  lineHeight: v.typography.lineHeight.body,
-  overflowWrap: "anywhere",
-});
-export const appUsageTime = style({
-  fontFamily: v.typography.family.data,
-  fontVariantNumeric: "tabular-nums",
-  fontSize: 28,
-  lineHeight: 1.2,
-});
-export const dial = style({
-  position: "absolute",
-  width: "100%",
-  height: "100%",
-  inset: 0,
-  overflow: "visible",
-});
-export const dialTrack = style({ fill: "none", stroke: tokens["color/track"], strokeWidth: 11 });
-export const dialArc = style({
-  fill: "none",
-  stroke: tokens["color/cat-focus"],
-  strokeWidth: 11,
-  strokeLinecap: "round",
-  transform: "rotate(-90deg)",
-  transformOrigin: "125px 125px",
-});
-export const ticks = style({ stroke: v.color.content.secondary, opacity: 0.65, strokeWidth: 1 });
-export const clockCenter = style({
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: v.space.sm,
-  position: "relative",
-});
-export const time = style({
-  fontFamily: tokens["typography/display/timer/fontFamily"],
-  fontVariantNumeric: "tabular-nums",
-  fontSize: tokens["typography/display/timer/fontSize"],
-  lineHeight: 1.2,
-  letterSpacing: "-.055em",
-  selectors: { '[data-presentation="digits"] &': { fontSize: "clamp(56px, 10vw, 78px)" } },
-});
-export const progress = style({
-  height: 3,
-  background: v.color.border.subtle,
-  borderRadius: 2,
-  overflow: "hidden",
-  position: "absolute",
-  left: "8%",
-  right: "8%",
-  bottom: 25,
-});
-export const progressFill = style({ height: "100%", background: v.color.content.accent });
-export const presets = style({
-  display: "flex",
-  justifyContent: "center",
-  gap: v.space.xs,
-  flexWrap: "wrap",
-});
-export const preset = style({
-  minHeight: 32,
-  padding: `${v.space.xs} ${v.space.md}`,
-  selectors: {
-    '&[aria-pressed="true"]': {
-      background: componentVars.navigation.selectedSurface,
-      color: componentVars.navigation.selectedText,
-    },
-  },
-});
 export const timerStatus = style({
   position: "absolute",
   width: 1,
@@ -225,31 +62,18 @@ export const timerStatus = style({
   clipPath: "inset(50%)",
   whiteSpace: "nowrap",
 });
-export const timerHelp = style([quiet, { textAlign: "center", paddingTop: v.space.lg }]);
-export const controls = style({ display: "flex", flexDirection: "column", gap: v.space.md });
 export const row = style({
   display: "flex",
   alignItems: "center",
   gap: v.space.sm,
   flexWrap: "wrap",
 });
-export const mainAction = style({ width: "100%", minHeight: 36 });
 export const context = style({
   minWidth: 0,
   minHeight: 0,
   overflowY: "auto",
   background: "transparent",
   selectors: { '[data-expanded="false"] &': { visibility: "hidden", pointerEvents: "none" } },
-});
-export const tabs = style({ minWidth: 0 });
-export const tabList = style({
-  minHeight: 60,
-  alignItems: "center",
-  gap: v.space.sm,
-  padding: `${v.space.sm} ${v.space.xl}`,
-  selectors: {
-    [`${root} ${context} &`]: { borderBottom: `1px solid ${v.color.border.subtle}` },
-  },
 });
 export const tabPanel = style({ padding: 0, minWidth: 0 });
 export const pane = style({
@@ -486,5 +310,3 @@ globalStyle(`${root} input, ${root} select, ${root} textarea`, { minWidth: 0 });
 globalStyle(`${timer} p, ${timer} h1`, { margin: 0 });
 
 export const recordsPanel = style({ width: "100%", maxWidth: "none", boxSizing: "border-box" });
-
-export const appUsageDetails = style({ fontSize: 11, color: tokens["color/ink-3"], marginTop: 8 });

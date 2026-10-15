@@ -263,4 +263,37 @@ describe("numeric controls", () => {
       true,
     );
   });
+
+  it("keeps a controlled empty draft editable before another value or step is entered", async () => {
+    const user = userEvent.setup();
+    const change = vi.fn();
+    function Example(): ReactElement {
+      const [value, setValue] = useState("25");
+      return (
+        <Stepper
+          label="집중 시간"
+          value={value}
+          min={1}
+          max={120}
+          onChange={(event) => setValue(event.currentTarget.value)}
+          onValueChange={(next) => {
+            change(next);
+            setValue(String(next));
+          }}
+        />
+      );
+    }
+    render(<Example />);
+    const input = screen.getByRole<HTMLInputElement>("spinbutton", { name: "집중 시간" });
+    await user.clear(input);
+    expect(input.value).toBe("");
+    expect(change).not.toHaveBeenCalled();
+    await user.type(input, "5");
+    expect(input.value).toBe("5");
+    expect(change).toHaveBeenLastCalledWith(5);
+    await user.clear(input);
+    await user.click(screen.getByRole("button", { name: "값 늘리기" }));
+    expect(input.value).toBe("1");
+    expect(change).toHaveBeenLastCalledWith(1);
+  });
 });

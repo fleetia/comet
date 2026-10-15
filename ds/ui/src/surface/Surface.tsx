@@ -5,14 +5,14 @@ import { Motion, type MotionProps } from "../motion/Motion";
 import * as styles from "./styles.css";
 
 export type SurfaceProps = Omit<MotionProps, "preset"> & {
-  variant?: "window" | "sheet" | "popover";
+  variant?: "window" | "sheet" | "popover" | "card";
 };
 
 export const Surface = forwardRef<HTMLDivElement, SurfaceProps>(
   ({ variant = "window", className, ...props }, ref) => (
     <Motion
       {...props}
-      preset="slide"
+      preset={variant === "card" ? "fade" : "slide"}
       ref={ref}
       className={[styles.surface, styles.variants[variant], className].filter(Boolean).join(" ")}
     />

@@ -1,4 +1,5 @@
-import { Button, Dialog, FormField, Select } from "../../ui";
+import { Button, Dialog } from "../../ui";
+import { FocusAppUsage, FocusProgramPicker } from "@comet/ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { record, rows, text, type DataRecord, type ToolAction } from "../toolData";
@@ -72,22 +73,30 @@ export function FocusTimerAppUsage({
                 ? "집중을 시작하면 측정해요."
                 : usageStatus(reportedStatus);
   return (
-    <section className={s.appUsage} aria-label="프로그램 사용 시간">
-      <span className={s.quiet}>앱 전면 사용</span>
-      <strong className={s.appUsageName}>{target?.name || "선택한 프로그램 없음"}</strong>
-      <span className={s.appUsageTime} role="timer" aria-label="프로그램 누적 사용 시간">
-        {appUsageTime(usage?.elapsedMs || 0)}
-      </span>
-      <p className={s.quiet}>{label}</p>
-      <Button
-        variant="quiet"
-        size="compact"
-        disabled={!canEdit}
-        title={!canEdit ? "집중이나 휴식을 마친 뒤 프로그램을 바꿀 수 있어요." : undefined}
-        onClick={() => setOpen(true)}
-      >
-        {target ? "프로그램 변경" : "프로그램 선택"}
-      </Button>
+    <section aria-label="프로그램 사용 시간">
+      <FocusAppUsage
+        state={
+          canEdit
+            ? status === "finished"
+              ? "finished"
+              : "unselected"
+            : reportedStatus === "idle" || status === "paused" || data.mode === "rest"
+              ? "idle"
+              : "measuring"
+        }
+        program={target?.name}
+        statusLabel={target?.name || "선택한 프로그램 없음"}
+        description={
+          <>
+            <span role="timer" aria-label="프로그램 누적 사용 시간">
+              {appUsageTime(usage?.elapsedMs || 0)}
+            </span>
+            <span> · {label}</span>
+          </>
+        }
+        chooseLabel={target ? "프로그램 변경" : "프로그램 선택"}
+        onChoose={canEdit ? () => setOpen(true) : undefined}
+      />
       {open && (
         <UsagePicker
           target={configured}
@@ -210,20 +219,16 @@ function UsagePicker({
           </p>
         )}
         {!canEdit && <p className={s.notice}>집중이나 휴식을 마친 뒤 프로그램을 바꿀 수 있어요.</p>}
-        <FormField label="측정할 프로그램">
-          <Select
-            value={selectedId}
-            disabled={!canEdit || loading || saving || !supported}
-            onChange={(event) => setSelectedId(event.target.value)}
-          >
-            <option value="">측정하지 않음</option>
-            {choices.map((app) => (
-              <option key={app.id} value={app.id}>
-                {app.name}
-              </option>
-            ))}
-          </Select>
-        </FormField>
+        <FocusProgramPicker
+          label="측정할 프로그램"
+          value={selectedId}
+          disabled={!canEdit || loading || saving || !supported}
+          options={[
+            { value: "", label: "측정하지 않음" },
+            ...choices.map((app) => ({ value: app.id, label: app.name })),
+          ]}
+          onValueChange={setSelectedId}
+        />
         {supported && !loading && applications.length === 0 && (
           <p className={s.quiet}>
             실행 중인 프로그램을 찾지 못했어요. 원하는 프로그램을 열고 새로고침해 주세요.

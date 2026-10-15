@@ -53,7 +53,7 @@ describe("program usage selection", () => {
     expect(screen.getByText(/백그라운드 실행 시간/).textContent).toContain(
       "창 제목이나 작업 내용은 읽거나 저장하지 않아요",
     );
-    fireEvent.change(screen.getByLabelText("측정할 프로그램"), { target: { value: target.id } });
+    fireEvent.click(screen.getByRole("radio", { name: target.name }));
     expect(action).not.toHaveBeenCalled();
     await click("프로그램 선택 저장");
     expect(action).toHaveBeenCalledExactlyOnceWith("configure", { appUsageTarget: target });
@@ -73,8 +73,8 @@ describe("program usage selection", () => {
     vi.mocked(command).mockResolvedValueOnce({ ...listing, applications: [other] });
     await click("프로그램 목록 새로고침");
     expect(command).toHaveBeenCalledTimes(2);
-    expect(screen.getByLabelText("측정할 프로그램")).toHaveProperty("value", target.id);
-    fireEvent.change(screen.getByLabelText("측정할 프로그램"), { target: { value: other.id } });
+    expect(screen.getByRole("radio", { name: target.name })).toHaveProperty("checked", true);
+    fireEvent.click(screen.getByRole("radio", { name: other.name }));
     await click("취소");
     expect(action).not.toHaveBeenCalled();
     expect(screen.getByText(target.name)).toBeTruthy();
@@ -91,7 +91,7 @@ describe("program usage selection", () => {
     );
     await click("프로그램 변경");
     expect(screen.getByText("현재 환경에서는 지원하지 않아요.")).toBeTruthy();
-    expect(screen.getByLabelText("측정할 프로그램")).toHaveProperty("disabled", true);
+    expect(screen.getByRole("group", { name: "측정할 프로그램" })).toHaveProperty("disabled", true);
     await click("사용 시간 측정 끄기");
     expect(action).toHaveBeenCalledExactlyOnceWith("configure", { appUsageTarget: null });
   });
@@ -104,7 +104,7 @@ describe("program usage selection", () => {
     expect(
       screen.getByText("프로그램 선택과 사용 시간 측정은 데스크톱 앱에서 사용할 수 있어요."),
     ).toBeTruthy();
-    expect(screen.getByLabelText("측정할 프로그램")).toHaveProperty("disabled", true);
+    expect(screen.getByRole("group", { name: "측정할 프로그램" })).toHaveProperty("disabled", true);
   });
 
   it("shows a failed lookup and retries only when requested", async () => {
@@ -115,7 +115,7 @@ describe("program usage selection", () => {
     expect(command).toHaveBeenCalledTimes(1);
     await click("프로그램 목록 새로고침");
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByRole("option", { name: target.name })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: target.name })).toBeTruthy();
   });
 
   it.each(["false", "rejected"])(
@@ -125,10 +125,10 @@ describe("program usage selection", () => {
       else action.mockRejectedValueOnce(new Error("save failed"));
       render(<FocusTimerAppUsage data={{ status: "idle" }} act={action} />);
       await click("프로그램 선택");
-      fireEvent.change(screen.getByLabelText("측정할 프로그램"), { target: { value: target.id } });
+      fireEvent.click(screen.getByRole("radio", { name: target.name }));
       await click("프로그램 선택 저장");
       expect(screen.getByRole("alert")).toBeTruthy();
-      expect(screen.getByLabelText("측정할 프로그램")).toHaveProperty("value", target.id);
+      expect(screen.getByRole("radio", { name: target.name })).toHaveProperty("checked", true);
       await click("프로그램 선택 저장");
       expect(action.mock.calls).toEqual([
         ["configure", { appUsageTarget: target }],
@@ -147,7 +147,7 @@ describe("program usage selection", () => {
     );
     render(<FocusTimerAppUsage data={{ status: "idle" }} act={action} />);
     await click("프로그램 선택");
-    fireEvent.change(screen.getByLabelText("측정할 프로그램"), { target: { value: target.id } });
+    fireEvent.click(screen.getByRole("radio", { name: target.name }));
     const save = screen.getByRole("button", { name: "프로그램 선택 저장" });
     reactAct(() => {
       fireEvent.click(save);
@@ -160,9 +160,9 @@ describe("program usage selection", () => {
   it("disables an already open picker when another window starts focus", async () => {
     const view = render(<FocusTimerAppUsage data={{ status: "idle" }} act={action} />);
     await click("프로그램 선택");
-    fireEvent.change(screen.getByLabelText("측정할 프로그램"), { target: { value: target.id } });
+    fireEvent.click(screen.getByRole("radio", { name: target.name }));
     view.rerender(<FocusTimerAppUsage data={{ status: "running", mode: "focus" }} act={action} />);
-    expect(screen.getByLabelText("측정할 프로그램")).toHaveProperty("disabled", true);
+    expect(screen.getByRole("group", { name: "측정할 프로그램" })).toHaveProperty("disabled", true);
     await click("프로그램 선택 저장");
     expect(action).not.toHaveBeenCalled();
     expect(screen.getByText("집중이나 휴식을 마친 뒤 프로그램을 바꿀 수 있어요.")).toBeTruthy();
@@ -203,7 +203,7 @@ describe("backend-owned usage readout", () => {
     const view = render(<TimerTool widget={widget(data)} widgets={[]} act={action} />);
     expect(screen.getByLabelText("남은 시간").textContent).toBe("25:00");
     expect(screen.getByLabelText("프로그램 누적 사용 시간").textContent).toBe("00:12");
-    expect(screen.getByRole("button", { name: "프로그램 변경" })).toHaveProperty("disabled", true);
+    expect(screen.queryByRole("button", { name: "프로그램 변경" })).toBeNull();
     await reactAct(async () => vi.advanceTimersByTime(3000));
     expect(screen.getByLabelText("남은 시간").textContent).toBe("24:57");
     expect(screen.getByLabelText("프로그램 누적 사용 시간").textContent).toBe("00:12");
@@ -221,7 +221,7 @@ describe("backend-owned usage readout", () => {
       />,
     );
     expect(screen.getByLabelText("프로그램 누적 사용 시간").textContent).toBe("00:15");
-    expect(screen.getByText("선택한 프로그램으로 전환하면 측정해요.")).toBeTruthy();
+    expect(screen.getByText(/선택한 프로그램으로 전환하면 측정해요/)).toBeTruthy();
   });
 
   it.each(["paused", "rest"])("does not invent usage while %s", async (phase) => {
@@ -238,9 +238,9 @@ describe("backend-owned usage readout", () => {
     await reactAct(async () => vi.advanceTimersByTime(180000));
     expect(screen.getByLabelText("프로그램 누적 사용 시간").textContent).toBe("01:02");
     expect(
-      screen.getByText(phase === "rest" ? "휴식 중 · 측정 멈춤" : "일시정지 중 · 측정 멈춤"),
+      screen.getByText(phase === "rest" ? /휴식 중 · 측정 멈춤/ : /일시정지 중 · 측정 멈춤/),
     ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "프로그램 변경" })).toHaveProperty("disabled", true);
+    expect(screen.queryByRole("button", { name: "프로그램 변경" })).toBeNull();
     expect(command).not.toHaveBeenCalled();
   });
 
@@ -260,7 +260,7 @@ describe("backend-owned usage readout", () => {
       />,
     );
     expect(screen.getByLabelText("프로그램 누적 사용 시간").textContent).toBe("00:00");
-    expect(screen.getByText("이 환경에서는 프로그램 사용 시간을 측정할 수 없어요.")).toBeTruthy();
+    expect(screen.getByText(/이 환경에서는 프로그램 사용 시간을 측정할 수 없어요/)).toBeTruthy();
   });
 
   it("does not relabel a previous program's total after choosing a different program", () => {

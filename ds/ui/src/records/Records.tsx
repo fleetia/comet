@@ -225,7 +225,9 @@ export const RecordQuickAdd = forwardRef<HTMLFormElement, RecordQuickAddProps>(
     <form
       {...props}
       ref={ref}
-      className={[styles.quickAdd, layout === "page" && styles.pageQuickAdd, className].filter(Boolean).join(" ")}
+      className={[styles.quickAdd, layout === "page" && styles.pageQuickAdd, className]
+        .filter(Boolean)
+        .join(" ")}
       onSubmit={(event) => {
         event.preventDefault();
         if (!disabled && value.trim()) {
@@ -233,22 +235,24 @@ export const RecordQuickAdd = forwardRef<HTMLFormElement, RecordQuickAddProps>(
         }
       }}
     >
-      {layout !== "page" && <span className={styles.quickKindWrap}>
-        <select
-          className={styles.quickKind}
-          aria-label={kindLabel}
-          value={kind}
-          disabled={disabled}
-          onChange={(event) => onKindChange(event.currentTarget.value)}
-        >
-          {kinds.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <Icon name="chevdown" size={13} className={styles.kindChevron} />
-      </span>}
+      {layout !== "page" && (
+        <span className={styles.quickKindWrap}>
+          <select
+            className={styles.quickKind}
+            aria-label={kindLabel}
+            value={kind}
+            disabled={disabled}
+            onChange={(event) => onKindChange(event.currentTarget.value)}
+          >
+            {kinds.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <Icon name="chevdown" size={13} className={styles.kindChevron} />
+        </span>
+      )}
       <input
         className={styles.bareInput}
         aria-label={label}
@@ -327,6 +331,8 @@ export type EnvelopeHeaderProps = Omit<HTMLAttributes<HTMLElement>, "title" | "c
   progressLabel?: string;
   eventHref?: string;
   eventLabel?: string;
+  onOpenEvent?: () => void;
+  disabled?: boolean;
   onChangeDate?: () => void;
   changeDateLabel?: string;
   actions?: ReactNode;
@@ -340,6 +346,8 @@ export function EnvelopeHeader({
   progressLabel = `${total}개 중 ${completed}개 준비됨`,
   eventHref,
   eventLabel = "일정 보기",
+  onOpenEvent,
+  disabled = false,
   onChangeDate,
   changeDateLabel = "날짜 바꾸기",
   actions,
@@ -360,13 +368,29 @@ export function EnvelopeHeader({
               <span className={styles.body}>{description}</span>
             </>
           )}
-          {eventHref && (
-            <a href={eventHref} className={styles.textAction}>
+          {onOpenEvent ? (
+            <button
+              type="button"
+              className={styles.textAction}
+              disabled={disabled}
+              onClick={onOpenEvent}
+            >
               {eventLabel}
-            </a>
+            </button>
+          ) : (
+            eventHref && (
+              <a href={eventHref} className={styles.textAction}>
+                {eventLabel}
+              </a>
+            )
           )}
           {onChangeDate && (
-            <button type="button" className={styles.textAction} onClick={onChangeDate}>
+            <button
+              type="button"
+              className={styles.textAction}
+              onClick={onChangeDate}
+              disabled={disabled}
+            >
               {changeDateLabel}
             </button>
           )}

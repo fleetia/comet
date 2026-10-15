@@ -69,11 +69,11 @@ function readSession(session: DataRecord): FocusSession {
     endedAt: number(session.endedAt),
     elapsedMs: number(session.elapsedMs),
     outcome: text(session.outcome),
+    recordTimeline: session.recordTimeline !== false,
     memo: text(session.memo),
     eventRef: record(session.eventRef),
     noteRef: record(session.noteRef),
     appUsage: readAppUsage(session.appUsage),
-    recordTimeline: session.recordTimeline !== false,
     segments: rows(session.segments)
       .map((segment) => ({ startAt: number(segment.startAt), endAt: number(segment.endAt) }))
       .filter((segment) => segment.endAt > segment.startAt),

@@ -832,6 +832,14 @@ mod pipeline_tests {
         act(
             &db,
             "focus-timer",
+            "configure-settings",
+            json!({"autoStartRest":false}),
+            0,
+            0,
+        );
+        act(
+            &db,
+            "focus-timer",
             "start",
             json!({"durationMs":1000}),
             1_000,

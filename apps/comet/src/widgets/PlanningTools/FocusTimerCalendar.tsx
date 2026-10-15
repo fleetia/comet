@@ -68,16 +68,18 @@ export function FocusTimerCalendar({
   const weekStart = periodAnchor("week", day);
   const dayStart = new Date(`${day}T00:00:00`).getTime();
   const dayEnd = new Date(`${moveDay(day, 1)}T00:00:00`).getTime();
-  const actual = sessions.flatMap((session) =>
-    session.segments
-      .filter((segment) => segment.startAt < dayEnd && segment.endAt > dayStart)
-      .map((segment, index) => ({
-        session,
-        index,
-        startAt: Math.max(dayStart, segment.startAt),
-        endAt: Math.min(dayEnd, segment.endAt),
-      })),
-  );
+  const actual = sessions
+    .filter((session) => session.recordTimeline !== false)
+    .flatMap((session) =>
+      session.segments
+        .filter((segment) => segment.startAt < dayEnd && segment.endAt > dayStart)
+        .map((segment, index) => ({
+          session,
+          index,
+          startAt: Math.max(dayStart, segment.startAt),
+          endAt: Math.min(dayEnd, segment.endAt),
+        })),
+    );
   function hour(at: number): number {
     if (at >= dayEnd) return 24;
     const date = new Date(at);

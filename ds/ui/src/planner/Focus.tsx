@@ -49,7 +49,7 @@ export function FocusAppUsage({
     <div {...props} className={classes(styles.focusUsage, className)}>
       <div className={styles.focusUsageHeader}>
         <span className={styles.muted}>앱 전면 사용</span>
-        {(state === "unselected" || state === "finished") && (
+        {onChoose && (state === "unselected" || state === "finished") && (
           <button type="button" className={styles.focusUsageChoose} onClick={onChoose}>
             {chooseLabel ?? (state === "finished" ? "바꾸기…" : "고르기…")}
           </button>

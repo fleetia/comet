@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { Button, SegmentedControl, SettingControlRow, Stepper } from "@comet/ui";
+import { Button, SettingControlRow, Stepper } from "@comet/ui";
 import { errorText } from "../../hooks/useSnapshot";
 import { number, record, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
@@ -41,10 +41,10 @@ export function FocusWidgetSettings({
     (number(data.focusDurationMs) ||
       (data.mode !== "rest" ? number(data.durationMs) : 0) ||
       1500000) / 60000;
-  const [duration, setDuration] = useState(savedDuration);
+  const [duration, setDuration] = useState(String(savedDuration));
   const [durationBase, setDurationBase] = useState(savedDuration);
   const durationSavedRevision = useRef<number | null>(null);
-  const durationDirty = duration !== durationBase;
+  const durationDirty = !duration.trim() || Number(duration) !== durationBase;
   const durationConflict =
     durationDirty &&
     savedDuration !== durationBase &&
@@ -59,7 +59,7 @@ export function FocusWidgetSettings({
       (durationSavedRevision.current === null || widget.revision > durationSavedRevision.current)
     ) {
       durationSavedRevision.current = null;
-      setDuration(savedDuration);
+      setDuration(String(savedDuration));
       setDurationBase(savedDuration);
     }
   }, [widget.revision, savedDuration, durationDirty]);
@@ -95,7 +95,8 @@ export function FocusWidgetSettings({
             unit="분"
             value={duration}
             disabled={busy || settingsBusy || (data.status !== undefined && data.status !== "idle")}
-            onValueChange={setDuration}
+            onChange={(event) => setDuration(event.target.value)}
+            onValueChange={(value) => setDuration(String(value))}
           />
         }
       />
@@ -111,15 +112,16 @@ export function FocusWidgetSettings({
               busy ||
               settingsBusy ||
               durationConflict ||
-              !Number.isFinite(duration) ||
-              duration < 1 ||
-              duration > 1440 ||
+              !duration.trim() ||
+              !Number.isFinite(Number(duration)) ||
+              Number(duration) < 1 ||
+              Number(duration) > 1440 ||
               (data.status !== undefined && data.status !== "idle")
             }
             onClick={async () => {
-              if (await configure({ durationMs: Math.round(duration * 60000) })) {
+              if (await configure({ durationMs: Math.round(Number(duration) * 60000) })) {
                 durationSavedRevision.current = widget.revision;
-                setDurationBase(duration);
+                setDurationBase(Number(duration));
               }
             }}
           >
@@ -134,7 +136,7 @@ export function FocusWidgetSettings({
                 widget.revision <= durationSavedRevision.current
                   ? durationBase
                   : savedDuration;
-              setDuration(value);
+              setDuration(String(value));
               setDurationBase(value);
               setError("");
             }}
@@ -143,26 +145,6 @@ export function FocusWidgetSettings({
           </Button>
         </div>
       )}
-      <SettingControlRow
-        title="타이머 모양"
-        control={
-          <SegmentedControl
-            label="타이머 모양"
-            value={data.presentation === "digits" ? "digits" : "dial"}
-            disabled={busy || settingsBusy}
-            options={[
-              { value: "dial", label: "고리" },
-              { value: "digits", label: "숫자" },
-            ]}
-            onValueChange={(presentation) => void configure({ presentation })}
-          />
-        }
-      />
-      <SettingControlRow
-        title="친구들 조용히 하기"
-        description="집중 중에는 캐릭터 대화가 잠시 쉬어요"
-        control={<span className={s.quiet}>항상 켜짐</span>}
-      />
       {error && (
         <p role="alert" className={s.error}>
           {error}

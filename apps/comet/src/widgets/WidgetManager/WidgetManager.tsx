@@ -1,6 +1,7 @@
 import { Button, Checkbox, Dialog, Heading, Inline, Surface, Text } from "../../ui";
 import { SettingControlRow, SettingsSummary, Switch } from "@comet/ui";
 import { Icon, SparkleIcon } from "@comet/icon";
+import { PreparationSettingsPreview } from "../PreparationTool/PreparationSettingsPreview";
 import { WidgetDetailPreview } from "./WidgetDetailPreview";
 import { ClockSettings } from "../PlanningTools/PlanningTools";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
@@ -477,7 +478,22 @@ export function WidgetManager({
                         </Text>
                       )}
                     </div>
-                    {widget?.installed && <WidgetDetailPreview widget={widget} />}
+                    {widget?.installed && (
+                      <WidgetDetailPreview
+                        widget={widget}
+                        act={act}
+                        disabled={!canAct || !widget.enabled}
+                        onBusyChange={(value) => reportBusy(`${widget.id}:preview`, value)}
+                      />
+                    )}
+                    {widget?.installed && widget.kind === "preparation" && (
+                      <PreparationSettingsPreview
+                        widget={widget}
+                        widgets={widgets}
+                        disabled={!canAct || !widget.enabled}
+                        onOpen={() => void run("open_widget", { id: widget.id })}
+                      />
+                    )}
                     {widget?.installed &&
                       widget.kind === "weather" &&
                       record(widget.data).configured === true && (
@@ -509,7 +525,11 @@ export function WidgetManager({
                             void run(isMemo ? "create_memo_note" : "open_widget", { id: widget.id })
                           }
                         >
-                          {isMemo ? "새 메모 꺼내기" : toolActionLabel(windowState)}
+                          {isMemo
+                            ? "새 메모 꺼내기"
+                            : widget.kind === "preparation"
+                              ? "사용 시작"
+                              : toolActionLabel(windowState)}
                         </Button>
                       )}
                       {widget?.installed && isToy && (

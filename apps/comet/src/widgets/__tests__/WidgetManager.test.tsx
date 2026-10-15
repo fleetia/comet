@@ -431,7 +431,7 @@ it("removes only calendar, preserves data by default, and leaves preparation ava
   });
   view.rerender(<WidgetManager embedded />);
   chooseWidget("준비 봉투 켜짐");
-  fireEvent.click(screen.getByRole("button", { name: "위젯 열기 ↗" }));
+  fireEvent.click(screen.getByRole("button", { name: "사용 시작" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("open_widget", { id: "preparation" }));
   expect(vi.mocked(command).mock.calls.filter(([name]) => name === "remove_widget")).toEqual([
     ["remove_widget", { id: "calendar", deleteData: false }],

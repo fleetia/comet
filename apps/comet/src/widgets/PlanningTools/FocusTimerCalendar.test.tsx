@@ -85,3 +85,37 @@ it("prevents composition Enter from submitting and retains the schedule draft af
   expect(input).toHaveProperty("value", "조합 중인 제목");
   expect(screen.getByRole("form", { name: "일정 빠르게 등록" })).toBeTruthy();
 });
+
+it("omits sessions from the timetable when recording was disabled without deleting the source", () => {
+  const startAt = new Date().setHours(10, 0, 0, 0);
+  const session = {
+    id: "session",
+    title: "집중 기록",
+    startedAt: startAt,
+    endedAt: startAt + 60000,
+    elapsedMs: 60000,
+    outcome: "completed",
+    memo: "",
+    eventRef: {},
+    noteRef: {},
+    segments: [{ startAt, endAt: startAt + 60000 }],
+  };
+  const props = {
+    calendar,
+    act,
+    canPrepare: true,
+    title: "",
+    durationMs: 1500000,
+    noteRef: null,
+    linkedEvent: null,
+    onPrepare: vi.fn(),
+    onSession: vi.fn(),
+  };
+  const view = render(<FocusTimerCalendar {...props} sessions={[session]} />);
+  expect(screen.getByRole("button", { name: /집중 기록 실제 집중/ })).toBeTruthy();
+  view.rerender(
+    <FocusTimerCalendar {...props} sessions={[{ ...session, recordTimeline: false }]} />,
+  );
+  expect(screen.queryByRole("button", { name: /집중 기록 실제 집중/ })).toBeNull();
+  expect(session.elapsedMs).toBe(60000);
+});

@@ -17,7 +17,7 @@ const meta = {
     style: { padding: 24, maxWidth: 480 },
   },
   argTypes: {
-    variant: { control: "radio", options: ["window", "sheet", "popover"] },
+    variant: { control: "radio", options: ["window", "sheet", "popover", "card"] },
     open: { control: "boolean", description: "열고 닫기 · 퇴장 완료 후 내용을 숨깁니다." },
     onExitComplete: { control: false, description: "퇴장 완료 후 소비자가 제거 시점을 받는 콜백" },
     children: { control: false },
@@ -35,6 +35,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 export const Window: Story = { name: "창" };
 export const Sheet: Story = { name: "시트", args: { variant: "sheet" } };
+export const Card: Story = { name: "본문 카드", args: { variant: "card" } };
 export const Popover: Story = {
   name: "팝오버 표면",
   args: { variant: "popover", children: <p>짧은 안내를 담는 표면입니다.</p> },

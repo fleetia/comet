@@ -17,7 +17,7 @@ export type StepperProps = Omit<
   "type" | "size" | "children" | "value" | "defaultValue" | "min" | "max" | "step"
 > &
   FieldProps & {
-    value?: number;
+    value?: number | string;
     defaultValue?: number;
     min?: number;
     max?: number;
@@ -65,6 +65,7 @@ export const Stepper = forwardRef<HTMLInputElement, StepperProps>(
     const inputRef = useRef<HTMLInputElement | null>(null);
     const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue);
     const currentValue = value ?? uncontrolledValue;
+    const numericValue = currentValue === "" ? Number.NaN : Number(currentValue);
 
     useEffect(() => {
       const form = inputRef.current?.form;
@@ -91,7 +92,7 @@ export const Stepper = forwardRef<HTMLInputElement, StepperProps>(
         input.stepDown();
       }
       const nextValue = input.valueAsNumber;
-      if (!Number.isFinite(nextValue) || nextValue === currentValue) {
+      if (!Number.isFinite(nextValue) || nextValue === numericValue) {
         return;
       }
       if (value !== undefined) {
@@ -115,7 +116,7 @@ export const Stepper = forwardRef<HTMLInputElement, StepperProps>(
               className={styles.button}
               aria-label={decreaseLabel}
               aria-controls={field.id}
-              disabled={disabled || readOnly || (min !== undefined && currentValue <= min)}
+              disabled={disabled || readOnly || (min !== undefined && numericValue <= min)}
               onClick={() => {
                 changeValue("down");
               }}
@@ -158,7 +159,7 @@ export const Stepper = forwardRef<HTMLInputElement, StepperProps>(
               className={styles.button}
               aria-label={increaseLabel}
               aria-controls={field.id}
-              disabled={disabled || readOnly || (max !== undefined && currentValue >= max)}
+              disabled={disabled || readOnly || (max !== undefined && numericValue >= max)}
               onClick={() => {
                 changeValue("up");
               }}

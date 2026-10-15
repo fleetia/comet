@@ -48,6 +48,58 @@ describe("controlled widgets", () => {
     rerender(<EnvelopeWidget title="빈 봉투" date="10월 24일" tasks={[]} />);
     expect((screen.getByRole("progressbar") as HTMLProgressElement).max).toBe(1);
   });
+  it("supports the app's digit view, custom duration and disabled start", async () => {
+    const start = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <FocusTimerWidget
+        task="책 읽기"
+        time="12:00"
+        presentation="digits"
+        progress={0.5}
+        startDisabled
+        onStart={start}
+        customDuration={<button type="button">직접</button>}
+        setup={<input aria-label="직접 입력할 시간" />}
+      />,
+    );
+    expect(screen.getByRole("timer", { name: "남은 시간" }).textContent).toBe("12:00");
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("50");
+    expect(screen.getByRole("button", { name: "직접" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "집중 시작" }));
+    expect(start).not.toHaveBeenCalled();
+  });
+  it("delegates completion note persistence and manual rest without assuming a five minute break", async () => {
+    const user = userEvent.setup();
+    const rest = vi.fn();
+    const blur = vi.fn();
+    const { rerender } = render(
+      <FocusTimerWidget
+        task="책 읽기"
+        time="00:00"
+        phase="complete"
+        note="요약"
+        onNoteChange={() => {}}
+        onNoteBlur={blur}
+        onRest={rest}
+        restLabel="10분 휴식"
+      />,
+    );
+    await user.click(screen.getByRole("textbox", { name: "이번 집중 메모" }));
+    await user.click(screen.getByRole("button", { name: "10분 휴식" }));
+    expect(blur).toHaveBeenCalledOnce();
+    expect(rest).toHaveBeenCalledOnce();
+    rerender(
+      <FocusTimerWidget
+        task="책 읽기"
+        time="00:00"
+        phase="rest-complete"
+        timeDescription="쉬는 시간 10분이 끝났어요"
+      />,
+    );
+    expect(screen.getByText("쉬는 시간 10분이 끝났어요")).toBeTruthy();
+    expect(screen.queryByText("쉬는 시간 5분이 끝났어요")).toBeNull();
+  });
   it("isolates native radio groups across pickers and delegates selected values", async () => {
     const user = userEvent.setup();
     const select = vi.fn();

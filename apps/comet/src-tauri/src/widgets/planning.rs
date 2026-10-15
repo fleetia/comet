@@ -98,8 +98,13 @@ struct Anniversary {
     date: String,
 }
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Preparation {
     envelopes: Vec<Envelope>,
+    #[serde(default)]
+    reminder_days: u8,
+    #[serde(default)]
+    ask_archive_after_end: bool,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -115,6 +120,10 @@ struct Envelope {
     archived: bool,
     #[serde(default)]
     date: Option<String>,
+    #[serde(default)]
+    archive_prompt_dismissed_for: Option<String>,
+    #[serde(default)]
+    reminder_days: Option<u8>,
     checks: Vec<Check>,
     links: Vec<Link>,
     todo_ids: Vec<String>,
@@ -196,7 +205,7 @@ pub fn initial(kind: &str) -> Value {
     match kind {
         "todo" => json!({"lists":[{"id":"default","name":"할 일"}],"items":[]}),
         "focus-timer" => focus::initial(),
-        "preparation" => json!({"envelopes":[]}),
+        "preparation" => json!({"envelopes":[],"reminderDays":0,"askArchiveAfterEnd":false}),
         "clock" => json!({"format":"24h","anniversaries":[],"appearance":appearance::initial()}),
         "memo" => json!({"notes":[]}),
         _ => Value::Null,
@@ -937,6 +946,18 @@ fn preparation(
             envelope.title.clone_from(&envelope.event_label);
         }
     }
+    if action == "configure" {
+        if let Some(value) = input.get("reminderDays") {
+            state.reminder_days = value
+                .as_u64()
+                .filter(|days| [0, 1, 3, 7].contains(days))
+                .ok_or("준비 알림은 끄기, 1일, 3일, 7일 전 중에서 골라 주세요.")? as u8;
+        }
+        if let Some(value) = input.get("askArchiveAfterEnd") {
+            state.ask_archive_after_end = value.as_bool().ok_or("보관 질문 설정이 올바르지 않습니다.")?;
+        }
+        return encode(state, vec![]);
+    }
     let new_id = id(now, entropy);
     if action == "create" {
         capacity(state.envelopes.len())?;
@@ -949,15 +970,29 @@ fn preparation(
             text(input, "eventLabel", 1000)?
         };
         state.envelopes.push(Envelope {
-            id: new_id,
+            id: new_id.clone(),
             event_id: envelope_event_id(input)?,
             event_label: optional_text(input, "eventLabel", 1000)?,
             title,
             archived: false,
             date: envelope_date(input)?,
-            checks: vec![],
+            archive_prompt_dismissed_for: None,
+            reminder_days: envelope_reminder_days(input)?,
+            checks: envelope_checks(input, &new_id)?,
             links: vec![],
-            todo_ids: vec![],
+            todo_ids: match input.get("todoIds") {
+                Some(value) => {
+                    let ids: Vec<String> = decode(value)?;
+                    capacity(ids.len())?;
+                    let todos: TodoState = decode(related.get("todo").ok_or("할 일 위젯을 켜 주세요.")?)?;
+                    if ids.iter().any(|id| !todos.items.iter().any(|item| item.id == *id)) { return Err(missing()); }
+                    let mut unique = ids;
+                    unique.sort();
+                    unique.dedup();
+                    unique
+                }
+                None => vec![],
+            },
         });
         return encode(state, vec![]);
     }
@@ -990,6 +1025,16 @@ fn preparation(
             }
             if input.get("date").is_some() {
                 envelope.date = envelope_date(input)?;
+            }
+            if input.get("reminderDays").is_some() {
+                envelope.reminder_days = envelope_reminder_days(input)?;
+            }
+            if let Some(value) = input.get("archivePromptDismissedFor") {
+                envelope.archive_prompt_dismissed_for = if value.is_null() {
+                    None
+                } else {
+                    Some(text(input, "archivePromptDismissedFor", 300)?)
+                };
             }
         }
         "check-promote" => {
@@ -1089,6 +1134,24 @@ fn preparation(
         _ => return Err("지원하지 않는 준비 봉투 동작입니다.".into()),
     }
     encode(state, vec![])
+}
+
+fn envelope_reminder_days(input: &Value) -> Result<Option<u8>, String> {
+    match input.get("reminderDays") {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value.as_u64().filter(|days| [0, 1, 3, 7].contains(days)).map(|days| Some(days as u8))
+            .ok_or_else(|| "준비 알림은 끄기, 1일, 3일, 7일 전 중에서 골라 주세요.".into()),
+    }
+}
+
+fn envelope_checks(input: &Value, envelope_id: &str) -> Result<Vec<Check>, String> {
+    let Some(value) = input.get("checks") else { return Ok(vec![]); };
+    let checks = value.as_array().ok_or("챙길 것을 한 줄에 하나씩 적어 주세요.")?;
+    capacity(checks.len())?;
+    checks.iter().enumerate().map(|(index, value)| {
+        let content = text(&json!({"text": value}), "text", 1000)?;
+        Ok(Check { id: format!("{envelope_id}-check-{index}"), text: content, done: false })
+    }).collect()
 }
 
 fn envelope_event_id(input: &Value) -> Result<String, String> {
@@ -1283,9 +1346,16 @@ mod tests {
         .data;
         let key = todos["items"][0]["id"].clone();
         let related = BTreeMap::from([("todo".into(), todos.clone())]);
-        let started = act(
+        let configured = run(
             "focus-timer",
             &initial("focus-timer"),
+            "configure-settings",
+            json!({"autoStartRest":false}),
+            0,
+        );
+        let started = act(
+            "focus-timer",
+            &configured.data,
             "start",
             &json!({"durationMs":10000,"todoId":key}),
             &related,
@@ -1391,6 +1461,25 @@ mod tests {
             assert!(act("todo", &added.data, "add", &input, &BTreeMap::new(), 3, 7).is_err());
         }
         assert_eq!(added.data["items"].as_array().unwrap().len(), 1);
+    }
+    #[test]
+    fn preparation_settings_preserve_content_and_legacy_defaults() {
+        let legacy = json!({"envelopes":[{
+            "id":"existing","title":"준비","checks":[],"links":[],"todoIds":[]
+        }]});
+        let configured = run("preparation", &legacy, "configure", json!({"reminderDays":3,"askArchiveAfterEnd":true}), 1);
+        assert_eq!(configured.data["reminderDays"], 3);
+        assert_eq!(configured.data["askArchiveAfterEnd"], true);
+        assert_eq!(configured.data["envelopes"][0]["id"], "existing");
+        let dismissed = run("preparation", &configured.data, "update", json!({"id":"existing","archivePromptDismissedFor":"date:2026-10-15"}), 2);
+        assert_eq!(dismissed.data["envelopes"][0]["archivePromptDismissedFor"], "date:2026-10-15");
+        assert_eq!(dismissed.data["reminderDays"], 3);
+        for value in [json!(-1), json!(2), json!(1.5), json!("3")] {
+            assert!(act("preparation", &legacy, "configure", &json!({"reminderDays":value}), &BTreeMap::new(), 1, 1).is_err());
+        }
+        let normalized = run("preparation", &legacy, "configure", json!({}), 3);
+        assert_eq!(normalized.data["reminderDays"], 0);
+        assert_eq!(normalized.data["askArchiveAfterEnd"], false);
     }
     #[test]
     fn legacy_envelope_keeps_content_when_renamed_detached_and_archived() {

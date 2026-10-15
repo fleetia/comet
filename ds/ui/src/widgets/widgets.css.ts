@@ -166,6 +166,7 @@ export const ring = style({
   placeItems: "center",
 });
 export const ringSvg = style({ position: "absolute", inset: 0, transform: "rotate(-90deg)" });
+export const digits = style({ display: "grid", placeItems: "center", padding: "12px 0" });
 export const ringCopy = style({
   display: "flex",
   flexDirection: "column",

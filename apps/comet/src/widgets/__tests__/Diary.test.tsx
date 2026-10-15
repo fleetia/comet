@@ -1377,3 +1377,91 @@ it("routes native habit and ledger navigation to the matching screen and preserv
   expect(screen.queryByRole("region", { name: "습관 기록" })).toBeNull();
   expect(actions("update_diary")).toEqual([]);
 });
+
+it("unlocks a rejected envelope draft and creates a new request from the refreshed widget revision", async () => {
+  const preparation = widget("preparation", { envelopes: [] });
+  widgets.widgets = [preparation];
+  execute = () => {
+    preparation.revision = 8;
+    throw new Error("PREPARATION_CREATE_REJECTED: 연결할 일정이 없어졌어요.");
+  };
+  await openDiary();
+  fireEvent.click(screen.getByRole("link", { name: /^준비 봉투/ }));
+  const sidebar = within(screen.getByRole("navigation", { name: "준비 봉투 목록" }));
+  expect(sidebar.queryByRole("heading", { name: "준비 봉투" })).toBeNull();
+  expect(sidebar.getByRole("heading", { name: "준비 중 · 0" })).toBeTruthy();
+  expect(opened().getAllByRole("heading", { level: 1 })).toHaveLength(1);
+  expect(screen.getAllByRole("button", { name: "새 준비 봉투" })).toHaveLength(1);
+  fireEvent.click(opened().getByRole("button", { name: "새 준비 봉투" }));
+  const form = within(screen.getByRole("dialog", { name: "새 준비 봉투" }));
+  fireEvent.change(form.getByRole("textbox", { name: "봉투 이름" }), {
+    target: { value: "이어 쓸 준비" },
+  });
+  fireEvent.click(form.getByRole("button", { name: "만들기" }));
+  await waitFor(() =>
+    expect(form.getByRole("textbox", { name: "봉투 이름" })).toHaveProperty("disabled", false),
+  );
+  expect(form.getByRole("textbox", { name: "봉투 이름" })).toHaveProperty("value", "이어 쓸 준비");
+  fireEvent.change(form.getByRole("textbox", { name: "봉투 이름" }), {
+    target: { value: "고친 준비" },
+  });
+  execute = (request) => {
+    preparation.data = {
+      envelopes: [{ id: "created-envelope", ...(request.input as DataRecord) }],
+    };
+    return "created-envelope";
+  };
+  fireEvent.click(form.getByRole("button", { name: "만들기" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "새 준비 봉투" })).toBeNull());
+  const requests = actions("execute_widget").map(({ request }) => request as DataRecord);
+  expect(requests).toHaveLength(2);
+  expect(requests[0]).toMatchObject({ expectedRevision: 7, input: { title: "이어 쓸 준비" } });
+  expect(requests[1]).toMatchObject({ expectedRevision: 8, input: { title: "고친 준비" } });
+  expect(requests[1].requestId).not.toBe(requests[0].requestId);
+  expect(await opened().findByRole("heading", { name: "고친 준비" })).toBeTruthy();
+});
+
+it("retries an uncertain envelope create with the same request after its linked event disappears", async () => {
+  const preparation = widget("preparation", { envelopes: [] });
+  const calendar = widget("calendar", {
+    events: [
+      { id: "event", title: "함께 갈 일정", connectionId: "local", startDate: DAY, allDay: true },
+    ],
+  });
+  widgets.widgets = [preparation, calendar];
+  execute = () => {
+    preparation.revision = 8;
+    calendar.data = { events: [] };
+    throw new Error("저장 응답을 받지 못했어요.");
+  };
+  await openDiary();
+  fireEvent.click(screen.getByRole("link", { name: /^준비 봉투/ }));
+  fireEvent.click(opened().getByRole("button", { name: "새 준비 봉투" }));
+  const form = within(screen.getByRole("dialog", { name: "새 준비 봉투" }));
+  fireEvent.change(form.getByRole("textbox", { name: "봉투 이름" }), {
+    target: { value: "같은 요청의 준비" },
+  });
+  fireEvent.click(form.getByRole("radio", { name: "일정에 연결" }));
+  fireEvent.change(form.getByRole("combobox", { name: "일정" }), { target: { value: "event" } });
+  fireEvent.click(form.getByRole("button", { name: "만들기" }));
+  const retry = await form.findByRole("button", { name: "같은 요청으로 다시 시도" });
+  await waitFor(() => expect(retry).toHaveProperty("disabled", false));
+  expect(form.getByRole("textbox", { name: "봉투 이름" })).toHaveProperty("disabled", true);
+  await waitFor(() => expect(form.queryByRole("option", { name: /함께 갈 일정/ })).toBeNull());
+  execute = (request) => {
+    preparation.data = {
+      envelopes: [{ id: "restored-envelope", ...(request.input as DataRecord) }],
+    };
+    return "restored-envelope";
+  };
+  fireEvent.click(retry);
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "새 준비 봉투" })).toBeNull());
+  const requests = actions("execute_widget").map(({ request }) => request);
+  expect(requests).toHaveLength(2);
+  expect(requests[1]).toEqual(requests[0]);
+  expect(requests[1]).toMatchObject({
+    expectedRevision: 7,
+    input: { eventId: "event", title: "같은 요청의 준비" },
+  });
+  expect(await opened().findByRole("heading", { name: "같은 요청의 준비" })).toBeTruthy();
+});

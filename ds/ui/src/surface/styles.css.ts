@@ -26,6 +26,13 @@ export const variants = styleVariants({
   },
   sheet: {},
   popover: { borderRadius: tokens["radius/radius-18"] },
+  card: {
+    borderColor: tokens["color/card-border"],
+    borderRadius: tokens["radius/radius-16"],
+    background: tokens["color/card"],
+    backdropFilter: "none",
+    boxShadow: "none",
+  },
 });
 
 export const menuItem = style([

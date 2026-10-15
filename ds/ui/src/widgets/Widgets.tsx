@@ -221,6 +221,12 @@ export type FocusTimerWidgetProps = Omit<HTMLAttributes<HTMLElement>, "title" | 
   progress?: number;
   duration?: number;
   durations?: readonly number[];
+  presentation?: "dial" | "digits";
+  taskInputLabel?: string;
+  setup?: ReactNode;
+  customDuration?: ReactNode;
+  afterControls?: ReactNode;
+  startDisabled?: boolean;
   onDurationChange?: (duration: number) => void;
   onTaskChange?: (task: string) => void;
   onStart?: () => void;
@@ -228,9 +234,13 @@ export type FocusTimerWidgetProps = Omit<HTMLAttributes<HTMLElement>, "title" | 
   onStop?: () => void;
   onSkipRest?: () => void;
   onContinue?: () => void;
+  onRest?: () => void;
+  restLabel?: string;
   onCollapse?: () => void;
   onExpand?: () => void;
   onNoteChange?: (note: string) => void;
+  onNoteBlur?: () => void;
+  noteLabel?: string;
   note?: string;
   completion?: ReactNode;
   summary?: ReactNode;
@@ -243,49 +253,84 @@ function TimerRing({
   description,
   progress = 0,
   rest = false,
+  presentation = "dial",
   icon,
 }: {
   time: string;
   description?: string;
   progress?: number;
   rest?: boolean;
+  presentation?: "dial" | "digits";
   icon?: IconName;
 }): JSX.Element {
   const amount = Number.isFinite(progress) ? Math.min(1, Math.max(0, progress)) : 0;
   const stroke = rest ? "var(--comet-color-byul-ink)" : "var(--comet-color-live)";
   return (
-    <div className={styles.ring}>
-      <svg aria-hidden width="160" height="160" viewBox="0 0 160 160" className={styles.ringSvg}>
-        <circle
-          cx="80"
-          cy="80"
-          r="72"
-          fill="none"
-          stroke="var(--comet-color-chip)"
-          strokeWidth="7"
-        />
-        <circle
-          cx="80"
-          cy="80"
-          r="72"
-          fill="none"
-          stroke={stroke}
-          strokeWidth="7"
-          strokeLinecap="round"
-          strokeDasharray={`${amount * 452.39} 452.39`}
-        />
-        <circle
-          cx={80 + Math.cos(amount * 2 * Math.PI) * 72}
-          cy={80 + Math.sin(amount * 2 * Math.PI) * 72}
-          r="7"
-          fill="var(--comet-color-comet)"
-        />
-      </svg>
+    <div
+      className={presentation === "digits" ? styles.digits : styles.ring}
+      role="progressbar"
+      aria-label="남은 집중 시간 비율"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(amount * 100)}
+    >
+      {presentation === "dial" && (
+        <svg aria-hidden width="160" height="160" viewBox="0 0 160 160" className={styles.ringSvg}>
+          <circle
+            cx="80"
+            cy="80"
+            r="72"
+            fill="none"
+            stroke="var(--comet-color-chip)"
+            strokeWidth="7"
+          />
+          <circle
+            cx="80"
+            cy="80"
+            r="72"
+            fill="none"
+            stroke={stroke}
+            strokeWidth="7"
+            strokeLinecap="round"
+            strokeDasharray={`${amount * 452.39} 452.39`}
+          />
+          <circle
+            cx={80 + Math.cos(amount * 2 * Math.PI) * 72}
+            cy={80 + Math.sin(amount * 2 * Math.PI) * 72}
+            r="7"
+            fill="var(--comet-color-comet)"
+          />
+        </svg>
+      )}
       <span className={styles.ringCopy}>
-        {icon ? <Icon name={icon} size={26} /> : <span className={styles.timer}>{time}</span>}
+        {icon ? (
+          <Icon name={icon} size={26} />
+        ) : (
+          <span role="timer" aria-label="남은 시간" className={styles.timer}>
+            {time}
+          </span>
+        )}
         {description && <span className={styles.small}>{description}</span>}
       </span>
     </div>
+  );
+}
+
+export type FocusTimerPreviewProps = Omit<HTMLAttributes<HTMLElement>, "title"> & {
+  time: string;
+  presentation?: "dial" | "digits";
+  description?: string;
+};
+export function FocusTimerPreview({
+  time,
+  presentation = "dial",
+  description = "기본 집중 시간",
+  ...props
+}: FocusTimerPreviewProps): JSX.Element {
+  return (
+    <WidgetExpanded {...props} title="집중 타이머" icon="timer">
+      <TimerRing time={time} description={description} presentation={presentation} progress={1} />
+    </WidgetExpanded>
   );
 }
 
@@ -299,6 +344,12 @@ export function FocusTimerWidget({
   progress = 0,
   duration = 25,
   durations = [15, 25, 50],
+  presentation = "dial",
+  taskInputLabel = "무엇에 집중할까요?",
+  setup,
+  customDuration,
+  afterControls,
+  startDisabled = false,
   onDurationChange,
   onTaskChange,
   onStart,
@@ -306,9 +357,13 @@ export function FocusTimerWidget({
   onStop,
   onSkipRest,
   onContinue,
+  onRest,
+  restLabel = "휴식 시작",
   onCollapse,
   onExpand,
   onNoteChange,
+  onNoteBlur,
+  noteLabel = "이번 집중 메모",
   note = "",
   completion,
   summary,
@@ -359,8 +414,9 @@ export function FocusTimerWidget({
       {phase === "ready" && (
         <>
           <label className={styles.small}>
-            무엇에 집중할까요?
+            {taskInputLabel}
             <input
+              aria-label="집중할 일"
               className={styles.note}
               value={task}
               onChange={(event) => onTaskChange?.(event.currentTarget.value)}
@@ -368,7 +424,12 @@ export function FocusTimerWidget({
             />
           </label>
           {completion}
-          <TimerRing time={time} description={timeDescription} progress={progress} />
+          <TimerRing
+            time={time}
+            description={timeDescription}
+            progress={progress}
+            presentation={presentation}
+          />
           <div role="group" aria-label="집중 시간" className={styles.durations}>
             {durations.map((minutes) => (
               <button
@@ -381,10 +442,14 @@ export function FocusTimerWidget({
                 {minutes}분
               </button>
             ))}
+            {customDuration}
           </div>
-          <Button onClick={onStart}>집중 시작</Button>
+          {setup}
+          <Button onClick={onStart} disabled={startDisabled}>
+            집중 시작
+          </Button>
           <span className={styles.small} style={{ textAlign: "center" }}>
-            끝내면 할 일을 완료하지 말아요
+            끝나면 할 일을 완료할지 물어봐요
           </span>
         </>
       )}
@@ -392,7 +457,12 @@ export function FocusTimerWidget({
         <>
           <span className={styles.small}>지금 집중하는 일</span>
           <div className={styles.task}>{task}</div>
-          <TimerRing time={time} description={timeDescription} progress={progress} />
+          <TimerRing
+            time={time}
+            description={timeDescription}
+            progress={progress}
+            presentation={presentation}
+          />
           <div className={styles.actions}>
             <Button size="small" onClick={onPause}>
               {paused ? "다시 시작" : "일시정지"}
@@ -414,14 +484,20 @@ export function FocusTimerWidget({
           </div>
           {completion}
           <input
-            aria-label="이번 집중 메모"
+            aria-label={noteLabel}
             placeholder="이번 집중 메모 남기기 (선택)"
             value={note}
             readOnly={!onNoteChange}
             onChange={(event) => onNoteChange?.(event.currentTarget.value)}
+            onBlur={onNoteBlur}
             className={styles.note}
           />
           {summary}
+          {onRest && (
+            <Button size="small" variant="ghost" onClick={onRest}>
+              {restLabel}
+            </Button>
+          )}
           <div className={styles.actions}>
             <Button size="small" variant="ghost" onClick={onContinue}>
               계속 집중
@@ -436,8 +512,19 @@ export function FocusTimerWidget({
         <>
           <span className={styles.small}>휴식 중</span>
           <span className={styles.task}>잠깐 쉬어 가요</span>
-          <TimerRing time={time} description={timeDescription} progress={progress} rest />
+          <TimerRing
+            time={time}
+            description={timeDescription}
+            progress={progress}
+            presentation={presentation}
+            rest
+          />
           <div className={styles.actions}>
+            {onPause && (
+              <Button size="small" onClick={onPause}>
+                {paused ? "다시 시작" : "일시정지"}
+              </Button>
+            )}
             <Button size="small" variant="ghost" onClick={onSkipRest}>
               휴식 건너뛰기
             </Button>
@@ -454,15 +541,18 @@ export function FocusTimerWidget({
               <Icon name="play" size={30} />
             </span>
             <span className={styles.task}>다시 집중할 준비가 됐어요</span>
-            <span className={styles.small}>쉬는 시간 5분이 끝났어요</span>
+            <span className={styles.small}>{timeDescription ?? "쉬는 시간이 끝났어요"}</span>
           </div>
           {summary}
-          <Button onClick={onStart}>{duration}분 다시 시작</Button>
+          <Button onClick={onStart} disabled={startDisabled}>
+            {duration}분 다시 시작
+          </Button>
           <Button variant="ghost" onClick={onStop}>
             오늘은 여기까지
           </Button>
         </>
       )}
+      {afterControls}
     </WidgetExpanded>
   );
 }

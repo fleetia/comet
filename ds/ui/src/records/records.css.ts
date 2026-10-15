@@ -128,8 +128,23 @@ export const tagVariants = styleVariants({
     color: tokens["color/cat-life"],
   },
 });
-export const envelope = style({ width: 280, padding: "12px 14px", gap: 6, borderRadius: 16 });
+export const envelope = style({ width: 280, padding: "12px 14px 4px", gap: 6, borderRadius: 16 });
 export const envelopePreview = style({ width: 256 });
+export const envelopeProgress = style({
+  display: "flex",
+  alignItems: "center",
+  gap: 4,
+  minHeight: 18,
+  marginTop: -6,
+});
+export const envelopePercent = style({
+  width: 32,
+  flexShrink: 0,
+  textAlign: "right",
+  fontSize: 12,
+  lineHeight: "16px",
+  color: tokens["color/ink-3"],
+});
 export const archived = style({ color: tokens["color/ink-2"] });
 export const progress = style({
   appearance: "none",
@@ -305,7 +320,12 @@ export const recordEntry = style([
 ]);
 export const recordEntryLinked = style({ minHeight: 70, borderTop: 0 });
 export const recordEntryReview = style({ minHeight: 67 });
-export const recordEntryFill = style({ width: "100%", paddingTop: 12, fontSize: 14, lineHeight: "20px" });
+export const recordEntryFill = style({
+  width: "100%",
+  paddingTop: 12,
+  fontSize: 14,
+  lineHeight: "20px",
+});
 export const recordEntryFirst = style({ borderTop: 0 });
 export const date = style({
   width: 66,
@@ -381,7 +401,13 @@ export const quickAdd = style([
     background: tokens["color/input"],
   },
 ]);
-export const pageQuickAdd = style({ width: "100%", height: 46, padding: "6px 8px 6px 16px", borderRadius: tokens["radius/radius-16"], fontSize: 14 });
+export const pageQuickAdd = style({
+  width: "100%",
+  height: 46,
+  padding: "6px 8px 6px 16px",
+  borderRadius: tokens["radius/radius-16"],
+  fontSize: 14,
+});
 export const quickKind = style({
   appearance: "none",
   border: `1px solid ${tokens["color/card-border"]}`,
@@ -469,7 +495,13 @@ export const taskSelected = style({
 });
 export const taskDiary = style({ width: 1180, minHeight: 40, padding: "6px 12px" });
 export const taskWithoutDivider = style({ borderTop: "none" });
-export const taskEnvelope = style({ width: 420, minHeight: 40, gap: 10, padding: "9px 12px" });
+export const taskEnvelope = style({
+  width: "100%",
+  minHeight: 40,
+  gap: 10,
+  padding: "6px 12px",
+  selectors: { "&:first-child": { borderTop: 0 } },
+});
 export const taskText = style({ display: "flex", alignItems: "center", gap: 6, minWidth: 0 });
 export const taskTitle = style({ fontSize: 14, lineHeight: "19px" });
 export const taskDone = style({ textDecoration: "line-through", color: tokens["color/list-gray"] });

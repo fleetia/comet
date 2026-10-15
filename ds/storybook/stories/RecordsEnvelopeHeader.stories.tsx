@@ -26,6 +26,8 @@ const meta = {
     completed: { control: { type: "number", min: 0 } },
     total: { control: { type: "number", min: 0 } },
     onChangeDate: { control: false, action: "날짜 바꾸기" },
+    onOpenEvent: { control: false, action: "연결한 일정 열기" },
+    disabled: { control: "boolean" },
     actions: { control: false },
   },
   parameters: {

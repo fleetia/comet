@@ -16,6 +16,7 @@ id TEXT PRIMARY KEY,kind TEXT UNIQUE NOT NULL,version INTEGER NOT NULL,
 installed INTEGER NOT NULL,enabled INTEGER NOT NULL,revision INTEGER NOT NULL,
 data TEXT NOT NULL,error TEXT);
 CREATE TABLE IF NOT EXISTS widget_requests(id TEXT PRIMARY KEY,fingerprint TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS widget_request_results(request_id TEXT PRIMARY KEY,created_id TEXT);
 CREATE TABLE IF NOT EXISTS widget_events(seq INTEGER PRIMARY KEY AUTOINCREMENT,
 id TEXT UNIQUE NOT NULL,instance_id TEXT NOT NULL,data TEXT NOT NULL,pending INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS widget_journal(event_id TEXT PRIMARY KEY);
@@ -642,6 +643,11 @@ pub(crate) fn execute_in_transaction(
     }
     let effect = if instance.kind == "preparation" && request.action == "check-promote" {
         promote_preparation_check(tx, &instance, request, &mut related, now, entropy)?
+    } else if instance.kind == "preparation"
+        && request.action == "create"
+        && request.input.get("tasks").is_some()
+    {
+        create_preparation_with_tasks(tx, &instance, request, &mut related, now, entropy)?
     } else {
         super::act(&instance, request, &related, now, entropy)?
     };
@@ -652,6 +658,62 @@ pub(crate) fn execute_in_transaction(
     )
     .map_err(err)?;
     Ok(())
+}
+
+fn create_preparation_with_tasks(
+    db: &Connection,
+    preparation: &WidgetInstance,
+    request: &WidgetRequest,
+    related: &mut BTreeMap<String, Value>,
+    now: i64,
+    entropy: u64,
+) -> Result<WidgetEffect> {
+    let tasks = request.input["tasks"]
+        .as_array()
+        .ok_or("준비할 일 형식이 올바르지 않습니다.")?;
+    if tasks.is_empty() {
+        return super::act(preparation, request, related, now, entropy);
+    }
+    let todo = instances(db)?
+        .into_iter()
+        .find(|item| item.kind == "todo" && item.installed && item.enabled)
+        .ok_or("할 일 위젯을 켜 주세요.")?;
+    let todo_effect = super::planning::act(
+        "todo",
+        &todo.data,
+        "batch-add",
+        &json!({"items":tasks}),
+        related,
+        now,
+        entropy,
+    )?;
+    let before_ids: std::collections::BTreeSet<&str> = todo.data["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item["id"].as_str())
+        .collect();
+    let created_ids: Vec<&str> = todo_effect.data["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item["id"].as_str())
+        .filter(|id| !before_ids.contains(id))
+        .collect();
+    let mut input = request.input.clone();
+    input["todoIds"] = json!(created_ids);
+    related.insert("todo".into(), todo_effect.data.clone());
+    let effect = super::planning::act(
+        "preparation",
+        &preparation.data,
+        "create",
+        &input,
+        related,
+        now,
+        entropy,
+    )?;
+    apply_effect(db, todo, todo_effect, now)?;
+    Ok(effect)
 }
 
 fn promote_preparation_check(
@@ -912,14 +974,29 @@ fn collect_item(db: &Connection, event: &EventDraft) -> Result<()> {
     put(db, &collection)
 }
 
+#[cfg(test)]
 pub fn advance(db: &Connection, now: i64) -> Result<bool> {
+    advance_with_continuity(db, now, true)
+}
+
+pub fn advance_with_continuity(db: &Connection, now: i64, continuous: bool) -> Result<bool> {
     let tx = db.unchecked_transaction().map_err(err)?;
     let mut changed = false;
     for instance in instances(&tx)?
         .into_iter()
         .filter(|entry| entry.installed && entry.enabled && !super::is_retired(&entry.kind))
     {
-        match super::tick(&instance, now) {
+        let effect = if instance.kind == "focus-timer" && !continuous {
+            super::planning::suspend_timer(&instance.data, now, true).map(|data| {
+                (data != instance.data).then_some(WidgetEffect {
+                    data,
+                    events: vec![],
+                })
+            })
+        } else {
+            super::tick(&instance, now)
+        };
+        match effect {
             Ok(Some(effect)) => {
                 apply_effect(&tx, instance, effect, now)?;
                 changed = true;
@@ -1001,6 +1078,10 @@ fn without_toy_statistics(mut event: WidgetEvent) -> WidgetEvent {
 }
 
 pub fn take_reaction(db: &Connection, now: i64) -> Result<Option<WidgetEvent>> {
+    db.execute(
+        "UPDATE widget_events SET pending=0 WHERE pending=1 AND json_extract(data,'$.payload.bubbleEnabled')=0",
+        [],
+    ).map_err(err)?;
     let mut statement = db.prepare("SELECT data FROM widget_events WHERE pending=1 ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END,seq DESC LIMIT 8").map_err(err)?;
     let events = statement
         .query_map([], |row| row.get::<_, String>(0))

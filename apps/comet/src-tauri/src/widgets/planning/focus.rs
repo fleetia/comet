@@ -36,6 +36,8 @@ struct Timer {
     #[serde(default)]
     active_session: Option<ActiveSession>,
     #[serde(default)]
+    completed_focus_pending: bool,
+    #[serde(default)]
     app_usage_target: Option<crate::widgets::AppUsageTarget>,
 }
 
@@ -63,12 +65,27 @@ struct EventReference {
 struct Settings {
     #[serde(default = "rest_duration")]
     rest_duration_ms: i64,
+    #[serde(default)]
+    auto_start_rest: bool,
+    #[serde(default = "finish_notification")]
+    finish_notification: String,
+    #[serde(default)]
+    finish_sound_enabled: bool,
+    #[serde(default)]
+    linked_event_lead_minutes: Option<i64>,
+    #[serde(default = "enabled")]
+    record_timeline: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             rest_duration_ms: rest_duration(),
+            auto_start_rest: false,
+            finish_notification: finish_notification(),
+            finish_sound_enabled: false,
+            linked_event_lead_minutes: None,
+            record_timeline: true,
         }
     }
 }
@@ -102,6 +119,8 @@ struct ActiveSession {
     note_ref: Option<NoteReference>,
     memo: String,
     segments: Vec<Segment>,
+    #[serde(default = "enabled")]
+    record_timeline: bool,
     #[serde(default)]
     app_usage: Option<AppUsage>,
 }
@@ -121,8 +140,18 @@ struct Session {
     note_ref: Option<NoteReference>,
     memo: String,
     segments: Vec<Segment>,
+    #[serde(default = "enabled")]
+    record_timeline: bool,
     #[serde(default)]
     app_usage: Option<AppUsage>,
+}
+
+fn enabled() -> bool {
+    true
+}
+
+fn finish_notification() -> String {
+    "bubble".into()
 }
 
 fn rest_duration() -> i64 {
@@ -138,7 +167,11 @@ pub(super) fn initial() -> Value {
         "status":"idle", "mode":"focus", "durationMs":1500000,
         "focusDurationMs":1500000, "remainingMs":1500000, "deadline":null,
         "todoId":null, "title":"", "presentation":"dial", "eventRef":null,
-        "noteRef":null, "memo":"", "settings":{"restDurationMs":rest_duration()},
+        "noteRef":null, "memo":"", "settings":{
+            "restDurationMs":rest_duration(), "autoStartRest":true,
+            "finishNotification":"both", "finishSoundEnabled":true,
+            "linkedEventLeadMinutes":5, "recordTimeline":true
+        }, "completedFocusPending":false,
         "sessions":[], "activeSession":null
     })
 }
@@ -324,6 +357,7 @@ fn new_session(state: &Timer, now: i64, running: bool) -> ActiveSession {
         note_ref: state.note_ref.clone(),
         memo: state.memo.clone(),
         segments: vec![],
+        record_timeline: state.settings.record_timeline,
         app_usage: state.app_usage_target.clone().map(|target| AppUsage {
             target,
             elapsed_ms: 0,
@@ -389,6 +423,7 @@ fn save_session(state: &mut Timer, now: i64, outcome: &str) {
         note_ref: active.note_ref,
         memo: active.memo,
         segments: active.segments,
+        record_timeline: active.record_timeline,
         app_usage: active.app_usage.map(|mut usage| {
             usage.elapsed_ms = usage.elapsed_ms.min(active.elapsed_ms).max(0);
             usage
@@ -396,7 +431,8 @@ fn save_session(state: &mut Timer, now: i64, outcome: &str) {
     });
 }
 
-fn finish(mut state: Timer, now: i64) -> Result<WidgetEffect, String> {
+fn finish(mut state: Timer, now: i64, allow_auto_rest: bool) -> Result<WidgetEffect, String> {
+    let finished_at = state.deadline.unwrap_or(now);
     save_session(&mut state, now, "completed");
     state.status = "finished".into();
     state.deadline = None;
@@ -405,12 +441,27 @@ fn finish(mut state: Timer, now: i64) -> Result<WidgetEffect, String> {
         kind: "timer-finished".into(),
         text: if state.mode == "rest" {
             "쉬는 시간이 끝났어요."
+        } else if state.settings.auto_start_rest && allow_auto_rest {
+            "집중 시간이 끝났어요. 쉬는 시간을 시작했어요."
         } else {
             "집중 시간이 끝났어요. 계속할지 쉴지 골라 주세요."
         }
         .into(),
-        payload: json!({"todoId":state.todo_id,"mode":state.mode}),
+        payload: json!({"todoId":state.todo_id,"mode":state.mode, "bubbleEnabled":state.settings.finish_notification != "os", "finishedAt":finished_at}),
     };
+    if state.mode == "focus" && state.settings.auto_start_rest && allow_auto_rest {
+        state.mode = "rest".into();
+        state.status = "running".into();
+        state.duration_ms = state.settings.rest_duration_ms;
+        state.remaining_ms = state.settings.rest_duration_ms;
+        state.deadline = Some(
+            now.checked_add(state.duration_ms)
+                .ok_or("시각 범위를 벗어났습니다.")?,
+        );
+        state.completed_focus_pending = true;
+    } else {
+        state.completed_focus_pending = false;
+    }
     encode(state, vec![event])
 }
 
@@ -426,6 +477,33 @@ fn check_memo(input: &Value, current: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn update_memo(state: &mut Timer, input: &Value) -> Result<(), String> {
+    if input.get("memo").is_none() {
+        return Err("저장할 메모를 입력해 주세요.".into());
+    }
+    let memo = optional_text(input, "memo", 50000)?;
+    let current = if let Some(active) = &state.active_session {
+        &active.memo
+    } else if state.status == "finished" || state.mode == "rest" {
+        state
+            .sessions
+            .last()
+            .map_or(&state.memo, |session| &session.memo)
+    } else {
+        &state.memo
+    };
+    check_memo(input, current)?;
+    if let Some(active) = state.active_session.as_mut() {
+        active.memo = memo.clone();
+    } else if state.status == "finished" || state.mode == "rest" {
+        if let Some(session) = state.sessions.last_mut() {
+            session.memo = memo.clone();
+        }
+    }
+    state.memo = memo;
+    Ok(())
+}
+
 pub(super) fn act(
     data: &Value,
     action: &str,
@@ -438,39 +516,33 @@ pub(super) fn act(
     match action {
         "configure" => configure(&mut state, input, related)?,
         "configure-settings" => {
-            let settings: Settings = serde_json::from_value(input.clone())
+            let mut merged =
+                serde_json::to_value(&state.settings).map_err(|error| error.to_string())?;
+            let values = input
+                .as_object()
+                .ok_or("집중 타이머 설정이 올바르지 않습니다.")?;
+            merged
+                .as_object_mut()
+                .ok_or("집중 타이머 설정이 올바르지 않습니다.")?
+                .extend(values.clone());
+            let settings: Settings = serde_json::from_value(merged)
                 .map_err(|_| "집중 타이머 설정이 올바르지 않습니다.")?;
             duration(
                 &json!({"durationMs":settings.rest_duration_ms}),
                 rest_duration(),
             )?;
+            if !matches!(
+                settings.finish_notification.as_str(),
+                "bubble" | "os" | "both"
+            ) || settings
+                .linked_event_lead_minutes
+                .is_some_and(|minutes| !(0..=120).contains(&minutes))
+            {
+                return Err("집중 타이머 알림 설정이 올바르지 않습니다.".into());
+            }
             state.settings = settings;
         }
-        "update-memo" => {
-            if input.get("memo").is_none() {
-                return Err("저장할 메모를 입력해 주세요.".into());
-            }
-            let memo = optional_text(input, "memo", 50000)?;
-            let current = if let Some(active) = &state.active_session {
-                &active.memo
-            } else if state.status == "finished" && state.mode == "focus" {
-                state
-                    .sessions
-                    .last()
-                    .map_or(&state.memo, |session| &session.memo)
-            } else {
-                &state.memo
-            };
-            check_memo(input, current)?;
-            if let Some(active) = state.active_session.as_mut() {
-                active.memo = memo.clone();
-            } else if state.status == "finished" && state.mode == "focus" {
-                if let Some(session) = state.sessions.last_mut() {
-                    session.memo = memo.clone();
-                }
-            }
-            state.memo = memo;
-        }
+        "update-memo" => update_memo(&mut state, input)?,
         "update-session-memo" => {
             let id = text(input, "id", 200)?;
             if input.get("memo").is_none() {
@@ -484,17 +556,31 @@ pub(super) fn act(
                 .ok_or("집중 기록을 찾을 수 없습니다.")?;
             check_memo(input, &session.memo)?;
             session.memo = memo.clone();
-            if state.status == "finished" && state.sessions.last().is_some_and(|last| last.id == id)
+            if (state.status == "finished" || state.mode == "rest")
+                && state.sessions.last().is_some_and(|last| last.id == id)
             {
                 state.memo = memo;
             }
+        }
+        "show-rest" => {
+            if state.mode != "rest" || !state.completed_focus_pending {
+                return Err("진행 중인 자동 휴식이 없습니다.".into());
+            }
+            if input.get("memo").is_some() {
+                update_memo(&mut state, input)?;
+            }
+            state.completed_focus_pending = false;
         }
         "start" | "rest" | "continue" => {
             if action == "start" && matches!(state.status.as_str(), "running" | "paused") {
                 return Err("진행 중인 타이머를 먼저 마쳐 주세요.".into());
             }
-            if action != "start" && state.status != "finished" {
+            let continuing_rest = action == "continue" && state.mode == "rest";
+            if action != "start" && state.status != "finished" && !continuing_rest {
                 return Err("타이머 종료 후 선택할 수 있습니다.".into());
+            }
+            if action != "start" && input.get("memo").is_some() {
+                update_memo(&mut state, input)?;
             }
             let fallback = if action == "rest" {
                 state.settings.rest_duration_ms
@@ -503,9 +589,20 @@ pub(super) fn act(
             };
             let value = duration(input, fallback)?;
             if action != "rest" {
-                configure(&mut state, input, related)?;
+                if continuing_rest {
+                    state.status = "finished".into();
+                }
+                let mut configuration = input.clone();
+                if action != "start" {
+                    if let Some(values) = configuration.as_object_mut() {
+                        values.remove("memo");
+                        values.remove("expectedMemo");
+                    }
+                }
+                configure(&mut state, &configuration, related)?;
                 state.focus_duration_ms = Some(value);
             }
+            state.completed_focus_pending = false;
             state.duration_ms = value;
             state.remaining_ms = value;
             state.deadline = Some(now.checked_add(value).ok_or("시각 범위를 벗어났습니다.")?);
@@ -528,7 +625,7 @@ pub(super) fn act(
                 .max(0)
                 .min(state.remaining_ms);
             if remaining == 0 {
-                return finish(state, now);
+                return finish(state, now, true);
             }
             close_segment(&mut state, now);
             state.remaining_ms = remaining;
@@ -554,6 +651,9 @@ pub(super) fn act(
             state.status = "running".into();
         }
         "cancel" => {
+            if input.get("memo").is_some() {
+                update_memo(&mut state, input)?;
+            }
             let completed =
                 state.status == "running" && state.deadline.is_some_and(|end| end <= now);
             save_session(
@@ -562,6 +662,7 @@ pub(super) fn act(
                 if completed { "completed" } else { "ended" },
             );
             state.status = "idle".into();
+            state.completed_focus_pending = false;
             state.deadline = None;
             state.duration_ms = state.focus_duration_ms.unwrap_or(if state.mode == "rest" {
                 1500000
@@ -580,7 +681,7 @@ pub(super) fn tick(data: &Value, now: i64) -> Result<Option<WidgetEffect>, Strin
     let mut state: Timer = decode(data)?;
     let migrated = migrate_active(&mut state, now);
     if state.status == "running" && state.deadline.is_some_and(|deadline| deadline <= now) {
-        return finish(state, now).map(Some);
+        return finish(state, now, true).map(Some);
     }
     if migrated {
         return encode(state, vec![]).map(Some);
@@ -601,7 +702,7 @@ pub(super) fn suspend(data: &Value, now: i64, restarting: bool) -> Result<Value,
         .max(0)
         .min(state.remaining_ms);
     if remaining == 0 {
-        return finish(state, now).map(|effect| effect.data);
+        return finish(state, now, false).map(|effect| effect.data);
     }
     state.remaining_ms = remaining;
     if !restarting {
