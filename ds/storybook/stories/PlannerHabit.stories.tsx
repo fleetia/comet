@@ -5,6 +5,7 @@ import {
   HabitDayCell,
   HabitRow,
   HabitWeekTable,
+  HabitMonthCalendar,
   type HabitDayData,
   type HabitDayState,
 } from "@comet/ui";
@@ -142,4 +143,38 @@ export const WeekTable: Story = {
   parameters: { controls: { disable: true } },
   name: "Week Table · 기록 변경",
   render: () => <ControlledWeek />,
+};
+export const MonthCalendar: Story = {
+  parameters: {
+    controls: { disable: true },
+    docs: {
+      description: {
+        story:
+          "습관 상세 월별 기록. Figma 03. screens / 습관 101:816에서 추출했습니다. 빈 칸은 null로 주고 날짜·완료 상태·선택·비활성 여부를 소비자가 관리합니다.",
+      },
+    },
+  },
+  name: "Month Calendar · 월별 기록",
+  render: () => (
+    <div style={{ width: 300 }}>
+      <HabitMonthCalendar
+        label="10월"
+        color="comet"
+        days={[
+          null,
+          null,
+          null,
+          ...Array.from({ length: 31 }, (_, i) => ({
+            id: `2026-10-${i + 1}`,
+            day: i + 1,
+            label: `10월 ${i + 1}일`,
+            state: i < 12 && i % 3 !== 0 ? ("done" as const) : ("unrecorded" as const),
+            today: i === 14,
+            selected: i === 11,
+            disabled: i > 14,
+          })),
+        ]}
+      />
+    </div>
+  ),
 };

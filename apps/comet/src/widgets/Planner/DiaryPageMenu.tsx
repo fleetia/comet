@@ -16,6 +16,7 @@ function pageVersion(page: DiaryPage): string {
     page.id,
     page.date,
     page.title,
+    page.goalId ?? null,
     page.entries.map((entry) => [
       entry.id,
       entry.kind,
@@ -23,6 +24,11 @@ function pageVersion(page: DiaryPage): string {
       entry.refId ?? null,
       entry.itemId ?? null,
       entry.time ?? null,
+      entry.recordDate ?? null,
+      entry.rating ?? null,
+      entry.review ?? null,
+      entry.sourcePageId ?? null,
+      entry.sourceEntryId ?? null,
     ]),
   ]);
 }
@@ -37,7 +43,11 @@ export function DiaryPageMenu({
   const [opened, setOpened] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [title, setTitle] = useState(page.title);
-  const [baseline, setBaseline] = useState({ version: pageVersion(page), title: page.title });
+  const [baseline, setBaseline] = useState({
+    version: pageVersion(page),
+    title: page.title,
+    source: page,
+  });
   const [error, setError] = useState("");
   const [working, setWorking] = useState(false);
   const pending = useRef(false);
@@ -57,7 +67,7 @@ export function DiaryPageMenu({
   );
 
   function reset(): void {
-    setBaseline({ version: pageVersion(page), title: page.title });
+    setBaseline({ version: pageVersion(page), title: page.title, source: page });
     setTitle(page.title);
     setError("");
     setDeleting(false);
@@ -75,6 +85,7 @@ export function DiaryPageMenu({
     try {
       const success = await onAction(action, {
         id: page.id,
+        expectedPage: baseline.source,
         ...(action === "page-update" ? { title } : {}),
       });
       if (!success) {

@@ -65,7 +65,7 @@ export type IconButtonProps = Omit<
 > &
   AccessibleName & {
     icon: IconName;
-    variant?: "primary" | "ghost";
+    variant?: "primary" | "ghost" | "surface";
     size?: "compact" | "regular";
     selected?: boolean;
   };
@@ -95,12 +95,13 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
         styles.iconSizes[size],
         styles.iconVariants[selected ? "primary" : variant],
         size === "compact" && variant === "ghost" && styles.compactGhost,
+        size === "compact" && variant === "surface" && styles.compactSurface,
         className,
       ]
         .filter(Boolean)
         .join(" ")}
     >
-      <Icon name={icon} size={size === "compact" ? 16 : 26} />
+      <Icon name={icon} size={size === "compact" ? (variant === "surface" ? 15 : 16) : 26} />
     </button>
   ),
 );

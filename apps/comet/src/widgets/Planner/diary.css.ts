@@ -29,13 +29,16 @@ export const layout = style({
   minHeight: 0,
   overflow: "hidden",
   selectors: {
-    '&[data-collection="true"]': { gridTemplateColumns: "96px 280px minmax(0, 1fr)" },
+    '&[data-collection="true"]': {
+      gridTemplateColumns: "96px 306px minmax(0, 1fr)",
+      gridTemplateRows: "58px minmax(0,1fr)",
+    },
   },
   "@media": {
     "(max-width: 820px)": {
       gridTemplateColumns: "80px minmax(0, 1fr)",
       selectors: {
-        '&[data-collection="true"]': { gridTemplateColumns: "80px 220px minmax(0, 1fr)" },
+        '&[data-collection="true"]': { gridTemplateColumns: "80px 236px minmax(0, 1fr)" },
       },
     },
   },
@@ -51,7 +54,7 @@ export const notes = style({
   minWidth: 0,
   minHeight: 0,
   overflowY: "auto",
-  padding: "26px 28px",
+  padding: "22px 26px 24px",
   background: "transparent",
 });
 export const notesOpen = style({
@@ -80,7 +83,9 @@ export const notesToggle = style({
 export const index = style([
   surface,
   {
-    margin: "74px 0 24px 26px",
+    margin: "16px 0 24px 26px",
+    gridColumn: 2,
+    gridRow: 2,
     padding: 16,
     overflowY: "auto",
     background: tokens["color/card-2"],
@@ -92,11 +97,12 @@ export const page = style({
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
-  padding: "18px 26px 24px",
+  padding: "22px 26px 24px",
   gap: 16,
   background: "transparent",
   border: 0,
   borderRadius: 0,
+  selectors: { [`${layout}[data-collection="true"] &`]: { display: "contents" } },
   "@media": { "(max-width: 820px)": { padding: "16px" } },
 });
 export const body = style({
@@ -107,6 +113,13 @@ export const body = style({
   display: "flex",
   flexDirection: "column",
   gap: 16,
+  selectors: {
+    [`${layout}[data-collection="true"] &`]: {
+      gridColumn: 3,
+      gridRow: 2,
+      margin: "16px 26px 24px 18px",
+    },
+  },
 });
 export const dropActive = style({
   outline: `2px solid ${v.color.content.primary}`,
@@ -135,7 +148,7 @@ export const spread = style({ flex: 1 });
 export const title = style({
   fontFamily: tokens["typography/display/page/fontFamily"],
   fontSize: 26,
-  lineHeight: "34px",
+  lineHeight: "32px",
   fontWeight: 400,
   margin: 0,
 });
@@ -298,10 +311,14 @@ export const weekday = style({
 });
 export const calendar = style({
   minWidth: 520,
-  minHeight: 536,
+  minHeight: 620,
   display: "flex",
   flexDirection: "column",
   flex: "1 0 auto",
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: tokens["radius/radius-22"],
+  overflow: "hidden",
+  background: tokens["color/card-2"],
 });
 export const monthWeek = style({
   display: "grid",
@@ -500,19 +517,28 @@ export const rail = style({
   gap: 4,
   height: "100%",
   overflowY: "auto",
-  padding: "12px 10px 18px",
+  padding: "18px 10px",
   background: tokens["color/rail"],
   borderRight: `1px solid ${tokens["color/card-border"]}`,
+  selectors: { [`${layout}[data-collection="true"] &`]: { gridRow: "1 / -1", gridColumn: 1 } },
 });
-export const railHeader = style({ minHeight: 28, width: "100%", marginBottom: 4 });
+export const railHeader = style({ minHeight: 10, width: "100%", marginBottom: 14 });
 export const railDivider = style({ height: 12, flexShrink: 0 });
 export const pageNavigation = style({
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
   gap: 16,
-  minHeight: 40,
+  minHeight: 36,
   flexShrink: 0,
+  selectors: {
+    "&[hidden]": { display: "none" },
+    [`${layout}[data-collection="true"] &`]: {
+      gridColumn: "2 / -1",
+      gridRow: 1,
+      margin: "22px 26px 0",
+    },
+  },
 });
 export const todayLayout = style({
   display: "grid",
@@ -526,17 +552,8 @@ export const todayLayout = style({
   },
 });
 export const todayRing = style({
-  display: "flex",
-  flexDirection: "column",
-  width: "100%",
-  height: "100%",
-  minHeight: 440,
-  background: tokens["color/card-2"],
-  border: `1px solid ${tokens["color/card-border"]}`,
-  borderRadius: tokens["radius/radius-22"],
-  padding: "16px 12px 12px",
+  alignSelf: "start",
 });
-globalStyle(`${todayRing} > svg`, { flex: 1, height: 0, minHeight: 0, width: "100%" });
 export const todaySummary = style({
   display: "flex",
   flexDirection: "column",

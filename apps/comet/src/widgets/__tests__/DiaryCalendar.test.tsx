@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { DiaryCalendar, MiniCalendar, type DiaryCalendarProps } from "../Planner/DiaryCalendar";
 import { WIDGET_DRAG_TYPE } from "../widgetDrag";
+import type { FocusSession } from "../PlanningTools/FocusTimerData";
 
 const DAY = "2026-10-03";
 
@@ -166,6 +167,105 @@ it("offers a keyboard-accessible event creation button for every week date", () 
   fireEvent.click(screen.getByRole("button", { name: "2026-10-04 일정 추가" }));
   expect(callbacks.onCreateEvent).toHaveBeenCalledWith("2026-10-04");
   expect(callbacks.onDay).not.toHaveBeenCalled();
+});
+
+it("edits week records using their own date and the shared classification/save contract", async () => {
+  const record = {
+    id: "manual",
+    date: "2026-10-04",
+    startMinute: 540,
+    endMinute: 600,
+    categoryId: "work",
+    title: "오전 정리",
+  };
+  const state = { revision: 0, pages: [], notes: [], moves: [], timeRecords: [record] };
+  const action = vi.fn().mockResolvedValue(true);
+  const dirty = vi.fn();
+  render(
+    <DiaryCalendar {...props({ view: "week", state, onAction: action, onDirtyChange: dirty })} />,
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "2026-10-04 09:00–10:00 · 오전 정리 시간 기록 수정" }),
+  );
+  expect(screen.getByRole("dialog", { name: "시간 칠하기" })).toBeDefined();
+  fireEvent.change(screen.getByLabelText("시간 기록 제목"), {
+    target: { value: "  다음 날 원고  " },
+  });
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "생활" }));
+  fireEvent.click(screen.getByRole("button", { name: "수정" }));
+  await waitFor(() =>
+    expect(action).toHaveBeenCalledWith("time-record-save", {
+      id: record.id,
+      expectedRecord: record,
+      expectedRecords: [record],
+      date: record.date,
+      startMinute: 540,
+      endMinute: 600,
+      categoryId: "life",
+      title: "  다음 날 원고  ",
+    }),
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  fireEvent.click(screen.getByRole("button", { name: "2026-10-02 23:50" }));
+  expect(screen.getByLabelText("종료 시각").getAttribute("value")).toBe("24:00");
+  fireEvent.click(screen.getByRole("button", { name: "칠하기" }));
+  await waitFor(() =>
+    expect(action).toHaveBeenLastCalledWith(
+      "time-record-save",
+      expect.objectContaining({
+        date: "2026-10-02",
+        startMinute: 1430,
+        endMinute: 1440,
+        expectedRecords: [],
+      }),
+    ),
+  );
+  expect(dirty).toHaveBeenCalledWith(true);
+});
+
+it("clips actual focus and overnight events at each date and excludes unrecorded focus", () => {
+  const session: FocusSession = {
+    id: "night",
+    title: "밤 집중",
+    startedAt: new Date(`${DAY}T23:40:00`).getTime(),
+    endedAt: new Date("2026-10-04T00:20:00").getTime(),
+    elapsedMs: 40 * 60000,
+    outcome: "completed",
+    memo: "",
+    eventRef: {},
+    noteRef: {},
+    segments: [
+      {
+        startAt: new Date(`${DAY}T23:40:00`).getTime(),
+        endAt: new Date("2026-10-04T00:20:00").getTime(),
+      },
+    ],
+  };
+  const callbacks = props({
+    view: "week",
+    focusSessions: [
+      session,
+      { ...session, id: "hidden", title: "링에 남기지 않은 집중", recordTimeline: false },
+    ],
+    events: [
+      {
+        id: "overnight",
+        title: "밤 일정",
+        startAt: new Date(`${DAY}T23:50:00`).getTime(),
+        endAt: new Date("2026-10-04T00:30:00").getTime(),
+      },
+    ],
+  });
+  render(<DiaryCalendar {...callbacks} />);
+  const focus = screen.getByRole("button", { name: `${DAY} 밤 집중 집중 · 20분` });
+  expect(screen.getByRole("button", { name: "2026-10-04 밤 집중 집중 · 20분" })).toBeDefined();
+  expect(screen.queryByRole("button", { name: /링에 남기지 않은 집중/ })).toBeNull();
+  fireEvent.click(focus);
+  expect(callbacks.onDay).toHaveBeenCalledWith(DAY);
+  const events = screen.getAllByRole("button", { name: "밤 일정 일정 상세" });
+  expect(events).toHaveLength(2);
+  expect(Number.parseFloat(events[0].parentElement?.style.width ?? "")).toBeCloseTo(100 / 6);
+  expect(Number.parseFloat(events[1].parentElement?.style.width ?? "")).toBe(50);
 });
 
 it.each(["month", "week"] as const)(

@@ -119,6 +119,8 @@ export function CategoryChoice({
           styles.categoryChoice,
           styles.categorySizes[size],
           selected && styles.categorySelected,
+          selected && styles.categorySelectedColors[category],
+          selected && styles.categorySelectedSizes[size],
         ]
           .filter(Boolean)
           .join(" ")}

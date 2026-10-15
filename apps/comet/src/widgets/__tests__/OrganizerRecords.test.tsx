@@ -70,7 +70,14 @@ it("opens the saved result of a direct request and avoids duplicating summaries"
   expect(await screen.findByRole("dialog", { name: "저장한 회의 메모" })).toBeTruthy();
   expect(screen.getByText("본문: 다음 주 검토하기")).toBeTruthy();
   expect(command).toHaveBeenCalledWith("organizer_open_action", { operationId: "action-1" });
-  expect(screen.getAllByRole("heading", { name: "프로젝트 결정" })).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "원문 닫기" }));
+  expect(screen.getAllByRole("button", { name: /프로젝트 결정/ })).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: /프로젝트 결정/ }));
+  expect(screen.getByRole("heading", { name: "프로젝트 결정" })).toBeTruthy();
+  expect(screen.getByText("결정: 다음 주에 검토")).toBeTruthy();
+  fireEvent.click(screen.getByRole("radio", { name: "직접 요청" }));
+  expect(screen.queryByRole("button", { name: /프로젝트 결정/ })).toBeNull();
+  expect(screen.getByRole("button", { name: "결과 열기" })).toBeTruthy();
 });
 
 it("shows the recorded source and preserves a conflicting result when undo fails", async () => {

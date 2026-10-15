@@ -1,5 +1,6 @@
 import { useState, type JSX } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { expect, userEvent, within } from "storybook/test";
 import {
   CalendarDayCell,
   CalendarDayHeader,
@@ -42,7 +43,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "날짜·일정·분류별 시간은 props로 전달합니다. 날짜 계산·외부 캘린더 연결·저장은 소비자 책임입니다. DayCell의 날짜/일정/더 보기, Week의 날짜/10분 슬롯/일정 동작을 각각 callback으로 연결합니다. DayRing은 startMinute/endMinute(0–1440) 데이터로 그리는 차트이며 원본 그림을 고정하지 않습니다.",
+          "날짜·일정·분류별 시간은 props로 전달합니다. 날짜 계산·외부 캘린더 연결·저장은 소비자 책임입니다. DayCell의 날짜/일정/더 보기, Week의 날짜/10분 슬롯/일정 동작을 각각 callback으로 연결합니다. DayRing은 startMinute/endMinute(0–1440) 데이터로 그리는 차트이며 원본 그림을 고정하지 않습니다. layout=fill은 부모 너비를 채우고 원은 가운데 572px 정사각형 안에 유지합니다. currentMinute와 showSegmentLabels로 현재 시각과 각 구간의 displayLabel/detail을 표시합니다.",
       },
     },
   },
@@ -170,7 +171,7 @@ export const SummaryCard: Story = {
         status="1/3"
         habits={[
           { id: "diary", label: "다이어리 쓰기", done: true },
-          { id: "read", label: "독서 30분" },
+          { id: "read", label: "독서 30분 하고 새로 배운 내용 남기기" },
           { id: "water", label: "물 3/8" },
         ]}
       />
@@ -198,15 +199,22 @@ export const Month: Story = {
 };
 function WeekExample(): JSX.Element {
   const [selected, setSelected] = useState("");
+  const [selection, setSelection] = useState<{
+    dayId: string;
+    startMinute: number;
+    endMinute: number;
+  }>();
   return (
     <div>
       <CalendarWeek
         days={week}
-        onSlotClick={(day, minute) =>
+        selection={selection}
+        onRangeSelect={(day, range) => {
+          setSelection({ dayId: day.id, ...range });
           setSelected(
-            `${day.label} ${Math.floor(minute / 60)}:${String(minute % 60).padStart(2, "0")}`,
-          )
-        }
+            `${day.label} ${Math.floor(range.startMinute / 60)}:${String(range.startMinute % 60).padStart(2, "0")}–${Math.floor(range.endMinute / 60)}:${String(range.endMinute % 60).padStart(2, "0")} 선택`,
+          );
+        }}
         events={[
           {
             id: "past",
@@ -269,35 +277,90 @@ function WeekExample(): JSX.Element {
   );
 }
 export const Week: Story = {
-  parameters: { controls: { disable: true } },
-  name: "Week · 일정과 빈 슬롯",
+  parameters: {
+    controls: { disable: true },
+    docs: {
+      description: {
+        story:
+          "시간 슬롯은 날짜마다 한 곳만 Tab 순서에 들어갑니다. Tab은 다음 날짜의 같은 시각, ←/→는 10분, ↑/↓는 1시간을 이동합니다. Home/End는 해당 시간의 처음/끝, Ctrl+Home/End는 표시된 시간표의 처음/끝입니다. Enter/Space로 선택한 10분 범위를 열고 소비자 화면에서 종료 시각을 조정할 수 있습니다.",
+      },
+    },
+  },
+  name: "Week · 일정과 10분 범위 선택",
   render: () => <WeekExample />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: "10월 12일 8:10" }));
+    await userEvent.keyboard("{ArrowRight}{ArrowDown}");
+    await expect(canvas.getByRole("button", { name: "10월 12일 9:20" })).toHaveFocus();
+    await userEvent.tab();
+    await expect(canvas.getByRole("button", { name: "10월 13일 9:20" })).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await expect(canvas.getByRole("status")).toHaveTextContent("10월 13일 9:20–9:30 선택");
+  },
 };
 const segments: CalendarRingSegment[] = [
-  { id: "walk", startMinute: 360, endMinute: 410, color: "exercise", label: "아침 산책 · 50분" },
-  { id: "work", startMinute: 540, endMinute: 720, color: "work", label: "메일 정리 · 3시간" },
-  { id: "lunch", startMinute: 720, endMinute: 780, color: "life", label: "점심 · 1시간" },
+  {
+    id: "walk",
+    startMinute: 360,
+    endMinute: 410,
+    color: "exercise",
+    label: "아침 산책 · 50분",
+    displayLabel: "아침 산책",
+    detail: "운동",
+  },
+  {
+    id: "work",
+    startMinute: 540,
+    endMinute: 720,
+    color: "work",
+    label: "메일 정리 · 3시간",
+    displayLabel: "메일 정리",
+    detail: "일",
+  },
+  {
+    id: "lunch",
+    startMinute: 720,
+    endMinute: 780,
+    color: "life",
+    label: "점심 · 1시간",
+    displayLabel: "점심",
+    detail: "생활",
+  },
   {
     id: "focus",
     startMinute: 790,
     endMinute: 860,
     color: "focus",
     label: "기획서 초안 · 집중",
+    displayLabel: "기획서 초안",
+    detail: "집중 · 자동",
     kind: "focus",
   },
-  { id: "book", startMinute: 860, endMinute: 900, color: "comet", label: "책 모임", kind: "event" },
+  {
+    id: "book",
+    startMinute: 860,
+    endMinute: 900,
+    color: "comet",
+    label: "책 모임",
+    detail: "일정 · comet",
+    kind: "event",
+  },
   {
     id: "plan",
     startMinute: 1020,
     endMinute: 1080,
     color: "work",
     label: "회의 준비 · 예정",
+    displayLabel: "회의 준비",
+    detail: "예정",
     kind: "planned",
   },
 ];
 function RingExample(): JSX.Element {
   const [color, setColor] = useState<PlannerColor>("exercise");
   const [selected, setSelected] = useState<CalendarRingSegment>();
+  const [selection, setSelection] = useState<{ startMinute: number; endMinute: number }>();
   return (
     <div>
       <CalendarDayRing
@@ -307,8 +370,13 @@ function RingExample(): JSX.Element {
         selectedColor={color}
         onColorChange={setColor}
         onSegmentClick={setSelected}
+        selection={selection}
+        onRangeSelect={setSelection}
       />
       <output aria-live="polite">{selected?.label}</output>
+      <output aria-live="polite">
+        {selection && `${selection.startMinute}분부터 ${selection.endMinute}분까지 선택`}
+      </output>
     </div>
   );
 }
@@ -316,4 +384,66 @@ export const DayRing: Story = {
   parameters: { controls: { disable: true } },
   name: "Day Ring · 데이터 차트",
   render: () => <RingExample />,
+};
+export const DayRingScreen: Story = {
+  parameters: { controls: { disable: true } },
+  name: "Day Ring · 다이어리 화면",
+  render: () => (
+    <div style={{ width: 822, maxWidth: "100%" }}>
+      <CalendarDayRing
+        layout="fill"
+        segments={segments}
+        value="6시간 40분"
+        caption="오전 6시부터 지금 오후 3:24까지"
+        selectedColor="work"
+        currentMinute={15 * 60 + 24}
+        currentTimeLabel="지금 3:24"
+        showSegmentLabels
+      />
+    </div>
+  ),
+};
+export const DayRingAdjacentLabels: Story = {
+  parameters: { controls: { disable: true } },
+  name: "Day Ring · 가까운 기록과 현재 시각",
+  render: () => (
+    <div style={{ width: 520, maxWidth: "100%" }}>
+      <CalendarDayRing
+        layout="fill"
+        segments={[
+          {
+            id: "morning",
+            startMinute: 540,
+            endMinute: 660,
+            color: "work",
+            label: "09:00–11:00 오전 작업",
+            displayLabel: "오전 작업",
+            detail: "일",
+          },
+          {
+            id: "lecture",
+            startMinute: 600,
+            endMinute: 660,
+            color: "google",
+            label: "10:00–11:00 온라인 강의",
+            displayLabel: "온라인 강의",
+            detail: "연결 일정",
+            kind: "event",
+          },
+          {
+            id: "evening",
+            startMinute: 1080,
+            endMinute: 1200,
+            color: "life",
+            label: "18:00–20:00 저녁 약속",
+            displayLabel: "저녁 약속",
+            detail: "생활",
+          },
+        ]}
+        value="3시간"
+        currentMinute={1140}
+        showSegmentLabels
+      />
+    </div>
+  ),
 };

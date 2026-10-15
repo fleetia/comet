@@ -64,6 +64,7 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         });
         let _ = flush_positions(&state, false);
         let _ = advance_widgets(&app, &state);
+        let _ = crate::diary::runtime::tick(&app, &state);
         if crate::generated_widget_commands::advance_reactions(&app, &state).unwrap_or(false) {
             continue;
         }
