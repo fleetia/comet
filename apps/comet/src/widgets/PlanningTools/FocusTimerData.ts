@@ -20,6 +20,7 @@ export type FocusSession = {
   noteRef: DataRecord;
   segments: FocusSegment[];
   appUsage?: FocusAppUsage;
+  recordTimeline?: boolean;
   active?: boolean;
 };
 export type FocusPeriod = "day" | "week" | "month" | "year";
@@ -72,6 +73,7 @@ function readSession(session: DataRecord): FocusSession {
     eventRef: record(session.eventRef),
     noteRef: record(session.noteRef),
     appUsage: readAppUsage(session.appUsage),
+    recordTimeline: session.recordTimeline !== false,
     segments: rows(session.segments)
       .map((segment) => ({ startAt: number(segment.startAt), endAt: number(segment.endAt) }))
       .filter((segment) => segment.endAt > segment.startAt),

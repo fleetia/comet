@@ -1,8 +1,8 @@
-mod schema;
 mod habits;
 mod ledger;
-mod time;
 pub(crate) mod runtime;
+mod schema;
+mod time;
 pub(crate) use schema::initialize;
 
 use crate::app::{lock, AppState};
@@ -221,22 +221,33 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
                 .iter()
                 .position(|page| page.id == id)
                 .ok_or_else(missing)?;
+            if input.get("expectedPage").is_some()
+                && input["expectedPage"] != serde_json::to_value(&state.pages[at]).map_err(err)?
+            {
+                return Err("이 페이지가 다른 화면에서 바뀌었어요. 입력을 유지했으니 최신 내용을 확인해 주세요.".into());
+            }
             if action == "page-delete" {
                 state.pages.remove(at);
             } else {
-                if input.get("expectedPage").is_some() && input["expectedPage"] != serde_json::to_value(&state.pages[at]).map_err(err)? {
-                    return Err("이 페이지가 다른 화면에서 바뀌었어요. 입력을 유지했으니 최신 내용을 확인해 주세요.".into());
-                }
                 state.pages[at].title =
                     string(input, "title", 500, state.pages[at].date.is_none())?;
-                if input.get("goalId").is_some() { state.pages[at].goal_id = optional_string(input, "goalId", 200)?; }
+                if input.get("goalId").is_some() {
+                    state.pages[at].goal_id = optional_string(input, "goalId", 200)?;
+                }
             }
         }
         "entry-add" | "entry-update" | "entry-delete" => {
-            let record_date = optional_string(input, "recordDate", 10)?.map(date).transpose()?;
+            let record_date = optional_string(input, "recordDate", 10)?
+                .map(date)
+                .transpose()?;
             let rating = match input.get("rating") {
                 None | Some(Value::Null) => None,
-                Some(value) => Some(value.as_u64().filter(|value| *value <= 5).ok_or("별점은 0부터 5까지의 정수여야 합니다.")? as u8),
+                Some(value) => Some(
+                    value
+                        .as_u64()
+                        .filter(|value| *value <= 5)
+                        .ok_or("별점은 0부터 5까지의 정수여야 합니다.")? as u8,
+                ),
             };
             let review = match input.get("review") {
                 None | Some(Value::Null) => None,
@@ -245,11 +256,20 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
             let source_page_id = optional_string(input, "sourcePageId", 200)?;
             let source_entry_id = optional_string(input, "sourceEntryId", 200)?;
             if let Some(source_id) = &source_page_id {
-                let source = state.pages.iter().find(|page| &page.id == source_id).ok_or("원본 페이지를 찾을 수 없습니다.")?;
-                if source_entry_id.as_ref().is_some_and(|id| !source.entries.iter().any(|entry| &entry.id == id)) {
+                let source = state
+                    .pages
+                    .iter()
+                    .find(|page| &page.id == source_id)
+                    .ok_or("원본 페이지를 찾을 수 없습니다.")?;
+                if source_entry_id
+                    .as_ref()
+                    .is_some_and(|id| !source.entries.iter().any(|entry| &entry.id == id))
+                {
                     return Err("원본 기록을 찾을 수 없습니다.".into());
                 }
-            } else if source_entry_id.is_some() { return Err("원본 기록의 페이지가 필요합니다.".into()); }
+            } else if source_entry_id.is_some() {
+                return Err("원본 기록의 페이지가 필요합니다.".into());
+            }
             let page_id = string(input, "pageId", 200, true)?;
             let page = state
                 .pages
@@ -286,7 +306,11 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
                     item_id,
                     text: string(input, "text", 20000, true)?,
                     time: time(input, "time")?,
-                    record_date, rating, review, source_page_id, source_entry_id,
+                    record_date,
+                    rating,
+                    review,
+                    source_page_id,
+                    source_entry_id,
                 });
             } else {
                 let id = string(input, "id", 200, true)?;
@@ -295,13 +319,16 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
                     .iter()
                     .position(|entry| entry.id == id)
                     .ok_or_else(missing)?;
+                if input.get("expectedEntry").is_some()
+                    && input["expectedEntry"]
+                        != serde_json::to_value(&page.entries[at]).map_err(err)?
+                {
+                    return Err("이 기록이 다른 화면에서 바뀌었어요. 입력을 보존했으니 최신 내용을 확인해 주세요.".into());
+                }
                 if action == "entry-delete" {
                     page.entries.remove(at);
                 } else {
                     let entry = &mut page.entries[at];
-                    if input.get("expectedEntry").is_some() && input["expectedEntry"] != serde_json::to_value(&*entry).map_err(err)? {
-                        return Err("이 기록이 다른 화면에서 바뀌었어요. 입력을 보존했으니 최신 내용을 확인해 주세요.".into());
-                    }
                     if input.get("expectedText").is_some()
                         && string(input, "expectedText", 20000, false)? != entry.text
                         || input.get("expectedTime").is_some()
@@ -315,9 +342,15 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
                     if input.get("time").is_some() {
                         entry.time = time(input, "time")?;
                     }
-                    if input.get("recordDate").is_some() { entry.record_date = record_date; }
-                    if input.get("rating").is_some() { entry.rating = rating; }
-                    if input.get("review").is_some() { entry.review = review; }
+                    if input.get("recordDate").is_some() {
+                        entry.record_date = record_date;
+                    }
+                    if input.get("rating").is_some() {
+                        entry.rating = rating;
+                    }
+                    if input.get("review").is_some() {
+                        entry.review = review;
+                    }
                     if input.get("sourcePageId").is_some() {
                         entry.source_page_id = source_page_id;
                         entry.source_entry_id = source_entry_id;

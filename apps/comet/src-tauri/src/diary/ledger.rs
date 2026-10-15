@@ -126,6 +126,20 @@ fn check_expected<T: for<'de> Deserialize<'de> + PartialEq>(
     }
     Ok(())
 }
+fn check_recurring_expected(input: &Value, current: &RecurringExpense) -> Result<()> {
+    let mut expected: RecurringExpense = serde_json::from_value(
+        input
+            .get("expected")
+            .cloned()
+            .ok_or("편집 전 내용이 필요합니다.")?,
+    )
+    .map_err(super::err)?;
+    expected.recorded_dates.clone_from(&current.recorded_dates);
+    if &expected != current {
+        return Err("다른 화면에서 내용이 바뀌었어요. 최신 내용을 확인해 주세요.".into());
+    }
+    Ok(())
+}
 fn entry(state: &DiaryState, input: &Value, id: String) -> Result<LedgerEntry> {
     let kind = string(input, "kind", 10, true)?;
     if !matches!(kind.as_str(), "income" | "expense") {
@@ -354,7 +368,7 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
                 .iter()
                 .position(|value| value.id == id)
                 .ok_or("고정비를 찾을 수 없습니다.")?;
-            check_expected(input, &state.ledger_recurring[at])?;
+            check_recurring_expected(input, &state.ledger_recurring[at])?;
             if action == "ledger-recurring-delete" {
                 state.ledger_recurring.remove(at);
             } else {
@@ -522,6 +536,70 @@ mod tests {
         .unwrap();
         mutate(&mut state, "ledger-generate", &period).unwrap();
         assert!(state.ledger_entries.is_empty());
+    }
+    #[test]
+    fn recurring_edits_preserve_generated_history_without_false_conflicts() {
+        let mut state = DiaryState::default();
+        mutate(&mut state, "ledger-recurring-create", &rule()).unwrap();
+        let original = state.ledger_recurring[0].clone();
+        let period = json!({"fromDate":"2026-01-01","throughDate":"2026-02-28"});
+        mutate(&mut state, "ledger-generate", &period).unwrap();
+        let entries = state.ledger_entries.clone();
+
+        let mut edit = rule();
+        edit["id"] = json!(original.id);
+        edit["expected"] = json!(original);
+        edit["amount"] = json!(600000);
+        edit["recordedDates"] = json!(["2026-12-31"]);
+        mutate(&mut state, "ledger-recurring-update", &edit).unwrap();
+        assert_eq!(state.ledger_recurring[0].amount, 600000);
+        assert_eq!(
+            state.ledger_recurring[0].recorded_dates,
+            ["2026-01-31", "2026-02-28"]
+        );
+        assert_eq!(state.ledger_entries, entries);
+        mutate(&mut state, "ledger-generate", &period).unwrap();
+        assert_eq!(state.ledger_entries, entries);
+
+        let before_generation = state.ledger_recurring[0].clone();
+        mutate(
+            &mut state,
+            "ledger-generate",
+            &json!({"fromDate":"2026-03-01","throughDate":"2026-03-31"}),
+        )
+        .unwrap();
+        assert_eq!(state.ledger_entries.len(), 3);
+        assert_eq!(state.ledger_entries[2].amount, 600000);
+        mutate(
+            &mut state,
+            "ledger-recurring-delete",
+            &json!({"id":before_generation.id,"expected":before_generation}),
+        )
+        .unwrap();
+        assert!(state.ledger_recurring.is_empty());
+        assert_eq!(state.ledger_entries.len(), 3);
+    }
+
+    #[test]
+    fn recurring_definition_changes_still_reject_stale_edits_and_deletes() {
+        let mut state = DiaryState::default();
+        mutate(&mut state, "ledger-recurring-create", &rule()).unwrap();
+        let original = state.ledger_recurring[0].clone();
+        let mut edit = rule();
+        edit["id"] = json!(original.id);
+        edit["expected"] = json!(original);
+        edit["amount"] = json!(600000);
+        mutate(&mut state, "ledger-recurring-update", &edit).unwrap();
+        let latest = state.clone();
+        edit["title"] = json!("오래된 편집");
+        assert!(mutate(&mut state, "ledger-recurring-update", &edit).is_err());
+        assert!(mutate(
+            &mut state,
+            "ledger-recurring-delete",
+            &json!({"id":original.id,"expected":original}),
+        )
+        .is_err());
+        assert_eq!(state, latest);
     }
     #[test]
     fn respects_selected_months_manual_confirmation_and_weekend_boundaries() {

@@ -1,5 +1,6 @@
 import { useState, type JSX } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { expect, userEvent, within } from "storybook/test";
 import {
   CalendarDayCell,
   CalendarDayHeader,
@@ -170,7 +171,7 @@ export const SummaryCard: Story = {
         status="1/3"
         habits={[
           { id: "diary", label: "다이어리 쓰기", done: true },
-          { id: "read", label: "독서 30분" },
+          { id: "read", label: "독서 30분 하고 새로 배운 내용 남기기" },
           { id: "water", label: "물 3/8" },
         ]}
       />
@@ -198,15 +199,22 @@ export const Month: Story = {
 };
 function WeekExample(): JSX.Element {
   const [selected, setSelected] = useState("");
+  const [selection, setSelection] = useState<{
+    dayId: string;
+    startMinute: number;
+    endMinute: number;
+  }>();
   return (
     <div>
       <CalendarWeek
         days={week}
-        onSlotClick={(day, minute) =>
+        selection={selection}
+        onRangeSelect={(day, range) => {
+          setSelection({ dayId: day.id, ...range });
           setSelected(
-            `${day.label} ${Math.floor(minute / 60)}:${String(minute % 60).padStart(2, "0")}`,
-          )
-        }
+            `${day.label} ${Math.floor(range.startMinute / 60)}:${String(range.startMinute % 60).padStart(2, "0")}–${Math.floor(range.endMinute / 60)}:${String(range.endMinute % 60).padStart(2, "0")} 선택`,
+          );
+        }}
         events={[
           {
             id: "past",
@@ -269,9 +277,27 @@ function WeekExample(): JSX.Element {
   );
 }
 export const Week: Story = {
-  parameters: { controls: { disable: true } },
-  name: "Week · 일정과 빈 슬롯",
+  parameters: {
+    controls: { disable: true },
+    docs: {
+      description: {
+        story:
+          "시간 슬롯은 날짜마다 한 곳만 Tab 순서에 들어갑니다. Tab은 다음 날짜의 같은 시각, ←/→는 10분, ↑/↓는 1시간을 이동합니다. Home/End는 해당 시간의 처음/끝, Ctrl+Home/End는 표시된 시간표의 처음/끝입니다. Enter/Space로 선택한 10분 범위를 열고 소비자 화면에서 종료 시각을 조정할 수 있습니다.",
+      },
+    },
+  },
+  name: "Week · 일정과 10분 범위 선택",
   render: () => <WeekExample />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: "10월 12일 8:10" }));
+    await userEvent.keyboard("{ArrowRight}{ArrowDown}");
+    await expect(canvas.getByRole("button", { name: "10월 12일 9:20" })).toHaveFocus();
+    await userEvent.tab();
+    await expect(canvas.getByRole("button", { name: "10월 13일 9:20" })).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await expect(canvas.getByRole("status")).toHaveTextContent("10월 13일 9:20–9:30 선택");
+  },
 };
 const segments: CalendarRingSegment[] = [
   {
@@ -372,6 +398,50 @@ export const DayRingScreen: Story = {
         selectedColor="work"
         currentMinute={15 * 60 + 24}
         currentTimeLabel="지금 3:24"
+        showSegmentLabels
+      />
+    </div>
+  ),
+};
+export const DayRingAdjacentLabels: Story = {
+  parameters: { controls: { disable: true } },
+  name: "Day Ring · 가까운 기록과 현재 시각",
+  render: () => (
+    <div style={{ width: 520, maxWidth: "100%" }}>
+      <CalendarDayRing
+        layout="fill"
+        segments={[
+          {
+            id: "morning",
+            startMinute: 540,
+            endMinute: 660,
+            color: "work",
+            label: "09:00–11:00 오전 작업",
+            displayLabel: "오전 작업",
+            detail: "일",
+          },
+          {
+            id: "lecture",
+            startMinute: 600,
+            endMinute: 660,
+            color: "google",
+            label: "10:00–11:00 온라인 강의",
+            displayLabel: "온라인 강의",
+            detail: "연결 일정",
+            kind: "event",
+          },
+          {
+            id: "evening",
+            startMinute: 1080,
+            endMinute: 1200,
+            color: "life",
+            label: "18:00–20:00 저녁 약속",
+            displayLabel: "저녁 약속",
+            detail: "생활",
+          },
+        ]}
+        value="3시간"
+        currentMinute={1140}
         showSegmentLabels
       />
     </div>

@@ -1,4 +1,4 @@
-import { style } from "@vanilla-extract/css";
+import { globalStyle, style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
 export const page = style({
   display: "flex",
@@ -77,6 +77,7 @@ export const row = style({
   minWidth: 0,
 });
 export const spread = style({ flex: 1, minWidth: 0 });
+export const editorDialog = style({ maxWidth: 600 });
 export const form = style({ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 });
 export const formRow = style({
   display: "grid",
@@ -85,6 +86,10 @@ export const formRow = style({
   gap: 12,
   "@media": { "(max-width: 480px)": { gridTemplateColumns: "minmax(0, 1fr)", gap: 4 } },
 });
+globalStyle(`${formRow} > div > span > input, ${formRow} > div > span > textarea`, {
+  width: "100%",
+});
+globalStyle(`${form} select`, { width: "100%" });
 export const label = style([caption, { paddingTop: 8 }]);
 export const actions = style([row, { justifyContent: "flex-end", paddingTop: 6 }]);
 export const months = style({

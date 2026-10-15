@@ -1,7 +1,16 @@
-import { style } from "@vanilla-extract/css";
+import { globalStyle, style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
 
 export const editor = style({ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 });
+export const weekTimeline = style({ position: "relative", minWidth: 0 });
+export const weekOverlay = style({
+  position: "absolute",
+  inset: 0,
+  display: "grid",
+  placeItems: "center",
+  pointerEvents: "none",
+  zIndex: 3,
+});
 export const toolbar = style({
   display: "flex",
   alignItems: "center",
@@ -41,12 +50,13 @@ export const choices = style({ display: "flex", flexWrap: "wrap", gap: 5 });
 export const actions = style({ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" });
 export const timeFields = style({
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
   gap: 6,
   marginTop: 6,
 });
+globalStyle(`${timeFields} > span`, { minWidth: 0, width: "100%" });
 export const error = style({ color: tokens["color/danger"], fontSize: 12, margin: 0 });
-export const input = style({ minHeight: 28, height: 28, paddingBlock: 3 });
+export const input = style({ minHeight: 28, height: 28, paddingBlock: 3, width: "100%" });
 export const records = style({ color: tokens["color/ink-2"], fontSize: 12, paddingInline: 12 });
 export const list = style({
   display: "flex",

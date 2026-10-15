@@ -342,6 +342,7 @@ export const weekBody = style({
   gridTemplateColumns: "24px repeat(7, minmax(0, 1fr))",
   gridTemplateRows: "repeat(24, 25px)",
   gap: 1,
+  selectors: { '&[data-editable="true"]': { touchAction: "none", userSelect: "none" } },
 });
 export const hourLabel = style([
   muted,
@@ -359,7 +360,19 @@ export const hourSlot = style([
     borderRadius: 4,
     background: tokens["color/card"],
     minWidth: 0,
-    selectors: { "&:hover": { background: tokens["color/hover"] } },
+    selectors: {
+      "&:hover": { background: tokens["color/hover"] },
+      '&[aria-pressed="true"]': {
+        background: tokens["color/selected"],
+        outline: `1px solid ${tokens["color/selected-icon"]}`,
+      },
+      "&:focus-visible": {
+        position: "relative",
+        zIndex: 2,
+        outline: `2px solid ${tokens["color/focus-ring"]}`,
+        outlineOffset: 1,
+      },
+    },
   },
 ]);
 export const weekEvent = style({
@@ -390,16 +403,16 @@ export const ringHint = style([muted, { marginLeft: "auto" }]);
 export const ringCanvas = style({
   position: "relative",
   width: "100%",
-  maxWidth: 572,
+  maxWidth: 792,
   marginBlock: "auto",
 });
 export const ringSvg = style({
   display: "block",
   width: "100%",
-  maxWidth: 572,
+  maxWidth: 792,
   height: "auto",
   flexShrink: 0,
-  aspectRatio: "1",
+  aspectRatio: "792 / 642",
   overflow: "visible",
   selectors: {
     '&[data-editable="true"]': { touchAction: "none", cursor: "crosshair" },
@@ -746,9 +759,15 @@ export const spendingAmount = style([
 ]);
 export const habitSummaryGrid = style({
   display: "grid",
-  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 110px), 1fr))",
   gap: "10px 8px",
   fontSize: 12,
+});
+export const habitSummaryItem = style([row, { minWidth: 0, alignItems: "start", gap: 6 }]);
+export const habitSummaryLabel = style({
+  minWidth: 0,
+  overflowWrap: "anywhere",
+  lineHeight: "18px",
 });
 export const ringTrack = style({ fill: tokens["color/track"] });
 export const ringDivider = style({

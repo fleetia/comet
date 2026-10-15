@@ -462,6 +462,7 @@ it("moves a dated Todo from a collection using the Todo's actual date while pres
   update = () => ({ ...diary, revision: 4 });
   await openDiary();
   showPage("읽은 책");
+  fireEvent.click(opened().getByRole("button", { name: "할 일·위젯 연결과 기존 기록 편집" }));
   fireEvent.click(opened().getByRole("button", { name: "책 반납 날짜 옮기기" }));
   fireEvent.change(opened().getByLabelText("책 반납 옮길 날짜"), {
     target: { value: "2026-10-06" },
@@ -493,6 +494,7 @@ it("gives a previously undated collection Todo its first plan without inventing 
   execute = () => null;
   await openDiary();
   showPage("모아둔 생각");
+  fireEvent.click(opened().getByRole("button", { name: "할 일·위젯 연결과 기존 기록 편집" }));
   fireEvent.click(opened().getByRole("button", { name: "자료 모으기 날짜 옮기기" }));
   fireEvent.change(opened().getByLabelText("자료 모으기 옮길 날짜"), {
     target: { value: "2026-10-06" },
@@ -1182,3 +1184,196 @@ it.each(["pinned", "stored"] as const)(
     expect(screen.queryByRole("dialog")).toBeNull();
   },
 );
+
+it("keeps collection writing when navigation is cancelled and clears it only after confirmed discard", async () => {
+  diary.pages = [{ id: "books", title: "읽은 책", date: null, entries: [] }];
+  await openDiary();
+  showPage("읽은 책");
+  fireEvent.change(screen.getByLabelText("페이지에 기록할 내용"), {
+    target: { value: "  이어 쓸 기록  " },
+  });
+  showToday();
+  expect(screen.getByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
+  expect(screen.getByLabelText("페이지에 기록할 내용")).toHaveProperty("value", "  이어 쓸 기록  ");
+  expect(localStorage.getItem("comet:diary-collection-draft:books")).toContain("이어 쓸 기록");
+  showToday();
+  fireEvent.click(screen.getByRole("button", { name: "저장하지 않고 이동" }));
+  await waitFor(() => expect(screen.queryByLabelText("페이지에 기록할 내용")).toBeNull());
+  expect(localStorage.getItem("comet:diary-collection-draft:books")).toBeNull();
+  showPage("읽은 책");
+  expect(screen.getByLabelText("페이지에 기록할 내용")).toHaveProperty("value", "");
+  expect(actions("update_diary")).toEqual([]);
+});
+
+it("opens a collection record's original dated page through the normal guarded navigation", async () => {
+  diary.pages = [
+    {
+      id: "books",
+      title: "읽은 책",
+      date: null,
+      entries: [
+        { id: "book", kind: "note", text: "책 감상", sourcePageId: "daily", sourceEntryId: "note" },
+      ],
+    },
+    {
+      id: "daily",
+      title: "",
+      date: NEXT_DAY,
+      entries: [{ id: "note", kind: "note", text: "원본 한 줄 기록" }],
+    },
+  ];
+  await openDiary();
+  showPage("읽은 책");
+  fireEvent.click(screen.getByRole("link", { name: "10월 4일 한 줄 기록에서" }));
+  await waitFor(() => expect(screen.queryByLabelText("페이지에 기록할 내용")).toBeNull());
+  expect(screen.getByRole("radio", { name: "한 줄 기록" })).toHaveProperty("checked", true);
+  expect(opened().getByRole("textbox", { name: "메모 내용" })).toHaveProperty(
+    "value",
+    "원본 한 줄 기록",
+  );
+  expect(actions("update_diary")).toEqual([]);
+});
+
+it("discards the active weekly editor across week navigation and guards a fresh draft again", async () => {
+  await openDiary();
+  fireEvent.click(screen.getByRole("radio", { name: "주" }));
+  const separateJournalDraft = JSON.stringify({
+    body: "별도 한 줄 기록 초안",
+    drafts: {},
+    kind: "note",
+    time: "",
+    envelopeId: "",
+    createdTask: null,
+  });
+  localStorage.setItem(`comet:diary-draft:day:${DAY}`, separateJournalDraft);
+  fireEvent.click(screen.getByRole("button", { name: "시간 입력" }));
+  fireEvent.change(screen.getByLabelText("시간 기록 제목"), { target: { value: "이전 주 초안" } });
+  fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+  fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
+  expect(screen.getByLabelText("시간 기록 제목")).toHaveProperty("value", "이전 주 초안");
+  fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+  fireEvent.click(screen.getByRole("button", { name: "저장하지 않고 이동" }));
+  expect(screen.queryByLabelText("시간 기록 제목")).toBeNull();
+  expect(localStorage.getItem(`comet:diary-draft:day:${DAY}`)).toBe(separateJournalDraft);
+  fireEvent.click(screen.getByRole("button", { name: "시간 입력" }));
+  const editor = within(screen.getByRole("dialog", { name: "시간 칠하기" }));
+  expect(editor.getByText("2026-10-10")).toBeTruthy();
+  expect(editor.getByLabelText("시간 기록 제목")).toHaveProperty("value", "");
+  fireEvent.change(editor.getByLabelText("시간 기록 제목"), {
+    target: { value: "이번 주 새 초안" },
+  });
+  fireEvent.click(screen.getByRole("link", { name: "오늘" }));
+  expect(screen.getByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
+  expect(editor.getByLabelText("시간 기록 제목")).toHaveProperty("value", "이번 주 새 초안");
+  expect(actions("update_diary")).toEqual([]);
+}, 15000);
+
+it("clears only the discarded weekly editor when notes hide the calendar and retains separate planning and note drafts", async () => {
+  setTasks([]);
+  await openDiary();
+  await showTasks("plans");
+  fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
+    target: { value: "별도 기간 계획 초안" },
+  });
+  showNotes();
+  fireEvent.click(screen.getByRole("button", { name: "새 메모 쓰기" }));
+  fireEvent.change(screen.getByLabelText("새 메모 내용"), {
+    target: { value: "  별도 메모\n초안  " },
+  });
+  showToday();
+  fireEvent.click(screen.getByRole("radio", { name: "주" }));
+  fireEvent.click(screen.getByRole("button", { name: "시간 입력" }));
+  fireEvent.change(screen.getByLabelText("시간 기록 제목"), {
+    target: { value: "버릴 시간 초안" },
+  });
+  showNotes();
+  fireEvent.click(screen.getByRole("button", { name: "저장하지 않고 이동" }));
+  expect(screen.queryByLabelText("시간 기록 제목")).toBeNull();
+  expect(screen.getByLabelText("새 메모 내용")).toHaveProperty("value", "  별도 메모\n초안  ");
+  await showTasks("plans");
+  expect(screen.queryByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeNull();
+  expect(screen.getByRole("textbox", { name: "새 할 일" })).toHaveProperty(
+    "value",
+    "별도 기간 계획 초안",
+  );
+  showNotes();
+  expect(screen.getByLabelText("새 메모 내용")).toHaveProperty("value", "  별도 메모\n초안  ");
+  expect(actions("update_diary")).toEqual([]);
+}, 15000);
+
+it("clears a discarded collection's in-memory writing when notes only hide its page", async () => {
+  diary.pages = [{ id: "books", title: "읽은 책", date: null, entries: [] }];
+  await openDiary();
+  showPage("읽은 책");
+  fireEvent.change(screen.getByLabelText("페이지에 기록할 내용"), {
+    target: { value: "  버릴 기록 원문  " },
+  });
+  showNotes();
+  fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
+  expect(screen.getByLabelText("페이지에 기록할 내용")).toHaveProperty(
+    "value",
+    "  버릴 기록 원문  ",
+  );
+  showNotes();
+  fireEvent.click(screen.getByRole("button", { name: "저장하지 않고 이동" }));
+  expect(screen.getByLabelText("페이지에 기록할 내용")).toHaveProperty("value", "");
+  expect(localStorage.getItem("comet:diary-collection-draft:books")).toBeNull();
+  fireEvent.click(screen.getByRole("link", { name: "내 페이지" }));
+  expect(screen.queryByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeNull();
+  expect(screen.getByLabelText("페이지에 기록할 내용")).toHaveProperty("value", "");
+  fireEvent.change(screen.getByLabelText("페이지에 기록할 내용"), { target: { value: "새 입력" } });
+  fireEvent.click(screen.getByRole("button", { name: "다이어리 닫기" }));
+  expect(screen.getByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeTruthy();
+  expect(native.destroy).not.toHaveBeenCalled();
+});
+
+it("accepts a drop immediately after opening a collection directly from the weekly calendar", async () => {
+  widgets.widgets = [widget("memo", { notes: [{ id: "note-1", body: "원본 메모" }] })];
+  diary.pages = [{ id: "books", title: "읽은 책", date: null, entries: [] }];
+  update = () => ({ ...diary, revision: 4 });
+  await openDiary();
+  fireEvent.click(screen.getByRole("radio", { name: "주" }));
+  fireEvent.click(screen.getByRole("link", { name: "내 페이지" }));
+  expect(screen.getByLabelText("페이지에 기록할 내용")).toBeTruthy();
+  dropItem(screen.getByLabelText("펼친 페이지"), {
+    v: 1,
+    kind: "memo",
+    widgetId: "memo",
+    itemId: "note-1",
+  });
+  await screen.findByText("이 페이지에 연결했어요.");
+  expect(actions("update_diary")).toEqual([
+    {
+      expectedRevision: 3,
+      action: "entry-add",
+      input: {
+        pageId: "books",
+        kind: "widget",
+        refId: "memo",
+        itemId: "note-1",
+        text: "원본 메모",
+      },
+    },
+  ]);
+  expect(actions("execute_widget")).toEqual([]);
+}, 15000);
+
+it("routes native habit and ledger navigation to the matching screen and preserves the native tab value", async () => {
+  await openDiary();
+  for (const [tab, label] of [
+    ["habits", "습관 기록"],
+    ["ledger", "가계부"],
+  ] as const) {
+    act(() => {
+      for (const [event, callback] of vi.mocked(listen).mock.calls) {
+        if (event === "planner-tab") callback({ event, id: 1, payload: tab });
+      }
+    });
+    expect(await screen.findByRole("region", { name: label })).toBeTruthy();
+    await waitFor(() => expect(actions("set_planner_tab").at(-1)).toEqual({ tab }));
+  }
+  expect(screen.queryByRole("region", { name: "습관 기록" })).toBeNull();
+  expect(actions("update_diary")).toEqual([]);
+});

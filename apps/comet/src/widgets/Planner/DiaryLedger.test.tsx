@@ -1,7 +1,11 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { DiaryLedger } from "./DiaryLedger";
-import { DEFAULT_LEDGER_SETTINGS, type LedgerEntry } from "./diaryLedgerTypes";
+import {
+  DEFAULT_LEDGER_SETTINGS,
+  type LedgerEntry,
+  type RecurringExpense,
+} from "./diaryLedgerTypes";
 import type { DiaryAction, DiaryState } from "./diaryTypes";
 
 afterEach(cleanup);
@@ -22,6 +26,24 @@ const entry: LedgerEntry = {
   category: "food",
   title: "점심",
   memo: "원래 메모",
+};
+const recurring: RecurringExpense = {
+  id: "rent",
+  title: "월세",
+  amount: 550000,
+  category: "housing",
+  estimated: false,
+  frequency: "monthly",
+  interval: 1,
+  day: 15,
+  weekday: 0,
+  months: [],
+  startDate: "2026-01-01",
+  endDate: null,
+  weekend: "keep",
+  autoRecord: true,
+  enabled: true,
+  recordedDates: [],
 };
 const change = (name: string, value: string) =>
   fireEvent.change(screen.getByLabelText(name), { target: { value } });
@@ -167,6 +189,70 @@ it("persists selected months, weekend adjustment and manual recording then gener
       includeManual: true,
     }),
   );
+});
+
+it("keeps recurring drafts editable when automatic recording only changes recorded dates", async () => {
+  const onAction = vi.fn<DiaryAction>().mockResolvedValue(true);
+  const view = render(
+    <DiaryLedger
+      state={{ ...state, ledgerRecurring: [recurring] }}
+      date="2026-01-15"
+      busy={false}
+      onAction={onAction}
+    />,
+  );
+  fireEvent.click(screen.getByRole("radio", { name: "고정비" }));
+  fireEvent.click(screen.getByRole("button", { name: "월세 고정비 편집" }));
+  change("기록 금액 (원)", "600,000");
+  view.rerender(
+    <DiaryLedger
+      state={{
+        ...state,
+        ledgerRecurring: [{ ...recurring, recordedDates: ["2026-01-15"] }],
+      }}
+      date="2026-01-15"
+      busy={false}
+      onAction={onAction}
+    />,
+  );
+  expect(screen.queryByRole("button", { name: "최신 내용 다시 불러오기" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "저장" }));
+  await waitFor(() =>
+    expect(onAction).toHaveBeenCalledWith(
+      "ledger-recurring-update",
+      expect.objectContaining({ id: recurring.id, expected: recurring, amount: 600000 }),
+    ),
+  );
+});
+
+it("protects recurring definition changes while keeping the edited draft", () => {
+  const onAction = vi.fn<DiaryAction>().mockResolvedValue(true);
+  const view = render(
+    <DiaryLedger
+      state={{ ...state, ledgerRecurring: [recurring] }}
+      date="2026-01-15"
+      busy={false}
+      onAction={onAction}
+    />,
+  );
+  fireEvent.click(screen.getByRole("radio", { name: "고정비" }));
+  fireEvent.click(screen.getByRole("button", { name: "월세 고정비 편집" }));
+  change("기록 이름", "내 수정");
+  view.rerender(
+    <DiaryLedger
+      state={{
+        ...state,
+        ledgerRecurring: [{ ...recurring, amount: 600000, recordedDates: ["2026-01-15"] }],
+      }}
+      date="2026-01-15"
+      busy={false}
+      onAction={onAction}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "저장" }));
+  expect(onAction).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("기록 이름")).toHaveProperty("value", "내 수정");
+  expect(screen.getByRole("alert").textContent).toContain("최신 내용을 다시 불러온 뒤");
 });
 
 it("changes the monthly budget with a settings snapshot and protects categories in use", async () => {

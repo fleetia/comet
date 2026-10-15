@@ -113,7 +113,13 @@ export function LedgerEditor({
   const stale =
     editor.kind === "settings"
       ? JSON.stringify(originalSettings) !== JSON.stringify(settings)
-      : Boolean(original && JSON.stringify(original) !== JSON.stringify(latest));
+      : Boolean(
+          original &&
+          (editor.kind === "recurring"
+            ? JSON.stringify({ ...original, recordedDates: [] }) !==
+              JSON.stringify(latest && { ...latest, recordedDates: [] })
+            : JSON.stringify(original) !== JSON.stringify(latest)),
+        );
   const caption =
     editor.kind === "settings"
       ? "가계부 설정"
@@ -171,6 +177,7 @@ export function LedgerEditor({
     <>
       <Dialog
         isOpen
+        className={s.editorDialog}
         title={caption}
         closeLabel={`${caption} 닫기`}
         onOpenChange={(open) => {

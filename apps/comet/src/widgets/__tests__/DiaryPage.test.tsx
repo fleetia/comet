@@ -364,6 +364,7 @@ it("reads a linked memo from its live source, opens the same note, and only unli
     expect(callbacks.onDiaryAction).toHaveBeenCalledWith("entry-delete", {
       pageId: "page-1",
       id: "memo-link",
+      expectedEntry: entry,
     }),
   );
   expect(callbacks.onDiaryAction).toHaveBeenCalledTimes(1);

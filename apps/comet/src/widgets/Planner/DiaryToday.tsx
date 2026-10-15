@@ -47,6 +47,8 @@ export function DiaryToday({
   onDirtyChange,
   onHabits,
   onLedger,
+  tab: selectedTab,
+  onTabChange,
 }: {
   day: string;
   widgets: WidgetView[];
@@ -64,9 +66,12 @@ export function DiaryToday({
   onDirtyChange?: (dirty: boolean) => void;
   onHabits?: () => void;
   onLedger?: () => void;
+  tab?: "summary" | "journal";
+  onTabChange?: (tab: "summary" | "journal") => void;
 }): ReactElement {
   const [now, setNow] = useState(Date.now());
-  const [tab, setTab] = useState("summary");
+  const [localTab, setLocalTab] = useState<"summary" | "journal">("summary");
+  const tab = selectedTab ?? localTab;
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(interval);
@@ -79,20 +84,22 @@ export function DiaryToday({
   const total = sessions.reduce((sum, session) => sum + elapsedWithin(session, start, end), 0);
   const appointments = eventsOn(events, day);
   const segments: CalendarRingSegment[] = [
-    ...sessions.flatMap((session) =>
-      session.segments
-        .filter((segment) => segment.startAt < end && segment.endAt > start)
-        .map((segment, index) => ({
-          id: `focus:${session.id}:${index}`,
-          startMinute: (Math.max(start, segment.startAt) - start) / 60000,
-          endMinute: Math.min(1440, (Math.min(end, segment.endAt) - start) / 60000),
-          color: "focus" as const,
-          kind: "focus" as const,
-          label: `${session.title} · ${focusDuration(Math.min(end, segment.endAt) - Math.max(start, segment.startAt))}`,
-          displayLabel: session.title,
-          detail: "집중 · 자동",
-        })),
-    ),
+    ...sessions
+      .filter((session) => session.recordTimeline !== false)
+      .flatMap((session) =>
+        session.segments
+          .filter((segment) => segment.startAt < end && segment.endAt > start)
+          .map((segment, index) => ({
+            id: `focus:${session.id}:${index}`,
+            startMinute: (Math.max(start, segment.startAt) - start) / 60000,
+            endMinute: Math.min(1440, (Math.min(end, segment.endAt) - start) / 60000),
+            color: "focus" as const,
+            kind: "focus" as const,
+            label: `${session.title} · ${focusDuration(Math.min(end, segment.endAt) - Math.max(start, segment.startAt))}`,
+            displayLabel: session.title,
+            detail: "집중 · 자동",
+          })),
+      ),
     ...appointments
       .filter((event) => !event.allDay && eventEnd(event) > eventStart(event))
       .map((event) => ({
@@ -176,7 +183,11 @@ export function DiaryToday({
               { value: "summary", label: "요약" },
               { value: "journal", label: "한 줄 기록" },
             ]}
-            onValueChange={setTab}
+            onValueChange={(value) => {
+              if (value !== "summary" && value !== "journal") return;
+              setLocalTab(value);
+              onTabChange?.(value);
+            }}
           />
         )}
         <div hidden={tab !== "summary"} className={s.todaySummary}>
@@ -188,7 +199,13 @@ export function DiaryToday({
                 ? diaryTimeCategories(state)
                     .map((category) => {
                       const minutes = recordedTimeMinutes(
-                        manual.filter((segment) => state.timeRecords?.some((record) => record.categoryId === category.id && segment.id === `manual:${record.id}`)),
+                        manual.filter((segment) =>
+                          state.timeRecords?.some(
+                            (record) =>
+                              record.categoryId === category.id &&
+                              segment.id === `manual:${record.id}`,
+                          ),
+                        ),
                       );
                       return {
                         id: category.id,

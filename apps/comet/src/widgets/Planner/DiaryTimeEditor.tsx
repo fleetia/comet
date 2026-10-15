@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX } from "react";
+import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
 import {
   Button,
   CalendarDayRing,
@@ -23,12 +23,23 @@ import {
 import * as s from "./diaryTime.css";
 
 type Draft = {
+  date: string;
+  records: DiaryTimeRecord[];
   record?: DiaryTimeRecord;
   start: string;
   end: string;
   title: string;
   categoryId: string;
   direct: boolean;
+};
+type TimeRange = { startMinute: number; endMinute: number };
+export type DiaryTimeTimelineControls = {
+  toolbar: ReactNode;
+  overlay: ReactNode;
+  disabled: boolean;
+  selection?: TimeRange & { dayId: string };
+  onRangeSelect: (range: TimeRange, date: string) => void;
+  onRecordClick: (record: DiaryTimeRecord) => void;
 };
 type CategoryDraft = {
   category?: DiaryTimeCategory;
@@ -55,6 +66,7 @@ export function DiaryTimeEditor({
   onAdditionalSegmentClick,
   currentMinute,
   className,
+  renderTimeline,
 }: {
   state: DiaryState;
   date: string;
@@ -65,17 +77,21 @@ export function DiaryTimeEditor({
   onAdditionalSegmentClick?: (segment: CalendarRingSegment) => void;
   currentMinute?: number;
   className?: string;
+  renderTimeline?: (controls: DiaryTimeTimelineControls) => ReactNode;
 }): JSX.Element {
   const categories = diaryTimeCategories(state);
-  const records = diaryTimeRecords(state, date);
   const [selected, setSelected] = useState(categories[0]?.id ?? "work");
   const [draft, setDraft] = useState<Draft>();
+  const records = diaryTimeRecords(state, draft?.date ?? date);
   const [categoryDraft, setCategoryDraft] = useState<CategoryDraft>();
   const [error, setError] = useState("");
   const [working, setWorking] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const pending = useRef(false);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const focusOrigin = useRef<HTMLElement | SVGElement | null>(null);
+  const restoreFocus = useRef(false);
   const report = useRef(onDirtyChange);
   report.current = onDirtyChange;
   const disabled = busy || working;
@@ -83,6 +99,24 @@ export function DiaryTimeEditor({
   useEffect(() => {
     report.current?.(hasDraft);
   }, [hasDraft]);
+  useEffect(() => {
+    if (hasDraft || disabled || !restoreFocus.current) {
+      return;
+    }
+    restoreFocus.current = false;
+    const target = focusOrigin.current;
+    focusOrigin.current = null;
+    if (
+      !target?.isConnected ||
+      !editorRef.current?.contains(target) ||
+      target.matches(":disabled") ||
+      (document.activeElement !== document.body &&
+        !editorRef.current.contains(document.activeElement))
+    ) {
+      return;
+    }
+    target.focus();
+  }, [hasDraft, disabled]);
   useEffect(
     () => () => {
       report.current?.(false);
@@ -90,10 +124,11 @@ export function DiaryTimeEditor({
     [],
   );
   const today = localDay(new Date());
+  const editingDate = draft?.date ?? date;
   const elapsed =
-    date < today
+    editingDate < today
       ? 1440
-      : date > today
+      : editingDate > today
         ? 0
         : (currentMinute ?? new Date().getHours() * 60 + new Date().getMinutes());
   const manual = manualTimeSegments(state, date, elapsed);
@@ -104,6 +139,7 @@ export function DiaryTimeEditor({
   const start = draft ? parseTimeInput(draft.start) : null;
   const end = draft ? parseTimeInput(draft.end, true) : null;
   const validRange = start !== null && end !== null && end > start;
+  const staleRecords = Boolean(draft && JSON.stringify(records) !== JSON.stringify(draft.records));
   const overlap =
     validRange &&
     records.some(
@@ -112,17 +148,30 @@ export function DiaryTimeEditor({
     );
 
   function close(): void {
+    restoreFocus.current = true;
     setDraft(undefined);
     setCategoryDraft(undefined);
     setError("");
     setConfirmDiscard(false);
     setConfirmDelete(false);
   }
-  function openRange(range: { startMinute: number; endMinute: number }, direct = false): void {
+  function rememberFocus(): void {
+    const target = document.activeElement;
+    focusOrigin.current =
+      (target instanceof HTMLElement || target instanceof SVGElement) &&
+      editorRef.current?.contains(target)
+        ? target
+        : null;
+    restoreFocus.current = false;
+  }
+  function openRange(range: TimeRange, direct = false, targetDate = date): void {
     if (disabled || hasDraft) {
       return;
     }
+    rememberFocus();
     setDraft({
+      date: targetDate,
+      records: diaryTimeRecords(state, targetDate),
       start: timeInput(range.startMinute),
       end: timeInput(range.endMinute),
       title: "",
@@ -137,7 +186,10 @@ export function DiaryTimeEditor({
     if (disabled || hasDraft) {
       return;
     }
+    rememberFocus();
     setDraft({
+      date: record.date,
+      records: diaryTimeRecords(state, record.date),
       record,
       start: timeInput(record.startMinute),
       end: timeInput(record.endMinute),
@@ -171,6 +223,10 @@ export function DiaryTimeEditor({
     if (!draft) {
       return;
     }
+    if (staleRecords) {
+      setError("다른 곳에서 시간 기록이 바뀌었어요. 최신 기록을 확인한 뒤 다시 칠해 주세요.");
+      return;
+    }
     if (!validRange) {
       setError(
         "시작과 종료를 10분 단위로 입력해 주세요. 24:00은 종료에만 쓰며, 자정을 넘으면 날짜별로 나누어 칠해 주세요.",
@@ -179,7 +235,8 @@ export function DiaryTimeEditor({
     }
     void persist("time-record-save", {
       ...(draft.record ? { id: draft.record.id, expectedRecord: draft.record } : {}),
-      date,
+      date: draft.date,
+      expectedRecords: draft.records,
       startMinute: start,
       endMinute: end,
       categoryId: draft.categoryId,
@@ -212,18 +269,21 @@ export function DiaryTimeEditor({
         size="small"
         variant="link"
         disabled={disabled || hasDraft}
-        onClick={() =>
+        onClick={() => {
+          rememberFocus();
           setCategoryDraft({
             category: categories[0],
             name: categories[0].name,
             color: categories[0].color,
             reassignTo: categories[1]?.id ?? "",
-          })
-        }
+          });
+        }}
       >
         분류 관리
       </Button>
-      <span className={s.hint}>한 칸 = 10분 · 원을 따라 끌어서 칠해요</span>
+      <span className={s.hint}>
+        한 칸 = 10분 · {renderTimeline ? "빈 칸을 끌어서 칠해요" : "원을 따라 끌어서 칠해요"}
+      </span>
     </div>
   );
   const overlay = hasDraft ? (
@@ -242,6 +302,7 @@ export function DiaryTimeEditor({
       {draft && (
         <>
           <div>
+            {renderTimeline && <p className={s.meta}>{draft.date}</p>}
             <h3 className={s.heading}>
               {draft.start} – {draft.end}
             </h3>
@@ -303,6 +364,38 @@ export function DiaryTimeEditor({
           </details>
           {overlap && (
             <p className={s.meta}>겹치는 시간은 새 분류로 칠하고, 나머지 기록은 유지해요.</p>
+          )}
+          {staleRecords && (
+            <div>
+              <p className={s.meta}>이 날짜의 최신 기록을 확인해 주세요. 입력한 내용은 유지해요.</p>
+              <ul className={s.meta}>
+                {records.map((record) => (
+                  <li key={record.id}>
+                    {timeInput(record.startMinute)}–{timeInput(record.endMinute)} ·{" "}
+                    {record.title ||
+                      categories.find((category) => category.id === record.categoryId)?.name}
+                  </li>
+                ))}
+                {records.length === 0 && <li>저장된 시간 기록이 없어요.</li>}
+              </ul>
+              <Button
+                size="small"
+                variant="ghost"
+                disabled={disabled}
+                onClick={() => {
+                  setDraft({
+                    ...draft,
+                    records,
+                    record: draft.record
+                      ? records.find((record) => record.id === draft.record?.id)
+                      : undefined,
+                  });
+                  setError("");
+                }}
+              >
+                최신 기록을 기준으로 계속
+              </Button>
+            </div>
           )}
           <div className={s.actions}>
             <Button
@@ -506,23 +599,37 @@ export function DiaryTimeEditor({
     </Surface>
   ) : undefined;
   return (
-    <div className={[s.editor, className].filter(Boolean).join(" ")}>
-      <CalendarDayRing
-        layout="fill"
-        segments={segments}
-        value={timeDuration(recordedTimeMinutes(segments))}
-        centerLabel="오늘 칠한 시간"
-        caption="수동 기록과 실제 집중 시간 · 일정은 안쪽 링"
-        toolbar={toolbar}
-        overlay={overlay}
-        selection={validRange ? { startMinute: start, endMinute: end } : undefined}
-        onRangeSelect={openRange}
-        onSegmentClick={onAdditionalSegmentClick}
-        interactionDisabled={disabled || hasDraft}
-        currentMinute={currentMinute}
-        showSegmentLabels
-      />
-      {records.length > 0 && (
+    <div ref={editorRef} className={[s.editor, className].filter(Boolean).join(" ")}>
+      {renderTimeline ? (
+        renderTimeline({
+          toolbar,
+          overlay,
+          disabled: disabled || hasDraft,
+          selection:
+            validRange && draft
+              ? { dayId: draft.date, startMinute: start, endMinute: end }
+              : undefined,
+          onRangeSelect: (range, targetDate) => openRange(range, true, targetDate),
+          onRecordClick: edit,
+        })
+      ) : (
+        <CalendarDayRing
+          layout="fill"
+          segments={segments}
+          value={timeDuration(recordedTimeMinutes(segments))}
+          centerLabel="오늘 칠한 시간"
+          caption="수동 기록과 실제 집중 시간 · 일정은 안쪽 링"
+          toolbar={toolbar}
+          overlay={overlay}
+          selection={validRange ? { startMinute: start, endMinute: end } : undefined}
+          onRangeSelect={(range) => openRange(range)}
+          onSegmentClick={onAdditionalSegmentClick}
+          interactionDisabled={disabled || hasDraft}
+          currentMinute={currentMinute}
+          showSegmentLabels
+        />
+      )}
+      {!renderTimeline && records.length > 0 && (
         <details className={s.records}>
           <summary>시간 기록 {records.length}개 수정</summary>
           <div className={s.list}>

@@ -23,11 +23,15 @@ pub(crate) fn get_planner_note_target(
     Ok(crate::lock(&state.note_target)?.take())
 }
 
+fn supported_tab(tab: &str) -> bool {
+    matches!(
+        tab,
+        "today" | "plans" | "calendar" | "templates" | "organizer" | "habits" | "ledger"
+    )
+}
+
 pub(crate) fn open(app: &tauri::AppHandle, tab: &str) -> Result<(), String> {
-    let tab = match tab {
-        "plans" | "calendar" | "templates" | "organizer" => tab,
-        _ => "today",
-    };
+    let tab = if supported_tab(tab) { tab } else { "today" };
     let navigation = app.state::<Navigation>();
     *crate::lock(&navigation.tab)? = tab.to_string();
     if let Some(window) = app.get_webview_window("planner") {
@@ -66,14 +70,31 @@ pub(crate) fn set_planner_tab(
     window: tauri::WebviewWindow,
     tab: String,
 ) -> Result<(), String> {
-    if window.label() != "planner"
-        || !["today", "plans", "calendar", "templates", "organizer"].contains(&tab.as_str())
-    {
+    if window.label() != "planner" || !supported_tab(&tab) {
         return Err("플래너에서 지원되는 화면을 선택해 주세요.".into());
     }
     *crate::lock(&app.state::<Navigation>().tab)? = tab;
     crate::app::publish(&app, &app.state::<std::sync::Arc<crate::AppState>>());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn diary_navigation_accepts_habits_and_ledger_without_expanding_to_unknown_tabs() {
+        for tab in [
+            "today",
+            "plans",
+            "calendar",
+            "templates",
+            "organizer",
+            "habits",
+            "ledger",
+        ] {
+            assert!(super::supported_tab(tab));
+        }
+        assert!(!super::supported_tab("unknown"));
+    }
 }
 
 #[tauri::command]

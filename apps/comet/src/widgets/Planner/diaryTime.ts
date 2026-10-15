@@ -15,7 +15,7 @@ export function diaryTimeCategories(state: DiaryState): readonly DiaryTimeCatego
 export function diaryTimeRecords(state: DiaryState, date: string): DiaryTimeRecord[] {
   return (state.timeRecords ?? [])
     .filter((record) => record.date === date)
-    .sort((a, b) => a.startMinute - b.startMinute);
+    .sort((a, b) => a.startMinute - b.startMinute || a.id.localeCompare(b.id));
 }
 export function timeInput(minute: number): string {
   return `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;

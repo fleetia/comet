@@ -354,14 +354,19 @@ export function CalendarSummaryCard({
       {kind === "habits" && (
         <div className={styles.habitSummaryGrid}>
           {habits.map((habit) => (
-            <span key={habit.id} className={styles.row}>
+            <span key={habit.id} className={styles.habitSummaryItem}>
               <Icon
                 name="star"
                 size={15}
                 fill={habit.done ? "currentColor" : "none"}
-                style={{ color: habit.done ? tokens["color/cat-record"] : tokens["color/ink-3"] }}
+                style={{
+                  color: habit.done ? tokens["color/cat-record"] : tokens["color/ink-3"],
+                  flexShrink: 0,
+                }}
               />
-              <span className={habit.done ? undefined : styles.secondary}>{habit.label}</span>
+              <span className={classes(styles.habitSummaryLabel, !habit.done && styles.secondary)}>
+                {habit.label}
+              </span>
             </span>
           ))}
         </div>
@@ -425,6 +430,9 @@ export type CalendarWeekProps = Omit<HTMLAttributes<HTMLDivElement>, "children">
   startHour?: number;
   onDayClick?: (day: CalendarWeekDay) => void;
   onSlotClick?: (day: CalendarWeekDay, minute: number) => void;
+  onRangeSelect?: (day: CalendarWeekDay, range: { startMinute: number; endMinute: number }) => void;
+  selection?: { dayId: string; startMinute: number; endMinute: number };
+  interactionDisabled?: boolean;
   onEventClick?: (event: CalendarWeekEvent) => void;
 };
 export function CalendarWeek({
@@ -433,13 +441,36 @@ export function CalendarWeek({
   startHour = 6,
   onDayClick,
   onSlotClick,
+  onRangeSelect,
+  selection,
+  interactionDisabled = false,
   onEventClick,
   className,
   ...props
 }: CalendarWeekProps): JSX.Element {
+  const instructionsId = useId();
+  const bodyRef = useRef<HTMLDivElement>(null);
   const hours = Array.from({ length: 24 }, (_, index) => (startHour + index) % 24);
+  const drag = useRef<{
+    pointerId: number;
+    day: CalendarWeekDay;
+    start: number;
+    end: number;
+  } | null>(null);
+  const skipClick = useRef(false);
+  const [dragRange, setDragRange] = useState<CalendarWeekProps["selection"]>();
+  const [keyboardMinute, setKeyboardMinute] = useState(startHour * 60);
+  const selectedRange = dragRange ?? selection;
+  function rangeBetween(start: number, end: number): { startMinute: number; endMinute: number } {
+    return { startMinute: Math.min(start, end), endMinute: Math.max(start, end) + 10 };
+  }
   return (
     <div {...props} className={classes(styles.week, className)}>
+      <p id={instructionsId} className={styles.visuallyHidden}>
+        Tab으로 다음 날짜의 같은 시각으로 이동합니다. 왼쪽·오른쪽 방향키는 10분, 위·아래 방향키는
+        1시간 이동합니다. Home·End는 현재 시간의 처음·끝, Ctrl+Home·End는 시간표의 처음·끝으로
+        이동합니다. Enter 또는 Space로 시간을 선택합니다.
+      </p>
       <div className={styles.weekInner}>
         <div className={styles.weekHeader}>
           <span />
@@ -449,12 +480,61 @@ export function CalendarWeek({
               weekday={day.weekday}
               day={day.day}
               today={day.today}
+              disabled={interactionDisabled}
               aria-label={`${day.label} 하루 보기`}
               onClick={() => onDayClick?.(day)}
             />
           ))}
         </div>
-        <div className={styles.weekBody}>
+        <div
+          ref={bodyRef}
+          className={styles.weekBody}
+          data-editable={Boolean(onRangeSelect) && !interactionDisabled}
+          onPointerMove={(event) => {
+            const current = drag.current;
+            if (!current || current.pointerId !== event.pointerId || interactionDisabled) return;
+            const rect = event.currentTarget.getBoundingClientRect();
+            if (!rect.width || !rect.height) return;
+            const column = days.findIndex((day) => day.id === current.day.id);
+            const width = (rect.width - 24 - days.length) / days.length;
+            const x = event.clientX - rect.left - 25 - column * (width + 1);
+            const slot = Math.max(0, Math.min(5, Math.floor((x / width) * 6)));
+            const row = Math.max(0, Math.min(23, Math.floor((event.clientY - rect.top) / 26)));
+            const minute = hours[row] * 60 + slot * 10;
+            current.end =
+              Math.abs(minute - current.end) > 720 ? (current.end > 720 ? 1430 : 0) : minute;
+            setDragRange({ dayId: current.day.id, ...rangeBetween(current.start, current.end) });
+          }}
+          onPointerUp={(event) => {
+            const current = drag.current;
+            if (!current || current.pointerId !== event.pointerId) return;
+            drag.current = null;
+            setDragRange(undefined);
+            skipClick.current = true;
+            if (!interactionDisabled)
+              onRangeSelect?.(current.day, rangeBetween(current.start, current.end));
+          }}
+          onPointerCancel={() => {
+            drag.current = null;
+            setDragRange(undefined);
+          }}
+          onLostPointerCapture={() => {
+            drag.current = null;
+            setDragRange(undefined);
+          }}
+          onKeyDown={(event) => {
+            const current = drag.current;
+            if (event.key !== "Escape" || !current) return;
+            event.preventDefault();
+            event.stopPropagation();
+            drag.current = null;
+            setDragRange(undefined);
+            skipClick.current = false;
+            if (event.currentTarget.hasPointerCapture?.(current.pointerId)) {
+              event.currentTarget.releasePointerCapture(current.pointerId);
+            }
+          }}
+        >
           {hours.map((hour, row) => (
             <Fragment key={hour}>
               <span className={styles.hourLabel} style={{ gridColumn: 1, gridRow: row + 1 }}>
@@ -471,9 +551,80 @@ export function CalendarWeek({
                       key={slot}
                       type="button"
                       className={styles.hourSlot}
+                      data-week-slot={`${column}:${hour * 60 + slot * 10}`}
+                      tabIndex={keyboardMinute === hour * 60 + slot * 10 ? 0 : -1}
+                      aria-describedby={instructionsId}
+                      aria-pressed={
+                        selectedRange?.dayId === day.id &&
+                        hour * 60 + slot * 10 >= selectedRange.startMinute &&
+                        hour * 60 + slot * 10 < selectedRange.endMinute
+                      }
                       aria-label={`${day.label} ${hour}:${String(slot * 10).padStart(2, "0")}`}
-                      disabled={!onSlotClick}
-                      onClick={() => onSlotClick?.(day, hour * 60 + slot * 10)}
+                      disabled={interactionDisabled || (!onSlotClick && !onRangeSelect)}
+                      onFocus={() => setKeyboardMinute(hour * 60 + slot * 10)}
+                      onKeyDown={(event) => {
+                        if (interactionDisabled || event.altKey || event.metaKey) return;
+                        const minute = hour * 60 + slot * 10;
+                        const offset = (minute - startHour * 60 + 1440) % 1440;
+                        let next = offset;
+                        switch (event.key) {
+                          case "ArrowLeft":
+                            next -= 10;
+                            break;
+                          case "ArrowRight":
+                            next += 10;
+                            break;
+                          case "ArrowUp":
+                            next -= 60;
+                            break;
+                          case "ArrowDown":
+                            next += 60;
+                            break;
+                          case "Home":
+                            next = event.ctrlKey ? 0 : Math.floor(offset / 60) * 60;
+                            break;
+                          case "End":
+                            next = event.ctrlKey ? 1430 : Math.floor(offset / 60) * 60 + 50;
+                            break;
+                          default:
+                            return;
+                        }
+                        event.preventDefault();
+                        const nextMinute =
+                          (Math.max(0, Math.min(1430, next)) + startHour * 60) % 1440;
+                        bodyRef.current
+                          ?.querySelector<HTMLButtonElement>(
+                            `[data-week-slot="${column}:${nextMinute}"]`,
+                          )
+                          ?.focus();
+                      }}
+                      onPointerDown={(event) => {
+                        if (!onRangeSelect || interactionDisabled || event.button !== 0) return;
+                        event.preventDefault();
+                        event.currentTarget.focus();
+                        const minute = hour * 60 + slot * 10;
+                        const body = event.currentTarget.parentElement?.parentElement;
+                        body?.setPointerCapture?.(event.pointerId);
+                        skipClick.current = false;
+                        drag.current = {
+                          pointerId: event.pointerId,
+                          day,
+                          start: minute,
+                          end: minute,
+                        };
+                        setDragRange({ dayId: day.id, ...rangeBetween(minute, minute) });
+                      }}
+                      onClick={(event) => {
+                        if (interactionDisabled) return;
+                        if (skipClick.current && event.detail > 0) {
+                          skipClick.current = false;
+                          return;
+                        }
+                        skipClick.current = false;
+                        const minute = hour * 60 + slot * 10;
+                        if (onRangeSelect) onRangeSelect(day, rangeBetween(minute, minute));
+                        else onSlotClick?.(day, minute);
+                      }}
                     />
                   ))}
                 </div>
@@ -498,18 +649,29 @@ export function CalendarWeek({
               durationMinutes,
               ...block
             } = event;
-            const duration = Math.min(durationMinutes, 1440 - offset);
-            const fullHours = offset % 60 === 0 && duration % 60 === 0;
-            const firstHour = Math.floor(offset / 60);
-            const pieces = fullHours
-              ? [{ start: offset, duration }]
-              : Array.from({ length: Math.ceil(((offset % 60) + duration) / 60) }, (_, index) => {
-                  const start = Math.max(offset, (firstHour + index) * 60);
+            const duration = Math.min(durationMinutes, 1440);
+            const ranges = [{ start: offset, duration: Math.min(duration, 1440 - offset) }];
+            if (offset + duration > 1440) {
+              ranges.push({ start: 0, duration: offset + duration - 1440 });
+            }
+            const pieces = ranges.flatMap((range) => {
+              if (range.start % 60 === 0 && range.duration % 60 === 0) {
+                return [{ ...range, fullHours: true }];
+              }
+              const firstHour = Math.floor(range.start / 60);
+              return Array.from(
+                { length: Math.ceil(((range.start % 60) + range.duration) / 60) },
+                (_, index) => {
+                  const start = Math.max(range.start, (firstHour + index) * 60);
                   return {
                     start,
-                    duration: Math.min(offset + duration, (firstHour + index + 1) * 60) - start,
+                    duration:
+                      Math.min(range.start + range.duration, (firstHour + index + 1) * 60) - start,
+                    fullHours: false,
                   };
-                });
+                },
+              );
+            });
             return pieces.map((piece, index) => (
               <div
                 key={`${id}-${index}`}
@@ -517,13 +679,14 @@ export function CalendarWeek({
                 style={{
                   gridColumn: dayIndex + 2,
                   gridRow: Math.floor(piece.start / 60) + 1,
-                  height: fullHours ? (duration / 60) * 26 : 26,
-                  width: `${fullHours ? 100 : (piece.duration / 60) * 100}%`,
+                  height: piece.fullHours ? (piece.duration / 60) * 26 : 26,
+                  width: `${piece.fullHours ? 100 : (piece.duration / 60) * 100}%`,
                   marginLeft: `${((piece.start % 60) / 60) * 100}%`,
                 }}
               >
                 <CalendarTimeBlock
                   {...block}
+                  disabled={interactionDisabled || block.disabled}
                   className={classes(styles.weekEventBlock, block.className)}
                   onClick={() => onEventClick?.(event)}
                 />
@@ -547,6 +710,75 @@ export type CalendarRingSegment = {
   interactive?: boolean;
   kind?: "recorded" | "planned" | "event" | "focus";
 };
+type RingAnnotation = {
+  id: string;
+  angle: number;
+  x: number;
+  y: number;
+  side: "left" | "right";
+  label: string;
+  detail?: string;
+  current?: boolean;
+};
+function ringAnnotations(
+  segments: readonly CalendarRingSegment[],
+  now: number | undefined,
+  nowLabel: string,
+): RingAnnotation[] {
+  const annotations: RingAnnotation[] = segments.map((segment) => {
+    const minute = (Math.max(0, segment.startMinute) + Math.min(1440, segment.endMinute)) / 2;
+    const angle = (minute / 1440) * Math.PI * 2 - Math.PI / 2;
+    return {
+      id: segment.id,
+      angle,
+      x: 286 + 262 * Math.cos(angle),
+      y: 286 + 262 * Math.sin(angle),
+      side: Math.cos(angle) >= 0 ? "right" : "left",
+      label: segment.displayLabel ?? segment.label,
+      detail: segment.detail,
+    };
+  });
+  if (now !== undefined) {
+    const angle = (now / 1440) * Math.PI * 2 - Math.PI / 2;
+    annotations.push({
+      id: "current-time",
+      angle,
+      x: 286 + 262 * Math.cos(angle),
+      y: 286 + 262 * Math.sin(angle),
+      side: Math.cos(angle) >= 0 ? "right" : "left",
+      label: nowLabel,
+      current: true,
+    });
+  }
+  return (["left", "right"] as const).flatMap((side) => {
+    const lane = annotations
+      .filter((annotation) => annotation.side === side)
+      .sort((a, b) => a.y - b.y);
+    // Keep dense-day captions bounded; every mark retains its full accessible label.
+    const visible =
+      lane.length <= 14
+        ? lane
+        : lane
+            .filter((annotation) => annotation.current)
+            .concat(lane.filter((annotation) => !annotation.current).slice(0, 13))
+            .sort((a, b) => a.y - b.y);
+    const placed = visible.map((annotation) => ({ ...annotation }));
+    for (let index = 0; index < placed.length; index++) {
+      placed[index].y = Math.max(24, placed[index].y, index ? placed[index - 1].y + 38 : 24);
+    }
+    for (let index = placed.length - 1; index >= 0; index--) {
+      placed[index].y = Math.min(
+        532,
+        placed[index].y,
+        index < placed.length - 1 ? placed[index + 1].y - 38 : 532,
+      );
+    }
+    return placed;
+  });
+}
+function shortRingLabel(value: string, limit = 10): string {
+  return value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
+}
 export type CalendarDayRingProps = Omit<HTMLAttributes<HTMLDivElement>, "children"> & {
   segments: readonly CalendarRingSegment[];
   value: ReactNode;
@@ -620,8 +852,8 @@ export function CalendarDayRing({
     if (!rect.width || !rect.height) {
       return null;
     }
-    const x = ((clientX - rect.left) / rect.width) * 572 - 286;
-    const y = ((clientY - rect.top) / rect.height) * 572 - 286;
+    const x = ((clientX - rect.left) / rect.width) * 792 - 396;
+    const y = ((clientY - rect.top) / rect.height) * 642 - 321;
     const radius = Math.hypot(x, y);
     if (radius < 190 || radius > 252) {
       return null;
@@ -653,6 +885,7 @@ export function CalendarDayRing({
     (now === undefined
       ? ""
       : `지금 ${Math.floor(now / 60)}:${String(Math.floor(now % 60)).padStart(2, "0")}`);
+  const annotations = ringAnnotations(showSegmentLabels ? visibleSegments : [], now, nowLabel);
   return (
     <div
       {...props}
@@ -680,7 +913,7 @@ export function CalendarDayRing({
         ))}
       <div className={styles.ringCanvas}>
         <svg
-          viewBox="0 0 572 572"
+          viewBox="-110 -35 792 642"
           className={styles.ringSvg}
           role="group"
           aria-labelledby={id}
@@ -790,17 +1023,26 @@ export function CalendarDayRing({
               className={styles.ringSegment}
               style={{ [cssVar(styles.fill)]: plannerColors[segment.color] } as CSSProperties}
               data-kind={segment.kind ?? "recorded"}
-              role={onSegmentClick && segment.interactive !== false ? "button" : undefined}
-              tabIndex={onSegmentClick && segment.interactive !== false ? 0 : undefined}
+              role={
+                onSegmentClick && segment.interactive !== false && !interactionDisabled
+                  ? "button"
+                  : undefined
+              }
+              tabIndex={
+                onSegmentClick && segment.interactive !== false && !interactionDisabled
+                  ? 0
+                  : undefined
+              }
               aria-label={segment.label}
               onClick={() => {
-                if (segment.interactive !== false) {
+                if (segment.interactive !== false && !interactionDisabled) {
                   onSegmentClick?.(segment);
                 }
               }}
               onKeyDown={(event) => {
                 if (
                   onSegmentClick &&
+                  !interactionDisabled &&
                   segment.interactive !== false &&
                   (event.key === "Enter" || event.key === " ")
                 ) {
@@ -847,38 +1089,46 @@ export function CalendarDayRing({
               pointerEvents="none"
             />
           )}
-          {showSegmentLabels &&
-            visibleSegments.map((segment) => {
-              const minute =
-                (Math.max(0, segment.startMinute) + Math.min(1440, segment.endMinute)) / 2;
-              const angle = (minute / 1440) * Math.PI * 2 - Math.PI / 2;
-              const x = 286 + 262 * Math.cos(angle);
-              const y = 286 + 262 * Math.sin(angle);
-              const anchor =
-                Math.cos(angle) > 0.2 ? "start" : Math.cos(angle) < -0.2 ? "end" : "middle";
-              const label = segment.displayLabel ?? segment.label;
-              return (
-                <g key={`label-${segment.id}`} aria-hidden="true" className={styles.ringAnnotation}>
-                  <line
-                    x1={286 + 240 * Math.cos(angle)}
-                    y1={286 + 240 * Math.sin(angle)}
-                    x2={286 + 256 * Math.cos(angle)}
-                    y2={286 + 256 * Math.sin(angle)}
-                    className={styles.ringConnector}
-                  />
-                  <text x={x} y={y} textAnchor={anchor} className={styles.ringSegmentLabel}>
-                    {label.length > 16 ? `${label.slice(0, 15)}…` : label}
-                  </text>
-                  {segment.detail && (
-                    <text x={x} y={y + 16} textAnchor={anchor} className={styles.ringSegmentDetail}>
-                      {segment.detail}
-                    </text>
+          {annotations.map((annotation) => (
+            <g
+              key={`label-${annotation.id}`}
+              aria-hidden={!annotation.current}
+              role={annotation.current ? "img" : undefined}
+              aria-label={annotation.current ? nowLabel : undefined}
+              className={styles.ringAnnotation}
+            >
+              <line
+                x1={286 + 240 * Math.cos(annotation.angle)}
+                y1={286 + 240 * Math.sin(annotation.angle)}
+                x2={annotation.x}
+                y2={annotation.y - 4}
+                className={styles.ringConnector}
+              />
+              <text
+                x={annotation.x}
+                y={annotation.y}
+                textAnchor={annotation.side === "right" ? "start" : "end"}
+                className={annotation.current ? styles.ringNowLabel : styles.ringSegmentLabel}
+              >
+                {shortRingLabel(annotation.label)}
+              </text>
+              {annotation.detail && (
+                <text
+                  x={annotation.x}
+                  y={annotation.y + 16}
+                  textAnchor={annotation.side === "right" ? "start" : "end"}
+                  className={styles.ringSegmentDetail}
+                >
+                  {shortRingLabel(
+                    annotation.detail,
+                    /\d{1,2}:\d{2}[–-]\d{1,2}:\d{2}/.test(annotation.detail) ? 16 : 10,
                   )}
-                </g>
-              );
-            })}
+                </text>
+              )}
+            </g>
+          ))}
           {now !== undefined && (
-            <g role="img" aria-label={nowLabel} className={styles.ringNow}>
+            <g aria-hidden="true" className={styles.ringNow}>
               <circle
                 cx={286 + 214 * Math.cos(nowAngle)}
                 cy={286 + 214 * Math.sin(nowAngle)}
@@ -891,14 +1141,6 @@ export function CalendarDayRing({
                 r={7}
                 className={styles.ringNowDot}
               />
-              <text
-                x={286 + 264 * Math.cos(nowAngle)}
-                y={290 + 264 * Math.sin(nowAngle)}
-                textAnchor={Math.cos(nowAngle) > 0 ? "start" : "end"}
-                className={styles.ringNowLabel}
-              >
-                {nowLabel}
-              </text>
             </g>
           )}
           <text x={286} y={258} textAnchor="middle" className={styles.ringCenterLabel}>

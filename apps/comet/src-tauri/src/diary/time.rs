@@ -81,6 +81,20 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
                 expected(input, "expectedRecord", record)?;
             }
             let date = date(string(input, "date", 10, true)?)?;
+            if let Some(snapshot) = input.get("expectedRecords") {
+                let mut expected: Vec<TimeRecord> = serde_json::from_value(snapshot.clone())
+                    .map_err(|_| "시간 기록의 저장 기준을 읽을 수 없어요.")?;
+                let mut current: Vec<_> = records
+                    .iter()
+                    .filter(|record| record.date == date)
+                    .cloned()
+                    .collect();
+                expected.sort_by(|a, b| a.id.cmp(&b.id));
+                current.sort_by(|a, b| a.id.cmp(&b.id));
+                if expected != current {
+                    return Err("이날의 시간 기록이 다른 화면에서 바뀌었어요. 입력을 보존했으니 최신 내용을 확인해 주세요.".into());
+                }
+            }
             let start = minute(input, "startMinute", 1430)?;
             let end = minute(input, "endMinute", 1440)?;
             if end <= start {
@@ -300,5 +314,34 @@ mod tests {
         input["expectedRecord"]["title"] = json!("오래된 제목");
         assert!(super::super::update(&db, state.revision, "time-record-save", &input).is_err());
         assert_eq!(super::super::read(&db).unwrap(), state);
+    }
+
+    #[test]
+    fn painting_rejects_a_changed_day_snapshot_without_splitting_new_records() {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        super::super::initialize(&db).unwrap();
+        let state =
+            super::super::update(&db, 0, "time-record-save", &paint(540, 720, "work")).unwrap();
+        let snapshot = serde_json::to_value(&state.time_records).unwrap();
+        let current = super::super::update(
+            &db,
+            state.revision,
+            "time-record-save",
+            &paint(600, 660, "exercise"),
+        )
+        .unwrap();
+        let mut input = paint(580, 680, "life");
+        input["expectedRecords"] = snapshot;
+        assert!(super::super::update(&db, current.revision, "time-record-save", &input).is_err());
+        assert_eq!(super::super::read(&db).unwrap(), current);
+
+        let mut records = current.time_records.clone();
+        records.reverse();
+        input["expectedRecords"] = serde_json::to_value(records).unwrap();
+        let saved =
+            super::super::update(&db, current.revision, "time-record-save", &input).unwrap();
+        assert!(saved.time_records.iter().any(|record| {
+            record.start_minute == 580 && record.end_minute == 680 && record.category_id == "life"
+        }));
     }
 }

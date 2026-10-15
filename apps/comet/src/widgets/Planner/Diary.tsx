@@ -25,7 +25,8 @@ import { DiaryEnvelope, envelopeTitle } from "./DiaryEnvelope";
 import { OrganizerRecords } from "./OrganizerRecords";
 import { DiaryJournal } from "./DiaryJournal";
 import { DiaryNotes } from "./DiaryNotes";
-import { DiaryPage, discardDiaryPageDraft } from "./DiaryPage";
+import { DiaryPage, discardDiaryPageDraft, type DiaryPageProps } from "./DiaryPage";
+import { DiaryCollectionPage, discardDiaryCollectionDraft } from "./DiaryCollectionPage";
 import { DiaryPageMenu } from "./DiaryPageMenu";
 import type { DiaryAction, DiaryEntry, DiaryPage as Page } from "./diaryTypes";
 import { LocalEventEditor } from "./LocalEventEditor";
@@ -49,6 +50,7 @@ import {
 } from "./plannerData";
 import { useDiary } from "./useDiary";
 import { colorForEvent } from "./calendarColorData";
+import { focusSessions } from "../PlanningTools/FocusTimerData";
 import * as s from "./diary.css";
 
 type View = "month" | "week" | "day";
@@ -59,6 +61,18 @@ const VIEWS: [View, string][] = [
 ];
 
 type DiaryTool = PlannerToolTab | "organizer" | "habits" | "ledger";
+function toolForTab(tab: string | null): DiaryTool | null {
+  switch (tab) {
+    case "plans":
+    case "templates":
+    case "organizer":
+    case "habits":
+    case "ledger":
+      return tab;
+    default:
+      return null;
+  }
+}
 function isPlannerTool(tool: DiaryTool | null): tool is PlannerToolTab {
   return tool === "today" || tool === "plans" || tool === "templates";
 }
@@ -76,15 +90,15 @@ export function Diary(): ReactElement {
   const { snapshot, error: loadError, reload } = useWidgets();
   const diary = useDiary();
   const [day, setDay] = useState(localDay());
+  const [todayTab, setTodayTab] = useState<"summary" | "journal">("summary");
   const [view, setView] = useState<View>(() =>
     new URLSearchParams(location.search).get("tab") === "calendar" ? "month" : "day",
   );
   const [pageId, setPageId] = useState("");
   const [envelopeId, setEnvelopeId] = useState("");
-  const [tool, setTool] = useState<DiaryTool | null>(() => {
-    const tab = new URLSearchParams(location.search).get("tab");
-    return tab === "plans" || tab === "templates" || tab === "organizer" ? tab : null;
-  });
+  const [tool, setTool] = useState<DiaryTool | null>(() =>
+    toolForTab(new URLSearchParams(location.search).get("tab")),
+  );
   const [toolsOpened, setToolsOpened] = useState(isPlannerTool(tool));
   const [toolState, setToolState] = useState<PlannerToolState>(EMPTY_TOOL_STATE);
   const [toolDismissVersion, setToolDismissVersion] = useState(0);
@@ -144,9 +158,19 @@ export function Diary(): ReactElement {
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pageDirty, setPageDirty] = useState(false);
+  const [pageContentVersion, setPageContentVersion] = useState(0);
   const [notesDirty, setNotesDirty] = useState(false);
   const [featureDirty, setFeatureDirty] = useState(false);
+  const [featureContentVersion, setFeatureContentVersion] = useState(0);
+  const [calendarNow, setCalendarNow] = useState(Date.now);
+  useEffect(() => {
+    if (view !== "week" || pageId || tool) return;
+    setCalendarNow(Date.now());
+    const interval = window.setInterval(() => setCalendarNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [view, pageId, tool]);
   const [pageMenuDirty, setPageMenuDirty] = useState(false);
+  const [pageMenuVersion, setPageMenuVersion] = useState(0);
   const [leave, setLeave] = useState<{ action: () => void; closing: boolean } | null>(null);
   const pending = useRef(false);
   const latestWidgets = useRef<WidgetView[]>([]);
@@ -251,13 +275,18 @@ export function Diary(): ReactElement {
       cleanup?.();
     };
   }, []);
-  function openDay(date: string, nextView: View = "day"): void {
+  function openDay(
+    date: string,
+    nextView: View = "day",
+    nextTab: "summary" | "journal" = "summary",
+  ): void {
     navigate(() => {
       setTool(null);
       setNotesOpen(false);
       setCollection(null);
       setDay(date);
       setView(nextView);
+      setTodayTab(nextTab);
       setPageId("");
       setEnvelopeId("");
       setPageDirty(false);
@@ -295,16 +324,19 @@ export function Diary(): ReactElement {
       else cleanup();
     };
     const select = (tab: string, resetCollections = true): void => {
-      if (!active || !["today", "calendar", "plans", "templates", "organizer"].includes(tab))
+      if (
+        !active ||
+        !["today", "calendar", "plans", "templates", "organizer", "habits", "ledger"].includes(tab)
+      )
         return;
       navigateRef.current(() => {
         if (resetCollections) {
           setNotesOpen(false);
           setCollection(null);
         }
-        const nextTool = tab === "plans" || tab === "templates" || tab === "organizer" ? tab : null;
+        const nextTool = toolForTab(tab);
         setTool(nextTool);
-        if (nextTool && nextTool !== "organizer") setToolsOpened(true);
+        if (isPlannerTool(nextTool)) setToolsOpened(true);
         setView(tab === "calendar" ? "month" : "day");
         setDay(localDay());
         setPageId("");
@@ -719,30 +751,50 @@ export function Diary(): ReactElement {
     setDropActive(false);
     void addWidgetItem(payload);
   }
-  const diaryPageContent = (
-    <DiaryPage
-      key={pageId ? `page:${pageId}` : `day:${day}`}
-      page={page}
-      date={day}
-      items={items}
-      events={pageId ? [] : eventsOn(events, day)}
-      envelopes={envelopes}
-      moves={diary.state?.moves ?? []}
-      widgets={widgets}
-      onOpenWidgetEntry={openWidgetEntry}
-      onOpenEvent={openCalendarEvent}
-      busy={saving}
-      onDiaryAction={diaryAction}
-      onAddTask={(title) => createTask(title, pageId ? null : day)}
-      onToggleTask={(item) => void toggleTask(item)}
-      onEditTask={setEditing}
-      onFocusTask={(item) => void focusTask(item)}
-      onMoveTask={planTask}
-      onOpenEnvelope={openEnvelope}
-      onCreatePage={createPage}
-      onDirtyChange={setPageDirty}
-    />
-  );
+  const diaryPageProps: DiaryPageProps = {
+    page,
+    date: day,
+    items,
+    events: pageId ? [] : eventsOn(events, day),
+    envelopes,
+    moves: diary.state?.moves ?? [],
+    widgets,
+    onOpenWidgetEntry: openWidgetEntry,
+    onOpenEvent: openCalendarEvent,
+    busy: saving,
+    onDiaryAction: diaryAction,
+    onAddTask: (title) => createTask(title, pageId ? null : day),
+    onToggleTask: (item) => void toggleTask(item),
+    onEditTask: setEditing,
+    onFocusTask: (item) => void focusTask(item),
+    onMoveTask: planTask,
+    onOpenEnvelope: openEnvelope,
+    onCreatePage: createPage,
+    onDirtyChange: setPageDirty,
+  };
+  const diaryPageContent =
+    pageId && page?.date === null ? (
+      <DiaryCollectionPage
+        {...diaryPageProps}
+        key={`page:${pageId}:${pageContentVersion}`}
+        page={page}
+        pages={pages}
+        onOpenSourcePage={(source) => {
+          if (source.date) openDay(source.date, "day", "journal");
+          else openPage(source);
+        }}
+        onDeleted={() => {
+          setPageId("");
+          setPageDirty(false);
+          setPageMenuDirty(false);
+        }}
+      />
+    ) : (
+      <DiaryPage
+        {...diaryPageProps}
+        key={`${pageId ? `page:${pageId}` : `day:${day}`}:${pageContentVersion}`}
+      />
+    );
   const weekStart = periodAnchor("week", day);
   const dateLabel = dayDate(day).toLocaleDateString("ko-KR", {
     month: "long",
@@ -904,6 +956,7 @@ export function Diary(): ReactElement {
                   setNotesOpen(false);
                   setTool(null);
                   setCollection("pages");
+                  setView("day");
                   setEnvelopeId("");
                   const first = pages.find((value) => !value.date);
                   setPageId(first?.id ?? "");
@@ -1247,6 +1300,7 @@ export function Diary(): ReactElement {
               {tool === "organizer" && <OrganizerRecords />}
               {tool === "habits" && diary.state && (
                 <DiaryHabits
+                  key={featureContentVersion}
                   state={diary.state}
                   date={day}
                   onDateChange={(date) => navigate(() => setDay(date))}
@@ -1257,6 +1311,7 @@ export function Diary(): ReactElement {
               )}
               {tool === "ledger" && diary.state && (
                 <DiaryLedger
+                  key={featureContentVersion}
                   state={diary.state}
                   date={day}
                   onDateChange={(date) => navigate(() => setDay(date))}
@@ -1274,6 +1329,9 @@ export function Diary(): ReactElement {
                   )}
                   {!pageId && !envelopeId && !collection && view === "day" ? (
                     <DiaryToday
+                      key={featureContentVersion}
+                      tab={todayTab}
+                      onTabChange={setTodayTab}
                       day={day}
                       widgets={widgets}
                       items={items}
@@ -1307,7 +1365,7 @@ export function Diary(): ReactElement {
                     />
                   ) : envelope && preparation ? (
                     <DiaryEnvelope
-                      key={text(envelope.id)}
+                      key={`${text(envelope.id)}:${pageContentVersion}`}
                       envelope={envelope}
                       preparation={preparation}
                       items={items}
@@ -1328,24 +1386,27 @@ export function Diary(): ReactElement {
                     />
                   ) : (
                     <>
-                      {page && view === "day" && <div className={s.toolbar}>
-                        <span className={s.spread} />
-                        {page && view === "day" && (
-                          <DiaryPageMenu
-                            key={page.id}
-                            page={page}
-                            busy={saving || pageDirty}
-                            onAction={diaryAction}
-                            onDeleted={() => {
-                              setPageId("");
-                              setPageMenuDirty(false);
-                            }}
-                            onDirtyChange={setPageMenuDirty}
-                          />
-                        )}
-                      </div>}
+                      {page?.date !== null && page && view === "day" && (
+                        <div className={s.toolbar}>
+                          <span className={s.spread} />
+                          {page && view === "day" && (
+                            <DiaryPageMenu
+                              key={`${page.id}:${pageMenuVersion}`}
+                              page={page}
+                              busy={saving || pageDirty}
+                              onAction={diaryAction}
+                              onDeleted={() => {
+                                setPageId("");
+                                setPageMenuDirty(false);
+                              }}
+                              onDirtyChange={setPageMenuDirty}
+                            />
+                          )}
+                        </div>
+                      )}
                       {!pageId && view !== "day" ? (
                         <DiaryCalendar
+                          key={`${view}:${day}:${featureContentVersion}`}
                           eventColor={(event) =>
                             colorForEvent(
                               event,
@@ -1359,6 +1420,13 @@ export function Diary(): ReactElement {
                           events={events}
                           items={items}
                           envelopes={envelopes}
+                          state={diary.state ?? undefined}
+                          onAction={diaryAction}
+                          busy={saving}
+                          onDirtyChange={setFeatureDirty}
+                          focusSessions={widgets
+                            .filter((widget) => widget.kind === "focus-timer")
+                            .flatMap((widget) => focusSessions(record(widget.data), calendarNow))}
                           onDay={openDay}
                           onEvent={openCalendarEvent}
                           onCreateEvent={(date) => navigate(() => setCalendarDraft({ date }))}
@@ -1371,14 +1439,19 @@ export function Diary(): ReactElement {
                       {!pageId && view === "day" && <DiaryJournal key={day} date={day} />}
                       {!pageId && (
                         <DiaryCalendarContext
-                          day={day} events={events} connections={connections}
-                          colors={record(record(calendar?.data).calendarColors)} busy={saving}
+                          day={day}
+                          events={events}
+                          connections={connections}
+                          colors={record(record(calendar?.data).calendarColors)}
+                          busy={saving}
                           onColorChange={(input) => void act("set-calendar-color", input, calendar)}
                           onOpenSettings={openSettings}
                         />
                       )}
                       {!pageId && view !== "day" && (
-                        <p className={s.legend}>□ 할 일　 · 기록이 있는 날　 ↗ 준비 봉투 연결 · {deviceTimeZone()}</p>
+                        <p className={s.legend}>
+                          □ 할 일　 · 기록이 있는 날　 ↗ 준비 봉투 연결 · {deviceTimeZone()}
+                        </p>
                       )}
                     </>
                   )}
@@ -1581,7 +1654,13 @@ export function Diary(): ReactElement {
             disabled={saving}
             onClick={() => {
               const action = leave?.action;
-              discardDiaryPageDraft(page, day);
+              if (pageDirty) {
+                discardDiaryPageDraft(page, day);
+                if (page?.date === null) discardDiaryCollectionDraft(page.id);
+                setPageContentVersion((value) => value + 1);
+              }
+              if (pageMenuDirty) setPageMenuVersion((value) => value + 1);
+              if (featureDirty) setFeatureContentVersion((value) => value + 1);
               setPageDirty(false);
               setPageMenuDirty(false);
               setEditing(null);

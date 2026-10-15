@@ -39,6 +39,36 @@ export const RatingWithReview: Story = {
 export const Rating: Story = {
   args: { date: "9월 8일", title: "『어린 왕자』 다시 읽음", source: null, rating: 5 },
 };
+export const CollectionPage: Story = {
+  parameters: { controls: { disable: true } },
+  render: (args) => (
+    <div style={{ width: "min(680px, 100%)" }}>
+      <RecordPageEntry {...args} layout="fill" menuLabel="책 후보 기록 수정" />
+      <RecordPageEntry
+        layout="fill"
+        divided
+        date="10월 5일"
+        title={
+          <span style={{ whiteSpace: "pre-wrap" }}>
+            {"  책에 남겨 둔 문장\n그다음 줄도 그대로  "}
+          </span>
+        }
+        rating={0}
+        review="0점으로 남긴 감상도 그대로 보여 주기"
+        onMenu={args.onMenu}
+        menuLabel="책 감상 기록 수정"
+      />
+      <RecordPageEntry
+        layout="fill"
+        divided
+        date="날짜 없음"
+        title="언젠가 읽고 싶은 책"
+        onMenu={args.onMenu}
+        menuLabel="읽고 싶은 책 기록 수정"
+      />
+    </div>
+  ),
+};
 export const SourceLink: Story = {
   parameters: { controls: { disable: true } },
   render: () => <RecordSourceLink href="#source">10월 12일 한 줄 기록에서</RecordSourceLink>,

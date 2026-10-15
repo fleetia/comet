@@ -383,3 +383,90 @@ fn old_diary_entries_without_item_ids_remain_readable() {
     assert!(state.time_records.is_empty());
     assert!(state.time_categories.is_empty());
 }
+
+#[test]
+fn collection_delete_checks_full_snapshots_with_the_latest_revision() {
+    let db = database();
+    let state = act(
+        &db,
+        "page-create",
+        json!({"title":"  읽은 책  ","date":null,"goalId":"year-goal"}),
+    );
+    let page_id = state.pages[0].id.clone();
+    let state = act(
+        &db,
+        "entry-add",
+        json!({"pageId":page_id,"kind":"note","text":"  원문\n둘째 줄  ","recordDate":"2026-10-03","rating":0,"review":"  감상  "}),
+    );
+    let original_page = serde_json::to_value(&state.pages[0]).unwrap();
+    let original_entry = serde_json::to_value(&state.pages[0].entries[0]).unwrap();
+    let entry_id = state.pages[0].entries[0].id.clone();
+    let latest = act(
+        &db,
+        "entry-update",
+        json!({"pageId":page_id,"id":entry_id,"text":"  원문\n둘째 줄  ","review":"다른 창의 감상"}),
+    );
+    for (action, input) in [
+        (
+            "entry-delete",
+            json!({"pageId":page_id,"id":entry_id,"expectedEntry":original_entry}),
+        ),
+        (
+            "page-delete",
+            json!({"id":page_id,"expectedPage":original_page}),
+        ),
+    ] {
+        assert!(update(&db, latest.revision, action, &input).is_err());
+        assert_eq!(read(&db).unwrap(), latest);
+    }
+    let current_entry = serde_json::to_value(&latest.pages[0].entries[0]).unwrap();
+    let deleted = act(
+        &db,
+        "entry-delete",
+        json!({"pageId":page_id,"id":entry_id,"expectedEntry":current_entry}),
+    );
+    assert!(deleted.pages[0].entries.is_empty());
+    assert_eq!(deleted.pages[0].title, "  읽은 책  ");
+    assert_eq!(deleted.pages[0].goal_id.as_deref(), Some("year-goal"));
+    let current_page = serde_json::to_value(&deleted.pages[0]).unwrap();
+    let deleted = act(
+        &db,
+        "page-delete",
+        json!({"id":page_id,"expectedPage":current_page}),
+    );
+    assert!(deleted.pages.is_empty());
+}
+
+#[test]
+fn collection_page_delete_preserves_the_original_source_page_and_notes() {
+    let db = database();
+    let state = act(&db, "page-create", json!({"title":"","date":"2026-10-03"}));
+    let source_id = state.pages[0].id.clone();
+    let state = act(
+        &db,
+        "entry-add",
+        json!({"pageId":source_id,"kind":"note","text":"  원본\n남길 줄  "}),
+    );
+    let source_entry_id = state.pages[0].entries[0].id.clone();
+    let source_page = state.pages[0].clone();
+    let state = act(&db, "page-create", json!({"title":"읽은 책","date":null}));
+    let page_id = state.pages[1].id.clone();
+    act(
+        &db,
+        "note-create",
+        json!({"title":"메모","body":"  메모 원문  "}),
+    );
+    let state = act(
+        &db,
+        "entry-add",
+        json!({"pageId":page_id,"kind":"note","text":"감상","sourcePageId":source_id,"sourceEntryId":source_entry_id}),
+    );
+    let page = serde_json::to_value(&state.pages[1]).unwrap();
+    let deleted = act(
+        &db,
+        "page-delete",
+        json!({"id":page_id,"expectedPage":page}),
+    );
+    assert_eq!(deleted.pages, vec![source_page]);
+    assert_eq!(deleted.notes, state.notes);
+}
