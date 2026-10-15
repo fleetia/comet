@@ -105,7 +105,10 @@ export function WidgetSettings({
             )}
             {widget.kind === "preparation" && (
               <PreparationSettings
+                widget={widget}
                 widgets={widgets}
+                act={configure}
+                onBusyChange={setConnectionBusy}
                 onOpenRelated={(item) => onOpenRelated?.(item.kind)}
               />
             )}

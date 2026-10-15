@@ -316,6 +316,8 @@ export type EnvelopeHeaderProps = Omit<HTMLAttributes<HTMLElement>, "title" | "c
   progressLabel?: string;
   eventHref?: string;
   eventLabel?: string;
+  onOpenEvent?: () => void;
+  disabled?: boolean;
   onChangeDate?: () => void;
   changeDateLabel?: string;
   actions?: ReactNode;
@@ -329,6 +331,8 @@ export function EnvelopeHeader({
   progressLabel = `${total}개 중 ${completed}개 준비됨`,
   eventHref,
   eventLabel = "일정 보기",
+  onOpenEvent,
+  disabled = false,
   onChangeDate,
   changeDateLabel = "날짜 바꾸기",
   actions,
@@ -349,13 +353,17 @@ export function EnvelopeHeader({
               <span className={styles.body}>{description}</span>
             </>
           )}
-          {eventHref && (
+          {onOpenEvent ? (
+            <button type="button" className={styles.textAction} disabled={disabled} onClick={onOpenEvent}>
+              {eventLabel}
+            </button>
+          ) : eventHref && (
             <a href={eventHref} className={styles.textAction}>
               {eventLabel}
             </a>
           )}
           {onChangeDate && (
-            <button type="button" className={styles.textAction} onClick={onChangeDate}>
+            <button type="button" className={styles.textAction} onClick={onChangeDate} disabled={disabled}>
               {changeDateLabel}
             </button>
           )}

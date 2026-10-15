@@ -188,20 +188,25 @@ pub(crate) async fn remove_widget(
 pub(crate) fn cancel_widget_scene(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
     {
         let _action = lock(&state.action)?;
-        let has_scene = lock(&state.widget_playback)?.is_some();
-        let has_talk = lock(&state.talk_playback)?.is_some();
         let db = lock(&state.db)?;
-        if (has_scene && !widget_event_current(state, &db)?)
-            || (has_talk && !crate::talk_host::current(state, &db)?)
-        {
-            let token = interrupt(state, true)?;
-            state.widget_epoch.store(token.0, Ordering::SeqCst);
-            let mut runtime = lock(&state.runtime)?;
-            runtime.phase = crate::types::RuntimePhase::Idle;
-            runtime.persona = None;
-        }
+        cancel_stale_widget_scene(state, &db)?;
     }
     publish(app, state);
+    Ok(())
+}
+
+fn cancel_stale_widget_scene(state: &AppState, db: &rusqlite::Connection) -> Result<(), String> {
+    let has_scene = lock(&state.widget_playback)?.is_some();
+    let has_talk = lock(&state.talk_playback)?.is_some();
+    if (has_scene && !widget_event_current(state, db)?)
+        || (has_talk && !crate::talk_host::current(state, db)?)
+    {
+        let token = interrupt(state, true)?;
+        state.widget_epoch.store(token.0, Ordering::SeqCst);
+        let mut runtime = lock(&state.runtime)?;
+        runtime.phase = crate::types::RuntimePhase::Idle;
+        runtime.persona = None;
+    }
     Ok(())
 }
 
@@ -344,34 +349,43 @@ fn execute_with_created_id(
     now: i64,
     entropy: u64,
 ) -> Result<Option<String>, String> {
+    use rusqlite::OptionalExtension;
+
+    let tx = db.unchecked_transaction().map_err(|error| error.to_string())?;
     let before = if matches!(request.action.as_str(), "add" | "create") {
-        storage::get(db, &request.instance_id).ok()
+        storage::get(&tx, &request.instance_id).ok()
     } else {
         None
     };
-    storage::execute(db, request, now, entropy)?;
-    let Some(before) = before else {
-        return Ok(None);
+    storage::execute_in_transaction(&tx, request, now, entropy)?;
+    let saved: Option<Option<String>> = tx.query_row(
+        "SELECT created_id FROM widget_request_results WHERE request_id=?1",
+        [&request.request_id],
+        |row| row.get(0),
+    ).optional().map_err(|error| error.to_string())?;
+    let created_id = if let Some(saved) = saved {
+        saved
+    } else {
+        let field = before.as_ref().and_then(|instance| match (instance.kind.as_str(), request.action.as_str()) {
+            ("todo", "add") => Some("items"),
+            ("preparation", "create") => Some("envelopes"),
+            _ => None,
+        });
+        let created = if let (Some(before), Some(field)) = (before, field) {
+            let previous_ids: std::collections::BTreeSet<&str> = before.data[field]
+                .as_array().into_iter().flatten().filter_map(|item| item["id"].as_str()).collect();
+            let after = storage::get(&tx, &request.instance_id)?;
+            after.data[field].as_array().into_iter().flatten().filter_map(|item| item["id"].as_str())
+                .find(|id| !previous_ids.contains(id)).map(str::to_owned)
+        } else {
+            None
+        };
+        tx.execute("INSERT INTO widget_request_results(request_id,created_id) VALUES(?1,?2)",
+            rusqlite::params![request.request_id, created]).map_err(|error| error.to_string())?;
+        created
     };
-    let field = match (before.kind.as_str(), request.action.as_str()) {
-        ("todo", "add") => "items",
-        ("preparation", "create") => "envelopes",
-        _ => return Ok(None),
-    };
-    let previous_ids: std::collections::BTreeSet<&str> = before.data[field]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|item| item["id"].as_str())
-        .collect();
-    let after = storage::get(db, &request.instance_id)?;
-    Ok(after.data[field]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|item| item["id"].as_str())
-        .find(|id| !previous_ids.contains(id))
-        .map(str::to_owned))
+    tx.commit().map_err(|error| error.to_string())?;
+    Ok(created_id)
 }
 
 #[tauri::command]
@@ -811,7 +825,10 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
     let (changed, usage_changed) = change(state, |db| {
         let timestamp = chrono::Utc::now().timestamp_millis();
         let usage_changed = advance_app_usage(state, db, timestamp)?;
-        let changed = storage::advance(db, timestamp)?;
+        let continuous = lock(&state.widget_clocks)?
+            .get("focus-completions")
+            .is_some_and(|previous| timestamp >= *previous && timestamp - *previous <= 120_000);
+        let changed = storage::advance_with_continuity(db, timestamp, continuous)?;
         let quiet = lock(&state.runtime)?.paused
             || crate::app::quiet_hours::automatic_blocked(state, &store::settings(db)?)?;
         let alerted =
@@ -825,20 +842,22 @@ pub(crate) fn advance_widgets(app: &tauri::AppHandle, state: &AppState) -> Resul
         }
         drop(runtime);
         hold_for_focus(state, db)?;
+        if changed || alerted.changed {
+            cancel_stale_widget_scene(state, db)?;
+        }
         for delivery in alerted.os {
             // OS delivery has its own opt-in and survives a hidden character balloon.
             crate::planner_notifications::deliver(
                 app,
-                &delivery.instance_id,
+                delivery,
                 timestamp,
-                &delivery.text,
-                delivery.sound_enabled,
+                state.epoch.load(Ordering::SeqCst),
             );
         }
         Ok((changed || alerted.changed, usage_changed))
     })?;
     if changed {
-        cancel_widget_scene(app, state)?;
+        publish(app, state);
         publish_widgets(app, state);
     } else if usage_changed {
         // Telemetry must not cancel scenes, refresh native menus, or publish chat history.
@@ -964,7 +983,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn created_widget_item_id_belongs_to_the_action_and_replay_is_a_noop() {
+    fn created_widget_item_id_is_recovered_on_replay_without_duplicate_items() {
         let db = rusqlite::Connection::open_in_memory().unwrap();
         storage::initialize(&db).unwrap();
         let directory = tempfile::tempdir().unwrap();
@@ -1007,7 +1026,7 @@ mod tests {
             assert_eq!(after.data[field][1]["title"], "이번에 만든 내용");
             assert_eq!(
                 execute_with_created_id(&db, &created, 3000, 3).unwrap(),
-                None
+                Some(id.clone())
             );
             assert_eq!(storage::get(&db, &instance.id).unwrap().data, after.data);
             let update = WidgetRequest {

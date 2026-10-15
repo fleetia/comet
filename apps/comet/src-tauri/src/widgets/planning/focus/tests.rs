@@ -1,6 +1,12 @@
 use super::*;
 use crate::widgets::{storage, WidgetRequest};
 
+fn manual_timer() -> Value {
+    let mut data = initial();
+    data["settings"]["autoStartRest"] = json!(false);
+    data
+}
+
 fn run(data: &Value, action: &str, input: Value, now: i64) -> WidgetEffect {
     act(data, action, &input, &BTreeMap::new(), now).unwrap()
 }
@@ -11,7 +17,7 @@ fn reject(data: &Value, action: &str, input: Value, now: i64) {
 
 #[test]
 fn session_memo_conflicts_preserve_the_latest_saved_value() {
-    let started = run(&initial(), "start", json!({"durationMs":1000}), 1000);
+    let started = run(&manual_timer(), "start", json!({"durationMs":1000}), 1000);
     let edited = run(
         &started.data,
         "update-memo",
@@ -45,7 +51,7 @@ fn session_memo_conflicts_preserve_the_latest_saved_value() {
 #[test]
 fn elapsed_focus_excludes_pause_survives_reload_and_caps_late_completion_at_deadline() {
     let started = run(
-        &initial(),
+        &manual_timer(),
         "start",
         json!({"durationMs":25000,"title":"초안 작성"}),
         1000,
@@ -85,7 +91,7 @@ fn elapsed_focus_excludes_pause_survives_reload_and_caps_late_completion_at_dead
 #[test]
 fn custom_break_settings_apply_to_the_next_break_and_never_add_focus_statistics() {
     let settings = run(
-        &initial(),
+        &manual_timer(),
         "configure-settings",
         json!({"restDurationMs":6000}),
         0,
@@ -126,7 +132,7 @@ fn custom_break_settings_apply_to_the_next_break_and_never_add_focus_statistics(
 
 #[test]
 fn manual_end_records_only_worked_time_and_cancel_never_duplicates_a_finished_session() {
-    let started = run(&initial(), "start", json!({"durationMs":10000}), 1000);
+    let started = run(&manual_timer(), "start", json!({"durationMs":10000}), 1000);
     let paused = run(&started.data, "pause", json!({}), 4000);
     let cancelled = run(&paused.data, "cancel", json!({}), 30000);
     assert_eq!(cancelled.data["sessions"][0]["elapsedMs"], 3000);
@@ -150,7 +156,7 @@ fn manual_end_records_only_worked_time_and_cancel_never_duplicates_a_finished_se
 #[test]
 fn running_configuration_only_changes_presentation_without_overwriting_work() {
     let configured = run(
-        &initial(),
+        &manual_timer(),
         "configure",
         json!({"durationMs":60000,"title":"계획","memo":"초기 메모"}),
         0,
@@ -197,7 +203,7 @@ fn references_are_snapshots_and_source_deletion_never_removes_focus_history() {
     let input = json!({"durationMs":10000,"eventRef":{
         "calendarWidgetId":"calendar-widget","id":"event-1","title":"가짜 제목"
     },"noteRef":{"kind":"memo","widgetId":"memo-widget","id":"note-1","title":"가짜 메모"}});
-    let started = act(&initial(), "start", &input, &related, 1000).unwrap();
+    let started = act(&manual_timer(), "start", &input, &related, 1000).unwrap();
     assert_eq!(started.data["eventRef"]["title"], "디자인 작업");
     assert_eq!(started.data["eventRef"]["occurrenceId"], "occurrence-1");
     assert_eq!(started.data["noteRef"]["title"], "기존 메모");
@@ -225,19 +231,19 @@ fn references_are_snapshots_and_source_deletion_never_removes_focus_history() {
     assert!(cleared.data["eventRef"].is_null());
     assert!(cleared.data["noteRef"].is_null());
     reject(
-        &initial(),
+        &manual_timer(),
         "configure",
         json!({"eventRef":{"calendarWidgetId":"c","id":"missing"}}),
         1,
     );
     reject(
-        &initial(),
+        &manual_timer(),
         "configure",
         json!({"noteRef":{"kind":"memo","id":"missing"}}),
         1,
     );
     reject(
-        &initial(),
+        &manual_timer(),
         "configure",
         json!({"noteRef":{"kind":"other","id":"x"}}),
         1,
@@ -247,7 +253,7 @@ fn references_are_snapshots_and_source_deletion_never_removes_focus_history() {
 #[test]
 fn memo_edits_update_the_selected_session_without_rewriting_other_records_or_note_bodies() {
     let started = run(
-        &initial(),
+        &manual_timer(),
         "start",
         json!({"durationMs":1000,"noteRef":{"kind":"diary","id":"page-1","title":"초안"}}),
         1000,
@@ -297,7 +303,7 @@ fn dated_segments_preserve_work_on_each_side_of_midnight_and_exclude_the_gap() {
         .unwrap()
         .timestamp_millis();
     let started = run(
-        &initial(),
+        &manual_timer(),
         "start",
         json!({"durationMs":20*60000}),
         midnight - 10 * 60000,
@@ -343,7 +349,12 @@ fn legacy_timers_migrate_without_claiming_unrecorded_historical_focus_time() {
 
 #[test]
 fn suspend_closes_focus_before_disabled_time_and_restart_expiry_finishes_without_reactions() {
-    let started = run(&initial(), "start", json!({"durationMs":20*60000}), 1000);
+    let started = run(
+        &manual_timer(),
+        "start",
+        json!({"durationMs":20*60000}),
+        1000,
+    );
     let disabled = suspend(&started.data, 1000 + 5 * 60000, false).unwrap();
     assert_eq!(disabled["activeSession"]["elapsedMs"], 5 * 60000);
     assert!(disabled["activeSession"]["runningSince"].is_null());
@@ -396,11 +407,18 @@ fn storage_request_replay_and_revision_checks_keep_session_appends_atomic_and_on
         instance_id: instance.id.clone(),
         expected_revision: started.revision,
         action: "cancel".into(),
-        input: json!({}),
+        input: json!({"memo":"마친 작업 메모", "expectedMemo":""}),
     };
+    let mut conflict = cancel.clone();
+    conflict.request_id = uuid::Uuid::new_v4().to_string();
+    conflict.input["expectedMemo"] = json!("다른 원문");
+    assert!(storage::execute(&db, &conflict, 3000, 3).is_err());
+    assert_eq!(storage::get(&db, &instance.id).unwrap().data, started.data);
     storage::execute(&db, &cancel, 4000, 3).unwrap();
     let saved = storage::get(&db, &instance.id).unwrap();
     assert_eq!(saved.data["sessions"][0]["elapsedMs"], 3000);
+    assert_eq!(saved.data["sessions"][0]["memo"], "마친 작업 메모");
+    assert_eq!(saved.revision, started.revision + 1);
     storage::execute(&db, &cancel, 5000, 4).unwrap();
     assert_eq!(
         storage::get(&db, &instance.id).unwrap().revision,
@@ -428,7 +446,7 @@ fn storage_request_replay_and_revision_checks_keep_session_appends_atomic_and_on
 #[test]
 fn selected_application_is_opt_in_and_preserved_in_session_history() {
     let started = run(
-        &initial(),
+        &manual_timer(),
         "start",
         json!({"durationMs":10000,
         "appUsageTarget":{"id":"com.example.editor","name":"Editor"}}),
@@ -460,19 +478,19 @@ fn selected_application_is_opt_in_and_preserved_in_session_history() {
 
 #[test]
 fn historical_timers_do_not_invent_application_usage() {
-    let started = run(&initial(), "start", json!({"durationMs":1000}), 1000);
+    let started = run(&manual_timer(), "start", json!({"durationMs":1000}), 1000);
     let completed = tick(&started.data, 2000).unwrap().unwrap();
     assert!(completed.data["sessions"][0]["appUsage"].is_null());
     let rest = run(&completed.data, "rest", json!({}), 2001);
     assert!(rest.data["activeSession"].is_null());
     reject(
-        &initial(),
+        &manual_timer(),
         "configure",
         json!({"appUsageTarget":{"id":"", "name":"Editor"}}),
         1000,
     );
     reject(
-        &initial(),
+        &manual_timer(),
         "configure",
         json!({"appUsageTarget":{"id":"app\nname", "name":"Editor"}}),
         1000,
@@ -482,7 +500,7 @@ fn historical_timers_do_not_invent_application_usage() {
 #[test]
 fn clock_rollback_before_timer_actions_caps_usage_without_another_sample() {
     let mut observed = run(
-        &initial(),
+        &manual_timer(),
         "start",
         json!({"durationMs":10000,
         "appUsageTarget":{"id":"com.example.editor","name":"Editor"}}),
@@ -558,4 +576,129 @@ fn usage_observations_preserve_command_revisions_and_reject_stale_writes() {
         storage::save_usage_observation(&db, &timer.id, started.revision, &observation).is_err()
     );
     assert_eq!(storage::get(&db, &timer.id).unwrap().data, paused.data);
+}
+
+#[test]
+fn automatic_rest_keeps_completion_and_focus_memo_without_counting_break_time() {
+    let configured = run(
+        &initial(),
+        "configure-settings",
+        json!({"restDurationMs":6000}),
+        0,
+    );
+    assert_eq!(configured.data["settings"]["autoStartRest"], true);
+    let started = run(&configured.data, "start", json!({"durationMs":1000}), 1000);
+    let finished = tick(&started.data, 2200).unwrap().unwrap();
+    assert_eq!(finished.data["status"], "running");
+    assert_eq!(finished.data["mode"], "rest");
+    assert_eq!(finished.data["completedFocusPending"], true);
+    assert_eq!(finished.data["deadline"], 8200);
+    assert_eq!(finished.data["sessions"][0]["elapsedMs"], 1000);
+    assert_eq!(finished.data["sessions"][0]["endedAt"], 2000);
+    assert_eq!(finished.events[0].payload["finishedAt"], 2000);
+    let edited = run(
+        &finished.data,
+        "update-memo",
+        json!({"memo":"끝낸 작업 메모", "expectedMemo":""}),
+        2500,
+    );
+    assert_eq!(edited.data["sessions"][0]["memo"], "끝낸 작업 메모");
+    let visible = run(
+        &edited.data,
+        "show-rest",
+        json!({"memo":"휴식 전 최종 메모", "expectedMemo":"끝낸 작업 메모"}),
+        2600,
+    );
+    assert_eq!(visible.data["sessions"][0]["memo"], "휴식 전 최종 메모");
+    assert_eq!(visible.data["completedFocusPending"], false);
+    assert_eq!(visible.data["deadline"], 8200);
+    let rested = tick(&visible.data, 9000).unwrap().unwrap();
+    assert_eq!(rested.data["status"], "finished");
+    assert_eq!(rested.data["mode"], "rest");
+    assert_eq!(rested.data["sessions"], visible.data["sessions"]);
+    assert!(tick(&rested.data, 10000).unwrap().is_none());
+}
+
+#[test]
+fn rest_can_be_skipped_and_suspension_never_starts_an_automatic_break() {
+    let started = run(&initial(), "start", json!({"durationMs":1000}), 1000);
+    let recovered = suspend(&started.data, 3000, true).unwrap();
+    assert_eq!(recovered["mode"], "focus");
+    assert_eq!(recovered["status"], "finished");
+    let automatic = tick(&started.data, 2000).unwrap().unwrap();
+    let continued = run(&automatic.data, "continue", json!({}), 2500);
+    assert_eq!(continued.data["mode"], "focus");
+    assert_eq!(continued.data["status"], "running");
+    assert_eq!(continued.data["completedFocusPending"], false);
+    assert_eq!(continued.data["sessions"], automatic.data["sessions"]);
+    assert_ne!(
+        continued.data["activeSession"]["id"],
+        automatic.data["sessions"][0]["id"]
+    );
+}
+
+#[test]
+fn settings_migrate_preserve_independent_fields_and_capture_timeline_choice() {
+    let mut legacy = initial();
+    legacy["settings"] = json!({"restDurationMs":300000});
+    let changed = run(
+        &legacy,
+        "configure-settings",
+        json!({"finishNotification":"os", "finishSoundEnabled":true, "linkedEventLeadMinutes":17, "recordTimeline":false}),
+        0,
+    );
+    assert_eq!(changed.data["settings"]["autoStartRest"], false);
+    let started = run(&changed.data, "start", json!({"durationMs":1000}), 1000);
+    let setting = run(
+        &started.data,
+        "configure-settings",
+        json!({"recordTimeline":true}),
+        1500,
+    );
+    assert_eq!(setting.data["settings"]["linkedEventLeadMinutes"], 17);
+    assert_eq!(setting.data["settings"]["finishNotification"], "os");
+    let finished = tick(&setting.data, 2000).unwrap().unwrap();
+    assert_eq!(finished.data["sessions"][0]["recordTimeline"], false);
+    assert_eq!(finished.events[0].payload["bubbleEnabled"], false);
+    for invalid in [
+        json!({"linkedEventLeadMinutes":121}),
+        json!({"finishNotification":"bad"}),
+        json!({"unknown":true}),
+    ] {
+        reject(&finished.data, "configure-settings", invalid, 2500);
+    }
+}
+
+#[test]
+fn completed_focus_transitions_save_memo_atomically_and_reject_stale_drafts() {
+    let started = run(&manual_timer(), "start", json!({"durationMs":1000}), 1000);
+    let finished = tick(&started.data, 2000).unwrap().unwrap();
+    for action in ["rest", "continue", "cancel"] {
+        reject(
+            &finished.data,
+            action,
+            json!({"memo":"초안", "expectedMemo":"다른 원문"}),
+            2500,
+        );
+        let changed = run(
+            &finished.data,
+            action,
+            json!({"memo":"완료 메모", "expectedMemo":""}),
+            2500,
+        );
+        assert_eq!(changed.data["sessions"][0]["memo"], "완료 메모");
+        assert_eq!(changed.data["memo"], "완료 메모");
+    }
+}
+
+#[test]
+fn starting_with_null_todo_clears_the_previous_selection_without_rewriting_history() {
+    let mut data = manual_timer();
+    data["todoId"] = json!("previous-task");
+    let first = run(&data, "start", json!({"durationMs":10000}), 1000);
+    let ended = run(&first.data, "cancel", json!({}), 2000);
+    let next = run(&ended.data, "start", json!({"todoId":null}), 3000);
+    assert!(next.data["todoId"].is_null());
+    assert!(next.data["activeSession"]["todoId"].is_null());
+    assert_eq!(next.data["sessions"][0]["todoId"], "previous-task");
 }

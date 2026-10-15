@@ -21,6 +21,7 @@ export type FocusSession = {
   segments: FocusSegment[];
   appUsage?: FocusAppUsage;
   active?: boolean;
+  recordTimeline?: boolean;
 };
 export type FocusPeriod = "day" | "week" | "month" | "year";
 export type FocusBucket = {
@@ -68,6 +69,7 @@ function readSession(session: DataRecord): FocusSession {
     endedAt: number(session.endedAt),
     elapsedMs: number(session.elapsedMs),
     outcome: text(session.outcome),
+    recordTimeline: session.recordTimeline !== false,
     memo: text(session.memo),
     eventRef: record(session.eventRef),
     noteRef: record(session.noteRef),

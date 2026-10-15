@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
+mod planning;
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
 pub struct ReminderSettings {
@@ -230,6 +232,9 @@ pub struct Delivery {
     pub instance_id: String,
     pub text: String,
     pub sound_enabled: bool,
+    pub widget: bool,
+    pub notification_key: String,
+    pub fallback: Option<super::WidgetEvent>,
 }
 
 pub struct Advance {
@@ -238,6 +243,12 @@ pub struct Advance {
 }
 
 pub fn event_current(db: &Connection, event: &super::WidgetEvent) -> Result<bool, String> {
+    if event.event.payload["bubbleEnabled"] == false {
+        return Ok(false);
+    }
+    if event.event.payload["planningReminder"] == true {
+        return planning::event_current(db, event);
+    }
     if event.event.kind == "planner-mood" {
         let instances = storage::instances(db)?;
         return Ok(event.event.payload["timerStates"]
@@ -338,7 +349,7 @@ pub fn advance(
         .collect();
     let mut result = Advance {
         changed: false,
-        os: vec![],
+        os: planning::focus_completions(db, clocks, now)?,
     };
     for instance in instances
         .iter()
@@ -419,6 +430,9 @@ pub fn advance(
                     instance_id: instance.id.clone(),
                     text,
                     sound_enabled: settings.sound_enabled,
+                    widget: false,
+                    notification_key: "calendar".into(),
+                    fallback: None,
                 });
             }
         }
@@ -429,11 +443,23 @@ pub fn advance(
                 payload: json!({"timerStates": timers.iter().map(|timer| json!({"id":timer.id,"revision":timer.revision})).collect::<Vec<_>>()}),
             });
         }
+        planning::focus_due(
+            instance,
+            &timers,
+            previous,
+            now,
+            &mut drafts,
+            &mut result.os,
+        );
         if data != instance.data || !drafts.is_empty() {
             storage::commit_data(db, &instance.id, instance.revision, data, drafts, now)?;
             result.changed = true;
         }
     }
+    let preparation = planning::advance_preparation(db, &instances, clocks, now)?;
+    result.changed |= preparation.changed;
+    result.os.extend(preparation.os);
+    planning::attach_focus_fallbacks(db, &mut result.os, now)?;
     Ok(result)
 }
 

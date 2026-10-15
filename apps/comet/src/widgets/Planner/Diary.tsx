@@ -1,5 +1,10 @@
 import { Button, Dialog, FormField, Surface, TextField } from "../../ui";
-import { IconButton as CometIconButton, SegmentedControl, SidebarItem } from "@comet/ui";
+import {
+  IconButton as CometIconButton,
+  EnvelopeCard,
+  SegmentedControl,
+  SidebarItem,
+} from "@comet/ui";
 import {
   useEffect,
   useLayoutEffect,
@@ -16,6 +21,7 @@ import { useWidgets } from "../useWidgets";
 import { localDay, record, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetSnapshot, WidgetView } from "../types";
 import { DiaryCalendar, MiniCalendar } from "./DiaryCalendar";
+import { PreparationCreate } from "../PreparationTool/PreparationCreate";
 import { DiaryEnvelope, envelopeTitle } from "./DiaryEnvelope";
 import { OrganizerRecords } from "./OrganizerRecords";
 import { DiaryJournal } from "./DiaryJournal";
@@ -25,6 +31,7 @@ import { DiaryPageMenu } from "./DiaryPageMenu";
 import type { DiaryAction, DiaryEntry, DiaryPage as Page } from "./diaryTypes";
 import { LocalEventEditor } from "./LocalEventEditor";
 import { DiaryToday } from "./DiaryToday";
+import { focusSessions } from "../PlanningTools/FocusTimerData";
 import { hasWidgetDrag, readWidgetDrag, type WidgetDragPayload } from "../widgetDrag";
 import { Planner, type PlannerToolState, type PlannerToolTab } from "./Planner";
 import { DiaryCalendarContext } from "./DiaryCalendarContext";
@@ -34,6 +41,7 @@ import {
   deviceTimeZone,
   eventsOn,
   eventTime,
+  frequencyRecords,
   moveDay,
   movePeriod,
   periodAnchor,
@@ -43,6 +51,7 @@ import {
 import { useDiary } from "./useDiary";
 import { colorForEvent } from "./calendarColorData";
 import * as s from "./diary.css";
+import * as envelopeStyles from "./diaryEnvelope.css";
 
 type View = "month" | "week" | "day";
 const VIEWS: [View, string][] = [
@@ -84,6 +93,14 @@ export function Diary(): ReactElement {
   const [archived, setArchived] = useState(false);
   const [creating, setCreating] = useState<"page" | "envelope" | null>(null);
   const [name, setName] = useState("");
+  const [envelopeCreateDirty, setEnvelopeCreateDirty] = useState(false);
+  const envelopeCreateRequest = useRef<{
+    requestId: string;
+    instanceId: string;
+    expectedRevision: number;
+    action: string;
+    input: DataRecord;
+  } | null>(null);
   const [quickTaskOpen, setQuickTaskOpen] = useState(false);
   const [quickTaskTitle, setQuickTaskTitle] = useState("");
   const [quickTaskDate, setQuickTaskDate] = useState<string | null>(null);
@@ -177,6 +194,7 @@ export function Diary(): ReactElement {
     toolState.dirty ||
     toolState.blocking ||
     Boolean(editing) ||
+    envelopeCreateDirty ||
     Boolean(name) ||
     Boolean(quickTaskTitle);
   const close = (): void => {
@@ -194,6 +212,7 @@ export function Diary(): ReactElement {
       pageMenuDirty ||
       calendarDirty ||
       editing ||
+      envelopeCreateDirty ||
       name ||
       quickTaskTitle ||
       toolState.blocking ||
@@ -487,6 +506,45 @@ export function Diary(): ReactElement {
       await run(() => command("open_widget", { id: timer.id }));
     }
   }
+  async function focusEnvelope(): Promise<void> {
+    if (!envelope) return;
+    const timer = enabled("focus-timer");
+    if (!timer) {
+      await run(() => command("open_planner_settings", { kind: "focus-timer" }));
+      return;
+    }
+    const event = events.find((value) => value.id === envelope.eventId);
+    const eventRef =
+      event && calendar
+        ? {
+            calendarWidgetId: calendar.id,
+            id: text(event.id),
+            title: text(event.title),
+            startAt: typeof event.startAt === "number" ? event.startAt : null,
+            endAt: typeof event.endAt === "number" ? event.endAt : null,
+            connectionId: text(event.connectionId),
+            sourceId: text(event.sourceId),
+            occurrenceId: text(event.occurrenceId),
+          }
+        : null;
+    if (
+      await act(
+        "start",
+        {
+          durationMs: 1500000,
+          title: envelopeTitle(envelope),
+          todoId: null,
+          eventRef,
+          noteRef: null,
+          memo: "",
+        },
+        timer,
+      )
+    ) {
+      setNotice("봉투를 준비하는 25분 집중을 시작했어요.");
+      await run(() => command("open_widget", { id: timer.id }));
+    }
+  }
   async function createPage(): Promise<string | null> {
     if (page) return page.id;
     const result = await diary.mutate("page-create", { date: day, title: "" });
@@ -505,18 +563,47 @@ export function Diary(): ReactElement {
         setEnvelopeId("");
         setView("day");
       }
-    } else {
-      const result = await run(async () =>
-        execute("create", { title: name }, await ensureWidget("preparation")),
-      );
-      if (result?.value) {
-        setName("");
-        setCreating(null);
-        setTool(null);
-        setEnvelopeId(result.value);
-        setPageId("");
-      }
     }
+  }
+  async function createEnvelope(input: DataRecord, requestId: string): Promise<boolean> {
+    const result = await run(async () => {
+      if (!envelopeCreateRequest.current || envelopeCreateRequest.current.requestId !== requestId) {
+        if (Array.isArray(input.tasks) && input.tasks.length) await ensureWidget("todo");
+        const target = await ensureWidget("preparation");
+        envelopeCreateRequest.current = {
+          requestId,
+          instanceId: target.id,
+          expectedRevision: target.revision,
+          action: "create",
+          input,
+        };
+      }
+      let createdId: string | null;
+      try {
+        createdId = await command<string | null>("execute_widget", {
+          request: envelopeCreateRequest.current,
+        });
+      } catch (cause) {
+        // A revision rejection has no receipt; refresh only this definitive failure.
+        if (errorText(cause).includes("다른 화면에서 위젯이 변경됐어요")) {
+          envelopeCreateRequest.current = null;
+          const fresh = await command<WidgetSnapshot>("get_widgets");
+          latestWidgets.current = fresh.widgets;
+        }
+        throw cause;
+      }
+      if (!createdId)
+        throw new Error("만든 봉투를 확인하지 못했어요. 같은 요청으로 다시 시도해 주세요.");
+      reload();
+      return createdId;
+    });
+    if (!result?.value) return false;
+    envelopeCreateRequest.current = null;
+    setCreating(null);
+    setTool(null);
+    setEnvelopeId(result.value);
+    setPageId("");
+    return true;
   }
   function openTool(next: DiaryTool): void {
     navigate(() => {
@@ -937,13 +1024,15 @@ export function Diary(): ReactElement {
             <h2 className={s.indexTitle}>
               {collection === "envelopes" ? "준비 봉투" : "내 페이지"}
             </h2>
-            <MiniCalendar
-              day={day}
-              month={month}
-              pages={pages}
-              onMonth={setMonth}
-              onDay={openDay}
-            />
+            <div hidden={collection === "envelopes"}>
+              <MiniCalendar
+                day={day}
+                month={month}
+                pages={pages}
+                onMonth={setMonth}
+                onDay={openDay}
+              />
+            </div>
             <div
               hidden={collection === "envelopes"}
               className={s.toolMenu}
@@ -1019,33 +1108,81 @@ export function Diary(): ReactElement {
                   +
                 </Button>
               </div>
-              {envelopes
-                .filter((value) => Boolean(value.archived) === archived)
-                .map((value) => (
-                  <button
-                    type="button"
-                    key={text(value.id)}
-                    className={s.navItem}
-                    aria-current={!tool && envelopeId === value.id ? "page" : undefined}
-                    onClick={() => openEnvelope(text(value.id))}
-                  >
-                    {envelopeTitle(value)}
-                    <br />
-                    <span className={s.caption}>
-                      {text(value.date) ||
-                        (value.eventId ? text(value.eventLabel) : "날짜 없이 준비 중")}
-                    </span>
-                  </button>
-                ))}
-              {!envelopes.length && (
-                <p className={s.caption}>
-                  약속이 잡히기 전부터
-                  <br />할 일과 자료를 모아 두세요.
-                </p>
-              )}
-              <Button variant="quiet" size="compact" onClick={() => setArchived(!archived)}>
-                {archived ? "준비 중인 봉투" : "보관한 봉투"}
-              </Button>
+              <SegmentedControl
+                label="준비 봉투 분류"
+                value={archived ? "archived" : "preparing"}
+                options={[
+                  { value: "preparing", label: "준비 중" },
+                  { value: "archived", label: "보관함" },
+                ]}
+                onValueChange={(value) => {
+                  setArchived(value === "archived");
+                  document
+                    .getElementById(`envelope-group-${value}`)
+                    ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                }}
+              />
+              <div className={envelopeStyles.envelopeGroups}>
+                {[false, true].map((isArchived) => {
+                  const group = envelopes.filter((value) => Boolean(value.archived) === isArchived);
+                  return (
+                    <section
+                      key={String(isArchived)}
+                      id={`envelope-group-${isArchived ? "archived" : "preparing"}`}
+                      className={envelopeStyles.envelopeGroup}
+                      aria-label={isArchived ? "보관한 봉투" : "준비 중인 봉투"}
+                    >
+                      <h3 className={s.caption}>
+                        {isArchived ? "보관함" : "준비 중"} · {group.length}
+                      </h3>
+                      {group.map((value) => {
+                        const checks = rows(value.checks);
+                        const linkedIds = Array.isArray(value.todoIds) ? value.todoIds : [];
+                        const linked = items.filter((item) => linkedIds.includes(item.id));
+                        const completed =
+                          checks.filter((item) => item.done === true).length +
+                          linked.filter((item) =>
+                            ruleOf(item).mode === "frequency"
+                              ? frequencyRecords(item, localDay()).some(
+                                  (entry) => entry.date === localDay(),
+                                )
+                              : typeof item.completedAt === "number",
+                          ).length;
+                        const event = events.find(
+                          (event) => event.id === value.eventId && !event.cancelled,
+                        );
+                        const description = event
+                          ? `${text(event.startDate) || (typeof event.startAt === "number" ? localDay(new Date(event.startAt)) : "일정에 연결됨")} · ${text(event.title)}`
+                          : text(value.date) ||
+                            (value.eventId
+                              ? `${text(value.eventLabel)} · 일정 확인 필요`
+                              : "날짜 없이 준비 중");
+                        return (
+                          <EnvelopeCard
+                            key={text(value.id)}
+                            className={envelopeStyles.envelopeCard}
+                            title={envelopeTitle(value)}
+                            description={isArchived ? `${description} · 보관함` : description}
+                            completed={completed}
+                            total={checks.length + linkedIds.length}
+                            archived={isArchived}
+                            selected={!tool && envelopeId === value.id}
+                            aria-current={!tool && envelopeId === value.id ? "page" : undefined}
+                            onClick={() => openEnvelope(text(value.id))}
+                          />
+                        );
+                      })}
+                      {!group.length && (
+                        <p className={s.caption}>
+                          {isArchived
+                            ? "아직 보관한 봉투가 없어요."
+                            : "약속이 잡히기 전부터 할 일과 자료를 모아 두세요."}
+                        </p>
+                      )}
+                    </section>
+                  );
+                })}
+              </div>
             </div>
           </Surface>
           <Surface
@@ -1290,6 +1427,8 @@ export function Diary(): ReactElement {
                       onToggleTask={(item) => toggleTask(item, localDay())}
                       onEditTask={setEditing}
                       onFocusTask={(item) => void focusTask(item)}
+                      onFocusEnvelope={() => void focusEnvelope()}
+                      onOpenEvent={openCalendarEvent}
                       onCreateTask={(title) => createTask(title, null)}
                       onOpenPage={openPage}
                       onReturnToDay={() => openDay(localDay())}
@@ -1359,6 +1498,9 @@ export function Diary(): ReactElement {
                           events={events}
                           items={items}
                           envelopes={envelopes}
+                          focusSessions={widgets
+                            .filter((widget) => widget.kind === "focus-timer")
+                            .flatMap((widget) => focusSessions(record(widget.data), Date.now()))}
                           onDay={openDay}
                           onEvent={openCalendarEvent}
                           onCreateEvent={(date) => navigate(() => setCalendarDraft({ date }))}
@@ -1402,8 +1544,8 @@ export function Diary(): ReactElement {
         />
       )}
       <Dialog
-        isOpen={Boolean(creating)}
-        title={creating === "page" ? "새 페이지" : "새 준비 봉투"}
+        isOpen={creating === "page"}
+        title="새 페이지"
         size="small"
         closeLabel="새로 만들기 닫기"
         onOpenChange={(open) => {
@@ -1420,26 +1562,36 @@ export function Diary(): ReactElement {
             void saveNew();
           }}
         >
-          <FormField label={creating === "page" ? "페이지 이름" : "봉투 이름"}>
+          <FormField label="페이지 이름">
             <TextField
               autoFocus
               required
               maxLength={500}
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder={creating === "page" ? "예: 읽은 책" : "예: 토요일 모임 준비"}
+              placeholder="예: 읽은 책"
             />
           </FormField>
-          <p className={s.caption}>
-            {creating === "page"
-              ? "한 가지 주제를 날짜 없이 계속 이어 쓰세요."
-              : "날짜는 나중에 정해도 좋아요. 할 일과 자료부터 담아 두세요."}
-          </p>
+          <p className={s.caption}>한 가지 주제를 날짜 없이 계속 이어 쓰세요.</p>
           <Button type="submit" variant="primary" disabled={saving || !name.trim()}>
             만들기
           </Button>
         </form>
       </Dialog>
+      {creating === "envelope" && (
+        <PreparationCreate
+          events={events}
+          busy={saving}
+          onCreate={createEnvelope}
+          onDirtyChange={setEnvelopeCreateDirty}
+          onClose={() =>
+            navigate(() => {
+              envelopeCreateRequest.current = null;
+              setCreating(null);
+            })
+          }
+        />
+      )}
       {editing && todo && (
         <TodoEditor
           key={text(editing.id)}
@@ -1578,6 +1730,8 @@ export function Diary(): ReactElement {
               setPageMenuDirty(false);
               setEditing(null);
               setName("");
+              setEnvelopeCreateDirty(false);
+              envelopeCreateRequest.current = null;
               quickTaskVersion.current += 1;
               setQuickTaskTitle("");
               setQuickTaskOpen(false);

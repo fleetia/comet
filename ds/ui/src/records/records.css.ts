@@ -128,8 +128,10 @@ export const tagVariants = styleVariants({
     color: tokens["color/cat-life"],
   },
 });
-export const envelope = style({ width: 280, padding: "12px 14px", gap: 6, borderRadius: 16 });
+export const envelope = style({ width: 280, padding: "12px 14px 4px", gap: 6, borderRadius: 16 });
 export const envelopePreview = style({ width: 256 });
+export const envelopeProgress = style({ display: "flex", alignItems: "center", gap: 4, minHeight: 18, marginTop: -6 });
+export const envelopePercent = style({ width: 32, flexShrink: 0, textAlign: "right", fontSize: 12, lineHeight: "16px", color: tokens["color/ink-3"] });
 export const archived = style({ color: tokens["color/ink-2"] });
 export const progress = style({
   appearance: "none",
@@ -465,7 +467,13 @@ export const taskSelected = style({
   borderRadius: 12,
 });
 export const taskDiary = style({ width: 1180, minHeight: 40, padding: "6px 12px" });
-export const taskEnvelope = style({ width: 420, minHeight: 40, gap: 10, padding: "9px 12px" });
+export const taskEnvelope = style({
+  width: "100%",
+  minHeight: 40,
+  gap: 10,
+  padding: "6px 12px",
+  selectors: { "&:first-child": { borderTop: 0 } },
+});
 export const taskText = style({ display: "flex", alignItems: "center", gap: 6, minWidth: 0 });
 export const taskTitle = style({ fontSize: 14, lineHeight: "19px" });
 export const taskDone = style({ textDecoration: "line-through", color: tokens["color/list-gray"] });

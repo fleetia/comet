@@ -164,7 +164,7 @@ it("only completes a linked todo after an explicit completion click", async () =
   expect(act).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "5분 쉬기" }));
   expect(act).toHaveBeenCalledWith("rest");
-  fireEvent.click(screen.getByRole("button", { name: "읽기 완료하기" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "읽기 완료로 표시" }));
   expect(act).toHaveBeenCalledWith("complete", { id: "task" }, todo);
 });
 it.each(["ball", "paper-plane", "bubbles"])(
@@ -315,7 +315,7 @@ it("keeps a running countdown and memo through a pending focus resize", async ()
         : Promise.resolve(undefined),
     );
     render(<WidgetTool id="focus-timer" />);
-    fireEvent.click(screen.getByRole("tab", { name: "노트" }));
+    fireEvent.click(screen.getByRole("radio", { name: "노트" }));
     const memo = screen.getByLabelText("이번 집중 메모");
     fireEvent.change(memo, { target: { value: "집중 중 초안" } });
     fireEvent.click(screen.getByRole("button", { name: "작게 보기" }));
@@ -429,7 +429,7 @@ it.each([false, true])(
     const title = screen.getByLabelText("집중할 일");
     fireEvent.change(title, { target: { value: "작업 초안" } });
     fireEvent.click(screen.getByRole("button", { name: "50분" }));
-    fireEvent.click(screen.getByRole("tab", { name: "노트" }));
+    fireEvent.click(screen.getByRole("radio", { name: "노트" }));
     const memo = screen.getByLabelText("이번 집중 메모");
     fireEvent.change(memo, { target: { value: "남겨 둔 생각" } });
     const timer = screen.getByLabelText("남은 시간");

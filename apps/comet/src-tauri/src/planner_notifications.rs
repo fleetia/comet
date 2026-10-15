@@ -1,4 +1,8 @@
-use tauri::Emitter;
+use std::sync::{atomic::Ordering, Arc};
+use tauri::{Emitter, Manager};
+
+#[cfg(test)]
+mod tests;
 
 #[tauri::command]
 pub(crate) async fn get_planner_notification_permission(
@@ -27,6 +31,8 @@ pub(crate) async fn preview_planner_notification(app: tauri::AppHandle) -> Resul
         0,
         "일정 10분 전이에요. 플래너에서 준비할 일을 확인해 볼까요?",
         false,
+        false,
+        "preview",
     )
 }
 
@@ -36,14 +42,100 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<(), String> {
 
 pub(crate) fn deliver(
     app: &tauri::AppHandle,
-    instance_id: &str,
+    delivery: crate::widgets::reminders::Delivery,
     observed_at: i64,
-    text: &str,
-    sound_enabled: bool,
+    epoch: u64,
 ) {
-    if let Err(error) = native::show(app, instance_id, observed_at, text, sound_enabled) {
-        let _ = app.emit("planner-notification-error", error);
+    if delivery.fallback.is_none() {
+        if let Err(error) = show_delivery(app, &delivery, observed_at) {
+            let _ = app.emit("planner-notification-error", error);
+        }
+        return;
     }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let permission = native::permission(&app, false).await;
+        let Some(state) = app.try_state::<Arc<crate::AppState>>() else {
+            return;
+        };
+        let Some(event) = delivery.fallback.as_ref() else {
+            return;
+        };
+        let result = crate::widget_commands::change(&state, |db| {
+            if state.epoch.load(Ordering::SeqCst) != epoch || !delivery_event_current(db, event)? {
+                return Ok(());
+            }
+            if permission
+                .as_deref()
+                .is_ok_and(|value| matches!(value, "granted" | "system"))
+                && show_delivery(&app, &delivery, observed_at).is_ok()
+            {
+                return Ok(());
+            }
+            restore_fallback(&state, db, event, epoch).map(|_| ())
+        });
+        if let Err(error) = result {
+            let _ = app.emit("planner-notification-error", error);
+        }
+    });
+}
+
+fn show_delivery(
+    app: &tauri::AppHandle,
+    delivery: &crate::widgets::reminders::Delivery,
+    observed_at: i64,
+) -> Result<(), String> {
+    native::show(
+        app,
+        &delivery.instance_id,
+        observed_at,
+        &delivery.text,
+        delivery.sound_enabled,
+        delivery.widget,
+        &delivery.notification_key,
+    )
+}
+
+fn bubble_fallback(event: &crate::widgets::WidgetEvent) -> crate::widgets::WidgetEvent {
+    let mut event = event.clone();
+    event.event.payload["bubbleEnabled"] = serde_json::json!(true);
+    event.event.payload["osFallback"] = serde_json::json!(true);
+    event
+}
+
+fn delivery_event_current(
+    db: &rusqlite::Connection,
+    event: &crate::widgets::WidgetEvent,
+) -> Result<bool, String> {
+    let current = crate::widgets::storage::get(db, &event.instance_id)?;
+    Ok(event.expires_at > chrono::Utc::now().timestamp_millis()
+        && current.installed
+        && current.enabled
+        && current.revision == event.revision
+        && crate::widgets::reminders::event_current(db, &bubble_fallback(event))?)
+}
+
+fn restore_fallback(
+    state: &crate::AppState,
+    db: &rusqlite::Connection,
+    event: &crate::widgets::WidgetEvent,
+    epoch: u64,
+) -> Result<bool, String> {
+    if state.epoch.load(Ordering::SeqCst) != epoch
+        || state.launcher_open.load(Ordering::SeqCst)
+        || crate::lock(&state.runtime)?.hidden
+        || !crate::store::settings(db)?.autonomous_enabled
+    {
+        return Ok(false);
+    }
+    let event = bubble_fallback(event);
+    if !crate::widget_commands::event_current(db, &event)? {
+        return Ok(false);
+    }
+    db.execute(
+        "UPDATE widget_events SET data=?1,pending=1 WHERE id=?2 AND json_extract(data,'$.revision')=?3 AND json_extract(data,'$.payload.bubbleEnabled')=0",
+        rusqlite::params![serde_json::to_string(&event).map_err(|error| error.to_string())?, event.id, event.revision],
+    ).map(|changed| changed == 1).map_err(|error| error.to_string())
 }
 
 #[cfg(target_os = "macos")]
@@ -151,7 +243,19 @@ mod native {
                 &NSArray::<NSString>::new(),
                 UNNotificationCategoryOptions::empty(),
             );
-        center.setNotificationCategories(&NSSet::from_retained_slice(&[category]));
+        let widget_open = UNNotificationAction::actionWithIdentifier_title_options(
+            &NSString::from_str("widget-open"),
+            &NSString::from_str("열기"),
+            UNNotificationActionOptions::Foreground,
+        );
+        let widget_category =
+            UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
+                &NSString::from_str("comet-widget"),
+                &NSArray::from_retained_slice(&[widget_open]),
+                &NSArray::<NSString>::new(),
+                UNNotificationCategoryOptions::empty(),
+            );
+        center.setNotificationCategories(&NSSet::from_retained_slice(&[category, widget_category]));
         center.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
         app.manage(Registration {
             _delegate: delegate,
@@ -160,6 +264,35 @@ mod native {
     }
 
     fn handle_response(app: &tauri::AppHandle, action: &str, identifier: &str) {
+        if identifier.starts_with("widget:") {
+            if action != "widget-open"
+                && action != "com.apple.UNNotificationDefaultActionIdentifier"
+            {
+                return;
+            }
+            let Some(id) = identifier
+                .strip_prefix("widget:")
+                .and_then(|value| value.split(':').next())
+            else {
+                return;
+            };
+            if uuid::Uuid::parse_str(id).is_err() {
+                return;
+            }
+            let id = id.to_owned();
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let Some(state) = app.try_state::<Arc<crate::AppState>>() else {
+                    return;
+                };
+                if let Err(error) =
+                    crate::widget_commands::open_widget(app.clone(), state, id).await
+                {
+                    let _ = app.emit("planner-notification-error", error);
+                }
+            });
+            return;
+        }
         if action == "planner-snooze" {
             let Some((instance_id, observed_at)) = identifier
                 .strip_prefix("planner:")
@@ -280,6 +413,8 @@ mod native {
         observed_at: i64,
         text: &str,
         sound_enabled: bool,
+        widget: bool,
+        notification_key: &str,
     ) -> Result<(), String> {
         if !bundled_app() {
             return Err("OS 알림은 빌드된 Comet 앱에서 사용할 수 있어요.".into());
@@ -292,10 +427,19 @@ mod native {
         }
         content.setThreadIdentifier(&NSString::from_str("comet-planner"));
         if observed_at > 0 {
-            content.setCategoryIdentifier(&NSString::from_str("comet-planner"));
+            content.setCategoryIdentifier(&NSString::from_str(if widget {
+                "comet-widget"
+            } else {
+                "comet-planner"
+            }));
         }
+        let identifier = if widget {
+            format!("widget:{instance_id}:{observed_at}:{notification_key}")
+        } else {
+            format!("planner:{instance_id}:{observed_at}")
+        };
         let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
-            &NSString::from_str(&format!("planner:{instance_id}:{observed_at}")),
+            &NSString::from_str(&identifier),
             &content,
             None,
         );
@@ -331,6 +475,8 @@ mod native {
         _: i64,
         text: &str,
         sound_enabled: bool,
+        _: bool,
+        _: &str,
     ) -> Result<(), String> {
         let mut notification = app
             .notification()

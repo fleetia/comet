@@ -159,11 +159,12 @@ it("retries linking a created task without creating a duplicate after partial fa
   vi.mocked(props.act).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
   render(<DiaryEnvelope {...props} />);
   const tasks = within(screen.getByRole("region", { name: "봉투 할 일" }));
-  fireEvent.click(tasks.getByText("+ 준비할 일 추가"));
   fireEvent.change(tasks.getByLabelText("봉투에 추가할 할 일"), {
     target: { value: "플레이리스트 고르기" },
   });
-  fireEvent.click(tasks.getByRole("button", { name: "할 일 추가" }));
+  const taskForm = tasks.getByLabelText("봉투에 추가할 할 일").closest("form");
+  if (!taskForm) throw new Error("missing task form");
+  fireEvent.submit(taskForm);
   await waitFor(() =>
     expect(tasks.getByRole("button", { name: "봉투 연결 다시 시도" })).toHaveProperty(
       "disabled",
@@ -445,4 +446,79 @@ it("keeps an opened stored draft through search, collapse and save failure using
     ["note-update", update],
   ]);
   expect(stored).toEqual({ ...note, pinned: false });
+});
+
+it("separates tasks from things and asks to archive only once for the ended schedule", async () => {
+  const props = envelopeProps();
+  const ended = { id: "event", title: "끝난 모임", endAt: 1, startAt: 0, allDay: false };
+  const activeEnvelope = {
+    ...envelope,
+    eventId: "event",
+    checks: [{ id: "check", text: "챙길 책", done: false }],
+    todoIds: ["todo"],
+  };
+  const configured = { ...preparation, data: { envelopes: [], askArchiveAfterEnd: true } };
+  const view = render(
+    <DiaryEnvelope
+      {...props}
+      envelope={activeEnvelope}
+      preparation={configured}
+      events={[ended]}
+      items={[{ id: "todo", title: "읽을 부분 정하기", completedAt: null }]}
+    />,
+  );
+  expect(
+    within(screen.getByRole("region", { name: "봉투 할 일" })).queryByRole("checkbox", {
+      name: "챙길 책",
+    }),
+  ).toBeNull();
+  expect(
+    within(screen.getByRole("region", { name: "봉투 챙길 것" })).getByRole("checkbox", {
+      name: "챙길 책",
+    }),
+  ).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "계속 준비하기" }));
+  await waitFor(() =>
+    expect(props.act).toHaveBeenCalledWith(
+      "update",
+      { id: "envelope", archivePromptDismissedFor: "event:1" },
+      configured,
+    ),
+  );
+  view.rerender(
+    <DiaryEnvelope
+      {...props}
+      envelope={{ ...activeEnvelope, archivePromptDismissedFor: "event:1" }}
+      preparation={configured}
+      events={[ended]}
+    />,
+  );
+  expect(screen.queryByRole("region", { name: "끝난 일정의 준비 봉투 보관" })).toBeNull();
+  view.rerender(
+    <DiaryEnvelope {...props} envelope={activeEnvelope} preparation={configured} events={[]} />,
+  );
+  expect(screen.queryByRole("region", { name: "끝난 일정의 준비 봉투 보관" })).toBeNull();
+});
+
+it("keeps a date draft from overwriting a schedule changed while the editor was open", async () => {
+  const props = envelopeProps();
+  const view = render(<DiaryEnvelope {...props} envelope={{ ...envelope, date: "2026-10-20" }} />);
+  fireEvent.click(screen.getByRole("button", { name: "날짜 바꾸기" }));
+  fireEvent.change(screen.getByLabelText("봉투 날짜"), { target: { value: "2026-10-21" } });
+  view.rerender(
+    <DiaryEnvelope
+      {...props}
+      envelope={{ ...envelope, date: "2026-10-22" }}
+      preparation={{ ...preparation, revision: 2 }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "날짜 저장" }));
+  const dialog = within(screen.getByRole("dialog", { name: "봉투 날짜와 일정" }));
+  await waitFor(() =>
+    expect(dialog.getByRole("alert").textContent).toContain(
+      "다른 곳에서 봉투 날짜나 연결이 바뀌었어요",
+    ),
+  );
+  expect(dialog.getByLabelText("봉투 날짜")).toHaveProperty("value", "2026-10-21");
+  expect(props.act).not.toHaveBeenCalled();
 });

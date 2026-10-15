@@ -23,6 +23,11 @@ const meta = {
       control: "select",
       options: ["expanded", "collapsed"],
     },
+    presentation: { control: "select", options: ["dial", "digits"] },
+    startDisabled: { control: "boolean" },
+    setup: { control: false },
+    customDuration: { control: false },
+    afterControls: { control: false },
     title: {
       control: "text",
     },
@@ -142,3 +147,5 @@ export const RestComplete: Story = {
   args: { phase: "rest-complete", summary: "오늘 집중 2번 · 1시간 25분" },
 };
 export const Collapsed: Story = { name: "접힌 표시", args: { view: "collapsed" } };
+export const Digits: Story = { name: "숫자판", args: { presentation: "digits" } };
+export const LongerBreak: Story = { name: "다른 휴식 길이", args: { phase: "rest-complete", timeDescription: "쉬는 시간 10분이 끝났어요" } };

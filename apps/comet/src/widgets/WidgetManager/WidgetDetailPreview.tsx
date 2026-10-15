@@ -1,10 +1,21 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { Icon } from "@comet/icon";
 import type { WidgetView } from "../types";
-import { localDay, record, rows, text } from "../toolData";
+import { FocusSettingsPreview } from "../PlanningTools/FocusSettingsPreview";
+import { localDay, record, rows, text, type ToolAction } from "../toolData";
 import * as s from "./widgetPreview.css";
 
-export function WidgetDetailPreview({ widget }: { widget: WidgetView }): ReactElement | null {
+export function WidgetDetailPreview({
+  widget,
+  act,
+  disabled,
+  onBusyChange,
+}: {
+  widget: WidgetView;
+  act?: ToolAction;
+  disabled?: boolean;
+  onBusyChange?: (busy: boolean) => void;
+}): ReactElement | null {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (widget.kind !== "clock") return;
@@ -12,6 +23,17 @@ export function WidgetDetailPreview({ widget }: { widget: WidgetView }): ReactEl
     return () => window.clearInterval(interval);
   }, [widget.kind]);
   const data = record(widget.data);
+  if (widget.kind === "focus-timer" && act) {
+    return (
+      <FocusSettingsPreview
+        key={widget.id}
+        widget={widget}
+        act={act}
+        disabled={disabled}
+        onBusyChange={onBusyChange}
+      />
+    );
+  }
   if (widget.kind === "clock") {
     const day = rows(data.anniversaries)[0];
     const difference = day

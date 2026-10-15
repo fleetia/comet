@@ -33,7 +33,7 @@ function widget(data: DataRecord): WidgetView {
 }
 afterEach(cleanup);
 
-it("configures the actual focus duration and presentation separately", async () => {
+it("configures the default focus duration only when saved", async () => {
   const act = vi.fn<ToolAction>().mockResolvedValue(true);
   render(
     <FocusWidgetSettings widget={widget({ status: "idle", focusDurationMs: 1500000 })} act={act} />,
@@ -44,16 +44,9 @@ it("configures the actual focus duration and presentation separately", async () 
   await waitFor(() =>
     expect(act).toHaveBeenCalledExactlyOnceWith("configure", { durationMs: 1800000 }),
   );
-  await waitFor(() =>
-    expect(screen.getByRole("radio", { name: "숫자" })).toHaveProperty("disabled", false),
-  );
-  fireEvent.click(screen.getByRole("radio", { name: "숫자" }));
-  await waitFor(() =>
-    expect(act).toHaveBeenLastCalledWith("configure", { presentation: "digits" }),
-  );
 });
 
-it("locks duration while a timer runs and retains presentation switching", async () => {
+it("locks duration while a timer runs", async () => {
   const act = vi.fn<ToolAction>().mockResolvedValue(true);
   render(
     <FocusWidgetSettings
@@ -62,10 +55,7 @@ it("locks duration while a timer runs and retains presentation switching", async
     />,
   );
   expect(screen.getByLabelText("기본 집중 시간 (분)")).toHaveProperty("disabled", true);
-  fireEvent.click(screen.getByRole("radio", { name: "숫자" }));
-  await waitFor(() =>
-    expect(act).toHaveBeenCalledExactlyOnceWith("configure", { presentation: "digits" }),
-  );
+  expect(act).not.toHaveBeenCalled();
 });
 
 it("preserves a duration draft when another window saves and requires resolving the conflict", () => {
@@ -108,7 +98,8 @@ it("reports a rejected save and unlocks both the immediate and embedded settings
       onBusyChange={onBusyChange}
     />,
   );
-  fireEvent.click(screen.getByRole("radio", { name: "숫자" }));
+  fireEvent.change(screen.getByLabelText("기본 집중 시간 (분)"), { target: { value: "30" } });
+  fireEvent.click(screen.getByRole("button", { name: "집중 시간 저장" }));
   expect(onBusyChange).toHaveBeenLastCalledWith(true);
   expect(screen.getByLabelText("휴식 시간 (분)").matches(":disabled")).toBe(true);
   await reactAct(async () => reject("저장 연결 실패"));
@@ -131,11 +122,11 @@ it("saves focus cheering through the calendar reminders without changing unrelat
   render(<FocusWidgetSettings widget={widget({ status: "idle" })} calendar={calendar} act={act} />);
   fireEvent.click(screen.getByRole("switch", { name: "친구가 시작할 때 응원하기" }));
   expect(act).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "일정 알림 저장" }));
+  fireEvent.click(screen.getByRole("button", { name: "응원 설정 저장" }));
   await waitFor(() =>
     expect(act).toHaveBeenCalledExactlyOnceWith(
       "configure-alerts",
-      { ...reminders, osEnabled: false, soundEnabled: false, moodFocusStart: true },
+      { ...reminders, moodFocusStart: true },
       calendar,
     ),
   );

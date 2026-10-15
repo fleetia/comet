@@ -24,6 +24,7 @@ import {
   WEEKDAYS,
 } from "./plannerData";
 import type { DiaryEntry, DiaryPage } from "./diaryTypes";
+import { focusDuration, type FocusSession } from "../PlanningTools/FocusTimerData";
 import * as s from "./diary.css";
 
 type Appointment =
@@ -115,6 +116,7 @@ export type DiaryCalendarProps = {
   events: DataRecord[];
   items: DataRecord[];
   envelopes: DataRecord[];
+  focusSessions?: FocusSession[];
   onDay: (date: string) => void;
   onEvent: (event: DataRecord, date: string) => void;
   onEnvelope: (id: string) => void;
@@ -130,6 +132,7 @@ export function DiaryCalendar({
   events,
   items,
   envelopes,
+  focusSessions = [],
   onDay,
   onEvent,
   onEnvelope,
@@ -282,24 +285,43 @@ export function DiaryCalendar({
     const dates = Array.from({ length: 7 }, (_, index) => moveDay(start, index));
     const reflectionDay = dates[6];
     const reflection = pageFor(reflectionDay)?.entries.find((entry) => entry.kind === "note");
-    const schedule: CalendarWeekEvent[] = dates.flatMap((date) =>
-      eventsOn(visibleEvents, date)
+    const schedule: CalendarWeekEvent[] = dates.flatMap((date) => {
+      const beginning = new Date(`${date}T00:00:00`).getTime();
+      const ending = new Date(`${moveDay(date, 1)}T00:00:00`).getTime();
+      const focus: CalendarWeekEvent[] = focusSessions
+        .filter((session) => session.recordTimeline !== false)
+        .flatMap((session) => session.segments
+          .filter((segment) => segment.startAt < ending && segment.endAt > beginning)
+          .map((segment, index) => {
+            const startAt = Math.max(beginning, segment.startAt);
+            const endAt = Math.min(ending, segment.endAt);
+            return {
+              id: `focus:${date}:${session.id}:${index}`,
+              dayId: date,
+              startMinute: Math.max(0, (startAt - beginning) / 60000),
+              durationMinutes: (endAt - startAt) / 60000,
+              state: "past" as const,
+              color: "focus" as const,
+              children: session.title,
+              "aria-label": `${session.title} · ${focusDuration(endAt - startAt)} 집중 기록`,
+            };
+          }));
+      return [...focus, ...eventsOn(visibleEvents, date)
         .filter((event) => !event.allDay)
         .map((event) => {
-          const beginning = new Date(`${date}T00:00:00`).getTime();
           const startAt = Math.max(beginning, eventStart(event));
           return {
             id: `${date}:${text(event.id)}`,
             dayId: date,
             startMinute: Math.max(0, (startAt - beginning) / 60000),
-            durationMinutes: Math.max(1, Math.min(1440, (eventEnd(event) - startAt) / 60000)),
+            durationMinutes: Math.max(1, (Math.min(ending, eventEnd(event)) - startAt) / 60000),
             state: "planned" as const,
             color: event.connectionId === "local" ? ("comet" as const) : ("google" as const),
             children: text(event.title),
             "aria-label": `${text(event.title)} 일정 상세`,
           };
-        }),
-    );
+        })];
+    });
     return (
       <div className={s.weekWorkspace}>
         <CalendarWeek
@@ -313,6 +335,10 @@ export function DiaryCalendar({
           events={schedule}
           onDayClick={(date) => onDay(date.id)}
           onEventClick={(block) => {
+            if (block.id.startsWith("focus:")) {
+              onDay(block.dayId);
+              return;
+            }
             const event = visibleEvents.find(
               (value) => `${block.dayId}:${text(value.id)}` === block.id,
             );

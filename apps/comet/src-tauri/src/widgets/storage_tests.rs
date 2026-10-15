@@ -458,6 +458,34 @@ fn standalone_preparation_installs_without_calendar_and_keeps_data_after_disconn
 }
 
 #[test]
+fn preparation_create_with_template_tasks_is_atomic_and_replay_safe() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    install(&db, directory.path(), &["preparation", "todo"]);
+    let before = instance(&db, "todo");
+    let invalid = request(&db, "preparation", "create", json!({
+        "title":"여행", "checks":[""], "tasks":[{"title":"예약 확인하기"}]
+    }));
+    assert!(storage::execute(&db, &invalid, 100, 1).is_err());
+    assert_eq!(instance(&db, "todo").data, before.data);
+    assert_eq!(instance(&db, "todo").revision, before.revision);
+    assert_eq!(instance(&db, "preparation").data["envelopes"], json!([]));
+    let create = request(&db, "preparation", "create", json!({
+        "title":"여행", "date":"2026-10-31", "checks":["카메라","충전기"],
+        "tasks":[{"title":"예약 확인하기"},{"title":"티켓 받기"}], "reminderDays":3
+    }));
+    storage::execute(&db, &create, 100, 1).unwrap();
+    let prepared = instance(&db, "preparation").data;
+    let todos = instance(&db, "todo").data;
+    assert_eq!(prepared["envelopes"][0]["checks"].as_array().unwrap().len(), 2);
+    assert_eq!(prepared["envelopes"][0]["reminderDays"], 3);
+    assert_eq!(prepared["envelopes"][0]["todoIds"], json!([todos["items"][0]["id"], todos["items"][1]["id"]]));
+    storage::execute(&db, &create, 200, 2).unwrap();
+    assert_eq!(instance(&db, "preparation").data, prepared);
+    assert_eq!(instance(&db, "todo").data, todos);
+}
+
+#[test]
 fn preparation_attachment_validation_and_check_promotion_are_atomic() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();

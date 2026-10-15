@@ -76,3 +76,20 @@ it("keeps an empty day empty instead of adding sample focus records or tasks", (
   expect(screen.getByText("이날 예정된 일정이 없어요.")).toBeTruthy();
   expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
 });
+
+it("keeps focus totals when a session is excluded from the diary timeline", () => {
+  const startAt = new Date("2026-10-08T10:00:00").getTime();
+  const endAt = startAt + 25 * 60000;
+  const widget = {
+    id: "timer", kind: "focus-timer", installed: true, enabled: true,
+    revision: 1, version: 1, error: null, missing: [], status: "enabled", packageBytes: 1,
+    data: { sessions: [{ id: "private", title: "숨긴 집중", recordTimeline: false,
+      startedAt: startAt, endedAt: endAt, elapsedMs: endAt - startAt,
+      segments: [{ startAt, endAt }] }] },
+  } as WidgetView;
+  render(<DiaryToday day="2026-10-08" widgets={[widget]} items={[]} events={[]} notes={[]} busy={false}
+    onTask={vi.fn()} onTasks={vi.fn()} onEvent={vi.fn()} onNotes={vi.fn()} />);
+  const ring = within(screen.getByRole("group", { name: "하루 시간 기록" }));
+  expect(ring.getByText("25분")).toBeTruthy();
+  expect(ring.queryByLabelText("숨긴 집중 · 25분")).toBeNull();
+});

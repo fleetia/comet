@@ -309,7 +309,9 @@ it.each([null, { mode: "calendar", unit: "day" }, { mode: "completion", unit: "d
     render(<TimerTool widget={timer()} widgets={[target]} act={act} />);
     expect(act).not.toHaveBeenCalled();
     expect(screen.queryByText(/기록 날짜:/)).toBeNull();
-    await click("읽기 완료하기");
+    await reactAct(async () =>
+      fireEvent.click(screen.getByRole("checkbox", { name: "읽기 완료로 표시" })),
+    );
     expect(act).toHaveBeenCalledExactlyOnceWith("complete", { id: "goal" }, target);
   },
 );

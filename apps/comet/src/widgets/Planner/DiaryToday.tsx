@@ -61,7 +61,7 @@ export function DiaryToday({
   const total = sessions.reduce((sum, session) => sum + elapsedWithin(session, start, end), 0);
   const appointments = eventsOn(events, day);
   const segments: CalendarRingSegment[] = [
-    ...sessions.flatMap((session) =>
+    ...sessions.filter((session) => session.recordTimeline !== false).flatMap((session) =>
       session.segments
         .filter((segment) => segment.startAt < end && segment.endAt > start)
         .map((segment, index) => ({
