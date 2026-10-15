@@ -1,0 +1,9 @@
+{
+  "identifier": "panel-window-controls",
+  "description": "Settings and diary title bar controls",
+  "windows": ["settings", "planner"],
+  "permissions": [
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize"
+  ]
+}

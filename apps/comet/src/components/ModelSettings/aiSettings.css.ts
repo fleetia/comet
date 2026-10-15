@@ -23,7 +23,6 @@ export const organizer = style({
 });
 export const provider = style({ width: "100%", justifyContent: "center" });
 export const modelRow = style({
-  width: "100%",
   display: "grid",
   gridTemplateColumns: "minmax(0, 1fr)",
   alignItems: "start",
