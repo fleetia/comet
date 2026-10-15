@@ -27,8 +27,24 @@ jobs:
   frontend:
     name: Check frontend
     runs-on: ubuntu-latest
+    outputs:
+      ds_only: ${{ steps.scope.outputs.ds_only }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Classify changed files
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] &&
+            git show "$BASE_SHA:ds/scripts/ci-scope.mjs" > "$RUNNER_TEMP/comet-ci-scope.mjs" &&
+            node "$RUNNER_TEMP/comet-ci-scope.mjs" >> "$GITHUB_OUTPUT"; then
+            :
+          else
+            echo "ds_only=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: pnpm/action-setup@v4
         with:
           version: 11.27.0
@@ -41,15 +57,22 @@ jobs:
       - run: pnpm install --frozen-lockfile
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - run: pnpm check
-      - run: pnpm test
+      - run: pnpm ds:check
+      - run: pnpm exec vitest run --config vitest.ds.config.ts
+      - run: pnpm --filter comet check
+        if: steps.scope.outputs.ds_only != 'true'
+      - run: pnpm --filter comet test
+        if: steps.scope.outputs.ds_only != 'true'
       - run: pnpm test:release
+        if: steps.scope.outputs.ds_only != 'true'
       - run: pnpm test:native-runtime
+        if: steps.scope.outputs.ds_only != 'true'
       - run: pnpm build
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.scope.outputs.ds_only != 'true'
 
   desktop:
     needs: frontend
+    if: needs.frontend.outputs.ds_only != 'true'
     name: ${{ matrix.runner }} / ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60

@@ -1,0 +1,204 @@
+name: Figma design system proposal
+
+on:
+  workflow_dispatch:
+    inputs:
+      figma_timestamp:
+        description: Figma FILE_UPDATE timestamp (informational only)
+        type: string
+        required: false
+      baseline_only:
+        description: Register the initial snapshot without changing components
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: figma-design-system
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      changed: ${{ steps.dedupe.outputs.changed }}
+      baseline_only: ${{ steps.capture.outputs.baseline_only }}
+      base_sha: ${{ steps.base.outputs.sha }}
+      source_artifact: ${{ steps.source.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Capture changed components and reference images
+        id: capture
+        run: node ds/scripts/figma-rest.mjs prepare
+        env:
+          FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
+          FIGMA_BASELINE_ONLY: ${{ inputs.baseline_only }}
+      - name: Skip an already prepared snapshot
+        id: dedupe
+        run: node ds/scripts/figma-proposal.mjs dedupe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIGMA_BASE_SHA: ${{ steps.base.outputs.sha }}
+      - uses: actions/upload-artifact@v4
+        id: source
+        if: steps.dedupe.outputs.changed == 'true'
+        with:
+          name: figma-source
+          path: test-results/figma-sync/
+          if-no-files-found: error
+          retention-days: 1
+
+  generate:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true' && needs.prepare.outputs.baseline_only != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      proposal_artifact: ${{ steps.proposal.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.base_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.27.0
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.source_artifact }}
+          path: test-results/figma-sync
+          merge-multiple: true
+      - name: Prepare output directory
+        run: mkdir -p test-results/figma-proposal
+      - name: Protect packaging tools and Git metadata from model edits
+        run: |
+          sudo install -d -m 0755 /opt/comet-figma-tools
+          sudo install -m 0444 ds/scripts/figma-proposal.mjs ds/scripts/figma-rest.mjs /opt/comet-figma-tools/
+          command -v node | sudo tee /opt/comet-figma-tools/node-path > /dev/null
+          sudo chmod 0444 /opt/comet-figma-tools/node-path
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          sudo chown -R root:root .git
+          sudo chmod -R a-w .git
+      - name: Prepare the design system changes
+        uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: ds/automation/proposal-prompt.md
+          output-file: test-results/figma-proposal/result.json
+          output-schema-file: ds/automation/proposal-result.schema.json
+          codex-args: '["--ephemeral"]'
+          sandbox: workspace-write
+          safety-strategy: drop-sudo
+      - name: Package only permitted design system changes
+        id: bundle
+        run: '"$(cat /opt/comet-figma-tools/node-path)" /opt/comet-figma-tools/figma-proposal.mjs bundle'
+        env:
+          FIGMA_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+      - uses: actions/upload-artifact@v4
+        id: proposal
+        with:
+          name: figma-proposal
+          path: |
+            ${{ steps.bundle.outputs.artifact_path }}/proposal.patch
+            ${{ steps.bundle.outputs.artifact_path }}/result.json
+          if-no-files-found: error
+          retention-days: 1
+
+  verify:
+    needs: [prepare, generate]
+    if: >-
+      always() && needs.prepare.result == 'success' &&
+      needs.prepare.outputs.changed == 'true' &&
+      (needs.generate.result == 'success' || needs.prepare.outputs.baseline_only == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.base_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.27.0
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.source_artifact }}
+          path: test-results/figma-sync
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        if: needs.prepare.outputs.baseline_only != 'true'
+        with:
+          artifact-ids: ${{ needs.generate.outputs.proposal_artifact }}
+          path: test-results/figma-proposal
+          merge-multiple: true
+      - name: Validate and apply the proposed files
+        run: node ds/scripts/figma-proposal.mjs apply
+        env:
+          FIGMA_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm ds:check
+      - run: pnpm exec vitest run --config vitest.ds.config.ts
+
+  publish:
+    needs: [prepare, generate, verify]
+    if: always() && needs.verify.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.base_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.source_artifact }}
+          path: test-results/figma-sync
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        if: needs.prepare.outputs.baseline_only != 'true'
+        with:
+          artifact-ids: ${{ needs.generate.outputs.proposal_artifact }}
+          path: test-results/figma-proposal
+          merge-multiple: true
+      - name: Apply verified data in a clean checkout
+        run: node ds/scripts/figma-proposal.mjs apply
+        env:
+          FIGMA_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+      - name: Create or update the draft pull request
+        run: node ds/scripts/figma-proposal.mjs publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIGMA_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
