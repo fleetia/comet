@@ -1,0 +1,67 @@
+[
+  {
+    "file": "orbit/Orbit-Regular.ttf",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/orbit/Orbit-Regular.ttf",
+    "sha256": "5d0206fb0a9e3eeac51aff8d4a6dbb7613d63fc435f1a51f96dc35cefb5f9f87"
+  },
+  {
+    "file": "orbit/OFL.txt",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/orbit/OFL.txt",
+    "sha256": "4fd42f179f04717171454a6a22cfe6f78c248b58135edc3c0f5dedd3863fb193",
+    "sourceSha256": "00f1783a4e7a52d945c0c4de689571b2db896493362651db2706b40c6fc1c330",
+    "normalization": "LF line endings and trailing whitespace removal; license wording unchanged"
+  },
+  {
+    "file": "ibmplexsanskr/IBMPlexSansKR-Regular.ttf",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexsanskr/IBMPlexSansKR-Regular.ttf",
+    "sha256": "53750379270312368cf7641901f43a98dd892e3d9d5798cf25cdc245c85c71c0"
+  },
+  {
+    "file": "ibmplexsanskr/IBMPlexSansKR-SemiBold.ttf",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexsanskr/IBMPlexSansKR-SemiBold.ttf",
+    "sha256": "823c1956adf56c27c06b062725dfce23f266e4fd1366290f2957c8407482a817"
+  },
+  {
+    "file": "ibmplexsanskr/OFL.txt",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexsanskr/OFL.txt",
+    "sha256": "d741e57d5f865e294df801f96b7b5161a88b211df65887e4358d271c9fc5fb4f",
+    "sourceSha256": "7e6b2818edbd8f6a01ae80641cc8f16a51080d08fb4e532be3a0b6f74adb07da",
+    "normalization": "LF line endings and trailing whitespace removal; license wording unchanged"
+  },
+  {
+    "file": "ibmplexmono/IBMPlexMono-Regular.ttf",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexmono/IBMPlexMono-Regular.ttf",
+    "sha256": "6a3412f058c7d8dfd9170c41e85ade48e5156ecb89356110ca57a0a27734af46"
+  },
+  {
+    "file": "ibmplexmono/OFL.txt",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexmono/OFL.txt",
+    "sha256": "d741e57d5f865e294df801f96b7b5161a88b211df65887e4358d271c9fc5fb4f",
+    "sourceSha256": "7e6b2818edbd8f6a01ae80641cc8f16a51080d08fb4e532be3a0b6f74adb07da",
+    "normalization": "LF line endings and trailing whitespace removal; license wording unchanged"
+  },
+  {
+    "file": "jua/Jua-Regular.ttf",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/jua/Jua-Regular.ttf",
+    "sha256": "769677aef240bfc3b9965f2b50748075bff885e6c6992fc591a3fb268279f898"
+  },
+  {
+    "file": "jua/OFL.txt",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/jua/OFL.txt",
+    "sha256": "37c7903f9c06b3c7935ea3f28f1dbf01f2fe45696da6b7eef5942ec61f4c1c09",
+    "sourceSha256": "44a7c6e4c5572392ae122d3b1d8c6ba6fd640a7797e675384585d947f2773e3c",
+    "normalization": "LF line endings and trailing whitespace removal; license wording unchanged"
+  },
+  {
+    "file": "gowundodum/GowunDodum-Regular.ttf",
+    "sha256": "a6e457933227483a11758fd0947bc74422a106d46f0bf057fdaa5af94a30067d",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/gowundodum/GowunDodum-Regular.ttf"
+  },
+  {
+    "file": "gowundodum/OFL.txt",
+    "sha256": "3e5acd28c1f57250f9486bd280b9f268c563687543f25a186c632a56400bbc25",
+    "sourceSha256": "a7c73f9521cd646bbdfb6684c99a62311bbd7bce11898dc11ef0b3c69eda1aca",
+    "normalization": "LF line endings and trailing whitespace removal; license wording unchanged",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/gowundodum/OFL.txt"
+  }
+]

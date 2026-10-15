@@ -1,0 +1,311 @@
+{
+  "fileKey": "aWNznF6uo5AlqF0YokiXZY",
+  "components": [
+    {
+      "export": "Balloon",
+      "sources": [
+        {
+          "id": "49:49023",
+          "name": "Balloon/Speaker"
+        },
+        {
+          "id": "49:49126",
+          "name": "Balloon/Content"
+        },
+        {
+          "id": "49:49229",
+          "name": "Balloon/Tail"
+        }
+      ]
+    },
+    {
+      "export": "InputCapsule",
+      "sources": [
+        {
+          "id": "49:49326",
+          "name": "Capsule/Input"
+        }
+      ]
+    },
+    {
+      "export": "ReferenceMemo",
+      "sources": [
+        {
+          "id": "49:54763",
+          "name": "Capsule/Reference Memo"
+        }
+      ]
+    },
+    {
+      "export": "ConstellationChoice",
+      "sources": [
+        {
+          "id": "49:54716",
+          "name": "Constellation/Choice"
+        }
+      ]
+    },
+    {
+      "export": "ConstellationChoices",
+      "sources": [
+        {
+          "id": "49:59696",
+          "name": "Constellation/Choices"
+        }
+      ]
+    },
+    {
+      "export": "OrbitNode",
+      "sources": [
+        {
+          "id": "49:48316",
+          "name": "Orbit/Node Interaction"
+        },
+        {
+          "id": "49:49472",
+          "name": "Orbit/Node"
+        }
+      ]
+    },
+    {
+      "export": "OrbitBreadcrumb",
+      "sources": [
+        {
+          "id": "49:54801",
+          "name": "Orbit/Breadcrumb"
+        }
+      ]
+    },
+    {
+      "export": "OrbitExpandedMenu",
+      "sources": [
+        {
+          "id": "49:60381",
+          "name": "Orbit/Expanded Menu"
+        }
+      ]
+    },
+    {
+      "export": "ColorPicker",
+      "sources": [
+        {
+          "id": "49:51640",
+          "name": "Popover/Color Picker"
+        }
+      ]
+    },
+    {
+      "export": "ContextMenu",
+      "sources": [
+        {
+          "id": "49:51716",
+          "name": "Menu/Context"
+        }
+      ]
+    },
+    {
+      "export": "CometNotification",
+      "sources": [
+        {
+          "id": "49:51867",
+          "name": "Notification/Comet"
+        }
+      ]
+    },
+    {
+      "export": "OsNotification",
+      "sources": [
+        {
+          "id": "49:54892",
+          "name": "Notification/OS"
+        }
+      ]
+    },
+    {
+      "export": "WidgetRow",
+      "sources": [
+        {
+          "id": "49:48446",
+          "name": "Widget/Row Interaction"
+        },
+        {
+          "id": "49:49735",
+          "name": "Widget/Row"
+        },
+        {
+          "id": "287:9419",
+          "name": "Widget/Envelope · Stack"
+        },
+        {
+          "id": "287:9629",
+          "name": "Widget/Clock · Stack"
+        },
+        {
+          "id": "287:9773",
+          "name": "Widget/Focus Timer · Stack"
+        },
+        {
+          "id": "287:9905",
+          "name": "Widget/Music · Stack"
+        },
+        {
+          "id": "287:10019",
+          "name": "Widget/Weather · Stack"
+        }
+      ]
+    },
+    {
+      "export": "WidgetExpanded",
+      "sources": [
+        {
+          "id": "49:50327",
+          "name": "Widget/Expanded"
+        }
+      ]
+    },
+    {
+      "export": "WidgetCollapsedBar",
+      "sources": [
+        {
+          "id": "49:54992",
+          "name": "Widget/Collapsed Bar"
+        }
+      ]
+    },
+    {
+      "export": "WidgetStackSummary",
+      "sources": [
+        {
+          "id": "287:10122",
+          "name": "Widget/Stack Summary"
+        }
+      ]
+    },
+    {
+      "export": "CounterWidget",
+      "sources": [
+        {
+          "id": "287:9258",
+          "name": "Widget/Counter · Freeform"
+        }
+      ]
+    },
+    {
+      "export": "TravelSummary",
+      "sources": [
+        {
+          "id": "287:31331",
+          "name": "Widget/Travel Summary"
+        }
+      ]
+    },
+    {
+      "export": "ClockWidget",
+      "sources": [
+        {
+          "id": "94:12413",
+          "name": "Widget/Clock · Freeform"
+        }
+      ]
+    },
+    {
+      "export": "FocusTimerFreeform",
+      "sources": [
+        {
+          "id": "94:12481",
+          "name": "Widget/Focus Timer · Freeform"
+        }
+      ]
+    },
+    {
+      "export": "MusicFreeform",
+      "sources": [
+        {
+          "id": "94:12448",
+          "name": "Widget/Music · Freeform"
+        }
+      ]
+    },
+    {
+      "export": "WeatherWidget",
+      "sources": [
+        {
+          "id": "94:12587",
+          "name": "Widget/Weather · Freeform"
+        }
+      ]
+    },
+    {
+      "export": "EnvelopeFreeform",
+      "sources": [
+        {
+          "id": "94:12533",
+          "name": "Widget/Envelope · Freeform"
+        }
+      ]
+    },
+    {
+      "export": "MemoWidget",
+      "sources": [
+        {
+          "id": "94:12506",
+          "name": "Widget/Memo · Freeform"
+        }
+      ]
+    },
+    {
+      "export": "FocusTimerWidget",
+      "sources": [
+        {
+          "id": "256:9195",
+          "name": "Widget/Focus Timer/Interactive"
+        }
+      ]
+    },
+    {
+      "export": "AppUsagePicker",
+      "sources": [
+        {
+          "id": "256:9196",
+          "name": "Widget/Focus Timer/App Usage Picker"
+        }
+      ]
+    },
+    {
+      "export": "MusicWidget",
+      "sources": [
+        {
+          "id": "49:50026",
+          "name": "Widget/Expanded · Kind=Music, State=Default"
+        }
+      ]
+    },
+    {
+      "export": "EnvelopeWidget",
+      "sources": [
+        {
+          "id": "49:50101",
+          "name": "Widget/Expanded · Kind=Envelope, State=Default"
+        }
+      ]
+    },
+    {
+      "export": "WidgetCreationProgress",
+      "sources": [
+        {
+          "id": "256:9074",
+          "name": "Flow/AI Widget Creation · State=Generating · progress display only"
+        }
+      ]
+    },
+    {
+      "export": "AppUsageSummary",
+      "sources": [
+        {
+          "id": "256:8832",
+          "name": "Widget/Focus Timer/App Usage Picker · State=Setup · app usage field"
+        }
+      ]
+    }
+  ]
+}

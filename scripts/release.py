@@ -7,23 +7,24 @@ import tomllib
 
 
 PACKAGE_NAME = "comet"
+APP_ROOT = Path("apps/comet")
 
 
 def read_package() -> dict:
-    package = json.loads(Path("package.json").read_text(encoding="utf-8"))
+    package = json.loads((APP_ROOT / "package.json").read_text(encoding="utf-8"))
     if package.get("name") != PACKAGE_NAME:
-        raise ValueError(f"package.json name must be {PACKAGE_NAME}")
+        raise ValueError(f"apps/comet/package.json name must be {PACKAGE_NAME}")
     if not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", package.get("version", "")):
-        raise ValueError("package.json version must be a stable X.Y.Z version")
+        raise ValueError("apps/comet/package.json version must be a stable X.Y.Z version")
     return package
 
 
 def read_versions() -> tuple[dict, dict, str, dict, str, dict, int]:
     package = read_package()
-    tauri = json.loads(Path("src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
-    cargo_text = Path("src-tauri/Cargo.toml").read_text(encoding="utf-8")
+    tauri = json.loads((APP_ROOT / "src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
+    cargo_text = (APP_ROOT / "src-tauri/Cargo.toml").read_text(encoding="utf-8")
     cargo = tomllib.loads(cargo_text)
-    lock_text = Path("src-tauri/Cargo.lock").read_text(encoding="utf-8")
+    lock_text = (APP_ROOT / "src-tauri/Cargo.lock").read_text(encoding="utf-8")
     lock = tomllib.loads(lock_text)
     if cargo["package"]["name"] != PACKAGE_NAME:
         raise ValueError(f"Cargo.toml package name must be {PACKAGE_NAME}")
@@ -65,9 +66,9 @@ def synchronize() -> None:
         raise ValueError("Version synchronization would change unrelated TOML values")
     updated_tauri = {**tauri, "version": version}
     updates = {
-        Path("src-tauri/tauri.conf.json"): json.dumps(updated_tauri, ensure_ascii=False, indent=2) + "\n",
-        Path("src-tauri/Cargo.toml"): updated_cargo,
-        Path("src-tauri/Cargo.lock"): updated_lock,
+        (APP_ROOT / "src-tauri/tauri.conf.json"): json.dumps(updated_tauri, ensure_ascii=False, indent=2) + "\n",
+        (APP_ROOT / "src-tauri/Cargo.toml"): updated_cargo,
+        (APP_ROOT / "src-tauri/Cargo.lock"): updated_lock,
     }
     for path, text in updates.items():
         if path.read_text(encoding="utf-8") != text:
@@ -78,12 +79,12 @@ def check() -> None:
     package, tauri, _, cargo, _, lock, root_index = read_versions()
     versions = [tauri["version"], cargo["package"]["version"], lock["package"][root_index]["version"]]
     if any(version != package["version"] for version in versions):
-        raise ValueError(f"Release versions must all match package.json {package['version']}")
+        raise ValueError(f"Release versions must all match apps/comet/package.json {package['version']}")
 
 
 def notes() -> str:
     version = read_package()["version"]
-    changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+    changelog = (APP_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     headings = list(re.finditer(r"(?m)^##[ \t]+([^\n]+)\n?", changelog))
     matches = [index for index, heading in enumerate(headings) if heading[1].strip() == version]
     if len(matches) != 1:

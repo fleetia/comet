@@ -9,20 +9,23 @@ on:
       - '.changeset/**'
       - '.github/workflows/**'
       - 'package.json'
+      - 'apps/comet/package.json'
+      - 'ds/*/package.json'
+      - 'pnpm-workspace.yaml'
       - 'pnpm-lock.yaml'
-      - 'src-tauri/Cargo.toml'
-      - 'src-tauri/Cargo.lock'
-      - 'src-tauri/tauri.conf.json'
-      - 'CHANGELOG.md'
+      - 'apps/comet/src-tauri/Cargo.toml'
+      - 'apps/comet/src-tauri/Cargo.lock'
+      - 'apps/comet/src-tauri/tauri.conf.json'
+      - 'apps/comet/CHANGELOG.md'
       - 'scripts/release.py'
       - 'scripts/finalize_release.py'
       - 'scripts/prepare-release*'
       - 'scripts/test_*.py'
       - 'scripts/verify_linux_bundle.py'
-      - 'scripts/native-runtime.mjs'
-      - 'scripts/test-native-runtime.mjs'
-      - 'scripts/prepare-sidecar.mjs'
-      - 'scripts/prepare-nlp.mjs'
+      - 'apps/comet/scripts/native-runtime.mjs'
+      - 'apps/comet/scripts/test-native-runtime.mjs'
+      - 'apps/comet/scripts/prepare-sidecar.mjs'
+      - 'apps/comet/scripts/prepare-nlp.mjs'
       - 'vitest.release.config.ts'
   workflow_dispatch:
 
@@ -105,7 +108,7 @@ jobs:
         id: entry
         if: steps.changesets.outputs.has-changesets == 'false'
         run: |
-          if test -f CHANGELOG.md; then
+          if test -f apps/comet/CHANGELOG.md; then
             pnpm release:check
             python3 scripts/release.py notes > /dev/null
             echo "ready=true" >> "$GITHUB_OUTPUT"
@@ -117,7 +120,7 @@ jobs:
         with:
           script: |
             const { prepareRelease } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/prepare-release.mjs`);
-            const { version } = JSON.parse(require('fs').readFileSync('package.json', 'utf8'));
+            const { version } = JSON.parse(require('fs').readFileSync('apps/comet/package.json', 'utf8'));
             const tag = await prepareRelease(github, context.repo, version, context.sha);
             core.setOutput('tag', tag);
 

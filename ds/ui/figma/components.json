@@ -1,0 +1,249 @@
+{
+  "fileKey": "aWNznF6uo5AlqF0YokiXZY",
+  "components": [
+    {
+      "export": "ThemeRoot",
+      "sources": [
+        {
+          "id": "39:41566",
+          "name": "01. foundation"
+        }
+      ]
+    },
+    {
+      "export": "Button",
+      "sources": [
+        {
+          "id": "49:47960",
+          "name": "Button/Primary"
+        },
+        {
+          "id": "49:47992",
+          "name": "Button/Ghost"
+        },
+        {
+          "id": "49:48527",
+          "name": "Button/Small"
+        },
+        {
+          "id": "49:48534",
+          "name": "Button/Selected"
+        },
+        {
+          "id": "49:48554",
+          "name": "Button/Link"
+        },
+        {
+          "id": "49:48567",
+          "name": "Button/Danger"
+        }
+      ]
+    },
+    {
+      "export": "IconButton",
+      "sources": [
+        {
+          "id": "49:48583",
+          "name": "Button/Icon"
+        }
+      ]
+    },
+    {
+      "export": "TextInput",
+      "sources": [
+        {
+          "id": "49:48619",
+          "name": "Input/Text"
+        }
+      ]
+    },
+    {
+      "export": "Textarea",
+      "sources": [
+        {
+          "id": "292:31074",
+          "name": "Input/Textarea"
+        }
+      ]
+    },
+    {
+      "export": "SearchInput",
+      "sources": [
+        {
+          "id": "292:31491",
+          "name": "Input/Search"
+        }
+      ]
+    },
+    {
+      "export": "Select",
+      "sources": [
+        {
+          "id": "49:48659",
+          "name": "Input/Select"
+        }
+      ]
+    },
+    {
+      "export": "Checkbox",
+      "sources": [
+        {
+          "id": "49:48721",
+          "name": "Input/Check"
+        }
+      ]
+    },
+    {
+      "export": "Radio",
+      "sources": [
+        {
+          "id": "203:8318",
+          "name": "Input/Radio Row"
+        }
+      ]
+    },
+    {
+      "export": "Switch",
+      "sources": [
+        {
+          "id": "49:48700",
+          "name": "Input/Switch"
+        }
+      ]
+    },
+    {
+      "export": "Slider",
+      "sources": [
+        {
+          "id": "49:48739",
+          "name": "Input/Slider"
+        }
+      ]
+    },
+    {
+      "export": "Stepper",
+      "sources": [
+        {
+          "id": "49:48683",
+          "name": "Input/Stepper"
+        }
+      ]
+    },
+    {
+      "export": "ActionChip",
+      "sources": [
+        {
+          "id": "49:48055",
+          "name": "Chip/Quick"
+        }
+      ]
+    },
+    {
+      "export": "ToggleChip",
+      "sources": [
+        {
+          "id": "49:48902",
+          "name": "Chip/Toggle"
+        }
+      ]
+    },
+    {
+      "export": "StatusChip",
+      "sources": [
+        {
+          "id": "49:48789",
+          "name": "Chip/Status"
+        }
+      ]
+    },
+    {
+      "export": "CategoryChip",
+      "sources": [
+        {
+          "id": "49:48872",
+          "name": "Chip/Category"
+        }
+      ]
+    },
+    {
+      "export": "ContextChip",
+      "sources": [
+        {
+          "id": "49:48820",
+          "name": "Chip/Context"
+        }
+      ]
+    },
+    {
+      "export": "Badge",
+      "sources": [
+        {
+          "id": "49:48917",
+          "name": "Badge/Number"
+        }
+      ]
+    },
+    {
+      "export": "Keycap",
+      "sources": [
+        {
+          "id": "49:48843",
+          "name": "Keycap"
+        }
+      ]
+    },
+    {
+      "export": "StatusIndicator",
+      "sources": [
+        {
+          "id": "49:48924",
+          "name": "Status/Live"
+        }
+      ]
+    },
+    {
+      "export": "Surface",
+      "sources": [
+        {
+          "id": "49:51142",
+          "name": "Surface/Window"
+        },
+        {
+          "id": "49:51346",
+          "name": "Surface/Sheet"
+        },
+        {
+          "id": "49:51503",
+          "name": "Popover/Content"
+        }
+      ]
+    },
+    {
+      "export": "MenuItem",
+      "sources": [
+        {
+          "id": "49:48250",
+          "name": "Menu/Item"
+        }
+      ]
+    },
+    {
+      "export": "Tabs",
+      "sources": [
+        {
+          "id": "292:32176",
+          "name": "Navigation/Tab"
+        }
+      ]
+    },
+    {
+      "export": "SegmentedControl",
+      "sources": [
+        {
+          "id": "49:55057",
+          "name": "Input/Segment"
+        }
+      ]
+    }
+  ]
+}

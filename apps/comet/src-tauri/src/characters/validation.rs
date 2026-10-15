@@ -1,0 +1,487 @@
+use super::{
+    default_departure_lines, default_return_lines, slot_index, CharacterDefinition, CharacterPack,
+    PackSprite, Result, BALLOON_FONT_SIZE_RANGE, BALLOON_SPRITE, DEFAULT_EXPRESSION,
+    MAX_PACK_BYTES, MAX_ROSTER, SLOTS, SPRITE_SIZE_RANGE,
+};
+use crate::character_animation as animation;
+use crate::character_reactions as reactions;
+use crate::character_sprites as sprites;
+use crate::types::{SceneLine, WordbookEntry};
+use base64::Engine;
+use std::collections::{BTreeMap, HashSet};
+
+fn bounded(value: &str, max: usize, required: bool) -> bool {
+    (!required || !value.trim().is_empty()) && value.chars().count() <= max
+}
+fn validate_line(expression: &str, text: &str) -> Result<()> {
+    if !valid_expression_key(expression) || !bounded(text, 500, true) {
+        return Err(
+            "표정 또는 대사가 올바르지 않습니다. 표정은 1~20자, 대사는 1~500자여야 합니다.".into(),
+        );
+    }
+    Ok(())
+}
+pub(crate) fn validate_definition(definition: &CharacterDefinition) -> Result<()> {
+    if !bounded(&definition.source_id, 128, true)
+        || !bounded(&definition.name, 40, true)
+        || !bounded(&definition.description, 500, false)
+        || !bounded(&definition.personality, 500, false)
+        || !bounded(&definition.instructions, 2000, false)
+        || definition.relationships.len() > 32
+        || !(1..=24).contains(&definition.expressions.len())
+        || !definition.expressions.contains_key(DEFAULT_EXPRESSION)
+        || !SPRITE_SIZE_RANGE.contains(&definition.sprite_size)
+        || definition
+            .expressions
+            .iter()
+            .any(|(key, value)| !valid_expression_key(key) || !bounded(value, 40, true))
+        || !(1..=8).contains(&definition.greeting.len())
+        || !(1..=64).contains(&definition.idle_lines.len())
+        || !(1..=8).contains(&definition.departure_lines.len())
+        || !(1..=8).contains(&definition.return_lines.len())
+    {
+        return Err("캐릭터 이름·정의·표정·대사 개수를 확인해 주세요.".into());
+    }
+    let style = &definition.balloon_style;
+    if !BALLOON_FONT_SIZE_RANGE.contains(&style.font_size)
+        || style.text_speed > 100
+        || !bounded(&style.font_family, 100, false)
+        || style.font_family.chars().any(char::is_control)
+        || style.text_color.as_ref().is_some_and(|color| {
+            color.len() != 7
+                || !color.starts_with('#')
+                || !color.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit)
+        })
+    {
+        return Err("말풍선 글자 크기는 12~40, 폰트 이름은 제어문자 없는 100자 이하, 글자색은 #RRGGBB 형식, 출력 속도는 0~100이어야 합니다.".into());
+    }
+    let mut targets = HashSet::new();
+    for relationship in &definition.relationships {
+        if !bounded(&relationship.target_id, 128, true)
+            || !bounded(&relationship.description, 500, true)
+            || !targets.insert(&relationship.target_id)
+        {
+            return Err("캐릭터 관계는 서로 다른 상대와 1~500자의 설명으로 설정해 주세요.".into());
+        }
+    }
+    for line in definition
+        .greeting
+        .iter()
+        .chain(&definition.idle_lines)
+        .chain(&definition.departure_lines)
+        .chain(&definition.return_lines)
+    {
+        validate_line(&line.expression, &line.text)?;
+        reactions::validate_motion(&line.motion, definition, false)?;
+    }
+    if let Some(animation) = &definition.animation {
+        animation::validate_animation(animation, &definition.expressions)?;
+    }
+    reactions::validate(definition)?;
+    crate::pack_stories::validate_character(definition)?;
+    Ok(())
+}
+pub(super) fn validate_scene(lines: &[SceneLine], members: &[CharacterDefinition]) -> Result<()> {
+    if !(1..=8).contains(&lines.len()) {
+        return Err("장면은 1~8줄이어야 합니다.".into());
+    }
+    for line in lines {
+        let index = slot_index(&line.persona)?;
+        let definition = members.get(index).ok_or("팩에 없는 캐릭터의 대사입니다.")?;
+        validate_line(&line.expression, &line.text)?;
+        reactions::validate_motion(&line.motion, definition, false)?;
+    }
+    Ok(())
+}
+pub(super) fn validate_wordbook(
+    entry: &WordbookEntry,
+    members: &[CharacterDefinition],
+) -> Result<()> {
+    let mut seen = HashSet::new();
+    if uuid::Uuid::parse_str(&entry.id).is_err()
+        || !bounded(&entry.title, 80, true)
+        || !(1..=20).contains(&entry.keywords.len())
+        || entry
+            .keywords
+            .iter()
+            .any(|k| !bounded(k, 80, true) || !seen.insert(k.to_lowercase()))
+    {
+        return Err("팩 단어장의 ID·제목·키워드가 올바르지 않습니다.".into());
+    }
+    validate_scene(&entry.lines, members)
+}
+pub(super) fn validate_pack(pack: &CharacterPack) -> Result<()> {
+    super::prepare_pack(pack.clone()).map(|_| ())
+}
+pub(super) fn validate_pack_metadata(pack: &CharacterPack) -> Result<()> {
+    if ![1, 2, 3, 4, 5, 6, 7, 8].contains(&pack.format_version)
+        || !(1..=if pack.format_version == 1 {
+            2
+        } else {
+            MAX_ROSTER
+        })
+            .contains(&pack.characters.len())
+        || !bounded(&pack.name, 80, true)
+        || !bounded(&pack.author, 120, false)
+        || !bounded(&pack.source_url, 2048, false)
+        || (!pack.source_url.is_empty() && !pack.source_url.starts_with("https://"))
+        || !bounded(&pack.license, 2000, false)
+        || pack.pair_scenes.len() > 64
+        || pack.wordbook.len() > 100
+    {
+        return Err("지원하지 않는 팩 버전 또는 잘못된 팩 구성입니다.".into());
+    }
+    crate::pack_stories::validate_pack(&pack.characters, &pack.story_definition())?;
+    if pack.format_version < 8
+        && (!pack.story_definition().is_empty()
+            || pack.characters.iter().any(|definition| {
+                definition.presence_role != crate::pack_stories::PresenceRole::Resident
+                    || definition.npc.is_some()
+                    || definition
+                        .relationships
+                        .iter()
+                        .any(|relation| !relation.reply_lines.is_empty())
+            }))
+    {
+        return Err("NPC·이야기 작성 정보는 캐릭터팩 버전 8 이상이 필요해요.".into());
+    }
+    if (pack.archive.is_some() && pack.format_version < 4)
+        || (pack.format_version == 4 && pack.archive.is_none())
+    {
+        return Err("개인 기록이 포함된 캐릭터팩은 버전 4 이상이어야 합니다.".into());
+    }
+    if pack.format_version < 6 && has_state_bindings(pack) {
+        return Err("지속 상태 동작이 포함된 캐릭터팩은 버전 6 이상이어야 합니다.".into());
+    }
+    if pack.format_version < 7 && has_gestures(pack) {
+        return Err("부위와 교감 동작이 포함된 캐릭터팩은 버전 7 이상이어야 합니다.".into());
+    }
+    if pack.format_version < 5 && has_reactions_or_motion(pack) {
+        return Err(
+            "상황별 반응이나 대사 모션이 포함된 캐릭터팩은 버전 5 이상이어야 합니다.".into(),
+        );
+    }
+    if pack.format_version < 6 && has_authored_presence_lines(pack) {
+        return Err("출발·귀환 대사가 포함된 캐릭터팩은 버전 6 이상이어야 합니다.".into());
+    }
+    if pack.format_version < 3
+        && (!pack.animation_assets.is_empty()
+            || pack
+                .characters
+                .iter()
+                .any(|definition| definition.animation.is_some()))
+    {
+        return Err("애니메이션이 포함된 캐릭터팩은 버전 3이어야 합니다.".into());
+    }
+    let mut sources = HashSet::new();
+    for definition in &pack.characters {
+        validate_definition(definition)?;
+        if !sources.insert(&definition.source_id) {
+            return Err("팩 내부 캐릭터 sourceId가 중복됩니다.".into());
+        }
+    }
+    if let Some(archive) = &pack.archive {
+        super::archive::validate(archive, &sources)?;
+    }
+    for definition in &pack.characters {
+        if definition.relationships.iter().any(|relationship| {
+            relationship.target_id == definition.source_id
+                || !sources.contains(&relationship.target_id)
+        }) {
+            return Err("캐릭터 관계의 상대는 팩에 포함된 다른 캐릭터여야 합니다.".into());
+        }
+    }
+    for scene in &pack.pair_scenes {
+        validate_scene(scene, &pack.characters)?;
+    }
+    let mut ids = HashSet::new();
+    for entry in &pack.wordbook {
+        validate_wordbook(entry, &pack.characters)?;
+        if !ids.insert(&entry.id) {
+            return Err("팩 단어장 ID가 중복됩니다.".into());
+        }
+    }
+    let mut seen_sprites = HashSet::new();
+    for sprite in &pack.sprites {
+        let owner = pack
+            .characters
+            .iter()
+            .find(|definition| definition.source_id == sprite.source_id)
+            .ok_or("팩에 없는 캐릭터의 표정 이미지입니다.")?;
+        if !sprite_slot_allowed(owner, &sprite.expression) {
+            return Err("캐릭터에 없는 표정의 이미지입니다.".into());
+        }
+        if !seen_sprites.insert((&sprite.source_id, &sprite.expression)) {
+            return Err("같은 표정의 이미지가 중복됩니다.".into());
+        }
+        let bytes = decode_sprite(sprite)?;
+        if sprites::validate(&bytes)? != sprite.mime {
+            return Err("표정 이미지의 형식과 내용이 다릅니다.".into());
+        }
+    }
+    let mut owners = BTreeMap::<&str, BTreeMap<String, animation::AssetInfo>>::new();
+    for asset in &pack.animation_assets {
+        if !sources.contains(&asset.source_id)
+            || asset.data.len() > animation::MAX_ASSET_BYTES * 4 / 3 + 4
+        {
+            return Err("팩에 없는 캐릭터의 이미지이거나 애니메이션 이미지가 너무 커요.".into());
+        }
+        let assets = owners.entry(&asset.source_id).or_default();
+        if assets
+            .insert(
+                asset.asset_id.clone(),
+                animation::AssetInfo {
+                    mime: asset.mime.clone(),
+                    width: asset.width,
+                    height: asset.height,
+                },
+            )
+            .is_some()
+        {
+            return Err("같은 애니메이션 이미지가 중복됩니다.".into());
+        }
+    }
+    for definition in &pack.characters {
+        let assets = owners
+            .remove(definition.source_id.as_str())
+            .unwrap_or_default();
+        let referenced = animation::referenced_assets(definition.animation.as_ref());
+        if assets.len() != referenced.len() {
+            return Err("애니메이션에서 사용하지 않는 이미지가 있거나 이미지가 빠졌어요.".into());
+        }
+        animation::validate_references(definition.animation.as_ref(), &assets)?;
+    }
+    if serde_json::to_vec(&pack_wire_value(pack)?)
+        .map_err(|e| e.to_string())?
+        .len()
+        > MAX_PACK_BYTES
+    {
+        return Err("캐릭터팩은 32 MiB 이하여야 합니다.".into());
+    }
+    Ok(())
+}
+fn strict_scene(value: &serde_json::Value) -> Result<()> {
+    let fields = value.as_object().ok_or("대사 형식이 올바르지 않습니다.")?;
+    if !["persona", "expression", "text"]
+        .iter()
+        .all(|key| fields.contains_key(*key))
+        || !fields
+            .keys()
+            .all(|k| ["persona", "expression", "text", "motion"].contains(&k.as_str()))
+    {
+        return Err("대사에 알 수 없는 필드가 있습니다.".into());
+    }
+    Ok(())
+}
+pub fn parse_pack(json: &str) -> Result<CharacterPack> {
+    if json.len() > MAX_PACK_BYTES {
+        return Err("캐릭터팩은 32 MiB 이하여야 합니다.".into());
+    }
+    let mut value: serde_json::Value =
+        serde_json::from_str(json).map_err(|_| "캐릭터팩 JSON을 읽을 수 없습니다.")?;
+    if matches!(value["formatVersion"].as_u64(), Some(2..=7)) {
+        convert_pack_speakers(&mut value, false)?;
+    }
+    if let Some(scenes) = value.get("pairScenes").and_then(|v| v.as_array()) {
+        for scene in scenes {
+            for line in scene.as_array().ok_or("장면 형식이 올바르지 않습니다.")? {
+                strict_scene(line)?;
+            }
+        }
+    }
+    if let Some(entries) = value.get("wordbook").and_then(|v| v.as_array()) {
+        for entry in entries {
+            let fields = entry
+                .as_object()
+                .ok_or("단어장 형식이 올바르지 않습니다.")?;
+            if !fields.keys().all(|k| {
+                ["id", "title", "keywords", "lines", "enabled", "useForIdle"].contains(&k.as_str())
+            }) {
+                return Err("단어장에 알 수 없는 필드가 있습니다.".into());
+            }
+            if let Some(lines) = entry.get("lines").and_then(|v| v.as_array()) {
+                for line in lines {
+                    strict_scene(line)?;
+                }
+            }
+        }
+    }
+    let pack: CharacterPack =
+        serde_json::from_value(value).map_err(|_| "캐릭터팩 필드 형식이 올바르지 않습니다.")?;
+    validate_pack(&pack)?;
+    Ok(pack)
+}
+
+fn valid_expression_key(key: &str) -> bool {
+    bounded(key, 20, true) && key.trim() == key && !key.starts_with('$')
+}
+
+pub(super) fn decode_sprite(sprite: &PackSprite) -> Result<Vec<u8>> {
+    if sprite.data.len() > sprites::MAX_SPRITE_BYTES * 4 / 3 + 4 {
+        return Err("표정 이미지는 2 MiB 이하여야 합니다.".into());
+    }
+    base64::engine::general_purpose::STANDARD
+        .decode(sprite.data.as_bytes())
+        .map_err(|_| "표정 이미지 데이터를 읽을 수 없습니다.".into())
+}
+
+fn convert_pack_speakers(value: &mut serde_json::Value, exporting: bool) -> Result<()> {
+    let sources: Vec<String> = value["characters"]
+        .as_array()
+        .ok_or("캐릭터 목록이 없습니다.")?
+        .iter()
+        .map(|definition| {
+            definition["sourceId"]
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| "캐릭터 sourceId가 없습니다.".to_string())
+        })
+        .collect::<Result<_>>()?;
+    if sources.len() > MAX_ROSTER {
+        return Err("캐릭터는 최대 8명입니다.".into());
+    }
+    let transform = |line: &mut serde_json::Value| -> Result<()> {
+        let fields = line
+            .as_object_mut()
+            .ok_or("대사 형식이 올바르지 않습니다.")?;
+        let (from, to) = if exporting {
+            ("persona", "speaker")
+        } else {
+            ("speaker", "persona")
+        };
+        if !fields.contains_key("expression")
+            || !fields.contains_key("text")
+            || !fields.contains_key(from)
+            || !fields
+                .keys()
+                .all(|key| [from, "expression", "text", "motion"].contains(&key.as_str()))
+        {
+            return Err("대사의 필드가 올바르지 않습니다.".into());
+        }
+        let speaker = fields.remove(from).ok_or("대사의 화자가 없습니다.")?;
+        let speaker = speaker.as_str().ok_or("대사의 화자가 올바르지 않습니다.")?;
+        let mapped = if exporting {
+            sources
+                .get(slot_index(speaker)?)
+                .ok_or("팩에 없는 캐릭터입니다.")?
+                .clone()
+        } else {
+            let index = sources
+                .iter()
+                .position(|source| source == speaker)
+                .ok_or("팩에 없는 캐릭터입니다.")?;
+            SLOTS[index].into()
+        };
+        fields.insert(to.into(), serde_json::Value::String(mapped));
+        Ok(())
+    };
+    if let Some(scenes) = value.get_mut("pairScenes").and_then(|v| v.as_array_mut()) {
+        for scene in scenes {
+            for line in scene
+                .as_array_mut()
+                .ok_or("장면 형식이 올바르지 않습니다.")?
+            {
+                transform(line)?;
+            }
+        }
+    }
+    if let Some(entries) = value.get_mut("wordbook").and_then(|v| v.as_array_mut()) {
+        for entry in entries {
+            if let Some(lines) = entry.get_mut("lines").and_then(|v| v.as_array_mut()) {
+                for line in lines {
+                    transform(line)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn has_gestures(pack: &CharacterPack) -> bool {
+    pack.characters.iter().any(|definition| {
+        !definition.body_regions.is_empty()
+            || !definition.gesture_motions.is_empty()
+            || definition.animation.as_ref().is_some_and(|animation| {
+                animation.bindings.sleep.is_some()
+                    || animation.bindings.focus.is_some()
+                    || animation.bindings.rest.is_some()
+            })
+    })
+}
+
+pub(super) fn has_reactions_or_motion(pack: &CharacterPack) -> bool {
+    pack.characters.iter().any(|definition| {
+        !definition.reactions.is_empty()
+            || definition
+                .greeting
+                .iter()
+                .chain(&definition.idle_lines)
+                .chain(&definition.departure_lines)
+                .chain(&definition.return_lines)
+                .any(|line| !line.motion.is_inherit())
+    }) || pack
+        .pair_scenes
+        .iter()
+        .flatten()
+        .chain(pack.wordbook.iter().flat_map(|entry| &entry.lines))
+        .any(|line| !line.motion.is_inherit())
+}
+
+pub(super) fn has_authored_presence_lines(pack: &CharacterPack) -> bool {
+    pack.characters.iter().any(|definition| {
+        definition.departure_lines != default_departure_lines()
+            || definition.return_lines != default_return_lines()
+    })
+}
+
+fn pack_wire_value(pack: &CharacterPack) -> Result<serde_json::Value> {
+    let mut value = serde_json::to_value(pack).map_err(|e| e.to_string())?;
+    if pack.format_version < 6 {
+        for definition in value["characters"]
+            .as_array_mut()
+            .ok_or("캐릭터 목록이 없습니다.")?
+        {
+            let fields = definition
+                .as_object_mut()
+                .ok_or("캐릭터 정의가 올바르지 않습니다.")?;
+            fields.remove("departureLines");
+            fields.remove("returnLines");
+        }
+    }
+    if pack.format_version >= 2 {
+        convert_pack_speakers(&mut value, true)?;
+    }
+    Ok(value)
+}
+
+pub fn pack_json(pack: &CharacterPack) -> Result<String> {
+    validate_pack(pack)?;
+    let value = pack_wire_value(pack)?;
+    let json = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
+    if json.len() > MAX_PACK_BYTES {
+        return Err("캐릭터팩은 32 MiB 이하여야 합니다.".into());
+    }
+    Ok(json)
+}
+
+pub(crate) fn sprite_slot_allowed(definition: &CharacterDefinition, key: &str) -> bool {
+    key == BALLOON_SPRITE || definition.expressions.contains_key(key)
+}
+
+pub(super) fn validate_attribution(author: &str, source_url: &str) -> Result<()> {
+    if !bounded(author, 120, false)
+        || !bounded(source_url, 2048, false)
+        || (!source_url.is_empty() && !source_url.starts_with("https://"))
+    {
+        return Err("제작자와 출처 URL을 확인해 주세요.".into());
+    }
+    Ok(())
+}
+
+pub(super) fn has_state_bindings(pack: &CharacterPack) -> bool {
+    pack.characters.iter().any(|definition| {
+        definition.animation.as_ref().is_some_and(|animation| {
+            animation.bindings.music_playing.is_some() || animation.bindings.calendar_open.is_some()
+        })
+    })
+}
