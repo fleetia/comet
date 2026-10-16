@@ -1243,6 +1243,39 @@ it("reports an embedded modal as blocking until it closes", () => {
   expect(onStateChange).toHaveBeenLastCalledWith({ dirty: false, busy: false, blocking: false });
 });
 
+it.each(["cancel", "close", "backdrop"])(
+  "closes list management before restoring focus (%s) and resets drafts on reopen",
+  async (dismiss) => {
+    useSnapshot(snapshot([]));
+    const user = userEvent.setup();
+    render(<Planner embeddedTab="plans" />);
+    const opener = screen.getByRole("button", { name: "목록 관리" });
+    const close = vi.spyOn(HTMLDialogElement.prototype, "close");
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      opener.focus();
+      await user.keyboard("{Enter}");
+      const dialog = screen.getByRole("dialog", { name: "목록 관리" });
+      const name = within(dialog).getByRole("textbox", { name: "새 목록 이름" });
+      const rename = within(dialog).getByRole("textbox", { name: "내 할 일 이름" });
+      expect(name).toHaveProperty("value", "");
+      expect(rename).toHaveProperty("value", "내 할 일");
+      await user.type(name, "미저장 목록");
+      await user.clear(rename);
+      await user.type(rename, "미저장 이름");
+      if (dismiss === "cancel") {
+        fireEvent(dialog, new Event("cancel", { cancelable: true }));
+      } else if (dismiss === "backdrop") {
+        fireEvent.click(dialog);
+      } else {
+        await user.click(within(dialog).getByRole("button", { name: "목록 관리 닫기" }));
+      }
+      expect(screen.queryByRole("dialog", { name: "목록 관리" })).toBeNull();
+      expect(close).toHaveBeenCalledTimes(attempt + 1);
+      expect(document.activeElement).toBe(opener);
+    }
+  },
+);
+
 it("dismisses embedded dialogs without resetting other planning and template drafts", async () => {
   useSnapshot(
     snapshot([item("weekly", "이번 주 준비", { planPeriod: "week", planAnchor: TODAY })]),
