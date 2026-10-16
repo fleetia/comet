@@ -1658,16 +1658,15 @@ export function Planner({
           </div>
         </form>
       </Dialog>
-      {manageLists && (
-        <ListManager
-          lists={lists}
-          items={items}
-          act={act}
-          busy={busy}
-          failure={failure?.message ?? null}
-          onClose={() => setManageLists(false)}
-        />
-      )}
+      <ListManager
+        isOpen={manageLists}
+        lists={lists}
+        items={items}
+        act={act}
+        busy={busy}
+        failure={failure?.message ?? null}
+        onClose={() => setManageLists(false)}
+      />
       <Dialog
         isOpen={confirmClose}
         title="작성 중인 내용이 있어요"
@@ -1705,6 +1704,7 @@ export function Planner({
 }
 
 function ListManager({
+  isOpen,
   lists,
   items,
   act,
@@ -1712,6 +1712,7 @@ function ListManager({
   failure,
   onClose,
 }: {
+  isOpen: boolean;
   lists: DataRecord[];
   items: DataRecord[];
   act: ToolAction;
@@ -1721,9 +1722,15 @@ function ListManager({
 }): ReactElement {
   const [name, setName] = useState("");
   const [renames, setRenames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!isOpen) {
+      setName("");
+      setRenames({});
+    }
+  }, [isOpen]);
   return (
     <Dialog
-      isOpen
+      isOpen={isOpen}
       title="목록 관리"
       size="small"
       closeLabel="목록 관리 닫기"
