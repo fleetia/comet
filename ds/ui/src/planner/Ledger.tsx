@@ -1,5 +1,6 @@
 import {
   useId,
+  useState,
   type CSSProperties,
   type FormHTMLAttributes,
   type HTMLAttributes,
@@ -225,6 +226,9 @@ export function Ledger12MonthForecast({
   ...props
 }: Ledger12MonthForecastProps): JSX.Element {
   const id = useId();
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const activeMonth = months.find((month) => month.id === (hoveredId ?? focusedId));
   const max = Math.max(
     0,
     ...months.map((month) => Math.max(0, month.recurring) + Math.max(0, month.occasional)),
@@ -239,11 +243,43 @@ export function Ledger12MonthForecast({
         <span className={styles.forecastOccasionalLabel}>{occasionalLabel}</span>
       </div>
       <div className={styles.forecastBars}>
-        {months.map((month) => {
+        <div className={styles.forecastValues} aria-hidden="true">
+          {activeMonth?.valueLabel ? (
+            <span className={styles.forecastActiveValue}>
+              {activeMonth.label} · {activeMonth.valueLabel}
+            </span>
+          ) : (
+            <>
+              <span className={styles.forecastValue}>{months[0]?.valueLabel}</span>
+              <span className={styles.forecastValue}>
+                {months.length > 1 ? months.at(-1)?.valueLabel : null}
+              </span>
+            </>
+          )}
+        </div>
+        {months.map((month, index) => {
           const total = Math.max(0, month.recurring) + Math.max(0, month.occasional);
           return (
-            <div key={month.id} className={styles.forecastMonth} aria-label={month.valueLabel}>
-              <span className={styles.forecastValue}>{month.valueLabel}</span>
+            <div
+              key={month.id}
+              className={styles.forecastMonth}
+              role="group"
+              tabIndex={month.valueLabel ? 0 : undefined}
+              aria-labelledby={`${id}-month-${index} ${id}-value-${index}`}
+              onMouseEnter={() => setHoveredId(month.id)}
+              onMouseLeave={() => setHoveredId(null)}
+              onFocus={() => setFocusedId(month.id)}
+              onBlur={() => setFocusedId(null)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setHoveredId(null);
+                  setFocusedId(null);
+                }
+              }}
+            >
+              <span id={`${id}-value-${index}`} className={styles.visuallyHidden}>
+                {month.valueLabel ?? total}
+              </span>
               <span
                 aria-hidden
                 className={styles.forecastTrack}
@@ -258,7 +294,9 @@ export function Ledger12MonthForecast({
                   }
                 />
               </span>
-              <span>{month.label}</span>
+              <span id={`${id}-month-${index}`} className={styles.forecastMonthLabel}>
+                {month.label}
+              </span>
             </div>
           );
         })}
