@@ -427,6 +427,7 @@ export function DiaryTimeEditor({
           <h3 className={s.heading}>시간 분류</h3>
           <Select
             label="수정할 분류"
+            className={s.categorySelect}
             value={categoryDraft.category?.id ?? "new"}
             disabled={disabled}
             onChange={(event) => {
@@ -481,6 +482,7 @@ export function DiaryTimeEditor({
             ) && (
               <Select
                 label="삭제할 때 기존 기록 이동"
+                className={s.categorySelect}
                 value={categoryDraft.reassignTo}
                 disabled={disabled}
                 onChange={(event) =>

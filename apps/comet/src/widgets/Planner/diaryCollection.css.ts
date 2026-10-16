@@ -77,3 +77,4 @@ export const error = style({ fontSize: 12.5, color: tokens["color/danger"], marg
 export const source = style({ display: "flex", flexWrap: "wrap", gap: 6 });
 
 export const select = style({ width: "100%" });
+export const input = style({ width: "100%", minWidth: 0 });

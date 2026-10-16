@@ -827,6 +827,7 @@ export function Diary(): ReactElement {
   }
   async function addWidgetItem(payload: WidgetDragPayload, targetDate?: string): Promise<void> {
     if (dropping.current || saving) return;
+    setNotice("");
     if (envelopeId && !targetDate) {
       setFailure("날짜나 내 페이지를 펼친 다음 연결해 주세요.");
       return;
@@ -834,7 +835,6 @@ export function Diary(): ReactElement {
     dropping.current = true;
     setAddingWidget(true);
     setFailure(null);
-    setNotice("");
     try {
       const fresh = await command<WidgetSnapshot>("get_widgets");
       latestWidgets.current = fresh.widgets;
@@ -981,6 +981,11 @@ export function Diary(): ReactElement {
             다시 불러오기
           </Button>
         </div>
+      )}
+      {notice && (
+        <p role="status" className={s.status}>
+          {notice}
+        </p>
       )}
       {completionUndo && (
         <div role="status" className={s.status}>
@@ -1157,6 +1162,9 @@ export function Diary(): ReactElement {
                     });
                     reload();
                   }).then(Boolean),
+                linkTarget: envelopeId
+                  ? "날짜나 내 페이지를 펼친 다음 연결해 주세요."
+                  : `연결 대상: ${pageId ? page?.title || "제목 없는 페이지" : day}`,
                 onAdd: (payload) => navigate(() => void addWidgetItem(payload)),
               }}
             />
@@ -1258,7 +1266,7 @@ export function Diary(): ReactElement {
               hidden={tool === "habits" || tool === "ledger"}
               data-tauri-drag-region
             >
-              <div className={s.toolbar}>
+              <div className={collection === "pages" ? s.pageHeading : s.toolbar}>
                 {!tool && !pageId && !envelopeId && (
                   <CometIconButton
                     icon="chevleft"
@@ -1274,7 +1282,7 @@ export function Diary(): ReactElement {
                     }
                   />
                 )}
-                <h1 className={s.title}>
+                <h1 className={s.title} title={pageId ? heading : undefined}>
                   {tool
                     ? TOOL_MENU.find(([value]) => value === tool)?.[1]
                     : envelopeId
@@ -1316,23 +1324,25 @@ export function Diary(): ReactElement {
                   />
                 )}
                 {collection === "pages" && (
-                  <Select
-                    aria-label="내 페이지 선택"
-                    value={pageId}
-                    onChange={(event) => {
-                      const selected = pages.find((value) => value.id === event.target.value);
-                      if (selected) openPage(selected);
-                    }}
-                  >
-                    {!pageId && <option value="">페이지 선택</option>}
-                    {pages
-                      .filter((value) => !value.date)
-                      .map((value) => (
-                        <option key={value.id} value={value.id}>
-                          {value.title}
-                        </option>
-                      ))}
-                  </Select>
+                  <div className={s.pageSelect}>
+                    <Select
+                      aria-label="내 페이지 선택"
+                      value={pageId}
+                      onChange={(event) => {
+                        const selected = pages.find((value) => value.id === event.target.value);
+                        if (selected) openPage(selected);
+                      }}
+                    >
+                      {!pageId && <option value="">페이지 선택</option>}
+                      {pages
+                        .filter((value) => !value.date)
+                        .map((value) => (
+                          <option key={value.id} value={value.id}>
+                            {value.title}
+                          </option>
+                        ))}
+                    </Select>
+                  </div>
                 )}
                 {isPlannerTool(tool) && (
                   <SegmentedControl
@@ -1502,11 +1512,6 @@ export function Diary(): ReactElement {
               )}
               {!tool && (
                 <>
-                  {notice && (
-                    <p role="status" className={s.caption}>
-                      {notice}
-                    </p>
-                  )}
                   {!pageId && !envelopeId && !collection && view === "day" ? (
                     <DiaryToday
                       key={featureContentVersion}

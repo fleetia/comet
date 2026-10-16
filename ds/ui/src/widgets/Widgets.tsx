@@ -69,8 +69,13 @@ export function WidgetRow({
       <Icon
         name={icon ?? (kind === "focus" && phase === "rest" ? "moon" : icons[kind])}
         size={layout === "editor" ? 19 : 17}
+        className={kind === "clock" ? styles.rowClockIcon : undefined}
       />
-      <span className={styles.rowCopy}>
+      <span
+        className={[styles.rowCopy, kind === "clock" && styles.rowClockCopy]
+          .filter(Boolean)
+          .join(" ")}
+      >
         <span
           className={[
             styles.rowTitle,
@@ -82,7 +87,11 @@ export function WidgetRow({
           {title}
           {period && <small className={styles.rowPeriod}>{period}</small>}
         </span>
-        {description && <span className={styles.small}>{description}</span>}
+        {description && (
+          <span className={styles.rowDescription} title={description}>
+            {description}
+          </span>
+        )}
       </span>
       {value !== undefined && (
         <span
@@ -99,8 +108,22 @@ export function WidgetRow({
           {value}
         </span>
       )}
-      {meta && <span className={styles.rowMeta}>{meta}</span>}
-      {layout === "editor" && <Icon name="grip" size={18} />}
+      {meta && (
+        <span
+          className={[styles.rowMeta, kind === "clock" && styles.rowClockMeta]
+            .filter(Boolean)
+            .join(" ")}
+        >
+          {meta}
+        </span>
+      )}
+      {layout === "editor" && (
+        <Icon
+          name="grip"
+          size={18}
+          className={kind === "clock" ? styles.rowClockIcon : undefined}
+        />
+      )}
     </button>
   );
 }

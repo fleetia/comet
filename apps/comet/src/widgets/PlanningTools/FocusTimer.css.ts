@@ -995,7 +995,7 @@ export const controlFields = style({
   minWidth: 0,
 });
 globalStyle(`${layout}[data-embedded="true"][data-expanded="false"]`, {
-  gridTemplateColumns: "370px",
+  gridTemplateColumns: "minmax(0, 370px)",
 });
 export const compactTimerHost = style({
   position: "relative",

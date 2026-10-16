@@ -5,6 +5,7 @@ import type { JSX } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DiaryTimeEditor, type DiaryTimeTimelineControls } from "./DiaryTimeEditor";
 import { manualTimeSegments, parseTimeInput, recordedTimeMinutes } from "./diaryTime";
+import * as styles from "./diaryTime.css";
 import type { DiaryState } from "./diaryTypes";
 
 afterEach(cleanup);
@@ -274,4 +275,43 @@ describe("diary manual time", () => {
     expect(parseTimeInput("24:00", true)).toBe(1440);
     expect(parseTimeInput("09:05")).toBeNull();
   });
+});
+
+it("fills both category selects and preserves draft-only category and reassignment choices", async () => {
+  const user = userEvent.setup();
+  const action = vi.fn().mockResolvedValue(true);
+  const record = {
+    id: "old",
+    date: "2026-10-14",
+    startMinute: 540,
+    endMinute: 600,
+    categoryId: "work",
+    title: "지난 기록",
+  };
+  render(
+    <DiaryTimeEditor
+      state={{ ...empty, timeRecords: [record] }}
+      date="2026-10-15"
+      onAction={action}
+      busy={false}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: "분류 관리" }));
+  const category = screen.getByRole("combobox", { name: "수정할 분류" });
+  const reassign = screen.getByRole("combobox", { name: "삭제할 때 기존 기록 이동" });
+  for (const select of [category, reassign]) {
+    expect(select.classList.contains(styles.categorySelect)).toBe(true);
+  }
+  await user.selectOptions(reassign, "life");
+  expect((reassign as HTMLSelectElement).value).toBe("life");
+  expect(within(reassign).queryByRole("option", { name: "일" })).toBeNull();
+  await user.selectOptions(category, "life");
+  expect((screen.getByLabelText("분류 이름") as HTMLInputElement).value).toBe("생활");
+  expect(screen.queryByLabelText("삭제할 때 기존 기록 이동")).toBeNull();
+  await user.selectOptions(category, "work");
+  expect(
+    screen.getByLabelText("삭제할 때 기존 기록 이동").classList.contains(styles.categorySelect),
+  ).toBe(true);
+  expect(action).not.toHaveBeenCalled();
+  expect(record.categoryId).toBe("work");
 });

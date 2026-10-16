@@ -146,7 +146,10 @@ export const habitTable = style([
     background: tokens["color/card-2"],
   },
 ]);
-export const habitTableInner = style({ minWidth: 740 });
+export const habitTableInner = style({
+  width: "max-content",
+  minWidth: "max(740px, 100%)",
+});
 export const tableHeader = style([
   habitRow,
   { color: tokens["color/ink-3"], borderBottom: `1px solid ${tokens["color/divider"]}` },
@@ -558,6 +561,7 @@ export const quickMemo = style({ flex: "1 1 140px", minWidth: 100 });
 export const forecast = style([card, { width: 320, maxWidth: "100%" }]);
 export const forecastLegend = style([row, muted, { gap: 12, marginTop: 8, fontSize: 10 }]);
 export const forecastBars = style({
+  position: "relative",
   display: "flex",
   alignItems: "end",
   gap: 10,
@@ -566,7 +570,18 @@ export const forecastBars = style({
 });
 export const forecastMonth = style([
   stack,
-  { flex: 1, alignItems: "center", gap: 3, height: "100%", justifyContent: "end", fontSize: 10 },
+  {
+    flex: "1 1 0",
+    alignItems: "center",
+    gap: 3,
+    height: "100%",
+    paddingTop: 21,
+    boxSizing: "border-box",
+    justifyContent: "end",
+    fontSize: 10,
+    borderRadius: 3,
+    ":focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: 2 },
+  },
 ]);
 export const forecastTrack = style({
   display: "flex",
@@ -800,7 +815,27 @@ export const chartCurrentLabel = style([
 export const chartValue = style({ whiteSpace: "nowrap", fontSize: 11.5 });
 export const chartCurrentValue = style({ color: tokens["color/ink"], fontWeight: 600 });
 export const tripTitle = style({ fontSize: 14, fontWeight: 600 });
-export const forecastValue = style({ fontSize: 9, whiteSpace: "nowrap", minHeight: 11 });
+export const forecastMonthLabel = style({ whiteSpace: "nowrap" });
+export const forecastValues = style({
+  position: "absolute",
+  inset: "0 0 auto",
+  display: "flex",
+  justifyContent: "space-between",
+  minHeight: 18,
+  fontSize: 9,
+  pointerEvents: "none",
+});
+export const forecastValue = style({
+  maxWidth: "45%",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+});
+export const forecastActiveValue = style({
+  width: "100%",
+  textAlign: "center",
+  overflowWrap: "anywhere",
+});
 export const budgetTitle = style([muted, { margin: 0, fontWeight: 400 }]);
 export const budgetDetail = style([muted, { margin: "10px 0 0" }]);
 export const categoryPercent = style([muted, { width: 36, textAlign: "right" }]);

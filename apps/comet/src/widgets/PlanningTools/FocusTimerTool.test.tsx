@@ -42,6 +42,41 @@ async function click(name: string, role = "button"): Promise<void> {
 }
 
 describe("focus workspace", () => {
+  it("lets the embedded timer track shrink while preserving standalone widths", async () => {
+    // jsdom has no layout engine; actual 330px clipping is checked in a browser fixture.
+    const { readFileSync } = await vi.importActual<{
+      readFileSync(path: string, encoding: "utf8"): string;
+    }>("node:fs");
+    const styles = readFileSync("src/widgets/PlanningTools/FocusTimer.css.ts", "utf8");
+    expect(styles).toContain(
+      'globalStyle(`${layout}[data-embedded="true"][data-expanded="false"]`, {\n  gridTemplateColumns: "minmax(0, 370px)",',
+    );
+    expect(styles).toContain('gridTemplateColumns: "556px 370px"');
+    expect(styles).toContain(
+      `'&[data-expanded="false"]': { gridTemplateColumns: "310px", justifyContent: "end" }`,
+    );
+    render(
+      <TimerTool
+        widget={widget("focus-timer", { status: "idle" })}
+        widgets={[]}
+        act={action}
+        embedded
+      />,
+    );
+    const layout = screen.getByLabelText("집중 타이머").querySelector('[data-embedded="true"]');
+    expect(layout?.getAttribute("data-expanded")).toBe("false");
+    fireEvent.change(screen.getByLabelText("집중할 일"), {
+      target: { value: "좁은 스택에서 쓰기" },
+    });
+    await click("집중 시작");
+    expect(action).toHaveBeenLastCalledWith(
+      "start",
+      expect.objectContaining({ title: "좁은 스택에서 쓰기" }),
+    );
+    await click("기록과 노트");
+    expect(layout?.getAttribute("data-expanded")).toBe("true");
+  });
+
   it("leaves companion rows to the surrounding desktop stack when embedded", async () => {
     const companions = vi.fn(() => <button type="button">다른 시계</button>);
     render(
