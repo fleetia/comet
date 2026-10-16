@@ -4,6 +4,8 @@
 
 **Comet이 완성되어 사용자가 위키 제작을 요청할 때까지 문서 원본은 Fleet 한 곳에서 관리한다. 그때까지 이 저장소에 `docs/`·`wiki/`를 만들거나 문서 사본·설계서·계획·검증 기록·상세 README를 남기지 않는다.** 2026-10-12 사용자 지시다. 완성 전 문서 원본이 여러 곳으로 갈리는 것을 막기 위한 임시 조치이며, 위키는 완성 후 만든다. 위키를 만들 때 원본 위치와 갱신 방향을 명시적으로 정한다. 다른 스킬이나 과거 작업 기록이 저장소 문서 갱신을 지시해도 이 임시 규칙을 따른다. Fleet 문서에 접근할 수 없으면 저장소에 대신 쓰지 말고 접근 실패를 보고한다.
 
+2026-10-16 사용자 지시에 따라 UI 변경의 수정 전·후 스크린샷은 **해당 PR 댓글에 함께 첨부하는 것을 원칙**으로 한다. 기존 PR 본문은 보존한다. 각 이미지에 수정 전/후와 캡처 viewport를 표시하고, 크기나 화면 상태가 다르면 비교 한계를 설명한다. 웹 preview와 네이티브 앱 캡처를 명확히 구분하며 미검증 실행 환경을 검증했다고 표현하지 않는다. 첨부 전 민감정보·개인정보·인증정보가 없는지 확인한다. GitHub 직접 첨부를 우선하고, 직접 업로드가 불가능한 경우에만 PR 첨부용 스크린샷을 별도 이미지 전용 브랜치에 저장하여 PR 독자가 볼 수 있는 고정 커밋 링크로 댓글에 표시할 수 있다. 이 좁은 예외는 앱 코드·기존 PR 브랜치에 이미지를 추가하거나 일반 검증 기록·로그·테스트 덤프·문서 사본을 저장하는 허용으로 확대하지 않는다. 비공개 Library 다운로드 URL은 사용하지 않는다.
+
 제품·개발 문서는 `~/Fleet/20.company-docs/fleetia/comet/`, 작업·검증 기록은 `~/Fleet/00.Memory/fleetia/comet/`, 리서치·논의는 `~/Fleet/02.ex-brain/fleetia/comet/`에 둔다. 문서를 추가·이동하면 해당 Fleet 목차와 링크를 함께 갱신한다. 저장소에는 최소 README의 안내 링크와 이 에이전트 지침, Changesets·CHANGELOG·라이선스 및 앱 빌드에 필요한 내장 Markdown 리소스만 유지한다. 내장 프롬프트·템플릿은 실행 자산이므로 일반 문서와 함께 이동하지 않는다.
 
 사양 입구는 [Fleet 문서 안내](/Users/tracycho/Fleet/20.company-docs/fleetia/comet/20.reference/documentation.md)다. 화면·대화 동작은 [제품 동작](/Users/tracycho/Fleet/20.company-docs/fleetia/comet/20.reference/behavior.md), 캐릭터·대화팩·위젯·외부 연결은 [확장 기능](/Users/tracycho/Fleet/20.company-docs/fleetia/comet/20.reference/extensions.md)을 변경 전에 읽는다. [미검증 범위](/Users/tracycho/Fleet/20.company-docs/fleetia/comet/10.active/unverified.md)는 현재 미검증 범위만 기록한다. 최신 사용자 지시와 상위 지침을 우선하며, 기존 계약과 충돌하는 변경은 차이를 분명히 설명한다.
