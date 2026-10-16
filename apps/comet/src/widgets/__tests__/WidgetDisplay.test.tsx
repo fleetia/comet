@@ -235,7 +235,7 @@ describe("edit mode", () => {
 });
 
 it("keeps the saved twelve-hour period out of the large freeform time value", () => {
-  vi.spyOn(Date, "now").mockReturnValue(new Date("2026-09-20T15:24:12+09:00").getTime());
+  vi.spyOn(Date, "now").mockReturnValue(new Date(2026, 8, 20, 15, 24, 12).getTime());
   vi.mocked(useWidgets).mockReturnValue({
     snapshot: snapshot(
       widget("clock", {
