@@ -217,6 +217,13 @@ function WeekExample(): JSX.Element {
         }}
         events={[
           {
+            id: "overlapping-work",
+            dayId: "0",
+            startMinute: 9 * 60,
+            durationMinutes: 180,
+            children: "오전 작업",
+          },
+          {
             id: "past",
             dayId: "0",
             startMinute: 9 * 60,

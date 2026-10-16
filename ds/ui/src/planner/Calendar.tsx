@@ -424,6 +424,67 @@ export type CalendarWeekEvent = Omit<CalendarTimeBlockProps, "onClick"> & {
   startMinute: number;
   durationMinutes: number;
 };
+type WeekEventRange = {
+  event: CalendarWeekEvent;
+  dayIndex: number;
+  start: number;
+  duration: number;
+  lane: number;
+  laneCount: number;
+};
+
+// Keep each connected set of overlapping intervals in separate columns. Touching
+// endpoints can reuse a column; display-boundary pieces remain on their supplied day.
+function weekEventRanges(
+  days: readonly CalendarWeekDay[],
+  events: readonly CalendarWeekEvent[],
+  startHour: number,
+): WeekEventRange[] {
+  const ranges = events.flatMap((event): WeekEventRange[] => {
+    const dayIndex = days.findIndex((day) => day.id === event.dayId);
+    if (
+      dayIndex < 0 ||
+      !Number.isFinite(event.startMinute) ||
+      !Number.isFinite(event.durationMinutes) ||
+      event.durationMinutes <= 0
+    )
+      return [];
+    const start = (((event.startMinute - startHour * 60) % 1440) + 1440) % 1440;
+    const duration = Math.min(event.durationMinutes, 1440);
+    const base = { event, dayIndex, lane: 0, laneCount: 1 };
+    const result = [{ ...base, start, duration: Math.min(duration, 1440 - start) }];
+    if (start + duration > 1440) {
+      result.push({ ...base, start: 0, duration: start + duration - 1440 });
+    }
+    return result;
+  });
+  for (let dayIndex = 0; dayIndex < days.length; dayIndex++) {
+    const sorted = ranges
+      .filter((range) => range.dayIndex === dayIndex)
+      .sort((a, b) => a.start - b.start || b.duration - a.duration);
+    let group: WeekEventRange[] = [];
+    let laneEnds: number[] = [];
+    let groupEnd = 0;
+    const finishGroup = () => {
+      for (const range of group) range.laneCount = laneEnds.length;
+    };
+    for (const range of sorted) {
+      if (range.start >= groupEnd) {
+        finishGroup();
+        group = [];
+        laneEnds = [];
+      }
+      const available = laneEnds.findIndex((end) => end <= range.start);
+      range.lane = available < 0 ? laneEnds.length : available;
+      laneEnds[range.lane] = range.start + range.duration;
+      groupEnd = Math.max(...laneEnds);
+      group.push(range);
+    }
+    finishGroup();
+  }
+  return ranges;
+}
+
 export type CalendarWeekProps = Omit<HTMLAttributes<HTMLDivElement>, "children"> & {
   days: readonly CalendarWeekDay[];
   events: readonly CalendarWeekEvent[];
@@ -461,6 +522,15 @@ export function CalendarWeek({
   const [dragRange, setDragRange] = useState<CalendarWeekProps["selection"]>();
   const [keyboardMinute, setKeyboardMinute] = useState(startHour * 60);
   const selectedRange = dragRange ?? selection;
+  const eventRanges = weekEventRanges(days, events, startHour);
+  const dayLanes = days.map((_, index) =>
+    Math.max(
+      1,
+      ...eventRanges.filter((range) => range.dayIndex === index).map((range) => range.laneCount),
+    ),
+  );
+  const totalLanes = dayLanes.reduce((sum, count) => sum + count, 0);
+  const gridTemplateColumns = `24px ${dayLanes.map((count) => `minmax(0, ${count}fr)`).join(" ")}`;
   function rangeBetween(start: number, end: number): { startMinute: number; endMinute: number } {
     return { startMinute: Math.min(start, end), endMinute: Math.max(start, end) + 10 };
   }
@@ -471,8 +541,11 @@ export function CalendarWeek({
         1시간 이동합니다. Home·End는 현재 시간의 처음·끝, Ctrl+Home·End는 시간표의 처음·끝으로
         이동합니다. Enter 또는 Space로 시간을 선택합니다.
       </p>
-      <div className={styles.weekInner}>
-        <div className={styles.weekHeader}>
+      <div
+        className={styles.weekInner}
+        style={{ minWidth: 840 + (totalLanes - days.length) * 116 }}
+      >
+        <div className={styles.weekHeader} style={{ gridTemplateColumns, columnGap: 1 }}>
           <span />
           {days.map((day) => (
             <CalendarDayHeader
@@ -489,6 +562,7 @@ export function CalendarWeek({
         <div
           ref={bodyRef}
           className={styles.weekBody}
+          style={{ gridTemplateColumns }}
           data-editable={Boolean(onRangeSelect) && !interactionDisabled}
           onPointerMove={(event) => {
             const current = drag.current;
@@ -496,8 +570,11 @@ export function CalendarWeek({
             const rect = event.currentTarget.getBoundingClientRect();
             if (!rect.width || !rect.height) return;
             const column = days.findIndex((day) => day.id === current.day.id);
-            const width = (rect.width - 24 - days.length) / days.length;
-            const x = event.clientX - rect.left - 25 - column * (width + 1);
+            const laneWidth = (rect.width - 24 - days.length) / totalLanes;
+            const width = laneWidth * dayLanes[column];
+            const precedingWidth =
+              dayLanes.slice(0, column).reduce((sum, count) => sum + count, 0) * laneWidth;
+            const x = event.clientX - rect.left - 25 - precedingWidth - column;
             const slot = Math.max(0, Math.min(5, Math.floor((x / width) * 6)));
             const row = Math.max(0, Math.min(23, Math.floor((event.clientY - rect.top) / 26)));
             const minute = hours[row] * 60 + slot * 10;
@@ -631,30 +708,16 @@ export function CalendarWeek({
               ))}
             </Fragment>
           ))}
-          {events.flatMap((event) => {
-            const dayIndex = days.findIndex((day) => day.id === event.dayId);
-            if (
-              dayIndex < 0 ||
-              !Number.isFinite(event.startMinute) ||
-              !Number.isFinite(event.durationMinutes) ||
-              event.durationMinutes <= 0
-            ) {
-              return [];
-            }
-            const offset = (((event.startMinute - startHour * 60) % 1440) + 1440) % 1440;
+          {eventRanges.flatMap((range, rangeIndex) => {
+            const { event, dayIndex, lane, laneCount } = range;
             const {
               id,
               dayId: _dayId,
               startMinute: _startMinute,
-              durationMinutes,
+              durationMinutes: _durationMinutes,
               ...block
             } = event;
-            const duration = Math.min(durationMinutes, 1440);
-            const ranges = [{ start: offset, duration: Math.min(duration, 1440 - offset) }];
-            if (offset + duration > 1440) {
-              ranges.push({ start: 0, duration: offset + duration - 1440 });
-            }
-            const pieces = ranges.flatMap((range) => {
+            const pieces = [range].flatMap((range) => {
               if (range.start % 60 === 0 && range.duration % 60 === 0) {
                 return [{ ...range, fullHours: true }];
               }
@@ -674,18 +737,21 @@ export function CalendarWeek({
             });
             return pieces.map((piece, index) => (
               <div
-                key={`${id}-${index}`}
+                key={`${id}-${rangeIndex}-${index}`}
                 className={styles.weekEvent}
                 style={{
                   gridColumn: dayIndex + 2,
                   gridRow: Math.floor(piece.start / 60) + 1,
                   height: piece.fullHours ? (piece.duration / 60) * 26 : 26,
-                  width: `${piece.fullHours ? 100 : (piece.duration / 60) * 100}%`,
-                  marginLeft: `${((piece.start % 60) / 60) * 100}%`,
+                  width: `${(piece.fullHours ? 100 : (piece.duration / 60) * 100) / laneCount}%`,
+                  marginLeft: `${((lane + (piece.start % 60) / 60) / laneCount) * 100}%`,
                 }}
               >
                 <CalendarTimeBlock
                   {...block}
+                  title={
+                    block.title ?? (typeof block.children === "string" ? block.children : undefined)
+                  }
                   disabled={interactionDisabled || block.disabled}
                   className={classes(styles.weekEventBlock, block.className)}
                   onClick={() => onEventClick?.(event)}

@@ -161,6 +161,89 @@ describe("planner composition", () => {
     expect(parts.map((part) => part?.style.width)).toEqual(["50%", "50%"]);
   });
 
+  it("separates overlapping week events while keeping adjacent times and other days full width", async () => {
+    const user = userEvent.setup();
+    const select = vi.fn();
+    const day = { id: "today", weekday: "목", day: "15", label: "10월 15일" };
+    const events = [
+      {
+        id: "lecture",
+        dayId: day.id,
+        startMinute: 600,
+        durationMinutes: 30,
+        children: "온라인 강의",
+      },
+      { id: "work", dayId: day.id, startMinute: 540, durationMinutes: 180, children: "오전 작업" },
+      { id: "break", dayId: day.id, startMinute: 630, durationMinutes: 30, children: "쉬기" },
+      { id: "lunch", dayId: day.id, startMinute: 720, durationMinutes: 60, children: "점심" },
+      {
+        id: "other",
+        dayId: "tomorrow",
+        startMinute: 540,
+        durationMinutes: 180,
+        children: "다른 날",
+      },
+    ];
+    render(
+      <CalendarWeek
+        days={[day, { ...day, id: "tomorrow" }]}
+        events={events}
+        onEventClick={select}
+      />,
+    );
+    const layout = (name: string) => {
+      const style = screen.getByRole("button", { name }).parentElement!.style;
+      return [style.width, style.marginLeft];
+    };
+    expect(layout("오전 작업")).toEqual(["50%", "0%"]);
+    expect(layout("온라인 강의")).toEqual(["25%", "50%"]);
+    expect(layout("쉬기")).toEqual(["25%", "75%"]);
+    expect(layout("점심")).toEqual(["100%", "0%"]);
+    expect(layout("다른 날")).toEqual(["100%", "0%"]);
+    expect(screen.getByRole("button", { name: "온라인 강의" }).title).toBe("온라인 강의");
+    const body = screen.getByRole("button", { name: "오전 작업" }).parentElement!.parentElement!;
+    expect(body.style.gridTemplateColumns).toBe("24px minmax(0, 2fr) minmax(0, 1fr)");
+    expect(body.parentElement!.style.minWidth).toBe("956px");
+    await user.click(screen.getByRole("button", { name: "온라인 강의" }));
+    await user.click(screen.getByRole("button", { name: "오전 작업" }));
+    expect(select).toHaveBeenNthCalledWith(1, events[0]);
+    expect(select).toHaveBeenNthCalledWith(2, events[1]);
+  });
+
+  it("uses separate lanes for triple overlaps and reuses a lane within a connected group", () => {
+    const day = { id: "today", weekday: "목", day: "15", label: "10월 15일" };
+    render(
+      <CalendarWeek
+        days={[day]}
+        events={[
+          { id: "a", dayId: day.id, startMinute: 540, durationMinutes: 180, children: "A" },
+          { id: "b", dayId: day.id, startMinute: 540, durationMinutes: 60, children: "B" },
+          { id: "c", dayId: day.id, startMinute: 540, durationMinutes: 120, children: "C" },
+          { id: "d", dayId: day.id, startMinute: 600, durationMinutes: 60, children: "D" },
+          {
+            id: "invalid",
+            dayId: day.id,
+            startMinute: NaN,
+            durationMinutes: 60,
+            children: "Invalid",
+          },
+          { id: "zero", dayId: day.id, startMinute: 540, durationMinutes: 0, children: "Zero" },
+        ]}
+      />,
+    );
+    for (const name of ["A", "B", "C", "D"]) {
+      expect(
+        Number.parseFloat(screen.getByRole("button", { name }).parentElement!.style.width),
+      ).toBeCloseTo(100 / 3);
+    }
+    const offset = (name: string) =>
+      screen.getByRole("button", { name }).parentElement!.style.marginLeft;
+    expect(new Set([offset("A"), offset("B"), offset("C")]).size).toBe(3);
+    expect(offset("D")).toBe(offset("B"));
+    expect(screen.queryByRole("button", { name: "Invalid" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Zero" })).toBeNull();
+  });
+
   it("selects a drag range on its original week date, preserves midnight and disables edits", () => {
     const select = vi.fn();
     const day = { id: "today", weekday: "목", day: "15", label: "10월 15일" };
@@ -206,6 +289,51 @@ describe("planner composition", () => {
     rerender(<CalendarWeek days={[day]} events={[]} onRangeSelect={select} interactionDisabled />);
     fireEvent.click(first);
     expect(select).toHaveBeenCalledTimes(3);
+  });
+
+  it("maps pointer selection through expanded dates without shifting later dates", () => {
+    const select = vi.fn();
+    const days = [
+      { id: "today", weekday: "목", day: "15", label: "10월 15일" },
+      { id: "tomorrow", weekday: "금", day: "16", label: "10월 16일" },
+    ];
+    render(
+      <CalendarWeek
+        days={days}
+        events={[
+          { id: "a", dayId: "today", startMinute: 540, durationMinutes: 180, children: "A" },
+          { id: "b", dayId: "today", startMinute: 600, durationMinutes: 30, children: "B" },
+        ]}
+        onRangeSelect={select}
+      />,
+    );
+    const first = screen.getByRole("button", { name: "10월 15일 9:10" });
+    const body = first.parentElement!.parentElement!;
+    vi.spyOn(body, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 326,
+      height: 623,
+      x: 0,
+      y: 0,
+      bottom: 623,
+      right: 326,
+      toJSON: () => ({}),
+    });
+    function pointer(target: HTMLElement, type: string, x: number, y: number): void {
+      const event = new Event(type, { bubbles: true });
+      Object.assign(event, { pointerId: 1, button: 0, clientX: x, clientY: y });
+      fireEvent(target, event);
+    }
+    pointer(first, "pointerdown", 60, 80);
+    pointer(body, "pointermove", 126, 106);
+    pointer(body, "pointerup", 126, 106);
+    expect(select).toHaveBeenLastCalledWith(days[0], { startMinute: 550, endMinute: 640 });
+    const next = screen.getByRole("button", { name: "10월 16일 9:10" });
+    pointer(next, "pointerdown", 244, 80);
+    pointer(body, "pointermove", 277, 106);
+    pointer(body, "pointerup", 277, 106);
+    expect(select).toHaveBeenLastCalledWith(days[1], { startMinute: 550, endMinute: 640 });
   });
 
   it("keeps one tabbable time per date and clamps keyboard navigation at the display boundaries", async () => {
@@ -274,7 +402,7 @@ describe("planner composition", () => {
     render(<CalendarWeek days={[day]} events={[half, long]} onEventClick={select} />);
     const halves = screen.getAllByRole("button", { name: "새벽 마무리" });
     expect(halves.map((button) => button.parentElement?.style.gridRow)).toEqual(["24", "1"]);
-    expect(halves.map((button) => button.parentElement?.style.width)).toEqual(["50%", "50%"]);
+    expect(halves.map((button) => button.parentElement?.style.width)).toEqual(["25%", "25%"]);
     const overnight = screen.getAllByRole("button", { name: "밤부터 아침" });
     expect(overnight.map((button) => button.parentElement?.style.gridRow)).toEqual(["19", "1"]);
     expect(overnight.map((button) => button.parentElement?.style.height)).toEqual([
