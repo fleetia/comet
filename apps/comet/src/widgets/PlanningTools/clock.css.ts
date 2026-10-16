@@ -82,6 +82,7 @@ export const badge = style({
   textOverflow: "ellipsis",
 });
 export const form = style({
+  containerType: "inline-size",
   display: "flex",
   flexDirection: "column",
   gap: 10,
@@ -111,12 +112,14 @@ export const editorTop = style({
     },
   },
 });
+export const titleField = style({ minWidth: 0 });
 export const dateLabel = style({
   paddingLeft: 16,
   "@media": { "(max-width: 1100px)": { display: "none" } },
 });
 export const countRow = style({
   display: "flex",
+  flexWrap: "wrap",
   alignItems: "center",
   gap: 10,
   minWidth: 0,
@@ -124,6 +127,7 @@ export const countRow = style({
   fontSize: 13,
 });
 globalStyle(`${countRow} > span:first-child`, { width: 52, flexShrink: 0 });
+globalStyle(`${countRow} > [role="radiogroup"]`, { flexShrink: 0 });
 export const exampleLabel = style({
   marginLeft: "auto",
   color: tokens["color/ink-3"],
@@ -137,11 +141,13 @@ export const options = style({
   borderTop: `1px solid ${tokens["color/divider"]}`,
 });
 globalStyle(`${options} > div`, { padding: "10px 0", minHeight: 56, border: 0 });
-export const actions = style({ display: "flex", alignItems: "center", gap: 8 });
+export const actions = style({ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 });
 globalStyle(`${actions} > button`, {
+  flexShrink: 0,
+  whiteSpace: "nowrap",
   height: 34,
   minHeight: 34,
-  padding: "0 16px",
+  padding: "0 12px",
   borderRadius: 16,
   fontSize: 13.5,
 });
@@ -156,7 +162,7 @@ globalStyle(`${actions} > button[data-variant="primary"]`, {
   width: 65,
   height: 32,
   minHeight: 32,
-  padding: "0 20px",
+  padding: "0 12px",
   fontSize: 14,
 });
 export const spacer = style({ flex: 1 });
@@ -192,4 +198,25 @@ globalStyle(`${nameRow} ${badge}`, {
 globalStyle(`${item} + ${item}`, {
   borderTop: 0,
   boxShadow: `inset 0 1px ${tokens["color/divider"]}`,
+});
+
+// The editor also lives in narrow standalone widget windows and settings columns.
+globalStyle(`${form} ${editorTop}`, {
+  "@container": {
+    "(max-width: 480px)": {
+      gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    },
+  },
+});
+globalStyle(`${form} ${editorTop} > label`, {
+  "@container": { "(max-width: 480px)": { gridColumn: "1 / -1" } },
+});
+globalStyle(`${form} ${titleField}`, {
+  "@container": { "(max-width: 480px)": { gridColumn: "1 / -1" } },
+});
+globalStyle(`${form} ${dateLabel}`, {
+  "@container": { "(max-width: 480px)": { display: "none" } },
+});
+globalStyle(`${form} ${options}`, {
+  "@container": { "(max-width: 480px)": { gridTemplateColumns: "minmax(0, 1fr)", gap: 0 } },
 });

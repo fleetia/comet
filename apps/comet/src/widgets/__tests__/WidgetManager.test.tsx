@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { listen } from "@tauri-apps/api/event";
+import * as managerStyles from "../WidgetManager/widgetManager.css";
 import { WidgetManager } from "../WidgetManager/WidgetManager";
 import { useWidgetRuntime } from "../useWidgetRuntime";
 import { useWidgets, PREVIEW_WIDGETS } from "../useWidgets";
@@ -652,8 +653,15 @@ it.each(["clock", "weather", "focus-timer", "calendar", "music", "preparation"])
       ),
     );
     fireEvent.click(screen.getByRole("switch", { name: `${name} 사용` }));
-    await waitFor(() => expect(command).toHaveBeenCalledWith("set_widget_enabled", { id: kind, enabled: false }));
-    await waitFor(() => expect(screen.getByRole("switch", { name: `${name} 사용` })).toHaveProperty("disabled", false));
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("set_widget_enabled", { id: kind, enabled: false }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("switch", { name: `${name} 사용` })).toHaveProperty(
+        "disabled",
+        false,
+      ),
+    );
     manageWidget(`${name} 켜짐`);
     fireEvent.click(screen.getByRole("menuitem", { name: "위젯 제거…" }));
     expect(screen.getByLabelText("이 위젯의 작성 데이터도 삭제")).toHaveProperty("checked", false);
@@ -1123,4 +1131,21 @@ it("creates a detached memo without requiring the retired list window", async ()
   expect(screen.getByRole("menuitem", { name: "메모 2개 열림 · 1개 표시" })).toBeTruthy();
   await waitFor(() => expect(command).toHaveBeenCalledWith("create_memo_note", { id: "memo" }));
   expect(command).not.toHaveBeenCalledWith("open_widget", expect.anything());
+});
+
+it("starts official widget details at the top on selection and re-entry without resetting updates", () => {
+  vi.mocked(isDesktop).mockReturnValue(false);
+  const { container, rerender } = render(<WidgetManager embedded />);
+  chooseWidget(/집중 타이머/);
+  const view = container.getElementsByClassName(managerStyles.officialView)[0] as HTMLDivElement;
+  view.scrollTop = 82;
+  view.scrollLeft = 12;
+  rerender(<WidgetManager embedded />);
+  expect(view.scrollTop).toBe(82);
+  chooseWidget(/날씨/);
+  expect(view.scrollTop).toBe(0);
+  expect(view.scrollLeft).toBe(0);
+  view.scrollTop = 40;
+  chooseWidget(/날씨/);
+  expect(view.scrollTop).toBe(0);
 });

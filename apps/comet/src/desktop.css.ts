@@ -15,6 +15,12 @@ export const documentRoot = style({
 });
 export const root = style({ minHeight: "100dvh" });
 
+// Hide scrollbar chrome without changing wheel, touch, or keyboard scrolling.
+globalStyle(`${documentRoot}, ${documentRoot} *`, { scrollbarWidth: "none" });
+globalStyle(`${documentRoot}::-webkit-scrollbar, ${documentRoot} *::-webkit-scrollbar`, {
+  display: "none",
+});
+
 globalStyle(`${documentRoot} body`, { WebkitFontSmoothing: "antialiased" });
 globalStyle(`${documentRoot} body, ${documentRoot} #root`, {
   margin: 0,
