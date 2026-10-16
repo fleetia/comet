@@ -39,3 +39,15 @@ export const ReadOnly: Story = {
   args: { defaultValue: "별꼬리", readOnly: true },
 };
 export const Disabled: Story = { name: "비활성", args: { disabled: true } };
+
+export const Time: Story = {
+  name: "시간",
+  args: {
+    label: "조용한 시간 시작",
+    type: "time",
+    defaultValue: "22:00",
+    placeholder: undefined,
+    description: "오전·오후, 시·분과 선택 아이콘이 잘리지 않도록 고유 너비를 유지해요.",
+    style: { width: "auto" },
+  },
+};

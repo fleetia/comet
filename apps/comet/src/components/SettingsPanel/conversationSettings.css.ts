@@ -36,4 +36,5 @@ export const weekday = style({
   },
 });
 
-globalStyle(`${timeControls} input`, { width: 100 });
+// Native time fields need room for locale-specific segments and the picker icon.
+globalStyle(`${timeControls} input`, { width: "auto" });
