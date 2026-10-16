@@ -140,6 +140,7 @@ export const error = style({
 });
 export const empty = style({ margin: 0, padding: 16, color: tokens["color/ink-2"] });
 export const form = style({ display: "flex", flexDirection: "column", gap: 14, minWidth: 280 });
+export const formSelect = style({ width: "100%" });
 export const weekdays = style({
   display: "flex",
   gap: 12,
@@ -148,3 +149,5 @@ export const weekdays = style({
   margin: 0,
   fontSize: 13,
 });
+export const weekday = style({ display: "inline-flex", alignItems: "center", gap: 4 });
+export const weekdayCheckbox = style({ margin: 0 });

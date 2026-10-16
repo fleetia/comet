@@ -32,6 +32,31 @@ const empty: DiaryState = {
 };
 
 describe("diary habit recording", () => {
+  it("saves color, recording mode and labeled weekdays from the new habit form", async () => {
+    const action = vi.fn().mockResolvedValue(true);
+    render(<DiaryHabits state={empty} date="2026-01-03" busy={false} onAction={action} />);
+    fireEvent.click(screen.getByRole("button", { name: "새 습관" }));
+    const editor = within(screen.getByRole("dialog", { name: "새 습관" }));
+    fireEvent.change(editor.getByLabelText("습관 이름"), { target: { value: "걷기" } });
+    fireEvent.change(editor.getByRole("combobox", { name: "습관 색상" }), {
+      target: { value: "exercise" },
+    });
+    fireEvent.change(editor.getByRole("combobox", { name: "기록 방식" }), {
+      target: { value: "count" },
+    });
+    fireEvent.change(editor.getByLabelText("하루 목표 횟수"), { target: { value: "3" } });
+    fireEvent.click(editor.getByRole("checkbox", { name: "일" }));
+    fireEvent.click(editor.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(action).toHaveBeenCalledOnce());
+    expect(action.mock.calls[0][1]).toMatchObject({
+      title: "걷기",
+      color: "exercise",
+      mode: "count",
+      target: 3,
+      weekdays: [1, 2, 3, 4, 5, 6],
+    });
+  });
+
   it("cycles daily completion with an optimistic original and keeps count goals distinct", async () => {
     const action = vi.fn().mockResolvedValue(true);
     const { rerender } = render(
