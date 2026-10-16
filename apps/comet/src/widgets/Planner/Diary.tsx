@@ -171,7 +171,7 @@ export function Diary(): ReactElement {
       ? `envelope:${envelopeId}`
       : pageId
         ? `page:${pageId}`
-        : `${view}:${day}`;
+        : `${view}:${view === "month" ? day.slice(0, 7) : day}`;
   useLayoutEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = scrollPositions.current[bodyScope] ?? 0;
   }, [bodyScope]);
