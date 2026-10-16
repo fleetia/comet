@@ -36,19 +36,40 @@ function bridgeStatusText(bridge: BridgeStatus | null, failed: boolean): string 
   return "Spotify 확장 연결을 기다리고 있어요.";
 }
 
+function platformSupport() {
+  const mac = /Mac/i.test(navigator.platform);
+  const windows = /Win/i.test(navigator.platform);
+  return {
+    mac,
+    windows,
+    allowed: mac ? ["music", "spotify"] : windows ? ["system", "spotify"] : ["spotify"],
+  };
+}
+
 function configFrom(widget: WidgetView): Config {
   const data = record(record(widget.data).config);
-  const defaults = /Win/i.test(navigator.platform) ? ["system"] : ["music", "spotify"];
+  const { mac, windows, allowed } = platformSupport();
+  const defaults = windows ? ["system"] : allowed;
+  const provider = text(data.provider) || (mac ? "music" : "auto");
+  const supportedProvider =
+    provider === "auto" ||
+    provider === "spicetify" ||
+    (provider === "music" && mac) ||
+    (provider === "system" && windows) ||
+    (provider === "spotify" && (mac || windows));
+  const priority = text(data.priority) || "last-played";
   return {
-    provider: text(data.provider) || "music",
+    provider: supportedProvider ? provider : "auto",
     allowedProviders: Array.isArray(data.allowedProviders)
-      ? data.allowedProviders.filter((value): value is string => typeof value === "string")
+      ? data.allowedProviders.filter(
+          (value): value is string => typeof value === "string" && allowed.includes(value),
+        )
       : defaults,
     showArtwork: data.showArtwork !== false,
     showLyrics: data.showLyrics !== false,
     hideMissing: data.hideMissing !== false,
     allowTalk: data.allowTalk !== false,
-    priority: text(data.priority) || "last-played",
+    priority: allowed.includes(priority) ? priority : "last-played",
   };
 }
 
@@ -96,7 +117,7 @@ export function MusicSettings({
   disabled?: boolean;
 }): ReactElement {
   const stored = configFrom(widget);
-  const windows = /Win/i.test(navigator.platform);
+  const { mac, windows } = platformSupport();
   const [draft, setDraft] = useState<Config | null>(null);
   const config = draft ?? stored;
   const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(stored);
@@ -230,9 +251,15 @@ export function MusicSettings({
                   onChange={(event) => change({ provider: event.target.value })}
                 >
                   <option value="auto">허용한 앱에서 자동 선택</option>
-                  <option value="music">Apple Music · macOS</option>
-                  <option value="spotify">Spotify · 직접 읽기</option>
-                  <option value="system">시스템 미디어 · Windows</option>
+                  <option value="music" disabled={!mac}>
+                    Apple Music · macOS
+                  </option>
+                  <option value="spotify" disabled={!mac && !windows}>
+                    Spotify · 직접 읽기 (macOS · Windows)
+                  </option>
+                  <option value="system" disabled={!windows}>
+                    시스템 미디어 · Windows
+                  </option>
                   <option value="spicetify">Spotify + Spicetify</option>
                 </Select>
               </SettingsMenu>
@@ -240,24 +267,34 @@ export function MusicSettings({
             <div className={layout.rows}>
               <div className={layout.providerGroup} role="group" aria-label="자동 선택을 허용할 앱">
                 {[
-                  ["music", "Apple Music", "이 Mac에서 바로 읽어요"],
+                  [
+                    "music",
+                    "Apple Music",
+                    mac ? "이 Mac에서 바로 읽어요" : "macOS에서만 바로 읽을 수 있어요",
+                  ],
                   ["spotify", "Spotify", "Spicetify 확장을 거쳐 읽어요"],
                   ["system", "시스템 미디어", "Windows에서 재생 중인 앱을 읽어요"],
                 ].map(([provider, title, description]) => (
                   <div
                     className={layout.settingRow}
                     key={provider}
-                    style={provider === "system" && !windows ? { opacity: 0.55 } : undefined}
+                    style={
+                      (provider === "music" && !mac) || (provider === "system" && !windows)
+                        ? { opacity: 0.55 }
+                        : undefined
+                    }
                   >
                     <span>
                       <span>{title}</span>
                       <span className={layout.caption}>{description}</span>
                     </span>
-                    {provider === "system" && !windows ? (
-                      <ContextChip className={layout.platformChip}>Windows 전용</ContextChip>
+                    {(provider === "music" && !mac) || (provider === "system" && !windows) ? (
+                      <ContextChip className={layout.platformChip}>
+                        {provider === "music" ? "macOS 전용" : "Windows 전용"}
+                      </ContextChip>
                     ) : (
                       <Switch
-                        aria-label={`${title} · ${provider === "system" ? "Windows" : "macOS"}`}
+                        aria-label={`${title} · ${provider === "system" ? "Windows" : provider === "music" ? "macOS" : "Spicetify"}`}
                         checked={config.allowedProviders.includes(provider)}
                         onChange={(event) =>
                           change({
@@ -281,9 +318,13 @@ export function MusicSettings({
                   onChange={(event) => change({ priority: event.target.value, provider: "auto" })}
                 >
                   <option value="last-played">마지막에 재생한 앱</option>
-                  <option value="music">Apple Music 우선</option>
+                  <option value="music" disabled={!mac}>
+                    Apple Music 우선
+                  </option>
                   <option value="spotify">Spotify 우선</option>
-                  <option value="system">시스템 미디어 우선</option>
+                  <option value="system" disabled={!windows}>
+                    시스템 미디어 우선
+                  </option>
                 </Select>
               </div>
             </div>
@@ -329,9 +370,12 @@ export function MusicSettings({
                   Spotify의 Comet 메뉴를 열어 주세요.
                 </p>
                 <p>
-                  처음 한 번 연결하면 다시 실행해도 자동으로 연결돼요. 음악 위젯을 열면 종료된 Spotify도
-                  실행돼요. 재생과 음량은 Spotify에서 바꿔 주세요. Spotify 로그인 정보는 Comet에
-                  전달하지 않아요.
+                  처음 한 번 연결하면 다시 실행해도 자동으로 연결돼요.{" "}
+                  {mac || windows
+                    ? "음악 위젯을 열면 종료된 Spotify도 실행돼요."
+                    : "Spotify는 직접 실행해 주세요."}{" "}
+                  재생과 음량은 Spotify에서 바꿔 주세요. Spotify 로그인 정보는 Comet에 전달하지
+                  않아요.
                 </p>
               </SettingsMenu>
             </div>

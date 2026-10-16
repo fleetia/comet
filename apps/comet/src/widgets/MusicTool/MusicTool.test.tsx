@@ -53,6 +53,7 @@ function widget(
   };
 }
 beforeEach(() => {
+  vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
   vi.spyOn(Date, "now").mockReturnValue(NOW);
   vi.mocked(command).mockReset();
   vi.mocked(command).mockResolvedValue(null);
@@ -145,7 +146,9 @@ it("opens only the selected music app and prepares a song discussion without sub
   const settings = screen.getByRole("button", { name: "음악 정보 설정" });
   await waitFor(() => expect(settings).toHaveProperty("disabled", false));
   fireEvent.click(settings);
-  await waitFor(() => expect(command).toHaveBeenCalledWith("open_planner_settings", { kind: "music" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("open_planner_settings", { kind: "music" }),
+  );
 });
 
 it("shows the observed playback details, false and zero metadata, and optional missing fields", async () => {
@@ -410,4 +413,110 @@ it("autosaves a configured preview preference and blocks both sides while saving
     cleanup();
     side.remove();
   }
+});
+
+it.each(["Linux x86_64", "Win32"])("marks Apple Music as macOS-only on %s", (platform) => {
+  vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
+  render(<MusicSettings widget={{ ...widget(), data: { configured: false, config: {} } }} />);
+  expect(screen.queryByRole("switch", { name: "Apple Music · macOS" })).toBeNull();
+  expect(screen.getByText("macOS 전용")).toBeTruthy();
+  expect(screen.getByText("macOS에서만 바로 읽을 수 있어요")).toBeTruthy();
+  expect(screen.queryByText("이 Mac에서 바로 읽어요")).toBeNull();
+  expect(screen.getByRole("switch", { name: "Spotify · Spicetify" })).toBeTruthy();
+  expect(screen.getByRole("option", { name: "Apple Music · macOS", hidden: true })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  expect(screen.getByRole("option", { name: "Apple Music 우선" })).toHaveProperty("disabled", true);
+  expect(command).not.toHaveBeenCalled();
+});
+
+it("keeps Linux Spotify extension available without claiming native reads or app launch", async () => {
+  vi.spyOn(navigator, "platform", "get").mockReturnValue("Linux x86_64");
+  render(<MusicSettings widget={{ ...widget(), data: { configured: false, config: {} } }} />);
+  expect(screen.getByRole("switch", { name: "Spotify · Spicetify" })).toHaveProperty(
+    "checked",
+    true,
+  );
+  expect(screen.getByText("Windows 전용")).toBeTruthy();
+  expect(
+    screen.getByRole("option", { name: "Spotify · 직접 읽기 (macOS · Windows)", hidden: true }),
+  ).toHaveProperty("disabled", true);
+  expect(
+    screen.getByRole("option", { name: "시스템 미디어 · Windows", hidden: true }),
+  ).toHaveProperty("disabled", true);
+  expect(screen.getByRole("option", { name: "Spotify + Spicetify", hidden: true })).toHaveProperty(
+    "disabled",
+    false,
+  );
+  expect(screen.getByText(/Spotify는 직접 실행해 주세요/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "곡 정보 읽기 허용하고 연결" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("configure_connection_widget", {
+      id: "music",
+      input: expect.objectContaining({ provider: "auto", allowedProviders: ["spotify"] }),
+    }),
+  );
+});
+
+it("filters unsupported saved providers on Linux without saving on mount", async () => {
+  vi.spyOn(navigator, "platform", "get").mockReturnValue("Linux x86_64");
+  render(
+    <MusicSettings
+      widget={{
+        ...widget(),
+        data: {
+          configured: false,
+          config: {
+            provider: "music",
+            allowedProviders: ["music", "spotify", "system"],
+            priority: "music",
+          },
+        },
+      }}
+    />,
+  );
+  expect(command).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "곡 정보 읽기 허용하고 연결" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("configure_connection_widget", {
+      id: "music",
+      input: expect.objectContaining({
+        provider: "auto",
+        allowedProviders: ["spotify"],
+        priority: "last-played",
+      }),
+    }),
+  );
+});
+
+it("blocks an empty Linux automatic selection and restores its supported default", () => {
+  vi.spyOn(navigator, "platform", "get").mockReturnValue("Linux x86_64");
+  render(<MusicSettings widget={{ ...widget(), data: { configured: false, config: {} } }} />);
+  fireEvent.click(screen.getByRole("switch", { name: "Spotify · Spicetify" }));
+  expect(screen.getByRole("button", { name: "곡 정보 읽기 허용하고 연결" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "선택 초기화" }));
+  expect(screen.getByRole("switch", { name: "Spotify · Spicetify" })).toHaveProperty(
+    "checked",
+    true,
+  );
+  expect(command).not.toHaveBeenCalled();
+});
+
+it.each([
+  ["MacIntel", "music", ["music", "spotify"]],
+  ["Win32", "auto", ["system"]],
+])("preserves supported defaults on %s", async (platform, provider, allowedProviders) => {
+  vi.spyOn(navigator, "platform", "get").mockReturnValue(platform as string);
+  render(<MusicSettings widget={{ ...widget(), data: { configured: false, config: {} } }} />);
+  fireEvent.click(screen.getByRole("button", { name: "곡 정보 읽기 허용하고 연결" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("configure_connection_widget", {
+      id: "music",
+      input: expect.objectContaining({ provider, allowedProviders }),
+    }),
+  );
 });
