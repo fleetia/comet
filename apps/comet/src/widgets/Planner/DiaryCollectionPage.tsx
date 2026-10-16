@@ -511,6 +511,7 @@ export function DiaryCollectionPage(
                 </div>
               )}
               <TextInput
+                className={s.input}
                 label="기록 날짜"
                 type="date"
                 value={entryDraft.date}
@@ -518,6 +519,7 @@ export function DiaryCollectionPage(
                 onChange={(event) => setEntryDraft({ ...entryDraft, date: event.target.value })}
               />
               <Textarea
+                className={s.input}
                 label="기록 내용"
                 value={entryDraft.body}
                 disabled={disabled}
@@ -537,6 +539,7 @@ export function DiaryCollectionPage(
                 ))}
               </Select>
               <Textarea
+                className={s.input}
                 label="한 줄 평"
                 value={entryDraft.review}
                 disabled={disabled}
