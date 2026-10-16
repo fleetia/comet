@@ -83,6 +83,9 @@ export const bullet = style({
 
 export const content = style({ minWidth: 0, flex: 1 });
 
+// Reserve readable text space before wrapping appointment actions to the next line.
+export const appointmentContent = style([content, { flex: "1 1 160px" }]);
+
 export const row = style({
   display: "flex",
   alignItems: "center",

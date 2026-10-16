@@ -713,7 +713,7 @@ export function DiaryPage({
               className={s.appointment}
               aria-label={`${event.connectionId === "local" ? "Comet 일정" : "연결 일정"}: ${text(event.title)}`}
             >
-              <div className={s.content}>
+              <div className={s.appointmentContent}>
                 <p className={s.title}>
                   {eventTime(event)} · {text(event.title)}
                 </p>
@@ -750,7 +750,7 @@ export function DiaryPage({
               className={s.appointment}
               aria-label={`준비 봉투: ${envelopeTitle(envelope)}`}
             >
-              <div className={s.content}>
+              <div className={s.appointmentContent}>
                 <p className={s.title}>{envelopeTitle(envelope)}</p>
                 <span className={s.meta}>이날 준비할 봉투</span>
               </div>
