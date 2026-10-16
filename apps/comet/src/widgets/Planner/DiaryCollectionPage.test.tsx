@@ -369,3 +369,33 @@ it("fills record editor inputs without changing quick-add date width or authored
     ),
   );
 });
+
+it("fills record select hit targets and preserves metadata in the save payload", async () => {
+  const callbacks = props();
+  render(<DiaryCollectionPage {...callbacks} pages={[page, source]} />);
+  const editor = openEntry();
+  for (const label of ["별점", "원본 페이지", "원본 기록"]) {
+    expect(editor.getByLabelText(label).classList.contains(styles.select)).toBe(true);
+  }
+  fireEvent.change(editor.getByLabelText("별점"), { target: { value: "5" } });
+  fireEvent.change(editor.getByLabelText("원본 페이지"), { target: { value: "" } });
+  expect(editor.queryByLabelText("원본 기록")).toBeNull();
+  fireEvent.change(editor.getByLabelText("원본 페이지"), { target: { value: "daily" } });
+  expect(editor.getByLabelText("원본 기록")).toHaveProperty("value", "");
+  expect(editor.getByLabelText("원본 기록").classList.contains(styles.select)).toBe(true);
+  fireEvent.change(editor.getByLabelText("원본 기록"), { target: { value: "original" } });
+  fireEvent.click(editor.getByRole("button", { name: "기록 저장" }));
+  await waitFor(() =>
+    expect(callbacks.onDiaryAction).toHaveBeenCalledWith(
+      "entry-update",
+      expect.objectContaining({ rating: 5, sourcePageId: "daily", sourceEntryId: "original" }),
+    ),
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+
+it("fills the page goal select hit target", () => {
+  render(<DiaryCollectionPage {...props()} />);
+  fireEvent.click(screen.getByRole("button", { name: "이름·목표 바꾸기" }));
+  expect(screen.getByLabelText("이어 볼 기간 목표").classList.contains(styles.select)).toBe(true);
+});

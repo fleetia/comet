@@ -76,4 +76,5 @@ export const title = style({ whiteSpace: "pre-wrap", overflowWrap: "anywhere" })
 export const error = style({ fontSize: 12.5, color: tokens["color/danger"], margin: 0 });
 export const source = style({ display: "flex", flexWrap: "wrap", gap: 6 });
 
+export const select = style({ width: "100%" });
 export const input = style({ width: "100%", minWidth: 0 });

@@ -526,6 +526,7 @@ export function DiaryCollectionPage(
                 onChange={(event) => setEntryDraft({ ...entryDraft, body: event.target.value })}
               />
               <Select
+                className={s.select}
                 label="별점"
                 value={entryDraft.rating}
                 disabled={disabled}
@@ -546,6 +547,7 @@ export function DiaryCollectionPage(
                 onChange={(event) => setEntryDraft({ ...entryDraft, review: event.target.value })}
               />
               <Select
+                className={s.select}
                 label="원본 페이지"
                 value={entryDraft.sourcePageId}
                 disabled={disabled}
@@ -568,6 +570,7 @@ export function DiaryCollectionPage(
               </Select>
               {entryDraft.sourcePageId && (
                 <Select
+                  className={s.select}
                   label="원본 기록"
                   value={entryDraft.sourceEntryId}
                   disabled={disabled}
@@ -717,6 +720,7 @@ export function DiaryCollectionPage(
               onChange={(event) => setTitle(event.target.value)}
             />
             <Select
+              className={s.select}
               label="이어 볼 기간 목표"
               value={goalId}
               disabled={disabled}
