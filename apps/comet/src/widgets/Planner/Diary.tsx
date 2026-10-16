@@ -1266,7 +1266,7 @@ export function Diary(): ReactElement {
               hidden={tool === "habits" || tool === "ledger"}
               data-tauri-drag-region
             >
-              <div className={s.toolbar}>
+              <div className={collection === "pages" ? s.pageHeading : s.toolbar}>
                 {!tool && !pageId && !envelopeId && (
                   <CometIconButton
                     icon="chevleft"
@@ -1282,7 +1282,7 @@ export function Diary(): ReactElement {
                     }
                   />
                 )}
-                <h1 className={s.title}>
+                <h1 className={s.title} title={pageId ? heading : undefined}>
                   {tool
                     ? TOOL_MENU.find(([value]) => value === tool)?.[1]
                     : envelopeId
@@ -1324,23 +1324,25 @@ export function Diary(): ReactElement {
                   />
                 )}
                 {collection === "pages" && (
-                  <Select
-                    aria-label="내 페이지 선택"
-                    value={pageId}
-                    onChange={(event) => {
-                      const selected = pages.find((value) => value.id === event.target.value);
-                      if (selected) openPage(selected);
-                    }}
-                  >
-                    {!pageId && <option value="">페이지 선택</option>}
-                    {pages
-                      .filter((value) => !value.date)
-                      .map((value) => (
-                        <option key={value.id} value={value.id}>
-                          {value.title}
-                        </option>
-                      ))}
-                  </Select>
+                  <div className={s.pageSelect}>
+                    <Select
+                      aria-label="내 페이지 선택"
+                      value={pageId}
+                      onChange={(event) => {
+                        const selected = pages.find((value) => value.id === event.target.value);
+                        if (selected) openPage(selected);
+                      }}
+                    >
+                      {!pageId && <option value="">페이지 선택</option>}
+                      {pages
+                        .filter((value) => !value.date)
+                        .map((value) => (
+                          <option key={value.id} value={value.id}>
+                            {value.title}
+                          </option>
+                        ))}
+                    </Select>
+                  </div>
                 )}
                 {isPlannerTool(tool) && (
                   <SegmentedControl

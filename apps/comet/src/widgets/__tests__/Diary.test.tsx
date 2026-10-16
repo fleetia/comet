@@ -607,6 +607,29 @@ it("opens its own new undated page after another page was created elsewhere, the
   expect(opened().queryByRole("checkbox", { name: "오늘 준비" })).toBeNull();
 });
 
+it("preserves the full long page title and page selection/create actions", async () => {
+  const title =
+    "qa page long title alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron";
+  diary.pages = [
+    { id: "long-page", title, date: null, entries: [] },
+    { id: "other-page", title: "다른 페이지", date: null, entries: [] },
+  ];
+  await openDiary();
+  showPage(title);
+  expect(opened().getByRole("heading", { name: title, level: 1 }).getAttribute("title")).toBe(
+    title,
+  );
+  expect(screen.getByRole("combobox", { name: "내 페이지 선택" })).toHaveProperty(
+    "value",
+    "long-page",
+  );
+  showPage("다른 페이지");
+  expect(opened().getByRole("heading", { name: "다른 페이지", level: 1 })).toBeTruthy();
+  showPage(title);
+  fireEvent.click(opened().getByRole("button", { name: "새 페이지" }));
+  expect(screen.getByRole("dialog", { name: "새 페이지" })).toBeTruthy();
+});
+
 it("moves a dated Todo from a collection using the Todo's actual date while preserving the deadline", async () => {
   const item = task("task", "책 반납", "2026-10-01");
   setTasks([item]);
