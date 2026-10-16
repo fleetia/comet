@@ -27,7 +27,29 @@ it("names the focus row by its real state instead of always saying it is running
   expect(title({ status: "paused" })).toBe("일시 정지");
   expect(title({ status: "running" })).toBe("집중 중");
   expect(title({ status: "running", mode: "rest" })).toBe("쉬는 중");
+  expect(title({ status: "paused", mode: "rest" })).toBe("일시 정지");
+  expect(title({ status: "finished", mode: "focus" })).toBe("집중 끝");
+  expect(title({ status: "finished", mode: "rest" })).toBe("휴식 끝");
+  expect(title({ status: "idle", mode: "rest" })).toBe("집중 준비");
   expect(desktopSummary(widget("focus-timer", { status: "idle" }), now).meta).toBe("");
+});
+
+it("keeps a completed break finished after its deadline has been cleared", () => {
+  const timer = widget("focus-timer", {
+    status: "finished",
+    mode: "rest",
+    title: "원고 쓰기",
+    remainingMs: 0,
+    deadline: null,
+  });
+  const now = Date.now();
+  for (const time of [now, now + 60000]) {
+    expect(desktopSummary(timer, time)).toMatchObject({
+      title: "휴식 끝",
+      description: "원고 쓰기",
+      value: "00:00",
+    });
+  }
 });
 
 it("does not repeat the empty calendar message or show a placeholder dash for unfetched weather", () => {
