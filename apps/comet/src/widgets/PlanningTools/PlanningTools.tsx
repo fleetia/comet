@@ -129,15 +129,17 @@ export function ClockTool({
       )}
       <div className={clock.editorTop}>
         <label htmlFor="anniversary-title">이름</label>
-        <TextField
-          id="anniversary-title"
-          ref={titleInput}
-          aria-label="기념일 이름"
-          required
-          maxLength={500}
-          value={title}
-          onChange={(event) => changeDraft(() => setTitle(event.target.value))}
-        />
+        <div className={clock.titleField}>
+          <TextField
+            id="anniversary-title"
+            ref={titleInput}
+            aria-label="기념일 이름"
+            required
+            maxLength={500}
+            value={title}
+            onChange={(event) => changeDraft(() => setTitle(event.target.value))}
+          />
+        </div>
         <span className={clock.dateLabel}>날짜</span>
         <Select
           aria-label="기념일 월"

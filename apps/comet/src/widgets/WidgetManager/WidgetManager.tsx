@@ -4,7 +4,14 @@ import { Icon, SparkleIcon } from "@comet/icon";
 import { WidgetDetailPreview } from "./WidgetDetailPreview";
 import { DESKTOP_TOYS } from "../ToyTools/desktopToys";
 import { canPlaceOnDesktop, useWidgetDesktop, type WidgetDesktopState } from "./useWidgetDesktop";
-import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { listen } from "@tauri-apps/api/event";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWidgets } from "../useWidgets";
@@ -79,6 +86,7 @@ export function WidgetManager({
   const [focused, setFocused] = useState<string | null>(null);
   const [visitedSettings, setVisitedSettings] = useState<string[]>([]);
   const targetRevision = useRef(0);
+  const officialView = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!isDesktop()) return;
     let active = true;
@@ -263,6 +271,12 @@ export function WidgetManager({
     catalog[0];
   const widget = entry ? findView(entry.id) : undefined;
   const selectedId = generated?.id ?? entry?.id;
+  useLayoutEffect(() => {
+    if (detailOpen && officialView.current) {
+      officialView.current.scrollTop = 0;
+      officialView.current.scrollLeft = 0;
+    }
+  }, [selectedId, detailOpen]);
   const placed = (id: string): boolean => Boolean(desktop.state?.order.includes(id));
   useEffect(() => {
     if (!selectedId) return;
@@ -403,8 +417,7 @@ export function WidgetManager({
     else if (action === "state-rules") void run("open_widget_state_rules", { id: target.id });
     else if (action === "clear") void act("desktop-clear", {}, target);
     else if (action === "desktop-add") void run("add_widget_desktop_item", { id: target.id });
-    else if (action === "desktop-remove")
-      void run("remove_widget_desktop_item", { id: target.id });
+    else if (action === "desktop-remove") void run("remove_widget_desktop_item", { id: target.id });
     else if (action === "refresh-runtime") runtime.reload();
     else if (action === "remove") {
       setDeleteData(false);
@@ -477,7 +490,6 @@ export function WidgetManager({
 
   return (
     <section className={styles.embedded} aria-label="위젯 관리">
-
       {error && (
         <Text as="p" role="alert" className={common.error}>
           {error}
@@ -576,7 +588,7 @@ export function WidgetManager({
                   </div>
                 ))}
               {entry && (
-                <div className={styles.officialView} hidden={Boolean(generated)}>
+                <div ref={officialView} className={styles.officialView} hidden={Boolean(generated)}>
                   <aside className={details.header} aria-label={`${entry.name} 미리보기와 사용`}>
                     {widget?.kind !== "focus-timer" && (
                       <header className={details.titleRow}>
@@ -609,7 +621,9 @@ export function WidgetManager({
                             variant="secondary"
                             className={details.launchButton}
                             disabled={!canAct}
-                            onClick={() => void run("remove_widget_desktop_item", { id: widget.id })}
+                            onClick={() =>
+                              void run("remove_widget_desktop_item", { id: widget.id })
+                            }
                           >
                             <Icon name="minus" size={15} />
                             바탕화면에서 빼기

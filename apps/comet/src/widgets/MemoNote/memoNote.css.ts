@@ -50,7 +50,7 @@ export const editor = style({
   background: "transparent",
   color: "inherit",
   fontFamily: "inherit",
-  lineHeight: "20px",
+  lineHeight: 1.25,
   resize: "none",
   overflowY: "auto",
   overflowWrap: "anywhere",
