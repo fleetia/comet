@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { listen } from "@tauri-apps/api/event";
 import { command } from "../../hooks/useSnapshot";
 import { Diary } from "../Planner/Diary";
+import * as diaryStyles from "../Planner/diary.css";
 import type { DiaryState } from "../Planner/diaryTypes";
 import type { DataRecord } from "../toolData";
 import { localDay } from "../toolData";
@@ -1300,6 +1301,64 @@ it("shows complete event details and the selected-day agenda before explicit edi
   showToday();
   expect(body.scrollTop).toBe(180);
 });
+
+it.each(["close", "escape"])(
+  "preserves month scroll when viewing a different day's event via %s",
+  async (close) => {
+    widgets.widgets = [
+      widget("calendar", {
+        connections: [],
+        events: [
+          {
+            id: "month-end",
+            connectionId: "local",
+            title: "qa multi day",
+            allDay: true,
+            startDate: "2026-10-30",
+            endDate: "2026-11-02",
+          },
+        ],
+      }),
+    ];
+    await openDiary();
+    const body = document.querySelector<HTMLDivElement>(`.${diaryStyles.body}`)!;
+    fireEvent.click(screen.getByRole("radio", { name: "월" }));
+    body.scrollTop = 380;
+    fireEvent.scroll(body);
+    fireEvent.click(screen.getAllByRole("button", { name: "qa multi day" })[0]);
+    const dialog = screen.getByRole("dialog", { name: "qa multi day" });
+    expect(body.scrollTop).toBe(380);
+    if (close === "escape")
+      fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    else fireEvent.click(within(dialog).getByRole("button", { name: "약속 닫기" }));
+    expect(screen.queryByRole("dialog", { name: "qa multi day" })).toBeNull();
+    expect(body.scrollTop).toBe(380);
+    // A different month has its own position; returning restores the previous month.
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    expect(body.scrollTop).toBe(0);
+    body.scrollTop = 120;
+    fireEvent.scroll(body);
+    fireEvent.click(screen.getByRole("button", { name: "이전 페이지" }));
+    expect(body.scrollTop).toBe(380);
+    // Other calendar views and tools retain their separate scopes.
+    fireEvent.click(screen.getByRole("radio", { name: "주" }));
+    expect(body.scrollTop).toBe(0);
+    body.scrollTop = 90;
+    fireEvent.scroll(body);
+    fireEvent.click(screen.getByRole("radio", { name: "하루" }));
+    expect(body.scrollTop).toBe(0);
+    fireEvent.click(screen.getByRole("radio", { name: "주" }));
+    expect(body.scrollTop).toBe(90);
+    fireEvent.click(screen.getByRole("radio", { name: "월" }));
+    expect(body.scrollTop).toBe(380);
+    fireEvent.click(screen.getByRole("link", { name: "정리 기록" }));
+    expect(body.scrollTop).toBe(0);
+    fireEvent.click(screen.getByRole("link", { name: "캘린더" }));
+    expect(body.scrollTop).toBe(380);
+    expect(actions("execute_widget")).toEqual([]);
+    expect(actions("update_diary")).toEqual([]);
+  },
+);
 
 it("undoes completion against the refreshed revision without touching diary records or starting a timer", async () => {
   setTasks([task("one", "되돌릴 일")]);
