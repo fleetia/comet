@@ -1293,6 +1293,13 @@ it("shows complete event details and the selected-day agenda before explicit edi
   expect(detail.getByRole("region", { name: "선택 날짜 전체 일정" }).textContent).toContain(
     "같은 날 다른 일정",
   );
+  const agenda = within(detail.getByRole("region", { name: "선택 날짜 전체 일정" }));
+  const longEvent = agenda.getByRole("button", { name: `종일 · ${title}` });
+  expect(longEvent.className).toContain(diaryStyles.agendaEventButton);
+  fireEvent.click(agenda.getByRole("button", { name: "종일 · 같은 날 다른 일정" }));
+  expect(screen.getByRole("dialog", { name: "같은 날 다른 일정" })).toBeTruthy();
+  fireEvent.click(longEvent);
+  expect(screen.getByRole("dialog", { name: title })).toBeTruthy();
   expect(detail.queryByRole("textbox")).toBeNull();
   expect(actions("execute_widget")).toEqual([]);
   fireEvent.click(detail.getByRole("button", { name: "약속 닫기" }));

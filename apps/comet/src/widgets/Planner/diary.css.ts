@@ -311,6 +311,15 @@ export const error = style({
   fontSize: v.typography.size.label,
 });
 export const status = style([caption, { padding: "4px 16px", flexShrink: 0 }]);
+export const agendaEventButton = style({
+  height: "auto",
+  minHeight: tokens["size/control-36"],
+  paddingBlock: v.space.sm,
+  justifyContent: "flex-start",
+  whiteSpace: "normal",
+  textAlign: "left",
+  overflowWrap: "anywhere",
+});
 export const form = style({ display: "flex", flexDirection: "column", gap: 12 });
 export const weekday = style({
   display: "grid",
