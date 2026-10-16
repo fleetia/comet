@@ -70,6 +70,9 @@ const VIEWS: [View, string][] = [
 type DiaryTool = PlannerToolTab | "organizer" | "habits" | "ledger";
 function toolForTab(tab: string | null): DiaryTool | null {
   switch (tab) {
+    case "todos":
+      // The task tool uses "today" internally; the native "today" route is the diary summary.
+      return "today";
     case "plans":
     case "templates":
     case "organizer":
@@ -356,6 +359,7 @@ export function Diary(): ReactElement {
         !active ||
         ![
           "today",
+          "todos",
           "calendar",
           "plans",
           "templates",
@@ -489,7 +493,8 @@ export function Diary(): ReactElement {
   const nativeTab =
     notesOpen || collection
       ? "today"
-      : (tool ?? (!pageId && !envelopeId && view !== "day" ? "calendar" : "today"));
+      : ((tool === "today" ? "todos" : tool) ??
+        (!pageId && !envelopeId && view !== "day" ? "calendar" : "today"));
   useEffect(() => {
     if (!navigationReady || !isDesktop()) return;
     let active = true;

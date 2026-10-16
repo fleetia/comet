@@ -43,6 +43,7 @@ fn supported_tab(tab: &str) -> bool {
     matches!(
         tab,
         "today"
+            | "todos"
             | "plans"
             | "calendar"
             | "templates"
@@ -256,6 +257,7 @@ mod tests {
     fn diary_navigation_accepts_habits_and_ledger_without_expanding_to_unknown_tabs() {
         for tab in [
             "today",
+            "todos",
             "plans",
             "calendar",
             "templates",

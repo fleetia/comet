@@ -748,6 +748,15 @@ fn create_memo_for_open(
     })
 }
 
+fn planner_tab_for_widget(kind: &str) -> Option<&'static str> {
+    match kind {
+        "todo" => Some("todos"),
+        "calendar" => Some("calendar"),
+        "preparation" => Some("envelopes"),
+        _ => None,
+    }
+}
+
 async fn open_widget_inner(
     app: &tauri::AppHandle,
     state: &Arc<AppState>,
@@ -813,17 +822,8 @@ async fn open_widget_inner(
     if let Some((_, session)) = launcher {
         crate::app::launcher::accept_execution(state, session)?;
     }
-    if matches!(current.kind.as_str(), "todo" | "calendar" | "preparation") {
-        return crate::planner_windows::open(
-            app,
-            if current.kind == "calendar" {
-                "calendar"
-            } else if current.kind == "preparation" {
-                "envelopes"
-            } else {
-                "today"
-            },
-        );
+    if let Some(tab) = planner_tab_for_widget(&current.kind) {
+        return crate::planner_windows::open(app, tab);
     }
     let label = format!("widget-{id}");
     if let Some(window) = app.get_webview_window(&label) {
@@ -1087,6 +1087,16 @@ fn fallback_reaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn widget_navigation_opens_the_matching_planner_destination() {
+        assert_eq!(planner_tab_for_widget("todo"), Some("todos"));
+        assert_eq!(planner_tab_for_widget("calendar"), Some("calendar"));
+        assert_eq!(planner_tab_for_widget("preparation"), Some("envelopes"));
+        for kind in ["memo", "clock", "weather", "music", "focus-timer"] {
+            assert_eq!(planner_tab_for_widget(kind), None);
+        }
+    }
 
     #[test]
     fn created_widget_item_id_is_recovered_on_replay_without_duplicate_items() {

@@ -190,6 +190,59 @@ beforeEach(() => {
   };
 });
 
+it("opens the todo list from its deep link before native startup navigation resolves", async () => {
+  setTasks([task("todo-route", "위젯에서 연 할 일")]);
+  window.history.replaceState(null, "", "/?view=planner&tab=todos");
+  const existing = vi.mocked(command).getMockImplementation()!;
+  let finishNavigation!: (tab: string) => void;
+  vi.mocked(command).mockImplementation((name, args) =>
+    name === "get_planner_tab"
+      ? new Promise((resolve) => {
+          finishNavigation = resolve;
+        })
+      : existing(name, args),
+  );
+  render(<Diary />);
+  expect(await screen.findByRole("radiogroup", { name: "할 일 보기" })).toBeTruthy();
+  await act(async () => finishNavigation("todos"));
+  await waitFor(() => expect(actions("set_planner_tab").at(-1)).toEqual({ tab: "todos" }));
+  expect(screen.getByRole("link", { name: /^할 일/ }).getAttribute("aria-current")).toBe("page");
+});
+
+it("opens the todo list from native startup navigation without a URL tab", async () => {
+  setTasks([task("todo-route", "위젯에서 연 할 일")]);
+  const existing = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation((name, args) =>
+    name === "get_planner_tab" ? Promise.resolve("todos") : existing(name, args),
+  );
+  render(<Diary />);
+  expect(await screen.findByRole("radiogroup", { name: "할 일 보기" })).toBeTruthy();
+  await waitFor(() => expect(actions("set_planner_tab").at(-1)).toEqual({ tab: "todos" }));
+});
+
+it("keeps repeated todo open events on the list and preserves the today destination", async () => {
+  setTasks([task("todo-route", "위젯에서 연 할 일")]);
+  await openDiary();
+  for (const tab of ["todos", "todos", "today"]) {
+    act(() => {
+      for (const [event, callback] of vi.mocked(listen).mock.calls)
+        if (event === "planner-tab") callback({ event, id: 1, payload: tab });
+    });
+    await waitFor(() => expect(actions("set_planner_tab").at(-1)).toEqual({ tab }));
+    if (tab === "todos") {
+      expect(screen.getByRole("radiogroup", { name: "할 일 보기" })).toBeTruthy();
+      expect(screen.getByRole("link", { name: /^할 일/ }).getAttribute("aria-current")).toBe(
+        "page",
+      );
+    } else {
+      expect(screen.queryByRole("radiogroup", { name: "할 일 보기" })).toBeNull();
+      expect(screen.getByRole("link", { name: "오늘" }).getAttribute("aria-current")).toBe("page");
+    }
+  }
+  expect(actions("execute_widget")).toEqual([]);
+  expect(actions("update_diary")).toEqual([]);
+});
+
 it("opens the preparation collection from its initial deep link after widgets load", async () => {
   window.history.replaceState(null, "", "/?view=planner&tab=envelopes");
   widgets.widgets = [
