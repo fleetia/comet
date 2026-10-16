@@ -65,3 +65,5 @@ export const list = style({
   gap: 4,
   paddingBlock: 8,
 });
+
+export const categorySelect = style({ width: "100%" });
