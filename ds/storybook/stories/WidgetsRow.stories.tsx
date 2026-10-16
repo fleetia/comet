@@ -155,3 +155,25 @@ export const Desktop: Story = { name: "데스크톱", args: { layout: "desktop" 
 export const Flow: Story = { name: "짧은 행", args: { layout: "flow" } };
 export const Glow: Story = { name: "빛 표면", args: { surface: "glow" } };
 export const Disabled: Story = { name: "비활성", args: { disabled: true } };
+
+export const ClockLongAnniversary: Story = {
+  name: "좁은 시계 · 긴 기념일",
+  args: {
+    ...Clock.args,
+    title: "12:59:59",
+    period: "오후",
+    layout: "stack",
+    style: { width: 330 },
+    meta: (
+      <>
+        <strong>D-day</strong>
+        <br />
+        qa anniversary long title 0123456789
+      </>
+    ),
+  },
+};
+export const ClockLongAnniversaryEditor: Story = {
+  name: "좁은 시계 편집 · 긴 기념일",
+  args: { ...ClockLongAnniversary.args, layout: "editor" },
+};
