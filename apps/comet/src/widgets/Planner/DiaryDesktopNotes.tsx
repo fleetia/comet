@@ -13,6 +13,7 @@ export type DesktopNotesProps = {
   act: ToolAction;
   onCreate: () => Promise<boolean>;
   onOpenNote: (widget: WidgetView, noteId: string, putAway?: boolean) => Promise<boolean>;
+  linkTarget?: string;
   onAdd: (payload: WidgetDragPayload) => void;
 };
 
@@ -79,7 +80,9 @@ export function DiaryDesktopNoteDetail({
           <div className={ns.metadataRow}>
             <div className={ns.metadataCopy}>
               <span className={ns.metadataLabel}>연결</span>
-              <span className={ns.caption}>내 페이지에 붙이면 거기서도 함께 보여요.</span>
+              <span className={ns.caption}>
+                {props.linkTarget ?? "내 페이지에 붙이면 거기서도 함께 보여요."}
+              </span>
             </div>
             <CometButton
               variant="ghost"

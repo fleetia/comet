@@ -827,6 +827,7 @@ export function Diary(): ReactElement {
   }
   async function addWidgetItem(payload: WidgetDragPayload, targetDate?: string): Promise<void> {
     if (dropping.current || saving) return;
+    setNotice("");
     if (envelopeId && !targetDate) {
       setFailure("날짜나 내 페이지를 펼친 다음 연결해 주세요.");
       return;
@@ -834,7 +835,6 @@ export function Diary(): ReactElement {
     dropping.current = true;
     setAddingWidget(true);
     setFailure(null);
-    setNotice("");
     try {
       const fresh = await command<WidgetSnapshot>("get_widgets");
       latestWidgets.current = fresh.widgets;
@@ -981,6 +981,11 @@ export function Diary(): ReactElement {
             다시 불러오기
           </Button>
         </div>
+      )}
+      {notice && (
+        <p role="status" className={s.status}>
+          {notice}
+        </p>
       )}
       {completionUndo && (
         <div role="status" className={s.status}>
@@ -1157,6 +1162,9 @@ export function Diary(): ReactElement {
                     });
                     reload();
                   }).then(Boolean),
+                linkTarget: envelopeId
+                  ? "날짜나 내 페이지를 펼친 다음 연결해 주세요."
+                  : `연결 대상: ${pageId ? page?.title || "제목 없는 페이지" : day}`,
                 onAdd: (payload) => navigate(() => void addWidgetItem(payload)),
               }}
             />
@@ -1502,11 +1510,6 @@ export function Diary(): ReactElement {
               )}
               {!tool && (
                 <>
-                  {notice && (
-                    <p role="status" className={s.caption}>
-                      {notice}
-                    </p>
-                  )}
                   {!pageId && !envelopeId && !collection && view === "day" ? (
                     <DiaryToday
                       key={featureContentVersion}
