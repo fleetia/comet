@@ -34,6 +34,7 @@ const EMPTY = {
   error: null,
 };
 beforeEach(() => {
+  vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
   vi.spyOn(Date, "now").mockReturnValue(new Date("2026-09-15T12:00").getTime());
   act.mockReset();
   act.mockResolvedValue(true);
@@ -330,7 +331,7 @@ it("keeps supported music provider switches visible and requires a nonempty auto
   expect(providers.getByText("Windows 전용")).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Spotify 연결" })).toBeTruthy();
   fireEvent.click(providers.getByRole("switch", { name: "Apple Music · macOS" }));
-  fireEvent.click(providers.getByRole("switch", { name: "Spotify · macOS" }));
+  fireEvent.click(providers.getByRole("switch", { name: "Spotify · Spicetify" }));
   fireEvent.click(screen.getByLabelText("음악 앱 직접 연결 설정"));
   fireEvent.change(screen.getByLabelText("음악 앱"), { target: { value: "auto" } });
   expect(screen.getByRole("button", { name: "곡 정보 읽기 허용하고 연결" })).toHaveProperty(
@@ -338,7 +339,7 @@ it("keeps supported music provider switches visible and requires a nonempty auto
     true,
   );
   expect(command).not.toHaveBeenCalled();
-  fireEvent.click(providers.getByRole("switch", { name: "Spotify · macOS" }));
+  fireEvent.click(providers.getByRole("switch", { name: "Spotify · Spicetify" }));
   fireEvent.click(screen.getByRole("button", { name: "곡 정보 읽기 허용하고 연결" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("configure_connection_widget", {
