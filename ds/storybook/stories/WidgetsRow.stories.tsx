@@ -156,6 +156,36 @@ export const Flow: Story = { name: "짧은 행", args: { layout: "flow" } };
 export const Glow: Story = { name: "빛 표면", args: { surface: "glow" } };
 export const Disabled: Story = { name: "비활성", args: { disabled: true } };
 
+const longCalendarTitle =
+  "qa long calendar alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega";
+export const LongCalendarStack: Story = {
+  name: "좁은 캘린더 · 긴 일정 제목",
+  args: {
+    kind: "envelope",
+    icon: "calendar",
+    title: "캘린더",
+    description: longCalendarTitle,
+    value: "오후 10:50",
+    layout: "stack",
+    surface: "translucent",
+    phase: "ready",
+    style: { width: 330 },
+  },
+};
+export const LongCalendarEditor: Story = {
+  ...LongCalendarStack,
+  name: "편집기 · 긴 일정 제목",
+  args: { ...LongCalendarStack.args, layout: "editor" },
+};
+export const LongMusicDescription: Story = {
+  name: "좁은 음악 · 긴 설명",
+  args: {
+    ...Music.args,
+    description: "별빛정원과 함께 걷는 아주 긴 밤의 산책 · Apple Music에서 재생 중",
+    layout: "stack",
+    style: { width: 330 },
+  },
+};
 export const ClockLongAnniversary: Story = {
   name: "좁은 시계 · 긴 기념일",
   args: {

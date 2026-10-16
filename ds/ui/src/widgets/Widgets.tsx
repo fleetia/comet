@@ -87,7 +87,11 @@ export function WidgetRow({
           {title}
           {period && <small className={styles.rowPeriod}>{period}</small>}
         </span>
-        {description && <span className={styles.small}>{description}</span>}
+        {description && (
+          <span className={styles.rowDescription} title={description}>
+            {description}
+          </span>
+        )}
       </span>
       {value !== undefined && (
         <span

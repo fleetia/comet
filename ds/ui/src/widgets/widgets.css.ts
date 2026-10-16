@@ -83,6 +83,11 @@ export const rowPeriod = style({
 globalStyle(`${layouts.editor} ${rowTitle}`, { fontSize: 14, lineHeight: "19px" });
 globalStyle(`${layouts.editor} ${rowClockTitle}`, { fontSize: 22, lineHeight: "26px" });
 export const small = style({ color: tokens["color/ink-2"], fontSize: 11.5, lineHeight: "15px" });
+// Row layouts have fixed heights; long summaries must not cover adjacent controls.
+export const rowDescription = style([
+  small,
+  { overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" },
+]);
 export const rowValue = style({
   display: "flex",
   alignItems: "center",
