@@ -5,7 +5,7 @@ const meta = {
   title: "UI/Widgets/EnvelopeFreeform",
   component: EnvelopeFreeform,
   tags: ["autodocs"],
-  args: { title: "가족 여행", date: "10월 24일 (토)", completed: 2, total: 9 },
+  args: { label: "준비 봉투", title: "가족 여행", date: "10월 24일 (토)", completed: 2, total: 9 },
   argTypes: {
     title: {
       control: "text",

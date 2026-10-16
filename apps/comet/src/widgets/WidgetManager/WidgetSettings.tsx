@@ -1,11 +1,10 @@
-import { useEffect, useId, useState, type ReactElement, type ReactNode } from "react";
-import { Button, Surface, Text } from "../../ui";
+import { useEffect, useState, type ReactElement, type ReactNode } from "react";
+
 import { CalendarTool } from "../CalendarTool/CalendarTool";
-import { ConnectionObservation, ConnectionTool } from "../ConnectionTools/ConnectionTools";
+import { ConnectionTool } from "../ConnectionTools/ConnectionTools";
 import { FocusWidgetSettings } from "../PlanningTools/FocusWidgetSettings";
 import { PreparationSettings } from "../PreparationTool/PreparationSettings";
-import { ClockTool } from "../PlanningTools/PlanningTools";
-import { WidgetAppearance } from "../WidgetAppearance/WidgetAppearance";
+import { ClockSettings, ClockTool } from "../PlanningTools/PlanningTools";
 import type { ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import * as styles from "./widgetSettings.css";
@@ -18,12 +17,11 @@ export const CONFIGURABLE_WIDGETS = [
   "focus-timer",
   "preparation",
 ];
-export const DISPLAY_KINDS = ["clock", "weather"];
 const SETTINGS_LABELS: Record<string, string> = {
   calendar: "캘린더 연결과 알림",
   weather: "지역과 연결",
   music: "음악 앱 연결",
-  clock: "기념일",
+  clock: "시계와 기념일",
   "focus-timer": "집중 타이머 설정",
   preparation: "준비 봉투 설정",
 };
@@ -32,24 +30,24 @@ export function WidgetSettings({
   widget,
   widgets = [],
   sideContainer,
+  onConnectionOpenChange,
   onOpenRelated,
   active,
   act,
   onDirtyChange,
   onBusyChange,
-  displayControls,
   related,
   disabled,
 }: {
   widget: WidgetView;
   widgets?: WidgetView[];
   sideContainer?: HTMLElement | null;
+  onConnectionOpenChange?: (open: boolean) => void;
   onOpenRelated?: (kind: string) => void;
   active: boolean;
   act: ToolAction;
   onDirtyChange: (id: string, dirty: boolean) => void;
   onBusyChange?: (id: string, busy: boolean) => void;
-  displayControls?: ReactNode;
   related?: ReactNode;
   disabled?: boolean;
 }): ReactElement {
@@ -59,19 +57,13 @@ export function WidgetSettings({
     return () => onBusyChange?.(widget.id, false);
   }, [widget.id, connectionBusy, onBusyChange]);
   const [connectionDirty, setConnectionDirty] = useState(false);
-  const [appearanceDirty, setAppearanceDirty] = useState(false);
-  const [appearanceOpen, setAppearanceOpen] = useState(false);
-  const [appearanceActions, setAppearanceActions] = useState<HTMLDivElement | null>(null);
-  const appearanceId = useId();
   useEffect(() => {
-    onDirtyChange(widget.id, connectionDirty || appearanceDirty);
-  }, [widget.id, connectionDirty, appearanceDirty, onDirtyChange]);
+    onDirtyChange(widget.id, connectionDirty);
+  }, [widget.id, connectionDirty, onDirtyChange]);
   useEffect(() => () => onDirtyChange(widget.id, false), [widget.id, onDirtyChange]);
   const configure: ToolAction = (action, input, target = widget) => act(action, input, target);
-  const hasAppearance = DISPLAY_KINDS.includes(widget.kind);
-  const showAppearanceActions = appearanceOpen || appearanceDirty;
   return (
-    <Surface data-widget-settings className={styles.settings}>
+    <div data-widget-settings className={styles.settings}>
       <div className={styles.body} data-widget-settings-body>
         <section className={styles.primary} aria-label={SETTINGS_LABELS[widget.kind]}>
           <fieldset className={styles.fields} disabled={disabled}>
@@ -80,8 +72,12 @@ export function WidgetSettings({
                 widget={widget}
                 act={configure}
                 mode="settings"
+                sideContainer={sideContainer}
+                onConnectionOpenChange={onConnectionOpenChange}
+                disabled={disabled}
                 active={active}
                 onDirtyChange={setConnectionDirty}
+                onBusyChange={setConnectionBusy}
               />
             )}
             {["weather", "music"].includes(widget.kind) && (
@@ -112,6 +108,7 @@ export function WidgetSettings({
                 onOpenRelated={(item) => onOpenRelated?.(item.kind)}
               />
             )}
+            {widget.kind === "clock" && <ClockSettings widget={widget} act={configure} />}
             {widget.kind === "clock" && (
               <ClockTool
                 widget={widget}
@@ -124,50 +121,7 @@ export function WidgetSettings({
           </fieldset>
           {related}
         </section>
-        {hasAppearance && (
-          <section className={styles.secondary} aria-label="바탕화면 표시">
-            {displayControls}
-            <Button
-              variant="quiet"
-              className={styles.disclosure}
-              aria-label="바탕화면 꾸미기"
-              aria-expanded={appearanceOpen}
-              aria-controls={appearanceId}
-              onClick={() => setAppearanceOpen((open) => !open)}
-            >
-              <span aria-hidden="true">{appearanceOpen ? "⌄" : "›"}</span>
-              <span>바탕화면 꾸미기</span>
-              <Text variant="caption" tone="muted" className={styles.disclosureHint}>
-                {appearanceDirty ? "변경사항 있음" : "배경 · 글자 · 위치"}
-              </Text>
-            </Button>
-            <div id={appearanceId} className={styles.appearance} hidden={!appearanceOpen}>
-              <WidgetAppearance
-                widget={widget}
-                onDirtyChange={setAppearanceDirty}
-                active={active && showAppearanceActions}
-                actionContainer={appearanceActions}
-                disabled={disabled}
-              />
-            </div>
-          </section>
-        )}
-        {widget.kind === "weather" && (
-          <details className={styles.observation}>
-            <summary className={styles.observationSummary}>최근 날씨 정보</summary>
-            <ConnectionObservation widget={widget} />
-          </details>
-        )}
       </div>
-      {hasAppearance && (
-        <div
-          className={styles.actions}
-          data-appearance-actions
-          data-compact-appearance-actions
-          hidden={!showAppearanceActions}
-          ref={setAppearanceActions}
-        />
-      )}
-    </Surface>
+    </div>
   );
 }

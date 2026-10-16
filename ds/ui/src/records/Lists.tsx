@@ -154,7 +154,7 @@ export function SettingControlRow({
         <span className={styles.taskTitle}>{title}</span>
         {description && <span className={`${styles.caption} ${styles.muted}`}>{description}</span>}
       </span>
-      {control}
+      <span className={styles.settingControl}>{control}</span>
     </div>
   );
 }
@@ -376,6 +376,7 @@ export type SettingsSummaryProps = Omit<
   count?: ReactNode;
   leading?: ReactNode;
   trailing?: ReactNode;
+  trailingAction?: { label: ReactNode; icon?: IconName };
   badges?: readonly ReactNode[];
   variant?: keyof typeof styles.summaryLayouts;
   selected?: boolean;
@@ -388,6 +389,7 @@ export const SettingsSummary = forwardRef<HTMLButtonElement, SettingsSummaryProp
       count,
       leading,
       trailing = <Icon name="chev" size={16} />,
+      trailingAction,
       badges,
       variant = "plain",
       selected,
@@ -433,7 +435,12 @@ export const SettingsSummary = forwardRef<HTMLButtonElement, SettingsSummaryProp
       {count !== undefined && count !== null && variant !== "avatarCount" && (
         <span className={`${styles.body} ${styles.noWrap}`}>{count}</span>
       )}
-      {trailing}
+      {trailingAction ? (
+        <span className={styles.summaryAction} aria-hidden="true">
+          {trailingAction.icon && <Icon name={trailingAction.icon} size={15} />}
+          {trailingAction.label}
+        </span>
+      ) : trailing}
     </button>
   ),
 );

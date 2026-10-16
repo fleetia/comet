@@ -63,6 +63,47 @@ export function FocusWidgetSettings({
       setDurationBase(savedDuration);
     }
   }, [widget.revision, savedDuration, durationDirty]);
+  const idle = data.status === undefined || data.status === "idle";
+  const durationValid =
+    Boolean(duration.trim()) &&
+    Number.isFinite(Number(duration)) &&
+    Number(duration) >= 1 &&
+    Number(duration) <= 1440;
+  const failedDuration = useRef<string | null>(null);
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    if (
+      !durationDirty ||
+      !durationValid ||
+      durationConflict ||
+      !idle ||
+      locked.current ||
+      settingsBusy ||
+      failedDuration.current === duration
+    )
+      return;
+    const value = duration;
+    const timer = window.setTimeout(() => {
+      void configure({ durationMs: Math.round(Number(value) * 60000) }).then((saved) => {
+        if (saved) {
+          failedDuration.current = null;
+          durationSavedRevision.current = widget.revision;
+          setDurationBase(Number(value));
+        } else failedDuration.current = value;
+      });
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [duration, durationDirty, durationValid, durationConflict, idle, settingsBusy, busy, retry]);
+  function loadLatestDuration(): void {
+    const value =
+      durationSavedRevision.current !== null && widget.revision <= durationSavedRevision.current
+        ? durationBase
+        : savedDuration;
+    failedDuration.current = null;
+    setDuration(String(value));
+    setDurationBase(value);
+    setError("");
+  }
   async function configure(input: DataRecord): Promise<boolean> {
     if (locked.current || settingsBusy) return false;
     locked.current = true;
@@ -82,66 +123,52 @@ export function FocusWidgetSettings({
       setBusy(false);
     }
   }
-  return (
-    <section className={s.pane} aria-label="집중 타이머 설정">
+  const durationControl = (
+    <>
       <SettingControlRow
+        className={s.settingRow}
         title="기본 집중 시간"
-        description="다음 집중을 준비할 때 사용하는 시간이에요"
+        description="시작 화면의 처음 값이에요"
         control={
           <Stepper
+            size="compact"
             aria-label="기본 집중 시간 (분)"
             min={1}
             max={1440}
             unit="분"
             value={duration}
-            disabled={busy || settingsBusy || (data.status !== undefined && data.status !== "idle")}
+            disabled={busy || settingsBusy || !idle}
             onChange={(event) => setDuration(event.target.value)}
             onValueChange={(value) => setDuration(String(value))}
           />
         }
       />
-      {durationConflict && (
+      {durationDirty && !durationValid && (
         <p role="alert" className={s.error}>
-          집중 시간이 다른 곳에서 바뀌었어요. 입력을 취소하고 최신 값을 확인해 주세요.
+          기본 집중 시간은 1~1440분으로 입력해 주세요.
         </p>
       )}
-      {durationDirty && (
+      {durationConflict && (
+        <p role="alert" className={s.error}>
+          집중 시간이 다른 곳에서 바뀌었어요. 최신 값을 불러온 뒤 다시 바꿔 주세요.
+        </p>
+      )}
+      {(durationConflict || (error && durationDirty)) && (
         <div className={s.row}>
-          <Button
-            disabled={
-              busy ||
-              settingsBusy ||
-              durationConflict ||
-              !duration.trim() ||
-              !Number.isFinite(Number(duration)) ||
-              Number(duration) < 1 ||
-              Number(duration) > 1440 ||
-              (data.status !== undefined && data.status !== "idle")
-            }
-            onClick={async () => {
-              if (await configure({ durationMs: Math.round(Number(duration) * 60000) })) {
-                durationSavedRevision.current = widget.revision;
-                setDurationBase(Number(duration));
-              }
-            }}
-          >
-            집중 시간 저장
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={busy || settingsBusy}
-            onClick={() => {
-              const value =
-                durationSavedRevision.current !== null &&
-                widget.revision <= durationSavedRevision.current
-                  ? durationBase
-                  : savedDuration;
-              setDuration(String(value));
-              setDurationBase(value);
-              setError("");
-            }}
-          >
-            집중 시간 변경 취소
+          {!durationConflict && (
+            <Button
+              disabled={busy || settingsBusy}
+              onClick={() => {
+                failedDuration.current = null;
+                setError("");
+                setRetry((value) => value + 1);
+              }}
+            >
+              다시 저장
+            </Button>
+          )}
+          <Button variant="ghost" disabled={busy || settingsBusy} onClick={loadLatestDuration}>
+            최신 값 불러오기
           </Button>
         </div>
       )}
@@ -150,13 +177,16 @@ export function FocusWidgetSettings({
           {error}
         </p>
       )}
+    </>
+  );
+  return (
+    <section className={s.settingsRoot} aria-label="집중 타이머 설정">
       <fieldset className={s.settingsFields} disabled={busy}>
         <FocusTimerSettings
           widget={widget}
           calendar={calendar}
           act={act}
-          embedded
-          onClose={() => undefined}
+          durationControl={durationControl}
           onDirtyChange={setSettingsDirty}
           onBusyChange={setSettingsBusy}
         />

@@ -7,6 +7,7 @@ const meta = {
   tags: ["autodocs"],
   args: { time: "3:24", date: "10월 12일 월", badge: "D+42" },
   argTypes: {
+    period: { control: "text" },
     time: {
       control: "text",
     },
@@ -35,3 +36,4 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Default: Story = { name: "자유 배치" };
+export const TwelveHour: Story = { name: "오전·오후 표시", args: { period: "오후" } };

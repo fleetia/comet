@@ -121,7 +121,7 @@ export const EnvelopeCard = forwardRef<HTMLButtonElement, EnvelopeCardProps>(
         .join(" ")}
     >
       <span className={styles.row}>
-        <Icon name="envelope" size={15} />
+        {layout !== "preview" && <Icon name="envelope" size={15} />}
         <span
           className={[styles.title, styles.grow, archived && styles.archived]
             .filter(Boolean)

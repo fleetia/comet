@@ -4,6 +4,8 @@ import { isDesktop } from "../../hooks/useSnapshot";
 import { record, text, type DataRecord } from "../toolData";
 import type { WidgetValue, WidgetView } from "../types";
 import { MusicLibrary } from "./MusicLibrary";
+import { Icon } from "@comet/icon";
+import { ContextMenu, IconButton, MusicWidget } from "@comet/ui";
 import {
   artworkUrl,
   finiteNumber,
@@ -32,61 +34,8 @@ function Artwork({ url, title }: { url: string | null; title: string }): ReactEl
     />
   ) : (
     <div className={s.artworkPlaceholder} aria-label="앨범 아트 없음">
-      <span aria-hidden="true">♫</span>
+      <Icon name="music" size={28} />
     </div>
-  );
-}
-
-function RangeControl({
-  label,
-  value,
-  max,
-  disabled,
-  format,
-  onCommit,
-}: {
-  label: string;
-  value: number;
-  max: number;
-  disabled: boolean;
-  format?: string;
-  onCommit: (value: number) => void;
-}): ReactElement {
-  const [draft, setDraft] = useState<number | null>(null);
-  function commit(): void {
-    if (draft !== null && !disabled) onCommit(draft);
-    setDraft(null);
-  }
-  return (
-    <input
-      className={s.range}
-      type="range"
-      aria-label={label}
-      aria-valuetext={format}
-      min={0}
-      max={Math.max(1, max)}
-      value={draft ?? Math.min(max, Math.max(0, value))}
-      disabled={disabled}
-      onChange={(event) => setDraft(Number(event.target.value))}
-      onPointerUp={commit}
-      onPointerCancel={() => setDraft(null)}
-      onKeyUp={(event) => {
-        if (
-          [
-            "ArrowLeft",
-            "ArrowRight",
-            "ArrowUp",
-            "ArrowDown",
-            "Home",
-            "End",
-            "PageUp",
-            "PageDown",
-          ].includes(event.key)
-        )
-          commit();
-      }}
-      onBlur={commit}
-    />
   );
 }
 
@@ -173,7 +122,15 @@ function SongInformation({
   );
 }
 
-export function MusicTool({ widget }: { widget: WidgetView }): ReactElement {
+export function MusicTool({
+  widget,
+  embedded = false,
+  onCollapse,
+}: {
+  widget: WidgetView;
+  embedded?: boolean;
+  onCollapse?: () => void;
+}): ReactElement {
   const data = record(widget.data),
     observation = record(data.observation),
     config = record(data.config);
@@ -184,6 +141,22 @@ export function MusicTool({ widget }: { widget: WidgetView }): ReactElement {
   const [expanded, setExpanded] = useState(false);
   const [tab, setTab] = useState("lyrics");
   const detailScroll = useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menu = useRef<HTMLDivElement>(null);
+  const menuTrigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    menu.current?.querySelector<HTMLButtonElement>("[role='menuitem']:not(:disabled)")?.focus();
+    function dismiss(event: PointerEvent): void {
+      if (event.target instanceof Node && !menu.current?.contains(event.target)) setMenuOpen(false);
+    }
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, [menuOpen]);
+  function closeMenu(): void {
+    setMenuOpen(false);
+    menuTrigger.current?.focus();
+  }
   useEffect(() => {
     if (detailScroll.current) {
       detailScroll.current.scrollTop = 0;
@@ -209,14 +182,12 @@ export function MusicTool({ widget }: { widget: WidgetView }): ReactElement {
   const position = musicPosition(observation, now, fresh),
     duration = finiteNumber(observation.durationMs);
   const playing = observation.playing === true;
-  const repeatModes = observation.provider === "spotify" ? ["off", "all"] : ["off", "all", "one"];
-  const nextRepeat =
-    repeatModes[(repeatModes.indexOf(text(observation.repeat)) + 1) % repeatModes.length];
   let state = playing ? "재생 중" : "일시정지";
   if (!title) state = observation.running === true ? "재생 대기" : "앱이 닫혀 있어요";
   if (!fresh && data.observation) state = "이전 정보";
   async function expand(value: boolean, selectedTab = tab): Promise<void> {
     if (
+      !embedded &&
       isDesktop() &&
       !(await invoke<void>("set_music_expanded", { id: widget.id, expanded: value }))
     )
@@ -229,127 +200,114 @@ export function MusicTool({ widget }: { widget: WidgetView }): ReactElement {
       <div className={s.empty}>
         <h2>음악과 함께</h2>
         <p>설정창의 위젯에서 음악 앱을 연결해 주세요.</p>
-        <p className={c.quiet}>현재 곡을 보고 이 위젯에서 재생을 제어할 수 있어요.</p>
+        <p className={c.quiet}>곡 정보만 읽어요. 재생과 음량은 음악 앱에서 바꿔요.</p>
+        <Button
+          variant="secondary"
+          disabled={busy}
+          onClick={() => void invoke<void>("open_planner_settings", { kind: "music" })}
+        >
+          음악 설정 열기
+        </Button>
+        {error && (
+          <p role="alert" className={c.error}>
+            {error}
+          </p>
+        )}
       </div>
     );
   return (
     <div className={s.root} data-expanded={expanded}>
-      <header className={s.fixed} aria-label="현재 곡과 재생 제어">
-        <div className={s.hero}>
-          {config.showArtwork !== false && (
-            <Artwork key={identity} url={artworkUrl(observation.artworkUrl)} title={title} />
-          )}
-          <div className={s.summary}>
-            <p className={s.source}>
-              <span aria-hidden="true">▪ </span>
-              {state}
-              {text(observation.source) && ` · ${text(observation.source)}`}
-            </p>
-            <h2 className={s.title}>{title || "지금은 조용한 시간"}</h2>
-            {(artist || album) && (
-              <p className={s.artist}>{[artist, album].filter(Boolean).join(" · ")}</p>
-            )}
-            <div className={s.timeline}>
-              <RangeControl
-                key={`${identity}:seek`}
-                label="재생 위치"
-                value={position ?? 0}
-                max={duration ?? 0}
-                disabled={!can("seek") || duration === null || position === null}
-                format={`${musicTime(position)} / ${musicTime(duration)}`}
-                onCommit={(value) => void request("seek", value)}
+      <header className={s.fixed} aria-label="현재 곡 정보">
+        <div className={s.primary}>
+          <MusicWidget
+            style={{ width: "100%" }}
+            title={title || "지금은 조용한 시간"}
+            onCollapse={onCollapse}
+            artist={artist}
+            album={album}
+            labels={{
+              heading: "음악 정보",
+              progress: "음악 재생 위치",
+              discuss: "이 곡 이야기하기",
+              openPlayer: `${text(observation.source).replace(/\s*·.*$/, "") || "음악 앱"} 열기`,
+              openPlayerAccessible: "음악 앱 열기",
+              share: "친구들이 이 곡 이야기하기",
+              shareDescription: "곡 제목과 아티스트만 대화에 써요",
+              disclaimer: "곡 정보만 읽어요. 재생과 음량은 그 앱에서 바꿔요.",
+              settings: "음악 정보 설정",
+            }}
+            onSettings={() => void invoke<void>("open_planner_settings", { kind: "music" })}
+            showArtwork={config.showArtwork !== false}
+            artwork={
+              config.showArtwork !== false ? (
+                <Artwork key={identity} url={artworkUrl(observation.artworkUrl)} title={title} />
+              ) : undefined
+            }
+            elapsed={musicTime(position)}
+            duration={musicTime(duration)}
+            progress={
+              duration && position !== null ? Math.min(1, Math.max(0, position / duration)) : 0
+            }
+            source={[text(observation.source), state].filter(Boolean).join(" · ")}
+            busy={busy}
+            shareEnabled={config.allowTalk !== false}
+            onShareChange={(allowTalk) =>
+              void invoke<void>("configure_connection_widget", {
+                id: widget.id,
+                input: { ...config, allowTalk },
+              })
+            }
+            onDiscuss={
+              fresh && title
+                ? () =>
+                    void invoke<void>("discuss_music_widget", {
+                      id: widget.id,
+                      expectedRevision: widget.revision,
+                    })
+                : undefined
+            }
+            onOpenPlayer={
+              ["music", "spotify", "spicetify"].includes(
+                text(observation.provider) || text(config.provider),
+              )
+                ? () => void request("open")
+                : undefined
+            }
+          />
+          <div ref={menu} className={s.moreMenu} data-collapse={Boolean(onCollapse) || undefined}>
+            <IconButton
+              ref={menuTrigger}
+              icon="more"
+              size="compact"
+              aria-label="음악 상세 메뉴"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              disabled={busy}
+              onClick={() => setMenuOpen((open) => !open)}
+            />
+            {menuOpen && (
+              <ContextMenu
+                className={s.morePanel}
+                label="음악 상세와 조회"
+                actions={[
+                  { id: "lyrics", label: "가사", disabled: busy },
+                  { id: "info", label: "곡 정보", disabled: busy },
+                  ...(capabilities.playlists === true
+                    ? [{ id: "playlists", label: "플레이리스트", disabled: busy }]
+                    : []),
+                  ...(capabilities.queue === true
+                    ? [{ id: "queue", label: "재생 대기열", disabled: busy }]
+                    : []),
+                  { id: "refresh", label: "다시 조회", disabled: busy, separatorBefore: true },
+                ]}
+                onAction={(action) => {
+                  closeMenu();
+                  if (action === "refresh")
+                    void invoke<void>("refresh_connection_widget", { id: widget.id });
+                  else void expand(true, action);
+                }}
+                onDismiss={closeMenu}
               />
-              <div className={s.time}>
-                <span>{musicTime(position)}</span>
-                <span>{musicTime(duration)}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className={s.controls} aria-label="재생 제어">
-          <div className={s.transport}>
-            <Button
-              variant="quiet"
-              size="compact"
-              aria-label="이전 곡"
-              disabled={!can("previous")}
-              onClick={() => void request("previous")}
-            >
-              이전
-            </Button>
-            <Button
-              variant="primary"
-              size="compact"
-              aria-label={playing ? "일시정지" : "재생"}
-              disabled={!can(playing ? "pause" : "play")}
-              onClick={() => void request(playing ? "pause" : "play")}
-            >
-              {playing ? "일시정지" : "재생"}
-            </Button>
-            <Button
-              variant="quiet"
-              size="compact"
-              aria-label="다음 곡"
-              disabled={!can("next")}
-              onClick={() => void request("next")}
-            >
-              다음
-            </Button>
-          </div>
-          <div className={s.secondaryControls}>
-            {capabilities.shuffle === true && (
-              <Button
-                variant="quiet"
-                size="compact"
-                aria-pressed={observation.shuffle === true}
-                disabled={!can("shuffle")}
-                onClick={() => void request("shuffle", observation.shuffle !== true)}
-              >
-                셔플
-              </Button>
-            )}
-            {capabilities.repeat === true && (
-              <Button
-                variant="quiet"
-                size="compact"
-                aria-label={`반복: ${{ off: "끔", all: "전체", one: "한 곡" }[text(observation.repeat)] ?? "끔"}`}
-                aria-pressed={observation.repeat !== "off" && !!observation.repeat}
-                disabled={!can("repeat")}
-                onClick={() => void request("repeat", nextRepeat)}
-              >
-                {observation.repeat === "one" ? "한 곡 반복" : "반복"}
-              </Button>
-            )}
-            {capabilities.like === true && (
-              <Button
-                variant="quiet"
-                size="compact"
-                aria-label={observation.liked === true ? "좋아요 취소" : "좋아요"}
-                aria-pressed={observation.liked === true}
-                disabled={!can("like") || !text(observation.trackId)}
-                onClick={() =>
-                  void request("like", {
-                    uri: text(observation.trackId),
-                    liked: observation.liked !== true,
-                  })
-                }
-              >
-                {observation.liked === true ? "♥" : "♡"}
-              </Button>
-            )}
-            {capabilities.volume === true && (
-              <label className={s.volume}>
-                <span>음량</span>
-                <RangeControl
-                  key={`${identity}:volume`}
-                  label="음량"
-                  value={finiteNumber(observation.volume) ?? 0}
-                  max={100}
-                  disabled={!can("volume") || finiteNumber(observation.volume) === null}
-                  format={`${finiteNumber(observation.volume) ?? 0}%`}
-                  onCommit={(value) => void request("volume", value)}
-                />
-              </label>
             )}
           </div>
         </div>
@@ -360,7 +318,7 @@ export function MusicTool({ widget }: { widget: WidgetView }): ReactElement {
         )}
         {!fresh && data.observation && (
           <p role="status" className={s.notice}>
-            현재 상태를 확인하지 못했어요. 다시 조회하면 제어할 수 있어요.
+            현재 상태를 확인하지 못했어요. 마지막으로 조회한 곡 정보를 보여 드려요.
           </p>
         )}
         {!data.observation && (
@@ -425,7 +383,6 @@ export function MusicTool({ widget }: { widget: WidgetView }): ReactElement {
                   mode="playlists"
                   can={can}
                   busy={busy}
-                  supportsEnqueue={capabilities.enqueue === true}
                   request={request}
                 />
               </TabPanel>
@@ -437,54 +394,13 @@ export function MusicTool({ widget }: { widget: WidgetView }): ReactElement {
                   mode="queue"
                   can={can}
                   busy={busy}
-                  supportsEnqueue={capabilities.enqueue === true}
                   request={request}
                 />
               </TabPanel>
             )}
           </div>
         </Tabs>
-      ) : (
-        <nav className={s.compactLinks} aria-label="음악 상세 보기">
-          <Button
-            variant="quiet"
-            size="compact"
-            disabled={busy}
-            onClick={() => void expand(true, "lyrics")}
-          >
-            가사
-          </Button>
-          <Button
-            variant="quiet"
-            size="compact"
-            disabled={busy}
-            onClick={() => void expand(true, "info")}
-          >
-            곡 정보
-          </Button>
-          {capabilities.playlists === true && (
-            <Button
-              variant="quiet"
-              size="compact"
-              disabled={busy}
-              onClick={() => void expand(true, "playlists")}
-            >
-              플레이리스트
-            </Button>
-          )}
-        </nav>
-      )}
-      <footer className={s.footer}>
-        <span className={c.quiet}>{fresh ? "로컬 연결" : "연결 확인 필요"}</span>
-        <Button
-          variant="quiet"
-          size="compact"
-          disabled={busy}
-          onClick={() => void invoke<void>("refresh_connection_widget", { id: widget.id })}
-        >
-          {busy ? "처리 중…" : "다시 조회"}
-        </Button>
-      </footer>
+      ) : null}
     </div>
   );
 }

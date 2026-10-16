@@ -38,6 +38,10 @@ export function SourceInventory(): JSX.Element {
         WidgetCreationProgress로 제공합니다. 전체 화면과 앱 상태·외부 서비스 연결은 포함하지
         않습니다.
       </p>
+      <p>
+        아직 라이브러리 노드와 대조하지 않은 코드 전용 export:{" "}
+        {inventory.unsynced.flatMap((entry) => entry.exports).join(", ")}
+      </p>
       <details>
         <summary>콘텐츠 자산과 연결 지점 {assets.length}개</summary>
         <table>

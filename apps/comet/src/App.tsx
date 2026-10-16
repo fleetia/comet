@@ -12,7 +12,9 @@ import { GeneratedWidgetTool } from "./widgets/GeneratedWidgets/GeneratedWidgetT
 import { WidgetStateRules } from "./widgets/GeneratedWidgets/WidgetStateRules";
 import { Launcher } from "./components/Launcher/Launcher";
 import { Diary } from "./widgets/Planner/Diary";
+import { WidgetStack } from "./widgets/WidgetDisplay/WidgetStack";
 import { WidgetDisplay } from "./widgets/WidgetDisplay/WidgetDisplay";
+import { WidgetEditor } from "./widgets/WidgetDisplay/WidgetEditor";
 import { MemoNote } from "./widgets/MemoNote/MemoNote";
 import { WindowHeader } from "./components/WindowHeader/WindowHeader";
 import { command, isDesktop, useSnapshot } from "./hooks/useSnapshot";
@@ -27,12 +29,20 @@ export function App(): JSX.Element {
   if (view === "widget-state-rules") return <WidgetStateRules id={query.get("id") ?? ""} />;
   if (view === "planner") return <Diary />;
   if (view === "desktop-toy") return <DesktopToy id={query.get("id") ?? ""} />;
+  if (view === "widget-stack") return <WidgetStack />;
   if (view === "widget-display") return <WidgetDisplay id={query.get("id") ?? ""} />;
+  if (view === "widget-editor") return <WidgetEditor />;
   if (view === "memo-note") {
     return <MemoNote id={query.get("id") ?? ""} noteId={query.get("noteId") ?? ""} />;
   }
   if (query.get("view") === "widget") {
-    return <WidgetTool id={query.get("id") ?? ""} characters={snapshot?.characters} />;
+    return (
+      <WidgetTool
+        id={query.get("id") ?? ""}
+        characters={snapshot?.characters}
+        userName={snapshot?.user?.name}
+      />
+    );
   }
   if (!snapshot) {
     return (

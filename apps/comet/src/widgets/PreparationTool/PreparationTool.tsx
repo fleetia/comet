@@ -1,362 +1,340 @@
-import { FormField, Button, Checkbox, Select, TextField } from "../../ui";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
-import { record, rows, text, type DataRecord, type ToolAction } from "../toolData";
+import { Button, EnvelopeCard, SegmentedControl } from "@comet/ui";
+import { Dialog, FormField, Select } from "../../ui";
+import { command, errorText } from "../../hooks/useSnapshot";
+import { localDay, record, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
-import { useConnectionCommand } from "../useConnectionCommand";
-import { WidgetDragHandle } from "../WidgetDragHandle";
-import { errorText } from "../../hooks/useSnapshot";
-import * as c from "../../lagrange.css";
-import * as s from "../tools.css";
+import { DiaryEnvelope, envelopeTitle } from "../Planner/DiaryEnvelope";
+import { useDiary } from "../Planner/useDiary";
+import { frequencyRecords, plannedDay, ruleOf } from "../Planner/plannerData";
+import { preparationFocusInput, preparationProgress } from "./preparationData";
+import * as s from "./preparationRuntime.css";
+
 export function PreparationTool({
   widget,
   widgets,
   act,
   onDirtyChange,
   onBusyChange,
+  selectedId,
 }: {
   widget: WidgetView;
   widgets: WidgetView[];
   act: ToolAction;
   onDirtyChange?: (dirty: boolean) => void;
   onBusyChange?: (busy: boolean) => void;
+  selectedId?: string;
 }): ReactElement {
+  const diary = useDiary();
   const envelopes = rows(record(widget.data).envelopes);
-  const calendar = widgets.find(
-    (item) => item.kind === "calendar" && item.installed && item.enabled,
+  const [archived, setArchived] = useState(false);
+  const [selected, setSelected] = useState(
+    selectedId || text(envelopes.find((value) => value.archived !== true)?.id || envelopes[0]?.id),
   );
-  const allEvents = rows(record(calendar?.data).events);
+  const [nextSelection, setNextSelection] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+  const [error, setError] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, { dirty: boolean; busy: boolean }>>({});
+  const reportDraft = useCallback(
+    (id: string, dirty: boolean, busy: boolean) =>
+      setDrafts((previous) => ({ ...previous, [id]: { dirty, busy } })),
+    [],
+  );
+  const taskRequest = useRef<{
+    id: string;
+    title: string;
+    targetId: string;
+    revision: number;
+    scope: string;
+  } | null>(null);
+  const report = useRef({ onDirtyChange, onBusyChange });
+  report.current = { onDirtyChange, onBusyChange };
+  const dirty = Object.values(drafts).some((value) => value.dirty);
+  const busy = Object.values(drafts).some((value) => value.busy) || diary.busy;
+  useEffect(() => {
+    report.current.onDirtyChange?.(dirty);
+    report.current.onBusyChange?.(busy);
+  }, [dirty, busy]);
+  useEffect(
+    () => () => {
+      report.current.onDirtyChange?.(false);
+      report.current.onBusyChange?.(false);
+    },
+    [],
+  );
+  useEffect(() => {
+    if (selectedId) setSelected(selectedId);
+  }, [selectedId]);
+  const calendar = widgets.find(
+    (value) => value.kind === "calendar" && value.installed && value.enabled,
+  );
+  const todo = widgets.find((value) => value.kind === "todo" && value.installed && value.enabled);
+  const timer = widgets.find(
+    (value) => value.kind === "focus-timer" && value.installed && value.enabled,
+  );
   const connections = rows(record(calendar?.data).connections);
+  const allEvents = rows(record(calendar?.data).events);
   const events = allEvents.filter(
     (event) =>
       event.cancelled !== true &&
-      typeof event.connectionId === "string" && event.connectionId.trim() !== "" &&
+      typeof event.connectionId === "string" &&
+      event.connectionId.trim() &&
       (event.connectionId === "local" ||
-        connections.some((connection) => connection.id === event.connectionId)),
+        connections.some((value) => value.id === event.connectionId)),
   );
-  const { busy, error, run } = useConnectionCommand();
-  const todos = rows(
-    record(widgets.find((item) => item.kind === "todo" && item.installed && item.enabled)?.data)
-      .items,
-  );
-  const [eventId, setEventId] = useState("");
-  const [envelopeName, setEnvelopeName] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState("");
-  const [drafts, setDrafts] = useState<Record<string, { dirty: boolean; busy: boolean }>>({});
-  const reportDraft = useCallback((id: string, dirty: boolean, busy: boolean) => {
-    setDrafts((previous) => ({ ...previous, [id]: { dirty, busy } }));
-  }, []);
-  const report = useRef({ onDirtyChange, onBusyChange });
-  report.current = { onDirtyChange, onBusyChange };
-  const createPending = useRef(false);
-  const mounted = useRef(true);
-  const scope = useRef({ id: widget.id, version: 0 });
-  if (scope.current.id !== widget.id) scope.current = { id: widget.id, version: scope.current.version + 1 };
-  const dirty = Boolean(
-    envelopeName || eventId || Object.values(drafts).some((draft) => draft.dirty),
-  );
-  const saving = creating || Object.values(drafts).some((draft) => draft.busy);
-  useEffect(() => {
-    report.current.onDirtyChange?.(dirty);
-    report.current.onBusyChange?.(saving);
-  }, [dirty, saving]);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      report.current.onDirtyChange?.(false);
-      report.current.onBusyChange?.(false);
-    };
-  }, []);
-  const chosen = events.find((event) => event.id === eventId);
+  const items = rows(record(todo?.data).items);
+  const envelope =
+    envelopes.find((value) => value.id === selected) ||
+    envelopes.find((value) => Boolean(value.archived) === archived) ||
+    envelopes[0];
+  const event = allEvents.find((value) => value.id === envelope?.eventId);
+  const source = connections.find((value) => value.id === event?.connectionId);
+  const connectionMessage = !text(envelope?.eventId)
+    ? ""
+    : !calendar
+      ? "연결 끊김 · 캘린더가 꺼져 있거나 제거되었습니다. 준비 내용은 계속 편집할 수 있어요."
+      : !event || event.cancelled === true || (!source && event.connectionId !== "local")
+        ? "연결 끊김 · 원본 일정을 현재 찾을 수 없거나 취소되었습니다. 준비 내용은 보존됩니다."
+        : event.connectionId === "local"
+          ? ""
+          : source?.status === "syncing"
+            ? "일정 조회 중 · 마지막으로 확인한 준비 내용을 표시합니다."
+            : source?.status !== "ready"
+              ? "이전 일정 정보 · 원본 연결이 최신 상태가 아닙니다. 캘린더 연결을 확인해 주세요."
+              : "";
+  function select(id: string): void {
+    if (busy) return;
+    if (dirty) setNextSelection(id);
+    else setSelected(id);
+  }
+  async function openDiary(): Promise<void> {
+    try {
+      await command("open_planner_view", { tab: "envelopes" });
+    } catch (cause) {
+      setError(errorText(cause));
+    }
+  }
   return (
-    <>
+    <section className={s.root} aria-label="준비 봉투">
+      {!selectedId && (
+        <header className={s.header}>
+          <h1 className={s.title}>준비 봉투</h1>
+          <div className={s.actions}>
+            <SegmentedControl
+              label="준비 봉투 상태"
+              value={archived ? "archived" : "preparing"}
+              options={[
+                { value: "preparing", label: "준비 중" },
+                { value: "archived", label: "보관함" },
+              ]}
+              onValueChange={(value) => setArchived(value === "archived")}
+              disabled={busy}
+            />
+            <Button size="small" onClick={() => void openDiary()}>
+              준비 봉투 만들기
+            </Button>
+          </div>
+        </header>
+      )}
       {error && (
-        <p className={c.error} role="alert">
+        <p className={s.error} role="alert">
           {error}
         </p>
       )}
-      <p className={c.quiet}>
-        날짜가 정해지기 전부터 준비할 것과 자료를 모아두세요. 일정은 나중에 연결해도 돼요.
-      </p>
-      {createError && (
-        <p className={c.error} role="alert">
-          {createError}
-        </p>
-      )}
-      <form
-        className={s.body}
-        onSubmit={async (e) => {
-          e.preventDefault();
-          const name = envelopeName.trim() || text(chosen?.title);
-          if (!name || createPending.current) return;
-          createPending.current = true;
-          const version = scope.current.version;
-          setCreating(true);
-          setCreateError("");
-          try {
-            const ok = await act("create", {
-              title: name,
-              ...(chosen ? { eventId, eventLabel: text(chosen.title) } : {}),
-            });
-            if (!mounted.current || version !== scope.current.version) return;
-            if (ok) {
-              setEnvelopeName("");
-              setEventId("");
-            } else setCreateError("준비 봉투를 만들지 못했어요. 입력한 내용은 남아 있어요.");
-          } catch (cause) {
-            if (mounted.current && version === scope.current.version) setCreateError(errorText(cause));
-          } finally {
-            createPending.current = false;
-            if (mounted.current) setCreating(false);
-          }
-        }}
-      >
-        <FormField className={c.field} label="준비 봉투 이름" required>
-          <TextField
-            maxLength={500}
-            value={envelopeName}
-            disabled={creating}
-            placeholder={text(chosen?.title) || "무엇을 준비하나요?"}
-            onChange={(e) => setEnvelopeName(e.target.value)}
-          />
-        </FormField>
-        {events.length > 0 && (
-          <FormField className={c.field} label="준비할 일정 (선택)">
-            <Select
-              value={eventId}
-              disabled={creating}
-              onChange={(e) => {
-                setEventId(e.target.value);
-                if (!envelopeName.trim())
-                  setEnvelopeName(text(events.find((event) => event.id === e.target.value)?.title));
-              }}
-            >
-              <option value="">날짜 없이 시작</option>
-              {events.map((event) => (
-                <option key={text(event.id)} value={text(event.id)}>
-                  {text(event.title)} {text(event.startDate)}
-                </option>
-              ))}
-            </Select>
-          </FormField>
-        )}
-        <Button type="submit" variant="primary" disabled={creating || !envelopeName.trim()}>
-          준비 봉투 만들기
-        </Button>
-      </form>
-      {envelopes.map((envelope) => (
-        <Envelope
-          key={`${widget.id}:${text(envelope.id)}`}
-          widget={widget}
-          widgetId={widget.id}
-          envelope={envelope}
-          todos={todos}
-          act={act}
-          event={allEvents.find((item) => item.id === envelope.eventId)}
-          connections={connections}
-          hasCalendar={Boolean(calendar)}
-          events={events}
-          reportDraft={reportDraft}
-          openingLink={busy}
-          openLink={(url) => run("open_widget_link", { id: widget.id, url })}
-        />
-      ))}
-    </>
-  );
-}
-function Envelope({
-  widget,
-  widgetId,
-  envelope,
-  todos,
-  act,
-  event,
-  connections,
-  hasCalendar,
-  openingLink,
-  openLink,
-  events,
-  reportDraft,
-}: {
-  widget: WidgetView;
-  widgetId: string;
-  envelope: DataRecord;
-  todos: DataRecord[];
-  act: ToolAction;
-  event: DataRecord | undefined;
-  connections: DataRecord[];
-  hasCalendar: boolean;
-  openingLink: boolean;
-  openLink: (url: string) => Promise<boolean>;
-  events: DataRecord[];
-  reportDraft: (id: string, dirty: boolean, busy: boolean) => void;
-}): ReactElement {
-  const [check, setCheck] = useState(""),
-    [title, setTitle] = useState(""),
-    [url, setUrl] = useState(""),
-    [todoId, setTodoId] = useState("");
-  const id = text(envelope.id);
-  const connection = connections.find((item) => item.id === event?.connectionId);
-  let connectionMessage: string | null = null;
-  if (!text(envelope.eventId)) {
-    connectionMessage = null;
-  } else if (!hasCalendar) {
-    connectionMessage =
-      "연결 끊김 · 캘린더가 꺼져 있거나 제거되었습니다. 준비 내용은 계속 편집할 수 있어요.";
-  } else if (
-    !event ||
-    event.cancelled === true ||
-    (!connection && event.connectionId !== "local")
-  ) {
-    connectionMessage =
-      "연결 끊김 · 원본 일정을 현재 찾을 수 없거나 취소되었습니다. 준비 내용은 보존됩니다.";
-  } else if (event.connectionId === "local") {
-    connectionMessage = null;
-  } else if (connection?.status === "syncing") {
-    connectionMessage = "일정 조회 중 · 마지막으로 확인한 준비 내용을 표시합니다.";
-  } else if (connection?.status !== "ready") {
-    connectionMessage =
-      "이전 일정 정보 · 원본 연결이 최신 상태가 아닙니다. 캘린더 연결을 확인해 주세요.";
-  }
-  const linked = Array.isArray(envelope.todoIds)
-    ? envelope.todoIds.filter((value): value is string => typeof value === "string")
-    : [];
-  return (
-    <section className={s.item}>
-      <h2 className={s.sectionTitle}>
-        <WidgetDragHandle
-          payload={{ v: 1, kind: "envelope", widgetId, itemId: id }}
-          title={text(envelope.title) || text(envelope.eventLabel) || "준비 봉투"}
-        />
-        {text(envelope.title) || text(envelope.eventLabel) || "준비 봉투"}
-        {envelope.archived === true ? " · 보관됨" : ""}
-      </h2>
       {connectionMessage && (
-        <p className={c.quiet} role="status">
+        <p className={s.caption} role="status">
           {connectionMessage}
         </p>
       )}
-      <EnvelopeSchedule
-        widget={widget}
-        envelope={envelope}
-        events={events}
-        act={act}
-        reportDraft={reportDraft}
-      />
-      {rows(envelope.checks).map((item) => (
-        <div key={text(item.id)} className={s.row}>
-          <Checkbox
-            checked={item.done === true}
-            onChange={() => void act("check-toggle", { id, checkId: text(item.id) })}
-          >
-            {text(item.text)}
-          </Checkbox>
-          <Button
-            variant="quiet"
-            onClick={() => void act("check-delete", { id, checkId: text(item.id) })}
-          >
-            체크 삭제
-          </Button>
-        </div>
-      ))}
-      <form
-        className={s.composer}
-        onSubmit={async (e) => {
-          e.preventDefault();
-          if (await act("check-add", { id, text: check })) {
-            setCheck("");
-          }
-        }}
-      >
-        <FormField className={c.field} label="준비할 것" required>
-          <TextField maxLength={1000} value={check} onChange={(e) => setCheck(e.target.value)} />
-        </FormField>
-        <Button type="submit" variant="secondary">
-          체크 추가
-        </Button>
-      </form>
-      {rows(envelope.links).map((link) => (
-        <div key={text(link.id)} className={s.row}>
-          <Button
-            variant="secondary"
-            disabled={openingLink}
-            onClick={() => void openLink(text(link.url))}
-          >
-            {text(link.title)}
-          </Button>
-          <Button
-            variant="quiet"
-            onClick={() => void act("link-delete", { id, linkId: text(link.id) })}
-          >
-            링크 삭제
-          </Button>
-        </div>
-      ))}
-      <details className={s.disclosure}>
-        <summary>자료 링크 추가</summary>
-        <form
-          className={s.composer}
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (await act("link-add", { id, title, url })) {
-              setTitle("");
-              setUrl("");
+      <div className={s.workspace} data-single={Boolean(selectedId)}>
+        {!selectedId && (
+          <aside className={s.list} aria-label="준비 봉투 목록">
+            <span className={s.caption}>
+              {archived ? "보관함" : "준비 중"} ·{" "}
+              {envelopes.filter((value) => Boolean(value.archived) === archived).length}
+            </span>
+            {envelopes
+              .filter((value) => Boolean(value.archived) === archived)
+              .map((value) => (
+                <EnvelopeCard
+                  key={text(value.id)}
+                  title={envelopeTitle(value)}
+                  description={text(value.date) || text(value.eventLabel) || "날짜 없이 준비 중"}
+                  selected={value.id === envelope?.id}
+                  archived={value.archived === true}
+                  {...preparationProgress(value, items)}
+                  disabled={busy}
+                  onClick={() => select(text(value.id))}
+                />
+              ))}
+          </aside>
+        )}
+        {envelope ? (
+          <DiaryEnvelope
+            key={`${widget.id}:${text(envelope.id)}:${version}`}
+            envelope={envelope}
+            preparation={widget}
+            items={items}
+            events={events}
+            notes={diary.state?.notes ?? []}
+            pages={diary.state?.pages ?? []}
+            busy={busy}
+            act={(action, input, target) => act(action, input, target ?? widget)}
+            diaryAction={async (action, input) => Boolean(await diary.mutate(action, input))}
+            onDirtyChange={(value) => reportDraft(`detail:${text(envelope.id)}`, value, false)}
+            onBusyChange={(value) => reportDraft(`detail-busy:${text(envelope.id)}`, false, value)}
+            scheduleEditor={
+              <EnvelopeSchedule
+                widget={widget}
+                envelope={envelope}
+                events={events}
+                act={act}
+                reportDraft={reportDraft}
+              />
             }
-          }}
-        >
-          <FormField className={c.field} label="자료 이름" required>
-            <TextField maxLength={500} value={title} onChange={(e) => setTitle(e.target.value)} />
-          </FormField>
-          <FormField className={c.field} label="자료 주소" required>
-            <TextField type="url" value={url} onChange={(e) => setUrl(e.target.value)} />
-          </FormField>
-          <Button type="submit" variant="secondary">
-            자료 링크 추가
+            onPlanTask={async (item) => {
+              if (!todo) return false;
+              const fromDate = plannedDay(item);
+              return fromDate
+                ? Boolean(
+                    await diary.mutate("move-record", {
+                      todoId: text(item.id),
+                      fromDate,
+                      toDate: localDay(),
+                      title: text(item.title),
+                    }),
+                  )
+                : act("plan", { ids: [text(item.id)], date: localDay() }, todo);
+            }}
+            onToggleTask={async (item) => {
+              if (!todo) return false;
+              const frequency = ruleOf(item).mode === "frequency";
+              const entry = frequencyRecords(item, localDay()).find(
+                (value) => value.date === localDay(),
+              );
+              return act(
+                frequency
+                  ? entry
+                    ? "undo-frequency"
+                    : "record-frequency"
+                  : typeof item.completedAt === "number"
+                    ? "undo"
+                    : "complete",
+                {
+                  id: text(item.id),
+                  ...(frequency
+                    ? entry
+                      ? { recordId: text(entry.id) }
+                      : { date: localDay() }
+                    : {}),
+                },
+                todo,
+              );
+            }}
+            onCreateTask={async (title) => {
+              if (!todo) {
+                setError("할 일 위젯을 켜면 봉투에서 바로 할 일을 만들 수 있어요.");
+                await command("open_planner_settings", { kind: "todo" });
+                return null;
+              }
+              if (
+                !taskRequest.current ||
+                taskRequest.current.title !== title ||
+                taskRequest.current.targetId !== todo.id ||
+                taskRequest.current.scope !== `${widget.id}:${text(envelope.id)}`
+              )
+                taskRequest.current = {
+                  id: crypto.randomUUID(),
+                  title,
+                  targetId: todo.id,
+                  revision: todo.revision,
+                  scope: `${widget.id}:${text(envelope.id)}`,
+                };
+              const request = taskRequest.current;
+              const id = await command<string | null>("execute_widget", {
+                request: {
+                  requestId: request.id,
+                  instanceId: request.targetId,
+                  expectedRevision: request.revision,
+                  action: "add",
+                  input: { title, plannedDate: null },
+                },
+              });
+              if (typeof id === "string" && id) {
+                if (taskRequest.current === request) taskRequest.current = null;
+                return id;
+              }
+              return null;
+            }}
+            onFocusEnvelope={() => {
+              void (async () => {
+                if (!timer) {
+                  await command("open_planner_settings", { kind: "focus-timer" });
+                  return;
+                }
+                if (
+                  await act(
+                    "start",
+                    preparationFocusInput(
+                      envelope,
+                      events.find((value) => value.id === envelope.eventId),
+                      calendar,
+                    ),
+                    timer,
+                  )
+                )
+                  await command("open_widget", { id: timer.id });
+              })().catch((cause) => setError(errorText(cause)));
+            }}
+            onOpenPage={(page) => {
+              void command("open_planner_view", {
+                tab: "today",
+                entity: "page",
+                targetId: page.id,
+              }).catch((cause: unknown) => setError(errorText(cause)));
+            }}
+            onOpenEvent={(event) => {
+              void command("open_planner_view", {
+                tab: "calendar",
+                entity: "event",
+                targetId: text(event.id),
+              }).catch((cause: unknown) => setError(errorText(cause)));
+            }}
+          />
+        ) : (
+          <div className={s.empty}>
+            <p>준비할 것과 자료를 봉투에 모아 두세요.</p>
+            <Button onClick={() => void openDiary()}>다이어리에서 새 준비 봉투 만들기</Button>
+          </div>
+        )}
+      </div>
+      <Dialog
+        isOpen={nextSelection !== null}
+        title="작성 중인 준비 내용이 있어요"
+        onOpenChange={(open) => {
+          if (!open) setNextSelection(null);
+        }}
+        size="small"
+      >
+        <p>입력한 내용을 버리고 다른 봉투로 이동할까요?</p>
+        <div className={s.actions}>
+          <Button variant="ghost" onClick={() => setNextSelection(null)}>
+            계속 편집
           </Button>
-        </form>
-      </details>
-      {linked.map((key) => (
-        <div key={key} className={s.row}>
-          <span>
-            {text(todos.find((item) => item.id === key)?.title) || "연결된 할 일 (현재 조회 불가)"}
-          </span>
-          <Button variant="quiet" onClick={() => void act("todo-unlink", { id, todoId: key })}>
-            할 일 연결 해제
-          </Button>
-        </div>
-      ))}
-      {todos.length > 0 && (
-        <details className={s.disclosure}>
-          <summary>할 일 연결</summary>
-          <form
-            className={s.composer}
-            onSubmit={(e) => {
-              e.preventDefault();
-              void act("todo-link", { id, todoId });
+          <Button
+            variant="danger"
+            disabled={busy}
+            onClick={() => {
+              if (nextSelection !== null) setSelected(nextSelection);
+              setNextSelection(null);
+              setDrafts({});
+              setVersion((value) => value + 1);
             }}
           >
-            <FormField className={c.field} label="할 일 연결" required>
-              <Select value={todoId} onChange={(e) => setTodoId(e.target.value)}>
-                <option value="">항목 선택</option>
-                {todos
-                  .filter((item) => !linked.includes(text(item.id)))
-                  .map((item) => (
-                    <option key={text(item.id)} value={text(item.id)}>
-                      {text(item.title)}
-                    </option>
-                  ))}
-              </Select>
-            </FormField>
-            <Button type="submit" variant="secondary">
-              선택한 할 일 연결
-            </Button>
-          </form>
-        </details>
-      )}
-      <Button variant="quiet" onClick={() => void act("delete", { id })}>
-        이 준비 봉투 삭제
-      </Button>
+            저장하지 않고 이동
+          </Button>
+        </div>
+      </Dialog>
     </section>
   );
 }
@@ -468,24 +446,20 @@ function EnvelopeSchedule({
         </Select>
       </FormField>
       {conflict && (
-        <p className={c.error} role="alert">
+        <p className={s.error} role="alert">
           다른 곳에서 봉투가 바뀌었어요. 최신 연결을 확인한 뒤 다시 선택해 주세요.
         </p>
       )}
       {error && (
-        <p className={c.error} role="alert">
+        <p className={s.error} role="alert">
           {error}
         </p>
       )}
       <div className={s.row}>
-        <Button
-          variant="secondary"
-          disabled={busy || !dirty || conflict}
-          onClick={() => void save()}
-        >
+        <Button variant="ghost" disabled={busy || !dirty || conflict} onClick={() => void save()}>
           일정 연결 저장
         </Button>
-        <Button variant="quiet" disabled={busy || (!dirty && !conflict)} onClick={reset}>
+        <Button variant="ghost" disabled={busy || (!dirty && !conflict)} onClick={reset}>
           {conflict ? "최신 연결 불러오기" : "연결 변경 취소"}
         </Button>
       </div>

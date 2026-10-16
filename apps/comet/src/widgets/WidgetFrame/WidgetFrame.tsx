@@ -9,7 +9,7 @@ type Props = {
   footer?: ReactNode;
   closeLabel: string;
   onClose: () => Promise<void>;
-  variant?: "tool" | "note";
+  variant?: "tool" | "note" | "frameless";
   className?: string;
   contentClassName?: string;
   children: ReactNode;
@@ -29,15 +29,17 @@ export function WidgetFrame({
 }: Props): ReactElement {
   return (
     <main className={`${s.frame[variant]} ${className}`}>
-      <div className={s.fixedHeader}>
-        <WindowHeader
-          className={s.header[variant]}
-          label={closeLabel}
-          onClose={onClose}
-          title={title}
-          actions={headerActions}
-        />
-      </div>
+      {variant !== "frameless" && (
+        <div className={s.fixedHeader}>
+          <WindowHeader
+            className={s.header[variant]}
+            label={closeLabel}
+            onClose={onClose}
+            title={title}
+            actions={headerActions}
+          />
+        </div>
+      )}
       <div className={`${s.content[variant]} ${contentClassName}`}>
         {status && <p className={s.status}>{status}</p>}
         {children}

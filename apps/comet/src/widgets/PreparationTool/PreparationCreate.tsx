@@ -103,14 +103,31 @@ export function PreparationCreate({
   return (
     <Dialog
       isOpen
+      className={s.createDialog}
       title="새 준비 봉투"
       size="small"
       closeLabel="새로 만들기 닫기"
       onOpenChange={(open) => {
         if (!open && !disabled) onClose();
       }}
+      footer={
+        <div className={s.actions}>
+          <Button variant="secondary" disabled={disabled} onClick={onClose}>
+            취소
+          </Button>
+          <Button
+            type="submit"
+            form="preparation-create"
+            variant="primary"
+            disabled={disabled || !valid}
+          >
+            {attempt ? "같은 요청으로 다시 시도" : "만들기"}
+          </Button>
+        </div>
+      }
     >
       <form
+        id="preparation-create"
         className={s.createForm}
         onSubmit={(event) => {
           event.preventDefault();
@@ -198,6 +215,7 @@ export function PreparationCreate({
             챙길 것
           </label>
           <TextArea
+            className={s.createTextarea}
             id="envelope-create-checks"
             rows={3}
             value={checks}
@@ -257,14 +275,6 @@ export function PreparationCreate({
             {error}
           </p>
         )}
-        <div className={s.actions}>
-          <Button variant="secondary" disabled={disabled} onClick={onClose}>
-            취소
-          </Button>
-          <Button type="submit" variant="primary" disabled={disabled || !valid}>
-            {attempt ? "같은 요청으로 다시 시도" : "만들기"}
-          </Button>
-        </div>
       </form>
     </Dialog>
   );

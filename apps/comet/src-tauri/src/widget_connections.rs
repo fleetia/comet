@@ -140,9 +140,17 @@ fn store_calendar(
 }
 fn merge_calendar(
     data: &mut CalendarState,
-    connection: calendar::Connection,
+    mut connection: calendar::Connection,
     events: Option<Vec<calendar::CalendarEvent>>,
 ) {
+    let settings = data.extra.get("settings").cloned().unwrap_or(Value::Null);
+    let interval = calendar::refresh_interval(&json!({"settings":settings}));
+    if connection.status == "ready" {
+        connection.next_refresh_at = timestamp().saturating_add(interval);
+    } else if connection.next_refresh_at != i64::MAX && connection.failure_count > 0 {
+        connection.next_refresh_at = timestamp()
+            .saturating_add(interval.saturating_mul(1i64 << connection.failure_count.min(6)));
+    }
     let id = connection.id.clone();
     if let Some(existing) = data.connections.iter_mut().find(|x| x.id == id) {
         *existing = connection;
@@ -244,6 +252,26 @@ async fn connect_result(
             };
             if previous.is_none() && data.connections.len() >= 20 {
                 return Err("캘린더 연결은 20개까지 추가할 수 있습니다.".into());
+            }
+            if previous.is_none() {
+                if let Some(color) = data
+                    .extra
+                    .get("settings")
+                    .and_then(|settings| settings["connectionColor"].as_str())
+                {
+                    let keys = if connection.provider == "ics" {
+                        vec![String::new()]
+                    } else {
+                        connection.selected_calendar_ids.clone()
+                    };
+                    let colors = data
+                        .calendar_colors
+                        .entry(connection.id.clone())
+                        .or_default();
+                    for key in keys {
+                        colors.insert(key, color.to_owned());
+                    }
+                }
             }
             merge_calendar(&mut data, connection, events);
             // A failed reconnect keeps the old selection, key and cached events intact.
@@ -529,7 +557,7 @@ pub(crate) fn configure_connection_widget(
         active(&instance, None)?;
         let mut data = connections::configure(&instance.kind, &instance.data, &input)?;
         let old_pairing = if instance.kind == "music"
-            && data["config"]["provider"] != instance.data["config"]["provider"]
+            && data["spicetifyPairingId"] != instance.data["spicetifyPairingId"]
         {
             pairing_id(&instance.data).map(str::to_owned)
         } else {
@@ -571,7 +599,7 @@ fn information_failure(
 }
 fn information_due(instance: &WidgetInstance, now: i64) -> bool {
     let reconnected = spotify_widget(instance)
-        && instance.data["config"]["provider"] == "spicetify"
+        && connections::uses_music_bridge(&instance.data["config"])
         && instance.data["status"] == "offline"
         && crate::music_bridge::pairing_status(&instance.id)["connected"] == true;
     information_due_with_connection(instance, now, reconnected)
@@ -603,10 +631,11 @@ pub(crate) fn spotify_widget(instance: &WidgetInstance) -> bool {
         && instance.installed
         && instance.enabled
         && instance.data["configured"] == true
-        && matches!(
-            instance.data["config"]["provider"].as_str(),
-            Some("spotify" | "spicetify")
-        )
+        && (connections::uses_music_bridge(&instance.data["config"])
+            || matches!(
+                instance.data["config"]["provider"].as_str(),
+                Some("spotify" | "spicetify")
+            ))
 }
 
 fn forget_music_credential(owner: String, pairing: String) {
@@ -639,10 +668,19 @@ fn clear_music_pairing_with(
     if let Some(object) = data.as_object_mut() {
         object.remove("spicetifyPairingId");
     }
-    data["status"] = json!("offline");
-    data["error"] = json!("Spotify 확장 연결을 해제했어요.");
-    data["observation"] = Value::Null;
-    data["nextRefreshAt"] = json!(i64::MAX);
+    if data["config"]["provider"] == "auto" {
+        if data["observation"]["transport"] == "spicetify" {
+            data["status"] = json!("stale");
+        }
+        data["error"] = Value::Null;
+        data["failureCount"] = json!(0);
+        data["nextRefreshAt"] = json!(0);
+    } else {
+        data["status"] = json!("offline");
+        data["error"] = json!("Spotify 확장 연결을 해제했어요.");
+        data["observation"] = Value::Null;
+        data["nextRefreshAt"] = json!(i64::MAX);
+    }
     storage::commit_data(db, id, instance.revision, data, vec![], timestamp())?;
     crate::music_bridge::revoke(id);
     if let Some(pairing) = old_pairing {
@@ -658,7 +696,7 @@ pub(crate) async fn prepare_music_widget(
     launch: bool,
 ) -> Result<(), String> {
     let original = storage::get(&*lock(&state.db)?, id)?;
-    let restored = if original.data["config"]["provider"] == "spicetify"
+    let restored = if connections::uses_music_bridge(&original.data["config"])
         && pairing_id(&original.data).is_some()
     {
         resume_music_widget(app, state, id).await
@@ -730,7 +768,7 @@ async fn resume_music_widget(
     let pairing = pairing_id(&job.instance.data).map(str::to_owned);
     let result = execute(&job, async {
         music_job_current(state, &job)?;
-        let restored = if job.instance.data["config"]["provider"] == "spicetify" {
+        let restored = if connections::uses_music_bridge(&job.instance.data["config"]) {
             if let Some(pairing) = pairing.as_deref() {
                 crate::music_bridge::resume(id, pairing, job.cancel.clone())
                     .await
@@ -770,7 +808,7 @@ pub(crate) async fn restore_music_bridges(app: AppHandle, state: Arc<AppState>) 
     };
     for instance in instances {
         if spotify_widget(&instance)
-            && instance.data["config"]["provider"] == "spicetify"
+            && connections::uses_music_bridge(&instance.data["config"])
             && pairing_id(&instance.data).is_some()
         {
             let _ = prepare_music_widget(&app, &state, &instance.id, false).await;
@@ -789,8 +827,63 @@ async fn refresh_observation(
     instance: &WidgetInstance,
     now: i64,
 ) -> Result<Value, connections::ConnectionError> {
-    if instance.kind != "music" || instance.data["config"]["provider"] != "spicetify" {
+    if instance.kind != "music" || !connections::uses_music_bridge(&instance.data["config"]) {
         return connections::refresh(&instance.kind, &instance.data, now).await;
+    }
+    if instance.data["config"]["provider"] == "auto" {
+        let bridge_connected =
+            crate::music_bridge::pairing_status(&instance.id)["connected"] == true;
+        let allowed: Vec<String> = instance.data["config"]["allowedProviders"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter(|provider| !bridge_connected || *provider != "spotify")
+            .map(str::to_owned)
+            .collect();
+        let native = connections::music_candidates(&allowed, now).await;
+        let mut candidates = native.as_ref().cloned().unwrap_or_default();
+        let mut bridge_error = None;
+        if bridge_connected {
+            match crate::music_bridge::request(&instance.id, "observe", Value::Null).await {
+                Ok(mut observation) => {
+                    observation["provider"] = json!("spotify");
+                    observation["transport"] = json!("spicetify");
+                    observation["source"] = json!("Spotify · Spicetify");
+                    observation["observedAt"] = json!(now);
+                    candidates.push(observation);
+                }
+                Err(message) => bridge_error = Some(message),
+            }
+        }
+        let observation = connections::select_music(
+            candidates,
+            &instance.data["observation"],
+            instance.data["config"]["priority"]
+                .as_str()
+                .unwrap_or("last-played"),
+            now,
+        )
+        .ok_or_else(|| {
+            if let Some(message) = bridge_error {
+                return connections::ConnectionError {
+                    status: "offline".into(),
+                    message,
+                };
+            }
+            native
+                .err()
+                .unwrap_or_else(|| connections::ConnectionError {
+                    status: "offline".into(),
+                    message: "음악 앱 정보를 확인하지 못했어요.".into(),
+                })
+        })?;
+        let mut data = instance.data.clone();
+        data["observation"] = observation;
+        data["lastSuccessAt"] = json!(now);
+        data["status"] = json!("ready");
+        data["error"] = Value::Null;
+        return Ok(data);
     }
     let mut observation = crate::music_bridge::request(&instance.id, "observe", Value::Null)
         .await
@@ -829,6 +922,7 @@ fn check_music_request(
     }
     if ![
         "observe",
+        "open",
         "play",
         "pause",
         "next",
@@ -849,7 +943,7 @@ fn check_music_request(
     {
         return Err("지원하지 않는 음악 명령입니다.".into());
     }
-    let query = ["observe", "playlists", "playlistTracks", "queue"].contains(&action);
+    let query = ["observe", "open", "playlists", "playlistTracks", "queue"].contains(&action);
     if !query {
         let observation = &instance.data["observation"];
         if !matches!(instance.data["status"].as_str(), Some("ready" | "syncing"))
@@ -900,7 +994,29 @@ pub(crate) async fn music_request(
             .unwrap_or("");
         let result = if action == "observe" {
             Value::Null
-        } else if provider == "spicetify" {
+        } else if action == "open" {
+            let observation = &job.instance.data["observation"];
+            let selected = if provider == "auto" {
+                observation["provider"].as_str().unwrap_or("")
+            } else {
+                provider
+            };
+            let selected = if selected == "spicetify" {
+                "spotify"
+            } else {
+                selected
+            };
+            crate::widgets::music_native::open_source(
+                selected,
+                observation["sourceId"].as_str(),
+                job.cancel.clone(),
+            )
+            .await
+            .map_err(|failure| failure.message)?;
+            Value::Null
+        } else if provider == "spicetify"
+            || job.instance.data["observation"]["transport"] == "spicetify"
+        {
             crate::music_bridge::request(&id, &action, value).await?
         } else {
             if query {
@@ -1042,7 +1158,7 @@ pub(crate) async fn music_bridge_pair(
     let mut previous_pairing = None;
     let job = begin(&state, &id, Some("music"), |instance| {
         if instance.revision != expected_revision
-            || instance.data["config"]["provider"] != "spicetify"
+            || !connections::uses_music_bridge(&instance.data["config"])
         {
             return Err("Spotify 확장 연결 설정을 저장한 뒤 연결해 주세요.".into());
         }
@@ -1139,15 +1255,16 @@ async fn refresh_information(
                     let mut value = value.clone();
                     value["lastAttemptAt"] = json!(time);
                     value["failureCount"] = json!(0);
-                    value["nextRefreshAt"] =
-                        json!(timestamp().saturating_add(connections::min_interval(&current.kind)));
+                    value["nextRefreshAt"] = json!(timestamp().saturating_add(
+                        connections::refresh_interval(&current.kind, &current.data)
+                    ));
                     value
                 }
                 Err(failure) => information_failure(
                     &current.data,
                     failure,
                     timestamp(),
-                    connections::min_interval(&current.kind),
+                    connections::refresh_interval(&current.kind, &current.data),
                 ),
             };
             storage::commit_data(db, &current.id, current.revision, data, vec![], timestamp())?;

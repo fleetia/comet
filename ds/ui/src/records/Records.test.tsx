@@ -173,3 +173,18 @@ it("supports keyboard selection and preserves meaningful zero counts in navigati
   expect(screen.getByRole("link", { name: /할 일\s*0/ }).getAttribute("aria-current")).toBe("page");
   expect(screen.getByRole("button", { name: /대화\s*0/ })).toBeTruthy();
 });
+
+it("keeps a trailing action decorative and opens the summary from Enter or Space", async () => {
+  const user = userEvent.setup();
+  const open = vi.fn();
+  render(<SettingsSummary title="AI 위젯 만들기" trailingAction={{ label: "열기", icon: "habit" }} onClick={open} />);
+  const row = screen.getByRole("button", { name: "AI 위젯 만들기" });
+  expect(screen.getAllByRole("button")).toHaveLength(1);
+  expect(row.querySelector("button, a, [role='button']")).toBeNull();
+  expect(screen.getByText("열기").closest("[aria-hidden='true']")).toBeTruthy();
+  await user.tab();
+  expect(document.activeElement).toBe(row);
+  await user.keyboard("{Enter}");
+  await user.keyboard(" ");
+  expect(open).toHaveBeenCalledTimes(2);
+});

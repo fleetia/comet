@@ -32,8 +32,9 @@ export const body = style({
 export const musicContent = style({
   display: "flex",
   flexDirection: "column",
-  overflow: "hidden",
-  "@media": { "(max-height: 440px)": { overflowY: "auto" } },
+  height: "100dvh",
+  overflowY: "auto",
+  overscrollBehavior: "contain",
 });
 export const musicBody = style([
   body,

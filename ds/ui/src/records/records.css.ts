@@ -1,6 +1,7 @@
-import { style, styleVariants } from "@vanilla-extract/css";
+import { globalStyle, style, styleVariants } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
 import { stateTransition } from "../motion/motion.css";
+import * as buttons from "../controls/button.css";
 
 export const base = style({
   boxSizing: "border-box",
@@ -129,7 +130,15 @@ export const tagVariants = styleVariants({
   },
 });
 export const envelope = style({ width: 280, padding: "12px 14px 4px", gap: 6, borderRadius: 16 });
-export const envelopePreview = style({ width: 256 });
+export const envelopePreview = style({
+  width: 276,
+  minHeight: 77,
+  padding: "10px 12px 5px",
+  gap: 4,
+  border: 0,
+  borderRadius: 14,
+  background: "transparent",
+});
 export const envelopeProgress = style({
   display: "flex",
   alignItems: "center",
@@ -558,6 +567,14 @@ export const controlRow = style([
     borderTop: `1px solid ${tokens["color/divider"]}`,
   },
 ]);
+export const settingControl = style({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "flex-end",
+  flex: "0 1 auto",
+  minWidth: 0,
+  maxWidth: "50%",
+});
 export const manageRow = style([
   base,
   {
@@ -751,6 +768,23 @@ export const summaryLayouts = styleVariants({
   },
   inline: { width: 322, minHeight: 37, gap: 12, padding: 0, background: "transparent", border: 0 },
 });
+export const summaryAction = style([
+  buttons.button,
+  buttons.sizes.small,
+  buttons.variants.ghost,
+  {
+    width: 67,
+    minWidth: 67,
+    justifyContent: "center",
+    gap: 7,
+    paddingInline: 5,
+    borderWidth: 0,
+    boxShadow: `inset 0 0 0 1px ${tokens["color/card-border"]}`,
+    fontSize: 13.5,
+    fontWeight: 400,
+  },
+]);
+globalStyle(`${summaryAction} > svg`, { flexShrink: 0 });
 export const summaryTitle = style({ fontSize: 15, lineHeight: "20px", fontWeight: 600 });
 export const gesture = style([
   action,
@@ -880,3 +914,14 @@ export const checklistAdd = style([
     color: tokens["color/ink-3"],
   },
 ]);
+
+globalStyle(`${envelopePreview} > ${row}`, { minHeight: 21 });
+globalStyle(`${envelopePreview} > ${envelopeProgress}`, { marginTop: 0 });
+globalStyle(`${envelopePreview} > ${caption}`, {
+  fontSize: 11.5,
+  lineHeight: "15px",
+  color: tokens["color/ink-3"],
+});
+
+globalStyle(`${envelopePreview} ${progress}::-webkit-progress-value`, { background: tokens["color/focus-ring"] });
+globalStyle(`${envelopePreview} ${progress}::-moz-progress-bar`, { background: tokens["color/focus-ring"] });

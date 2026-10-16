@@ -109,3 +109,5 @@ export const description = style({
   overflowWrap: "anywhere",
 });
 export const empty = style({ margin: 0, color: tokens["color/ink-2"], fontSize: 13 });
+
+export const toolbar = style({ display: "flex", alignItems: "center", gap: 14 });

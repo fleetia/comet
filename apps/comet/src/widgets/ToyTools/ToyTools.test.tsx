@@ -27,18 +27,42 @@ it.each([
   ["scissors", "rock", "가위 / 바위"],
   ["paper", "scissors", "보 / 가위"],
   ["6", "3", "6 / 3"],
-])("labels small-match outcomes %s and %s without changing action values", (a, b, label) => {
+])("preserves saved outcomes %s and %s while switching one game at a time", (a, b, _label) => {
   const act = vi.fn().mockResolvedValue(true);
   const widget: WidgetView = {
     ...toyWidget("small-match"),
     data: { a, b, result: "무승부" },
   };
   render(<ToyTool widget={widget} act={act} />);
-  expect(screen.getByText(label)).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toBe("무승부");
+  fireEvent.click(screen.getByRole("button", { name: "같이 놀기" }));
+  fireEvent.click(screen.getByRole("button", { name: "동전 던지기" }));
   fireEvent.click(screen.getByRole("button", { name: "앞면" }));
   expect(act).toHaveBeenLastCalledWith("coin", { choice: "heads" });
+  fireEvent.click(screen.getByRole("button", { name: "같이 놀기" }));
+  fireEvent.click(screen.getByRole("button", { name: "가위바위보 놀이" }));
   fireEvent.click(screen.getByRole("button", { name: "가위" }));
   expect(act).toHaveBeenLastCalledWith("rps", { choice: "scissors" });
+});
+
+it("preserves a legacy result and reaches all three game actions through the play menu", () => {
+  const act = vi.fn().mockResolvedValue(true);
+  const widget: WidgetView = {
+    ...toyWidget("small-match"),
+    data: { game: "legacy", a: "3", b: "5", result: "  저장한 결과\n그대로  " },
+  };
+  render(<ToyTool widget={widget} act={act} />);
+  expect(screen.getByRole("status").textContent).toBe("  저장한 결과\n그대로  ");
+  fireEvent.click(screen.getByRole("button", { name: "주사위 굴리기" }));
+  expect(act).toHaveBeenLastCalledWith("dice", {});
+  fireEvent.click(screen.getByRole("button", { name: "같이 놀기" }));
+  fireEvent.click(screen.getByRole("button", { name: "동전 던지기" }));
+  fireEvent.click(screen.getByRole("button", { name: "뒷면" }));
+  expect(act).toHaveBeenLastCalledWith("coin", { choice: "tails" });
+  fireEvent.click(screen.getByRole("button", { name: "같이 놀기" }));
+  fireEvent.click(screen.getByRole("button", { name: "가위바위보 놀이" }));
+  fireEvent.click(screen.getByRole("button", { name: "보" }));
+  expect(act).toHaveBeenLastCalledWith("rps", { choice: "paper" });
 });
 
 it("keeps the selected companion while following current roster slots", () => {
@@ -100,7 +124,7 @@ it.each([
     render(<ToyTool widget={widget} act={act} />);
     expect(screen.getByRole("status").textContent).toBe(expected);
     fireEvent.click(screen.getByRole("button", { name: "운세 뽑기" }));
-    expect(act).toHaveBeenCalledWith("draw");
+    expect(act).toHaveBeenCalledWith("draw", {});
   },
 );
 
@@ -117,4 +141,41 @@ it("disables targeted interaction until a companion is available", () => {
   expect(screen.getByRole("button", { name: "간식 나누기" })).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByRole("button", { name: "쓰다듬기" }));
   expect(act).not.toHaveBeenCalled();
+});
+
+it("starts with the play selector and renders only the chosen game balloon", () => {
+  render(<ToyTool widget={toyWidget("small-match")} act={vi.fn().mockResolvedValue(true)} />);
+  expect(screen.queryByText("주사위 한 판이에요.")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "동전 던지기" }));
+  expect(screen.getByText("앞면? 뒷면? 골라 봐요.")).toBeTruthy();
+  expect(screen.queryByText("가위바위보!")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "같이 놀기" }));
+  expect(screen.queryByText("앞면? 뒷면? 골라 봐요.")).toBeNull();
+});
+
+it("routes game and fortune actions to the selected companion identity", () => {
+  const act = vi.fn().mockResolvedValue(true);
+  const characters = {
+    ...PREVIEW_SNAPSHOT.characters,
+    active: PREVIEW_SNAPSHOT.characters.installed.slice(0, 2).map((item) => item.id),
+  };
+  const second = characters.active[1];
+  const view = render(
+    <ToyTool
+      widget={{ ...toyWidget("small-match"), data: { game: "dice" } }}
+      act={act}
+      characters={characters}
+    />,
+  );
+  fireEvent.change(screen.getByRole("combobox", { name: "함께할 캐릭터" }), {
+    target: { value: second },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "주사위 굴리기" }));
+  expect(act).toHaveBeenLastCalledWith("dice", { character: "B", owner: second });
+  view.rerender(<ToyTool widget={toyWidget("fortune")} act={act} characters={characters} />);
+  fireEvent.change(screen.getByRole("combobox", { name: "함께할 캐릭터" }), {
+    target: { value: second },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "운세 뽑기" }));
+  expect(act).toHaveBeenLastCalledWith("draw", { character: "B", owner: second });
 });

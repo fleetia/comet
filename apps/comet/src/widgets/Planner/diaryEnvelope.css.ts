@@ -1,4 +1,4 @@
-import { style } from "@vanilla-extract/css";
+import { globalStyle, style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
 import { semanticVars as v, vnextVars } from "@fleetia/lagrange/theme";
 
@@ -7,13 +7,16 @@ export const page = style({
   flexDirection: "column",
   gap: 18,
   minWidth: 0,
+  width: "100%",
   padding: "20px 22px",
   borderRadius: tokens["radius/radius-20"],
-  border: `1px solid ${tokens["color/card-border"]}`,
+  outline: `1px solid ${tokens["color/card-border"]}`,
+  outlineOffset: -1,
   background: tokens["color/card-2"],
   color: tokens["color/ink"],
   boxSizing: "border-box",
-  minHeight: "100%",
+  minHeight: 0,
+  alignSelf: "start",
 });
 export const section = style({
   display: "flex",
@@ -30,16 +33,16 @@ export const heading = style({
 });
 export const subheading = style({
   margin: 0,
-  fontSize: 13,
+  fontSize: 13.5,
   lineHeight: "18px",
-  color: tokens["color/ink-2"],
+  color: tokens["color/ink"],
   fontWeight: 600,
 });
 export const caption = style({
   margin: 0,
   color: v.color.content.secondary,
   fontSize: v.typography.size.caption,
-  lineHeight: v.typography.lineHeight.body,
+  lineHeight: "17px",
 });
 export const row = style({
   display: "flex",
@@ -49,6 +52,11 @@ export const row = style({
   flexWrap: "wrap",
 });
 export const actions = style([row, { justifyContent: "flex-end" }]);
+export const envelopeHeader = style({ width: "100%" });
+globalStyle(`${envelopeHeader} > div:last-child`, {
+  marginLeft: "auto",
+  justifyContent: "flex-end",
+});
 export const grow = style({ flex: 1, minWidth: 0 });
 export const form = style({
   display: "flex",
@@ -77,8 +85,12 @@ export const note = style({
   background: v.color.surface.raised,
   selectors: {
     '&[data-location="envelope"]': {
-      background: v.color.surface.muted,
-      borderRadius: vnextVars.radius.inset,
+      padding: "12px 14px",
+      gap: 3,
+      background: tokens["color/card"],
+      outline: `1px solid ${tokens["color/card-border"]}`,
+      outlineOffset: -1,
+      borderRadius: tokens["radius/radius-16"],
     },
   },
 });
@@ -89,6 +101,22 @@ export const noteBody = style({
   overflowWrap: "anywhere",
   fontSize: v.typography.size.caption,
   lineHeight: v.typography.lineHeight.body,
+});
+globalStyle(`${note}[data-location="envelope"] ${noteTitle}`, {
+  fontSize: 13.5,
+  lineHeight: "18px",
+});
+globalStyle(`${note}[data-location="envelope"] ${noteBody}`, {
+  fontSize: 12.5,
+  lineHeight: "19px",
+  color: tokens["color/ink-2"],
+});
+export const envelopeNoteAction = style({
+  fontSize: 12,
+  lineHeight: "16px",
+  height: 18,
+  color: tokens["color/ink-3"],
+  fontWeight: 400,
 });
 export const storedNotePreview = style([
   noteBody,
@@ -121,6 +149,22 @@ export const disclosure = style({
   gap: v.space.sm,
   fontSize: v.typography.size.label,
 });
+export const resourceAdd = style({ minWidth: 0 });
+globalStyle(`${resourceAdd} > summary`, {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  height: 34,
+  padding: "8px 12px",
+  boxSizing: "border-box",
+  borderTop: `1px solid ${tokens["color/divider"]}`,
+  color: tokens["color/selected-icon"],
+  fontSize: 13,
+  lineHeight: "18px",
+  cursor: "pointer",
+  listStyle: "none",
+});
+globalStyle(`${resourceAdd} > form`, { padding: 12 });
 export const error = style({
   margin: 0,
   color: v.color.status.critical,
@@ -210,6 +254,16 @@ export const envelopeGroup = style({
 });
 export const envelopeCard = style({ width: "100%" });
 export const createForm = style({ display: "flex", flexDirection: "column", gap: 10 });
+export const createDialog = style({ width: 540, maxWidth: "calc(100vw - 48px)", padding: 0 });
+export const createTextarea = style({
+  width: "100%",
+  height: 73,
+  minHeight: 73,
+  padding: "6px 9px",
+  fontSize: 13,
+  lineHeight: "19px",
+  resize: "vertical",
+});
 export const createField = style({
   display: "grid",
   gridTemplateColumns: "76px minmax(0,1fr)",
@@ -228,4 +282,12 @@ export const createControl = style({
   display: "flex",
   flexDirection: "column",
   gap: 6,
+});
+globalStyle(`${createField} > span`, { minWidth: 0, width: "100%" });
+globalStyle(`${createField} > span > input, ${createField} > span > textarea`, { width: "100%" });
+globalStyle(`${createDialog} h2`, {
+  fontFamily: tokens["typography/display/title/fontFamily"],
+  fontSize: 16,
+  lineHeight: "22px",
+  fontWeight: 400,
 });

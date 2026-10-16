@@ -15,6 +15,7 @@ const window = style({
   boxSizing: "border-box",
 });
 export const frame = styleVariants({
+  frameless: { minWidth: 0, minHeight: 0, color: tokens["color/ink"] },
   tool: [window, { background: tokens["color/glass-window"] }],
   note: [window, { background: tokens["color/glass-widget"] }],
 });
@@ -46,6 +47,7 @@ const body = style({
   overscrollBehavior: "contain",
 });
 export const content = styleVariants({
+  frameless: { minWidth: 0, minHeight: 0 },
   tool: [body, { padding: "16px 20px 20px" }],
   note: [body, { display: "flex", flexDirection: "column" }],
 });
@@ -58,6 +60,7 @@ const actionArea = style({
   gap: vars.space.sm,
 });
 export const footer = styleVariants({
+  frameless: [actionArea],
   tool: [
     actionArea,
     {

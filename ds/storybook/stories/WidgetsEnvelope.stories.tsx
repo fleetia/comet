@@ -8,6 +8,14 @@ const meta = {
   args: {
     title: "가족 여행",
     date: "10월 24일 (토) – 25일 (일) · 12일 남음",
+    labels: {
+      heading: "준비 봉투",
+      progress: "봉투 준비 현황",
+      count: (completed: number, total: number) => `${total}개 중 ${completed}개`,
+      focus: "이 봉투로 집중",
+      open: "봉투 열기",
+    },
+    footer: "내용 4개는 봉투에서 봐요. 끝난 일정은 빼고 가까운 날짜의 봉투부터 보여 줘요.",
     tasks: [
       { id: "car", title: "차표 예매하기", completed: true },
       { id: "stay", title: "숙소 예약 확인", completed: true },
@@ -26,6 +34,8 @@ const meta = {
     tasks: {
       control: "object",
     },
+    labels: { control: false },
+    footer: { control: "text" },
     onTaskChange: {
       control: false,
     },

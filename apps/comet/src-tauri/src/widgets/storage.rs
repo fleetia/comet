@@ -595,8 +595,10 @@ pub(crate) fn execute_in_transaction(
             "다른 화면에서 위젯이 변경됐어요. 최신 상태를 확인하고 다시 시도해 주세요.".into(),
         );
     }
-    if instance.kind == "interaction"
-        && matches!(request.action.as_str(), "stroke" | "poke" | "snack")
+    if (instance.kind == "interaction"
+        && matches!(request.action.as_str(), "stroke" | "poke" | "snack"))
+        || (matches!(instance.kind.as_str(), "small-match" | "fortune")
+            && (request.input.get("character").is_some() || request.input.get("owner").is_some()))
     {
         let slot = request.input["character"]
             .as_str()

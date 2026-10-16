@@ -1,4 +1,4 @@
-import { style } from "@vanilla-extract/css";
+import { globalStyle, style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
 import { pressable } from "../motion/motion.css";
 
@@ -65,3 +65,11 @@ export const unit = style({
   lineHeight: "19.5px",
   color: tokens["color/ink-2"],
 });
+
+globalStyle(`${group}[data-size="compact"]`, {
+  height: 34,
+  border: 0,
+  outline: `1px solid ${tokens["color/card-border"]}`,
+  outlineOffset: -1,
+});
+globalStyle(`${group}[data-size="compact"] ${input}`, { width: 18, minWidth: 18 });

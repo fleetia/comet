@@ -11,9 +11,17 @@ import {
   Tabs,
   TextField,
 } from "../../ui";
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type ReactElement,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "@comet/icon";
-import { Button as CometButton, MessageInput, TaskRow } from "@comet/ui";
+import { Button as CometButton, IconButton, MessageInput, SelectField, TaskRow } from "@comet/ui";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
@@ -35,6 +43,7 @@ import { PlannerPreparation } from "./PlannerPreparation";
 import { PlannerTemplates } from "./PlannerTemplates";
 import { TaskReadOnlyDetails, TodoEditor } from "./TodoEditor";
 import { envelopeTitle } from "./DiaryEnvelope";
+import type { DiaryState } from "./diaryTypes";
 import {
   clockLabel,
   dayDate,
@@ -115,6 +124,7 @@ export function Planner({
   onStateChange,
   selectedDay,
   onSelectedDayChange,
+  headerActionsTarget,
 }: {
   onBack?: () => void;
   initialTab?: string;
@@ -124,6 +134,7 @@ export function Planner({
   onStateChange?: (state: PlannerToolState) => void;
   selectedDay?: string;
   onSelectedDayChange?: (day: string) => void;
+  headerActionsTarget?: HTMLElement | null;
 } = {}): ReactElement {
   const { snapshot, error: loadError, reload } = useWidgets();
   const [failure, setFailure] = useState<{ message: string; saving: boolean } | null>(null);
@@ -175,6 +186,8 @@ export function Planner({
   const [showCompleted, setShowCompleted] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState("");
   const [selectedTask, setSelectedTask] = useState("");
+  const dragging = useRef<{ id: string; widgetId: string } | null>(null);
+  const [movingTask, setMovingTask] = useState<{ id: string; date: string } | null>(null);
   const [editing, setEditing] = useState<{ item: DataRecord; widget: WidgetView } | null>(null);
   const [wrap, setWrap] = useState(false);
   const [rollIds, setRollIds] = useState<string[]>([]);
@@ -188,10 +201,13 @@ export function Planner({
     setEditing(null);
     setManageLists(false);
     setWrap(false);
+    setMovingTask(null);
   }, [dismissVersion]);
   const leaving = useRef(false);
   const returning = useRef(false);
-  const blocking = Boolean(editing || manageLists || wrap || preparationDirty || preparationBusy);
+  const blocking = Boolean(
+    editing || manageLists || wrap || movingTask || preparationDirty || preparationBusy,
+  );
   const dirty = Boolean(blocking || title.trim() || templateDirty);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
@@ -348,6 +364,35 @@ export function Planner({
   function edit(item: DataRecord): void {
     if (todo) setEditing({ item, widget: todo });
   }
+  function draggedTask(event: DragEvent): DataRecord | undefined {
+    let value = dragging.current;
+    if (!value) {
+      try {
+        value = JSON.parse(event.dataTransfer.getData("application/x-comet-todo"));
+      } catch {
+        return undefined;
+      }
+    }
+    return !busy && value?.widgetId === todo?.id
+      ? items.find((item) => item.id === value?.id)
+      : undefined;
+  }
+  async function moveTaskDate(item: DataRecord, toDate: string | null): Promise<boolean> {
+    if (typeof item.completedAt === "number") return false;
+    const fromDate = plannedDay(item);
+    if (fromDate === (toDate || "")) return true;
+    if (fromDate && toDate) {
+      return run(async () => {
+        const diary = await command<DiaryState>("get_diary");
+        await command("update_diary", {
+          expectedRevision: diary.revision,
+          action: "move-record",
+          input: { todoId: text(item.id), fromDate, toDate, title: text(item.title) },
+        });
+      });
+    }
+    return act("plan", { ids: [text(item.id)], date: toDate });
+  }
   async function check(item: DataRecord): Promise<void> {
     const id = text(item.id);
     const date = tab === "plans" ? planDay : day;
@@ -470,38 +515,53 @@ export function Planner({
           }}
         >
           {diaryQuickAdd && <Icon name="plus" size={16} />}
-          <Input
-            className={s.grow}
-            aria-label="새 할 일"
-            aria-describedby={`planner-add-scope-${isToday ? "day" : "period"}`}
-            disabled={busy}
-            placeholder={
-              diaryQuickAdd
-                ? "새 할 일 · Enter로 추가"
-                : isToday
-                  ? "할 일을 입력하고 Enter"
-                  : period === "inbox"
-                    ? "날짜 없이 할 일을 적어 보세요."
-                    : "이 기간에 하고 싶은 일을 적어 보세요."
-            }
-            required
-            maxLength={500}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
+          <div className={diaryQuickAdd ? s.diaryInput : s.grow}>
+            <Input
+              className={s.grow}
+              aria-label="새 할 일"
+              aria-describedby={`planner-add-scope-${isToday ? "day" : "period"}`}
+              disabled={busy}
+              placeholder={
+                diaryQuickAdd
+                  ? "새 할 일 · Enter로 추가"
+                  : isToday
+                    ? "할 일을 입력하고 Enter"
+                    : period === "inbox"
+                      ? "날짜 없이 할 일을 적어 보세요."
+                      : "이 기간에 하고 싶은 일을 적어 보세요."
+              }
+              required
+              maxLength={500}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </div>
           {diaryQuickAdd ? (
             <>
-              <DateField
-                className={s.diaryDate}
-                aria-label="새 할 일 계획일"
-                value={day}
-                disabled={busy}
-                required
-                onChange={(event) => {
-                  if (event.target.value) setDay(event.target.value);
-                }}
-              />
-              <Select
+              <span className={s.diaryDate}>
+                <span aria-hidden="true">
+                  {day === localDay()
+                    ? "오늘"
+                    : dayDate(day).toLocaleDateString("ko-KR", {
+                        month: "numeric",
+                        day: "numeric",
+                      })}
+                  <Icon name="chevdown" size={12} />
+                </span>
+                <DateField
+                  aria-label="새 할 일 계획일"
+                  value={day}
+                  disabled={busy}
+                  required
+                  onChange={(event) => {
+                    if (event.target.value) setDay(event.target.value);
+                  }}
+                />
+              </span>
+              <SelectField
+                className={s.diaryList}
+                controlSize={32}
+                leading={<span className={s.diaryListDot} />}
                 aria-label="새 할 일 목록"
                 disabled={busy}
                 value={quickList}
@@ -512,9 +572,14 @@ export function Planner({
                     {text(list.name)}
                   </option>
                 ))}
-              </Select>
-              <CometButton variant="link" onClick={() => selectTab("templates")}>
+              </SelectField>
+              <CometButton
+                className={s.diaryTemplate}
+                variant="link"
+                onClick={() => selectTab("templates")}
+              >
                 템플릿에서 고르기
+                <Icon name="arrowright" size={14} />
               </CometButton>
               <button type="submit" hidden disabled={busy || !todo}>
                 추가
@@ -529,7 +594,7 @@ export function Planner({
       </>
     );
   }
-  function taskActions(): ReactElement {
+  function taskActions(selectionOnly = false): ReactElement {
     return (
       <div className={s.actions}>
         <Button
@@ -557,18 +622,20 @@ export function Planner({
         >
           {day === localDay() ? "오늘에서 빼기" : "선택 날짜에서 빼기"}
         </Button>
-        <div className={s.spacer} />
-        <Button
-          variant="quiet"
-          size="compact"
-          onClick={() => {
-            setRollIds([]);
-            setRollDate(moveDay(day, 1));
-            setWrap(true);
-          }}
-        >
-          하루 마무리
-        </Button>
+        {!selectionOnly && !headerActionsTarget && <div className={s.spacer} />}
+        {!selectionOnly && !headerActionsTarget && (
+          <Button
+            variant="quiet"
+            size="compact"
+            onClick={() => {
+              setRollIds([]);
+              setRollDate(moveDay(day, 1));
+              setWrap(true);
+            }}
+          >
+            하루 마무리
+          </Button>
+        )}
       </div>
     );
   }
@@ -578,7 +645,8 @@ export function Planner({
       (ruleOf(item).mode === "frequency" &&
         rows(item.frequencyRecords).some((entry) => entry.date === day));
     const open = items.filter((item) => !completed(item));
-    const done = items.filter(completed);
+    const completedToday = items.filter((item) => completed(item) && plannedDay(item) === day);
+    const done = items.filter((item) => completed(item) && plannedDay(item) !== day);
     const envelopes = rows(record(preparation?.data).envelopes);
     const groups = [
       {
@@ -587,7 +655,7 @@ export function Planner({
       },
       {
         title: day === localDay() ? "오늘" : "선택한 날",
-        tasks: open.filter((item) => plannedDay(item) === day),
+        tasks: [...open.filter((item) => plannedDay(item) === day), ...completedToday],
         date: day,
       },
       { title: "예정", tasks: open.filter((item) => plannedDay(item) > day) },
@@ -600,20 +668,57 @@ export function Planner({
           <>
             {quickInput(true)}
             {groups
-              .filter((group) => group.tasks.length || group.date)
+              .filter((group) => group.tasks.length || group.date || group.title === "날짜 없음")
               .map((group) => (
                 <section
                   className={s.diaryTaskGroup}
                   key={group.title}
                   aria-label={group.title === "완료한 일" ? group.title : `${group.title} 할 일`}
+                  onDragOver={(event) => {
+                    if (draggedTask(event)) event.preventDefault();
+                  }}
+                  onDrop={(event) => {
+                    const source = draggedTask(event);
+                    if (!source || completed(source)) return;
+                    event.preventDefault();
+                    dragging.current = null;
+                    if (group.date || group.title === "날짜 없음") {
+                      void moveTaskDate(source, group.date || null);
+                    } else {
+                      setMovingTask({ id: text(source.id), date: plannedDay(source) || day });
+                    }
+                  }}
                 >
                   <div className={s.diaryGroupHeading}>
-                    <h2 className={s.diaryGroupTitle}>{group.title}</h2>
+                    <h2 className={s.diaryGroupTitle}>
+                      {group.title === "날짜 없음" ? (
+                        <button
+                          type="button"
+                          className={s.diaryTaskTitle}
+                          aria-label={`수집함 · 날짜 없음 · 미완료 ${inboxCount}개`}
+                          onClick={() => {
+                            setPeriod("inbox");
+                            selectTab("plans");
+                          }}
+                        >
+                          수집함
+                        </button>
+                      ) : (
+                        group.title
+                      )}
+                    </h2>
                     <span className={s.diaryGroupMeta}>
                       {group.date &&
                         `${dayDate(group.date).toLocaleDateString("ko-KR", { month: "long", day: "numeric", weekday: "long" })} · `}
-                      {group.tasks.length}개{group.date ? " 남음" : ""}
+                      {group.title === "날짜 없음" ? "날짜 없음 · " : ""}
+                      {group.date
+                        ? group.tasks.filter((item) => !completed(item)).length
+                        : group.tasks.length}
+                      개{group.date ? " 남음" : ""}
                     </span>
+                    {group.title === "날짜 없음" && (
+                      <span className={s.diaryInboxHint}>빠른 실행에서 적은 것도 여기로 와요</span>
+                    )}
                   </div>
                   {group.tasks.length ? (
                     <div className={s.diaryTaskCard}>
@@ -624,7 +729,70 @@ export function Planner({
                         );
                         const repeat = repeatLabel(item);
                         return (
-                          <article key={text(item.id)}>
+                          <article
+                            key={text(item.id)}
+                            draggable={!busy}
+                            onDragStart={(event) => {
+                              if (!todo || busy) {
+                                event.preventDefault();
+                                return;
+                              }
+                              dragging.current = { id: text(item.id), widgetId: todo.id };
+                              event.dataTransfer.setData(
+                                "application/x-comet-todo",
+                                JSON.stringify(dragging.current),
+                              );
+                              event.dataTransfer.effectAllowed = "move";
+                            }}
+                            onDragEnd={() => {
+                              dragging.current = null;
+                            }}
+                            onDragOver={(event) => {
+                              const source = draggedTask(event);
+                              if (source && completed(source) === completed(item)) {
+                                event.preventDefault();
+                                event.stopPropagation();
+                              }
+                            }}
+                            onDrop={(event) => {
+                              event.stopPropagation();
+                              const source = draggedTask(event);
+                              if (!source || completed(source) !== completed(item)) return;
+                              event.preventDefault();
+                              dragging.current = null;
+                              if (source.id === item.id) return;
+                              if (plannedDay(source) === plannedDay(item)) {
+                                void act("reorder", {
+                                  id: text(source.id),
+                                  beforeId: text(item.id),
+                                });
+                              } else if (!completed(source)) {
+                                void moveTaskDate(source, plannedDay(item) || null);
+                              }
+                            }}
+                            onKeyDown={(event) => {
+                              if (!event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key))
+                                return;
+                              const peers = group.tasks.filter(
+                                (peer) =>
+                                  plannedDay(peer) === plannedDay(item) &&
+                                  completed(peer) === completed(item),
+                              );
+                              const at = peers.indexOf(item);
+                              const next = event.key === "ArrowUp" ? at - 1 : at + 1;
+                              if (busy || next < 0 || next >= peers.length) return;
+                              event.preventDefault();
+                              void act("reorder", {
+                                id: text(item.id),
+                                beforeId:
+                                  event.key === "ArrowUp"
+                                    ? text(peers[next].id)
+                                    : peers[at + 2]
+                                      ? text(peers[at + 2].id)
+                                      : null,
+                              });
+                            }}
+                          >
                             <TaskRow
                               layout="diary"
                               divider={index > 0}
@@ -678,6 +846,7 @@ export function Planner({
                                 >
                                   편집
                                 </Button>
+                                {taskActions(true)}
                               </div>
                             )}
                           </article>
@@ -685,7 +854,11 @@ export function Planner({
                       })}
                     </div>
                   ) : (
-                    <p className={s.diaryGroupMeta}>{day}에 계획한 할 일이 없어요.</p>
+                    <p className={s.diaryGroupMeta}>
+                      {group.title === "날짜 없음"
+                        ? "날짜 없이 남긴 할 일이 없어요."
+                        : `${day}에 계획한 할 일이 없어요.`}
+                    </p>
                   )}
                 </section>
               ))}
@@ -698,20 +871,39 @@ export function Planner({
                 {showCompleted ? "완료한 일 접기" : `완료한 일 ${done.length}개 보기`}
               </CometButton>
               <div className={s.spacer} />
-              <CometButton variant="link" onClick={() => setManageLists(true)}>
-                목록 관리
-              </CometButton>
-              <CometButton
-                variant="link"
+              {!headerActionsTarget && (
+                <CometButton variant="link" onClick={() => setManageLists(true)}>
+                  목록 관리
+                </CometButton>
+              )}
+              <button
+                type="button"
+                className={s.diaryDragHint}
+                disabled={busy || !open.length}
                 onClick={() => {
-                  setPeriod("inbox");
-                  selectTab("plans");
+                  const source = open.find((item) => item.id === selectedTask) || open[0];
+                  if (source)
+                    setMovingTask({ id: text(source.id), date: plannedDay(source) || day });
                 }}
               >
-                수집함 · 날짜 없음 · 미완료 {inboxCount}개
-              </CometButton>
+                끌어서 순서를 바꾸거나 다른 날로 옮겨요
+              </button>
             </div>
-            {taskActions()}
+            {!headerActionsTarget && (
+              <div className={s.actions}>
+                <Button
+                  variant="quiet"
+                  size="compact"
+                  onClick={() => {
+                    setRollIds([]);
+                    setRollDate(moveDay(day, 1));
+                    setWrap(true);
+                  }}
+                >
+                  하루 마무리
+                </Button>
+              </div>
+            )}
           </>
         ) : (
           <div className={s.empty}>
@@ -760,6 +952,34 @@ export function Planner({
   const Root = embedded ? "section" : "main";
   return (
     <Root className={embedded ? s.embedded : s.window}>
+      {embedded &&
+        headerActionsTarget &&
+        createPortal(
+          <div className={s.headerActions}>
+            {tab === "today" && (
+              <CometButton
+                variant="ghost"
+                size="small"
+                disabled={busy}
+                onClick={() => {
+                  setRollIds([]);
+                  setRollDate(moveDay(day, 1));
+                  setWrap(true);
+                }}
+              >
+                하루 마무리
+              </CometButton>
+            )}
+            <IconButton
+              icon="list"
+              variant="surface"
+              aria-label="목록 관리"
+              disabled={busy}
+              onClick={() => setManageLists(true)}
+            />
+          </div>,
+          headerActionsTarget,
+        )}
       {!embedded && (
         <WindowHeader
           className={s.header}
@@ -1098,9 +1318,11 @@ export function Planner({
                   >
                     완료 포함
                   </Checkbox>
-                  <Button variant="quiet" size="compact" onClick={() => setManageLists(true)}>
-                    목록 관리
-                  </Button>
+                  {!headerActionsTarget && (
+                    <Button variant="quiet" size="compact" onClick={() => setManageLists(true)}>
+                      목록 관리
+                    </Button>
+                  )}
                 </div>
                 <h2 className={s.heading}>
                   {planScope} · 표시 {shown.length}개
@@ -1316,6 +1538,70 @@ export function Planner({
           }}
           onClose={() => setEditing(null)}
         />
+      )}
+      {movingTask && (
+        <Dialog
+          isOpen
+          title="할 일 옮기기"
+          size="small"
+          onOpenChange={(open) => {
+            if (!open && !busy) setMovingTask(null);
+          }}
+        >
+          <form
+            className={s.form}
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const item = items.find((value) => value.id === movingTask.id);
+              if (item && (await moveTaskDate(item, movingTask.date))) setMovingTask(null);
+            }}
+          >
+            {failure && (
+              <p role="alert" className={s.error}>
+                {failure.message}
+              </p>
+            )}
+            <FormField label="옮길 할 일">
+              <Select
+                value={movingTask.id}
+                disabled={busy}
+                onChange={(event) => setMovingTask({ ...movingTask, id: event.target.value })}
+              >
+                {items
+                  .filter((item) => typeof item.completedAt !== "number")
+                  .map((item) => (
+                    <option key={text(item.id)} value={text(item.id)}>
+                      {text(item.title)}
+                    </option>
+                  ))}
+              </Select>
+            </FormField>
+            <FormField label="새 계획 날짜">
+              <DateField
+                required
+                disabled={busy}
+                value={movingTask.date}
+                onChange={(event) => setMovingTask({ ...movingTask, date: event.target.value })}
+              />
+            </FormField>
+            <div className={s.actions}>
+              <Button variant="quiet" disabled={busy} onClick={() => setMovingTask(null)}>
+                취소
+              </Button>
+              <Button
+                type="submit"
+                disabled={
+                  busy ||
+                  !todo ||
+                  !movingTask.date ||
+                  !items.some((item) => item.id === movingTask.id)
+                }
+              >
+                선택한 날로 옮기기
+              </Button>
+            </div>
+          </form>
+        </Dialog>
       )}
       <Dialog
         isOpen={wrap}

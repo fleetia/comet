@@ -66,6 +66,7 @@ export const diaryQuickAdd = style({
   alignItems: "center",
   gap: 10,
   minHeight: 46,
+  boxSizing: "border-box",
   padding: "0 8px 0 14px",
   border: `1px solid ${tokens["color/input-border"]}`,
   borderRadius: tokens["radius/radius-16"],
@@ -74,9 +75,68 @@ export const diaryQuickAdd = style({
   minWidth: 0,
   "@media": { "(max-width: 800px)": { flexWrap: "wrap", padding: "10px 12px" } },
 });
-globalStyle(`${diaryQuickAdd} > span:first-of-type`, { flex: 1, minWidth: 100 });
-globalStyle(`${diaryQuickAdd} > span:first-of-type input`, { width: "100%" });
-export const diaryDate = style({ width: 128 });
+export const diaryInput = style({ flex: 1, minWidth: 160 });
+globalStyle(`${diaryInput} > span, ${diaryInput} input`, { width: "100%" });
+globalStyle(`${diaryQuickAdd} > span`, { flex: "0 0 auto", maxWidth: 140 });
+export const diaryDate = style({
+  position: "relative",
+  display: "inline-flex",
+  flexShrink: 0,
+  minWidth: 66,
+  height: 30,
+  boxSizing: "border-box",
+  borderRadius: 10,
+  outline: `1px solid ${tokens["color/input-border"]}`,
+  outlineOffset: -1,
+  background: tokens["color/card"],
+  color: tokens["color/ink-2"],
+  fontSize: 13,
+  lineHeight: "19.5px",
+  selectors: { "&:focus-within": { outline: `2px solid ${tokens["color/focus-ring"]}` } },
+});
+globalStyle(`${diaryDate} > span:first-child`, {
+  display: "flex",
+  gap: 8,
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "0 10px",
+  height: "100%",
+  pointerEvents: "none",
+});
+globalStyle(`${diaryDate} input`, {
+  position: "absolute",
+  inset: 0,
+  width: "100%",
+  height: "100%",
+  minWidth: 0,
+  padding: 0,
+  opacity: 0,
+  cursor: "pointer",
+});
+globalStyle(`${diaryDate} input::-webkit-calendar-picker-indicator`, {
+  position: "absolute",
+  inset: 0,
+  width: "100%",
+  height: "100%",
+  cursor: "pointer",
+});
+export const diaryList = style({ width: 86, flexShrink: 0 });
+export const diaryListDot = style({
+  width: 7,
+  height: 7,
+  borderRadius: 3,
+  background: tokens["color/event-google"],
+});
+globalStyle(`${diaryList} select`, { paddingLeft: 27, paddingRight: 24 });
+globalStyle(`${diaryList} > span > span`, { width: "100%" });
+export const diaryTemplate = style({
+  flexShrink: 0,
+  whiteSpace: "nowrap",
+  fontSize: 13,
+  lineHeight: "18px",
+  gap: 4,
+});
+export const headerActions = style({ display: "flex", alignItems: "center", gap: 8 });
 export const diaryTaskGroup = style({
   display: "flex",
   flexDirection: "column",
@@ -132,6 +192,15 @@ export const diaryTaskFooter = style({
   padding: "0 4px",
   flexWrap: "wrap",
 });
+export const diaryInboxHint = style([
+  diaryGroupMeta,
+  { marginLeft: "auto", fontSize: 12, lineHeight: "17px" },
+]);
+export const diaryDragHint = style([
+  diaryTaskTitle,
+  diaryGroupMeta,
+  { fontSize: 12, lineHeight: "17px" },
+]);
 export const toolbar = style({
   display: "flex",
   alignItems: "center",

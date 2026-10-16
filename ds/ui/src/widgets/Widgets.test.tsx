@@ -4,6 +4,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppUsagePicker, EnvelopeWidget, FocusTimerWidget, WidgetStackSummary } from "./Widgets";
 
 afterEach(cleanup);
+const envelopeLabels = {
+  heading: "준비 봉투",
+  progress: "봉투 준비 현황",
+  count: (completed: number, total: number) => `${total}개 중 ${completed}개`,
+  focus: "이 봉투로 집중",
+  open: "봉투 열기",
+};
 describe("controlled widgets", () => {
   it("delegates task, duration and start actions without progressing its own phase", async () => {
     const user = userEvent.setup();
@@ -34,6 +41,7 @@ describe("controlled widgets", () => {
     const { rerender } = render(
       <EnvelopeWidget
         title="가족 여행"
+        labels={envelopeLabels}
         date="10월 24일"
         tasks={[
           { id: "stay", title: "숙소 예약", completed: true },
@@ -45,7 +53,10 @@ describe("controlled widgets", () => {
     await user.click(screen.getByRole("checkbox", { name: "간식 사기" }));
     expect(change).toHaveBeenCalledWith("snack", true);
     expect((screen.getByRole("progressbar") as HTMLProgressElement).value).toBe(1);
-    rerender(<EnvelopeWidget title="빈 봉투" date="10월 24일" tasks={[]} />);
+    rerender(
+      <EnvelopeWidget title="빈 봉투" labels={envelopeLabels} date="10월 24일" tasks={[]} />,
+    );
+    expect(screen.getByText("0개 중 0개")).toBeTruthy();
     expect((screen.getByRole("progressbar") as HTMLProgressElement).max).toBe(1);
   });
   it("supports the app's digit view, custom duration and disabled start", async () => {

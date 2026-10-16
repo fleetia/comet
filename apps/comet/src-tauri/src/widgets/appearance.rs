@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const SUPPORTED_KINDS: [&str; 2] = ["clock", "weather"];
-
 const PLACEMENTS: [&str; 9] = [
     "top-left",
     "top-center",
@@ -36,7 +34,7 @@ impl Default for Appearance {
 }
 
 pub fn supports(kind: &str) -> bool {
-    SUPPORTED_KINDS.contains(&kind)
+    super::desktop_kind(kind).is_some_and(|spec| spec.appearance)
 }
 
 pub fn initial() -> Value {
@@ -70,7 +68,7 @@ fn validate(appearance: Appearance) -> Result<Appearance, String> {
 
 pub fn configure(kind: &str, data: &Value, input: &Value) -> Result<Value, String> {
     if !supports(kind) {
-        return Err("이 위젯은 바탕화면 표시를 지원하지 않아요.".into());
+        return Err("이 위젯은 색상·글자를 바꿀 수 없어요.".into());
     }
     let appearance: Appearance = serde_json::from_value(input.clone())
         .map_err(|_| "바탕화면 표시 설정 형식이 올바르지 않아요.".to_string())
@@ -104,7 +102,9 @@ mod tests {
 
     #[test]
     fn rejects_unknown_kind_and_invalid_position() {
-        assert!(configure("music", &json!({}), &initial()).is_err());
+        assert!(configure("interaction", &json!({}), &initial()).is_err());
+        assert!(configure("memo", &json!({}), &initial()).is_err());
+        assert!(configure("weather", &json!({}), &initial()).is_ok());
         let mut input = initial();
         input["textPosition"] = json!("middle");
         assert!(configure("clock", &json!({}), &input).is_err());

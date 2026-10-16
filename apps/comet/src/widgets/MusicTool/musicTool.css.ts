@@ -1,5 +1,5 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { semanticVars as vars, componentVars } from "@fleetia/lagrange/theme";
+import { semanticVars as vars } from "@fleetia/lagrange/theme";
 import { tokens } from "@comet/token";
 
 export const root = style({
@@ -15,28 +15,16 @@ export const root = style({
 export const fixed = style({
   flexShrink: 0,
   display: "grid",
-  gap: vars.space.md,
-  paddingTop: vars.space.sm,
+  gap: 12,
 });
-export const hero = style({
-  display: "flex",
-  gap: vars.space.lg,
-  alignItems: "center",
-  minWidth: 0,
-});
+export const primary = style({ position: "relative", width: 370, maxWidth: "100%" });
 const cover = style({
-  width: 84,
-  height: 84,
+  width: 64,
+  height: 64,
   flexShrink: 0,
   objectFit: "cover",
   background: vars.color.surface.muted,
   borderRadius: tokens["radius/radius-14"],
-  selectors: { [`${root}[data-expanded="true"] &`]: { width: 128, height: 128 } },
-  "@media": {
-    "(max-width: 520px)": {
-      selectors: { [`${root}[data-expanded="true"] &`]: { width: 84, height: 84 } },
-    },
-  },
 });
 export const artwork = style([cover]);
 export const artworkPlaceholder = style([
@@ -49,121 +37,11 @@ export const artworkPlaceholder = style([
     border: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
   },
 ]);
-export const summary = style({ flex: 1, minWidth: 0, display: "grid", gap: vars.space.xs });
-export const source = style({
-  fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
-});
-export const title = style({
-  fontFamily: vars.typography.family.display,
-  fontSize: 22,
-  lineHeight: vars.typography.lineHeight.compact,
-  fontWeight: 600,
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  display: "-webkit-box",
-  WebkitLineClamp: 2,
-  WebkitBoxOrient: "vertical",
-});
-export const artist = style({
-  fontSize: vars.typography.size.label,
-  color: vars.color.content.secondary,
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-});
-export const timeline = style({ display: "grid", gap: vars.space.xxs, marginTop: vars.space.xs });
-export const range = style({
-  appearance: "none",
-  WebkitAppearance: "none",
-  cursor: "pointer",
-  width: "100%",
-  minWidth: 0,
-  height: 16,
-  margin: 0,
-  background: "transparent",
-  accentColor: componentVars.range.activeTrack,
-  selectors: {
-    "&:disabled": { cursor: "default", opacity: 0.5 },
-    "&:focus-visible": {
-      outline: `2px solid ${componentVars.range.focusIndicator}`,
-      outlineOffset: 2,
-    },
-  },
-});
-globalStyle(`${range}::-webkit-slider-runnable-track`, {
-  background: componentVars.range.track,
-  height: 4,
-  borderRadius: 4,
-});
-globalStyle(`${range}::-webkit-slider-thumb`, {
-  appearance: "none",
-  WebkitAppearance: "none",
-  width: 12,
-  height: 12,
-  marginTop: -4,
-  borderRadius: "50%",
-  background: componentVars.range.thumb,
-});
-globalStyle(`${range}::-moz-range-track`, {
-  background: componentVars.range.track,
-  height: 4,
-  borderRadius: 4,
-});
-globalStyle(`${range}::-moz-range-thumb`, {
-  width: 12,
-  height: 12,
-  border: 0,
-  borderRadius: "50%",
-  background: componentVars.range.thumb,
-});
-export const time = style({
-  display: "flex",
-  justifyContent: "space-between",
-  fontFamily: vars.typography.family.data,
-  fontVariantNumeric: "tabular-nums",
-  fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
-});
-export const controls = style({
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: vars.space.sm,
-  flexWrap: "wrap",
-});
-export const transport = style({ display: "flex", alignItems: "center", gap: vars.space.xs });
-export const secondaryControls = style({
-  display: "flex",
-  alignItems: "center",
-  flexWrap: "wrap",
-  gap: vars.space.xs,
-  minWidth: 0,
-});
-globalStyle(
-  `${secondaryControls} button[aria-pressed="true"], ${secondaryControls} button[aria-pressed="true"]:hover:not(:disabled)`,
-  {
-    color: componentVars.navigation.selectedText,
-    background: componentVars.navigation.selectedSurface,
-  },
-);
-globalStyle(`${secondaryControls} button[aria-pressed="true"]:focus-visible`, {
-  outline: `2px solid ${componentVars.navigation.selectedText}`,
-  outlineOffset: -3,
-});
-export const volume = style({
-  display: "flex",
-  alignItems: "center",
-  gap: vars.space.sm,
-  width: 100,
-  fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
-  whiteSpace: "nowrap",
-});
 export const notice = style({
-  fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
-  lineHeight: vars.typography.lineHeight.body,
+  margin: 0,
+  fontSize: 12,
+  color: tokens["color/ink-3"],
+  lineHeight: "17px",
 });
 export const tabs = style({
   display: "flex",
@@ -188,20 +66,18 @@ export const scrollBody = style({
   padding: `${vars.space.lg} 0`,
   "@media": { "(max-height: 440px)": { flex: "none", overflowY: "visible" } },
 });
-export const compactLinks = style({
-  display: "flex",
-  flexWrap: "wrap",
-  gap: vars.space.xs,
-  borderTop: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
-  paddingTop: vars.space.xs,
+export const moreMenu = style({
+  position: "absolute",
+  top: 16,
+  right: 18,
+  zIndex: 3,
+  selectors: { "&[data-collapse]": { right: 87 } },
 });
-export const footer = style({
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  flexShrink: 0,
-  gap: vars.space.sm,
-  marginTop: "auto",
+export const morePanel = style({
+  position: "absolute",
+  top: 36,
+  right: 0,
+  width: "min(260px, calc(100vw - 48px))",
 });
 export const lyrics = style({ display: "grid", gap: vars.space.lg });
 export const lyricsText = style({
@@ -251,35 +127,4 @@ export const trackSummary = style({
   minWidth: 0,
   flex: 1,
   fontSize: vars.typography.size.label,
-});
-export const settings = style({
-  display: "grid",
-  gap: vars.space.md,
-  margin: 0,
-  border: 0,
-  padding: 0,
-  minWidth: 0,
-});
-export const settingsForm = style({ display: "grid", gap: vars.space.lg });
-export const settingField = style({ display: "grid", gap: vars.space.sm });
-export const options = style({ display: "grid", gap: vars.space.md });
-export const settingActions = style({ display: "flex", gap: vars.space.sm, flexWrap: "wrap" });
-export const pairing = style({
-  display: "grid",
-  gap: vars.space.md,
-  marginTop: vars.space.lg,
-  paddingTop: vars.space.lg,
-  borderTop: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
-  lineHeight: vars.typography.lineHeight.body,
-});
-export const pairingCode = style({
-  display: "grid",
-  gap: vars.space.sm,
-  padding: vars.space.md,
-  background: vars.color.surface.muted,
-});
-globalStyle(`${pairingCode} code`, {
-  fontSize: vars.typography.size.headingMd,
-  letterSpacing: "0.08em",
-  overflowWrap: "anywhere",
 });

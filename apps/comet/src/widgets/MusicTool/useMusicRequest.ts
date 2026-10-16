@@ -7,7 +7,7 @@ export function useMusicRequest(widget: WidgetView): {
   busy: boolean;
   error: string | null;
   request: (action: string, value?: WidgetValue) => Promise<WidgetValue | undefined>;
-  invoke: <T>(name: string, args: Record<string, unknown>) => Promise<{ value: T } | undefined>;
+  invoke: <T>(name: string, args?: Record<string, unknown>) => Promise<{ value: T } | undefined>;
 } {
   const context = `${widget.id}:${JSON.stringify(record(widget.data).config)}`;
   const current = useRef({ context, generation: 0 });
@@ -28,7 +28,7 @@ export function useMusicRequest(widget: WidgetView): {
     };
   }, []);
   const invoke = useCallback(
-    async <T>(name: string, args: Record<string, unknown>): Promise<{ value: T } | undefined> => {
+    async <T>(name: string, args?: Record<string, unknown>): Promise<{ value: T } | undefined> => {
       if (pending.current) return undefined;
       pending.current = true;
       const requestedContext = context;

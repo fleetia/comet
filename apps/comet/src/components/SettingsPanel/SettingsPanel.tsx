@@ -161,7 +161,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
     { value: "characters", label: "친구들", icon: "look" as const, content: null },
     { value: "automatic", label: "대화", icon: "chat" as const, content: null },
     { value: "desktop", label: "바탕화면", icon: "calendar" as const, content: null },
-    { value: "widgets", label: "위젯", icon: "timer" as const, content: null },
+    { value: "widgets", label: "위젯", icon: "grid" as const, content: null },
     { value: "model", label: "AI 연결", icon: "memory" as const, content: null },
     { value: "general", label: "일반", icon: "gear" as const, content: null },
   ];
@@ -175,7 +175,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
     ]),
   );
   return (
-    <Container className={`${styles.window} ${preview ? styles.preview : ""}`}>
+    <Container className={`${styles.window} ${preview ? styles.preview : ""}`} data-section={section}>
       <WindowHeader
         nativeControls
         className={styles.settingsHeader}
@@ -219,7 +219,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
           업데이트를 준비하는 동안 편집을 잠시 멈춰요.
         </p>
       )}
-      <fieldset className={styles.settingsWorkspace} disabled={updateBusy} aria-label="설정 내용">
+      <fieldset className={styles.settingsWorkspace} data-section={section} disabled={updateBusy} aria-label="설정 내용">
         <section
           role="tabpanel"
           tabIndex={0}

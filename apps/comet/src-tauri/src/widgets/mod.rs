@@ -118,6 +118,25 @@ pub fn is_retired(kind: &str) -> bool {
     RETIRED_KINDS.contains(&kind)
 }
 
+/// Desktop placement and default shape size, shared with the frontend.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DesktopKind {
+    pub width: f64,
+    pub height: f64,
+    pub appearance: bool,
+}
+
+static DESKTOP_KINDS: std::sync::LazyLock<BTreeMap<String, DesktopKind>> =
+    std::sync::LazyLock::new(|| {
+        serde_json::from_str(include_str!("../../../src/widgets/desktopKinds.json"))
+            .expect("desktopKinds.json is valid")
+    });
+
+pub fn desktop_kind(kind: &str) -> Option<&'static DesktopKind> {
+    DESKTOP_KINDS.get(kind).filter(|_| !is_retired(kind))
+}
+
 pub fn catalog() -> Result<Vec<WidgetManifest>, String> {
     let entries: Vec<WidgetManifest> =
         serde_json::from_str(include_str!("../../../widgets/catalog.json"))
@@ -190,6 +209,7 @@ pub fn act(
             entropy,
         ),
         "completion-jar" | "journal" => Err("이 위젯은 실제 사건을 모아 보여 줘요.".into()),
+        "calendar" if request.action == "configure" => calendar::configure_settings(&instance.data, &request.input, now),
         "calendar" if request.action == "set-calendar-color" => {
             calendar::set_calendar_color(&instance.data, &request.input)
         }
@@ -350,6 +370,19 @@ mod projection_tests {
             "revision":7,"data":data,"error":null
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn desktop_kinds_are_current_catalog_entries_with_positive_sizes() {
+        assert!(!DESKTOP_KINDS.is_empty());
+        for (kind, spec) in DESKTOP_KINDS.iter() {
+            assert!(manifest(kind).is_ok(), "{kind}");
+            assert!(desktop_kind(kind).is_some(), "{kind}");
+            assert!(spec.width > 0.0 && spec.height > 0.0, "{kind}");
+        }
+        for kind in ["fishing", "completion-jar", "device", "interaction"] {
+            assert!(desktop_kind(kind).is_none(), "{kind}");
+        }
     }
 
     #[test]

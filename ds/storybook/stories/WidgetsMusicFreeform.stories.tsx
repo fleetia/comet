@@ -5,8 +5,9 @@ const meta = {
   title: "UI/Widgets/MusicFreeform",
   component: MusicFreeform,
   tags: ["autodocs"],
-  args: { title: "밤의 산책", artist: "별빛정원", elapsed: "2:06" },
+  args: { caption: "지금 듣는 곡", title: "밤의 산책", artist: "별빛정원", elapsed: "2:06" },
   argTypes: {
+    caption: { control: "text" },
     title: {
       control: "text",
     },

@@ -6,6 +6,7 @@ import { record, rows, text, localDay, type DataRecord, type ToolAction } from "
 import type { WidgetView } from "../types";
 import { eventTime, frequencyRecords, ruleOf } from "./plannerData";
 import * as s from "./planner.css";
+import * as preparationStyles from "../PreparationTool/preparationRuntime.css";
 
 export function PlannerPreparation({
   event,
@@ -191,7 +192,7 @@ export function PlannerPreparation({
       <Dialog
         isOpen={opened}
         title={`${text(event.title)} 준비`}
-        className={s.dialog}
+        className={preparationStyles.detailDialog}
         onOpenChange={(open) => {
           if (!open) closeEditor();
         }}
@@ -207,6 +208,7 @@ export function PlannerPreparation({
             <PreparationTool
               key={editorVersion}
               widget={filteredPreparation}
+              selectedId={text(envelope?.id)}
               widgets={widgets}
               act={(action, input, target) => save(action, input, target ?? preparation)}
               onDirtyChange={setDirty}

@@ -90,6 +90,46 @@ it("requests Apple access only from the explicit button and connects only select
     }),
   );
 });
+it("shows the connection provider step beside the form and returns without changing a saved connection", () => {
+  const side = document.createElement("aside");
+  document.body.append(side);
+  const onConnectionOpenChange = vi.fn();
+  try {
+    render(
+      <CalendarTool
+        mode="settings"
+        widget={widget("calendar", { connections: [], events: [] })}
+        act={act}
+        sideContainer={side}
+        onConnectionOpenChange={onConnectionOpenChange}
+      />,
+    );
+    expect(within(side).getByLabelText("캘린더 확인 간격")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "+ 캘린더 연결…" }));
+    expect(onConnectionOpenChange).toHaveBeenLastCalledWith(true);
+    fireEvent.click(within(side).getByRole("button", { name: /^Google 캘린더/ }));
+    expect(screen.getByLabelText(/^Google OAuth 클라이언트 ID/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/^연결 이름/), { target: { value: "새 계정" } });
+    expect(screen.getByRole("region", { name: "캘린더 연결 미리보기" }).textContent).toContain(
+      "새 계정",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "‹ 연결한 캘린더" }));
+    expect(onConnectionOpenChange).toHaveBeenLastCalledWith(false);
+    expect(within(side).getByLabelText("캘린더 확인 간격")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "+ 캘린더 연결…" })).toBeTruthy();
+    for (const operation of [
+      "connect_calendar_google",
+      "connect_calendar_apple",
+      "connect_calendar_ics",
+      "disconnect_calendar",
+    ]) {
+      expect(command).not.toHaveBeenCalledWith(operation, expect.anything());
+    }
+  } finally {
+    cleanup();
+    side.remove();
+  }
+});
 it("keeps an Apple permission denial recoverable without connecting or clearing cached schedules", async () => {
   vi.mocked(command).mockResolvedValue({ supported: true, authorization: "denied", calendars: [] });
   render(
@@ -111,6 +151,7 @@ it("keeps an Apple permission denial recoverable without connecting or clearing 
       act={act}
     />,
   );
+  fireEvent.click(screen.getByLabelText("기존 연결 메뉴"));
   fireEvent.click(screen.getByRole("button", { name: "다시 연결·캘린더 선택" }));
   fireEvent.click(screen.getByRole("button", { name: "macOS 권한 확인하고 캘린더 목록 읽기" }));
   await screen.findByText(/캘린더 읽기 권한이 없습니다/);
@@ -138,6 +179,7 @@ it("clears an earlier ICS command error during Apple setup while preserving the 
       act={act}
     />,
   );
+  fireEvent.click(screen.getByLabelText("기존 구독 메뉴"));
   fireEvent.click(screen.getByRole("button", { name: "다시 조회" }));
   expect((await screen.findByRole("alert")).textContent).toBe(message);
   fireEvent.click(screen.getByRole("button", { name: "+ 캘린더 연결…" }));
@@ -147,6 +189,7 @@ it("clears an earlier ICS command error during Apple setup while preserving the 
 
   fireEvent.click(screen.getByRole("button", { name: "취소" }));
   vi.mocked(command).mockRejectedValueOnce(message);
+  fireEvent.click(screen.getByLabelText("기존 구독 메뉴"));
   fireEvent.click(screen.getByRole("button", { name: "다시 조회" }));
   expect((await screen.findByRole("alert")).textContent).toBe(message);
   fireEvent.click(screen.getByRole("button", { name: "+ 캘린더 연결…" }));
@@ -184,10 +227,12 @@ it("reconnects under the same connection id while keeping the submitted draft on
       act={act}
     />,
   );
+  fireEvent.click(screen.getByLabelText("기존 구독 메뉴"));
   fireEvent.click(screen.getByRole("button", { name: "다시 연결·캘린더 선택" }));
   fireEvent.change(screen.getByLabelText(/^ICS \/ webcal 구독 주소/), {
     target: { value: "https://example.com/calendar.ics" },
   });
+  fireEvent.change(screen.getByLabelText("사용자 색 추가"), { target: { value: "#123abc" } });
   fireEvent.click(screen.getByRole("button", { name: "구독 주소 연결" }));
   await screen.findAllByText("연결할 수 없습니다.");
   expect(command).toHaveBeenCalledWith("connect_calendar_ics", {
@@ -199,6 +244,8 @@ it("reconnects under the same connection id while keeping the submitted draft on
     "value",
     "https://example.com/calendar.ics",
   );
+  expect(act).toHaveBeenCalledWith("configure", { connectionColor: "#123abc" });
+  expect(screen.getByLabelText("사용자 색 추가")).toHaveProperty("value", "#123abc");
   expect(command).not.toHaveBeenCalledWith("disconnect_calendar", expect.anything());
   fireEvent.click(screen.getByRole("button", { name: "연결 입력 지우기" }));
   expect(screen.queryByRole("alert")).toBeNull();
@@ -207,8 +254,9 @@ it("reconnects under the same connection id while keeping the submitted draft on
 it("does not query private sources before opting in to the selected music provider", async () => {
   render(<ConnectionTool mode="settings" widget={widget("music", EMPTY)} />);
   expect(command).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByLabelText("음악 앱 직접 연결 설정"));
   fireEvent.change(screen.getByLabelText("음악 앱"), { target: { value: "spotify" } });
-  fireEvent.click(screen.getByRole("button", { name: "곡 정보 조회·재생 제어 허용하고 연결" }));
+  fireEvent.click(screen.getByRole("button", { name: "곡 정보 읽기 허용하고 연결" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("configure_connection_widget", {
       id: "music",
@@ -219,7 +267,83 @@ it("does not query private sources before opting in to the selected music provid
         showLyrics: true,
         hideMissing: true,
         allowTalk: true,
+        priority: "last-played",
       },
+    }),
+  );
+});
+it("saves a lyrics preference immediately and keeps the direct connection menu keyboard-closable", async () => {
+  render(
+    <ConnectionTool
+      mode="settings"
+      widget={widget("music", {
+        ...EMPTY,
+        configured: true,
+        config: { provider: "music", showLyrics: true },
+      })}
+    />,
+  );
+  fireEvent.click(screen.getByRole("switch", { name: "앱이 제공하는 가사 표시" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("configure_connection_widget", {
+      id: "music",
+      input: expect.objectContaining({ provider: "music", showLyrics: false }),
+    }),
+  );
+  expect(screen.queryByRole("button", { name: "다시 저장" })).toBeNull();
+  const menu = screen.getByLabelText("음악 앱 직접 연결 설정");
+  fireEvent.click(menu);
+  expect(menu.closest("details")).toHaveProperty("open", true);
+  fireEvent.keyDown(screen.getByLabelText("음악 앱"), { key: "Escape" });
+  expect(menu.closest("details")).toHaveProperty("open", false);
+  expect(document.activeElement).toBe(menu);
+});
+it("saves a configured music provider immediately and keeps the choice with an error on failure", async () => {
+  vi.mocked(command).mockRejectedValueOnce(new Error("저장 실패"));
+  render(
+    <ConnectionTool
+      mode="settings"
+      widget={widget("music", { ...EMPTY, configured: true, config: { provider: "music" } })}
+    />,
+  );
+  expect(screen.queryByText(/먼저 위의 연결 설정을 저장/)).toBeNull();
+  expect(screen.getByRole("button", { name: "Comet 확장 파일 저장" })).toHaveProperty(
+    "disabled",
+    false,
+  );
+  fireEvent.click(screen.getByLabelText("음악 앱 직접 연결 설정"));
+  fireEvent.change(screen.getByLabelText("음악 앱"), { target: { value: "spotify" } });
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("configure_connection_widget", {
+      id: "music",
+      input: expect.objectContaining({ provider: "spotify" }),
+    }),
+  );
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "저장 실패");
+  expect(screen.getByLabelText("음악 앱")).toHaveProperty("value", "spotify");
+  expect(screen.getByRole("button", { name: "다시 저장" })).toBeTruthy();
+});
+it("keeps supported music provider switches visible and requires a nonempty auto selection before consent", async () => {
+  render(<ConnectionTool mode="settings" widget={widget("music", EMPTY)} />);
+  const providers = within(screen.getByRole("group", { name: "자동 선택을 허용할 앱" }));
+  expect(providers.getAllByRole("switch")).toHaveLength(2);
+  expect(providers.getByText("Windows 전용")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Spotify 연결" })).toBeTruthy();
+  fireEvent.click(providers.getByRole("switch", { name: "Apple Music · macOS" }));
+  fireEvent.click(providers.getByRole("switch", { name: "Spotify · macOS" }));
+  fireEvent.click(screen.getByLabelText("음악 앱 직접 연결 설정"));
+  fireEvent.change(screen.getByLabelText("음악 앱"), { target: { value: "auto" } });
+  expect(screen.getByRole("button", { name: "곡 정보 읽기 허용하고 연결" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  expect(command).not.toHaveBeenCalled();
+  fireEvent.click(providers.getByRole("switch", { name: "Spotify · macOS" }));
+  fireEvent.click(screen.getByRole("button", { name: "곡 정보 읽기 허용하고 연결" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("configure_connection_widget", {
+      id: "music",
+      input: expect.objectContaining({ provider: "auto", allowedProviders: ["spotify"] }),
     }),
   );
 });
@@ -242,12 +366,95 @@ it("configures weather only from an explicit selected search result", async () =
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("configure_connection_widget", {
       id: "weather",
-      input: { name: "서울", latitude: 37.56, longitude: 126.97 },
+      input: {
+        name: "서울",
+        latitude: 37.56,
+        longitude: 126.97,
+        temperatureUnit: "celsius",
+        showApparent: true,
+        showDetails: false,
+        allowTalk: true,
+        refreshIntervalMinutes: 30,
+      },
     }),
   );
 });
-it("preserves the last observation as stale on failure and distinguishes no battery", () => {
-  const view = render(
+
+it("saves weather presentation and refresh preferences without changing the selected region", async () => {
+  render(
+    <ConnectionTool
+      mode="settings"
+      widget={widget("weather", {
+        ...EMPTY,
+        configured: true,
+        status: "ready",
+        config: { name: "서울", latitude: 37.5, longitude: 127 },
+      })}
+    />,
+  );
+  fireEvent.click(screen.getByRole("radio", { name: "°F" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("configure_connection_widget", {
+      id: "weather",
+      input: expect.objectContaining({
+        name: "서울",
+        latitude: 37.5,
+        longitude: 127,
+        temperatureUnit: "fahrenheit",
+      }),
+    }),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("switch", { name: "습도와 바람" })).toHaveProperty("disabled", false),
+  );
+  fireEvent.click(screen.getByRole("switch", { name: "습도와 바람" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("configure_connection_widget", {
+      id: "weather",
+      input: expect.objectContaining({ name: "서울", showDetails: true }),
+    }),
+  );
+});
+
+it.each([
+  { label: "민트", color: "#77d9ca" },
+  { label: "사용자 색 추가", color: "#123abc" },
+])("persists calendar fetch interval, local event destination, and $label connection color", async ({ label, color }) => {
+  render(
+    <CalendarTool
+      mode="settings"
+      widget={widget("calendar", { connections: [], events: [] })}
+      act={act}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText("캘린더 확인 간격"), { target: { value: "30" } });
+  expect(act).toHaveBeenCalledWith("configure", { refreshIntervalMinutes: 30 });
+  expect(screen.getByLabelText("새 일정을 넣을 곳")).toHaveProperty("value", "local");
+  fireEvent.click(screen.getByRole("button", { name: "+ 캘린더 연결…" }));
+  fireEvent.change(screen.getByLabelText(/^연결 이름/), { target: { value: "구독" } });
+  fireEvent.change(screen.getByLabelText(/^ICS \/ webcal/), {
+    target: { value: "https://example.com/calendar.ics" },
+  });
+  if (label === "사용자 색 추가") {
+    const picker = screen.getByLabelText(label);
+    expect(picker).toHaveProperty("type", "color");
+    fireEvent.change(picker, { target: { value: color } });
+  } else {
+    fireEvent.click(screen.getByRole("button", { name: label }));
+  }
+  fireEvent.click(screen.getByRole("button", { name: "구독 주소 연결" }));
+  await waitFor(() =>
+    expect(act).toHaveBeenCalledWith("configure", { connectionColor: color }),
+  );
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith(
+      "connect_calendar_ics",
+      expect.objectContaining({ input: { name: "구독", url: "https://example.com/calendar.ics" } }),
+    ),
+  );
+});
+it("shows the last weather observation as stale through the desktop weather renderer", () => {
+  render(
     <ConnectionTool
       widget={widget("weather", {
         ...EMPTY,
@@ -266,20 +473,9 @@ it("preserves the last observation as stale on failure and distinguishes no batt
     />,
   );
   expect(screen.getByText("21.5°C")).toBeTruthy();
-  expect(screen.getByText(/이전 정보 · 현재 상태/)).toBeTruthy();
-  view.rerender(
-    <ConnectionTool
-      widget={widget("device", {
-        ...EMPTY,
-        configured: true,
-        status: "ready",
-        lastSuccessAt: Date.now(),
-        observation: { hasBattery: false, batteries: [], powerSource: "ac" },
-      })}
-    />,
-  );
-  expect(screen.getByText("이 기기에는 조회 가능한 배터리가 없어요.")).toBeTruthy();
-  expect(screen.queryByText(/0%/)).toBeNull();
+  // The stale marker stays inside the cloud so the window never clips it.
+  expect(screen.getByText(/· 이전 정보/)).toBeTruthy();
+  expect(screen.getByRole("alert")).toHaveProperty("textContent", "연결 실패");
 });
 it("clears the private ICS URL only after successful connection", async () => {
   render(
@@ -413,6 +609,7 @@ it("opens only stored meeting links and confirms disconnect while preserving pre
       })}
     />,
   );
+  fireEvent.click(screen.getByLabelText("개인 메뉴"));
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "연결 해제" })).toHaveProperty("disabled", false),
   );
@@ -472,6 +669,7 @@ it("preserves collapsed reminder edits and saves only on explicit form submissio
   expect(screen.queryByRole("textbox", { name: /^연결 이름/ })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "+ 캘린더 연결…" }));
   expect(screen.getByRole("textbox", { name: /^연결 이름/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "‹ 연결한 캘린더" }));
   const disclosure = screen.getByText("일정과 생활 알림", { selector: "summary" });
   expect(disclosure.closest("details")).toHaveProperty("open", false);
   fireEvent.click(disclosure);

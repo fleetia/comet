@@ -137,6 +137,20 @@ pub(super) async fn launch_spotify(cancel: &AtomicBool) -> Result<(), Connection
     .map(|_| ())
 }
 
+pub(super) async fn open(
+    provider: &str,
+    source_id: Option<&str>,
+    cancel: &AtomicBool,
+) -> Result<(), ConnectionError> {
+    let id = app_id(provider, source_id)?;
+    run(
+        json!({"appId":id,"provider":provider,"action":"open"}),
+        Some(cancel),
+    )
+    .await
+    .map(|_| ())
+}
+
 pub(super) async fn control(
     provider: &str,
     source_id: Option<&str>,

@@ -2,6 +2,7 @@ import catalog from "../../../widgets/catalog.json";
 import type { CharacterCollection, Snapshot } from "../../types";
 import type { WidgetSnapshot, WidgetView } from "../../widgets/types";
 import { SETTINGS_SECTIONS, type SettingsSection } from "../SettingsPanel/useSettingsNavigation";
+import { isDesktopToy } from "../../widgets/ToyTools/desktopToys";
 
 export const DEFAULT_SHORTCUT = "CommandOrControl+Shift+Space";
 export type LauncherState = {
@@ -127,7 +128,7 @@ function widgetResult(
 ): LauncherResult {
   const needsSetup = instance?.installed && instance.enabled && instance.status === "setup";
   const available = instance?.installed && instance.enabled && !needsSetup;
-  const toy = ["ball", "paper-plane", "bubbles"].includes(entry.id);
+  const toy = isDesktopToy(entry.id);
   return {
     id: `widget:${entry.id}`,
     title: available

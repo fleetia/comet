@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type JSX, type PointerEvent } from "react"
 import { listen } from "@tauri-apps/api/event";
 import { command, errorText } from "../../hooks/useSnapshot";
 import { transparentDocument } from "../companion.css";
+import { ToyArtwork } from "./ToyArtwork";
 import * as s from "./desktopToy.css";
 
 type Frame = {
@@ -15,38 +16,6 @@ type Frame = {
   bubbleColor?: number;
 };
 const names = { ball: "공", "paper-plane": "종이비행기", bubbles: "비눗방울", pet: "작은 펫" };
-const bubblePalette = [
-  {
-    borderColor: "#67a8c7",
-    background: "radial-gradient(circle at 28% 25%, #ffffffdd 0 8%, #bdefff45 15% 65%, #b9a0ef88 90%)",
-    boxShadow: "inset -2px -2px 4px #8ad2e2bb",
-  },
-  {
-    borderColor: "#8f6dcc",
-    background: "radial-gradient(circle at 28% 25%, #ffffffdd 0 8%, #e7d6ff55 15% 65%, #b99ae988 90%)",
-    boxShadow: "inset -2px -2px 4px #c4a9f0bb",
-  },
-  {
-    borderColor: "#d4678a",
-    background: "radial-gradient(circle at 28% 25%, #ffffffdd 0 8%, #ffd5e355 15% 65%, #f2a0bd88 90%)",
-    boxShadow: "inset -2px -2px 4px #f4b3c9bb",
-  },
-  {
-    borderColor: "#c19b2e",
-    background: "radial-gradient(circle at 28% 25%, #ffffffdd 0 8%, #fff1b855 15% 65%, #f3c86d88 90%)",
-    boxShadow: "inset -2px -2px 4px #f4d890bb",
-  },
-  {
-    borderColor: "#4ca884",
-    background: "radial-gradient(circle at 28% 25%, #ffffffdd 0 8%, #c8f8e055 15% 65%, #83d9ba88 90%)",
-    boxShadow: "inset -2px -2px 4px #9ce4c5bb",
-  },
-  {
-    borderColor: "#cf704e",
-    background: "radial-gradient(circle at 28% 25%, #ffffffdd 0 8%, #ffe0c855 15% 65%, #f3aa7e88 90%)",
-    boxShadow: "inset -2px -2px 4px #f1b995bb",
-  },
-] as const;
 
 export function DesktopToy({ id }: { id: string }): JSX.Element | null {
   const [frame, setFrame] = useState<Frame | null>(null);
@@ -135,38 +104,15 @@ export function DesktopToy({ id }: { id: string }): JSX.Element | null {
               : `rotate(${frame.angle}deg)`,
         }}
       >
-        {frame.kind === "ball" && <span className={s.ball} aria-hidden="true" />}
-        {frame.kind === "paper-plane" && (
-          <svg aria-hidden="true" width="56" height="56" viewBox="0 0 56 56">
-            <path
-              d="M9 12 L49 28 L9 44 L17 28 Z"
-              fill="#fffaf0"
-              stroke="#4b6372"
-              strokeWidth="1.5"
-            />
-            <path d="M17 28 H49" stroke="#7d919c" />
-          </svg>
-        )}
-        {frame.kind === "bubbles" && (
-          <span
-            className={s.bubble}
-            aria-hidden="true"
-            style={{
-              ...bubblePalette[frame.bubbleColor ?? 0] ?? bubblePalette[0],
-              width: Number.isFinite(frame.bubbleSize)
-                ? Math.max(18, Math.min(50, frame.bubbleSize ?? 38))
-                : 38,
-              height: Number.isFinite(frame.bubbleSize)
-                ? Math.max(18, Math.min(50, frame.bubbleSize ?? 38))
-                : 38,
-            }}
-          />
-        )}
-        {frame.kind === "pet" && (
-          <span className={s.pet} aria-hidden="true">
-            🐌
-          </span>
-        )}
+        <ToyArtwork
+          kind={frame.kind}
+          bubbleColor={frame.bubbleColor}
+          bubbleSize={
+            Number.isFinite(frame.bubbleSize)
+              ? Math.max(18, Math.min(50, frame.bubbleSize ?? 38))
+              : 38
+          }
+        />
       </button>
     </div>
   );

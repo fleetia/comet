@@ -66,6 +66,18 @@
   --comet-palette-night-일-파랑: rgb(110 139 255);
   --comet-palette-night-친구-빛-테두리: rgb(214 204 255);
   --comet-palette-night-하늘-파랑: rgb(121 175 255);
+  --comet-palette-widget-구름-겉면: rgb(196 197 211);
+  --comet-palette-widget-메모-겉면: rgb(210 205 182);
+  --comet-palette-widget-메모-잉크: rgb(58 48 0);
+  --comet-palette-widget-메모-제목: rgb(107 83 0);
+  --comet-palette-widget-밤-겉면: rgb(21 26 56);
+  --comet-palette-widget-봉투-겉면: rgb(205 188 181);
+  --comet-palette-widget-봉투-날짜: rgb(92 70 54);
+  --comet-palette-widget-봉투-라벨: rgb(138 59 30);
+  --comet-palette-widget-봉투-잉크: rgb(43 38 32);
+  --comet-palette-widget-집중-겉면: rgb(19 43 52);
+  --comet-palette-widget-카운터-겉면: rgb(166 152 207);
+  --comet-palette-widget-카운터-보조: rgb(59 44 120);
   --comet-radius-radius-10: 10px;
   --comet-radius-radius-12: 12px;
   --comet-radius-radius-14: 14px;

@@ -8,7 +8,8 @@ export const window = style({
   flexDirection: "column",
   overflow: "hidden",
   color: v.color.content.primary,
-  background: tokens["color/glass-window"],
+  background: `${tokens["color/sky"]}`,
+  backgroundImage: `radial-gradient(1100px 560px at 0% 120%, ${tokens["color/sky-glow-violet"]}, transparent 62%), radial-gradient(900px 520px at 110% -20%, ${tokens["color/sky-glow-blue"]}, transparent 60%)`,
   backdropFilter: tokens["backdrop/backdrop-window"],
   border: `1px solid ${tokens["color/glass-border"]}`,
   borderRadius: tokens["radius/radius-22"],
@@ -84,9 +85,11 @@ export const index = style([
   surface,
   {
     margin: "16px 0 24px 26px",
+    alignSelf: "start",
+    maxHeight: "calc(100% - 40px)",
     gridColumn: 2,
     gridRow: 2,
-    padding: 16,
+    padding: "16px 12px 12px",
     overflowY: "auto",
     background: tokens["color/card-2"],
   },
@@ -522,7 +525,20 @@ export const rail = style({
   borderRight: `1px solid ${tokens["color/card-border"]}`,
   selectors: { [`${layout}[data-collection="true"] &`]: { gridRow: "1 / -1", gridColumn: 1 } },
 });
-export const railHeader = style({ minHeight: 10, width: "100%", marginBottom: 14 });
+export const railHeader = style({ height: 10, minHeight: 10, width: "100%", marginBottom: 14 });
+globalStyle(`${railHeader} > div`, {
+  minHeight: 10,
+  height: 10,
+  justifyContent: "center",
+  gap: 0,
+});
+globalStyle(`${railHeader} [aria-label="창 제어"]`, { gap: 6 });
+globalStyle(`${railHeader} [aria-label="창 제어"] > button`, {
+  width: 10,
+  minWidth: 10,
+  height: 10,
+});
+globalStyle(`${railHeader} > div > div:empty`, { display: "none" });
 export const railDivider = style({ height: 12, flexShrink: 0 });
 export const pageNavigation = style({
   display: "flex",

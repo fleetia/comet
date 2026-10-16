@@ -62,24 +62,26 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it("opens lyrics first and keeps the same song header and controls while switching tabs", async () => {
+it("opens lyrics first and keeps the same read-only song header while switching tabs", async () => {
   render(<MusicTool widget={widget()} />);
-  const header = screen.getByRole("banner", { name: "현재 곡과 재생 제어" });
+  const header = screen.getByRole("banner", { name: "현재 곡 정보" });
   expect(command).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "가사" }));
+  fireEvent.click(screen.getByRole("button", { name: "음악 상세 메뉴" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "가사" }));
   await screen.findByRole("tab", { name: "가사", selected: true });
   expect(command).toHaveBeenCalledWith("set_music_expanded", { id: "music", expanded: true });
   expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["가사", "곡 정보"]);
   expect(screen.getByText(/천천히 걷는 밤의 길/)).toBeTruthy();
   fireEvent.click(screen.getByRole("tab", { name: "곡 정보" }));
-  expect(screen.getByRole("banner", { name: "현재 곡과 재생 제어" })).toBe(header);
-  expect(within(header).getByRole("button", { name: "일시정지" })).toBeTruthy();
+  expect(screen.getByRole("banner", { name: "현재 곡 정보" })).toBe(header);
+  expect(within(header).getByRole("progressbar", { name: "음악 재생 위치" })).toBeTruthy();
   expect(screen.getByRole("tabpanel").textContent).toContain("조용한 궤도");
 });
 
 it("starts each detail tab at the top after scrolling another tab", async () => {
   render(<MusicTool widget={widget()} />);
-  fireEvent.click(screen.getByRole("button", { name: "가사" }));
+  fireEvent.click(screen.getByRole("button", { name: "음악 상세 메뉴" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "가사" }));
   const detail = await screen.findByRole("region", { name: "음악 상세 내용" });
   detail.scrollTop = 180;
   fireEvent.click(screen.getByRole("tab", { name: "곡 정보" }));
@@ -89,21 +91,61 @@ it("starts each detail tab at the top after scrolling another tab", async () => 
   expect(detail.scrollTop).toBe(0);
 });
 
-it("sends one revision-bound command and never offers unsupported volume or shuffle controls", async () => {
+it("never exposes playback mutations even when the connected app supports them", () => {
+  render(
+    <MusicTool
+      widget={widget({
+        capabilities: {
+          play: true,
+          pause: true,
+          previous: true,
+          next: true,
+          seek: true,
+          volume: true,
+          shuffle: true,
+          repeat: true,
+          like: true,
+        },
+      })}
+    />,
+  );
+  expect(screen.queryByRole("slider")).toBeNull();
+  for (const name of ["이전 곡", "다음 곡", "재생", "일시정지", "셔플", /반복/, /좋아요/]) {
+    expect(screen.queryByRole("button", { name })).toBeNull();
+  }
+  expect(screen.getByRole("progressbar", { name: "음악 재생 위치" })).toHaveProperty("value", 0.5);
+  expect(command).not.toHaveBeenCalled();
+});
+
+it("opens only the selected music app and prepares a song discussion without submitting a message", async () => {
   render(<MusicTool widget={widget()} />);
-  expect(screen.getByRole("button", { name: "이전 곡" })).toHaveProperty("disabled", true);
-  expect(screen.queryByRole("slider", { name: "음량" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "셔플" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "일시정지" }));
+  fireEvent.click(screen.getByRole("button", { name: "음악 앱 열기" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("music_request", {
       id: "music",
       expectedRevision: 7,
-      action: "pause",
+      action: "open",
       value: null,
     }),
   );
-  expect(command).toHaveBeenCalledTimes(1);
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "이 곡 이야기하기" })).toHaveProperty(
+      "disabled",
+      false,
+    ),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "이 곡 이야기하기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("discuss_music_widget", {
+      id: "music",
+      expectedRevision: 7,
+    }),
+  );
+  expect(command).not.toHaveBeenCalledWith("send_message", expect.anything());
+  const settings = screen.getByRole("button", { name: "음악 정보 설정" });
+  await waitFor(() => expect(settings).toHaveProperty("disabled", false));
+  fireEvent.click(settings);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("open_planner_settings", { kind: "music" }));
 });
 
 it("shows the observed playback details, false and zero metadata, and optional missing fields", async () => {
@@ -119,7 +161,8 @@ it("shows the observed playback details, false and zero metadata, and optional m
     metadata: { albumArtist: "별빛정원", contentType: "track", playbackRate: 1, explicit: false },
   };
   const view = render(<MusicTool widget={widget(observation)} />);
-  fireEvent.click(screen.getByRole("button", { name: "곡 정보" }));
+  fireEvent.click(screen.getByRole("button", { name: "음악 상세 메뉴" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "곡 정보" }));
   const panel = within(await screen.findByRole("tabpanel"));
   expect(panel.getByText("마지막 조회 위치").nextElementSibling?.textContent).toBe("2:00");
   expect(panel.getByText("재생 상태").nextElementSibling?.textContent).toBe("일시정지");
@@ -142,28 +185,26 @@ it("shows the observed playback details, false and zero metadata, and optional m
   ).toBe("제공하지 않음");
 });
 
-it("blocks stale playback and does not carry a seek drag to a different song", async () => {
-  const view = render(<MusicTool widget={widget()} />);
-  const seek = screen.getByRole("slider", { name: "재생 위치" });
-  fireEvent.change(seek, { target: { value: "150000" } });
-  view.rerender(
-    <MusicTool widget={widget({ trackId: "track-b", title: "다음 곡", positionMs: 0 })} />,
+it("keeps stale observations visibly read-only and allows an explicit refresh", async () => {
+  render(<MusicTool widget={widget({ observedAt: NOW - 31_000 })} />);
+  expect(screen.queryByRole("slider")).toBeNull();
+  expect(screen.getByRole("progressbar", { name: "음악 재생 위치" })).toHaveProperty("value", 0.5);
+  expect(screen.getByRole("status").textContent).toContain("마지막으로 조회한 곡 정보");
+  fireEvent.click(screen.getByRole("button", { name: "음악 상세 메뉴" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "다시 조회" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("refresh_connection_widget", { id: "music" }),
   );
-  fireEvent.pointerUp(screen.getByRole("slider", { name: "재생 위치" }));
-  expect(command).not.toHaveBeenCalled();
-  view.rerender(<MusicTool widget={widget({ observedAt: NOW - 31_000 })} />);
-  expect(screen.getByRole("button", { name: "일시정지" })).toHaveProperty("disabled", true);
-  expect(screen.getByRole("slider", { name: "재생 위치" })).toHaveProperty("disabled", true);
-  expect(screen.getByRole("slider", { name: "재생 위치" })).toHaveProperty("value", "120000");
-  expect(screen.getByRole("status").textContent).toContain("현재 상태를 확인하지 못했어요");
+  expect(command).not.toHaveBeenCalledWith("music_request", expect.anything());
 });
 
 it("preserves paused song details and rejects executable or local artwork URLs", () => {
   const view = render(
     <MusicTool widget={widget({ playing: false, artworkUrl: "file:///private/music.jpg" })} />,
   );
-  expect(screen.getByRole("heading", { name: "밤의 산책" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "재생" })).toBeTruthy();
+  expect(screen.getByText("밤의 산책")).toBeTruthy();
+  expect(screen.getByText(/Apple Music · 일시정지/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "재생" })).toBeNull();
   expect(screen.queryByRole("img")).toBeNull();
   view.rerender(
     <MusicTool widget={widget({ artworkUrl: "data:image/svg+xml,<svg onload='alert(1)'/>" })} />,
@@ -173,41 +214,57 @@ it("preserves paused song details and rejects executable or local artwork URLs",
   expect(screen.getByRole("img")).toHaveProperty("src", "https://i.scdn.co/image/cover");
 });
 
-it("loads playlists on request and sends their URI for random playback", async () => {
-  const capabilities = { playlists: true, playlistTracks: true, playRandom: true, queue: true };
-  vi.mocked(command).mockImplementation(async (name) =>
-    name === "music_request"
-      ? { items: [{ uri: "spotify:playlist:abc", title: "조용한 저녁" }], nextOffset: null }
-      : null,
-  );
+it("loads playlists and their tracks without offering playback or queue mutations", async () => {
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name !== "music_request") return null;
+    if (args?.action === "playlists")
+      return { items: [{ uri: "spotify:playlist:abc", title: "조용한 저녁" }], nextOffset: null };
+    return { items: [{ uri: "spotify:track:abc", title: "저녁 노래" }], nextOffset: null };
+  });
   render(
     <MusicTool
-      widget={widget({ provider: "spicetify", capabilities }, { provider: "spicetify" })}
+      widget={widget(
+        {
+          provider: "spicetify",
+          capabilities: {
+            playlists: true,
+            playlistTracks: true,
+            playRandom: true,
+            playUri: true,
+            enqueue: true,
+            queue: true,
+          },
+        },
+        { provider: "spicetify" },
+      )}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "플레이리스트" }));
+  fireEvent.click(screen.getByRole("button", { name: "음악 상세 메뉴" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "플레이리스트" }));
   fireEvent.click(await screen.findByRole("button", { name: "불러오기" }));
-  fireEvent.click(await screen.findByRole("button", { name: "조용한 저녁에서 랜덤 한 곡 재생" }));
-  await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("music_request", {
-      id: "music",
-      expectedRevision: 7,
-      action: "playRandom",
-      value: { uri: "spotify:playlist:abc" },
-    }),
-  );
+  fireEvent.click(await screen.findByRole("button", { name: "곡 보기" }));
+  await screen.findByText("저녁 노래");
+  expect(command).toHaveBeenCalledWith("music_request", {
+    id: "music",
+    expectedRevision: 7,
+    action: "playlistTracks",
+    value: { uri: "spotify:playlist:abc", offset: 0 },
+  });
+  expect(screen.queryByRole("button", { name: /재생|큐에 추가/ })).toBeNull();
+  expect(
+    vi
+      .mocked(command)
+      .mock.calls.filter(([name]) => name === "music_request")
+      .map(([, args]) => args?.action),
+  ).toEqual(["playlists", "playlistTracks"]);
 });
 
-it("keeps supported queue actions visible and disabled while another music command is pending", async () => {
+it("blocks another library query while the track query is pending", async () => {
   let finish: (value: WidgetValue) => void = () => {};
   vi.mocked(command).mockImplementation(async (name, args) => {
     if (name !== "music_request") return null;
-    if (args?.action === "playlists") {
+    if (args?.action === "playlists")
       return { items: [{ uri: "spotify:playlist:qa", title: "합성 목록" }] };
-    }
-    if (args?.action === "playlistTracks") {
-      return { items: [{ uri: "spotify:track:qa", title: "합성 곡" }] };
-    }
     return new Promise<WidgetValue>((resolve) => {
       finish = resolve;
     });
@@ -215,22 +272,20 @@ it("keeps supported queue actions visible and disabled while another music comma
   render(
     <MusicTool
       widget={widget(
-        {
-          capabilities: { playlists: true, playlistTracks: true, playUri: true, enqueue: true },
-        },
+        { capabilities: { playlists: true, playlistTracks: true } },
         { provider: "spicetify" },
       )}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "플레이리스트" }));
+  fireEvent.click(screen.getByRole("button", { name: "음악 상세 메뉴" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "플레이리스트" }));
   fireEvent.click(await screen.findByRole("button", { name: "불러오기" }));
-  fireEvent.click(await screen.findByRole("button", { name: "곡 보기" }));
-  const queue = await screen.findByRole("button", { name: "합성 곡 큐에 추가" });
-  fireEvent.click(screen.getByRole("button", { name: "합성 곡 재생" }));
-  expect(screen.getByRole("button", { name: "합성 곡 큐에 추가" })).toBe(queue);
-  expect(queue).toHaveProperty("disabled", true);
-  finish(null);
-  await waitFor(() => expect(queue).toHaveProperty("disabled", false));
+  const query = await screen.findByRole("button", { name: "곡 보기" });
+  fireEvent.click(query);
+  expect(query).toHaveProperty("disabled", true);
+  finish({ items: [{ uri: "spotify:track:qa", title: "합성 곡" }] });
+  await screen.findByText("합성 곡");
+  expect(screen.queryByRole("button", { name: /합성 곡 재생|큐에 추가/ })).toBeNull();
 });
 
 it("requests the playback queue without a playlist pagination argument", async () => {
@@ -240,7 +295,8 @@ it("requests the playback queue without a playlist pagination argument", async (
   render(
     <MusicTool widget={widget({ capabilities: { queue: true } }, { provider: "spicetify" })} />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "가사" }));
+  fireEvent.click(screen.getByRole("button", { name: "음악 상세 메뉴" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "가사" }));
   fireEvent.click(await screen.findByRole("tab", { name: "재생 대기열" }));
   fireEvent.click(screen.getByRole("button", { name: "불러오기" }));
   await screen.findByText("재생 대기열이 비어 있어요.");
@@ -263,7 +319,8 @@ it("ignores a playlist response received after the connection settings change", 
       : null,
   );
   const view = render(<MusicTool widget={widget({ capabilities }, { provider: "spicetify" })} />);
-  fireEvent.click(screen.getByRole("button", { name: "플레이리스트" }));
+  fireEvent.click(screen.getByRole("button", { name: "음악 상세 메뉴" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "플레이리스트" }));
   fireEvent.click(await screen.findByRole("button", { name: "불러오기" }));
   view.rerender(
     <MusicTool widget={widget({ capabilities }, { provider: "spicetify", allowTalk: false })} />,
@@ -280,7 +337,7 @@ it("asks for consent before configuring the chosen app and preserves a failed dr
   render(<MusicSettings widget={{ ...widget(), data: { configured: false, config: {} } }} />);
   expect(command).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText("음악 앱"), { target: { value: "spotify" } });
-  fireEvent.click(screen.getByRole("button", { name: "곡 정보 조회·재생 제어 허용하고 연결" }));
+  fireEvent.click(screen.getByRole("button", { name: "곡 정보 읽기 허용하고 연결" }));
   await screen.findByRole("alert");
   expect(command).toHaveBeenCalledWith("configure_connection_widget", {
     id: "music",
@@ -291,6 +348,7 @@ it("asks for consent before configuring the chosen app and preserves a failed dr
       showLyrics: true,
       hideMissing: true,
       allowTalk: true,
+      priority: "last-played",
     },
   });
   expect(screen.getByLabelText("음악 앱")).toHaveProperty("value", "spotify");
@@ -316,7 +374,7 @@ it("lets a remembered Spotify connection be forgotten while awaiting automatic r
   expect(screen.getByText("Spotify 확장 연결을 기다리고 있어요.")).toBeTruthy();
 });
 
-it("saves the preview-side draft through the settings form and blocks both sides while saving", async () => {
+it("autosaves a configured preview preference and blocks both sides while saving", async () => {
   const side = document.createElement("aside");
   document.body.append(side);
   const onBusyChange = vi.fn();
@@ -332,12 +390,9 @@ it("saves the preview-side draft through the settings form and blocks both sides
       <MusicSettings widget={widget()} sideContainer={side} onBusyChange={onBusyChange} />,
     );
     const artwork = within(side).getByRole("switch", { name: "앨범 아트 표시" });
-    expect(within(side).getByText("밤의 산책")).toBeTruthy();
+    expect(within(side).queryByText("밤의 산책")).toBeNull();
     fireEvent.click(artwork);
     expect(artwork).toHaveProperty("checked", false);
-    expect(command).not.toHaveBeenCalled();
-    const save = screen.getByRole("button", { name: "연결 설정 저장" });
-    fireEvent.click(save);
     await waitFor(() =>
       expect(command).toHaveBeenCalledWith("configure_connection_widget", {
         id: "music",
@@ -345,14 +400,12 @@ it("saves the preview-side draft through the settings form and blocks both sides
       }),
     );
     expect(artwork.matches(":disabled")).toBe(true);
-    expect(save.matches(":disabled")).toBe(true);
+    expect(screen.queryByRole("button", { name: "다시 저장" })).toBeNull();
     expect(onBusyChange).toHaveBeenLastCalledWith(true);
     finish(null);
-    await waitFor(() => expect(save.matches(":disabled")).toBe(false));
-    expect(onBusyChange).toHaveBeenLastCalledWith(false);
+    await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(false));
     view.rerender(<MusicSettings widget={widget()} sideContainer={side} disabled />);
     expect(artwork.matches(":disabled")).toBe(true);
-    expect(save.matches(":disabled")).toBe(true);
   } finally {
     cleanup();
     side.remove();

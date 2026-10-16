@@ -8,6 +8,7 @@ import {
 import { Icon, type IconName } from "@comet/icon";
 import { Button, Checkbox, Switch } from "../controls";
 import * as styles from "./widgets.css";
+import { TimerCometTrail } from "./TimerCometTrail";
 
 export type WidgetKind = "focus" | "clock" | "weather" | "music" | "envelope";
 export type WidgetSurface = "plain" | "translucent" | "glow";
@@ -22,7 +23,9 @@ const icons: Record<WidgetKind, IconName> = {
 };
 export type WidgetRowProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "value"> & {
   kind: WidgetKind;
+  icon?: IconName;
   title: string;
+  period?: string;
   description?: string;
   value?: ReactNode;
   meta?: ReactNode;
@@ -32,7 +35,9 @@ export type WidgetRowProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "valu
 };
 export function WidgetRow({
   kind,
+  icon,
   title,
+  period,
   description,
   value,
   meta,
@@ -61,7 +66,10 @@ export function WidgetRow({
         .filter(Boolean)
         .join(" ")}
     >
-      <Icon name={kind === "focus" && phase === "rest" ? "moon" : icons[kind]} size={17} />
+      <Icon
+        name={icon ?? (kind === "focus" && phase === "rest" ? "moon" : icons[kind])}
+        size={layout === "editor" ? 19 : 17}
+      />
       <span className={styles.rowCopy}>
         <span
           className={[
@@ -72,18 +80,27 @@ export function WidgetRow({
             .join(" ")}
         >
           {title}
+          {period && <small className={styles.rowPeriod}>{period}</small>}
         </span>
         {description && <span className={styles.small}>{description}</span>}
       </span>
       {value !== undefined && (
-        <span className={styles.rowValue}>
+        <span
+          className={[
+            styles.rowValue,
+            (kind === "envelope" || kind === "music") && styles.rowTextValue,
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        >
           {kind === "focus" && phase === "running" && (
-            <span aria-hidden className={styles.liveDot} />
+            <span aria-hidden className={styles.rowLiveDot} />
           )}
           {value}
         </span>
       )}
       {meta && <span className={styles.rowMeta}>{meta}</span>}
+      {layout === "editor" && <Icon name="grip" size={18} />}
     </button>
   );
 }
@@ -135,7 +152,7 @@ export type WidgetSummaryItem = {
   live?: boolean;
   disabled?: boolean;
 };
-export type WidgetStackSummaryProps = HTMLAttributes<HTMLDivElement> & {
+export type WidgetStackSummaryProps = Omit<HTMLAttributes<HTMLDivElement>, "onSelect"> & {
   items: readonly WidgetSummaryItem[];
   surface?: WidgetSurface;
   onSelect?: (id: string) => void;
@@ -164,7 +181,7 @@ export function WidgetStackSummary({
           className={styles.summaryItem}
         >
           {item.live && <span aria-hidden className={styles.liveDot} />}
-          <Icon name={item.icon} size={14} />
+          <Icon name={item.icon} size={15} />
           {item.label}
         </button>
       ))}
@@ -294,6 +311,7 @@ function TimerRing({
             strokeLinecap="round"
             strokeDasharray={`${amount * 452.39} 452.39`}
           />
+          <TimerCometTrail center={80} radius={72} angle={amount * 2 * Math.PI} />
           <circle
             cx={80 + Math.cos(amount * 2 * Math.PI) * 72}
             cy={80 + Math.sin(amount * 2 * Math.PI) * 72}
@@ -557,128 +575,202 @@ export function FocusTimerWidget({
   );
 }
 
+/** Copy the app supplies for the music card; each string is also its control's accessible name. */
+export type MusicWidgetLabels = {
+  heading: string;
+  progress: string;
+  discuss: string;
+  /** Visible text of the player link, such as the player's name. */
+  openPlayer: string;
+  /** Accessible name of the player link. */
+  openPlayerAccessible: string;
+  share: string;
+  shareDescription: string;
+  disclaimer: string;
+  settings: string;
+};
 export type MusicWidgetProps = Omit<HTMLAttributes<HTMLElement>, "title"> & {
   title: string;
   artist: string;
+  album?: string;
+  source?: string;
+  labels: MusicWidgetLabels;
+  busy?: boolean;
   elapsed: string;
   duration?: string;
   progress?: number;
   artwork?: ReactNode;
+  showArtwork?: boolean;
   onCollapse?: () => void;
   onDiscuss?: () => void;
   onOpenPlayer?: () => void;
+  onSettings?: () => void;
   shareEnabled?: boolean;
   onShareChange?: (enabled: boolean) => void;
 };
 export function MusicWidget({
   title,
   artist,
+  album,
+  source,
+  labels,
+  busy = false,
   elapsed,
   duration,
   progress = 0,
   artwork,
+  showArtwork = true,
   onCollapse,
   onDiscuss,
   onOpenPlayer,
+  onSettings,
   shareEnabled = false,
   onShareChange,
+  className,
   ...props
 }: MusicWidgetProps): JSX.Element {
   return (
     <WidgetExpanded
       {...props}
-      title="음악 정보"
+      className={[styles.musicCard, className].filter(Boolean).join(" ")}
+      title={labels.heading}
       icon="music"
       onCollapse={onCollapse}
-      style={{ width: 352, ...props.style }}
-      footer="곡 정보만 읽어요. 재생과 음량은 음악 앱에서 바꿔요."
+      style={{ width: 370, ...props.style }}
     >
-      <div className={styles.song}>
-        <span className={styles.cover}>{artwork ?? <Icon name="music" size={26} />}</span>
-        <span className={styles.rowCopy}>
-          <strong className={styles.songTitle}>{title}</strong>
-          <span>{artist}</span>
-          <span className={styles.small}>조용한 궤도</span>
+      <div className={[styles.song, styles.musicSong].join(" ")}>
+        {showArtwork && (
+          <span className={styles.cover}>{artwork ?? <Icon name="music" size={28} />}</span>
+        )}
+        <span className={styles.musicCopy}>
+          <strong className={styles.musicTitle}>{title}</strong>
+          <span className={styles.musicArtist}>{artist}</span>
+          {album && <span className={styles.musicAlbum}>{album}</span>}
         </span>
       </div>
-      <progress
-        aria-label="음악 재생 위치"
-        max={1}
-        value={Math.max(0, Math.min(1, progress))}
-        className={styles.progress}
-      />
-      <div className={styles.actions}>
-        <span className={styles.small}>{elapsed}</span>
-        <span className={styles.small} style={{ marginLeft: "auto" }}>
-          {duration}
-        </span>
+      <div className={styles.musicProgress}>
+        <progress
+          aria-label={labels.progress}
+          max={1}
+          value={Math.max(0, Math.min(1, progress))}
+          className={styles.progress}
+        />
+        <div className={styles.musicTimes}>
+          <span>{elapsed}</span>
+          <span className={styles.musicSource}>{source}</span>
+          <span>{duration}</span>
+        </div>
       </div>
-      <div className={styles.actions}>
-        <Button size="small" variant="ghost" onClick={onDiscuss}>
-          이 곡 이야기하기
+      <div className={styles.musicActions}>
+        <Button
+          className={styles.musicDiscuss}
+          size="small"
+          variant="ghost"
+          leadingIcon={<Icon name="chat" size={15} />}
+          onClick={onDiscuss}
+          disabled={busy || !onDiscuss}
+        >
+          {labels.discuss}
         </Button>
-        <button type="button" className={styles.minorButton} onClick={onOpenPlayer}>
-          음악 앱 열기
+        <button
+          type="button"
+          className={styles.musicLink}
+          aria-label={labels.openPlayerAccessible}
+          onClick={onOpenPlayer}
+          disabled={busy || !onOpenPlayer}
+        >
+          {labels.openPlayer}
+          <span aria-hidden> ↗</span>
         </button>
       </div>
-      <div
-        className={styles.actions}
-        style={{ borderTop: "1px solid var(--comet-color-divider)", paddingTop: 10 }}
-      >
-        <span className={styles.rowCopy}>
-          친구들이 이 곡 이야기하기
-          <span className={styles.small}>곡 제목과 아티스트만 대화에 써요</span>
-        </span>
-        <Switch
-          aria-label="친구들이 이 곡 이야기하기"
-          checked={shareEnabled}
-          onChange={(event) => onShareChange?.(event.currentTarget.checked)}
-        />
+      <div className={styles.musicFooter}>
+        <div className={styles.musicShare}>
+          <span className={styles.musicShareCopy}>
+            {labels.share}
+            <span>{labels.shareDescription}</span>
+          </span>
+          <Switch
+            aria-label={labels.share}
+            checked={shareEnabled}
+            disabled={busy || !onShareChange}
+            onChange={(event) => onShareChange?.(event.currentTarget.checked)}
+          />
+        </div>
+        <div className={styles.musicDisclaimer}>
+          <span>{labels.disclaimer} </span>
+          <button
+            type="button"
+            className={styles.musicLink}
+            onClick={onSettings}
+            disabled={busy || !onSettings}
+          >
+            {labels.settings}
+          </button>
+        </div>
       </div>
     </WidgetExpanded>
   );
 }
 
 export type EnvelopeTask = { id: string; title: string; completed?: boolean; description?: string };
+/** Copy the app supplies for the envelope card. */
+export type EnvelopeWidgetLabels = {
+  heading: string;
+  /** Accessible name of the progress bar. */
+  progress: string;
+  /** Visible progress summary, such as "9개 중 2개". */
+  count: (completed: number, total: number) => ReactNode;
+  focus: string;
+  open: string;
+};
 export type EnvelopeWidgetProps = Omit<HTMLAttributes<HTMLElement>, "title"> & {
   title: string;
+  labels: EnvelopeWidgetLabels;
   date: string;
   tasks: readonly EnvelopeTask[];
   onTaskChange?: (id: string, completed: boolean) => void;
   onCollapse?: () => void;
   onFocus?: () => void;
   onOpen?: () => void;
+  footer?: ReactNode;
+  completedCount?: number;
+  totalCount?: number;
 };
 export function EnvelopeWidget({
   title,
+  labels,
   date,
   tasks,
   onTaskChange,
   onCollapse,
   onFocus,
   onOpen,
+  footer,
+  completedCount,
+  totalCount,
   ...props
 }: EnvelopeWidgetProps): JSX.Element {
-  const completed = tasks.filter((task) => task.completed).length;
+  const completed = completedCount ?? tasks.filter((task) => task.completed).length;
+  const total = totalCount ?? tasks.length;
   return (
     <WidgetExpanded
       {...props}
-      title="준비 봉투"
+      title={labels.heading}
       icon="envelope"
       onCollapse={onCollapse}
       style={{ width: 370, ...props.style }}
-      footer="내용 4개는 봉투에서 봐요. 끝난 일정은 빠고 가까운 날짜의 봉투부터 보여 줘요."
+      footer={footer}
     >
       <span className={styles.task}>{title}</span>
       <span className={styles.small}>{date}</span>
       <progress
-        aria-label="봉투 준비 현황"
-        max={Math.max(tasks.length, 1)}
+        aria-label={labels.progress}
+        max={Math.max(total, 1)}
         value={completed}
         className={styles.progress}
       />
       <span className={styles.small} style={{ textAlign: "right" }}>
-        {tasks.length}개 중 {completed}개
+        {labels.count(completed, total)}
       </span>
       <div>
         {tasks.map((task) => (
@@ -694,10 +786,10 @@ export function EnvelopeWidget({
       </div>
       <div className={styles.actions}>
         <Button size="small" variant="ghost" onClick={onFocus}>
-          이 봉투로 집중
+          {labels.focus}
         </Button>
         <Button size="small" variant="ghost" onClick={onOpen}>
-          봉투 열기
+          {labels.open}
         </Button>
       </div>
     </WidgetExpanded>

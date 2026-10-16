@@ -1,37 +1,37 @@
-import { style } from "@vanilla-extract/css";
+import { globalStyle, style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
-export const root = style({ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 });
+export const root = style({ display: "flex", flexDirection: "column", gap: 8, minWidth: 0, paddingTop: 4 });
 export const heading = style({
   margin: 0,
   fontFamily: tokens["typography/display/label-display/fontFamily"],
   fontSize: 14,
   color: tokens["color/ink-2"],
   fontWeight: 400,
+  lineHeight: "18px",
 });
 export const steps = style({
   display: "grid",
   gridTemplateColumns: "repeat(3,minmax(0,1fr))",
   gap: 10,
-  marginBottom: 10,
-  "@media": { "(max-width: 1000px)": { gridTemplateColumns: "minmax(0,1fr)" } },
+  marginBottom: 12,
 });
-export const step = style({ padding: 14, fontSize: 12, lineHeight: "18px", boxShadow: "none" });
+export const step = style({ padding: 14, fontSize: 13.5, lineHeight: "18px", boxShadow: "none", border: 0, outline: `1px solid ${tokens["color/card-border"]}`, outlineOffset: -1 });
 export const number = style({
   display: "grid",
   placeItems: "center",
-  width: 24,
-  height: 24,
+  width: 26,
+  height: 26,
   marginBottom: 10,
   borderRadius: "50%",
   color: tokens["color/byul-ink"],
   background: tokens["color/icon-tile"],
 });
-export const connections = style({ padding: 0, boxShadow: "none", overflow: "hidden" });
+export const connections = style({ border: 0, outline: `1px solid ${tokens["color/card-border"]}`, outlineOffset: -1, padding: 0, boxShadow: "none", overflow: "hidden" });
 export const connection = style({
   display: "flex",
   alignItems: "center",
   gap: 12,
-  padding: "9px 14px",
+  padding: "8px 14px",
   minHeight: 56,
   boxSizing: "border-box",
   selectors: { "& + &": { borderTop: `1px solid ${tokens["color/divider"]}` } },
@@ -76,11 +76,7 @@ export const caption = style({
 
 export const error = style([caption, { color: tokens["color/danger"] }]);
 
-export const preview = style({
-  display: "flex",
-  flexDirection: "column",
-  gap: 8,
-  minWidth: 0,
-  padding: 12,
-});
-export const previewCard = style({ width: "100%" });
+globalStyle(`${step} p`, { margin: 0 });
+globalStyle(`${root} > ${caption}`, { marginBottom: 12 });
+globalStyle(`${connections} > div`, { minHeight: 56 });
+

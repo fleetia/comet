@@ -33,17 +33,24 @@ function widget(data: DataRecord): WidgetView {
 }
 afterEach(cleanup);
 
-it("configures the default focus duration only when saved", async () => {
+async function settle(): Promise<void> {
+  await reactAct(async () => new Promise((resolve) => setTimeout(resolve, 650)));
+}
+
+it("saves the default focus duration shortly after typing without a save button", async () => {
   const act = vi.fn<ToolAction>().mockResolvedValue(true);
   render(
     <FocusWidgetSettings widget={widget({ status: "idle", focusDurationMs: 1500000 })} act={act} />,
   );
+  fireEvent.change(screen.getByLabelText("기본 집중 시간 (분)"), { target: { value: "3" } });
   fireEvent.change(screen.getByLabelText("기본 집중 시간 (분)"), { target: { value: "30" } });
   expect(act).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "집중 시간 저장" }));
+  expect(screen.queryByRole("button", { name: /저장/ })).toBeNull();
   await waitFor(() =>
     expect(act).toHaveBeenCalledExactlyOnceWith("configure", { durationMs: 1800000 }),
   );
+  await settle();
+  expect(act).toHaveBeenCalledTimes(1);
 });
 
 it("locks duration while a timer runs", async () => {
@@ -58,7 +65,7 @@ it("locks duration while a timer runs", async () => {
   expect(act).not.toHaveBeenCalled();
 });
 
-it("preserves a duration draft when another window saves and requires resolving the conflict", () => {
+it("keeps a duration draft unsaved when another window saves until the latest value is loaded", async () => {
   const act = vi.fn<ToolAction>().mockResolvedValue(true);
   const onDirtyChange = vi.fn();
   const timer = widget({ status: "idle", focusDurationMs: 1500000 });
@@ -74,15 +81,16 @@ it("preserves a duration draft when another window saves and requires resolving 
       onDirtyChange={onDirtyChange}
     />,
   );
+  await settle();
   expect(screen.getByLabelText("기본 집중 시간 (분)")).toHaveProperty("value", "30");
-  expect(screen.getByRole("button", { name: "집중 시간 저장" })).toHaveProperty("disabled", true);
-  fireEvent.click(screen.getByRole("button", { name: "집중 시간 변경 취소" }));
+  expect(screen.getByRole("alert").textContent).toContain("다른 곳");
+  fireEvent.click(screen.getByRole("button", { name: "최신 값 불러오기" }));
   expect(screen.getByLabelText("기본 집중 시간 (분)")).toHaveProperty("value", "45");
   expect(onDirtyChange).toHaveBeenLastCalledWith(false);
   expect(act).not.toHaveBeenCalled();
 });
 
-it("reports a rejected save and unlocks both the immediate and embedded settings", async () => {
+it("keeps the typed duration after a rejected save and unlocks the other settings", async () => {
   let reject!: (error: unknown) => void;
   const act = vi.fn<ToolAction>().mockImplementation(
     () =>
@@ -99,14 +107,18 @@ it("reports a rejected save and unlocks both the immediate and embedded settings
     />,
   );
   fireEvent.change(screen.getByLabelText("기본 집중 시간 (분)"), { target: { value: "30" } });
-  fireEvent.click(screen.getByRole("button", { name: "집중 시간 저장" }));
-  expect(onBusyChange).toHaveBeenLastCalledWith(true);
+  await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(true));
   expect(screen.getByLabelText("휴식 시간 (분)").matches(":disabled")).toBe(true);
   await reactAct(async () => reject("저장 연결 실패"));
   expect(screen.getByRole("alert").textContent).toBe("저장 연결 실패");
+  expect(screen.getByLabelText("기본 집중 시간 (분)")).toHaveProperty("value", "30");
   expect(screen.getByLabelText("휴식 시간 (분)").matches(":disabled")).toBe(false);
   expect(onBusyChange).toHaveBeenLastCalledWith(false);
+  await settle();
   expect(act).toHaveBeenCalledTimes(1);
+  act.mockResolvedValue(true);
+  fireEvent.click(screen.getByRole("button", { name: "다시 저장" }));
+  await waitFor(() => expect(act).toHaveBeenCalledTimes(2));
 });
 
 it("saves focus cheering through the calendar reminders without changing unrelated flags", async () => {
@@ -121,8 +133,6 @@ it("saves focus cheering through the calendar reminders without changing unrelat
   const calendar = { ...widget({ reminders }), id: "calendar", kind: "calendar" };
   render(<FocusWidgetSettings widget={widget({ status: "idle" })} calendar={calendar} act={act} />);
   fireEvent.click(screen.getByRole("switch", { name: "친구가 시작할 때 응원하기" }));
-  expect(act).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "응원 설정 저장" }));
   await waitFor(() =>
     expect(act).toHaveBeenCalledExactlyOnceWith(
       "configure-alerts",

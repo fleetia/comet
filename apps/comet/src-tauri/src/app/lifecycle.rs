@@ -208,6 +208,7 @@ pub fn run() {
                 panel: Mutex::new(None),
                 launcher: Mutex::new(launcher::Runtime::default()),
                 launcher_open: AtomicBool::new(false),
+                widget_editing: AtomicBool::new(false),
                 launcher_session: AtomicU64::new(0),
                 launcher_gate: tokio::sync::Mutex::new(()),
                 settings_section: Mutex::new(windows::SettingsSection::default()),
@@ -228,6 +229,7 @@ pub fn run() {
                 story_clock: Mutex::new(story::Clock::default()),
                 story_catalog: Mutex::new(story_catalog),
                 widget_jobs: Mutex::new(HashMap::new()),
+                widget_open_intents: Mutex::new(HashMap::new()),
                 widget_clocks: Mutex::new(std::collections::BTreeMap::new()),
                 app_usage_tracker: Mutex::new(crate::app_usage_tracking::Tracker::default()),
                 last_input: AtomicI64::new(now()),
@@ -258,6 +260,7 @@ pub fn run() {
             crate::character_reaction_host::install(app.handle(), state.clone());
             app.manage(desktop_toys::Runtime::default());
             app.manage(crate::widget_runtime::Runtime::default());
+            app.manage(crate::widget_desktop::Runtime::default());
             app.manage(updater::UpdateState::default());
             launcher::initialize(app.handle(), &state).map_err(std::io::Error::other)?;
             crate::memo_notes::schedule_sync(app.handle());
@@ -267,6 +270,7 @@ pub fn run() {
                     .characters_visible;
             desktop::create_boxes(app.handle(), &state).map_err(std::io::Error::other)?;
             desktop_menu::create(app.handle()).map_err(std::io::Error::other)?;
+            crate::widget_desktop::restore_on_start(app.handle(), state.clone());
             crate::planner_notifications::install(app.handle())?;
             if let Err(error) = device_wake::install(app.handle()) {
                 eprintln!("기기 복귀 알림 연결 실패: {error}");
@@ -284,8 +288,22 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if matches!(event, WindowEvent::CloseRequested { .. }) {
+                if let Some(id) = window.label().strip_prefix("widget-") {
+                    if uuid::Uuid::parse_str(id).is_ok() {
+                        let state = window.state::<Arc<AppState>>();
+                        let _ = widget_commands::cancel_widget_opens(&state, Some(id));
+                    }
+                }
+            }
+            if matches!(event, WindowEvent::Moved(_)) {
+                crate::widget_desktop::moved(window);
+            }
             if matches!(event, WindowEvent::Destroyed) {
                 let label = window.label();
+                if label == "widget-editor" {
+                    crate::widget_desktop::editor_destroyed(window.app_handle());
+                }
                 #[cfg(not(target_os = "macos"))]
                 if let Some(id) = label.strip_prefix("desktop-toy-") {
                     crate::desktop_toys::remove_actor(window.app_handle(), id);
@@ -605,13 +623,25 @@ pub fn run() {
             widget_commands::close_widgets,
             widget_commands::open_widget,
             widget_commands::close_widget,
-            widget_commands::open_widget_display,
-            widget_commands::close_widget_display,
+            crate::widget_desktop::get_widget_desktop,
+            crate::widget_desktop::configure_widget_desktop,
+            crate::widget_desktop::restore_widget_desktop,
+            crate::widget_desktop::add_widget_desktop_item,
+            crate::widget_desktop::remove_widget_desktop_item,
+            crate::widget_desktop::set_widget_desktop_shape,
+            crate::widget_desktop::set_widget_desktop_editing,
+            crate::widget_desktop::get_widget_desktop_snapshot,
+            crate::widget_desktop::open_widget_stack,
+            crate::widget_desktop::close_widget_stack,
+            crate::widget_desktop::fit_widget_stack,
+            crate::widget_desktop::fit_widget_editor,
             widget_connections::connect_calendar_ics,
             widget_connections::connect_calendar_google,
             widget_connections::connect_calendar_apple,
             widget_connections::list_apple_calendars,
             crate::planner_windows::get_planner_tab,
+            crate::planner_windows::open_planner_view,
+            crate::planner_windows::get_planner_view_target,
             crate::planner_windows::get_planner_note_target,
             crate::planner_windows::set_planner_tab,
             crate::planner_windows::preview_planner_recurrence,
@@ -660,6 +690,7 @@ pub fn run() {
             super::chat::resume_chat,
             super::chat::finish_conversation,
             super::chat::save_conversation_draft,
+            super::chat::discuss_music_widget,
             super::chat::get_conversations,
             super::chat::get_conversation_messages,
             windows::close_panel,

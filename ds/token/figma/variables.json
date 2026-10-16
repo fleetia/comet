@@ -7083,6 +7083,174 @@
         "42:0": 400,
         "44:4": 600
       }
+    },
+    {
+      "id": "VariableID:unsynced:widget-night-surface",
+      "name": "palette/widget/밤 겉면",
+      "type": "COLOR",
+      "collectionId": "VariableCollectionId:42:12323",
+      "valuesByMode": {
+        "42:2": {
+          "r": 0.08235294117647059,
+          "g": 0.10196078431372549,
+          "b": 0.2196078431372549,
+          "a": 1
+        }
+      }
+    },
+    {
+      "id": "VariableID:unsynced:widget-focus-surface",
+      "name": "palette/widget/집중 겉면",
+      "type": "COLOR",
+      "collectionId": "VariableCollectionId:42:12323",
+      "valuesByMode": {
+        "42:2": {
+          "r": 0.07450980392156863,
+          "g": 0.16862745098039217,
+          "b": 0.20392156862745098,
+          "a": 1
+        }
+      }
+    },
+    {
+      "id": "VariableID:unsynced:widget-cloud-surface",
+      "name": "palette/widget/구름 겉면",
+      "type": "COLOR",
+      "collectionId": "VariableCollectionId:42:12323",
+      "valuesByMode": {
+        "42:2": {
+          "r": 0.7686274509803922,
+          "g": 0.7725490196078432,
+          "b": 0.8274509803921568,
+          "a": 1
+        }
+      }
+    },
+    {
+      "id": "VariableID:unsynced:widget-envelope-surface",
+      "name": "palette/widget/봉투 겉면",
+      "type": "COLOR",
+      "collectionId": "VariableCollectionId:42:12323",
+      "valuesByMode": {
+        "42:2": {
+          "r": 0.803921568627451,
+          "g": 0.7372549019607844,
+          "b": 0.7098039215686275,
+          "a": 1
+        }
+      }
+    },
+    {
+      "id": "VariableID:unsynced:widget-memo-surface",
+      "name": "palette/widget/메모 겉면",
+      "type": "COLOR",
+      "collectionId": "VariableCollectionId:42:12323",
+      "valuesByMode": {
+        "42:2": {
+          "r": 0.8235294117647058,
+          "g": 0.803921568627451,
+          "b": 0.7137254901960784,
+          "a": 1
+        }
+      }
+    },
+    {
+      "id": "VariableID:unsynced:widget-counter-surface",
+      "name": "palette/widget/카운터 겉면",
+      "type": "COLOR",
+      "collectionId": "VariableCollectionId:42:12323",
+      "valuesByMode": {
+        "42:2": {
+          "r": 0.6509803921568628,
+          "g": 0.596078431372549,
+          "b": 0.8117647058823529,
+          "a": 1
+        }
+      }
+    },
+    {
+      "id": "VariableID:unsynced:widget-envelope-ink",
+      "name": "palette/widget/봉투 잉크",
+      "type": "COLOR",
+      "collectionId": "VariableCollectionId:42:12323",
+      "valuesByMode": {
+        "42:2": {
+          "r": 0.16862745098039217,
+          "g": 0.14901960784313725,
+          "b": 0.12549019607843137,
+          "a": 1
+        }
+      }
+    },
+    {
+      "id": "VariableID:unsynced:widget-envelope-label",
+      "name": "palette/widget/봉투 라벨",
+      "type": "COLOR",
+      "collectionId": "VariableCollectionId:42:12323",
+      "valuesByMode": {
+        "42:2": {
+          "r": 0.5411764705882353,
+          "g": 0.23137254901960785,
+          "b": 0.11764705882352941,
+          "a": 1
+        }
+      }
+    },
+    {
+      "id": "VariableID:unsynced:widget-envelope-date",
+      "name": "palette/widget/봉투 날짜",
+      "type": "COLOR",
+      "collectionId": "VariableCollectionId:42:12323",
+      "valuesByMode": {
+        "42:2": {
+          "r": 0.3607843137254902,
+          "g": 0.27450980392156865,
+          "b": 0.21176470588235294,
+          "a": 1
+        }
+      }
+    },
+    {
+      "id": "VariableID:unsynced:widget-memo-ink",
+      "name": "palette/widget/메모 잉크",
+      "type": "COLOR",
+      "collectionId": "VariableCollectionId:42:12323",
+      "valuesByMode": {
+        "42:2": {
+          "r": 0.22745098039215686,
+          "g": 0.18823529411764706,
+          "b": 0,
+          "a": 1
+        }
+      }
+    },
+    {
+      "id": "VariableID:unsynced:widget-memo-title",
+      "name": "palette/widget/메모 제목",
+      "type": "COLOR",
+      "collectionId": "VariableCollectionId:42:12323",
+      "valuesByMode": {
+        "42:2": {
+          "r": 0.4196078431372549,
+          "g": 0.3254901960784314,
+          "b": 0,
+          "a": 1
+        }
+      }
+    },
+    {
+      "id": "VariableID:unsynced:widget-counter-caption",
+      "name": "palette/widget/카운터 보조",
+      "type": "COLOR",
+      "collectionId": "VariableCollectionId:42:12323",
+      "valuesByMode": {
+        "42:2": {
+          "r": 0.23137254901960785,
+          "g": 0.17254901960784313,
+          "b": 0.47058823529411764,
+          "a": 1
+        }
+      }
     }
   ]
 }

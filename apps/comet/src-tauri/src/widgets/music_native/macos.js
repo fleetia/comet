@@ -3,8 +3,8 @@ function run(argv) {
   ObjC.import("AppKit");
   const spotify = input.provider === "spotify";
   const running = $.NSRunningApplication.runningApplicationsWithBundleIdentifier(input.appId).count > 0;
-  if (input.action === "launch") {
-    if (!running) {
+  if (input.action === "launch" || input.action === "open") {
+    if (!running || input.action === "open") {
       const url = $.NSWorkspace.sharedWorkspace.URLForApplicationWithBundleIdentifier(input.appId);
       if (!url || url.isNil() || !$.NSWorkspace.sharedWorkspace.openURL(url)) throw new Error("LAUNCH_FAILED");
     }

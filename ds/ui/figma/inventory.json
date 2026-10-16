@@ -1112,176 +1112,176 @@
       "name": "Asset/Widget Shape/01",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30295",
       "name": "Asset/Widget Shape/02",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30298",
       "name": "Asset/Widget Shape/03",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30301",
       "name": "Asset/Widget Shape/04",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30304",
       "name": "Asset/Widget Shape/05",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30307",
       "name": "Asset/Widget Shape/06",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30310",
       "name": "Asset/Widget Shape/07",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30313",
       "name": "Asset/Widget Shape/08",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30316",
       "name": "Asset/Widget Shape/09",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30319",
       "name": "Asset/Widget Shape/10",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30322",
       "name": "Asset/Widget Shape/11",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30325",
       "name": "Asset/Widget Shape/12",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30328",
       "name": "Asset/Widget Shape/13",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30332",
       "name": "Asset/Widget Shape/14",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30335",
       "name": "Asset/Widget Shape/15",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30338",
       "name": "Asset/Widget Shape/16",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30341",
       "name": "Asset/Widget Shape/17",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30344",
       "name": "Asset/Widget Shape/18",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30347",
       "name": "Asset/Widget Shape/19",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30350",
       "name": "Asset/Widget Shape/20",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30353",
       "name": "Asset/Widget Shape/21",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30356",
       "name": "Asset/Widget Shape/22",
       "variantCount": 0,
       "kind": "content-asset",
-      "export": "ChoiceTile",
-      "prop": "graphic"
+      "export": "WidgetShapeGraphic",
+      "prop": "preset"
     },
     {
       "id": "283:30359",
@@ -1540,7 +1540,7 @@
     {
       "id": "49:58384",
       "name": "List/Setting Control Row",
-      "variantCount": 2,
+      "variantCount": 3,
       "kind": "component",
       "exports": ["SettingControlRow"]
     },
@@ -1931,7 +1931,7 @@
       "name": "Widget/Expanded",
       "variantCount": 7,
       "kind": "component",
-      "exports": ["WidgetExpanded"]
+      "exports": ["WidgetExpanded", "MusicWidget", "EnvelopeWidget"]
     },
     {
       "id": "49:54992",
@@ -2022,42 +2022,42 @@
       "name": "Widget/Clock · Freeform",
       "variantCount": 0,
       "kind": "component",
-      "exports": ["ClockWidget"]
+      "exports": ["ClockWidget", "FREEFORM_SKIN_OUTLINES"]
     },
     {
       "id": "94:12481",
       "name": "Widget/Focus Timer · Freeform",
       "variantCount": 0,
       "kind": "component",
-      "exports": ["FocusTimerFreeform"]
+      "exports": ["FocusTimerFreeform", "FREEFORM_SKIN_OUTLINES"]
     },
     {
       "id": "94:12448",
       "name": "Widget/Music · Freeform",
       "variantCount": 0,
       "kind": "component",
-      "exports": ["MusicFreeform"]
+      "exports": ["MusicFreeform", "FREEFORM_SKIN_OUTLINES"]
     },
     {
       "id": "94:12587",
       "name": "Widget/Weather · Freeform",
       "variantCount": 0,
       "kind": "component",
-      "exports": ["WeatherWidget"]
+      "exports": ["WeatherWidget", "FREEFORM_SKIN_OUTLINES"]
     },
     {
       "id": "94:12533",
       "name": "Widget/Envelope · Freeform",
       "variantCount": 0,
       "kind": "component",
-      "exports": ["EnvelopeFreeform"]
+      "exports": ["EnvelopeFreeform", "FREEFORM_SKIN_OUTLINES"]
     },
     {
       "id": "94:12506",
       "name": "Widget/Memo · Freeform",
       "variantCount": 0,
       "kind": "component",
-      "exports": ["MemoWidget"]
+      "exports": ["MemoWidget", "FREEFORM_SKIN_OUTLINES"]
     },
     {
       "id": "49:52030",
@@ -2170,6 +2170,20 @@
       "variantCount": 0,
       "kind": "component",
       "exports": ["FocusRecordRow"]
+    }
+  ],
+  "unsynced": [
+    {
+      "exports": ["CompactFreeform"],
+      "reason": "Code-only capsule for desktop widgets without their own artwork. No library node yet."
+    },
+    {
+      "exports": ["ShapeBackground"],
+      "reason": "Code-only SVG fill that draws Widget Shape presets, cloud settings and drawn points at any size. No library node yet."
+    },
+    {
+      "exports": ["TimerCometTrail"],
+      "reason": "Comet trail artwork of the focus timer dial; the source node was not verified against the library page."
     }
   ]
 }

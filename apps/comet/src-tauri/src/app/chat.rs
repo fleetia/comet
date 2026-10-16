@@ -168,6 +168,87 @@ pub(crate) fn save_conversation_draft(
 }
 
 #[tauri::command]
+pub(crate) fn discuss_music_widget(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    expected_revision: i64,
+) -> Result<(), String> {
+    let epoch = begin_music_discussion(&state, &id, expected_revision)?;
+    crate::desktop::request_balloon_focus(&app)?;
+    phase(&app, &state, epoch, RuntimePhase::Idle, None, None);
+    Ok(())
+}
+
+fn music_discussion_draft(
+    instance: &crate::widgets::WidgetInstance,
+    revision: i64,
+    at: i64,
+) -> Result<String, String> {
+    let observation = &instance.data["observation"];
+    if instance.kind != "music"
+        || !instance.installed
+        || !instance.enabled
+        || instance.revision != revision
+        || instance.data["configured"] != true
+        || !matches!(instance.data["status"].as_str(), Some("ready" | "syncing"))
+        || !observation["observedAt"]
+            .as_i64()
+            .is_some_and(|value| at >= value && at - value <= 30_000)
+    {
+        return Err("곡 정보가 바뀌었어요. 다시 확인한 뒤 이야기해 주세요.".into());
+    }
+    let title = observation["title"]
+        .as_str()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or("이야기할 곡이 없어요.")?;
+    let artist = observation["artist"].as_str().unwrap_or("");
+    let title: String = title.chars().take(500).collect();
+    let artist: String = artist.chars().take(500).collect();
+    Ok(if artist.is_empty() {
+        format!("지금 듣는 곡 ‘{title}’에 대해 이야기해 줘.")
+    } else {
+        format!("지금 듣는 곡 ‘{title}’ — {artist}에 대해 이야기해 줘.")
+    })
+}
+
+fn begin_music_discussion(state: &AppState, id: &str, revision: i64) -> Result<u64, String> {
+    let (persona, draft) = {
+        let _action = lock(&state.action)?;
+        let db = lock(&state.db)?;
+        if store::current_user(&db)?.is_none() {
+            return Err("친구에게 이름을 알려 준 뒤 이야기할 수 있어요.".into());
+        }
+        if crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())? {
+            return Err("집중을 마친 뒤 곡 이야기를 할 수 있어요.".into());
+        }
+        let instance = crate::widgets::storage::get(&db, id)?;
+        let draft =
+            music_discussion_draft(&instance, revision, chrono::Utc::now().timestamp_millis())?;
+        let persona = characters::active_ids(&db)?
+            .into_iter()
+            .next()
+            .ok_or("함께 지내는 친구를 먼저 골라 주세요.")?;
+        (persona, draft)
+    };
+    let epoch = super::windows::begin_panel(state, &persona, "input".into())?
+        .ok_or("대화창을 열 수 없어요.")?;
+    let _action = lock(&state.action)?;
+    if state.epoch.load(Ordering::SeqCst) != epoch {
+        return Err("대화가 바뀌어 곡 초안을 넣지 않았어요.".into());
+    }
+    let db = lock(&state.db)?;
+    let instance = crate::widgets::storage::get(&db, id)?;
+    music_discussion_draft(&instance, revision, chrono::Utc::now().timestamp_millis())?;
+    let session = store::active_conversation(&db)?.ok_or("대화창을 열 수 없어요.")?;
+    if !session.draft.is_empty() {
+        return Err("작성 중인 초안을 보존했어요.".into());
+    }
+    store::save_conversation_draft(&db, &session.id, &draft)?;
+    Ok(epoch)
+}
+
+#[tauri::command]
 pub(crate) fn get_conversations(
     state: tauri::State<'_, Arc<AppState>>,
     persona: String,
@@ -197,6 +278,44 @@ pub(crate) fn get_conversation_messages(
 mod tests {
     use super::*;
     use crate::types::{Message, Playback, SceneLine, Settings, WordbookEntry};
+
+    #[test]
+    fn music_discussion_creates_only_a_new_draft_and_preserves_existing_conversations() {
+        let state = super::super::tests::state();
+        let at = chrono::Utc::now().timestamp_millis();
+        let old = {
+            let db = lock(&state.db).unwrap();
+            store::set_user_name(&db, "음악 검사", at).unwrap();
+            let actor = characters::active_ids(&db).unwrap()[0].clone();
+            let old = store::create_conversation(&db, &[actor], None, None, at).unwrap();
+            store::save_conversation_draft(&db, &old.id, "쓰던 초안\n보존").unwrap();
+            let data = serde_json::json!({"configured":true,"status":"ready","observation":{"observedAt":at,"title":"밤의 산책","artist":"별빛정원"}});
+            db.execute("INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data) VALUES('music-talk','music',1,1,1,7,?1)", [data.to_string()]).unwrap();
+            old
+        };
+        assert!(begin_music_discussion(&state, "music-talk", 6).is_err());
+        begin_music_discussion(&state, "music-talk", 7).unwrap();
+        let db = lock(&state.db).unwrap();
+        let current = store::active_conversation(&db).unwrap().unwrap();
+        assert_ne!(current.id, old.id);
+        assert_eq!(
+            store::conversation(&db, &old.id).unwrap().draft,
+            "쓰던 초안\n보존"
+        );
+        assert_eq!(
+            current.draft,
+            "지금 듣는 곡 ‘밤의 산책’ — 별빛정원에 대해 이야기해 줘."
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT COUNT(*) FROM messages WHERE role='user'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+    }
 
     #[test]
     fn replying_before_registration_opens_the_name_prompt_without_a_conversation() {

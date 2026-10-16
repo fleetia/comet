@@ -20,6 +20,95 @@ pub const REFRESH_INTERVAL_MS: i64 = 15 * 60 * 1000;
 pub const MAX_EVENTS: usize = 5000;
 const DAY_MS: i64 = 86400000;
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SettingsInput {
+    refresh_interval_minutes: Option<u32>,
+    new_event_target: Option<String>,
+    connection_color: Option<String>,
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn settings_preserve_calendar_data_and_recalculate_only_healthy_connections() {
+        let data = json!({"events":[{"id":"keep"}],"reminders":{"leadMinutes":10},"calendarColors":{"a":{"b":"#77d9ca"}},"connections":[{"status":"ready","lastSuccessAt":100,"failureCount":0},{"status":"offline","nextRefreshAt":999,"failureCount":2}]});
+        let changed = configure_settings(&data, &json!({"refreshIntervalMinutes":30,"newEventTarget":"local","connectionColor":"#b6a0ea"}), 100).unwrap().data;
+        for key in ["events", "reminders", "calendarColors"] {
+            assert_eq!(changed[key], data[key]);
+        }
+        assert_eq!(changed["connections"][0]["nextRefreshAt"], 1_800_100);
+        assert_eq!(changed["connections"][1]["nextRefreshAt"], 999);
+        assert!(configure_settings(&data, &json!({"newEventTarget":"google"}), 100).is_err());
+        assert!(configure_settings(&data, &json!({"refreshIntervalMinutes":0}), 100).is_err());
+        assert!(configure_settings(&data, &json!({"connectionColor":"red"}), 100).is_err());
+    }
+}
+
+pub fn refresh_interval(data: &Value) -> i64 {
+    data["settings"]["refreshIntervalMinutes"]
+        .as_i64()
+        .filter(|v| (1..=1440).contains(v))
+        .unwrap_or(10)
+        * 60_000
+}
+
+pub fn configure_settings(
+    data: &Value,
+    input: &Value,
+    now: i64,
+) -> Result<super::WidgetEffect, String> {
+    let input: SettingsInput =
+        serde_json::from_value(input.clone()).map_err(|_| "캘린더 설정 형식을 확인해 주세요.")?;
+    if input
+        .refresh_interval_minutes
+        .is_some_and(|v| !(1..=1440).contains(&v))
+        || input
+            .new_event_target
+            .as_ref()
+            .is_some_and(|v| v != "local")
+        || input.connection_color.as_ref().is_some_and(|v| {
+            v.len() != 7
+                || !v.starts_with('#')
+                || !v.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit)
+        })
+    {
+        return Err("캘린더 조회 간격과 저장 위치·색을 확인해 주세요.".into());
+    }
+    let mut next = data.clone();
+    if !next["settings"].is_object() {
+        next["settings"] = serde_json::json!({});
+    }
+    if let Some(value) = input.refresh_interval_minutes {
+        next["settings"]["refreshIntervalMinutes"] = value.into();
+    }
+    if let Some(value) = input.new_event_target {
+        next["settings"]["newEventTarget"] = value.into();
+    }
+    if let Some(value) = input.connection_color {
+        next["settings"]["connectionColor"] = value.into();
+    }
+    let interval = refresh_interval(&next);
+    if let Some(connections) = next["connections"].as_array_mut() {
+        for connection in connections {
+            if connection["status"] == "ready"
+                && connection["failureCount"].as_u64().unwrap_or(0) == 0
+            {
+                connection["nextRefreshAt"] = serde_json::json!(connection["lastSuccessAt"]
+                    .as_i64()
+                    .unwrap_or(now)
+                    .saturating_add(interval));
+            }
+        }
+    }
+    Ok(super::WidgetEffect {
+        data: next,
+        events: vec![],
+    })
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Connection {

@@ -1,4 +1,4 @@
-import { style } from "@vanilla-extract/css";
+import { globalStyle, style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
 
 import { reducedMotionQuery, stateTransition } from "../motion/motion.css";
@@ -139,7 +139,8 @@ export const contained = style({
   padding: 3,
   gap: 2,
   minHeight: 34,
-  border: `1px solid ${tokens["color/card-border"]}`,
+  outline: `1px solid ${tokens["color/card-border"]}`,
+  outlineOffset: -1,
   borderRadius: 16,
   background: tokens["color/card"],
 });
@@ -150,4 +151,9 @@ export const displayModeSegment = style({
   borderRadius: 15,
   fontSize: 13,
   lineHeight: "18px",
+});
+
+globalStyle(`${contained} > ${segment}:not(${displayModeSegment})`, {
+  height: 28,
+  borderRadius: 14,
 });

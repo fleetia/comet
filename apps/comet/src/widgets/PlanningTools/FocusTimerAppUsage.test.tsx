@@ -50,9 +50,8 @@ describe("program usage selection", () => {
     expect(command).not.toHaveBeenCalled();
     await click("프로그램 선택");
     expect(command).toHaveBeenCalledExactlyOnceWith("list_usage_applications");
-    expect(screen.getByText(/백그라운드 실행 시간/).textContent).toContain(
-      "창 제목이나 작업 내용은 읽거나 저장하지 않아요",
-    );
+    expect(screen.getByText(/백그라운드 실행 시간/)).toBeTruthy();
+    expect(screen.getByText(/창 제목이나 작업 내용은 읽거나 저장하지 않아요/)).toBeTruthy();
     fireEvent.click(screen.getByRole("radio", { name: target.name }));
     expect(action).not.toHaveBeenCalled();
     await click("프로그램 선택 저장");
@@ -188,6 +187,125 @@ describe("program usage selection", () => {
 });
 
 describe("backend-owned usage readout", () => {
+  it("keeps optional session links folded and opens the original program picker on demand", async () => {
+    vi.mocked(command).mockImplementation(async (name) =>
+      name === "get_planner_notification_permission" ? "prompt" : listing,
+    );
+    render(
+      <TimerTool
+        widget={widget({ status: "idle", durationMs: 1500000 })}
+        widgets={[]}
+        act={action}
+      />,
+    );
+    expect(screen.queryByRole("region", { name: "프로그램 사용 시간" })).toBeNull();
+    const options = screen.getByText("이번 집중 연결").closest("details")!;
+    expect(options.open).toBe(false);
+    fireEvent.click(screen.getByText("이번 집중 연결"));
+    expect(screen.queryByLabelText("휴식 시간 (분)")).toBeNull();
+    await click("프로그램 사용 시간");
+    expect(screen.getByRole("radio", { name: target.name })).toBeTruthy();
+    expect(command).toHaveBeenCalledWith("list_usage_applications");
+    await click("취소");
+    expect(screen.getByRole("button", { name: "집중 시작" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "프로그램 사용 시간" })).toBeNull();
+  });
+
+  it("fits the native window to either panel without replacing a user's larger height or resizing embedded hosts", async () => {
+    let bodyHeight = 748;
+    const callbacks: (() => void)[] = [];
+    const previousHeight = window.innerHeight;
+    const scrollHeight = vi
+      .spyOn(HTMLElement.prototype, "scrollHeight", "get")
+      .mockImplementation(function (this: HTMLElement) {
+        return this.hasAttribute("data-expanded") ? bodyHeight : 0;
+      });
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          callbacks.push(callback);
+        }
+        observe(): void {}
+        disconnect(): void {}
+      },
+    );
+    window.innerHeight = 580;
+    vi.mocked(command).mockImplementation(async (name, args) => {
+      if (name === "set_focus_expanded") window.innerHeight = Number(args?.height);
+      return undefined;
+    });
+    async function settle(): Promise<void> {
+      await reactAct(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+    }
+    try {
+      const props = {
+        widget: widget({ status: "idle", durationMs: 1500000 }),
+        widgets: [],
+        act: action,
+      };
+      const view = render(<TimerTool {...props} />);
+      await settle();
+      expect(command).toHaveBeenCalledExactlyOnceWith("set_focus_expanded", {
+        id: "focus",
+        expanded: true,
+        collapsed: false,
+        height: 748,
+        animate: false,
+        autoFit: true,
+      });
+      bodyHeight = 620;
+      callbacks.forEach((callback) => callback());
+      await settle();
+      expect(command).toHaveBeenLastCalledWith("set_focus_expanded", {
+        id: "focus",
+        expanded: true,
+        collapsed: false,
+        height: 620,
+        animate: false,
+        autoFit: true,
+      });
+      window.innerHeight = 900;
+      bodyHeight = 600;
+      callbacks.forEach((callback) => callback());
+      await settle();
+      expect(command).toHaveBeenCalledTimes(2);
+      view.rerender(<TimerTool {...props} embedded />);
+      bodyHeight = 1100;
+      callbacks.forEach((callback) => callback());
+      await settle();
+      expect(command).toHaveBeenCalledTimes(2);
+      expect(action).not.toHaveBeenCalled();
+    } finally {
+      scrollHeight.mockRestore();
+      vi.unstubAllGlobals();
+      window.innerHeight = previousHeight;
+    }
+  });
+
+  it("keeps embedded focus expansion local and delegates collapse to its desktop stack", async () => {
+    vi.useFakeTimers();
+    const onCollapse = vi.fn();
+    render(
+      <TimerTool
+        widget={widget({ status: "idle", durationMs: 1500000 })}
+        widgets={[]}
+        act={action}
+        embedded
+        onCollapse={onCollapse}
+      />,
+    );
+    expect(screen.getByLabelText("일정과 집중 기록").hasAttribute("inert")).toBe(true);
+    await click("기록과 노트");
+    await reactAct(async () => vi.advanceTimersByTimeAsync(300));
+    expect(screen.getByRole("region", { name: "집중 통계" })).toBeTruthy();
+    expect(screen.getByLabelText("일정과 집중 기록").hasAttribute("inert")).toBe(false);
+    await click("접기");
+    expect(onCollapse).toHaveBeenCalledOnce();
+    expect(command).not.toHaveBeenCalled();
+    expect(action).not.toHaveBeenCalled();
+  });
+
   it("keeps the countdown alongside usage and never extrapolates usage on local clock ticks", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-09T10:00:00"));

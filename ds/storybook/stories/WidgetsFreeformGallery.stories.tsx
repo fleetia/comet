@@ -26,10 +26,16 @@ const meta = {
       style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 32, maxWidth: 1100 }}
     >
       <ClockWidget time="3:24" date="10월 12일 월" badge="D+42" />
-      <FocusTimerFreeform time="18:42" task="기획서 초안" />
-      <MusicFreeform title="밤의 산책" artist="별빛정원" elapsed="2:06" />
+      <FocusTimerFreeform label="집중 중" time="18:42" task="기획서 초안" />
+      <MusicFreeform caption="지금 듣는 곡" title="밤의 산책" artist="별빛정원" elapsed="2:06" />
       <WeatherWidget temperature="23°" condition="구름 조금" location="서울" />
-      <EnvelopeFreeform title="가족 여행" date="10월 24일 (토)" completed={2} total={9} />
+      <EnvelopeFreeform
+        label="준비 봉투"
+        title="가족 여행"
+        date="10월 24일 (토)"
+        completed={2}
+        total={9}
+      />
       <MemoWidget title="작은 생각">
         {"오늘 떠오른 문장을 적어 두기.\n다음에 이어서 생각해요."}
       </MemoWidget>
