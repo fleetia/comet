@@ -178,3 +178,40 @@ export const MonthCalendar: Story = {
     </div>
   ),
 };
+
+export const MonthTableSelection: Story = {
+  parameters: { controls: { disable: true } },
+  name: "Month Table · 가로 스크롤 선택 행",
+  render: () => {
+    const monthDays = Array.from({ length: 31 }, (_, index) => ({
+      id: String(index + 1),
+      weekday: ["목", "금", "토", "일", "월", "화", "수"][index % 7] ?? "",
+      date: String(index + 1),
+    }));
+    const monthRecords = monthDays.map((day) => ({
+      id: day.id,
+      label: `10월 ${day.date}일`,
+      state: "counting" as const,
+      count: 2,
+    }));
+    return (
+      <div style={{ width: 740, maxWidth: "100%" }}>
+        <HabitWeekTable
+          days={monthDays}
+          summaryLabel="이번 달"
+          habits={[
+            {
+              id: "water",
+              title: "물 마시기",
+              kind: "count",
+              selected: true,
+              days: monthRecords,
+              summary: "62회",
+            },
+            { id: "read", title: "독서", days: monthRecords, summary: "31일" },
+          ]}
+        />
+      </div>
+    );
+  },
+};

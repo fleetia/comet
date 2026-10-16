@@ -146,7 +146,10 @@ export const habitTable = style([
     background: tokens["color/card-2"],
   },
 ]);
-export const habitTableInner = style({ minWidth: 740 });
+export const habitTableInner = style({
+  width: "max-content",
+  minWidth: "max(740px, 100%)",
+});
 export const tableHeader = style([
   habitRow,
   { color: tokens["color/ink-3"], borderBottom: `1px solid ${tokens["color/divider"]}` },
