@@ -494,6 +494,7 @@ export function DiaryHabits({
             />
             <Select
               label="습관 색상"
+              className={s.formSelect}
               value={draft.color}
               disabled={disabled}
               onChange={(event) =>
@@ -509,8 +510,9 @@ export function DiaryHabits({
             <fieldset className={s.weekdays} disabled={disabled}>
               <legend>반복 요일</legend>
               {[1, 2, 3, 4, 5, 6, 0].map((day) => (
-                <label key={day}>
+                <label key={day} className={s.weekday}>
                   <input
+                    className={s.weekdayCheckbox}
                     type="checkbox"
                     checked={draft.weekdays.includes(day)}
                     onChange={(event) => {
@@ -540,6 +542,7 @@ export function DiaryHabits({
             />
             <Select
               label="기록 방식"
+              className={s.formSelect}
               value={draft.mode}
               disabled={disabled}
               onChange={(event) =>
