@@ -25,6 +25,7 @@ export type StepperProps = Omit<
     /** Receives numeric edits and +/- actions. Empty input remains editable. */
     onValueChange?: (value: number) => void;
     unit?: ReactNode;
+    size?: "regular" | "compact";
     decreaseLabel?: string;
     increaseLabel?: string;
   };
@@ -45,6 +46,7 @@ export const Stepper = forwardRef<HTMLInputElement, StepperProps>(
       onChange,
       onValueChange,
       unit,
+      size = "regular",
       disabled,
       readOnly,
       decreaseLabel = "값 줄이기",
@@ -110,7 +112,7 @@ export const Stepper = forwardRef<HTMLInputElement, StepperProps>(
           </label>
         )}
         <span className={styles.row}>
-          <span className={styles.group}>
+          <span className={styles.group} data-size={size}>
             <button
               type="button"
               className={styles.button}
@@ -121,7 +123,7 @@ export const Stepper = forwardRef<HTMLInputElement, StepperProps>(
                 changeValue("down");
               }}
             >
-              <MinusIcon size={17} />
+              <MinusIcon size={size === "compact" ? 15 : 17} />
             </button>
             <input
               {...props}
@@ -143,6 +145,12 @@ export const Stepper = forwardRef<HTMLInputElement, StepperProps>(
               disabled={disabled}
               readOnly={readOnly}
               className={[styles.input, className].filter(Boolean).join(" ")}
+              style={{
+                ...(size === "compact"
+                  ? { width: Math.max(18, String(currentValue).length * 9) }
+                  : {}),
+                ...props.style,
+              }}
               aria-describedby={field.describedBy}
               aria-invalid={field.invalid}
               onChange={(event) => {
@@ -164,7 +172,7 @@ export const Stepper = forwardRef<HTMLInputElement, StepperProps>(
                 changeValue("up");
               }}
             >
-              <PlusIcon size={17} />
+              <PlusIcon size={size === "compact" ? 15 : 17} />
             </button>
           </span>
           {unit && <span className={styles.unit}>{unit}</span>}

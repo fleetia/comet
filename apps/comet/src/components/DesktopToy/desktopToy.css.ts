@@ -23,23 +23,18 @@ export const actor = style({
 });
 export const ball = style({
   display: "block",
-  width: 38,
-  height: 38,
+  width: 26,
+  height: 26,
   borderRadius: "50%",
-  border: "1.5px solid #704e30",
-  background:
-    "conic-gradient(from 20deg, #e8a451 0deg 100deg, #f7d995 100deg 230deg, #e8a451 230deg)",
-  boxShadow: "inset -4px -4px 8px #704e3038, inset 3px 3px 5px #ffffff66",
+  background: "radial-gradient(circle at 35% 30%, #ffd0c2 0%, #ff9f85 55%, #d9735a 100%)",
 });
 export const bubble = style({
   display: "block",
   width: 38,
   height: 38,
   borderRadius: "50%",
-  border: "1.5px solid #85bccd",
-  background:
-    "radial-gradient(circle at 28% 25%, #ffffffcc 0 8%, #e5f7ff25 15% 65%, #ddaeef66 90%)",
-  boxShadow: "inset -2px -2px 4px #b9e7f0bb",
+  border: "1.5px solid rgba(201,184,245,0.85)",
+  background: "rgba(201,184,245,0.12)",
 });
 export const pet = style({
   fontSize: 34,

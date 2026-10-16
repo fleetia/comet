@@ -65,7 +65,8 @@ afterEach(() => {
 describe("frequency goals linked to a timer", () => {
   it("keeps weekly goals selectable without recording when the timer starts", async () => {
     render(<TimerTool widget={timer("idle")} widgets={[todo()]} act={act} />);
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "goal" } });
+    fireEvent.click(screen.getByText("이번 집중 연결"));
+    fireEvent.change(screen.getByLabelText("연결할 할 일"), { target: { value: "goal" } });
     await click("집중 시작");
     expect(act).toHaveBeenCalledExactlyOnceWith("start", { durationMs: 1500000, todoId: "goal" });
   });
@@ -325,7 +326,7 @@ describe("timer display and restored controls", () => {
       remainingMs: 1500000,
     });
     const view = render(<TimerTool widget={initial} widgets={[todo()]} act={act} />);
-    fireEvent.click(screen.getByRole("button", { name: "직접" }));
+    fireEvent.click(screen.getByRole("radio", { name: "직접" }));
     fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "1" } });
     expect(screen.getByLabelText("남은 시간").textContent).toBe("01:00");
     view.rerender(<TimerTool widget={{ ...initial, revision: 9 }} widgets={[todo()]} act={act} />);
@@ -361,7 +362,7 @@ describe("timer display and restored controls", () => {
       />,
     );
     expect(screen.getByRole("spinbutton")).toHaveProperty("value", "1");
-    expect(screen.getByRole("combobox")).toHaveProperty("value", "goal");
+    expect(screen.getByLabelText("연결할 할 일")).toHaveProperty("value", "goal");
     expect(screen.getByLabelText("남은 시간").textContent).toBe("01:00");
     await click("집중 시작");
     expect(act).toHaveBeenCalledExactlyOnceWith("start", { durationMs: 60000, todoId: "goal" });
@@ -380,7 +381,7 @@ describe("timer display and restored controls", () => {
         act={act}
       />,
     );
-    expect(screen.getByRole("combobox")).toHaveProperty("value", "");
+    expect(screen.getByLabelText("연결할 할 일")).toHaveProperty("value", "");
     await click("집중 시작");
     expect(act).toHaveBeenCalledExactlyOnceWith("start", { durationMs: 60000, todoId: null });
   });

@@ -130,7 +130,7 @@ fn collect(app: &tauri::AppHandle) -> Result<Snapshot, String> {
             }),
             shared: planner.then(|| "planner".into()),
         });
-        let display_window = widgets::appearance::supports(&instance.kind)
+        let display_window = crate::widget_desktop::supports(&instance.kind)
             .then(|| read(&format!("widget-display-{}", instance.id)));
         let note_windows = if instance.kind == "memo" {
             let prefix = format!("widget-{}-note-", instance.id);

@@ -19,9 +19,14 @@ const meta = {
       control: "select",
       options: ["focus", "clock", "weather", "music", "envelope"],
     },
+    icon: {
+      control: "select",
+      options: [undefined, "clock", "cloud", "timer", "music", "envelope", "hash", "memo"],
+    },
     title: {
       control: "text",
     },
+    period: { control: "text" },
     description: {
       control: "text",
     },
@@ -69,7 +74,8 @@ export const Clock: Story = {
   name: "시계",
   args: {
     kind: "clock",
-    title: "3:24 오후",
+    title: "3:24",
+    period: "오후",
     description: undefined,
     value: undefined,
     meta: (

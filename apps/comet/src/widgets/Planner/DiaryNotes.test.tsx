@@ -66,6 +66,53 @@ it("keeps newer input while a save is pending and saves it against the acknowled
   );
 });
 
+it("does not let an unmounted editor's save clear a newer editor's draft", async () => {
+  let finish: ((value: boolean) => void) | undefined;
+  const save = vi.fn<DiaryAction>().mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const view = render(<DiaryNotes notes={[note]} diaryAction={save} busy={false} />);
+  fireEvent.change(screen.getByRole("textbox", { name: "메모 내용" }), {
+    target: { value: "먼저 저장한 초안" },
+  });
+  await debounce();
+  view.unmount();
+  render(<DiaryNotes notes={[note]} diaryAction={save} busy={false} />);
+  fireEvent.change(screen.getByRole("textbox", { name: "메모 내용" }), {
+    target: { value: "새 편집기의 초안" },
+  });
+  await act(async () => finish?.(true));
+  expect(screen.getByRole("textbox", { name: "메모 내용" })).toHaveProperty(
+    "value",
+    "새 편집기의 초안",
+  );
+  expect(
+    JSON.parse(localStorage.getItem("comet.diary.note-draft:sidebar:one") || "null"),
+  ).toMatchObject({ body: "새 편집기의 초안" });
+});
+
+it("recognizes a restored draft already acknowledged by the original store", () => {
+  const saved = { ...note, body: "저장된 새 본문" };
+  localStorage.setItem(
+    "comet.diary.note-draft:sidebar:one",
+    JSON.stringify({
+      title: saved.title,
+      body: saved.body,
+      baseTitle: note.title,
+      baseBody: note.body,
+    }),
+  );
+  const save = vi.fn<DiaryAction>().mockResolvedValue(true);
+  render(<DiaryNotes notes={[saved]} diaryAction={save} busy={false} />);
+  expect(screen.getByRole("textbox", { name: "메모 내용" })).toHaveProperty("value", saved.body);
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByRole("status").textContent).toContain("저장됨");
+  expect(save).not.toHaveBeenCalled();
+});
+
 it("keeps hidden drafts and refuses to overwrite a remote change", async () => {
   const save = vi.fn<DiaryAction>().mockResolvedValue(true);
   const second = { ...note, id: "two", title: "다른 메모", body: "다른 내용", pinned: false };

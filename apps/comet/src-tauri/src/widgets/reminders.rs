@@ -1,5 +1,5 @@
 use super::{storage, EventDraft, WidgetEffect};
-use chrono::{Local, NaiveDate, NaiveTime, TimeZone, Timelike};
+use chrono::{Datelike, Local, NaiveDate, NaiveTime, TimeZone, Timelike};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -264,6 +264,13 @@ pub fn event_current(db: &Connection, event: &super::WidgetEvent) -> Result<bool
                 })
             }));
     }
+    if event.event.kind == "planner-anniversary" {
+        let clock = storage::get(db, &event.instance_id)?;
+        return Ok(clock.installed
+            && clock.enabled
+            && clock.kind == "clock"
+            && anniversary_current(&clock.data, &event.event.payload, Local::now().date_naive()));
+    }
     if event.event.kind != "planner-reminder" {
         return Ok(true);
     }
@@ -456,11 +463,142 @@ pub fn advance(
             result.changed = true;
         }
     }
+    if !quiet && (8..12).contains(&local.hour()) {
+        for instance in instances
+            .iter()
+            .filter(|item| item.kind == "clock" && item.installed && item.enabled)
+        {
+            let (data, drafts) = anniversary_greetings(&instance.data, local.date_naive());
+            if !drafts.is_empty() {
+                storage::commit_data(db, &instance.id, instance.revision, data, drafts, now)?;
+                result.changed = true;
+            }
+        }
+    }
     let preparation = planning::advance_preparation(db, &instances, clocks, now)?;
     result.changed |= preparation.changed;
     result.os.extend(preparation.os);
     planning::attach_focus_fallbacks(db, &mut result.os, now)?;
     Ok(result)
+}
+
+fn anniversary_greetings(data: &Value, today: NaiveDate) -> (Value, Vec<EventDraft>) {
+    let mut next = data.clone();
+    let mut drafts = vec![];
+    let Some(items) = next["anniversaries"].as_array_mut() else {
+        return (next, drafts);
+    };
+    for item in items {
+        if item["celebrate"] != true
+            || item["lastCelebrated"].as_str() == Some(today.to_string().as_str())
+        {
+            continue;
+        }
+        let Some(date) = item["date"]
+            .as_str()
+            .and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
+        else {
+            continue;
+        };
+        let recurring = item["repeat"] == "yearly" || item["countMode"] == "anniversary";
+        let target = if recurring {
+            NaiveDate::from_ymd_opt(today.year(), date.month(), date.day())
+                .or_else(|| NaiveDate::from_ymd_opt(today.year(), date.month(), 28))
+        } else {
+            Some(date)
+        };
+        if target != Some(today) || today < date {
+            continue;
+        }
+        let title = item["title"].as_str().unwrap_or("기념일").to_string();
+        drafts.push(EventDraft { kind: "planner-anniversary".into(), text: format!("오늘은 {title}이에요. 함께 축하해요!"), payload: json!({"anniversaryId":item["id"],"date":today.to_string(),"title":title,"originalDate":item["date"],"repeat":item["repeat"].as_str().unwrap_or("none"),"countMode":item["countMode"].as_str().unwrap_or("remaining")}) });
+        item["lastCelebrated"] = json!(today.to_string());
+    }
+    (next, drafts)
+}
+
+fn anniversary_current(data: &Value, payload: &Value, today: NaiveDate) -> bool {
+    let day = today.to_string();
+    payload["date"].as_str() == Some(day.as_str())
+        && data["anniversaries"].as_array().is_some_and(|items| {
+            items.iter().any(|item| {
+                item["id"] == payload["anniversaryId"]
+                    && item["celebrate"] == true
+                    && item["title"] == payload["title"]
+                    && item["date"] == payload["originalDate"]
+                    && item["repeat"].as_str().unwrap_or("none")
+                        == payload["repeat"].as_str().unwrap_or("")
+                    && item["countMode"].as_str().unwrap_or("remaining")
+                        == payload["countMode"].as_str().unwrap_or("")
+                    && item["lastCelebrated"].as_str() == Some(day.as_str())
+            })
+        })
+}
+
+#[cfg(test)]
+mod anniversary_tests {
+    use super::*;
+    #[test]
+    fn queued_greeting_revalidates_original_date_repeat_mode_and_delivery_day() {
+        let today = NaiveDate::from_ymd_opt(2026, 10, 15).unwrap();
+        let data = json!({"anniversaries":[{"id":"a","title":"기념일","date":"2024-10-15","repeat":"yearly","celebrate":true}]});
+        let (next, events) = anniversary_greetings(&data, today);
+        let payload = &events[0].payload;
+        assert!(anniversary_current(&next, payload, today));
+        for (key, value) in [
+            ("date", json!("2025-10-15")),
+            ("repeat", json!("none")),
+            ("countMode", json!("anniversary")),
+            ("title", json!("수정한 제목")),
+            ("celebrate", json!(false)),
+            ("lastCelebrated", Value::Null),
+        ] {
+            let mut edited = next.clone();
+            edited["anniversaries"][0][key] = value;
+            assert!(!anniversary_current(&edited, payload, today), "{key}");
+        }
+        assert!(!anniversary_current(
+            &next,
+            payload,
+            today.succ_opt().unwrap()
+        ));
+        let mut old_payload = payload.clone();
+        old_payload.as_object_mut().unwrap().remove("originalDate");
+        assert!(!anniversary_current(&next, &old_payload, today));
+        let mut unrelated = next;
+        unrelated["showSeconds"] = json!(true);
+        assert!(anniversary_current(&unrelated, payload, today));
+    }
+    #[test]
+    fn anniversary_mode_repeats_but_one_off_and_future_dates_do_not() {
+        let today = NaiveDate::from_ymd_opt(2026, 10, 15).unwrap();
+        let data = json!({"anniversaries":[
+            {"id":"anniversary","title":"매년","date":"2024-10-15","countMode":"anniversary","celebrate":true},
+            {"id":"one-off","title":"한 번","date":"2024-10-15","countMode":"remaining","celebrate":true},
+            {"id":"future","title":"미래","date":"2027-10-15","repeat":"yearly","celebrate":true}
+        ]});
+        let (next, events) = anniversary_greetings(&data, today);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].payload["anniversaryId"], "anniversary");
+        assert!(anniversary_current(&next, &events[0].payload, today));
+        assert!(anniversary_greetings(&next, today).1.is_empty());
+    }
+    #[test]
+    fn greetings_preserve_text_and_repeat_once_each_anniversary() {
+        let data = json!({"anniversaries":[{"id":"a","title":" 엄마 생신 ","date":"2024-02-29","repeat":"yearly","celebrate":true},{"id":"b","title":"꺼진 축하","date":"2025-02-28","celebrate":false}],"format":"12h"});
+        let today = NaiveDate::from_ymd_opt(2025, 2, 28).unwrap();
+        let (next, events) = anniversary_greetings(&data, today);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].payload["title"], " 엄마 생신 ");
+        assert_eq!(next["format"], data["format"]);
+        assert!(anniversary_greetings(&next, today).1.is_empty());
+        assert_eq!(
+            anniversary_greetings(&next, NaiveDate::from_ymd_opt(2026, 2, 28).unwrap())
+                .1
+                .len(),
+            1
+        );
+    }
 }
 
 #[cfg(test)]

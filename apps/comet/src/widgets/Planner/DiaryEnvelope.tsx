@@ -2,7 +2,7 @@ import { Button, DateField, Dialog, FormField, Select, TextField } from "../../u
 import { ChecklistAdd, EnvelopeHeader, ResourceLink, Surface, TaskRow } from "@comet/ui";
 import { Icon } from "@comet/icon";
 import { errorText } from "../../hooks/useSnapshot";
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { localDay, record, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import { useConnectionCommand } from "../useConnectionCommand";
@@ -36,6 +36,8 @@ export function DiaryEnvelope({
   onOpenPage,
   onDirtyChange,
   onReturnToDay,
+  onBusyChange,
+  scheduleEditor,
 }: {
   envelope: DataRecord;
   preparation: WidgetView;
@@ -56,6 +58,8 @@ export function DiaryEnvelope({
   onOpenPage: (page: DiaryPage) => void;
   onDirtyChange?: (dirty: boolean) => void;
   onReturnToDay?: () => void;
+  onBusyChange?: (busy: boolean) => void;
+  scheduleEditor?: ReactNode;
 }): ReactElement {
   const id = text(envelope.id);
   const [titleDraft, setTitleDraft] = useState<{ value: string; base: string } | null>(null);
@@ -72,6 +76,7 @@ export function DiaryEnvelope({
   const [notesDirty, setNotesDirty] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [createMemoRequest, setCreateMemoRequest] = useState(0);
   const [dateEditor, setDateEditor] = useState(false);
   const [dateDraft, setDateDraft] = useState(text(envelope.date));
   const [dateBase, setDateBase] = useState({
@@ -81,6 +86,12 @@ export function DiaryEnvelope({
   const [planning, setPlanning] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const busyReport = useRef(onBusyChange);
+  busyReport.current = onBusyChange;
+  useEffect(() => {
+    busyReport.current?.(saving);
+  }, [saving]);
+  useEffect(() => () => busyReport.current?.(false), []);
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 60000);
@@ -235,6 +246,7 @@ export function DiaryEnvelope({
           </form>
         ) : (
           <EnvelopeHeader
+            className={s.envelopeHeader}
             title={envelopeTitle(envelope)}
             description={`${dateLabel}${connected && !connected.allDay ? ` · ${eventTime(connected)}` : ""}${envelope.archived === true ? " · 보관함" : ""}`}
             completed={completedCount}
@@ -251,19 +263,13 @@ export function DiaryEnvelope({
             actions={
               <>
                 {onFocusEnvelope && envelope.archived !== true && (
-                  <Button
-                    variant="secondary"
-                    size="compact"
-                    disabled={disabled}
-                    onClick={onFocusEnvelope}
-                  >
+                  <Button variant="secondary" disabled={disabled} onClick={onFocusEnvelope}>
                     <Icon name="timer" size={15} />
                     25분 집중 시작
                   </Button>
                 )}
                 <Button
                   variant="secondary"
-                  size="compact"
                   disabled={disabled}
                   onClick={() =>
                     void perform(() => save("update", { id, archived: envelope.archived !== true }))
@@ -287,6 +293,27 @@ export function DiaryEnvelope({
         )}
         {menuOpen && (
           <div className={s.actions}>
+            <Button
+              variant="quiet"
+              size="compact"
+              disabled={disabled || (!availableItems.length && !availableChecks.length)}
+              onClick={() => setPlanning(true)}
+            >
+              오늘 할 일로 꺼내기
+            </Button>
+            <Button
+              variant="quiet"
+              size="compact"
+              disabled={disabled}
+              onClick={() => setCreateMemoRequest((value) => value + 1)}
+            >
+              메모 쓰기
+            </Button>
+            {onReturnToDay && (
+              <Button variant="quiet" size="compact" disabled={disabled} onClick={onReturnToDay}>
+                오늘 페이지로 돌아가기
+              </Button>
+            )}
             <Button
               variant="quiet"
               size="compact"
@@ -438,6 +465,7 @@ export function DiaryEnvelope({
                 onAdd={() =>
                   void perform(async () => {
                     const createdId = pendingTodo ?? (await onCreateTask(task.trim()));
+                    if (!mounted.current) return false;
                     if (!createdId) return false;
                     setPendingTodo(createdId);
                     if (!(await save("todo-link", { id, todoId: createdId }))) return false;
@@ -468,17 +496,7 @@ export function DiaryEnvelope({
                 </div>
               )}
             </Surface>
-            <div>
-              <Button
-                variant="primary"
-                size="compact"
-                disabled={disabled || (!availableItems.length && !availableChecks.length)}
-                onClick={() => setPlanning(true)}
-              >
-                오늘 할 일로 꺼내기
-              </Button>
-            </div>
-            {items.some((item) => !linkedIds.includes(text(item.id))) && (
+            {menuOpen && items.some((item) => !linkedIds.includes(text(item.id))) && (
               <details className={s.disclosure}>
                 <summary>기존 할 일 가져오기</summary>
                 <form
@@ -564,48 +582,47 @@ export function DiaryEnvelope({
               />
             </Surface>
           </section>
-          <details className={s.disclosure}>
-            <summary>체크 항목과 연결 관리</summary>
-            {linkedItems.map((item) => (
-              <div className={s.row} key={text(item.id)}>
-                <span className={s.grow}>{text(item.title)}</span>
-                <Button
-                  variant="quiet"
-                  size="compact"
-                  disabled={disabled}
-                  onClick={() =>
-                    void perform(() => save("todo-unlink", { id, todoId: text(item.id) }))
-                  }
-                >
-                  연결 해제
-                </Button>
-              </div>
-            ))}
-            {checks.map((item) => (
-              <div key={text(item.id)} className={s.checkRow}>
-                <span className={s.grow}>{text(item.text)}</span>
-                <Button
-                  variant="quiet"
-                  size="compact"
-                  disabled={disabled}
-                  aria-label={`${text(item.text)} 체크 삭제`}
-                  onClick={() =>
-                    void perform(() => save("check-delete", { id, checkId: text(item.id) }))
-                  }
-                >
-                  삭제
-                </Button>
-              </div>
-            ))}
-          </details>
+          {menuOpen && (
+            <details className={s.disclosure}>
+              <summary>체크 항목과 연결 관리</summary>
+              {linkedItems.map((item) => (
+                <div className={s.row} key={text(item.id)}>
+                  <span className={s.grow}>{text(item.title)}</span>
+                  <Button
+                    variant="quiet"
+                    size="compact"
+                    disabled={disabled}
+                    onClick={() =>
+                      void perform(() => save("todo-unlink", { id, todoId: text(item.id) }))
+                    }
+                  >
+                    연결 해제
+                  </Button>
+                </div>
+              ))}
+              {checks.map((item) => (
+                <div key={text(item.id)} className={s.checkRow}>
+                  <span className={s.grow}>{text(item.text)}</span>
+                  <Button
+                    variant="quiet"
+                    size="compact"
+                    disabled={disabled}
+                    aria-label={`${text(item.text)} 체크 삭제`}
+                    onClick={() =>
+                      void perform(() => save("check-delete", { id, checkId: text(item.id) }))
+                    }
+                  >
+                    삭제
+                  </Button>
+                </div>
+              ))}
+            </details>
+          )}
         </div>
         <div className={s.column}>
           <section className={s.section} aria-label="봉투 자료">
             <h2 className={s.subheading}>자료와 링크</h2>
             <Surface variant="card" className={s.listCard}>
-              {!rows(envelope.links).length && (
-                <p className={s.caption}>아직 모아 둔 자료가 없어요.</p>
-              )}
               <ul className={s.linkList}>
                 {rows(envelope.links).map((link) => (
                   <li key={text(link.id)} className={s.row}>
@@ -625,65 +642,70 @@ export function DiaryEnvelope({
                           });
                       }}
                     />
-                    <Button
-                      variant="quiet"
-                      size="compact"
-                      disabled={disabled}
-                      aria-label={`${text(link.title)} 자료 삭제`}
-                      onClick={() =>
-                        void perform(() => save("link-delete", { id, linkId: text(link.id) }))
-                      }
-                    >
-                      삭제
-                    </Button>
+                    {menuOpen && (
+                      <Button
+                        variant="quiet"
+                        size="compact"
+                        disabled={disabled}
+                        aria-label={`${text(link.title)} 자료 삭제`}
+                        onClick={() =>
+                          void perform(() => save("link-delete", { id, linkId: text(link.id) }))
+                        }
+                      >
+                        삭제
+                      </Button>
+                    )}
                   </li>
                 ))}
               </ul>
-            </Surface>
-            <details className={s.disclosure}>
-              <summary>자료 링크 추가</summary>
-              <form
-                className={s.form}
-                onSubmit={async (event) => {
-                  event.preventDefault();
-                  if (
-                    linkTitle.trim() &&
-                    linkUrl.trim() &&
-                    (await perform(() =>
-                      save("link-add", { id, title: linkTitle.trim(), url: linkUrl.trim() }),
-                    ))
-                  ) {
-                    setLinkTitle("");
-                    setLinkUrl("");
-                  }
-                }}
-              >
-                <FormField label="자료 이름" required>
-                  <TextField
-                    value={linkTitle}
-                    disabled={disabled}
-                    maxLength={500}
-                    onChange={(event) => setLinkTitle(event.target.value)}
-                  />
-                </FormField>
-                <FormField label="자료 주소" required>
-                  <TextField
-                    type="url"
-                    value={linkUrl}
-                    disabled={disabled}
-                    onChange={(event) => setLinkUrl(event.target.value)}
-                  />
-                </FormField>
-                <Button
-                  type="submit"
-                  variant="secondary"
-                  size="compact"
-                  disabled={disabled || !linkTitle.trim() || !linkUrl.trim()}
+              <details className={s.resourceAdd}>
+                <summary>
+                  <Icon name="plus" size={15} />
+                  자료 추가
+                </summary>
+                <form
+                  className={s.form}
+                  onSubmit={async (event) => {
+                    event.preventDefault();
+                    if (
+                      linkTitle.trim() &&
+                      linkUrl.trim() &&
+                      (await perform(() =>
+                        save("link-add", { id, title: linkTitle.trim(), url: linkUrl.trim() }),
+                      ))
+                    ) {
+                      setLinkTitle("");
+                      setLinkUrl("");
+                    }
+                  }}
                 >
-                  자료 저장
-                </Button>
-              </form>
-            </details>
+                  <FormField label="자료 이름" required>
+                    <TextField
+                      value={linkTitle}
+                      disabled={disabled}
+                      maxLength={500}
+                      onChange={(event) => setLinkTitle(event.target.value)}
+                    />
+                  </FormField>
+                  <FormField label="자료 주소" required>
+                    <TextField
+                      type="url"
+                      value={linkUrl}
+                      disabled={disabled}
+                      onChange={(event) => setLinkUrl(event.target.value)}
+                    />
+                  </FormField>
+                  <Button
+                    type="submit"
+                    variant="secondary"
+                    size="compact"
+                    disabled={disabled || !linkTitle.trim() || !linkUrl.trim()}
+                  >
+                    자료 저장
+                  </Button>
+                </form>
+              </details>
+            </Surface>
           </section>
           <section className={s.section} aria-label="봉투 메모">
             <h2 className={s.subheading}>함께 볼 메모</h2>
@@ -693,8 +715,10 @@ export function DiaryEnvelope({
               busy={disabled}
               envelopeId={id}
               onDirtyChange={setNotesDirty}
+              createRequest={createMemoRequest}
+              hideCreateAction
             />
-            {notes.some((note) => !note.envelopeId) && (
+            {menuOpen && notes.some((note) => !note.envelopeId) && (
               <details className={s.disclosure}>
                 <summary>기존 메모 함께 보기</summary>
                 <form
@@ -759,13 +783,6 @@ export function DiaryEnvelope({
           </section>
         </div>
       </div>
-      <footer className={s.footer}>
-        {onReturnToDay && (
-          <Button variant="quiet" size="compact" disabled={disabled} onClick={onReturnToDay}>
-            오늘 페이지로 돌아가기
-          </Button>
-        )}
-      </footer>
       <Dialog
         isOpen={planning}
         onOpenChange={setPlanning}
@@ -827,92 +844,96 @@ export function DiaryEnvelope({
         closeLabel="닫기"
         size="small"
       >
-        <div className={s.form}>
-          <form
-            className={s.form}
-            onSubmit={async (event) => {
-              event.preventDefault();
-              if (await saveSchedule({ date: dateDraft || null, eventId: null, eventLabel: null }))
-                setDateEditor(false);
-            }}
-          >
-            <FormField label="봉투 날짜">
-              <DateField
-                value={dateDraft}
-                disabled={disabled}
-                onChange={(event) => setDateDraft(event.target.value)}
-              />
-            </FormField>
-            <p className={s.caption}>날짜를 직접 정하면 외부 일정과의 연결은 해제돼요.</p>
-            <div className={s.actions}>
-              <Button
-                variant="quiet"
-                size="compact"
-                disabled={disabled}
-                onClick={async () => {
-                  if (await saveSchedule({ date: null, eventId: null, eventLabel: null })) {
-                    setDateDraft("");
-                    setDateEditor(false);
-                  }
-                }}
-              >
-                날짜 없이 두기
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                size="compact"
-                disabled={disabled || !dateDraft}
-              >
-                날짜 저장
-              </Button>
-            </div>
-          </form>
-          {eventOptions.length > 0 && (
+        {scheduleEditor ?? (
+          <div className={s.form}>
             <form
               className={s.form}
               onSubmit={async (event) => {
                 event.preventDefault();
-                const chosen = eventOptions.find((event) => event.id === eventId);
                 if (
-                  chosen &&
-                  (await saveSchedule({ date: null, eventId, eventLabel: text(chosen.title) }))
-                ) {
-                  setEventId("");
+                  await saveSchedule({ date: dateDraft || null, eventId: null, eventLabel: null })
+                )
                   setDateEditor(false);
-                }
               }}
             >
-              <FormField label="연결할 일정">
-                <Select
+              <FormField label="봉투 날짜">
+                <DateField
+                  value={dateDraft}
                   disabled={disabled}
-                  value={eventId}
-                  onChange={(event) => setEventId(event.target.value)}
-                >
-                  <option value="">일정 선택</option>
-                  {eventOptions.map((event) => (
-                    <option key={text(event.id)} value={text(event.id)}>
-                      {text(event.title)} {text(event.startDate)}
-                    </option>
-                  ))}
-                </Select>
+                  onChange={(event) => setDateDraft(event.target.value)}
+                />
               </FormField>
-              <Button
-                type="submit"
-                variant="secondary"
-                size="compact"
-                disabled={disabled || !eventId}
-              >
-                이 일정 연결
-              </Button>
+              <p className={s.caption}>날짜를 직접 정하면 외부 일정과의 연결은 해제돼요.</p>
+              <div className={s.actions}>
+                <Button
+                  variant="quiet"
+                  size="compact"
+                  disabled={disabled}
+                  onClick={async () => {
+                    if (await saveSchedule({ date: null, eventId: null, eventLabel: null })) {
+                      setDateDraft("");
+                      setDateEditor(false);
+                    }
+                  }}
+                >
+                  날짜 없이 두기
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="compact"
+                  disabled={disabled || !dateDraft}
+                >
+                  날짜 저장
+                </Button>
+              </div>
             </form>
-          )}
-          {error && (
-            <p className={s.error} role="alert">
-              {error}
-            </p>
-          )}
-        </div>
+            {eventOptions.length > 0 && (
+              <form
+                className={s.form}
+                onSubmit={async (event) => {
+                  event.preventDefault();
+                  const chosen = eventOptions.find((event) => event.id === eventId);
+                  if (
+                    chosen &&
+                    (await saveSchedule({ date: null, eventId, eventLabel: text(chosen.title) }))
+                  ) {
+                    setEventId("");
+                    setDateEditor(false);
+                  }
+                }}
+              >
+                <FormField label="연결할 일정">
+                  <Select
+                    disabled={disabled}
+                    value={eventId}
+                    onChange={(event) => setEventId(event.target.value)}
+                  >
+                    <option value="">일정 선택</option>
+                    {eventOptions.map((event) => (
+                      <option key={text(event.id)} value={text(event.id)}>
+                        {text(event.title)} {text(event.startDate)}
+                      </option>
+                    ))}
+                  </Select>
+                </FormField>
+                <Button
+                  type="submit"
+                  variant="secondary"
+                  size="compact"
+                  disabled={disabled || !eventId}
+                >
+                  이 일정 연결
+                </Button>
+              </form>
+            )}
+            {error && (
+              <p className={s.error} role="alert">
+                {error}
+              </p>
+            )}
+          </div>
+        )}
       </Dialog>
       <Dialog
         isOpen={deleting}

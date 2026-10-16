@@ -302,10 +302,12 @@ export function DiaryNoteCollection({
   createRequest = 0,
   onCreatingChange,
   composeOnly = false,
+  hideCreateAction = false,
 }: NoteCollectionProps & {
   createRequest?: number;
   onCreatingChange?: (creating: boolean) => void;
   composeOnly?: boolean;
+  hideCreateAction?: boolean;
 }): ReactElement {
   const draftKey = `comet.diary.note-compose:${envelopeId || "pinned"}`;
   const [restored] = useState(() => readDraft(draftKey));
@@ -433,7 +435,7 @@ export function DiaryNoteCollection({
             </Button>
           </div>
         </form>
-      ) : !composeOnly ? (
+      ) : !composeOnly && !hideCreateAction ? (
         <Button variant="quiet" size="compact" disabled={busy} onClick={() => setCreating(true)}>
           + 메모 쓰기
         </Button>
@@ -510,6 +512,7 @@ function DiaryNoteEditor({
       className={s.note}
       data-location={inEnvelope ? "envelope" : "sidebar"}
       aria-label={`${note.title} 메모`}
+      aria-description={inEnvelope && note.pinned ? "계속 쓸 메모와 함께 수정돼요" : undefined}
     >
       {draftError && (
         <p className={s.error} role="alert">
@@ -590,27 +593,42 @@ function DiaryNoteEditor({
         <>
           <div className={s.row}>
             <h3 className={`${s.noteTitle} ${s.grow}`}>{note.title}</h3>
+            {inEnvelope ? (
+              <CometButton
+                variant="link"
+                className={s.envelopeNoteAction}
+                aria-label={`${note.title} 메모 메뉴`}
+                aria-expanded={menuOpen}
+                disabled={busy}
+                onClick={() => setMenuOpen(!menuOpen)}
+              >
+                메모 편집
+              </CometButton>
+            ) : (
+              <Button
+                variant="quiet"
+                size="compact"
+                aria-label={`${note.title} 메모 메뉴`}
+                aria-expanded={menuOpen}
+                disabled={busy}
+                onClick={() => setMenuOpen(!menuOpen)}
+              >
+                ···
+              </Button>
+            )}
+          </div>
+          <p className={s.noteBody}>{note.body || "아직 내용이 없어요."}</p>
+          {!inEnvelope && (
             <Button
               variant="quiet"
               size="compact"
-              aria-label={`${note.title} 메모 메뉴`}
-              aria-expanded={menuOpen}
               disabled={busy}
-              onClick={() => setMenuOpen(!menuOpen)}
+              onClick={edit}
+              aria-label={`${note.title} 메모 편집`}
             >
-              ···
+              메모 편집
             </Button>
-          </div>
-          <p className={s.noteBody}>{note.body || "아직 내용이 없어요."}</p>
-          <Button
-            variant="quiet"
-            size="compact"
-            disabled={busy}
-            onClick={edit}
-            aria-label={`${note.title} 메모 편집`}
-          >
-            메모 편집
-          </Button>
+          )}
           {note.envelopeId && onOpenEnvelope && (
             <Button
               variant="quiet"
@@ -623,7 +641,6 @@ function DiaryNoteEditor({
               ↗ {envelopeName || "준비 봉투 펼치기"}
             </Button>
           )}
-          {inEnvelope && note.pinned && <p className={s.caption}>↖ 계속 쓸 메모와 함께 수정돼요</p>}
           {menuOpen && (
             <div className={s.row}>
               <Button variant="quiet" size="compact" disabled={busy} onClick={edit}>

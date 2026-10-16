@@ -14,11 +14,6 @@ export const embedded = style({
   overflow: "hidden",
   overflowWrap: "anywhere",
 });
-export const page = style([
-  embedded,
-  { padding: vars.space.lg, height: "100dvh", boxSizing: "border-box" },
-]);
-export const header = style({ minHeight: 32 });
 export const workspace = style({
   display: "grid",
   gridTemplateColumns: "272px minmax(0, 1fr)",
@@ -42,12 +37,12 @@ export const officialView = style({
   display: "grid",
   gridTemplateColumns: "372px minmax(0, 1fr)",
   alignItems: "start",
-  overflow: "hidden",
-  "@media": { "(max-width: 1000px)": { gridTemplateColumns: "300px minmax(0, 1fr)", gap: 20 } },
+  overflowY: "auto",
+  overscrollBehavior: "contain",
   flex: 1,
   minHeight: 0,
   minWidth: 0,
-  gap: vars.space.lg,
+  gap: 28,
   selectors: { "&[hidden]": { display: "none" } },
 });
 export const generatedView = style({
@@ -95,10 +90,9 @@ globalStyle(`${generatedView} .${detailHeader}`, {
 });
 export const identity = style({ display: "grid", gap: vars.space.xs, minWidth: 0 });
 export const detailBody = style({
-  height: "100%",
   minHeight: 0,
-  flex: 1,
-  overflow: "hidden",
+  minWidth: 0,
+  overflow: "visible",
   display: "flex",
   flexDirection: "column",
   gap: 20,
@@ -194,18 +188,6 @@ export const runtimeMessages = style({
   background: tokens["color/component/cat-rest-alpha-80"],
 });
 export const runtimeError = style({ display: "flex", alignItems: "center", gap: vars.space.md });
-globalStyle(`${settings} h2`, {
-  margin: 0,
-  fontSize: vars.typography.size.headingSm,
-  lineHeight: vars.typography.lineHeight.compact,
-  fontWeight: 600,
-  color: vars.color.content.primary,
-});
-globalStyle(`${settings} p`, {
-  margin: 0,
-  fontSize: vars.typography.size.caption,
-  lineHeight: vars.typography.lineHeight.body,
-});
 globalStyle(`${settings} section`, { minWidth: 0 });
 globalStyle(`${settings} .${common.field}`, { gap: vars.space.xs, marginBottom: 0 });
 globalStyle(`${settings} .${tools.number}`, {
@@ -260,7 +242,9 @@ export const directory = style({
   minWidth: 0,
   selectors: { "&[hidden]": { display: "none" } },
 });
-export const backButton = style({ alignSelf: "start", flexShrink: 0 });
+export const breadcrumb = style({ display: "flex", alignItems: "center", gap: 8, height: 32, flexShrink: 0, color: tokens["color/ink-2"], fontSize: 13.5 });
+globalStyle(`${breadcrumb} strong`, { color: tokens["color/ink"], fontWeight: 600 });
+export const backButton = style({ width: 32, height: 32, minHeight: 32, padding: 0, borderRadius: 15, background: tokens["color/card"], border: `1px solid ${tokens["color/card-border"]}`, flexShrink: 0 });
 globalStyle(`${detail}[hidden]`, { display: "none" });
 
 export const directorySectionTitle = style({

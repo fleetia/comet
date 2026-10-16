@@ -11,7 +11,7 @@ use crate::{
     widgets::{self, storage, WidgetEvent, WidgetRequest, WidgetSnapshot},
 };
 use serde_json::Value;
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
@@ -97,7 +97,7 @@ fn active_appearance_target(
         );
     }
     if !widgets::appearance::supports(&instance.kind) {
-        return Err("이 위젯은 바탕화면 표시를 지원하지 않아요.".into());
+        return Err("이 위젯은 색상·글자를 바꿀 수 없어요.".into());
     }
     Ok(())
 }
@@ -158,6 +158,7 @@ pub(crate) async fn set_widget_enabled(
         crate::desktop_toys::remove_widget(&app, &id);
         cancel_widget_scene(&app, &state)?;
         close_widget_windows(&app, &id)?;
+        crate::widget_desktop::prune(&app, &state)?;
     }
     publish_widgets(&app, &state);
     Ok(())
@@ -181,6 +182,7 @@ pub(crate) async fn remove_widget(
     cancel_widget_scene(&app, &state)?;
     crate::desktop_toys::remove_widget(&app, &id);
     close_widget_windows(&app, &id)?;
+    crate::widget_desktop::prune(&app, &state)?;
     publish_widgets(&app, &state);
     Ok(())
 }
@@ -211,6 +213,7 @@ fn cancel_stale_widget_scene(state: &AppState, db: &rusqlite::Connection) -> Res
 }
 
 pub(crate) fn cancel_widget_jobs(state: &AppState, id: Option<&str>) -> Result<(), String> {
+    cancel_widget_opens(state, id)?;
     if let Some(id) = id {
         crate::music_bridge::revoke(id);
     } else {
@@ -227,6 +230,106 @@ pub(crate) fn cancel_widget_jobs(state: &AppState, id: Option<&str>) -> Result<(
         }
     }
     Ok(())
+}
+
+fn begin_widget_open(state: &AppState, id: &str) -> Result<Arc<AtomicBool>, String> {
+    let token = Arc::new(AtomicBool::new(false));
+    if let Some(previous) = lock(&state.widget_open_intents)?.insert(id.into(), token.clone()) {
+        previous.store(true, Ordering::SeqCst);
+    }
+    Ok(token)
+}
+
+pub(crate) fn cancel_widget_opens(state: &AppState, id: Option<&str>) -> Result<(), String> {
+    let mut intents = lock(&state.widget_open_intents)?;
+    if let Some(id) = id {
+        if let Some(token) = intents.remove(id) {
+            token.store(true, Ordering::SeqCst);
+        }
+    } else {
+        for (_, token) in intents.drain() {
+            token.store(true, Ordering::SeqCst);
+        }
+    }
+    Ok(())
+}
+
+fn widget_open_current(state: &AppState, id: &str, token: &Arc<AtomicBool>) -> Result<(), String> {
+    if token.load(Ordering::SeqCst)
+        || !lock(&state.widget_open_intents)?
+            .get(id)
+            .is_some_and(|current| Arc::ptr_eq(current, token))
+    {
+        return Err("위젯 열기를 취소했어요.".into());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod music_open_tests {
+    use super::*;
+
+    #[test]
+    fn newer_music_open_supersedes_a_waiting_open_without_using_refresh_slots() {
+        let state = crate::app::tests::state();
+        let first = begin_widget_open(&state, "music").unwrap();
+        let second = begin_widget_open(&state, "music").unwrap();
+        assert!(widget_open_current(&state, "music", &first).is_err());
+        assert!(widget_open_current(&state, "music", &second).is_ok());
+        assert!(lock(&state.widget_jobs).unwrap().is_empty());
+    }
+
+    #[test]
+    fn close_cancels_a_waiting_music_open_but_preserves_background_reading() {
+        let state = crate::app::tests::state();
+        let reading = Arc::new(AtomicBool::new(false));
+        lock(&state.widget_jobs).unwrap().insert("music".into(), reading.clone());
+        let pending = begin_widget_open(&state, "music").unwrap();
+        cancel_widget_opens(&state, Some("music")).unwrap();
+        assert!(widget_open_current(&state, "music", &pending).is_err());
+        assert!(!reading.load(Ordering::SeqCst));
+        let reopened = begin_widget_open(&state, "music").unwrap();
+        assert!(widget_open_current(&state, "music", &reopened).is_ok());
+        assert!(widget_open_current(&state, "music", &pending).is_err());
+    }
+
+    #[test]
+    fn disabling_and_reenabling_music_cannot_revive_an_earlier_open() {
+        let state = crate::app::tests::state();
+        let directory = tempfile::tempdir().unwrap();
+        let id = change(&state, |db| {
+            storage::install(db, directory.path(), &["music".into()])?;
+            Ok(storage::instances(db)?.remove(0).id)
+        }).unwrap();
+        let pending = begin_widget_open(&state, &id).unwrap();
+        change(&state, |db| {
+            storage::set_enabled(db, &id, false)?;
+            cancel_widget_jobs(&state, Some(&id))?;
+            storage::set_enabled(db, &id, true)?;
+            validate_open_widget(&state, &storage::get(db, &id)?, None)
+        }).unwrap();
+        assert!(widget_open_current(&state, &id, &pending).is_err());
+        assert!(widget_open_current(&state, &id, &begin_widget_open(&state, &id).unwrap()).is_ok());
+    }
+
+    #[test]
+    fn removing_music_or_stopping_the_app_invalidates_pending_opens() {
+        let state = crate::app::tests::state();
+        let directory = tempfile::tempdir().unwrap();
+        let id = change(&state, |db| {
+            storage::install(db, directory.path(), &["music".into()])?;
+            Ok(storage::instances(db)?.remove(0).id)
+        }).unwrap();
+        let removed = begin_widget_open(&state, &id).unwrap();
+        change(&state, |db| {
+            storage::remove(db, directory.path(), &id, false)?;
+            cancel_widget_jobs(&state, Some(&id))
+        }).unwrap();
+        assert!(widget_open_current(&state, &id, &removed).is_err());
+        let stopping = begin_widget_open(&state, &id).unwrap();
+        cancel_widget_jobs(&state, None).unwrap();
+        assert!(widget_open_current(&state, &id, &stopping).is_err());
+    }
 }
 
 pub(crate) fn widget_event_current(
@@ -351,7 +454,9 @@ fn execute_with_created_id(
 ) -> Result<Option<String>, String> {
     use rusqlite::OptionalExtension;
 
-    let tx = db.unchecked_transaction().map_err(|error| error.to_string())?;
+    let tx = db
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
     let before = if matches!(request.action.as_str(), "add" | "create") {
         storage::get(&tx, &request.instance_id).ok()
     } else {
@@ -362,12 +467,13 @@ fn execute_with_created_id(
             .as_ref()
             .is_some_and(|instance| instance.kind == "preparation");
     let already_applied = preparation_creation
-        && tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM widget_requests WHERE id=?1)",
-            [&request.request_id],
-            |row| row.get::<_, bool>(0),
-        )
-        .map_err(|error| error.to_string())?;
+        && tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM widget_requests WHERE id=?1)",
+                [&request.request_id],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(|error| error.to_string())?;
     if let Err(error) = storage::execute_in_transaction(&tx, request, now, entropy) {
         tx.rollback().map_err(|error| error.to_string())?;
         return Err(if preparation_creation && !already_applied {
@@ -376,30 +482,47 @@ fn execute_with_created_id(
             error
         });
     }
-    let saved: Option<Option<String>> = tx.query_row(
-        "SELECT created_id FROM widget_request_results WHERE request_id=?1",
-        [&request.request_id],
-        |row| row.get(0),
-    ).optional().map_err(|error| error.to_string())?;
+    let saved: Option<Option<String>> = tx
+        .query_row(
+            "SELECT created_id FROM widget_request_results WHERE request_id=?1",
+            [&request.request_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
     let created_id = if let Some(saved) = saved {
         saved
     } else {
-        let field = before.as_ref().and_then(|instance| match (instance.kind.as_str(), request.action.as_str()) {
-            ("todo", "add") => Some("items"),
-            ("preparation", "create") => Some("envelopes"),
-            _ => None,
+        let field = before.as_ref().and_then(|instance| {
+            match (instance.kind.as_str(), request.action.as_str()) {
+                ("todo", "add") => Some("items"),
+                ("preparation", "create") => Some("envelopes"),
+                _ => None,
+            }
         });
         let created = if let (Some(before), Some(field)) = (before, field) {
             let previous_ids: std::collections::BTreeSet<&str> = before.data[field]
-                .as_array().into_iter().flatten().filter_map(|item| item["id"].as_str()).collect();
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|item| item["id"].as_str())
+                .collect();
             let after = storage::get(&tx, &request.instance_id)?;
-            after.data[field].as_array().into_iter().flatten().filter_map(|item| item["id"].as_str())
-                .find(|id| !previous_ids.contains(id)).map(str::to_owned)
+            after.data[field]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|item| item["id"].as_str())
+                .find(|id| !previous_ids.contains(id))
+                .map(str::to_owned)
         } else {
             None
         };
-        tx.execute("INSERT INTO widget_request_results(request_id,created_id) VALUES(?1,?2)",
-            rusqlite::params![request.request_id, created]).map_err(|error| error.to_string())?;
+        tx.execute(
+            "INSERT INTO widget_request_results(request_id,created_id) VALUES(?1,?2)",
+            rusqlite::params![request.request_id, created],
+        )
+        .map_err(|error| error.to_string())?;
         created
     };
     tx.commit().map_err(|error| error.to_string())?;
@@ -632,10 +755,15 @@ async fn open_widget_inner(
     launcher: Option<(i64, u64)>,
 ) -> Result<(), String> {
     uuid::Uuid::parse_str(id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
-    let instance = change(state, |db| {
+    let (instance, open_intent) = change(state, |db| {
         let instance = storage::get(db, id)?;
         validate_open_widget(state, &instance, launcher)?;
-        Ok(instance)
+        let intent = if instance.kind == "music" {
+            Some(begin_widget_open(state, id)?)
+        } else {
+            None
+        };
+        Ok((instance, intent))
     })?;
     if instance.kind == "memo" {
         let snapshot = create_memo_for_open(state, id, launcher)?;
@@ -672,6 +800,9 @@ async fn open_widget_inner(
     if crate::unavailable(state) {
         return Err("앱을 정리하고 있어요.".into());
     }
+    if let Some(intent) = &open_intent {
+        widget_open_current(state, id, intent)?;
+    }
     let current = {
         let db = lock(&state.db)?;
         current_events(state, &db)?;
@@ -682,11 +813,13 @@ async fn open_widget_inner(
     if let Some((_, session)) = launcher {
         crate::app::launcher::accept_execution(state, session)?;
     }
-    if matches!(current.kind.as_str(), "todo" | "calendar") {
+    if matches!(current.kind.as_str(), "todo" | "calendar" | "preparation") {
         return crate::planner_windows::open(
             app,
             if current.kind == "calendar" {
                 "calendar"
+            } else if current.kind == "preparation" {
+                "envelopes"
             } else {
                 "today"
             },
@@ -700,7 +833,18 @@ async fn open_widget_inner(
         crate::widget_runtime::refresh(app);
         return Ok(());
     }
-    tauri::WebviewWindowBuilder::new(
+    let floating = matches!(
+        current.kind.as_str(),
+        "music"
+            | "focus-timer"
+            | "interaction"
+            | "small-match"
+            | "fortune"
+            | "ball"
+            | "paper-plane"
+            | "bubbles"
+    );
+    let window = tauri::WebviewWindowBuilder::new(
         app,
         label,
         tauri::WebviewUrl::App(format!("index.html?view=widget&id={id}").into()),
@@ -710,129 +854,73 @@ async fn open_widget_inner(
         widgets::manifest(&current.kind)?.name
     ))
     .inner_size(
-        if current.kind == "music" {
-            440.0
-        } else if current.kind == "focus-timer" {
-            840.0
-        } else {
-            360.0
+        match current.kind.as_str() {
+            "music" => 370.0,
+            "focus-timer" => 946.0,
+            "interaction" | "small-match" | "fortune" | "ball" | "paper-plane" | "bubbles" => 330.0,
+            _ => 360.0,
         },
-        if current.kind == "music" {
-            340.0
-        } else if current.kind == "focus-timer" {
-            700.0
-        } else {
-            480.0
+        match current.kind.as_str() {
+            "music" => 310.0,
+            "focus-timer" => 580.0,
+            "interaction" => 250.0,
+            "small-match" => 430.0,
+            "fortune" => 340.0,
+            "ball" | "paper-plane" | "bubbles" => 400.0,
+            _ => 480.0,
         },
     )
     .min_inner_size(
-        if current.kind == "focus-timer" {
-            740.0
+        if current.kind == "music" {
+            370.0
+        } else if current.kind == "focus-timer" {
+            310.0
         } else {
             296.0
         },
-        if current.kind == "focus-timer" {
-            620.0
+        if current.kind == "music" {
+            310.0
+        } else if current.kind == "focus-timer" {
+            56.0
+        } else if current.kind == "interaction" {
+            250.0
         } else {
-            320.0
+            220.0
         },
     )
+    .transparent(floating)
+    .shadow(!floating)
+    .always_on_top(floating)
+    .skip_taskbar(floating)
     .decorations(false)
     .disable_drag_drop_handler()
     .maximizable(false)
+    .visible(open_intent.is_none())
+    .focused(open_intent.is_none())
     .build()
     .map_err(|error| error.to_string())?;
+    if let Some(intent) = &open_intent {
+        if let Err(error) = widget_open_current(state, id, intent) {
+            let _ = window.destroy();
+            return Err(error);
+        }
+        window.show().map_err(|error| error.to_string())?;
+        window.set_focus().map_err(|error| error.to_string())?;
+    }
     crate::widget_runtime::refresh(app);
     Ok(())
 }
 
-fn reveal_widget_display(
-    state: &AppState,
-    id: &str,
-    expected_revision: i64,
-    reveal: impl FnOnce() -> Result<(), String>,
-) -> Result<(), String> {
-    let _action = lock(&state.action)?;
-    if crate::unavailable(state) {
-        return Err("앱을 정리하고 있어요.".into());
-    }
-    let current = storage::get(&*lock(&state.db)?, id)?;
-    active_appearance_target(&current, expected_revision)?;
-    reveal()
-}
-
 #[tauri::command]
-pub(crate) async fn open_widget_display(
+pub(crate) async fn close_widget(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
 ) -> Result<(), String> {
-    if crate::unavailable(&state) {
-        return Err("앱을 정리하고 있어요.".into());
-    }
-    let instance = storage::get(&*lock(&state.db)?, &id)?;
-    if !instance.installed || !instance.enabled || !widgets::appearance::supports(&instance.kind) {
-        return Err("기념일·날씨·배터리 위젯을 설치하고 켜 주세요.".into());
-    }
     uuid::Uuid::parse_str(&id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
-    let label = format!("widget-display-{id}");
-    if let Some(window) = app.get_webview_window(&label) {
-        let result = reveal_widget_display(&state, &id, instance.revision, || {
-            window.unminimize().map_err(|error| error.to_string())?;
-            window.show().map_err(|error| error.to_string())?;
-            window.set_focus().map_err(|error| error.to_string())
-        });
-        crate::widget_runtime::refresh(&app);
-        return result;
-    }
-    // Building waits for the UI thread, so keep it outside the lifecycle lock and hidden.
-    let window = tauri::WebviewWindowBuilder::new(
-        &app,
-        label,
-        tauri::WebviewUrl::App(format!("index.html?view=widget-display&id={id}").into()),
-    )
-    .title(format!(
-        "comet · {}",
-        widgets::manifest(&instance.kind)?.name
-    ))
-    .inner_size(340.0, 220.0)
-    .min_inner_size(240.0, 160.0)
-    .resizable(true)
-    .decorations(false)
-    .transparent(true)
-    .shadow(false)
-    .maximizable(false)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .focused(false)
-    .visible(false)
-    .build()
-    .map_err(|error| error.to_string())?;
-    let result = reveal_widget_display(&state, &id, instance.revision, || {
-        window.show().map_err(|error| error.to_string())?;
-        window.set_focus().map_err(|error| error.to_string())
-    });
-    if result.is_err() {
-        let _ = window.destroy();
-    }
-    crate::widget_runtime::refresh(&app);
-    result
-}
-
-#[tauri::command]
-pub(crate) fn close_widget(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    uuid::Uuid::parse_str(&id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
+    let _action = lock(&state.action)?;
+    cancel_widget_opens(&state, Some(&id))?;
     if let Some(window) = app.get_webview_window(&format!("widget-{id}")) {
-        window.destroy().map_err(|error| error.to_string())?;
-    }
-    crate::widget_runtime::refresh(&app);
-    Ok(())
-}
-
-#[tauri::command]
-pub(crate) fn close_widget_display(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    uuid::Uuid::parse_str(&id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
-    if let Some(window) = app.get_webview_window(&format!("widget-display-{id}")) {
         window.destroy().map_err(|error| error.to_string())?;
     }
     crate::widget_runtime::refresh(&app);
@@ -1299,76 +1387,6 @@ mod tests {
     }
 
     #[test]
-    fn display_reveal_rejects_disabled_removed_and_reinstalled_widgets() {
-        for mutation in ["disable", "remove", "delete", "reenable", "reinstall"] {
-            let directory = tempfile::tempdir().unwrap();
-            let mut state = crate::app::tests::state();
-            state.app_data = directory.path().into();
-            let instance = change(&state, |db| {
-                storage::install(db, &state.app_data, &["clock".into()])?;
-                Ok(storage::instances(db)?.remove(0))
-            })
-            .unwrap();
-            change(&state, |db| {
-                match mutation {
-                    "disable" => storage::set_enabled(db, &instance.id, false)?,
-                    "remove" => storage::remove(db, &state.app_data, &instance.id, false)?,
-                    "delete" => storage::remove(db, &state.app_data, &instance.id, true)?,
-                    "reenable" => {
-                        storage::set_enabled(db, &instance.id, false)?;
-                        storage::set_enabled(db, &instance.id, true)?;
-                    }
-                    "reinstall" => {
-                        storage::remove(db, &state.app_data, &instance.id, false)?;
-                        storage::install(db, &state.app_data, &["clock".into()])?;
-                    }
-                    _ => unreachable!(),
-                }
-                Ok(())
-            })
-            .unwrap();
-            let mut revealed = false;
-            let result = reveal_widget_display(&state, &instance.id, instance.revision, || {
-                revealed = true;
-                Ok(())
-            });
-            assert!(result.is_err(), "{mutation}");
-            assert!(!revealed, "{mutation}");
-        }
-    }
-
-    #[test]
-    fn display_reveal_queues_visibility_inside_the_lifecycle_boundary() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut state = crate::app::tests::state();
-        state.app_data = directory.path().into();
-        let instance = change(&state, |db| {
-            storage::install(db, &state.app_data, &["clock".into()])?;
-            Ok(storage::instances(db)?.remove(0))
-        })
-        .unwrap();
-        let mut revealed = false;
-        reveal_widget_display(&state, &instance.id, instance.revision, || {
-            assert!(matches!(
-                state.action.try_lock(),
-                Err(std::sync::TryLockError::WouldBlock)
-            ));
-            assert!(state.db.try_lock().is_ok());
-            revealed = true;
-            Ok(())
-        })
-        .unwrap();
-        assert!(revealed);
-        state.stopping.store(true, Ordering::SeqCst);
-        assert!(
-            reveal_widget_display(&state, &instance.id, instance.revision, || {
-                panic!("an exiting app must not reveal a display")
-            })
-            .is_err()
-        );
-    }
-
-    #[test]
     fn addon_pair_skips_raw_widget_notifications_while_default_and_custom_keep_fallback() {
         let db = store::open(std::path::Path::new(":memory:")).unwrap();
         let event = WidgetEvent {
@@ -1415,14 +1433,28 @@ fn focus_resize_target(
     current: tauri::PhysicalSize<u32>,
     scale: f64,
     expanded: bool,
+    collapsed: bool,
+    height: Option<f64>,
 ) -> tauri::PhysicalSize<u32> {
+    let width = if collapsed || !expanded { 310.0 } else { 946.0 };
+    let minimum = if collapsed {
+        56.0
+    } else if expanded {
+        547.0
+    } else {
+        376.0
+    };
+    let height = if collapsed {
+        56.0
+    } else {
+        height
+            .filter(|value| value.is_finite())
+            .map(|value| value.clamp(minimum, 2000.0))
+            .unwrap_or((f64::from(current.height) / scale).max(minimum))
+    };
     tauri::PhysicalSize::new(
-        ((if expanded { 840.0 } else { 380.0 }) * scale).round() as u32,
-        if expanded {
-            current.height.max((620.0 * scale).ceil() as u32)
-        } else {
-            current.height
-        },
+        (width * scale).round() as u32,
+        (height * scale).ceil() as u32,
     )
 }
 
@@ -1462,12 +1494,16 @@ async fn apply_focus_window_size(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn set_focus_expanded(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
     expanded: bool,
     animate: Option<bool>,
+    collapsed: Option<bool>,
+    height: Option<f64>,
+    auto_fit: Option<bool>,
 ) -> Result<(), String> {
     let (window, start, position, scale) = change(&state, |db| {
         let instance = storage::get(db, &id)?;
@@ -1482,10 +1518,14 @@ pub(crate) async fn set_focus_expanded(
         let scale = window.scale_factor().map_err(|error| error.to_string())?;
         Ok((window, start, position, scale))
     })?;
-    let target = focus_resize_target(start, scale, expanded);
+    let collapsed = collapsed.unwrap_or(false);
+    let mut target = focus_resize_target(start, scale, expanded, collapsed, height);
+    if auto_fit.unwrap_or(false) && !collapsed {
+        target.width = target.width.max(start.width);
+    }
     // Intermediate widths must remain below the expanded minimum until the final frame.
     window
-        .set_min_size(Some(tauri::LogicalSize::new(340.0, 520.0)))
+        .set_min_size(Some(tauri::LogicalSize::new(310.0, 56.0)))
         .map_err(|error| error.to_string())?;
     if animate.unwrap_or(true) && start != target {
         let started = std::time::Instant::now();
@@ -1504,9 +1544,9 @@ pub(crate) async fn set_focus_expanded(
         }
     }
     apply_focus_window_size(&window, target, position).await?;
-    if expanded {
+    if expanded && !collapsed {
         window
-            .set_min_size(Some(tauri::LogicalSize::new(740.0, 620.0)))
+            .set_min_size(Some(tauri::LogicalSize::new(946.0, 547.0)))
             .map_err(|error| error.to_string())?;
     }
     Ok(())
@@ -1520,16 +1560,42 @@ mod focus_resize_tests {
     #[test]
     fn resize_targets_preserve_height_and_apply_expanded_minimum_at_display_scale() {
         assert_eq!(
-            focus_resize_target(PhysicalSize::new(1680, 1500), 2.0, false),
-            PhysicalSize::new(760, 1500)
+            focus_resize_target(PhysicalSize::new(1892, 1500), 2.0, false, false, None),
+            PhysicalSize::new(620, 1500)
         );
         assert_eq!(
-            focus_resize_target(PhysicalSize::new(760, 1500), 2.0, true),
-            PhysicalSize::new(1680, 1500)
+            focus_resize_target(PhysicalSize::new(620, 1500), 2.0, true, false, None),
+            PhysicalSize::new(1892, 1500)
         );
         assert_eq!(
-            focus_resize_target(PhysicalSize::new(475, 650), 1.25, true),
-            PhysicalSize::new(1050, 775)
+            focus_resize_target(PhysicalSize::new(475, 650), 1.25, true, false, None),
+            PhysicalSize::new(1183, 684)
+        );
+    }
+
+    #[test]
+    fn compact_focus_uses_the_design_size_and_rejects_non_finite_height() {
+        assert_eq!(
+            focus_resize_target(PhysicalSize::new(946, 700), 1.0, true, true, None),
+            PhysicalSize::new(310, 56)
+        );
+        assert_eq!(
+            focus_resize_target(
+                PhysicalSize::new(310, 56),
+                1.0,
+                false,
+                false,
+                Some(f64::NAN)
+            ),
+            PhysicalSize::new(310, 376)
+        );
+        assert_eq!(
+            focus_resize_target(PhysicalSize::new(310, 56), 1.0, true, false, Some(10.0)),
+            PhysicalSize::new(946, 547)
+        );
+        assert_eq!(
+            focus_resize_target(PhysicalSize::new(620, 752), 2.0, true, false, Some(547.0)),
+            PhysicalSize::new(1892, 1094)
         );
     }
 
@@ -1576,14 +1642,14 @@ pub(crate) fn set_music_expanded(
             .ok_or("음악 창을 찾을 수 없어요.")?;
         window
             .set_min_size(Some(tauri::LogicalSize::new(
-                440.0,
-                if expanded { 520.0 } else { 340.0 },
+                370.0,
+                if expanded { 520.0 } else { 310.0 },
             )))
             .map_err(|error| error.to_string())?;
         window
             .set_size(tauri::LogicalSize::new(
-                if expanded { 720.0 } else { 440.0 },
-                if expanded { 730.0 } else { 340.0 },
+                if expanded { 720.0 } else { 370.0 },
+                if expanded { 730.0 } else { 310.0 },
             ))
             .map_err(|error| error.to_string())
     })

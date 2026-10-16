@@ -1,8 +1,10 @@
 import { Button, IconButton } from "../../ui";
+import { MemoWidget } from "@comet/ui";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
-import { WidgetFrame } from "../WidgetFrame/WidgetFrame";
+import { useWindowDrag } from "../../hooks/useWindowDrag";
+import { transparentDocument } from "../../components/companion.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { number, record, rows, text, type DataRecord } from "../toolData";
 import { useWidgets } from "../useWidgets";
@@ -10,6 +12,7 @@ import { useMemoDraft } from "../useMemoDraft";
 import { WidgetDragHandle } from "../WidgetDragHandle";
 import * as c from "../../lagrange.css";
 import * as s from "../memo.css";
+import * as paper from "./memoNote.css";
 
 function NoteEditor({ id, note }: { id: string; note: DataRecord }): ReactElement {
   const noteId = text(note.id);
@@ -24,6 +27,7 @@ function NoteEditor({ id, note }: { id: string; note: DataRecord }): ReactElemen
   const pending = useRef(false);
   const flushRequest = useRef<string | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  const drag = useWindowDrag(isDesktop(), setFailure);
   useEffect(() => {
     input.current?.focus();
   }, []);
@@ -131,75 +135,91 @@ function NoteEditor({ id, note }: { id: string; note: DataRecord }): ReactElemen
   }
 
   return (
-    <WidgetFrame
-      variant="note"
-      title={text(note.title) || "메모"}
-      closeLabel="메모 넣기"
-      onClose={putAway}
-      footer={
-        <div className={s.footer}>
-          <span role="status">
-            {!isDesktop()
-              ? "미리보기 · 저장하지 않아요"
-              : {
-                  saved: "저장됨",
-                  unsaved: "저장 대기 중",
-                  saving: "저장 중…",
-                  error: "저장하지 못했어요",
-                }[status]}
-          </span>
-          <div className={s.footerRow}>
-            <WidgetDragHandle
-              payload={{ v: 1, kind: "memo", widgetId: id, itemId: noteId }}
-              title={text(note.title) || "메모"}
-              disabled={busy || status !== "saved"}
-            />
-            <div className={s.fontControls}>
-              <IconButton
-                label="글자 크기 줄이기"
-                variant="quiet"
-                size="compact"
-                disabled={busy || draft.fontSize <= 12}
-                onClick={() => edit({ fontSize: draft.fontSize - 2 })}
-              >
-                A−
-              </IconButton>
-              <span aria-label="글자 크기">{draft.fontSize}px</span>
-              <IconButton
-                label="글자 크기 키우기"
-                variant="quiet"
-                size="compact"
-                disabled={busy || draft.fontSize >= 24}
-                onClick={() => edit({ fontSize: draft.fontSize + 2 })}
-              >
-                A+
-              </IconButton>
-            </div>
-            <Button
-              aria-label="새 메모 꺼내기"
-              variant="quiet"
-              size="compact"
-              disabled={busy || !isDesktop()}
-              onClick={() => void create()}
-            >
-              + 새 메모
-            </Button>
-          </div>
-        </div>
-      }
+    <main
+      className={paper.stage}
+      aria-label={text(note.title) || "메모"}
+      onPointerDown={(event) => {
+        if (
+          !(event.target instanceof Element) ||
+          !event.target.closest("button, textarea, [draggable]")
+        )
+          drag.onPointerDown(event);
+      }}
+      onPointerMove={drag.onPointerMove}
+      onPointerUp={drag.reset}
+      onPointerCancel={drag.reset}
     >
-      <textarea
-        ref={input}
-        className={s.editor}
-        aria-label="메모 본문"
-        placeholder="메모를 적어 보세요."
-        maxLength={50000}
-        value={draft.body}
-        readOnly={busy}
-        style={{ fontSize: draft.fontSize }}
-        onChange={(event) => edit({ body: event.target.value })}
-        onBlur={() => void flush()}
-      />
+      <div className={paper.sheet}>
+        <MemoWidget title={text(note.title) || "메모"}>
+          <textarea
+            ref={input}
+            className={paper.editor}
+            aria-label="메모 본문"
+            placeholder="메모를 적어 보세요."
+            maxLength={50000}
+            value={draft.body}
+            readOnly={busy}
+            style={{ fontSize: draft.fontSize }}
+            onChange={(event) => edit({ body: event.target.value })}
+            onBlur={() => void flush()}
+          />
+        </MemoWidget>
+        <IconButton
+          className={paper.putAway}
+          label="메모 넣기"
+          variant="quiet"
+          size="compact"
+          disabled={busy}
+          onClick={() => void putAway()}
+        >
+          ×
+        </IconButton>
+      </div>
+      <footer className={paper.controls}>
+        <WidgetDragHandle
+          payload={{ v: 1, kind: "memo", widgetId: id, itemId: noteId }}
+          title={text(note.title) || "메모"}
+          disabled={busy || status !== "saved"}
+        />
+        <IconButton
+          label="글자 크기 줄이기"
+          variant="quiet"
+          size="compact"
+          disabled={busy || draft.fontSize <= 12}
+          onClick={() => edit({ fontSize: draft.fontSize - 2 })}
+        >
+          A−
+        </IconButton>
+        <span aria-label="글자 크기">{draft.fontSize}px</span>
+        <IconButton
+          label="글자 크기 키우기"
+          variant="quiet"
+          size="compact"
+          disabled={busy || draft.fontSize >= 24}
+          onClick={() => edit({ fontSize: draft.fontSize + 2 })}
+        >
+          A+
+        </IconButton>
+        <Button
+          aria-label="새 메모 꺼내기"
+          variant="quiet"
+          size="compact"
+          disabled={busy || !isDesktop()}
+          onClick={() => void create()}
+        >
+          +
+        </Button>
+        <span className={paper.status} role="status">
+          {!isDesktop()
+            ? "미리보기 · 저장하지 않아요"
+            : {
+                saved: "저장됨",
+                unsaved: "저장 대기 중",
+                saving: "저장 중…",
+                error: "저장하지 못했어요",
+              }[status]}
+        </span>
+      </footer>
       {(error || failure) && (
         <div className={s.failure}>
           <p role="alert" className={c.error}>
@@ -212,26 +232,37 @@ function NoteEditor({ id, note }: { id: string; note: DataRecord }): ReactElemen
           )}
         </div>
       )}
-    </WidgetFrame>
+    </main>
   );
 }
 
 export function MemoNote({ id, noteId }: { id: string; noteId: string }): ReactElement {
   const { snapshot, error, reload } = useWidgets();
+  const [closeError, setCloseError] = useState<string | null>(null);
+  useEffect(() => {
+    document.documentElement.classList.add(transparentDocument);
+    return () => document.documentElement.classList.remove(transparentDocument);
+  }, []);
   const widget = snapshot?.widgets.find((item) => item.id === id);
   const note = rows(record(widget?.data).notes).find((item) => item.id === noteId);
   if (widget?.installed && widget.enabled && note) {
     return <NoteEditor key={noteId} id={id} note={note} />;
   }
   return (
-    <WidgetFrame
-      variant="note"
-      title="메모"
-      closeLabel="메모 넣기"
-      onClose={async () => {
-        await command("close_memo_note", { id, noteId });
-      }}
-    >
+    <main className={paper.stage}>
+      <IconButton
+        label="메모 넣기"
+        variant="quiet"
+        size="compact"
+        onClick={() =>
+          void command("close_memo_note", { id, noteId }).catch((cause: unknown) =>
+            setCloseError(errorText(cause)),
+          )
+        }
+      >
+        ×
+      </IconButton>
+      {closeError && <p role="alert">{closeError}</p>}
       <div className={s.failure}>
         {error ? (
           <>
@@ -246,6 +277,6 @@ export function MemoNote({ id, noteId }: { id: string; noteId: string }): ReactE
           <p role="status">{snapshot ? "사용할 수 없는 메모예요." : "메모를 불러오고 있어요."}</p>
         )}
       </div>
-    </WidgetFrame>
+    </main>
   );
 }

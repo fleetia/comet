@@ -170,22 +170,13 @@ export const fileActions = style({
   gap: vars.space.md,
   minHeight: 32,
 });
-export const saveControls = style({
-  display: "grid",
-  gap: vars.space.md,
-  flexShrink: 0,
-  minWidth: 0,
+export const status = style({
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: vars.space.sm,
+  minHeight: 20,
 });
-globalStyle(`${saveControls}[hidden]`, { display: "none" });
-export const saveBar = style({ gap: vars.space.md, paddingTop: 0, minHeight: 44 });
-export const saveState = style({
-  display: "grid",
-  gap: vars.space.xxs,
-  lineHeight: vars.typography.lineHeight.body,
-});
-globalStyle(`${saveBar} button`, { paddingInline: vars.space.sm, whiteSpace: "nowrap" });
-globalStyle(`${saveBar} button:first-child`, { width: 88 });
-globalStyle(`${saveBar} button:last-child`, { width: 112 });
 export const error = style({
   color: vars.color.status.critical,
   fontSize: vars.typography.size.caption,

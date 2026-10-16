@@ -4,6 +4,12 @@ import userEvent from "@testing-library/user-event";
 import { TimerTool } from "./FocusTimerTool";
 import type { DataRecord, ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
+import { command } from "../../hooks/useSnapshot";
+
+vi.mock("../../hooks/useSnapshot", async (load) => ({
+  ...(await load<typeof import("../../hooks/useSnapshot")>()),
+  command: vi.fn().mockResolvedValue(undefined),
+}));
 
 function widget(kind: string, data: DataRecord): WidgetView {
   return {
@@ -36,7 +42,47 @@ async function click(name: string, role = "button"): Promise<void> {
 }
 
 describe("focus workspace", () => {
-  it("switches presentation without changing the running countdown", async () => {
+  it("leaves companion rows to the surrounding desktop stack when embedded", async () => {
+    const companions = vi.fn(() => <button type="button">다른 시계</button>);
+    render(
+      <TimerTool
+        widget={widget("focus-timer", { status: "idle" })}
+        widgets={[]}
+        act={action}
+        embedded
+        companionRows={companions}
+      />,
+    );
+    await click("기록과 노트");
+    expect(screen.queryByRole("group", { name: "다른 바탕화면 위젯" })).toBeNull();
+    expect(companions).not.toHaveBeenCalled();
+  });
+
+  it("keeps the running timer and note draft when folded into a summary card", async () => {
+    const timer = widget("focus-timer", {
+      status: "running",
+      mode: "focus",
+      durationMs: 1500000,
+      remainingMs: 1500000,
+      deadline: Date.now() + 1500000,
+    });
+    render(<TimerTool widget={timer} widgets={[]} act={action} />);
+    await click("노트", "radio");
+    const memo = screen.getByLabelText("이번 집중 메모");
+    fireEvent.compositionStart(memo);
+    fireEvent.change(memo, { target: { value: "아직 조합 중인 초안" } });
+    await click("접기");
+    expect(screen.getByRole("button", { name: "펼쳐 보기" }).textContent).toContain("25:00");
+    await reactAct(async () => vi.advanceTimersByTimeAsync(1300));
+    expect(screen.getByRole("button", { name: "펼쳐 보기" }).textContent).toContain("24:59");
+    await click("펼쳐 보기");
+    expect(screen.getByLabelText("남은 시간").textContent).toBe("24:59");
+    expect(screen.getByLabelText("이번 집중 메모")).toBe(memo);
+    expect(memo).toHaveProperty("value", "아직 조합 중인 초안");
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it("follows the saved presentation and opens the settings detail instead of a second copy", async () => {
     const timer = widget("focus-timer", {
       status: "running",
       mode: "focus",
@@ -47,10 +93,12 @@ describe("focus workspace", () => {
     const view = render(<TimerTool widget={timer} widgets={[]} act={action} />);
     await reactAct(async () => vi.advanceTimersByTime(2000));
     expect(screen.getByLabelText("남은 시간").textContent).toBe("24:58");
-    await click("숫자", "radio");
-    expect(action).toHaveBeenCalledExactlyOnceWith("configure", { presentation: "digits" });
-    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("100");
-    expect(screen.getByLabelText("남은 시간").textContent).toBe("24:58");
+    await click("집중 설정");
+    expect(command).toHaveBeenCalledWith("open_planner_settings", { kind: "focus-timer" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByLabelText("휴식 시간 (분)")).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: "타이머 표시 방식" })).toBeNull();
+    expect(action).not.toHaveBeenCalled();
     view.rerender(
       <TimerTool
         widget={{
@@ -162,7 +210,8 @@ describe("focus workspace", () => {
       />,
     );
     expect(screen.getByLabelText("이번 집중 메모")).toHaveProperty("value", "작성 중인 초안");
-    expect(screen.getByRole("button", { name: "메모 저장" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("alert").textContent).toContain("다른 화면에서 집중 메모가 바뀌었어요");
+    await reactAct(async () => vi.advanceTimersByTimeAsync(600));
     expect(action).not.toHaveBeenCalled();
   });
 });

@@ -34,6 +34,7 @@ const meta = {
 
     leading: { control: false },
     trailing: { control: false },
+    trailingAction: { control: false },
     badges: { control: false },
     onClick: { control: false, action: "열기" },
   },
@@ -143,4 +144,26 @@ export const Inline: Story = {
 };
 export const EmptyCount: Story = {
   args: { variant: "categoryCount", count: 0, leading: undefined, description: undefined },
+};
+
+export const TrailingAction: Story = {
+  name: "열기 버튼 표시",
+  args: {
+    title: "AI 위젯 만들기",
+    description: "9B보다 큰 로컬 모델이나 외부 API가 필요해요",
+    leading: (
+      <RecordSampleTile size={32}>
+        <Icon name="sparkle" size={16} />
+      </RecordSampleTile>
+    ),
+    trailingAction: { label: "열기", icon: "habit" },
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "끝의 둥근 표시는 행과 같은 동작을 안내합니다. 전체 행이 하나의 버튼이며 내부에 별도 버튼이나 링크를 만들지 않습니다.",
+      },
+    },
+  },
 };

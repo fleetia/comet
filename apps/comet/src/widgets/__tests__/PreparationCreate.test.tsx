@@ -27,7 +27,7 @@ it("keeps the identical creation request after a lost response and guards double
   fireEvent.change(screen.getByLabelText("챙길 것"), { target: { value: "카메라\n충전기" } });
   fireEvent.change(screen.getByLabelText("준비할 일"), { target: { value: "occasion" } });
   fireEvent.change(screen.getByLabelText("알림"), { target: { value: "3" } });
-  const form = screen.getByRole("button", { name: "만들기" }).closest("form");
+  const form = (screen.getByRole("button", { name: "만들기" }) as HTMLButtonElement).form;
   if (!form) throw new Error("missing creation form");
   fireEvent.submit(form);
   fireEvent.submit(form);

@@ -321,6 +321,39 @@ pub async fn launch_spotify(cancel: Arc<AtomicBool>) -> Result<(), ConnectionErr
     ))
 }
 
+pub async fn open_source(
+    provider: &str,
+    source_id: Option<&str>,
+    cancel: Arc<AtomicBool>,
+) -> Result<(), ConnectionError> {
+    ensure_active(&cancel)?;
+    validate_provider(provider, source_id)?;
+    if !["music", "spotify"].contains(&provider) {
+        return Err(failure("unsupported", "이 음악 앱을 직접 열 수 없어요."));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos::open(provider, source_id, &cancel).await?;
+        ensure_active(&cancel)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if provider != "spotify" {
+            return Err(failure(
+                "unsupported",
+                "Windows에서는 Spotify만 직접 열 수 있어요.",
+            ));
+        }
+        windows::open_spotify(&cancel).await?;
+        ensure_active(&cancel)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    Err(failure(
+        "unsupported",
+        "이 운영체제에서는 음악 앱 열기를 지원하지 않아요.",
+    ))
+}
+
 pub async fn control_source(
     provider: &str,
     source_id: Option<&str>,
@@ -351,6 +384,41 @@ pub async fn control_source(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn open_source_rejects_arbitrary_apps_and_cancellation_before_dispatch() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        assert_eq!(
+            open_source("terminal", Some("com.apple.Terminal"), cancel.clone())
+                .await
+                .unwrap_err()
+                .status,
+            "unsupported"
+        );
+        assert_eq!(
+            open_source("system", Some("arbitrary.exe"), cancel.clone())
+                .await
+                .unwrap_err()
+                .status,
+            "unsupported"
+        );
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            open_source("spotify", Some("com.apple.Terminal"), cancel.clone())
+                .await
+                .unwrap_err()
+                .status,
+            "stale"
+        );
+        cancel.store(true, Ordering::Release);
+        assert_eq!(
+            open_source("spotify", None, cancel)
+                .await
+                .unwrap_err()
+                .status,
+            "stale"
+        );
+    }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     #[tokio::test]

@@ -42,11 +42,21 @@ struct State {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct WeatherConfig {
     latitude: f64,
     longitude: f64,
     name: String,
+    #[serde(default = "temperature_unit")]
+    temperature_unit: String,
+    #[serde(default = "enabled")]
+    show_apparent: bool,
+    #[serde(default)]
+    show_details: bool,
+    #[serde(default = "enabled")]
+    allow_talk: bool,
+    #[serde(default = "weather_interval")]
+    refresh_interval_minutes: u32,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -63,6 +73,17 @@ struct MusicConfig {
     hide_missing: bool,
     #[serde(default = "enabled")]
     allow_talk: bool,
+    #[serde(default = "music_priority")]
+    priority: String,
+}
+fn temperature_unit() -> String {
+    "celsius".into()
+}
+fn weather_interval() -> u32 {
+    30
+}
+fn music_priority() -> String {
+    "last-played".into()
 }
 fn enabled() -> bool {
     true
@@ -86,6 +107,16 @@ pub fn min_interval(kind: &str) -> i64 {
         _ => 60 * 1000,
     }
 }
+pub fn refresh_interval(kind: &str, data: &Value) -> i64 {
+    if kind == "weather" {
+        return data["config"]["refreshIntervalMinutes"]
+            .as_i64()
+            .filter(|v| (15..=1440).contains(v))
+            .unwrap_or(30)
+            * 60_000;
+    }
+    min_interval(kind)
+}
 
 fn weather_config(input: &Value) -> Result<WeatherConfig, String> {
     let config: WeatherConfig = serde_json::from_value(input.clone())
@@ -97,6 +128,8 @@ fn weather_config(input: &Value) -> Result<WeatherConfig, String> {
         || config.name.trim().is_empty()
         || config.name.chars().count() > 160
         || config.name.chars().any(char::is_control)
+        || !["celsius", "fahrenheit"].contains(&config.temperature_unit.as_str())
+        || !(15..=1440).contains(&config.refresh_interval_minutes)
     {
         return Err("지역 이름과 위도·경도가 올바르지 않아요.".into());
     }
@@ -117,6 +150,9 @@ fn music_config(input: &Value) -> Result<MusicConfig, String> {
         || (config.provider == "auto" && config.allowed_providers.is_empty())
     {
         return Err("자동 선택에서 조회를 허용할 앱을 선택해 주세요.".into());
+    }
+    if !["last-played", "music", "spotify", "system"].contains(&config.priority.as_str()) {
+        return Err("음악 앱 우선순위를 확인해 주세요.".into());
     }
     Ok(config)
 }
@@ -139,15 +175,29 @@ pub fn configure(kind: &str, data: &Value, input: &Value) -> Result<Value, Strin
     if state.configured && state.config == config {
         return Ok(data.clone());
     }
-    if kind == "music" && state.config["provider"] != config["provider"] {
+    if kind == "music"
+        && !uses_music_bridge(&config)
+        && (state.config["provider"] != config["provider"] || uses_music_bridge(&state.config))
+    {
         state.spicetify_pairing_id = None;
     }
+    let same_source = match kind {
+        "weather" => ["latitude", "longitude", "name"]
+            .iter()
+            .all(|key| state.config[*key] == config[*key]),
+        "music" => ["provider", "allowedProviders"]
+            .iter()
+            .all(|key| state.config[*key] == config[*key]),
+        _ => false,
+    };
     state.config = config;
     state.configured = true;
-    state.status = "stale".into();
-    state.last_success_at = None;
-    state.observation = None;
-    state.error = None;
+    if !same_source {
+        state.status = "stale".into();
+        state.last_success_at = None;
+        state.observation = None;
+        state.error = None;
+    }
     serde_json::to_value(state).map_err(|error| error.to_string())
 }
 
@@ -280,6 +330,12 @@ struct CurrentWeather {
     time: i64,
     temperature_2m: f64,
     weather_code: u8,
+    #[serde(default)]
+    apparent_temperature: Option<f64>,
+    #[serde(default)]
+    relative_humidity_2m: Option<f64>,
+    #[serde(default)]
+    wind_speed_10m: Option<f64>,
 }
 
 fn parse_weather(value: Value, config: &WeatherConfig, now: i64) -> Result<Value, ConnectionError> {
@@ -293,6 +349,15 @@ fn parse_weather(value: Value, config: &WeatherConfig, now: i64) -> Result<Value
             85, 86, 95, 96, 99,
         ]
         .contains(&current.weather_code)
+        || current
+            .apparent_temperature
+            .is_some_and(|v| !v.is_finite() || !(-150.0..=100.0).contains(&v))
+        || current
+            .relative_humidity_2m
+            .is_some_and(|v| !v.is_finite() || !(0.0..=100.0).contains(&v))
+        || current
+            .wind_speed_10m
+            .is_some_and(|v| !v.is_finite() || !(0.0..=150.0).contains(&v))
     {
         return Err(failure("offline", "날씨 응답의 값이 올바르지 않아요."));
     }
@@ -306,6 +371,7 @@ fn parse_weather(value: Value, config: &WeatherConfig, now: i64) -> Result<Value
     Ok(
         json!({"name":config.name,"latitude":config.latitude,"longitude":config.longitude,
         "temperature":current.temperature_2m,"temperatureUnit":"°C","weatherCode":current.weather_code,
+        "apparentTemperature":current.apparent_temperature,"humidity":current.relative_humidity_2m,"windSpeed":current.wind_speed_10m,
         "observedAt":observed_at,"source":"Open-Meteo","sourceUrl":"https://open-meteo.com/",
         "measurementType":"weather-model","attribution":"Weather data by Open-Meteo (CC BY 4.0)"}),
     )
@@ -318,10 +384,11 @@ async fn weather(config: &WeatherConfig, now: i64) -> Result<Value, ConnectionEr
             .query(&[
                 ("latitude", config.latitude.to_string()),
                 ("longitude", config.longitude.to_string()),
-                ("current", "temperature_2m,weather_code".into()),
+                ("current", "temperature_2m,weather_code,apparent_temperature,relative_humidity_2m,wind_speed_10m".into()),
                 ("timeformat", "unixtime".into()),
                 ("timezone", "UTC".into()),
                 ("temperature_unit", "celsius".into()),
+                ("wind_speed_unit", "ms".into()),
             ]),
     )
     .await?;
@@ -390,17 +457,67 @@ async fn run_read_command(program: &str, args: &[&str]) -> Result<String, Connec
         .map_err(|_| failure("offline", "기기 정보 조회 시간이 초과됐어요."))?
 }
 
-fn select_music(candidates: Vec<Value>, previous: &Value) -> Option<Value> {
+pub(crate) fn uses_music_bridge(config: &Value) -> bool {
+    config["provider"] == "spicetify"
+        || config["provider"] == "auto"
+            && config["allowedProviders"]
+                .as_array()
+                .is_some_and(|values| values.iter().any(|value| value == "spotify"))
+}
+
+pub(crate) fn select_music(
+    candidates: Vec<Value>,
+    previous: &Value,
+    priority: &str,
+    now: i64,
+) -> Option<Value> {
     let previous_source = previous["sourceId"].as_str();
     let previous_provider = previous["provider"].as_str();
     let same = |item: &Value| {
         item["provider"].as_str() == previous_provider
             && item["sourceId"].as_str() == previous_source
     };
+    let mut states = serde_json::Map::new();
+    for candidate in &candidates {
+        let key = format!(
+            "{}:{}",
+            candidate["provider"].as_str().unwrap_or(""),
+            candidate["sourceId"].as_str().unwrap_or("")
+        );
+        let old = &previous["sourceStates"][&key];
+        let started_at = if candidate["playing"] == true
+            && (old["playing"] != true || old["trackId"] != candidate["trackId"])
+        {
+            now
+        } else {
+            old["startedAt"].as_i64().unwrap_or(0)
+        };
+        states.insert(key, json!({"playing":candidate["playing"],"trackId":candidate["trackId"],"startedAt":started_at}));
+    }
+    let started = |item: &Value| {
+        let key = format!(
+            "{}:{}",
+            item["provider"].as_str().unwrap_or(""),
+            item["sourceId"].as_str().unwrap_or("")
+        );
+        states
+            .get(&key)
+            .and_then(|state| state["startedAt"].as_i64())
+            .unwrap_or(0)
+    };
     let selected = candidates
         .iter()
-        .find(|item| item["playing"] == true && same(item))
-        .or_else(|| candidates.iter().find(|item| item["playing"] == true))
+        .find(|item| {
+            priority != "last-played" && item["provider"] == priority && item["playing"] == true
+        })
+        .or_else(|| {
+            candidates
+                .iter()
+                .enumerate()
+                .filter(|(_, item)| item["playing"] == true)
+                .max_by_key(|(index, item)| (started(item), same(item), std::cmp::Reverse(*index)))
+                .map(|(_, item)| item)
+        })
         .or_else(|| {
             candidates
                 .iter()
@@ -408,22 +525,32 @@ fn select_music(candidates: Vec<Value>, previous: &Value) -> Option<Value> {
         })
         .or_else(|| candidates.iter().find(|item| item["running"] == true))
         .or_else(|| candidates.first());
-    selected.cloned()
+    selected.cloned().map(|mut item| {
+        item["sourceStates"] = Value::Object(states);
+        item
+    })
 }
 
 async fn music(config: &MusicConfig, previous: &Value, now: i64) -> Result<Value, ConnectionError> {
     if config.provider != "auto" {
         return super::music_native::observe_source(&config.provider, None, now).await;
     }
-    // A fixed order makes the first selection deterministic; a playing selection stays pinned.
+    let candidates = music_candidates(&config.allowed_providers, now).await?;
+    select_music(candidates, previous, &config.priority, now).ok_or_else(|| {
+        failure(
+            "permission-needed",
+            "조회가 허용된 음악 앱을 선택해 주세요.",
+        )
+    })
+}
+
+pub(crate) async fn music_candidates(
+    allowed: &[String],
+    now: i64,
+) -> Result<Vec<Value>, ConnectionError> {
     let providers = ["music", "spotify", "system"]
         .into_iter()
-        .filter(|provider| {
-            config
-                .allowed_providers
-                .iter()
-                .any(|allowed| allowed == provider)
-        });
+        .filter(|provider| allowed.iter().any(|allowed| allowed == provider));
     let results = futures_util::future::join_all(
         providers.map(|provider| super::music_native::observe_source(provider, None, now)),
     )
@@ -436,14 +563,15 @@ async fn music(config: &MusicConfig, previous: &Value, now: i64) -> Result<Value
             Err(failure) => error = Some(failure),
         }
     }
-    select_music(candidates, previous).ok_or_else(|| {
-        error.unwrap_or_else(|| {
+    if candidates.is_empty() {
+        return Err(error.unwrap_or_else(|| {
             failure(
                 "permission-needed",
                 "조회가 허용된 음악 앱을 선택해 주세요.",
             )
-        })
-    })
+        }));
+    }
+    Ok(candidates)
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -676,6 +804,11 @@ mod tests {
             name: "Seoul".into(),
             latitude: 37.56,
             longitude: 126.97,
+            temperature_unit: temperature_unit(),
+            show_apparent: true,
+            show_details: false,
+            allow_talk: true,
+            refresh_interval_minutes: weather_interval(),
         };
         let observation = parse_weather(
             json!({"current":{"time":1000,"temperature_2m":21.5,"weather_code":3}}),
@@ -710,23 +843,76 @@ mod tests {
     }
 
     #[test]
-    fn automatic_music_selection_keeps_a_playing_source_and_only_uses_candidates() {
-        let apple = json!({"provider":"music","sourceId":"music","running":true,"playing":true});
-        let spotify =
-            json!({"provider":"spotify","sourceId":"spotify","running":true,"playing":true});
+    fn automatic_music_selection_uses_latest_start_and_explicit_priority() {
+        let apple = json!({"provider":"music","sourceId":"music","running":true,"playing":true,"trackId":"a"});
+        let spotify = json!({"provider":"spotify","sourceId":"spotify","running":true,"playing":true,"trackId":"b"});
+        let previous = select_music(
+            vec![apple.clone(), spotify.clone()],
+            &spotify,
+            "last-played",
+            100,
+        )
+        .unwrap();
+        assert_eq!(previous["provider"], "spotify");
+        let mut changed = apple.clone();
+        changed["trackId"] = json!("new-song");
+        let latest = select_music(
+            vec![changed, spotify.clone()],
+            &previous,
+            "last-played",
+            200,
+        )
+        .unwrap();
+        assert_eq!(latest["provider"], "music");
         assert_eq!(
-            select_music(vec![apple.clone(), spotify.clone()], &spotify),
-            Some(spotify.clone())
+            select_music(
+                vec![apple.clone(), spotify.clone()],
+                &latest,
+                "spotify",
+                300
+            )
+            .unwrap()["provider"],
+            "spotify"
         );
         assert_eq!(
-            select_music(vec![apple.clone()], &spotify),
-            Some(apple.clone())
+            select_music(vec![apple.clone()], &spotify, "last-played", 100).unwrap()["provider"],
+            "music"
         );
         assert_eq!(
-            select_music(vec![apple.clone(), spotify], &Value::Null),
-            Some(apple)
+            select_music(vec![apple, spotify], &Value::Null, "last-played", 100).unwrap()
+                ["provider"],
+            "music"
         );
-        assert!(select_music(vec![], &Value::Null).is_none());
+        assert!(select_music(vec![], &Value::Null, "last-played", 100).is_none());
+    }
+
+    #[test]
+    fn weather_preferences_preserve_observations_and_validate_units_and_intervals() {
+        let initial = configure(
+            "weather",
+            &initial("weather"),
+            &json!({"name":"서울","latitude":37.5,"longitude":127}),
+        )
+        .unwrap();
+        let mut ready = initial;
+        ready["status"] = json!("ready");
+        ready["observation"] = json!({"temperature":21.5});
+        ready["lastSuccessAt"] = json!(123);
+        let mut config = ready["config"].clone();
+        config["temperatureUnit"] = json!("fahrenheit");
+        config["showDetails"] = json!(true);
+        config["allowTalk"] = json!(false);
+        config["refreshIntervalMinutes"] = json!(15);
+        let updated = configure("weather", &ready, &config).unwrap();
+        assert_eq!(updated["observation"], ready["observation"]);
+        assert_eq!(updated["lastSuccessAt"], ready["lastSuccessAt"]);
+        assert_eq!(updated["status"], "ready");
+        assert_eq!(refresh_interval("weather", &updated), 900_000);
+        config["refreshIntervalMinutes"] = json!(14);
+        assert!(configure("weather", &ready, &config).is_err());
+        config["refreshIntervalMinutes"] = json!(30);
+        config["temperatureUnit"] = json!("kelvin");
+        assert!(configure("weather", &ready, &config).is_err());
     }
 
     #[test]

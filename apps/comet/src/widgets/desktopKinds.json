@@ -1,0 +1,10 @@
+{
+  "clock": { "width": 184, "height": 184, "appearance": true },
+  "weather": { "width": 230, "height": 150, "appearance": true },
+  "focus-timer": { "width": 156, "height": 168, "appearance": false },
+  "music": { "width": 336, "height": 112, "appearance": false },
+  "preparation": { "width": 180, "height": 200, "appearance": false },
+  "memo": { "width": 214, "height": 150, "appearance": false },
+  "todo": { "width": 100, "height": 30, "appearance": false },
+  "calendar": { "width": 100, "height": 30, "appearance": false }
+}

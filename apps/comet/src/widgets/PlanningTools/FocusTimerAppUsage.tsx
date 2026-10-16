@@ -1,5 +1,4 @@
-import { Button, Dialog } from "../../ui";
-import { FocusAppUsage, FocusProgramPicker } from "@comet/ui";
+import { Button, FocusProgramPicker, IconButton } from "@comet/ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { record, rows, text, type DataRecord, type ToolAction } from "../toolData";
@@ -38,11 +37,18 @@ function usageStatus(status: string): string {
 export function FocusTimerAppUsage({
   data,
   act,
+  onPickerChange,
+  pickerOpen,
+  hideUnconfigured = false,
 }: {
   data: DataRecord;
   act: ToolAction;
+  onPickerChange?: (open: boolean) => void;
+  pickerOpen?: boolean;
+  hideUnconfigured?: boolean;
 }): ReactElement {
-  const [open, setOpen] = useState(false);
+  const [opened, setOpen] = useState(false);
+  const open = pickerOpen ?? opened;
   const status = text(data.status) || "idle";
   const canEdit = status === "idle" || status === "finished";
   const configured = readUsageTarget(data.appUsageTarget);
@@ -72,37 +78,68 @@ export function FocusTimerAppUsage({
               : status === "idle"
                 ? "집중을 시작하면 측정해요."
                 : usageStatus(reportedStatus);
+  function choose(value: boolean): void {
+    setOpen(value);
+    onPickerChange?.(value);
+  }
+  const measuring =
+    status === "running" && data.mode !== "rest" && ["tracking", "active"].includes(reportedStatus);
+  if (hideUnconfigured && !target && !open) return <></>;
   return (
-    <section aria-label="프로그램 사용 시간">
-      <FocusAppUsage
-        state={
-          canEdit
-            ? status === "finished"
-              ? "finished"
-              : "unselected"
-            : reportedStatus === "idle" || status === "paused" || data.mode === "rest"
-              ? "idle"
-              : "measuring"
-        }
-        program={target?.name}
-        statusLabel={target?.name || "선택한 프로그램 없음"}
-        description={
-          <>
+    <section aria-label="프로그램 사용 시간" className={s.usageHost}>
+      {!open && (
+        <div className={s.usageCard}>
+          <div className={s.usageHeading}>
+            <span>앱 전면 사용</span>
+            <div className={s.panelTools}>
+              <button
+                type="button"
+                className={s.usageHelpButton}
+                aria-label="무엇을 세나요"
+                onClick={() => choose(true)}
+              >
+                ?
+              </button>
+              {canEdit && (
+                <Button
+                  variant="ghost"
+                  size="small"
+                  className={s.usageChoose}
+                  aria-label={target ? "프로그램 변경" : "프로그램 선택"}
+                  onClick={() => choose(true)}
+                >
+                  {target ? "바꾸기…" : "고르기…"}
+                </Button>
+              )}
+            </div>
+          </div>
+          <div className={s.usageStatus}>
+            <span className={s.usageDot} data-active={measuring} />
+            <strong>
+              {unavailable
+                ? "이 환경에서는 측정할 수 없어요"
+                : status === "finished"
+                  ? "이번 집중 측정 완료"
+                  : measuring
+                    ? `${target?.name} 사용 중`
+                    : target?.name || "선택한 프로그램 없음"}
+            </strong>
+          </div>
+          <div className={s.usageDescription}>
+            {status === "finished" && target && <span>{target.name}</span>}
             <span role="timer" aria-label="프로그램 누적 사용 시간">
               {appUsageTime(usage?.elapsedMs || 0)}
             </span>
             <span> · {label}</span>
-          </>
-        }
-        chooseLabel={target ? "프로그램 변경" : "프로그램 선택"}
-        onChoose={canEdit ? () => setOpen(true) : undefined}
-      />
+          </div>
+        </div>
+      )}
       {open && (
         <UsagePicker
           target={configured}
           canEdit={canEdit}
           act={act}
-          onClose={() => setOpen(false)}
+          onClose={() => choose(false)}
         />
       )}
     </section>
@@ -197,21 +234,23 @@ function UsagePicker({
     }
   }
   return (
-    <Dialog
-      isOpen
-      title="사용 시간 측정 프로그램"
-      size="small"
-      closeLabel="프로그램 선택 닫기"
-      onOpenChange={(value) => {
-        if (!value && !saving) onClose();
-      }}
+    <section
+      role="dialog"
+      aria-label="사용 시간 측정 프로그램"
+      data-focus-picker
+      className={s.usagePicker}
     >
-      <div className={s.pane}>
-        <p className={s.quiet}>
-          집중 중 선택한 프로그램이 화면 맨 앞에 있고 최근 1분 안에 입력이 있을 때만 측정해요.
-          백그라운드 실행 시간, 휴식과 일시정지는 제외해요. 창 제목이나 작업 내용은 읽거나 저장하지
-          않아요.
-        </p>
+      <header className={s.cardHeader}>
+        <IconButton
+          icon="chevleft"
+          variant="surface"
+          aria-label="프로그램 선택 닫기"
+          disabled={saving}
+          onClick={onClose}
+        />
+        <h2 className={s.cardTitle}>측정할 프로그램</h2>
+      </header>
+      <div className={s.usagePickerBody}>
         {message && <p className={s.notice}>{message}</p>}
         {error && (
           <p className={s.error} role="alert">
@@ -220,6 +259,7 @@ function UsagePicker({
         )}
         {!canEdit && <p className={s.notice}>집중이나 휴식을 마친 뒤 프로그램을 바꿀 수 있어요.</p>}
         <FocusProgramPicker
+          className={s.programChoices}
           label="측정할 프로그램"
           value={selectedId}
           disabled={!canEdit || loading || saving || !supported}
@@ -229,38 +269,64 @@ function UsagePicker({
           ]}
           onValueChange={setSelectedId}
         />
+        <p className={s.usageDescription}>
+          맨 앞에서 1분 안에 입력할 때만 세요.
+          <br />창 제목이나 내용은 읽지 않아요.
+        </p>
+        <details className={s.usageRules}>
+          <summary>무엇을 세나요</summary>
+          <div className={s.usageRulesBody}>
+            <strong className={s.countedLabel}>세는 것</strong>
+            <p>집중하는 동안 고른 프로그램이 맨 앞에 있고, 1분 안에 입력이 있었던 시간</p>
+            <strong className={s.excludedLabel}>세지 않는 것</strong>
+            <p>백그라운드 실행 시간, 휴식과 일시정지, 화면 잠금, 1분 넘게 입력이 없던 시간</p>
+            <strong className={s.privateLabel}>저장하지 않는 것</strong>
+            <p>
+              창 제목이나 작업 내용은 읽거나 저장하지 않아요. 주소, 입력한 글자도 저장하지 않아요.
+            </p>
+            <p>짧게 바꾼 창은 놓칠 수 있어서 실제보다 조금 적게 나와요.</p>
+          </div>
+        </details>
         {supported && !loading && applications.length === 0 && (
           <p className={s.quiet}>
             실행 중인 프로그램을 찾지 못했어요. 원하는 프로그램을 열고 새로고침해 주세요.
           </p>
         )}
-        <div className={s.row}>
+        <div className={s.timerActions}>
           <Button
-            variant="quiet"
+            variant="ghost"
+            size="small"
+            className={s.linkAction}
             disabled={loading || saving || !canEdit || !isDesktop()}
             onClick={() => void refresh()}
           >
             {loading ? "프로그램 확인 중…" : "프로그램 목록 새로고침"}
           </Button>
           {target && (
-            <Button variant="quiet" disabled={saving || !canEdit} onClick={() => void save(null)}>
+            <Button
+              variant="ghost"
+              size="small"
+              disabled={saving || !canEdit}
+              onClick={() => void save(null)}
+            >
               사용 시간 측정 끄기
             </Button>
           )}
         </div>
-        <div className={s.row}>
+        <div className={s.timerActions}>
           <Button
             variant="primary"
+            className={s.primaryAction}
             disabled={saving || loading || !canEdit || (!!selectedId && (!supported || !selected))}
             onClick={() => void save(selected || null)}
           >
             {saving ? "저장 중…" : "프로그램 선택 저장"}
           </Button>
-          <Button variant="quiet" disabled={saving} onClick={onClose}>
+          <Button variant="ghost" size="small" disabled={saving} onClick={onClose}>
             취소
           </Button>
         </div>
       </div>
-    </Dialog>
+    </section>
   );
 }

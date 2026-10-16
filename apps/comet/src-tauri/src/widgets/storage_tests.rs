@@ -463,23 +463,39 @@ fn preparation_create_with_template_tasks_is_atomic_and_replay_safe() {
     let directory = tempfile::tempdir().unwrap();
     install(&db, directory.path(), &["preparation", "todo"]);
     let before = instance(&db, "todo");
-    let invalid = request(&db, "preparation", "create", json!({
-        "title":"여행", "checks":[""], "tasks":[{"title":"예약 확인하기"}]
-    }));
+    let invalid = request(
+        &db,
+        "preparation",
+        "create",
+        json!({
+            "title":"여행", "checks":[""], "tasks":[{"title":"예약 확인하기"}]
+        }),
+    );
     assert!(storage::execute(&db, &invalid, 100, 1).is_err());
     assert_eq!(instance(&db, "todo").data, before.data);
     assert_eq!(instance(&db, "todo").revision, before.revision);
     assert_eq!(instance(&db, "preparation").data["envelopes"], json!([]));
-    let create = request(&db, "preparation", "create", json!({
-        "title":"여행", "date":"2026-10-31", "checks":["카메라","충전기"],
-        "tasks":[{"title":"예약 확인하기"},{"title":"티켓 받기"}], "reminderDays":3
-    }));
+    let create = request(
+        &db,
+        "preparation",
+        "create",
+        json!({
+            "title":"여행", "date":"2026-10-31", "checks":["카메라","충전기"],
+            "tasks":[{"title":"예약 확인하기"},{"title":"티켓 받기"}], "reminderDays":3
+        }),
+    );
     storage::execute(&db, &create, 100, 1).unwrap();
     let prepared = instance(&db, "preparation").data;
     let todos = instance(&db, "todo").data;
-    assert_eq!(prepared["envelopes"][0]["checks"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        prepared["envelopes"][0]["checks"].as_array().unwrap().len(),
+        2
+    );
     assert_eq!(prepared["envelopes"][0]["reminderDays"], 3);
-    assert_eq!(prepared["envelopes"][0]["todoIds"], json!([todos["items"][0]["id"], todos["items"][1]["id"]]));
+    assert_eq!(
+        prepared["envelopes"][0]["todoIds"],
+        json!([todos["items"][0]["id"], todos["items"][1]["id"]])
+    );
     storage::execute(&db, &create, 200, 2).unwrap();
     assert_eq!(instance(&db, "preparation").data, prepared);
     assert_eq!(instance(&db, "todo").data, todos);
@@ -1379,4 +1395,22 @@ fn drink_and_gift_share_body_cooldown_without_spending_items_or_creating_rewards
         0
     );
     assert!(crate::store::messages(&db, 100).unwrap().is_empty());
+}
+
+#[test]
+fn selected_play_owner_is_revalidated_inside_the_widget_transaction() {
+    let db = crate::store::open(Path::new(":memory:")).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    install(&db, directory.path(), &["small-match", "fortune"]);
+    let ids = crate::characters::active_ids(&db).unwrap();
+    for (kind, action) in [("small-match", "dice"), ("fortune", "draw")] {
+        let selected = request(&db, kind, action, json!({"character":"A","owner":ids[0]}));
+        crate::characters::apply_roster(&db, vec![ids[1].clone(), ids[0].clone()]).unwrap();
+        let before = instance(&db, kind);
+        assert!(storage::execute(&db, &selected, 1000, 19).is_err());
+        assert_eq!(instance(&db, kind).revision, before.revision);
+        let current = request(&db, kind, action, json!({"character":"B","owner":ids[0]}));
+        storage::execute(&db, &current, 1001, 19).unwrap();
+        crate::characters::apply_roster(&db, ids.clone()).unwrap();
+    }
 }

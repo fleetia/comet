@@ -9,6 +9,7 @@ vi.mock("../../hooks/useSnapshot", async (load) => ({
   command: vi.fn(),
   isDesktop: () => true,
 }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => undefined) }));
 function widget(kind: string, data: WidgetValue): WidgetView {
   return {
     id: kind,
@@ -72,8 +73,8 @@ const preparation = widget("preparation", {
 it("opens preparation links through the native allowlist and keeps disconnected checklists editable", async () => {
   render(<PreparationTool widget={preparation} widgets={[]} act={act} />);
   expect(screen.getByText(/연결 끊김.*캘린더가 꺼져/)).toBeTruthy();
-  expect(screen.queryByRole("link", { name: "발표 자료" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "발표 자료" }));
+  expect(screen.getByRole("link", { name: /발표 자료/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole("link", { name: /발표 자료/ }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("open_widget_link", {
       id: "preparation",
@@ -81,7 +82,11 @@ it("opens preparation links through the native allowlist and keeps disconnected 
     }),
   );
   fireEvent.click(screen.getByLabelText("자료 준비"));
-  expect(act).toHaveBeenCalledWith("check-toggle", { id: "envelope", checkId: "check" });
+  expect(act).toHaveBeenCalledWith(
+    "check-toggle",
+    { id: "envelope", checkId: "check" },
+    preparation,
+  );
 });
 it("distinguishes stale source data from a cancelled or removed event", () => {
   const calendar = (status: string, cancelled = false): WidgetView =>
@@ -115,6 +120,71 @@ it("distinguishes stale source data from a cancelled or removed event", () => {
   );
   expect(screen.queryByText(/연결 끊김|이전 일정 정보/)).toBeNull();
   expect(screen.getByLabelText("자료 준비")).toBeTruthy();
+});
+
+it("opens the exact related page and linked event from the preparation detail", async () => {
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "get_diary"
+      ? {
+          revision: 1,
+          pages: [
+            {
+              id: "page",
+              title: "지난 모임",
+              date: null,
+              entries: [{ id: "entry", kind: "envelope", text: "준비", refId: "envelope" }],
+            },
+          ],
+          notes: [],
+          moves: [],
+        }
+      : undefined,
+  );
+  render(
+    <PreparationTool
+      widget={preparation}
+      widgets={[
+        widget("calendar", {
+          connections: [],
+          events: [
+            {
+              id: "event",
+              title: "팀 회의",
+              connectionId: "local",
+              allDay: true,
+              startDate: "2026-10-16",
+              endDate: "2026-10-17",
+            },
+          ],
+        }),
+      ]}
+      act={act}
+      selectedId="envelope"
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "지난 모임 ↗" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("open_planner_view", {
+      tab: "today",
+      entity: "page",
+      targetId: "page",
+    }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "일정 보기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("open_planner_view", {
+      tab: "calendar",
+      entity: "event",
+      targetId: "event",
+    }),
+  );
+  vi.mocked(command).mockRejectedValueOnce(new Error("원본 기록이 삭제됐어요"));
+  fireEvent.click(screen.getByRole("button", { name: "지난 모임 ↗" }));
+  await waitFor(() =>
+    expect(screen.getByRole("alert").textContent).toContain("원본 기록이 삭제됐어요"),
+  );
+  expect(command).not.toHaveBeenCalledWith("open_planner_view", { tab: "envelopes" });
+  expect(act).not.toHaveBeenCalled();
 });
 
 it("rolls a 01:00 KST task to the chosen local day with an explicit timestamp", async () => {

@@ -7,6 +7,8 @@ mod focus;
 mod recurrence;
 #[cfg(test)]
 mod recurrence_tests;
+#[cfg(test)]
+mod reorder_tests;
 use recurrence::{FrequencyRecord, RepeatRule};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -85,17 +87,64 @@ fn note_font_size(input: &Value) -> Result<u8, String> {
     }
 }
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Clock {
     format: String,
+    #[serde(default)]
+    show_seconds: bool,
+    #[serde(default = "clock_true")]
+    show_date: bool,
+    #[serde(default)]
+    featured_id: Option<String>,
+    #[serde(default = "clock_true")]
+    featured_enabled: bool,
     anniversaries: Vec<Anniversary>,
     #[serde(default)]
     appearance: appearance::Appearance,
 }
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Anniversary {
     id: String,
     title: String,
     date: String,
+    #[serde(default = "clock_count_mode")]
+    count_mode: String,
+    #[serde(default = "clock_repeat")]
+    repeat: String,
+    #[serde(default)]
+    celebrate: bool,
+    #[serde(default)]
+    last_celebrated: Option<String>,
+}
+fn clock_true() -> bool {
+    true
+}
+fn clock_count_mode() -> String {
+    "remaining".into()
+}
+fn clock_repeat() -> String {
+    "none".into()
+}
+fn configure_anniversary(item: &mut Anniversary, input: &Value) -> Result<(), String> {
+    if let Some(value) = input.get("countMode") {
+        let mode = value
+            .as_str()
+            .filter(|mode| ["remaining", "elapsed", "anniversary"].contains(mode))
+            .ok_or("기념일 세는 법이 올바르지 않아요.")?;
+        item.count_mode = mode.into();
+    }
+    if let Some(value) = input.get("repeat") {
+        let repeat = value
+            .as_str()
+            .filter(|repeat| ["none", "yearly"].contains(repeat))
+            .ok_or("기념일 반복 방식이 올바르지 않아요.")?;
+        item.repeat = repeat.into();
+    }
+    if let Some(value) = input.get("celebrate") {
+        item.celebrate = value.as_bool().ok_or("축하 설정이 올바르지 않아요.")?;
+    }
+    Ok(())
 }
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -470,6 +519,38 @@ fn todo(
                     return Err("항목 ID 충돌입니다.".into());
                 }
                 state.items.push(new_todo(&entry, &state.lists, item_id)?);
+            }
+        }
+        "reorder" => {
+            let key = text(input, "id", 200)?;
+            let from = state
+                .items
+                .iter()
+                .position(|item| item.id == key)
+                .ok_or_else(missing)?;
+            let before = input.get("beforeId").ok_or("옮길 위치가 필요합니다.")?;
+            let to = if before.is_null() {
+                state.items.len()
+            } else {
+                let before_id = text(input, "beforeId", 200)?;
+                let to = state
+                    .items
+                    .iter()
+                    .position(|item| item.id == before_id)
+                    .ok_or_else(missing)?;
+                if state.items[from].planned_date != state.items[to].planned_date
+                    || state.items[from].completed_at.is_some()
+                        != state.items[to].completed_at.is_some()
+                {
+                    return Err("같은 날짜와 완료 상태 안에서 순서를 바꿔 주세요.".into());
+                }
+                to
+            };
+            if from != to {
+                let item = state.items.remove(from);
+                state
+                    .items
+                    .insert(if to > from { to - 1 } else { to }, item);
             }
         }
         "plan" => {
@@ -880,13 +961,36 @@ pub fn act(
         }
         "clock" => {
             let mut state: Clock = decode(data)?;
+            let mut changed_id = None;
             match action {
                 "configure" => {
-                    let format = text(input, "format", 3)?;
-                    if !["12h", "24h"].contains(&format.as_str()) {
-                        return Err("시간 형식 오류".into());
+                    if input.get("format").is_some() {
+                        let format = text(input, "format", 3)?;
+                        if !["12h", "24h"].contains(&format.as_str()) {
+                            return Err("시간 형식 오류".into());
+                        }
+                        state.format = format;
                     }
-                    state.format = format;
+                    if let Some(value) = input.get("showSeconds") {
+                        state.show_seconds = value.as_bool().ok_or("초 표시 설정 오류")?;
+                    }
+                    if let Some(value) = input.get("showDate") {
+                        state.show_date = value.as_bool().ok_or("날짜 표시 설정 오류")?;
+                    }
+                    if let Some(value) = input.get("featuredEnabled") {
+                        state.featured_enabled = value.as_bool().ok_or("기념일 표시 설정 오류")?;
+                    }
+                    if let Some(value) = input.get("featuredId") {
+                        state.featured_id = if value.is_null() {
+                            None
+                        } else {
+                            let id = value
+                                .as_str()
+                                .filter(|id| state.anniversaries.iter().any(|item| item.id == *id))
+                                .ok_or("표시할 기념일을 선택해 주세요.")?;
+                            Some(id.into())
+                        };
+                    }
                 }
                 "add" => {
                     capacity(state.anniversaries.len())?;
@@ -896,11 +1000,18 @@ pub fn act(
                     }
                     let day = text(input, "date", 10)?;
                     date(&day)?;
-                    state.anniversaries.push(Anniversary {
-                        id: key,
+                    let mut item = Anniversary {
+                        id: key.clone(),
                         title: text(input, "title", 500)?,
                         date: day,
-                    });
+                        count_mode: clock_count_mode(),
+                        repeat: clock_repeat(),
+                        celebrate: false,
+                        last_celebrated: None,
+                    };
+                    configure_anniversary(&mut item, input)?;
+                    state.anniversaries.push(item);
+                    changed_id = Some(key);
                 }
                 "update" | "delete" => {
                     let key = text(input, "id", 200)?;
@@ -911,6 +1022,9 @@ pub fn act(
                         .ok_or_else(missing)?;
                     if action == "delete" {
                         state.anniversaries.remove(at);
+                        if state.featured_id.as_ref() == Some(&key) {
+                            state.featured_id = None;
+                        }
                     } else {
                         let item = &mut state.anniversaries[at];
                         if input.get("title").is_some() {
@@ -921,9 +1035,26 @@ pub fn act(
                             date(&day)?;
                             item.date = day;
                         }
+                        configure_anniversary(item, input)?;
+                        changed_id = Some(key);
                     }
                 }
                 _ => return Err("지원하지 않는 시계 동작입니다.".into()),
+            }
+            if let (Some(key), Some(value)) = (changed_id, input.get("showOnWidget")) {
+                let show = value.as_bool().ok_or("위젯 표시 설정 오류")?;
+                if show {
+                    state.featured_id = Some(key);
+                    state.featured_enabled = true;
+                } else if state
+                    .featured_id
+                    .as_ref()
+                    .or_else(|| state.anniversaries.first().map(|item| &item.id))
+                    == Some(&key)
+                {
+                    state.featured_id = None;
+                    state.featured_enabled = false;
+                }
             }
             encode(state, vec![])
         }
@@ -951,10 +1082,13 @@ fn preparation(
             state.reminder_days = value
                 .as_u64()
                 .filter(|days| [0, 1, 3, 7].contains(days))
-                .ok_or("준비 알림은 끄기, 1일, 3일, 7일 전 중에서 골라 주세요.")? as u8;
+                .ok_or("준비 알림은 끄기, 1일, 3일, 7일 전 중에서 골라 주세요.")?
+                as u8;
         }
         if let Some(value) = input.get("askArchiveAfterEnd") {
-            state.ask_archive_after_end = value.as_bool().ok_or("보관 질문 설정이 올바르지 않습니다.")?;
+            state.ask_archive_after_end = value
+                .as_bool()
+                .ok_or("보관 질문 설정이 올바르지 않습니다.")?;
         }
         return encode(state, vec![]);
     }
@@ -984,8 +1118,14 @@ fn preparation(
                 Some(value) => {
                     let ids: Vec<String> = decode(value)?;
                     capacity(ids.len())?;
-                    let todos: TodoState = decode(related.get("todo").ok_or("할 일 위젯을 켜 주세요.")?)?;
-                    if ids.iter().any(|id| !todos.items.iter().any(|item| item.id == *id)) { return Err(missing()); }
+                    let todos: TodoState =
+                        decode(related.get("todo").ok_or("할 일 위젯을 켜 주세요.")?)?;
+                    if ids
+                        .iter()
+                        .any(|id| !todos.items.iter().any(|item| item.id == *id))
+                    {
+                        return Err(missing());
+                    }
                     let mut unique = ids;
                     unique.sort();
                     unique.dedup();
@@ -1139,19 +1279,34 @@ fn preparation(
 fn envelope_reminder_days(input: &Value) -> Result<Option<u8>, String> {
     match input.get("reminderDays") {
         None | Some(Value::Null) => Ok(None),
-        Some(value) => value.as_u64().filter(|days| [0, 1, 3, 7].contains(days)).map(|days| Some(days as u8))
+        Some(value) => value
+            .as_u64()
+            .filter(|days| [0, 1, 3, 7].contains(days))
+            .map(|days| Some(days as u8))
             .ok_or_else(|| "준비 알림은 끄기, 1일, 3일, 7일 전 중에서 골라 주세요.".into()),
     }
 }
 
 fn envelope_checks(input: &Value, envelope_id: &str) -> Result<Vec<Check>, String> {
-    let Some(value) = input.get("checks") else { return Ok(vec![]); };
-    let checks = value.as_array().ok_or("챙길 것을 한 줄에 하나씩 적어 주세요.")?;
+    let Some(value) = input.get("checks") else {
+        return Ok(vec![]);
+    };
+    let checks = value
+        .as_array()
+        .ok_or("챙길 것을 한 줄에 하나씩 적어 주세요.")?;
     capacity(checks.len())?;
-    checks.iter().enumerate().map(|(index, value)| {
-        let content = text(&json!({"text": value}), "text", 1000)?;
-        Ok(Check { id: format!("{envelope_id}-check-{index}"), text: content, done: false })
-    }).collect()
+    checks
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            let content = text(&json!({"text": value}), "text", 1000)?;
+            Ok(Check {
+                id: format!("{envelope_id}-check-{index}"),
+                text: content,
+                done: false,
+            })
+        })
+        .collect()
 }
 
 fn envelope_event_id(input: &Value) -> Result<String, String> {
@@ -1188,6 +1343,114 @@ mod tests {
     use super::*;
     fn run(kind: &str, data: &Value, action: &str, input: Value, now: i64) -> WidgetEffect {
         act(kind, data, action, &input, &BTreeMap::new(), now, 7).unwrap()
+    }
+    #[test]
+    fn clock_partial_configuration_preserves_legacy_dates_text_and_appearance() {
+        let legacy = json!({"format":"12h","anniversaries":[{"id":"a","title":" 엄마\n생신 ","date":"2000-02-29"}],"appearance":super::super::appearance::initial()});
+        let configured = run(
+            "clock",
+            &legacy,
+            "configure",
+            json!({"showSeconds":true}),
+            1,
+        );
+        assert_eq!(configured.data["format"], "12h");
+        assert_eq!(configured.data["showSeconds"], true);
+        assert_eq!(configured.data["showDate"], true);
+        assert_eq!(configured.data["featuredEnabled"], true);
+        assert_eq!(
+            configured.data["anniversaries"][0]["title"],
+            legacy["anniversaries"][0]["title"]
+        );
+        assert_eq!(configured.data["anniversaries"][0]["date"], "2000-02-29");
+        assert_eq!(
+            configured.data["anniversaries"][0]["countMode"],
+            "remaining"
+        );
+        assert_eq!(configured.data["anniversaries"][0]["repeat"], "none");
+        assert_eq!(configured.data["appearance"], legacy["appearance"]);
+        let selected = run(
+            "clock",
+            &configured.data,
+            "configure",
+            json!({"featuredId":"a","featuredEnabled":false,"showDate":false}),
+            2,
+        );
+        let unchanged = run("clock", &selected.data, "configure", json!({}), 3);
+        assert_eq!(unchanged.data, selected.data);
+        for input in [
+            json!({"featuredId":"missing"}),
+            json!({"featuredId":12}),
+            json!({"showDate":null}),
+            json!({"featuredEnabled":"true"}),
+        ] {
+            assert!(act(
+                "clock",
+                &selected.data,
+                "configure",
+                &input,
+                &BTreeMap::new(),
+                4,
+                7
+            )
+            .is_err());
+        }
+        let cleared = run(
+            "clock",
+            &selected.data,
+            "configure",
+            json!({"featuredId":null,"featuredEnabled":true}),
+            4,
+        );
+        assert!(cleared.data["featuredId"].is_null());
+        assert_eq!(cleared.data["showSeconds"], true);
+    }
+    #[test]
+    fn clock_anniversary_modes_validate_and_partial_edits_keep_daily_delivery_marker() {
+        let added = run(
+            "clock",
+            &initial("clock"),
+            "add",
+            json!({"title":"작업 시작","date":"2024-10-15","countMode":"elapsed","repeat":"yearly","celebrate":true,"showOnWidget":true}),
+            1,
+        );
+        let id = added.data["anniversaries"][0]["id"].clone();
+        let mut delivered = added.data.clone();
+        delivered["anniversaries"][0]["lastCelebrated"] = json!("2026-10-15");
+        for mode in ["remaining", "elapsed", "anniversary"] {
+            let updated = run(
+                "clock",
+                &delivered,
+                "update",
+                json!({"id":id,"countMode":mode}),
+                2,
+            );
+            assert_eq!(updated.data["anniversaries"][0]["countMode"], mode);
+            assert_eq!(
+                updated.data["anniversaries"][0]["lastCelebrated"],
+                "2026-10-15"
+            );
+            assert_eq!(updated.data["anniversaries"][0]["repeat"], "yearly");
+            assert_eq!(updated.data["anniversaries"][0]["celebrate"], true);
+            assert_eq!(updated.data["featuredId"], id);
+        }
+        for input in [
+            json!({"id":id,"countMode":"days"}),
+            json!({"id":id,"repeat":"monthly"}),
+            json!({"id":id,"celebrate":"true"}),
+            json!({"id":id,"date":"2026-02-30"}),
+        ] {
+            assert!(act(
+                "clock",
+                &delivered,
+                "update",
+                &input,
+                &BTreeMap::new(),
+                2,
+                7
+            )
+            .is_err());
+        }
     }
     #[test]
     fn repeat_completion_roundtrip_and_undo_preserve_edited_next_occurrence() {
@@ -1467,15 +1730,39 @@ mod tests {
         let legacy = json!({"envelopes":[{
             "id":"existing","title":"준비","checks":[],"links":[],"todoIds":[]
         }]});
-        let configured = run("preparation", &legacy, "configure", json!({"reminderDays":3,"askArchiveAfterEnd":true}), 1);
+        let configured = run(
+            "preparation",
+            &legacy,
+            "configure",
+            json!({"reminderDays":3,"askArchiveAfterEnd":true}),
+            1,
+        );
         assert_eq!(configured.data["reminderDays"], 3);
         assert_eq!(configured.data["askArchiveAfterEnd"], true);
         assert_eq!(configured.data["envelopes"][0]["id"], "existing");
-        let dismissed = run("preparation", &configured.data, "update", json!({"id":"existing","archivePromptDismissedFor":"date:2026-10-15"}), 2);
-        assert_eq!(dismissed.data["envelopes"][0]["archivePromptDismissedFor"], "date:2026-10-15");
+        let dismissed = run(
+            "preparation",
+            &configured.data,
+            "update",
+            json!({"id":"existing","archivePromptDismissedFor":"date:2026-10-15"}),
+            2,
+        );
+        assert_eq!(
+            dismissed.data["envelopes"][0]["archivePromptDismissedFor"],
+            "date:2026-10-15"
+        );
         assert_eq!(dismissed.data["reminderDays"], 3);
         for value in [json!(-1), json!(2), json!(1.5), json!("3")] {
-            assert!(act("preparation", &legacy, "configure", &json!({"reminderDays":value}), &BTreeMap::new(), 1, 1).is_err());
+            assert!(act(
+                "preparation",
+                &legacy,
+                "configure",
+                &json!({"reminderDays":value}),
+                &BTreeMap::new(),
+                1,
+                1
+            )
+            .is_err());
         }
         let normalized = run("preparation", &legacy, "configure", json!({}), 3);
         assert_eq!(normalized.data["reminderDays"], 0);
@@ -1663,5 +1950,4 @@ mod tests {
         assert_eq!(saved.data["notes"][0]["title"], "다른 창의 제목");
         assert_eq!(saved.data["notes"][0]["body"], "저장할 초안");
     }
-
 }

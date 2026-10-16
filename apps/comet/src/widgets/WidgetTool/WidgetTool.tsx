@@ -1,27 +1,32 @@
 import { Button, Dialog } from "../../ui";
-import { useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWidgets } from "../useWidgets";
 import { WidgetFrame } from "../WidgetFrame/WidgetFrame";
 import { useWindowCloseGuard } from "../useWindowCloseGuard";
-import { record, rows, text, type DataRecord } from "../toolData";
+import type { DataRecord } from "../toolData";
 import type { WidgetView } from "../types";
 import type { CharacterCollection } from "../../types";
-import { ToyTool } from "../ToyTools/ToyTools";
+import { CompanionTool, ToyTool } from "../ToyTools/ToyTools";
 import { TodoTool } from "../TodoTool/TodoTool";
 import { ClockTool, TimerTool } from "../PlanningTools/PlanningTools";
 import { PreparationTool } from "../PreparationTool/PreparationTool";
 import { CalendarTool } from "../CalendarTool/CalendarTool";
 import { ConnectionTool } from "../ConnectionTools/ConnectionTools";
+import { CollapsedDesktopWidget } from "../WidgetDisplay/DesktopWidget";
+import { DESKTOP_TOYS } from "../ToyTools/desktopToys";
+import { transparentDocument } from "../../components/companion.css";
 import * as c from "../../lagrange.css";
 import * as s from "../tools.css";
 
 export function WidgetTool({
   id,
   characters,
+  userName,
 }: {
   id: string;
   characters?: CharacterCollection;
+  userName?: string;
 }): ReactElement {
   const { snapshot, error, reload } = useWidgets();
   const [failure, setFailure] = useState<string | null>(null),
@@ -29,9 +34,18 @@ export function WidgetTool({
   const pending = useRef(false);
   const [draftDirty, setDraftDirty] = useState(false);
   const [draftBusy, setDraftBusy] = useState(false);
-  const [focusHeader, setFocusHeader] = useState<HTMLFieldSetElement | null>(null);
   const widget = snapshot?.widgets.find((item) => item.id === id);
-  const closeGuard = useWindowCloseGuard(draftDirty, draftBusy || (widget?.kind === "preparation" && busy), () => command("close_widget", { id }));
+  const transparent = widget?.kind === "focus-timer";
+  useEffect(() => {
+    if (!transparent) return;
+    document.documentElement.classList.add(transparentDocument);
+    return () => document.documentElement.classList.remove(transparentDocument);
+  }, [transparent]);
+  const closeGuard = useWindowCloseGuard(
+    draftDirty,
+    draftBusy || (widget?.kind === "preparation" && busy),
+    () => command("close_widget", { id }),
+  );
   async function run(operation: () => Promise<void>): Promise<boolean> {
     if (!isDesktop()) {
       setFailure(
@@ -118,7 +132,28 @@ export function WidgetTool({
         );
         break;
       case "focus-timer":
-        content = <TimerTool {...props} headerActionsTarget={focusHeader} onSettingsDirtyChange={setDraftDirty} onSettingsBusyChange={setDraftBusy} />;
+        content = (
+          <TimerTool
+            {...props}
+            onClose={closeGuard.requestClose}
+            busy={busy}
+            companionRows={(now) =>
+              ["clock", "weather", "music", "preparation"].flatMap((kind) =>
+                snapshot.widgets
+                  .filter((item) => item.kind === kind && item.installed && item.enabled)
+                  .map((item) => (
+                    <CollapsedDesktopWidget
+                      key={item.id}
+                      widget={item}
+                      widgets={snapshot.widgets}
+                      now={now}
+                      onExpand={() => void run(() => command("open_widget", { id: item.id }))}
+                    />
+                  )),
+              )
+            }
+          />
+        );
         break;
       case "clock":
         content = <ClockTool {...props} />;
@@ -137,84 +172,62 @@ export function WidgetTool({
           </Button>
         );
         break;
-      case "completion-jar": {
-        const completed = rows(record(widget.data).completed);
-        content = (
-          <>
-            <section className={s.jarSummary} aria-label="모은 구슬">
-              <p className={s.status}>모은 구슬</p>
-              <p className={s.jarCount} aria-label="완료 구슬 수">
-                {completed.length}
-              </p>
-              <div className={s.marbles} aria-hidden="true">
-                {completed.slice(0, 100).map((item) => (
-                  <span className={s.marble} key={text(item.id)} />
-                ))}
-              </div>
-            </section>
-            {completed.length === 0 && <p>할 일을 직접 완료하면 구슬이 모여요.</p>}
-            {completed.length > 0 && (
-              <section className={s.section}>
-                <h2 className={s.sectionTitle}>완료한 할 일</h2>
-                <ul className={s.completedList} role="list">
-                  {completed.map((item) => (
-                    <li className={s.item} key={text(item.id)}>
-                      {text(item.title)}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-          </>
-        );
-        break;
-      }
       case "calendar":
         content = <CalendarTool widget={widget} act={act} />;
         break;
-      case "weather":
       case "music":
-      case "device":
+        content = (
+          <ConnectionTool widget={widget} onCollapse={() => void closeGuard.requestClose()} />
+        );
+        break;
+      case "weather":
         content = <ConnectionTool widget={widget} />;
         footer = (
           <Button
             variant="secondary"
             disabled={busy}
-            onClick={() => void run(() => command("open_widgets"))}
+            onClick={() =>
+              void run(() => command("open_planner_settings", { kind: "weather" }))
+            }
           >
-            위젯 설정 열기
+            날씨 설정 열기
           </Button>
         );
         break;
+      case "interaction":
+      case "small-match":
+      case "fortune":
+      case "ball":
+      case "paper-plane":
+      case "bubbles":
+        content = (
+          <CompanionTool
+            widget={widget}
+            widgets={snapshot?.widgets ?? []}
+            act={act}
+            characters={characters}
+            userName={userName}
+            onClose={closeGuard.requestClose}
+            busy={busy}
+            error={failure || widget.error || undefined}
+          />
+        );
+        break;
       default:
-        content = <ToyTool {...props} characters={characters} />;
-        if (["ball", "paper-plane", "bubbles"].includes(widget.kind)) {
-          footer = (
-            <>
-              <Button
-                variant="secondary"
-                size="compact"
-                disabled={busy}
-                onClick={() => void act("desktop-clear")}
-              >
-                정리하기
-              </Button>
-              <Button
-                variant="primary"
-                size="compact"
-                disabled={busy}
-                onClick={() => void act("desktop-open")}
-              >
-                바탕화면에 꺼내기
-              </Button>
-            </>
-          );
-        }
+        content = <ToyTool {...props} characters={characters} userName={userName} />;
     }
   }
+  const frameless = Boolean(
+    widget?.installed &&
+    widget.enabled &&
+    ["music", "focus-timer", "interaction", "small-match", "fortune", ...DESKTOP_TOYS].includes(
+      widget.kind,
+    ),
+  );
   return (
     <WidgetFrame
-      className={widget?.kind === "focus-timer" ? s.focusHost : s.host}
+      variant={frameless ? "frameless" : "tool"}
+      className={frameless ? undefined : s.host}
       contentClassName={
         widget?.kind === "music"
           ? s.musicContent
@@ -223,11 +236,6 @@ export function WidgetTool({
             : undefined
       }
       title={name}
-      headerActions={
-        widget?.kind === "focus-timer" && widget.installed && widget.enabled ? (
-          <fieldset ref={setFocusHeader} className={s.focusHeaderActions} disabled={busy} />
-        ) : undefined
-      }
       closeLabel="위젯 닫기"
       onClose={closeGuard.requestClose}
       footer={footer}
@@ -244,9 +252,6 @@ export function WidgetTool({
         </p>
       )}
       {widget?.error && <p className={c.error}>{widget.error}</p>}
-      {!isDesktop() && (
-        <p className={s.previewNote}>예시 데이터 미리보기 · 입력한 내용은 저장하지 않아요.</p>
-      )}
       <fieldset
         className={
           widget?.kind === "music"
@@ -255,7 +260,7 @@ export function WidgetTool({
               ? s.focusBody
               : s.body
         }
-        disabled={busy}
+        disabled={busy && widget?.kind !== "focus-timer"}
       >
         {content}
       </fieldset>

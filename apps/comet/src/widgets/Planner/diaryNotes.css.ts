@@ -1,4 +1,4 @@
-import { style } from "@vanilla-extract/css";
+import { globalStyle, style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
 
 export const page = style({
@@ -92,6 +92,60 @@ export const titleField = style({ flex: "1 1 160px", minWidth: 0 });
 export const titleInput = style({ width: "100%" });
 export const editorField = style({ flex: 1, display: "flex", minHeight: 260, minWidth: 0 });
 export const editor = style({ width: "100%", height: "100%", minHeight: 260, resize: "vertical" });
+globalStyle(`${editorField} > span`, { width: "100%", minWidth: 0, flex: 1 });
+export const compactDetail = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: 10,
+  minWidth: 0,
+  padding: 14,
+  border: 0,
+  outline: `1px solid ${tokens["color/card-border"]}`,
+  outlineOffset: -1,
+  borderRadius: tokens["radius/radius-16"],
+  background: tokens["color/card"],
+});
+export const compactTitle = style({
+  display: "block",
+  fontSize: 13.5,
+  lineHeight: "18px",
+  fontWeight: 600,
+});
+export const compactTitleField = style([
+  titleField,
+  { display: "flex", flexDirection: "column", gap: 1 },
+]);
+export const compactTitleButton = style([
+  compactTitle,
+  {
+    padding: 0,
+    border: 0,
+    background: "transparent",
+    color: "inherit",
+    fontFamily: "inherit",
+    fontWeight: 600,
+    textAlign: "left",
+    cursor: "pointer",
+  },
+]);
+export const compactStatus = style([
+  caption,
+  { marginLeft: "auto", fontSize: 12, lineHeight: "16px" },
+]);
+export const compactEditorField = style({ display: "flex", minWidth: 0 });
+globalStyle(`${compactEditorField} > span`, { width: "100%", minWidth: 0, flex: 1 });
+export const compactEditor = style({
+  width: "100%",
+  height: 76,
+  minHeight: 76,
+  padding: "6px 9px",
+  border: `1px solid ${tokens["color/input-border"]}`,
+  borderRadius: tokens["radius/radius-9"],
+  background: tokens["color/input"],
+  fontSize: 13,
+  lineHeight: "19px",
+  resize: "vertical",
+});
 export const metadata = style({
   display: "flex",
   flexDirection: "column",

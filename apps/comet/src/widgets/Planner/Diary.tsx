@@ -58,6 +58,7 @@ import { colorForEvent } from "./calendarColorData";
 import { focusSessions } from "../PlanningTools/FocusTimerData";
 import * as s from "./diary.css";
 import * as envelopeStyles from "./diaryEnvelope.css";
+import { preparationFocusInput } from "../PreparationTool/preparationData";
 
 type View = "month" | "week" | "day";
 const VIEWS: [View, string][] = [
@@ -107,10 +108,17 @@ export function Diary(): ReactElement {
   );
   const [toolsOpened, setToolsOpened] = useState(isPlannerTool(tool));
   const [toolState, setToolState] = useState<PlannerToolState>(EMPTY_TOOL_STATE);
+  const [plannerHeader, setPlannerHeader] = useState<HTMLDivElement | null>(null);
   const [toolDismissVersion, setToolDismissVersion] = useState(0);
   const [navigationReady, setNavigationReady] = useState(false);
+  const [viewTarget, setViewTarget] = useState<{
+    entity: "page" | "event";
+    targetId: string;
+  } | null>(null);
   const [notesOpen, setNotesOpen] = useState(false);
-  const [collection, setCollection] = useState<"pages" | "envelopes" | null>(null);
+  const [collection, setCollection] = useState<"pages" | "envelopes" | null>(() =>
+    new URLSearchParams(location.search).get("tab") === "envelopes" ? "envelopes" : null,
+  );
   const [requestedNote, setRequestedNote] = useState<{ id: string; version: number } | null>(null);
   const [archived, setArchived] = useState(false);
   const [creating, setCreating] = useState<"page" | "envelope" | null>(null);
@@ -210,6 +218,10 @@ export function Diary(): ReactElement {
         connections.some((connection) => connection.id === event.connectionId)),
   );
   const envelopes = rows(record(preparation?.data).envelopes);
+  useEffect(() => {
+    if (collection !== "envelopes" || envelopeId || !envelopes.length) return;
+    setEnvelopeId(text(envelopes.find((value) => value.archived !== true)?.id ?? envelopes[0]?.id));
+  }, [collection, envelopeId, envelopes]);
   const pages = diary.state?.pages ?? [],
     notes = diary.state?.notes ?? [];
   const page = pageId
@@ -309,7 +321,7 @@ export function Diary(): ReactElement {
     });
   }
   function openPage(value: Page): void {
-    if (value.date) openDay(value.date);
+    if (value.date) openDay(value.date, "day", "journal");
     else
       navigate(() => {
         setTool(null);
@@ -342,18 +354,29 @@ export function Diary(): ReactElement {
     const select = (tab: string, resetCollections = true): void => {
       if (
         !active ||
-        !["today", "calendar", "plans", "templates", "organizer", "habits", "ledger"].includes(tab)
+        ![
+          "today",
+          "calendar",
+          "plans",
+          "templates",
+          "organizer",
+          "habits",
+          "ledger",
+          "envelopes",
+          "time",
+        ].includes(tab)
       )
         return;
       navigateRef.current(() => {
-        if (resetCollections) {
+        if (resetCollections || tab === "envelopes" || tab === "time") {
           setNotesOpen(false);
-          setCollection(null);
+          setCollection(tab === "envelopes" ? "envelopes" : null);
         }
         const nextTool = toolForTab(tab);
         setTool(nextTool);
         if (isPlannerTool(nextTool)) setToolsOpened(true);
         setView(tab === "calendar" ? "month" : "day");
+        if (tab === "time") setTodayTab("summary");
         setDay(localDay());
         setPageId("");
         setEnvelopeId("");
@@ -364,8 +387,40 @@ export function Diary(): ReactElement {
       });
     };
     let received = false;
+    let targetReceived = false;
+    function receiveTarget(value: unknown): void {
+      if (!active || !value) return;
+      if (
+        typeof value !== "object" ||
+        !("entity" in value) ||
+        !("targetId" in value) ||
+        (value.entity !== "page" && value.entity !== "event") ||
+        typeof value.targetId !== "string" ||
+        !value.targetId
+      ) {
+        setFailure("열 기록의 정보를 확인하지 못했어요.");
+        return;
+      }
+      setViewTarget({ entity: value.entity, targetId: value.targetId });
+    }
+    void listen("planner-view-target", (event) => {
+      targetReceived = true;
+      receiveTarget(event.payload);
+      void command("get_planner_view_target").catch((cause: unknown) => {
+        if (active) setFailure(errorText(cause));
+      });
+    })
+      .then(async (cleanup) => {
+        retain(cleanup);
+        const target = await command<unknown>("get_planner_view_target");
+        if (!targetReceived) receiveTarget(target);
+      })
+      .catch((cause: unknown) => {
+        if (active) setFailure(errorText(cause));
+      });
     void listen<string>("planner-tab", (event) => {
       received = true;
+      setViewTarget(null);
       select(event.payload);
     })
       .then(async (cleanup) => {
@@ -395,6 +450,39 @@ export function Diary(): ReactElement {
       cleanups.forEach((cleanup) => cleanup());
     };
   }, []);
+  useEffect(() => {
+    if (!viewTarget || !navigationReady || !diary.state || !snapshot || saving) return;
+    setViewTarget(null);
+    if (viewTarget.entity === "page") {
+      const page = diary.state.pages.find((value) => value.id === viewTarget.targetId);
+      if (page) openPage(page);
+      else setFailure("해당 기록을 현재 찾을 수 없어요. 원본이 삭제되었는지 확인해 주세요.");
+      return;
+    }
+    const event = events.find((value) => value.id === viewTarget.targetId);
+    if (!event) {
+      setFailure(
+        "해당 일정을 현재 찾을 수 없어요. 원본이 삭제되었거나 연결이 끊겼는지 확인해 주세요.",
+      );
+      return;
+    }
+    navigateRef.current(() => {
+      setTool(null);
+      setNotesOpen(false);
+      setCollection(null);
+      setPageId("");
+      setEnvelopeId("");
+      setView("month");
+      setDay(
+        event.allDay && text(event.startDate)
+          ? text(event.startDate)
+          : typeof event.startAt === "number"
+            ? localDay(new Date(event.startAt))
+            : localDay(),
+      );
+      setSelectedEvent(event);
+    });
+  }, [viewTarget, navigationReady, diary.state, snapshot, saving]);
 
   // Project the visible calendar into the existing native animation condition.
   // Read startup navigation first so an initial "today" render cannot overwrite it.
@@ -555,33 +643,7 @@ export function Diary(): ReactElement {
       return;
     }
     const event = events.find((value) => value.id === envelope.eventId);
-    const eventRef =
-      event && calendar
-        ? {
-            calendarWidgetId: calendar.id,
-            id: text(event.id),
-            title: text(event.title),
-            startAt: typeof event.startAt === "number" ? event.startAt : null,
-            endAt: typeof event.endAt === "number" ? event.endAt : null,
-            connectionId: text(event.connectionId),
-            sourceId: text(event.sourceId),
-            occurrenceId: text(event.occurrenceId),
-          }
-        : null;
-    if (
-      await act(
-        "start",
-        {
-          durationMs: 1500000,
-          title: envelopeTitle(envelope),
-          todoId: null,
-          eventRef,
-          noteRef: null,
-          memo: "",
-        },
-        timer,
-      )
-    ) {
+    if (await act("start", preparationFocusInput(envelope, event, calendar), timer)) {
       setNotice("봉투를 준비하는 25분 집중을 시작했어요.");
       await run(() => command("open_widget", { id: timer.id }));
     }
@@ -1106,21 +1168,7 @@ export function Diary(): ReactElement {
             role="navigation"
             aria-label={collection === "envelopes" ? "준비 봉투 목록" : "내 페이지 목록"}
           >
-            <div hidden={collection !== "envelopes"} className={s.section}>
-              <SegmentedControl
-                label="준비 봉투 분류"
-                value={archived ? "archived" : "preparing"}
-                options={[
-                  { value: "preparing", label: "준비 중" },
-                  { value: "archived", label: "보관함" },
-                ]}
-                onValueChange={(value) => {
-                  setArchived(value === "archived");
-                  document
-                    .getElementById(`envelope-group-${value}`)
-                    ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-                }}
-              />
+            <div hidden={collection !== "envelopes"}>
               <div className={envelopeStyles.envelopeGroups}>
                 {[false, true].map((isArchived) => {
                   const group = envelopes.filter((value) => Boolean(value.archived) === isArchived);
@@ -1250,6 +1298,23 @@ export function Diary(): ReactElement {
                 )}
               </div>
               <div className={s.toolbar}>
+                {collection === "envelopes" && (
+                  <SegmentedControl
+                    label="준비 봉투 분류"
+                    appearance="contained"
+                    value={archived ? "archived" : "preparing"}
+                    options={[
+                      { value: "preparing", label: "준비 중" },
+                      { value: "archived", label: "보관함" },
+                    ]}
+                    onValueChange={(value) => {
+                      setArchived(value === "archived");
+                      document
+                        .getElementById(`envelope-group-${value}`)
+                        ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                    }}
+                  />
+                )}
                 {collection === "pages" && (
                   <Select
                     aria-label="내 페이지 선택"
@@ -1277,7 +1342,6 @@ export function Diary(): ReactElement {
                     options={[
                       { value: "today", label: "날짜별" },
                       { value: "plans", label: "기간별" },
-                      { value: "templates", label: "템플릿" },
                     ]}
                     onValueChange={(value) => {
                       if (value === "today" || value === "plans" || value === "templates") {
@@ -1286,6 +1350,7 @@ export function Diary(): ReactElement {
                     }}
                   />
                 )}
+                {isPlannerTool(tool) && <div ref={setPlannerHeader} />}
                 {!tool && !pageId && !envelopeId && (
                   <SegmentedControl
                     label="다이어리 보기"
@@ -1398,6 +1463,7 @@ export function Diary(): ReactElement {
               {toolsOpened && (
                 <div hidden={!isPlannerTool(tool)} className={s.toolContent}>
                   <Planner
+                    headerActionsTarget={plannerHeader}
                     dismissVersion={toolDismissVersion}
                     embeddedTab={isPlannerTool(tool) ? tool : "plans"}
                     selectedDay={day}

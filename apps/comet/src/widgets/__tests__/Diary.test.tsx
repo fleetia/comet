@@ -87,7 +87,15 @@ async function showTasks(view: "plans" | "templates" | "today"): Promise<void> {
     fireEvent.click(screen.getByRole("link", { name: /^할 일/ }));
   }
   if (screen.queryByRole("dialog", { name: "작성 중인 내용이 있어요" })) return;
-  const label = view === "plans" ? "기간별" : view === "templates" ? "템플릿" : "날짜별";
+  if (view === "templates") {
+    if (!screen.queryByRole("button", { name: "템플릿에서 고르기" })) {
+      fireEvent.click(await screen.findByRole("radio", { name: "날짜별" }));
+    }
+    if (screen.queryByRole("dialog", { name: "작성 중인 내용이 있어요" })) return;
+    fireEvent.click(await screen.findByRole("button", { name: "템플릿에서 고르기" }));
+    return;
+  }
+  const label = view === "plans" ? "기간별" : "날짜별";
   fireEvent.click(await screen.findByRole("radio", { name: label }));
 }
 
@@ -164,6 +172,7 @@ beforeEach(() => {
       if (name === "get_diary") return structuredClone(diary);
       if (name === "get_planner_tab") return "today";
       if (name === "get_planner_note_target") return null;
+      if (name === "get_planner_view_target") return null;
       if (name === "set_planner_tab") return null;
       if (name === "update_diary") return update(String(args?.action), args?.input as DataRecord);
       if (name === "execute_widget") return execute(args?.request as DataRecord);
@@ -179,6 +188,156 @@ beforeEach(() => {
   HTMLDialogElement.prototype.close = function (): void {
     this.removeAttribute("open");
   };
+});
+
+it("opens the preparation collection from its initial deep link after widgets load", async () => {
+  window.history.replaceState(null, "", "/?view=planner&tab=envelopes");
+  widgets.widgets = [
+    widget("preparation", {
+      envelopes: [
+        { id: "trip", title: "여행 준비", checks: [], links: [], todoIds: [], archived: false },
+      ],
+    }),
+  ];
+  render(<Diary />);
+  expect(await screen.findByRole("article", { name: "여행 준비 준비 봉투" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: /^준비 봉투/ }).getAttribute("aria-current")).toBe(
+    "page",
+  );
+  expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
+});
+
+it("handles preparation and time navigation events without recreating stored data", async () => {
+  widgets.widgets = [
+    widget("preparation", {
+      envelopes: [
+        { id: "trip", title: "여행 준비", checks: [], links: [], todoIds: [], archived: false },
+      ],
+    }),
+  ];
+  render(<Diary />);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_planner_tab"));
+  act(() => {
+    for (const [event, callback] of vi.mocked(listen).mock.calls)
+      if (event === "planner-tab") callback({ event, id: 1, payload: "envelopes" });
+  });
+  expect(await screen.findByRole("article", { name: "여행 준비 준비 봉투" })).toBeTruthy();
+  act(() => {
+    for (const [event, callback] of vi.mocked(listen).mock.calls)
+      if (event === "planner-tab") callback({ event, id: 1, payload: "time" });
+  });
+  expect(screen.getByRole("radio", { name: "하루" })).toHaveProperty("checked", true);
+  expect(screen.getByRole("radio", { name: "요약" })).toHaveProperty("checked", true);
+  expect(screen.getByRole("link", { name: "오늘" }).getAttribute("aria-current")).toBe("page");
+  expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
+  expect(command).not.toHaveBeenCalledWith("update_diary", expect.anything());
+});
+
+it("opens an exact page from the startup target after the diary has loaded", async () => {
+  diary.pages = [
+    { id: "first", title: "다른 기록", date: null, entries: [] },
+    { id: "requested", title: "열어야 할 기록", date: null, entries: [] },
+  ];
+  const original = structuredClone(diary);
+  const existing = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation((name, args) =>
+    name === "get_planner_view_target"
+      ? Promise.resolve({ entity: "page", targetId: "requested" })
+      : existing(name, args),
+  );
+  render(<Diary />);
+  expect(await screen.findByRole("heading", { name: "열어야 할 기록", level: 1 })).toBeTruthy();
+  expect(diary).toEqual(original);
+  expect(actions("update_diary")).toEqual([]);
+  expect(actions("execute_widget")).toEqual([]);
+});
+
+it("opens an exact live event target and reports a removed target without opening another event", async () => {
+  widgets.widgets = [
+    widget("calendar", {
+      connections: [],
+      events: [
+        {
+          id: "first",
+          title: "다른 일정",
+          connectionId: "local",
+          allDay: true,
+          startDate: DAY,
+          endDate: NEXT_DAY,
+        },
+        {
+          id: "requested",
+          title: "연결한 일정",
+          connectionId: "local",
+          allDay: true,
+          startDate: DAY,
+          endDate: NEXT_DAY,
+        },
+      ],
+    }),
+  ];
+  await openDiary();
+  act(() => {
+    for (const [event, callback] of vi.mocked(listen).mock.calls)
+      if (event === "planner-view-target")
+        callback({ event, id: 1, payload: { entity: "event", targetId: "requested" } });
+  });
+  expect(await screen.findByRole("dialog", { name: "연결한 일정" })).toBeTruthy();
+  fireEvent.click(
+    within(screen.getByRole("dialog", { name: "연결한 일정" })).getByRole("button", {
+      name: "약속 닫기",
+    }),
+  );
+  act(() => {
+    for (const [event, callback] of vi.mocked(listen).mock.calls)
+      if (event === "planner-view-target")
+        callback({ event, id: 1, payload: { entity: "event", targetId: "missing" } });
+  });
+  await waitFor(() =>
+    expect(screen.getByRole("alert").textContent).toContain("해당 일정을 현재 찾을 수 없어요"),
+  );
+  expect(screen.queryByRole("dialog", { name: "다른 일정" })).toBeNull();
+  expect(actions("update_diary")).toEqual([]);
+  expect(actions("execute_widget")).toEqual([]);
+});
+
+it("keeps a journal draft until a page target passes the existing navigation guard", async () => {
+  diary.pages = [
+    {
+      id: "requested",
+      title: "이어 볼 기록",
+      date: NEXT_DAY,
+      entries: [{ id: "entry", kind: "note", text: "다음 날의 원문" }],
+    },
+  ];
+  await openDiary();
+  fireEvent.click(
+    opened().getByRole("button", { name: "할 일, 떠오른 생각, 오늘의 일을 한 줄로…" }),
+  );
+  fireEvent.change(opened().getByRole("textbox", { name: "새 기록 내용" }), {
+    target: { value: "아직 쓰는 초안" },
+  });
+  act(() => {
+    for (const [event, callback] of vi.mocked(listen).mock.calls)
+      if (event === "planner-view-target")
+        callback({ event, id: 1, payload: { entity: "page", targetId: "requested" } });
+  });
+  expect(await screen.findByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeTruthy();
+  expect(screen.queryByText("다음 날의 원문")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
+  expect(opened().getByRole("textbox", { name: "새 기록 내용" })).toHaveProperty(
+    "value",
+    "아직 쓰는 초안",
+  );
+  act(() => {
+    for (const [event, callback] of vi.mocked(listen).mock.calls)
+      if (event === "planner-view-target")
+        callback({ event, id: 1, payload: { entity: "page", targetId: "requested" } });
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "저장하지 않고 이동" }));
+  expect(await screen.findByText("다음 날의 원문")).toBeTruthy();
+  expect(screen.getByRole("radio", { name: "한 줄 기록" })).toHaveProperty("checked", true);
+  expect(actions("update_diary")).toEqual([]);
 });
 
 afterEach(() => {

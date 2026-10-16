@@ -47,6 +47,14 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Playground: Story = { name: "기본" };
+export const Compact: Story = {
+  name: "집중 설정",
+  args: { size: "compact", defaultValue: 25, min: 1, max: 1440, step: 1, unit: "분" },
+};
+export const CompactLargeValue: Story = {
+  name: "집중 설정 최대값",
+  args: { size: "compact", defaultValue: 1440, min: 1, max: 1440, step: 1 },
+};
 export const Minimum: Story = { name: "최솟값", args: { defaultValue: 0 } };
 export const Maximum: Story = { name: "최댓값", args: { defaultValue: 60 } };
 export const Decimal: Story = {

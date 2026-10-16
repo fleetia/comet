@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Icon, iconNames } from "@comet/icon";
-import { ManageListRow, SettingControlRow, SettingsRow, Stepper, Switch } from "@comet/ui";
+import { ManageListRow, Select, SettingControlRow, SettingsRow, Stepper, Switch } from "@comet/ui";
 import { RecordsStack } from "./RecordsAssets";
 const meta = {
   title: "UI/Lists/SettingsRows",
@@ -60,6 +60,32 @@ export const StepperControl: Story = {
           </span>
         }
       />
+    );
+  },
+};
+export const SelectControl: Story = {
+  name: "선택 필드 · 긴 라벨",
+  parameters: { controls: { disable: true } },
+  render: () => {
+    const [value, setValue] = useState("system");
+    return (
+      <div style={{ width: 418, maxWidth: "100%" }}>
+        <SettingControlRow
+          title="알림 소리"
+          description="선택 필드가 넓어져도 라벨은 읽을 수 있어요"
+          control={
+            <Select
+              aria-label="알림 소리"
+              value={value}
+              style={{ width: "100%" }}
+              onChange={(event) => setValue(event.currentTarget.value)}
+            >
+              <option value="system">시스템 설정을 따름</option>
+              <option value="off">소리 없음</option>
+            </Select>
+          }
+        />
+      </div>
     );
   },
 };

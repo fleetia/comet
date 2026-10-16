@@ -1,72 +1,86 @@
 import { style } from "@vanilla-extract/css";
-import { semanticVars as vars, vnextVars } from "@fleetia/lagrange/theme";
+import { semanticVars as vars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
+
+/** Uniform logical margin around the shape; the window's outer top-left is the saved position. */
+export const DISPLAY_MARGIN = 12;
 
 export const frame = style({
   position: "relative",
-  display: "flex",
+  display: "grid",
+  placeItems: "center",
+  boxSizing: "border-box",
   width: "100%",
   height: "100dvh",
   minHeight: 0,
-  padding: vars.space.lg,
-  backgroundRepeat: "no-repeat",
-  backgroundSize: "cover",
-  border: "1px solid rgba(255, 255, 255, 0.25)",
-  borderRadius: vnextVars.radius.parent,
+  padding: DISPLAY_MARGIN,
+  background: "transparent",
+  color: tokens["color/ink"],
   overflow: "hidden",
-  boxShadow: "0 14px 36px rgba(0, 0, 0, 0.2)",
-  textShadow: "0 1px 10px rgba(0, 0, 0, 0.32)",
   userSelect: "none",
-});
-export const close = style({
-  position: "absolute",
-  top: vars.space.xs,
-  right: vars.space.xs,
-  zIndex: 2,
-  color: "inherit",
-  fontSize: 22,
-  lineHeight: 1,
-  opacity: 0.8,
 });
 export const content = style({
   display: "grid",
-  gap: vars.space.sm,
-  maxWidth: "88%",
+  placeItems: "center",
+  width: "100%",
+  height: "100%",
   minWidth: 0,
-  maxHeight: "100%",
-  overflowY: "auto",
-  overscrollBehavior: "contain",
-  overflowWrap: "anywhere",
-  padding: `${vars.space.sm} ${vars.space.md}`,
-  background: "rgba(0, 0, 0, 0.24)",
-  borderRadius: vars.shape.radius.subtle,
-  fontFamily: vars.typography.family.display,
-  lineHeight: vars.typography.lineHeight.compact,
-  ":focus-visible": { outline: "2px solid currentColor", outlineOffset: 2 },
+  minHeight: 0,
 });
-export const list = style({
-  display: "grid",
-  gap: vars.space.xs,
+export const outline = style({
+  position: "absolute",
+  inset: DISPLAY_MARGIN / 2,
+  border: `1.5px dashed ${tokens["color/glass-border"]}`,
+  borderRadius: 18,
+  pointerEvents: "none",
 });
-export const item = style({
-  display: "grid",
-  gap: vars.space.xxs,
+export const selectedOutline = style({
+  border: `2px solid ${tokens["color/primary"]}`,
 });
-export const metric = style({
-  fontFamily: vars.typography.family.data,
-  fontSize: "clamp(26px, 9vw, 40px)",
-  fontVariantNumeric: "tabular-nums",
-  lineHeight: vars.typography.lineHeight.tight,
+export const remove = style({
+  position: "absolute",
+  top: 0,
+  left: 0,
+  zIndex: 2,
+  width: 24,
+  height: 24,
+  minWidth: 24,
+  borderRadius: 12,
+  background: tokens["color/glass-panel"],
+  boxShadow: `0 0 0 1px ${tokens["color/glass-border"]}`,
 });
-export const stale = style({
-  fontFamily: vars.typography.family.ui,
-  fontSize: vars.typography.size.caption,
-  opacity: 0.82,
+export const resize = style({
+  position: "absolute",
+  right: 0,
+  bottom: 0,
+  zIndex: 2,
+  width: 20,
+  height: 20,
+  padding: 0,
+  border: `2px solid ${tokens["color/primary"]}`,
+  borderRadius: 10,
+  background: tokens["color/glass-panel"],
+  cursor: "nwse-resize",
+  touchAction: "none",
+  ":focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}` },
+});
+export const sizeBadge = style({
+  position: "absolute",
+  right: DISPLAY_MARGIN + 4,
+  bottom: DISPLAY_MARGIN + 4,
+  padding: "2px 8px",
+  borderRadius: 10,
+  background: tokens["color/primary"],
+  color: tokens["color/on-primary"],
+  fontSize: 11,
+  lineHeight: "16px",
+  pointerEvents: "none",
 });
 export const error = style({
   position: "absolute",
-  right: vars.space.md,
-  bottom: vars.space.sm,
-  left: vars.space.md,
+  right: DISPLAY_MARGIN,
+  bottom: DISPLAY_MARGIN,
+  left: DISPLAY_MARGIN,
   maxHeight: "40%",
   overflowY: "auto",
   overflowWrap: "anywhere",
@@ -77,31 +91,34 @@ export const error = style({
   fontFamily: vars.typography.family.ui,
   fontSize: vars.typography.size.caption,
 });
-export const loading = style({
+export const unavailable = style({
   display: "grid",
-  placeItems: "center",
-  width: "100%",
-  height: "100dvh",
-  padding: vars.space.lg,
-  background: "transparent",
-  color: vars.color.content.secondary,
+  justifyItems: "center",
+  gap: vars.space.xs,
+  padding: vars.space.sm,
+  borderRadius: vars.shape.radius.subtle,
+  background: tokens["color/glass-panel"],
+  color: tokens["color/ink-2"],
+  fontSize: vars.typography.size.caption,
 });
 
-export const freeformFrame = style({
-  padding: 0,
-  border: 0,
-  borderRadius: 0,
-  background: "transparent",
-  boxShadow: "none",
-  textShadow: "none",
+export const cover = style({ width: 44, height: 44, objectFit: "cover", borderRadius: 12 });
+export const expanded = style({ width: "100%", minWidth: 0 });
+export const weatherStack = style({
+  width: "100%",
+  overflow: "hidden",
+  background: tokens["color/glass-panel"],
+  border: `1px solid ${tokens["color/glass-border"]}`,
+  borderRadius: 20,
+});
+export const weatherControls = style({
+  display: "flex",
   alignItems: "center",
-  justifyContent: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  height: 50,
+  padding: "10px 14px 12px 16px",
+  borderTop: `1px solid ${tokens["color/divider"]}`,
 });
-export const freeformContent = style({
-  display: "grid",
-  placeItems: "center",
-  maxWidth: "100%",
-  padding: 0,
-  background: "transparent",
-  overflow: "auto",
-});
+export const weatherPinLabel = style({ flex: 1, fontSize: 13 });
+export const weatherDivider = style({ width: 1, height: 20, background: tokens["color/divider"] });

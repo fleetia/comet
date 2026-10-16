@@ -468,3 +468,12 @@ export const dialogueSubview = style({
   overflowY: "auto",
   selectors: { "&[hidden]": { display: "none" } },
 });
+
+globalStyle(`${settingsWorkspace}[data-section="widgets"]`, { paddingTop: 16 });
+globalStyle(`${window}[data-section="widgets"]`, {
+  backgroundColor: tokens["color/sky"],
+  backgroundImage: `radial-gradient(1100px 560px at 0% 120%, ${tokens["color/sky-glow-violet"]}, transparent 62%), radial-gradient(900px 520px at 110% -20%, ${tokens["color/sky-glow-blue"]}, transparent 60%)`,
+  border: 0,
+  outline: `1px solid ${tokens["color/glass-border"]}`,
+  outlineOffset: -1,
+});

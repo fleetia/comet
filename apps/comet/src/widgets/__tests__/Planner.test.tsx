@@ -1045,6 +1045,8 @@ it("embeds task tools without a second header, navigation, calendar or native cl
   expect(native.onCloseRequested).not.toHaveBeenCalled();
   expect(listen).not.toHaveBeenCalledWith("planner-tab", expect.anything());
   expect(command).not.toHaveBeenCalledWith("get_planner_tab");
+  expect(screen.queryByRole("button", { name: "25분 집중" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "오늘 할 일 상세 보기" }));
   expect(screen.getByRole("button", { name: "25분 집중" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "하루 마무리" })).toBeTruthy();
   expect(onStateChange).toHaveBeenLastCalledWith({ dirty: false, busy: false, blocking: false });
@@ -1054,6 +1056,107 @@ it("embeds task tools without a second header, navigation, calendar or native cl
   expect(onStateChange).toHaveBeenLastCalledWith({ dirty: true, busy: false, blocking: false });
   fireEvent.click(screen.getByRole("button", { name: "수집함 · 날짜 없음 · 미완료 0개" }));
   expect(onNavigate).toHaveBeenCalledWith("plans");
+});
+
+function dragTransfer(): {
+  setData: (kind: string, value: string) => void;
+  getData: (kind: string) => string;
+  effectAllowed: string;
+} {
+  const values = new Map<string, string>();
+  return {
+    setData: (kind, value) => {
+      values.set(kind, value);
+    },
+    getData: (kind) => values.get(kind) || "",
+    effectAllowed: "none",
+  };
+}
+
+it("persists a diary row drag as an order-only action and supports keyboard reordering", async () => {
+  const value = snapshot([
+    item("first", "먼저 할 일"),
+    item("later", "나중 할 일"),
+    item("done", "이미 마친 일", { completedAt: Date.now() }),
+  ]);
+  const original = structuredClone(value);
+  useSnapshot(value);
+  render(<Planner embeddedTab="today" />);
+  const first = screen.getByRole("button", { name: "먼저 할 일 상세 보기" });
+  const later = screen.getByRole("button", { name: "나중 할 일 상세 보기" });
+  const dataTransfer = dragTransfer();
+  fireEvent.dragStart(later.closest("article")!, { dataTransfer });
+  fireEvent.drop(first.closest("article")!, { dataTransfer });
+  await waitFor(() => expectAction("reorder", { id: "later", beforeId: "first" }));
+  await waitFor(() => expect(screen.queryByText("저장하고 있어요…")).toBeNull());
+  fireEvent.keyDown(first, { key: "ArrowDown", altKey: true });
+  await waitFor(() => expectAction("reorder", { id: "first", beforeId: null }));
+  expect(value).toEqual(original);
+});
+
+it("moves a dated drag through the diary move transaction and leaves its due date intact", async () => {
+  const value = snapshot([
+    item("from", "옮길 일", { dueDate: "2026-09-30", memo: "원문" }),
+    item("to", "다음 날의 일", { plannedDate: "2026-09-22" }),
+  ]);
+  const original = structuredClone(value);
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "get_diary" ? { revision: 9 } : undefined,
+  );
+  useSnapshot(value);
+  render(<Planner embeddedTab="today" />);
+  const dataTransfer = dragTransfer();
+  fireEvent.dragStart(
+    screen.getByRole("button", { name: "옮길 일 상세 보기" }).closest("article")!,
+    { dataTransfer },
+  );
+  fireEvent.drop(
+    screen.getByRole("button", { name: "다음 날의 일 상세 보기" }).closest("article")!,
+    { dataTransfer },
+  );
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("update_diary", {
+      expectedRevision: 9,
+      action: "move-record",
+      input: { todoId: "from", fromDate: TODAY, toDate: "2026-09-22", title: "옮길 일" },
+    }),
+  );
+  expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
+  expect(value).toEqual(original);
+});
+
+it("offers the same date move from the original drag hint and ignores another widget's payload", async () => {
+  useSnapshot(snapshot([item("move", "날짜 옮길 일")]));
+  render(<Planner embeddedTab="today" />);
+  const dataTransfer = dragTransfer();
+  dataTransfer.setData(
+    "application/x-comet-todo",
+    JSON.stringify({ id: "move", widgetId: "other" }),
+  );
+  fireEvent.drop(screen.getByRole("region", { name: "오늘 할 일" }), { dataTransfer });
+  expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
+  fireEvent.click(screen.getByRole("button", { name: "끌어서 순서를 바꾸거나 다른 날로 옮겨요" }));
+  const dialog = within(screen.getByRole("dialog", { name: "할 일 옮기기" }));
+  expect(dialog.getByLabelText("옮길 할 일")).toHaveProperty("value", "move");
+  fireEvent.click(dialog.getByRole("button", { name: "취소" }));
+  expect(screen.queryByRole("dialog", { name: "할 일 옮기기" })).toBeNull();
+});
+
+it("keeps day close, list management and templates usable when actions move into the diary header", () => {
+  useSnapshot(snapshot([item("daily", "오늘 할 일")]));
+  const onNavigate = vi.fn();
+  render(<div role="group" aria-label="다이어리 머리글" />);
+  const header = screen.getByRole("group", { name: "다이어리 머리글" });
+  render(<Planner embeddedTab="today" headerActionsTarget={header} onNavigate={onNavigate} />);
+  expect(screen.getAllByRole("button", { name: "하루 마무리" })).toHaveLength(1);
+  fireEvent.click(within(header).getByRole("button", { name: "하루 마무리" }));
+  expect(screen.getByRole("dialog", { name: `${TODAY} 하루 마무리` })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "하루 마무리 닫기" }));
+  fireEvent.click(within(header).getByRole("button", { name: "목록 관리" }));
+  expect(screen.getByRole("dialog", { name: "목록 관리" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "목록 관리 닫기" }));
+  fireEvent.click(screen.getByRole("button", { name: "템플릿에서 고르기" }));
+  expect(onNavigate).toHaveBeenCalledWith("templates");
 });
 
 it("keeps an embedded template draft across menu changes and reports its dirty state", () => {
@@ -1289,10 +1392,13 @@ it("keeps selected-day totals, quick additions and day-end review scoped while l
   const selected = within(screen.getByRole("region", { name: "선택한 날 할 일" }));
   expect(selected.getByText("9월 22일 화요일 · 1개 남음")).toBeTruthy();
   expect(selected.getByRole("checkbox", { name: "선택일에 남은 일" })).toBeTruthy();
-  expect(screen.queryByRole("checkbox", { name: "선택일에 마친 일" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "완료한 일 2개 보기" }));
+  expect(selected.getByRole("checkbox", { name: "선택일에 마친 일" })).toHaveProperty(
+    "checked",
+    true,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "완료한 일 1개 보기" }));
   const completed = within(screen.getByRole("region", { name: "완료한 일" }));
-  expect(completed.getByRole("checkbox", { name: "선택일에 마친 일" })).toBeTruthy();
+  expect(completed.queryByRole("checkbox", { name: "선택일에 마친 일" })).toBeNull();
   expect(completed.getByRole("checkbox", { name: "다른 날에 마친 일" })).toBeTruthy();
   expect(screen.getByText(`새 할 일 계획일 · 선택일 ${day}`)).toBeTruthy();
   expect(screen.getByRole("checkbox", { name: "날짜 없이 남긴 일" })).toBeTruthy();
@@ -1352,8 +1458,10 @@ it("keeps earlier plans, undated period goals and frequency completion visible i
       name: "날짜 없는 주간 목표",
     }),
   ).toBeTruthy();
-  expect(screen.queryByRole("checkbox", { name: "일주일에 두 번 걷기" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "완료한 일 1개 보기" }));
+  expect(screen.getByRole("checkbox", { name: "일주일에 두 번 걷기" })).toHaveProperty(
+    "checked",
+    true,
+  );
   fireEvent.click(screen.getByRole("checkbox", { name: "일주일에 두 번 걷기" }));
   await waitFor(() => expectAction("undo-frequency", { id: "frequency", recordId: "walk-record" }));
   expect(value).toEqual(original);

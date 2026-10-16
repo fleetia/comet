@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { DiaryEnvelope } from "../Planner/DiaryEnvelope";
 import { DiaryNotes } from "../Planner/DiaryNotes";
 import { PreparationTool } from "../PreparationTool/PreparationTool";
+import * as nativeCommands from "../../hooks/useSnapshot";
 import type { DiaryAction, DiaryNote } from "../Planner/diaryTypes";
 import type { DataRecord, ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
@@ -57,28 +58,19 @@ function envelopeProps(): Parameters<typeof DiaryEnvelope>[0] {
   };
 }
 
-it("creates a date-free preparation envelope without calendar setup and preserves a failed draft", async () => {
-  const act = vi.fn<ToolAction>().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
-  render(<PreparationTool widget={preparation} widgets={[]} act={act} />);
-  fireEvent.change(screen.getByRole("textbox", { name: "준비 봉투 이름" }), {
-    target: { value: "가을 여행" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "준비 봉투 만들기" }));
-  await waitFor(() =>
-    expect(screen.getByRole("alert").textContent).toContain("입력한 내용은 남아"),
-  );
-  expect(screen.getByRole("textbox", { name: "준비 봉투 이름" })).toHaveProperty(
-    "value",
-    "가을 여행",
-  );
-  fireEvent.click(screen.getByRole("button", { name: "준비 봉투 만들기" }));
-  await waitFor(() =>
-    expect(screen.getByRole("textbox", { name: "준비 봉투 이름" })).toHaveProperty("value", ""),
-  );
-  expect(act.mock.calls).toEqual([
-    ["create", { title: "가을 여행" }],
-    ["create", { title: "가을 여행" }],
-  ]);
+it("opens the canonical preparation collection for creation without duplicating its request controller", async () => {
+  const command = vi.spyOn(nativeCommands, "command").mockResolvedValue(undefined);
+  const act = vi.fn<ToolAction>().mockResolvedValue(true);
+  try {
+    render(<PreparationTool widget={preparation} widgets={[]} act={act} />);
+    fireEvent.click(screen.getByRole("button", { name: "준비 봉투 만들기" }));
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("open_planner_view", { tab: "envelopes" }),
+    );
+    expect(act).not.toHaveBeenCalled();
+  } finally {
+    command.mockRestore();
+  }
 });
 
 it("keeps note edits after save failure and refuses to overwrite a note changed in its envelope", async () => {
@@ -123,6 +115,7 @@ it("plans and completes the same linked task while pinning the existing envelope
       notes={[{ ...note, pinned: false }]}
     />,
   );
+  fireEvent.click(screen.getByRole("button", { name: "준비 봉투 메뉴" }));
   fireEvent.click(screen.getByRole("button", { name: "오늘 할 일로 꺼내기" }));
   fireEvent.click(screen.getByRole("button", { name: "시나리오 읽기 꺼내기" }));
   await waitFor(() => expect(props.onPlanTask).toHaveBeenCalledWith(task));
@@ -258,6 +251,7 @@ it("promotes a preparation check in one action and archives the envelope without
       envelope={{ ...envelope, checks: [{ id: "check", text: "질문 세 개 준비", done: false }] }}
     />,
   );
+  fireEvent.click(screen.getByRole("button", { name: "준비 봉투 메뉴" }));
   fireEvent.click(screen.getByRole("button", { name: "오늘 할 일로 꺼내기" }));
   fireEvent.click(screen.getByRole("button", { name: "질문 세 개 준비 꺼내기" }));
   await waitFor(() =>
@@ -493,11 +487,11 @@ it("keeps a date draft from overwriting a schedule changed while the editor was 
   expect(props.act).not.toHaveBeenCalled();
 });
 
-it("shows an empty resource state without removing the add-link controls", () => {
+it("keeps the empty resource card ready for adding links without an extra message", () => {
   const view = render(<DiaryEnvelope {...envelopeProps()} />);
   const resources = within(screen.getByRole("region", { name: "봉투 자료" }));
-  expect(resources.getByText("아직 모아 둔 자료가 없어요.")).toBeTruthy();
-  fireEvent.click(resources.getByText("자료 링크 추가"));
+  expect(resources.queryByText("아직 모아 둔 자료가 없어요.")).toBeNull();
+  fireEvent.click(resources.getByText("자료 추가"));
   expect(resources.getByRole("textbox", { name: "자료 이름" })).toBeTruthy();
   view.rerender(
     <DiaryEnvelope

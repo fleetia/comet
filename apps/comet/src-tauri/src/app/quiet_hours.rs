@@ -79,7 +79,8 @@ fn crossed(settings: &QuietHours, from: NaiveDateTime, to: NaiveDateTime) -> boo
 /// Async generation completions and delayed native reveals can run before that loop.
 pub(crate) fn automatic_blocked(state: &AppState, settings: &Settings) -> Result<bool, String> {
     let at = chrono::Local::now().naive_local();
-    Ok(active_at(&settings.quiet_hours, at)
+    Ok(state.widget_editing.load(Ordering::SeqCst)
+        || active_at(&settings.quiet_hours, at)
         || lock(&state.quiet_hours)?
             .last_checked
             .is_some_and(|last| crossed(&settings.quiet_hours, last, at)))
@@ -220,6 +221,113 @@ mod tests {
                 payload: serde_json::json!({}),
             },
         }
+    }
+
+    #[test]
+    fn widget_editing_cancels_automatic_work_and_resumes_with_a_fresh_interval() {
+        let state = crate::app::tests::state();
+        let (epoch, cancel) = interrupt(&state, true).unwrap();
+        let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
+        store::add_scene(
+            &lock(&state.db).unwrap(),
+            &PreparedScene {
+                id: "before-edit".into(),
+                revision,
+                lines: vec![line()],
+            },
+        )
+        .unwrap();
+        assert!(crate::widget_desktop::apply_editing(&state, true).unwrap());
+        assert!(cancel.load(Ordering::SeqCst));
+        assert!(state.epoch.load(Ordering::SeqCst) > epoch);
+        assert_eq!(
+            state.widget_epoch.load(Ordering::SeqCst),
+            state.epoch.load(Ordering::SeqCst)
+        );
+        assert!(automatic_blocked(&state, &Settings::default()).unwrap());
+        assert!(begin_background(&state).unwrap().is_none());
+        assert!(store::prepared_scenes(&lock(&state.db).unwrap())
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            store::revision(&lock(&state.db).unwrap()).unwrap(),
+            revision
+        );
+        assert!(!crate::widget_desktop::apply_editing(&state, true).unwrap());
+        state.next_idle.store(0, Ordering::SeqCst);
+        assert!(crate::widget_desktop::apply_editing(&state, false).unwrap());
+        assert!(!automatic_blocked(&state, &Settings::default()).unwrap());
+        assert!(state.next_idle.load(Ordering::SeqCst) > super::super::now());
+        assert!(cancel.load(Ordering::SeqCst));
+        assert!(!lock(&state.runtime).unwrap().paused);
+    }
+
+    #[test]
+    fn widget_editing_preserves_direct_work_critical_events_and_the_users_pause() {
+        for kind in [
+            None,
+            Some("timer-finished"),
+            Some("calendar-reminder"),
+            Some("planner-reminder"),
+        ] {
+            let state = crate::app::tests::state();
+            let (epoch, cancel) = interrupt(&state, kind.is_some()).unwrap();
+            *lock(&state.widget_playback).unwrap() = kind.map(event);
+            {
+                let mut runtime = lock(&state.runtime).unwrap();
+                runtime.paused = true;
+                runtime.paused_until = Some(i64::MAX);
+            }
+            let settings = store::settings(&lock(&state.db).unwrap()).unwrap();
+            crate::widget_desktop::apply_editing(&state, true).unwrap();
+            assert!(!playback_blocked(&state, &settings, false).unwrap());
+            crate::widget_desktop::apply_editing(&state, false).unwrap();
+            assert!(!cancel.load(Ordering::SeqCst));
+            assert_eq!(state.epoch.load(Ordering::SeqCst), epoch);
+            let runtime = lock(&state.runtime).unwrap();
+            assert!(runtime.paused);
+            assert_eq!(runtime.paused_until, Some(i64::MAX));
+            drop(runtime);
+            assert_eq!(
+                serde_json::to_value(store::settings(&lock(&state.db).unwrap()).unwrap()).unwrap(),
+                serde_json::to_value(settings).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn widget_editing_discards_ordinary_pending_reactions_but_keeps_timer_delivery() {
+        let state = crate::app::tests::state();
+        let directory = tempfile::tempdir().unwrap();
+        let (epoch, _) = interrupt(&state, true).unwrap();
+        state.widget_epoch.store(epoch, Ordering::SeqCst);
+        {
+            let db = lock(&state.db).unwrap();
+            widgets::storage::install(&db, directory.path(), &["focus-timer".into()]).unwrap();
+            let timer = widgets::storage::instances(&db).unwrap().remove(0);
+            widgets::storage::commit_data(
+                &db,
+                &timer.id,
+                timer.revision,
+                timer.data,
+                ["timer-finished", "planner-mood", "ball.stopped"]
+                    .into_iter()
+                    .map(|kind| event(kind).event)
+                    .collect(),
+                chrono::Utc::now().timestamp_millis(),
+            )
+            .unwrap();
+        }
+        crate::widget_desktop::apply_editing(&state, true).unwrap();
+        let _action = lock(&state.action).unwrap();
+        let db = lock(&state.db).unwrap();
+        let pending = crate::widget_commands::take_pending_reaction(&state, &db)
+            .unwrap()
+            .unwrap();
+        assert_eq!(pending.event.kind, "timer-finished");
+        assert!(crate::widget_commands::take_pending_reaction(&state, &db)
+            .unwrap()
+            .is_none());
     }
 
     #[test]

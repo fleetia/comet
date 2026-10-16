@@ -45,6 +45,13 @@ test("launch leaves an already running Spotify instance alone", () => {
   assert.equal(app.open.mock.callCount(), 0);
 });
 
+test("open brings the allowed music app forward without invoking playback or automation", () => {
+  const app = harness({ running: true });
+  assert.deepEqual(app.run("open"), { running: true });
+  assert.deepEqual(Array.from(app.lookup.mock.calls[0].arguments), [spotifyAppId]);
+  assert.equal(app.open.mock.callCount(), 1);
+});
+
 test("launch opens the installed Spotify app once without automation or playback", () => {
   const app = harness();
   assert.deepEqual(app.run(), { running: true });

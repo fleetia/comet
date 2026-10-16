@@ -1,11 +1,8 @@
-import { ClockWidget, WeatherWidget } from "@comet/ui";
-import { IconButton } from "../../ui";
-import { useEffect, useState, type ReactElement } from "react";
+import { IconButton, type WidgetShape } from "@comet/ui";
+import { useEffect, useRef, useState, type PointerEvent, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWindowDrag } from "../../hooks/useWindowDrag";
 import { useWidgets } from "../useWidgets";
-import { localDay, record, rows, text } from "../toolData";
-import type { WidgetView } from "../types";
 import {
   DEFAULT_APPEARANCE,
   backgroundPosition,
@@ -13,8 +10,11 @@ import {
   placementAlignment,
   widgetBackgroundUrl,
 } from "../widgetAppearance";
-import * as s from "./widgetDisplay.css";
+import { FreeformWidget } from "./DesktopWidget";
+import { defaultShape, resizeShape } from "./desktopShape";
+import { useDesktopState } from "./desktopState";
 import { transparentDocument } from "../../components/companion.css";
+import * as s from "./widgetDisplay.css";
 
 function useNow(): number {
   const [now, setNow] = useState(Date.now());
@@ -25,241 +25,185 @@ function useNow(): number {
   return now;
 }
 
-function dayDifference(date: string, now: number): number {
-  const today = Date.parse(`${localDay(new Date(now))}T00:00:00Z`);
-  return Math.round((Date.parse(`${date}T00:00:00Z`) - today) / 86400000);
-}
+const RESIZE_KEYS: Record<string, [number, number]> = {
+  ArrowLeft: [-8, 0],
+  ArrowRight: [8, 0],
+  ArrowUp: [0, -8],
+  ArrowDown: [0, 8],
+};
 
-function dDayLabel(difference: number): string {
-  if (difference === 0) {
-    return "D-day";
-  }
-  return difference > 0 ? `D-${difference}` : `D+${-difference}`;
-}
-
-function weatherLabel(code: number): string {
-  if (code === 0) return "맑음";
-  if (code <= 3) return "구름·흐림";
-  if (code <= 48) return "안개";
-  if (code <= 67) return "비";
-  if (code <= 77) return "눈";
-  if (code <= 82) return "소나기";
-  if (code <= 86) return "눈 소나기";
-  return "뇌우";
-}
-
-function batteryStatus(status: string): string {
-  return (
-    {
-      charging: "충전 중",
-      discharging: "배터리 사용 중",
-      charged: "충전 완료",
-      "not-charging": "충전 안 함",
-      ac: "외부 전원",
-      unknown: "상태 확인 불가",
-    }[status] ?? "상태 확인 불가"
-  );
-}
-
-function DisplayContent({
-  widget,
-  now,
-  freeform,
-}: {
-  widget: WidgetView;
-  now: number;
-  freeform: boolean;
-}): ReactElement {
-  const data = record(widget.data);
-  if (widget.kind === "clock") {
-    const anniversaries = rows(data.anniversaries);
-    if (freeform) {
-      const day = anniversaries[0];
-      return (
-        <ClockWidget
-          opaque
-          time={new Date(now).toLocaleTimeString(undefined, {
-            hour: "numeric",
-            minute: "2-digit",
-            hour12: data.format === "12h",
-          })}
-          date={new Date(now).toLocaleDateString("ko-KR", {
-            month: "long",
-            day: "numeric",
-            weekday: "short",
-          })}
-          badge={
-            day ? `${text(day.title)} ${dDayLabel(dayDifference(text(day.date), now))}` : undefined
-          }
-        />
-      );
-    }
-    return anniversaries.length > 0 ? (
-      <div className={s.list}>
-        {anniversaries.map((item) => (
-          <div className={s.item} key={text(item.id)}>
-            <strong>{text(item.title)}</strong>
-            <span>{dDayLabel(dayDifference(text(item.date), now))}</span>
-          </div>
-        ))}
-      </div>
-    ) : (
-      <p>기념일을 설정해 주세요.</p>
-    );
-  }
-  const observation = record(data.observation);
-  if (widget.kind === "weather") {
-    if (!data.observation) {
-      return <p>날씨를 조회하면 여기에 보여요.</p>;
-    }
-    if (freeform)
-      return (
-        <>
-          <WeatherWidget
-            opaque
-            temperature={
-              typeof observation.temperature === "number"
-                ? `${observation.temperature}${text(observation.temperatureUnit)}`
-                : "—"
-            }
-            condition={
-              typeof observation.weatherCode === "number"
-                ? weatherLabel(observation.weatherCode)
-                : "상태 확인 불가"
-            }
-            location={text(observation.name)}
-          />
-          {data.status !== "ready" && (
-            <span className={s.stale} role="status">
-              이전 정보 · 갱신이 필요해요
-            </span>
-          )}
-        </>
-      );
-    return (
-      <div className={s.list}>
-        {data.status !== "ready" && <span className={s.stale}>이전 정보</span>}
-        <strong>{text(observation.name)}</strong>
-        <span className={s.metric}>
-          {typeof observation.temperature === "number"
-            ? `${observation.temperature}${text(observation.temperatureUnit)}`
-            : "온도 정보 없음"}
-        </span>
-        <span>
-          {typeof observation.weatherCode === "number"
-            ? weatherLabel(observation.weatherCode)
-            : "상태 확인 불가"}
-        </span>
-      </div>
-    );
-  }
-  if (widget.kind === "device") {
-    if (observation.hasBattery === false) {
-      return <p>배터리 정보를 찾지 못했어요.</p>;
-    }
-    const batteries = rows(observation.batteries);
-    return batteries.length > 0 ? (
-      <div className={s.list}>
-        {batteries.map((battery, index) => (
-          <div className={s.item} key={index}>
-            <strong>배터리 {index + 1}</strong>
-            <span className={s.metric}>
-              {typeof battery.percent === "number" ? `${battery.percent}%` : "—"}
-            </span>
-            <span>{batteryStatus(text(battery.status))}</span>
-          </div>
-        ))}
-      </div>
-    ) : (
-      <p>배터리 정보를 아직 조회하지 않았어요.</p>
-    );
-  }
-  return <p>이 위젯은 바탕화면 표시를 지원하지 않아요.</p>;
+function isControl(target: EventTarget): boolean {
+  return target instanceof Element && Boolean(target.closest("button,input,select,textarea,a"));
 }
 
 export function WidgetDisplay({ id }: { id: string }): ReactElement {
   const { snapshot, error } = useWidgets();
-  const [dragError, setDragError] = useState<string | null>(null);
+  const desktop = useDesktopState();
+  const [preview, setPreview] = useState<WidgetShape | null>(null);
+  const resizing = useRef<{ pointerId: number; x: number; y: number; shape: WidgetShape } | null>(
+    null,
+  );
   const now = useNow();
-  const widget = snapshot?.widgets.find((item) => item.id === id);
+  const widget = snapshot?.widgets.find((item) => item.id === id && item.installed && item.enabled);
   const entry = snapshot?.catalog.find((item) => item.id === widget?.kind);
+  const editing = desktop.state?.editing ?? false;
+  const selected = desktop.selected === id;
   const appearance = getWidgetAppearance(widget?.data ?? {});
   const imageUrl = widget ? widgetBackgroundUrl(widget) : null;
-  const drag = useWindowDrag(isDesktop(), setDragError);
-  const freeform = Boolean(
-    widget &&
-    ["clock", "weather"].includes(widget.kind) &&
-    !imageUrl &&
-    Object.entries(DEFAULT_APPEARANCE).every(
-      ([key, value]) => appearance[key as keyof typeof appearance] === value,
-    ),
-  );
+  const alignment = placementAlignment(appearance.textPosition);
+  const drag = useWindowDrag(isDesktop(), desktop.setError);
+  const savedShape = desktop.state?.shapes?.[id];
+  const shape = preview ?? savedShape;
+  const name = entry?.name ?? "바탕화면 위젯";
+
   useEffect(() => {
-    if (!freeform) return;
     document.documentElement.classList.add(transparentDocument);
     return () => document.documentElement.classList.remove(transparentDocument);
-  }, [freeform]);
+  }, []);
+  useEffect(() => {
+    if (!editing) setPreview(null);
+  }, [editing]);
 
-  const alignment = placementAlignment(appearance.textPosition);
+  function startResize(event: PointerEvent<HTMLButtonElement>): void {
+    event.stopPropagation();
+    if (!widget || event.button !== 0 || desktop.busy) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    resizing.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      shape: savedShape ?? defaultShape(widget),
+    };
+  }
+  function moveResize(event: PointerEvent<HTMLButtonElement>): void {
+    const start = resizing.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    setPreview(resizeShape(start.shape, event.clientX - start.x, event.clientY - start.y));
+  }
+  function endResize(event: PointerEvent<HTMLButtonElement>): void {
+    const start = resizing.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    resizing.current = null;
+    const next = resizeShape(start.shape, event.clientX - start.x, event.clientY - start.y);
+    if (next.width === start.shape.width && next.height === start.shape.height) {
+      setPreview(null);
+      return;
+    }
+    setPreview(next);
+    void desktop
+      .run("set_widget_desktop_shape", { id, shape: next })
+      .finally(() => setPreview(null));
+  }
+
   return (
     <main
-      className={
-        widget ? `${s.frame} ${freeform ? s.freeformFrame : ""}` : `${s.frame} ${s.loading}`
-      }
-      aria-label={entry?.name ?? "위젯 표시"}
+      className={s.frame}
+      aria-label={name}
+      data-editing={editing || undefined}
       onPointerDown={drag.onPointerDown}
       onPointerMove={drag.onPointerMove}
-      onPointerUp={drag.reset}
+      onPointerUp={(event) => {
+        if (editing && event.button === 0 && !drag.dragged() && !isControl(event.target))
+          desktop.select(id);
+        drag.reset();
+      }}
       onPointerCancel={drag.reset}
-      style={
-        widget && !freeform
-          ? {
-              backgroundColor: appearance.backgroundColor,
-              backgroundImage: imageUrl ? `url("${imageUrl}")` : undefined,
-              backgroundPosition: backgroundPosition(appearance.backgroundPosition),
-              color: appearance.textColor,
-              ...alignment,
-            }
-          : undefined
-      }
     >
-      <IconButton
-        className={s.close}
-        variant="quiet"
-        size="compact"
-        label="바탕화면 위젯 닫기"
-        disabled={!isDesktop()}
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={() => {
-          void command("close_widget_display", { id }).catch((cause: unknown) =>
-            setDragError(errorText(cause)),
-          );
-        }}
-      >
-        ×
-      </IconButton>
       {widget ? (
-        <div
-          className={`${s.content} ${freeform ? s.freeformContent : ""}`}
-          role="region"
-          aria-label="위젯 표시 내용"
-          tabIndex={0}
-          onPointerDown={(event) => {
-            if (event.currentTarget.scrollHeight > event.currentTarget.clientHeight) {
-              event.stopPropagation();
+        <div className={s.content} role="region" aria-label={`${name} 내용`}>
+          <FreeformWidget
+            widget={widget}
+            widgets={snapshot?.widgets ?? []}
+            now={now}
+            interactive={!editing}
+            shape={shape}
+            backgroundImage={imageUrl ?? undefined}
+            backgroundColor={
+              appearance.backgroundColor !== DEFAULT_APPEARANCE.backgroundColor
+                ? appearance.backgroundColor
+                : undefined
             }
-          }}
-        >
-          <DisplayContent widget={widget} now={now} freeform={freeform} />
+            textColor={
+              appearance.textColor !== DEFAULT_APPEARANCE.textColor
+                ? appearance.textColor
+                : undefined
+            }
+            imagePosition={backgroundPosition(appearance.backgroundPosition)}
+            contentStyle={
+              appearance.textPosition !== DEFAULT_APPEARANCE.textPosition
+                ? { alignItems: alignment.justifyContent, justifyContent: alignment.alignItems }
+                : undefined
+            }
+          />
         </div>
       ) : (
-        <p role={error ? "alert" : "status"}>
-          {error || (snapshot ? "사용할 수 없는 위젯이에요." : "표시를 불러오고 있어요.")}
-        </p>
+        <div className={s.unavailable} role={error ? "alert" : "status"}>
+          <p>
+            {error ||
+              (snapshot ? "바탕화면에 놓을 수 없는 위젯이에요." : "위젯을 불러오고 있어요.")}
+          </p>
+          {snapshot && (
+            <IconButton
+              icon="close"
+              aria-label="바탕화면 위젯 닫기"
+              disabled={!isDesktop()}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={() =>
+                void command("remove_widget_desktop_item", { id }).catch((cause: unknown) =>
+                  desktop.setError(errorText(cause)),
+                )
+              }
+            />
+          )}
+        </div>
       )}
-      {(dragError || (widget && error)) && (
+      {editing && widget && (
+        <>
+          <span
+            aria-hidden
+            data-selected={selected || undefined}
+            className={`${s.outline} ${selected ? s.selectedOutline : ""}`}
+          />
+          <IconButton
+            className={s.remove}
+            icon="minus"
+            aria-label={`${name} 바탕화면에서 빼기`}
+            disabled={desktop.busy}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => void desktop.run("remove_widget_desktop_item", { id })}
+          />
+          <button
+            type="button"
+            className={s.resize}
+            aria-label={`${name} 크기 조절`}
+            disabled={desktop.busy}
+            onPointerDown={startResize}
+            onPointerMove={moveResize}
+            onPointerUp={endResize}
+            onPointerCancel={() => {
+              resizing.current = null;
+              setPreview(null);
+            }}
+            onKeyDown={(event) => {
+              const step = RESIZE_KEYS[event.key];
+              if (!step || desktop.busy) return;
+              event.preventDefault();
+              void desktop.run("set_widget_desktop_shape", {
+                id,
+                shape: resizeShape(savedShape ?? defaultShape(widget), step[0], step[1]),
+              });
+            }}
+          />
+          {preview && (
+            <span className={s.sizeBadge} role="status">
+              {preview.width} × {preview.height}
+            </span>
+          )}
+        </>
+      )}
+      {(desktop.error || (widget && error)) && (
         <p role="alert" className={s.error}>
-          {dragError || error}
+          {desktop.error || error}
         </p>
       )}
     </main>

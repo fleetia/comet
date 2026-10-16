@@ -59,6 +59,7 @@ mod types;
 mod updater;
 mod widget_backgrounds;
 mod widget_commands;
+mod widget_desktop;
 mod widget_connections;
 mod widget_runtime;
 mod widgets;

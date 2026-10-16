@@ -133,6 +133,44 @@ struct CharacterInput {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct PlayTarget {
+    #[serde(default)]
+    character: Option<String>,
+    #[serde(default)]
+    owner: Option<String>,
+}
+fn play_target(input: &Value, has_choice: bool) -> Result<PlayTarget, String> {
+    let mut value = input.clone();
+    if has_choice {
+        value
+            .as_object_mut()
+            .ok_or("놀이 입력이 올바르지 않아요.")?
+            .remove("choice");
+    }
+    let target: PlayTarget = decode(&value)?;
+    if target.character.is_some() != target.owner.is_some()
+        || target.character.as_ref().is_some_and(|slot| {
+            !matches!(slot.as_str(), "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H")
+        })
+        || target.owner.as_ref().is_some_and(|owner| {
+            owner.is_empty() || owner.len() > 128 || target.character.is_none()
+        })
+    {
+        return Err("함께 지내는 캐릭터를 골라 주세요.".into());
+    }
+    Ok(target)
+}
+fn target_payload(mut payload: Value, target: PlayTarget) -> Value {
+    if let Some(character) = target.character {
+        payload["character"] = json!(character);
+    }
+    if let Some(owner) = target.owner {
+        payload["owner"] = json!(owner);
+    }
+    payload
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Launch {
     x: f64,
     y: f64,
@@ -375,9 +413,9 @@ pub fn act(
         }
         "small-match" => {
             let mut state: Match = decode(data)?;
+            let target = play_target(input, matches!(action, "coin" | "rps"))?;
             match action {
                 "dice" => {
-                    empty(input)?;
                     let a = entropy % 6 + 1;
                     let b = entropy.rotate_left(32) % 6 + 1;
                     state.a = a.to_string();
@@ -390,7 +428,7 @@ pub fn act(
                     .into();
                 }
                 "coin" => {
-                    let args: Choice = decode(input)?;
+                    let args: Choice = decode(&json!({"choice":input["choice"]}))?;
                     if !["heads", "tails"].contains(&args.choice.as_str()) {
                         return Err("앞면 또는 뒷면을 선택해 주세요.".into());
                     }
@@ -404,7 +442,7 @@ pub fn act(
                     .into();
                 }
                 "rps" => {
-                    let args: Choice = decode(input)?;
+                    let args: Choice = decode(&json!({"choice":input["choice"]}))?;
                     let choices = ["rock", "paper", "scissors"];
                     let player = choices
                         .iter()
@@ -453,7 +491,7 @@ pub fn act(
             let draft = EventDraft {
                 kind: "small-match.result".into(),
                 text,
-                payload: json!({"mode":state.game,"outcome":outcome}),
+                payload: target_payload(json!({"mode":state.game,"outcome":outcome}), target),
             };
             effect(state, vec![draft])
         }
@@ -573,7 +611,7 @@ pub fn act(
         }
         "fortune" => {
             let mut state: Fortune = decode(data)?;
-            empty(input)?;
+            let target = play_target(input, false)?;
             if action != "draw" {
                 return Err("운세 뽑기를 선택해 주세요.".into());
             }
@@ -587,7 +625,9 @@ pub fn act(
             state.draws = state.draws.saturating_add(1);
             state.fictional = true;
             let text = state.text.clone();
-            effect(state, vec![event("fortune.draw", text)])
+            let mut draft = event("fortune.draw", text);
+            draft.payload = target_payload(draft.payload, target);
+            effect(state, vec![draft])
         }
         "plant" => {
             empty(input)?;
@@ -794,6 +834,40 @@ pub fn tick(kind: &str, data: &Value, now: i64) -> Result<Option<WidgetEffect>, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn play_targets_change_only_reaction_routing_not_game_results() {
+        for (kind, action, input) in [
+            ("small-match", "dice", json!({})),
+            ("small-match", "coin", json!({"choice":"heads"})),
+            ("small-match", "rps", json!({"choice":"paper"})),
+            ("fortune", "draw", json!({})),
+        ] {
+            let original = act(kind, &initial(kind), action, &input, 1000, 19).unwrap();
+            let mut targeted = input;
+            targeted["character"] = json!("B");
+            targeted["owner"] = json!("second-friend");
+            let actual = act(kind, &initial(kind), action, &targeted, 1000, 19).unwrap();
+            assert_eq!(actual.data, original.data);
+            assert_eq!(actual.events[0].text, original.events[0].text);
+            assert_eq!(actual.events[0].payload["owner"], "second-friend");
+            assert_eq!(actual.events[0].payload["character"], "B");
+        }
+        for input in [
+            json!({"character":"A"}),
+            json!({"owner":"first-friend"}),
+            json!({"character":"Z","owner":"first-friend"}),
+        ] {
+            assert!(act(
+                "small-match",
+                &initial("small-match"),
+                "dice",
+                &input,
+                1000,
+                19
+            )
+            .is_err());
+        }
+    }
     #[test]
     fn match_reactions_use_korean_labels_without_changing_game_identifiers() {
         for (action, input, a, b, expected) in [

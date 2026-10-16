@@ -498,6 +498,12 @@ fn project(snapshot: &WidgetSnapshot, now: i64) -> (BTreeMap<String, Value>, BTr
             }
             "memo" => set("count", json!(rows(&d["notes"]).len())),
             "weather" => {
+                if d["config"]["allowTalk"] == false {
+                    set("ready", json!(false));
+                    set("status", json!("disabled"));
+                    available.remove(kind);
+                    continue;
+                }
                 let o = &d["observation"];
                 set("temperature", o["temperature"].clone());
                 set("code", o["weatherCode"].clone());
@@ -931,6 +937,16 @@ mod tests {
         assert_eq!(values["music.status"], "disabled");
         assert_eq!(values["music.title"], Value::Null);
         assert!(!available.contains("music"));
+    }
+    #[test]
+    fn weather_talk_permission_keeps_local_weather_out_of_conversation_context() {
+        let now = 1_000_000;
+        let data = json!({"status":"ready","lastSuccessAt":now,"config":{"allowTalk":false},"observation":{"observedAt":now,"name":"서울","temperature":21,"weatherCode":0}});
+        let (values, available) = project(&snapshot("weather", data), now);
+        assert_eq!(values["weather.ready"], false);
+        assert_eq!(values["weather.status"], "disabled");
+        assert_eq!(values["weather.temperature"], Value::Null);
+        assert!(!available.contains("weather"));
     }
     #[test]
     fn elapsed_freshness_invalidates_successful_cache() {
