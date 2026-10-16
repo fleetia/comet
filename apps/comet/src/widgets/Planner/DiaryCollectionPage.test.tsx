@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DiaryCollectionPage, discardDiaryCollectionDraft } from "./DiaryCollectionPage";
 import type { DiaryPageProps } from "./DiaryPage";
+import * as styles from "./diaryCollection.css";
 import type { DiaryPage } from "./diaryTypes";
 
 const source: DiaryPage = {
@@ -336,5 +337,35 @@ it("keeps quick-add writing while page metadata is edited and lets reviewed meta
       goalId: null,
       expectedPage: latest,
     }),
+  );
+});
+
+it("fills record editor inputs without changing quick-add date width or authored values", async () => {
+  const callbacks = props();
+  render(<DiaryCollectionPage {...callbacks} pages={[page, source]} />);
+  expect(screen.getByLabelText("기록 날짜").classList.contains(styles.input)).toBe(false);
+  const editor = openEntry();
+  for (const label of ["기록 날짜", "기록 내용", "한 줄 평"]) {
+    expect(editor.getByLabelText(label).classList.contains(styles.input)).toBe(true);
+  }
+  fireEvent.change(editor.getByLabelText("기록 날짜"), { target: { value: "2026-10-04" } });
+  fireEvent.change(editor.getByLabelText("기록 내용"), {
+    target: { value: "  긴 기록\n다음 줄  " },
+  });
+  fireEvent.change(editor.getByLabelText("한 줄 평"), { target: { value: "  남길 감상  " } });
+  fireEvent.click(editor.getByRole("button", { name: "기록 저장" }));
+  await waitFor(() =>
+    expect(callbacks.onDiaryAction).toHaveBeenCalledWith(
+      "entry-update",
+      expect.objectContaining({
+        recordDate: "2026-10-04",
+        text: "  긴 기록\n다음 줄  ",
+        review: "  남길 감상  ",
+        rating: 0,
+        sourcePageId: "daily",
+        sourceEntryId: "original",
+        expectedEntry: page.entries[2],
+      }),
+    ),
   );
 });
