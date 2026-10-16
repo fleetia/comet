@@ -633,6 +633,30 @@ fn displayable(state: &AppState, id: &str) -> Result<(Layout, HashMap<String, St
     Ok((layout, placeable))
 }
 
+#[cfg(target_os = "linux")]
+fn request_display_size(window: &tauri::WebviewWindow, size: (f64, f64)) -> Result<(), String> {
+    let target = window.clone();
+    let (send, receive) = std::sync::mpsc::channel();
+    window
+        .run_on_main_thread(move || {
+            use gtk::prelude::WidgetExt;
+            let result = target
+                .gtk_window()
+                .map(|native| {
+                    // Empty WebKit requisitions otherwise become GTK's 200px natural
+                    // size, fixed as min=max for non-resizable windows. resize alone
+                    // cannot override it. Refresh the request for shape edits too.
+                    native.set_size_request(size.0.round() as i32, size.1.round() as i32);
+                })
+                .map_err(|error| error.to_string());
+            let _ = send.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+    // Tauri runs the closure inline when already on the UI thread. Otherwise
+    // wait before resize/map so the first frame uses the placement dimensions.
+    receive.recv().map_err(|error| error.to_string())?
+}
+
 // No lifecycle lock is held while native window calls wait for the main thread.
 fn open_display(app: &tauri::AppHandle, state: &AppState, id: &str) -> Result<(), String> {
     widget_id(id)?;
@@ -661,6 +685,8 @@ fn open_display(app: &tauri::AppHandle, state: &AppState, id: &str) -> Result<()
         .build()
         .map_err(|e| e.to_string())?,
     };
+    #[cfg(target_os = "linux")]
+    request_display_size(&window, size)?;
     window
         .set_size(tauri::LogicalSize::new(size.0, size.1))
         .map_err(|e| e.to_string())?;
@@ -1632,6 +1658,22 @@ mod tests {
         let full = [AREA];
         let fallback = auto_place(AREA, size, &full);
         assert!(fallback.x >= AREA.x && fallback.y >= AREA.y);
+    }
+
+    #[test]
+    fn compact_widgets_use_their_content_sizes_for_non_overlapping_placement() {
+        let todo = display_size(None, "todo");
+        let focus = display_size(None, "focus-timer");
+        assert_eq!(todo, (124.0, 54.0));
+        assert_eq!(focus, (180.0, 192.0));
+        assert_eq!(display_size(None, "memo"), (238.0, 174.0));
+        let first = auto_place(AREA, todo, &[]);
+        let occupied = [Rect::at(&first, todo)];
+        let second = auto_place(AREA, focus, &occupied);
+        assert_eq!(second.y, first.y + todo.1);
+        assert!(!Rect::at(&second, focus).intersects(&occupied[0]));
+        // Removing and placing the timer again yields the same safe position.
+        assert_eq!(auto_place(AREA, focus, &occupied), second);
     }
 
     #[test]
