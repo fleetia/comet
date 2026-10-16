@@ -308,6 +308,21 @@ fn snap(point: &Point, size: (f64, f64), others: &[Rect], grid: bool, guides: bo
     }
 }
 
+/// Unlike freeform widgets, keep the whole stack reachable after its content changes size.
+fn clamp_stack_point(point: &Point, size: (f64, f64), areas: &[Rect]) -> Point {
+    let distance = |candidate: &Point| {
+        (candidate.x - point.x).powi(2) + (candidate.y - point.y).powi(2)
+    };
+    areas
+        .iter()
+        .map(|area| Point {
+            x: point.x.clamp(area.x, (area.x + area.width - size.0).max(area.x)),
+            y: point.y.clamp(area.y, (area.y + area.height - size.1).max(area.y)),
+        })
+        .min_by(|a, b| distance(a).total_cmp(&distance(b)))
+        .unwrap_or_else(|| point.clone())
+}
+
 fn stack_origin(area: Rect, size: (f64, f64), anchor: &Anchor) -> Point {
     let left = area.x + INSET;
     let top = area.y + INSET;
@@ -732,11 +747,10 @@ fn position_stack(
     app: &tauri::AppHandle,
     window: &tauri::WebviewWindow,
     layout: &Layout,
+    size: (f64, f64),
 ) -> Result<(), String> {
-    let rect = window_rect(window)?;
-    let size = (rect.width, rect.height);
     let point = match &layout.stack_position {
-        Some(saved) => clamp_point(saved, size, &work_areas(app)?),
+        Some(saved) => clamp_stack_point(saved, size, &work_areas(app)?),
         None => stack_origin(window_area(app, window)?, size, &layout.anchor),
     };
     place(app, window, &point)
@@ -767,7 +781,8 @@ fn open_stack(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?,
     };
-    position_stack(app, &window, &layout)?;
+    let rect = window_rect(&window)?;
+    position_stack(app, &window, &layout, (rect.width, rect.height))?;
     window.show().map_err(|e| e.to_string())
 }
 
@@ -1270,7 +1285,8 @@ pub(crate) async fn fit_widget_stack(
     window
         .set_size(tauri::LogicalSize::new(size.0, size.1))
         .map_err(|e| e.to_string())?;
-    position_stack(&app, &window, &layout)
+    // Native resize is asynchronous: outer_size may still describe the previous content.
+    position_stack(&app, &window, &layout, size)
 }
 
 #[tauri::command]
@@ -1686,6 +1702,48 @@ mod tests {
         assert_eq!(snap(&point, size, &others, false, false), point);
         let far = Point { x: 500.0, y: 403.0 };
         assert_eq!(snap(&far, size, &others, true, true), Point { x: 504.0, y: 400.0 });
+    }
+
+    #[test]
+    fn stack_fold_uses_the_target_width_for_anchored_and_saved_positions() {
+        let area = Rect { x: 0.0, y: 0.0, width: 1364.0, height: 1024.0 };
+        let saved = Point { x: 954.0, y: 24.0 };
+        for _ in 0..2 {
+            assert_eq!(clamp_stack_point(&saved, (354.0, 320.0), &[area]), saved);
+            assert_eq!(
+                clamp_stack_point(&saved, (454.0, 92.0), &[area]),
+                Point { x: 910.0, y: 24.0 }
+            );
+            assert_eq!(
+                stack_origin(area, (454.0, 92.0), &Anchor::TopRight),
+                Point { x: 886.0, y: 24.0 }
+            );
+        }
+        // Freeform windows deliberately retain their partially visible saved placement.
+        assert_eq!(clamp_point(&saved, (454.0, 92.0), &[area]), saved);
+    }
+
+    #[test]
+    fn stack_bounds_preserve_visible_positions_and_choose_the_nearest_monitor() {
+        let left = Rect { x: -1364.0, y: -200.0, width: 1364.0, height: 1024.0 };
+        let right = Rect { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0 };
+        let areas = [left, right];
+        let visible = Point { x: -800.5, y: 20.25 };
+        assert_eq!(clamp_stack_point(&visible, (454.0, 92.0), &areas), visible);
+        for (point, expected) in [
+            (Point { x: -410.0, y: 24.0 }, Point { x: -454.0, y: 24.0 }),
+            (Point { x: -1400.0, y: -240.0 }, Point { x: -1364.0, y: -200.0 }),
+            (Point { x: 1800.0, y: 1000.0 }, Point { x: 1466.0, y: 988.0 }),
+            (Point { x: 4000.0, y: -500.0 }, Point { x: 1466.0, y: 0.0 }),
+        ] {
+            assert_eq!(clamp_stack_point(&point, (454.0, 92.0), &areas), expected);
+        }
+        assert_eq!(clamp_stack_point(&visible, (454.0, 92.0), &[]), visible);
+        let tiny = Rect { x: -200.0, y: 50.0, width: 40.0, height: 30.0 };
+        assert_eq!(
+            clamp_stack_point(&visible, (80.0, 48.0), &[tiny]),
+            Point { x: -200.0, y: 50.0 }
+        );
     }
 
     #[test]
