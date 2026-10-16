@@ -518,7 +518,7 @@ export function ExpandedDesktopWidget({
       <TimerTool
         widget={widget}
         widgets={widgets}
-        act={act}
+        act={(action, input, target = widget) => act(action, input, target)}
         embedded
         onCollapse={onCollapse}
         busy={!widget.installed || !widget.enabled}

@@ -186,3 +186,24 @@ export const LongMusicDescription: Story = {
     style: { width: 330 },
   },
 };
+export const ClockLongAnniversary: Story = {
+  name: "좁은 시계 · 긴 기념일",
+  args: {
+    ...Clock.args,
+    title: "12:59:59",
+    period: "오후",
+    layout: "stack",
+    style: { width: 330 },
+    meta: (
+      <>
+        <strong>D-day</strong>
+        <br />
+        qa anniversary long title 0123456789
+      </>
+    ),
+  },
+};
+export const ClockLongAnniversaryEditor: Story = {
+  name: "좁은 시계 편집 · 긴 기념일",
+  args: { ...ClockLongAnniversary.args, layout: "editor" },
+};

@@ -56,6 +56,9 @@ export const surfaces = styleVariants({
 export const active = style({ borderColor: tokens["color/selected-border"] });
 export const rest = style({ color: tokens["color/byul-ink"] });
 export const rowCopy = style({ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 });
+// Keep the full clock (including seconds and period) ahead of optional anniversary copy.
+export const rowClockCopy = style({ flex: "1 0 auto" });
+export const rowClockIcon = style({ flexShrink: 0 });
 export const rowTitle = style({
   fontSize: 14,
   fontWeight: 600,
@@ -105,6 +108,12 @@ export const rowMeta = style({
   fontSize: 11,
   lineHeight: "14px",
   color: tokens["color/ink-2"],
+});
+export const rowClockMeta = style({
+  minWidth: 0,
+  overflow: "hidden",
+  whiteSpace: "nowrap",
+  textOverflow: "ellipsis",
 });
 globalStyle(`${rowMeta} strong`, {
   color: tokens["color/ink"],

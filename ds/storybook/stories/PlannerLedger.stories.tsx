@@ -88,7 +88,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "금액·분류·예약일을 전달하는 표시 컴포넌트입니다. 원 단위 표기와 날짜 형식은 소비자가 결정합니다. QuickAdd는 native form 검증 뒤 원문 amount/category/memo를 onAdd로 전달합니다. 예산·예측의 수치는 props이며 계좌 연결이나 실제 지출 저장은 포함하지 않습니다.",
+          "금액·분류·예약일을 전달하는 표시 컴포넌트입니다. 원 단위 표기와 날짜 형식은 소비자가 결정합니다. QuickAdd는 native form 검증 뒤 원문 amount/category/memo를 onAdd로 전달합니다. 예산·예측의 수치는 props이며 계좌 연결이나 실제 지출 저장은 포함하지 않습니다. 12개월 예측은 첫달·마지막달 금액을 기본 표시하고, 각 월에 마우스나 키보드 초점을 두면 전체 금액을 표시합니다. Escape로 기본 표시를 복원합니다.",
       },
     },
   },
@@ -207,4 +207,36 @@ export const RecurringCosts: Story = {
   parameters: { controls: { disable: true } },
   name: "Recurring Costs",
   render: () => <LedgerRecurringCosts items={recurring} summary="한 달 평균 약 175,900원" />,
+};
+
+export const ForecastMonthlyAmounts: Story = {
+  name: "12 Month Forecast · 매달 금액",
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <Ledger12MonthForecast
+      months={Array.from({ length: 12 }, (_, index) => ({
+        id: String(index),
+        label: `${((index + 9) % 12) + 1}월`,
+        recurring: 1000,
+        occasional: 0,
+        valueLabel: "1,000원",
+      }))}
+    />
+  ),
+};
+
+export const ForecastLargeAmounts: Story = {
+  name: "12 Month Forecast · 큰 금액과 0원",
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <Ledger12MonthForecast
+      months={Array.from({ length: 12 }, (_, index) => ({
+        id: String(index),
+        label: `${((index + 9) % 12) + 1}월`,
+        recurring: index === 5 ? 0 : 123456789,
+        occasional: index === 8 ? 100000000 : 0,
+        valueLabel: index === 5 ? "0원" : index === 8 ? "223,456,789원" : "123,456,789원",
+      }))}
+    />
+  ),
 };

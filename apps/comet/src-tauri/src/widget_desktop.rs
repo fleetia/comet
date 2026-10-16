@@ -308,6 +308,21 @@ fn snap(point: &Point, size: (f64, f64), others: &[Rect], grid: bool, guides: bo
     }
 }
 
+/// Unlike freeform widgets, keep the whole stack reachable after its content changes size.
+fn clamp_stack_point(point: &Point, size: (f64, f64), areas: &[Rect]) -> Point {
+    let distance = |candidate: &Point| {
+        (candidate.x - point.x).powi(2) + (candidate.y - point.y).powi(2)
+    };
+    areas
+        .iter()
+        .map(|area| Point {
+            x: point.x.clamp(area.x, (area.x + area.width - size.0).max(area.x)),
+            y: point.y.clamp(area.y, (area.y + area.height - size.1).max(area.y)),
+        })
+        .min_by(|a, b| distance(a).total_cmp(&distance(b)))
+        .unwrap_or_else(|| point.clone())
+}
+
 fn stack_origin(area: Rect, size: (f64, f64), anchor: &Anchor) -> Point {
     let left = area.x + INSET;
     let top = area.y + INSET;
@@ -633,6 +648,30 @@ fn displayable(state: &AppState, id: &str) -> Result<(Layout, HashMap<String, St
     Ok((layout, placeable))
 }
 
+#[cfg(target_os = "linux")]
+fn request_display_size(window: &tauri::WebviewWindow, size: (f64, f64)) -> Result<(), String> {
+    let target = window.clone();
+    let (send, receive) = std::sync::mpsc::channel();
+    window
+        .run_on_main_thread(move || {
+            use gtk::prelude::WidgetExt;
+            let result = target
+                .gtk_window()
+                .map(|native| {
+                    // Empty WebKit requisitions otherwise become GTK's 200px natural
+                    // size, fixed as min=max for non-resizable windows. resize alone
+                    // cannot override it. Refresh the request for shape edits too.
+                    native.set_size_request(size.0.round() as i32, size.1.round() as i32);
+                })
+                .map_err(|error| error.to_string());
+            let _ = send.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+    // Tauri runs the closure inline when already on the UI thread. Otherwise
+    // wait before resize/map so the first frame uses the placement dimensions.
+    receive.recv().map_err(|error| error.to_string())?
+}
+
 // No lifecycle lock is held while native window calls wait for the main thread.
 fn open_display(app: &tauri::AppHandle, state: &AppState, id: &str) -> Result<(), String> {
     widget_id(id)?;
@@ -661,6 +700,8 @@ fn open_display(app: &tauri::AppHandle, state: &AppState, id: &str) -> Result<()
         .build()
         .map_err(|e| e.to_string())?,
     };
+    #[cfg(target_os = "linux")]
+    request_display_size(&window, size)?;
     window
         .set_size(tauri::LogicalSize::new(size.0, size.1))
         .map_err(|e| e.to_string())?;
@@ -706,11 +747,10 @@ fn position_stack(
     app: &tauri::AppHandle,
     window: &tauri::WebviewWindow,
     layout: &Layout,
+    size: (f64, f64),
 ) -> Result<(), String> {
-    let rect = window_rect(window)?;
-    let size = (rect.width, rect.height);
     let point = match &layout.stack_position {
-        Some(saved) => clamp_point(saved, size, &work_areas(app)?),
+        Some(saved) => clamp_stack_point(saved, size, &work_areas(app)?),
         None => stack_origin(window_area(app, window)?, size, &layout.anchor),
     };
     place(app, window, &point)
@@ -741,7 +781,8 @@ fn open_stack(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?,
     };
-    position_stack(app, &window, &layout)?;
+    let rect = window_rect(&window)?;
+    position_stack(app, &window, &layout, (rect.width, rect.height))?;
     window.show().map_err(|e| e.to_string())
 }
 
@@ -1244,7 +1285,8 @@ pub(crate) async fn fit_widget_stack(
     window
         .set_size(tauri::LogicalSize::new(size.0, size.1))
         .map_err(|e| e.to_string())?;
-    position_stack(&app, &window, &layout)
+    // Native resize is asynchronous: outer_size may still describe the previous content.
+    position_stack(&app, &window, &layout, size)
 }
 
 #[tauri::command]
@@ -1635,6 +1677,22 @@ mod tests {
     }
 
     #[test]
+    fn compact_widgets_use_their_content_sizes_for_non_overlapping_placement() {
+        let todo = display_size(None, "todo");
+        let focus = display_size(None, "focus-timer");
+        assert_eq!(todo, (124.0, 54.0));
+        assert_eq!(focus, (180.0, 192.0));
+        assert_eq!(display_size(None, "memo"), (238.0, 174.0));
+        let first = auto_place(AREA, todo, &[]);
+        let occupied = [Rect::at(&first, todo)];
+        let second = auto_place(AREA, focus, &occupied);
+        assert_eq!(second.y, first.y + todo.1);
+        assert!(!Rect::at(&second, focus).intersects(&occupied[0]));
+        // Removing and placing the timer again yields the same safe position.
+        assert_eq!(auto_place(AREA, focus, &occupied), second);
+    }
+
+    #[test]
     fn snapping_prefers_nearby_widget_edges_then_the_grid() {
         let others = [Rect { x: 100.0, y: 100.0, width: 200.0, height: 100.0 }];
         let size = (120.0, 80.0);
@@ -1644,6 +1702,48 @@ mod tests {
         assert_eq!(snap(&point, size, &others, false, false), point);
         let far = Point { x: 500.0, y: 403.0 };
         assert_eq!(snap(&far, size, &others, true, true), Point { x: 504.0, y: 400.0 });
+    }
+
+    #[test]
+    fn stack_fold_uses_the_target_width_for_anchored_and_saved_positions() {
+        let area = Rect { x: 0.0, y: 0.0, width: 1364.0, height: 1024.0 };
+        let saved = Point { x: 954.0, y: 24.0 };
+        for _ in 0..2 {
+            assert_eq!(clamp_stack_point(&saved, (354.0, 320.0), &[area]), saved);
+            assert_eq!(
+                clamp_stack_point(&saved, (454.0, 92.0), &[area]),
+                Point { x: 910.0, y: 24.0 }
+            );
+            assert_eq!(
+                stack_origin(area, (454.0, 92.0), &Anchor::TopRight),
+                Point { x: 886.0, y: 24.0 }
+            );
+        }
+        // Freeform windows deliberately retain their partially visible saved placement.
+        assert_eq!(clamp_point(&saved, (454.0, 92.0), &[area]), saved);
+    }
+
+    #[test]
+    fn stack_bounds_preserve_visible_positions_and_choose_the_nearest_monitor() {
+        let left = Rect { x: -1364.0, y: -200.0, width: 1364.0, height: 1024.0 };
+        let right = Rect { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0 };
+        let areas = [left, right];
+        let visible = Point { x: -800.5, y: 20.25 };
+        assert_eq!(clamp_stack_point(&visible, (454.0, 92.0), &areas), visible);
+        for (point, expected) in [
+            (Point { x: -410.0, y: 24.0 }, Point { x: -454.0, y: 24.0 }),
+            (Point { x: -1400.0, y: -240.0 }, Point { x: -1364.0, y: -200.0 }),
+            (Point { x: 1800.0, y: 1000.0 }, Point { x: 1466.0, y: 988.0 }),
+            (Point { x: 4000.0, y: -500.0 }, Point { x: 1466.0, y: 0.0 }),
+        ] {
+            assert_eq!(clamp_stack_point(&point, (454.0, 92.0), &areas), expected);
+        }
+        assert_eq!(clamp_stack_point(&visible, (454.0, 92.0), &[]), visible);
+        let tiny = Rect { x: -200.0, y: 50.0, width: 40.0, height: 30.0 };
+        assert_eq!(
+            clamp_stack_point(&visible, (80.0, 48.0), &[tiny]),
+            Point { x: -200.0, y: 50.0 }
+        );
     }
 
     #[test]

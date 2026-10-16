@@ -607,6 +607,29 @@ it("opens its own new undated page after another page was created elsewhere, the
   expect(opened().queryByRole("checkbox", { name: "오늘 준비" })).toBeNull();
 });
 
+it("preserves the full long page title and page selection/create actions", async () => {
+  const title =
+    "qa page long title alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron";
+  diary.pages = [
+    { id: "long-page", title, date: null, entries: [] },
+    { id: "other-page", title: "다른 페이지", date: null, entries: [] },
+  ];
+  await openDiary();
+  showPage(title);
+  expect(opened().getByRole("heading", { name: title, level: 1 }).getAttribute("title")).toBe(
+    title,
+  );
+  expect(screen.getByRole("combobox", { name: "내 페이지 선택" })).toHaveProperty(
+    "value",
+    "long-page",
+  );
+  showPage("다른 페이지");
+  expect(opened().getByRole("heading", { name: "다른 페이지", level: 1 })).toBeTruthy();
+  showPage(title);
+  fireEvent.click(opened().getByRole("button", { name: "새 페이지" }));
+  expect(screen.getByRole("dialog", { name: "새 페이지" })).toBeTruthy();
+});
+
 it("moves a dated Todo from a collection using the Todo's actual date while preserving the deadline", async () => {
   const item = task("task", "책 반납", "2026-10-01");
   setTasks([item]);
@@ -1019,7 +1042,13 @@ it("adds an original desktop memo reference from persistent notes to an undated 
   showPage("생각 모음");
   showNotes();
   fireEvent.click(screen.getByRole("button", { name: "페이지에 연결" }));
-  await screen.findByText("이 페이지에 연결했어요.");
+  expect(screen.getByText("연결 대상: 생각 모음").closest("[hidden]")).toBeNull();
+  await waitFor(() =>
+    expect(
+      screen.getAllByRole("status").some((node) => node.textContent === "이 페이지에 연결했어요."),
+    ).toBe(true),
+  );
+  expect(screen.getByRole("button", { name: "페이지에 연결" })).toBeTruthy();
   expect(actions("update_diary")).toEqual([
     {
       expectedRevision: 3,
@@ -1034,6 +1063,65 @@ it("adds an original desktop memo reference from persistent notes to an undated 
     },
   ]);
   expect(actions("execute_widget")).toEqual([]);
+});
+
+it.each([DAY, NEXT_DAY])(
+  "shows the retained %s link target and success without leaving notes",
+  async (date) => {
+    widgets.widgets = [widget("memo", { notes: [{ id: "note-1", body: "원본 메모" }] })];
+    diary.pages = [{ id: "target", title: "", date, entries: [] }];
+    update = () => ({ ...diary, revision: 4 });
+    await openDiary();
+    if (date !== DAY) chooseDay(date);
+    showNotes();
+    expect(screen.getByText(`연결 대상: ${date}`).closest("[hidden]")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "페이지에 연결" }));
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("status").some((node) => node.textContent === `${date}에 연결했어요.`),
+      ).toBe(true),
+    );
+    expect(screen.getByRole("link", { name: /^메모/ }).getAttribute("aria-current")).toBe("page");
+    expect(actions("update_diary")[0]).toMatchObject({
+      action: "entry-add",
+      input: { pageId: "target", itemId: "note-1" },
+    });
+  },
+);
+
+it("blocks duplicate pending note links and clears success when a retry fails", async () => {
+  widgets.widgets = [widget("memo", { notes: [{ id: "note-1", body: "원본 메모" }] })];
+  diary.pages = [{ id: "target", title: "", date: DAY, entries: [] }];
+  let finish: ((state: DiaryState) => void) | undefined;
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation((name, args) =>
+    name === "update_diary"
+      ? new Promise((resolve) => {
+          finish = resolve;
+        })
+      : fallback(name, args),
+  );
+  await openDiary();
+  showNotes();
+  const link = screen.getByRole("button", { name: "페이지에 연결" });
+  fireEvent.click(link);
+  fireEvent.click(link);
+  await waitFor(() => expect(actions("update_diary")).toHaveLength(1));
+  expect(link).toHaveProperty("disabled", true);
+  await act(async () => finish?.({ ...diary, revision: 4 }));
+  await waitFor(() =>
+    expect(
+      screen.getAllByRole("status").some((node) => node.textContent === `${DAY}에 연결했어요.`),
+    ).toBe(true),
+  );
+  vi.mocked(command).mockImplementation((name, args) =>
+    name === "update_diary" ? Promise.reject(new Error("연결 저장 실패")) : fallback(name, args),
+  );
+  fireEvent.click(link);
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("연결 저장 실패"));
+  expect(screen.queryByText(`${DAY}에 연결했어요.`)).toBeNull();
+  expect(link).toHaveProperty("disabled", false);
+  expect(screen.getByText(`연결 대상: ${DAY}`)).toBeTruthy();
 });
 
 it("creates a dated page for a dropped widget reference and uses its returned revision", async () => {

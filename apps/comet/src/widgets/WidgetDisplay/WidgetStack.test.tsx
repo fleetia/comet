@@ -255,3 +255,155 @@ it("enters desktop editing from the stack toolbar", async () => {
     expect(command).toHaveBeenCalledWith("set_widget_desktop_editing", { editing: true }),
   );
 });
+
+it("routes the embedded timer lifecycle to its current widget revision", async () => {
+  localStorage.clear();
+  let timer = {
+    ...widget("focus", "focus-timer"),
+    data: { status: "idle", mode: "focus", durationMs: 60000, remainingMs: 60000 },
+  } as WidgetView;
+  state.order = [timer.id];
+  setWidgets([timer]);
+  const view = render(<WidgetStack />);
+  await screen.findByText("01:00");
+  fireEvent.click(document.querySelector('[data-desktop-widget="focus"] button')!);
+  fireEvent.change(screen.getByLabelText("집중할 일"), { target: { value: "스택 집중" } });
+  for (const [label, actionName, status] of [
+    ["집중 시작", "start", "running"],
+    ["일시정지", "pause", "paused"],
+    ["다시 시작", "resume", "running"],
+    ["그만하기", "cancel", "idle"],
+  ]) {
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: label })));
+    expect(command).toHaveBeenLastCalledWith("execute_widget", {
+      request: {
+        requestId: expect.any(String),
+        instanceId: timer.id,
+        expectedRevision: timer.revision,
+        action: actionName,
+        input:
+          actionName === "start" ? { durationMs: 60000, todoId: null, title: "스택 집중" } : {},
+      },
+    });
+    timer = {
+      ...timer,
+      revision: timer.revision + 1,
+      data: {
+        ...(timer.data as object),
+        status,
+        title: "스택 집중",
+        deadline: status === "running" ? Date.now() + 60000 : null,
+      },
+    };
+    setWidgets([timer]);
+    view.rerender(<WidgetStack />);
+  }
+  expect(screen.getByRole("button", { name: "집중 시작" })).toBeTruthy();
+});
+
+it("binds embedded configure to the timer and preserves explicit linked todo targets", async () => {
+  localStorage.clear();
+  const timer = {
+    ...widget("focus", "focus-timer"),
+    data: {
+      status: "idle",
+      mode: "focus",
+      durationMs: 60000,
+      remainingMs: 60000,
+    },
+  };
+  const calendar = {
+    ...widget("calendar", "calendar"),
+    data: {
+      events: [
+        {
+          id: "event",
+          title: "원고 쓰기",
+          startAt: Date.now() + 60000,
+          endAt: Date.now() + 31 * 60000,
+          allDay: false,
+          cancelled: false,
+          connectionId: "local",
+          sourceId: "local",
+          occurrenceId: "event",
+        },
+      ],
+      connections: [],
+    },
+  };
+  const todo = {
+    ...widget("todo", "todo"),
+    revision: 9,
+    data: {
+      items: [{ id: "task", title: "원고 마무리", completedAt: null }],
+    },
+  };
+  state.order = [timer.id];
+  setWidgets([timer, calendar, todo]);
+  const view = render(<WidgetStack />);
+  await screen.findByText("01:00");
+  fireEvent.click(document.querySelector('[data-desktop-widget="focus"] button')!);
+  fireEvent.click(screen.getByRole("button", { name: "캘린더 일정 연결" }));
+  fireEvent.click(screen.getByRole("button", { name: "원고 쓰기 일정 상세" }));
+  await act(async () =>
+    fireEvent.click(screen.getByRole("button", { name: "이 일정으로 집중 준비" })),
+  );
+  expect(command).toHaveBeenCalledWith("execute_widget", {
+    request: expect.objectContaining({
+      instanceId: timer.id,
+      expectedRevision: timer.revision,
+      action: "configure",
+      input: expect.objectContaining({ title: "원고 쓰기", durationMs: 1800000 }),
+    }),
+  });
+  expect(screen.getByLabelText("집중할 일")).toHaveProperty("value", "원고 쓰기");
+  setWidgets([
+    {
+      ...timer,
+      revision: 4,
+      data: {
+        status: "finished",
+        mode: "focus",
+        todoId: "task",
+        durationMs: 60000,
+        remainingMs: 0,
+      },
+    },
+    calendar,
+    todo,
+  ]);
+  view.rerender(<WidgetStack />);
+  await act(async () =>
+    fireEvent.click(screen.getByRole("checkbox", { name: "원고 마무리 완료로 표시" })),
+  );
+  expect(command).toHaveBeenLastCalledWith("execute_widget", {
+    request: expect.objectContaining({
+      instanceId: todo.id,
+      expectedRevision: 9,
+      action: "complete",
+      input: { id: "task" },
+    }),
+  });
+});
+
+it("surfaces rejected embedded timer commands without losing its input", async () => {
+  localStorage.clear();
+  state.order = ["focus"];
+  setWidgets([
+    {
+      ...widget("focus", "focus-timer"),
+      data: { status: "idle", durationMs: 60000, remainingMs: 60000 },
+    },
+  ]);
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_widget_desktop") return state;
+    if (name === "execute_widget") throw new Error("다른 화면에서 타이머가 바뀌었어요.");
+  });
+  render(<WidgetStack />);
+  await screen.findByText("01:00");
+  fireEvent.click(document.querySelector('[data-desktop-widget="focus"] button')!);
+  fireEvent.change(screen.getByLabelText("집중할 일"), { target: { value: "남겨둘 초안" } });
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "집중 시작" })));
+  expect(screen.getByRole("alert").textContent).toContain("다른 화면에서 타이머가 바뀌었어요.");
+  expect(screen.getByLabelText("집중할 일")).toHaveProperty("value", "남겨둘 초안");
+});

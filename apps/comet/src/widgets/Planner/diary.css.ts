@@ -147,6 +147,9 @@ export const toolbar = style({
   gap: 8,
   flexShrink: 0,
 });
+export const pageHeading = style([toolbar, { flex: 1, minWidth: 0, flexWrap: "nowrap" }]);
+export const pageSelect = style({ width: 200, maxWidth: "30vw", minWidth: 0 });
+globalStyle(`${pageSelect} > span, ${pageSelect} select`, { width: "100%", minWidth: 0 });
 export const spread = style({ flex: 1 });
 export const title = style({
   fontFamily: tokens["typography/display/page/fontFamily"],
@@ -154,6 +157,12 @@ export const title = style({
   lineHeight: "32px",
   fontWeight: 400,
   margin: 0,
+});
+globalStyle(`${pageHeading} > h1`, {
+  minWidth: 0,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
 });
 export const indexTitle = style({
   fontFamily: tokens["typography/display/title-sm/fontFamily"],
@@ -541,6 +550,7 @@ globalStyle(`${railHeader} [aria-label="창 제어"] > button`, {
 globalStyle(`${railHeader} > div > div:empty`, { display: "none" });
 export const railDivider = style({ height: 12, flexShrink: 0 });
 export const pageNavigation = style({
+  minWidth: 0,
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
