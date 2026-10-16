@@ -1,5 +1,12 @@
 # @comet/storybook
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [0bee3ba]
+  - @comet/ui@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes
