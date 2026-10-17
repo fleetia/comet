@@ -30,6 +30,9 @@ fn begin_reply(state: &AppState, playback_id: &str) -> Result<u64, String> {
         .filter(|line| line.id == playback_id && line.display_started_at.is_some())
         .cloned()
         .ok_or("이 말풍선은 이미 지나갔어요. 지난 대화에서 확인해 주세요.")?;
+    if line.source == "update" {
+        return Err("업데이트 알림의 이동하기 버튼으로 설정을 열어 주세요.".into());
+    }
     let actor = crate::character_guests::actor(state, &db, &line.persona)?;
     let center = crate::character_guests::center_id(state, &actor.id)?.unwrap_or(actor.id.clone());
     crate::character_life::wake(state, &actor.id)?;
@@ -339,6 +342,36 @@ mod tests {
         assert!(store::active_conversation(&lock(&state.db).unwrap())
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn update_notices_cannot_be_captured_as_a_conversation_reply() {
+        let state = super::super::tests::state();
+        let actor = characters::active_ids(&lock(&state.db).unwrap()).unwrap()[0].clone();
+        *lock(&state.playback).unwrap() = Some(Playback {
+            id: "update-notice".into(),
+            persona: actor,
+            expression: "평온".into(),
+            text: "새로운 업데이트가 있어요!".into(),
+            motion: Default::default(),
+            source: "update".into(),
+            text_speed: 0,
+            display_started_at: Some(1),
+            ends_at: 100,
+            line_index: 0,
+            line_count: 1,
+        });
+        assert!(begin_reply(&state, "update-notice")
+            .unwrap_err()
+            .contains("이동하기"));
+        assert!(lock(&state.panel).unwrap().is_none());
+        assert!(store::active_conversation(&lock(&state.db).unwrap())
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            lock(&state.playback).unwrap().as_ref().unwrap().id,
+            "update-notice"
+        );
     }
 
     #[test]

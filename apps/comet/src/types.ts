@@ -300,6 +300,7 @@ export type Playback = SceneLine & {
     | "question"
     | "reaction"
     | "presence"
+    | "update"
     | "npc"
     | "scenario";
   endsAt: number;
@@ -318,7 +319,7 @@ export type StoryRequest = {
 };
 export type PanelState = {
   persona: Persona;
-  mode: "menu" | "input" | "history" | "name" | "focus";
+  mode: "menu" | "input" | "history" | "name" | "focus" | "update";
 };
 export type Dispatch = (name: string, args?: Record<string, unknown>) => Promise<void>;
 export type LocalModel =

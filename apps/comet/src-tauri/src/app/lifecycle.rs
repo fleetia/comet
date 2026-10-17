@@ -574,6 +574,8 @@ pub fn run() {
             updater::get_update_status,
             updater::check_app_update,
             updater::install_app_update,
+            updater::expand_update_notice,
+            updater::open_update_settings,
             crate::memo_notes::create_memo_note,
             crate::memo_notes::open_memo_note,
             crate::memo_notes::close_memo_note,

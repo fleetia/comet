@@ -15,6 +15,10 @@
         {
           "id": "49:49229",
           "name": "Balloon/Tail"
+        },
+        {
+          "id": "616:33333",
+          "name": "Balloon/Update Notice"
         }
       ]
     },
