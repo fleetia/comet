@@ -1,6 +1,7 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { semanticVars as v, componentVars, vnextVars } from "@fleetia/lagrange/theme";
 import { tokens } from "@comet/token";
+import settingsNight from "../../assets/figma/settings-night.svg";
 
 export const window = style({
   height: "100dvh",
@@ -8,13 +9,19 @@ export const window = style({
   flexDirection: "column",
   overflow: "hidden",
   color: v.color.content.primary,
-  background: `${tokens["color/sky"]}`,
-  backgroundImage: `radial-gradient(1100px 560px at 0% 120%, ${tokens["color/sky-glow-violet"]}, transparent 62%), radial-gradient(900px 520px at 110% -20%, ${tokens["color/sky-glow-blue"]}, transparent 60%)`,
+  background: tokens["color/glass-window"],
+  backgroundImage: `url("${settingsNight}")`,
+  backgroundSize: "cover",
+  backgroundPosition: "center top",
+  backgroundRepeat: "no-repeat",
   backdropFilter: tokens["backdrop/backdrop-window"],
   border: `1px solid ${tokens["color/glass-border"]}`,
   borderRadius: tokens["radius/radius-22"],
   boxSizing: "border-box",
   fontSize: v.typography.size.body,
+});
+globalStyle(`${window} dialog::backdrop`, {
+  borderRadius: tokens["radius/radius-22"],
 });
 export const header = style({
   flexShrink: 0,
@@ -103,6 +110,8 @@ export const page = style({
   padding: "22px 26px 24px",
   gap: 16,
   background: "transparent",
+  backdropFilter: "none",
+  boxShadow: "none",
   border: 0,
   borderRadius: 0,
   selectors: { [`${layout}[data-collection="true"] &`]: { display: "contents" } },
