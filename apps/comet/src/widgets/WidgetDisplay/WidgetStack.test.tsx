@@ -162,6 +162,31 @@ function expandRows(): void {
     );
 }
 
+it("keeps a completed break labeled as finished after repeatedly unfolding and folding", async () => {
+  state.order = ["focus"];
+  state.overlapped = true;
+  setWidgets([
+    {
+      ...widget("focus", "focus-timer"),
+      data: {
+        status: "finished",
+        mode: "rest",
+        durationMs: 60000,
+        remainingMs: 0,
+        deadline: null,
+      },
+    },
+  ]);
+  render(<WidgetStack />);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    fireEvent.click(await screen.findByRole("button", { name: "휴식 끝 00:00" }));
+    expect(screen.getByText("쉬는 시간 1분이 끝났어요")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "접기" }));
+  }
+  expect(screen.getByRole("button", { name: "휴식 끝 00:00" })).toBeTruthy();
+  expect(screen.queryByText("쉬는 중 00:00")).toBeNull();
+});
+
 it("serializes layout saves so each configure sends the newest revision", async () => {
   state.oneExpanded = false;
   let release!: () => void;

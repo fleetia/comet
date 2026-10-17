@@ -131,12 +131,16 @@ export function desktopSummary(
       return {
         icon: "timer",
         title:
-          data.mode === "rest"
-            ? "쉬는 중"
-            : data.status === "running"
-              ? "집중 중"
-              : data.status === "paused"
-                ? "일시 정지"
+          data.status === "running"
+            ? data.mode === "rest"
+              ? "쉬는 중"
+              : "집중 중"
+            : data.status === "paused"
+              ? "일시 정지"
+              : data.status === "finished"
+                ? data.mode === "rest"
+                  ? "휴식 끝"
+                  : "집중 끝"
                 : "집중 준비",
         description: text(data.title) || "집중할 일을 정해 주세요",
         value: countdown(focusRemaining(widget, now)),
