@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { listen, type EventCallback } from "@tauri-apps/api/event";
+import { StrictMode } from "react";
 import { command } from "../hooks/useSnapshot";
+import { trackSettingsView } from "../analytics";
 import { useSettingsNavigation } from "../components/SettingsPanel/useSettingsNavigation";
 
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
+vi.mock("../analytics", () => ({ trackSettingsView: vi.fn() }));
 vi.mock("../hooks/useSnapshot", () => ({
   command: vi.fn(),
   isDesktop: () => true,
@@ -14,6 +17,7 @@ let receive: EventCallback<string>;
 const unlisten = vi.fn();
 beforeEach(() => {
   vi.mocked(command).mockReset().mockResolvedValue(undefined);
+  vi.mocked(trackSettingsView).mockClear();
   unlisten.mockClear();
   vi.mocked(listen).mockImplementation(async (_event, callback) => {
     receive = callback as EventCallback<string>;
@@ -89,4 +93,33 @@ it("falls back for unknown destinations and exposes listener failure without los
   act(() => result.current.navigate("characters"));
   act(() => result.current.navigate("missing"));
   expect(result.current.section).toBe("characters");
+});
+
+it("tracks the displayed section on initial entry, UI aliases and native navigation without StrictMode duplicates", async () => {
+  vi.mocked(command).mockResolvedValue("desktop");
+  const { result, rerender } = renderHook(() => useSettingsNavigation("desktop"), {
+    wrapper: StrictMode,
+  });
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_settings_section"));
+  expect(trackSettingsView).toHaveBeenCalledExactlyOnceWith("desktop");
+
+  act(() => result.current.navigate("user"));
+  expect(command).toHaveBeenLastCalledWith("set_settings_section", { section: "general" });
+  expect(result.current.section).toBe("user");
+  expect(trackSettingsView).toHaveBeenLastCalledWith("user");
+  act(() => result.current.navigate("organizer"));
+  expect(command).toHaveBeenLastCalledWith("set_settings_section", { section: "general" });
+  expect(trackSettingsView).toHaveBeenLastCalledWith("organizer");
+
+  act(() => receive({ event: "open-settings-section", id: 1, payload: "memory" }));
+  expect(result.current.section).toBe("characters");
+  expect(trackSettingsView).toHaveBeenLastCalledWith("characters");
+  act(() => receive({ event: "open-settings-section", id: 2, payload: "memory" }));
+  rerender();
+  expect(vi.mocked(trackSettingsView).mock.calls.map(([section]) => section)).toEqual([
+    "desktop",
+    "user",
+    "organizer",
+    "characters",
+  ]);
 });

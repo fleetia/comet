@@ -5,10 +5,13 @@ import "@fleetia/lagrange/styles.css";
 import { App } from "./App";
 import * as desktop from "./desktop.css";
 import { command, isDesktop } from "./hooks/useSnapshot";
+import { initializeAnalytics, initializeErrorReporting } from "./analytics";
 import "./fonts.css";
 
 document.documentElement.classList.add(desktop.documentRoot, desktop.theme);
 document.documentElement.dataset.cometTheme = "dark";
+initializeErrorReporting();
+void initializeAnalytics();
 
 if (isDesktop()) {
   let lastTouch = 0;

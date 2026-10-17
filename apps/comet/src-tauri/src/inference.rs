@@ -10,7 +10,7 @@ use std::{
     process::Stdio,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, OnceLock,
     },
     time::{Duration, Instant},
 };
@@ -20,6 +20,188 @@ use tokio::{
 };
 
 mod providers;
+
+type RequestBegin = Arc<dyn Fn() -> Option<u64> + Send + Sync>;
+type RequestCompleted = Arc<dyn Fn(RequestReport, u64) + Send + Sync>;
+
+struct RequestObserver {
+    begin: RequestBegin,
+    completed: RequestCompleted,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RequestOutcome {
+    Success,
+    Error,
+    Cancelled,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RequestReport {
+    pub provider: &'static str,
+    pub model_family: &'static str,
+    pub model_source: &'static str,
+    pub outcome: RequestOutcome,
+    pub duration_ms: u64,
+}
+
+#[derive(Clone, Copy)]
+struct RequestSelection {
+    provider: &'static str,
+    family: &'static str,
+    source: &'static str,
+}
+
+fn model_family(model: &str) -> &'static str {
+    let model = model.trim().to_ascii_lowercase();
+    if model.is_empty() {
+        return "unspecified";
+    }
+    if model == "custom" {
+        return "custom";
+    }
+    if ["o1", "o3", "o4"].iter().any(|prefix| {
+        model == *prefix
+            || model
+                .strip_prefix(*prefix)
+                .is_some_and(|suffix| suffix.starts_with('-'))
+    }) {
+        return "o_series";
+    }
+    [
+        "qwen",
+        "gemma",
+        "ministral",
+        "kanana",
+        "gpt",
+        "claude",
+        "gemini",
+        "glm",
+    ]
+    .into_iter()
+    .find(|family| model.starts_with(*family))
+    .unwrap_or("other")
+}
+
+fn request_selection(settings: &Settings) -> Option<RequestSelection> {
+    let (provider, family, source) = match settings.mode.as_str() {
+        "local" => {
+            let family = match settings.local_model {
+                LocalModel::Qwen35_4B
+                | LocalModel::Qwen35_9B
+                | LocalModel::Qwen35_27B
+                | LocalModel::Qwen38_2B
+                | LocalModel::Qwen38_4B
+                | LocalModel::Qwen38_9B => "qwen",
+                LocalModel::Gemma4E4B | LocalModel::Gemma4_12B => "gemma",
+                LocalModel::Ministral3_8B
+                | LocalModel::Ministral3_14B
+                | LocalModel::Ministral3_14BQ5 => "ministral",
+                LocalModel::Kanana15_2_1B | LocalModel::Kanana15_8B => "kanana",
+                LocalModel::Custom => "custom",
+            };
+            (
+                "local",
+                family,
+                if settings.local_model == LocalModel::Custom {
+                    "custom_file"
+                } else {
+                    "catalog"
+                },
+            )
+        }
+        "chatgpt" => ("chatgpt", model_family(&settings.chatgpt_model), "service"),
+        "api" => {
+            let provider = match settings.api_provider {
+                ApiProvider::Custom => "custom",
+                ApiProvider::Claude => "claude",
+                ApiProvider::Gemini => "gemini",
+                ApiProvider::Glm => "glm",
+            };
+            (provider, model_family(&settings.api_model), "service")
+        }
+        _ => return None,
+    };
+    Some(RequestSelection {
+        provider,
+        family,
+        source,
+    })
+}
+
+pub(crate) struct RequestTelemetry {
+    observer: Option<Arc<RequestObserver>>,
+    selection: Option<RequestSelection>,
+    started: OnceLock<Option<(Instant, u64)>>,
+    completed: bool,
+    cancel: Arc<AtomicBool>,
+}
+
+impl RequestTelemetry {
+    fn new(inference: &Inference, settings: &Settings, cancel: Arc<AtomicBool>) -> Self {
+        Self {
+            observer: inference.request_observer.get().cloned(),
+            selection: request_selection(settings),
+            started: OnceLock::new(),
+            completed: false,
+            cancel,
+        }
+    }
+
+    pub(crate) fn dispatched(&self) {
+        self.started.get_or_init(|| {
+            let observer = self.observer.as_ref()?;
+            let lease =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (observer.begin)()))
+                    .ok()??;
+            Some((Instant::now(), lease))
+        });
+    }
+
+    fn finish<T>(&mut self, result: &Result<T, String>) {
+        self.completed = true;
+        let outcome = match result {
+            Ok(_) => RequestOutcome::Success,
+            Err(error) if self.cancel.load(Ordering::Acquire) || error == "취소됨" => {
+                RequestOutcome::Cancelled
+            }
+            Err(_) => RequestOutcome::Error,
+        };
+        self.report(outcome);
+    }
+
+    fn report(&self, outcome: RequestOutcome) {
+        let (Some(observer), Some(selection), Some(Some((started, lease)))) =
+            (&self.observer, self.selection, self.started.get())
+        else {
+            return;
+        };
+        let report = RequestReport {
+            provider: selection.provider,
+            model_family: selection.family,
+            model_source: selection.source,
+            outcome,
+            duration_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+        };
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            (observer.completed)(report, *lease);
+        }));
+    }
+}
+
+impl Drop for RequestTelemetry {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.report(
+                if !std::thread::panicking() && self.cancel.load(Ordering::Acquire) {
+                    RequestOutcome::Cancelled
+                } else {
+                    RequestOutcome::Error
+                },
+            );
+        }
+    }
+}
 
 struct LocalServer {
     path: PathBuf,
@@ -83,6 +265,7 @@ pub struct Inference {
     sidecar_path: PathBuf,
     runtime_dir: PathBuf,
     local: Mutex<Option<LocalServer>>,
+    request_observer: OnceLock<Arc<RequestObserver>>,
 }
 impl Inference {
     pub fn new(app_data: PathBuf, sidecar_path: PathBuf, runtime_dir: PathBuf) -> Self {
@@ -92,11 +275,18 @@ impl Inference {
             sidecar_path,
             runtime_dir,
             local: Mutex::new(None),
+            request_observer: OnceLock::new(),
         }
     }
 
     pub(crate) fn configure_chatgpt(&self, identifier: &str) -> Result<(), String> {
         self.chatgpt.configure(identifier)
+    }
+
+    pub(crate) fn observe_requests(&self, begin: RequestBegin, completed: RequestCompleted) {
+        let _ = self
+            .request_observer
+            .set(Arc::new(RequestObserver { begin, completed }));
     }
 }
 
@@ -462,6 +652,7 @@ async fn response_body(response: reqwest::Response) -> Result<Value, String> {
     }
     serde_json::from_slice(&bytes).map_err(|_| "API 응답이 올바른 JSON이 아닙니다.".into())
 }
+#[cfg(test)]
 async fn completion(
     url: &str,
     key: Option<&str>,
@@ -471,12 +662,25 @@ async fn completion(
     budget: GenerationBudget,
     cancel: Arc<AtomicBool>,
 ) -> Result<Value, String> {
+    completion_observed(url, key, settings, messages, schema, budget, cancel, None).await
+}
+
+async fn completion_observed(
+    url: &str,
+    key: Option<&str>,
+    settings: &Settings,
+    messages: &[ChatMessage],
+    schema: Value,
+    budget: GenerationBudget,
+    cancel: Arc<AtomicBool>,
+    telemetry: Option<&RequestTelemetry>,
+) -> Result<Value, String> {
     if cancel.load(Ordering::Acquire) {
         return Err("취소됨".into());
     }
     tokio::select! {
         _ = models::cancelled(cancel.clone()) => Err("취소됨".into()),
-        result = completion_request(url, key, settings, messages, schema, budget, cancel.clone()) => result,
+        result = completion_request(url, key, settings, messages, schema, budget, cancel.clone(), telemetry) => result,
     }
 }
 
@@ -516,6 +720,7 @@ async fn local_completion_without_reasoning(
     mut payload: Value,
     budget: GenerationBudget,
     cancel: Arc<AtomicBool>,
+    telemetry: Option<&RequestTelemetry>,
 ) -> Result<Value, String> {
     let base = url.trim_end_matches('/');
     let base = base.strip_suffix("/v1").unwrap_or(base);
@@ -529,6 +734,11 @@ async fn local_completion_without_reasoning(
             .json(&payload);
         if let Some(value) = key.filter(|s| !s.is_empty()) {
             request = request.bearer_auth(value);
+        }
+        if path == "completion" {
+            if let Some(telemetry) = telemetry {
+                telemetry.dispatched();
+            }
         }
         let response = request.send().await.map_err(|error| {
             if error.is_timeout() {
@@ -599,11 +809,12 @@ async fn completion_request(
     schema: Value,
     budget: GenerationBudget,
     cancel: Arc<AtomicBool>,
+    telemetry: Option<&RequestTelemetry>,
 ) -> Result<Value, String> {
     let http = client(url)?;
     if settings.mode == "api" && settings.api_provider == ApiProvider::Claude {
         return providers::claude_completion(
-            &http, url, key, settings, messages, schema, budget, cancel,
+            &http, url, key, settings, messages, schema, budget, cancel, telemetry,
         )
         .await;
     }
@@ -632,7 +843,9 @@ async fn completion_request(
             // Native completion keeps JSON grammar separate from the chat reasoning parser.
             return tokio::time::timeout(
                 budget.timeout,
-                local_completion_without_reasoning(&http, url, key, payload, budget, cancel),
+                local_completion_without_reasoning(
+                    &http, url, key, payload, budget, cancel, telemetry,
+                ),
             )
             .await
             .map_err(|_| "API 응답 시간이 초과되었습니다.".to_string())?;
@@ -645,6 +858,9 @@ async fn completion_request(
             .json(&payload);
         if let Some(value) = key.filter(|s| !s.is_empty()) {
             request = request.bearer_auth(value);
+        }
+        if let Some(telemetry) = telemetry {
+            telemetry.dispatched();
         }
         let response = request.send().await.map_err(|error| {
             if error.is_timeout() {
@@ -774,6 +990,24 @@ async fn generate_with_budget(
     budget: GenerationBudget,
     cancel: Arc<AtomicBool>,
 ) -> Result<Value, String> {
+    let mut telemetry = RequestTelemetry::new(inference, settings, cancel.clone());
+    let result = generate_observed(
+        inference, settings, messages, schema, budget, cancel, &telemetry,
+    )
+    .await;
+    telemetry.finish(&result);
+    result
+}
+
+async fn generate_observed(
+    inference: &Inference,
+    settings: &Settings,
+    messages: &[ChatMessage],
+    schema: Value,
+    budget: GenerationBudget,
+    cancel: Arc<AtomicBool>,
+    telemetry: &RequestTelemetry,
+) -> Result<Value, String> {
     if cancel.load(Ordering::Acquire) {
         return Err("취소됨".into());
     }
@@ -785,6 +1019,7 @@ async fn generate_with_budget(
             schema,
             budget.timeout,
             cancel,
+            Some(telemetry),
         )
         .await;
     }
@@ -805,7 +1040,7 @@ async fn generate_with_budget(
     };
     let result = tokio::select! {
         _ = models::cancelled(cancel.clone()) => Err("취소됨".into()),
-        result = completion(&url, key.as_deref(), &configured, messages, schema, budget, cancel.clone()) => result,
+        result = completion_observed(&url, key.as_deref(), &configured, messages, schema, budget, cancel.clone(), Some(telemetry)) => result,
     };
     if local && cancel.load(Ordering::Acquire) {
         stop_local(inference).await;
@@ -813,7 +1048,15 @@ async fn generate_with_budget(
     result
 }
 
-pub async fn test_connection(settings: &Settings, key: Option<String>) -> Result<String, String> {
+pub async fn test_connection(
+    inference: &Inference,
+    settings: &Settings,
+    key: Option<String>,
+    cancel: Arc<AtomicBool>,
+) -> Result<String, String> {
+    if cancel.load(Ordering::Acquire) {
+        return Err("취소됨".into());
+    }
     let url = endpoint(settings)?;
     if settings.api_model.trim().is_empty() {
         return Err("API 모델 이름을 입력해 주세요.".into());
@@ -823,11 +1066,16 @@ pub async fn test_connection(settings: &Settings, key: Option<String>) -> Result
         role: "user".into(),
         content: "Return only this JSON object: {\"ok\":true}".into(),
     }];
-    let value = completion(&url, selected_key.as_deref(), settings, &messages, json!({"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}), GenerationBudget::conversation(settings, 32), Arc::new(AtomicBool::new(false))).await?;
-    if value.get("ok").and_then(Value::as_bool) != Some(true) {
-        return Err("API 연결은 되었지만 JSON 응답 검증에 실패했습니다.".into());
-    }
-    Ok("API 연결과 JSON 응답을 확인했습니다.".into())
+    let mut telemetry = RequestTelemetry::new(inference, settings, cancel.clone());
+    let result = async {
+        let value = completion_observed(&url, selected_key.as_deref(), settings, &messages, json!({"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}), GenerationBudget::conversation(settings, 32), cancel, Some(&telemetry)).await?;
+        if value.get("ok").and_then(Value::as_bool) != Some(true) {
+            return Err("API 연결은 되었지만 JSON 응답 검증에 실패했습니다.".into());
+        }
+        Ok("API 연결과 JSON 응답을 확인했습니다.".into())
+    }.await;
+    telemetry.finish(&result);
+    result
 }
 
 pub async fn test_local(
@@ -981,6 +1229,338 @@ mod tests {
             assert!(requests[0].0.starts_with("POST /chat/completions "));
         }
         (result, requests[0].1.clone())
+    }
+
+    fn observed_runtime(
+        directory: &std::path::Path,
+        begin: RequestBegin,
+    ) -> (Inference, Arc<std::sync::Mutex<Vec<(RequestReport, u64)>>>) {
+        let inference = Inference::new(directory.into(), PathBuf::new(), PathBuf::new());
+        let reports = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let received = reports.clone();
+        inference.observe_requests(
+            begin,
+            Arc::new(move |report, lease| {
+                received.lock().unwrap().push((report, lease));
+            }),
+        );
+        (inference, reports)
+    }
+
+    #[tokio::test]
+    async fn analytics_request_reports_real_generation_paths_without_request_content() {
+        for (operation, status, body, outcome) in [
+            (
+                "general",
+                200,
+                json!({"choices":[{"message":{"content":"{\"ok\":true}"}}]}),
+                RequestOutcome::Success,
+            ),
+            (
+                "widget",
+                200,
+                json!({"choices":[{"message":{"content":"{\"ok\":true}"}}]}),
+                RequestOutcome::Success,
+            ),
+            (
+                "organizer",
+                200,
+                json!({"choices":[{"message":{"content":"{\"ok\":true}"}}]}),
+                RequestOutcome::Success,
+            ),
+            (
+                "connection",
+                200,
+                json!({"choices":[{"message":{"content":"{\"ok\":true}"}}]}),
+                RequestOutcome::Success,
+            ),
+            (
+                "general",
+                500,
+                json!({"error":"private-server-error"}),
+                RequestOutcome::Error,
+            ),
+            (
+                "general",
+                200,
+                json!({"choices":[{"message":{"content":"private-invalid-json"}}]}),
+                RequestOutcome::Error,
+            ),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let (inference, reports) = observed_runtime(directory.path(), Arc::new(|| Some(17)));
+            let (url, server) = completion_server(vec![(status, body.to_string())]).await;
+            let settings = Settings {
+                mode: "api".into(),
+                base_url: url,
+                api_model: "private-company-model".into(),
+                ..Settings::default()
+            };
+            let messages = vec![ChatMessage {
+                role: "user".into(),
+                content: "private-user-prompt".into(),
+            }];
+            let cancel = Arc::new(AtomicBool::new(false));
+            let result = match operation {
+                "widget" => {
+                    generate_widget(
+                        &inference,
+                        &settings,
+                        &messages,
+                        json!({"type":"object"}),
+                        128,
+                        cancel,
+                    )
+                    .await
+                }
+                "organizer" => {
+                    generate_organizer(
+                        &inference,
+                        &settings,
+                        &messages,
+                        json!({"type":"object"}),
+                        128,
+                        cancel,
+                    )
+                    .await
+                }
+                "connection" => test_connection(&inference, &settings, None, cancel)
+                    .await
+                    .map(|_| json!({})),
+                _ => {
+                    generate(
+                        &inference,
+                        &settings,
+                        &messages,
+                        json!({"type":"object"}),
+                        128,
+                        cancel,
+                    )
+                    .await
+                }
+            };
+            assert_eq!(result.is_ok(), outcome == RequestOutcome::Success);
+            server.await.unwrap();
+            let reports = reports.lock().unwrap();
+            assert_eq!(reports.len(), 1);
+            assert_eq!(reports[0].1, 17);
+            assert_eq!(reports[0].0.provider, "custom");
+            assert_eq!(reports[0].0.model_family, "other");
+            assert_eq!(reports[0].0.model_source, "service");
+            assert_eq!(reports[0].0.outcome, outcome);
+            assert!(!format!("{reports:?}").contains("private"));
+        }
+    }
+
+    #[tokio::test]
+    async fn analytics_request_excludes_preparation_and_pre_cancelled_work() {
+        let directory = tempfile::tempdir().unwrap();
+        let starts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = starts.clone();
+        let (inference, reports) = observed_runtime(
+            directory.path(),
+            Arc::new(move || {
+                counted.fetch_add(1, Ordering::SeqCst);
+                Some(17)
+            }),
+        );
+        for (settings, cancelled) in [
+            (Settings::default(), true),
+            (Settings::default(), false),
+            (
+                Settings {
+                    mode: "api".into(),
+                    base_url: "http://private.invalid".into(),
+                    ..Settings::default()
+                },
+                false,
+            ),
+        ] {
+            assert!(generate(
+                &inference,
+                &settings,
+                &[],
+                json!({"type":"object"}),
+                16,
+                Arc::new(AtomicBool::new(cancelled))
+            )
+            .await
+            .is_err());
+        }
+        assert!(test_connection(
+            &inference,
+            &Settings::default(),
+            None,
+            Arc::new(AtomicBool::new(false))
+        )
+        .await
+        .is_err());
+        assert_eq!(
+            test_connection(
+                &inference,
+                &Settings::default(),
+                None,
+                Arc::new(AtomicBool::new(true))
+            )
+            .await
+            .unwrap_err(),
+            "취소됨"
+        );
+        assert_eq!(starts.load(Ordering::SeqCst), 0);
+        assert!(reports.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn analytics_request_freezes_start_consent_once_across_compatible_retry() {
+        for consented_at_start in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let starts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let counted = starts.clone();
+            let (inference, reports) = observed_runtime(
+                directory.path(),
+                Arc::new(move || {
+                    let previous = counted.fetch_add(1, Ordering::SeqCst);
+                    (consented_at_start || previous > 0).then_some(17)
+                }),
+            );
+            let (url, server) = completion_server(vec![
+                (400, json!({"error":"unsupported schema"}).to_string()),
+                (
+                    200,
+                    json!({"choices":[{"message":{"content":"{\"ok\":true}"}}]}).to_string(),
+                ),
+            ])
+            .await;
+            let settings = Settings {
+                mode: "api".into(),
+                base_url: url,
+                api_model: "gpt-test".into(),
+                ..Settings::default()
+            };
+            generate(
+                &inference,
+                &settings,
+                &[],
+                json!({"type":"object"}),
+                16,
+                Arc::new(AtomicBool::new(false)),
+            )
+            .await
+            .unwrap();
+            assert_eq!(server.await.unwrap().len(), 2);
+            assert_eq!(starts.load(Ordering::SeqCst), 1);
+            let reports = reports.lock().unwrap();
+            assert_eq!(reports.len(), usize::from(consented_at_start));
+            if let Some((report, lease)) = reports.first() {
+                assert_eq!(report.outcome, RequestOutcome::Success);
+                assert_eq!(report.model_family, "gpt");
+                assert_eq!(*lease, 17);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn analytics_request_distinguishes_cancellation_from_outer_timeout_with_monotonic_duration(
+    ) {
+        use tokio::net::TcpListener;
+        for request_kind in ["generation", "connection"] {
+            for termination in ["cancel", "drop_after_cancel", "outer_timeout"] {
+                let directory = tempfile::tempdir().unwrap();
+                let (inference, reports) =
+                    observed_runtime(directory.path(), Arc::new(|| Some(17)));
+                let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let address = listener.local_addr().unwrap();
+                let (sent, received) = tokio::sync::oneshot::channel();
+                let (release, released) = tokio::sync::oneshot::channel();
+                let server = tokio::spawn(async move {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    read_completion_request(&mut socket).await;
+                    sent.send(()).unwrap();
+                    let _ = released.await;
+                });
+                let settings = Settings {
+                    mode: "api".into(),
+                    base_url: format!("http://{address}"),
+                    api_model: "model".into(),
+                    ..Settings::default()
+                };
+                let cancel = Arc::new(AtomicBool::new(false));
+                let mut operation = Box::pin(async {
+                    if request_kind == "connection" {
+                        test_connection(&inference, &settings, None, cancel.clone())
+                            .await
+                            .map(|_| json!({}))
+                    } else {
+                        generate(
+                            &inference,
+                            &settings,
+                            &[],
+                            json!({"type":"object"}),
+                            16,
+                            cancel.clone(),
+                        )
+                        .await
+                    }
+                });
+                tokio::select! {
+                    result = &mut operation => panic!("request ended before cancellation: {result:?}"),
+                    result = received => result.unwrap(),
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                match termination {
+                    "outer_timeout" => {
+                        assert!(tokio::time::timeout(Duration::from_millis(20), operation)
+                            .await
+                            .is_err());
+                    }
+                    "drop_after_cancel" => {
+                        cancel.store(true, Ordering::Release);
+                        drop(operation);
+                    }
+                    _ => {
+                        cancel.store(true, Ordering::Release);
+                        assert!(operation.await.is_err());
+                    }
+                }
+                release.send(()).unwrap();
+                server.await.unwrap();
+                let reports = reports.lock().unwrap();
+                assert_eq!(reports.len(), 1);
+                assert_eq!(
+                    reports[0].0.outcome,
+                    if termination == "outer_timeout" {
+                        RequestOutcome::Error
+                    } else {
+                        RequestOutcome::Cancelled
+                    }
+                );
+                assert!(reports[0].0.duration_ms >= 10);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn analytics_request_marks_named_provider_and_local_native_dispatches() {
+        for (settings, responses, provider, family, source) in [
+            (Settings { mode: "api".into(), api_provider: ApiProvider::Claude, api_model: "claude-test".into(), ..Settings::default() }, vec![(200, json!({"stop_reason":"end_turn","content":[{"type":"text","text":"{\"ok\":true}"}]}).to_string())], "claude", "claude", "service"),
+            (Settings { mode: "api".into(), api_provider: ApiProvider::Gemini, api_model: "gemini-test".into(), ..Settings::default() }, vec![(200, json!({"choices":[{"finish_reason":"stop","message":{"content":"{\"ok\":true}"}}]}).to_string())], "gemini", "gemini", "service"),
+            (Settings { mode: "api".into(), api_provider: ApiProvider::Glm, api_model: "glm-test".into(), ..Settings::default() }, vec![(200, json!({"choices":[{"finish_reason":"stop","message":{"content":"{\"ok\":true}"}}]}).to_string())], "glm", "glm", "service"),
+            (Settings { local_model: LocalModel::Custom, local_model_path: "/private/model.gguf".into(), ..Settings::default() }, vec![(200, json!({"prompt":"private template"}).to_string()), (200, json!({"content":"{\"ok\":true}","stop":true,"stop_type":"eos"}).to_string())], "local", "custom", "custom_file"),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let (inference, reports) = observed_runtime(directory.path(), Arc::new(|| Some(17)));
+            let (url, server) = completion_server(responses).await;
+            let cancel = Arc::new(AtomicBool::new(false));
+            let mut telemetry = RequestTelemetry::new(&inference, &settings, cancel.clone());
+            let result = completion_observed(&url, Some("private-test-key"), &settings, &[], json!({"type":"object"}), GenerationBudget::conversation(&settings, 16), cancel, Some(&telemetry)).await;
+            telemetry.finish(&result);
+            result.unwrap();
+            server.await.unwrap();
+            let reports = reports.lock().unwrap();
+            assert_eq!(reports.len(), 1);
+            assert_eq!((reports[0].0.provider, reports[0].0.model_family, reports[0].0.model_source), (provider, family, source));
+            assert!(!format!("{reports:?}").contains("private"));
+        }
     }
 
     #[tokio::test]
@@ -1918,8 +2498,17 @@ mod tests {
             api_model: "local-model".into(),
             ..Settings::default()
         };
+        let directory = tempfile::tempdir().unwrap();
+        let inference = Inference::new(directory.path().into(), PathBuf::new(), PathBuf::new());
         assert_eq!(
-            test_connection(&settings, None).await.unwrap(),
+            test_connection(
+                &inference,
+                &settings,
+                None,
+                Arc::new(AtomicBool::new(false))
+            )
+            .await
+            .unwrap(),
             "API 연결과 JSON 응답을 확인했습니다."
         );
         server.await.unwrap();

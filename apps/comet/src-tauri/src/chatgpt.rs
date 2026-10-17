@@ -562,10 +562,18 @@ pub(crate) async fn generate(
     schema: Value,
     timeout: Duration,
     cancel: Arc<AtomicBool>,
+    telemetry: Option<&crate::inference::RequestTelemetry>,
 ) -> Result<Value> {
     let (token, generation) = service.access(cancel.clone()).await?;
     service.current(generation, &cancel)?;
-    let operation = responses::generate(&token, &settings.chatgpt_model, messages, schema, timeout);
+    let operation = responses::generate(
+        &token,
+        &settings.chatgpt_model,
+        messages,
+        schema,
+        timeout,
+        telemetry,
+    );
     let result = tokio::select! { _ = crate::models::cancelled(cancel.clone()) => return Err("취소됨".into()), value = operation => value };
     service.current(generation, &cancel)?;
     match result {

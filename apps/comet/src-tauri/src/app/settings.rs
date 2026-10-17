@@ -153,6 +153,7 @@ pub(crate) fn apply_settings_with_keys(
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
     let current = store::settings(&tx)?;
+    let analytics_consent = current.analytics_consent;
     let old_presence = current.random_presence_enabled;
     let old_automatic = current.autonomous_enabled;
     let mut profiles = current.api_profiles.clone();
@@ -183,6 +184,7 @@ pub(crate) fn apply_settings_with_keys(
         },
         None => settings.clone(),
     };
+    settings.analytics_consent = analytics_consent;
     if scope != Some(SettingsScope::Automatic) {
         settings.api_profiles = profiles;
         settings.remember_api_profile();
@@ -239,7 +241,7 @@ pub(crate) async fn test_connection(
             };
             let result = tokio::select! {
                 _ = models::cancelled(cancel.clone()) => Err("API 연결 테스트가 취소됐어요.".into()),
-                result = tokio::time::timeout(Duration::from_secs(120), inference::test_connection(&settings, api_key)) => {
+                result = tokio::time::timeout(Duration::from_secs(120), inference::test_connection(&worker.inference, &settings, api_key, cancel.clone())) => {
                     result.unwrap_or_else(|_| Err("API 연결 테스트 시간이 초과됐어요.".into()))
                 }
             };

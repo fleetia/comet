@@ -8,21 +8,29 @@ afterEach(cleanup);
 it("keeps a failed first-registration draft and uses only the registration command", async () => {
   const dispatch: Dispatch = vi.fn().mockRejectedValueOnce(new Error("저장 실패"));
   render(<NameRegistration greeting="안녕! 만나서 반가워." dispatch={dispatch} />);
+  const consent = screen.getByRole("checkbox", { name: "(선택) 익명 사용 통계 수집에 동의해요" });
+  expect(consent).toHaveProperty("checked", false);
+  fireEvent.click(consent);
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "  민수  " } });
   fireEvent.click(screen.getByRole("button", { name: "이름 알려주기" }));
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "저장 실패");
   expect(screen.getByRole("textbox")).toHaveProperty("value", "  민수  ");
-  expect(dispatch).toHaveBeenCalledWith("register_user_name", { name: "민수" });
+  expect(consent).toHaveProperty("checked", true);
+  expect(dispatch).toHaveBeenCalledWith("register_user_name", {
+    name: "민수",
+    analyticsConsent: true,
+  });
   fireEvent.click(screen.getByRole("button", { name: "이름 알려주기" }));
   await waitFor(() => expect(dispatch).toHaveBeenCalledTimes(2));
   expect(dispatch).not.toHaveBeenCalledWith("open_settings");
 });
 
-it("counts Unicode characters and suppresses submission while Korean composition is active", async () => {
+it("allows registration without optional consent while preserving Unicode and composition validation", async () => {
   const dispatch: Dispatch = vi.fn().mockResolvedValue(undefined);
   render(<NameRegistration greeting="안녕!" dispatch={dispatch} />);
   const field = screen.getByRole("textbox");
   const button = screen.getByRole("button", { name: "이름 알려주기" });
+  expect(screen.getByRole("checkbox")).toHaveProperty("checked", false);
   fireEvent.change(field, { target: { value: "🌟".repeat(41) } });
   expect(button).toHaveProperty("disabled", true);
   fireEvent.change(field, { target: { value: "🌟".repeat(40) } });
@@ -34,7 +42,10 @@ it("counts Unicode characters and suppresses submission while Korean composition
   fireEvent.compositionEnd(field);
   fireEvent.submit(screen.getByRole("form", { name: "이름 알려주기" }));
   await waitFor(() =>
-    expect(dispatch).toHaveBeenCalledWith("register_user_name", { name: "🌟".repeat(40) }),
+    expect(dispatch).toHaveBeenCalledWith("register_user_name", {
+      name: "🌟".repeat(40),
+      analyticsConsent: false,
+    }),
   );
 });
 
@@ -47,4 +58,5 @@ it("prevents duplicate registrations while the save is pending", async () => {
   fireEvent.submit(form);
   expect(dispatch).toHaveBeenCalledTimes(1);
   expect(screen.getByRole("textbox")).toHaveProperty("disabled", true);
+  expect(screen.getByRole("checkbox")).toHaveProperty("disabled", true);
 });

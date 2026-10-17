@@ -123,6 +123,24 @@ pub fn require_user(conn: &Connection) -> Result<UserIdentity> {
 }
 
 pub fn set_user_name(conn: &Connection, name: &str, at: i64) -> Result<bool> {
+    save_user_name(conn, name, at, None)
+}
+
+pub fn register_user_name(
+    conn: &Connection,
+    name: &str,
+    at: i64,
+    analytics_consent: bool,
+) -> Result<bool> {
+    save_user_name(conn, name, at, Some(analytics_consent))
+}
+
+fn save_user_name(
+    conn: &Connection,
+    name: &str,
+    at: i64,
+    analytics_consent: Option<bool>,
+) -> Result<bool> {
     let name = name.trim();
     if name.is_empty() || name.chars().count() > 40 || name.chars().any(char::is_control) {
         return Err("이름은 줄바꿈 없이 1~40자로 입력해 주세요.".into());
@@ -130,6 +148,9 @@ pub fn set_user_name(conn: &Connection, name: &str, at: i64) -> Result<bool> {
     let tx = conn.unchecked_transaction().map_err(err)?;
     let at = effective_memory_time(&tx, at)?;
     if let Some(current) = current_user(&tx)? {
+        if analytics_consent.is_some() {
+            return Err("이미 이름을 등록했어요. 이름 변경은 설정에서 할 수 있어요.".into());
+        }
         if current.name == name {
             return Ok(false);
         }
@@ -153,6 +174,11 @@ pub fn set_user_name(conn: &Connection, name: &str, at: i64) -> Result<bool> {
             params![id, name, at],
         )
         .map_err(err)?;
+    }
+    if let Some(analytics_consent) = analytics_consent {
+        let mut settings = super::settings(&tx)?;
+        settings.analytics_consent = analytics_consent;
+        super::save_settings(&tx, &settings)?;
     }
     put(&tx, "memory_clock", &at)?;
     bump_revision(&tx)?;
