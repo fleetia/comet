@@ -1,6 +1,5 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
-import { semanticVars as v, vnextVars } from "@fleetia/lagrange/theme";
 
 export const page = style({
   display: "flex",
@@ -21,15 +20,15 @@ export const page = style({
 export const section = style({
   display: "flex",
   flexDirection: "column",
-  gap: v.space.sm,
+  gap: tokens["spacing/space-8"],
   minWidth: 0,
   paddingTop: 0,
 });
 export const heading = style({
   margin: 0,
-  fontSize: v.typography.size.headingLg,
+  fontSize: tokens["typography/display/stat/fontSize"],
   fontWeight: 600,
-  lineHeight: v.typography.lineHeight.tight,
+  lineHeight: "1.25",
 });
 export const subheading = style({
   margin: 0,
@@ -40,14 +39,14 @@ export const subheading = style({
 });
 export const caption = style({
   margin: 0,
-  color: v.color.content.secondary,
-  fontSize: v.typography.size.caption,
+  color: tokens["color/ink-2"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
   lineHeight: "17px",
 });
 export const row = style({
   display: "flex",
   alignItems: "center",
-  gap: v.space.sm,
+  gap: tokens["spacing/space-8"],
   minWidth: 0,
   flexWrap: "wrap",
 });
@@ -61,10 +60,10 @@ export const grow = style({ flex: 1, minWidth: 0 });
 export const form = style({
   display: "flex",
   flexDirection: "column",
-  gap: v.space.sm,
+  gap: tokens["spacing/space-8"],
   minWidth: 0,
 });
-export const checklist = style({ display: "flex", flexDirection: "column", gap: v.space.xs });
+export const checklist = style({ display: "flex", flexDirection: "column", gap: tokens["spacing/space-6"] });
 export const checkRow = style([
   row,
   { padding: "6px 12px", minHeight: 40, boxSizing: "border-box" },
@@ -72,17 +71,17 @@ export const checkRow = style([
 export const notes = style({
   display: "flex",
   flexDirection: "column",
-  gap: v.space.md,
+  gap: tokens["spacing/space-12"],
   minWidth: 0,
 });
 export const note = style({
   display: "flex",
   flexDirection: "column",
-  gap: v.space.sm,
+  gap: tokens["spacing/space-8"],
   minWidth: 0,
-  padding: v.space.md,
-  borderRadius: vnextVars.radius.parent,
-  background: v.color.surface.raised,
+  padding: tokens["spacing/space-12"],
+  borderRadius: tokens["radius/radius-22"],
+  background: tokens["color/glass-panel"],
   selectors: {
     '&[data-location="envelope"]': {
       padding: "12px 14px",
@@ -94,13 +93,13 @@ export const note = style({
     },
   },
 });
-export const noteTitle = style({ margin: 0, fontSize: v.typography.size.caption, fontWeight: 600 });
+export const noteTitle = style({ margin: 0, fontSize: tokens["typography/sans/caption/fontSize"], fontWeight: 600 });
 export const noteBody = style({
   margin: 0,
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
-  fontSize: v.typography.size.caption,
-  lineHeight: v.typography.lineHeight.body,
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  lineHeight: "1.462",
 });
 globalStyle(`${note}[data-location="envelope"] ${noteTitle}`, {
   fontSize: 13.5,
@@ -132,22 +131,22 @@ export const textArea = style({
   minHeight: 104,
   resize: "vertical",
   boxSizing: "border-box",
-  padding: v.space.sm,
-  borderRadius: vnextVars.radius.control,
-  border: `1px solid ${v.color.border.strong}`,
-  background: v.color.surface.canvas,
-  color: v.color.content.primary,
+  padding: tokens["spacing/space-8"],
+  borderRadius: tokens["radius/radius-9"],
+  border: `1px solid ${tokens["color/input-border"]}`,
+  background: tokens["color/sky"],
+  color: tokens["color/ink"],
   font: "inherit",
-  lineHeight: v.typography.lineHeight.body,
+  lineHeight: "1.462",
   selectors: {
-    "&:focus-visible": { outline: `2px solid ${v.color.interaction.focus}`, outlineOffset: 2 },
+    "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: 2 },
   },
 });
 export const disclosure = style({
   display: "flex",
   flexDirection: "column",
-  gap: v.space.sm,
-  fontSize: v.typography.size.label,
+  gap: tokens["spacing/space-8"],
+  fontSize: tokens["typography/sans/body/fontSize"],
 });
 export const resourceAdd = style({ minWidth: 0 });
 globalStyle(`${resourceAdd} > summary`, {
@@ -167,9 +166,9 @@ globalStyle(`${resourceAdd} > summary`, {
 globalStyle(`${resourceAdd} > form`, { padding: 12 });
 export const error = style({
   margin: 0,
-  color: v.color.status.critical,
-  fontSize: v.typography.size.caption,
-  lineHeight: v.typography.lineHeight.body,
+  color: tokens["color/danger"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  lineHeight: "1.462",
 });
 export const linkList = style({
   margin: 0,
@@ -177,15 +176,15 @@ export const linkList = style({
   listStyle: "none",
   display: "flex",
   flexDirection: "column",
-  gap: v.space.xs,
+  gap: tokens["spacing/space-6"],
 });
 export const dateBanner = style([
   row,
   {
     padding: "18px 16px",
     minHeight: 68,
-    borderRadius: vnextVars.radius.inset,
-    background: v.color.surface.muted,
+    borderRadius: tokens["radius/radius-12"],
+    background: tokens["color/card-2"],
   },
 ]);
 export const columns = style({
@@ -205,12 +204,12 @@ export const itemTitle = style({
   background: "transparent",
   color: "inherit",
   font: "inherit",
-  padding: `${v.space.xs} 0`,
+  padding: `${tokens["spacing/space-6"]} 0`,
   textAlign: "left",
   cursor: "pointer",
   overflowWrap: "anywhere",
   selectors: {
-    "&:focus-visible": { outline: `2px solid ${v.color.interaction.focus}`, outlineOffset: 2 },
+    "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: 2 },
   },
 });
 export const memoPreview = style([

@@ -1,12 +1,11 @@
 import { style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
 
 export const toys = style({
   minHeight: 160,
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
 });
 export const toyChoices = style({
   display: "flex",
@@ -26,13 +25,13 @@ export const toyPreview = style({
 export const saveBar = style({
   flexShrink: 0,
   minHeight: 44,
-  background: vars.color.surface.raised,
+  background: tokens["color/glass-panel"],
 });
 export const saveButton = style({ width: 112 });
 export const cleanup = style({
   display: "flex",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
   alignItems: "center",
-  minHeight: vars.dimension.control,
+  minHeight: tokens["size/control-36"],
 });
 export const cleanupButton = style({ width: 168 });

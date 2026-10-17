@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { Button, Checkbox, Heading, Inline, Text } from "../../ui";
 import { command, errorText } from "../../hooks/useSnapshot";
 import type { GeneratedWidget, GenerationEligibility } from "../GeneratedWidgets/types";
-import * as common from "../../lagrange.css";
+import * as common from "../../common.css";
 import * as styles from "./widgetManager.css";
 import * as generatedStyles from "../GeneratedWidgets/generatedWidgets.css";
 

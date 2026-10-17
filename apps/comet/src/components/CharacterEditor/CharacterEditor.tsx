@@ -1,5 +1,5 @@
 import { useEffect, useId, useState, type JSX, type ReactNode } from "react";
-import { SettingsSummary } from "@comet/ui";
+import { SettingControlRow, SettingsSummary, Tabs } from "@comet/ui";
 import { ChevLeftIcon, Icon } from "@comet/icon";
 import { FriendOverview, FriendProfilePreview } from "./FriendOverview";
 import * as detail from "./friendDetail.css";
@@ -9,13 +9,10 @@ import {
   Surface,
   FormField,
   Select,
-  Tab,
-  TabList,
   TabPanel,
-  Tabs,
   TextArea,
   TextField,
-  SettingsRow,
+  externalTabPanels,
 } from "../../ui";
 import type {
   AnimationAsset,
@@ -304,22 +301,24 @@ function BalloonAppearance({
             ),
           )}
         </datalist>
-        <SettingsRow
-          label="글자 출력 속도"
+        <SettingControlRow
+          className={e.formControlRow}
+          title="글자 출력 속도"
           description="초당 1~100글자, 0이면 대사를 즉시 표시해요."
-        >
-          <TextField
-            type="number"
-            min={0}
-            max={100}
-            step={1}
-            aria-label="글자 출력 속도 (초당 글자 수)"
-            value={balloonStyle.textSpeed}
-            onChange={(event) =>
-              onChange({ balloonStyle: { ...balloonStyle, textSpeed: Number(event.target.value) } })
-            }
-          />
-        </SettingsRow>
+          control={
+            <TextField
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              aria-label="글자 출력 속도 (초당 글자 수)"
+              value={balloonStyle.textSpeed}
+              onChange={(event) =>
+                onChange({ balloonStyle: { ...balloonStyle, textSpeed: Number(event.target.value) } })
+              }
+            />
+          }
+        />
         <p className={s.small}>폰트를 비워 두거나 설치된 이름이 아니면 기본 글꼴로 표시해요.</p>
         <section className={e.sectionBoundary}>
           <div className={e.authoredHeading}>
@@ -407,6 +406,18 @@ function BalloonAppearance({
   );
 }
 
+const EDITOR_TABS = [
+  { value: "overview", label: "친구 정보", content: null },
+  { value: "profile", label: "프로필", content: null },
+  { value: "appearance", label: "모습·표정", content: null },
+  { value: "balloon", label: "말풍선", content: null },
+  { value: "dialogue", label: "대사·반응", content: null },
+  { value: "life", label: "등장·이야기", content: null },
+  { value: "relationships", label: "다른 친구와의 관계", content: null },
+  { value: "memory", label: "기억", content: null },
+  { value: "settings", label: "관리", content: null },
+];
+
 export function CharacterEditor({
   definition,
   character,
@@ -460,6 +471,7 @@ export function CharacterEditor({
   const [tab, setTab] = useState(
     memoryTabRequest > 0 ? "memory" : character ? "overview" : "profile",
   );
+  const tabsId = useId();
   useEffect(() => {
     setTab(memoryTabRequest > 0 ? "memory" : character ? "overview" : "profile");
   }, [character?.id]);
@@ -633,7 +645,7 @@ export function CharacterEditor({
     </ActionBar>
   );
   return (
-    <Tabs className={s.editor} value={tab} onValueChange={setTab}>
+    <div className={s.editor}>
       {tab !== "overview" && (
         <nav className={detail.breadcrumbs} aria-label="친구 편집 경로">
           <Button
@@ -674,18 +686,19 @@ export function CharacterEditor({
           </span>
         </nav>
       )}
-      <TabList aria-label="캐릭터 편집" hidden>
-        <Tab value="overview">친구 정보</Tab>
-        <Tab value="profile">프로필</Tab>
-        <Tab value="appearance">모습·표정</Tab>
-        <Tab value="balloon">말풍선</Tab>
-        <Tab value="dialogue">대사·반응</Tab>
-        <Tab value="life">등장·이야기</Tab>
-        <Tab value="relationships">다른 친구와의 관계</Tab>
-        <Tab value="memory">기억</Tab>
-        <Tab value="settings">관리</Tab>
-      </TabList>
-      <TabPanel value="overview" className={s.editorPanel}>
+      <div hidden>
+        <Tabs
+          label="캐릭터 편집"
+          items={EDITOR_TABS}
+          value={tab}
+          onValueChange={setTab}
+          externalPanels={externalTabPanels(
+            tabsId,
+            EDITOR_TABS.map((item) => item.value),
+          )}
+        />
+      </div>
+      <TabPanel tabs={tabsId} value="overview" selected={tab} className={s.editorPanel}>
         {
           <FriendOverview
             character={character}
@@ -708,7 +721,7 @@ export function CharacterEditor({
           />
         }
       </TabPanel>
-      <TabPanel value="profile" className={s.editorPanel}>
+      <TabPanel tabs={tabsId} value="profile" selected={tab} className={s.editorPanel}>
         <fieldset className={`${s.fieldset} ${e.fullHeight}`} disabled={pending}>
           <div className={e.profileLayout}>
             <CharacterWorkPanel className={e.profileMain} footer={definitionActions}>
@@ -792,7 +805,7 @@ export function CharacterEditor({
           </div>
         </fieldset>
       </TabPanel>
-      <TabPanel value="relationships" className={s.editorPanel}>
+      <TabPanel tabs={tabsId} value="relationships" selected={tab} className={s.editorPanel}>
         <fieldset className={`${s.fieldset} ${e.relationshipWorkspace}`} disabled={pending}>
           <CharacterWorkPanel footer={definitionActions}>
             <section aria-label="다른 캐릭터와의 관계">
@@ -944,7 +957,7 @@ export function CharacterEditor({
           </CharacterWorkPanel>
         </fieldset>
       </TabPanel>
-      <TabPanel value="appearance" className={s.editorPanel}>
+      <TabPanel tabs={tabsId} value="appearance" selected={tab} className={s.editorPanel}>
         <fieldset className={`${s.fieldset} ${e.fullHeight}`} disabled={pending}>
           <AppearanceEditor
             key={`${character?.id ?? "new"}:${animationVersion}`}
@@ -964,7 +977,7 @@ export function CharacterEditor({
           />
         </fieldset>
       </TabPanel>
-      <TabPanel value="balloon" className={s.editorPanel}>
+      <TabPanel tabs={tabsId} value="balloon" selected={tab} className={s.editorPanel}>
         <fieldset className={`${s.fieldset} ${e.fullHeight}`} disabled={pending}>
           <BalloonAppearance
             footer={definitionActions}
@@ -976,7 +989,7 @@ export function CharacterEditor({
           />
         </fieldset>
       </TabPanel>
-      <TabPanel value="dialogue" className={s.editorPanel}>
+      <TabPanel tabs={tabsId} value="dialogue" selected={tab} className={s.editorPanel}>
         <div className={e.dialoguePanel}>
           <div className={e.dialogueTypes} role="group" aria-label="대사 유형">
             {(
@@ -1079,7 +1092,7 @@ export function CharacterEditor({
           </CharacterWorkPanel>
         </div>
       </TabPanel>
-      <TabPanel value="life" className={s.editorPanel}>
+      <TabPanel tabs={tabsId} value="life" selected={tab} className={s.editorPanel}>
         <CharacterWorkPanel footer={definitionActions}>
           <fieldset className={s.fieldset} disabled={pending}>
             <section aria-label="캐릭터 등장">
@@ -1189,16 +1202,16 @@ export function CharacterEditor({
           {typeof lifeContent === "function" ? lifeContent(tab === "life") : lifeContent}
         </CharacterWorkPanel>
       </TabPanel>
-      <TabPanel value="memory" className={s.editorPanel}>
+      <TabPanel tabs={tabsId} value="memory" selected={tab} className={s.editorPanel}>
         {(typeof memoryContent === "function"
           ? memoryContent(() => setTab("settings"))
           : memoryContent) ?? (
           <p className={s.small}>캐릭터를 저장하면 함께 나눈 기억을 볼 수 있어요.</p>
         )}
       </TabPanel>
-      <TabPanel value="settings" className={s.editorPanel}>
+      <TabPanel tabs={tabsId} value="settings" selected={tab} className={s.editorPanel}>
         {settingsContent ?? <p className={s.small}>캐릭터를 먼저 저장해 주세요.</p>}
       </TabPanel>
-    </Tabs>
+    </div>
   );
 }

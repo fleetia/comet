@@ -17,7 +17,7 @@ import { ConnectionTool } from "../ConnectionTools/ConnectionTools";
 import { CollapsedDesktopWidget } from "../WidgetDisplay/DesktopWidget";
 import { DESKTOP_TOYS } from "../ToyTools/desktopToys";
 import { transparentDocument } from "../../components/companion.css";
-import * as c from "../../lagrange.css";
+import * as c from "../../common.css";
 import * as s from "../tools.css";
 
 export function WidgetTool({

@@ -10,7 +10,7 @@ import type {
   SourceDocument,
 } from "../../organizer/types";
 import * as s from "./diaryOrganizer.css";
-import * as common from "../../lagrange.css";
+import * as common from "../../common.css";
 
 const STATES: Record<string, string> = {
   saved: "저장됨",

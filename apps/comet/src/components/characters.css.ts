@@ -1,10 +1,9 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
 import { tokens } from "@comet/token";
 
 export const page = style({
-  padding: vars.space.lg,
-  background: vars.color.surface.canvas,
+  padding: tokens["spacing/space-16"],
+  background: tokens["color/sky"],
   minHeight: "100dvh",
 });
 export const embedded = style({
@@ -14,7 +13,7 @@ export const embedded = style({
   height: "100%",
   minHeight: 0,
 });
-export const header = style({ marginBottom: vars.space.md });
+export const header = style({ marginBottom: tokens["spacing/space-12"] });
 export const layout = style({
   display: "flex",
   flexDirection: "column",
@@ -25,7 +24,7 @@ export const layout = style({
 export const list = style({
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.xs,
+  gap: tokens["spacing/space-6"],
   alignSelf: "stretch",
   minWidth: 0,
   minHeight: 0,
@@ -35,16 +34,16 @@ export const rosterBody = style({
   minHeight: 0,
   flex: 1,
   overflowY: "auto",
-  padding: vars.space.md,
+  padding: tokens["spacing/space-12"],
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
 });
 export const libraryHeading = style({
   display: "flex",
   alignItems: "baseline",
   justifyContent: "space-between",
-  gap: vars.space.xs,
+  gap: tokens["spacing/space-6"],
   paddingBottom: 0,
 });
 export const characterList = style({ display: "flex", flexDirection: "column" });
@@ -52,38 +51,38 @@ export const item = style({
   display: "grid",
   gridTemplateColumns: "36px minmax(0,1fr)",
   alignItems: "center",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
   minHeight: 64,
 });
 export const itemDetail = style({
   display: "grid",
-  gap: vars.space.xs,
+  gap: tokens["spacing/space-6"],
   textAlign: "left",
   minWidth: 0,
 });
 export const itemStatus = style({
-  fontSize: vars.typography.size.caption,
-  lineHeight: vars.typography.lineHeight.compact,
-  color: vars.color.content.secondary,
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  lineHeight: "1.385",
+  color: tokens["color/ink-2"],
 });
 export const itemName = style({ overflowWrap: "anywhere", minWidth: 0 });
 export const small = style({
-  fontSize: vars.typography.size.caption,
-  lineHeight: vars.typography.lineHeight.body,
-  color: vars.color.content.secondary,
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  lineHeight: "1.462",
+  color: tokens["color/ink-2"],
   margin: 0,
   overflowWrap: "anywhere",
 });
 export const roster = style({
   display: "grid",
-  gap: vars.space.xs,
-  padding: `${vars.space.sm} 0 ${vars.space.md}`,
+  gap: tokens["spacing/space-6"],
+  padding: `${tokens["spacing/space-8"]} 0 ${tokens["spacing/space-12"]}`,
 });
 export const libraryActions = style({
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.sm,
-  margin: `${vars.space.sm} 0`,
+  gap: tokens["spacing/space-8"],
+  margin: `${tokens["spacing/space-8"]} 0`,
 });
 export const detail = style({ display: "contents" });
 export const editor = style({
@@ -95,10 +94,10 @@ export const editor = style({
 });
 export const editorHeader = style({
   flexShrink: 0,
-  background: vars.color.surface.canvas,
+  background: tokens["color/sky"],
   display: "grid",
-  gap: vars.space.md,
-  paddingBottom: vars.space.md,
+  gap: tokens["spacing/space-12"],
+  paddingBottom: tokens["spacing/space-12"],
 });
 export const editorPanel = style({
   flex: 1,
@@ -108,23 +107,23 @@ export const editorPanel = style({
 });
 export const fieldset = style({ border: 0, padding: 0, margin: 0, minWidth: 0 });
 export const section = style({
-  margin: `${vars.space.md} 0 0`,
-  paddingTop: vars.space.sm,
-  borderTop: `${vars.border.width.hairline} solid ${vars.color.border.strong}`,
+  margin: `${tokens["spacing/space-12"]} 0 0`,
+  paddingTop: tokens["spacing/space-8"],
+  borderTop: `1px solid ${tokens["color/input-border"]}`,
 });
 export const sectionHeader = style({
   display: "flex",
   alignItems: "start",
   justifyContent: "space-between",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
 });
 export const subheading = style({
-  color: vars.color.content.primary,
+  color: tokens["color/ink"],
   fontFamily: tokens["typography/display/label-display/fontFamily"],
   fontSize: 14,
-  lineHeight: vars.typography.lineHeight.compact,
+  lineHeight: "1.385",
   fontWeight: 600,
-  margin: `0 0 ${vars.space.sm}`,
+  margin: `0 0 ${tokens["spacing/space-8"]}`,
 });
 export const characterFace = style({
   width: 40,
@@ -132,9 +131,9 @@ export const characterFace = style({
   flexShrink: 0,
   display: "grid",
   placeItems: "center",
-  fontSize: vars.typography.size.body,
+  fontSize: tokens["typography/sans/body/fontSize"],
   whiteSpace: "nowrap",
-  color: vars.color.content.accent,
+  color: tokens["color/primary"],
 });
 export const characterPortrait = style({
   width: "100%",
@@ -146,7 +145,7 @@ export const basicFields = style({
   display: "grid",
   alignItems: "start",
   gridTemplateColumns: "200px minmax(0,1fr)",
-  gap: vars.space.lg,
+  gap: tokens["spacing/space-16"],
   minWidth: 0,
   "@media": { "(max-width: 820px)": { gridTemplateColumns: "1fr" } },
 });
@@ -154,7 +153,7 @@ export const inlineField = style({
   display: "grid",
   gridTemplateColumns: "1fr",
   alignItems: "baseline",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
   minWidth: 0,
 });
 export const personalityInput = style({
@@ -164,32 +163,32 @@ export const personalityInput = style({
 export const expressionAdd = style({
   display: "grid",
   gridTemplateColumns: "minmax(0,1fr) auto",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
   alignItems: "center",
-  marginTop: vars.space.xs,
+  marginTop: tokens["spacing/space-6"],
 });
 globalStyle(`${expressionAdd}[hidden]`, { display: "none" });
 export const personalityField = style([inlineField, { gridColumn: "1 / -1" }]);
 export const relationshipRow = style({
   display: "grid",
-  gap: vars.space.xs,
-  margin: `${vars.space.sm} 0`,
+  gap: tokens["spacing/space-6"],
+  margin: `${tokens["spacing/space-8"]} 0`,
 });
 export const relationshipControls = style({
   display: "grid",
   gridTemplateColumns: "minmax(0,1fr) auto",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
 });
 export const appearanceLayout = style({
   display: "grid",
   gridTemplateColumns: "minmax(0,1.6fr) minmax(160px,1fr)",
-  gap: vars.space.lg,
+  gap: tokens["spacing/space-16"],
   "@media": { "(max-width: 900px)": { gridTemplateColumns: "1fr" } },
 });
 export const appearanceSettings = style({
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
   minWidth: 0,
 });
 export const appearanceCheckbox = style({
@@ -202,19 +201,19 @@ export const expressionHead = style({
   display: "grid",
   gridTemplateColumns: "70px minmax(60px,1fr) minmax(105px,1.2fr) 24px",
   alignItems: "center",
-  gap: vars.space.sm,
-  minHeight: vars.dimension.control,
-  color: vars.color.content.secondary,
-  fontSize: vars.typography.size.caption,
+  gap: tokens["spacing/space-8"],
+  minHeight: tokens["size/control-36"],
+  color: tokens["color/ink-2"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
 });
 export const expressionRow = style({
   display: "grid",
   gridTemplateColumns: "70px minmax(60px,1fr) minmax(105px,1.2fr) 24px",
   alignItems: "center",
-  gap: vars.space.sm,
-  minHeight: vars.dimension.control,
+  gap: tokens["spacing/space-8"],
+  minHeight: tokens["size/control-36"],
   padding: 0,
-  fontSize: vars.typography.size.label,
+  fontSize: tokens["typography/sans/body/fontSize"],
 });
 export const spriteFrame = style({
   width: 24,
@@ -223,8 +222,8 @@ export const spriteFrame = style({
   alignItems: "center",
   justifyContent: "center",
   flexShrink: 0,
-  fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  color: tokens["color/ink-2"],
   overflow: "hidden",
 });
 export const spriteImage = style({
@@ -236,23 +235,23 @@ export const spriteImage = style({
 export const spriteActions = style({
   display: "flex",
   alignItems: "center",
-  gap: vars.space.xxs,
+  gap: tokens["spacing/space-4"],
   minWidth: 0,
 });
 export const balloonSetting = style({
   display: "flex",
   alignItems: "center",
   flexWrap: "wrap",
-  gap: vars.space.xs,
+  gap: tokens["spacing/space-6"],
 });
 export const balloonColorInput = style({
   width: 48,
-  padding: vars.space.xxs,
+  padding: tokens["spacing/space-4"],
 });
 export const balloonTextPreview = style({
   margin: 0,
-  padding: vars.space.sm,
-  border: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
+  padding: tokens["spacing/space-8"],
+  border: `1px solid ${tokens["color/line"]}`,
   lineHeight: 1.6,
   overflowWrap: "anywhere",
 });
@@ -260,49 +259,49 @@ export const compactActions = style({
   display: "flex",
   alignItems: "center",
   flexWrap: "wrap",
-  gap: vars.space.sm,
-  marginTop: vars.space.xs,
+  gap: tokens["spacing/space-8"],
+  marginTop: tokens["spacing/space-6"],
 });
 export const dialogueRow = style({
   display: "grid",
   gridTemplateColumns: "78px minmax(0,1fr) auto",
   alignItems: "center",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
   minHeight: 30,
   padding: 0,
-  fontSize: vars.typography.size.label,
+  fontSize: tokens["typography/sans/body/fontSize"],
 });
 export const lineSummary = style({
   overflow: "hidden",
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
-  color: vars.color.content.secondary,
+  color: tokens["color/ink-2"],
 });
-export const lineEditor = style({ padding: `${vars.space.sm} 0 ${vars.space.md}`, minWidth: 0 });
-export const line = style({ paddingBottom: vars.space.sm });
+export const lineEditor = style({ padding: `${tokens["spacing/space-8"]} 0 ${tokens["spacing/space-12"]}`, minWidth: 0 });
+export const line = style({ paddingBottom: tokens["spacing/space-8"] });
 export const textarea = style({ minHeight: 96 });
 export const dialogueScope = style({
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: vars.space.sm,
-  margin: `${vars.space.sm} 0`,
+  gap: tokens["spacing/space-8"],
+  margin: `${tokens["spacing/space-8"]} 0`,
 });
 export const scopeField = style({
   display: "flex",
   alignItems: "center",
-  gap: vars.space.sm,
-  fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
+  gap: tokens["spacing/space-8"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  color: tokens["color/ink-2"],
 });
 export const saveBar = style({
   flexShrink: 0,
-  borderTop: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
-  padding: `${vars.space.xs} 0`,
+  borderTop: `1px solid ${tokens["color/line"]}`,
+  padding: `${tokens["spacing/space-6"]} 0`,
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
   flexWrap: "wrap",
 });
 export const attributionSummary = style({
@@ -310,32 +309,32 @@ export const attributionSummary = style({
   display: "grid",
   gridTemplateColumns: "64px minmax(0,1fr) auto",
   alignItems: "center",
-  columnGap: vars.space.sm,
-  rowGap: vars.space.xs,
-  marginTop: vars.space.sm,
-  fontSize: vars.typography.size.label,
+  columnGap: tokens["spacing/space-8"],
+  rowGap: tokens["spacing/space-6"],
+  marginTop: tokens["spacing/space-8"],
+  fontSize: tokens["typography/sans/body/fontSize"],
 });
-export const packSelector = style({ padding: vars.space.sm });
-export const packControls = style({ marginTop: vars.space.sm });
+export const packSelector = style({ padding: tokens["spacing/space-8"] });
+export const packControls = style({ marginTop: tokens["spacing/space-8"] });
 export const packField = style({ flex: "1 1 180px", minWidth: 0 });
-export const packHint = style({ display: "block", marginTop: vars.space.xs });
+export const packHint = style({ display: "block", marginTop: tokens["spacing/space-6"] });
 export const preview = style({
-  padding: `${vars.space.sm} 0`,
+  padding: `${tokens["spacing/space-8"]} 0`,
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
 });
 export const notice = style({
-  margin: `${vars.space.sm} 0`,
-  fontSize: vars.typography.size.label,
-  lineHeight: vars.typography.lineHeight.body,
+  margin: `${tokens["spacing/space-8"]} 0`,
+  fontSize: tokens["typography/sans/body/fontSize"],
+  lineHeight: "1.462",
 });
 export const disclosureSummary = style({
-  padding: `${vars.space.xs} 0`,
-  color: vars.color.content.accent,
-  fontSize: vars.typography.size.label,
+  padding: `${tokens["spacing/space-6"]} 0`,
+  color: tokens["color/primary"],
+  fontSize: tokens["typography/sans/body/fontSize"],
   cursor: "pointer",
 });
 
@@ -345,17 +344,17 @@ export const sourceHeading = style({
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: vars.space.md,
-  minHeight: vars.dimension.control,
+  gap: tokens["spacing/space-12"],
+  minHeight: tokens["size/control-36"],
   flexWrap: "wrap",
 });
 export const sourceDetail = style({
   display: "grid",
   gridTemplateColumns: "140px minmax(0,1fr)",
-  gap: vars.space.lg,
+  gap: tokens["spacing/space-16"],
   alignItems: "center",
-  minHeight: vars.dimension.control,
-  marginBlock: vars.space.sm,
+  minHeight: tokens["size/control-36"],
+  marginBlock: tokens["spacing/space-8"],
   overflowWrap: "anywhere",
   "@media": { "(max-width: 1280px)": { gridTemplateColumns: "64px minmax(0,1fr)" } },
 });
@@ -373,7 +372,7 @@ export const packPicker = style({ width: "100%", justifyContent: "space-between"
 export const rosterOrder = style({
   display: "grid",
   gridTemplateColumns: "repeat(2,minmax(0,1fr))",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
 });
 globalStyle(`${libraryActions} > button`, { width: "100%" });
 

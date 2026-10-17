@@ -7,7 +7,7 @@ import { WidgetFrame } from "../WidgetFrame/WidgetFrame";
 import type { StateRule } from "./types";
 import { useWindowCloseGuard } from "../useWindowCloseGuard";
 import * as s from "./generatedWidgets.css";
-import * as common from "../../lagrange.css";
+import * as common from "../../common.css";
 
 export type RuleDraft = Omit<StateRule, "value"> & { valueJson: string };
 type Editor = { rules: RuleDraft[]; stateJson: string; baseline: string; characters: CharacterCollection };

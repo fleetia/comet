@@ -13,7 +13,7 @@ import { CharacterHistory } from "../CharacterHistory/CharacterHistory";
 import { responseOrigin } from "./conversationStatus";
 import { ConversationMessageActions, type ConversationSaveRequest } from "./ConversationSave";
 import * as s from "../companion.css";
-import * as ui from "../../lagrange.css";
+import * as ui from "../../common.css";
 
 const sentenceSegmenter = new Intl.Segmenter("ko", { granularity: "sentence" });
 

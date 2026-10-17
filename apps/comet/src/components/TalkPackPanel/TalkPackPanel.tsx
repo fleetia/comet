@@ -7,7 +7,7 @@ import byulFace from "../../assets/figma/talk-byul-face.svg";
 import * as figma from "../SettingsPanel/figmaSettings.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { TalkPack } from "../../types";
-import * as s from "../../lagrange.css";
+import * as s from "../../common.css";
 import * as t from "./TalkPackPanel.css";
 
 const PREVIEW_PACKS: TalkPack[] = [

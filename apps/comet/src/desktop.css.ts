@@ -1,7 +1,6 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
-import * as shared from "./lagrange.css";
+import * as shared from "./common.css";
 
 export { theme } from "./theme.css";
 
@@ -35,79 +34,79 @@ globalStyle(`${root} [hidden]`, { display: "none" });
 globalStyle(`${root} [role="tabpanel"]:focus`, { outline: "none" });
 globalStyle(`${root} summary`, { cursor: "pointer" });
 globalStyle(`${root} summary:focus-visible`, {
-  outline: `${vars.border.width.hairline} solid ${vars.color.interaction.focus}`,
+  outline: `1px solid ${tokens["color/focus-ring"]}`,
   outlineOffset: 2,
 });
 globalStyle(`${root} ${shared.settings}`, {
   maxWidth: 760,
-  padding: `${vars.space.xl} ${vars.space.xl} ${vars.space.lg}`,
+  padding: `${tokens["spacing/space-26"]} ${tokens["spacing/space-26"]} ${tokens["spacing/space-16"]}`,
   display: "flex",
   flexDirection: "column",
-  "@media": { "(max-width: 480px)": { padding: vars.space.lg } },
+  "@media": { "(max-width: 480px)": { padding: tokens["spacing/space-16"] } },
 });
 globalStyle(`${root} ${shared.settingsTitle}`, {
-  color: vars.color.content.accent,
-  fontFamily: vars.typography.family.display,
+  color: tokens["color/primary"],
+  fontFamily: `${tokens["typography/display/title/fontFamily"]}, sans-serif`,
   fontWeight: tokens["typography/display/page/fontWeight"],
-  lineHeight: vars.typography.lineHeight.tight,
-  margin: `0 0 ${vars.space.sm}`,
+  lineHeight: "1.25",
+  margin: `0 0 ${tokens["spacing/space-8"]}`,
 });
 globalStyle(`${root} ${shared.sectionTitle}`, {
-  color: vars.color.content.accent,
-  fontFamily: vars.typography.family.display,
+  color: tokens["color/primary"],
+  fontFamily: `${tokens["typography/display/title/fontFamily"]}, sans-serif`,
   fontWeight: tokens["typography/display/title-sm/fontWeight"],
-  lineHeight: vars.typography.lineHeight.compact,
-  fontSize: vars.typography.size.headingSm,
-  marginBottom: vars.space.lg,
+  lineHeight: "1.385",
+  fontSize: tokens["typography/display/title-sm/fontSize"],
+  marginBottom: tokens["spacing/space-16"],
 });
 globalStyle(`${root} ${shared.field}`, {
-  gap: vars.space.xxs,
-  marginBottom: vars.space.md,
+  gap: tokens["spacing/space-4"],
+  marginBottom: tokens["spacing/space-12"],
 });
 globalStyle(`${root} ${shared.row}`, {
-  gap: vars.space.sm,
-  margin: `${vars.space.sm} 0`,
+  gap: tokens["spacing/space-8"],
+  margin: `${tokens["spacing/space-8"]} 0`,
 });
 globalStyle(`${root} ${shared.section}`, {
-  marginTop: vars.space.lg,
-  paddingTop: vars.space.lg,
+  marginTop: tokens["spacing/space-16"],
+  paddingTop: tokens["spacing/space-16"],
 });
 globalStyle(`${root} ${shared.choice}`, {
   flex: "0 1 auto",
-  padding: `${vars.space.sm} ${vars.space.md}`,
+  padding: `${tokens["spacing/space-8"]} ${tokens["spacing/space-12"]}`,
 });
 
 export const pageHeader = style({
   display: "flex",
   alignItems: "flex-start",
   justifyContent: "space-between",
-  gap: vars.space.lg,
-  marginBottom: vars.space.xl,
+  gap: tokens["spacing/space-16"],
+  marginBottom: tokens["spacing/space-26"],
 });
 export const tabs = style({ flex: 1 });
 export const tabList = style({ flexWrap: "wrap" });
-export const tabPanel = style({ padding: `${vars.space.lg} 0`, minWidth: 0 });
+export const tabPanel = style({ padding: `${tokens["spacing/space-16"]} 0`, minWidth: 0 });
 export const fieldset = style({ border: 0, padding: 0, margin: 0, minWidth: 0 });
 export const info = style({
-  color: vars.color.content.secondary,
-  fontSize: vars.typography.size.label,
-  lineHeight: vars.typography.lineHeight.body,
-  marginBottom: vars.space.lg,
+  color: tokens["color/ink-2"],
+  fontSize: tokens["typography/sans/body/fontSize"],
+  lineHeight: "1.462",
+  marginBottom: tokens["spacing/space-16"],
 });
 export const subsettings = style({
-  margin: `${vars.space.md} 0 0 ${vars.space.lg}`,
-  paddingLeft: vars.space.md,
-  borderLeft: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
+  margin: `${tokens["spacing/space-12"]} 0 0 ${tokens["spacing/space-16"]}`,
+  paddingLeft: tokens["spacing/space-12"],
+  borderLeft: `1px dotted ${tokens["color/line"]}`,
 });
 export const modeChoices = style({
   display: "flex",
   flexWrap: "wrap",
-  gap: vars.space.lg,
-  marginBottom: vars.space.md,
+  gap: tokens["spacing/space-16"],
+  marginBottom: tokens["spacing/space-12"],
 });
 export const data = style({
-  fontFamily: vars.typography.family.data,
-  fontSize: vars.typography.size.data,
+  fontFamily: '"IBM Plex Mono", monospace',
+  fontSize: tokens["typography/sans/caption/fontSize"],
   fontVariantNumeric: "tabular-nums slashed-zero",
 });
 export const shortInput = style({ width: 80 });
@@ -116,30 +115,30 @@ export const saveBar = style({
   bottom: 0,
   zIndex: 1,
   display: "grid",
-  gap: vars.space.sm,
-  marginTop: vars.space.lg,
-  paddingBottom: vars.space.sm,
-  background: vars.color.surface.canvas,
+  gap: tokens["spacing/space-8"],
+  marginTop: tokens["spacing/space-16"],
+  paddingBottom: tokens["spacing/space-8"],
+  background: tokens["color/sky"],
 });
 export const saveActions = style({
   display: "flex",
   alignItems: "center",
   flexWrap: "wrap",
-  gap: vars.space.sm,
-  paddingTop: vars.space.xs,
+  gap: tokens["spacing/space-8"],
+  paddingTop: tokens["spacing/space-6"],
 });
 export const saveStatus = style({
   flex: "1 1 180px",
-  color: vars.color.content.secondary,
-  fontSize: vars.typography.size.caption,
+  color: tokens["color/ink-2"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
 });
 export const disclosure = style({
-  marginTop: vars.space.xl,
-  paddingTop: vars.space.md,
-  borderTop: `${vars.border.width.hairline} dotted ${vars.color.border.subtle}`,
+  marginTop: tokens["spacing/space-26"],
+  paddingTop: tokens["spacing/space-12"],
+  borderTop: `1px dotted ${tokens["color/line"]}`,
 });
 export const disclosureSummary = style({
-  color: vars.color.content.secondary,
-  fontSize: vars.typography.size.label,
-  padding: `${vars.space.xs} 0`,
+  color: tokens["color/ink-2"],
+  fontSize: tokens["typography/sans/body/fontSize"],
+  padding: `${tokens["spacing/space-6"]} 0`,
 });

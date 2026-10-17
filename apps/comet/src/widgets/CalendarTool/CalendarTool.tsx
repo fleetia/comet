@@ -10,7 +10,7 @@ import { connectionsOutdated, freeTimeCoverage, freeTimes } from "../Planner/pla
 import { PlannerAlerts } from "../PlannerAlerts/PlannerAlerts";
 import { useConnectionCommand } from "../useConnectionCommand";
 import type { WidgetView } from "../types";
-import * as c from "../../lagrange.css";
+import * as c from "../../common.css";
 import * as s from "../tools.css";
 import * as settings from "./calendarTool.css";
 type AppleCalendarList = {

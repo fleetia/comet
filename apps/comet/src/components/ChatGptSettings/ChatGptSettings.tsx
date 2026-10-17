@@ -13,7 +13,7 @@ import * as ai from "../ModelSettings/aiSettings.css";
 import type { SettingsDraft } from "../../hooks/useSettingsDraft";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import * as styles from "../ModelSettings/modelSettings.css";
-import * as s from "../../lagrange.css";
+import * as s from "../../common.css";
 
 export type ChatgptStatus = {
   accounts: {

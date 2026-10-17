@@ -14,7 +14,7 @@ import {
 } from "../../organizer/types";
 import type { Snapshot } from "../../types";
 import * as s from "./organizerSettings.css";
-import * as common from "../../lagrange.css";
+import * as common from "../../common.css";
 
 const DEFAULT_EXCLUDE = [
   "03.diary",

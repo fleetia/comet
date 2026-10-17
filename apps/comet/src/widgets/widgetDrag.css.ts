@@ -1,5 +1,5 @@
 import { style } from "@vanilla-extract/css";
-import { semanticVars as v } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 
 export const handle = style({
   display: "inline-flex",
@@ -8,7 +8,7 @@ export const handle = style({
   flexShrink: 0,
   minWidth: 24,
   minHeight: 28,
-  color: v.color.content.secondary,
+  color: tokens["color/ink-2"],
   cursor: "grab",
   userSelect: "none",
   selectors: {

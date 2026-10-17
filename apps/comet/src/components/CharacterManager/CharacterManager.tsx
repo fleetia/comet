@@ -24,7 +24,7 @@ import { CharacterPackSelector } from "../CharacterPackSelector/CharacterPackSel
 import { MemorySettings } from "../MemorySettings/MemorySettings";
 import { CharacterMemorySettings } from "../CharacterMemorySettings/CharacterMemorySettings";
 import { WindowHeader } from "../WindowHeader/WindowHeader";
-import * as ui from "../../lagrange.css";
+import * as ui from "../../common.css";
 import * as s from "../characters.css";
 
 type Props = {

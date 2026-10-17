@@ -1,5 +1,4 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { semanticVars as v, vnextVars } from "@fleetia/lagrange/theme";
 import { tokens } from "@comet/token";
 
 export const root = style({
@@ -11,7 +10,7 @@ export const root = style({
   flexDirection: "column",
   overflowY: "auto",
   overflowX: "hidden",
-  color: v.color.content.primary,
+  color: tokens["color/ink"],
   fontFamily: tokens["typography/sans/body/fontFamily"],
   fontSize: 13,
   lineHeight: "18px",
@@ -71,7 +70,7 @@ export const toolbar = style({
   display: "flex",
   justifyContent: "flex-end",
   alignItems: "center",
-  gap: v.space.xs,
+  gap: tokens["spacing/space-6"],
 });
 export const layout = style({
   display: "grid",
@@ -121,7 +120,7 @@ export const inlineField = style({
   display: "grid",
   gridTemplateColumns: "auto minmax(0, 1fr)",
   alignItems: "center",
-  gap: v.space.sm,
+  gap: tokens["spacing/space-8"],
 });
 export const optionalSetup = style({
   selectors: { '[data-expanded="false"] &': { display: "none" } },
@@ -134,11 +133,11 @@ export const quiet = style({
 });
 export const related = style({
   display: "flex",
-  gap: v.space.xs,
+  gap: tokens["spacing/space-6"],
   alignItems: "center",
   minHeight: 24,
-  color: v.color.content.secondary,
-  fontSize: v.typography.size.caption,
+  color: tokens["color/ink-2"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
   overflowWrap: "anywhere",
 });
 export const timerStatus = style({
@@ -153,7 +152,7 @@ export const timerStatus = style({
 export const row = style({
   display: "flex",
   alignItems: "center",
-  gap: v.space.sm,
+  gap: tokens["spacing/space-8"],
   flexWrap: "wrap",
 });
 export const context = style({
@@ -172,45 +171,45 @@ export const tabPanel = style({ padding: 0, minWidth: 0 });
 export const pane = style({
   display: "flex",
   flexDirection: "column",
-  gap: v.space.md,
+  gap: tokens["spacing/space-12"],
   minWidth: 0,
 });
 export const heading = style({
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: v.space.sm,
+  gap: tokens["spacing/space-8"],
 });
 export const headingText = style({
-  fontFamily: v.typography.family.display,
-  fontSize: v.typography.size.headingSm,
+  fontFamily: `${tokens["typography/display/title/fontFamily"]}, sans-serif`,
+  fontSize: tokens["typography/display/title-sm/fontSize"],
   margin: 0,
 });
 export const week = style({
   display: "grid",
   gridTemplateColumns: "repeat(7, minmax(0,1fr))",
-  gap: v.space.xxs,
+  gap: tokens["spacing/space-4"],
 });
 export const day = style({
   width: "100%",
   display: "flex",
   flexDirection: "column",
-  gap: v.space.xxs,
-  padding: v.space.xs,
+  gap: tokens["spacing/space-4"],
+  padding: tokens["spacing/space-6"],
   fontVariantNumeric: "tabular-nums",
   selectors: {
     '&[aria-pressed="true"]': {
-      background: v.color.selection.surface,
-      boxShadow: `inset 0 -2px ${v.color.selection.indicator}`,
+      background: tokens["color/primary"],
+      boxShadow: `inset 0 -2px ${tokens["color/selected-border"]}`,
     },
   },
 });
 export const item = style({
   display: "flex",
   alignItems: "center",
-  gap: v.space.sm,
-  borderBottom: `1px solid ${v.color.border.subtle}`,
-  padding: `${v.space.md} 0`,
+  gap: tokens["spacing/space-8"],
+  borderBottom: `1px solid ${tokens["color/line"]}`,
+  padding: `${tokens["spacing/space-12"]} 0`,
   minWidth: 0,
 });
 export const grow = style({ flex: 1, minWidth: 0 });
@@ -235,13 +234,13 @@ export const recordRow = style([item, { width: "100%" }]);
 export const statsSummary = style({
   display: "flex",
   alignItems: "baseline",
-  gap: v.space.md,
-  margin: `${v.space.sm} 0 ${v.space.md}`,
+  gap: tokens["spacing/space-12"],
+  margin: `${tokens["spacing/space-8"]} 0 ${tokens["spacing/space-12"]}`,
 });
-export const chartCaption = style({ textAlign: "center", paddingBottom: v.space.md });
+export const chartCaption = style({ textAlign: "center", paddingBottom: tokens["spacing/space-12"] });
 export const recordHeading = style([
   heading,
-  { borderTop: `1px solid ${v.color.border.subtle}`, paddingTop: v.space.lg },
+  { borderTop: `1px solid ${tokens["color/line"]}`, paddingTop: tokens["spacing/space-16"] },
 ]);
 export const memoSection = style([pane, { gap: 8 }]);
 export const noteSection = style([pane, { gap: 8 }]);
@@ -305,21 +304,21 @@ export const itemTitle = style({
 });
 export const caption = style({
   display: "block",
-  color: v.color.content.secondary,
-  fontSize: v.typography.size.caption,
-  marginTop: v.space.xxs,
+  color: tokens["color/ink-2"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  marginTop: tokens["spacing/space-4"],
 });
 export const timeline = style({
   position: "relative",
   marginLeft: 36,
-  borderTop: `1px solid ${v.color.border.subtle}`,
+  borderTop: `1px solid ${tokens["color/line"]}`,
 });
 export const hour = style({
   position: "absolute",
   left: 0,
   right: 0,
   height: 1,
-  background: v.color.border.subtle,
+  background: tokens["color/line"],
 });
 export const hourLabel = style({
   position: "absolute",
@@ -328,58 +327,58 @@ export const hourLabel = style({
   width: 36,
   whiteSpace: "nowrap",
   textAlign: "right",
-  color: v.color.content.secondary,
+  color: tokens["color/ink-2"],
   fontSize: 10,
-  fontFamily: v.typography.family.data,
+  fontFamily: '"IBM Plex Mono", monospace',
 });
 export const timeBlock = style({
   position: "absolute",
   border: 0,
-  borderLeft: `2px solid ${v.color.border.strong}`,
-  background: v.color.surface.muted,
-  borderRadius: vnextVars.radius.control,
+  borderLeft: `2px solid ${tokens["color/input-border"]}`,
+  background: tokens["color/card-2"],
+  borderRadius: tokens["radius/radius-9"],
   overflow: "hidden",
   textAlign: "left",
   fontSize: 11,
   padding: "4px 6px",
-  color: v.color.content.primary,
+  color: tokens["color/ink"],
   cursor: "pointer",
   selectors: {
-    "&:focus-visible": { outline: `2px solid ${v.color.interaction.focus}`, outlineOffset: 2 },
+    "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: 2 },
   },
 });
 export const actualBlock = style([
   timeBlock,
   {
-    background: v.color.selection.surface,
-    borderLeftColor: v.color.content.accent,
-    color: v.color.content.accent,
+    background: tokens["color/primary"],
+    borderLeftColor: tokens["color/primary"],
+    color: tokens["color/primary"],
   },
 ]);
 export const form = style({
   display: "flex",
   flexDirection: "column",
-  gap: v.space.md,
-  padding: v.space.md,
-  background: v.color.surface.muted,
-  borderRadius: vnextVars.radius.inset,
+  gap: tokens["spacing/space-12"],
+  padding: tokens["spacing/space-12"],
+  background: tokens["color/card-2"],
+  borderRadius: tokens["radius/radius-12"],
 });
 export const fields = style({
   display: "grid",
   gridTemplateColumns: "repeat(2,minmax(0,1fr))",
-  gap: v.space.sm,
+  gap: tokens["spacing/space-8"],
 });
 export const textArea = style({
   width: "100%",
   minHeight: 155,
   resize: "vertical",
-  selectors: { [`${root} ${context} &`]: { padding: v.space.md } },
+  selectors: { [`${root} ${context} &`]: { padding: tokens["spacing/space-12"] } },
 });
 export const chart = style({
   display: "flex",
   height: 190,
   alignItems: "stretch",
-  gap: v.space.sm,
+  gap: tokens["spacing/space-8"],
   selectors: { '&[data-dense="true"]': { gap: 3 } },
 });
 export const bar = style({
@@ -391,16 +390,16 @@ export const bar = style({
   padding: 0,
   border: 0,
   background: "transparent",
-  color: v.color.content.secondary,
+  color: tokens["color/ink-2"],
   cursor: "pointer",
   selectors: {
-    "&:focus-visible": { outline: `2px solid ${v.color.interaction.focus}`, outlineOffset: 2 },
-    '&[aria-pressed="true"]': { color: v.color.content.primary },
+    "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: 2 },
+    '&[aria-pressed="true"]': { color: tokens["color/ink"] },
   },
 });
 export const barTrack = style({
   position: "relative",
-  background: v.color.surface.muted,
+  background: tokens["color/card-2"],
   borderRadius: 22,
   width: "100%",
   maxWidth: 42,
@@ -412,41 +411,41 @@ export const barFill = style({
   left: 0,
   right: 0,
   bottom: 0,
-  background: v.color.content.accent,
+  background: tokens["color/primary"],
   borderRadius: "inherit",
 });
 export const barLabel = style({
   fontSize: 10,
-  fontFamily: v.typography.family.data,
-  marginTop: v.space.sm,
+  fontFamily: '"IBM Plex Mono", monospace',
+  marginTop: tokens["spacing/space-8"],
 });
 export const total = style({
-  fontFamily: v.typography.family.data,
+  fontFamily: '"IBM Plex Mono", monospace',
   fontSize: 30,
   fontVariantNumeric: "tabular-nums",
 });
-export const detailTime = style([total, { margin: `${v.space.lg} 0 ${v.space.xs}` }]);
+export const detailTime = style([total, { margin: `${tokens["spacing/space-16"]} 0 ${tokens["spacing/space-6"]}` }]);
 export const prose = style({
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
-  lineHeight: v.typography.lineHeight.body,
-  fontSize: v.typography.size.body,
+  lineHeight: "1.462",
+  fontSize: tokens["typography/sans/body/fontSize"],
 });
-export const empty = style([quiet, { padding: `${v.space.lg} 0` }]);
-export const error = style({ color: v.color.status.critical, fontSize: v.typography.size.caption });
+export const empty = style([quiet, { padding: `${tokens["spacing/space-16"]} 0` }]);
+export const error = style({ color: tokens["color/danger"], fontSize: tokens["typography/sans/caption/fontSize"] });
 export const notice = style({
-  background: v.color.selection.surface,
-  borderRadius: vnextVars.radius.inset,
-  padding: v.space.md,
-  fontSize: v.typography.size.caption,
+  background: tokens["color/primary"],
+  borderRadius: tokens["radius/radius-12"],
+  padding: tokens["spacing/space-12"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
 });
 export const meta = style({
   display: "grid",
   gridTemplateColumns: "60px minmax(0,1fr)",
-  gap: v.space.sm,
-  margin: `${v.space.md} 0`,
+  gap: tokens["spacing/space-8"],
+  margin: `${tokens["spacing/space-12"]} 0`,
 });
-globalStyle(`${meta} dt`, { color: v.color.content.secondary });
+globalStyle(`${meta} dt`, { color: tokens["color/ink-2"] });
 globalStyle(`${meta} dd`, { margin: 0, overflowWrap: "anywhere" });
 globalStyle(`${root} input, ${root} select, ${root} textarea`, { minWidth: 0 });
 globalStyle(`${timer} p, ${timer} h1`, { margin: 0 });

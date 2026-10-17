@@ -7,7 +7,7 @@ import { WidgetFrame } from "../WidgetFrame/WidgetFrame";
 import { useWindowCloseGuard } from "../useWindowCloseGuard";
 import { useGeneratedWidgets } from "./useGeneratedWidgets";
 import * as s from "./generatedWidgets.css";
-import * as common from "../../lagrange.css";
+import * as common from "../../common.css";
 
 export function WidgetWorkshop(): ReactElement {
   const { workshop, error: loadError, reload } = useGeneratedWidgets();

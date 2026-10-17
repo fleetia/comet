@@ -3,7 +3,7 @@ import { Button } from "../../ui";
 import type { Message, Snapshot } from "../../types";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import * as s from "../companion.css";
-import * as ui from "../../lagrange.css";
+import * as ui from "../../common.css";
 
 type HistoryPage = {
   items: Message[];

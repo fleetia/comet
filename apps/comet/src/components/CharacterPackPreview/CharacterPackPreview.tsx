@@ -1,6 +1,6 @@
 import type { JSX } from "react";
 import type { CharacterPack } from "../../types";
-import * as ui from "../../lagrange.css";
+import * as ui from "../../common.css";
 import * as s from "../characters.css";
 import { BALLOON_SPRITE } from "../characterIdentity";
 

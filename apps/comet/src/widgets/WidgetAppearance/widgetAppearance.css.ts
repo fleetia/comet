@@ -1,5 +1,5 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { semanticVars as vars, vnextVars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 
 export const settings = style({
   display: "flex",
@@ -7,7 +7,7 @@ export const settings = style({
   flex: 1,
   minWidth: 0,
   minHeight: 0,
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
 });
 export const body = style({
   display: "flex",
@@ -16,67 +16,67 @@ export const body = style({
   minHeight: 0,
   overflowY: "auto",
   overscrollBehavior: "contain",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
 });
 globalStyle(`${body} > *`, { flexShrink: 0 });
 export const previewSurface = style({
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
   minWidth: 0,
   height: 232,
-  padding: vars.space.lg,
-  borderRadius: vnextVars.radius.inset,
+  padding: tokens["spacing/space-16"],
+  borderRadius: tokens["radius/radius-12"],
 });
 export const preview = style({
   height: 152,
   minHeight: 152,
   display: "flex",
-  padding: vars.space.lg,
+  padding: tokens["spacing/space-16"],
   backgroundRepeat: "no-repeat",
   backgroundSize: "cover",
   border: 0,
-  borderRadius: vnextVars.radius.inset,
+  borderRadius: tokens["radius/radius-12"],
   overflow: "hidden",
 });
 export const previewText = style({
   display: "grid",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
   maxWidth: "100%",
-  fontFamily: vars.typography.family.display,
+  fontFamily: `${tokens["typography/display/title/fontFamily"]}, sans-serif`,
 });
 export const previewTitle = style({
-  fontSize: vars.typography.size.label,
-  lineHeight: vars.typography.lineHeight.compact,
+  fontSize: tokens["typography/sans/body/fontSize"],
+  lineHeight: "1.385",
   fontWeight: 600,
 });
 export const previewValue = style({
-  fontSize: vars.typography.size.headingMd,
-  lineHeight: vars.typography.lineHeight.tight,
+  fontSize: tokens["typography/display/page/fontSize"],
+  lineHeight: "1.25",
   fontWeight: 700,
 });
 export const previewCaption = style({
-  fontSize: vars.typography.size.caption,
-  lineHeight: vars.typography.lineHeight.body,
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  lineHeight: "1.462",
 });
 export const editHeading = style({
-  borderTop: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
-  paddingTop: vars.space.md,
+  borderTop: `1px solid ${tokens["color/line"]}`,
+  paddingTop: tokens["spacing/space-12"],
   margin: 0,
 });
 export const colors = style({
   display: "grid",
   gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
 });
-globalStyle(`${colors} > div`, { minWidth: 0, margin: 0, gap: vars.space.xs });
+globalStyle(`${colors} > div`, { minWidth: 0, margin: 0, gap: tokens["spacing/space-6"] });
 export const colorField = style({
   height: 32,
   minHeight: 32,
-  padding: `${vars.space.xs} ${vars.space.sm}`,
-  background: vars.color.surface.raised,
-  border: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
-  borderRadius: vnextVars.radius.control,
+  padding: `${tokens["spacing/space-6"]} ${tokens["spacing/space-8"]}`,
+  background: tokens["color/glass-panel"],
+  border: `1px solid ${tokens["color/line"]}`,
+  borderRadius: tokens["radius/radius-9"],
   minWidth: 0,
   gridTemplateColumns: "auto minmax(0, 1fr)",
 });
@@ -90,27 +90,27 @@ globalStyle(`${colorField} input[type="text"]`, {
   border: 0,
   borderRadius: 0,
   background: "transparent",
-  fontSize: vars.typography.size.label,
-  lineHeight: vars.typography.lineHeight.body,
+  fontSize: tokens["typography/sans/body/fontSize"],
+  lineHeight: "1.462",
 });
 export const positions = style({
   display: "grid",
   gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-  gap: vars.space.lg,
+  gap: tokens["spacing/space-16"],
   minHeight: 156,
   alignItems: "center",
 });
 export const placementField = style({
   display: "grid",
-  gap: vars.space.sm,
-  fontSize: vars.typography.size.label,
-  lineHeight: vars.typography.lineHeight.compact,
+  gap: tokens["spacing/space-8"],
+  fontSize: tokens["typography/sans/body/fontSize"],
+  lineHeight: "1.385",
 });
 export const placementPicker = style({
   display: "grid",
   gridTemplateColumns: "repeat(3, 32px)",
   width: 112,
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
   padding: 0,
   border: 0,
   background: "transparent",
@@ -121,22 +121,22 @@ globalStyle(`${placementPicker} button`, {
   height: 32,
   minHeight: 32,
   padding: 0,
-  border: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
-  borderRadius: vars.shape.radius.subtle,
-  background: vars.color.surface.raised,
-  color: vars.color.content.primary,
-  fontSize: vars.typography.size.label,
+  border: `1px solid ${tokens["color/line"]}`,
+  borderRadius: tokens["radius/radius-9"],
+  background: tokens["color/glass-panel"],
+  color: tokens["color/ink"],
+  fontSize: tokens["typography/sans/body/fontSize"],
 });
 globalStyle(
   `${placementPicker} button[aria-checked="true"], ${placementPicker} button[aria-checked="true"]:hover:not(:disabled)`,
   {
-    background: vars.color.selection.surface,
-    color: vars.color.content.onAccent,
-    borderColor: vars.color.selection.indicator,
+    background: tokens["color/primary"],
+    color: tokens["color/on-primary"],
+    borderColor: tokens["color/selected-border"],
   },
 );
 globalStyle(`${placementPicker} button[aria-checked="true"]:focus-visible`, {
-  outline: `2px solid ${vars.color.content.onAccent}`,
+  outline: `2px solid ${tokens["color/on-primary"]}`,
   outlineOffset: -3,
 });
 globalStyle(`${placementPicker} button::after`, {
@@ -167,18 +167,18 @@ export const fileActions = style({
   display: "flex",
   flexWrap: "wrap",
   alignItems: "center",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
   minHeight: 32,
 });
 export const status = style({
   display: "flex",
   flexWrap: "wrap",
   alignItems: "center",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
   minHeight: 20,
 });
 export const error = style({
-  color: vars.color.status.critical,
-  fontSize: vars.typography.size.caption,
-  lineHeight: vars.typography.lineHeight.body,
+  color: tokens["color/danger"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  lineHeight: "1.462",
 });

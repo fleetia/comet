@@ -4,7 +4,7 @@ import { Button } from "../../ui";
 import type { Dispatch, StoryRequest } from "../../types";
 import { errorText } from "../../hooks/useSnapshot";
 import * as s from "./story.css";
-import * as ui from "../../lagrange.css";
+import * as ui from "../../common.css";
 
 type Props = { story: StoryRequest; dispatch: Dispatch; textStyle?: CSSProperties };
 

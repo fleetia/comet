@@ -24,7 +24,7 @@ import planeTrail from "./assets/toy-plane-trail.svg";
 import ballTrail from "./assets/toy-ball-trail.svg";
 import * as toy from "./toyTools.css";
 import * as s from "../tools.css";
-import * as c from "../../lagrange.css";
+import * as c from "../../common.css";
 
 type Props = {
   widget: WidgetView;

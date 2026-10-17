@@ -1,11 +1,11 @@
-import { Button, Tab, TabList, TabPanel, Tabs } from "../../ui";
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { Button, TabPanel, externalTabPanels } from "../../ui";
+import { useEffect, useId, useRef, useState, type ReactElement } from "react";
 import { isDesktop } from "../../hooks/useSnapshot";
 import { record, text, type DataRecord } from "../toolData";
 import type { WidgetValue, WidgetView } from "../types";
 import { MusicLibrary } from "./MusicLibrary";
 import { Icon } from "@comet/icon";
-import { ContextMenu, IconButton, MusicWidget } from "@comet/ui";
+import { ContextMenu, IconButton, MusicWidget, Tabs } from "@comet/ui";
 import {
   artworkUrl,
   finiteNumber,
@@ -16,7 +16,7 @@ import {
   musicTime,
 } from "./musicData";
 import { useMusicRequest } from "./useMusicRequest";
-import * as c from "../../lagrange.css";
+import * as c from "../../common.css";
 import * as s from "./musicTool.css";
 
 function Artwork({ url, title }: { url: string | null; title: string }): ReactElement {
@@ -140,6 +140,15 @@ export function MusicTool({
   const now = Math.max(clock, Date.now());
   const [expanded, setExpanded] = useState(false);
   const [tab, setTab] = useState("lyrics");
+  const tabsId = useId();
+  const tabItems = [
+    { value: "lyrics", label: "가사", content: null },
+    { value: "info", label: "곡 정보", content: null },
+    ...(capabilities.playlists === true
+      ? [{ value: "playlists", label: "플레이리스트", content: null }]
+      : []),
+    ...(capabilities.queue === true ? [{ value: "queue", label: "재생 대기열", content: null }] : []),
+  ];
   const detailScroll = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
@@ -326,14 +335,16 @@ export function MusicTool({
         )}
       </header>
       {expanded ? (
-        <Tabs className={s.tabs} value={tab} onValueChange={setTab}>
+        <div className={s.tabs}>
           <div className={s.tabHeading}>
-            <TabList aria-label="음악 상세 보기" className={s.tabList}>
-              <Tab value="lyrics">가사</Tab>
-              <Tab value="info">곡 정보</Tab>
-              {capabilities.playlists === true && <Tab value="playlists">플레이리스트</Tab>}
-              {capabilities.queue === true && <Tab value="queue">재생 대기열</Tab>}
-            </TabList>
+            <Tabs
+              label="음악 상세 보기"
+              className={s.tabList}
+              items={tabItems}
+              value={tab}
+              onValueChange={setTab}
+              externalPanels={externalTabPanels(tabsId, tabItems.map((item) => item.value))}
+            />
             <Button
               size="compact"
               variant="quiet"
@@ -351,7 +362,7 @@ export function MusicTool({
             aria-label="음악 상세 내용"
             tabIndex={0}
           >
-            <TabPanel value="lyrics">
+            <TabPanel tabs={tabsId} value="lyrics" selected={tab}>
               <section className={s.lyrics} aria-label="가사">
                 {config.showLyrics === false ? (
                   <p className={s.empty}>가사 표시를 꺼 두었어요.</p>
@@ -370,14 +381,14 @@ export function MusicTool({
                 )}
               </section>
             </TabPanel>
-            <TabPanel value="info">
+            <TabPanel tabs={tabsId} value="info" selected={tab}>
               <SongInformation
                 observation={observation}
                 hideMissing={config.hideMissing !== false}
               />
             </TabPanel>
             {capabilities.playlists === true && (
-              <TabPanel value="playlists">
+              <TabPanel tabs={tabsId} value="playlists" selected={tab}>
                 <MusicLibrary
                   key={`${text(config.provider)}:playlists`}
                   mode="playlists"
@@ -388,7 +399,7 @@ export function MusicTool({
               </TabPanel>
             )}
             {capabilities.queue === true && (
-              <TabPanel value="queue">
+              <TabPanel tabs={tabsId} value="queue" selected={tab}>
                 <MusicLibrary
                   key={`${text(config.provider)}:queue`}
                   mode="queue"
@@ -399,7 +410,7 @@ export function MusicTool({
               </TabPanel>
             )}
           </div>
-        </Tabs>
+        </div>
       ) : null}
     </div>
   );

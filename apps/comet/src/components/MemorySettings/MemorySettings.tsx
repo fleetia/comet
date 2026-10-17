@@ -9,7 +9,7 @@ import {
 } from "../../ui";
 import type { Memory, MemoryPage } from "../../types";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
-import * as s from "../../lagrange.css";
+import * as s from "../../common.css";
 import { CharacterWorkPanel } from "../CharacterEditor/CharacterWorkPanel";
 import * as layout from "./memory.css";
 

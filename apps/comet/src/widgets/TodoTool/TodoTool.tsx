@@ -21,7 +21,7 @@ import {
 import type { WidgetView } from "../types";
 import { WidgetDragHandle } from "../WidgetDragHandle";
 import { deviceTimeZone, dueLabel, plannedDay, repeatLabel } from "../Planner/plannerData";
-import * as c from "../../lagrange.css";
+import * as c from "../../common.css";
 import * as s from "../tools.css";
 import * as todo from "./todoTool.css";
 

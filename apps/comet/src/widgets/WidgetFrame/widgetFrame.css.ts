@@ -1,5 +1,4 @@
 import { style, styleVariants } from "@vanilla-extract/css";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
 import { tokens } from "@comet/token";
 
 const window = style({
@@ -8,7 +7,7 @@ const window = style({
   height: "100dvh",
   minWidth: 0,
   overflow: "hidden",
-  color: vars.color.content.primary,
+  color: tokens["color/ink"],
   border: `1px solid ${tokens["color/glass-border"]}`,
   borderRadius: tokens["radius/radius-18"],
   backdropFilter: tokens["backdrop/backdrop-panel"],
@@ -28,16 +27,16 @@ export const header = styleVariants({
     borderBottom: `1px solid ${tokens["color/divider"]}`,
   },
   note: {
-    padding: `${vars.space.xs} ${vars.space.sm}`,
+    padding: `${tokens["spacing/space-6"]} ${tokens["spacing/space-8"]}`,
     background: "transparent",
     borderBottom: `1px solid ${tokens["color/divider"]}`,
   },
 });
 export const status = style({
-  marginBottom: vars.space.sm,
-  color: vars.color.content.secondary,
-  fontSize: vars.typography.size.label,
-  lineHeight: vars.typography.lineHeight.body,
+  marginBottom: tokens["spacing/space-8"],
+  color: tokens["color/ink-2"],
+  fontSize: tokens["typography/sans/body/fontSize"],
+  lineHeight: "1.462",
 });
 const body = style({
   flex: 1,
@@ -57,15 +56,15 @@ const actionArea = style({
   flexWrap: "wrap",
   alignItems: "center",
   justifyContent: "flex-end",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
 });
 export const footer = styleVariants({
   frameless: [actionArea],
   tool: [
     actionArea,
     {
-      padding: `${vars.space.sm} ${vars.space.lg}`,
+      padding: `${tokens["spacing/space-8"]} ${tokens["spacing/space-16"]}`,
     },
   ],
-  note: [actionArea, { padding: `${vars.space.xs} ${vars.space.sm} ${vars.space.sm}` }],
+  note: [actionArea, { padding: `${tokens["spacing/space-6"]} ${tokens["spacing/space-8"]} ${tokens["spacing/space-8"]}` }],
 });

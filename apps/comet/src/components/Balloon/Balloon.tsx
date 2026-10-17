@@ -21,7 +21,7 @@ import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useBalloonSizing } from "../../hooks/useBalloonSizing";
 import { useTypewriter } from "../../hooks/useTypewriter";
 import * as s from "../companion.css";
-import * as ui from "../../lagrange.css";
+import * as ui from "../../common.css";
 import { CharacterOrbit } from "./CharacterOrbit";
 import { NameRegistration } from "./NameRegistration";
 import { ConversationHistory, ConversationLog } from "./ConversationHistory";

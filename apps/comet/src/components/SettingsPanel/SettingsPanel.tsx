@@ -19,7 +19,7 @@ import { CharacterManager } from "../CharacterManager/CharacterManager";
 import { WidgetManager } from "../../widgets/WidgetManager/WidgetManager";
 import { WindowHeader } from "../WindowHeader/WindowHeader";
 import { useSettingsNavigation } from "./useSettingsNavigation";
-import * as s from "../../lagrange.css";
+import * as s from "../../common.css";
 import * as styles from "./settings.css";
 
 type Props = { snapshot: Snapshot; preview?: boolean; initialSection?: string };

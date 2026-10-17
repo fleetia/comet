@@ -8,7 +8,7 @@ import { command, isDesktop } from "../../hooks/useSnapshot";
 import { record, text } from "../toolData";
 import type { WidgetView } from "../types";
 import { useMusicRequest } from "./useMusicRequest";
-import * as c from "../../lagrange.css";
+import * as c from "../../common.css";
 
 type Config = {
   provider: string;

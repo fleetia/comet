@@ -4,14 +4,13 @@ import {
   DateField,
   FormField,
   Select,
-  Tab,
-  TabList,
   TabPanel,
-  Tabs,
   TextField,
+  externalTabPanels,
 } from "../../ui";
 import {
   useEffect,
+  useId,
   useRef,
   useState,
   type DragEvent,
@@ -27,6 +26,7 @@ import {
   SelectField,
   TaskRow,
   Dialog,
+  Tabs,
 } from "@comet/ui";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -93,11 +93,13 @@ export type PlannerToolTab = "today" | "plans" | "templates";
 export type PlannerToolState = { dirty: boolean; busy: boolean; blocking: boolean };
 
 function PlannerPanel({
+  tabs,
   embedded,
   current,
   value,
   children,
 }: {
+  tabs: string;
   embedded: boolean;
   current: string;
   value: string;
@@ -115,7 +117,7 @@ function PlannerPanel({
     );
   }
   return (
-    <TabPanel value={value} className={s.panel}>
+    <TabPanel tabs={tabs} value={value} selected={current} className={s.panel}>
       {children}
     </TabPanel>
   );
@@ -152,6 +154,7 @@ export function Planner({
   );
   const embedded = embeddedTab !== undefined;
   const tab = embeddedTab ?? internalTab;
+  const tabsId = useId();
   function setTab(value: string): void {
     if (embedded) {
       if (value === "today" || value === "plans" || value === "templates") {
@@ -1055,22 +1058,26 @@ export function Planner({
           {loadError ? "목록을 다시 불러와 주세요." : "할 일을 불러오고 있어요."}
         </div>
       ) : (
-        <Tabs value={tab} onValueChange={selectTab} className={embedded ? s.embeddedTabs : s.tabs}>
+        <div className={embedded ? s.embeddedTabs : s.tabs}>
           {!embedded && (
             <div className={s.nav}>
-              <TabList className={s.tabList} aria-label="플래너">
-                {NAVIGATION.map(([key, label]) => (
-                  <Tab key={key} value={key} className={s.tab}>
-                    {label}
-                  </Tab>
-                ))}
-              </TabList>
+              <Tabs
+                label="플래너"
+                className={s.tabList}
+                items={NAVIGATION.map(([value, label]) => ({ value, label, content: null }))}
+                value={tab}
+                onValueChange={selectTab}
+                externalPanels={externalTabPanels(
+                  tabsId,
+                  NAVIGATION.map(([value]) => value),
+                )}
+              />
               <Button variant="quiet" size="compact" onClick={() => openSettings()}>
                 연결·알림 설정 ↗
               </Button>
             </div>
           )}
-          <PlannerPanel embedded={embedded} current={tab} value="today">
+          <PlannerPanel tabs={tabsId} embedded={embedded} current={tab} value="today">
             {embedded ? (
               diaryTasks()
             ) : (
@@ -1262,7 +1269,7 @@ export function Planner({
               </>
             )}
           </PlannerPanel>
-          <PlannerPanel embedded={embedded} current={tab} value="plans">
+          <PlannerPanel tabs={tabsId} embedded={embedded} current={tab} value="plans">
             <div className={s.toolbar}>
               <div className={s.actions} role="group" aria-label="계획 기간">
                 {[...PERIODS, ["inbox", "수집함"]].map(([key, label]) => (
@@ -1414,7 +1421,7 @@ export function Planner({
             )}
           </PlannerPanel>
           {!embedded && (
-            <TabPanel value="calendar" className={s.panel}>
+            <TabPanel tabs={tabsId} value="calendar" selected={tab} className={s.panel}>
               <PlannerCalendar
                 day={day}
                 setDay={setDay}
@@ -1485,7 +1492,7 @@ export function Planner({
               />
             </TabPanel>
           )}
-          <PlannerPanel embedded={embedded} current={tab} value="templates">
+          <PlannerPanel tabs={tabsId} embedded={embedded} current={tab} value="templates">
             {todo ? (
               <PlannerTemplates
                 act={act}
@@ -1506,7 +1513,7 @@ export function Planner({
               </div>
             )}
           </PlannerPanel>
-        </Tabs>
+        </div>
       )}
       <footer className={embedded && tab === "today" ? s.visuallyHidden : s.footer}>
         {tab === "today"

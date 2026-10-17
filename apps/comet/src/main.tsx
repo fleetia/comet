@@ -1,7 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { ThemeRoot } from "@comet/ui";
-import "@fleetia/lagrange/styles.css";
+// Load app primitives before feature styles so feature classes can override them.
+import "./primitives.css";
 import { App } from "./App";
 import * as desktop from "./desktop.css";
 import { command, isDesktop } from "./hooks/useSnapshot";

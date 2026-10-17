@@ -1,33 +1,33 @@
 import { style } from "@vanilla-extract/css";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 export const columns = style({
   display: "grid",
   gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
   "@media": { "(max-width: 760px)": { gridTemplateColumns: "1fr" } },
 });
 export const group = style({
   display: "grid",
   alignContent: "start",
-  gap: vars.space.xs,
+  gap: tokens["spacing/space-6"],
   minWidth: 0,
 });
 export const permission = style({
   display: "flex",
   flexWrap: "wrap",
   alignItems: "center",
-  gap: vars.space.sm,
-  borderTop: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
-  paddingTop: vars.space.sm,
+  gap: tokens["spacing/space-8"],
+  borderTop: `1px solid ${tokens["color/line"]}`,
+  paddingTop: tokens["spacing/space-8"],
 });
 export const heading = style({
-  fontSize: vars.typography.size.label,
-  color: vars.color.content.accent,
-  marginTop: vars.space.sm,
+  fontSize: tokens["typography/sans/body/fontSize"],
+  color: tokens["color/primary"],
+  marginTop: tokens["spacing/space-8"],
 });
 export const notice = style({
   display: "grid",
-  gap: vars.space.xs,
-  padding: vars.space.sm,
-  background: vars.color.surface.muted,
+  gap: tokens["spacing/space-6"],
+  padding: tokens["spacing/space-8"],
+  background: tokens["color/card-2"],
 });

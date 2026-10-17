@@ -1,6 +1,5 @@
 import { style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
 
 export const panel = style({
   alignSelf: "start",
@@ -39,8 +38,8 @@ export const appName = style({
   fontWeight: 400,
 });
 export const caption = style({
-  fontSize: vars.typography.size.caption,
-  lineHeight: vars.typography.lineHeight.body,
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  lineHeight: "1.462",
 });
 export const update = style({
   border: `1px solid ${tokens["color/card-border"]}`,
@@ -49,19 +48,19 @@ export const update = style({
   background: tokens["color/card"],
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
 });
 export const about = style({
-  fontSize: vars.typography.size.caption,
-  lineHeight: vars.typography.lineHeight.body,
-  paddingTop: vars.space.md,
-  borderTop: `${vars.border.width.hairline} solid ${vars.color.surface.raised}`,
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  lineHeight: "1.462",
+  paddingTop: tokens["spacing/space-12"],
+  borderTop: `1px solid ${tokens["color/glass-panel"]}`,
 });
-export const actions = style({ display: "flex", flexWrap: "wrap", gap: vars.space.md });
+export const actions = style({ display: "flex", flexWrap: "wrap", gap: tokens["spacing/space-12"] });
 export const updateButton = style({ minWidth: 88 });
 
 export const status = style({
-  minHeight: vars.dimension.row,
+  minHeight: tokens["spacing/space-32"],
   display: "flex",
   flexDirection: "column",
   justifyContent: "center",

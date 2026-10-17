@@ -1,5 +1,4 @@
 import { style } from "@vanilla-extract/css";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
 import { tokens } from "@comet/token";
 
 /** Uniform logical margin around the shape; the window's outer top-left is the saved position. */
@@ -84,22 +83,22 @@ export const error = style({
   maxHeight: "40%",
   overflowY: "auto",
   overflowWrap: "anywhere",
-  padding: vars.space.sm,
-  background: vars.color.status.criticalSurface,
-  color: vars.color.status.critical,
-  borderRadius: vars.shape.radius.subtle,
-  fontFamily: vars.typography.family.ui,
-  fontSize: vars.typography.size.caption,
+  padding: tokens["spacing/space-8"],
+  background: tokens["color/component/danger-alpha-100"],
+  color: tokens["color/danger"],
+  borderRadius: tokens["radius/radius-9"],
+  fontFamily: `${tokens["typography/sans/body/fontFamily"]}, sans-serif`,
+  fontSize: tokens["typography/sans/caption/fontSize"],
 });
 export const unavailable = style({
   display: "grid",
   justifyItems: "center",
-  gap: vars.space.xs,
-  padding: vars.space.sm,
-  borderRadius: vars.shape.radius.subtle,
+  gap: tokens["spacing/space-6"],
+  padding: tokens["spacing/space-8"],
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/glass-panel"],
   color: tokens["color/ink-2"],
-  fontSize: vars.typography.size.caption,
+  fontSize: tokens["typography/sans/caption/fontSize"],
 });
 
 export const cover = style({ width: 44, height: 44, objectFit: "cover", borderRadius: 12 });
