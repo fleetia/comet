@@ -87,9 +87,83 @@ it("preserves edited fields across incoming snapshots and resets to the latest s
   };
   rerender(latest);
   expect(result.current.settings).toEqual({ ...latest, apiModel: "draft-model" });
+  expect(result.current.apiKey).toBe("");
+  act(() => result.current.change("baseUrl", PREVIEW_SNAPSHOT.settings.baseUrl));
   expect(result.current.apiKey).toBe("draft-secret");
   act(() => result.current.reset());
   expect(result.current.settings).toEqual(latest);
   expect(result.current.apiKey).toBe("");
   expect(result.current.hasChanges).toBe(false);
+});
+
+it("keeps provider models and keys separate across switches and a failed save", async () => {
+  const { result } = renderHook(() => useSettingsDraft(PREVIEW_SNAPSHOT.settings, "model"));
+  act(() => result.current.selectProvider("claude"));
+  act(() => {
+    result.current.change("apiModel", "my-claude-model");
+    result.current.setApiKey(" claude-fixture-key ");
+  });
+  act(() => result.current.selectProvider("gemini"));
+  expect(result.current.apiKey).toBe("");
+  act(() => {
+    result.current.change("apiModel", "my-gemini-model");
+    result.current.setApiKey("gemini-fixture-key");
+  });
+  act(() => result.current.selectProvider("chatgpt"));
+  expect(result.current.settings.mode).toBe("chatgpt");
+  act(() => result.current.selectProvider("claude"));
+  expect(result.current.settings.apiModel).toBe("my-claude-model");
+  expect(result.current.apiKey).toBe(" claude-fixture-key ");
+  vi.mocked(command).mockRejectedValueOnce(new Error("보안 저장소를 열 수 없어요"));
+  await act(async () => result.current.run("save_settings"));
+  expect(result.current.hasChanges).toBe(true);
+  expect(result.current.apiKey).toBe(" claude-fixture-key ");
+  expect(command).toHaveBeenLastCalledWith(
+    "save_settings",
+    expect.objectContaining({
+      apiKeys: {
+        claude: { baseUrl: "https://api.anthropic.com/v1", key: "claude-fixture-key" },
+        gemini: {
+          baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+          key: "gemini-fixture-key",
+        },
+      },
+      settings: expect.objectContaining({
+        mode: "api",
+        apiProvider: "claude",
+        apiModel: "my-claude-model",
+        apiProfiles: expect.objectContaining({
+          gemini: expect.objectContaining({ apiModel: "my-gemini-model" }),
+        }),
+      }),
+    }),
+  );
+  await act(async () => result.current.run("save_settings"));
+  expect(result.current.hasChanges).toBe(false);
+  act(() => result.current.selectProvider("gemini"));
+  expect(result.current.settings.apiModel).toBe("my-gemini-model");
+  expect(result.current.apiKey).toBe("");
+});
+
+it("does not send a key entered for another endpoint and invalidates a tested connection after key edits", async () => {
+  const { result } = renderHook(() => useSettingsDraft(PREVIEW_SNAPSHOT.settings, "model"));
+  act(() => result.current.selectProvider("custom"));
+  act(() => result.current.setApiKey("original-fixture-key"));
+  await act(async () => result.current.run("test_connection"));
+  expect(result.current.notice).toBe("연결을 확인했어요.");
+  act(() => result.current.setApiKey("changed-fixture-key"));
+  expect(result.current.notice).toBeNull();
+  act(() => result.current.change("baseUrl", "https://another.example/v1"));
+  expect(result.current.apiKey).toBe("");
+  await act(async () => result.current.run("test_connection"));
+  expect(command).toHaveBeenLastCalledWith("test_connection", {
+    settings: result.current.settings,
+    apiKey: null,
+  });
+  await act(async () => result.current.run("save_settings"));
+  expect(command).toHaveBeenLastCalledWith("save_settings", {
+    settings: result.current.settings,
+    scope: "model",
+    apiKey: null,
+  });
 });

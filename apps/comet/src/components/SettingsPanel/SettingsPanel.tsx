@@ -11,7 +11,8 @@ import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { DesktopPreferences } from "../DesktopPreferences/DesktopPreferences";
 import { useSettingsDraft, type SettingsDraft } from "../../hooks/useSettingsDraft";
 import { UserSettings } from "../UserSettings/UserSettings";
-import { ModelSettings, PROVIDER_LABELS } from "../ModelSettings/ModelSettings";
+import { ModelSettings } from "../ModelSettings/ModelSettings";
+import { getAiProviderLabel } from "../../aiProviders";
 import { TalkPackPanel } from "../TalkPackPanel/TalkPackPanel";
 import { WordbookPanel } from "../WordbookPanel/WordbookPanel";
 import { CharacterManager } from "../CharacterManager/CharacterManager";
@@ -56,7 +57,7 @@ function DraftActions({
               }
             />
             <span className={s.quiet}>
-              {label === "AI 연결" ? `${PROVIDER_LABELS[draft.settings.mode]} 설정` : label}
+              {label === "AI 연결" ? `${getAiProviderLabel(draft.settings)} 설정` : label}
             </span>
           </div>
         }
@@ -122,8 +123,8 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
   const hasChanges = Object.values(dirty).some(Boolean);
   useEffect(() => {
     if (isDesktop())
-      void command("set_settings_dirty", { dirty: hasChanges || widgetsBusy }).catch((cause: unknown) =>
-        setActionError(errorText(cause)),
+      void command("set_settings_dirty", { dirty: hasChanges || widgetsBusy }).catch(
+        (cause: unknown) => setActionError(errorText(cause)),
       );
   }, [hasChanges, widgetsBusy]);
   useEffect(() => {
@@ -175,7 +176,10 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
     ]),
   );
   return (
-    <Container className={`${styles.window} ${preview ? styles.preview : ""}`} data-section={section}>
+    <Container
+      className={`${styles.window} ${preview ? styles.preview : ""}`}
+      data-section={section}
+    >
       <WindowHeader
         nativeControls
         className={styles.settingsHeader}
@@ -219,7 +223,12 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
           업데이트를 준비하는 동안 편집을 잠시 멈춰요.
         </p>
       )}
-      <fieldset className={styles.settingsWorkspace} data-section={section} disabled={updateBusy} aria-label="설정 내용">
+      <fieldset
+        className={styles.settingsWorkspace}
+        data-section={section}
+        disabled={updateBusy}
+        aria-label="설정 내용"
+      >
         <section
           role="tabpanel"
           tabIndex={0}
@@ -429,7 +438,11 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
             <Button variant="secondary" onClick={() => setConfirmExit(false)}>
               계속 편집
             </Button>
-            <Button variant="primary" disabled={widgetsBusy || updateBusy} onClick={() => void act("quit_app", { force: true })}>
+            <Button
+              variant="primary"
+              disabled={widgetsBusy || updateBusy}
+              onClick={() => void act("quit_app", { force: true })}
+            >
               변경을 버리고 종료
             </Button>
           </Inline>

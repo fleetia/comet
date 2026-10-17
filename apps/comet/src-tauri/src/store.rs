@@ -132,10 +132,14 @@ fn put<T: Serialize>(conn: &Connection, key: &str, value: &T) -> Result<()> {
     Ok(())
 }
 pub fn settings(conn: &Connection) -> Result<Settings> {
-    Ok(get(conn, "settings")?.unwrap_or_default())
+    let mut settings: Settings = get(conn, "settings")?.unwrap_or_default();
+    settings.remember_api_profile();
+    Ok(settings)
 }
 pub fn save_settings(conn: &Connection, value: &Settings) -> Result<()> {
-    put(conn, "settings", value)
+    let mut value = value.clone();
+    value.remember_api_profile();
+    put(conn, "settings", &value)
 }
 pub fn revision(conn: &Connection) -> Result<i64> {
     Ok(get(conn, "revision")?.unwrap_or(0))
