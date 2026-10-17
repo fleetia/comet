@@ -16,7 +16,7 @@ const base: WidgetShape = {
 };
 
 const meta = {
-  title: "UI/Widgets/ShapeBackground",
+  title: "UI/widgets/ShapeBackground",
   component: ShapeBackground,
   tags: ["autodocs"],
   args: { shape: base, color: "#2b4a7a" },

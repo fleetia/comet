@@ -52,7 +52,7 @@ function ControlledWeek(): JSX.Element {
   );
 }
 const meta = {
-  title: "UI/Planner/Habit",
+  title: "UI/planner/Habit",
   component: HabitDay,
   tags: ["autodocs"],
   argTypes: {

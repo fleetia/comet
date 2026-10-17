@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ChoiceButton } from "@comet/ui";
 const meta = {
-  title: "UI/Choices/ChoiceButton",
+  title: "UI/choices/ChoiceButton",
   component: ChoiceButton,
   tags: ["autodocs"],
   argTypes: {

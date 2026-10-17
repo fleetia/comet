@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Balloon, Button } from "@comet/ui";
 
 const meta = {
-  title: "UI/Conversation/Balloon",
+  title: "UI/conversation/Balloon",
   component: Balloon,
   tags: ["autodocs"],
   args: { children: "헤헤, 간지러워.", speaker: "byulkkori", tail: "left", content: "text" },

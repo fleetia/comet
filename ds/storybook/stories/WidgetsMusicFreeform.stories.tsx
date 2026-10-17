@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { MusicFreeform } from "@comet/ui";
 
 const meta = {
-  title: "UI/Widgets/MusicFreeform",
+  title: "UI/widgets/MusicFreeform",
   component: MusicFreeform,
   tags: ["autodocs"],
   args: { caption: "지금 듣는 곡", title: "밤의 산책", artist: "별빛정원", elapsed: "2:06" },

@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { WaitingDots } from "@comet/ui";
 
 const meta = {
-  title: "UI/Display/WaitingDots",
+  title: "UI/display/WaitingDots",
   component: WaitingDots,
   tags: ["autodocs"],
   args: { label: "응답을 기다리고 있어요" },

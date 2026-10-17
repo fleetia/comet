@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { FREEFORM_SKIN_OUTLINES, type FreeformSkinName } from "@comet/ui";
 
 const meta = {
-  title: "UI/Widgets/FreeformSkinOutlines",
+  title: "UI/widgets/FreeformSkinOutlines",
   tags: ["autodocs"],
   parameters: {
     controls: { disable: true },

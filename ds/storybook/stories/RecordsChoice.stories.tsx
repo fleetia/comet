@@ -46,7 +46,7 @@ function ChoiceExample(args: ContentChoiceProps) {
 }
 
 const meta = {
-  title: "UI/Lists/ContentChoice",
+  title: "UI/records/ContentChoice",
   component: ContentChoice,
   tags: ["autodocs"],
   args: {

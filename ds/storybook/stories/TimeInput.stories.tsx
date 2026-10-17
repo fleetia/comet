@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { TimeInput } from "@comet/ui";
 const meta = {
-  title: "UI/Inputs/TimeInput",
+  title: "UI/controls/TimeInput",
   component: TimeInput,
   tags: ["autodocs"],
   argTypes: {

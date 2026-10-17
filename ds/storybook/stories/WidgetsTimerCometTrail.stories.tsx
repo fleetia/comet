@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { TimerCometTrail } from "@comet/ui";
 
 const meta = {
-  title: "UI/Widgets/TimerCometTrail",
+  title: "UI/widgets/TimerCometTrail",
   component: TimerCometTrail,
   tags: ["autodocs"],
   args: { center: 80, radius: 72, angle: Math.PI * 1.2 },

@@ -3,7 +3,7 @@ import { iconNames } from "@comet/icon";
 import { ToggleChip } from "@comet/ui";
 
 const meta = {
-  title: "UI/Chips/ToggleChip",
+  title: "UI/display/ToggleChip",
   component: ToggleChip,
   tags: ["autodocs"],
   args: { children: "즐겨찾기", icon: "star", defaultPressed: false, disabled: false },

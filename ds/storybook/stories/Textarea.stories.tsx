@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Textarea } from "@comet/ui";
 
 const meta = {
-  title: "UI/Inputs/Textarea",
+  title: "UI/controls/Textarea",
   component: Textarea,
   tags: ["autodocs"],
   args: {

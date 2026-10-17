@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { FocusTimerPreview } from "@comet/ui";
 
 const meta = {
-  title: "UI/Widgets/FocusTimerPreview",
+  title: "UI/widgets/FocusTimerPreview",
   component: FocusTimerPreview,
   tags: ["autodocs"],
   args: { time: "25:00", presentation: "dial", description: "기본 집중 시간" },

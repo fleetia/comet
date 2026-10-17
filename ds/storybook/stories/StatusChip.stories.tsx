@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { StatusChip } from "@comet/ui";
 
 const meta = {
-  title: "UI/Chips/StatusChip",
+  title: "UI/display/StatusChip",
   component: StatusChip,
   tags: ["autodocs"],
   args: { status: "saved" },

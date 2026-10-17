@@ -3,7 +3,7 @@ import { Icon } from "@comet/icon";
 import { SettingsSummary, StatusChip } from "@comet/ui";
 import { RecordSampleIcon, RecordSampleTile } from "./RecordsAssets";
 const meta = {
-  title: "UI/Lists/SettingsSummary",
+  title: "UI/records/SettingsSummary",
   component: SettingsSummary,
   tags: ["autodocs"],
   args: {

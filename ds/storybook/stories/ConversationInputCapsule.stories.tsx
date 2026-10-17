@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { InputCapsule } from "@comet/ui";
 
 const meta = {
-  title: "UI/Conversation/InputCapsule",
+  title: "UI/conversation/InputCapsule",
   component: InputCapsule,
   tags: ["autodocs"],
   args: { defaultValue: "질문 두 개만 골라 줘", form: "single", sending: false, label: "메시지" },

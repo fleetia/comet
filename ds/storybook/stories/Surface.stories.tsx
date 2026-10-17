@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Surface } from "@comet/ui";
 
 const meta = {
-  title: "UI/Surfaces/Surface",
+  title: "UI/surface/Surface",
   component: Surface,
   tags: ["autodocs"],
   args: {

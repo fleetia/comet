@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { StatusIndicator } from "@comet/ui";
 
 const meta = {
-  title: "UI/Display/StatusIndicator",
+  title: "UI/display/StatusIndicator",
   component: StatusIndicator,
   tags: ["autodocs"],
   args: { children: "연결됨", pulse: false },

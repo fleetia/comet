@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { MultilineEditor } from "@comet/ui";
 const meta = {
-  title: "UI/Inputs/MultilineEditor",
+  title: "UI/controls/MultilineEditor",
   component: MultilineEditor,
   tags: ["autodocs"],
   args: { label: "본문", defaultValue: "오늘 떠오른 문장을 적어 두기.\n다음에 이어서 생각해요." },

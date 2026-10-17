@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Icon } from "@comet/icon";
 import { SelectField } from "@comet/ui";
 const meta = {
-  title: "UI/Inputs/SelectField",
+  title: "UI/controls/SelectField",
   component: SelectField,
   tags: ["autodocs"],
   argTypes: {

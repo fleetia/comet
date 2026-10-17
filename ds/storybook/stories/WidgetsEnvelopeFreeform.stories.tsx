@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { EnvelopeFreeform } from "@comet/ui";
 
 const meta = {
-  title: "UI/Widgets/EnvelopeFreeform",
+  title: "UI/widgets/EnvelopeFreeform",
   component: EnvelopeFreeform,
   tags: ["autodocs"],
   args: { label: "준비 봉투", title: "가족 여행", date: "10월 24일 (토)", completed: 2, total: 9 },

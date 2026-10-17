@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { WidgetExpanded } from "@comet/ui";
 
 const meta = {
-  title: "UI/Widgets/WidgetExpanded",
+  title: "UI/widgets/WidgetExpanded",
   component: WidgetExpanded,
   tags: ["autodocs"],
   args: {

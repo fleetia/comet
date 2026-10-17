@@ -25,7 +25,7 @@ const graphic = (
   </span>
 );
 const meta = {
-  title: "UI/Choices/ChoiceTile",
+  title: "UI/choices/ChoiceTile",
   component: ChoiceTile,
   tags: ["autodocs"],
   args: { label: "별꼬리", description: "함께 지내는 중", graphic, selected: false },
@@ -345,6 +345,16 @@ export const Interactive: Story = {
 
 export const ExpressionText: Story = {
   args: { kind: "expression-text", label: "기쁨", graphic: "(^‿^)", description: undefined },
+};
+export const ExpressionTextSelected: Story = {
+  args: {
+    kind: "expression-text",
+    label: "평온",
+    graphic: "(・_・)",
+    badge: "기본",
+    description: undefined,
+    selected: true,
+  },
 };
 export const BodyPart: Story = {
   args: {

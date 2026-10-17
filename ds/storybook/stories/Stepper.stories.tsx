@@ -20,7 +20,7 @@ function ControlledStepper(): JSX.Element {
 }
 
 const meta = {
-  title: "UI/Inputs/Stepper",
+  title: "UI/controls/Stepper",
   component: Stepper,
   tags: ["autodocs"],
   args: {

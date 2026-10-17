@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { AppUsageSummary } from "@comet/ui";
 const meta = {
-  title: "UI/Widgets/AppUsageSummary",
+  title: "UI/widgets/AppUsageSummary",
   component: AppUsageSummary,
   tags: ["autodocs"],
   args: { style: { width: 278 } },

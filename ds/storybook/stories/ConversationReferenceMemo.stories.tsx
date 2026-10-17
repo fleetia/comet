@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ReferenceMemo } from "@comet/ui";
 
 const meta = {
-  title: "UI/Conversation/ReferenceMemo",
+  title: "UI/conversation/ReferenceMemo",
   component: ReferenceMemo,
   tags: ["autodocs"],
   args: { title: "책 모임 아이디어" },

@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { TripInfoRow } from "@comet/ui";
 const meta = {
-  title: "UI/Planner/Trip Info Row",
+  title: "UI/planner/Trip Info Row",
   component: TripInfoRow,
   tags: ["autodocs"],
   argTypes: { title: { control: "text" }, detail: { control: "text" }, value: { control: "text" } },

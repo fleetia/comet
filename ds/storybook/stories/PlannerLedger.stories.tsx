@@ -61,7 +61,7 @@ function QuickAddExample(): JSX.Element {
   );
 }
 const meta = {
-  title: "UI/Planner/Ledger",
+  title: "UI/planner/Ledger",
   component: LedgerRow,
   tags: ["autodocs"],
   argTypes: {

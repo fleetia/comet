@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { OrbitNode } from "@comet/ui";
 
 const meta = {
-  title: "UI/Conversation/OrbitNode",
+  title: "UI/conversation/OrbitNode",
   component: OrbitNode,
   tags: ["autodocs"],
   args: { icon: "gift", label: "선물 건네기", state: "default", disabled: false },

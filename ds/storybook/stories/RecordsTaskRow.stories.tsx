@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { TaskRow } from "@comet/ui";
 const meta = {
-  title: "UI/Lists/TaskRow",
+  title: "UI/records/TaskRow",
   component: TaskRow,
   tags: ["autodocs"],
   args: {

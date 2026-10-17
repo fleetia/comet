@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { CounterWidget } from "@comet/ui";
 
 const meta = {
-  title: "UI/Widgets/CounterWidget",
+  title: "UI/widgets/CounterWidget",
   component: CounterWidget,
   tags: ["autodocs"],
   args: { value: 84, target: 120, unit: "단", layout: "desktop" },

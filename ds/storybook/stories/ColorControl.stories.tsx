@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ColorControl } from "@comet/ui";
 const meta = {
-  title: "UI/Inputs/ColorControl",
+  title: "UI/controls/ColorControl",
   component: ColorControl,
   tags: ["autodocs"],
   argTypes: {

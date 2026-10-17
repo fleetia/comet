@@ -14,7 +14,7 @@ import {
   RecordsStack,
 } from "./RecordsAssets";
 const meta = {
-  title: "UI/Lists/ContentRows",
+  title: "UI/records/ContentRows",
   component: ContentRow,
   tags: ["autodocs"],
   args: {

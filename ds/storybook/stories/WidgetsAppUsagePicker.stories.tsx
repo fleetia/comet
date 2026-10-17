@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { AppUsagePicker } from "@comet/ui";
 
 const meta = {
-  title: "UI/Widgets/AppUsagePicker",
+  title: "UI/widgets/AppUsagePicker",
   component: AppUsagePicker,
   tags: ["autodocs"],
   args: {

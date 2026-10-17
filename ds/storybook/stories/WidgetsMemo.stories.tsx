@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { MemoWidget } from "@comet/ui";
 
 const meta = {
-  title: "UI/Widgets/MemoWidget",
+  title: "UI/widgets/MemoWidget",
   component: MemoWidget,
   tags: ["autodocs"],
   args: { title: "작은 생각", children: "오늘 떠오른 문장을 적어 두기.\n다음에 이어서 생각해요." },

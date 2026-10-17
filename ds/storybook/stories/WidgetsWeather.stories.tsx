@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { WeatherWidget } from "@comet/ui";
 
 const meta = {
-  title: "UI/Widgets/WeatherWidget",
+  title: "UI/widgets/WeatherWidget",
   component: WeatherWidget,
   tags: ["autodocs"],
   args: { temperature: "23°", condition: "구름 조금", location: "서울" },

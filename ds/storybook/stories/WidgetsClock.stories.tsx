@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ClockWidget } from "@comet/ui";
 
 const meta = {
-  title: "UI/Widgets/ClockWidget",
+  title: "UI/widgets/ClockWidget",
   component: ClockWidget,
   tags: ["autodocs"],
   args: { time: "3:24", date: "10월 12일 월", badge: "D+42" },

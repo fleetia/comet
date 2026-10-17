@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ProviderButton } from "@comet/ui";
 const meta = {
-  title: "UI/Actions/ProviderButton",
+  title: "UI/controls/ProviderButton",
   component: ProviderButton,
   tags: ["autodocs"],
   argTypes: {

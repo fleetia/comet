@@ -16,7 +16,7 @@ function RadioGroupExample(): JSX.Element {
 }
 
 const meta = {
-  title: "UI/Inputs/Radio",
+  title: "UI/controls/Radio",
   component: Radio,
   tags: ["autodocs"],
   args: { label: "조용하게", value: "quiet", disabled: false },

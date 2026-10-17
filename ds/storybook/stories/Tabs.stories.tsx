@@ -29,7 +29,7 @@ function ControlledTabs(): JSX.Element {
 }
 
 const meta = {
-  title: "UI/Navigation/Tabs",
+  title: "UI/navigation/Tabs",
   component: Tabs,
   tags: ["autodocs"],
   args: { label: "기록 범위", items, defaultValue: "today" },

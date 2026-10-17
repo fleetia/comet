@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Switch } from "@comet/ui";
 
 const meta = {
-  title: "UI/Inputs/Switch",
+  title: "UI/controls/Switch",
   component: Switch,
   tags: ["autodocs"],
   args: { label: "바탕화면 표시", description: "캐릭터를 바탕화면에 표시합니다.", disabled: false },

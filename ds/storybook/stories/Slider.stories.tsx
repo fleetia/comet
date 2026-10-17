@@ -20,7 +20,7 @@ function ControlledSlider(): JSX.Element {
 }
 
 const meta = {
-  title: "UI/Inputs/Slider",
+  title: "UI/controls/Slider",
   component: Slider,
   tags: ["autodocs"],
   args: {

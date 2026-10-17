@@ -4,7 +4,7 @@ import { Icon } from "@comet/icon";
 import { Button, ChecklistAdd, EnvelopeHeader, TaskRow } from "@comet/ui";
 import { RecordsStack } from "./RecordsAssets";
 const meta = {
-  title: "UI/Records/EnvelopeHeader",
+  title: "UI/records/EnvelopeHeader",
   component: EnvelopeHeader,
   tags: ["autodocs"],
   args: {

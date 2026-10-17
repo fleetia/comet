@@ -3,7 +3,7 @@ import { iconNames } from "@comet/icon";
 import { ContextChip } from "@comet/ui";
 
 const meta = {
-  title: "UI/Chips/ContextChip",
+  title: "UI/display/ContextChip",
   component: ContextChip,
   tags: ["autodocs"],
   args: { children: "오늘", icon: "calendar" },

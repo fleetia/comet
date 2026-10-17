@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { NoteCard } from "@comet/ui";
 
 const meta = {
-  title: "UI/Records/NoteCard",
+  title: "UI/records/NoteCard",
   component: NoteCard,
   tags: ["autodocs"],
   args: {

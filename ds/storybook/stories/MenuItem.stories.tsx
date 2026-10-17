@@ -26,7 +26,7 @@ function ActionsExample(): JSX.Element {
 }
 
 const meta = {
-  title: "UI/Actions/MenuItem",
+  title: "UI/surface/MenuItem",
   component: MenuItem,
   tags: ["autodocs"],
   args: { children: "수정", icon: "edit", destructive: false, disabled: false },

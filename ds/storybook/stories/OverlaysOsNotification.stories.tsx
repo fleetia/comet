@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { OsNotification } from "@comet/ui";
 
 const meta = {
-  title: "UI/Overlays/OsNotification",
+  title: "UI/overlays/OsNotification",
   component: OsNotification,
   tags: ["autodocs"],
   args: {

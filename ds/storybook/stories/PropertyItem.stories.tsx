@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { PropertyItem } from "@comet/ui";
 const meta = {
-  title: "UI/Actions/PropertyItem",
+  title: "UI/controls/PropertyItem",
   component: PropertyItem,
   tags: ["autodocs"],
   argTypes: {

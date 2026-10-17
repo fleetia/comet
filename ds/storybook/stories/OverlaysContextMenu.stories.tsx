@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ContextMenu } from "@comet/ui";
 
 const meta = {
-  title: "UI/Overlays/ContextMenu",
+  title: "UI/overlays/ContextMenu",
   component: ContextMenu,
   tags: ["autodocs"],
   args: {
