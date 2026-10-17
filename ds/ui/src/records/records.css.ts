@@ -648,6 +648,13 @@ export const choiceLayouts = styleVariants({
     background: "transparent",
     borderColor: "transparent",
   },
+  "organizer-record": {
+    width: 276,
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: 4,
+    padding: "10px 12px",
+  },
   launcher: {
     width: 608,
     minHeight: 54,
@@ -655,6 +662,13 @@ export const choiceLayouts = styleVariants({
     background: "transparent",
     borderColor: "transparent",
   },
+});
+export const organizerHeading = style({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 8,
+  minWidth: 0,
 });
 export const choiceSelected = style({
   background: tokens["color/component/selected-icon-alpha-140"],

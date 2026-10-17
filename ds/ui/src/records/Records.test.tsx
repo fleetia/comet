@@ -188,3 +188,28 @@ it("keeps a trailing action decorative and opens the summary from Enter or Space
   await user.keyboard(" ");
   expect(open).toHaveBeenCalledTimes(2);
 });
+
+it("lays out organizer records as time and status over the title and source path", async () => {
+  const onSelect = vi.fn();
+  render(
+    <ContentChoice
+      variant="organizer-record"
+      timestamp="오후 1:40 · 자동 정리"
+      title="회의록 요약"
+      description="업무 노트 › 회의.md"
+      trailing={<span>저장됨</span>}
+      leading={<span>숨김</span>}
+      selected
+      onClick={onSelect}
+    />,
+  );
+  const button = screen.getByRole("button", { name: /회의록 요약/ });
+  expect(button.getAttribute("aria-pressed")).toBe("true");
+  expect([...button.children].map((child) => child.textContent)).toEqual([
+    "오후 1:40 · 자동 정리저장됨",
+    "회의록 요약",
+    "업무 노트 › 회의.md",
+  ]);
+  await userEvent.setup().click(button);
+  expect(onSelect).toHaveBeenCalledOnce();
+});

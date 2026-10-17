@@ -159,6 +159,7 @@ export const swatch = style({
 export const inset = style({ boxShadow: `inset 0 0 0 1px ${tokens["color/card-border"]}` });
 export const segment = style({
   boxSizing: "border-box",
+  whiteSpace: "nowrap",
   display: "inline-flex",
   justifyContent: "center",
   alignItems: "center",

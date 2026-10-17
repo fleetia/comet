@@ -271,27 +271,40 @@ export const ContentChoice = forwardRef<HTMLButtonElement, ContentChoiceProps>(
         .filter(Boolean)
         .join(" ")}
     >
-      {leading}
-      <span className={`${styles.column} ${styles.grow}`}>
-        <span className={styles.heading}>
-          <span className={`${styles.title} ${styles.grow}`}>{title}</span>
-          {timestamp && <span className={`${styles.meta} ${styles.noWrap}`}>{timestamp}</span>}
-        </span>
-        {description && (
-          <span className={variant === "conversation" ? styles.body : styles.meta}>
-            {description}
+      {variant === "organizer-record" ? (
+        <>
+          <span className={styles.organizerHeading}>
+            {timestamp && <span className={`${styles.meta} ${styles.noWrap}`}>{timestamp}</span>}
+            {trailing}
           </span>
-        )}
-      </span>
-      {variant === "memory" ? (
-        <span
-          aria-hidden
-          className={[styles.radioMark, selected && styles.radioMarkSelected]
-            .filter(Boolean)
-            .join(" ")}
-        />
+          <span className={styles.title}>{title}</span>
+          {description && <span className={styles.caption}>{description}</span>}
+        </>
       ) : (
-        trailing
+        <>
+          {leading}
+          <span className={`${styles.column} ${styles.grow}`}>
+            <span className={styles.heading}>
+              <span className={`${styles.title} ${styles.grow}`}>{title}</span>
+              {timestamp && <span className={`${styles.meta} ${styles.noWrap}`}>{timestamp}</span>}
+            </span>
+            {description && (
+              <span className={variant === "conversation" ? styles.body : styles.meta}>
+                {description}
+              </span>
+            )}
+          </span>
+          {variant === "memory" ? (
+            <span
+              aria-hidden
+              className={[styles.radioMark, selected && styles.radioMarkSelected]
+                .filter(Boolean)
+                .join(" ")}
+            />
+          ) : (
+            trailing
+          )}
+        </>
       )}
     </button>
   ),
