@@ -25,4 +25,5 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 export const Playground: Story = { name: "꺼짐 · 눌러서 전환" };
 export const On: Story = { name: "켜짐", args: { defaultPressed: true } };
+export const TextOnly: Story = { name: "텍스트만", args: { icon: undefined, children: "이번 주" } };
 export const Disabled: Story = { name: "비활성", args: { disabled: true } };

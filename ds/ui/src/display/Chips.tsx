@@ -12,7 +12,11 @@ export function ActionChip({
   ...props
 }: ActionChipProps): JSX.Element {
   return (
-    <button {...props} type={type} className={[styles.action, className].filter(Boolean).join(" ")}>
+    <button
+      {...props}
+      type={type}
+      className={[styles.action, !icon && styles.textOnly, className].filter(Boolean).join(" ")}
+    >
       {icon && <Icon name={icon} size={15} />}
       {children}
     </button>
