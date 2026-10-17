@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { CompactFreeform } from "@comet/ui";
 
 const meta = {
-  title: "UI/Widgets/CompactFreeform",
+  title: "UI/widgets/CompactFreeform",
   component: CompactFreeform,
   tags: ["autodocs"],
   args: { icon: "check", label: "2 / 5", "aria-label": "할 일 2 / 5" },

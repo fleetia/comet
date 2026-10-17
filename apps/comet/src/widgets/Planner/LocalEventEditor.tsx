@@ -1,12 +1,5 @@
-import {
-  Button,
-  Checkbox,
-  DateField,
-  Dialog,
-  FormField,
-  TextArea,
-  TextField,
-} from "../../ui";
+import { Dialog } from "@comet/ui";
+import { Button, Checkbox, DateField, FormField, TextArea, TextField } from "../../ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { localDay, text, type DataRecord } from "../toolData";
 import {
@@ -237,6 +230,7 @@ export function LocalEventEditor({
     <Dialog
       isOpen
       title={event ? "일정 편집" : "새 일정"}
+      size="large"
       className={s.dialog}
       initialFocusRef={titleRef}
       onOpenChange={(open) => {

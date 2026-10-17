@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ChartBarItem } from "@comet/ui";
 const meta = {
-  title: "UI/Planner/Chart Bar Item",
+  title: "UI/planner/Chart Bar Item",
   component: ChartBarItem,
   tags: ["autodocs"],
   argTypes: {

@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { RadioRow } from "@comet/ui";
 const meta = {
-  title: "UI/Inputs/RadioRow",
+  title: "UI/controls/RadioRow",
   component: RadioRow,
   tags: ["autodocs"],
   argTypes: {

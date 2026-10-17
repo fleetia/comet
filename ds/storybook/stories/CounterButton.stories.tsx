@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { CounterButton } from "@comet/ui";
 const meta = {
-  title: "UI/Actions/CounterButton",
+  title: "UI/controls/CounterButton",
   component: CounterButton,
   tags: ["autodocs"],
   argTypes: {

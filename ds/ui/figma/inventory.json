@@ -474,6 +474,13 @@
       "exports": ["OsNotification"]
     },
     {
+      "id": "673:1888",
+      "name": "Dialog",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["Dialog"]
+    },
+    {
       "id": "49:48619",
       "name": "Input/Text",
       "variantCount": 5,

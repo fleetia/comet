@@ -3,7 +3,7 @@ import { useArgs } from "storybook/preview-api";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { RecordQuickAdd, TextInput, type RecordQuickAddProps } from "@comet/ui";
 const meta = {
-  title: "UI/Records/QuickAdd",
+  title: "UI/records/QuickAdd",
   component: RecordQuickAdd,
   tags: ["autodocs"],
   args: {

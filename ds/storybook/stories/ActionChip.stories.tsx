@@ -3,7 +3,7 @@ import { iconNames } from "@comet/icon";
 import { ActionChip } from "@comet/ui";
 
 const meta = {
-  title: "UI/Chips/ActionChip",
+  title: "UI/display/ActionChip",
   component: ActionChip,
   tags: ["autodocs"],
   args: { children: "기록 보기", icon: "page", disabled: false },

@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { CheckboxRow } from "@comet/ui";
 const meta = {
-  title: "UI/Inputs/CheckboxRow",
+  title: "UI/controls/CheckboxRow",
   component: CheckboxRow,
   tags: ["autodocs"],
   argTypes: {

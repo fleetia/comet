@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Keycap } from "@comet/ui";
 
 const meta = {
-  title: "UI/Display/Keycap",
+  title: "UI/display/Keycap",
   component: Keycap,
   tags: ["autodocs"],
   args: { children: "Enter" },

@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { EnvelopeWidget } from "@comet/ui";
 
 const meta = {
-  title: "UI/Widgets/EnvelopeWidget",
+  title: "UI/widgets/EnvelopeWidget",
   component: EnvelopeWidget,
   tags: ["autodocs"],
   args: {

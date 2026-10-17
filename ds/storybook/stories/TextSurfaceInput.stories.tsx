@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { TextSurfaceInput } from "@comet/ui";
 const meta = {
-  title: "UI/Inputs/TextSurfaceInput",
+  title: "UI/controls/TextSurfaceInput",
   component: TextSurfaceInput,
   tags: ["autodocs"],
   argTypes: {

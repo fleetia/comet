@@ -1,9 +1,10 @@
-import { Button, Dialog, FormField, Select, Surface, TextField } from "../../ui";
+import { Button, FormField, Select, Surface, TextField } from "../../ui";
 import {
   EnvelopeCard,
   IconButton as CometIconButton,
   SegmentedControl,
   SidebarItem,
+  Dialog,
 } from "@comet/ui";
 import {
   useEffect,
@@ -1837,55 +1838,57 @@ export function Diary(): ReactElement {
       <Dialog
         isOpen={Boolean(leave)}
         title="작성 중인 내용이 있어요"
-        size="small"
+        variant="confirm"
         closeLabel="작성 계속하기"
         onOpenChange={(open) => {
           if (!open) setLeave(null);
         }}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setLeave(null)}>
+              계속 작성
+            </Button>
+            <Button
+              variant="critical"
+              disabled={saving}
+              onClick={() => {
+                const action = leave?.action;
+                if (pageDirty) {
+                  discardDiaryPageDraft(page, day);
+                  if (page?.date === null) discardDiaryCollectionDraft(page.id);
+                  setPageContentVersion((value) => value + 1);
+                }
+                if (pageMenuDirty) setPageMenuVersion((value) => value + 1);
+                if (featureDirty) setFeatureContentVersion((value) => value + 1);
+                setPageDirty(false);
+                setPageMenuDirty(false);
+                setEditing(null);
+                setName("");
+                setEnvelopeCreateDirty(false);
+                envelopeCreateRequest.current = null;
+                quickTaskVersion.current += 1;
+                setQuickTaskTitle("");
+                setQuickTaskOpen(false);
+                setCreating(null);
+                setCalendarDraft(null);
+                setCalendarDirty(false);
+                setFeatureDirty(false);
+                if (toolState.blocking) {
+                  setToolDismissVersion((value) => value + 1);
+                }
+                setLeave(null);
+                action?.();
+              }}
+            >
+              {leave?.closing ? "저장하지 않고 닫기" : "저장하지 않고 이동"}
+            </Button>
+          </>
+        }
       >
         <p>
           저장하지 않은 내용을 확인하고{" "}
           {leave?.closing ? "다이어리를 닫을까요?" : "다른 페이지로 이동할까요?"}
         </p>
-        <div className={s.toolbar}>
-          <Button variant="secondary" onClick={() => setLeave(null)}>
-            계속 작성
-          </Button>
-          <Button
-            variant="critical"
-            disabled={saving}
-            onClick={() => {
-              const action = leave?.action;
-              if (pageDirty) {
-                discardDiaryPageDraft(page, day);
-                if (page?.date === null) discardDiaryCollectionDraft(page.id);
-                setPageContentVersion((value) => value + 1);
-              }
-              if (pageMenuDirty) setPageMenuVersion((value) => value + 1);
-              if (featureDirty) setFeatureContentVersion((value) => value + 1);
-              setPageDirty(false);
-              setPageMenuDirty(false);
-              setEditing(null);
-              setName("");
-              setEnvelopeCreateDirty(false);
-              envelopeCreateRequest.current = null;
-              quickTaskVersion.current += 1;
-              setQuickTaskTitle("");
-              setQuickTaskOpen(false);
-              setCreating(null);
-              setCalendarDraft(null);
-              setCalendarDirty(false);
-              setFeatureDirty(false);
-              if (toolState.blocking) {
-                setToolDismissVersion((value) => value + 1);
-              }
-              setLeave(null);
-              action?.();
-            }}
-          >
-            {leave?.closing ? "저장하지 않고 닫기" : "저장하지 않고 이동"}
-          </Button>
-        </div>
       </Dialog>
     </main>
   );

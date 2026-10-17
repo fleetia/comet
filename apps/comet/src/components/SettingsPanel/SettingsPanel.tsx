@@ -1,7 +1,7 @@
 import { useEffect, useState, type JSX } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ProfileLink, Tabs as CometTabs } from "@comet/ui";
-import { Button, ActionBar, Dialog, Inline, SaveStatus } from "../../ui";
+import { ProfileLink, Tabs as CometTabs, Dialog } from "@comet/ui";
+import { Button, ActionBar, Inline, SaveStatus } from "../../ui";
 import { OrganizerSettings } from "../OrganizerSettings/OrganizerSettings";
 import { GeneralSettings } from "./GeneralSettings";
 import { ConversationSettings } from "./ConversationSettings";
@@ -432,9 +432,9 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
         isOpen={confirmExit}
         onOpenChange={setConfirmExit}
         title="저장하지 않고 종료할까요?"
-        size="small"
+        variant="confirm"
         footer={
-          <Inline gap="sm">
+          <>
             <Button variant="secondary" onClick={() => setConfirmExit(false)}>
               계속 편집
             </Button>
@@ -445,7 +445,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
             >
               변경을 버리고 종료
             </Button>
-          </Inline>
+          </>
         }
       >
         <p>저장하지 않은 설정과 편집 내용을 버리고 comet을 종료해요.</p>

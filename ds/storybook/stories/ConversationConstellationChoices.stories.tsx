@@ -9,7 +9,7 @@ function ChoiceDemo(args: React.ComponentProps<typeof ConstellationChoices>): Re
   return <ConstellationChoices {...args} selectedId={selectedId} onChoose={setSelectedId} />;
 }
 const meta = {
-  title: "UI/Conversation/ConstellationChoices",
+  title: "UI/conversation/ConstellationChoices",
   component: ConstellationChoices,
   tags: ["autodocs"],
   args: {

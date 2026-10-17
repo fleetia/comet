@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Motion } from "@comet/ui";
 
 const meta = {
-  title: "UI/Surfaces/Motion",
+  title: "UI/motion/Motion",
   component: Motion,
   tags: ["autodocs"],
   args: { preset: "pop", open: true, staggerIndex: 0, children: "하던 일을 이어가요" },

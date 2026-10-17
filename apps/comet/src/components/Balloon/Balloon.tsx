@@ -7,9 +7,9 @@ import {
   type JSX,
   type KeyboardEvent,
 } from "react";
-import { Button, Dialog, IconButton, Select, TextArea } from "../../ui";
+import { Button, IconButton, Select, TextArea } from "../../ui";
 import { SendIcon, CloseIcon, ArrowRightIcon } from "@comet/icon";
-import { Balloon as NoticeBalloon, Button as CometButton, WaitingDots } from "@comet/ui";
+import { Balloon as NoticeBalloon, Button as CometButton, Dialog, WaitingDots } from "@comet/ui";
 import type {
   ConversationSession,
   ConversationView,
@@ -1210,23 +1210,25 @@ export function Balloon({
       <Dialog
         isOpen={Boolean(draftReplacement && canRetry)}
         title="작성 중인 초안을 바꿀까요?"
-        size="small"
+        variant="confirm"
         closeLabel="초안 교체 닫기"
         onOpenChange={(open) => {
           if (!open) setDraftReplacement(null);
         }}
+        footer={
+          <>
+            <Button variant="quiet" onClick={() => setDraftReplacement(null)}>
+              계속 작성
+            </Button>
+            <Button variant="primary" onClick={replaceDraft}>
+              초안 바꾸기
+            </Button>
+          </>
+        }
       >
         <p>
           작성 중인 초안 대신 답변을 마치지 못한 입력을 가져와요. 이미 보낸 원문은 그대로 남아요.
         </p>
-        <div className={s.row}>
-          <Button variant="quiet" onClick={() => setDraftReplacement(null)}>
-            계속 작성
-          </Button>
-          <Button variant="primary" onClick={replaceDraft}>
-            초안 바꾸기
-          </Button>
-        </div>
       </Dialog>
     </section>
   );

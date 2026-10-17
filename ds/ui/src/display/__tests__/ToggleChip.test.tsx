@@ -1,9 +1,27 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { FormEvent } from "react";
-import { ToggleChip } from "../Chips";
+import { ActionChip, ToggleChip } from "../Chips";
+import * as styles from "../display.css";
 
 afterEach(cleanup);
+
+it("balances the inline padding only when a chip has no icon", () => {
+  render(
+    <>
+      <ToggleChip>이번 주</ToggleChip>
+      <ToggleChip icon="today">오늘</ToggleChip>
+      <ActionChip>기록 보기</ActionChip>
+      <ActionChip icon="page">페이지</ActionChip>
+    </>,
+  );
+  const hasTextOnly = (name: string) =>
+    screen.getByRole("button", { name }).classList.contains(styles.textOnly);
+  expect(hasTextOnly("이번 주")).toBe(true);
+  expect(hasTextOnly("오늘")).toBe(false);
+  expect(hasTextOnly("기록 보기")).toBe(true);
+  expect(hasTextOnly("페이지")).toBe(false);
+});
 
 it("toggles independently without submitting the surrounding form", () => {
   const change = vi.fn();

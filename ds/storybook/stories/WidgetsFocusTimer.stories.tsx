@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { FocusTimerWidget, Checkbox } from "@comet/ui";
 
 const meta = {
-  title: "UI/Widgets/FocusTimerWidget",
+  title: "UI/widgets/FocusTimerWidget",
   component: FocusTimerWidget,
   tags: ["autodocs"],
   args: {

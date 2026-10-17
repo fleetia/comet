@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { WidgetCollapsedBar } from "@comet/ui";
 
 const meta = {
-  title: "UI/Widgets/WidgetCollapsedBar",
+  title: "UI/widgets/WidgetCollapsedBar",
   component: WidgetCollapsedBar,
   tags: ["autodocs"],
   args: {

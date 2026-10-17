@@ -49,6 +49,8 @@ export const toggle = style({
     },
   },
 });
+// The 10px leading inset is optical room for an icon; text-only chips stay centered.
+export const textOnly = style({ paddingInline: 13 });
 
 export const status = style([
   stateTransition,

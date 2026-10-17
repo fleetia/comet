@@ -3,7 +3,7 @@ import { iconNames } from "@comet/icon";
 import { IconButton } from "@comet/ui";
 
 const meta = {
-  title: "UI/Actions/IconButton",
+  title: "UI/controls/IconButton",
   component: IconButton,
   tags: ["autodocs"],
   args: {

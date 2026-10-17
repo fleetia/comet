@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Button, Dialog } from "../../ui";
+import { Dialog } from "@comet/ui";
+import { Button } from "../../ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { WidgetFrame } from "../WidgetFrame/WidgetFrame";
 import { useWindowCloseGuard } from "../useWindowCloseGuard";
@@ -200,16 +201,20 @@ export function WidgetWorkshop(): ReactElement {
           onOpenChange={(open) => {
             if (!open) closeGuard.keepEditing();
           }}
-          size="small"
+          variant="confirm"
+          footer={
+            <>
+              <Button variant="secondary" onClick={closeGuard.keepEditing}>
+                계속 편집
+              </Button>
+              <Button variant="critical" onClick={() => void closeGuard.discardAndClose()}>
+                저장하지 않고 닫기
+              </Button>
+            </>
+          }
         >
           <p>입력한 내용을 버리고 닫을까요? 진행 중인 제작도 중단해요.</p>
           {closeGuard.closeError && <p role="alert">{closeGuard.closeError}</p>}
-          <Button variant="secondary" onClick={closeGuard.keepEditing}>
-            계속 편집
-          </Button>
-          <Button variant="critical" onClick={() => void closeGuard.discardAndClose()}>
-            저장하지 않고 닫기
-          </Button>
         </Dialog>
       </div>
     </WidgetFrame>

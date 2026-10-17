@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { iconNames } from "@comet/icon";
 import { ProfileLink, SidebarItem } from "@comet/ui";
 const meta = {
-  title: "UI/Navigation/SidebarItem",
+  title: "UI/records/SidebarItem",
   component: SidebarItem,
   tags: ["autodocs"],
   args: { icon: "todo", children: "할 일", badge: 4, href: "#tasks", current: false },

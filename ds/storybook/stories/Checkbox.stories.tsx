@@ -3,7 +3,7 @@ import { expect, userEvent, within } from "storybook/test";
 import { Checkbox } from "@comet/ui";
 
 const meta = {
-  title: "UI/Inputs/Checkbox",
+  title: "UI/controls/Checkbox",
   component: Checkbox,
   tags: ["autodocs"],
   args: {

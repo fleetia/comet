@@ -1,7 +1,14 @@
 import { useState, type CSSProperties, type JSX, type ReactNode } from "react";
 import { BoltIcon, ImportIcon, MemoryIcon, PauseIcon, ShieldIcon, SparkleIcon } from "@comet/icon";
-import { Button, Select, SettingControlRow, SettingsSummary, Switch, TextInput } from "@comet/ui";
-import { Dialog, Inline } from "../../ui";
+import {
+  Button,
+  Select,
+  SettingControlRow,
+  SettingsSummary,
+  Switch,
+  TextInput,
+  Dialog,
+} from "@comet/ui";
 import { MemorySearchSettings } from "../MemorySettings/MemorySearchSettings";
 import { ChatGptSettings } from "../ChatGptSettings/ChatGptSettings";
 import { OrganizerSettings } from "../OrganizerSettings/OrganizerSettings";
@@ -533,9 +540,9 @@ export function ModelSettings({
         onOpenChange={setConfirmDownload}
         title="그래도 내려받을까요?"
         closeLabel="모델 다운로드 확인 닫기"
-        size="small"
+        variant="confirm"
         footer={
-          <Inline gap="sm">
+          <>
             <Button variant="ghost" onClick={() => setConfirmDownload(false)}>
               취소
             </Button>
@@ -548,7 +555,7 @@ export function ModelSettings({
             >
               내려받기
             </Button>
-          </Inline>
+          </>
         }
       >
         <p>{selectedModel?.name}: 이 컴퓨터의 메모리로는 실행되지 않거나 매우 느릴 수 있어요.</p>

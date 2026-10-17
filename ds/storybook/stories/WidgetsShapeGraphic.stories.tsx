@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { SHAPE_GROUPS, WidgetShapeGraphic } from "@comet/ui";
 
 const meta = {
-  title: "UI/Widgets/WidgetShapeGraphic",
+  title: "UI/widgets/WidgetShapeGraphic",
   component: WidgetShapeGraphic,
   tags: ["autodocs"],
   args: { preset: "01" },

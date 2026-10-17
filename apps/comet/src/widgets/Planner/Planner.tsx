@@ -2,7 +2,6 @@ import {
   Button,
   Checkbox,
   DateField,
-  Dialog,
   FormField,
   Select,
   Tab,
@@ -21,7 +20,14 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "@comet/icon";
-import { Button as CometButton, IconButton, MessageInput, SelectField, TaskRow } from "@comet/ui";
+import {
+  Button as CometButton,
+  IconButton,
+  MessageInput,
+  SelectField,
+  TaskRow,
+  Dialog,
+} from "@comet/ui";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
@@ -1670,34 +1676,36 @@ export function Planner({
       <Dialog
         isOpen={confirmClose}
         title="작성 중인 내용이 있어요"
-        size="small"
+        variant="confirm"
         closeLabel="플래너 종료 확인 닫기"
         onOpenChange={(open) => {
           if (!open) returning.current = false;
           setConfirmClose(open);
         }}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                returning.current = false;
+                setConfirmClose(false);
+              }}
+            >
+              계속 작성
+            </Button>
+            <Button
+              variant="critical"
+              onClick={async () => {
+                leaving.current = true;
+                await closeWindow();
+              }}
+            >
+              버리고 나가기
+            </Button>
+          </>
+        }
       >
         <p>저장하지 않은 내용을 버리고 나갈까요?</p>
-        <div className={s.actions}>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              returning.current = false;
-              setConfirmClose(false);
-            }}
-          >
-            계속 작성
-          </Button>
-          <Button
-            variant="critical"
-            onClick={async () => {
-              leaving.current = true;
-              await closeWindow();
-            }}
-          >
-            버리고 나가기
-          </Button>
-        </div>
       </Dialog>
     </Root>
   );

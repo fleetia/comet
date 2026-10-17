@@ -52,7 +52,7 @@ function FormAssociatedSegments(): JSX.Element {
 }
 
 const meta = {
-  title: "UI/Navigation/SegmentedControl",
+  title: "UI/navigation/SegmentedControl",
   component: SegmentedControl,
   tags: ["autodocs"],
   args: { label: "보기 단위", options, defaultValue: "week", disabled: false },

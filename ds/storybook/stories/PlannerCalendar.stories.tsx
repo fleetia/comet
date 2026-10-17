@@ -19,7 +19,7 @@ import {
 } from "@comet/ui";
 
 const meta = {
-  title: "UI/Planner/Calendar",
+  title: "UI/planner/Calendar",
   component: CalendarDayCell,
   tags: ["autodocs"],
   argTypes: {

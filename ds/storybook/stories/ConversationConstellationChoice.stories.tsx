@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ConstellationChoice } from "@comet/ui";
 
 const meta = {
-  title: "UI/Conversation/ConstellationChoice",
+  title: "UI/conversation/ConstellationChoice",
   component: ConstellationChoice,
   tags: ["autodocs"],
   args: { children: "강가를 따라서", selected: false, fading: false },

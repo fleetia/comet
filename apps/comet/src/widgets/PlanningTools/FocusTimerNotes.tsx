@@ -1,5 +1,5 @@
-import { Button, Dialog, FormField, Select, TextArea, TextField } from "../../ui";
-import { SearchInput, Textarea } from "@comet/ui";
+import { Button, FormField, Select, TextArea, TextField } from "../../ui";
+import { SearchInput, Textarea, Dialog } from "@comet/ui";
 import { Icon } from "@comet/icon";
 import { semanticVars as vars } from "@fleetia/lagrange/theme";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";

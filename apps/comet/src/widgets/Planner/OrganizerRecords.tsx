@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, Dialog } from "../../ui";
-import { OrganizationCard, SearchInput, SegmentedControl } from "@comet/ui";
+import { Button } from "../../ui";
+import { OrganizationCard, SearchInput, SegmentedControl, Dialog } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type {
   OrganizerAction,

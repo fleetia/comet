@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { CategoryChip } from "@comet/ui";
 
 const meta = {
-  title: "UI/Chips/CategoryChip",
+  title: "UI/display/CategoryChip",
   component: CategoryChip,
   tags: ["autodocs"],
   args: { category: "work" },

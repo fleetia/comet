@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ColorSwatch } from "@comet/ui";
 const meta = {
-  title: "UI/Choices/ColorSwatch",
+  title: "UI/choices/ColorSwatch",
   component: ColorSwatch,
   tags: ["autodocs"],
   argTypes: {

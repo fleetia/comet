@@ -1,4 +1,5 @@
-import { Button, Checkbox, Dialog } from "../../ui";
+import { Dialog } from "@comet/ui";
+import { Button, Checkbox } from "../../ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { PreparationTool } from "../PreparationTool/PreparationTool";
 import { useConnectionCommand } from "../useConnectionCommand";
@@ -221,23 +222,27 @@ export function PlannerPreparation({
         isOpen={confirmClose}
         title="준비 내용을 버릴까요?"
         onOpenChange={setConfirmClose}
-        size="small"
+        variant="confirm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setConfirmClose(false)}>
+              계속 편집
+            </Button>
+            <Button
+              variant="critical"
+              disabled={saving}
+              onClick={() => {
+                setEditorVersion((value) => value + 1);
+                setConfirmClose(false);
+                setOpened(false);
+              }}
+            >
+              저장하지 않고 닫기
+            </Button>
+          </>
+        }
       >
         <p>저장하지 않은 일정 연결 선택이 있어요.</p>
-        <Button variant="secondary" onClick={() => setConfirmClose(false)}>
-          계속 편집
-        </Button>
-        <Button
-          variant="critical"
-          disabled={saving}
-          onClick={() => {
-            setEditorVersion((value) => value + 1);
-            setConfirmClose(false);
-            setOpened(false);
-          }}
-        >
-          저장하지 않고 닫기
-        </Button>
       </Dialog>
     </section>
   );

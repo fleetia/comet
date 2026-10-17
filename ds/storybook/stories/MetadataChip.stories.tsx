@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { MetadataChip } from "@comet/ui";
 const meta = {
-  title: "UI/Chips/MetadataChip",
+  title: "UI/display/MetadataChip",
   component: MetadataChip,
   tags: ["autodocs"],
   argTypes: {

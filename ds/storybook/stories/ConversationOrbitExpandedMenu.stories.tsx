@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { OrbitExpandedMenu } from "@comet/ui";
 import byulkkori from "../../ui/src/conversation/assets/orbit-byulkkori.svg";
 const meta = {
-  title: "UI/Conversation/OrbitExpandedMenu",
+  title: "UI/conversation/OrbitExpandedMenu",
   component: OrbitExpandedMenu,
   tags: ["autodocs"],
   args: {

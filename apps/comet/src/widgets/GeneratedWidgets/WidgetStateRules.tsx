@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { Button, Checkbox, Dialog, Select, TextField } from "../../ui";
+import { Dialog } from "@comet/ui";
+import { Button, Checkbox, Select, TextField } from "../../ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { CharacterCollection, MotionOverride } from "../../types";
 import { WidgetFrame } from "../WidgetFrame/WidgetFrame";
@@ -353,17 +354,27 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
         })}
         </fieldset>
         {closeGuard.closeError && <p role="alert">{closeGuard.closeError}</p>}
-        <Dialog isOpen={closeGuard.confirmClose} title="저장하지 않은 조건이 있어요" size="small"
-          onOpenChange={(open) => { if (!open) closeGuard.keepEditing(); }}>
+        <Dialog variant="confirm" isOpen={closeGuard.confirmClose} title="저장하지 않은 조건이 있어요"
+          onOpenChange={(open) => { if (!open) closeGuard.keepEditing(); }}
+          footer={
+            <>
+              <Button variant="secondary" onClick={closeGuard.keepEditing}>계속 편집</Button>
+              <Button variant="critical" onClick={() => void closeGuard.discardAndClose()}>저장하지 않고 닫기</Button>
+            </>
+          }
+        >
           <p>수정한 조건을 버리고 닫을까요?</p>
-          <Button variant="secondary" onClick={closeGuard.keepEditing}>계속 편집</Button>
-          <Button variant="critical" onClick={() => void closeGuard.discardAndClose()}>저장하지 않고 닫기</Button>
         </Dialog>
-        <Dialog isOpen={confirmReload} title="최신 조건을 확인할까요?" size="small"
-          onOpenChange={setConfirmReload}>
+        <Dialog variant="confirm" isOpen={confirmReload} title="최신 조건을 확인할까요?"
+          onOpenChange={setConfirmReload}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setConfirmReload(false)}>계속 편집</Button>
+              <Button variant="critical" onClick={() => { setConfirmReload(false); void load(); }}>초안 버리고 불러오기</Button>
+            </>
+          }
+        >
           <p>지금의 초안을 버리고 다른 창에서 저장한 내용을 불러와요.</p>
-          <Button variant="secondary" onClick={() => setConfirmReload(false)}>계속 편집</Button>
-          <Button variant="critical" onClick={() => { setConfirmReload(false); void load(); }}>초안 버리고 불러오기</Button>
         </Dialog>
       </div>
     </WidgetFrame>

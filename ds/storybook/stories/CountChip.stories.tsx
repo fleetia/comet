@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { CountChip } from "@comet/ui";
 const meta = {
-  title: "UI/Chips/CountChip",
+  title: "UI/controls/CountChip",
   component: CountChip,
   tags: ["autodocs"],
   argTypes: {

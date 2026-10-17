@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { WidgetRow } from "@comet/ui";
 
 const meta = {
-  title: "UI/Widgets/WidgetRow",
+  title: "UI/widgets/WidgetRow",
   component: WidgetRow,
   tags: ["autodocs"],
   args: {

@@ -32,7 +32,7 @@ function ProgramExample(): JSX.Element {
   );
 }
 const meta = {
-  title: "UI/Planner/Focus",
+  title: "UI/planner/Focus",
   component: FocusAppUsage,
   tags: ["autodocs"],
   argTypes: {

@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { RecordPageEntry, RecordSourceLink, RecordTimelineRow } from "@comet/ui";
 import { RecordsStack } from "./RecordsAssets";
 const meta = {
-  title: "UI/Records/PageEntry",
+  title: "UI/records/PageEntry",
   component: RecordPageEntry,
   tags: ["autodocs"],
   args: {

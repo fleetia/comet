@@ -4,7 +4,7 @@ import { Icon, iconNames } from "@comet/icon";
 import { ManageListRow, Select, SettingControlRow, SettingsRow, Stepper, Switch } from "@comet/ui";
 import { RecordsStack } from "./RecordsAssets";
 const meta = {
-  title: "UI/Lists/SettingsRows",
+  title: "UI/records/SettingsRows",
   component: SettingsRow,
   tags: ["autodocs"],
   args: { icon: "bell", children: "알림과 소리" },

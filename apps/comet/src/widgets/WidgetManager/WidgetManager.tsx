@@ -1,5 +1,11 @@
-import { Button, Checkbox, Dialog, Heading, Inline, Surface, Text } from "../../ui";
-import { SettingControlRow, SettingsSummary, Switch, type ContextMenuAction } from "@comet/ui";
+import { Button, Checkbox, Heading, Inline, Surface, Text } from "../../ui";
+import {
+  SettingControlRow,
+  SettingsSummary,
+  Switch,
+  type ContextMenuAction,
+  Dialog,
+} from "@comet/ui";
 import { Icon, SparkleIcon } from "@comet/icon";
 import { WidgetDetailPreview } from "./WidgetDetailPreview";
 import { DESKTOP_TOYS } from "../ToyTools/desktopToys";
@@ -834,7 +840,35 @@ export function WidgetManager({
             : `${removedGenerated?.definition.name ?? (removed ? nameOf(removed.kind) : "위젯")} 제거`
         }
         closeLabel="닫기"
-        size="small"
+        variant="confirm"
+        footer={
+          <>
+            <Button
+              variant={confirmation === "install" ? "primary" : "critical"}
+              disabled={
+                !canAct ||
+                (confirmation === "install"
+                  ? installation.length === 0
+                  : !removed && !removedGenerated)
+              }
+              onClick={() => {
+                if (confirmation === "install")
+                  void run("install_widgets", { kinds: installation });
+                else if (removed) void run("remove_widget", { id: removed.id, deleteData });
+                else if (removedGenerated)
+                  void run("remove_generated_widget", {
+                    id: removedGenerated.id,
+                    expectedRevision: removedGenerated.revision,
+                  });
+              }}
+            >
+              {confirmation === "install" ? "설치 확인" : "제거 확인"}
+            </Button>
+            <Button variant="secondary" disabled={busy} onClick={() => setConfirmation(null)}>
+              취소
+            </Button>
+          </>
+        }
       >
         <div className={styles.dialogBody}>
           {confirmation === "install" ? (
@@ -881,32 +915,6 @@ export function WidgetManager({
               {failure}
             </Text>
           )}
-          <Inline gap="sm">
-            <Button
-              variant={confirmation === "install" ? "primary" : "critical"}
-              disabled={
-                !canAct ||
-                (confirmation === "install"
-                  ? installation.length === 0
-                  : !removed && !removedGenerated)
-              }
-              onClick={() => {
-                if (confirmation === "install")
-                  void run("install_widgets", { kinds: installation });
-                else if (removed) void run("remove_widget", { id: removed.id, deleteData });
-                else if (removedGenerated)
-                  void run("remove_generated_widget", {
-                    id: removedGenerated.id,
-                    expectedRevision: removedGenerated.revision,
-                  });
-              }}
-            >
-              {confirmation === "install" ? "설치 확인" : "제거 확인"}
-            </Button>
-            <Button variant="secondary" disabled={busy} onClick={() => setConfirmation(null)}>
-              취소
-            </Button>
-          </Inline>
         </div>
       </Dialog>
     </section>

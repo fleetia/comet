@@ -10,7 +10,7 @@ import {
 } from "@comet/ui";
 
 const meta = {
-  title: "UI/Widgets/FreeformGallery",
+  title: "UI/widgets/FreeformGallery",
   tags: ["autodocs"],
   parameters: {
     controls: { disable: true },

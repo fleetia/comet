@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { FocusTimerFreeform } from "@comet/ui";
 
 const meta = {
-  title: "UI/Widgets/FocusTimerFreeform",
+  title: "UI/widgets/FocusTimerFreeform",
   component: FocusTimerFreeform,
   tags: ["autodocs"],
   args: { time: "18:42", task: "기획서 초안", label: "집중 중" },

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, Dialog, Surface } from "../../ui";
+import { Dialog } from "@comet/ui";
+import { Button, Surface } from "../../ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { InstalledCharacter } from "../../types";
 import { CharacterWorkPanel } from "../CharacterEditor/CharacterWorkPanel";
@@ -173,7 +174,7 @@ export function CharacterMemorySettings({
       <Dialog
         isOpen={confirm}
         title="기억을 모두 잊을까요?"
-        size="small"
+        variant="confirm"
         onOpenChange={(open) => {
           if (!pending) setConfirm(open);
         }}
@@ -181,14 +182,14 @@ export function CharacterMemorySettings({
           if (pending) event.preventDefault();
         }}
         footer={
-          <div className={s.row}>
+          <>
             <Button variant="secondary" disabled={pending} onClick={() => setConfirm(false)}>
               취소
             </Button>
             <Button variant="primary" disabled={pending} onClick={() => void forget()}>
               전체 기억 잊기 확인
             </Button>
-          </div>
+          </>
         }
       >
         <p>

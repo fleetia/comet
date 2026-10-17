@@ -44,7 +44,27 @@ const preview: Preview = {
       },
     },
     options: {
-      storySort: { order: ["시작하기", "Foundations", "Icon", "UI"] },
+      storySort: {
+        order: [
+          "시작하기",
+          "Foundations",
+          "Icon",
+          "UI",
+          [
+            "controls",
+            "display",
+            "choices",
+            "navigation",
+            "records",
+            "conversation",
+            "overlays",
+            "surface",
+            "motion",
+            "planner",
+            "widgets",
+          ],
+        ],
+      },
     },
   },
   decorators: [

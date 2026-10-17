@@ -8,7 +8,7 @@ import {
 } from "@comet/ui";
 import { RecordSampleIcon } from "./RecordsAssets";
 const meta = {
-  title: "UI/Records/ContentCards",
+  title: "UI/records/ContentCards",
   component: CharacterCard,
   tags: ["autodocs"],
   args: {

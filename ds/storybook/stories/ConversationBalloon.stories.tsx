@@ -11,7 +11,7 @@ const UPDATE_SPEECH_STYLE = {
 } satisfies CSSProperties;
 
 const meta = {
-  title: "UI/Conversation/Balloon",
+  title: "UI/conversation/Balloon",
   component: Balloon,
   tags: ["autodocs"],
   args: { children: "헤헤, 간지러워.", speaker: "byulkkori", tail: "left", content: "text" },

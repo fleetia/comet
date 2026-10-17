@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { OrbitBreadcrumb } from "@comet/ui";
 
 const meta = {
-  title: "UI/Conversation/OrbitBreadcrumb",
+  title: "UI/conversation/OrbitBreadcrumb",
   component: OrbitBreadcrumb,
   tags: ["autodocs"],
   args: { parent: "나디르", current: "교감" },

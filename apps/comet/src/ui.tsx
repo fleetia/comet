@@ -24,6 +24,8 @@ import {
 import * as styles from "./ui.css";
 
 export * from "@fleetia/lagrange";
+// Dialog comes from the Comet design system; never fall back to the Lagrange modal.
+export { Dialog, type DialogProps } from "@comet/ui";
 
 const buttonVariants: Record<NonNullable<ButtonProps["variant"]>, CometButtonProps["variant"]> = {
   primary: "primary",

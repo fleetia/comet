@@ -1,13 +1,5 @@
-import {
-  Button,
-  Checkbox,
-  DateField,
-  Dialog,
-  FormField,
-  Select,
-  TextArea,
-  TextField,
-} from "../../ui";
+import { Dialog } from "@comet/ui";
+import { Button, Checkbox, DateField, FormField, Select, TextArea, TextField } from "../../ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { localDay, number, record, text, type DataRecord, type ToolAction } from "../toolData";

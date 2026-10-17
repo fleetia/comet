@@ -9,7 +9,7 @@ function PickerDemo(args: React.ComponentProps<typeof ColorPicker>): React.JSX.E
   return <ColorPicker {...args} value={value} onValueChange={setValue} />;
 }
 const meta = {
-  title: "UI/Overlays/ColorPicker",
+  title: "UI/overlays/ColorPicker",
   component: ColorPicker,
   tags: ["autodocs"],
   args: { value: "#77D9CA" },

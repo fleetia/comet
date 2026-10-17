@@ -3,7 +3,7 @@ import { BellIcon } from "@comet/icon";
 import { Button } from "@comet/ui";
 
 const meta = {
-  title: "UI/Actions/Button",
+  title: "UI/controls/Button",
   component: Button,
   tags: ["autodocs"],
   args: { children: "저장", variant: "primary", size: "regular", disabled: false },

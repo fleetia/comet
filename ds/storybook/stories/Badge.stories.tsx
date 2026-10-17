@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Badge } from "@comet/ui";
 
 const meta = {
-  title: "UI/Display/Badge",
+  title: "UI/display/Badge",
   component: Badge,
   tags: ["autodocs"],
   args: { children: "3", "aria-label": "읽지 않은 알림 3개" },

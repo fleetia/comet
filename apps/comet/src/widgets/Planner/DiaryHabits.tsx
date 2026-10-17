@@ -10,8 +10,8 @@ import {
   TextInput,
   Textarea,
   type HabitDayData,
+  Dialog,
 } from "@comet/ui";
-import { Dialog } from "../../ui";
 import { errorText } from "../../hooks/useSnapshot";
 import habitFeedbackBody from "../../assets/habit-feedback-body.svg";
 import habitFeedbackSpark from "../../assets/habit-feedback-spark.svg";
@@ -600,52 +600,59 @@ export function DiaryHabits({
         </Dialog>
       )}
       <Dialog
+        variant="confirm"
         isOpen={confirmDiscard}
         title="습관 변경 내용을 버릴까요?"
         onOpenChange={setConfirmDiscard}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmDiscard(false)}>
+              계속 편집
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                setConfirmDiscard(false);
+                setDraft(null);
+                setOriginal(null);
+              }}
+            >
+              변경 버리기
+            </Button>
+          </>
+        }
       >
-        <div className={s.toolbar}>
-          <Button variant="ghost" onClick={() => setConfirmDiscard(false)}>
-            계속 편집
-          </Button>
-          <Button
-            variant="danger"
-            onClick={() => {
-              setConfirmDiscard(false);
-              setDraft(null);
-              setOriginal(null);
-            }}
-          >
-            변경 버리기
-          </Button>
-        </div>
+        {null}
       </Dialog>
       <Dialog
+        variant="confirm"
         isOpen={Boolean(confirmDelete)}
         title="습관과 기록을 영구 삭제할까요?"
         onOpenChange={(open) => {
           if (!open && !disabled) setConfirmDelete(null);
         }}
+        footer={
+          <>
+            <Button variant="ghost" disabled={disabled} onClick={() => setConfirmDelete(null)}>
+              취소
+            </Button>
+            <Button
+              variant="danger"
+              disabled={disabled}
+              onClick={async () => {
+                if (
+                  confirmDelete &&
+                  (await run("habit-delete", { id: confirmDelete.id, expectedHabit: confirmDelete }))
+                )
+                  setConfirmDelete(null);
+              }}
+            >
+              영구 삭제
+            </Button>
+          </>
+        }
       >
         <p>이 습관에 남긴 날짜별 기록도 삭제돼요.</p>
-        <div className={s.toolbar}>
-          <Button variant="ghost" disabled={disabled} onClick={() => setConfirmDelete(null)}>
-            취소
-          </Button>
-          <Button
-            variant="danger"
-            disabled={disabled}
-            onClick={async () => {
-              if (
-                confirmDelete &&
-                (await run("habit-delete", { id: confirmDelete.id, expectedHabit: confirmDelete }))
-              )
-                setConfirmDelete(null);
-            }}
-          >
-            영구 삭제
-          </Button>
-        </div>
       </Dialog>
     </section>
   );
