@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Balloon } from "../components/Balloon/Balloon";
 import { PREVIEW_SNAPSHOT, command, isDesktop } from "../hooks/useSnapshot";
 import * as s from "../components/companion.css";
@@ -217,6 +218,108 @@ it("opens a reply to the exact displayed line and keeps the close action separat
   expect(command).toHaveBeenCalledWith("open_reply", { playbackId: "line-exact" });
   fireEvent.click(screen.getByRole("button", { name: "이야기 닫기" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("skip_talk", undefined));
+});
+
+const updatePlayback: Playback = {
+  ...playback,
+  id: "update-notice-one",
+  source: "update",
+  text: "새로운 업데이트가 있어요!",
+};
+
+it("expands an update notice before showing navigation and never starts a reply or installation", async () => {
+  const snapshot = { ...PREVIEW_SNAPSHOT, panel: null, playback: updatePlayback };
+  const { rerender } = render(<Balloon snapshot={snapshot} />);
+  const announcement = screen.getByRole("button", { name: updatePlayback.text });
+  expect(announcement.getAttribute("aria-expanded")).toBe("false");
+  expect(screen.queryByRole("button", { name: "이동하기" })).toBeNull();
+  fireEvent.click(announcement);
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("expand_update_notice", {
+      playbackId: updatePlayback.id,
+    }),
+  );
+  await waitFor(() => expect(announcement).toHaveProperty("disabled", false));
+  rerender(<Balloon snapshot={{ ...snapshot, panel: { persona: "builtin-a", mode: "update" } }} />);
+  const expanded = screen.getByRole("button", { name: updatePlayback.text });
+  expect(expanded.getAttribute("aria-expanded")).toBe("true");
+  expect(document.getElementById(expanded.getAttribute("aria-controls")!)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "이동하기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("open_update_settings", {
+      playbackId: updatePlayback.id,
+    }),
+  );
+  expect(
+    vi
+      .mocked(command)
+      .mock.calls.some(([name]) => name === "open_reply" || name === "install_app_update"),
+  ).toBe(false);
+});
+
+it.each(["{Enter}", " "])("opens the update action using keyboard activation %s", async (key) => {
+  const user = userEvent.setup();
+  render(<Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: null, playback: updatePlayback }} />);
+  screen.getByRole("button", { name: updatePlayback.text }).focus();
+  await user.keyboard(key);
+  expect(command).toHaveBeenCalledWith("expand_update_notice", { playbackId: updatePlayback.id });
+});
+
+it("keeps update navigation retryable on failure and removes it when the displayed notice changes", async () => {
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "open_update_settings") throw new Error("설정을 열지 못했어요.");
+  });
+  const snapshot: Snapshot = {
+    ...PREVIEW_SNAPSHOT,
+    panel: { persona: "builtin-a", mode: "update" },
+    playback: updatePlayback,
+  };
+  const { rerender } = render(<Balloon snapshot={snapshot} />);
+  fireEvent.click(screen.getByRole("button", { name: "이동하기" }));
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("설정을 열지 못했어요."));
+  expect(screen.getByRole("button", { name: "이동하기" })).toHaveProperty("disabled", false);
+  fireEvent.keyDown(window, { key: "Escape" });
+  await waitFor(() => expect(command).toHaveBeenCalledWith("close_panel", undefined));
+  rerender(
+    <Balloon
+      snapshot={{
+        ...snapshot,
+        panel: null,
+        playback: { ...updatePlayback, id: "update-notice-two" },
+      }}
+    />,
+  );
+  expect(screen.queryByRole("button", { name: "이동하기" })).toBeNull();
+  expect(
+    screen.getByRole("button", { name: updatePlayback.text }).getAttribute("aria-expanded"),
+  ).toBe("false");
+});
+
+it("ignores a late navigation failure after a newer expanded update notice replaces it", async () => {
+  let rejectNavigation!: (cause: Error) => void;
+  vi.mocked(command).mockImplementation((name) =>
+    name === "open_update_settings"
+      ? new Promise<void>((_, reject) => {
+          rejectNavigation = reject;
+        })
+      : Promise.resolve(),
+  );
+  const snapshot: Snapshot = {
+    ...PREVIEW_SNAPSHOT,
+    panel: { persona: "builtin-a", mode: "update" },
+    playback: updatePlayback,
+  };
+  const { rerender } = render(<Balloon snapshot={snapshot} />);
+  fireEvent.click(screen.getByRole("button", { name: "이동하기" }));
+  await waitFor(() => expect(rejectNavigation).toBeTypeOf("function"));
+  rerender(
+    <Balloon
+      snapshot={{ ...snapshot, playback: { ...updatePlayback, id: "newer-update-notice" } }}
+    />,
+  );
+  await act(async () => rejectNavigation(new Error("이전 알림의 이동 실패")));
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByRole("button", { name: "이동하기" })).toHaveProperty("disabled", false);
 });
 
 it("retains the seed and live draft across snapshots, speaker changes, and generation", async () => {

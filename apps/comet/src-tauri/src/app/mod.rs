@@ -283,7 +283,10 @@ pub(crate) fn interrupt_for_conversation(
     *lock(&state.talk_playback)? = None;
     *lock(&state.story)? = None;
     let mut panel = lock(&state.panel)?;
-    if panel.as_ref().is_some_and(|panel| panel.mode == "name") {
+    if panel
+        .as_ref()
+        .is_some_and(|panel| matches!(panel.mode.as_str(), "name" | "update"))
+    {
         *panel = None;
     }
     Ok((epoch, cancel))

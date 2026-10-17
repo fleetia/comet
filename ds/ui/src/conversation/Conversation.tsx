@@ -18,6 +18,7 @@ export type BalloonProps = HTMLAttributes<HTMLDivElement> & {
   speakerName?: string;
   tail?: "left" | "center" | "right" | "none";
   content?: "text" | "actions" | "result" | "typing";
+  speechTrigger?: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children">;
   actions?: ReactNode;
   result?: ReactNode;
 };
@@ -27,6 +28,7 @@ export function Balloon({
   speakerName,
   tail = "left",
   content = "text",
+  speechTrigger,
   actions,
   result,
   children,
@@ -34,6 +36,19 @@ export function Balloon({
   ...props
 }: BalloonProps): JSX.Element {
   const names = { byulkkori: "별꼬리", nadir: "나디르", "moon-rabbit": "달토끼" };
+  const speechClassName = [styles.speech, content === "typing" && styles.typingSpeech]
+    .filter(Boolean)
+    .join(" ");
+  const speech = (
+    <>
+      {children}
+      {content === "typing" && (
+        <span role="status" aria-label="대답을 적고 있어요">
+          <span aria-hidden className={styles.caret} />
+        </span>
+      )}
+    </>
+  );
   return (
     <div
       {...props}
@@ -49,18 +64,19 @@ export function Balloon({
       <span className={[styles.speaker, styles.speakers[speaker]].join(" ")}>
         {speakerName ?? names[speaker]}
       </span>
-      <div
-        className={[styles.speech, content === "typing" && styles.typingSpeech]
-          .filter(Boolean)
-          .join(" ")}
-      >
-        {children}
-        {content === "typing" && (
-          <span role="status" aria-label="대답을 적고 있어요">
-            <span aria-hidden className={styles.caret} />
-          </span>
-        )}
-      </div>
+      {speechTrigger ? (
+        <button
+          {...speechTrigger}
+          type={speechTrigger.type ?? "button"}
+          className={[speechClassName, styles.speechTrigger, speechTrigger.className]
+            .filter(Boolean)
+            .join(" ")}
+        >
+          {speech}
+        </button>
+      ) : (
+        <div className={speechClassName}>{speech}</div>
+      )}
       {actions && <div className={styles.actions}>{actions}</div>}
       {result && <div className={styles.result}>{result}</div>}
       {tail !== "none" && (
