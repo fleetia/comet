@@ -7,7 +7,7 @@ const meta = {
   argTypes: {
     layout: {
       control: "select",
-      options: ["compact", "export", "inline", "friend", "description", "control"],
+      options: ["compact", "export", "inline", "inline-padded", "friend", "description", "control"],
     },
     disabled: { control: "boolean" },
     leading: { control: false },
@@ -43,3 +43,6 @@ export const Description: Story = {
   },
 };
 export const Friend: Story = { args: { layout: "friend", label: "나디르", defaultChecked: true } };
+export const InlinePadded: Story = {
+  args: { layout: "inline-padded", label: "기억 86개", defaultChecked: true },
+};

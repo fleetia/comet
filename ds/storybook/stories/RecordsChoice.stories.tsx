@@ -1,6 +1,12 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { CharacterArtwork, ContentChoice, type ContentChoiceProps, Keycap } from "@comet/ui";
+import {
+  CharacterArtwork,
+  ContentChoice,
+  type ContentChoiceProps,
+  Keycap,
+  StatusChip,
+} from "@comet/ui";
 import {
   RecordSampleCharacter,
   RecordSampleIcon,
@@ -37,6 +43,7 @@ function ChoiceExample(args: ContentChoiceProps) {
         leading = <RecordSampleCharacter launcher />;
         break;
       case "story":
+      case "organizer-record":
         break;
       default:
         leading = <CharacterArtwork size="compact" />;
@@ -68,6 +75,7 @@ const meta = {
         "reference",
         "conversation",
         "launcher",
+        "organizer-record",
       ],
     },
     selected: { control: "boolean" },
@@ -81,7 +89,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "캐릭터·기억·장면·이야기·위치·참고 메모·대화·런처 결과의 선택 행입니다. variant는 구조를 구분하고 문구·이미지는 props로 전달합니다. selected와 onClick으로 소비자의 선택 상태를 연결합니다. 각 선택 항목은 native button이며 Enter/Space와 disabled를 지원합니다.",
+          "캐릭터·기억·장면·이야기·위치·참고 메모·대화·런처 결과·정리 기록의 선택 행입니다. variant는 구조를 구분하고 문구·이미지는 props로 전달합니다. selected와 onClick으로 소비자의 선택 상태를 연결합니다. 각 선택 항목은 native button이며 Enter/Space와 disabled를 지원합니다.",
       },
     },
   },
@@ -145,6 +153,16 @@ export const Launcher: Story = {
   },
 };
 export const LauncherSelected: Story = { args: { ...Launcher.args, selected: true } };
+export const OrganizerRecord: Story = {
+  args: {
+    variant: "organizer-record",
+    timestamp: "오후 1:40 · 자동 정리",
+    title: "회의록 요약과 다음 행동",
+    description: "업무 노트 › 회의 › 10월 12일.md",
+    trailing: <StatusChip status="saved">저장됨</StatusChip>,
+  },
+};
+export const OrganizerRecordSelected: Story = { args: { ...OrganizerRecord.args, selected: true } };
 export const Selection: Story = {
   parameters: { controls: { disable: true } },
   render: (args) => {
