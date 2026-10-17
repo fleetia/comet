@@ -1801,7 +1801,7 @@ export function Diary(): ReactElement {
                 <Button
                   key={text(event.id)}
                   variant="quiet"
-                  style={{ whiteSpace: "normal", textAlign: "left", overflowWrap: "anywhere" }}
+                  className={s.agendaEventButton}
                   onClick={() => setSelectedEvent(event)}
                 >
                   {eventTime(event)} · {text(event.title)}
