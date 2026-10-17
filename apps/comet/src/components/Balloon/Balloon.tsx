@@ -1215,18 +1215,20 @@ export function Balloon({
         onOpenChange={(open) => {
           if (!open) setDraftReplacement(null);
         }}
+        footer={
+          <>
+            <Button variant="quiet" onClick={() => setDraftReplacement(null)}>
+              계속 작성
+            </Button>
+            <Button variant="primary" onClick={replaceDraft}>
+              초안 바꾸기
+            </Button>
+          </>
+        }
       >
         <p>
           작성 중인 초안 대신 답변을 마치지 못한 입력을 가져와요. 이미 보낸 원문은 그대로 남아요.
         </p>
-        <div className={s.row}>
-          <Button variant="quiet" onClick={() => setDraftReplacement(null)}>
-            계속 작성
-          </Button>
-          <Button variant="primary" onClick={replaceDraft}>
-            초안 바꾸기
-          </Button>
-        </div>
       </Dialog>
     </section>
   );

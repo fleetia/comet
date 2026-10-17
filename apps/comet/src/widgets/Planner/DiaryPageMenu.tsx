@@ -134,6 +134,22 @@ export function DiaryPageMenu({
             if (!open) setDeleting(false);
           }
         }}
+        footer={
+          deleting ? (
+            <>
+              <Button variant="secondary" disabled={disabled} onClick={() => setDeleting(false)}>
+                취소
+              </Button>
+              <Button
+                variant="critical"
+                disabled={disabled || conflict}
+                onClick={() => void submit("page-delete")}
+              >
+                페이지 삭제
+              </Button>
+            </>
+          ) : undefined
+        }
       >
         <div className={s.form}>
           {deleting ? (
@@ -142,18 +158,6 @@ export function DiaryPageMenu({
                 이 페이지에 적은 기록을 삭제해요. 연결한 할 일, 계속 쓸 메모, 준비 봉투 자체는
                 남아요.
               </p>
-              <div className={s.actions}>
-                <Button variant="secondary" disabled={disabled} onClick={() => setDeleting(false)}>
-                  취소
-                </Button>
-                <Button
-                  variant="critical"
-                  disabled={disabled || conflict}
-                  onClick={() => void submit("page-delete")}
-                >
-                  페이지 삭제
-                </Button>
-              </div>
             </>
           ) : (
             <>

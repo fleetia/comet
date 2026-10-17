@@ -917,18 +917,8 @@ export function CalendarTool({
             setDisconnect(null);
           }
         }}
-      >
-        <div className={s.body}>
-          <p>
-            {text(disconnect?.name)}의 일정 조회를 중단합니다. 기존 준비 봉투의 체크리스트와 자료는
-            보존합니다.
-          </p>
-          {error && (
-            <p role="alert" className={c.error}>
-              {error}
-            </p>
-          )}
-          <div className={s.row}>
+        footer={
+          <>
             <Button
               variant="primary"
               disabled={busy}
@@ -949,7 +939,19 @@ export function CalendarTool({
             <Button variant="secondary" disabled={busy} onClick={() => setDisconnect(null)}>
               취소
             </Button>
-          </div>
+          </>
+        }
+      >
+        <div className={s.body}>
+          <p>
+            {text(disconnect?.name)}의 일정 조회를 중단합니다. 기존 준비 봉투의 체크리스트와 자료는
+            보존합니다.
+          </p>
+          {error && (
+            <p role="alert" className={c.error}>
+              {error}
+            </p>
+          )}
         </div>
       </Dialog>
     </fieldset>

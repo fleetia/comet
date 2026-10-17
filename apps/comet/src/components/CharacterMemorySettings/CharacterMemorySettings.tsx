@@ -182,14 +182,14 @@ export function CharacterMemorySettings({
           if (pending) event.preventDefault();
         }}
         footer={
-          <div className={s.row}>
+          <>
             <Button variant="secondary" disabled={pending} onClick={() => setConfirm(false)}>
               취소
             </Button>
             <Button variant="primary" disabled={pending} onClick={() => void forget()}>
               전체 기억 잊기 확인
             </Button>
-          </div>
+          </>
         }
       >
         <p>

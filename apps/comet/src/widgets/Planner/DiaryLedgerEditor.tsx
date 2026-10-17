@@ -601,16 +601,19 @@ export function LedgerEditor({
           </div>
         </form>
       </Dialog>
-      <Dialog variant="confirm" isOpen={discard} title="변경 내용을 버릴까요?" onOpenChange={setDiscard}>
+      <Dialog variant="confirm" isOpen={discard} title="변경 내용을 버릴까요?" onOpenChange={setDiscard}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDiscard(false)}>
+              계속 편집
+            </Button>
+            <Button variant="danger" onClick={reload ? onReload : onClose}>
+              변경 버리기
+            </Button>
+          </>
+        }
+      >
         <p>아직 저장하지 않은 입력 내용이 있어요.</p>
-        <div className={s.actions}>
-          <Button variant="ghost" onClick={() => setDiscard(false)}>
-            계속 편집
-          </Button>
-          <Button variant="danger" onClick={reload ? onReload : onClose}>
-            변경 버리기
-          </Button>
-        </div>
       </Dialog>
       <Dialog
         variant="confirm"
@@ -619,30 +622,32 @@ export function LedgerEditor({
         onOpenChange={(open) => {
           if (!busy) setDeleting(open);
         }}
+        footer={
+          <>
+            <Button variant="ghost" disabled={busy} onClick={() => setDeleting(false)}>
+              취소
+            </Button>
+            <Button
+              variant="danger"
+              disabled={busy}
+              onClick={async () => {
+                if (
+                  original &&
+                  (await run(`ledger-${editor.kind}-delete`, { id: original.id, expected: original }))
+                )
+                  onClose();
+              }}
+            >
+              삭제하기
+            </Button>
+          </>
+        }
       >
         <p>
           {editor.kind === "recurring"
             ? "이미 가계부에 남긴 지출 기록은 유지돼요."
             : "삭제한 기록은 되돌릴 수 없어요."}
         </p>
-        <div className={s.actions}>
-          <Button variant="ghost" disabled={busy} onClick={() => setDeleting(false)}>
-            취소
-          </Button>
-          <Button
-            variant="danger"
-            disabled={busy}
-            onClick={async () => {
-              if (
-                original &&
-                (await run(`ledger-${editor.kind}-delete`, { id: original.id, expected: original }))
-              )
-                onClose();
-            }}
-          >
-            삭제하기
-          </Button>
-        </div>
       </Dialog>
     </>
   );

@@ -323,35 +323,37 @@ export function DiaryNoteDetail(props: DetailProps): ReactElement {
           title="메모를 삭제할까요?"
           closeLabel="취소"
           variant="confirm"
+          footer={
+            <>
+              <Button
+                variant="danger"
+                disabled={disabled}
+                onClick={async () => {
+                  if (pending.current) return;
+                  pending.current = true;
+                  setSaving(true);
+                  try {
+                    if (await latest.current.onDelete()) {
+                      keep(fromNote(latest.current.note));
+                      if (alive.current) setDeleting(false);
+                    } else setError("메모를 삭제하지 못했어요. 다시 시도해 주세요.");
+                  } catch {
+                    setError("메모를 삭제하지 못했어요. 다시 시도해 주세요.");
+                  } finally {
+                    pending.current = false;
+                    if (alive.current) setSaving(false);
+                  }
+                }}
+              >
+                메모 삭제
+              </Button>
+              <Button variant="ghost" onClick={() => setDeleting(false)}>
+                취소
+              </Button>
+            </>
+          }
         >
           <p>메모 내용도 함께 삭제됩니다.</p>
-          <div className={s.actions}>
-            <Button
-              variant="danger"
-              disabled={disabled}
-              onClick={async () => {
-                if (pending.current) return;
-                pending.current = true;
-                setSaving(true);
-                try {
-                  if (await latest.current.onDelete()) {
-                    keep(fromNote(latest.current.note));
-                    if (alive.current) setDeleting(false);
-                  } else setError("메모를 삭제하지 못했어요. 다시 시도해 주세요.");
-                } catch {
-                  setError("메모를 삭제하지 못했어요. 다시 시도해 주세요.");
-                } finally {
-                  pending.current = false;
-                  if (alive.current) setSaving(false);
-                }
-              }}
-            >
-              메모 삭제
-            </Button>
-            <Button variant="ghost" onClick={() => setDeleting(false)}>
-              취소
-            </Button>
-          </div>
         </Dialog>
       )}
     </article>

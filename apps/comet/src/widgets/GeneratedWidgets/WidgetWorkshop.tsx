@@ -202,15 +202,19 @@ export function WidgetWorkshop(): ReactElement {
             if (!open) closeGuard.keepEditing();
           }}
           variant="confirm"
+          footer={
+            <>
+              <Button variant="secondary" onClick={closeGuard.keepEditing}>
+                계속 편집
+              </Button>
+              <Button variant="critical" onClick={() => void closeGuard.discardAndClose()}>
+                저장하지 않고 닫기
+              </Button>
+            </>
+          }
         >
           <p>입력한 내용을 버리고 닫을까요? 진행 중인 제작도 중단해요.</p>
           {closeGuard.closeError && <p role="alert">{closeGuard.closeError}</p>}
-          <Button variant="secondary" onClick={closeGuard.keepEditing}>
-            계속 편집
-          </Button>
-          <Button variant="critical" onClick={() => void closeGuard.discardAndClose()}>
-            저장하지 않고 닫기
-          </Button>
         </Dialog>
       </div>
     </WidgetFrame>

@@ -841,6 +841,34 @@ export function WidgetManager({
         }
         closeLabel="닫기"
         variant="confirm"
+        footer={
+          <>
+            <Button
+              variant={confirmation === "install" ? "primary" : "critical"}
+              disabled={
+                !canAct ||
+                (confirmation === "install"
+                  ? installation.length === 0
+                  : !removed && !removedGenerated)
+              }
+              onClick={() => {
+                if (confirmation === "install")
+                  void run("install_widgets", { kinds: installation });
+                else if (removed) void run("remove_widget", { id: removed.id, deleteData });
+                else if (removedGenerated)
+                  void run("remove_generated_widget", {
+                    id: removedGenerated.id,
+                    expectedRevision: removedGenerated.revision,
+                  });
+              }}
+            >
+              {confirmation === "install" ? "설치 확인" : "제거 확인"}
+            </Button>
+            <Button variant="secondary" disabled={busy} onClick={() => setConfirmation(null)}>
+              취소
+            </Button>
+          </>
+        }
       >
         <div className={styles.dialogBody}>
           {confirmation === "install" ? (
@@ -887,32 +915,6 @@ export function WidgetManager({
               {failure}
             </Text>
           )}
-          <Inline gap="sm">
-            <Button
-              variant={confirmation === "install" ? "primary" : "critical"}
-              disabled={
-                !canAct ||
-                (confirmation === "install"
-                  ? installation.length === 0
-                  : !removed && !removedGenerated)
-              }
-              onClick={() => {
-                if (confirmation === "install")
-                  void run("install_widgets", { kinds: installation });
-                else if (removed) void run("remove_widget", { id: removed.id, deleteData });
-                else if (removedGenerated)
-                  void run("remove_generated_widget", {
-                    id: removedGenerated.id,
-                    expectedRevision: removedGenerated.revision,
-                  });
-              }}
-            >
-              {confirmation === "install" ? "설치 확인" : "제거 확인"}
-            </Button>
-            <Button variant="secondary" disabled={busy} onClick={() => setConfirmation(null)}>
-              취소
-            </Button>
-          </Inline>
         </div>
       </Dialog>
     </section>

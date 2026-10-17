@@ -760,36 +760,38 @@ export function CharacterManager({
         }}
         title="보유 목록에서 제거"
         variant="confirm"
+        footer={
+          <>
+            <Button
+              variant="primary"
+              disabled={anyPending}
+              onClick={() => {
+                if (!removeId) {
+                  return;
+                }
+                const removed = removeId;
+                void run(async () => {
+                  await command("remove_character", { id: removed });
+                  setCreatedCharacters((values) =>
+                    values.filter((character) => character.id !== removed),
+                  );
+                  setOwners((values) => values.filter((owner) => !owner.ids.includes(removed)));
+                  select(installed.find((character) => character.id !== removed)?.id ?? NEW_ID);
+                  setNotice("목록에서 제거했어요.");
+                });
+              }}
+            >
+              목록에서 제거 확인
+            </Button>
+            <Button variant="secondary" disabled={anyPending} onClick={() => setRemoveId(null)}>
+              취소
+            </Button>
+          </>
+        }
       >
         <p className={s.notice}>
           선택한 캐릭터를 보유 목록과 바탕화면에서 제거해요. 대화 기록과 친밀도는 보존해요.
         </p>
-        <div className={s.compactActions}>
-          <Button
-            variant="primary"
-            disabled={anyPending}
-            onClick={() => {
-              if (!removeId) {
-                return;
-              }
-              const removed = removeId;
-              void run(async () => {
-                await command("remove_character", { id: removed });
-                setCreatedCharacters((values) =>
-                  values.filter((character) => character.id !== removed),
-                );
-                setOwners((values) => values.filter((owner) => !owner.ids.includes(removed)));
-                select(installed.find((character) => character.id !== removed)?.id ?? NEW_ID);
-                setNotice("목록에서 제거했어요.");
-              });
-            }}
-          >
-            목록에서 제거 확인
-          </Button>
-          <Button variant="secondary" disabled={anyPending} onClick={() => setRemoveId(null)}>
-            취소
-          </Button>
-        </div>
       </Dialog>
     </section>
   );

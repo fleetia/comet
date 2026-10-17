@@ -9,7 +9,6 @@ import {
   TextInput,
   Dialog,
 } from "@comet/ui";
-import { Inline } from "../../ui";
 import { MemorySearchSettings } from "../MemorySettings/MemorySearchSettings";
 import { ChatGptSettings } from "../ChatGptSettings/ChatGptSettings";
 import { OrganizerSettings } from "../OrganizerSettings/OrganizerSettings";
@@ -543,7 +542,7 @@ export function ModelSettings({
         closeLabel="모델 다운로드 확인 닫기"
         variant="confirm"
         footer={
-          <Inline gap="sm">
+          <>
             <Button variant="ghost" onClick={() => setConfirmDownload(false)}>
               취소
             </Button>
@@ -556,7 +555,7 @@ export function ModelSettings({
             >
               내려받기
             </Button>
-          </Inline>
+          </>
         }
       >
         <p>{selectedModel?.name}: 이 컴퓨터의 메모리로는 실행되지 않거나 매우 느릴 수 있어요.</p>

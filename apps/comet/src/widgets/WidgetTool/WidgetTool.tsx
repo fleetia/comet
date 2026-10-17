@@ -273,19 +273,23 @@ export function WidgetTool({
           if (!open) closeGuard.keepEditing();
         }}
         variant="confirm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeGuard.keepEditing}>
+              계속 편집
+            </Button>
+            <Button
+              variant="critical"
+              disabled={busy || draftBusy}
+              onClick={() => void closeGuard.discardAndClose()}
+            >
+              저장하지 않고 닫기
+            </Button>
+          </>
+        }
       >
         <p>저장하지 않은 내용을 버리고 닫을까요?</p>
         {closeGuard.closeError && <p role="alert">{closeGuard.closeError}</p>}
-        <Button variant="secondary" onClick={closeGuard.keepEditing}>
-          계속 편집
-        </Button>
-        <Button
-          variant="critical"
-          disabled={busy || draftBusy}
-          onClick={() => void closeGuard.discardAndClose()}
-        >
-          저장하지 않고 닫기
-        </Button>
       </Dialog>
     </WidgetFrame>
   );

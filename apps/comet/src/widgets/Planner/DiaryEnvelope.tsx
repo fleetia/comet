@@ -941,25 +941,27 @@ export function DiaryEnvelope({
         title="준비 봉투를 삭제할까요?"
         closeLabel="취소"
         variant="confirm"
+        footer={
+          <>
+            <Button variant="secondary" disabled={disabled} onClick={() => setDeleting(false)}>
+              취소
+            </Button>
+            <Button
+              variant="critical"
+              disabled={disabled}
+              onClick={async () => {
+                if (await perform(() => save("delete", { id }))) setDeleting(false);
+              }}
+            >
+              준비 봉투 삭제
+            </Button>
+          </>
+        }
       >
         <p>
           봉투의 준비물 체크와 자료 링크가 삭제돼요. 연결된 할 일과 다이어리 기록은 남아요. 다시
           펼칠 봉투라면 보관하기를 사용하세요.
         </p>
-        <div className={s.actions}>
-          <Button variant="secondary" disabled={disabled} onClick={() => setDeleting(false)}>
-            취소
-          </Button>
-          <Button
-            variant="critical"
-            disabled={disabled}
-            onClick={async () => {
-              if (await perform(() => save("delete", { id }))) setDeleting(false);
-            }}
-          >
-            준비 봉투 삭제
-          </Button>
-        </div>
       </Dialog>
     </article>
   );

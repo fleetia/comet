@@ -681,29 +681,31 @@ function DiaryNoteEditor({
         title="메모를 삭제할까요?"
         closeLabel="취소"
         variant="confirm"
+        footer={
+          <>
+            <Button variant="secondary" disabled={busy} onClick={() => setDeleting(false)}>
+              취소
+            </Button>
+            <Button
+              variant="critical"
+              disabled={busy}
+              onClick={async () => {
+                if (await diaryAction("note-delete", { id: note.id })) {
+                  keepDraft(`comet.diary.note-draft:sidebar:${note.id}`, null);
+                  keepDraft(`comet.diary.note-draft:envelope:${note.id}`, null);
+                  setDeleting(false);
+                } else setError("메모를 삭제하지 못했어요.");
+              }}
+            >
+              메모 삭제
+            </Button>
+          </>
+        }
       >
         <p>
           이 메모를 함께 보여주는 준비 봉투와 계속 쓸 메모에서도 삭제돼요. 잠시 치우려면 넣어두기를
           사용하세요.
         </p>
-        <div className={s.actions}>
-          <Button variant="secondary" disabled={busy} onClick={() => setDeleting(false)}>
-            취소
-          </Button>
-          <Button
-            variant="critical"
-            disabled={busy}
-            onClick={async () => {
-              if (await diaryAction("note-delete", { id: note.id })) {
-                keepDraft(`comet.diary.note-draft:sidebar:${note.id}`, null);
-                keepDraft(`comet.diary.note-draft:envelope:${note.id}`, null);
-                setDeleting(false);
-              } else setError("메모를 삭제하지 못했어요.");
-            }}
-          >
-            메모 삭제
-          </Button>
-        </div>
       </Dialog>
     </article>
   );

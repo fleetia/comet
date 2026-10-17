@@ -434,7 +434,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
         title="저장하지 않고 종료할까요?"
         variant="confirm"
         footer={
-          <Inline gap="sm">
+          <>
             <Button variant="secondary" onClick={() => setConfirmExit(false)}>
               계속 편집
             </Button>
@@ -445,7 +445,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
             >
               변경을 버리고 종료
             </Button>
-          </Inline>
+          </>
         }
       >
         <p>저장하지 않은 설정과 편집 내용을 버리고 comet을 종료해요.</p>

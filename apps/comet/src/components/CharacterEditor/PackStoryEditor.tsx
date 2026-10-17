@@ -682,17 +682,21 @@ export function PackStoryEditor({
         title="팩 이야기 초안을 버릴까요?"
         variant="confirm"
         onOpenChange={setConfirmReload}
+        footer={
+          <>
+            <Button onClick={() => setConfirmReload(false)}>계속 편집</Button>
+            <Button
+              onClick={() => {
+                setConfirmReload(false);
+                void load();
+              }}
+            >
+              초안을 버리고 최신 내용 확인
+            </Button>
+          </>
+        }
       >
         <p>작성 중인 이 팩의 이야기와 지식을 버리고 저장된 내용을 불러와요.</p>
-        <Button onClick={() => setConfirmReload(false)}>계속 편집</Button>
-        <Button
-          onClick={() => {
-            setConfirmReload(false);
-            void load();
-          }}
-        >
-          초안을 버리고 최신 내용 확인
-        </Button>
       </Dialog>
     </section>
   );

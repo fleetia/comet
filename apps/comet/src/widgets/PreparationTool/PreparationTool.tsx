@@ -315,25 +315,27 @@ export function PreparationTool({
           if (!open) setNextSelection(null);
         }}
         variant="confirm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setNextSelection(null)}>
+              계속 편집
+            </Button>
+            <Button
+              variant="danger"
+              disabled={busy}
+              onClick={() => {
+                if (nextSelection !== null) setSelected(nextSelection);
+                setNextSelection(null);
+                setDrafts({});
+                setVersion((value) => value + 1);
+              }}
+            >
+              저장하지 않고 이동
+            </Button>
+          </>
+        }
       >
         <p>입력한 내용을 버리고 다른 봉투로 이동할까요?</p>
-        <div className={s.actions}>
-          <Button variant="ghost" onClick={() => setNextSelection(null)}>
-            계속 편집
-          </Button>
-          <Button
-            variant="danger"
-            disabled={busy}
-            onClick={() => {
-              if (nextSelection !== null) setSelected(nextSelection);
-              setNextSelection(null);
-              setDrafts({});
-              setVersion((value) => value + 1);
-            }}
-          >
-            저장하지 않고 이동
-          </Button>
-        </div>
       </Dialog>
     </section>
   );
