@@ -131,6 +131,50 @@ fn fresh_idle_interval_is_five_minutes_and_saved_two_minutes_survives_reopen() {
 }
 
 #[test]
+fn legacy_api_settings_become_custom_profile_without_rewriting_history_or_raw_settings() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("legacy-api.sqlite");
+    let db = open(&path).unwrap();
+    let mut legacy = serde_json::to_value(Settings {
+        mode: "api".into(),
+        base_url: "https://legacy.example/v1".into(),
+        api_model: "original".into(),
+        ..Settings::default()
+    })
+    .unwrap();
+    legacy.as_object_mut().unwrap().remove("apiProvider");
+    legacy.as_object_mut().unwrap().remove("apiProfiles");
+    let original = legacy.to_string();
+    db.execute("INSERT INTO kv VALUES('settings', ?1)", [&original])
+        .unwrap();
+    insert_message(&db, &message("kept", "user", "Keep my words.")).unwrap();
+    let restored = settings(&db).unwrap();
+    assert_eq!(restored.api_provider, ApiProvider::Custom);
+    assert_eq!(
+        restored.api_profiles[&ApiProvider::Custom].base_url,
+        "https://legacy.example/v1"
+    );
+    assert_eq!(
+        restored.api_profiles[&ApiProvider::Custom].api_model,
+        "original"
+    );
+    let raw: String = db
+        .query_row("SELECT value FROM kv WHERE key='settings'", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(raw, original);
+    save_settings(&db, &restored).unwrap();
+    drop(db);
+    let db = open(&path).unwrap();
+    assert_eq!(
+        settings(&db).unwrap().api_profiles[&ApiProvider::Custom].api_model,
+        "original"
+    );
+    assert_eq!(messages(&db, 10).unwrap()[0].content, "Keep my words.");
+}
+
+#[test]
 fn generated_recall_expires_without_changing_authored_history_or_user_memory() {
     let conn = open(Path::new(":memory:")).unwrap();
     let user = message("user", "user", "나는 차를 좋아해");

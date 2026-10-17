@@ -136,8 +136,10 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
         !matches!(line.source.as_str(), "llm" | "question")
             || crate::conversation_notes::validate_reply(&db, &line.id).is_ok()
     });
+    let api_key_providers = inference::api_key_providers(&settings);
     Ok(Snapshot {
-        has_api_key: inference::has_api_key(&settings),
+        has_api_key: api_key_providers.contains(&settings.api_provider),
+        api_key_providers,
         chatgpt_ready: state.inference.chatgpt.ready(),
         model_ready: models::selected_ready(&state.app_data, &settings),
         local_models: models::model_statuses(&state.app_data),

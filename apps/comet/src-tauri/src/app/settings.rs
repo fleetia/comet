@@ -61,9 +61,16 @@ pub(crate) async fn save_settings(
     state: tauri::State<'_, Arc<AppState>>,
     settings: Settings,
     api_key: Option<String>,
+    api_keys: Option<std::collections::BTreeMap<ApiProvider, ApiKeyInput>>,
     scope: Option<SettingsScope>,
 ) -> Result<(), String> {
-    let (epoch, cancel) = apply_settings(&state, &settings, scope, api_key.as_deref())?;
+    let (epoch, cancel) = apply_settings_with_keys(
+        &state,
+        &settings,
+        scope,
+        api_key.as_deref(),
+        api_keys.as_ref(),
+    )?;
     publish(&app, &state);
     crate::generated_widget_commands::publish(&app);
     let _gate = state.gate.lock().await;
@@ -120,11 +127,22 @@ fn validate_settings(
     Ok(())
 }
 
+#[cfg(test)]
 pub(crate) fn apply_settings(
     state: &AppState,
     settings: &Settings,
     scope: Option<SettingsScope>,
     api_key: Option<&str>,
+) -> Result<(u64, Arc<AtomicBool>), String> {
+    apply_settings_with_keys(state, settings, scope, api_key, None)
+}
+
+pub(crate) fn apply_settings_with_keys(
+    state: &AppState,
+    settings: &Settings,
+    scope: Option<SettingsScope>,
+    api_key: Option<&str>,
+    api_keys: Option<&std::collections::BTreeMap<ApiProvider, ApiKeyInput>>,
 ) -> Result<(u64, Arc<AtomicBool>), String> {
     let _action = lock(&state.action)?;
     if unavailable(state) {
@@ -137,7 +155,9 @@ pub(crate) fn apply_settings(
     let current = store::settings(&tx)?;
     let old_presence = current.random_presence_enabled;
     let old_automatic = current.autonomous_enabled;
-    let settings = match scope {
+    let mut profiles = current.api_profiles.clone();
+    profiles.extend(settings.api_profiles.clone());
+    let mut settings = match scope {
         Some(SettingsScope::Automatic) => Settings {
             autonomous_enabled: settings.autonomous_enabled,
             random_presence_enabled: settings.random_presence_enabled,
@@ -156,15 +176,25 @@ pub(crate) fn apply_settings(
             base_url: settings.base_url.clone(),
             api_model: settings.api_model.clone(),
             api_token_parameter: settings.api_token_parameter.clone(),
+            api_provider: settings.api_provider,
+            api_profiles: profiles.clone(),
             chatgpt_model: settings.chatgpt_model.clone(),
             ..current
         },
         None => settings.clone(),
     };
+    if scope != Some(SettingsScope::Automatic) {
+        settings.api_profiles = profiles;
+        settings.remember_api_profile();
+    }
     validate_settings(state, &settings, scope)?;
     let restore_presence = settings.random_presence_enabled != old_presence
         || (old_automatic && !settings.autonomous_enabled);
     if scope != Some(SettingsScope::Automatic) {
+        let keys = inference::validated_api_keys(&settings, api_keys)?;
+        for (profile, key) in keys {
+            inference::set_api_key(&profile, &key)?;
+        }
         if let Some(key) = api_key.map(str::trim).filter(|key| !key.is_empty()) {
             inference::set_api_key(&settings, key)?;
         }
@@ -336,11 +366,13 @@ pub(crate) fn delete_memory(
 pub(crate) fn clear_api_key(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
+    settings: Option<Settings>,
 ) -> Result<(), String> {
     let (epoch, _) = {
         let _action = lock(&state.action)?;
-        let settings = store::settings(&*lock(&state.db)?)?;
-        inference::clear_api_key(&settings)?;
+        let current = store::settings(&*lock(&state.db)?)?;
+        let selected = api_key_target(&current, settings.as_ref())?;
+        inference::clear_api_key(&selected)?;
         interrupt(&state, false)?
     };
     phase(
@@ -352,6 +384,25 @@ pub(crate) fn clear_api_key(
         None,
     );
     Ok(())
+}
+
+fn api_key_target(current: &Settings, selected: Option<&Settings>) -> Result<Settings, String> {
+    let Some(selected) = selected else {
+        return Ok(current.clone());
+    };
+    let profile = current
+        .api_profiles
+        .get(&selected.api_provider)
+        .ok_or("저장된 API 설정을 찾을 수 없습니다.")?;
+    let saved = current.with_api_profile(selected.api_provider, profile);
+    let supplied = Settings {
+        api_provider: ApiProvider::Custom,
+        ..selected.clone()
+    };
+    if inference::endpoint(&saved)? != inference::endpoint(&supplied)? {
+        return Err("저장된 API 주소와 다릅니다. 저장한 서비스에서 키를 삭제해 주세요.".into());
+    }
+    Ok(saved)
 }
 
 pub(crate) fn finish_test<T>(
@@ -470,4 +521,36 @@ pub(crate) async fn pick_model_file(app: tauri::AppHandle) -> Result<Option<Stri
     };
     let path = path.into_path().map_err(|error| error.to_string())?;
     Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[cfg(test)]
+mod api_profile_tests {
+    use super::*;
+
+    #[test]
+    fn clearing_a_saved_inactive_provider_requires_the_saved_endpoint() {
+        let mut current = Settings {
+            api_provider: ApiProvider::Claude,
+            api_model: "claude-saved".into(),
+            ..Settings::default()
+        };
+        current.remember_api_profile();
+        let selected = current.clone();
+        current.api_provider = ApiProvider::Gemini;
+        current.api_model = "gemini-saved".into();
+        current.remember_api_profile();
+        let target = api_key_target(&current, Some(&selected)).unwrap();
+        assert_eq!(target.api_provider, ApiProvider::Claude);
+        assert_eq!(target.base_url, "https://api.anthropic.com/v1");
+        assert_eq!(
+            api_key_target(&current, None).unwrap().api_provider,
+            ApiProvider::Gemini
+        );
+        let changed = Settings {
+            base_url: "https://other.example/v1".into(),
+            ..selected
+        };
+        assert!(api_key_target(&current, Some(&changed)).is_err());
+        assert!(api_key_target(&current, Some(&Settings::default())).is_err());
+    }
 }

@@ -1,6 +1,6 @@
 use crate::{
     models,
-    types::{ChatMessage, LocalModel, LocalModelTest, Settings},
+    types::{ApiKeyInput, ApiProvider, ChatMessage, LocalModel, LocalModelTest, Settings},
 };
 use futures_util::StreamExt;
 use serde_json::{json, Value};
@@ -18,6 +18,8 @@ use tokio::{
     process::{Child, Command},
     sync::Mutex,
 };
+
+mod providers;
 
 struct LocalServer {
     path: PathBuf,
@@ -106,8 +108,11 @@ fn is_loopback_api_url(url: &reqwest::Url) -> bool {
 }
 
 fn validated_api_url(settings: &Settings) -> Result<reqwest::Url, String> {
-    let url = reqwest::Url::parse(settings.base_url.trim())
-        .map_err(|_| "API 주소가 올바르지 않습니다.")?;
+    let base_url = settings
+        .api_provider
+        .base_url()
+        .unwrap_or(settings.base_url.trim());
+    let url = reqwest::Url::parse(base_url).map_err(|_| "API 주소가 올바르지 않습니다.")?;
     if (url.scheme() != "https" && !(url.scheme() == "http" && is_loopback_api_url(&url)))
         || !url.username().is_empty()
         || url.password().is_some()
@@ -135,7 +140,13 @@ const API_SERVICE: &str = "space.starlight.comet.api";
 
 fn account(settings: &Settings) -> Result<String, String> {
     let url = endpoint(settings)?;
-    Ok(hex::encode(Sha256::digest(url.as_bytes())))
+    let identity = match settings.api_provider {
+        ApiProvider::Custom => url,
+        ApiProvider::Claude => format!("claude:{url}"),
+        ApiProvider::Gemini => format!("gemini:{url}"),
+        ApiProvider::Glm => format!("glm:{url}"),
+    };
+    Ok(hex::encode(Sha256::digest(identity.as_bytes())))
 }
 
 fn credential(settings: &Settings) -> Result<keyring::Entry, String> {
@@ -151,6 +162,52 @@ fn legacy_credential(settings: &Settings) -> Result<keyring::Entry, String> {
 }
 pub fn has_api_key(settings: &Settings) -> bool {
     saved_key(settings).ok().flatten().is_some()
+}
+pub fn api_key_providers(settings: &Settings) -> Vec<ApiProvider> {
+    settings
+        .api_profiles
+        .iter()
+        .filter_map(|(provider, profile)| {
+            has_api_key(&settings.with_api_profile(*provider, profile)).then_some(*provider)
+        })
+        .collect()
+}
+
+pub(crate) fn validated_api_keys(
+    settings: &Settings,
+    keys: Option<&std::collections::BTreeMap<ApiProvider, ApiKeyInput>>,
+) -> Result<Vec<(Settings, String)>, String> {
+    let Some(keys) = keys else {
+        return Ok(Vec::new());
+    };
+    keys.iter()
+        .map(|(provider, input)| {
+            let profile = settings
+                .api_profiles
+                .get(provider)
+                .ok_or("API 키에 연결할 설정을 찾을 수 없습니다.")?;
+            let configured = settings.with_api_profile(*provider, profile);
+            // Compare independently as custom so a fixed provider cannot hide a mismatched key destination.
+            let supplied = Settings {
+                base_url: input.base_url.clone(),
+                api_provider: ApiProvider::Custom,
+                ..configured.clone()
+            };
+            let profile_url = Settings {
+                api_provider: ApiProvider::Custom,
+                ..configured.clone()
+            };
+            if endpoint(&configured)? != endpoint(&supplied)?
+                || endpoint(&configured)? != endpoint(&profile_url)?
+            {
+                return Err(
+                    "API 키를 입력한 서비스 주소가 바뀌었습니다. 키를 다시 입력해 주세요.".into(),
+                );
+            }
+            validate_api_key(&input.key)?;
+            Ok((configured, input.key.trim().to_owned()))
+        })
+        .collect()
 }
 pub fn api_credentials_ready(settings: &Settings) -> bool {
     allows_keyless_api(settings) || has_api_key(settings)
@@ -174,10 +231,14 @@ fn api_key_for_request(
     }
     Ok(key)
 }
-pub fn set_api_key(settings: &Settings, key: &str) -> Result<(), String> {
+fn validate_api_key(key: &str) -> Result<(), String> {
     if key.trim().is_empty() || key.len() > 8192 || key.contains(['\r', '\n']) {
         return Err("API 키가 올바르지 않습니다.".into());
     }
+    Ok(())
+}
+pub fn set_api_key(settings: &Settings, key: &str) -> Result<(), String> {
+    validate_api_key(key)?;
     credential(settings)?
         .set_password(key.trim())
         .map_err(|_| String::from("API 키를 시스템 자격 증명 저장소에 저장할 수 없습니다."))?;
@@ -540,6 +601,12 @@ async fn completion_request(
     cancel: Arc<AtomicBool>,
 ) -> Result<Value, String> {
     let http = client(url)?;
+    if settings.mode == "api" && settings.api_provider == ApiProvider::Claude {
+        return providers::claude_completion(
+            &http, url, key, settings, messages, schema, budget, cancel,
+        )
+        .await;
+    }
     let token_parameter = match settings.api_token_parameter.as_str() {
         "max_tokens" => "max_tokens",
         "max_completion_tokens" => "max_completion_tokens",
@@ -552,6 +619,9 @@ async fn completion_request(
     };
     let mut payload = json!({"model":settings.api_model,"messages":messages,"stream":false,"temperature":temperature,"response_format":{"type":"json_schema","json_schema":{"name":"response","strict":true,"schema":schema}}});
     payload[token_parameter] = json!(budget.output_tokens + budget.reasoning_tokens);
+    if settings.mode == "api" {
+        providers::configure_compatible_payload(&mut payload, settings, messages, &schema, budget);
+    }
     if settings.mode == "local" {
         // Some GGUF templates require alternating roles even when filtered history omits a reply.
         payload["messages"] = json!(local_messages(messages));
@@ -584,7 +654,11 @@ async fn completion_request(
             }
         })?;
         let status = response.status();
-        if attempt == 0 && settings.mode == "api" && matches!(status.as_u16(), 400 | 422) {
+        if attempt == 0
+            && settings.mode == "api"
+            && settings.api_provider == ApiProvider::Custom
+            && matches!(status.as_u16(), 400 | 422)
+        {
             let object = payload.as_object_mut().ok_or("요청 생성 실패")?;
             object.remove("response_format");
             object.remove("temperature");
@@ -600,6 +674,9 @@ async fn completion_request(
         let body = response_body(response).await?;
         if cancel.load(Ordering::Acquire) {
             return Err("취소됨".into());
+        }
+        if settings.mode == "api" && settings.api_provider != ApiProvider::Custom {
+            providers::validate_compatible_response(&body)?;
         }
         if settings.mode == "local"
             && body
@@ -620,7 +697,14 @@ async fn completion_request(
             .and_then(|s| s.strip_suffix("```"))
             .unwrap_or(trimmed)
             .trim();
-        return parse_generated_json(json_text);
+        let result = parse_generated_json(json_text)?;
+        if settings.mode == "api"
+            && settings.api_provider != ApiProvider::Custom
+            && !result.is_object()
+        {
+            return Err("모델이 요청한 JSON 객체로 답하지 않았습니다.".into());
+        }
+        return Ok(result);
     }
     Err("API 요청 실패".into())
 }
@@ -897,6 +981,270 @@ mod tests {
             assert!(requests[0].0.starts_with("POST /chat/completions "));
         }
         (result, requests[0].1.clone())
+    }
+
+    #[tokio::test]
+    async fn named_provider_protocols_preserve_history_and_use_their_own_json_contract() {
+        let messages = vec![
+            ChatMessage {
+                role: "system".into(),
+                content: "Preserve the character.".into(),
+            },
+            ChatMessage {
+                role: "user".into(),
+                content: "Remember my tea.".into(),
+            },
+            ChatMessage {
+                role: "assistant".into(),
+                content: "I remember.".into(),
+            },
+            ChatMessage {
+                role: "user".into(),
+                content: "Hello".into(),
+            },
+        ];
+        let schema = json!({"type":"object","required":["ok"],"properties":{"ok":{"type":"boolean"}},"additionalProperties":false});
+        for provider in [ApiProvider::Claude, ApiProvider::Gemini, ApiProvider::Glm] {
+            let body = if provider == ApiProvider::Claude {
+                json!({"stop_reason":"tool_use","content":[{"type":"tool_use","name":"comet_response","input":{"ok":true}}]})
+            } else {
+                json!({"choices":[{"message":{"content":"{\"ok\":true}"},"finish_reason":"stop"}]})
+            };
+            let settings = Settings {
+                mode: "api".into(),
+                api_provider: provider,
+                api_model: "selected-model".into(),
+                ..Settings::default()
+            };
+            let (url, server) = completion_server(vec![(200, body.to_string())]).await;
+            let result = completion(
+                &url,
+                Some("synthetic-key"),
+                &settings,
+                &messages,
+                schema.clone(),
+                GenerationBudget::conversation(&settings, 128),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .await
+            .unwrap();
+            assert_eq!(result, json!({"ok":true}));
+            let requests = server.await.unwrap();
+            let (headers, payload) = &requests[0];
+            assert_eq!(payload["model"], "selected-model");
+            let headers = headers.to_ascii_lowercase();
+            match provider {
+                ApiProvider::Claude => {
+                    assert!(headers.starts_with("post /messages "));
+                    assert!(headers.contains("x-api-key: synthetic-key"));
+                    assert!(headers.contains("anthropic-version: 2023-06-01"));
+                    assert!(!headers.contains("authorization:"));
+                    assert!(payload["system"]
+                        .as_str()
+                        .unwrap()
+                        .contains("Preserve the character."));
+                    assert_eq!(payload["messages"], json!(&messages[1..]));
+                    assert_eq!(payload["tools"][0]["input_schema"], schema);
+                    assert_eq!(payload["tool_choice"]["type"], "auto");
+                    assert!(payload.get("response_format").is_none());
+                }
+                ApiProvider::Gemini => {
+                    assert!(headers.starts_with("post /chat/completions "));
+                    assert!(headers.contains("authorization: bearer synthetic-key"));
+                    assert_eq!(payload["messages"], json!(messages));
+                    assert_eq!(payload["response_format"]["json_schema"]["schema"], schema);
+                    assert_eq!(payload["reasoning_effort"], "low");
+                    assert!(payload.get("max_completion_tokens").is_none());
+                }
+                ApiProvider::Glm => {
+                    assert!(headers.contains("authorization: bearer synthetic-key"));
+                    assert_eq!(payload["response_format"], json!({"type":"json_object"}));
+                    assert!(payload["messages"][0]["content"]
+                        .as_str()
+                        .unwrap()
+                        .contains(&schema.to_string()));
+                    assert_eq!(
+                        payload["messages"].as_array().unwrap()[1..],
+                        json!(messages).as_array().unwrap()[..]
+                    );
+                    assert!(payload.get("max_completion_tokens").is_none());
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn claude_accepts_complete_json_text_and_rejects_incomplete_or_unrelated_tools() {
+        let settings = Settings {
+            mode: "api".into(),
+            api_provider: ApiProvider::Claude,
+            ..Settings::default()
+        };
+        for (body, expected) in [
+            (
+                json!({"stop_reason":"end_turn","content":[{"type":"text","text":"{\"ok\":true}"}]}),
+                true,
+            ),
+            (
+                json!({"stop_reason":"max_tokens","content":[{"type":"text","text":"{\"ok\":true}"}]}),
+                false,
+            ),
+            (
+                json!({"stop_reason":"refusal","content":[{"type":"text","text":"{\"ok\":true}"}]}),
+                false,
+            ),
+            (json!({"stop_reason":"pause_turn","content":[]}), false),
+            (
+                json!({"stop_reason":"tool_use","content":[{"type":"tool_use","name":"other","input":{"ok":true}}]}),
+                false,
+            ),
+            (
+                json!({"stop_reason":"tool_use","content":[{"type":"tool_use","name":"comet_response","input":{}},{"type":"tool_use","name":"comet_response","input":{}}]}),
+                false,
+            ),
+            (
+                json!({"stop_reason":"end_turn","content":[{"type":"text","text":"not JSON"}]}),
+                false,
+            ),
+        ] {
+            let (url, server) = completion_server(vec![(200, body.to_string())]).await;
+            let result = completion(
+                &url,
+                Some("synthetic"),
+                &settings,
+                &[],
+                json!({"type":"object"}),
+                GenerationBudget::conversation(&settings, 128),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .await;
+            assert_eq!(result.is_ok(), expected, "{body}");
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn named_providers_do_not_retry_rejected_requests_and_reject_truncated_json() {
+        for provider in [ApiProvider::Claude, ApiProvider::Gemini, ApiProvider::Glm] {
+            let settings = Settings {
+                mode: "api".into(),
+                api_provider: provider,
+                ..Settings::default()
+            };
+            for (status, body) in [
+                (400, json!({"error":"synthetic"})),
+                (401, json!({"error":"synthetic"})),
+                (429, json!({"error":"synthetic"})),
+                (
+                    200,
+                    json!({"choices":[{"finish_reason":"length","message":{"content":"{\"ok\":true}"}}]}),
+                ),
+                (
+                    200,
+                    json!({"choices":[{"finish_reason":"stop","message":{"content":"invalid"}}]}),
+                ),
+            ] {
+                let (url, server) = completion_server(vec![(status, body.to_string())]).await;
+                let result = completion(
+                    &url,
+                    Some("synthetic"),
+                    &settings,
+                    &[],
+                    json!({"type":"object"}),
+                    GenerationBudget::conversation(&settings, 128),
+                    Arc::new(AtomicBool::new(false)),
+                )
+                .await;
+                assert!(result.is_err());
+                assert_eq!(server.await.unwrap().len(), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn named_endpoints_are_pinned_and_profile_keys_cannot_cross_destinations() {
+        let mut accounts = std::collections::BTreeSet::new();
+        for provider in [ApiProvider::Claude, ApiProvider::Gemini, ApiProvider::Glm] {
+            let mut settings = Settings {
+                mode: "api".into(),
+                api_provider: provider,
+                base_url: "https://untrusted.example/v1".into(),
+                ..Settings::default()
+            };
+            assert_eq!(endpoint(&settings).unwrap(), provider.base_url().unwrap());
+            settings.remember_api_profile();
+            assert!(accounts.insert(account(&settings).unwrap()));
+            let mut keys = std::collections::BTreeMap::from([(
+                provider,
+                ApiKeyInput {
+                    base_url: settings.base_url.clone(),
+                    key: "synthetic".into(),
+                },
+            )]);
+            assert_eq!(validated_api_keys(&settings, Some(&keys)).unwrap().len(), 1);
+            keys.get_mut(&provider).unwrap().base_url = "https://untrusted.example/v1".into();
+            assert!(validated_api_keys(&settings, Some(&keys)).is_err());
+        }
+        let settings = Settings {
+            base_url: "https://legacy.example/v1/".into(),
+            ..Settings::default()
+        };
+        assert_eq!(
+            account(&settings).unwrap(),
+            hex::encode(Sha256::digest(b"https://legacy.example/v1"))
+        );
+    }
+
+    #[test]
+    fn custom_and_named_keys_at_the_same_endpoint_are_saved_and_deleted_independently() {
+        let named = Settings {
+            api_provider: ApiProvider::Glm,
+            ..Settings::default()
+        };
+        let custom = Settings {
+            base_url: ApiProvider::Glm.base_url().unwrap().into(),
+            ..Settings::default()
+        };
+        let named_account = account(&named).unwrap();
+        let custom_account = account(&custom).unwrap();
+        let mut credentials = std::collections::BTreeMap::new();
+        for (identity, key) in [(&custom_account, "custom-key"), (&named_account, "glm-key")] {
+            credentials
+                .entry(identity.clone())
+                .or_insert_with(|| {
+                    keyring::Entry::new_with_credential(Box::new(
+                        keyring::mock::MockCredential::default(),
+                    ))
+                })
+                .set_password(key)
+                .unwrap();
+        }
+        assert_eq!(
+            credentials[&custom_account].get_password().unwrap(),
+            "custom-key"
+        );
+        assert_eq!(
+            credentials[&named_account].get_password().unwrap(),
+            "glm-key"
+        );
+        credentials[&named_account].delete_credential().unwrap();
+        assert_eq!(
+            credentials[&custom_account].get_password().unwrap(),
+            "custom-key"
+        );
+        assert!(matches!(
+            credentials[&named_account].get_password(),
+            Err(keyring::Error::NoEntry)
+        ));
+        credentials[&named_account]
+            .set_password("glm-reconnected")
+            .unwrap();
+        credentials[&custom_account].delete_credential().unwrap();
+        assert_eq!(
+            credentials[&named_account].get_password().unwrap(),
+            "glm-reconnected"
+        );
     }
 
     #[tokio::test]
@@ -1712,7 +2060,15 @@ mod tests {
             io::{AsyncReadExt, AsyncWriteExt},
             net::TcpListener,
         };
-        for pending in [true, false] {
+        for (provider, pending) in [
+            None,
+            Some(ApiProvider::Claude),
+            Some(ApiProvider::Gemini),
+            Some(ApiProvider::Glm),
+        ]
+        .into_iter()
+        .flat_map(|provider| [true, false].map(|pending| (provider, pending)))
+        {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let address = listener.local_addr().unwrap();
             let (started, ready) = tokio::sync::oneshot::channel();
@@ -1734,7 +2090,11 @@ mod tests {
             });
             let cancel = Arc::new(AtomicBool::new(false));
             let url = format!("http://{address}");
-            let settings = Settings::default();
+            let settings = Settings {
+                mode: if provider.is_some() { "api" } else { "local" }.into(),
+                api_provider: provider.unwrap_or_default(),
+                ..Settings::default()
+            };
             let response = completion(
                 &url,
                 Some("secret-api-key"),

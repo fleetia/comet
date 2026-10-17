@@ -359,8 +359,17 @@ export type QuietHours = {
   weekdays: number[];
 };
 export type ProviderKind = "local" | "api" | "chatgpt";
+export type ApiProvider = "custom" | "claude" | "gemini" | "glm";
+export type AiProvider = Exclude<ProviderKind, "api"> | ApiProvider;
+export type ApiProfile = {
+  baseUrl: string;
+  apiModel: string;
+  apiTokenParameter: "max_tokens" | "max_completion_tokens";
+};
 export type Settings = {
   mode: ProviderKind;
+  apiProvider: ApiProvider;
+  apiProfiles: Partial<Record<ApiProvider, ApiProfile>>;
   autonomousEnabled: boolean;
   randomPresenceEnabled: boolean;
   localModel: LocalModel;
@@ -543,6 +552,7 @@ export type Snapshot = {
   runtime: RuntimeStatus;
   activeRequest?: ActiveRequest;
   hasApiKey: boolean;
+  apiKeyProviders: ApiProvider[];
   modelReady: boolean;
   localModels: LocalModelStatus[];
   device: DeviceInfo;
