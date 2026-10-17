@@ -1,11 +1,10 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
 
 export const workspace = style({
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
   minHeight: 0,
   maxWidth: 1184,
 });
@@ -20,20 +19,20 @@ export const namePanel = style({
 export const nameBody = style({
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
   minHeight: 264,
 });
 export const heading = style({
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: vars.space.lg,
+  gap: tokens["spacing/space-16"],
   minHeight: 28,
 });
 export const title = style({
   margin: 0,
-  fontSize: vars.typography.size.headingSm,
-  lineHeight: vars.typography.lineHeight.compact,
+  fontSize: tokens["typography/display/title-sm/fontSize"],
+  lineHeight: "1.385",
   fontWeight: 600,
 });
 export const identity = style({
@@ -42,18 +41,18 @@ export const identity = style({
   alignItems: "center",
   width: "min(320px,100%)",
   minHeight: 28,
-  gap: vars.space.lg,
+  gap: tokens["spacing/space-16"],
 });
 export const identityName = style({
   overflow: "hidden",
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
-  fontSize: vars.typography.size.label,
+  fontSize: tokens["typography/sans/body/fontSize"],
   fontWeight: 600,
 });
 export const form = style({
   display: "grid",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
   border: 0,
   padding: 0,
   margin: 0,
@@ -61,17 +60,17 @@ export const form = style({
 });
 export const nameField = style({ maxWidth: 720 });
 export const caption = style({
-  color: vars.color.content.secondary,
-  fontSize: vars.typography.size.caption,
-  lineHeight: vars.typography.lineHeight.body,
+  color: tokens["color/ink-2"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  lineHeight: "1.462",
   margin: 0,
 });
 export const actions = style({
   display: "flex",
-  gap: vars.space.lg,
+  gap: tokens["spacing/space-16"],
   alignItems: "center",
   flexWrap: "wrap",
-  minHeight: vars.dimension.control,
+  minHeight: tokens["size/control-36"],
 });
 export const nameAction = style({ width: 112 });
 export const memoriesPanel = style({
@@ -82,7 +81,7 @@ export const memoriesPanel = style({
   flexShrink: 1,
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
   overflow: "hidden",
 });
 export const memoriesBody = style({
@@ -91,34 +90,34 @@ export const memoriesBody = style({
   flex: 1,
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
 });
 export const memoryList = style({ flexShrink: 0 });
 export const memoryRow = style({
   display: "grid",
   gridTemplateColumns: "minmax(0,1fr) 256px",
-  gap: vars.space.lg,
+  gap: tokens["spacing/space-16"],
   alignItems: "center",
   minHeight: 45,
   "@media": { "(max-width: 1000px)": { gridTemplateColumns: "minmax(0,1fr) 152px" } },
 });
 export const pagination = style({
   display: "flex",
-  gap: vars.space.lg,
+  gap: tokens["spacing/space-16"],
   alignItems: "center",
-  minHeight: vars.dimension.control,
+  minHeight: tokens["size/control-36"],
 });
 export const pageButton = style({ width: 64 });
 export const recipients = style({
   display: "flex",
-  gap: vars.space.lg,
+  gap: tokens["spacing/space-16"],
   flexWrap: "wrap",
   alignItems: "center",
-  minHeight: vars.dimension.control,
+  minHeight: tokens["size/control-36"],
 });
 export const recipientLabel = style({
   width: 160,
-  fontSize: vars.typography.size.label,
+  fontSize: tokens["typography/sans/body/fontSize"],
   fontWeight: 600,
 });
 export const recipient = style({ width: 192 });
@@ -127,7 +126,7 @@ export const assignment = style({
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
-  gap: vars.space.lg,
+  gap: tokens["spacing/space-16"],
   minHeight: 44,
 });
 export const assignButton = style({ width: 168 });

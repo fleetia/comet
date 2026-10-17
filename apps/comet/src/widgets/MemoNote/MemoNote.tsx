@@ -10,7 +10,7 @@ import { number, record, rows, text, type DataRecord } from "../toolData";
 import { useWidgets } from "../useWidgets";
 import { useMemoDraft } from "../useMemoDraft";
 import { WidgetDragHandle } from "../WidgetDragHandle";
-import * as c from "../../lagrange.css";
+import * as c from "../../common.css";
 import * as s from "../memo.css";
 import * as paper from "./memoNote.css";
 

@@ -1,5 +1,4 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
 import { tokens } from "@comet/token";
 
 export const window = style({
@@ -14,7 +13,7 @@ export const window = style({
   borderRadius: 24,
   backdropFilter: tokens["backdrop/backdrop-window"],
   boxSizing: "border-box",
-  color: vars.color.content.primary,
+  color: tokens["color/ink"],
 });
 export const header = style({
   height: 0,
@@ -40,7 +39,7 @@ export const input = style({
   minWidth: 0,
   border: 0,
   background: "transparent",
-  color: vars.color.content.primary,
+  color: tokens["color/ink"],
   fontSize: 20,
   fontFamily: tokens["typography/sans/body/fontFamily"],
   padding: "6px 0",
@@ -102,15 +101,15 @@ export const resultText = style({
   gap: 3,
 });
 export const title = style({
-  fontSize: vars.typography.size.body,
+  fontSize: tokens["typography/sans/body/fontSize"],
   fontWeight: 600,
   overflow: "hidden",
   whiteSpace: "nowrap",
   textOverflow: "ellipsis",
 });
 export const detail = style({
-  fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  color: tokens["color/ink-2"],
   overflow: "hidden",
   whiteSpace: "nowrap",
   textOverflow: "ellipsis",
@@ -121,7 +120,7 @@ globalStyle(`${result}[aria-selected="true"] ${detail}`, {
 });
 export const preview = style({
   flexShrink: 0,
-  borderTop: `1px solid ${vars.color.border.subtle}`,
+  borderTop: `1px solid ${tokens["color/line"]}`,
   padding: "11px 20px",
   background: tokens["color/component/selected-icon-alpha-80"],
   display: "flex",
@@ -129,12 +128,12 @@ export const preview = style({
   gap: 6,
 });
 export const previewLabel = style({
-  fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  color: tokens["color/ink-2"],
 });
 export const previewText = style({
   margin: 0,
-  fontSize: vars.typography.size.body,
+  fontSize: tokens["typography/sans/body/fontSize"],
   lineHeight: 1.5,
   overflowWrap: "anywhere",
   whiteSpace: "pre-wrap",
@@ -149,22 +148,22 @@ export const footer = style({
   minHeight: 42,
   padding: "8px 18px",
   flexShrink: 0,
-  fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
-  borderTop: `1px solid ${vars.color.border.subtle}`,
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  color: tokens["color/ink-2"],
+  borderTop: `1px solid ${tokens["color/line"]}`,
 });
 export const keys = style({ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" });
 globalStyle(`${keys} > span`, { display: "inline-flex", alignItems: "center", gap: 5 });
-globalStyle(`${keys} kbd`, { font: "inherit", color: vars.color.content.primary });
+globalStyle(`${keys} kbd`, { font: "inherit", color: tokens["color/ink"] });
 export const error = style({
   margin: "0 16px 8px",
   padding: 8,
   maxHeight: 100,
   overflowY: "auto",
   flexShrink: 0,
-  fontSize: vars.typography.size.caption,
-  background: vars.color.status.criticalSurface,
-  color: vars.color.status.critical,
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  background: tokens["color/component/danger-alpha-100"],
+  color: tokens["color/danger"],
   borderRadius: tokens["radius/radius-10"],
 });
 export const errorActions = style({ display: "flex", gap: 8, marginTop: 8 });

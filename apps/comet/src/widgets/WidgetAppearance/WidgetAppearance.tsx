@@ -1,4 +1,6 @@
-import { Button, ColorField, FormField, Heading, PlacementPicker, Surface, Text } from "../../ui";
+import { Button, FormField, Heading, Surface, Text } from "../../ui";
+import { ColorField } from "./ColorField";
+import { PlacementPicker } from "./PlacementPicker";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { WidgetView } from "../types";

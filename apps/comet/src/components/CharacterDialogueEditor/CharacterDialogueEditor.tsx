@@ -6,7 +6,7 @@ import { MotionSelect, motionError, motionOwner } from "../MotionSelect/MotionSe
 import { WordbookPanel } from "../WordbookPanel/WordbookPanel";
 import { EXPRESSIONS } from "../CharacterEditor/CharacterEditor";
 import { CharacterWorkPanel } from "../CharacterEditor/CharacterWorkPanel";
-import * as ui from "../../lagrange.css";
+import * as ui from "../../common.css";
 import * as common from "../characters.css";
 import * as s from "./CharacterDialogueEditor.css";
 

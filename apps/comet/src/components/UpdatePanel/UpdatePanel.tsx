@@ -4,7 +4,7 @@ import { Button, Surface } from "../../ui";
 import { version } from "../../../package.json";
 import cometIcon from "../../assets/figma/comet-about.svg";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
-import * as s from "../../lagrange.css";
+import * as s from "../../common.css";
 import * as styles from "./updatePanel.css";
 
 type UpdateStatus = {

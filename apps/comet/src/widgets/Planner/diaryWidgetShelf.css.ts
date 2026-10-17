@@ -1,20 +1,20 @@
 import { style } from "@vanilla-extract/css";
-import { semanticVars as v } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 
 export const shelf = style({
-  borderTop: `1px solid ${v.color.border.subtle}`,
+  borderTop: `1px solid ${tokens["color/line"]}`,
   marginTop: 20,
   paddingTop: 12,
 });
 export const heading = style({
   fontWeight: 600,
   cursor: "pointer",
-  fontSize: v.typography.size.label,
+  fontSize: tokens["typography/sans/body/fontSize"],
 });
 export const hint = style({
-  color: v.color.content.secondary,
-  fontSize: v.typography.size.caption,
-  lineHeight: v.typography.lineHeight.body,
+  color: tokens["color/ink-2"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  lineHeight: "1.462",
   margin: "8px 0",
 });
 export const group = style({ marginTop: 8 });
@@ -25,7 +25,7 @@ export const name = style({
   padding: "6px 2px",
   border: 0,
   background: "transparent",
-  color: v.color.content.primary,
+  color: tokens["color/ink"],
   font: "inherit",
   textAlign: "left",
   cursor: "pointer",
@@ -34,10 +34,10 @@ export const name = style({
   whiteSpace: "nowrap",
   selectors: {
     "&:hover": { textDecoration: "underline" },
-    "&:focus-visible": { outline: `2px solid ${v.color.interaction.focus}`, outlineOffset: 1 },
+    "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: 1 },
     "&:disabled": { opacity: 0.5, cursor: "default" },
   },
 });
-export const itemName = style([name, { fontSize: v.typography.size.caption }]);
+export const itemName = style([name, { fontSize: tokens["typography/sans/caption/fontSize"] }]);
 export const items = style({ paddingLeft: 24 });
 export const list = style({ maxHeight: 240, overflowY: "auto" });

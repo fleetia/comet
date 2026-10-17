@@ -11,7 +11,7 @@ import type {
   WordbookMatchPreview,
 } from "../../types";
 import { MotionSelect, motionError, motionOwner } from "../MotionSelect/MotionSelect";
-import * as s from "../../lagrange.css";
+import * as s from "../../common.css";
 import * as w from "./WordbookPanel.css";
 
 type Draft = {

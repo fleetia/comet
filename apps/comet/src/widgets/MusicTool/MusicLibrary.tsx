@@ -3,7 +3,7 @@ import { useState, type ReactElement } from "react";
 import { record, rows, text, type DataRecord } from "../toolData";
 import type { WidgetValue } from "../types";
 import { finiteNumber } from "./musicData";
-import * as c from "../../lagrange.css";
+import * as c from "../../common.css";
 import * as s from "./musicTool.css";
 
 type Props = {

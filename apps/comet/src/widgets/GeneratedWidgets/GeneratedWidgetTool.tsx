@@ -7,7 +7,7 @@ import type { GeneratedWidget } from "./types";
 import type { WidgetValue } from "../types";
 import { runWidget, type WidgetNode } from "./sandbox";
 import * as s from "./generatedWidgets.css";
-import * as common from "../../lagrange.css";
+import * as common from "../../common.css";
 
 export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
   const [widget, setWidget] = useState<GeneratedWidget | null>(null);

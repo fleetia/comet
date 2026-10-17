@@ -3,7 +3,7 @@ import { useId, useRef, useState, type ReactElement } from "react";
 import { frequencyRecords, ruleOf } from "../Planner/plannerData";
 import { localDay, number, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
-import * as c from "../../lagrange.css";
+import * as c from "../../common.css";
 import * as s from "../tools.css";
 
 function todayInZone(now: number, timeZone: string): string {

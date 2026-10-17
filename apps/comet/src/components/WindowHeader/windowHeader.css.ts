@@ -1,11 +1,10 @@
 import { style, styleVariants } from "@vanilla-extract/css";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
 import { tokens } from "@comet/token";
 
 export const header = style({
   display: "flex",
   alignItems: "center",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
   width: "100%",
   minHeight: 32,
   height: "100%",
@@ -19,7 +18,7 @@ export const title = style({
 export const brand = style({
   display: "flex",
   alignItems: "center",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
   minWidth: 0,
   height: "100%",
   whiteSpace: "nowrap",
@@ -40,15 +39,15 @@ export const brandName = style({
   fontFamily: tokens["typography/display/title/fontFamily"],
   fontSize: 15,
   fontWeight: 400,
-  lineHeight: vars.typography.lineHeight.compact,
+  lineHeight: "1.385",
 });
 export const windowName = style({
   minWidth: 0,
   overflow: "hidden",
   textOverflow: "ellipsis",
-  color: vars.color.content.secondary,
-  fontSize: vars.typography.size.caption,
-  lineHeight: vars.typography.lineHeight.compact,
+  color: tokens["color/ink-2"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  lineHeight: "1.385",
   paddingLeft: 10,
   borderLeft: `1px solid ${tokens["color/divider"]}`,
 });
@@ -60,7 +59,7 @@ export const actions = style({
   display: "flex",
   alignItems: "center",
   flexShrink: 0,
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
 });
 export const close = style({
   width: 30,

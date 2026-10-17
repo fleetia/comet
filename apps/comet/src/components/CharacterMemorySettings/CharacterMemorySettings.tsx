@@ -4,7 +4,7 @@ import { Button, Surface } from "../../ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { InstalledCharacter } from "../../types";
 import { CharacterWorkPanel } from "../CharacterEditor/CharacterWorkPanel";
-import * as s from "../../lagrange.css";
+import * as s from "../../common.css";
 import * as layout from "./CharacterMemorySettings.css";
 
 export function CharacterMemorySettings({

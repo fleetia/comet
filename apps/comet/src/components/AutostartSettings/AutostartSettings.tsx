@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
-import { Button, Checkbox, SectionHeader, SettingsRow } from "../../ui";
+import { Button, Checkbox, SectionHeader } from "../../ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
-import * as s from "../../lagrange.css";
+import * as s from "../../common.css";
 import * as layout from "../SettingsPanel/settings.css";
 import { SettingControlRow, Switch } from "@comet/ui";
 import * as figma from "../SettingsPanel/figmaSettings.css";
@@ -81,21 +81,22 @@ export function AutostartSettings({
         headingVariant="subsection"
         rule="none"
       />
-      <SettingsRow
+      <SettingControlRow
         className={layout.settingsRow}
-        label={<span id="autostart-label">컴퓨터 로그인 시 자동 실행</span>}
+        title={<span id="autostart-label">컴퓨터 로그인 시 자동 실행</span>}
         description="로그인한 사용자의 등록 상태"
-      >
-        <Checkbox
-          className={layout.rowControl}
-          aria-labelledby="autostart-label"
-          checked={enabled === true}
-          disabled={!isDesktop() || pending || enabled === null}
-          onChange={(event) => void run(event.target.checked)}
-        >
-          자동 실행
-        </Checkbox>
-      </SettingsRow>
+        control={
+          <Checkbox
+            className={layout.rowControl}
+            aria-labelledby="autostart-label"
+            checked={enabled === true}
+            disabled={!isDesktop() || pending || enabled === null}
+            onChange={(event) => void run(event.target.checked)}
+          >
+            자동 실행
+          </Checkbox>
+        }
+      />
       <div className={layout.statusRow}>
         <p className={s.quiet} role="status">
           {pending

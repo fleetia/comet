@@ -1,5 +1,4 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { semanticVars as v } from "@fleetia/lagrange/theme";
 import { tokens } from "@comet/token";
 
 export const page = style({
@@ -17,19 +16,19 @@ export const log = style({
 });
 
 export const heading = style({
-  margin: `0 0 ${v.space.lg}`,
+  margin: `0 0 ${tokens["spacing/space-16"]}`,
   fontFamily: tokens["typography/display/title-sm/fontFamily"],
   fontSize: 17,
   fontWeight: 400,
   lineHeight: "24px",
 });
 
-export const appointments = style({ display: "grid", gap: v.space.sm });
+export const appointments = style({ display: "grid", gap: tokens["spacing/space-8"] });
 export const appointment = style({
   display: "flex",
   alignItems: "center",
   flexWrap: "wrap",
-  gap: v.space.md,
+  gap: tokens["spacing/space-12"],
   minHeight: 64,
   paddingBlock: 10,
   borderBottom: `1px solid ${tokens["color/divider"]}`,
@@ -39,7 +38,7 @@ export const records = style({ minWidth: 0 });
 export const line = style({
   display: "flex",
   alignItems: "center",
-  gap: v.space.sm,
+  gap: tokens["spacing/space-8"],
   minWidth: 0,
   padding: "10px 0",
   minHeight: 48,
@@ -50,7 +49,7 @@ export const rowActions = style({
   display: "inline-flex",
   flexShrink: 0,
   alignItems: "center",
-  gap: v.space.xs,
+  gap: tokens["spacing/space-6"],
   opacity: 0,
   selectors: {
     [`${line}:hover &`]: { opacity: 1 },
@@ -62,7 +61,7 @@ export const rowActions = style({
 export const entryText = style({
   display: "flex",
   alignItems: "center",
-  gap: v.space.sm,
+  gap: tokens["spacing/space-8"],
   minWidth: 0,
 });
 export const moved = style({
@@ -71,14 +70,14 @@ export const moved = style({
   minWidth: 0,
   alignItems: "center",
   flexWrap: "wrap",
-  gap: v.space.lg,
+  gap: tokens["spacing/space-16"],
 });
 
 export const bullet = style({
   flex: "0 0 18px",
   textAlign: "center",
   lineHeight: "28px",
-  color: v.color.content.secondary,
+  color: tokens["color/ink-2"],
 });
 
 export const content = style({ minWidth: 0, flex: 1 });
@@ -90,13 +89,13 @@ export const row = style({
   display: "flex",
   alignItems: "center",
   flexWrap: "wrap",
-  gap: v.space.sm,
+  gap: tokens["spacing/space-8"],
   minWidth: 0,
 });
 
 export const title = style({
-  fontSize: v.typography.size.body,
-  lineHeight: v.typography.lineHeight.body,
+  fontSize: tokens["typography/sans/body/fontSize"],
+  lineHeight: "1.462",
   overflowWrap: "anywhere",
   whiteSpace: "pre-wrap",
 });
@@ -106,21 +105,21 @@ globalStyle(`${task} label`, { overflowWrap: "anywhere" });
 
 export const completed = style({
   textDecoration: "line-through",
-  color: v.color.content.secondary,
+  color: tokens["color/ink-2"],
 });
 
 export const meta = style({
-  color: v.color.content.secondary,
-  fontSize: v.typography.size.caption,
-  lineHeight: v.typography.lineHeight.body,
+  color: tokens["color/ink-2"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  lineHeight: "1.462",
 });
 
 export const controls = style({
   display: "flex",
   alignItems: "center",
   flexWrap: "wrap",
-  gap: v.space.sm,
-  marginTop: v.space.xs,
+  gap: tokens["spacing/space-8"],
+  marginTop: tokens["spacing/space-6"],
 });
 
 export const writing = style({
@@ -128,25 +127,25 @@ export const writing = style({
   boxSizing: "border-box",
   width: "100%",
   minHeight: 32,
-  padding: `${v.space.xs} ${v.space.xs}`,
+  padding: `${tokens["spacing/space-6"]} ${tokens["spacing/space-6"]}`,
   border: "1px solid transparent",
   borderRadius: tokens["radius/radius-10"],
   background: "transparent",
-  color: v.color.content.primary,
-  fontFamily: v.typography.family.ui,
-  fontSize: v.typography.size.body,
+  color: tokens["color/ink"],
+  fontFamily: `${tokens["typography/sans/body/fontFamily"]}, sans-serif`,
+  fontSize: tokens["typography/sans/body/fontSize"],
   lineHeight: 1.75,
   resize: "none",
   overflow: "hidden",
   selectors: {
-    "&:hover:not(:disabled)": { background: v.color.surface.muted },
+    "&:hover:not(:disabled)": { background: tokens["color/card-2"] },
     "&:focus": {
-      outline: `1px solid ${v.color.interaction.focus}`,
+      outline: `1px solid ${tokens["color/focus-ring"]}`,
       outlineOffset: 1,
       background: tokens["color/input"],
     },
-    "&::placeholder": { color: v.color.content.secondary },
-    "&:disabled": { color: v.color.content.secondary },
+    "&::placeholder": { color: tokens["color/ink-2"] },
+    "&:disabled": { color: tokens["color/ink-2"] },
   },
 });
 
@@ -169,22 +168,22 @@ export const composerBody = style({ minHeight: 76 });
 export const kinds = style({
   display: "flex",
   flexWrap: "wrap",
-  gap: v.space.xs,
+  gap: tokens["spacing/space-6"],
 });
 
 export const spacer = style({ flex: 1 });
 
 export const error = style({
-  color: v.color.status.critical,
-  fontSize: v.typography.size.caption,
-  lineHeight: v.typography.lineHeight.body,
+  color: tokens["color/danger"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  lineHeight: "1.462",
 });
 
 export const empty = style({
-  color: v.color.content.secondary,
-  fontSize: v.typography.size.body,
+  color: tokens["color/ink-2"],
+  fontSize: tokens["typography/sans/body/fontSize"],
   lineHeight: 1.75,
-  margin: `${v.space.lg} 0`,
+  margin: `${tokens["spacing/space-16"]} 0`,
 });
 
 export const envelope = style({ textAlign: "left", whiteSpace: "normal", maxWidth: "100%" });
@@ -192,21 +191,21 @@ export const envelope = style({ textAlign: "left", whiteSpace: "normal", maxWidt
 export const addLine = style({
   display: "flex",
   alignItems: "center",
-  gap: v.space.md,
+  gap: tokens["spacing/space-12"],
   width: "100%",
   minHeight: 52,
   background: "transparent",
   border: 0,
   borderRadius: tokens["radius/radius-10"],
   padding: "10px 8px",
-  color: v.color.content.secondary,
+  color: tokens["color/ink-2"],
   font: "inherit",
-  fontSize: v.typography.size.body,
+  fontSize: tokens["typography/sans/body/fontSize"],
   textAlign: "left",
   cursor: "text",
   selectors: {
-    "&:hover": { background: v.color.surface.muted },
-    "&:focus-visible": { outline: `1px solid ${v.color.interaction.focus}`, outlineOffset: 2 },
+    "&:hover": { background: tokens["color/card-2"] },
+    "&:focus-visible": { outline: `1px solid ${tokens["color/focus-ring"]}`, outlineOffset: 2 },
   },
 });
 
@@ -215,10 +214,10 @@ export const footer = style({
   alignItems: "center",
   justifyContent: "space-between",
   flexWrap: "wrap",
-  gap: v.space.md,
-  marginTop: v.space.lg,
-  color: v.color.content.secondary,
-  fontSize: v.typography.size.caption,
+  gap: tokens["spacing/space-12"],
+  marginTop: tokens["spacing/space-16"],
+  color: tokens["color/ink-2"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
 });
 
 export const taskTitle = style({
@@ -228,12 +227,12 @@ export const taskTitle = style({
   background: "transparent",
   color: "inherit",
   font: "inherit",
-  padding: `${v.space.xs} 0`,
+  padding: `${tokens["spacing/space-6"]} 0`,
   textAlign: "left",
   cursor: "pointer",
   overflowWrap: "anywhere",
   selectors: {
-    "&:focus-visible": { outline: `2px solid ${v.color.interaction.focus}`, outlineOffset: 2 },
+    "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: 2 },
   },
 });
 export const memoPreview = style([

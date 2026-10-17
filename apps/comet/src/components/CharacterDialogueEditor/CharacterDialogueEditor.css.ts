@@ -1,9 +1,9 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 export const editor = style({
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
   minWidth: 0,
   minHeight: 0,
   height: "100%",
@@ -11,7 +11,7 @@ export const editor = style({
 export const sceneLayout = style({
   display: "grid",
   gridTemplateColumns: "320px minmax(0,1fr)",
-  gap: vars.space.lg,
+  gap: tokens["spacing/space-16"],
   minWidth: 0,
   flex: 1,
   minHeight: 0,
@@ -21,7 +21,7 @@ export const sceneLayout = style({
 export const sceneList = style({ minHeight: 0 });
 export const sceneRow = style({
   display: "grid",
-  gap: vars.space.xs,
+  gap: tokens["spacing/space-6"],
   minHeight: 56,
   textAlign: "left",
   overflowWrap: "anywhere",
@@ -30,27 +30,27 @@ export const sceneHeading = style({
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: vars.space.lg,
+  gap: tokens["spacing/space-16"],
 });
 export const preview = style({
   display: "grid",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
   minHeight: 160,
-  marginBlock: vars.space.lg,
+  marginBlock: tokens["spacing/space-16"],
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
 });
 export const line = style({
   display: "grid",
-  gap: vars.space.sm,
-  paddingBlock: vars.space.md,
-  borderTop: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
+  gap: tokens["spacing/space-8"],
+  paddingBlock: tokens["spacing/space-12"],
+  borderTop: `1px solid ${tokens["color/line"]}`,
 });
 export const structureActions = style({
   display: "flex",
   flexWrap: "wrap",
-  gap: vars.space.sm,
-  marginTop: vars.space.md,
+  gap: tokens["spacing/space-8"],
+  marginTop: tokens["spacing/space-12"],
 });
 
 export const ownerPanel = style({

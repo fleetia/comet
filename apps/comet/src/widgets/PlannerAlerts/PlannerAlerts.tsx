@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { record, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
-import * as c from "../../lagrange.css";
+import * as c from "../../common.css";
 import * as s from "../tools.css";
 import * as a from "./plannerAlerts.css";
 

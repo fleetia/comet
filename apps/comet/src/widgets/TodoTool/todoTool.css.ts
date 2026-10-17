@@ -1,13 +1,12 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
 import { tokens } from "@comet/token";
 
-import * as common from "../../lagrange.css";
+import * as common from "../../common.css";
 
-export const root = style({ display: "grid", gap: vars.space.sm, minWidth: 0 });
+export const root = style({ display: "grid", gap: tokens["spacing/space-8"], minWidth: 0 });
 export const toolbar = style({
   display: "flex",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
   alignItems: "center",
   flexWrap: "wrap",
 });
@@ -15,8 +14,8 @@ export const listSelect = style({ flex: "1 1 90px", width: "auto" });
 export const titleField = style({ flex: "1 1 180px", minWidth: 0 });
 export const item = style({
   display: "grid",
-  gap: vars.space.xxs,
-  padding: vars.space.sm,
+  gap: tokens["spacing/space-4"],
+  padding: tokens["spacing/space-8"],
   borderRadius: tokens["radius/radius-12"],
   background: tokens["color/card"],
   border: `1px solid ${tokens["color/card-border"]}`,
@@ -26,14 +25,14 @@ export const itemMain = style({
   flexWrap: "wrap",
   alignItems: "start",
   justifyContent: "space-between",
-  gap: vars.space.sm,
-  minHeight: vars.dimension.row,
+  gap: tokens["spacing/space-8"],
+  minHeight: tokens["spacing/space-32"],
 });
 export const itemHeading = style({
   display: "flex",
   flex: "1 1 160px",
   alignItems: "start",
-  gap: vars.space.xxs,
+  gap: tokens["spacing/space-4"],
   minWidth: 0,
 });
 export const itemTitle = style({
@@ -51,13 +50,13 @@ export const itemActions = style({
   display: "flex",
   alignItems: "center",
   flexWrap: "wrap",
-  gap: vars.space.xs,
+  gap: tokens["spacing/space-6"],
 });
 export const memo = style({
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
-  fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  color: tokens["color/ink-2"],
 });
 export const memoPreview = style([
   memo,
@@ -70,37 +69,37 @@ export const memoPreview = style([
   },
 ]);
 export const metadata = style({
-  fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  color: tokens["color/ink-2"],
   overflowWrap: "anywhere",
   paddingLeft: "22px",
 });
 export const detail = style({
   display: "grid",
-  gap: vars.space.xs,
+  gap: tokens["spacing/space-6"],
   paddingLeft: "22px",
   selectors: { "&[hidden]": { display: "none" } },
 });
 export const detailDates = style({
   display: "grid",
   gridTemplateColumns: "auto minmax(0,1fr)",
-  columnGap: vars.space.sm,
-  rowGap: vars.space.xxs,
-  fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
+  columnGap: tokens["spacing/space-8"],
+  rowGap: tokens["spacing/space-4"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  color: tokens["color/ink-2"],
   overflowWrap: "anywhere",
 });
 export const completionNotice = style({
   display: "flex",
   alignItems: "center",
   flexWrap: "wrap",
-  gap: vars.space.xs,
-  fontSize: vars.typography.size.caption,
-  padding: `${vars.space.xs} 0`,
+  gap: tokens["spacing/space-6"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  padding: `${tokens["spacing/space-6"]} 0`,
 });
 export const count = style({
-  fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  color: tokens["color/ink-2"],
 });
 
-globalStyle(`${root} .${common.field}`, { gap: vars.space.xxs, marginBottom: 0 });
+globalStyle(`${root} .${common.field}`, { gap: tokens["spacing/space-4"], marginBottom: 0 });

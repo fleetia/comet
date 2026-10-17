@@ -1,15 +1,14 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
 import { tokens } from "@comet/token";
 import settingsNight from "../../assets/figma/settings-night.svg";
-import * as common from "../../lagrange.css";
+import * as common from "../../common.css";
 import * as windowHeader from "../WindowHeader/windowHeader.css";
 export const window = style({
   height: "100dvh",
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
-  color: vars.color.content.primary,
+  color: tokens["color/ink"],
   background: tokens["color/glass-window"],
   backgroundImage: `url("${settingsNight}")`,
   backgroundSize: "cover",
@@ -18,7 +17,7 @@ export const window = style({
   border: `1px solid ${tokens["color/glass-border"]}`,
   borderRadius: tokens["radius/radius-22"],
   boxSizing: "border-box",
-  fontSize: vars.typography.size.body,
+  fontSize: tokens["typography/sans/body/fontSize"],
 });
 globalStyle(`${window} dialog::backdrop`, {
   borderRadius: tokens["radius/radius-22"],
@@ -38,21 +37,21 @@ export const header = style({
   borderBottom: `1px solid ${tokens["color/divider"]}`,
 });
 globalStyle(`${header} > div`, { alignItems: "center" });
-globalStyle(`${header} .${windowHeader.brand}`, { gap: vars.space.md });
+globalStyle(`${header} .${windowHeader.brand}`, { gap: tokens["spacing/space-12"] });
 globalStyle(`${header} .${windowHeader.icon}`, { width: 24, height: 24 });
 globalStyle(`${header} .${windowHeader.brandName}`, {
   fontSize: 15,
   fontWeight: 400,
-  lineHeight: vars.typography.lineHeight.compact,
+  lineHeight: "1.385",
 });
 globalStyle(`${header} .${windowHeader.windowName}`, {
-  fontSize: vars.typography.size.label,
-  lineHeight: vars.typography.lineHeight.body,
+  fontSize: tokens["typography/sans/body/fontSize"],
+  lineHeight: "1.462",
 });
 globalStyle(`${header} .${windowHeader.close}`, {
   width: 30,
   minHeight: 30,
-  fontSize: vars.typography.size.label,
+  fontSize: tokens["typography/sans/body/fontSize"],
 });
 export const layout = style({
   display: "grid",
@@ -70,12 +69,12 @@ export const sidebar = style({
   background: tokens["color/rail"],
   borderRight: `1px solid ${tokens["color/divider"]}`,
 });
-export const navigation = style({ alignItems: "stretch", gap: vars.space.xs, borderInlineEnd: 0 });
-globalStyle(`${sidebar} .${navigation}`, { gap: vars.space.xs });
+export const navigation = style({ alignItems: "stretch", gap: tokens["spacing/space-6"], borderInlineEnd: 0 });
+globalStyle(`${sidebar} .${navigation}`, { gap: tokens["spacing/space-6"] });
 export const groupLabel = style({
-  fontSize: vars.typography.size.caption,
-  lineHeight: vars.typography.lineHeight.body,
-  color: vars.color.content.secondary,
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  lineHeight: "1.462",
+  color: tokens["color/ink-2"],
   fontWeight: 500,
   margin: "24px 0 8px",
   padding: "0 12px",
@@ -122,7 +121,7 @@ export const workspace = style({
 export const pageHeading = style({
   display: "flex",
   alignItems: "center",
-  gap: vars.space.lg,
+  gap: tokens["spacing/space-16"],
   flexShrink: 0,
   minHeight: 64,
   marginBottom: 20,
@@ -172,15 +171,15 @@ export const saveBar = style({
 export const columns = style({
   display: "grid",
   gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: vars.space.xl,
-  marginTop: vars.space.lg,
+  gap: tokens["spacing/space-26"],
+  marginTop: tokens["spacing/space-16"],
   "@media": { "(max-width: 800px)": { gridTemplateColumns: "1fr" } },
 });
 export const simplePage = style({ maxWidth: 792 });
 export const dialogueLayout = style({
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.xl,
+  gap: tokens["spacing/space-26"],
   height: "100%",
   maxWidth: 1184,
   overflowY: "auto",
@@ -193,19 +192,19 @@ export const wordbookSection = style({
 });
 export const talkSection = style({
   display: "grid",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
   flexShrink: 0,
-  paddingBottom: vars.space.md,
+  paddingBottom: tokens["spacing/space-12"],
 });
 export const userIdentity = style({
   display: "flex",
   alignItems: "center",
-  gap: vars.space.lg,
+  gap: tokens["spacing/space-16"],
   maxWidth: 320,
   minHeight: 28,
-  marginBottom: `calc(${vars.space.lg} + ${vars.space.xs})`,
+  marginBottom: `calc(${tokens["spacing/space-16"]} + ${tokens["spacing/space-6"]})`,
 });
-export const talkContext = style({ marginBottom: vars.space.lg, maxWidth: 768 });
+export const talkContext = style({ marginBottom: tokens["spacing/space-16"], maxWidth: 768 });
 globalStyle(`${userIdentity} strong`, {
   minWidth: 0,
   overflow: "hidden",
@@ -216,7 +215,7 @@ globalStyle(`${talkContext} p`, { overflowWrap: "anywhere" });
 export const generalLayout = style({
   display: "grid",
   gridTemplateColumns: "minmax(0, 792px) 368px",
-  gap: vars.space.xl,
+  gap: tokens["spacing/space-26"],
   maxWidth: 1184,
   height: "100%",
   minHeight: 0,
@@ -238,7 +237,7 @@ export const generalMain = style({
   height: "min(716px, 100%)",
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
   overflow: "hidden",
 });
 export const panelBody = style({
@@ -247,9 +246,9 @@ export const panelBody = style({
   flex: 1,
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
 });
-export const sectionBody = style({ display: "grid", gap: vars.space.md });
+export const sectionBody = style({ display: "grid", gap: tokens["spacing/space-12"] });
 export const settingsRow = style({
   width: "100%",
   maxWidth: 720,
@@ -260,21 +259,21 @@ export const settingsRow = style({
 export const statusRow = style({
   display: "flex",
   alignItems: "center",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
   maxWidth: 720,
-  minHeight: vars.dimension.row,
+  minHeight: tokens["spacing/space-32"],
 });
 globalStyle(`${statusRow} > :first-child`, { width: 188, flexShrink: 0 });
 export const rowLabel = style({
-  fontSize: vars.typography.size.label,
+  fontSize: tokens["typography/sans/body/fontSize"],
   fontWeight: 600,
-  lineHeight: vars.typography.lineHeight.compact,
+  lineHeight: "1.385",
 });
 export const rowControl = style({ flexShrink: 0, width: 144, minWidth: 144 });
 export const settingsSection = style({
   display: "grid",
-  gap: vars.space.md,
-  borderTop: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
+  gap: tokens["spacing/space-12"],
+  borderTop: `1px solid ${tokens["color/line"]}`,
   paddingTop: 20,
   marginTop: 4,
 });
@@ -287,13 +286,13 @@ export const inlineHighlight = style({
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: vars.space.lg,
+  gap: tokens["spacing/space-16"],
 });
 globalStyle(`${inlineHighlight} h2`, { color: "inherit" });
 export const automaticField = style({
   display: "flex",
   width: 172,
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
   alignItems: "center",
   flexWrap: "wrap",
 });
@@ -319,37 +318,37 @@ globalStyle(`${automaticPanel} > .${saveBar}`, { marginInline: 24 });
 export const pausedRow = style([settingsRow, { minHeight: 48 }]);
 export const sectionTitle = style({
   margin: 0,
-  fontSize: vars.typography.size.label,
-  lineHeight: vars.typography.lineHeight.compact,
+  fontSize: tokens["typography/sans/body/fontSize"],
+  lineHeight: "1.385",
   fontWeight: 600,
 });
 export const headingRow = style({
-  minHeight: vars.dimension.row,
+  minHeight: tokens["spacing/space-32"],
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
 });
 export const footerStatus = style({
   display: "grid",
-  gap: vars.space.xxs,
+  gap: tokens["spacing/space-4"],
   minHeight: 44,
   alignContent: "center",
 });
-export const footerBar = style({ paddingTop: 0, minHeight: 44, gap: vars.space.md });
+export const footerBar = style({ paddingTop: 0, minHeight: 44, gap: tokens["spacing/space-12"] });
 export const cancelButton = style({ width: 88 });
 export const saveButton = style({ minWidth: 108 });
 export const listEditor = style({
   display: "grid",
   gridTemplateColumns: "200px minmax(0, 1fr)",
-  gap: vars.space.lg,
-  marginTop: vars.space.md,
+  gap: tokens["spacing/space-16"],
+  marginTop: tokens["spacing/space-12"],
 });
 export const list = style({
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.xs,
-  borderRight: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
-  paddingRight: vars.space.md,
+  gap: tokens["spacing/space-6"],
+  borderRight: `1px solid ${tokens["color/line"]}`,
+  paddingRight: tokens["spacing/space-12"],
 });
 export const listRow = style({
   textAlign: "left",
@@ -358,45 +357,45 @@ export const listRow = style({
   overflowWrap: "anywhere",
   selectors: {
     '&[aria-pressed="true"]': {
-      background: vars.color.selection.surface,
-      color: vars.color.content.onAccent,
-      borderLeft: `2px solid ${vars.color.selection.indicator}`,
+      background: tokens["color/primary"],
+      color: tokens["color/on-primary"],
+      borderLeft: `2px solid ${tokens["color/selected-border"]}`,
     },
     '&[aria-pressed="true"]:hover:not(:disabled)': {
-      background: vars.color.selection.surface,
-      color: vars.color.content.onAccent,
+      background: tokens["color/primary"],
+      color: tokens["color/on-primary"],
     },
   },
 });
-export const packList = style({ listStyle: "none", padding: 0, margin: `${vars.space.md} 0` });
+export const packList = style({ listStyle: "none", padding: 0, margin: `${tokens["spacing/space-12"]} 0` });
 export const packRow = style({
   display: "grid",
   gridTemplateColumns: "1fr auto",
   alignItems: "center",
-  gap: vars.space.lg,
-  padding: `${vars.space.md} 0`,
+  gap: tokens["spacing/space-16"],
+  padding: `${tokens["spacing/space-12"]} 0`,
 });
-globalStyle(`${panel} .${common.row}`, { margin: `${vars.space.sm} 0`, gap: vars.space.sm });
-globalStyle(`${panel} .${common.field}`, { marginBottom: vars.space.md, gap: vars.space.xxs });
+globalStyle(`${panel} .${common.row}`, { margin: `${tokens["spacing/space-8"]} 0`, gap: tokens["spacing/space-8"] });
+globalStyle(`${panel} .${common.field}`, { marginBottom: tokens["spacing/space-12"], gap: tokens["spacing/space-4"] });
 globalStyle(`${panel} .${common.section}`, {
-  marginTop: `calc(${vars.space.lg} + ${vars.space.xs})`,
-  paddingTop: vars.space.md,
+  marginTop: `calc(${tokens["spacing/space-16"]} + ${tokens["spacing/space-6"]})`,
+  paddingTop: tokens["spacing/space-12"],
 });
 globalStyle(`${panel} .${common.sectionTitle}`, {
-  fontSize: vars.typography.size.headingSm,
-  marginBottom: vars.space.lg,
+  fontSize: tokens["typography/display/title-sm/fontSize"],
+  marginBottom: tokens["spacing/space-16"],
 });
 globalStyle(`${panel} .${common.choice}`, {
-  padding: `calc(${vars.space.xs} + ${vars.space.xxs}) ${vars.space.md}`,
+  padding: `calc(${tokens["spacing/space-6"]} + ${tokens["spacing/space-4"]}) ${tokens["spacing/space-12"]}`,
 });
 export const editor = style({ border: 0, padding: 0, margin: 0, minWidth: 0 });
 
 export const pageDirty = style({
-  color: vars.color.content.secondary,
-  fontSize: vars.typography.size.caption,
+  color: tokens["color/ink-2"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
 });
 
-export const footerActions = style({ display: "flex", alignItems: "center", gap: vars.space.md });
+export const footerActions = style({ display: "flex", alignItems: "center", gap: tokens["spacing/space-12"] });
 
 export const settingsHeader = style({
   height: 64,

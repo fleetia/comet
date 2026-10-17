@@ -25,7 +25,7 @@ import { useGeneratedWidgets } from "../GeneratedWidgets/useGeneratedWidgets";
 import { useWidgetRuntime } from "../useWidgetRuntime";
 import type { WidgetView } from "../types";
 import { record, rows, type ToolAction } from "../toolData";
-import * as common from "../../lagrange.css";
+import * as common from "../../common.css";
 import { CONFIGURABLE_WIDGETS, WidgetSettings } from "./WidgetSettings";
 import { GeneratedWidgetSettings } from "./GeneratedWidgetSettings";
 import { WIDGET_ICONS, WidgetCatalog, type WidgetListEntry } from "./WidgetCatalog";

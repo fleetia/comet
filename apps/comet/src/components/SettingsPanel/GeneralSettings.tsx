@@ -4,7 +4,7 @@ import { Button, SettingControlRow, SettingsSummary } from "@comet/ui";
 import type { Snapshot } from "../../types";
 import { Checkbox } from "../../ui";
 import { command, errorText } from "../../hooks/useSnapshot";
-import { error as errorStyle } from "../../lagrange.css";
+import { error as errorStyle } from "../../common.css";
 import { AutostartSettings } from "../AutostartSettings/AutostartSettings";
 import { LauncherSettings } from "../Launcher/LauncherSettings";
 import { UpdatePanel } from "../UpdatePanel/UpdatePanel";

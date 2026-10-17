@@ -1,5 +1,4 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { semanticVars as v, componentVars, vnextVars } from "@fleetia/lagrange/theme";
 import { tokens } from "@comet/token";
 import settingsNight from "../../assets/figma/settings-night.svg";
 
@@ -8,7 +7,7 @@ export const window = style({
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
-  color: v.color.content.primary,
+  color: tokens["color/ink"],
   background: tokens["color/glass-window"],
   backgroundImage: `url("${settingsNight}")`,
   backgroundSize: "cover",
@@ -18,7 +17,7 @@ export const window = style({
   border: `1px solid ${tokens["color/glass-border"]}`,
   borderRadius: tokens["radius/radius-22"],
   boxSizing: "border-box",
-  fontSize: v.typography.size.body,
+  fontSize: tokens["typography/sans/body/fontSize"],
 });
 globalStyle(`${window} dialog::backdrop`, {
   borderRadius: tokens["radius/radius-22"],
@@ -134,7 +133,7 @@ export const body = style({
   },
 });
 export const dropActive = style({
-  outline: `2px solid ${v.color.content.primary}`,
+  outline: `2px solid ${tokens["color/ink"]}`,
   outlineOffset: -2,
 });
 export const dateButton = style({
@@ -145,7 +144,7 @@ export const dateButton = style({
   font: "inherit",
   cursor: "pointer",
   selectors: {
-    "&:focus-visible": { outline: `2px solid ${v.color.interaction.focus}`, outlineOffset: 1 },
+    "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: 1 },
   },
 });
 export const tools = style({ flex: 1, minHeight: 0, overflow: "hidden" });
@@ -181,21 +180,21 @@ export const indexTitle = style({
   margin: "4px 0 20px",
 });
 export const caption = style({
-  color: v.color.content.secondary,
-  fontSize: v.typography.size.caption,
-  lineHeight: v.typography.lineHeight.body,
+  color: tokens["color/ink-2"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  lineHeight: "1.462",
 });
 export const section = style({
   marginTop: 20,
   paddingTop: 12,
-  borderTop: `1px solid ${v.color.border.subtle}`,
+  borderTop: `1px solid ${tokens["color/line"]}`,
   display: "flex",
   flexDirection: "column",
 });
 export const sectionTitle = style({
   fontWeight: 600,
   marginBottom: 8,
-  fontSize: v.typography.size.label,
+  fontSize: tokens["typography/sans/body/fontSize"],
 });
 export const navItem = style({
   width: "100%",
@@ -204,7 +203,7 @@ export const navItem = style({
   minHeight: 56,
   padding: "10px",
   background: "transparent",
-  color: v.color.content.primary,
+  color: tokens["color/ink"],
   font: "inherit",
   lineHeight: "1.4",
   textAlign: "left",
@@ -218,7 +217,7 @@ export const navItem = style({
       borderRadius: tokens["radius/radius-10"],
     },
     "&:hover:not([aria-current=page])": { background: tokens["color/hover"] },
-    "&:focus-visible": { outline: `2px solid ${v.color.interaction.focus}`, outlineOffset: -2 },
+    "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: -2 },
   },
 });
 globalStyle(`${navItem}[aria-current="page"] ${caption}`, { color: "inherit", opacity: 0.8 });
@@ -228,7 +227,7 @@ export const toolMenu = style({
   gap: 2,
   marginTop: 16,
   paddingTop: 12,
-  borderTop: `1px solid ${v.color.border.subtle}`,
+  borderTop: `1px solid ${tokens["color/line"]}`,
 });
 export const toolMenuItem = style([navItem, { minHeight: 36, padding: "8px" }]);
 export const toolContent = style({
@@ -266,20 +265,20 @@ export const miniHead = style({
   gap: 4,
   marginBottom: 10,
 });
-export const miniTitle = style({ fontSize: v.typography.size.headingSm, fontWeight: 500 });
+export const miniTitle = style({ fontSize: tokens["typography/display/title-sm/fontSize"], fontWeight: 500 });
 export const miniActions = style({ display: "flex", gap: 0 });
 export const miniGrid = style({
   display: "grid",
   gridTemplateColumns: "repeat(7,minmax(0,1fr))",
   rowGap: 8,
   textAlign: "center",
-  fontSize: v.typography.size.caption,
+  fontSize: tokens["typography/sans/caption/fontSize"],
 });
 export const miniWeekday = style([caption, { padding: "4px 0" }]);
 export const miniDay = style({
   position: "relative",
   border: 0,
-  borderRadius: vnextVars.radius.control,
+  borderRadius: tokens["radius/radius-9"],
   width: 28,
   height: 28,
   margin: "0 auto",
@@ -289,18 +288,18 @@ export const miniDay = style({
   cursor: "pointer",
   selectors: {
     '&[aria-current="date"]': {
-      background: vnextVars.surface.accent,
-      color: v.color.content.primary,
+      background: tokens["color/component/primary-alpha-80"],
+      color: tokens["color/ink"],
     },
     '&[aria-pressed="true"]:not([aria-current="date"])': {
-      color: componentVars.navigation.selectedText,
-      background: componentVars.navigation.selectedSurface,
+      color: tokens["color/selected-ink"],
+      background: tokens["color/selected"],
     },
-    '&[data-outside="true"]:not([aria-pressed="true"])': { color: v.color.content.secondary },
+    '&[data-outside="true"]:not([aria-pressed="true"])': { color: tokens["color/ink-2"] },
     '&:hover:not([aria-pressed="true"]):not([aria-current="date"])': {
-      background: v.color.surface.muted,
+      background: tokens["color/card-2"],
     },
-    "&:focus-visible": { outline: `2px solid ${v.color.interaction.focus}`, outlineOffset: 1 },
+    "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: 1 },
   },
 });
 export const recordDot = style({
@@ -314,16 +313,16 @@ export const recordDot = style({
   background: "currentColor",
 });
 export const error = style({
-  color: v.color.status.critical,
+  color: tokens["color/danger"],
   padding: "8px 16px",
   flexShrink: 0,
-  fontSize: v.typography.size.label,
+  fontSize: tokens["typography/sans/body/fontSize"],
 });
 export const status = style([caption, { padding: "4px 16px", flexShrink: 0 }]);
 export const agendaEventButton = style({
   height: "auto",
   minHeight: tokens["size/control-36"],
-  paddingBlock: v.space.sm,
+  paddingBlock: tokens["spacing/space-8"],
   justifyContent: "flex-start",
   whiteSpace: "normal",
   textAlign: "left",
@@ -334,10 +333,10 @@ export const weekday = style({
   display: "grid",
   gridTemplateColumns: "repeat(7,minmax(0,1fr))",
   textAlign: "center",
-  color: v.color.content.secondary,
+  color: tokens["color/ink-2"],
   paddingBottom: 12,
   flexShrink: 0,
-  fontSize: v.typography.size.caption,
+  fontSize: tokens["typography/sans/caption/fontSize"],
 });
 export const calendar = style({
   minWidth: 520,
@@ -355,9 +354,9 @@ export const monthWeek = style({
   gridTemplateColumns: "repeat(7,minmax(0,1fr))",
   flex: "1 0 auto",
   minHeight: 100,
-  borderTop: `1px solid ${v.color.border.subtle}`,
-  borderLeft: `1px solid ${v.color.border.subtle}`,
-  selectors: { "&:last-child": { borderBottom: `1px solid ${v.color.border.subtle}` } },
+  borderTop: `1px solid ${tokens["color/line"]}`,
+  borderLeft: `1px solid ${tokens["color/line"]}`,
+  selectors: { "&:last-child": { borderBottom: `1px solid ${tokens["color/line"]}` } },
 });
 export const cell = style({
   minWidth: 0,
@@ -365,7 +364,7 @@ export const cell = style({
   zIndex: 0,
   alignSelf: "stretch",
   border: 0,
-  borderRight: `1px solid ${v.color.border.subtle}`,
+  borderRight: `1px solid ${tokens["color/line"]}`,
   borderRadius: 0,
   padding: 0,
   background: "transparent",
@@ -375,11 +374,11 @@ export const cell = style({
   cursor: "pointer",
   selectors: {
     '&[data-outside="true"]': {
-      background: v.color.surface.muted,
-      color: v.color.content.secondary,
+      background: tokens["color/card-2"],
+      color: tokens["color/ink-2"],
     },
-    "&:hover": { background: v.color.surface.muted },
-    "&:focus-visible": { outline: `2px solid ${v.color.interaction.focus}`, outlineOffset: -2 },
+    "&:hover": { background: tokens["color/card-2"] },
+    "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: -2 },
   },
 });
 export const date = style({
@@ -390,15 +389,15 @@ export const date = style({
   placeItems: "center",
   minWidth: 26,
   height: 25,
-  borderRadius: vnextVars.radius.control,
-  fontSize: v.typography.size.caption,
+  borderRadius: tokens["radius/radius-9"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
   selectors: {
     '&[data-today="true"]': {
-      background: vnextVars.surface.accent,
-      color: v.color.content.primary,
+      background: tokens["color/component/primary-alpha-80"],
+      color: tokens["color/ink"],
     },
     '&[data-selected="true"]:not([data-today="true"])': {
-      boxShadow: `inset 0 0 0 1px ${v.color.border.strong}`,
+      boxShadow: `inset 0 0 0 1px ${tokens["color/input-border"]}`,
     },
   },
 });
@@ -416,7 +415,7 @@ export const calendarRow = style({
   background: "transparent",
   color: "inherit",
   font: "inherit",
-  fontSize: v.typography.size.caption,
+  fontSize: tokens["typography/sans/caption/fontSize"],
   textAlign: "left",
   padding: "3px 3px",
   lineHeight: 1.5,
@@ -429,11 +428,11 @@ export const calendarRow = style({
   borderRadius: 4,
   pointerEvents: "auto",
   selectors: {
-    "&:hover": { background: v.color.surface.muted },
-    "&:focus-visible": { outline: `2px solid ${v.color.interaction.focus}`, outlineOffset: -1 },
+    "&:hover": { background: tokens["color/card-2"] },
+    "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: -1 },
   },
 });
-export const recordCount = style([calendarRow, { color: v.color.content.secondary }]);
+export const recordCount = style([calendarRow, { color: tokens["color/ink-2"] }]);
 export const eventRow = style({
   display: "flex",
   alignItems: "center",
@@ -449,7 +448,7 @@ export const allDay = style({
   display: "flex",
   alignItems: "center",
   minWidth: 0,
-  borderRadius: vnextVars.radius.control,
+  borderRadius: tokens["radius/radius-9"],
   background: tokens["color/component/cat-rest-alpha-80"],
   margin: "1px 6px",
   height: 26,
@@ -457,17 +456,17 @@ export const allDay = style({
 });
 export const allDayTitle = style([
   calendarRow,
-  { flex: 1, padding: "3px 8px", borderRadius: vnextVars.radius.control },
+  { flex: 1, padding: "3px 8px", borderRadius: tokens["radius/radius-9"] },
 ]);
 export const today = style({
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  background: vnextVars.surface.accent,
-  color: v.color.content.primary,
+  background: tokens["color/component/primary-alpha-80"],
+  color: tokens["color/ink"],
   borderRadius: 12,
   padding: "4px 14px",
-  fontSize: v.typography.size.caption,
+  fontSize: tokens["typography/sans/caption/fontSize"],
   fontWeight: 400,
   lineHeight: "16px",
 });
@@ -489,7 +488,7 @@ export const weekTitle = style([
     display: "flex",
     alignItems: "center",
     gap: 10,
-    fontSize: v.typography.size.headingSm,
+    fontSize: tokens["typography/display/title-sm/fontSize"],
     fontWeight: 500,
     borderRadius: 0,
     padding: "0 0 16px",
@@ -522,15 +521,15 @@ export const weekReflection = style({
   minHeight: 140,
   width: "100%",
   border: 0,
-  borderRadius: vnextVars.radius.inset,
+  borderRadius: tokens["radius/radius-12"],
   padding: 12,
-  background: v.color.surface.muted,
-  color: v.color.content.primary,
+  background: tokens["color/card-2"],
+  color: tokens["color/ink"],
   textAlign: "left",
   font: "inherit",
   cursor: "pointer",
   selectors: {
-    "&:focus-visible": { outline: `2px solid ${v.color.interaction.focus}`, outlineOffset: 2 },
+    "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: 2 },
   },
 });
 export const legend = style([

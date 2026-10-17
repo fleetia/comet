@@ -4,7 +4,7 @@ import { FriendArtwork } from "../CharacterManager/FriendsLibrary";
 import * as styles from "./characterPacks.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { CharacterCollection, InstalledCharacterPack } from "../../types";
-import * as ui from "../../lagrange.css";
+import * as ui from "../../common.css";
 import * as s from "../characters.css";
 
 type Props = {

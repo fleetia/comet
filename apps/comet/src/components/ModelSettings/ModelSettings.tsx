@@ -21,7 +21,7 @@ import {
   getApiProfile,
 } from "../../aiProviders";
 import type { SettingsDraft } from "../../hooks/useSettingsDraft";
-import * as common from "../../lagrange.css";
+import * as common from "../../common.css";
 import * as figma from "../SettingsPanel/figmaSettings.css";
 import * as styles from "./aiSettings.css";
 

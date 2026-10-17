@@ -1,5 +1,4 @@
 import { globalStyle, style, styleVariants } from "@vanilla-extract/css";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
 import { tokens } from "@comet/token";
 
 export const bodyFrame = style({ position: "relative", width: "100%", height: "100dvh" });
@@ -26,27 +25,27 @@ export const body = style({
   userSelect: "none",
   cursor: "grab",
   touchAction: "none",
-  color: vars.color.content.primary,
+  color: tokens["color/ink"],
   ":focus-visible": {
-    outline: `${vars.border.width.hairline} solid ${vars.color.interaction.focus}`,
+    outline: `1px solid ${tokens["color/focus-ring"]}`,
     outlineOffset: -4,
   },
   selectors: { "&:active": { cursor: "grabbing" } },
 });
 export const bodyPreview = style({ width: 112, height: 88 });
 export const tone = styleVariants({
-  a: { borderTop: `3px solid ${vars.color.content.accent}` },
-  b: { borderTop: `3px solid ${vars.color.status.positive}` },
+  a: { borderTop: `3px solid ${tokens["color/primary"]}` },
+  b: { borderTop: `3px solid ${tokens["color/nadir-ink"]}` },
 });
 export const bodyName = style({
-  fontSize: vars.typography.size.caption,
+  fontSize: tokens["typography/sans/caption/fontSize"],
   fontWeight: 600,
   maxWidth: "100%",
   overflow: "hidden",
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
   letterSpacing: "0.01em",
-  color: vars.color.content.secondary,
+  color: tokens["color/ink-2"],
 });
 export const face = style({
   fontSize: 17,
@@ -66,7 +65,7 @@ export const sprite = style({
 });
 export const spriteBody = style({
   minHeight: 0,
-  padding: vars.space.xs,
+  padding: tokens["spacing/space-6"],
   gap: 0,
   border: 0,
   borderRadius: 0,
@@ -87,7 +86,7 @@ export const faceTag = style({
   fontWeight: 500,
   letterSpacing: "-0.045em",
   whiteSpace: "nowrap",
-  color: vars.color.content.primary,
+  color: tokens["color/ink"],
   userSelect: "none",
   cursor: "grab",
   touchAction: "none",
@@ -179,7 +178,7 @@ export const balloonHeader = style({
   alignItems: "center",
   justifyContent: "space-between",
   padding: "12px 16px 4px",
-  fontSize: vars.typography.size.caption,
+  fontSize: tokens["typography/sans/caption/fontSize"],
   color: tokens["color/ink-2"],
   fontWeight: 600,
   flexShrink: 0,
@@ -217,7 +216,7 @@ export const replySpeech = style({
   whiteSpace: "pre-wrap",
   textAlign: "left",
   cursor: "pointer",
-  ":focus-visible": { outline: `2px solid ${vars.color.interaction.focus}`, outlineOffset: 2 },
+  ":focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: 2 },
 });
 export const conversationSpeech = style([
   speech,
@@ -229,12 +228,12 @@ export const conversationDetails = style({
   minHeight: 26,
   flexShrink: 1,
   overflowY: "auto",
-  fontSize: vars.typography.size.caption,
+  fontSize: tokens["typography/sans/caption/fontSize"],
 });
 export const conversationSummary = style({
   padding: "6px 0",
   cursor: "pointer",
-  color: vars.color.content.secondary,
+  color: tokens["color/ink-2"],
 });
 export const conversationLog = style({
   overflowY: "auto",
@@ -244,7 +243,7 @@ export const conversationLog = style({
   padding: "0 14px 8px",
 });
 globalStyle(`${conversationDetails} ${conversationLog}`, {
-  padding: `0 0 ${vars.space.sm}`,
+  padding: `0 0 ${tokens["spacing/space-8"]}`,
   overflow: "visible",
   maxHeight: "none",
 });
@@ -252,41 +251,41 @@ export const historyToolbar = style({
   display: "flex",
   justifyContent: "space-between",
   padding: "6px 12px",
-  gap: vars.space.xs,
+  gap: tokens["spacing/space-6"],
   flexShrink: 0,
 });
 export const conversationTitle = style({
   margin: "4px 14px",
-  fontSize: vars.typography.size.label,
+  fontSize: tokens["typography/sans/body/fontSize"],
   overflowWrap: "anywhere",
 });
 export const conversationMeta = style({
   margin: "3px 0",
-  fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  color: tokens["color/ink-2"],
 });
 export const conversationDraft = style({
-  fontSize: vars.typography.size.caption,
-  lineHeight: vars.typography.lineHeight.body,
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  lineHeight: "1.462",
   display: "-webkit-box",
   WebkitLineClamp: 2,
   WebkitBoxOrient: "vertical",
   overflow: "hidden",
 });
 export const conversationDraftBadge = style({
-  padding: `0 ${vars.space.xxs}`,
-  borderRadius: vars.shape.radius.subtle,
-  background: vars.color.surface.canvas,
-  color: vars.color.content.accent,
+  padding: `0 ${tokens["spacing/space-4"]}`,
+  borderRadius: tokens["radius/radius-9"],
+  background: tokens["color/sky"],
+  color: tokens["color/primary"],
   fontWeight: 600,
 });
 export const responseOrigin = style({
   display: "block",
-  fontSize: vars.typography.size.caption,
+  fontSize: tokens["typography/sans/caption/fontSize"],
   fontWeight: 400,
-  lineHeight: vars.typography.lineHeight.body,
-  color: vars.color.content.secondary,
-  marginBottom: vars.space.xxs,
+  lineHeight: "1.462",
+  color: tokens["color/ink-2"],
+  marginBottom: tokens["spacing/space-4"],
 });
 export const playbackOrigin = style([responseOrigin, { margin: "0 14px 8px" }]);
 export const failedInput = style({
@@ -295,39 +294,39 @@ export const failedInput = style({
   overflowY: "auto",
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
-  fontSize: vars.typography.size.caption,
+  fontSize: tokens["typography/sans/caption/fontSize"],
 });
 export const conversationItem = style({
   width: "100%",
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.xs,
-  padding: vars.space.md,
-  marginBottom: vars.space.sm,
+  gap: tokens["spacing/space-6"],
+  padding: tokens["spacing/space-12"],
+  marginBottom: tokens["spacing/space-8"],
   borderRadius: tokens["radius/radius-12"],
   background: tokens["color/card"],
   border: `1px solid ${tokens["color/card-border"]}`,
   textAlign: "left",
-  color: vars.color.content.primary,
-  fontSize: vars.typography.size.label,
+  color: tokens["color/ink"],
+  fontSize: tokens["typography/sans/body/fontSize"],
   overflowWrap: "anywhere",
   cursor: "pointer",
-  ":focus-visible": { outline: `2px solid ${vars.color.interaction.focus}`, outlineOffset: -2 },
+  ":focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: -2 },
 });
 export const speechReveal = style({ position: "absolute", inset: 0 });
 export const footer = style({
   padding: "6px 14px 10px",
-  fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  color: tokens["color/ink-2"],
   display: "flex",
   justifyContent: "space-between",
   flexShrink: 0,
 });
 export const menu = style({
-  padding: `${vars.space.sm} ${vars.space.sm} ${vars.space.md}`,
+  padding: `${tokens["spacing/space-8"]} ${tokens["spacing/space-8"]} ${tokens["spacing/space-12"]}`,
   display: "flex",
   flexDirection: "column",
-  gap: vars.space.xs,
+  gap: tokens["spacing/space-6"],
   flex: 1,
   overflowY: "auto",
 });
@@ -337,12 +336,12 @@ export const menuItem = style({
   justifyContent: "flex-start",
   textAlign: "left",
   flexShrink: 0,
-  minHeight: vars.dimension.control,
+  minHeight: tokens["size/control-36"],
 });
 export const pauseSummary = style({
   cursor: "pointer",
-  padding: `${vars.space.sm} ${vars.space.md}`,
-  minHeight: vars.dimension.control,
+  padding: `${tokens["spacing/space-8"]} ${tokens["spacing/space-12"]}`,
+  minHeight: tokens["size/control-36"],
 });
 export const form = style({
   maxHeight: 290,
@@ -408,31 +407,31 @@ export const history = style({
   minHeight: 0,
 });
 export const historyMessage = style({
-  margin: `${vars.space.md} 0`,
-  fontSize: vars.typography.size.label,
+  margin: `${tokens["spacing/space-12"]} 0`,
+  fontSize: tokens["typography/sans/body/fontSize"],
   lineHeight: 1.65,
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
-  padding: vars.space.md,
+  padding: tokens["spacing/space-12"],
   borderRadius: tokens["radius/radius-12"],
   background: tokens["color/card"],
   border: `1px solid ${tokens["color/card-border"]}`,
 });
 export const historyName = style({
   display: "block",
-  fontSize: vars.typography.size.caption,
+  fontSize: tokens["typography/sans/caption/fontSize"],
   fontWeight: 600,
-  color: vars.color.content.secondary,
-  marginBottom: vars.space.xxs,
+  color: tokens["color/ink-2"],
+  marginBottom: tokens["spacing/space-4"],
 });
-export const notice = style({ padding: `0 ${vars.space.md} ${vars.space.sm}`, flexShrink: 0 });
+export const notice = style({ padding: `0 ${tokens["spacing/space-12"]} ${tokens["spacing/space-8"]}`, flexShrink: 0 });
 export const error = style({
   padding: "8px 10px",
-  background: vars.color.status.criticalSurface,
-  color: vars.color.status.critical,
-  fontSize: vars.typography.size.caption,
-  lineHeight: vars.typography.lineHeight.body,
-  borderRadius: vars.shape.radius.subtle,
+  background: tokens["color/component/danger-alpha-100"],
+  color: tokens["color/danger"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  lineHeight: "1.462",
+  borderRadius: tokens["radius/radius-9"],
   maxHeight: 65,
   overflowY: "auto",
   overflowWrap: "anywhere",
@@ -445,7 +444,7 @@ export const preview = style({
   color: tokens["color/ink"],
 });
 export const previewTitle = style({
-  fontSize: vars.typography.size.headingSm,
+  fontSize: tokens["typography/display/title-sm/fontSize"],
   fontWeight: 600,
   marginBottom: 7,
   letterSpacing: "0.02em",
@@ -457,7 +456,7 @@ export const stage = style({
   flexDirection: "column",
   alignItems: "center",
   justifyContent: "flex-end",
-  padding: `${vars.space.xl} 0 ${vars.space.xxl}`,
+  padding: `${tokens["spacing/space-26"]} 0 ${tokens["spacing/space-40"]}`,
   marginBottom: 20,
   border: `1px solid ${tokens["color/glass-border"]}`,
   borderRadius: tokens["radius/radius-22"],
@@ -475,15 +474,15 @@ export const demoControls = style({
   display: "flex",
   flexWrap: "wrap",
   alignItems: "center",
-  gap: vars.space.sm,
-  marginBottom: vars.space.md,
+  gap: tokens["spacing/space-8"],
+  marginBottom: tokens["spacing/space-12"],
 });
 export const resting = style({
   height: 260,
   display: "flex",
   alignItems: "center",
-  color: vars.color.content.secondary,
-  fontSize: vars.typography.size.label,
+  color: tokens["color/ink-2"],
+  fontSize: tokens["typography/sans/body/fontSize"],
 });
 
 export const orbitPauseStatus = style({

@@ -1,5 +1,4 @@
 import { globalStyle, style } from "@vanilla-extract/css";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
 import { tokens } from "@comet/token";
 
 export const root = style({
@@ -9,7 +8,7 @@ export const root = style({
   minHeight: 0,
   minWidth: 0,
   overflowWrap: "anywhere",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
   "@media": { "(max-height: 440px)": { flex: "none" } },
 });
 export const fixed = style({
@@ -23,7 +22,7 @@ const cover = style({
   height: 64,
   flexShrink: 0,
   objectFit: "cover",
-  background: vars.color.surface.muted,
+  background: tokens["color/card-2"],
   borderRadius: tokens["radius/radius-14"],
 });
 export const artwork = style([cover]);
@@ -32,9 +31,9 @@ export const artworkPlaceholder = style([
   {
     display: "grid",
     placeItems: "center",
-    color: vars.color.content.secondary,
+    color: tokens["color/ink-2"],
     fontSize: 38,
-    border: `${vars.border.width.hairline} solid ${vars.color.border.subtle}`,
+    border: `1px solid ${tokens["color/line"]}`,
   },
 ]);
 export const notice = style({
@@ -55,7 +54,7 @@ export const tabHeading = style({
   alignItems: "center",
   justifyContent: "space-between",
   flexShrink: 0,
-  gap: vars.space.xs,
+  gap: tokens["spacing/space-6"],
 });
 export const tabList = style({ flex: 1, minWidth: 0, flexWrap: "wrap" });
 export const scrollBody = style({
@@ -63,7 +62,7 @@ export const scrollBody = style({
   overflowY: "auto",
   overscrollBehavior: "contain",
   flex: 1,
-  padding: `${vars.space.lg} 0`,
+  padding: `${tokens["spacing/space-16"]} 0`,
   "@media": { "(max-height: 440px)": { flex: "none", overflowY: "visible" } },
 });
 export const moreMenu = style({
@@ -79,52 +78,52 @@ export const morePanel = style({
   right: 0,
   width: "min(260px, calc(100vw - 48px))",
 });
-export const lyrics = style({ display: "grid", gap: vars.space.lg });
+export const lyrics = style({ display: "grid", gap: tokens["spacing/space-16"] });
 export const lyricsText = style({
   whiteSpace: "pre-wrap",
-  fontFamily: vars.typography.family.display,
+  fontFamily: `${tokens["typography/display/title/fontFamily"]}, sans-serif`,
   fontSize: 18,
   lineHeight: 2.15,
-  padding: `${vars.space.md} ${vars.space.sm} ${vars.space.xl}`,
+  padding: `${tokens["spacing/space-12"]} ${tokens["spacing/space-8"]} ${tokens["spacing/space-26"]}`,
 });
 export const empty = style({
   display: "grid",
-  gap: vars.space.sm,
-  padding: `${vars.space.xl} 0`,
-  color: vars.color.content.secondary,
-  lineHeight: vars.typography.lineHeight.body,
+  gap: tokens["spacing/space-8"],
+  padding: `${tokens["spacing/space-26"]} 0`,
+  color: tokens["color/ink-2"],
+  lineHeight: "1.462",
 });
-export const info = style({ display: "grid", gap: vars.space.md });
+export const info = style({ display: "grid", gap: tokens["spacing/space-12"] });
 export const metadata = style({ margin: 0 });
 export const metadataRow = style({
   display: "grid",
   gridTemplateColumns: "minmax(95px, 26%) minmax(0, 1fr)",
-  gap: vars.space.lg,
-  padding: `${vars.space.sm} 0`,
-  fontSize: vars.typography.size.label,
-  lineHeight: vars.typography.lineHeight.body,
+  gap: tokens["spacing/space-16"],
+  padding: `${tokens["spacing/space-8"]} 0`,
+  fontSize: tokens["typography/sans/body/fontSize"],
+  lineHeight: "1.462",
 });
-globalStyle(`${metadataRow} dt`, { color: vars.color.content.secondary });
+globalStyle(`${metadataRow} dt`, { color: tokens["color/ink-2"] });
 globalStyle(`${metadataRow} dd`, { margin: 0, overflowWrap: "anywhere", whiteSpace: "pre-wrap" });
-export const library = style({ display: "grid", gap: vars.space.md });
+export const library = style({ display: "grid", gap: tokens["spacing/space-12"] });
 export const libraryHeading = style({
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
   flexWrap: "wrap",
 });
 export const trackList = style({ padding: 0, margin: 0, listStyle: "none" });
 export const trackRow = style({
   display: "flex",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
   alignItems: "center",
-  padding: `${vars.space.md} 0`,
+  padding: `${tokens["spacing/space-12"]} 0`,
 });
 export const trackSummary = style({
   display: "grid",
-  gap: vars.space.xs,
+  gap: tokens["spacing/space-6"],
   minWidth: 0,
   flex: 1,
-  fontSize: vars.typography.size.label,
+  fontSize: tokens["typography/sans/body/fontSize"],
 });

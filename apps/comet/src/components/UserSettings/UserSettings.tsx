@@ -6,7 +6,7 @@ import { spriteSource } from "../characterIdentity";
 import * as figma from "../SettingsPanel/figmaSettings.css";
 import type { MemoryPage, Snapshot } from "../../types";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
-import * as s from "../../lagrange.css";
+import * as s from "../../common.css";
 import * as styles from "./userSettings.css";
 
 export function UserSettings({

@@ -10,7 +10,7 @@ import type {
 } from "../../types";
 import { CharacterPackPreview } from "../CharacterPackPreview/CharacterPackPreview";
 import { CharacterImportPreview } from "./CharacterImportPreview";
-import * as ui from "../../lagrange.css";
+import * as ui from "../../common.css";
 import * as s from "../characters.css";
 
 export type SharingAction = "import" | "export" | "attribution";

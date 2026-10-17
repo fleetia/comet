@@ -6,7 +6,7 @@ import { SettingsPanel } from "../SettingsPanel/SettingsPanel";
 import type { ConversationView, Message, Persona, SceneLine, Snapshot } from "../../types";
 import { activeCharacter } from "../characterIdentity";
 import * as s from "../companion.css";
-import * as ui from "../../lagrange.css";
+import * as ui from "../../common.css";
 
 const DEMO: SceneLine[] = [
   {

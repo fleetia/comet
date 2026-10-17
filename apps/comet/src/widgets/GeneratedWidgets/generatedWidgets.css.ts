@@ -1,31 +1,31 @@
 import { style, globalStyle } from "@vanilla-extract/css";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 
 export const body = style({
   display: "grid",
-  gap: vars.space.md,
+  gap: tokens["spacing/space-12"],
   minWidth: 0,
-  padding: vars.space.lg,
+  padding: tokens["spacing/space-16"],
 });
-export const list = style({ display: "grid", gap: vars.space.md, marginTop: vars.space.lg });
+export const list = style({ display: "grid", gap: tokens["spacing/space-12"], marginTop: tokens["spacing/space-16"] });
 export const item = style({
-  borderTop: `1px solid ${vars.color.border.subtle}`,
-  paddingTop: vars.space.md,
+  borderTop: `1px solid ${tokens["color/line"]}`,
+  paddingTop: tokens["spacing/space-12"],
   display: "grid",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
 });
 export const actions = style({
   display: "flex",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
   flexWrap: "wrap",
   alignItems: "center",
 });
 export const row = style({
   display: "grid",
   gridTemplateColumns: "1fr 110px 1fr",
-  gap: vars.space.sm,
+  gap: tokens["spacing/space-8"],
 });
-export const field = style({ display: "grid", gap: vars.space.xs, minWidth: 0 });
+export const field = style({ display: "grid", gap: tokens["spacing/space-6"], minWidth: 0 });
 export const number = style({ fontSize: "2.5rem", fontVariantNumeric: "tabular-nums" });
 export const source = style({
   width: "100%",
@@ -35,8 +35,8 @@ export const source = style({
   boxSizing: "border-box",
 });
 export const status = style({
-  fontSize: vars.typography.size.caption,
-  color: vars.color.content.secondary,
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  color: tokens["color/ink-2"],
 });
 globalStyle(`${body} textarea`, {
   font: "inherit",

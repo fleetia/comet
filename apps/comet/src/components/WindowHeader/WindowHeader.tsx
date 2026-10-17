@@ -5,7 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { errorText, isDesktop } from "../../hooks/useSnapshot";
 import cometIcon from "../../../src-tauri/icons/source.svg";
 import * as s from "./windowHeader.css";
-import * as ui from "../../lagrange.css";
+import * as ui from "../../common.css";
 
 type Props = {
   children?: ReactNode;

@@ -4,7 +4,7 @@ import { Keycap } from "@comet/ui";
 import * as styles from "./launcherSettings.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { DEFAULT_SHORTCUT, shortcutLabel, type LauncherState } from "./search";
-import * as s from "../../lagrange.css";
+import * as s from "../../common.css";
 
 function capturedShortcut(event: KeyboardEvent<HTMLButtonElement>): string | null {
   if (![event.ctrlKey, event.metaKey, event.altKey].some(Boolean)) return null;

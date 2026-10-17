@@ -1,17 +1,17 @@
 import { style } from "@vanilla-extract/css";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
+import { tokens } from "@comet/token";
 
 export const story = style({
-  padding: `${vars.space.sm} ${vars.space.xxl} ${vars.space.sm} ${vars.space.md}`,
+  padding: `${tokens["spacing/space-8"]} ${tokens["spacing/space-40"]} ${tokens["spacing/space-8"]} ${tokens["spacing/space-12"]}`,
   maxHeight: 410,
   overflowY: "auto",
 });
 export const prompt = style({
   whiteSpace: "pre-wrap",
-  lineHeight: vars.typography.lineHeight.body,
-  margin: `${vars.space.sm} 0 ${vars.space.lg}`,
+  lineHeight: "1.462",
+  margin: `${tokens["spacing/space-8"]} 0 ${tokens["spacing/space-16"]}`,
 });
-export const choices = style({ display: "flex", flexDirection: "column", gap: vars.space.md, alignItems: "flex-start", paddingInline: vars.space.sm });
+export const choices = style({ display: "flex", flexDirection: "column", gap: tokens["spacing/space-12"], alignItems: "flex-start", paddingInline: tokens["spacing/space-8"] });
 export const choice = style({
   whiteSpace: "normal",
   height: "auto",

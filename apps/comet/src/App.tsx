@@ -18,7 +18,7 @@ import { WidgetEditor } from "./widgets/WidgetDisplay/WidgetEditor";
 import { MemoNote } from "./widgets/MemoNote/MemoNote";
 import { WindowHeader } from "./components/WindowHeader/WindowHeader";
 import { command, isDesktop, useSnapshot } from "./hooks/useSnapshot";
-import * as s from "./lagrange.css";
+import * as s from "./common.css";
 
 export function App(): JSX.Element {
   const { snapshot, error, reload } = useSnapshot();

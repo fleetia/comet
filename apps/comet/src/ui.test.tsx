@@ -10,11 +10,11 @@ import {
   Dialog,
   FormField,
   IconButton,
-  NumberField,
   Select,
   TextArea,
   TextField,
 } from "./ui";
+import { ColorField } from "./widgets/WidgetAppearance/ColorField";
 
 afterEach(() => {
   cleanup();
@@ -184,7 +184,7 @@ it("retains native checkbox changes, explicit accessible names and description l
   expect(screen.getByRole("checkbox", { name: "잠긴 설정" })).toHaveProperty("checked", false);
 });
 
-it("keeps arbitrary icon button children and the legacy advanced control field context", async () => {
+it("keeps arbitrary icon button children and the field context for custom controls", async () => {
   const user = userEvent.setup();
   const iconRef = createRef<HTMLButtonElement>();
   const onClose = vi.fn();
@@ -193,8 +193,8 @@ it("keeps arbitrary icon button children and the legacy advanced control field c
       <IconButton label="닫기" ref={iconRef} onClick={onClose}>
         <span aria-hidden>×</span>
       </IconButton>
-      <FormField label="반복 횟수" required error="횟수가 필요해요">
-        <NumberField defaultValue="2" />
+      <FormField label="배경 색상" required error="색상이 필요해요">
+        <ColorField value="#112233" onValueChange={() => undefined} />
       </FormField>
       <TextField aria-label="맞춤법" aria-invalid="spelling" isInvalid className="native-class" />
     </>,
@@ -202,9 +202,10 @@ it("keeps arbitrary icon button children and the legacy advanced control field c
   expect(iconRef.current).toBe(screen.getByRole("button", { name: "닫기" }));
   await user.click(iconRef.current!);
   expect(onClose).toHaveBeenCalledOnce();
-  const number = screen.getByRole("textbox", { name: "반복 횟수" });
-  expect(number).toHaveProperty("required", true);
-  expect(number.getAttribute("aria-invalid")).toBe("true");
+  const color = screen.getByRole("textbox", { name: "배경 색상" });
+  expect(color).toHaveProperty("required", true);
+  expect(color.getAttribute("aria-invalid")).toBe("true");
+  expect(screen.getByText("색상이 필요해요").id).toBe(color.getAttribute("aria-describedby"));
   const input = screen.getByRole("textbox", { name: "맞춤법" });
   expect(input.getAttribute("aria-invalid")).toBe("spelling");
   expect(input.classList.contains("native-class")).toBe(true);

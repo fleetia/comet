@@ -1,7 +1,7 @@
 import { Button, FormField, Select, TextArea, TextField } from "../../ui";
+import { tokens } from "@comet/token";
 import { SearchInput, Textarea, Dialog } from "@comet/ui";
 import { Icon } from "@comet/icon";
-import { semanticVars as vars } from "@fleetia/lagrange/theme";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 import { theme } from "../../desktop.css";
@@ -517,9 +517,9 @@ export function FocusTimerNotes({
           <Dialog
             className={theme}
             style={{
-              fontFamily: vars.typography.family.ui,
-              fontSize: vars.typography.size.body,
-              lineHeight: vars.typography.lineHeight.body,
+              fontFamily: `${tokens["typography/sans/body/fontFamily"]}, sans-serif`,
+              fontSize: tokens["typography/sans/body/fontSize"],
+              lineHeight: "1.462",
             }}
             isOpen={active}
             title={draft?.id ? "원본 노트" : "새 다이어리 메모"}

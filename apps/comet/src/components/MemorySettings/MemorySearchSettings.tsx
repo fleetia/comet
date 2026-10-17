@@ -5,7 +5,7 @@ import { Button as CometButton, SettingControlRow, Switch } from "@comet/ui";
 import { ImportIcon } from "@comet/icon";
 import * as figma from "../SettingsPanel/figmaSettings.css";
 import type { MemorySearchStatus, NlpModel } from "../../types";
-import * as s from "../../lagrange.css";
+import * as s from "../../common.css";
 import * as styles from "./memorySearchSettings.css";
 
 const LABELS: Record<NlpModel, string> = { kiwi: "한국어 분석", semantic: "의미 검색" };
