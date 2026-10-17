@@ -1,16 +1,8 @@
-import {
-  FormField,
-  Button,
-  Checkbox,
-  DateField,
-  Dialog,
-  TextArea,
-  TextField,
-} from "../../ui";
+import { FormField, Button, Checkbox, DateField, TextArea, TextField } from "../../ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "@comet/icon";
-import { Badge, ContentChoice, Select } from "@comet/ui";
+import { Badge, ContentChoice, Select, Dialog } from "@comet/ui";
 import { localDay, record, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { CalendarColors } from "../Planner/CalendarColors";
@@ -919,7 +911,7 @@ export function CalendarTool({
         isOpen={active && disconnect !== null}
         title="캘린더 연결을 해제할까요?"
         closeLabel="닫기"
-        size="small"
+        variant="confirm"
         onOpenChange={(open) => {
           if (!open && !busy) {
             setDisconnect(null);

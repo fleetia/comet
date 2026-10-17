@@ -7,8 +7,8 @@ import {
   Select,
   TextInput,
   Textarea,
+  Dialog,
 } from "@comet/ui";
-import { Dialog } from "../../ui";
 import type { DataRecord } from "../toolData";
 import {
   LEDGER_CATEGORIES,
@@ -601,7 +601,7 @@ export function LedgerEditor({
           </div>
         </form>
       </Dialog>
-      <Dialog isOpen={discard} title="변경 내용을 버릴까요?" onOpenChange={setDiscard}>
+      <Dialog variant="confirm" isOpen={discard} title="변경 내용을 버릴까요?" onOpenChange={setDiscard}>
         <p>아직 저장하지 않은 입력 내용이 있어요.</p>
         <div className={s.actions}>
           <Button variant="ghost" onClick={() => setDiscard(false)}>
@@ -613,6 +613,7 @@ export function LedgerEditor({
         </div>
       </Dialog>
       <Dialog
+        variant="confirm"
         isOpen={deleting}
         title={editor.kind === "recurring" ? "고정비를 삭제할까요?" : "기록을 삭제할까요?"}
         onOpenChange={(open) => {

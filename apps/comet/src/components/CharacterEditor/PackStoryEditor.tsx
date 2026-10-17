@@ -1,14 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import {
-  ActionBar,
-  Button,
-  Checkbox,
-  Dialog,
-  FormField,
-  Select,
-  TextArea,
-  TextField,
-} from "../../ui";
+import { Dialog } from "@comet/ui";
+import { ActionBar, Button, Checkbox, FormField, Select, TextArea, TextField } from "../../ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type {
   AnimationAsset,
@@ -688,7 +680,7 @@ export function PackStoryEditor({
       <Dialog
         isOpen={confirmReload}
         title="팩 이야기 초안을 버릴까요?"
-        size="small"
+        variant="confirm"
         onOpenChange={setConfirmReload}
       >
         <p>작성 중인 이 팩의 이야기와 지식을 버리고 저장된 내용을 불러와요.</p>

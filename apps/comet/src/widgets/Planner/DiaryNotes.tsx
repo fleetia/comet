@@ -1,4 +1,4 @@
-import { Button, Dialog, FormField, TextArea, TextField } from "../../ui";
+import { Button, FormField, TextArea, TextField } from "../../ui";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import {
   Button as CometButton,
@@ -6,6 +6,7 @@ import {
   NoteCard,
   SearchInput,
   SegmentedControl,
+  Dialog,
 } from "@comet/ui";
 import { DiaryDesktopNoteDetail, desktopNotes, type DesktopNotesProps } from "./DiaryDesktopNotes";
 import { DiaryNoteDetail } from "./DiaryNoteDetail";
@@ -679,7 +680,7 @@ function DiaryNoteEditor({
         onOpenChange={setDeleting}
         title="메모를 삭제할까요?"
         closeLabel="취소"
-        size="small"
+        variant="confirm"
       >
         <p>
           이 메모를 함께 보여주는 준비 봉투와 계속 쓸 메모에서도 삭제돼요. 잠시 치우려면 넣어두기를

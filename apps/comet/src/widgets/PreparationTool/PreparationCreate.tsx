@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { SegmentedControl } from "@comet/ui";
-import { Button, DateField, Dialog, Select, TextArea, TextField } from "../../ui";
+import { SegmentedControl, Dialog } from "@comet/ui";
+import { Button, DateField, Select, TextArea, TextField } from "../../ui";
 import { localDay, text, type DataRecord } from "../toolData";
 import { eventTime } from "../Planner/plannerData";
 import { PLANNER_TEMPLATES, templateItems } from "../Planner/templateCatalog";

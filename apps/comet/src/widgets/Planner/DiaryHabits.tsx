@@ -10,8 +10,8 @@ import {
   TextInput,
   Textarea,
   type HabitDayData,
+  Dialog,
 } from "@comet/ui";
-import { Dialog } from "../../ui";
 import { errorText } from "../../hooks/useSnapshot";
 import habitFeedbackBody from "../../assets/habit-feedback-body.svg";
 import habitFeedbackSpark from "../../assets/habit-feedback-spark.svg";
@@ -600,6 +600,7 @@ export function DiaryHabits({
         </Dialog>
       )}
       <Dialog
+        variant="confirm"
         isOpen={confirmDiscard}
         title="습관 변경 내용을 버릴까요?"
         onOpenChange={setConfirmDiscard}
@@ -621,6 +622,7 @@ export function DiaryHabits({
         </div>
       </Dialog>
       <Dialog
+        variant="confirm"
         isOpen={Boolean(confirmDelete)}
         title="습관과 기록을 영구 삭제할까요?"
         onOpenChange={(open) => {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
-import { Button, Dialog, Select } from "../../ui";
+import { Dialog } from "@comet/ui";
+import { Button, Select } from "../../ui";
 import { FriendsLibrary } from "./FriendsLibrary";
 import * as friends from "./friends.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
@@ -758,7 +759,7 @@ export function CharacterManager({
           }
         }}
         title="보유 목록에서 제거"
-        size="small"
+        variant="confirm"
       >
         <p className={s.notice}>
           선택한 캐릭터를 보유 목록과 바탕화면에서 제거해요. 대화 기록과 친밀도는 보존해요.

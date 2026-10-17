@@ -1,4 +1,5 @@
-import { Button, Dialog, FormField, TextField } from "../../ui";
+import { Dialog } from "@comet/ui";
+import { Button, FormField, TextField } from "../../ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import type { DiaryAction, DiaryPage } from "./diaryTypes";
 import * as s from "./diaryEnvelope.css";
@@ -124,6 +125,7 @@ export function DiaryPageMenu({
       <Dialog
         isOpen={opened}
         title={deleting ? "이 페이지를 삭제할까요?" : "페이지 관리"}
+        variant={deleting ? "confirm" : "sheet"}
         closeLabel="닫기"
         size="small"
         onOpenChange={(open) => {

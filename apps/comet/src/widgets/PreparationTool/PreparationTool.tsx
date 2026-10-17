@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
-import { Button, EnvelopeCard, SegmentedControl } from "@comet/ui";
-import { Dialog, FormField, Select } from "../../ui";
+import { Button, EnvelopeCard, SegmentedControl, Dialog } from "@comet/ui";
+import { FormField, Select } from "../../ui";
 import { command, errorText } from "../../hooks/useSnapshot";
 import { localDay, record, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
@@ -314,7 +314,7 @@ export function PreparationTool({
         onOpenChange={(open) => {
           if (!open) setNextSelection(null);
         }}
-        size="small"
+        variant="confirm"
       >
         <p>입력한 내용을 버리고 다른 봉투로 이동할까요?</p>
         <div className={s.actions}>

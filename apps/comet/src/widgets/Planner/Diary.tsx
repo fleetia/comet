@@ -1,9 +1,10 @@
-import { Button, Dialog, FormField, Select, Surface, TextField } from "../../ui";
+import { Button, FormField, Select, Surface, TextField } from "../../ui";
 import {
   EnvelopeCard,
   IconButton as CometIconButton,
   SegmentedControl,
   SidebarItem,
+  Dialog,
 } from "@comet/ui";
 import {
   useEffect,
@@ -1837,7 +1838,7 @@ export function Diary(): ReactElement {
       <Dialog
         isOpen={Boolean(leave)}
         title="작성 중인 내용이 있어요"
-        size="small"
+        variant="confirm"
         closeLabel="작성 계속하기"
         onOpenChange={(open) => {
           if (!open) setLeave(null);

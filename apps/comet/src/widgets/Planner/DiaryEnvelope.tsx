@@ -1,5 +1,5 @@
-import { Button, DateField, Dialog, FormField, Select, TextField } from "../../ui";
-import { ChecklistAdd, EnvelopeHeader, ResourceLink, Surface, TaskRow } from "@comet/ui";
+import { Button, DateField, FormField, Select, TextField } from "../../ui";
+import { ChecklistAdd, EnvelopeHeader, ResourceLink, Surface, TaskRow, Dialog } from "@comet/ui";
 import { Icon } from "@comet/icon";
 import { errorText } from "../../hooks/useSnapshot";
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
@@ -940,7 +940,7 @@ export function DiaryEnvelope({
         onOpenChange={setDeleting}
         title="준비 봉투를 삭제할까요?"
         closeLabel="취소"
-        size="small"
+        variant="confirm"
       >
         <p>
           봉투의 준비물 체크와 자료 링크가 삭제돼요. 연결된 할 일과 다이어리 기록은 남아요. 다시

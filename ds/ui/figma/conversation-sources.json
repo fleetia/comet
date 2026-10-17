@@ -113,6 +113,15 @@
       ]
     },
     {
+      "export": "Dialog",
+      "sources": [
+        {
+          "id": "673:1888",
+          "name": "Dialog"
+        }
+      ]
+    },
+    {
       "export": "OsNotification",
       "sources": [
         {

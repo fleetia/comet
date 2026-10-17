@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
-import { Button, MultilineEditor, TitleInput } from "@comet/ui";
-import { Dialog } from "../../ui";
+import { Button, MultilineEditor, TitleInput, Dialog } from "@comet/ui";
 import * as s from "./diaryNotes.css";
 
 export type NoteContent = { title: string; body: string };
@@ -323,7 +322,7 @@ export function DiaryNoteDetail(props: DetailProps): ReactElement {
           onOpenChange={setDeleting}
           title="메모를 삭제할까요?"
           closeLabel="취소"
-          size="small"
+          variant="confirm"
         >
           <p>메모 내용도 함께 삭제됩니다.</p>
           <div className={s.actions}>

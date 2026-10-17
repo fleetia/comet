@@ -8,8 +8,9 @@ import {
   SettingsSummary,
   Switch,
   TextInput,
+  Dialog,
 } from "@comet/ui";
-import { Dialog, Inline } from "../../ui";
+import { Inline } from "../../ui";
 import { MemorySearchSettings } from "../MemorySettings/MemorySearchSettings";
 import { ChatGptSettings } from "../ChatGptSettings/ChatGptSettings";
 import { OrganizerSettings } from "../OrganizerSettings/OrganizerSettings";
@@ -508,7 +509,7 @@ export function ModelSettings({
         onOpenChange={setConfirmDownload}
         title="그래도 내려받을까요?"
         closeLabel="모델 다운로드 확인 닫기"
-        size="small"
+        variant="confirm"
         footer={
           <Inline gap="sm">
             <Button variant="ghost" onClick={() => setConfirmDownload(false)}>

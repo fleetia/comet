@@ -1,4 +1,5 @@
-import { Button, Dialog } from "../../ui";
+import { Dialog } from "@comet/ui";
+import { Button } from "../../ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWidgets } from "../useWidgets";
@@ -271,7 +272,7 @@ export function WidgetTool({
         onOpenChange={(open) => {
           if (!open) closeGuard.keepEditing();
         }}
-        size="small"
+        variant="confirm"
       >
         <p>저장하지 않은 내용을 버리고 닫을까요?</p>
         {closeGuard.closeError && <p role="alert">{closeGuard.closeError}</p>}

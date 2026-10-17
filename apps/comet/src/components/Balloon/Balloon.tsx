@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
-import { Button, Dialog, IconButton, Select, TextArea } from "../../ui";
+import { Button, IconButton, Select, TextArea } from "../../ui";
 import { SendIcon, CloseIcon } from "@comet/icon";
-import { WaitingDots } from "@comet/ui";
+import { WaitingDots, Dialog } from "@comet/ui";
 import type {
   ConversationSession,
   ConversationView,
@@ -1137,7 +1137,7 @@ export function Balloon({
       <Dialog
         isOpen={Boolean(draftReplacement && canRetry)}
         title="작성 중인 초안을 바꿀까요?"
-        size="small"
+        variant="confirm"
         closeLabel="초안 교체 닫기"
         onOpenChange={(open) => {
           if (!open) setDraftReplacement(null);

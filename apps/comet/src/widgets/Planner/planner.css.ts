@@ -392,8 +392,6 @@ globalStyle(`${table} td`, {
 });
 export const listSelect = style({ width: 132 });
 export const dialog = style({
-  width: "min(640px, calc(100vw - 32px))",
-  maxHeight: "calc(100dvh - 32px)",
   fontSize: v.typography.size.body,
   overflowWrap: "anywhere",
 });

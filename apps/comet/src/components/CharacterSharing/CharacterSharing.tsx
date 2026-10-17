@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
-import { Button, Checkbox, Dialog, Select, TextField, Surface } from "../../ui";
+import { Dialog } from "@comet/ui";
+import { Button, Checkbox, Select, TextField, Surface } from "../../ui";
 import { command, errorText } from "../../hooks/useSnapshot";
 import type {
   CharacterExportOptions,
