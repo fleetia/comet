@@ -947,6 +947,7 @@ fn open_editor(app: &tauri::AppHandle, label: &str, query: &str, title: &str) ->
     .inner_size(680., 650.)
     .min_inner_size(440., 360.)
     .decorations(false)
+    .transparent(true)
     .build()
     .map_err(|e| e.to_string())?;
     Ok(())
