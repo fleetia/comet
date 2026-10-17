@@ -39,3 +39,31 @@ type Story = StoryObj<typeof meta>;
 export const Playground: Story = { name: "기본" };
 export const Invalid: Story = { name: "오류", args: { error: "알림 시간을 확인해 주세요." } };
 export const Disabled: Story = { name: "비활성", args: { disabled: true } };
+export const LongLabel: Story = {
+  name: "긴 계정명 · 좁은 영역",
+  args: {
+    label: "ChatGPT 계정",
+    defaultValue: "preview",
+    description: "긴 옵션도 영역 안에 맞추고, 선택 목록에는 전체 이름을 유지합니다.",
+    children: (
+      <>
+        <option value="preview">
+          verylong.preview.account@privaterelay.example.com · preview-account-1234567890
+        </option>
+        <option value="another">다른 계정</option>
+      </>
+    ),
+  },
+  render: (args) => (
+    <div
+      style={{
+        width: 260,
+        maxWidth: "100%",
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr)",
+      }}
+    >
+      <Select {...args} style={{ width: "100%" }} />
+    </div>
+  ),
+};

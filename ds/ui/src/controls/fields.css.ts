@@ -6,6 +6,7 @@ export const field = style({
   display: "inline-flex",
   flexDirection: "column",
   gap: 4,
+  minWidth: 0,
   maxWidth: "100%",
   verticalAlign: "top",
 });
@@ -108,6 +109,7 @@ export const textareaLayouts = styleVariants({
 export const selectContainer = style({
   position: "relative",
   display: "inline-flex",
+  minWidth: 0,
   maxWidth: "100%",
 });
 export const select = style({
@@ -120,6 +122,7 @@ export const select = style({
   background: tokens["color/card"],
   borderColor: tokens["color/card-border"],
   cursor: "pointer",
+  textOverflow: "ellipsis",
 });
 export const multipleSelect = style({ height: "auto", minHeight: 90, padding: "6px 11px" });
 export const selectWithLeading = style({ paddingLeft: 32 });
