@@ -5,7 +5,10 @@ const meta = {
   component: RadioRow,
   tags: ["autodocs"],
   argTypes: {
-    layout: { control: "select", options: ["compact", "app-usage", "date", "option"] },
+    layout: {
+      control: "select",
+      options: ["compact", "app-usage", "date", "date-light", "option"],
+    },
     disabled: { control: "boolean" },
     leading: { control: false },
     defaultChecked: { control: "boolean" },
@@ -26,5 +29,8 @@ export const Playground: Story = {};
 export const Disabled: Story = { args: { disabled: true } };
 export const Date: Story = {
   args: { layout: "date", label: "내일 · 10월 16일 (금)", defaultChecked: true },
+};
+export const DateLight: Story = {
+  args: { layout: "date-light", label: "내일 · 10월 16일 (금)", defaultChecked: true },
 };
 export const None: Story = { args: { layout: "option", label: "측정하지 않음" } };

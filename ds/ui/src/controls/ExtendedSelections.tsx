@@ -5,7 +5,7 @@ import { Select, type SelectProps } from "./Select";
 import * as styles from "./rows.css";
 
 export type CheckboxRowProps = CheckboxProps & {
-  layout?: "compact" | "export" | "inline" | "friend" | "description" | "control";
+  layout?: "compact" | "export" | "inline" | "inline-padded" | "friend" | "description" | "control";
   leading?: ReactNode;
 };
 export const CheckboxRow = forwardRef<HTMLInputElement, CheckboxRowProps>(
@@ -28,7 +28,7 @@ export const CheckboxRow = forwardRef<HTMLInputElement, CheckboxRowProps>(
 );
 CheckboxRow.displayName = "CheckboxRow";
 export type RadioRowProps = RadioProps & {
-  layout?: "compact" | "app-usage" | "date" | "option";
+  layout?: "compact" | "app-usage" | "date" | "date-light" | "option";
   leading?: ReactNode;
 };
 export const RadioRow = forwardRef<HTMLInputElement, RadioRowProps>(
