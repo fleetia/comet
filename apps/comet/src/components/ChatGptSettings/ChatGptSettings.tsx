@@ -139,12 +139,12 @@ export function ChatGptSettings({
         <aside className={figma.inspector}>
           {inspectorHeader}
           <div className={ai.connectionStatus}>
-            <div className={figma.controls}>
+            <div className={ai.accountHeader}>
               <span className={figma.icon}>
                 <UserIcon size={26} />
               </span>
               <div className={figma.noteCopy}>
-                <strong>{account?.label || "내 ChatGPT 계정"}</strong>
+                <strong className={ai.accountLabel}>{account?.label || "내 ChatGPT 계정"}</strong>
                 <span className={figma.caption}>
                   {loginPending
                     ? "브라우저에서 로그인 중"
@@ -156,6 +156,7 @@ export function ChatGptSettings({
             </div>
             {!!status?.accounts.length && (
               <CometSelect
+                className={ai.modelSelect}
                 aria-label="ChatGPT 계정"
                 value={status.activeAccountId ?? ""}
                 disabled={busy}
