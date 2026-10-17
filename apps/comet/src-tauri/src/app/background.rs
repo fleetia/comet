@@ -45,6 +45,9 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
             super::publish(&app, &state);
         }
         tasks::reap(&state).await;
+        if crate::updater::tick(&app, &state).unwrap_or(false) {
+            continue;
+        }
         let maintenance_app = app.clone();
         let maintenance_state = state.clone();
         let _ = tasks::spawn_maintenance(&state, async move {

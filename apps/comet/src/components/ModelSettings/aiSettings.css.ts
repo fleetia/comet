@@ -68,11 +68,19 @@ export const centerActions = style({ display: "flex", justifyContent: "center" }
 export const connectionStatus = style({
   padding: 14,
   display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr)",
   gap: 14,
   borderRadius: 18,
   border: `1px dashed ${tokens["color/input-border"]}`,
   background: tokens["color/input"],
 });
+export const accountHeader = style({
+  display: "grid",
+  gridTemplateColumns: "36px minmax(0, 1fr)",
+  alignItems: "center",
+  gap: 12,
+});
+export const accountLabel = style({ overflowWrap: "anywhere" });
 export const sharingNote = style({
   display: "flex",
   gap: 10,

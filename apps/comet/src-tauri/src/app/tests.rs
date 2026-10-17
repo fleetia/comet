@@ -2308,13 +2308,14 @@ fn scoped_settings_saves_preserve_other_sections_newer_values() {
         Some("unrelated-draft-key-must-not-reach-keyring"),
     )
     .unwrap();
-    let expected = Settings {
+    let mut expected = Settings {
         autonomous_enabled: false,
         local_idle_enabled: false,
         api_idle_enabled: true,
         idle_minutes: 17,
         ..model.clone()
     };
+    expected.remember_api_profile();
     assert_eq!(
         serde_json::to_value(store::settings(&lock(&state.db).unwrap()).unwrap()).unwrap(),
         serde_json::to_value(&expected).unwrap()
@@ -2327,16 +2328,135 @@ fn scoped_settings_saves_preserve_other_sections_newer_values() {
         ..model
     };
     apply_settings(&state, &next_model, Some(SettingsScope::Model), None).unwrap();
+    expected.api_model = "new-selected-model".into();
+    expected.local_reasoning_enabled = false;
+    expected.remember_api_profile();
     assert_eq!(
         serde_json::to_value(store::settings(&lock(&state.db).unwrap()).unwrap()).unwrap(),
-        serde_json::to_value(Settings {
-            api_model: "new-selected-model".into(),
-            local_reasoning_enabled: false,
-            ..expected
-        })
-        .unwrap()
+        serde_json::to_value(expected).unwrap()
     );
     assert_eq!(store::revision(&lock(&state.db).unwrap()).unwrap(), 3);
+}
+
+#[test]
+fn analytics_consent_is_preserved_by_all_unrelated_settings_save_scopes() {
+    for consent in [true, false] {
+        for scope in [
+            None,
+            Some(SettingsScope::Automatic),
+            Some(SettingsScope::Model),
+        ] {
+            let state = state();
+            let saved = Settings {
+                analytics_consent: consent,
+                ..Settings::default()
+            };
+            store::save_settings(&lock(&state.db).unwrap(), &saved).unwrap();
+            let draft = Settings {
+                analytics_consent: !consent,
+                ..saved
+            };
+            apply_settings(&state, &draft, scope, None).unwrap();
+            assert_eq!(
+                store::settings(&lock(&state.db).unwrap())
+                    .unwrap()
+                    .analytics_consent,
+                consent
+            );
+        }
+    }
+}
+
+#[test]
+fn api_provider_switches_preserve_other_profiles_and_cancel_previous_work() {
+    let state = state();
+    let custom = Settings {
+        mode: "api".into(),
+        base_url: "https://legacy.example/v1".into(),
+        api_model: "original-model".into(),
+        ..Settings::default()
+    };
+    let old = apply_settings(&state, &custom, Some(SettingsScope::Model), None).unwrap();
+    let claude = Settings {
+        mode: "api".into(),
+        api_provider: ApiProvider::Claude,
+        api_model: "claude-selected".into(),
+        ..Settings::default()
+    };
+    let current = apply_settings(&state, &claude, Some(SettingsScope::Model), None).unwrap();
+    assert!(old.1.load(Ordering::SeqCst));
+    assert!(is_current(&state, current.0, &current.1));
+    let saved = store::settings(&lock(&state.db).unwrap()).unwrap();
+    assert_eq!(saved.base_url, "https://api.anthropic.com/v1");
+    assert_eq!(saved.api_token_parameter, "max_tokens");
+    assert_eq!(
+        saved.api_profiles[&ApiProvider::Custom].api_model,
+        "original-model"
+    );
+    assert_eq!(
+        saved.api_profiles[&ApiProvider::Custom].base_url,
+        "https://legacy.example/v1"
+    );
+    assert_eq!(
+        saved.api_profiles[&ApiProvider::Claude].api_model,
+        "claude-selected"
+    );
+    let automatic = Settings {
+        api_provider: ApiProvider::Glm,
+        api_idle_enabled: true,
+        ..Settings::default()
+    };
+    apply_settings(&state, &automatic, Some(SettingsScope::Automatic), None).unwrap();
+    let saved = store::settings(&lock(&state.db).unwrap()).unwrap();
+    assert_eq!(saved.api_provider, ApiProvider::Claude);
+    assert_eq!(saved.api_profiles.len(), 2);
+    assert!(saved.api_idle_enabled);
+}
+
+#[test]
+fn api_key_destination_mismatch_rejects_all_keys_before_settings_or_running_work_changes() {
+    let state = state();
+    let current = store::settings(&lock(&state.db).unwrap()).unwrap();
+    let old = {
+        let _action = lock(&state.action).unwrap();
+        interrupt(&state, true).unwrap()
+    };
+    let mut settings = Settings {
+        mode: "api".into(),
+        api_provider: ApiProvider::Claude,
+        api_model: "selected".into(),
+        ..current.clone()
+    };
+    settings.remember_api_profile();
+    let keys = std::collections::BTreeMap::from([
+        (
+            ApiProvider::Custom,
+            ApiKeyInput {
+                base_url: current.base_url.clone(),
+                key: "synthetic-must-not-save".into(),
+            },
+        ),
+        (
+            ApiProvider::Claude,
+            ApiKeyInput {
+                base_url: "https://wrong.example/v1".into(),
+                key: "synthetic-must-not-save".into(),
+            },
+        ),
+    ]);
+    assert!(super::settings::apply_settings_with_keys(
+        &state,
+        &settings,
+        Some(SettingsScope::Model),
+        None,
+        Some(&keys)
+    )
+    .is_err());
+    assert!(is_current(&state, old.0, &old.1));
+    assert_eq!(
+        serde_json::to_value(store::settings(&lock(&state.db).unwrap()).unwrap()).unwrap(),
+        serde_json::to_value(current).unwrap()
+    );
 }
 
 #[test]

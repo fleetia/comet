@@ -1,7 +1,15 @@
-import { useEffect, useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type JSX,
+  type KeyboardEvent,
+} from "react";
 import { Button, IconButton, Select, TextArea } from "../../ui";
-import { SendIcon, CloseIcon } from "@comet/icon";
-import { WaitingDots, Dialog } from "@comet/ui";
+import { SendIcon, CloseIcon, ArrowRightIcon } from "@comet/icon";
+import { Balloon as NoticeBalloon, Button as CometButton, Dialog, WaitingDots } from "@comet/ui";
 import type {
   ConversationSession,
   ConversationView,
@@ -65,10 +73,12 @@ export function Balloon({
   const persona = activeCharacter(snapshot, speaker)?.id ?? speaker;
   const guestPersona = snapshot.runtime.guestCharacterIds?.includes(persona) ? persona : undefined;
   const mode = snapshot.panel?.mode;
+  const updateNotice = snapshot.playback?.source === "update" && (!mode || mode === "update");
+  const updateActionsId = useId();
   const conversation = snapshot.conversation;
   const sessionId = conversation?.session.id;
   const userId = snapshot.user?.id;
-  const viewIdentity = `${snapshot.user?.id ?? ""}:${mode === "input" && sessionId ? `conversation:${sessionId}` : snapshot.panel ? `${mode}:${snapshot.panel.persona}` : (snapshot.playback?.id ?? "")}`;
+  const viewIdentity = `${snapshot.user?.id ?? ""}:${mode === "input" && sessionId ? `conversation:${sessionId}` : snapshot.panel ? `${mode}:${snapshot.panel.persona}${mode === "update" ? `:${snapshot.playback?.id ?? ""}` : ""}` : (snapshot.playback?.id ?? "")}`;
   const currentView = useRef({
     identity: viewIdentity,
     mode,
@@ -110,6 +120,9 @@ export function Balloon({
   const [orbitCloseRequest, setOrbitCloseRequest] = useState(0);
   const navigatingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (updateNotice) setError(null);
+  }, [updateNotice, snapshot.playback?.id]);
   const [draftReplacement, setDraftReplacement] = useState<{
     identity: string;
     messageId: string;
@@ -292,7 +305,7 @@ export function Balloon({
     };
   }, [mode, persona, snapshot.user?.id, previewConversations]);
   const contentKey = snapshot.panel
-    ? `panel:${snapshot.panel.persona}:${snapshot.panel.mode}${mode === "input" && snapshot.playback ? `:playback:${snapshot.playback.id}` : ""}`
+    ? `panel:${snapshot.panel.persona}:${snapshot.panel.mode}${(mode === "input" || mode === "update") && snapshot.playback ? `:playback:${snapshot.playback.id}` : ""}`
     : snapshot.story
       ? `story:${snapshot.story.id}`
       : snapshot.playback
@@ -316,7 +329,9 @@ export function Balloon({
     snapshot.playback?.id ?? "",
     fullText,
     snapshot.playback?.textSpeed ?? 0,
-    ready && (!mode || mode === "input") && (!snapshot.story || mode === "input"),
+    ready &&
+      (!mode || mode === "input" || mode === "update") &&
+      (!snapshot.story || mode === "input"),
   );
   const revealing = revealedText !== fullText;
   function persistDraft(current = draft.current): Promise<void> {
@@ -637,6 +652,7 @@ export function Balloon({
     history: "지난 대화",
     name: "처음 만났네",
     focus: "집중 중",
+    update: "업데이트 알림",
   };
   const speech = (
     <span className={s.speechText}>
@@ -709,6 +725,63 @@ export function Balloon({
       </div>
     </div>
   );
+  if (updateNotice && snapshot.playback) {
+    const playbackId = snapshot.playback.id;
+    const expanded = mode === "update";
+    return (
+      <section ref={balloonRef} className={s.updateNoticeHost} aria-label="업데이트 알림">
+        <NoticeBalloon
+          aria-live="polite"
+          speakerName={name}
+          tail={skin && (!imageReady || slice) ? "none" : "left"}
+          content={expanded ? "actions" : "text"}
+          className={`${s.updateNoticeBalloon} ${skin && (!imageReady || slice) ? s.balloonSkinned : ""}`}
+          style={skinned}
+          speechTrigger={{
+            "aria-label": fullText,
+            "aria-expanded": expanded,
+            "aria-controls": expanded ? updateActionsId : undefined,
+            disabled: navigating,
+            style: { ...textStyle, lineHeight: 1.65, wordBreak: "keep-all" },
+            onClick: () => {
+              if (!expanded) void leave("expand_update_notice", { playbackId });
+            },
+          }}
+          actions={
+            expanded && (
+              <div id={updateActionsId} className={s.updateNoticeAction}>
+                <CometButton
+                  variant="link"
+                  trailingIcon={<ArrowRightIcon size={14} />}
+                  disabled={navigating}
+                  onClick={() => void leave("open_update_settings", { playbackId })}
+                >
+                  이동하기
+                </CometButton>
+              </div>
+            )
+          }
+        >
+          {speech}
+        </NoticeBalloon>
+        <IconButton
+          className={s.balloonClose}
+          size="compact"
+          variant="quiet"
+          label="업데이트 알림 닫기"
+          disabled={navigating}
+          onClick={() => void leave(closeCommand)}
+        >
+          <CloseIcon size={14} />
+        </IconButton>
+        {visibleError && (
+          <p className={s.error} role="alert">
+            {visibleError}
+          </p>
+        )}
+      </section>
+    );
+  }
   return (
     <section
       ref={balloonRef}

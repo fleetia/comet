@@ -43,6 +43,40 @@ describe("conversation primitives", () => {
     expect(screen.getByText("나디르")).toBeTruthy();
     expect(screen.getByText(/같은/).textContent).toContain("같은  음절\n다음 줄");
     expect(screen.getByRole("status", { name: "대답을 적고 있어요" })).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+  it("exposes an optional speech trigger while keeping its action outside the trigger", async () => {
+    const user = userEvent.setup();
+    const reveal = vi.fn();
+    const speechTrigger = {
+      "aria-expanded": true,
+      "aria-controls": "update-action",
+      onClick: reveal,
+      className: "update-speech",
+    };
+    const { rerender } = render(
+      <Balloon speechTrigger={speechTrigger} actions={<button id="update-action">이동하기</button>}>
+        {"새로운  업데이트가 있어요!\n확인해 볼까요?"}
+      </Balloon>,
+    );
+    const trigger = screen.getByRole("button", { name: /새로운/ });
+    expect(trigger.getAttribute("type")).toBe("button");
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(trigger.getAttribute("aria-controls")).toBe("update-action");
+    expect(trigger.classList.contains("update-speech")).toBe(true);
+    expect(trigger.textContent).toBe("새로운  업데이트가 있어요!\n확인해 볼까요?");
+    expect(trigger.contains(screen.getByRole("button", { name: "이동하기" }))).toBe(false);
+    await user.click(trigger);
+    expect(reveal).toHaveBeenCalledOnce();
+    rerender(
+      <Balloon speechTrigger={{ ...speechTrigger, disabled: true }}>
+        새로운 업데이트가 있어요!
+      </Balloon>,
+    );
+    const disabledTrigger = screen.getByRole("button", { name: "새로운 업데이트가 있어요!" });
+    expect((disabledTrigger as HTMLButtonElement).disabled).toBe(true);
+    await user.click(disabledTrigger);
+    expect(reveal).toHaveBeenCalledOnce();
   });
   it("chooses by id and makes unchosen options inert after a choice", async () => {
     const user = userEvent.setup();

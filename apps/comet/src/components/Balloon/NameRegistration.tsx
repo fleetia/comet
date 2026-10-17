@@ -1,5 +1,5 @@
 import { useRef, useState, type JSX } from "react";
-import { Button, TextField } from "../../ui";
+import { Button, Checkbox, TextField } from "../../ui";
 import type { Dispatch } from "../../types";
 import { errorText } from "../../hooks/useSnapshot";
 import * as s from "../companion.css";
@@ -12,6 +12,7 @@ export function NameRegistration({
   dispatch: Dispatch;
 }): JSX.Element {
   const [name, setName] = useState("");
+  const [analyticsConsent, setAnalyticsConsent] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const busy = useRef(false);
@@ -26,7 +27,7 @@ export function NameRegistration({
     setPending(true);
     setError(null);
     try {
-      await dispatch("register_user_name", { name: trimmed });
+      await dispatch("register_user_name", { name: trimmed, analyticsConsent });
     } catch (cause: unknown) {
       setError(errorText(cause));
     } finally {
@@ -73,6 +74,14 @@ export function NameRegistration({
       <p id="first-user-name-hint" className={s.conversationMeta}>
         1~40자로 알려 줘. 나중에 설정에서 바꿀 수 있어.
       </p>
+      <Checkbox
+        checked={analyticsConsent}
+        disabled={pending}
+        description="선택한 AI 종류, 기능 사용, 오류·비정상 종료와 AI 요청의 성공 여부·응답 시간을 Google Analytics로 보내요. 대화 내용·이름·파일 경로는 보내지 않아요."
+        onChange={(event) => setAnalyticsConsent(event.target.checked)}
+      >
+        (선택) 익명 사용 통계 수집에 동의해요
+      </Checkbox>
       {error && (
         <p className={s.error} role="alert">
           {error}

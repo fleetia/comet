@@ -1016,7 +1016,7 @@ fn balloon_target(
     let owner = owner_id(runtime, panel, story, playback, active)?.to_owned();
     let key = if let Some(panel) = panel {
         let base = format!("panel:{}:{}", panel.persona, panel.mode);
-        if let Some(line) = playback.filter(|_| panel.mode == "input") {
+        if let Some(line) = playback.filter(|_| matches!(panel.mode.as_str(), "input" | "update")) {
             format!("{base}:playback:{}", line.id)
         } else {
             base
@@ -1271,7 +1271,7 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         || (crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
             && panel
                 .as_ref()
-                .is_none_or(|panel| matches!(panel.mode.as_str(), "input" | "name")))
+                .is_none_or(|panel| matches!(panel.mode.as_str(), "input" | "name" | "update")))
         || crate::app::quiet_hours::playback_blocked(&state, &store::settings(&db)?, status.paused)?
     {
         None
@@ -1359,10 +1359,13 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
             || target
                 .key
                 .ends_with(&format!(":input:playback:{}", line.id))
+            || target
+                .key
+                .ends_with(&format!(":update:playback:{}", line.id))
         {
             first_display =
                 crate::app::scene::mark_line_displayed(line, chrono::Utc::now().timestamp_millis());
-            if first_display {
+            if first_display && line.source != "update" {
                 displayed_message = line.display_started_at.map(|at| (line.id.clone(), at));
             }
         }
@@ -1749,6 +1752,64 @@ mod tests {
         assert!(
             monitor_at_saved_position(&monitors[..1], Some(&saved), |monitor| *monitor).is_none()
         );
+    }
+
+    #[test]
+    fn update_notice_expansion_keeps_the_native_owner_and_uses_its_playback_identity() {
+        let mut data = crate::app::snapshot(&crate::app::tests::state()).unwrap();
+        let actor = data.characters.active[0].clone();
+        data.playback = Some(crate::types::Playback {
+            id: "update-notice".into(),
+            persona: actor.clone(),
+            expression: "평온".into(),
+            text: "새로운 업데이트가 있어요!".into(),
+            motion: Default::default(),
+            source: "update".into(),
+            text_speed: 0,
+            display_started_at: None,
+            ends_at: 0,
+            line_index: 0,
+            line_count: 1,
+        });
+        let target = balloon_target(
+            &data.runtime,
+            None,
+            None,
+            data.playback.as_ref(),
+            &data.characters.active,
+            7,
+        )
+        .unwrap();
+        assert_eq!(target.owner, actor);
+        assert_eq!(target.key, "playback:update-notice");
+        data.panel = Some(crate::types::PanelState {
+            persona: actor.clone(),
+            mode: "update".into(),
+        });
+        let expanded = balloon_target(
+            &data.runtime,
+            data.panel.as_ref(),
+            None,
+            data.playback.as_ref(),
+            &data.characters.active,
+            7,
+        )
+        .unwrap();
+        assert_eq!(expanded.owner, actor);
+        assert_eq!(
+            expanded.key,
+            format!("panel:{actor}:update:playback:update-notice")
+        );
+        data.runtime.hidden = true;
+        assert!(balloon_target(
+            &data.runtime,
+            data.panel.as_ref(),
+            None,
+            data.playback.as_ref(),
+            &data.characters.active,
+            7
+        )
+        .is_none());
     }
 
     #[test]

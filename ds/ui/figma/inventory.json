@@ -355,6 +355,13 @@
       "exports": ["Balloon"]
     },
     {
+      "id": "616:33333",
+      "name": "Balloon/Update Notice",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["Balloon"]
+    },
+    {
       "id": "49:49326",
       "name": "Capsule/Input",
       "variantCount": 4,

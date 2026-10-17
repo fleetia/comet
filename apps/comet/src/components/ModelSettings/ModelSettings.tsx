@@ -2,7 +2,6 @@ import { useState, type CSSProperties, type JSX, type ReactNode } from "react";
 import { BoltIcon, ImportIcon, MemoryIcon, PauseIcon, ShieldIcon, SparkleIcon } from "@comet/icon";
 import {
   Button,
-  SegmentedControl,
   Select,
   SettingControlRow,
   SettingsSummary,
@@ -14,7 +13,14 @@ import { Inline } from "../../ui";
 import { MemorySearchSettings } from "../MemorySettings/MemorySearchSettings";
 import { ChatGptSettings } from "../ChatGptSettings/ChatGptSettings";
 import { OrganizerSettings } from "../OrganizerSettings/OrganizerSettings";
-import type { LocalModel, LocalModelStatus, Settings, Snapshot } from "../../types";
+import type { AiProvider, LocalModel, LocalModelStatus, Settings, Snapshot } from "../../types";
+import {
+  AI_PROVIDERS,
+  API_MODEL_EXAMPLES,
+  getAiProvider,
+  getAiProviderLabel,
+  getApiProfile,
+} from "../../aiProviders";
 import type { SettingsDraft } from "../../hooks/useSettingsDraft";
 import * as common from "../../lagrange.css";
 import * as figma from "../SettingsPanel/figmaSettings.css";
@@ -29,7 +35,6 @@ type Props = {
   onOpenOrganizer?: () => void;
   onOrganizerDirtyChange?: (dirty: boolean) => void;
 };
-export const PROVIDER_LABELS = { local: "로컬 모델", api: "외부 API", chatgpt: "ChatGPT" };
 const FIT_LABELS: Record<LocalModelStatus["fit"], string> = {
   fits: "이 컴퓨터에 알맞아요",
   tight: "메모리를 많이 써서 느릴 수 있어요",
@@ -60,11 +65,11 @@ export function ModelSettings({
   onOrganizerDirtyChange,
   onOpenOrganizer,
 }: Props): JSX.Element {
-  const { settings, apiKey, setApiKey, pending, change, run } = draft;
+  const { settings, apiKey, setApiKey, pending, change, selectProvider, run } = draft;
   const [confirmDownload, setConfirmDownload] = useState(false);
   const [organizerOpen, setOrganizerOpen] = useState(false);
   const [organizerVisited, setOrganizerVisited] = useState(false);
-  const [editingKey, setEditingKey] = useState(false);
+  const [editingKeyFor, setEditingKeyFor] = useState<string | null>(null);
   const selectedModel = snapshot.localModels.find((model) => model.id === settings.localModel);
   const customModel = settings.localModel === "custom";
   const activeDownload = snapshot.runtime.download;
@@ -76,7 +81,15 @@ export function ModelSettings({
   const percent = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0;
   const ready = customModel ? !!settings.localModelPath.trim() : selectedModel?.ready === true;
   const keylessApi = isKeylessApiUrl(settings.baseUrl);
-  const hasSavedApiKey = snapshot.hasApiKey && settings.baseUrl === snapshot.settings.baseUrl;
+  const provider = getAiProvider(settings);
+  const providerLabel = getAiProviderLabel(settings);
+  const customApi = settings.apiProvider === "custom";
+  const savedProfile = getApiProfile(snapshot.settings, settings.apiProvider);
+  const hasSavedApiKey =
+    settings.baseUrl === savedProfile.baseUrl &&
+    (snapshot.apiKeyProviders.includes(settings.apiProvider) ||
+      (snapshot.hasApiKey && settings.apiProvider === snapshot.settings.apiProvider));
+  const editingKey = editingKeyFor === settings.baseUrl || Boolean(apiKey);
   const tested = draft.notice === "연결을 확인했어요.";
   const providerHeader = (
     <>
@@ -86,22 +99,22 @@ export function ModelSettings({
         </span>
         대화에 쓸 AI
       </h1>
-      <SegmentedControl
-        label="대화 방식"
-        value={settings.mode}
-        onValueChange={(value) => change("mode", value as Settings["mode"])}
+      <Select
+        aria-label="대화에 쓸 AI"
+        value={provider}
+        onChange={(event) => selectProvider(event.target.value as AiProvider)}
         disabled={!!pending}
-        appearance="contained"
-        options={[
-          { value: "local", label: "이 기기의 모델" },
-          { value: "chatgpt", label: "ChatGPT" },
-          { value: "api", label: "외부 API" },
-        ]}
         className={styles.provider}
-      />
-      {settings.mode !== snapshot.settings.mode && (
+      >
+        {AI_PROVIDERS.map((item) => (
+          <option key={item.value} value={item.value}>
+            {item.label}
+          </option>
+        ))}
+      </Select>
+      {provider !== getAiProvider(snapshot.settings) && (
         <p className={figma.caption}>
-          <span>현재 사용 · {PROVIDER_LABELS[snapshot.settings.mode]}</span> ·{" "}
+          <span>현재 사용 · {getAiProviderLabel(snapshot.settings)}</span> ·{" "}
           <span>저장 후 전환</span>
         </p>
       )}
@@ -373,34 +386,51 @@ export function ModelSettings({
                 ) : (
                   <>
                     <section className={figma.section}>
-                      <h2 className={figma.sectionTitle}>외부 API</h2>
+                      <h2 className={figma.sectionTitle}>{providerLabel}</h2>
                       <div className={figma.group}>
-                        <SettingControlRow
-                          className={figma.row}
-                          title="API 주소"
-                          control={
-                            <TextInput
-                              type="url"
-                              aria-label="API 주소"
-                              className={styles.textField}
-                              value={settings.baseUrl}
-                              spellCheck={false}
-                              onChange={(event) => change("baseUrl", event.target.value)}
-                            />
-                          }
-                        />
+                        {customApi && (
+                          <SettingControlRow
+                            className={figma.row}
+                            title="API 주소"
+                            control={
+                              <TextInput
+                                type="url"
+                                aria-label="API 주소"
+                                className={styles.textField}
+                                value={settings.baseUrl}
+                                spellCheck={false}
+                                onChange={(event) => change("baseUrl", event.target.value)}
+                              />
+                            }
+                          />
+                        )}
                         <SettingControlRow
                           className={figma.row}
                           title="모델 이름"
-                          description="서비스에 적힌 이름 그대로 적어요"
+                          description="이 계정에서 사용할 모델 이름을 고르거나 직접 적어요"
                           control={
-                            <TextInput
-                              aria-label="모델 이름"
-                              className={styles.textField}
-                              value={settings.apiModel}
-                              spellCheck={false}
-                              onChange={(event) => change("apiModel", event.target.value)}
-                            />
+                            <>
+                              <TextInput
+                                aria-label="모델 이름"
+                                className={styles.textField}
+                                value={settings.apiModel}
+                                spellCheck={false}
+                                list={customApi ? undefined : `api-models-${settings.apiProvider}`}
+                                placeholder={
+                                  customApi
+                                    ? "모델 이름"
+                                    : `예: ${API_MODEL_EXAMPLES[settings.apiProvider][0]}`
+                                }
+                                onChange={(event) => change("apiModel", event.target.value)}
+                              />
+                              {!customApi && (
+                                <datalist id={`api-models-${settings.apiProvider}`}>
+                                  {API_MODEL_EXAMPLES[settings.apiProvider].map((model) => (
+                                    <option key={model} value={model} />
+                                  ))}
+                                </datalist>
+                              )}
+                            </>
                           }
                         />
                         <SettingControlRow
@@ -414,14 +444,14 @@ export function ModelSettings({
                                 <Button
                                   variant="ghost"
                                   size="small"
-                                  onClick={() => setEditingKey(true)}
+                                  onClick={() => setEditingKeyFor(settings.baseUrl)}
                                 >
                                   바꾸기…
                                 </Button>
                                 <Button
                                   variant="link"
                                   size="small"
-                                  disabled={settings.baseUrl !== snapshot.settings.baseUrl}
+                                  disabled={settings.baseUrl !== savedProfile.baseUrl}
                                   onClick={() => void run("clear_api_key")}
                                 >
                                   지우기
@@ -442,26 +472,28 @@ export function ModelSettings({
                             )
                           }
                         />
-                        <SettingControlRow
-                          className={figma.row}
-                          title="응답 길이를 정하는 이름"
-                          description="API마다 이름이 달라요"
-                          control={
-                            <Select
-                              aria-label="응답 길이 매개변수"
-                              value={settings.apiTokenParameter}
-                              onChange={(event) =>
-                                change(
-                                  "apiTokenParameter",
-                                  event.target.value as Settings["apiTokenParameter"],
-                                )
-                              }
-                            >
-                              <option value="max_tokens">max_tokens</option>
-                              <option value="max_completion_tokens">max_completion_tokens</option>
-                            </Select>
-                          }
-                        />
+                        {customApi && (
+                          <SettingControlRow
+                            className={figma.row}
+                            title="응답 길이를 정하는 이름"
+                            description="API마다 이름이 달라요"
+                            control={
+                              <Select
+                                aria-label="응답 길이 매개변수"
+                                value={settings.apiTokenParameter}
+                                onChange={(event) =>
+                                  change(
+                                    "apiTokenParameter",
+                                    event.target.value as Settings["apiTokenParameter"],
+                                  )
+                                }
+                              >
+                                <option value="max_tokens">max_tokens</option>
+                                <option value="max_completion_tokens">max_completion_tokens</option>
+                              </Select>
+                            }
+                          />
+                        )}
                       </div>
                     </section>
                     {automaticDraft && (

@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { openCharacterPage, selectFriend } from "./characterNavigation";
 import { SettingsPanel } from "../components/SettingsPanel/SettingsPanel";
 import { PREVIEW_SNAPSHOT, command, isDesktop } from "../hooks/useSnapshot";
+import { API_DEFAULTS } from "../aiProviders";
 
 vi.mock("../hooks/useSnapshot", async (load) => ({
   ...(await load<typeof import("../hooks/useSnapshot")>()),
@@ -18,6 +19,81 @@ beforeEach(() => {
   vi.mocked(isDesktop).mockReturnValue(false);
   vi.mocked(command).mockReset();
   vi.mocked(command).mockResolvedValue(undefined);
+});
+
+it.each(["claude", "gemini", "glm"] as const)(
+  "connects %s with its fixed endpoint and preserves custom API controls",
+  async (provider) => {
+    render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="model" />);
+    const selector = screen.getByLabelText("대화에 쓸 AI");
+    expect(
+      within(selector)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["이 기기의 모델", "ChatGPT", "Claude", "Gemini", "GLM", "사용자 지정 API"]);
+    fireEvent.change(selector, { target: { value: provider } });
+    expect(screen.queryByLabelText("API 주소")).toBeNull();
+    expect(screen.queryByLabelText("응답 길이 매개변수")).toBeNull();
+    expect(screen.getByLabelText("모델 이름")).toHaveProperty("value", "");
+    expect(screen.getByRole("switch", { name: "API로 새 잡담 만들기" })).toHaveProperty(
+      "checked",
+      false,
+    );
+    expect(screen.getByRole("button", { name: "다시 확인" })).toHaveProperty("disabled", true);
+    fireEvent.change(screen.getByLabelText("모델 이름"), { target: { value: "account-model" } });
+    fireEvent.change(screen.getByLabelText("API 키"), {
+      target: { value: "provider-fixture-key" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "다시 확인" }));
+    await waitFor(() =>
+      expect(command).toHaveBeenLastCalledWith("test_connection", {
+        settings: {
+          ...PREVIEW_SNAPSHOT.settings,
+          ...API_DEFAULTS[provider],
+          mode: "api",
+          apiProvider: provider,
+          apiModel: "account-model",
+        },
+        apiKey: "provider-fixture-key",
+      }),
+    );
+    fireEvent.change(selector, { target: { value: "custom" } });
+    expect(screen.getByLabelText("API 주소")).toHaveProperty(
+      "value",
+      PREVIEW_SNAPSHOT.settings.baseUrl,
+    );
+    expect(screen.getByLabelText("API 키")).toHaveProperty("value", "");
+    expect(screen.getByLabelText("응답 길이 매개변수")).toBeTruthy();
+  },
+);
+
+it("uses and clears a saved inactive provider key without activating that provider", async () => {
+  render(
+    <SettingsPanel
+      snapshot={{
+        ...PREVIEW_SNAPSHOT,
+        apiKeyProviders: ["claude"],
+        settings: {
+          ...PREVIEW_SNAPSHOT.settings,
+          apiProfiles: { claude: { ...API_DEFAULTS.claude, apiModel: "saved-claude" } },
+        },
+      }}
+      initialSection="model"
+    />,
+  );
+  fireEvent.change(screen.getByLabelText("대화에 쓸 AI"), { target: { value: "claude" } });
+  expect(screen.getByRole("button", { name: "다시 확인" })).toHaveProperty("disabled", false);
+  expect(screen.queryByLabelText("API 키")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "지우기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledExactlyOnceWith("clear_api_key", {
+      settings: expect.objectContaining({
+        mode: "api",
+        apiProvider: "claude",
+        baseUrl: API_DEFAULTS.claude.baseUrl,
+      }),
+    }),
+  );
 });
 
 it("opens the six Figma destinations with keyboard navigation and associated panels", () => {
@@ -136,7 +212,7 @@ it("retains separate model and automatic drafts and only saves the chosen scope"
   fireEvent.click(screen.getByRole("tab", { name: "AI 연결" }));
   expect(screen.getByLabelText("로컬 모델")).toBeTruthy();
   fireEvent.click(screen.getByRole("switch", { name: "로컬 추론 모드" }));
-  fireEvent.click(screen.getByRole("radio", { name: "외부 API" }));
+  fireEvent.change(screen.getByLabelText("대화에 쓸 AI"), { target: { value: "custom" } });
   fireEvent.change(screen.getByLabelText("API 주소"), {
     target: { value: "https://example.com/v1" },
   });
@@ -176,7 +252,7 @@ it("retains separate model and automatic drafts and only saves the chosen scope"
   fireEvent.click(screen.getByRole("tab", { name: /AI 연결/ }));
   expect(screen.getByLabelText("API 키")).toHaveProperty("value", " draft-key ");
   expect(screen.getByLabelText("API 주소")).toHaveProperty("value", "https://example.com/v1");
-  fireEvent.click(screen.getByRole("radio", { name: "이 기기의 모델" }));
+  fireEvent.change(screen.getByLabelText("대화에 쓸 AI"), { target: { value: "local" } });
   expect(screen.getByRole("switch", { name: "로컬 추론 모드" })).toHaveProperty("checked", true);
 });
 
@@ -326,7 +402,7 @@ it("allows keyless loopback API tests but requires a key for remote or spoofed a
   render(
     <SettingsPanel snapshot={{ ...PREVIEW_SNAPSHOT, hasApiKey: false }} initialSection="model" />,
   );
-  fireEvent.click(screen.getByRole("radio", { name: "외부 API" }));
+  fireEvent.change(screen.getByLabelText("대화에 쓸 AI"), { target: { value: "custom" } });
   const address = screen.getByLabelText("API 주소");
   const testButton = screen.getByRole("button", { name: "다시 확인" });
   fireEvent.change(screen.getByLabelText("모델 이름"), { target: { value: "local-model" } });
@@ -378,7 +454,7 @@ it("does not reuse a saved API key for a different draft address", () => {
       initialSection="model"
     />,
   );
-  fireEvent.click(screen.getByRole("radio", { name: "외부 API" }));
+  fireEvent.change(screen.getByLabelText("대화에 쓸 AI"), { target: { value: "custom" } });
   const testButton = screen.getByRole("button", { name: "다시 확인" });
   expect(testButton).toHaveProperty("disabled", false);
   fireEvent.change(screen.getByLabelText("API 주소"), {
@@ -394,7 +470,7 @@ it("invalid automatic interval does not block AI edits and cancel restores lates
   fireEvent.change(screen.getByLabelText(/이야기 간격/), { target: { value: "0" } });
   expect(screen.getByRole("button", { name: "자동 대화 저장" })).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByRole("tab", { name: "AI 연결" }));
-  fireEvent.click(screen.getByRole("radio", { name: "외부 API" }));
+  fireEvent.change(screen.getByLabelText("대화에 쓸 AI"), { target: { value: "custom" } });
   fireEvent.change(screen.getByLabelText("모델 이름"), { target: { value: "other-model" } });
   expect(screen.getByRole("button", { name: "AI 연결 저장" })).toHaveProperty("disabled", false);
   rerender(
@@ -410,17 +486,17 @@ it("invalid automatic interval does not block AI edits and cancel restores lates
 it("shows only the selected connection editor and retains both drafts without changing actual use", () => {
   render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="model" />);
   expect(screen.queryByRole("button", { name: "연결 테스트" })).toBeNull();
-  fireEvent.click(screen.getByRole("radio", { name: "외부 API" }));
+  fireEvent.change(screen.getByLabelText("대화에 쓸 AI"), { target: { value: "custom" } });
   fireEvent.change(screen.getByLabelText("API 주소"), {
     target: { value: "http://localhost:1234/v1" },
   });
   fireEvent.change(screen.getByLabelText("API 키"), { target: { value: "unsaved-key" } });
   expect(screen.queryByRole("button", { name: "테스트하기" })).toBeNull();
   expect(screen.getByText("저장 후 전환")).toBeTruthy();
-  expect(screen.getByText(/현재 사용 · 로컬 모델/)).toBeTruthy();
-  fireEvent.click(screen.getByRole("radio", { name: "이 기기의 모델" }));
+  expect(screen.getByText(/현재 사용 · 이 기기의 모델/)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("대화에 쓸 AI"), { target: { value: "local" } });
   expect(screen.queryByRole("button", { name: "연결 테스트" })).toBeNull();
-  fireEvent.click(screen.getByRole("radio", { name: "외부 API" }));
+  fireEvent.change(screen.getByLabelText("대화에 쓸 AI"), { target: { value: "custom" } });
   expect(screen.getByLabelText("API 주소")).toHaveProperty("value", "http://localhost:1234/v1");
   expect(screen.getByLabelText("API 키")).toHaveProperty("value", "unsaved-key");
   expect(command).not.toHaveBeenCalled();
@@ -451,7 +527,7 @@ it("locks automatic and model save actions while an update is being checked", as
   render(<SettingsPanel snapshot={PREVIEW_SNAPSHOT} initialSection="automatic" />);
   fireEvent.change(screen.getByLabelText(/이야기 간격/), { target: { value: "12" } });
   fireEvent.click(screen.getByRole("tab", { name: "AI 연결" }));
-  fireEvent.click(screen.getByRole("radio", { name: "외부 API" }));
+  fireEvent.change(screen.getByLabelText("대화에 쓸 AI"), { target: { value: "custom" } });
   fireEvent.change(screen.getByLabelText("API 주소"), {
     target: { value: "http://localhost:1234/v1" },
   });

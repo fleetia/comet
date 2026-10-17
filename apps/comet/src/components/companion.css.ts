@@ -158,6 +158,18 @@ export const balloonSkinned = style({
   backdropFilter: "none",
 });
 export const balloonClose = style({ position: "absolute", top: 6, right: 6, zIndex: 1 });
+export const updateNoticeHost = style({
+  position: "relative",
+  boxSizing: "border-box",
+  width: "max-content",
+  maxWidth: 320,
+  padding: "3px 3px 13px",
+});
+export const updateNoticeBalloon = style({
+  boxShadow: `inset 0 1px 0 ${tokens["color/surface-highlight"]}`,
+  selectors: { [`&${balloonSkinned}`]: { boxShadow: "none" } },
+});
+export const updateNoticeAction = style({ display: "flex", marginLeft: "auto" });
 export const balloonPreview = style({
   maxWidth: "min(320px, 100%)",
   selectors: { [`&${balloonOrbit}`]: { maxWidth: "min(640px, 100%)" } },

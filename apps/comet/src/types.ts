@@ -300,6 +300,7 @@ export type Playback = SceneLine & {
     | "question"
     | "reaction"
     | "presence"
+    | "update"
     | "npc"
     | "scenario";
   endsAt: number;
@@ -318,7 +319,7 @@ export type StoryRequest = {
 };
 export type PanelState = {
   persona: Persona;
-  mode: "menu" | "input" | "history" | "name" | "focus";
+  mode: "menu" | "input" | "history" | "name" | "focus" | "update";
 };
 export type Dispatch = (name: string, args?: Record<string, unknown>) => Promise<void>;
 export type LocalModel =
@@ -358,8 +359,18 @@ export type QuietHours = {
   weekdays: number[];
 };
 export type ProviderKind = "local" | "api" | "chatgpt";
+export type ApiProvider = "custom" | "claude" | "gemini" | "glm";
+export type AiProvider = Exclude<ProviderKind, "api"> | ApiProvider;
+export type ApiProfile = {
+  baseUrl: string;
+  apiModel: string;
+  apiTokenParameter: "max_tokens" | "max_completion_tokens";
+};
 export type Settings = {
+  analyticsConsent: boolean;
   mode: ProviderKind;
+  apiProvider: ApiProvider;
+  apiProfiles: Partial<Record<ApiProvider, ApiProfile>>;
   autonomousEnabled: boolean;
   randomPresenceEnabled: boolean;
   localModel: LocalModel;
@@ -542,6 +553,7 @@ export type Snapshot = {
   runtime: RuntimeStatus;
   activeRequest?: ActiveRequest;
   hasApiKey: boolean;
+  apiKeyProviders: ApiProvider[];
   modelReady: boolean;
   localModels: LocalModelStatus[];
   device: DeviceInfo;

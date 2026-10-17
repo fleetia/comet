@@ -130,9 +130,47 @@ impl Default for QuietHours {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ApiProvider {
+    #[default]
+    Custom,
+    Claude,
+    Gemini,
+    Glm,
+}
+
+impl ApiProvider {
+    pub fn base_url(self) -> Option<&'static str> {
+        match self {
+            Self::Custom => None,
+            Self::Claude => Some("https://api.anthropic.com/v1"),
+            Self::Gemini => Some("https://generativelanguage.googleapis.com/v1beta/openai"),
+            Self::Glm => Some("https://api.z.ai/api/paas/v4"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiProfile {
+    pub base_url: String,
+    pub api_model: String,
+    pub api_token_parameter: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiKeyInput {
+    pub base_url: String,
+    pub key: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
+    #[serde(default)]
+    pub analytics_consent: bool,
     pub mode: String,
     #[serde(default)]
     pub local_model: LocalModel,
@@ -143,6 +181,10 @@ pub struct Settings {
     pub base_url: String,
     pub api_model: String,
     pub api_token_parameter: String,
+    #[serde(default)]
+    pub api_provider: ApiProvider,
+    #[serde(default)]
+    pub api_profiles: std::collections::BTreeMap<ApiProvider, ApiProfile>,
     #[serde(default)]
     pub chatgpt_model: String,
     #[serde(default)]
@@ -165,6 +207,7 @@ fn default_autonomous_enabled() -> bool {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            analytics_consent: false,
             mode: "local".into(),
             local_model: LocalModel::default(),
             local_model_path: String::new(),
@@ -172,6 +215,8 @@ impl Default for Settings {
             base_url: "https://api.openai.com/v1".into(),
             api_model: String::new(),
             api_token_parameter: "max_completion_tokens".into(),
+            api_provider: ApiProvider::Custom,
+            api_profiles: Default::default(),
             chatgpt_model: String::new(),
             chatgpt_idle_enabled: false,
             autonomous_enabled: true,
@@ -180,6 +225,34 @@ impl Default for Settings {
             api_idle_enabled: false,
             idle_minutes: 5,
             quiet_hours: QuietHours::default(),
+        }
+    }
+}
+
+impl Settings {
+    pub fn remember_api_profile(&mut self) {
+        if let Some(url) = self.api_provider.base_url() {
+            self.base_url = url.into();
+            self.api_token_parameter = "max_tokens".into();
+        }
+        self.api_profiles.insert(
+            self.api_provider,
+            ApiProfile {
+                base_url: self.base_url.clone(),
+                api_model: self.api_model.clone(),
+                api_token_parameter: self.api_token_parameter.clone(),
+            },
+        );
+    }
+
+    pub fn with_api_profile(&self, provider: ApiProvider, profile: &ApiProfile) -> Self {
+        Self {
+            mode: "api".into(),
+            api_provider: provider,
+            base_url: profile.base_url.clone(),
+            api_model: profile.api_model.clone(),
+            api_token_parameter: profile.api_token_parameter.clone(),
+            ..self.clone()
         }
     }
 }
@@ -452,6 +525,8 @@ pub struct Snapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_request: Option<ActiveRequest>,
     pub has_api_key: bool,
+    #[serde(default)]
+    pub api_key_providers: Vec<ApiProvider>,
     pub chatgpt_ready: bool,
     pub model_ready: bool,
     pub local_models: Vec<LocalModelStatus>,

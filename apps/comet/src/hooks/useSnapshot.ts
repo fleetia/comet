@@ -3,6 +3,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Snapshot } from "../types";
 import { PREVIEW_SNAPSHOT } from "../previewSnapshot";
+import { trackCommandFailure, trackSuccessfulCommand, updateAnalyticsConsent } from "../analytics";
 
 export { PREVIEW_SNAPSHOT };
 
@@ -16,7 +17,14 @@ export async function command<T = void>(name: string, args?: Record<string, unkn
       "브라우저는 화면 미리보기입니다. 실제 기능은 데스크톱 앱에서 사용할 수 있어요.",
     );
   }
-  return invoke<T>(name, args);
+  try {
+    const result = await invoke<T>(name, args);
+    trackSuccessfulCommand(name, args);
+    return result;
+  } catch (cause) {
+    trackCommandFailure(name);
+    throw cause;
+  }
 }
 
 export function errorText(error: unknown): string {
@@ -42,6 +50,7 @@ export function useSnapshot(): {
     void listen<Snapshot>("app-state", (event) => {
       receivedEvent = true;
       if (active) {
+        updateAnalyticsConsent(event.payload.settings.analyticsConsent);
         setSnapshot(event.payload);
         setError(null);
       }
@@ -54,6 +63,7 @@ export function useSnapshot(): {
         unlisten = cleanup;
         const initial = await command<Snapshot>("get_snapshot");
         if (active && !receivedEvent) {
+          updateAnalyticsConsent(initial.settings.analyticsConsent);
           setSnapshot(initial);
         }
       })

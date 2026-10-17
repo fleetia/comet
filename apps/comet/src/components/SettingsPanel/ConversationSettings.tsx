@@ -12,7 +12,7 @@ import {
 import type { Snapshot } from "../../types";
 import type { SettingsDraft } from "../../hooks/useSettingsDraft";
 import { spriteSource } from "../characterIdentity";
-import { PROVIDER_LABELS } from "../ModelSettings/ModelSettings";
+import { getAiProviderLabel } from "../../aiProviders";
 import { quietHoursError } from "./QuietHoursSettings";
 import * as styles from "./figmaSettings.css";
 import * as local from "./conversationSettings.css";
@@ -168,7 +168,7 @@ export function ConversationSettings({
               <SettingControlRow
                 className={styles.row}
                 title="AI로 새 잡담 만들기"
-                description={`지금 연결: ${PROVIDER_LABELS[settings.mode]}`}
+                description={`지금 연결: ${getAiProviderLabel(settings)}`}
                 control={
                   <div className={local.generation}>
                     <Button size="small" variant="ghost" onClick={onOpenModel}>

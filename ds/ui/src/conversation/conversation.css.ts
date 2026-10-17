@@ -42,6 +42,21 @@ export const speech = style({
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
 });
+export const speechTrigger = style({
+  display: "block",
+  width: "100%",
+  padding: 0,
+  border: 0,
+  background: "transparent",
+  color: "inherit",
+  fontFamily: "inherit",
+  textAlign: "left",
+  cursor: "pointer",
+  selectors: {
+    "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: 3 },
+    "&:disabled": { cursor: "default" },
+  },
+});
 export const typingSpeech = style({ fontSize: 16, lineHeight: "23px" });
 export const caret = style({
   display: "inline-block",

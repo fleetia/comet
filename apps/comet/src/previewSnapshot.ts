@@ -27,7 +27,10 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
   conversation: null,
   wordbook: [],
   settings: {
+    analyticsConsent: false,
     mode: "local",
+    apiProvider: "custom",
+    apiProfiles: {},
     autonomousEnabled: true,
     randomPresenceEnabled: false,
     localModel: "qwen3.5-4b",
@@ -62,6 +65,7 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
     pausedUntil: null,
   },
   hasApiKey: false,
+  apiKeyProviders: [],
   modelReady: false,
   localModels: (
     [

@@ -741,6 +741,7 @@ fn open_generated_at(
     .inner_size(360., 420.)
     .min_inner_size(260., 220.)
     .decorations(false)
+    .transparent(true)
     .resizable(true)
     .visible(false)
     .build()
@@ -947,6 +948,7 @@ fn open_editor(app: &tauri::AppHandle, label: &str, query: &str, title: &str) ->
     .inner_size(680., 650.)
     .min_inner_size(440., 360.)
     .decorations(false)
+    .transparent(true)
     .build()
     .map_err(|e| e.to_string())?;
     Ok(())

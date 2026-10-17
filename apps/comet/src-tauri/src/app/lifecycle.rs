@@ -166,6 +166,7 @@ pub(crate) fn migrate_app_data(app_data: &Path) -> io::Result<()> {
 
 pub fn run() {
     tauri::Builder::default()
+        .manage(crate::analytics::Runtime::default())
         .manage(crate::character_collision_host::Runtime::default())
         .manage(crate::planner_windows::Navigation::default())
         .plugin(launcher::plugin())
@@ -253,6 +254,8 @@ pub fn run() {
                 positions: Mutex::new(HashMap::new()),
             });
             app.manage(state.clone());
+            crate::analytics::attach_request_observer(app.handle(), &state.inference);
+            crate::crash_analytics::install(app.handle(), &state);
             state
                 .inference
                 .configure_chatgpt(&app.config().identifier)
@@ -506,6 +509,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            crate::analytics::get_analytics_context,
+            crate::analytics::set_analytics_consent,
+            crate::analytics::send_analytics_event,
             crate::character_guests::leave_character_guest,
             crate::pack_story_commands::get_pack_story_definition,
             crate::pack_story_commands::save_pack_story_definition,
@@ -574,6 +580,8 @@ pub fn run() {
             updater::get_update_status,
             updater::check_app_update,
             updater::install_app_update,
+            updater::expand_update_notice,
+            updater::open_update_settings,
             crate::memo_notes::create_memo_note,
             crate::memo_notes::open_memo_note,
             crate::memo_notes::close_memo_note,
@@ -772,6 +780,7 @@ pub fn run() {
                     // Native macOS termination can skip ExitRequested. Finish before returning to Cocoa.
                     tauri::async_runtime::block_on(stop_owned_work(&state));
                 }
+                crate::crash_analytics::clean_exit(app);
             }
             _ => {}
         });
@@ -809,6 +818,7 @@ async fn request_exit(app: &tauri::AppHandle) {
         let exit_app = app.clone();
         app.run_on_main_thread(move || {
             exit_app.cleanup_before_exit();
+            crate::crash_analytics::clean_exit(&exit_app);
             std::process::exit(0);
         })
         .map_err(|error| error.to_string())?;
