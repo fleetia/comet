@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
+import { trackSettingsView } from "../../analytics";
 
 export const SETTINGS_SECTIONS = [
   { id: "characters", label: "친구들", group: "관리" },
@@ -41,6 +42,7 @@ export function useSettingsNavigation(initialSection?: string): {
   const [visited, setVisited] = useState<ReadonlySet<SettingsSection>>(() => new Set([section]));
   const [navigationError, setNavigationError] = useState<string | null>(null);
   const navigationRevision = useRef(0);
+  const lastTrackedSection = useRef<SettingsSection | null>(null);
 
   function select(value: string): void {
     const next = sectionFrom(value);
@@ -60,6 +62,13 @@ export function useSettingsNavigation(initialSection?: string): {
       }).catch((cause: unknown) => setNavigationError(errorText(cause)));
     }
   }
+  useEffect(() => {
+    if (!isDesktop() || lastTrackedSection.current === section) {
+      return;
+    }
+    lastTrackedSection.current = section;
+    trackSettingsView(section);
+  }, [section]);
   useEffect(() => {
     if (!isDesktop()) return;
     let active = true;

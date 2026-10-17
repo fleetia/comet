@@ -367,6 +367,7 @@ export type ApiProfile = {
   apiTokenParameter: "max_tokens" | "max_completion_tokens";
 };
 export type Settings = {
+  analyticsConsent: boolean;
   mode: ProviderKind;
   apiProvider: ApiProvider;
   apiProfiles: Partial<Record<ApiProvider, ApiProfile>>;

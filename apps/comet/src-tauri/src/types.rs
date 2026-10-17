@@ -169,6 +169,8 @@ pub struct ApiKeyInput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
+    #[serde(default)]
+    pub analytics_consent: bool,
     pub mode: String,
     #[serde(default)]
     pub local_model: LocalModel,
@@ -205,6 +207,7 @@ fn default_autonomous_enabled() -> bool {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            analytics_consent: false,
             mode: "local".into(),
             local_model: LocalModel::default(),
             local_model_path: String::new(),

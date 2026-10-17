@@ -260,23 +260,25 @@ pub(super) async fn generate(
     messages: &[ChatMessage],
     schema: Value,
     timeout: Duration,
+    telemetry: Option<&crate::inference::RequestTelemetry>,
 ) -> std::result::Result<Value, Failure> {
     let body = payload(model, messages, schema)?;
-    let response = auth::http()?
+    let request = auth::http()?
         .post(format!("{RESOURCE}/responses"))
         .bearer_auth(token)
         .header("Accept", "text/event-stream")
         .timeout(timeout)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|error| {
-            Failure::from(if error.is_timeout() {
-                "ChatGPT 응답 시간이 초과됐어요."
-            } else {
-                "ChatGPT에 연결하지 못했어요."
-            })
-        })?;
+        .json(&body);
+    if let Some(telemetry) = telemetry {
+        telemetry.dispatched();
+    }
+    let response = request.send().await.map_err(|error| {
+        Failure::from(if error.is_timeout() {
+            "ChatGPT 응답 시간이 초과됐어요."
+        } else {
+            "ChatGPT에 연결하지 못했어요."
+        })
+    })?;
     consume_response(response).await
 }
 fn stream_failure(

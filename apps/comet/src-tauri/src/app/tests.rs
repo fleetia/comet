@@ -2339,6 +2339,35 @@ fn scoped_settings_saves_preserve_other_sections_newer_values() {
 }
 
 #[test]
+fn analytics_consent_is_preserved_by_all_unrelated_settings_save_scopes() {
+    for consent in [true, false] {
+        for scope in [
+            None,
+            Some(SettingsScope::Automatic),
+            Some(SettingsScope::Model),
+        ] {
+            let state = state();
+            let saved = Settings {
+                analytics_consent: consent,
+                ..Settings::default()
+            };
+            store::save_settings(&lock(&state.db).unwrap(), &saved).unwrap();
+            let draft = Settings {
+                analytics_consent: !consent,
+                ..saved
+            };
+            apply_settings(&state, &draft, scope, None).unwrap();
+            assert_eq!(
+                store::settings(&lock(&state.db).unwrap())
+                    .unwrap()
+                    .analytics_consent,
+                consent
+            );
+        }
+    }
+}
+
+#[test]
 fn api_provider_switches_preserve_other_profiles_and_cancel_previous_work() {
     let state = state();
     let custom = Settings {

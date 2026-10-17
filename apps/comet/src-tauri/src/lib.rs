@@ -1,3 +1,4 @@
+mod analytics;
 mod app;
 mod app_usage;
 mod app_usage_tracking;
@@ -17,6 +18,7 @@ mod character_sprites;
 mod characters;
 mod chatgpt;
 mod conversation_notes;
+mod crash_analytics;
 mod desktop;
 mod desktop_geometry;
 mod desktop_menu;

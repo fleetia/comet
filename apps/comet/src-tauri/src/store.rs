@@ -67,7 +67,7 @@ pub use search::{memory_page, search_memories};
 pub use users::require_user;
 pub use users::{
     active_user_id, current_user, effective_memory_time, expire_memories, message_user_id,
-    message_user_names, set_user_name, user_identity, MEMORY_LIFETIME_MILLIS,
+    message_user_names, register_user_name, set_user_name, user_identity, MEMORY_LIFETIME_MILLIS,
 };
 
 use crate::types::*;

@@ -70,6 +70,7 @@ pub(super) async fn claude_completion(
     schema: Value,
     budget: GenerationBudget,
     cancel: Arc<AtomicBool>,
+    telemetry: Option<&RequestTelemetry>,
 ) -> Result<Value, String> {
     let mut system: Vec<String> = messages
         .iter()
@@ -121,6 +122,9 @@ pub(super) async fn claude_completion(
         .header("x-api-key", key.unwrap_or_default())
         .timeout(budget.timeout)
         .json(&payload);
+    if let Some(telemetry) = telemetry {
+        telemetry.dispatched();
+    }
     let response = request.send().await.map_err(|error| {
         if error.is_timeout() {
             "API 응답 시간이 초과되었습니다."

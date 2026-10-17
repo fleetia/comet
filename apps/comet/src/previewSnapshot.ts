@@ -27,6 +27,7 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
   conversation: null,
   wordbook: [],
   settings: {
+    analyticsConsent: false,
     mode: "local",
     apiProvider: "custom",
     apiProfiles: {},

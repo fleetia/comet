@@ -13,10 +13,15 @@ use std::sync::{
 };
 
 pub(crate) fn change_user(state: &AppState, name: &str) -> Result<(bool, bool), String> {
-    save_name(state, name, false)
+    save_name(state, name, false, None)
 }
 
-fn save_name(state: &AppState, name: &str, first_only: bool) -> Result<(bool, bool), String> {
+fn save_name(
+    state: &AppState,
+    name: &str,
+    first_only: bool,
+    analytics_consent: Option<bool>,
+) -> Result<(bool, bool), String> {
     let _action = lock(&state.action)?;
     if unavailable(state) {
         return Err("앱을 정리하고 있어요.".into());
@@ -26,7 +31,12 @@ fn save_name(state: &AppState, name: &str, first_only: bool) -> Result<(bool, bo
     if first_only && !first {
         return Err("이미 이름을 등록했어요. 이름 변경은 설정에서 할 수 있어요.".into());
     }
-    let changed = store::set_user_name(&db, name, chrono::Utc::now().timestamp_millis())?;
+    let at = chrono::Utc::now().timestamp_millis();
+    let changed = if first_only {
+        store::register_user_name(&db, name, at, analytics_consent.unwrap_or(false))?
+    } else {
+        store::set_user_name(&db, name, at)?
+    };
     if changed {
         super::interrupt_with_db(state, false, &db)?;
         *lock(&state.panel)? = None;
@@ -53,12 +63,16 @@ pub(crate) fn set_user_name(
 }
 
 #[tauri::command]
-pub(crate) fn register_user_name(
+pub(crate) async fn register_user_name(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     name: String,
+    analytics_consent: Option<bool>,
 ) -> Result<(), String> {
-    save_name(&state, &name, true)?;
+    crate::analytics::commit_consent_change(&app, &state, || {
+        save_name(&state, &name, true, analytics_consent)
+    })
+    .await?;
     publish(&app, &state);
     Ok(())
 }
@@ -175,14 +189,17 @@ mod tests {
     fn initial_registration_keeps_identity_and_rejects_a_stale_second_registration() {
         let state = super::super::tests::state();
         let original = store::active_user_id(&lock(&state.db).unwrap()).unwrap();
-        assert_eq!(save_name(&state, "  민수  ", true).unwrap(), (true, true));
+        assert_eq!(
+            save_name(&state, "  민수  ", true, None).unwrap(),
+            (true, true)
+        );
         let first = store::current_user(&lock(&state.db).unwrap())
             .unwrap()
             .unwrap();
         assert_eq!(first.id, original);
         assert_eq!(first.name, "민수");
         assert!(state.next_idle.load(Ordering::SeqCst) > now());
-        assert!(save_name(&state, "다른 사람", true).is_err());
+        assert!(save_name(&state, "다른 사람", true, None).is_err());
         let current = store::current_user(&lock(&state.db).unwrap())
             .unwrap()
             .unwrap();
@@ -196,14 +213,14 @@ mod tests {
         let (epoch, cancel) = interrupt(&state, true).unwrap();
         assert!(begin_name_prompt(&state, epoch, &cancel).unwrap());
         for name in [" ".to_string(), "별".repeat(41), "이름\n둘".to_string()] {
-            assert!(save_name(&state, &name, true).is_err());
+            assert!(save_name(&state, &name, true, None).is_err());
             assert!(store::current_user(&lock(&state.db).unwrap())
                 .unwrap()
                 .is_none());
             assert_eq!(lock(&state.panel).unwrap().as_ref().unwrap().mode, "name");
         }
         let name = "⭐".repeat(40);
-        save_name(&state, &name, true).unwrap();
+        save_name(&state, &name, true, None).unwrap();
         assert!(lock(&state.panel).unwrap().is_none());
         assert!(cancel.load(Ordering::SeqCst));
         assert_eq!(
@@ -242,7 +259,7 @@ mod tests {
         assert!(!begin_name_prompt(&state, next_epoch, &next_cancel).unwrap());
         state.next_idle.store(0, Ordering::SeqCst);
         assert!(begin_name_prompt(&state, next_epoch, &next_cancel).unwrap());
-        save_name(&state, "친구", true).unwrap();
+        save_name(&state, "친구", true, None).unwrap();
         let (epoch, cancel) = interrupt(&state, true).unwrap();
         state.next_idle.store(0, Ordering::SeqCst);
         assert!(!begin_name_prompt(&state, epoch, &cancel).unwrap());
