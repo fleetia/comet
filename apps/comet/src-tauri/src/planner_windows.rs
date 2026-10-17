@@ -91,6 +91,7 @@ fn open_view(
     .inner_size(1328.0, 820.0)
     .min_inner_size(720.0, 520.0)
     .decorations(false)
+    .transparent(true)
     .disable_drag_drop_handler()
     .build()
     .map_err(|e| e.to_string())?;

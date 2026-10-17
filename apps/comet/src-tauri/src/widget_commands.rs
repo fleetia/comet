@@ -888,7 +888,7 @@ async fn open_widget_inner(
             220.0
         },
     )
-    .transparent(floating)
+    .transparent(true)
     .shadow(!floating)
     .always_on_top(floating)
     .skip_taskbar(floating)

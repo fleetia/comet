@@ -741,6 +741,7 @@ fn open_generated_at(
     .inner_size(360., 420.)
     .min_inner_size(260., 220.)
     .decorations(false)
+    .transparent(true)
     .resizable(true)
     .visible(false)
     .build()
