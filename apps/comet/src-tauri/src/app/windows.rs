@@ -80,10 +80,16 @@ pub(crate) fn open_panel(
     persona: String,
     mode: String,
 ) -> Result<(), String> {
+    if super::chat::focus_history_editor(&app, &state)?.is_some() {
+        return Ok(());
+    }
+    let history = mode == "history";
     let Some(epoch) = begin_panel(&state, &persona, mode)? else {
         return Ok(());
     };
-    desktop::request_balloon_focus(&app)?;
+    if !history {
+        desktop::request_balloon_focus(&app)?;
+    }
     phase(
         &app,
         &state,
@@ -92,6 +98,9 @@ pub(crate) fn open_panel(
         None,
         None,
     );
+    if history {
+        open_conversation_history(&app, &persona)?;
+    }
     state.nlp.warmup();
     Ok(())
 }
@@ -109,6 +118,9 @@ pub(crate) fn begin_panel(
     let epoch = {
         let _action = lock(&state.action)?;
         if unavailable(state) {
+            return Ok(None);
+        }
+        if super::chat::history_editor_active(state)? {
             return Ok(None);
         }
         let db = lock(&state.db)?;
@@ -158,14 +170,49 @@ pub(crate) fn begin_panel(
         };
         super::conversation::retain_waiting_story(state, waiting, token.0)?;
         super::conversation::retain_pack_run(state, &db, waiting_pack, token.0)?;
-        *lock(&state.panel)? = Some(PanelState {
-            persona: persona.into(),
-            mode,
-        });
+        *lock(&state.panel)? = if mode == "history" {
+            schedule_idle(state, store::settings(&db)?.idle_minutes);
+            None
+        } else {
+            Some(PanelState {
+                persona: persona.into(),
+                mode,
+            })
+        };
         state.last_input.store(now(), Ordering::SeqCst);
         token.0
     };
     Ok(Some(epoch))
+}
+
+fn open_conversation_history(app: &tauri::AppHandle, persona: &str) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("conversation-history") {
+        window
+            .emit("conversation-history-persona", persona)
+            .map_err(|error| error.to_string())?;
+        window.unminimize().map_err(|error| error.to_string())?;
+        window.show().map_err(|error| error.to_string())?;
+        return window.set_focus().map_err(|error| error.to_string());
+    }
+    let mut url =
+        tauri::Url::parse("https://comet.local/index.html").map_err(|error| error.to_string())?;
+    url.query_pairs_mut()
+        .append_pair("view", "conversation-history")
+        .append_pair("persona", persona);
+    tauri::WebviewWindowBuilder::new(
+        app,
+        "conversation-history",
+        tauri::WebviewUrl::App(format!("index.html?{}", url.query().unwrap_or_default()).into()),
+    )
+    .title("comet · 지난 대화")
+    .inner_size(1200.0, 788.0)
+    .min_inner_size(800.0, 560.0)
+    .decorations(false)
+    .transparent(true)
+    .disable_drag_drop_handler()
+    .build()
+    .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -271,8 +318,9 @@ pub(crate) async fn resize_balloon(
     height: f64,
     content_key: String,
     orbit_anchor: Option<desktop::OrbitAnchor>,
+    surface: Option<desktop::BalloonSurface>,
 ) -> Result<desktop::BalloonPlacement, String> {
-    desktop::resize_balloon(&app, width, height, &content_key, orbit_anchor).await
+    desktop::resize_balloon(&app, width, height, &content_key, orbit_anchor, surface).await
 }
 
 #[tauri::command]

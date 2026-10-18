@@ -11,6 +11,7 @@ export function useBalloonSizing(
   imageReady: boolean,
   fontKey: string,
   onError: (error: string) => void,
+  surface?: "input",
 ) {
   const elementRef = useRef<HTMLElement>(null);
   const [measuredKey, setMeasuredKey] = useState<string | null>(null);
@@ -18,7 +19,8 @@ export function useBalloonSizing(
   const native =
     !preview &&
     isDesktop() &&
-    new URLSearchParams(window.location.search).get("view") === "balloon";
+    new URLSearchParams(window.location.search).get("view") ===
+      (surface === "input" ? "conversation-input" : "balloon");
   useLayoutEffect(() => {
     const element = elementRef.current;
     if (!element || !native) return;
@@ -50,7 +52,10 @@ export function useBalloonSizing(
       if (!active) return;
       const rect = element!.getBoundingClientRect();
       const anchor = element!.querySelector<HTMLElement>("[data-character-orbit-anchor]");
-      const width = Math.min(anchor ? 640 : 320, Math.max(48, Math.ceil(rect.width)));
+      const width = Math.min(
+        anchor ? 640 : surface === "input" ? 520 : 340,
+        Math.max(48, Math.ceil(rect.width)),
+      );
       const height = Math.min(anchor ? 600 : 520, Math.max(32, Math.ceil(rect.height)));
       const anchorRect = anchor?.getBoundingClientRect();
       requestedAnchor = anchorRect
@@ -70,6 +75,7 @@ export function useBalloonSizing(
         width,
         height,
         contentKey,
+        ...(surface ? { surface } : {}),
         ...(requestedAnchor ? { orbitAnchor: requestedAnchor } : {}),
       })
         .then((placement) => {
@@ -106,6 +112,6 @@ export function useBalloonSizing(
       unlisten?.();
       window.cancelAnimationFrame(frame);
     };
-  }, [native, contentKey, imageReady, fontKey, onError]);
+  }, [native, contentKey, imageReady, fontKey, onError, surface]);
   return { elementRef, ready: !native || measuredKey === contentKey, orbitAnchor, native };
 }

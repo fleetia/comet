@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createRef } from "react";
 import { Balloon, ConstellationChoices, InputCapsule } from "./Conversation";
 import { OrbitBranch, OrbitExpandedMenu, OrbitNode } from "./Orbit";
 import { fold } from "./orbit.css";
@@ -33,6 +34,70 @@ describe("conversation primitives", () => {
     );
     await user.click(screen.getByRole("button", { name: "보내는 중" }));
     expect(send).toHaveBeenCalledTimes(1);
+  });
+  it("forwards the app textarea ref, limits and composition handlers in a large capsule", () => {
+    const inputRef = createRef<HTMLTextAreaElement>();
+    const change = vi.fn();
+    const compositionStart = vi.fn();
+    const compositionEnd = vi.fn();
+    const keyDown = vi.fn();
+    render(
+      <InputCapsule
+        form="large"
+        asTextarea
+        inputRef={inputRef}
+        value="초안"
+        onValueChange={change}
+        textareaProps={{
+          maxLength: 2000,
+          onCompositionStart: compositionStart,
+          onCompositionEnd: compositionEnd,
+          onKeyDown: keyDown,
+          className: "reply-input",
+        }}
+      />,
+    );
+    const field = screen.getByRole("textbox", { name: "메시지" });
+    expect(inputRef.current).toBe(field);
+    expect(field.getAttribute("rows")).toBe("1");
+    expect(field.getAttribute("maxlength")).toBe("2000");
+    expect(field.classList.contains("reply-input")).toBe(true);
+    fireEvent.compositionStart(field);
+    fireEvent.change(field, { target: { value: "  한글\n초안 " } });
+    fireEvent.keyDown(field, { key: "Enter", isComposing: true });
+    fireEvent.compositionEnd(field);
+    expect(compositionStart).toHaveBeenCalledOnce();
+    expect(compositionEnd).toHaveBeenCalledOnce();
+    expect(keyDown).toHaveBeenCalledOnce();
+    expect(change).toHaveBeenCalledWith("  한글\n초안 ");
+  });
+  it("can keep a draft editable while submission is blocked or sending", () => {
+    const send = vi.fn();
+    const inputRef = createRef<HTMLTextAreaElement>();
+    const props = {
+      asTextarea: true,
+      inputRef,
+      defaultValue: "다음 초안",
+      onSend: send,
+      "aria-label": "답장 작성",
+    };
+    const { rerender } = render(<InputCapsule {...props} sendDisabled />);
+    const field = screen.getByRole("textbox", { name: "메시지" });
+    const form = screen.getByRole("form", { name: "답장 작성" });
+    expect(inputRef.current?.disabled).toBe(false);
+    fireEvent.submit(form);
+    expect(send).not.toHaveBeenCalled();
+    rerender(<InputCapsule {...props} sending disableInputWhileSending={false} />);
+    expect(inputRef.current?.disabled).toBe(false);
+    fireEvent.change(field, { target: { value: "  다음 초안\n계속 " } });
+    fireEvent.submit(form);
+    expect(send).not.toHaveBeenCalled();
+    rerender(<InputCapsule {...props} />);
+    fireEvent.submit(form);
+    expect(send).toHaveBeenCalledWith("  다음 초안\n계속 ");
+    expect(inputRef.current?.value).toBe("  다음 초안\n계속 ");
+    rerender(<InputCapsule {...props} disabled disableInputWhileSending={false} />);
+    expect(inputRef.current?.disabled).toBe(true);
   });
   it("shows speaker, original whitespace and typing status without losing its text", () => {
     render(

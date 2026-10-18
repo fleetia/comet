@@ -3,6 +3,8 @@ import { Button } from "./ui";
 import { CompanionBox } from "./components/CompanionBox/CompanionBox";
 import { FaceTag } from "./components/FaceTag/FaceTag";
 import { Balloon } from "./components/Balloon/Balloon";
+import { ConversationResponse } from "./components/Balloon/ConversationResponse";
+import { ConversationHistoryWindow } from "./components/Balloon/ConversationHistoryWindow";
 import { DesktopPreview } from "./components/DesktopPreview/DesktopPreview";
 import { DesktopToy } from "./components/DesktopToy/DesktopToy";
 import { SettingsPanel } from "./components/SettingsPanel/SettingsPanel";
@@ -59,15 +61,19 @@ export function App(): JSX.Element {
                     ? "캐릭터"
                     : view === "widgets"
                       ? "위젯"
-                      : undefined
+                      : view === "conversation-history"
+                        ? "지난 대화"
+                        : undefined
             }
             onClose={
-              view === "settings" ||
-              view === "characters" ||
-              view === "widgets" ||
-              view === "launcher"
-                ? undefined
-                : () => command(view === "balloon" ? "skip_talk" : "hide_boxes")
+              view === "conversation-history"
+                ? () => command("release_conversation_history")
+                : view === "settings" ||
+                    view === "characters" ||
+                    view === "widgets" ||
+                    view === "launcher"
+                  ? undefined
+                  : () => command(view === "balloon" ? "skip_talk" : "hide_boxes")
             }
           >
             <span className={s.eyebrow}>comet</span>
@@ -88,12 +94,30 @@ export function App(): JSX.Element {
     );
   }
   if (view === "launcher") return <Launcher snapshot={snapshot} />;
+  if (view === "conversation-history") {
+    return (
+      <ConversationHistoryWindow
+        snapshot={snapshot}
+        initialPersona={query.get("persona") ?? undefined}
+      />
+    );
+  }
+  if (view === "conversation-input") {
+    return snapshot.panel?.mode === "input" ? (
+      <Balloon snapshot={snapshot} surface="input" />
+    ) : (
+      <></>
+    );
+  }
   if (view === "settings" || view === "characters" || view === "widgets") {
     return (
       <SettingsPanel snapshot={snapshot} initialSection={view === "settings" ? undefined : view} />
     );
   }
   if (query.get("view") === "balloon") {
+    if (snapshot.panel?.mode === "input" || snapshot.panel?.mode === "history-input") {
+      return <ConversationResponse snapshot={snapshot} />;
+    }
     return <Balloon snapshot={snapshot} />;
   }
   const face = query.get("face");

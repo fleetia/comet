@@ -91,6 +91,34 @@ it("sends final width and height with the current content key, deduplicates and 
   expect(disconnect).toHaveBeenCalledTimes(1);
 });
 
+it("measures the separate input webview without replacing the response measurement", async () => {
+  window.history.replaceState(null, "", "/?view=conversation-input");
+  vi.stubGlobal(
+    "ResizeObserver",
+    vi.fn(function () {
+      return { observe: vi.fn(), disconnect: vi.fn() };
+    }),
+  );
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(0, 0, 340, 100),
+  );
+  vi.mocked(command).mockResolvedValue(undefined);
+  render(
+    <Balloon
+      surface="input"
+      snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "a", mode: "input" } }}
+    />,
+  );
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("resize_balloon", {
+      width: 340,
+      height: 100,
+      contentKey: "panel:a:input",
+      surface: "input",
+    }),
+  );
+});
+
 it("waits for fonts and discards a previous content measurement before acknowledging the next panel", async () => {
   window.history.replaceState(null, "", "/?view=balloon");
   let fontsReady!: () => void;
@@ -300,7 +328,7 @@ it("preserves wide anchored branches and clears the anchor for an ordinary panel
   rerender(<Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "a", mode: "input" } }} />);
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("resize_balloon", {
-      width: 320,
+      width: 340,
       height: 500,
       contentKey: "panel:a:input",
     }),

@@ -366,7 +366,14 @@ pub fn run() {
                 }
                 return;
             }
-            if window.label() == "balloon" {
+            if window.label() == "conversation-history" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    // The webview flushes its draft before release_conversation_history hides it.
+                    api.prevent_close();
+                }
+                return;
+            }
+            if matches!(window.label(), "balloon" | "conversation-input") {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let app = window.app_handle();
@@ -696,6 +703,7 @@ pub fn run() {
             windows::open_panel,
             super::chat::open_reply,
             super::chat::resume_chat,
+            super::chat::release_conversation_history,
             super::chat::finish_conversation,
             super::chat::save_conversation_draft,
             super::chat::discuss_music_widget,

@@ -13,6 +13,12 @@ pub(crate) struct OrbitAnchor {
     pub y: f64,
 }
 
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum BalloonSurface {
+    Input,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct BalloonPlacement {
@@ -335,7 +341,7 @@ fn clamp_position(x: f64, y: f64, width: f64, height: f64, area: Rect) -> (f64, 
 }
 
 fn balloon_rect(body: Rect, area: Rect, scale: f64, size: (f64, f64)) -> Rect {
-    let width = (size.0.clamp(48.0, 320.0) * scale).min(area.width);
+    let width = (size.0.clamp(48.0, 340.0) * scale).min(area.width);
     let height = (size.1.clamp(32.0, 520.0) * scale).min(area.height);
     let gap = 8.0 * scale;
     let above = body.y - height - gap;
@@ -351,6 +357,94 @@ fn balloon_rect(body: Rect, area: Rect, scale: f64, size: (f64, f64)) -> Rect {
         width,
         height,
     }
+}
+
+fn regions_around(area: Rect, obstacle: Rect, gap: f64) -> Vec<Rect> {
+    let left = (obstacle.x - gap).clamp(area.x, area.x + area.width);
+    let right = (obstacle.x + obstacle.width + gap).clamp(area.x, area.x + area.width);
+    let top = (obstacle.y - gap).clamp(area.y, area.y + area.height);
+    let bottom = (obstacle.y + obstacle.height + gap).clamp(area.y, area.y + area.height);
+    if right <= area.x
+        || left >= area.x + area.width
+        || bottom <= area.y
+        || top >= area.y + area.height
+    {
+        return vec![area];
+    }
+    vec![
+        Rect {
+            height: top - area.y,
+            ..area
+        },
+        Rect {
+            y: bottom,
+            height: area.y + area.height - bottom,
+            ..area
+        },
+        Rect {
+            width: left - area.x,
+            ..area
+        },
+        Rect {
+            x: right,
+            width: area.x + area.width - right,
+            ..area
+        },
+    ]
+}
+
+// Separate native windows leave the real character clickable between the reply and composer.
+fn conversation_rect(
+    body: Rect,
+    area: Rect,
+    scale: f64,
+    size: (f64, f64),
+    below: bool,
+    response: Option<Rect>,
+) -> Option<Rect> {
+    let gap = 8.0 * scale;
+    let width = (size.0 * scale).min(area.width);
+    let height = (size.1 * scale).min(area.height);
+    let desired_x = body.x + (body.width - width) / 2.0;
+    let desired_y = if below {
+        body.y + body.height + gap
+    } else {
+        body.y - height - gap
+    };
+    let regions = regions_around(area, body, gap);
+    let regions = if let Some(response) = response {
+        regions
+            .into_iter()
+            .flat_map(|region| regions_around(region, response, gap))
+            .collect()
+    } else {
+        regions
+    };
+    regions
+        .into_iter()
+        .filter(|region| region.width >= 48.0 * scale && region.height >= 32.0 * scale)
+        .map(|region| {
+            let width = width.min(region.width);
+            let height = height.min(region.height);
+            let (x, y) = clamp_position(desired_x, desired_y, width, height, region);
+            Rect {
+                x,
+                y,
+                width,
+                height,
+            }
+        })
+        .max_by(|left, right| {
+            let score = |rect: &Rect| {
+                (
+                    rect.width * rect.height,
+                    -((rect.x - desired_x).abs() + (rect.y - desired_y).abs()),
+                )
+            };
+            score(left)
+                .partial_cmp(&score(right))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
 }
 
 fn balloon_placement(
@@ -1016,7 +1110,9 @@ fn balloon_target(
     let owner = owner_id(runtime, panel, story, playback, active)?.to_owned();
     let key = if let Some(panel) = panel {
         let base = format!("panel:{}:{}", panel.persona, panel.mode);
-        if let Some(line) = playback.filter(|_| matches!(panel.mode.as_str(), "input" | "update")) {
+        if let Some(line) =
+            playback.filter(|_| matches!(panel.mode.as_str(), "input" | "history-input" | "update"))
+        {
             format!("{base}:playback:{}", line.id)
         } else {
             base
@@ -1044,6 +1140,7 @@ fn balloon_target(
 struct BalloonLayout {
     target: Option<BalloonTarget>,
     size: Option<(f64, f64)>,
+    input_size: Option<(f64, f64)>,
     orbit_anchor: Option<OrbitAnchor>,
     focus_requested: bool,
     keep_visible_during_measurement: bool,
@@ -1059,6 +1156,16 @@ impl BalloonLayout {
                     previous.key == current.key && previous.owner == current.owner
                 });
         if !same_content {
+            if !self
+                .target
+                .as_ref()
+                .zip(target.as_ref())
+                .is_some_and(|(previous, current)| {
+                    previous.input && current.input && previous.owner == current.owner
+                })
+            {
+                self.input_size = None;
+            }
             self.keep_visible_during_measurement = !self.focus_requested
                 && (self.size.is_some() || self.keep_visible_during_measurement)
                 && self.target.as_ref().is_some_and(|previous| previous.input)
@@ -1097,6 +1204,15 @@ impl BalloonLayout {
         self.keep_visible_during_measurement = false;
         true
     }
+
+    fn measured_input(&mut self, target: BalloonTarget, key: &str, size: (f64, f64)) -> bool {
+        if target.key != key || !target.input {
+            return false;
+        }
+        self.sync(Some(target));
+        self.input_size = Some(size);
+        true
+    }
 }
 
 fn balloon_layout(app: &AppHandle) -> tauri::State<'_, Mutex<BalloonLayout>> {
@@ -1118,7 +1234,7 @@ fn measured_balloon_size(width: f64, height: f64, orbit: bool) -> Result<(f64, f
     let maximum = if orbit {
         ORBIT_MAX_SIZE
     } else {
-        (320.0, 520.0)
+        (340.0, 520.0)
     };
     Ok((width.clamp(48.0, maximum.0), height.clamp(32.0, maximum.1)))
 }
@@ -1146,15 +1262,28 @@ fn validate_orbit_anchor(
 }
 
 pub(crate) fn get_balloon(app: &AppHandle) -> Result<WebviewWindow, String> {
-    if let Some(window) = app.get_webview_window("balloon") {
+    get_conversation_surface(app, false)
+}
+
+fn get_conversation_surface(app: &AppHandle, input: bool) -> Result<WebviewWindow, String> {
+    let label = if input {
+        "conversation-input"
+    } else {
+        "balloon"
+    };
+    if let Some(window) = app.get_webview_window(label) {
         return Ok(window);
     }
     tauri::WebviewWindowBuilder::new(
         app,
-        "balloon",
-        tauri::WebviewUrl::App("index.html?view=balloon".into()),
+        label,
+        tauri::WebviewUrl::App(format!("index.html?view={label}").into()),
     )
-    .title("comet · 말풍선")
+    .title(if input {
+        "comet · 말 걸기"
+    } else {
+        "comet · 말풍선"
+    })
     .inner_size(320.0, 180.0)
     .decorations(false)
     .transparent(true)
@@ -1169,13 +1298,7 @@ pub(crate) fn get_balloon(app: &AppHandle) -> Result<WebviewWindow, String> {
     .map_err(|e| e.to_string())
 }
 
-fn position_balloon(
-    app: &AppHandle,
-    window: &WebviewWindow,
-    id: &str,
-    size: (f64, f64),
-    orbit_anchor: Option<OrbitAnchor>,
-) -> Result<BalloonPlacement, String> {
+fn balloon_owner_geometry(app: &AppHandle, id: &str) -> Result<(Rect, Rect, f64), String> {
     let body = app
         .get_webview_window(&body_label(id))
         .ok_or("캐릭터 창이 없습니다.")?;
@@ -1186,7 +1309,7 @@ fn position_balloon(
         .ok_or("화면 영역을 확인할 수 없습니다.")?;
     let position = body.outer_position().map_err(|e| e.to_string())?;
     let body_size = body.outer_size().map_err(|e| e.to_string())?;
-    let (rect, placement) = balloon_placement(
+    Ok((
         Rect {
             x: position.x as f64,
             y: position.y as f64,
@@ -1195,9 +1318,10 @@ fn position_balloon(
         },
         work_area(&monitor),
         monitor.scale_factor(),
-        size,
-        orbit_anchor,
-    );
+    ))
+}
+
+fn set_window_rect(window: &WebviewWindow, rect: Rect) -> Result<(), String> {
     window
         .set_position(PhysicalPosition::new(
             rect.x.round() as i32,
@@ -1210,7 +1334,56 @@ fn position_balloon(
             rect.height.round() as u32,
         ))
         .map_err(|e| e.to_string())?;
-    Ok(placement)
+    Ok(())
+}
+
+fn position_balloon(
+    app: &AppHandle,
+    window: &WebviewWindow,
+    id: &str,
+    size: (f64, f64),
+    orbit_anchor: Option<OrbitAnchor>,
+    conversation: bool,
+) -> Result<Option<BalloonPlacement>, String> {
+    let (body, area, scale) = balloon_owner_geometry(app, id)?;
+    let (rect, placement) = if conversation {
+        let Some(rect) = conversation_rect(body, area, scale, size, false, None) else {
+            window.hide().map_err(|error| error.to_string())?;
+            return Ok(None);
+        };
+        (rect, BalloonPlacement::default())
+    } else {
+        balloon_placement(body, area, scale, size, orbit_anchor)
+    };
+    set_window_rect(window, rect)?;
+    Ok(Some(placement))
+}
+
+fn show_conversation_surface(window: &WebviewWindow) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let pointer = window.ns_window().map_err(|error| error.to_string())?;
+        unsafe {
+            let native = &*(pointer as *mut objc2::runtime::AnyObject);
+            let _: () =
+                objc2::msg_send![native, orderFront: std::ptr::null::<objc2::runtime::AnyObject>()];
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let handle = window.hwnd().map_err(|error| error.to_string())?;
+        unsafe {
+            windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(
+                handle.0 as _,
+                windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNOACTIVATE,
+            );
+        }
+    }
+    #[cfg(target_os = "linux")]
+    show_linux_passive(window)?;
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    window.show().map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, String> {
@@ -1269,9 +1442,12 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
     drop((runtime, presence, guests));
     let target = if super::unavailable(&state)
         || (crate::widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?
-            && panel
-                .as_ref()
-                .is_none_or(|panel| matches!(panel.mode.as_str(), "input" | "name" | "update")))
+            && panel.as_ref().is_none_or(|panel| {
+                matches!(
+                    panel.mode.as_str(),
+                    "input" | "history-input" | "name" | "update"
+                )
+            }))
         || crate::app::quiet_hours::playback_blocked(&state, &store::settings(&db)?, status.paused)?
     {
         None
@@ -1286,12 +1462,37 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         )
         .filter(|target| present.contains(&target.owner))
     };
+    let input = panel.as_ref().is_some_and(|panel| panel.mode == "input");
+    let conversation = panel
+        .as_ref()
+        .is_some_and(|panel| matches!(panel.mode.as_str(), "input" | "history-input"));
     drop(panel);
     let layout = balloon_layout(app);
     let Ok(mut layout) = layout.try_lock() else {
         return Ok(None);
     };
     let size = layout.sync(target.clone());
+    if let Some(input_window) = app.get_webview_window("conversation-input") {
+        if let Some((target, input_size)) = target.as_ref().zip(layout.input_size).filter(|_| input)
+        {
+            let (body, area, scale) = balloon_owner_geometry(app, &target.owner)?;
+            let response =
+                size.and_then(|size| conversation_rect(body, area, scale, size, false, None));
+            if let Some(rect) = conversation_rect(body, area, scale, input_size, true, response) {
+                set_window_rect(&input_window, rect)?;
+                show_conversation_surface(&input_window)?;
+                if std::mem::take(&mut layout.focus_requested) {
+                    input_window
+                        .set_focus()
+                        .map_err(|error| error.to_string())?;
+                }
+            } else {
+                input_window.hide().map_err(|error| error.to_string())?;
+            }
+        } else {
+            input_window.hide().map_err(|error| error.to_string())?;
+        }
+    }
     let Some(window) = app.get_webview_window("balloon") else {
         return Ok(Some(BalloonPlacement::default()));
     };
@@ -1315,7 +1516,17 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         }
         return Ok(Some(BalloonPlacement::default()));
     };
-    let placement = position_balloon(app, &window, &target.owner, size, layout.orbit_anchor)?;
+    let Some(placement) = position_balloon(
+        app,
+        &window,
+        &target.owner,
+        size,
+        layout.orbit_anchor,
+        conversation,
+    )?
+    else {
+        return Ok(Some(BalloonPlacement::default()));
+    };
     window
         .emit(
             "balloon-orbit-anchor",
@@ -1325,30 +1536,8 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
             },
         )
         .map_err(|error| error.to_string())?;
-    #[cfg(target_os = "macos")]
-    {
-        let pointer = window.ns_window().map_err(|error| error.to_string())?;
-        unsafe {
-            let native = &*(pointer as *mut objc2::runtime::AnyObject);
-            let _: () =
-                objc2::msg_send![native, orderFront: std::ptr::null::<objc2::runtime::AnyObject>()];
-        }
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let handle = window.hwnd().map_err(|error| error.to_string())?;
-        unsafe {
-            windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(
-                handle.0 as _,
-                windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNOACTIVATE,
-            );
-        }
-    }
-    #[cfg(target_os = "linux")]
-    show_linux_passive(&window)?;
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-    window.show().map_err(|error| error.to_string())?;
-    if layout.take_focus_request() {
+    show_conversation_surface(&window)?;
+    if !input && layout.take_focus_request() {
         window.set_focus().map_err(|error| error.to_string())?;
     }
     drop(layout);
@@ -1359,6 +1548,9 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
             || target
                 .key
                 .ends_with(&format!(":input:playback:{}", line.id))
+            || target
+                .key
+                .ends_with(&format!(":history-input:playback:{}", line.id))
             || target
                 .key
                 .ends_with(&format!(":update:playback:{}", line.id))
@@ -1427,8 +1619,18 @@ async fn await_balloon_sync(
 
 pub(crate) fn sync_balloon(app: &AppHandle, snapshot: &Snapshot) {
     let _ = balloon_layout(app);
-    if owner(snapshot).is_some() && get_balloon(app).is_err() {
-        return;
+    if owner(snapshot).is_some() {
+        if get_balloon(app).is_err() {
+            return;
+        }
+        if snapshot
+            .panel
+            .as_ref()
+            .is_some_and(|panel| panel.mode == "input")
+            && get_conversation_surface(app, true).is_err()
+        {
+            return;
+        }
     }
     if let Ok(pending) = sync_measured_balloon(app) {
         let app = app.clone();
@@ -1444,8 +1646,17 @@ pub(crate) async fn resize_balloon(
     height: f64,
     content_key: &str,
     orbit_anchor: Option<OrbitAnchor>,
+    surface: Option<BalloonSurface>,
 ) -> Result<BalloonPlacement, String> {
-    let size = measured_balloon_size(width, height, orbit_anchor.is_some())?;
+    let input = matches!(surface, Some(BalloonSurface::Input));
+    let size = if input {
+        if !width.is_finite() || !height.is_finite() || orbit_anchor.is_some() {
+            return Err("입력 캡슐 크기가 올바르지 않습니다.".into());
+        }
+        (width.clamp(48.0, 520.0), height.clamp(32.0, 520.0))
+    } else {
+        measured_balloon_size(width, height, orbit_anchor.is_some())?
+    };
     let state = app.state::<Arc<AppState>>();
     {
         let _action = super::lock(&state.action)?;
@@ -1472,16 +1683,28 @@ pub(crate) async fn resize_balloon(
         if target.key != content_key {
             return Ok(BalloonPlacement::default());
         }
-        validate_orbit_anchor(
-            orbit_anchor,
-            size,
-            snapshot
+        if input {
+            if !snapshot
                 .panel
                 .as_ref()
-                .is_some_and(|panel| panel.mode == "menu"),
-        )?;
-        if !super::lock(&balloon_layout(app))?.measured(target, content_key, size, orbit_anchor) {
-            return Ok(BalloonPlacement::default());
+                .is_some_and(|panel| panel.mode == "input")
+                || !super::lock(&balloon_layout(app))?.measured_input(target, content_key, size)
+            {
+                return Ok(BalloonPlacement::default());
+            }
+        } else {
+            validate_orbit_anchor(
+                orbit_anchor,
+                size,
+                snapshot
+                    .panel
+                    .as_ref()
+                    .is_some_and(|panel| panel.mode == "menu"),
+            )?;
+            if !super::lock(&balloon_layout(app))?.measured(target, content_key, size, orbit_anchor)
+            {
+                return Ok(BalloonPlacement::default());
+            }
         }
     }
     await_balloon_sync(app, sync_measured_balloon(app)?).await
@@ -1490,6 +1713,108 @@ pub(crate) async fn resize_balloon(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn overlaps(left: Rect, right: Rect) -> bool {
+        left.x < right.x + right.width
+            && right.x < left.x + left.width
+            && left.y < right.y + right.height
+            && right.y < left.y + left.height
+    }
+
+    #[test]
+    fn conversation_surfaces_prefer_above_and_below_the_real_character() {
+        let area = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1200.0,
+            height: 900.0,
+        };
+        let body = Rect {
+            x: 500.0,
+            y: 400.0,
+            width: 112.0,
+            height: 88.0,
+        };
+        let response = conversation_rect(body, area, 1.0, (340.0, 120.0), false, None).unwrap();
+        let input =
+            conversation_rect(body, area, 1.0, (340.0, 54.0), true, Some(response)).unwrap();
+        assert_eq!((response.width, response.height), (340.0, 120.0));
+        assert_eq!(response.y + response.height, body.y - 8.0);
+        assert_eq!((input.width, input.height), (340.0, 54.0));
+        assert_eq!(input.y, body.y + body.height + 8.0);
+        assert!(!overlaps(response, body));
+        assert!(!overlaps(input, body));
+        assert!(!overlaps(input, response));
+    }
+
+    #[test]
+    fn conversation_surfaces_stay_on_screen_without_covering_character_or_each_other_at_edges() {
+        for scale in [1.0, 2.0] {
+            let area = Rect {
+                x: -1200.0,
+                y: 40.0,
+                width: 1200.0 * scale,
+                height: 900.0 * scale,
+            };
+            for (horizontal, vertical) in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)] {
+                let body = Rect {
+                    x: area.x + horizontal * (area.width - 112.0 * scale),
+                    y: area.y + vertical * (area.height - 88.0 * scale),
+                    width: 112.0 * scale,
+                    height: 88.0 * scale,
+                };
+                let response =
+                    conversation_rect(body, area, scale, (340.0, 520.0), false, None).unwrap();
+                let input =
+                    conversation_rect(body, area, scale, (340.0, 220.0), true, Some(response))
+                        .unwrap();
+                for rect in [response, input] {
+                    assert!(rect.x >= area.x && rect.y >= area.y);
+                    assert!(rect.x + rect.width <= area.x + area.width);
+                    assert!(rect.y + rect.height <= area.y + area.height);
+                    assert!(!overlaps(rect, body));
+                }
+                assert!(!overlaps(input, response));
+            }
+        }
+        let area = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 80.0,
+        };
+        assert!(conversation_rect(area, area, 1.0, (340.0, 54.0), true, None).is_none());
+    }
+
+    #[test]
+    fn input_measurements_survive_reply_changes_but_not_history_handoffs_or_stale_content() {
+        let mut layout = BalloonLayout::default();
+        let panel = BalloonTarget {
+            key: "panel:a:input".into(),
+            owner: "a".into(),
+            epoch: 1,
+            input: true,
+        };
+        assert!(!layout.measured_input(panel.clone(), "old", (340.0, 54.0)));
+        assert!(layout.measured_input(panel.clone(), &panel.key, (340.0, 54.0)));
+        assert!(layout.size.is_none());
+        let reply = BalloonTarget {
+            key: "panel:a:input:playback:reply".into(),
+            ..panel.clone()
+        };
+        layout.sync(Some(reply));
+        assert_eq!(layout.input_size, Some((340.0, 54.0)));
+        let history = BalloonTarget {
+            key: "panel:a:history-input".into(),
+            input: false,
+            ..panel.clone()
+        };
+        layout.sync(Some(history.clone()));
+        assert!(layout.input_size.is_none());
+        assert!(!layout.measured_input(history.clone(), &history.key, (340.0, 54.0)));
+        layout.sync(Some(panel));
+        assert!(layout.input_size.is_none());
+    }
 
     #[cfg(target_os = "linux")]
     #[test]
@@ -2309,7 +2634,7 @@ mod tests {
         );
         assert_eq!(
             measured_balloon_size(1000.0, 1000.0, false).unwrap(),
-            (320.0, 520.0)
+            (340.0, 520.0)
         );
         assert_eq!(
             measured_balloon_size(82.5, 39.5, false).unwrap(),
@@ -2322,7 +2647,7 @@ mod tests {
         let expanded = measured_balloon_size(900.0, 900.0, true).unwrap();
         let normal = measured_balloon_size(900.0, 900.0, false).unwrap();
         assert_eq!(expanded, (640.0, 600.0));
-        assert_eq!(normal, (320.0, 520.0));
+        assert_eq!(normal, (340.0, 520.0));
         let anchor = Some(OrbitAnchor { x: 500.0, y: 550.0 });
         assert!(validate_orbit_anchor(anchor, expanded, true).is_ok());
         assert!(validate_orbit_anchor(anchor, expanded, false).is_err());

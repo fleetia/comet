@@ -166,15 +166,38 @@ pub fn active_conversation(conn: &Connection) -> Result<Option<ConversationSessi
 }
 
 pub fn conversations(conn: &Connection, character_id: &str) -> Result<Vec<ConversationSession>> {
+    conversation_history(conn, Some(character_id), None)
+}
+
+pub fn conversation_history(
+    conn: &Connection,
+    character_id: Option<&str>,
+    query: Option<&str>,
+) -> Result<Vec<ConversationSession>> {
     let mut statement = conn
         .prepare(&format!(
             "SELECT {SESSION_FIELDS} FROM conversation_sessions
-         WHERE user_id=?1 AND EXISTS(SELECT 1 FROM json_each(participants) WHERE value=?2)
+         WHERE user_id=?1
+           AND (?2 IS NULL OR EXISTS(SELECT 1 FROM json_each(participants) WHERE value=?2))
+           AND (?3='' OR instr(lower(title),lower(?3))>0 OR instr(lower(draft),lower(?3))>0
+             OR EXISTS(SELECT 1 FROM conversation_messages cm JOIN messages m ON m.id=cm.message_id
+               JOIN message_users mu ON mu.message_id=m.id
+               WHERE cm.conversation_id=conversation_sessions.id AND mu.user_id=?1
+                 AND (NOT EXISTS(SELECT 1 FROM message_playback p WHERE p.message_id=m.id)
+                   OR EXISTS(SELECT 1 FROM message_presentations p WHERE p.message_id=m.id))
+                 AND instr(lower(json_extract(m.data,'$.content')),lower(?3))>0))
          ORDER BY updated_at DESC,rowid DESC"
         ))
         .map_err(err)?;
     let result = statement
-        .query_map(params![active_user_id(conn)?, character_id], session_row)
+        .query_map(
+            params![
+                active_user_id(conn)?,
+                character_id,
+                query.unwrap_or_default().trim()
+            ],
+            session_row,
+        )
         .map_err(err)?
         .collect::<rusqlite::Result<_>>()
         .map_err(err);
@@ -783,6 +806,68 @@ mod tests {
 
     fn ids(messages: &[Message]) -> Vec<&str> {
         messages.iter().map(|message| message.id.as_str()).collect()
+    }
+
+    #[test]
+    fn history_search_spans_personas_and_visible_messages_but_keeps_active_user_scope() {
+        let db = store::open(Path::new(":memory:")).unwrap();
+        store::set_user_name(&db, "대화 검사", 1).unwrap();
+        let first = start(&db);
+        append(&db, &first, &message("title", "user", "a", "처음 제목"));
+        append(
+            &db,
+            &first,
+            &message("deep", "user", "a", "두 번째 내용 100% LITERAL"),
+        );
+        append(
+            &db,
+            &first,
+            &message("hidden", "assistant", "a", "아직 표시하지 않은 비밀답변"),
+        );
+        db.execute(
+            "INSERT INTO message_playback(message_id,revision,line) VALUES('hidden',1,'{}')",
+            [],
+        )
+        .unwrap();
+        let second = create_conversation(&db, &["builtin-b".into()], None, None, 2).unwrap();
+        save_conversation_draft(&db, &second.id, "  두 번째 초안  ").unwrap();
+        assert_eq!(conversation_history(&db, None, None).unwrap().len(), 2);
+        assert_eq!(
+            conversation_history(&db, Some("builtin-b"), None).unwrap()[0].id,
+            second.id
+        );
+        assert_eq!(
+            conversation_history(&db, None, Some(" literal ")).unwrap()[0].id,
+            first.id
+        );
+        assert_eq!(
+            conversation_history(&db, None, Some("% LITERAL")).unwrap()[0].id,
+            first.id
+        );
+        assert!(conversation_history(&db, None, Some("%nomatch"))
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            conversation_history(&db, None, Some("초안")).unwrap()[0].id,
+            second.id
+        );
+        assert_eq!(
+            conversation_history(&db, None, Some("처음 제목")).unwrap()[0].id,
+            first.id
+        );
+        assert!(conversation_history(&db, None, Some("비밀답변"))
+            .unwrap()
+            .is_empty());
+        store::mark_message_displayed(&db, "hidden", 3).unwrap();
+        assert_eq!(
+            conversation_history(&db, None, Some("비밀답변")).unwrap()[0].id,
+            first.id
+        );
+        store::set_user_name(&db, "다른 사용자", 4).unwrap();
+        assert!(conversation_history(&db, None, None).unwrap().is_empty());
+        assert!(conversation_history(&db, None, Some("초안"))
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

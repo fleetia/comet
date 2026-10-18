@@ -17,7 +17,7 @@ import * as ui from "../../common.css";
 
 const sentenceSegmenter = new Intl.Segmenter("ko", { granularity: "sentence" });
 
-function draftPreview(draft: string): string {
+export function draftPreview(draft: string): string {
   const text = draft.replace(/\s+/g, " ").trim();
   return Array.from(sentenceSegmenter.segment(text))[0]?.segment.trim() ?? "";
 }

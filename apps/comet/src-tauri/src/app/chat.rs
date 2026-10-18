@@ -6,6 +6,7 @@ use crate::{
     types::{PanelState, RuntimePhase},
 };
 use std::sync::{atomic::Ordering, Arc};
+use tauri::Manager;
 
 #[tauri::command]
 pub(crate) fn open_reply(
@@ -13,6 +14,9 @@ pub(crate) fn open_reply(
     state: tauri::State<'_, Arc<AppState>>,
     playback_id: String,
 ) -> Result<(), String> {
+    if focus_history_editor(&app, &state)?.is_some() {
+        return Ok(());
+    }
     let epoch = begin_reply(&state, &playback_id)?;
     crate::desktop::request_balloon_focus(&app)?;
     phase(&app, &state, epoch, RuntimePhase::Idle, None, None);
@@ -23,6 +27,9 @@ fn begin_reply(state: &AppState, playback_id: &str) -> Result<u64, String> {
     let _action = lock(&state.action)?;
     if unavailable(state) {
         return Err("앱을 종료하고 있어요.".into());
+    }
+    if history_editor_active(state)? {
+        return Err("지난 대화 창에서 쓰던 내용을 저장하고 닫은 뒤 이어 주세요.".into());
     }
     let db = lock(&state.db)?;
     let line = lock(&state.playback)?
@@ -75,9 +82,22 @@ pub(crate) fn resume_chat(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     session_id: String,
-) -> Result<(), String> {
-    let (epoch, recovery) = begin_resume(&state, &session_id)?;
-    crate::desktop::request_balloon_focus(&app)?;
+    surface: Option<String>,
+) -> Result<store::ConversationView, String> {
+    let mode = match surface.as_deref() {
+        None | Some("desktop") => "input",
+        Some("history") => "history-input",
+        _ => return Err("이 대화를 이어갈 화면을 확인해 주세요.".into()),
+    };
+    if mode == "input" {
+        if let Some(view) = focus_history_editor(&app, &state)? {
+            return Ok(view);
+        }
+    }
+    let (epoch, recovery, view) = begin_resume_on_surface(&state, &session_id, mode)?;
+    if mode == "input" {
+        crate::desktop::request_balloon_focus(&app)?;
+    }
     phase(
         &app,
         &state,
@@ -90,15 +110,31 @@ pub(crate) fn resume_chat(
         None,
         recovery,
     );
-    Ok(())
+    Ok(view)
 }
 
+#[cfg(test)]
 fn begin_resume(state: &AppState, session_id: &str) -> Result<(u64, Option<String>), String> {
+    begin_resume_on_surface(state, session_id, "input")
+        .map(|(epoch, recovery, _)| (epoch, recovery))
+}
+
+fn begin_resume_on_surface(
+    state: &AppState,
+    session_id: &str,
+    mode: &str,
+) -> Result<(u64, Option<String>, store::ConversationView), String> {
     let _action = lock(&state.action)?;
     if unavailable(state) {
         return Err("앱을 종료하고 있어요.".into());
     }
+    if lock(&state.runtime)?.hidden {
+        return Err("캐릭터를 다시 표시한 뒤 대화를 이어 주세요.".into());
+    }
     let db = lock(&state.db)?;
+    if mode == "input" && history_editor_active(state)? {
+        return Err("지난 대화 창에서 쓰던 내용을 저장하고 닫은 뒤 이어 주세요.".into());
+    }
     let session = store::conversation(&db, session_id)?;
     let active = characters::active_ids(&db)?;
     if session.participants.iter().any(|id| !active.contains(id)) {
@@ -114,11 +150,12 @@ fn begin_resume(state: &AppState, session_id: &str) -> Result<(u64, Option<Strin
         })
     });
     let at = chrono::Utc::now().timestamp_millis();
-    if session.status == "ended" {
-        store::create_conversation(&db, &session.participants, None, Some(&session.id), at)?;
+    let active_id = if session.status == "ended" {
+        store::create_conversation(&db, &session.participants, None, Some(&session.id), at)?.id
     } else {
         store::set_conversation_status(&db, &session.id, "active", at)?;
-    }
+        session.id.clone()
+    };
     let epoch = super::interrupt_with_db(state, false, &db)?.0;
     *lock(&state.panel)? = Some(PanelState {
         persona: session
@@ -126,10 +163,10 @@ fn begin_resume(state: &AppState, session_id: &str) -> Result<(u64, Option<Strin
             .first()
             .cloned()
             .ok_or("대화 상대가 없어요.")?,
-        mode: "input".into(),
+        mode: mode.into(),
     });
     state.last_input.store(now(), Ordering::SeqCst);
-    Ok((epoch, recovery))
+    Ok((epoch, recovery, store::conversation_view(&db, &active_id)?))
 }
 
 #[tauri::command]
@@ -165,9 +202,129 @@ pub(crate) fn save_conversation_draft(
     state: tauri::State<'_, Arc<AppState>>,
     session_id: String,
     draft: String,
+    input_owner: Option<String>,
+) -> Result<(), String> {
+    save_editor_draft(&state, &session_id, &draft, input_owner.as_deref())
+}
+
+fn save_editor_draft(
+    state: &AppState,
+    session_id: &str,
+    draft: &str,
+    input_owner: Option<&str>,
 ) -> Result<(), String> {
     let _action = lock(&state.action)?;
-    store::save_conversation_draft(&*lock(&state.db)?, &session_id, &draft)
+    let db = lock(&state.db)?;
+    if let Some(owner) = input_owner {
+        let mode = match owner {
+            "desktop" => "input",
+            "history" => "history-input",
+            _ => return Err("대화 입력 위치가 올바르지 않아요.".into()),
+        };
+        let competing = lock(&state.panel)?.as_ref().is_some_and(|panel| {
+            matches!(panel.mode.as_str(), "input" | "history-input") && panel.mode != mode
+        });
+        if competing
+            || store::active_conversation(&db)?.is_some_and(|session| session.id != session_id)
+        {
+            return Err("대화 입력 위치가 바뀌었어요. 현재 열린 입력창에서 이어 주세요.".into());
+        }
+    }
+    store::save_conversation_draft(&db, session_id, draft)
+}
+
+pub(crate) fn history_editor_active(state: &AppState) -> Result<bool, String> {
+    Ok(lock(&state.panel)?
+        .as_ref()
+        .is_some_and(|panel| panel.mode == "history-input"))
+}
+
+pub(crate) fn focus_history_editor(
+    app: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<Option<store::ConversationView>, String> {
+    let view = {
+        let _action = lock(&state.action)?;
+        if !history_editor_active(state)? {
+            return Ok(None);
+        }
+        let db = lock(&state.db)?;
+        let session = store::active_conversation(&db)?.ok_or("진행 중인 대화가 없어요.")?;
+        store::conversation_view(&db, &session.id)?
+    };
+    if let Some(window) = app.get_webview_window("conversation-history") {
+        window.unminimize().map_err(|error| error.to_string())?;
+        window.show().map_err(|error| error.to_string())?;
+        window.set_focus().map_err(|error| error.to_string())?;
+    }
+    Ok(Some(view))
+}
+
+fn ensure_editor(
+    state: &AppState,
+    db: &rusqlite::Connection,
+    session_id: &str,
+    mode: &str,
+) -> Result<(), String> {
+    if lock(&state.panel)?
+        .as_ref()
+        .is_none_or(|panel| panel.mode != mode)
+        || store::active_conversation(db)?.is_none_or(|session| session.id != session_id)
+    {
+        return Err("대화 입력 위치가 바뀌었어요. 현재 열린 입력창에서 이어 주세요.".into());
+    }
+    Ok(())
+}
+
+pub(crate) fn input_panel_mode(state: &AppState) -> Result<&'static str, String> {
+    Ok(
+        if lock(&state.panel)?
+            .as_ref()
+            .is_some_and(|panel| panel.mode == "history-input")
+        {
+            "history-input"
+        } else {
+            "input"
+        },
+    )
+}
+
+#[tauri::command]
+pub(crate) fn release_conversation_history(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    session_id: Option<String>,
+) -> Result<(), String> {
+    let released = release_history_editor(&state, session_id.as_deref())?;
+    let hidden = app
+        .get_webview_window("conversation-history")
+        .map(|window| window.hide().map_err(|error| error.to_string()))
+        .transpose();
+    if released {
+        let focused = crate::desktop::request_balloon_focus(&app);
+        super::publish(&app, &state);
+        focused?;
+    }
+    hidden.map(|_| ())
+}
+
+fn release_history_editor(state: &AppState, session_id: Option<&str>) -> Result<bool, String> {
+    let _action = lock(&state.action)?;
+    let db = lock(&state.db)?;
+    let Some(session_id) = session_id else {
+        if lock(&state.panel)?
+            .as_ref()
+            .is_some_and(|panel| panel.mode == "history-input")
+        {
+            return Err("작성 중인 대화를 저장한 뒤 닫아 주세요.".into());
+        }
+        return Ok(false);
+    };
+    ensure_editor(state, &db, session_id, "history-input")?;
+    if let Some(panel) = lock(&state.panel)?.as_mut() {
+        panel.mode = "input".into();
+    }
+    Ok(true)
 }
 
 #[tauri::command]
@@ -177,6 +334,9 @@ pub(crate) fn discuss_music_widget(
     id: String,
     expected_revision: i64,
 ) -> Result<(), String> {
+    if focus_history_editor(&app, &state)?.is_some() {
+        return Ok(());
+    }
     let epoch = begin_music_discussion(&state, &id, expected_revision)?;
     crate::desktop::request_balloon_focus(&app)?;
     phase(&app, &state, epoch, RuntimePhase::Idle, None, None);
@@ -254,9 +414,19 @@ fn begin_music_discussion(state: &AppState, id: &str, revision: i64) -> Result<u
 #[tauri::command]
 pub(crate) fn get_conversations(
     state: tauri::State<'_, Arc<AppState>>,
-    persona: String,
+    persona: Option<String>,
+    query: Option<String>,
 ) -> Result<Vec<store::ConversationSession>, String> {
-    conversation_sessions(&state, &persona)
+    let db = lock(&state.db)?;
+    let character = persona
+        .as_deref()
+        .map(|persona| crate::character_guests::actor(&state, &db, persona))
+        .transpose()?;
+    store::conversation_history(
+        &db,
+        character.as_ref().map(|actor| actor.id.as_str()),
+        query.as_deref(),
+    )
 }
 
 pub(crate) fn conversation_sessions(
@@ -281,6 +451,168 @@ pub(crate) fn get_conversation_messages(
 mod tests {
     use super::*;
     use crate::types::{Message, Playback, SceneLine, Settings, WordbookEntry};
+
+    #[test]
+    fn hidden_characters_reject_history_resume_without_consuming_the_saved_draft() {
+        let state = super::super::tests::state();
+        let session = {
+            let db = lock(&state.db).unwrap();
+            store::set_user_name(&db, "대화 검사", 1).unwrap();
+            let session =
+                store::create_conversation(&db, &["builtin-a".into()], None, None, 1).unwrap();
+            store::save_conversation_draft(&db, &session.id, "  숨기기 전 초안\n보존  ").unwrap();
+            store::pause_conversations(&db).unwrap();
+            store::conversation(&db, &session.id).unwrap()
+        };
+        lock(&state.runtime).unwrap().hidden = true;
+        let epoch = state.epoch.load(Ordering::SeqCst);
+        let error = begin_resume_on_surface(&state, &session.id, "history-input").unwrap_err();
+        assert_eq!(error, "캐릭터를 다시 표시한 뒤 대화를 이어 주세요.");
+        assert_eq!(state.epoch.load(Ordering::SeqCst), epoch);
+        assert!(lock(&state.panel).unwrap().is_none());
+        let db = lock(&state.db).unwrap();
+        assert!(store::active_conversation(&db).unwrap().is_none());
+        assert_eq!(store::conversation(&db, &session.id).unwrap(), session);
+    }
+
+    #[test]
+    fn history_editor_handoff_preserves_drafts_and_rejects_competing_desktop_commands() {
+        let state = super::super::tests::state();
+        let session = {
+            let db = lock(&state.db).unwrap();
+            store::set_user_name(&db, "대화 검사", 1).unwrap();
+            let session =
+                store::create_conversation(&db, &["builtin-a".into()], None, None, 1).unwrap();
+            store::save_conversation_draft(&db, &session.id, "  저장된 초안\n그대로  ").unwrap();
+            session
+        };
+        let (_, _, view) = begin_resume_on_surface(&state, &session.id, "history-input").unwrap();
+        assert_eq!(view.session.id, session.id);
+        assert_eq!(view.session.draft, "  저장된 초안\n그대로  ");
+        assert_eq!(input_panel_mode(&state).unwrap(), "history-input");
+        let epoch = state.epoch.load(Ordering::SeqCst);
+        for mode in ["input", "menu", "history"] {
+            assert!(
+                super::super::windows::begin_panel(&state, "builtin-b", mode.into())
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        assert!(begin_resume(&state, &session.id).is_err());
+        assert!(begin_reply(&state, "stale-playback").is_err());
+        assert_eq!(state.epoch.load(Ordering::SeqCst), epoch);
+        assert!(
+            save_editor_draft(&state, &session.id, "오래된 desktop 초안", Some("desktop")).is_err()
+        );
+        save_editor_draft(
+            &state,
+            &session.id,
+            "지난 창에서 고친 초안",
+            Some("history"),
+        )
+        .unwrap();
+        assert!(release_history_editor(&state, None).is_err());
+        assert!(release_history_editor(&state, Some("old-session")).is_err());
+        assert!(history_editor_active(&state).unwrap());
+        assert!(release_history_editor(&state, Some(&session.id)).unwrap());
+        assert_eq!(input_panel_mode(&state).unwrap(), "input");
+        assert_eq!(state.epoch.load(Ordering::SeqCst), epoch);
+        assert!(save_editor_draft(
+            &state,
+            &session.id,
+            "늦게 도착한 history 초안",
+            Some("history")
+        )
+        .is_err());
+        let db = lock(&state.db).unwrap();
+        assert_eq!(
+            store::active_conversation(&db).unwrap().unwrap().id,
+            session.id
+        );
+        assert_eq!(
+            store::conversation(&db, &session.id).unwrap().draft,
+            "지난 창에서 고친 초안"
+        );
+    }
+
+    #[test]
+    fn history_resume_returns_new_session_for_ended_records_and_final_flush_allows_paused_owner() {
+        let state = super::super::tests::state();
+        let ended = {
+            let db = lock(&state.db).unwrap();
+            store::set_user_name(&db, "대화 검사", 1).unwrap();
+            let ended =
+                store::create_conversation(&db, &["builtin-a".into()], None, None, 1).unwrap();
+            store::set_conversation_status(&db, &ended.id, "ended", 2).unwrap();
+            ended
+        };
+        let (_, _, view) = begin_resume_on_surface(&state, &ended.id, "history-input").unwrap();
+        assert_ne!(view.session.id, ended.id);
+        assert_eq!(
+            view.session.continued_from.as_deref(),
+            Some(ended.id.as_str())
+        );
+        *lock(&state.panel).unwrap() = None;
+        store::pause_conversations(&lock(&state.db).unwrap()).unwrap();
+        save_editor_draft(
+            &state,
+            &view.session.id,
+            "숨김 직전 초안\n보존",
+            Some("history"),
+        )
+        .unwrap();
+        assert!(!release_history_editor(&state, None).unwrap());
+        {
+            let db = lock(&state.db).unwrap();
+            assert_eq!(
+                store::conversation(&db, &view.session.id).unwrap().draft,
+                "숨김 직전 초안\n보존"
+            );
+            store::create_conversation(&db, &["builtin-b".into()], None, None, 3).unwrap();
+        }
+        assert!(save_editor_draft(
+            &state,
+            &view.session.id,
+            "다른 세션을 덮는 초안",
+            Some("history")
+        )
+        .is_err());
+        store::set_user_name(&lock(&state.db).unwrap(), "다른 사용자", 4).unwrap();
+        assert!(save_editor_draft(
+            &state,
+            &view.session.id,
+            "다른 사용자의 초안",
+            Some("history")
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn opening_history_pauses_desktop_conversation_and_removes_only_its_panel() {
+        let state = super::super::tests::state();
+        let session = {
+            let db = lock(&state.db).unwrap();
+            store::set_user_name(&db, "대화 검사", 1).unwrap();
+            let session =
+                store::create_conversation(&db, &["builtin-a".into()], None, None, 1).unwrap();
+            store::save_conversation_draft(&db, &session.id, "이어서 쓸 초안").unwrap();
+            session
+        };
+        *lock(&state.panel).unwrap() = Some(PanelState {
+            persona: "builtin-a".into(),
+            mode: "input".into(),
+        });
+        assert!(
+            super::super::windows::begin_panel(&state, "builtin-a", "history".into())
+                .unwrap()
+                .is_some()
+        );
+        assert!(lock(&state.panel).unwrap().is_none());
+        let db = lock(&state.db).unwrap();
+        let stored = store::conversation(&db, &session.id).unwrap();
+        assert_eq!(stored.status, "paused");
+        assert_eq!(stored.draft, "이어서 쓸 초안");
+    }
 
     #[test]
     fn music_discussion_creates_only_a_new_draft_and_preserves_existing_conversations() {

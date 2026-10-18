@@ -114,7 +114,14 @@ export const capsule = style([
 export const capsuleForms = styleVariants({
   single: {},
   multiline: { minHeight: 62, borderRadius: 22 },
-  large: { width: 340, minHeight: 54, borderRadius: 27 },
+  large: {
+    width: 340,
+    minHeight: 54,
+    paddingLeft: 20,
+    borderRadius: 27,
+    background: tokens["color/glass-capsule"],
+    boxShadow: `0 18px 40px ${tokens["color/surface-shadow"]}`,
+  },
 });
 export const input = style({
   flex: 1,
@@ -152,6 +159,11 @@ export const send = style([
     },
   },
 ]);
+export const sendLarge = style({
+  width: 38,
+  height: 38,
+  background: tokens["color/cat-record"],
+});
 export const memo = style({
   boxSizing: "border-box",
   display: "flex",
