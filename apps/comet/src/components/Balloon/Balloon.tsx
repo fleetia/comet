@@ -16,14 +16,8 @@ import {
   InputCapsule,
   WaitingDots,
 } from "@comet/ui";
-import type {
-  ConversationSession,
-  ConversationView,
-  Dispatch,
-  Persona,
-  Snapshot,
-} from "../../types";
-import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
+import type { ConversationView, Dispatch, Persona, Snapshot } from "../../types";
+import { command, errorText } from "../../hooks/useSnapshot";
 import { useBalloonSizing } from "../../hooks/useBalloonSizing";
 import { useTypewriter } from "../../hooks/useTypewriter";
 import * as s from "../companion.css";
@@ -40,6 +34,7 @@ import { balloonTextStyle } from "../balloonTypography";
 import { aiAvailability, responseOrigin } from "./conversationStatus";
 import { OrganizerReceipt } from "./OrganizerReceipt";
 import { ConversationContext } from "./ConversationContext";
+import { useConversationSessions } from "./useConversationSessions";
 import {
   ConversationMessageActions,
   ConversationSave,
@@ -157,9 +152,6 @@ export function Balloon({
     setSaveSelection(request ? { identity: viewIdentity, request } : null);
   }
   const [contextBusy, setContextBusy] = useState(false);
-  const [sessions, setSessions] = useState<ConversationSession[]>([]);
-  const [sessionsLoading, setSessionsLoading] = useState(false);
-  const [sessionsError, setSessionsError] = useState<string | null>(null);
   const lastActivity = useRef(Date.now());
   const composing = useRef(false);
   const submitting = useRef(false);
@@ -291,36 +283,14 @@ export function Balloon({
   useEffect(() => {
     if (surface === "input") setChoosingResumeNote(false);
   }, [viewIdentity, surface]);
-  useEffect(() => {
-    if (mode !== "menu" && mode !== "history" && !(mode === "input" && surface === "input")) return;
-    let active = true;
-    setSessions([]);
-    setSessionsError(null);
-    if (!isDesktop()) {
-      setSessionsLoading(false);
-      setSessions(
-        (previewConversations ?? (conversation ? [conversation] : []))
-          .map((item) => item.session)
-          .filter((session) => session.participants.includes(persona))
-          .sort((left, right) => right.updatedAt - left.updatedAt),
-      );
-      return;
-    }
-    setSessionsLoading(true);
-    void command<ConversationSession[]>("get_conversations", { persona })
-      .then((result) => {
-        if (active) setSessions(result ?? []);
-      })
-      .catch((cause: unknown) => {
-        if (active) setSessionsError(errorText(cause));
-      })
-      .finally(() => {
-        if (active) setSessionsLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [mode, persona, snapshot.user?.id, previewConversations, surface]);
+  const { sessions, sessionsLoading, sessionsError } = useConversationSessions({
+    mode,
+    surface,
+    persona,
+    userId: snapshot.user?.id,
+    conversation,
+    previewConversations,
+  });
   const contentKey = snapshot.panel
     ? `panel:${snapshot.panel.persona}:${snapshot.panel.mode}${(mode === "input" || mode === "history-input" || mode === "update") && snapshot.playback ? `:playback:${snapshot.playback.id}` : ""}`
     : snapshot.story
