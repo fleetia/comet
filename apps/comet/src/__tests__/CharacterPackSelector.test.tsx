@@ -26,8 +26,26 @@ const characters: CharacterCollection = {
   active: ["builtin-a", "builtin-b"],
 };
 const packs: InstalledCharacterPack[] = [
-  { id: "pair", name: "별 친구", characterIds: ["builtin-a", "builtin-b"] },
-  { id: "solo-pack", name: "별 친구", characterIds: ["solo"] },
+  {
+    id: "pair",
+    name: "별 친구",
+    characterIds: ["builtin-a", "builtin-b"],
+    author: "comet",
+    sourceUrl: "",
+    license: "앱과 함께 사용",
+    official: true,
+    installedAt: null,
+  },
+  {
+    id: "solo-pack",
+    name: "별 친구",
+    characterIds: ["solo"],
+    author: "여행자",
+    sourceUrl: "https://example.com/friends",
+    license: "개인적으로만 써 주세요",
+    official: false,
+    installedAt: new Date(2026, 8, 30, 12).getTime() / 1000,
+  },
 ];
 const props = {
   characters,
@@ -78,7 +96,8 @@ it("marks the current pack and replaces the roster only after applying another p
   });
   const { rerender } = render(<CharacterPackSelector {...props} />);
   const current = await pack("1. 별 친구 · 2명");
-  expect(within(current).getByText("지금 함께 지내는 팩")).toBeTruthy();
+  expect(within(current).getByText("공식 · 앱에 포함")).toBeTruthy();
+  expect(within(current).getByRole("button", { name: "팩 정보" })).toBeTruthy();
   expect(within(current).queryByRole("button", { name: "이 팩으로 함께 지내기" })).toBeNull();
   const other = await pack("2. 별 친구 · 1명");
   expect(within(other).getByText(/함께 지낼 순서: 모래/)).toBeTruthy();
@@ -97,8 +116,33 @@ it("marks the current pack and replaces the roster only after applying another p
   expect(props.onApplied).toHaveBeenCalledWith("solo");
   expect(props.onPendingChange).toHaveBeenLastCalledWith(false);
   rerender(<CharacterPackSelector {...props} characters={{ ...characters, active: ["solo"] }} />);
-  expect(within(await pack("2. 별 친구 · 1명")).getByText("지금 함께 지내는 팩")).toBeTruthy();
+  expect(
+    within(await pack("2. 별 친구 · 1명")).getByRole("button", { name: "팩 정보" }),
+  ).toBeTruthy();
   expect(applyIn(await pack("1. 별 친구 · 2명"))).toHaveProperty("disabled", false);
+});
+
+it("labels each pack's origin and shows its attribution in pack info", async () => {
+  const legacy = { ...packs[1], id: "legacy", installedAt: null, sourceUrl: "", license: "" };
+  let latest = [packs[0], packs[1], legacy];
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "get_character_packs" ? latest : undefined,
+  );
+  render(<CharacterPackSelector {...props} />);
+  expect(
+    within(await pack("2. 별 친구 · 1명")).getByText("직접 추가한 팩 · 9월 30일"),
+  ).toBeTruthy();
+  expect(within(await pack("3. 별 친구 · 1명")).getByText("직접 추가한 팩")).toBeTruthy();
+  latest = [{ ...packs[0], author: "고친 제작자" }, packs[1], legacy];
+  fireEvent.click(within(await pack("1. 별 친구 · 2명")).getByRole("button", { name: "팩 정보" }));
+  const dialog = within(await screen.findByRole("dialog"));
+  expect(dialog.getByText("A, B")).toBeTruthy();
+  expect(dialog.getByText("앱과 함께 사용")).toBeTruthy();
+  expect(dialog.getByText("등록된 출처 없음")).toBeTruthy();
+  expect(await dialog.findByText("고친 제작자")).toBeTruthy();
+  expect(vi.mocked(command).mock.calls).toEqual([["get_character_packs"], ["get_character_packs"]]);
+  fireEvent.click(dialog.getByRole("button", { name: "팩 정보 닫기" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 });
 
 it("treats a mixed or reordered roster as different from the pack order", async () => {

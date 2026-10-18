@@ -1,11 +1,18 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, ChoiceButton, ChoiceTile } from "@comet/ui";
+import { Button, ChoiceButton, ChoiceTile, Dialog } from "@comet/ui";
 import { HabitIcon, PlusIcon } from "@comet/icon";
 import { FriendArtwork } from "../CharacterManager/FriendsLibrary";
 import * as styles from "./characterPacks.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { CharacterCollection, InstalledCharacterPack } from "../../types";
 import * as ui from "../../common.css";
+
+export function packOrigin(pack: InstalledCharacterPack): string {
+  if (pack.official) return "공식 · 앱에 포함";
+  if (pack.installedAt === null) return "직접 추가한 팩";
+  const date = new Date(pack.installedAt * 1000);
+  return `직접 추가한 팩 · ${date.getMonth() + 1}월 ${date.getDate()}일`;
+}
 
 type Props = {
   characters: CharacterCollection;
@@ -35,29 +42,32 @@ export function CharacterPackSelector({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [infoId, setInfoId] = useState<string | null>(null);
   const lock = useRef(false);
+  // Only the latest list request may replace the shown packs.
+  const listRequest = useRef(0);
   const membership = JSON.stringify(characters.installed.map(({ id, packId }) => [id, packId]));
 
   useEffect(() => {
     if (!isDesktop()) {
       return;
     }
-    let current = true;
+    const request = ++listRequest.current;
     setPacks(null);
     setError(null);
     void command<InstalledCharacterPack[]>("get_character_packs")
       .then((value) => {
-        if (current) {
+        if (request === listRequest.current) {
           setPacks(value);
         }
       })
       .catch((cause: unknown) => {
-        if (current) {
+        if (request === listRequest.current) {
           setError(errorText(cause));
         }
       });
     return () => {
-      current = false;
+      listRequest.current += 1;
     };
   }, [membership, revision]);
 
@@ -69,6 +79,18 @@ export function CharacterPackSelector({
   const busy = disabled || pending || hasUnsavedChanges;
   const nameOf = (id: string): string | undefined =>
     characters.installed.find((character) => character.id === id)?.definition.name;
+
+  const info = packs?.find((pack) => pack.id === infoId);
+  // Attribution can change on the friend detail page while this page stays mounted.
+  function openInfo(id: string): void {
+    setInfoId(id);
+    const request = ++listRequest.current;
+    void command<InstalledCharacterPack[]>("get_character_packs")
+      .then((value) => {
+        if (request === listRequest.current) setPacks(value);
+      })
+      .catch(() => {});
+  }
 
   async function apply(pack: InstalledCharacterPack): Promise<void> {
     if (busy || lock.current || pack.id === currentPack?.id) {
@@ -138,8 +160,18 @@ export function CharacterPackSelector({
           >
             <header className={styles.packHeading}>
               <h3 className={styles.packName}>{pack.name}</h3>
-              {applied && <span className={styles.badge}>지금 함께 지내는 팩</span>}
-              {!applied && (
+              <span className={styles.badge}>{packOrigin(pack)}</span>
+              {applied ? (
+                <Button
+                  variant="ghost"
+                  size="small"
+                  className={styles.packAction}
+                  leadingIcon={<HabitIcon size={14} />}
+                  onClick={() => openInfo(pack.id)}
+                >
+                  팩 정보
+                </Button>
+              ) : (
                 <Button
                   variant="ghost"
                   size="small"
@@ -199,6 +231,45 @@ export function CharacterPackSelector({
           팩 추가…
         </Button>
       </div>
+      <Dialog
+        isOpen={Boolean(info)}
+        title="팩 정보"
+        size="small"
+        closeLabel="팩 정보 닫기"
+        onOpenChange={(open) => {
+          if (!open) setInfoId(null);
+        }}
+      >
+        {info && (
+          <dl className={styles.info}>
+            <div className={styles.infoRow}>
+              <dt>팩</dt>
+              <dd>
+                {info.name} · {packOrigin(info)}
+              </dd>
+            </div>
+            <div className={styles.infoRow}>
+              <dt>들어 있는 친구</dt>
+              <dd>{info.characterIds.map(nameOf).join(", ")}</dd>
+            </div>
+            <div className={styles.infoRow}>
+              <dt>만든 사람</dt>
+              <dd>{info.author || "등록된 제작자 없음"}</dd>
+            </div>
+            <div className={styles.infoRow}>
+              <dt>출처 주소</dt>
+              <dd>{info.sourceUrl || "등록된 출처 없음"}</dd>
+            </div>
+            <div className={styles.infoRow}>
+              <dt>쓰는 조건</dt>
+              <dd>{info.license || "등록된 조건 없음"}</dd>
+            </div>
+            <p className={styles.caption}>
+              만든 사람과 출처 주소는 친구 정보의 출처 편집에서 고칠 수 있어요.
+            </p>
+          </dl>
+        )}
+      </Dialog>
     </section>
   );
 }

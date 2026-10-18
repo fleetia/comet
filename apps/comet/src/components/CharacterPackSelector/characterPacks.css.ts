@@ -1,4 +1,4 @@
-import { style } from "@vanilla-extract/css";
+import { globalStyle, style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
 
 export const selector = style({
@@ -51,6 +51,10 @@ export const characters = style({
   gap: 10,
 });
 export const character = style({ width: "100%", minHeight: 116 });
+export const info = style({ display: "flex", flexDirection: "column", gap: 12, margin: 0 });
+export const infoRow = style({ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 });
+globalStyle(`${infoRow} > dt`, { fontSize: 12, lineHeight: "16px", color: tokens["color/ink-3"] });
+globalStyle(`${infoRow} > dd`, { margin: 0, overflowWrap: "anywhere", color: tokens["color/ink"] });
 export const footer = style({
   display: "flex",
   alignItems: "center",
