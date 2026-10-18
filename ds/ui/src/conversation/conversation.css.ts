@@ -169,52 +169,6 @@ export const sendLarge = style({
   background: tokens["color/cat-record"],
 });
 export const sendCompact = style({ width: 32, height: 32 });
-export const memo = style({
-  boxSizing: "border-box",
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  width: 290,
-  minHeight: 44,
-  padding: "5px 5px 5px 13px",
-  border: `1px solid ${tokens["color/selected-border"]}`,
-  borderRadius: 14,
-  background: tokens["color/selected"],
-  color: tokens["color/selected-icon"],
-});
-export const memoText = style({
-  display: "flex",
-  flexDirection: "column",
-  flex: 1,
-  minWidth: 0,
-  fontSize: 11,
-  lineHeight: "14px",
-});
-export const memoTitle = style({
-  color: tokens["color/ink"],
-  fontSize: 13,
-  lineHeight: "18px",
-  fontWeight: 600,
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-});
-export const textAction = style({
-  appearance: "none",
-  background: "transparent",
-  border: 0,
-  borderRadius: 8,
-  padding: "4px 6px",
-  color: "inherit",
-  font: "inherit",
-  fontSize: 12.5,
-  fontWeight: 600,
-  cursor: "pointer",
-  selectors: {
-    "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}` },
-    "&:hover": { background: tokens["color/hover"] },
-  },
-});
 export const choice = style([
   stateTransition,
   {

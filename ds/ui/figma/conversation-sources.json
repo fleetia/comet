@@ -32,15 +32,6 @@
       ]
     },
     {
-      "export": "ReferenceMemo",
-      "sources": [
-        {
-          "id": "49:54763",
-          "name": "Capsule/Reference Memo"
-        }
-      ]
-    },
-    {
       "export": "ConstellationChoice",
       "sources": [
         {
