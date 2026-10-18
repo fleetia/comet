@@ -192,6 +192,13 @@ pub struct InstalledCharacterPack {
     pub id: String,
     pub name: String,
     pub character_ids: Vec<String>,
+    pub author: String,
+    pub source_url: String,
+    pub license: String,
+    /// Same content as a pack compiled into the app, whether seeded or imported from its file.
+    pub official: bool,
+    /// Unix seconds; `None` for packs installed before the time was recorded.
+    pub installed_at: Option<i64>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -548,6 +555,7 @@ fn initialize_with(
 ) -> Result<()> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     tx.execute_batch("CREATE TABLE IF NOT EXISTS characters(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,pack_id TEXT,data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS character_seed(version INTEGER PRIMARY KEY); CREATE TABLE IF NOT EXISTS character_roster(position INTEGER PRIMARY KEY,character_id TEXT NOT NULL UNIQUE); CREATE TABLE IF NOT EXISTS character_packs(id TEXT PRIMARY KEY,data TEXT NOT NULL,members TEXT NOT NULL); CREATE TABLE IF NOT EXISTS character_dialogues(members TEXT PRIMARY KEY,data TEXT NOT NULL);").map_err(|e| e.to_string())?;
+    migrate_pack_install_time(&tx)?;
     story_definitions::initialize(&tx)?;
     sprites::initialize(&tx)?;
     animation::initialize(&tx)?;
@@ -588,6 +596,40 @@ fn restore_builtin(conn: &Connection, slot: &str) -> Result<String> {
     )
     .map_err(|e| e.to_string())?;
     Ok(id)
+}
+fn migrate_pack_install_time(conn: &Connection) -> Result<()> {
+    let present: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('character_packs') WHERE name='installed_at')",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if !present {
+        conn.execute_batch("ALTER TABLE character_packs ADD COLUMN installed_at INTEGER")
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+fn is_official_pack(pack: &CharacterPack) -> bool {
+    static OFFICIAL: std::sync::OnceLock<Vec<(String, Vec<String>)>> = std::sync::OnceLock::new();
+    let identity = |pack: &CharacterPack| {
+        (
+            pack.name.clone(),
+            pack.characters
+                .iter()
+                .map(|definition| definition.source_id.clone())
+                .collect::<Vec<_>>(),
+        )
+    };
+    OFFICIAL
+        .get_or_init(|| {
+            [byulkkori_pack(), nadir_pack()]
+                .iter()
+                .map(identity)
+                .collect()
+        })
+        .contains(&identity(pack))
 }
 // One-time move from the fixed a/b slot table to the ordered roster; the slot table is not read afterwards.
 fn migrate_slots(conn: &Connection) -> Result<()> {
@@ -694,6 +736,14 @@ pub fn installed_packs(conn: &Connection) -> Result<Vec<InstalledCharacterPack>>
 }
 fn installed_pack(conn: &Connection, id: &str) -> Result<InstalledCharacterPack> {
     let (pack, members) = pack_record(conn, id)?;
+    let installed_at = conn
+        .query_row(
+            "SELECT installed_at FROM character_packs WHERE id=?",
+            [id],
+            |r| r.get::<_, Option<i64>>(0),
+        )
+        .map_err(|e| e.to_string())?;
+    let official = is_official_pack(&pack);
     let mut statement = conn
         .prepare("SELECT id FROM characters WHERE pack_id=?")
         .map_err(|e| e.to_string())?;
@@ -709,6 +759,11 @@ fn installed_pack(conn: &Connection, id: &str) -> Result<InstalledCharacterPack>
             .into_iter()
             .filter(|member| installed.contains(member))
             .collect(),
+        author: pack.author,
+        source_url: pack.source_url,
+        license: pack.license,
+        official,
+        installed_at,
     })
 }
 pub fn apply_pack(conn: &Connection, pack_id: &str) -> Result<()> {
@@ -984,11 +1039,12 @@ pub fn import_prepared_pack(
             ..pack.clone()
         };
         tx.execute(
-            "INSERT INTO character_packs(id,data,members) VALUES(?1,?2,?3)",
+            "INSERT INTO character_packs(id,data,members,installed_at) VALUES(?1,?2,?3,?4)",
             params![
                 pack_id,
                 serde_json::to_string(&record).map_err(|e| e.to_string())?,
-                serde_json::to_string(&ids).map_err(|e| e.to_string())?
+                serde_json::to_string(&ids).map_err(|e| e.to_string())?,
+                chrono::Utc::now().timestamp()
             ],
         )
         .map_err(|e| e.to_string())?;

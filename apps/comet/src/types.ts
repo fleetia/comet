@@ -210,7 +210,17 @@ export type InstalledCharacter = {
   animationAssets?: Record<string, AnimationAssetInfo>;
 };
 export type CharacterCollection = { installed: InstalledCharacter[]; active: string[] };
-export type InstalledCharacterPack = { id: string; name: string; characterIds: string[] };
+export type InstalledCharacterPack = {
+  id: string;
+  name: string;
+  characterIds: string[];
+  author: string;
+  sourceUrl: string;
+  license: string;
+  official: boolean;
+  /** Unix seconds; null for packs installed before the time was recorded. */
+  installedAt: number | null;
+};
 export type CharacterDialogue = { pairScenes: SceneLine[][]; wordbook: WordbookEntry[] };
 export type PackSprite = { sourceId: string; expression: string; mime: string; data: string };
 export type CharacterArchive = {

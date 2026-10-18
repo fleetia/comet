@@ -411,6 +411,57 @@ fn installed_packs_keep_original_member_order_and_separate_local_copies() {
     assert_eq!(packs[2].character_ids, [cloned.id]);
 }
 #[test]
+fn installed_packs_report_attribution_official_content_and_install_time() {
+    let conn = database();
+    let before = chrono::Utc::now().timestamp();
+    import_pack(&conn, &pack()).unwrap();
+    import_pack(&conn, &nadir_pack()).unwrap();
+    let packs = installed_packs(&conn).unwrap();
+    assert_eq!(
+        (packs[0].author.as_str(), packs[0].license.as_str()),
+        ("제작자", "수정·공유 가능")
+    );
+    assert!(!packs[0].official);
+    assert!(packs[1].official);
+    assert!(packs
+        .iter()
+        .all(|pack| pack.installed_at.is_some_and(|at| at >= before)));
+    // Editing the attribution keeps a bundled pack official.
+    save_pack_attribution(
+        &conn,
+        &packs[1].id,
+        &PackAttribution {
+            author: "여행자".into(),
+            source_url: "https://example.com/friends".into(),
+        },
+    )
+    .unwrap();
+    let edited = installed_packs(&conn).unwrap().remove(1);
+    assert!(edited.official);
+    assert_eq!(edited.source_url, "https://example.com/friends");
+
+    let legacy = Connection::open_in_memory().unwrap();
+    legacy
+        .execute_batch("CREATE TABLE character_packs(id TEXT PRIMARY KEY,data TEXT NOT NULL,members TEXT NOT NULL); CREATE TABLE characters(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,pack_id TEXT,data TEXT NOT NULL);")
+        .unwrap();
+    legacy
+        .execute(
+            "INSERT INTO character_packs(id,data,members) VALUES('old',?1,'[\"old-a\"]')",
+            [serde_json::to_string(&pack()).unwrap()],
+        )
+        .unwrap();
+    legacy
+        .execute(
+            "INSERT INTO characters(id,pack_id,data) VALUES('old-a','old',?1)",
+            [serde_json::to_string(&builtin("a")).unwrap()],
+        )
+        .unwrap();
+    initialize_for_tests(&legacy).unwrap();
+    let old = installed_packs(&legacy).unwrap().remove(0);
+    assert_eq!(old.installed_at, None);
+    assert_eq!(old.character_ids, ["old-a"]);
+}
+#[test]
 fn pack_selection_resolves_remaining_members_and_never_restores_removed_characters() {
     let conn = database();
     let imported = import_pack(&conn, &pack()).unwrap();
