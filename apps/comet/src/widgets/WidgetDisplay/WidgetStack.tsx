@@ -22,6 +22,7 @@ import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWindowDrag } from "../../hooks/useWindowDrag";
 import { transparentDocument } from "../../components/companion.css";
 import { useWidgets } from "../useWidgets";
+import { useTravelWidgets } from "../Travel/useTravelWidgets";
 import type { WidgetView } from "../types";
 import { record, type DataRecord } from "../toolData";
 import {
@@ -47,6 +48,7 @@ export type { DesktopLayout, DesktopState } from "./desktopState";
 
 /** Matches the root padding; the saved stack position is the window corner without a bubble. */
 const STACK_PADDING = 12;
+const EMPTY: WidgetView[] = [];
 
 function isControl(target: EventTarget): boolean {
   return target instanceof Element && Boolean(target.closest("button,input,select,textarea,a"));
@@ -149,7 +151,7 @@ export function WidgetStack(): ReactElement {
   const lastFit = useRef("");
   const dragging = useRef<string | null>(null);
   const drag = useWindowDrag(isDesktop(), desktop.setError);
-  const widgets = snapshot?.widgets ?? [];
+  const widgets = useTravelWidgets(snapshot?.widgets ?? EMPTY);
   const available = desktopWidgets(widgets);
   const ordered = layout.order
     .map((id) => available.find((widget) => widget.id === id))

@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
 import {
+  PlaneIcon,
   ChatIcon,
   EnterIcon,
   GearIcon,
@@ -22,6 +23,7 @@ import {
   type LauncherAction,
   type LauncherResult,
   type LauncherState,
+  type LauncherTravel,
   type TargetBinding,
 } from "./search";
 import * as styles from "./launcher.css";
@@ -40,6 +42,7 @@ const RESULT_ICONS = {
   target: TogetherIcon,
   notice: WarnIcon,
   todo: PlusIcon,
+  travel: PlaneIcon,
 };
 export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
   const widgets = useWidgets();
@@ -56,7 +59,8 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
   const [pending, setPending] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const results = launcherResults(query, snapshot, widgets.snapshot, binding);
+  const [travels, setTravels] = useState<LauncherTravel[]>([]);
+  const results = launcherResults(query, snapshot, widgets.snapshot, binding, travels);
   const selected = results.find((result) => result.id === selectedId) ?? results[0];
   const modelReady = aiAvailability(snapshot).ready;
 
@@ -71,6 +75,12 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
       stateRef.current = next;
       setState(next);
       if (newer) {
+        // Trip names are read when the launcher opens; they never travel with other results.
+        void command<{ travels?: LauncherTravel[] }>("get_diary")
+          .then((diary) => {
+            if (active) setTravels(diary.travels ?? []);
+          })
+          .catch(() => undefined);
         pendingSession.current = null;
         setPending(false);
         setError(null);

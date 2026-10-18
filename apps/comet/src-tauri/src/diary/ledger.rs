@@ -98,6 +98,14 @@ fn amount(input: &Value, key: &str, zero: bool) -> Result<u64> {
     }
     Ok(value)
 }
+impl LedgerSettings {
+    pub(super) fn has_category(&self, id: &str) -> bool {
+        self.categories.iter().any(|value| value.id == id)
+    }
+    pub(super) fn first_category(&self) -> Option<&str> {
+        self.categories.first().map(|value| value.id.as_str())
+    }
+}
 fn category(state: &DiaryState, input: &Value) -> Result<String> {
     let id = string(input, "category", 100, true)?;
     if !state

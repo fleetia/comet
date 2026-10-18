@@ -175,6 +175,8 @@ pub fn initial(kind: &str) -> Result<Value, String> {
     Ok(match kind {
         "todo" | "focus-timer" | "preparation" | "clock" | "memo" => planning::initial(kind),
         "completion-jar" => json!({"completed": []}),
+        // Trips live in the diary; the widget only marks where the trip line sits.
+        "travel" => json!({}),
         "journal" => json!({}),
         "calendar" => {
             json!({"connections": [], "events": [], "lastSuccessAt": null,"calendarColors":{},"reminders":reminders::initial()})
@@ -216,6 +218,7 @@ pub fn act(
             entropy,
         ),
         "completion-jar" | "journal" => Err("이 위젯은 실제 사건을 모아 보여 줘요.".into()),
+        "travel" => Err("여행은 여행 창에서 바꿔 주세요.".into()),
         "calendar" if request.action == "configure" => {
             calendar::configure_settings(&instance.data, &request.input, now)
         }
@@ -260,7 +263,9 @@ pub fn tick(instance: &WidgetInstance, now: i64) -> Result<Option<WidgetEffect>,
         "todo" | "focus-timer" | "preparation" | "clock" | "memo" => {
             planning::tick(&instance.kind, &instance.data, now)
         }
-        "completion-jar" | "journal" | "calendar" | "weather" | "music" | "device" => Ok(None),
+        "completion-jar" | "journal" | "calendar" | "weather" | "music" | "device" | "travel" => {
+            Ok(None)
+        }
         _ => toys::tick(&instance.kind, &instance.data, now),
     }
 }

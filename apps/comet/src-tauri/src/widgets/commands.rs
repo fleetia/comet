@@ -886,6 +886,14 @@ async fn open_widget_inner(
         crate::widgets::memo_notes::reveal_created_note(app, state, id, snapshot).await?;
         return Ok(());
     }
+    if instance.kind == "travel" {
+        if let Some((_, session)) = launcher {
+            change(state, |_| {
+                crate::app::launcher::accept_execution(state, session)
+            })?;
+        }
+        return crate::widgets::planning::windows::open_travel(app.clone(), None);
+    }
     if crate::behavior::TOYS.contains(&instance.kind.as_str()) {
         let token = crate::desktop::toys::launch_token(app, id)?;
         let geometry = crate::desktop::toys::current_geometry(app).await?;

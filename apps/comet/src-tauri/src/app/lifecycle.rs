@@ -172,6 +172,7 @@ pub fn run() {
         .manage(crate::analytics::Runtime::default())
         .manage(crate::characters::collision_host::Runtime::default())
         .manage(crate::widgets::planning::windows::Navigation::default())
+        .manage(crate::diary::travel_files::Access::default())
         .plugin(launcher::plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -669,6 +670,19 @@ pub fn run() {
             crate::widgets::planning::windows::get_planner_tab,
             crate::widgets::planning::windows::open_planner_view,
             crate::widgets::planning::windows::open_travel,
+            crate::diary::travel_files::travel_attach_vouchers,
+            crate::diary::travel_files::travel_open_voucher,
+            crate::diary::travel_files::travel_open_photo,
+            crate::diary::travel_files::travel_open_link,
+            crate::diary::travel_files::travel_pick_photos,
+            crate::diary::travel_files::travel_photo_original,
+            crate::diary::travel_files::travel_save_thumb,
+            crate::diary::travel_files::travel_thumb,
+            crate::diary::travel_files::travel_paths_exist,
+            crate::diary::travel_files::travel_map_tile,
+            crate::diary::travel_files::travel_geocode,
+            crate::diary::travel_files::travel_booking_draft,
+            crate::diary::travel_files::travel_write_page,
             crate::widgets::planning::windows::get_planner_view_target,
             crate::widgets::planning::windows::get_planner_note_target,
             crate::widgets::planning::windows::set_planner_tab,

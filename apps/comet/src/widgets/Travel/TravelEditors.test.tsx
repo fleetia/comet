@@ -39,6 +39,7 @@ it("saves a move with its original for conflict checks and keeps the draft on a 
   render(
     <TravelPlanEditor
       travel={travel}
+      bookings={[]}
       plan={flight}
       date={flight.date}
       busy={false}
@@ -95,6 +96,7 @@ it("lists a day's plans by time and moves between trip days", () => {
   render(
     <TravelSchedule
       travel={travel}
+      bookings={[]}
       plans={[checkIn, flight]}
       days={["2026-10-24", "2026-10-25"]}
       date="2026-10-24"

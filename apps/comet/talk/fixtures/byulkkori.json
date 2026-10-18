@@ -1967,6 +1967,103 @@
         "dialogue.variant": 0
       },
       "expectedScene": "solo.staying-near"
+    },
+    {
+      "id": "travel.none",
+      "path": "widgets/travel.talk",
+      "trigger": "idle",
+      "available": [
+        "travel"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "travel.ready": true,
+        "travel.status": "enabled",
+        "travel.count": 0
+      },
+      "expectedScene": "travel.none"
+    },
+    {
+      "id": "travel.planning",
+      "path": "widgets/travel.talk",
+      "trigger": "idle",
+      "available": [
+        "travel"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "travel.ready": true,
+        "travel.status": "enabled",
+        "travel.count": 1,
+        "travel.stage": "planning",
+        "travel.daysUntil": 12,
+        "travel.title": "제주 가족 여행"
+      },
+      "expectedScene": "travel.planning"
+    },
+    {
+      "id": "travel.before",
+      "path": "widgets/travel.talk",
+      "trigger": "idle",
+      "available": [
+        "travel"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "travel.ready": true,
+        "travel.status": "enabled",
+        "travel.count": 1,
+        "travel.stage": "before",
+        "travel.daysUntil": 3,
+        "travel.title": "제주 가족 여행"
+      },
+      "expectedScene": "travel.before"
+    },
+    {
+      "id": "travel.traveling",
+      "path": "widgets/travel.talk",
+      "trigger": "idle",
+      "available": [
+        "travel"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "travel.ready": true,
+        "travel.status": "enabled",
+        "travel.count": 1,
+        "travel.stage": "traveling",
+        "travel.daysUntil": 0,
+        "travel.title": "제주 가족 여행"
+      },
+      "expectedScene": "travel.traveling"
+    },
+    {
+      "id": "travel.wrapping",
+      "path": "widgets/travel.talk",
+      "trigger": "idle",
+      "available": [
+        "travel"
+      ],
+      "active": [
+        "fixture-a"
+      ],
+      "values": {
+        "travel.ready": true,
+        "travel.status": "enabled",
+        "travel.count": 1,
+        "travel.stage": "wrapping",
+        "travel.daysUntil": -3,
+        "travel.title": "제주 가족 여행"
+      },
+      "expectedScene": "travel.wrapping"
     }
   ]
 }

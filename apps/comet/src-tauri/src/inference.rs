@@ -833,6 +833,7 @@ async fn completion_request(
     if settings.mode == "api" {
         providers::configure_compatible_payload(&mut payload, settings, messages, &schema, budget);
     }
+    attach_to_last_user(&mut payload["messages"], "compatible");
     if settings.mode == "local" {
         // Some GGUF templates require alternating roles even when filtered history omits a reply.
         payload["messages"] = json!(local_messages(messages));
@@ -961,6 +962,88 @@ pub async fn generate_widget(
         cancel,
     )
     .await
+}
+
+/// A confirmation PDF or image sent with the last user message. It travels in a
+/// task-local so the provider paths keep their signatures; only drafts set it.
+#[derive(Clone)]
+pub(crate) struct Attachment {
+    pub(crate) name: String,
+    pub(crate) mime: String,
+    pub(crate) data: String,
+}
+
+tokio::task_local! {
+    static ATTACHMENT: Attachment;
+}
+
+pub(crate) fn current_attachment() -> Option<Attachment> {
+    ATTACHMENT.try_with(Clone::clone).ok()
+}
+
+/// Rewrites the last user turn as text plus the attached file in the given wire format.
+pub(crate) fn attach_to_last_user(messages: &mut Value, format: &str) {
+    let Some(file) = current_attachment() else {
+        return;
+    };
+    let Some(turn) = messages
+        .as_array_mut()
+        .and_then(|turns| turns.iter_mut().rev().find(|turn| turn["role"] == "user"))
+    else {
+        return;
+    };
+    let text = turn["content"].as_str().unwrap_or_default().to_string();
+    let data_url = format!("data:{};base64,{}", file.mime, file.data);
+    let pdf = file.mime == "application/pdf";
+    turn["content"] = match format {
+        "claude" => json!([
+            {"type": if pdf {"document"} else {"image"}, "source": {"type":"base64","media_type":file.mime,"data":file.data}},
+            {"type":"text","text":text}
+        ]),
+        "responses" => json!([
+            if pdf {
+                json!({"type":"input_file","filename":file.name,"file_data":data_url})
+            } else {
+                json!({"type":"input_image","image_url":data_url})
+            },
+            {"type":"input_text","text":text}
+        ]),
+        _ => json!([
+            {"type":"text","text":text},
+            if pdf {
+                json!({"type":"file","file":{"filename":file.name,"file_data":data_url}})
+            } else {
+                json!({"type":"image_url","image_url":{"url":data_url}})
+            }
+        ]),
+    };
+}
+
+pub(crate) async fn generate_with_attachment(
+    inference: &Inference,
+    settings: &Settings,
+    messages: &[ChatMessage],
+    schema: Value,
+    max_tokens: u32,
+    attachment: Attachment,
+    cancel: Arc<AtomicBool>,
+) -> Result<Value, String> {
+    if settings.mode == "local" {
+        return Err("이 기기의 모델은 PDF·이미지를 읽지 못해요. 직접 입력하거나 API·ChatGPT 연결을 사용해 주세요.".into());
+    }
+    ATTACHMENT
+        .scope(
+            attachment,
+            generate_with_budget(
+                inference,
+                settings,
+                messages,
+                schema,
+                GenerationBudget::organizer(settings, max_tokens),
+                cancel,
+            ),
+        )
+        .await
 }
 
 pub(crate) async fn generate_organizer(
@@ -2713,5 +2796,45 @@ mod tests {
                 server.await.unwrap();
             }
         }
+    }
+
+    #[test]
+    fn attachments_only_change_the_last_user_turn_in_each_wire_format() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let file = Attachment {
+            name: "confirm.pdf".into(),
+            mime: "application/pdf".into(),
+            data: "AAAA".into(),
+        };
+        let mut plain = json!([{"role":"user","content":"hi"}]);
+        attach_to_last_user(&mut plain, "compatible");
+        assert_eq!(plain[0]["content"], "hi");
+        let turns = json!([
+            {"role":"system","content":"rules"},
+            {"role":"user","content":"first"},
+            {"role":"assistant","content":"ok"},
+            {"role":"user","content":"read this"}
+        ]);
+        let (compatible, claude, responses) = runtime.block_on(ATTACHMENT.scope(file, async {
+            let mut compatible = turns.clone();
+            attach_to_last_user(&mut compatible, "compatible");
+            let mut claude = turns.clone();
+            attach_to_last_user(&mut claude, "claude");
+            let mut responses = turns.clone();
+            attach_to_last_user(&mut responses, "responses");
+            (compatible, claude, responses)
+        }));
+        assert_eq!(compatible[1]["content"], "first");
+        assert_eq!(compatible[3]["content"][0]["text"], "read this");
+        assert_eq!(
+            compatible[3]["content"][1]["file"]["file_data"],
+            "data:application/pdf;base64,AAAA"
+        );
+        assert_eq!(claude[3]["content"][0]["type"], "document");
+        assert_eq!(claude[3]["content"][0]["source"]["data"], "AAAA");
+        assert_eq!(responses[3]["content"][0]["type"], "input_file");
+        assert_eq!(responses[3]["content"][1]["text"], "read this");
     }
 }

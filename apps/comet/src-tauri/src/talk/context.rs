@@ -59,6 +59,7 @@ const FIELDS: &[(&str, &str, &str, &str, &str)] = &[
     ("pet", "pet", "arrivals", "", "moving"),
     ("collection", "collection", "count decorationCount", "", ""),
     ("journal", "journal", "count", "recentKind", ""),
+    ("travel", "travel", "count daysUntil", "title stage", ""),
 ];
 
 fn description(prefix: &str, field: &str, nullable: bool) -> String {
@@ -74,6 +75,10 @@ fn description(prefix: &str, field: &str, nullable: bool) -> String {
         (_, "sourceId") if prefix.starts_with("character.") => "현재 자리에 설치된 캐릭터의 원본 sourceId. 표시 이름·로컬 ID와 구분",
         (_, "affinity") if prefix.starts_with("character.") => "해당 캐릭터의 현재 친밀도 점수",
 
+        ("travel", "count") => "끝나지 않은 여행 수. 다녀와서 정리 중인 여행도 포함",
+        ("travel", "daysUntil") => "가장 가까운 여행의 첫날까지 남은 일수(그곳 날짜 기준). 이미 시작했으면 0 이하",
+        ("travel", "title") => "가장 가까운 여행의 이름. 여행이 없으면 null",
+        ("travel", "stage") => "가장 가까운 여행의 단계: planning, before, traveling, wrapping",
         (_, "ready") => "설치·활성·의존성과 데이터 최신성 검사를 통과했는지 여부",
         (_, "status") => "설치 상태 또는 연결 상태. unavailable·실패·stale은 성공한 빈 값과 구분",
         (_, "openCount") => "완료하지 않은 할 일 수",
@@ -648,6 +653,28 @@ pub fn build(
             values.insert(format!("interaction.{field}"), data[field].clone());
         }
     }
+    if values["travel.ready"] == true {
+        // Trips live in the diary; the widget only says the user wants to hear about them.
+        let diary = crate::diary::read(db)?;
+        let now = DateTime::from_timestamp_millis(now_ms).unwrap_or_default();
+        let open: Vec<_> = diary
+            .travels()
+            .iter()
+            .map(|travel| (travel, crate::diary::travel::stage(travel, now)))
+            .filter(|(_, (stage, _))| *stage != "done")
+            .collect();
+        values.insert("travel.count".into(), json!(open.len()));
+        let nearest = open
+            .iter()
+            .filter(|(_, (stage, _))| *stage != "wrapping")
+            .min_by_key(|(_, (_, days))| *days)
+            .or_else(|| open.first());
+        if let Some((travel, (stage, days))) = nearest {
+            values.insert("travel.title".into(), json!(travel.title));
+            values.insert("travel.stage".into(), json!(stage));
+            values.insert("travel.daysUntil".into(), json!(days));
+        }
+    }
     if values["journal.ready"] == true {
         let count: i64 = db
             .query_row("SELECT COUNT(*) FROM widget_journal", [], |row| row.get(0))
@@ -1050,7 +1077,10 @@ mod tests {
             },
         };
         let context = build(&db, Some(&event), 100, 5).unwrap();
-        assert_eq!(context.available.len(), 14);
+        assert_eq!(context.available.len(), 15);
+        // Trips come from the diary; a fresh diary has none and no nearest-trip fields.
+        assert_eq!(context.values["travel.count"], 0);
+        assert_eq!(context.values["travel.title"], Value::Null);
         assert!(!context.available.contains("collection"));
         assert!(!context.available.contains("journal"));
         assert_eq!(context.values["event.action"], "poke");

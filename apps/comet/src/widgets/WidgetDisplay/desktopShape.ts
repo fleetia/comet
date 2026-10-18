@@ -21,6 +21,7 @@ export const DESKTOP_SKINS: Record<
   memo: { skin: "memo", fallbackPreset: "14" },
   todo: { fallbackPreset: "13" },
   calendar: { fallbackPreset: "13" },
+  travel: { fallbackPreset: "13" },
 };
 
 export function desktopSkin(kind: string): (typeof DESKTOP_SKINS)[string] | undefined {

@@ -11,7 +11,9 @@ import {
 import type { DataRecord } from "../toolData";
 import { ZONES } from "./TravelEditor";
 import { duration, instant } from "./travelData";
-import type { Travel, TravelPlan } from "./travelTypes";
+import { fromMicro, parseMapLink, toMicro } from "./travelGeo";
+import { kindLabel } from "./travelSummary";
+import type { Booking, Travel, TravelPlan } from "./travelTypes";
 import * as s from "./travel.css";
 
 const KINDS = [
@@ -21,6 +23,7 @@ const KINDS = [
 
 export function TravelPlanEditor({
   travel,
+  bookings,
   plan,
   date,
   busy,
@@ -29,6 +32,7 @@ export function TravelPlanEditor({
   onClose,
 }: {
   travel: Travel;
+  bookings: Booking[];
   plan?: TravelPlan;
   date: string;
   busy: boolean;
@@ -46,6 +50,11 @@ export function TravelPlanEditor({
   const [arriveTime, setArriveTime] = useState(plan?.arriveTime ?? "");
   const [departZone, setDepartZone] = useState(plan?.departZone ?? "");
   const [arriveZone, setArriveZone] = useState(plan?.arriveZone ?? "");
+  const [bookingId, setBookingId] = useState(plan?.bookingId ?? "");
+  const [location, setLocation] = useState(() => {
+    const at = fromMicro(plan?.lat, plan?.lng);
+    return at ? `${at.lat.toFixed(6)}, ${at.lng.toFixed(6)}` : "";
+  });
   const [error, setError] = useState("");
   const zones = [["", "여행 시간대"], ...ZONES.filter(([zone]) => zone !== travel.timeZone)];
   const minutes =
@@ -59,10 +68,16 @@ export function TravelPlanEditor({
     if (!title.trim()) return setError(kind === "move" ? "어디서 어디로 가는지 적어 주세요." : "무엇을 할지 적어 주세요.");
     if (kind === "move" && (!time || !arriveTime)) return setError("출발과 도착 시각을 적어 주세요.");
     if (minutes !== null && minutes < 0) return setError("도착이 출발보다 빨라요. 날짜와 시간대를 확인해 주세요.");
+    const at = location.trim() ? parseMapLink(location) : null;
+    if (location.trim() && !at) return setError("위치를 읽지 못했어요. 지도 링크나 ‘위도, 경도’로 적어 주세요.");
     setError("");
+    const micro = at ? toMicro(at) : null;
     const input: DataRecord = {
       travelId: travel.id,
       kind,
+      bookingId: bookingId || null,
+      lat: micro?.lat ?? null,
+      lng: micro?.lng ?? null,
       date: day,
       time,
       title,
@@ -199,6 +214,27 @@ export function TravelPlanEditor({
             onChange={(event) => setPlace(event.target.value)}
           />
         </FormField>
+        <div className={s.fieldRow}>
+          <FormField label="위치" description="지도 링크나 ‘위도, 경도’를 붙여 넣으면 지도에 점으로 그려요.">
+            <TextInput
+              value={location}
+              maxLength={2000}
+              placeholder="33.4996, 126.5312"
+              disabled={busy}
+              onChange={(event) => setLocation(event.target.value)}
+            />
+          </FormField>
+          <FormField label="연결한 예약">
+            <Select value={bookingId} disabled={busy} onChange={(event) => setBookingId(event.target.value)}>
+              <option value="">없음</option>
+              {bookings.map((booking) => (
+                <option key={booking.id} value={booking.id}>
+                  {kindLabel(booking.kind)} · {booking.title}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+        </div>
         <FormField label="메모">
           <Textarea
             value={memo}

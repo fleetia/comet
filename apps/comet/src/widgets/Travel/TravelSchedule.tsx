@@ -10,7 +10,9 @@ import {
   plansOn,
   zoneNote,
 } from "./travelData";
-import type { Travel, TravelPlan } from "./travelTypes";
+import { formatAmount } from "./travelMoney";
+import { kindLabel } from "./travelSummary";
+import type { Booking, Travel, TravelPlan } from "./travelTypes";
 import * as s from "./travel.css";
 
 export function planDetail(plan: TravelPlan, travel: Travel): string {
@@ -24,9 +26,20 @@ export function planDetail(plan: TravelPlan, travel: Travel): string {
   return [plan.place, plan.memo.split("\n")[0]].filter(Boolean).join(" · ");
 }
 
+export function planValue(plan: TravelPlan, bookings: Booking[]): string | undefined {
+  const booking = bookings.find((value) => value.id === plan.bookingId);
+  if (booking) {
+    return booking.status !== "paid" && booking.amount
+      ? formatAmount(booking.amount, booking.currency)
+      : `${kindLabel(booking.kind)} 예약`;
+  }
+  return plan.kind === "move" ? "이동" : undefined;
+}
+
 export function TravelSchedule({
   travel,
   plans,
+  bookings,
   days,
   date,
   busy,
@@ -36,6 +49,7 @@ export function TravelSchedule({
 }: {
   travel: Travel;
   plans: TravelPlan[];
+  bookings: Booking[];
   days: string[];
   date: string;
   busy: boolean;
@@ -69,7 +83,7 @@ export function TravelSchedule({
               className={s.row}
               title={`${plan.time ? `${clock(plan.time)}  ` : ""}${plan.title}`}
               detail={planDetail(plan, travel) || undefined}
-              value={plan.kind === "move" ? "이동" : undefined}
+              value={planValue(plan, bookings)}
               disabled={busy}
               onClick={() => onEdit(plan)}
             />

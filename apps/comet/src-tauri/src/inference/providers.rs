@@ -107,7 +107,7 @@ pub(super) async fn claude_completion(
             content: "Continue with the requested structured response.".into(),
         });
     }
-    let payload = json!({
+    let mut payload = json!({
         "model":settings.api_model,
         "max_tokens":budget.output_tokens.max(1024),
         "stream":false,
@@ -116,6 +116,7 @@ pub(super) async fn claude_completion(
         "tools":[{"name":"comet_response","description":"Return the requested Comet response as structured data, preserving the specified characters, dialogue, and required fields.","input_schema":schema}],
         "tool_choice":{"type":"auto"}
     });
+    attach_to_last_user(&mut payload["messages"], "claude");
     let request = http
         .post(format!("{url}/messages"))
         .header("anthropic-version", "2023-06-01")
