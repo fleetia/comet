@@ -1,15 +1,7 @@
 import { Button, Checkbox, Select, TabPanel, externalTabPanels } from "../../ui";
-import {
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type DragEvent,
-  type ReactElement,
-  type ReactNode,
-} from "react";
+import { useEffect, useId, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Button as CometButton, IconButton, TaskRow, Tabs } from "@comet/ui";
+import { Button as CometButton, IconButton, Tabs } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { WindowHeader } from "../../components/WindowHeader/WindowHeader";
 import { useWidgets } from "../useWidgets";
@@ -19,8 +11,7 @@ import { PlannerAlertNotice } from "../PlannerAlerts/PlannerAlerts";
 import { PlannerCalendar } from "./PlannerCalendar";
 import { PlannerPreparation } from "./PlannerPreparation";
 import { PlannerTemplates } from "./PlannerTemplates";
-import { TaskReadOnlyDetails, TodoEditor } from "./TodoEditor";
-import { envelopeTitle } from "./DiaryEnvelope";
+import { TodoEditor } from "./TodoEditor";
 import {
   clockLabel,
   dayDate,
@@ -29,7 +20,6 @@ import {
   deviceTimeZone,
   eventsOn,
   eventTime,
-  frequencyRecords,
   inPeriod,
   moveDay,
   movePeriod,
@@ -50,6 +40,7 @@ import { PlannerTodoEmpty } from "./PlannerTodoEmpty";
 import { PlannerTaskCheck } from "./PlannerTaskCheck";
 import { PlannerQuickInput } from "./PlannerQuickInput";
 import { PlannerTaskActions } from "./PlannerTaskActions";
+import { PlannerDiaryTasks } from "./PlannerDiaryTasks";
 import * as s from "./planner.css";
 
 const NAVIGATION = [
@@ -177,7 +168,6 @@ export function Planner({
   const [showCompleted, setShowCompleted] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState("");
   const [selectedTask, setSelectedTask] = useState("");
-  const dragging = useRef<{ id: string; widgetId: string } | null>(null);
   const [movingTask, setMovingTask] = useState<{ id: string; date: string } | null>(null);
   const [editing, setEditing] = useState<{ item: DataRecord; widget: WidgetView } | null>(null);
   const [wrap, setWrap] = useState(false);
@@ -263,19 +253,6 @@ export function Planner({
   function edit(item: DataRecord): void {
     if (todo) setEditing({ item, widget: todo });
   }
-  function draggedTask(event: DragEvent): DataRecord | undefined {
-    let value = dragging.current;
-    if (!value) {
-      try {
-        value = JSON.parse(event.dataTransfer.getData("application/x-comet-todo"));
-      } catch {
-        return undefined;
-      }
-    }
-    return !busy && value?.widgetId === todo?.id
-      ? items.find((item) => item.id === value?.id)
-      : undefined;
-  }
   function taskCheck(item: DataRecord): ReactElement {
     return (
       <PlannerTaskCheck
@@ -353,268 +330,37 @@ export function Planner({
     );
   }
   function diaryTasks(): ReactElement {
-    const completed = (item: DataRecord): boolean =>
-      typeof item.completedAt === "number" ||
-      (ruleOf(item).mode === "frequency" &&
-        rows(item.frequencyRecords).some((entry) => entry.date === day));
-    const open = items.filter((item) => !completed(item));
-    const completedToday = items.filter((item) => completed(item) && plannedDay(item) === day);
-    const done = items.filter((item) => completed(item) && plannedDay(item) !== day);
-    const envelopes = rows(record(preparation?.data).envelopes);
-    const groups = [
-      {
-        title: "지난 계획",
-        tasks: open.filter((item) => plannedDay(item) && plannedDay(item) < day),
-      },
-      {
-        title: day === localDay() ? "오늘" : "선택한 날",
-        tasks: [...open.filter((item) => plannedDay(item) === day), ...completedToday],
-        date: day,
-      },
-      { title: "예정", tasks: open.filter((item) => plannedDay(item) > day) },
-      { title: "날짜 없음", tasks: open.filter((item) => !plannedDay(item)) },
-      ...(showCompleted ? [{ title: "완료한 일", tasks: done }] : []),
-    ];
     return (
-      <section className={s.diaryTasks} aria-label="모든 날짜 할 일">
-        {todo ? (
-          <>
-            {quickInput(true)}
-            {groups
-              .filter((group) => group.tasks.length || group.date || group.title === "날짜 없음")
-              .map((group) => (
-                <section
-                  className={s.diaryTaskGroup}
-                  key={group.title}
-                  aria-label={group.title === "완료한 일" ? group.title : `${group.title} 할 일`}
-                  onDragOver={(event) => {
-                    if (draggedTask(event)) event.preventDefault();
-                  }}
-                  onDrop={(event) => {
-                    const source = draggedTask(event);
-                    if (!source || completed(source)) return;
-                    event.preventDefault();
-                    dragging.current = null;
-                    if (group.date || group.title === "날짜 없음") {
-                      void moveTaskDate(source, group.date || null);
-                    } else {
-                      setMovingTask({ id: text(source.id), date: plannedDay(source) || day });
-                    }
-                  }}
-                >
-                  <div className={s.diaryGroupHeading}>
-                    <h2 className={s.diaryGroupTitle}>
-                      {group.title === "날짜 없음" ? (
-                        <button
-                          type="button"
-                          className={s.diaryTaskTitle}
-                          aria-label={`수집함 · 날짜 없음 · 미완료 ${inboxCount}개`}
-                          onClick={() => {
-                            setPeriod("inbox");
-                            selectTab("plans");
-                          }}
-                        >
-                          수집함
-                        </button>
-                      ) : (
-                        group.title
-                      )}
-                    </h2>
-                    <span className={s.diaryGroupMeta}>
-                      {group.date &&
-                        `${dayDate(group.date).toLocaleDateString("ko-KR", { month: "long", day: "numeric", weekday: "long" })} · `}
-                      {group.title === "날짜 없음" ? "날짜 없음 · " : ""}
-                      {group.date
-                        ? group.tasks.filter((item) => !completed(item)).length
-                        : group.tasks.length}
-                      개{group.date ? " 남음" : ""}
-                    </span>
-                    {group.title === "날짜 없음" && (
-                      <span className={s.diaryInboxHint}>빠른 실행에서 적은 것도 여기로 와요</span>
-                    )}
-                  </div>
-                  {group.tasks.length ? (
-                    <div className={s.diaryTaskCard}>
-                      {group.tasks.map((item, index) => {
-                        const envelope = envelopes.find(
-                          (value) =>
-                            Array.isArray(value.todoIds) && value.todoIds.includes(item.id),
-                        );
-                        const repeat = repeatLabel(item);
-                        return (
-                          <article
-                            key={text(item.id)}
-                            draggable={!busy}
-                            onDragStart={(event) => {
-                              if (!todo || busy) {
-                                event.preventDefault();
-                                return;
-                              }
-                              dragging.current = { id: text(item.id), widgetId: todo.id };
-                              event.dataTransfer.setData(
-                                "application/x-comet-todo",
-                                JSON.stringify(dragging.current),
-                              );
-                              event.dataTransfer.effectAllowed = "move";
-                            }}
-                            onDragEnd={() => {
-                              dragging.current = null;
-                            }}
-                            onDragOver={(event) => {
-                              const source = draggedTask(event);
-                              if (source && completed(source) === completed(item)) {
-                                event.preventDefault();
-                                event.stopPropagation();
-                              }
-                            }}
-                            onDrop={(event) => {
-                              event.stopPropagation();
-                              const source = draggedTask(event);
-                              if (!source || completed(source) !== completed(item)) return;
-                              event.preventDefault();
-                              dragging.current = null;
-                              if (source.id === item.id) return;
-                              if (plannedDay(source) === plannedDay(item)) {
-                                void act("reorder", {
-                                  id: text(source.id),
-                                  beforeId: text(item.id),
-                                });
-                              } else if (!completed(source)) {
-                                void moveTaskDate(source, plannedDay(item) || null);
-                              }
-                            }}
-                            onKeyDown={(event) => {
-                              if (!event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key))
-                                return;
-                              const peers = group.tasks.filter(
-                                (peer) =>
-                                  plannedDay(peer) === plannedDay(item) &&
-                                  completed(peer) === completed(item),
-                              );
-                              const at = peers.indexOf(item);
-                              const next = event.key === "ArrowUp" ? at - 1 : at + 1;
-                              if (busy || next < 0 || next >= peers.length) return;
-                              event.preventDefault();
-                              void act("reorder", {
-                                id: text(item.id),
-                                beforeId:
-                                  event.key === "ArrowUp"
-                                    ? text(peers[next].id)
-                                    : peers[at + 2]
-                                      ? text(peers[at + 2].id)
-                                      : null,
-                              });
-                            }}
-                          >
-                            <TaskRow
-                              layout="diary"
-                              divider={index > 0}
-                              title={
-                                <button
-                                  type="button"
-                                  className={s.diaryTaskTitle}
-                                  aria-label={`${text(item.title)} 상세 보기`}
-                                  aria-expanded={selectedTask === item.id}
-                                  onClick={() => setSelectedTask(text(item.id))}
-                                >
-                                  {text(item.title)}
-                                </button>
-                              }
-                              completionLabel={text(item.title)}
-                              completed={completed(item)}
-                              disabled={
-                                busy || (ruleOf(item).mode === "frequency" && day > localDay())
-                              }
-                              onCompletedChange={() => void check(item)}
-                              selected={selectedTask === item.id}
-                              description={text(item.memo).split(/\r?\n/)[0] || undefined}
-                              due={
-                                dueLabel(item, day) ||
-                                (plannedDay(item) === day
-                                  ? group.title
-                                  : plannedDay(item) || "날짜 없음")
-                              }
-                              overdue={Boolean(
-                                dueDay(item) &&
-                                (typeof item.dueAt === "number"
-                                  ? item.dueAt < Date.now()
-                                  : dueDay(item) < localDay()),
-                              )}
-                              list={text(lists.find((list) => list.id === item.listId)?.name)}
-                              repeat={
-                                ruleOf(item).mode === "frequency"
-                                  ? `${repeat} · ${frequencyRecords(item, day).length}/${number(ruleOf(item).timesPerWeek)}회`
-                                  : repeat
-                              }
-                              envelope={envelope ? envelopeTitle(envelope) : undefined}
-                            />
-                            {selectedTask === item.id && (
-                              <div className={s.diaryTaskDetails}>
-                                <TaskReadOnlyDetails item={item} />
-                                <Button
-                                  variant="quiet"
-                                  size="compact"
-                                  aria-label={`${text(item.title)} 편집`}
-                                  onClick={() => edit(item)}
-                                >
-                                  편집
-                                </Button>
-                                {taskActions(true)}
-                              </div>
-                            )}
-                          </article>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className={s.diaryGroupMeta}>
-                      {group.title === "날짜 없음"
-                        ? "날짜 없이 남긴 할 일이 없어요."
-                        : `${day}에 계획한 할 일이 없어요.`}
-                    </p>
-                  )}
-                </section>
-              ))}
-            <div className={s.diaryTaskFooter}>
-              <CometButton
-                variant="link"
-                aria-expanded={showCompleted}
-                onClick={() => setShowCompleted((value) => !value)}
-              >
-                {showCompleted ? "완료한 일 접기" : `완료한 일 ${done.length}개 보기`}
-              </CometButton>
-              <div className={s.spacer} />
-              {!headerActionsTarget && (
-                <CometButton variant="link" onClick={() => setManageLists(true)}>
-                  목록 관리
-                </CometButton>
-              )}
-              <button
-                type="button"
-                className={s.diaryDragHint}
-                disabled={busy || !open.length}
-                onClick={() => {
-                  const source = open.find((item) => item.id === selectedTask) || open[0];
-                  if (source)
-                    setMovingTask({ id: text(source.id), date: plannedDay(source) || day });
-                }}
-              >
-                끌어서 순서를 바꾸거나 다른 날로 옮겨요
-              </button>
-            </div>
-            {!headerActionsTarget && (
-              <div className={s.actions}>
-                <Button variant="quiet" size="compact" onClick={openWrap}>
-                  하루 마무리
-                </Button>
-              </div>
-            )}
-          </>
-        ) : (
-          <PlannerTodoEmpty installed={todoInstalled} busy={busy} onEnable={enableTodo} />
-        )}
-        {calendar && <PlannerAlertNotice widget={calendar} act={act} />}
-      </section>
+      <PlannerDiaryTasks
+        day={day}
+        items={items}
+        lists={lists}
+        envelopes={rows(record(preparation?.data).envelopes)}
+        todo={todo}
+        todoInstalled={todoInstalled}
+        calendar={calendar}
+        busy={busy}
+        act={act}
+        selectedTask={selectedTask}
+        showCompleted={showCompleted}
+        headerActions={Boolean(headerActionsTarget)}
+        inboxCount={inboxCount}
+        quickInput={quickInput(true)}
+        taskActions={taskActions(true)}
+        onSelectTask={setSelectedTask}
+        onToggleCompleted={() => setShowCompleted((value) => !value)}
+        onCheck={check}
+        onEdit={edit}
+        onMoveTaskDate={moveTaskDate}
+        onStartMove={setMovingTask}
+        onOpenInbox={() => {
+          setPeriod("inbox");
+          selectTab("plans");
+        }}
+        onManageLists={() => setManageLists(true)}
+        onWrap={openWrap}
+        onEnableTodo={enableTodo}
+      />
     );
   }
   function prep(): ReactElement {
