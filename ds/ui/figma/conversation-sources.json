@@ -332,6 +332,15 @@
           "name": "Widget/Focus Timer/App Usage Picker · State=Setup · app usage field"
         }
       ]
+    },
+    {
+      "export": "ActionReceipt",
+      "sources": [
+        {
+          "id": "690:1895",
+          "name": "Conversation/Action Receipt"
+        }
+      ]
     }
   ]
 }

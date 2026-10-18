@@ -7,6 +7,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+mod catalog;
+mod registry;
+pub(crate) use catalog::catalog;
+pub(crate) use registry::{
+    authorize_evidence, authorize_registry, entities_for, execute_registry, query_registry,
+};
+#[cfg(test)]
+mod registry_tests;
+
 type Result<T> = std::result::Result<T, String>;
 const ENTITY_TEXT_LIMIT: usize = 300;
 fn err(error: impl std::fmt::Display) -> String {
@@ -25,6 +34,12 @@ pub(crate) struct Receipt {
     pub undone: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub undo_supported: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub undo_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<Value>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -37,6 +52,7 @@ pub(crate) struct Action {
 }
 
 pub(crate) fn initialize(db: &Connection) -> Result<()> {
+    registry::initialize(db)?;
     db.execute_batch("CREATE TABLE IF NOT EXISTS organizer_action_receipts(
         id TEXT PRIMARY KEY,user_id TEXT NOT NULL,input_id TEXT NOT NULL,
         fingerprint TEXT NOT NULL,receipt TEXT NOT NULL,container TEXT NOT NULL,
@@ -75,6 +91,24 @@ pub(crate) fn receipts(db: &Connection, user: &str, input: Option<&str>) -> Resu
             created_at: record.created_at,
             undone: state == "undone",
             source_id: Some(record.source.id),
+            undo_supported: None,
+            undo_reason: None,
+            result: None,
+        });
+    }
+    for receipt in crate::generated_widgets::actions::receipts(db, user, input)? {
+        result.push(Receipt {
+            id: receipt.id,
+            input_id: receipt.input_id,
+            title: receipt.title,
+            kind: receipt.action_id,
+            target_id: receipt.widget_id,
+            created_at: receipt.created_at,
+            undone: receipt.undone,
+            source_id: None,
+            undo_supported: Some(receipt.undo_supported),
+            undo_reason: None,
+            result: Some(receipt.result),
         });
     }
     result.sort_by_key(|r| std::cmp::Reverse(r.created_at));
@@ -116,6 +150,9 @@ pub(crate) fn open_result(
         });
     };
     let receipt: Receipt = serde_json::from_str(&raw).map_err(err)?;
+    if let Some(result) = registry::open_result(db, user, &receipt)? {
+        return Ok(result);
+    }
     let current = if container == "diary" {
         serde_json::to_value(diary::read(db)?).map_err(err)?
     } else {
@@ -228,6 +265,11 @@ pub(crate) fn replay_context(db: &Connection, user: &str, input: &str) -> Result
             .as_str()
             .unwrap_or("요청한 변경을 저장하지 못했어요. 입력을 수정하거나 다시 시도해 주세요.")
             .to_string());
+    }
+    if context["toolVersion"] == 1 {
+        let context =
+            crate::organizer_runtime::replay_widget_turn(db, user, context, &mut receipts)?;
+        return Ok(Some(json!({"context":context,"receipts":receipts})));
     }
     // Old contexts without provenance cannot establish permission to resend source-derived text.
     let sources =
@@ -406,7 +448,7 @@ pub(crate) fn permissions(query: &str) -> Vec<&'static str> {
     allowed
 }
 
-fn instruction_text(query: &str) -> String {
+pub(crate) fn instruction_text(query: &str) -> String {
     let chars: Vec<_> = query.chars().collect();
     let mut quote = None;
     let mut text = String::new();
@@ -418,7 +460,10 @@ fn instruction_text(query: &str) -> String {
             }
             continue;
         }
-        if matches!(c, ':' | '：') {
+        let numeric_colon = index > 0
+            && chars[index - 1].is_ascii_digit()
+            && chars.get(index + 1).is_some_and(char::is_ascii_digit);
+        if matches!(c, ':' | '：') && !numeric_colon {
             break;
         }
         let contraction = c == '\''
@@ -812,6 +857,9 @@ pub(crate) fn execute(
         created_at: timestamp,
         undone: false,
         source_id: None,
+        undo_supported: None,
+        undo_reason: None,
+        result: None,
     };
     tx.execute(
         "INSERT INTO organizer_action_receipts VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
@@ -930,6 +978,10 @@ pub(crate) fn undo(db: &Connection, user: &str, id: &str) -> Result<Receipt> {
     let (raw,container,collection,before,after):(String,String,String,String,String)=tx.query_row("SELECT receipt,container,collection,before_items,after_items FROM organizer_action_receipts WHERE id=?1 AND user_id=?2",params![id,user],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).map_err(|_|"되돌릴 작업을 찾지 못했어요.")?;
     let mut receipt: Receipt = serde_json::from_str(&raw).map_err(err)?;
     if receipt.undone {
+        return Ok(receipt);
+    }
+    if registry::undo_in_transaction(&tx, &mut receipt)? {
+        tx.commit().map_err(err)?;
         return Ok(receipt);
     }
     let before: Vec<Value> = serde_json::from_str(&before).map_err(err)?;

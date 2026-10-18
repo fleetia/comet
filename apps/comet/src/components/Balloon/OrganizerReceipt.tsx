@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX } from "react";
-import { Button } from "../../ui";
+import { ActionReceipt } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { OrganizerAction } from "../../organizer/types";
 import * as s from "../companion.css";
@@ -55,28 +55,16 @@ export function OrganizerReceipt({ inputId }: { inputId: string }): JSX.Element 
   return (
     <div className={s.conversationMeta} aria-label="이 요청의 정리 결과">
       {actions.map((action) => (
-        <div key={action.id} className={s.row}>
-          <span>
-            {action.title}
-            {action.undone ? " · 되돌림" : ""}
-          </span>
-          <Button
-            variant="quiet"
-            size="compact"
-            disabled={pending}
-            onClick={() => void run("organizer_open_records")}
-          >
-            열기
-          </Button>
-          <Button
-            variant="quiet"
-            size="compact"
-            disabled={pending || action.undone}
-            onClick={() => void run("organizer_undo", { operationId: action.id })}
-          >
-            되돌리기
-          </Button>
-        </div>
+        <ActionReceipt
+          key={action.id}
+          title={action.title}
+          undone={action.undone}
+          pending={pending}
+          undoSupported={action.undoSupported}
+          undoReason={action.undoReason}
+          onOpen={() => void run("organizer_open_records")}
+          onUndo={() => void run("organizer_undo", { operationId: action.id })}
+        />
       ))}
       {error && <p role="alert">{error}</p>}
     </div>

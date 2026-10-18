@@ -343,11 +343,14 @@ pub(crate) fn organizer_undo(
 ) -> Result<(), String> {
     runtime::touch(&state);
     runtime::stop_work(&state)?;
+    app::publish(&app, &state);
     {
         let _action = lock(&state.action)?;
         let db = lock(&state.db)?;
         let user = store::active_user_id(&db)?;
-        if actions::receipts(&db, &user, None)?
+        if crate::generated_widgets::actions::receipt(&db, &user, &operation_id)?.is_some() {
+            crate::generated_widgets::actions::undo(&db, &user, &operation_id)?;
+        } else if actions::receipts(&db, &user, None)?
             .iter()
             .any(|r| r.id == operation_id && r.kind != "summary")
         {
@@ -357,6 +360,7 @@ pub(crate) fn organizer_undo(
         }
     }
     runtime::publish_changes(&app, &state);
+    crate::generated_widget_commands::publish(&app);
     Ok(())
 }
 
@@ -366,7 +370,33 @@ pub(crate) fn organizer_open_action(
     operation_id: String,
 ) -> Result<records::SourceDocument, String> {
     let db = lock(&state.db)?;
-    actions::open_result(&db, &store::active_user_id(&db)?, &operation_id)
+    let user = store::active_user_id(&db)?;
+    if let Some(receipt) = crate::generated_widgets::actions::receipt(&db, &user, &operation_id)? {
+        let content = format!(
+            "{}\n{}",
+            if receipt.undone {
+                "되돌린 위젯 작업"
+            } else {
+                "위젯 작업 결과"
+            },
+            serde_json::to_string_pretty(&receipt.result).map_err(|error| error.to_string())?
+        );
+        return Ok(records::SourceDocument {
+            source: records::SourceRef {
+                id: receipt.id,
+                user_id: user,
+                workspace_id: "comet".into(),
+                project_id: String::new(),
+                kind: receipt.action_id,
+                locator: receipt.widget_id,
+                title: receipt.title,
+                content_hash: records::hash(&content),
+                active: true,
+            },
+            content,
+        });
+    }
+    actions::open_result(&db, &user, &operation_id)
 }
 
 #[tauri::command]

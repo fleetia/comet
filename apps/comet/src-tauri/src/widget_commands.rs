@@ -11,7 +11,10 @@ use crate::{
     widgets::{self, storage, WidgetEvent, WidgetRequest, WidgetSnapshot},
 };
 use serde_json::Value;
-use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
@@ -283,7 +286,9 @@ mod music_open_tests {
     fn close_cancels_a_waiting_music_open_but_preserves_background_reading() {
         let state = crate::app::tests::state();
         let reading = Arc::new(AtomicBool::new(false));
-        lock(&state.widget_jobs).unwrap().insert("music".into(), reading.clone());
+        lock(&state.widget_jobs)
+            .unwrap()
+            .insert("music".into(), reading.clone());
         let pending = begin_widget_open(&state, "music").unwrap();
         cancel_widget_opens(&state, Some("music")).unwrap();
         assert!(widget_open_current(&state, "music", &pending).is_err());
@@ -300,14 +305,16 @@ mod music_open_tests {
         let id = change(&state, |db| {
             storage::install(db, directory.path(), &["music".into()])?;
             Ok(storage::instances(db)?.remove(0).id)
-        }).unwrap();
+        })
+        .unwrap();
         let pending = begin_widget_open(&state, &id).unwrap();
         change(&state, |db| {
             storage::set_enabled(db, &id, false)?;
             cancel_widget_jobs(&state, Some(&id))?;
             storage::set_enabled(db, &id, true)?;
             validate_open_widget(&state, &storage::get(db, &id)?, None)
-        }).unwrap();
+        })
+        .unwrap();
         assert!(widget_open_current(&state, &id, &pending).is_err());
         assert!(widget_open_current(&state, &id, &begin_widget_open(&state, &id).unwrap()).is_ok());
     }
@@ -319,12 +326,14 @@ mod music_open_tests {
         let id = change(&state, |db| {
             storage::install(db, directory.path(), &["music".into()])?;
             Ok(storage::instances(db)?.remove(0).id)
-        }).unwrap();
+        })
+        .unwrap();
         let removed = begin_widget_open(&state, &id).unwrap();
         change(&state, |db| {
             storage::remove(db, directory.path(), &id, false)?;
             cancel_widget_jobs(&state, Some(&id))
-        }).unwrap();
+        })
+        .unwrap();
         assert!(widget_open_current(&state, &id, &removed).is_err());
         let stopping = begin_widget_open(&state, &id).unwrap();
         cancel_widget_jobs(&state, None).unwrap();
@@ -654,7 +663,7 @@ pub(crate) async fn open_widget(
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
 ) -> Result<(), String> {
-    open_widget_inner(&app, &state, &id, None).await
+    open_widget_inner(&app, &state, &id, None, None).await
 }
 
 /// Checks the launcher session, the widget kind and its revision in the same action section as
@@ -711,7 +720,103 @@ pub(crate) async fn open_widget_for_launcher(
     expected_revision: i64,
     session_id: u64,
 ) -> Result<(), String> {
-    open_widget_inner(&app, state, &id, Some((expected_revision, session_id))).await
+    open_widget_inner(
+        &app,
+        state,
+        &id,
+        Some((expected_revision, session_id)),
+        None,
+    )
+    .await
+}
+
+struct ConversationOpen<'a> {
+    expected_revision: i64,
+    epoch: u64,
+    cancel: &'a AtomicBool,
+}
+
+#[cfg(test)]
+mod conversation_open_tests {
+    use super::*;
+
+    #[test]
+    fn conversation_open_requires_current_epoch_revision_and_allowed_kind() {
+        let state = crate::app::tests::state();
+        let cancel = AtomicBool::new(false);
+        let guard = ConversationOpen {
+            expected_revision: 3,
+            epoch: state.epoch.load(Ordering::SeqCst),
+            cancel: &cancel,
+        };
+        let mut instance = widgets::WidgetInstance {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind: "ball".into(),
+            version: 1,
+            installed: true,
+            enabled: true,
+            revision: 3,
+            data: serde_json::json!({}),
+            error: None,
+        };
+        assert!(validate_conversation_open(&state, &instance, Some(&guard)).is_ok());
+        instance.revision = 4;
+        assert!(validate_conversation_open(&state, &instance, Some(&guard)).is_err());
+        instance.revision = 3;
+        instance.kind = "memo".into();
+        assert!(validate_conversation_open(&state, &instance, Some(&guard)).is_err());
+        instance.kind = "music".into();
+        assert!(validate_conversation_open(&state, &instance, Some(&guard)).is_err());
+        instance.kind = "interaction".into();
+        cancel.store(true, Ordering::SeqCst);
+        assert!(validate_conversation_open(&state, &instance, Some(&guard)).is_err());
+        cancel.store(false, Ordering::SeqCst);
+        state.epoch.fetch_add(1, Ordering::SeqCst);
+        assert!(validate_conversation_open(&state, &instance, Some(&guard)).is_err());
+    }
+}
+
+fn validate_conversation_open(
+    state: &AppState,
+    instance: &widgets::WidgetInstance,
+    guard: Option<&ConversationOpen<'_>>,
+) -> Result<(), String> {
+    let Some(guard) = guard else {
+        return Ok(());
+    };
+    if !matches!(
+        instance.kind.as_str(),
+        "ball" | "paper-plane" | "interaction"
+    ) {
+        return Err("이 위젯은 대화에서 자동으로 열 수 없어요.".into());
+    }
+    if instance.revision != guard.expected_revision
+        || !crate::app::is_current(state, guard.epoch, guard.cancel)
+    {
+        return Err("대화 또는 위젯 상태가 바뀌어 열지 않았어요.".into());
+    }
+    Ok(())
+}
+
+pub(crate) async fn open_widget_for_conversation(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    id: &str,
+    expected_revision: i64,
+    epoch: u64,
+    cancel: &AtomicBool,
+) -> Result<Value, String> {
+    if !crate::app::is_current(state, epoch, cancel) {
+        return Err("대화가 바뀌어 위젯을 열지 않았어요.".into());
+    }
+    let managed = app.state::<Arc<AppState>>();
+    let guard = ConversationOpen {
+        expected_revision,
+        epoch,
+        cancel,
+    };
+    open_widget_inner(app, managed.inner(), id, None, Some(&guard)).await?;
+    Ok(serde_json::json!({"opened":true,"widgetId":id,"revision":expected_revision}))
 }
 
 fn validate_open_widget(
@@ -762,11 +867,13 @@ async fn open_widget_inner(
     state: &Arc<AppState>,
     id: &str,
     launcher: Option<(i64, u64)>,
+    conversation: Option<&ConversationOpen<'_>>,
 ) -> Result<(), String> {
     uuid::Uuid::parse_str(id).map_err(|_| "위젯 식별자가 올바르지 않아요.".to_string())?;
     let (instance, open_intent) = change(state, |db| {
         let instance = storage::get(db, id)?;
         validate_open_widget(state, &instance, launcher)?;
+        validate_conversation_open(state, &instance, conversation)?;
         let intent = if instance.kind == "music" {
             Some(begin_widget_open(state, id)?)
         } else {
@@ -785,6 +892,7 @@ async fn open_widget_inner(
         return change(state, |db| {
             let current = storage::get(db, id)?;
             validate_open_widget(state, &current, launcher)?;
+            validate_conversation_open(state, &current, conversation)?;
             crate::desktop_toys::validate_launch(app, id, token)?;
             if let Some((_, session)) = launcher {
                 crate::app::launcher::accept_execution(state, session)?;
@@ -817,6 +925,7 @@ async fn open_widget_inner(
         current_events(state, &db)?;
         let current = storage::get(&db, id)?;
         validate_open_widget(state, &current, launcher)?;
+        validate_conversation_open(state, &current, conversation)?;
         current
     };
     if let Some((_, session)) = launcher {

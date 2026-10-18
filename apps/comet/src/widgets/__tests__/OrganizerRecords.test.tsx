@@ -102,3 +102,35 @@ it("shows the recorded source and preserves a conflicting result when undo fails
   expect(screen.getByRole("heading", { name: "프로젝트 결정" })).toBeTruthy();
   expect(command).toHaveBeenCalledWith("organizer_undo", { operationId: "operation-1" });
 });
+
+it("keeps unsupported undo disabled in the records detail too", async () => {
+  vi.mocked(command)
+    .mockReset()
+    .mockImplementation(async (name) => {
+      if (name === "organizer_status") return PREVIEW_ORGANIZER_STATUS;
+      if (name === "organizer_records") return [];
+      if (name === "organizer_actions")
+        return [
+          {
+            id: "timer-start",
+            inputId: "input-1",
+            kind: "widget_action",
+            title: "집중 시작",
+            createdAt: 1,
+            undone: false,
+            undoSupported: false,
+            undoReason: "실행 중인 집중은 위젯에서 멈출 수 있어요.",
+          },
+        ];
+    });
+  render(<OrganizerRecords />);
+  await screen.findByRole("heading", { name: "집중 시작" });
+  const undo = screen.getByRole("button", { name: "되돌리기" });
+  expect(undo).toHaveProperty("disabled", true);
+  expect(document.getElementById(undo.getAttribute("aria-describedby")!)?.textContent).toBe(
+    "실행 중인 집중은 위젯에서 멈출 수 있어요.",
+  );
+  fireEvent.click(undo);
+  expect(command).not.toHaveBeenCalledWith("organizer_undo", expect.anything());
+  expect(screen.getByRole("button", { name: "결과 열기" })).toHaveProperty("disabled", false);
+});

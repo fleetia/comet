@@ -12,6 +12,9 @@ use std::sync::{
 };
 use tauri::Emitter;
 
+mod conversation_tools;
+pub(crate) use conversation_tools::replay as replay_widget_turn;
+
 #[derive(Default)]
 pub(crate) struct Runtime {
     pub paused: AtomicBool,
@@ -513,6 +516,19 @@ fn save_direct_outcome(
 }
 
 pub(crate) async fn direct(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    message_id: &str,
+    epoch: u64,
+    cancel: Arc<AtomicBool>,
+) -> Result<(), String> {
+    if conversation_tools::direct(app, state, message_id, epoch, cancel.clone()).await? {
+        return Ok(());
+    }
+    legacy_direct(app, state, message_id, epoch, cancel).await
+}
+
+async fn legacy_direct(
     app: &tauri::AppHandle,
     state: &AppState,
     message_id: &str,

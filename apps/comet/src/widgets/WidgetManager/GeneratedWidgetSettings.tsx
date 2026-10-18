@@ -82,7 +82,12 @@ export function GeneratedWidgetSettings({
         </Button>
       </div>
       <Text as="p" variant="caption" tone="muted">
-        {widget.definition.description}. 실제 작업은 실행한 위젯에서 합니다.
+        {widget.definition.description}
+      </Text>
+      <Text as="p" variant="caption" tone="muted">
+        {widget.definition.actions?.length
+          ? "위젯을 켜고 실행 확인이 끝나면 대화에서도 사용할 수 있어요. 실행 창을 닫아도 사용할 수 있어요."
+          : '이 위젯을 대화로 사용하려면 아래 AI로 고치기에서 "기존 기능과 기록을 유지하며 대화로 사용할 수 있게 해 줘"라고 요청하세요.'}
       </Text>
       <Button
         variant="secondary"
