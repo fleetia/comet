@@ -37,6 +37,7 @@ import { ConversationContext } from "./ConversationContext";
 import { useConversationSessions } from "./useConversationSessions";
 import { useBalloonNavigation, useEscapeClose } from "./useBalloonNavigation";
 import { useConversationSubmission, useDraftReplacement } from "./useConversationSubmission";
+import { useIdleClose } from "./useIdleClose";
 import {
   useDraftAutosave,
   useDraftPersistence,
@@ -155,7 +156,6 @@ export function Balloon({
     setSaveSelection(request ? { identity: viewIdentity, request } : null);
   }
   const [contextBusy, setContextBusy] = useState(false);
-  const lastActivity = useRef(Date.now());
   const composing = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
@@ -202,18 +202,6 @@ export function Balloon({
     canRetry,
     latestUser,
   });
-  const idleBlocked = useRef(false);
-  idleBlocked.current =
-    responding ||
-    playing ||
-    pending ||
-    logOpen ||
-    latestUserOpen ||
-    moreOpen ||
-    choosingResumeNote ||
-    contextBusy ||
-    Boolean(saveRequest) ||
-    input.length > 0;
   const visibleError = error || (mode === "input" || !mode ? snapshot.runtime.error : null);
   const availability = aiAvailability(snapshot);
   const latestInputContent =
@@ -374,49 +362,24 @@ export function Balloon({
   });
   const closeCommand = snapshot.panel ? "close_panel" : "skip_talk";
   useEscapeClose({ closeCommand, dispatch, draftReplacement, leave });
-  useEffect(() => {
-    lastActivity.current = Date.now();
-    if (
-      mode !== "input" ||
-      !sessionId ||
-      input.length > 0 ||
-      logOpen ||
-      latestUserOpen ||
-      moreOpen ||
-      contextBusy ||
-      saveRequest ||
-      responding ||
-      playing ||
-      pending
-    )
-      return;
-    const timer = setInterval(() => {
-      if (
-        Date.now() - lastActivity.current >= 90_000 &&
-        !composing.current &&
-        !idleBlocked.current &&
-        draft.current.value.length === 0 &&
-        currentView.current.mode === "input" &&
-        currentView.current.sessionId === sessionId
-      ) {
-        lastActivity.current = Date.now();
-        void leave("close_panel", { idle: true });
-      }
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [
+  const markActivity = useIdleClose({
     mode,
     sessionId,
     input,
     logOpen,
     latestUserOpen,
     moreOpen,
+    choosingResumeNote,
     contextBusy,
     saveRequest,
     responding,
     playing,
     pending,
-  ]);
+    composing,
+    draft,
+    currentView,
+    leave,
+  });
   const latestReply = conversation?.messages
     .filter((message) => message.role === "assistant")
     .at(-1);
@@ -834,21 +797,11 @@ export function Balloon({
       }
       style={surface === "input" || orbitMenu ? undefined : skinned}
       aria-label={mode ? labels[mode] : "말풍선"}
-      onPointerMove={() => {
-        lastActivity.current = Date.now();
-      }}
-      onPointerDownCapture={() => {
-        lastActivity.current = Date.now();
-      }}
-      onKeyDownCapture={() => {
-        lastActivity.current = Date.now();
-      }}
-      onFocusCapture={() => {
-        lastActivity.current = Date.now();
-      }}
-      onWheel={() => {
-        lastActivity.current = Date.now();
-      }}
+      onPointerMove={markActivity}
+      onPointerDownCapture={markActivity}
+      onKeyDownCapture={markActivity}
+      onFocusCapture={markActivity}
+      onWheel={markActivity}
     >
       {surface === "input" ? null : mode && mode !== "menu" ? (
         <header className={s.balloonHeader}>
