@@ -629,3 +629,84 @@ export const pickerOption = style({
   selectors: { "&:has(input:checked)": { background: tokens["color/selected"] } },
 });
 export const nativeRadio = style({ accentColor: tokens["color/primary"], margin: 0 });
+export const hoverHost = style({});
+export const hoverActions = style({
+  position: "absolute",
+  top: -8,
+  right: -6,
+  zIndex: 2,
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 2,
+  height: 28,
+  padding: 2,
+  borderRadius: 14,
+  background: tokens["color/glass-panel"],
+  boxShadow: `0 0 0 1px ${tokens["color/glass-border"]}`,
+  backdropFilter: "blur(12px)",
+  color: tokens["color/ink-2"],
+  opacity: 0,
+  pointerEvents: "none",
+  transition: "opacity 120ms ease",
+  selectors: {
+    "&:focus-within": { opacity: 1, pointerEvents: "auto" },
+    [`${hoverHost}:hover &`]: { opacity: 1, pointerEvents: "auto" },
+  },
+  "@media": { "(prefers-reduced-motion: reduce)": { transition: "none" } },
+});
+export const hoverAction = style({
+  appearance: "none",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: 24,
+  height: 24,
+  padding: 0,
+  border: 0,
+  borderRadius: 12,
+  background: "transparent",
+  color: "inherit",
+  cursor: "pointer",
+  selectors: {
+    "&:hover:not(:disabled)": {
+      background: tokens["color/hover"],
+      color: tokens["color/ink"],
+    },
+    "&:focus-visible": {
+      outline: `2px solid ${tokens["color/focus-ring"]}`,
+      outlineOffset: 1,
+    },
+    "&:disabled": { opacity: 0.4, cursor: "not-allowed" },
+  },
+});
+export const hoverHandle = style({
+  cursor: "grab",
+  selectors: { "&:active": { cursor: "grabbing" } },
+});
+export const bubble = style({
+  position: "relative",
+  boxSizing: "border-box",
+  selectors: {
+    '&[data-placement="below"]': { marginTop: 8 },
+    '&[data-placement="above"]': { marginBottom: 8 },
+  },
+});
+export const bubbleTail = style({
+  position: "absolute",
+  width: 16,
+  height: 8,
+  marginLeft: -8,
+  background: `var(--comet-widget-bubble-fill, ${tokens["color/glass-panel"]})`,
+  backdropFilter: "blur(12px)",
+  pointerEvents: "none",
+  selectors: {
+    [`${bubble}[data-placement="below"] &`]: {
+      top: -8,
+      clipPath: "polygon(50% 0, 100% 100%, 0 100%)",
+    },
+    [`${bubble}[data-placement="above"] &`]: {
+      bottom: -8,
+      clipPath: "polygon(0 0, 100% 0, 50% 100%)",
+    },
+  },
+});

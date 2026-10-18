@@ -9,8 +9,6 @@ import {
   WeatherWidget,
   WidgetRow,
   CompactFreeform,
-  Switch,
-  Button,
   type FreeformAppearanceProps,
   type WidgetKind,
 } from "@comet/ui";
@@ -441,43 +439,54 @@ const STACK_ACTIONS: Record<string, { name: string; label: string; settings: boo
   memo: { name: "메모", label: "메모 열기", settings: false },
 };
 
-/** Kinds whose expanded stack row is the collapsed row plus a pin/action footer. */
-export function hasStackFooter(kind: string): boolean {
+/** Kinds whose expanded stack row is the collapsed row in a card with a settings or open action. */
+export function hasStackCard(kind: string): boolean {
   return kind in STACK_ACTIONS;
 }
+/** Kinds whose own window is the expanded view, so the capsule bar opens it directly. */
+export function opensWidgetWindow(kind: string): boolean {
+  return STACK_ACTIONS[kind]?.settings === false;
+}
 
-export function StackRowWithFooter({
+/** The settings or open action shown on a stacked widget; `null` for kinds without one. */
+export function useStackAction(widget: WidgetView): {
+  label: string;
+  busy: boolean;
+  error: string | null;
+  open: () => void;
+} | null {
+  const { busy, error, run } = useConnectionCommand();
+  const action = STACK_ACTIONS[widget.kind];
+  if (!action) return null;
+  function open(): void {
+    if (action.settings) void run("open_planner_settings", { kind: widget.kind });
+    else void run(...widgetWindowCommand(widget));
+  }
+  return { label: action.label, busy, error, open };
+}
+
+/** Opens the widget's own window; a memo opens its open note, or its first one. */
+export function widgetWindowCommand(widget: WidgetView): [string, Record<string, unknown>] {
+  const notes = widget.kind === "memo" ? rows(record(widget.data).notes) : [];
+  const note = notes.find((item) => item.isOpen === true) ?? notes[0];
+  return note
+    ? ["open_memo_note", { id: widget.id, noteId: text(note.id) }]
+    : ["open_widget", { id: widget.id }];
+}
+
+export function StackRowCard({
   widget,
   widgets = [],
   now,
   onCollapse,
-  pinned = false,
-  onPinnedChange,
 }: {
   widget: WidgetView;
   widgets?: readonly WidgetView[];
   now: number;
   onCollapse: () => void;
-  pinned?: boolean;
-  onPinnedChange?: (checked: boolean) => void;
 }): ReactElement {
-  const { busy, error, run } = useConnectionCommand();
-  const action = STACK_ACTIONS[widget.kind] ?? { name: "위젯", label: "열기", settings: false };
-  const name = action.name;
-  function open(): void {
-    if (action.settings) {
-      void run("open_planner_settings", { kind: widget.kind });
-      return;
-    }
-    const notes = widget.kind === "memo" ? rows(record(widget.data).notes) : [];
-    const note = notes.find((item) => item.isOpen === true) ?? notes[0];
-    void run(
-      note ? "open_memo_note" : "open_widget",
-      note ? { id: widget.id, noteId: text(note.id) } : { id: widget.id },
-    );
-  }
   return (
-    <section className={s.weatherStack} aria-label={name}>
+    <section className={s.stackCard} aria-label={STACK_ACTIONS[widget.kind]?.name ?? "위젯"}>
       <CollapsedDesktopWidget
         widget={widget}
         widgets={widgets}
@@ -485,20 +494,6 @@ export function StackRowWithFooter({
         onExpand={onCollapse}
         expanded
       />
-      <div className={s.weatherControls}>
-        <span className={s.weatherPinLabel}>늘 펼쳐 두기</span>
-        <Switch
-          aria-label={`${name} 늘 펼쳐 두기`}
-          checked={pinned}
-          disabled={busy || !onPinnedChange}
-          onChange={(event) => onPinnedChange?.(event.currentTarget.checked)}
-        />
-        <span className={s.weatherDivider} />
-        <Button size="small" variant="link" disabled={busy} onClick={open}>
-          {action.label}
-        </Button>
-      </div>
-      {error && <p role="alert">{error}</p>}
     </section>
   );
 }
@@ -597,5 +592,5 @@ export function ExpandedDesktopWidget({
       </div>
     );
   }
-  return <StackRowWithFooter widget={widget} widgets={widgets} now={now} onCollapse={onCollapse} />;
+  return <StackRowCard widget={widget} widgets={widgets} now={now} onCollapse={onCollapse} />;
 }

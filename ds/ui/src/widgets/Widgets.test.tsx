@@ -1,7 +1,14 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AppUsagePicker, EnvelopeWidget, FocusTimerWidget, WidgetStackSummary } from "./Widgets";
+import {
+  AppUsagePicker,
+  EnvelopeWidget,
+  FocusTimerWidget,
+  WidgetBubble,
+  WidgetHoverActions,
+  WidgetStackSummary,
+} from "./Widgets";
 
 afterEach(cleanup);
 const envelopeLabels = {
@@ -146,5 +153,48 @@ describe("controlled widgets", () => {
     expect(select).toHaveBeenCalledWith("focus");
     await user.click(screen.getByRole("button", { name: "밤의 산책" }));
     expect(select).toHaveBeenCalledOnce();
+  });
+  it("renders only the hover actions it is given and forwards handle handlers", async () => {
+    const user = userEvent.setup();
+    const settings = vi.fn();
+    const collapse = vi.fn();
+    const key = vi.fn();
+    const { rerender } = render(
+      <WidgetHoverActions
+        settings={{ label: "날씨 설정", onClick: settings }}
+        onCollapse={collapse}
+        collapseLabel="날씨 접기"
+        handle={{ label: "날씨 순서 바꾸기", draggable: true, onKeyDown: key }}
+      />,
+    );
+    const bar = screen.getByRole("toolbar", { name: "위젯 동작" });
+    expect(bar.querySelectorAll("button")).toHaveLength(3);
+    await user.click(screen.getByRole("button", { name: "날씨 설정" }));
+    await user.click(screen.getByRole("button", { name: "날씨 접기" }));
+    const handle = screen.getByRole("button", { name: "날씨 순서 바꾸기" });
+    expect(handle.getAttribute("draggable")).toBe("true");
+    handle.focus();
+    await user.keyboard("{ArrowDown}");
+    expect([settings, collapse, key].map((fn) => fn.mock.calls.length)).toEqual([1, 1, 1]);
+    rerender(<WidgetHoverActions handle={{ label: "타이머 순서 바꾸기" }} />);
+    expect(
+      screen.getAllByRole("button").map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["타이머 순서 바꾸기"]);
+  });
+  it("places the bubble tail toward its trigger", () => {
+    const { rerender } = render(
+      <WidgetBubble aria-label="날씨" tailOffset={64}>
+        내용
+      </WidgetBubble>,
+    );
+    const bubble = screen.getByRole("dialog", { name: "날씨" });
+    expect(bubble.getAttribute("data-placement")).toBe("below");
+    expect(bubble.querySelector<HTMLElement>("[aria-hidden]")!.style.left).toBe("64px");
+    rerender(
+      <WidgetBubble aria-label="날씨" placement="above">
+        내용
+      </WidgetBubble>,
+    );
+    expect(screen.getByRole("dialog").getAttribute("data-placement")).toBe("above");
   });
 });

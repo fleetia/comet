@@ -44,9 +44,23 @@ function widget(id: string, kind: string, enabled = true): WidgetView {
           : {},
   };
 }
+const CATALOG = Object.entries({
+  clock: "시계",
+  weather: "날씨",
+  memo: "메모",
+  "focus-timer": "집중 타이머",
+}).map(([id, name]) => ({
+  id,
+  name,
+  description: "",
+  category: "",
+  version: 1,
+  required: [],
+  connection: null,
+}));
 function setWidgets(widgets: WidgetView[]): void {
   vi.mocked(useWidgets).mockReturnValue({
-    snapshot: { catalog: [], widgets, onboardingDone: true },
+    snapshot: { catalog: CATALOG, widgets, onboardingDone: true },
     error: null,
     reload: vi.fn(),
   });
@@ -64,10 +78,9 @@ beforeEach(() => {
     mode: "stack",
     order: ["clock", "weather", "disabled", "removed"],
     anchor: "top-right",
-    width: "normal",
+    width: 370,
     overlapped: false,
     oneExpanded: true,
-    pinned: [],
     positions: {},
     shapes: {},
     snapToGrid: false,
@@ -94,13 +107,17 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-it("expands rows in place, opens tools only from the explicit open button, and keeps weather settings", async () => {
+it("expands rows in place and moves settings and open actions to the hover toolbar", async () => {
   setWidgets([widget("clock", "clock"), widget("weather", "weather"), widget("memo", "memo")]);
   state.order = ["clock", "weather", "memo"];
   render(<WidgetStack />);
   await screen.findByText("21°C");
   expect(screen.queryByRole("button", { name: /바탕화면에서 빼기/ })).toBeNull();
   expect(screen.getAllByRole("button", { expanded: false })).toHaveLength(3);
+  expect(screen.queryByRole("switch")).toBeNull();
+  // Collapsed rows offer only the reorder handle.
+  expect(screen.queryByRole("button", { name: "메모 열기" })).toBeNull();
+  expect(screen.getByRole("button", { name: "메모 순서 바꾸기" })).toBeTruthy();
 
   fireEvent.click(screen.getByText("장보기").closest("button")!);
   expect(command).not.toHaveBeenCalledWith("open_memo_note", expect.anything());
@@ -110,18 +127,39 @@ it("expands rows in place, opens tools only from the explicit open button, and k
   );
 
   fireEvent.click(screen.getByText("21°C").closest("button")!);
-  fireEvent.click(screen.getByRole("switch", { name: "날씨 늘 펼쳐 두기" }));
-  await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("configure_widget_desktop", {
-      expectedRevision: 5,
-      input: expect.objectContaining({ pinned: ["weather"], order: ["clock", "weather", "memo"] }),
-    }),
-  );
+  expect(screen.queryByRole("button", { name: "메모 열기" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "날씨 설정" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("open_planner_settings", { kind: "weather" }),
   );
+  fireEvent.click(screen.getByRole("button", { name: "날씨 접기" }));
+  expect(screen.getAllByRole("button", { expanded: false })).toHaveLength(3);
   expect(command).not.toHaveBeenCalledWith("open_widget", expect.anything());
+  expect(command).not.toHaveBeenCalledWith("configure_widget_desktop", expect.anything());
+});
+
+it("reorders stack rows from the hover handle by dragging or arrow keys", async () => {
+  render(<WidgetStack />);
+  await screen.findByText("21°C");
+  const transfer = { setData: vi.fn(), setDragImage: vi.fn(), effectAllowed: "" };
+  fireEvent.dragStart(screen.getByRole("button", { name: "날씨 순서 바꾸기" }), {
+    dataTransfer: transfer,
+  });
+  fireEvent.dragOver(document.querySelector('[data-desktop-widget="clock"]')!);
+  fireEvent.drop(document.querySelector('[data-desktop-widget="clock"]')!);
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("configure_widget_desktop", {
+      expectedRevision: 5,
+      input: expect.objectContaining({ order: ["weather", "clock", "disabled", "removed"] }),
+    }),
+  );
+  expect(transfer.setDragImage).toHaveBeenCalled();
+  fireEvent.keyDown(screen.getByRole("button", { name: "시계 순서 바꾸기" }), { key: "ArrowDown" });
+  await waitFor(() =>
+    expect(
+      vi.mocked(command).mock.calls.filter(([name]) => name === "configure_widget_desktop"),
+    ).toHaveLength(2),
+  );
 });
 
 it("shows in-place edit affordances only while the desktop is being edited", async () => {
@@ -153,13 +191,10 @@ it("shows in-place edit affordances only while the desktop is being edited", asy
   expect(emit).toHaveBeenLastCalledWith("widget-desktop-selection", null);
 });
 
-function expandRows(): void {
-  for (const id of ["clock", "weather"])
-    fireEvent.click(
-      within(document.querySelector<HTMLElement>(`[data-desktop-widget="${id}"]`)!).getAllByRole(
-        "button",
-      )[0],
-    );
+function moveDown(label: string): void {
+  fireEvent.keyDown(screen.getByRole("button", { name: `${label} 순서 바꾸기` }), {
+    key: "ArrowDown",
+  });
 }
 
 it("keeps a completed break labeled as finished after repeatedly unfolding and folding", async () => {
@@ -200,10 +235,8 @@ it("serializes layout saves so each configure sends the newest revision", async 
   });
   render(<WidgetStack />);
   await screen.findByText("21°C");
-  expandRows();
-  const switches = screen.getAllByRole("switch");
-  fireEvent.click(switches[0]);
-  fireEvent.click(switches[1]);
+  moveDown("시계");
+  moveDown("날씨");
   await act(async () => release());
   await waitFor(() =>
     expect(
@@ -221,19 +254,21 @@ it("retries a stale configure once on the latest revision from another window", 
     if (name === "get_widget_desktop") return state;
     if (name !== "configure_widget_desktop") return undefined;
     if ((args as { expectedRevision: number }).expectedRevision === 5) {
-      state = { ...state, revision: 8, width: "wide" };
+      state = { ...state, revision: 8, width: 410 };
       throw new Error("다른 화면에서 배치를 바꿨어요.");
     }
     return { ...state, revision: 9 };
   });
   render(<WidgetStack />);
   await screen.findByText("21°C");
-  expandRows();
-  fireEvent.click(screen.getAllByRole("switch")[0]);
+  moveDown("시계");
   await waitFor(() =>
     expect(command).toHaveBeenLastCalledWith("configure_widget_desktop", {
       expectedRevision: 8,
-      input: expect.objectContaining({ pinned: ["clock"], width: "wide" }),
+      input: expect.objectContaining({
+        order: ["weather", "clock", "disabled", "removed"],
+        width: 410,
+      }),
     }),
   );
   expect(screen.queryByRole("alert")).toBeNull();
@@ -245,13 +280,17 @@ it("sizes the stack window to its measured content", async () => {
     .mockReturnValue({ width: 394.2, height: 210.5 } as DOMRect);
   render(<WidgetStack />);
   await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("fit_widget_stack", { width: 395, height: 211 }),
+    expect(command).toHaveBeenCalledWith("fit_widget_stack", {
+      width: 395,
+      height: 211,
+      lead: { x: 0, y: 0 },
+    }),
   );
   expect(command).not.toHaveBeenCalledWith("open_widget_stack", expect.anything());
   rect.mockRestore();
 });
 
-it("folds into the live capsule and restores it after an inline focus card closes", async () => {
+it("opens a folded widget as a bubble beside the capsule bar and closes it from outside", async () => {
   state.order = ["clock", "focus", "disabled"];
   state.overlapped = true;
   setWidgets([
@@ -266,10 +305,81 @@ it("folds into the live capsule and restores it after an inline focus card close
   const capsule = within(await screen.findByRole("group", { name: "접어 둔 위젯" }));
   expect(capsule.getAllByRole("button")).toHaveLength(2);
   fireEvent.click(capsule.getByRole("button", { name: /집중/ }));
-  expect(screen.queryByRole("group", { name: "접어 둔 위젯" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "접기" }));
-  expect(await screen.findByRole("group", { name: "접어 둔 위젯" })).toBeTruthy();
+  // The capsule bar stays; only the chosen widget opens below it.
+  expect(screen.getByRole("group", { name: "접어 둔 위젯" })).toBeTruthy();
+  const bubble = screen.getByRole("dialog");
+  expect(bubble.getAttribute("data-placement")).toBe("below");
+  expect(bubble.compareDocumentPosition(capsule.getAllByRole("button")[0])).toBe(
+    Node.DOCUMENT_POSITION_PRECEDING,
+  );
+  expect(capsule.getByRole("button", { name: /집중/ }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(within(bubble).getByRole("button", { name: "접기" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+
+  fireEvent.click(capsule.getAllByRole("button")[0]);
+  const clock = screen.getByRole("dialog");
+  expect(within(clock).getByRole("button", { name: "시계 설정" })).toBeTruthy();
+  expect(within(clock).queryByRole("button", { name: /순서 바꾸기|접기/ })).toBeNull();
+  fireEvent.pointerDown(clock);
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  fireEvent.pointerDown(document.body);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  fireEvent.click(capsule.getAllByRole("button")[0]);
+  act(() => window.dispatchEvent(new Event("blur")));
+  expect(screen.queryByRole("dialog")).toBeNull();
   expect(command).not.toHaveBeenCalledWith("open_widget", { id: "focus" });
+});
+
+it("opens window widgets straight from the capsule bar and bubbles above bottom anchors", async () => {
+  setWidgets([widget("memo", "memo"), widget("weather", "weather")]);
+  state.order = ["memo", "weather"];
+  state.overlapped = true;
+  state.anchor = "bottom-left";
+  render(<WidgetStack />);
+  const capsule = within(await screen.findByRole("group", { name: "접어 둔 위젯" }));
+  fireEvent.click(capsule.getByRole("button", { name: /장보기/ }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("open_memo_note", { id: "memo", noteId: "note-1" }),
+  );
+  expect(screen.queryByRole("dialog")).toBeNull();
+  fireEvent.click(capsule.getByRole("button", { name: /21°C/ }));
+  const bubble = screen.getByRole("dialog");
+  expect(bubble.getAttribute("data-placement")).toBe("above");
+  expect(bubble.compareDocumentPosition(capsule.getAllByRole("button")[0])).toBe(
+    Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+});
+
+it("applies each widget's stack style through theme tokens without touching other rows", async () => {
+  state.stackStyles = {
+    weather: {
+      followTheme: false,
+      backgroundColor: "#223344",
+      textColor: "#FFFFFF",
+      opacity: 40,
+      radius: 8,
+    },
+    clock: {
+      followTheme: true,
+      backgroundColor: "#000000",
+      textColor: "#000000",
+      opacity: 0,
+      radius: 0,
+    },
+  };
+  render(<WidgetStack />);
+  await screen.findByText("21°C");
+  const weather = document.querySelector<HTMLElement>('[data-desktop-widget="weather"]')!;
+  const clock = document.querySelector<HTMLElement>('[data-desktop-widget="clock"]')!;
+  expect(weather.style.getPropertyValue("--comet-color-glass-panel")).toBe(
+    "color-mix(in srgb, #223344 40%, transparent)",
+  );
+  expect(weather.style.getPropertyValue("--comet-color-ink")).toBe("#FFFFFF");
+  expect(weather.style.getPropertyValue("--comet-stack-radius")).toBe("8px");
+  expect(clock.style.getPropertyValue("--comet-color-glass-panel")).toBe(
+    "color-mix(in srgb, var(--comet-stack-theme-fill) 0%, transparent)",
+  );
+  expect(clock.style.getPropertyValue("--comet-color-ink")).toBe("");
 });
 
 it("enters desktop editing from the stack toolbar", async () => {

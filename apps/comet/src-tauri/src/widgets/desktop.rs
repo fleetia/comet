@@ -37,13 +37,67 @@ pub(crate) enum Anchor {
     BottomLeft,
     BottomRight,
 }
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub(crate) enum Width {
-    Narrow,
-    #[default]
-    Normal,
-    Wide,
+/// Stack row width in logical pixels. Layouts saved before pixel widths stored a named size.
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(transparent)]
+pub(crate) struct Width(pub u16);
+impl Width {
+    const MIN: u16 = 280;
+    const MAX: u16 = 600;
+    fn valid(self) -> bool {
+        (Self::MIN..=Self::MAX).contains(&self.0)
+    }
+}
+impl Default for Width {
+    fn default() -> Self {
+        Self(370)
+    }
+}
+impl<'de> Deserialize<'de> for Width {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Pixels(f64),
+            Named(String),
+        }
+        Ok(match Raw::deserialize(deserializer)? {
+            Raw::Pixels(value) if value.is_finite() && value >= 0.0 && value <= u16::MAX as f64 => {
+                Self(value.round() as u16)
+            }
+            Raw::Pixels(_) => return Err(serde::de::Error::custom("invalid stack width")),
+            Raw::Named(name) => match name.as_str() {
+                "narrow" => Self(330),
+                "wide" => Self(410),
+                _ => Self::default(),
+            },
+        })
+    }
+}
+
+/// How one widget looks inside the stack. Freeform appearance is stored with the widget itself.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StackStyle {
+    pub follow_theme: bool,
+    pub background_color: String,
+    pub text_color: String,
+    /// Background opacity in percent; the theme's own translucency is multiplied by it.
+    pub opacity: u8,
+    pub radius: u8,
+}
+impl StackStyle {
+    fn valid(&self) -> bool {
+        let hex = |value: &str| {
+            value.len() == 7
+                && value.starts_with('#')
+                && value[1..].chars().all(|c| c.is_ascii_hexdigit())
+        };
+        hex(&self.background_color)
+            && hex(&self.text_color)
+            && self.opacity <= 100
+            && self.radius <= 24
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -55,9 +109,9 @@ pub(crate) struct Layout {
     pub width: Width,
     pub overlapped: bool,
     pub one_expanded: bool,
-    pub pinned: Vec<String>,
     pub positions: BTreeMap<String, Point>,
     pub shapes: BTreeMap<String, Shape>,
+    pub stack_styles: BTreeMap<String, StackStyle>,
     pub snap_to_grid: bool,
     pub show_guides: bool,
     pub stack_position: Option<Point>,
@@ -70,12 +124,12 @@ impl Default for Layout {
             mode: Mode::Stack,
             order: vec![],
             anchor: Anchor::TopRight,
-            width: Width::Normal,
+            width: Width::default(),
             overlapped: true,
             one_expanded: true,
-            pinned: vec![],
             positions: BTreeMap::new(),
             shapes: BTreeMap::new(),
+            stack_styles: BTreeMap::new(),
             snap_to_grid: false,
             show_guides: true,
             stack_position: None,
@@ -97,8 +151,6 @@ pub(crate) struct LayoutSettings {
     pub width: Width,
     pub overlapped: bool,
     pub one_expanded: bool,
-    #[serde(default)]
-    pub pinned: Vec<String>,
     #[serde(default)]
     pub snap_to_grid: bool,
     #[serde(default = "default_show_guides")]
@@ -186,6 +238,9 @@ pub(crate) struct Runtime {
     snapshot: Mutex<Option<Layout>>,
     moves: Mutex<HashMap<String, u64>>,
     placed: Mutex<HashMap<String, (i32, i32)>>,
+    /// Where the stack's anchor content (the capsule bar) sits inside the window while a
+    /// bubble opens above or before it. The saved stack position always describes that content.
+    stack_lead: Mutex<(f64, f64)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -379,12 +434,9 @@ fn fit_size(width: f64, height: f64, area: Rect) -> Result<(f64, f64), String> {
     ))
 }
 
+/// Initial window width before the first fit: the rows plus the stack padding.
 fn stack_width(width: &Width) -> f64 {
-    match width {
-        Width::Narrow => 370.0,
-        Width::Normal => 410.0,
-        Width::Wide => 450.0,
-    }
+    f64::from(width.0) + 40.0
 }
 
 fn read(db: &Connection) -> Result<Stored, String> {
@@ -418,10 +470,9 @@ fn pruned(mut layout: Layout, placeable: &HashMap<String, String>) -> Layout {
         .order
         .retain(|id| placeable.contains_key(id) && seen.insert(id.clone()));
     layout.order.truncate(64);
-    let mut seen = HashSet::new();
-    layout
-        .pinned
-        .retain(|id| layout.order.contains(id) && seen.insert(id.clone()));
+    if !layout.width.valid() {
+        layout.width = Width::default();
+    }
     layout
         .positions
         .retain(|id, point| layout.order.contains(id) && point.valid());
@@ -434,6 +485,9 @@ fn pruned(mut layout: Layout, placeable: &HashMap<String, String>) -> Layout {
     layout
         .shapes
         .retain(|id, shape| layout.order.contains(id) && shape.valid());
+    layout
+        .stack_styles
+        .retain(|id, style| layout.order.contains(id) && style.valid());
     if layout
         .stack_position
         .as_ref()
@@ -451,8 +505,7 @@ fn validate(layout: &Layout) -> Result<(), String> {
             .iter()
             .any(|id| uuid::Uuid::parse_str(id).is_err())
         || layout.order.iter().collect::<HashSet<_>>().len() != layout.order.len()
-        || layout.pinned.iter().collect::<HashSet<_>>().len() != layout.pinned.len()
-        || layout.pinned.iter().any(|id| !layout.order.contains(id))
+        || !layout.width.valid()
         || layout
             .positions
             .iter()
@@ -461,6 +514,10 @@ fn validate(layout: &Layout) -> Result<(), String> {
             .shapes
             .iter()
             .any(|(id, shape)| !layout.order.contains(id) || !shape.valid())
+        || layout
+            .stack_styles
+            .iter()
+            .any(|(id, style)| !layout.order.contains(id) || !style.valid())
         || layout
             .stack_position
             .as_ref()
@@ -513,11 +570,6 @@ fn configured(current: &Layout, input: LayoutSettings) -> Layout {
             .stack_position
             .clone()
             .filter(|_| input.anchor == current.anchor),
-        pinned: input
-            .pinned
-            .into_iter()
-            .filter(|id| order.contains(id))
-            .collect(),
         positions: current
             .positions
             .iter()
@@ -529,6 +581,12 @@ fn configured(current: &Layout, input: LayoutSettings) -> Layout {
             .iter()
             .filter(|(id, _)| order.contains(id))
             .map(|(id, shape)| (id.clone(), shape.clone()))
+            .collect(),
+        stack_styles: current
+            .stack_styles
+            .iter()
+            .filter(|(id, _)| order.contains(id))
+            .map(|(id, style)| (id.clone(), style.clone()))
             .collect(),
         mode: input.mode,
         order,
@@ -572,9 +630,9 @@ fn update(
 
 fn without(layout: &mut Layout, id: &str) {
     layout.order.retain(|value| value != id);
-    layout.pinned.retain(|value| value != id);
     layout.positions.remove(id);
     layout.shapes.remove(id);
+    layout.stack_styles.remove(id);
 }
 
 fn desktop_state(state: &AppState, stored: &Stored) -> DesktopState {
@@ -805,10 +863,25 @@ fn position_stack(
     size: (f64, f64),
 ) -> Result<(), String> {
     let point = match &layout.stack_position {
-        Some(saved) => clamp_stack_point(saved, size, &work_areas(app)?),
+        Some(saved) => {
+            let (x, y) = stack_lead(app)?;
+            let origin = Point {
+                x: saved.x - x,
+                y: saved.y - y,
+            };
+            clamp_stack_point(&origin, size, &work_areas(app)?)
+        }
+        // Anchored stacks keep their anchor edges; the page aligns its content to them.
         None => stack_origin(window_area(app, window)?, size, &layout.anchor),
     };
     place(app, window, &point)
+}
+
+fn stack_lead(app: &tauri::AppHandle) -> Result<(f64, f64), String> {
+    match app.try_state::<Runtime>() {
+        Some(runtime) => Ok(*lock(&runtime.stack_lead)?),
+        None => Ok((0.0, 0.0)),
+    }
 }
 
 fn open_stack(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
@@ -1097,6 +1170,9 @@ fn settle(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
         }
     } else {
         remember_position(app, &window)?;
+        let (x, y) = *lock(&runtime.stack_lead)?;
+        point.x += x;
+        point.y += y;
     }
     let (stored, changed) = widgets::commands::change(&state, |db| {
         update(db, |layout| {
@@ -1251,6 +1327,33 @@ pub(crate) async fn set_widget_desktop_shape(
     Ok(current)
 }
 
+/// Stack-only look of one widget; `None` returns it to the theme defaults.
+#[tauri::command]
+pub(crate) async fn set_widget_stack_style(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    style: Option<StackStyle>,
+) -> Result<DesktopState, String> {
+    widget_id(&id)?;
+    if style.as_ref().is_some_and(|style| !style.valid()) {
+        return Err("모아두기 꾸미기 설정이 올바르지 않아요.".into());
+    }
+    let (stored, _) = widgets::commands::change(&state, |db| {
+        update(db, |layout| {
+            if !layout.order.contains(&id) {
+                return Err("바탕화면에 놓인 위젯만 꾸밀 수 있어요.".into());
+            }
+            match style {
+                Some(style) => layout.stack_styles.insert(id.clone(), style),
+                None => layout.stack_styles.remove(&id),
+            };
+            Ok(())
+        })
+    })?;
+    Ok(emit_state(&app, &state, &stored))
+}
+
 #[tauri::command]
 pub(crate) async fn set_widget_desktop_editing(
     app: tauri::AppHandle,
@@ -1344,13 +1447,19 @@ pub(crate) async fn close_widget_stack(
 pub(crate) async fn fit_widget_stack(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
+    runtime: tauri::State<'_, Runtime>,
     width: f64,
     height: f64,
+    lead: Option<Point>,
 ) -> Result<(), String> {
     let Some(window) = app.get_webview_window(STACK) else {
         return Ok(());
     };
     let size = fit_size(width, height, window_area(&app, &window)?)?;
+    let lead = lead
+        .filter(Point::valid)
+        .map_or((0.0, 0.0), |point| (point.x.clamp(0.0, size.0), point.y.clamp(0.0, size.1)));
+    *lock(&runtime.stack_lead)? = lead;
     let layout = read(&*lock(&state.db)?)?.layout;
     window
         .set_size(tauri::LogicalSize::new(size.0, size.1))
@@ -1417,6 +1526,15 @@ mod tests {
     }
     fn shape(width: f64, height: f64, rotation: f64) -> Shape {
         serde_json::from_value(serde_json::json!({"source":"drawing","preset":"default","cloudCount":4,"roundness":70,"rotation":rotation,"flipX":true,"flipY":false,"fitContent":true,"width":width,"height":height,"strokes":[[{"x":1,"y":1},{"x":23,"y":1},{"x":12,"y":23}]]})).unwrap()
+    }
+    fn style() -> StackStyle {
+        StackStyle {
+            follow_theme: false,
+            background_color: "#223344".into(),
+            text_color: "#FFFFFF".into(),
+            opacity: 60,
+            radius: 12,
+        }
     }
     fn settings(layout: &Layout) -> LayoutSettings {
         serde_json::from_value(serde_json::to_value(layout).unwrap()).unwrap()
@@ -1487,7 +1605,8 @@ mod tests {
         assert!(legacy.layout.shapes.is_empty());
         assert!(!legacy.layout.snap_to_grid);
         assert!(legacy.layout.show_guides);
-        assert!(legacy.layout.pinned.is_empty());
+        assert!(legacy.layout.stack_styles.is_empty());
+        assert_eq!(legacy.layout.width, Width(370));
         assert!(legacy.layout.stack_position.is_none());
         assert_eq!(load(&db).unwrap().revision, 2);
         let serialized =
@@ -1496,6 +1615,59 @@ mod tests {
         assert_eq!(serialized["editing"], false);
         assert_eq!(serialized["mode"], "freeform");
         assert!(serialized["stackPosition"].is_null());
+    }
+
+    #[test]
+    fn stack_width_reads_legacy_names_and_rejects_out_of_range_pixels() {
+        for (raw, width) in [
+            (r#""narrow""#, 330),
+            (r#""normal""#, 370),
+            (r#""wide""#, 410),
+            ("452.4", 452),
+        ] {
+            let layout: Layout = serde_json::from_str(&format!(r#"{{"width":{raw}}}"#)).unwrap();
+            assert_eq!(layout.width, Width(width));
+        }
+        let db = database();
+        for width in [279, 601] {
+            let layout = Layout {
+                width: Width(width),
+                ..Layout::default()
+            };
+            assert!(configure(&db, 0, settings(&layout)).is_err());
+        }
+        let layout = Layout {
+            width: Width(600),
+            ..Layout::default()
+        };
+        assert_eq!(configure(&db, 0, settings(&layout)).unwrap().layout.width, Width(600));
+    }
+
+    #[test]
+    fn stack_styles_are_bounded_and_legacy_pins_are_dropped() {
+        let mut value = style();
+        assert!(value.valid());
+        value.opacity = 101;
+        assert!(!value.valid());
+        value = style();
+        value.radius = 25;
+        assert!(!value.valid());
+        value = style();
+        value.background_color = "red".into();
+        assert!(!value.valid());
+        let db = database();
+        let ids = install(&db, &["clock"]);
+        db.execute(
+            "INSERT INTO widget_preferences(key,value) VALUES(?1,?2)",
+            params![
+                KEY,
+                format!(r#"{{"revision":1,"order":["{0}"],"pinned":["{0}"]}}"#, ids[0])
+            ],
+        )
+        .unwrap();
+        let loaded = load(&db).unwrap();
+        assert_eq!(loaded.layout.order, ids);
+        assert!(!serde_json::to_value(&loaded).unwrap().as_object().unwrap().contains_key("pinned"));
     }
 
     #[test]
@@ -1549,7 +1721,7 @@ mod tests {
         let layout = Layout {
             mode: Mode::Freeform,
             order: ids.clone(),
-            pinned: ids.clone(),
+            stack_styles: ids.iter().map(|id| (id.clone(), style())).collect(),
             positions: ids
                 .iter()
                 .map(|id| (id.clone(), Point { x: 48.0, y: 64.0 }))
@@ -1569,7 +1741,10 @@ mod tests {
         let after = load(&db).unwrap();
         assert_eq!(after.revision, before.revision + 1);
         assert_eq!(after.layout.order, vec![ids[0].clone()]);
-        assert_eq!(after.layout.pinned, vec![ids[0].clone()]);
+        assert_eq!(
+            after.layout.stack_styles.keys().collect::<Vec<_>>(),
+            vec![&ids[0]]
+        );
         assert_eq!(after.layout.positions.len(), 1);
         assert!(after.layout.shapes.is_empty());
         assert_eq!(load(&db).unwrap().revision, after.revision);
@@ -1587,6 +1762,7 @@ mod tests {
                 (ids[1].clone(), Point { x: 300.0, y: 64.0 }),
             ]),
             shapes: BTreeMap::from([(ids[0].clone(), shape(184.0, 184.0, 30.0))]),
+            stack_styles: ids.iter().map(|id| (id.clone(), style())).collect(),
             stack_position: Some(Point { x: 900.0, y: 40.0 }),
             ..Layout::default()
         };
@@ -1598,8 +1774,8 @@ mod tests {
         assert_eq!(next.layout.positions, layout.positions);
         assert_eq!(next.layout.shapes, layout.shapes);
         assert_eq!(next.layout.stack_position, layout.stack_position);
+        assert_eq!(next.layout.stack_styles, layout.stack_styles);
         input.order = vec![ids[1].clone()];
-        input.pinned = ids.clone();
         input.anchor = Anchor::BottomLeft;
         let next = configure(&db, next.revision, input).unwrap();
         assert_eq!(
@@ -1607,7 +1783,10 @@ mod tests {
             vec![&ids[1]]
         );
         assert!(next.layout.shapes.is_empty());
-        assert_eq!(next.layout.pinned, vec![ids[1].clone()]);
+        assert_eq!(
+            next.layout.stack_styles.keys().collect::<Vec<_>>(),
+            vec![&ids[1]]
+        );
         assert!(next.layout.stack_position.is_none());
     }
 
@@ -1647,7 +1826,7 @@ mod tests {
         let widget = storage::get(&db, &ids[0]).unwrap();
         update(&db, |layout| {
             layout.order.push(ids[0].clone());
-            layout.pinned.push(ids[0].clone());
+            layout.stack_styles.insert(ids[0].clone(), style());
             layout
                 .positions
                 .insert(ids[0].clone(), Point { x: 1.0, y: 2.0 });
@@ -1958,10 +2137,9 @@ mod tests {
             mode: Mode::Stack,
             order: vec![],
             anchor: Anchor::TopLeft,
-            width: Width::Wide,
+            width: Width(410),
             overlapped: false,
             one_expanded: false,
-            pinned: vec![],
             snap_to_grid: true,
             show_guides: false,
         };
