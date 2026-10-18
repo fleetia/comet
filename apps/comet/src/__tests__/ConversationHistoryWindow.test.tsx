@@ -705,37 +705,132 @@ it("flushes a pending draft when a noncompeting hide or pause removes the input 
   expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty("disabled", true);
 });
 
-it("restores an asynchronously failed submission without overwriting a newer draft", async () => {
-  const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
-  await begin();
-  fireEvent.change(screen.getByRole("textbox", { name: "이어서 말하기" }), {
-    target: { value: "준비 실패 입력" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "보내기" }));
-  await waitFor(() =>
-    expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty("value", ""),
-  );
-  const messageId = vi.mocked(command).mock.calls.find(([name]) => name === "send_message")?.[1]
-    ?.clientMessageId as string;
-  const failed: Snapshot = {
-    ...SNAPSHOT,
-    panel: { persona: "builtin-a", mode: "history-input" },
-    conversation: { ...FIRST_VIEW, recovery: { messageId, reason: "incomplete" } },
-  };
-  rerender(<ConversationHistoryWindow snapshot={failed} />);
-  expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty(
-    "value",
-    "준비 실패 입력",
-  );
-  fireEvent.change(screen.getByRole("textbox", { name: "이어서 말하기" }), {
-    target: { value: "새로 적은 초안" },
-  });
-  rerender(<ConversationHistoryWindow snapshot={{ ...failed }} />);
-  expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty(
-    "value",
-    "새로 적은 초안",
-  );
-});
+it.each(["before", "after"])(
+  "keeps a sent draft empty when pending wordbook recovery arrives %s send acceptance",
+  async (arrival) => {
+    const accepted = deferred<void>();
+    const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+    await begin();
+    let storedDraft = FIRST.draft;
+    const fallback = vi.mocked(command).getMockImplementation()!;
+    vi.mocked(command).mockImplementation(async (name, args) => {
+      if (name === "save_conversation_draft") storedDraft = args?.draft as string;
+      if (name === "send_message") {
+        storedDraft = "";
+        return accepted.promise;
+      }
+      return fallback(name, args);
+    });
+    const input = screen.getByRole("textbox", { name: "이어서 말하기" });
+    fireEvent.change(input, { target: { value: "안녕" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(command).toHaveBeenCalledWith("send_message", expect.anything()));
+    const messageId = vi.mocked(command).mock.calls.find(([name]) => name === "send_message")?.[1]
+      ?.clientMessageId as string;
+    const userMessage = { ...MESSAGE, id: messageId, role: "user", content: "안녕" };
+    const pending: Snapshot = {
+      ...SNAPSHOT,
+      panel: { persona: "builtin-a", mode: "history-input" },
+      runtime: { ...SNAPSHOT.runtime, phase: "playing" },
+      conversation: {
+        ...FIRST_VIEW,
+        session: { ...FIRST, status: "active", draft: "" },
+        messages: [...FIRST_VIEW.messages, userMessage],
+        recovery: { messageId, reason: "incomplete" },
+      },
+      playback: {
+        id: "wordbook-reply",
+        persona: "builtin-a",
+        text: "안녕, 여행자!",
+        expression: "평온",
+        source: "wordbook",
+        endsAt: FIRST.createdAt + 5000,
+        displayStartedAt: null,
+        lineIndex: 0,
+        lineCount: 1,
+      },
+    };
+    if (arrival === "before") rerender(<ConversationHistoryWindow snapshot={pending} />);
+    await act(async () => accepted.resolve());
+    if (arrival === "after") rerender(<ConversationHistoryWindow snapshot={pending} />);
+    expect(input).toHaveProperty("value", "");
+    expect(screen.queryByText("답변을 마치지 못했어요. 보낸 내용은 남아 있어요.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "다시 이야기하기" })).toBeNull();
+    rerender(
+      <ConversationHistoryWindow
+        snapshot={{
+          ...pending,
+          runtime: { ...pending.runtime, phase: "idle" },
+          playback: null,
+          conversation: {
+            ...pending.conversation!,
+            recovery: undefined,
+            messages: [
+              ...pending.conversation!.messages,
+              { ...MESSAGE, id: "wordbook-reply", content: "안녕, 여행자!" },
+            ],
+          },
+        }}
+      />,
+    );
+    expect(input).toHaveProperty("value", "");
+    const savesBeforeClose = vi
+      .mocked(command)
+      .mock.calls.filter(([name]) => name === "save_conversation_draft").length;
+    act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault: vi.fn() }));
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("release_conversation_history", { sessionId: FIRST.id }),
+    );
+    expect(storedDraft).toBe("");
+    expect(
+      vi.mocked(command).mock.calls.filter(([name]) => name === "save_conversation_draft"),
+    ).toHaveLength(savesBeforeClose);
+  },
+);
+
+it.each(["before", "after"])(
+  "preserves the original failed submission when error arrives %s send acceptance without replacing a newer draft",
+  async (arrival) => {
+    const accepted = deferred<void>();
+    const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+    await begin();
+    const fallback = vi.mocked(command).getMockImplementation()!;
+    vi.mocked(command).mockImplementation(async (name, args) =>
+      name === "send_message" ? accepted.promise : fallback(name, args),
+    );
+    const content = "  준비 실패 입력\n둘째 줄 그대로  ";
+    fireEvent.change(screen.getByRole("textbox", { name: "이어서 말하기" }), {
+      target: { value: content },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "보내기" }));
+    await waitFor(() => expect(command).toHaveBeenCalledWith("send_message", expect.anything()));
+    const messageId = vi.mocked(command).mock.calls.find(([name]) => name === "send_message")?.[1]
+      ?.clientMessageId as string;
+    const failed: Snapshot = {
+      ...SNAPSHOT,
+      runtime: { ...SNAPSHOT.runtime, phase: "error", error: "모델 준비 실패" },
+      panel: { persona: "builtin-a", mode: "history-input" },
+      conversation: { ...FIRST_VIEW, recovery: { messageId, reason: "incomplete" } },
+    };
+    if (arrival === "before") rerender(<ConversationHistoryWindow snapshot={failed} />);
+    await act(async () => accepted.resolve());
+    if (arrival === "after") rerender(<ConversationHistoryWindow snapshot={failed} />);
+    expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty("value", content);
+    expect(screen.getByText("답변을 마치지 못했어요. 보낸 내용은 남아 있어요.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "다시 이야기하기" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "이어서 말하기" }), {
+      target: { value: "새로 적은 초안" },
+    });
+    rerender(<ConversationHistoryWindow snapshot={{ ...failed }} />);
+    expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty(
+      "value",
+      "새로 적은 초안",
+    );
+  },
+);
 
 it("filters group conversations and sends a text search to the complete history query", async () => {
   const together = { ...SECOND, participants: ["builtin-a", "builtin-b"], draft: "함께 쓴 계획" };
