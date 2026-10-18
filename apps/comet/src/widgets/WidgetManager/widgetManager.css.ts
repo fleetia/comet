@@ -198,35 +198,6 @@ globalStyle(`${settings} .${tools.number}`, {
 });
 
 export const experiments = style({ display: "grid", gap: tokens["spacing/space-8"] });
-export const experimentsToggle = style({
-  display: "flex",
-  alignItems: "center",
-  gap: tokens["spacing/space-6"],
-  width: "100%",
-  minHeight: 32,
-  padding: `${tokens["spacing/space-6"]} ${tokens["spacing/space-8"]}`,
-  border: 0,
-  background: "transparent",
-  color: tokens["color/ink-2"],
-  textAlign: "left",
-  font: "inherit",
-  fontSize: tokens["typography/sans/body/fontSize"],
-  borderRadius: tokens["radius/radius-9"],
-  cursor: "pointer",
-  selectors: {
-    "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: -2 },
-  },
-});
-export const experimentsBody = style({
-  display: "grid",
-  gap: tokens["spacing/space-8"],
-  maxHeight: 240,
-  overflowY: "auto",
-  overscrollBehavior: "contain",
-  padding: `0 ${tokens["spacing/space-8"]}`,
-  selectors: { "&[hidden]": { display: "none" } },
-});
-
 export const directoryWorkspace = style({
   display: "flex",
   flexDirection: "column",

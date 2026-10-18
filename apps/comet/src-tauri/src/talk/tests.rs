@@ -55,7 +55,7 @@ fn parse(source: &str) -> Program {
 
 #[test]
 fn line_motion_annotations_preserve_branches_interpolation_multiline_and_plain_text() {
-    use crate::character_reactions::MotionOverride;
+    use crate::characters::reactions::MotionOverride;
     let program = parse(concat!(
         r#"format: 1
 scene: motions

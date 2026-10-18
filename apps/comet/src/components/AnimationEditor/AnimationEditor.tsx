@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from "react";
-import { Button, Checkbox, FormField, Select, Surface, TextField } from "../../ui";
+import { Button, Checkbox, FormField, Select, Surface, TextInput } from "@comet/ui";
 import type {
   AnimationAsset,
   AnimationBinding,
@@ -61,6 +61,7 @@ export function BindingEditor({
     <div className={s.binding}>
       <span>{label}</span>
       <Select
+        fill
         aria-label={`${label} 동작`}
         value={value?.clipId ?? (inherit && value === undefined ? "$inherit" : "$none")}
         onChange={(event) => {
@@ -90,11 +91,11 @@ export function BindingEditor({
           <Checkbox
             checked={value.repeat}
             onChange={(event) => onChange({ ...value, repeat: event.target.checked })}
-          >
-            {label} 반복
-          </Checkbox>
+            label={<>{label} 반복</>}
+          />
           <FormField label="반복 간격(초)">
-            <TextField
+            <TextInput
+              fill
               className={s.number}
               aria-label={`${label} 반복 간격(초)`}
               type="number"
@@ -311,6 +312,7 @@ export function AnimationEditor({
       <div className={s.editor}>
         <div className={s.controls}>
           <Select
+            fill
             hidden={hideNavigation}
             aria-label="편집할 동작"
             value={clip?.id ?? ""}
@@ -329,8 +331,8 @@ export function AnimationEditor({
             ))}
           </Select>
           <Button
-            variant="secondary"
-            size="compact"
+            variant="ghost"
+            size="small"
             type="button"
             hidden={hideNavigation}
             disabled={animation.clips.length >= MAX_ANIMATION_CLIPS}
@@ -352,8 +354,8 @@ export function AnimationEditor({
           </Button>
           {clip && (
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               type="button"
               onClick={() => onChange(removeAnimationClip(animation, clip.id))}
             >
@@ -365,7 +367,8 @@ export function AnimationEditor({
           <>
             <div className={s.clipFields}>
               <FormField label="동작 이름">
-                <TextField
+                <TextInput
+                  fill
                   aria-label="동작 이름"
                   maxLength={80}
                   value={clip.name}
@@ -373,7 +376,8 @@ export function AnimationEditor({
                 />
               </FormField>
               <FormField label="초당 프레임">
-                <TextField
+                <TextInput
+                  fill
                   aria-label="동작 속도(fps)"
                   type="number"
                   min={1}
@@ -384,7 +388,7 @@ export function AnimationEditor({
                 />
               </FormField>
             </div>
-            <Surface tone="accent" className={s.preview}>
+            <Surface variant="accent" className={s.preview}>
               {shownIndex === null ? (
                 <span className={s.fallback} style={{ width: previewSize, height: previewSize }}>
                   {fallbackImage ? (
@@ -409,8 +413,8 @@ export function AnimationEditor({
             </Surface>
             <div className={s.controls}>
               <Button
-                variant="secondary"
-                size="compact"
+                variant="ghost"
+                size="small"
                 type="button"
                 disabled={!ready}
                 onClick={() => {
@@ -425,8 +429,8 @@ export function AnimationEditor({
                 {playing ? "미리보기 정지" : "미리보기 재생"}
               </Button>
               <Button
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 type="button"
                 disabled={clip.frames.length === 0}
                 onClick={() => {
@@ -437,8 +441,8 @@ export function AnimationEditor({
                 이전 프레임
               </Button>
               <Button
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 type="button"
                 disabled={clip.frames.length === 0}
                 onClick={() => {
@@ -451,11 +455,11 @@ export function AnimationEditor({
               <Checkbox
                 checked={previewRepeat}
                 onChange={(event) => setPreviewRepeat(event.target.checked)}
-              >
-                미리보기 반복
-              </Checkbox>
+                label="미리보기 반복"
+              />
               <FormField label="쉬는 간격(초)">
-                <TextField
+                <TextInput
+                  fill
                   className={s.number}
                   aria-label="미리보기 반복 간격(초)"
                   type="number"
@@ -481,8 +485,8 @@ export function AnimationEditor({
               {clip.frames.map((frame, index) => (
                 <div className={s.frame} key={index} data-selected={shownIndex === index}>
                   <Button
-                    variant={shownIndex === index ? "primary" : "quiet"}
-                    size="compact"
+                    variant={shownIndex === index ? "primary" : "ghost"}
+                    size="small"
                     type="button"
                     aria-label={`${index + 1}번 프레임 선택`}
                     aria-pressed={shownIndex === index}
@@ -507,8 +511,8 @@ export function AnimationEditor({
                   </Button>
                   <div className={s.frameActions}>
                     <Button
-                      variant="quiet"
-                      size="compact"
+                      variant="ghost"
+                      size="small"
                       type="button"
                       aria-label={`${index + 1}번 프레임 앞으로`}
                       disabled={index === 0}
@@ -517,8 +521,8 @@ export function AnimationEditor({
                       ←
                     </Button>
                     <Button
-                      variant="quiet"
-                      size="compact"
+                      variant="ghost"
+                      size="small"
                       type="button"
                       aria-label={`${index + 1}번 프레임 뒤로`}
                       disabled={index === clip.frames.length - 1}
@@ -527,8 +531,8 @@ export function AnimationEditor({
                       →
                     </Button>
                     <Button
-                      variant="quiet"
-                      size="compact"
+                      variant="ghost"
+                      size="small"
                       type="button"
                       aria-label={`${index + 1}번 프레임 삭제`}
                       onClick={() =>
@@ -543,8 +547,8 @@ export function AnimationEditor({
             </div>
             <div className={s.controls}>
               <Button
-                variant="secondary"
-                size="compact"
+                variant="ghost"
+                size="small"
                 type="button"
                 disabled={!onChooseAssets || choosing || clip.frames.length >= MAX_ANIMATION_FRAMES}
                 onClick={() => void choose("sequence")}
@@ -555,7 +559,8 @@ export function AnimationEditor({
             </div>
             <div className={s.sheet}>
               <FormField label="칸 너비(px)">
-                <TextField
+                <TextInput
+                  fill
                   className={s.number}
                   aria-label="시트 칸 너비(px)"
                   type="number"
@@ -567,7 +572,8 @@ export function AnimationEditor({
                 />
               </FormField>
               <FormField label="칸 높이(px)">
-                <TextField
+                <TextInput
+                  fill
                   className={s.number}
                   aria-label="시트 칸 높이(px)"
                   type="number"
@@ -579,7 +585,8 @@ export function AnimationEditor({
                 />
               </FormField>
               <FormField label="프레임 수">
-                <TextField
+                <TextInput
+                  fill
                   className={s.number}
                   aria-label="시트 프레임 수"
                   type="number"
@@ -591,8 +598,8 @@ export function AnimationEditor({
                 />
               </FormField>
               <Button
-                variant="secondary"
-                size="compact"
+                variant="ghost"
+                size="small"
                 type="button"
                 disabled={!onChooseAssets || choosing || clip.frames.length >= MAX_ANIMATION_FRAMES}
                 onClick={() => void choose("sheet")}

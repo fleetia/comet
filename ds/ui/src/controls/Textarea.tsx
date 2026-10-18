@@ -1,10 +1,11 @@
 import { forwardRef, type TextareaHTMLAttributes } from "react";
 
-import { FieldMessages, useField, type FieldProps } from "./Field";
+import { FieldMessages, fieldClassName, useField, type FieldProps, type FillProps } from "./Field";
 import * as styles from "./fields.css";
 
 export type TextareaProps = TextareaHTMLAttributes<HTMLTextAreaElement> &
-  FieldProps & {
+  FieldProps &
+  FillProps & {
     layout?: "compact" | "fixed" | "flexible" | "code-compact" | "plain" | "code-padded";
   };
 
@@ -17,6 +18,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
       id,
       className,
       layout = "compact",
+      fill,
       "aria-describedby": describedBy,
       "aria-invalid": invalid,
       ...props
@@ -32,7 +34,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
     });
 
     return (
-      <span className={styles.field}>
+      <span className={fieldClassName(fill, { label, description, error })}>
         {label && (
           <label htmlFor={field.id} className={styles.label}>
             {label}
@@ -42,7 +44,12 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
           {...props}
           ref={ref}
           id={field.id}
-          className={[styles.input, styles.textareaLayouts[layout], className]
+          className={[
+            styles.input,
+            styles.textareaLayouts[layout],
+            fill && styles.fillTextarea,
+            className,
+          ]
             .filter(Boolean)
             .join(" ")}
           aria-describedby={field.describedBy}

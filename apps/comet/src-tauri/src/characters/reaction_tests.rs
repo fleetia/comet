@@ -1,6 +1,6 @@
 use super::*;
-use crate::character_animation::{Clip, Frame};
-use crate::character_reactions::{
+use crate::characters::animation::{Clip, Frame};
+use crate::characters::reactions::{
     self as reactions, MotionOverride, ReactionRule, ReactionVariant,
 };
 

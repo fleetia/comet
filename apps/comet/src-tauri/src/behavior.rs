@@ -1,4 +1,4 @@
-use crate::{desktop_toys, lock, store, widgets, AppState};
+use crate::{desktop, lock, store, widgets, AppState};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::sync::{atomic::Ordering, Arc};
@@ -175,7 +175,7 @@ pub(crate) async fn set_desktop_preferences(
         save(&db, &preferences)?;
         widgets::storage::discard_automatic_desktop_pending(&db)?;
         cancel_automatic_reaction(&state)?;
-        desktop_toys::clear_automatic(&app);
+        desktop::toys::clear_automatic(&app);
         lock(&state.behavior)?.actor = None;
     }
     let hidden = lock(&state.runtime)?.hidden;
@@ -186,7 +186,7 @@ pub(crate) async fn set_desktop_preferences(
     }
     crate::publish(&app, &state);
     let _ = app.emit("desktop-preferences", &preferences);
-    crate::desktop_menu::refresh(&app);
+    crate::desktop::menu::refresh(&app);
     Ok(())
 }
 
@@ -204,7 +204,7 @@ pub(crate) fn clear_desktop_toys(app: tauri::AppHandle) {
         {
             return;
         }
-        desktop_toys::clear(&app);
+        desktop::toys::clear(&app);
         if let Ok(mut machine) = lock(&state.behavior) {
             machine.actor = None;
             machine.phase = Phase::Cooldown;
@@ -273,7 +273,7 @@ fn automatic_owners(state: &AppState, db: &Connection) -> Result<Vec<String>, St
 }
 
 pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
-    let geometry = desktop_toys::current_geometry(app).await;
+    let geometry = desktop::toys::current_geometry(app).await;
     let timestamp = crate::now();
     let fullscreen = geometry
         .as_ref()
@@ -291,17 +291,17 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
     let blocked = blocked || present.is_empty();
     let mut machine = lock(&state.behavior)?;
     if !preferences.pranks_enabled && machine.actor.take().is_some() {
-        desktop_toys::clear_automatic(app);
+        desktop::toys::clear_automatic(app);
     }
     let transition = machine.observe(timestamp, blocked, conversation, waiting, epoch, entropy);
     if transition.end_play {
-        desktop_toys::clear_automatic(app);
+        desktop::toys::clear_automatic(app);
     }
     if transition.discard_reactions {
         widgets::storage::discard_automatic_desktop_pending(&db)?;
         cancel_automatic_reaction(state)?;
     }
-    let outcomes = desktop_toys::drain_outcomes(app);
+    let outcomes = desktop::toys::drain_outcomes(app);
     let mut changed = false;
     for outcome in outcomes {
         if outcome.automatic
@@ -317,12 +317,12 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
         }
         let payload = serde_json::json!({"actorId":outcome.actor_id,"popped":outcome.popped,"automatic":outcome.automatic,"owner":outcome.owner});
         let (kind, text) = match outcome.kind {
-            desktop_toys::Kind::Ball => ("desktop.ball.stopped", "공이 멈췄어요.".into()),
-            desktop_toys::Kind::PaperPlane => (
+            desktop::toys::Kind::Ball => ("desktop.ball.stopped", "공이 멈췄어요.".into()),
+            desktop::toys::Kind::PaperPlane => (
                 "desktop.paper-plane.landed",
                 "종이비행기가 착지했어요.".into(),
             ),
-            desktop_toys::Kind::Bubbles => (
+            desktop::toys::Kind::Bubbles => (
                 "desktop.bubbles.popped",
                 if outcome.popped {
                     "비눗방울을 터뜨렸어요.".into()
@@ -330,7 +330,7 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
                     "비눗방울 놀이가 끝났어요.".into()
                 },
             ),
-            desktop_toys::Kind::Pet => ("desktop.pet.rested", "바탕화면 펫이 쉬고 있어요.".into()),
+            desktop::toys::Kind::Pet => ("desktop.pet.rested", "바탕화면 펫이 쉬고 있어요.".into()),
         };
         changed |= widgets::storage::record_desktop_result(
             &db,
@@ -364,7 +364,7 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
             geometry.as_ref(),
         ) {
             let owner = present.first().cloned();
-            let actor = desktop_toys::open(
+            let actor = desktop::toys::open(
                 app,
                 &instance.id,
                 &instance.kind,
@@ -394,12 +394,12 @@ mod tests {
         let state = crate::app::tests::state();
         let ids = crate::characters::active_ids(&lock(&state.db).unwrap()).unwrap();
         let revision = store::revision(&lock(&state.db).unwrap()).unwrap();
-        crate::character_life::set_sleep(&state, &ids[0], true).unwrap();
+        crate::characters::life::set_sleep(&state, &ids[0], true).unwrap();
         assert_eq!(
             automatic_owners(&state, &lock(&state.db).unwrap()).unwrap(),
             ids[1..]
         );
-        crate::character_life::set_sleep(&state, &ids[1], true).unwrap();
+        crate::characters::life::set_sleep(&state, &ids[1], true).unwrap();
         let db = lock(&state.db).unwrap();
         let owners = automatic_owners(&state, &db).unwrap();
         assert!(owners.is_empty());
@@ -550,11 +550,11 @@ mod tests {
                 }
                 // This is the gate in background_loop, after the same maintenance classification.
                 assert!(!reactions_blocked(&state).unwrap());
-                let event = crate::widget_commands::take_pending_reaction(&state, &db)
+                let event = crate::widgets::commands::take_pending_reaction(&state, &db)
                     .unwrap()
                     .unwrap();
                 assert_eq!(event.event.kind, "timer-finished");
-                assert!(crate::widget_commands::take_pending_reaction(&state, &db)
+                assert!(crate::widgets::commands::take_pending_reaction(&state, &db)
                     .unwrap()
                     .is_none());
                 // Ordinary events alone must also be dropped, rather than winning the next tick.
@@ -576,7 +576,7 @@ mod tests {
                     chrono::Utc::now().timestamp_millis(),
                 )
                 .unwrap();
-                assert!(crate::widget_commands::take_pending_reaction(&state, &db)
+                assert!(crate::widgets::commands::take_pending_reaction(&state, &db)
                     .unwrap()
                     .is_none());
                 let token = crate::interrupt(&state, true).unwrap();

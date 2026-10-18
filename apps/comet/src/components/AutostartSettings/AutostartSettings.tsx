@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
-import { Button, Checkbox, SectionHeader } from "../../ui";
+import { SectionHeader } from "../../primitives";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import * as s from "../../common.css";
 import * as layout from "../SettingsPanel/settings.css";
-import { SettingControlRow, Switch } from "@comet/ui";
+import { Button, Checkbox, SettingControlRow, Switch } from "@comet/ui";
 import * as figma from "../SettingsPanel/figmaSettings.css";
 
 export function AutostartSettings({
@@ -66,7 +66,7 @@ export function AutostartSettings({
         {error && (
           <p className={s.error} role="alert">
             {error}
-            <Button variant="quiet" size="compact" disabled={pending} onClick={() => void run()}>
+            <Button variant="ghost" size="small" disabled={pending} onClick={() => void run()}>
               다시 확인
             </Button>
           </p>
@@ -92,9 +92,8 @@ export function AutostartSettings({
             checked={enabled === true}
             disabled={!isDesktop() || pending || enabled === null}
             onChange={(event) => void run(event.target.checked)}
-          >
-            자동 실행
-          </Checkbox>
+            label="자동 실행"
+          />
         }
       />
       <div className={layout.statusRow}>
@@ -112,7 +111,7 @@ export function AutostartSettings({
           <p className={s.error} role="alert">
             {error}
           </p>
-          <Button variant="quiet" disabled={pending} onClick={() => void run()}>
+          <Button variant="ghost" disabled={pending} onClick={() => void run()}>
             다시 확인
           </Button>
         </div>

@@ -1,4 +1,4 @@
-import { Button } from "../../ui";
+import { Button } from "@comet/ui";
 import { useState, type ReactElement } from "react";
 import { record, rows, text, type DataRecord } from "../toolData";
 import type { WidgetValue } from "../types";
@@ -43,8 +43,8 @@ export function MusicLibrary({ mode, can, busy, request }: Props): ReactElement 
       <section className={s.library} aria-label="플레이리스트 곡">
         <div className={s.libraryHeading}>
           <Button
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             onClick={() => {
               setSelected(null);
               setTracks(null);
@@ -67,7 +67,7 @@ export function MusicLibrary({ mode, can, busy, request }: Props): ReactElement 
         </ol>
         {trackOffset !== null && (
           <Button
-            variant="secondary"
+            variant="ghost"
             disabled={busy || !can("playlistTracks")}
             onClick={() => void select(selected, trackOffset)}
           >
@@ -85,8 +85,8 @@ export function MusicLibrary({ mode, can, busy, request }: Props): ReactElement 
       <div className={s.libraryHeading}>
         <h3>{mode === "playlists" ? "내 플레이리스트" : "다음에 재생"}</h3>
         <Button
-          variant="quiet"
-          size="compact"
+          variant="ghost"
+          size="small"
           disabled={busy || !can(mode)}
           onClick={() => void load()}
         >
@@ -114,8 +114,8 @@ export function MusicLibrary({ mode, can, busy, request }: Props): ReactElement 
             </div>
             {mode === "playlists" && (
               <Button
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 disabled={busy || !can("playlistTracks")}
                 onClick={() => void select(item)}
               >
@@ -126,11 +126,7 @@ export function MusicLibrary({ mode, can, busy, request }: Props): ReactElement 
         ))}
       </ol>
       {nextOffset !== null && (
-        <Button
-          variant="secondary"
-          disabled={busy || !can(mode)}
-          onClick={() => void load(nextOffset)}
-        >
+        <Button variant="ghost" disabled={busy || !can(mode)} onClick={() => void load(nextOffset)}>
           더 보기
         </Button>
       )}

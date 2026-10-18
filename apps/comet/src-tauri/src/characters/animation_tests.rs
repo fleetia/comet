@@ -1,10 +1,8 @@
 use super::*;
-use crate::character_animation::{self, Binding, Bindings, Clip, Frame};
+use crate::characters::animation::{self, Binding, Bindings, Clip, Frame};
 
 fn animated() -> (CharacterDefinition, PreparedAsset) {
-    let asset =
-        character_animation::prepare_png(character_animation::png_fixture(4, 2, 255, false))
-            .unwrap();
+    let asset = animation::prepare_png(animation::png_fixture(4, 2, 255, false)).unwrap();
     let mut definition = builtin("a");
     definition.animation = Some(Animation {
         clips: vec![Clip {
@@ -56,7 +54,7 @@ fn animation_draft_save_is_atomic_and_cancelled_assets_are_not_installed() {
     let conn = database();
     let (mut definition, asset) = animated();
     let original = active_character(&conn, "a").unwrap();
-    let prepared = character_animation::prepare_assets(vec![asset.payload()]).unwrap();
+    let prepared = animation::prepare_assets(vec![asset.payload()]).unwrap();
     assert!(animation::list(&conn, &original.id).unwrap().is_empty());
     save_with_assets(&conn, &original.id, &definition, &prepared).unwrap();
     let saved = get(&conn, &original.id).unwrap();

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, Checkbox, Surface } from "../../ui";
-import { SettingsSummary, TextInput } from "@comet/ui";
+import { Button, Checkbox, SettingsSummary, Surface, TextInput } from "@comet/ui";
 import { MemoryIcon, PetIcon } from "@comet/icon";
 import { spriteSource } from "../characterIdentity";
 import * as figma from "../SettingsPanel/figmaSettings.css";
@@ -106,7 +105,7 @@ export function UserSettings({
                     setError(null);
                   }}
                 />
-                <Button type="submit" variant="secondary" disabled={!valid || !dirty}>
+                <Button type="submit" variant="ghost" disabled={!valid || !dirty}>
                   {savedName ? "바꾸기…" : "이름 저장"}
                 </Button>
               </div>
@@ -119,11 +118,7 @@ export function UserSettings({
                     이야기해요.
                   </p>
                   <div className={styles.confirmActions}>
-                    <Button
-                      variant="secondary"
-                      disabled={pending}
-                      onClick={() => setConfirm(false)}
-                    >
+                    <Button variant="ghost" disabled={pending} onClick={() => setConfirm(false)}>
                       취소
                     </Button>
                     <Button variant="primary" disabled={pending} onClick={() => void save()}>
@@ -148,7 +143,7 @@ export function UserSettings({
             </p>
           )}
           {dirty && !confirm && (
-            <Button variant="quiet" size="compact" onClick={() => setName(savedName)}>
+            <Button variant="ghost" size="small" onClick={() => setName(savedName)}>
               변경 취소
             </Button>
           )}
@@ -225,7 +220,12 @@ function LegacyMemories({ snapshot }: { snapshot: Snapshot }): JSX.Element | nul
   }
   if (!snapshot.user || !snapshot.legacyMemoryCount) return null;
   return (
-    <Surface className={styles.memoriesPanel} role="region" aria-label="기존 기억 정리">
+    <Surface
+      variant="panel"
+      className={styles.memoriesPanel}
+      role="region"
+      aria-label="기존 기억 정리"
+    >
       <div className={styles.memoriesBody}>
         <div className={styles.heading}>
           <h2 className={styles.title}>기존 기억 정리</h2>
@@ -247,9 +247,8 @@ function LegacyMemories({ snapshot }: { snapshot: Snapshot }): JSX.Element | nul
                         : values.filter((id) => id !== memory.id),
                     )
                   }
-                >
-                  {memory.content}
-                </Checkbox>
+                  label={memory.content}
+                />
                 <p className={styles.caption}>
                   {memory.userName} · {new Date(memory.updatedAt).toLocaleDateString("ko-KR")}
                 </p>
@@ -260,7 +259,7 @@ function LegacyMemories({ snapshot }: { snapshot: Snapshot }): JSX.Element | nul
             <Button
               className={styles.pageButton}
               aria-label="이전 기억"
-              variant="quiet"
+              variant="ghost"
               disabled={offset === 0}
               onClick={() => setOffset(Math.max(0, offset - 50))}
             >
@@ -269,7 +268,7 @@ function LegacyMemories({ snapshot }: { snapshot: Snapshot }): JSX.Element | nul
             <Button
               className={styles.pageButton}
               aria-label="다음 기억"
-              variant="quiet"
+              variant="ghost"
               disabled={page?.nextOffset == null}
               onClick={() => {
                 if (page?.nextOffset != null) setOffset(page.nextOffset);
@@ -297,9 +296,8 @@ function LegacyMemories({ snapshot }: { snapshot: Snapshot }): JSX.Element | nul
                       : values.filter((id) => id !== character.id),
                   )
                 }
-              >
-                {character.definition.name}
-              </Checkbox>
+                label={character.definition.name}
+              />
             ))}
             <span className={styles.caption}>선택한 기억 {ids.length}개</span>
           </div>
@@ -308,7 +306,7 @@ function LegacyMemories({ snapshot }: { snapshot: Snapshot }): JSX.Element | nul
         {error && (
           <div role="alert" className={s.error}>
             {error}
-            <Button variant="quiet" onClick={() => setRefresh((value) => value + 1)}>
+            <Button variant="ghost" onClick={() => setRefresh((value) => value + 1)}>
               다시 불러오기
             </Button>
           </div>

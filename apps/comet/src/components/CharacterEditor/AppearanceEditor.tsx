@@ -1,9 +1,16 @@
 import { useState, type JSX, type ReactNode } from "react";
-import { ChoiceTile, SettingsSummary } from "@comet/ui";
+import {
+  Button,
+  Checkbox,
+  ChoiceTile,
+  FormField,
+  SettingsSummary,
+  Surface,
+  TextInput,
+} from "@comet/ui";
 import { Icon } from "@comet/icon";
 import { AppearancePreview } from "./AppearancePreview";
 import * as appearance from "./appearance.css";
-import { Button, Checkbox, FormField, Surface, TextField } from "../../ui";
 import type {
   AnimationAsset,
   AnimationBinding,
@@ -121,7 +128,7 @@ export function AppearanceEditor({
   if (interactionOpen) {
     return (
       <section className={appearance.interaction} aria-label="부위와 교감 동작 편집">
-        <Button variant="quiet" onClick={() => setInteractionOpen(false)}>
+        <Button variant="ghost" onClick={() => setInteractionOpen(false)}>
           ‹ 모습·표정
         </Button>
         <GestureMotionEditor definition={definition} onChange={onChange} defaultOpen />
@@ -153,7 +160,7 @@ export function AppearanceEditor({
         <div className={appearance.contentHeading}>
           <h3 className={appearance.sectionTitle}>표정 {keys.length}개</h3>
           <Button
-            variant="quiet"
+            variant="ghost"
             type="button"
             aria-label="표정 추가 열기"
             disabled={keys.length >= 24}
@@ -163,7 +170,8 @@ export function AppearanceEditor({
           </Button>
         </div>
         <div hidden={!addingExpression} className={common.expressionAdd}>
-          <TextField
+          <TextInput
+            fill
             aria-label="새 표정 이름"
             placeholder="새 표정 이름"
             maxLength={20}
@@ -176,7 +184,7 @@ export function AppearanceEditor({
               }
             }}
           />
-          <Button variant="secondary" disabled={!canAdd} onClick={addExpression}>
+          <Button variant="ghost" disabled={!canAdd} onClick={addExpression}>
             표정 추가
           </Button>
         </div>
@@ -209,12 +217,12 @@ export function AppearanceEditor({
             동작 {animation.clips.length} / {MAX_ANIMATION_CLIPS}
           </h3>
           {animation.clips.length > 8 && (
-            <Button variant="quiet" onClick={() => setShowAllMotions((value) => !value)}>
+            <Button variant="ghost" onClick={() => setShowAllMotions((value) => !value)}>
               {showAllMotions ? "접기" : `${animation.clips.length}개 모두 보기`}
             </Button>
           )}
           <Button
-            variant="quiet"
+            variant="ghost"
             disabled={animation.clips.length >= MAX_ANIMATION_CLIPS}
             onClick={addMotion}
           >
@@ -249,10 +257,11 @@ export function AppearanceEditor({
             <div className={s.expressionAttributes}>
               <div className={s.fields}>
                 <FormField label="표정 이름">
-                  <TextField value={expression} readOnly />
+                  <TextInput fill value={expression} readOnly />
                 </FormField>
                 <FormField label="텍스트 표정">
-                  <TextField
+                  <TextInput
+                    fill
                     required
                     maxLength={40}
                     aria-label={`${expression} 텍스트 표정`}
@@ -283,7 +292,7 @@ export function AppearanceEditor({
                 </Button>
                 <Button
                   type="button"
-                  variant="quiet"
+                  variant="ghost"
                   disabled={!hasImage || !onSprite}
                   aria-label={`${expression} 이미지 제거`}
                   onClick={() => onSprite?.(expression, true)}
@@ -293,7 +302,7 @@ export function AppearanceEditor({
                 {expression !== DEFAULT_EXPRESSION ? (
                   <Button
                     type="button"
-                    variant="quiet"
+                    variant="ghost"
                     aria-label={`${expression} 표정 삭제`}
                     onClick={removeExpression}
                   >
@@ -314,7 +323,7 @@ export function AppearanceEditor({
 
           <div className={s.sectionBoundary}>
             <h4 className={common.subheading}>이 표정의 동작 연결</h4>
-            <Surface tone="inset" padding="compact" className={s.expressionBindings}>
+            <Surface variant="card" className={s.expressionBindings}>
               <BindingEditor
                 label={`${expression} · 평소`}
                 situation="idle"
@@ -338,7 +347,8 @@ export function AppearanceEditor({
           <h4 className={common.subheading}>캐릭터 공통 표시</h4>
           <div className={s.fields}>
             <FormField label="본체 크기 · 32~512px">
-              <TextField
+              <TextInput
+                fill
                 type="number"
                 min={32}
                 max={512}
@@ -354,11 +364,10 @@ export function AppearanceEditor({
               className={common.appearanceCheckbox}
               checked={definition.faceIcon}
               onChange={(event) => onChange({ ...definition, faceIcon: event.target.checked })}
-            >
-              텍스트 표정을 따로 움직이는 창으로 표시
-            </Checkbox>
+              label="텍스트 표정을 따로 움직이는 창으로 표시"
+            />
           </div>
-          <Surface tone="inset">
+          <Surface variant="card" className={s.cardPanel}>
             {(
               [
                 ["idle", "평소"],

@@ -286,10 +286,24 @@ it("drops late trial results when its section closes or its visible tab changes"
     }),
   );
   fireEvent.click(screen.getByRole("button", { name: "등록 이야기 시험" }));
-  details.open = false;
-  fireEvent(details, new Event("toggle"));
-  details.open = true;
-  fireEvent(details, new Event("toggle"));
+  await act(async () => {
+    fireEvent.click(summary);
+  });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "등록 이야기 시험" })).toHaveProperty(
+      "disabled",
+      true,
+    ),
+  );
+  await act(async () => {
+    fireEvent.click(summary);
+  });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "등록 이야기 시험" })).toHaveProperty(
+      "disabled",
+      false,
+    ),
+  );
   await act(async () => {
     finish({
       blockedReasons: [],

@@ -1,4 +1,4 @@
-import { Button } from "../../ui";
+import { Button } from "@comet/ui";
 import { useEffect, useState, type ReactElement } from "react";
 import { text, type DataRecord } from "../toolData";
 import { CalendarColors } from "./CalendarColors";
@@ -121,7 +121,7 @@ export function DiaryCalendarContext({
             </section>
           </>
         )}
-        <Button variant="quiet" size="compact" disabled={busy} onClick={onOpenSettings}>
+        <Button variant="ghost" size="small" disabled={busy} onClick={onOpenSettings}>
           연결·알림 설정
         </Button>
       </div>

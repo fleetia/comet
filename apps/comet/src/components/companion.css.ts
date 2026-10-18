@@ -330,19 +330,6 @@ export const menu = style({
   flex: 1,
   overflowY: "auto",
 });
-export const menuGroup = style({ display: "flex", flexDirection: "column" });
-export const menuItem = style({
-  width: "100%",
-  justifyContent: "flex-start",
-  textAlign: "left",
-  flexShrink: 0,
-  minHeight: tokens["size/control-36"],
-});
-export const pauseSummary = style({
-  cursor: "pointer",
-  padding: `${tokens["spacing/space-8"]} ${tokens["spacing/space-12"]}`,
-  minHeight: tokens["size/control-36"],
-});
 export const form = style({
   maxHeight: 290,
   padding: "14px 16px 16px",

@@ -1,5 +1,5 @@
-import { Button } from "../../ui";
 import {
+  Button,
   CalendarDayNumber,
   CalendarTimedEvent,
   CalendarWeek,
@@ -42,10 +42,6 @@ function completed(item: DataRecord, date: string): boolean {
     ? frequencyRecords(item, date).some((entry) => entry.date === date)
     : typeof item.completedAt === "number";
 }
-export function diaryMonthDays(month: string): string[] {
-  return monthDays(month);
-}
-
 export function MiniCalendar({
   day,
   month,
@@ -67,16 +63,16 @@ export function MiniCalendar({
         </span>
         <div className={s.miniActions}>
           <Button
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             aria-label="목차 이전 달"
             onClick={() => onMonth(movePeriod(month, "month", -1))}
           >
             ‹
           </Button>
           <Button
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             aria-label="목차 다음 달"
             onClick={() => onMonth(movePeriod(month, "month", 1))}
           >
@@ -446,8 +442,8 @@ export function DiaryCalendar({
                 </button>
                 {onCreateEvent && (
                   <Button
-                    variant="quiet"
-                    size="compact"
+                    variant="ghost"
+                    size="small"
                     aria-label={`${date} 일정 추가`}
                     onClick={() => onCreateEvent(date)}
                   >

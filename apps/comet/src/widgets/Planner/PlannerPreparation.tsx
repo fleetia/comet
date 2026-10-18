@@ -1,5 +1,4 @@
-import { Dialog } from "@comet/ui";
-import { Button, Checkbox } from "../../ui";
+import { Button, Checkbox, Dialog } from "@comet/ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { PreparationTool } from "../PreparationTool/PreparationTool";
 import { useConnectionCommand } from "../useConnectionCommand";
@@ -99,9 +98,8 @@ export function PlannerPreparation({
               preparation,
             )
           }
-        >
-          {text(check.text)}
-        </Checkbox>
+          label={text(check.text)}
+        />
       ))}
       {linkedTodos.map((item) => (
         <Checkbox
@@ -132,16 +130,15 @@ export function PlannerPreparation({
               );
             })()
           }
-        >
-          {text(item.title)}
-        </Checkbox>
+          label={text(item.title)}
+        />
       ))}
       <div className={s.actions}>
         {rows(envelope?.links).map((link) => (
           <Button
             key={text(link.id)}
-            variant="secondary"
-            size="compact"
+            variant="ghost"
+            size="small"
             disabled={busy}
             onClick={() =>
               void run("open_widget_link", { id: preparation?.id, url: text(link.url) })
@@ -158,8 +155,8 @@ export function PlannerPreparation({
       )}
       {preparation ? (
         <Button
-          variant="quiet"
-          size="compact"
+          variant="ghost"
+          size="small"
           onClick={async () => {
             if (
               !envelope &&
@@ -176,14 +173,14 @@ export function PlannerPreparation({
           {envelope ? "+ 준비 항목 · 자료 편집" : "준비 봉투 만들기"}
         </Button>
       ) : (
-        <Button variant="quiet" size="compact" onClick={() => openSettings("preparation")}>
+        <Button variant="ghost" size="small" onClick={() => openSettings("preparation")}>
           준비 봉투 사용하기 ↗
         </Button>
       )}
       {text(event.url) && (
         <Button
-          variant="quiet"
-          size="compact"
+          variant="ghost"
+          size="small"
           disabled={busy}
           onClick={() => void run("open_widget_link", { id: calendar?.id, url: text(event.url) })}
         >
@@ -225,11 +222,11 @@ export function PlannerPreparation({
         variant="confirm"
         footer={
           <>
-            <Button variant="secondary" onClick={() => setConfirmClose(false)}>
+            <Button variant="ghost" onClick={() => setConfirmClose(false)}>
               계속 편집
             </Button>
             <Button
-              variant="critical"
+              variant="danger"
               disabled={saving}
               onClick={() => {
                 setEditorVersion((value) => value + 1);

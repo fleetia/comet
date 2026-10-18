@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from "react";
-import { Button, Checkbox, FormField, Select, TextArea, TextField } from "../../ui";
+import { Button, Checkbox, FormField, Select, Textarea, TextInput } from "@comet/ui";
 import type {
   AnimationAsset,
   AnimationBinding,
@@ -171,6 +171,7 @@ export function ReactionEditor({
         <div className={s.rule} key={rule.id}>
           <div className={s.controls}>
             <Select
+              fill
               aria-label={`반응 ${ruleIndex + 1} 사건`}
               value={rule.event}
               onChange={(event) =>
@@ -199,8 +200,8 @@ export function ReactionEditor({
                 ))}
             </Select>
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               type="button"
               aria-label={`반응 ${ruleIndex + 1} 삭제`}
               onClick={() => onChange(rules.filter((other) => other.id !== rule.id))}
@@ -215,6 +216,7 @@ export function ReactionEditor({
                 <div className={s.controls}>
                   <span>후보 {index + 1}</span>
                   <Select
+                    fill
                     aria-label={`${label} 표정`}
                     value={variant.expression ?? "$current"}
                     onChange={(event) =>
@@ -233,8 +235,8 @@ export function ReactionEditor({
                     ))}
                   </Select>
                   <Button
-                    variant="quiet"
-                    size="compact"
+                    variant="ghost"
+                    size="small"
                     type="button"
                     disabled={rule.variants.length <= 1}
                     aria-label={`${label} 삭제`}
@@ -247,7 +249,9 @@ export function ReactionEditor({
                     후보 삭제
                   </Button>
                 </div>
-                <TextArea
+                <Textarea
+                  layout="flexible"
+                  fill
                   aria-label={`${label} 대사`}
                   placeholder="말하지 않으려면 비워 두세요."
                   rows={2}
@@ -267,8 +271,8 @@ export function ReactionEditor({
                   onChange={(motion) => updateVariant(rule, variant.id, { motion })}
                 />
                 <Button
-                  variant="quiet"
-                  size="compact"
+                  variant="ghost"
+                  size="small"
                   type="button"
                   disabled={!isDesktop() || pending || Boolean(validationError)}
                   aria-label={`${label} 미리보기`}
@@ -280,8 +284,8 @@ export function ReactionEditor({
             );
           })}
           <Button
-            variant="secondary"
-            size="compact"
+            variant="ghost"
+            size="small"
             type="button"
             disabled={rule.variants.length >= 16}
             aria-label={`반응 ${ruleIndex + 1} 후보 추가`}
@@ -294,7 +298,8 @@ export function ReactionEditor({
           <details className={s.advanced}>
             <summary>추가 설정</summary>
             <FormField label="대사 쿨다운(초)">
-              <TextField
+              <TextInput
+                fill
                 className={s.cooldown}
                 aria-label={`반응 ${ruleIndex + 1} 대사 쿨다운(초)`}
                 type="number"
@@ -315,6 +320,7 @@ export function ReactionEditor({
       ))}
       <div className={s.controls}>
         <Select
+          fill
           aria-label="추가할 반응 사건"
           value={nextEvent ?? ""}
           disabled={!nextEvent}
@@ -328,8 +334,8 @@ export function ReactionEditor({
           ))}
         </Select>
         <Button
-          variant="secondary"
-          size="compact"
+          variant="ghost"
+          size="small"
           type="button"
           disabled={!nextEvent || rules.length >= 32}
           onClick={() => {
@@ -361,14 +367,16 @@ export function ReactionEditor({
       <div className={s.rule}>
         <h4 className={common.subheading}>반응 미리보기</h4>
         <div className={s.controls}>
-          <Checkbox checked={busy} onChange={(event) => setBusy(event.target.checked)}>
-            대화 중인 상황
-          </Checkbox>
+          <Checkbox
+            checked={busy}
+            onChange={(event) => setBusy(event.target.checked)}
+            label="대화 중인 상황"
+          />
           {GESTURES.map(({ event, label }) => (
             <Button
               key={event}
-              variant="secondary"
-              size="compact"
+              variant="ghost"
+              size="small"
               type="button"
               disabled={!isDesktop() || pending || Boolean(validationError)}
               onClick={() => void simulate(event)}
@@ -377,8 +385,8 @@ export function ReactionEditor({
             </Button>
           ))}
           <Button
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             type="button"
             disabled={!preview && !pending}
             onClick={() => {

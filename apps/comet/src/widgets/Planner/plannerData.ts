@@ -1,7 +1,5 @@
 import { localDay, number, record, rows, text, type DataRecord } from "../toolData";
 
-export type PlanPeriod = "none" | "week" | "month" | "year" | "someday";
-export type PlannerTab = "today" | "plans" | "calendar" | "templates";
 export const PERIODS = [
   ["week", "이번 주"],
   ["month", "이번 달"],

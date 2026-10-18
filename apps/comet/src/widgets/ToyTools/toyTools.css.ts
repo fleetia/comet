@@ -311,13 +311,3 @@ export const note = style({
   fontSize: 12,
   lineHeight: "16px",
 });
-export const originalOutcome = style({
-  position: "absolute",
-  width: 1,
-  height: 1,
-  padding: 0,
-  margin: -1,
-  overflow: "hidden",
-  clipPath: "inset(50%)",
-  whiteSpace: "nowrap",
-});

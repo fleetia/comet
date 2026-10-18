@@ -340,7 +340,7 @@ pub(crate) fn set_conversation_note_context(
             return Err("대화할 친구를 다시 함께 지내기로 선택해 주세요.".into());
         }
         for id in &participants {
-            crate::character_life::wake(&state, id)?;
+            crate::characters::life::wake(&state, id)?;
         }
         app::conversation::ensure_available(&db)?;
         let session = match active {
@@ -394,7 +394,7 @@ pub(crate) async fn open_conversation_note(
 ) -> Result<()> {
     read_note(&*app::lock(&state.db)?, &note_ref)?;
     if note_ref.kind == "memo" {
-        crate::memo_notes::open_memo_note(
+        crate::widgets::memo_notes::open_memo_note(
             app,
             state,
             note_ref.widget_id.ok_or("메모 도구를 찾을 수 없어요.")?,
@@ -403,7 +403,7 @@ pub(crate) async fn open_conversation_note(
         .await?;
         return Ok(());
     }
-    crate::planner_windows::open_note(&app, &note_ref.id)
+    crate::widgets::planning::windows::open_note(&app, &note_ref.id)
 }
 
 #[derive(Serialize)]

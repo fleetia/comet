@@ -14,6 +14,7 @@ export const surface = style({
   background: tokens["color/glass-panel"],
   backdropFilter: "blur(12px)",
   boxShadow: `inset 0 1px 0 ${tokens["color/window-highlight"]}, 0 22px 48px ${tokens["color/surface-shadow"]}, 0 0 0 ${tokens["color/surface-halo"]}`,
+  selectors: { "&[hidden]": { display: "none" } },
 });
 
 export const variants = styleVariants({
@@ -25,6 +26,19 @@ export const variants = styleVariants({
     boxShadow: `inset 0 1px 0 ${tokens["color/window-highlight"]}, 0 30px 80px ${tokens["color/window-shadow"]}`,
   },
   sheet: {},
+  panel: {
+    minWidth: 0,
+    minHeight: 0,
+    boxShadow: `inset 0 1px 0 ${tokens["color/window-highlight"]}`,
+  },
+  accent: {
+    minWidth: 0,
+    minHeight: 0,
+    borderColor: tokens["color/selected-border"],
+    borderRadius: tokens["radius/radius-14"],
+    background: tokens["color/card-2"],
+    boxShadow: `inset 0 1px 0 ${tokens["color/window-highlight"]}`,
+  },
   popover: { borderRadius: tokens["radius/radius-18"] },
   card: {
     borderColor: tokens["color/card-border"],

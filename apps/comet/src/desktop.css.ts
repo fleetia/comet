@@ -76,13 +76,6 @@ globalStyle(`${root} ${shared.choice}`, {
   padding: `${tokens["spacing/space-8"]} ${tokens["spacing/space-12"]}`,
 });
 
-export const pageHeader = style({
-  display: "flex",
-  alignItems: "flex-start",
-  justifyContent: "space-between",
-  gap: tokens["spacing/space-16"],
-  marginBottom: tokens["spacing/space-26"],
-});
 export const tabs = style({ flex: 1 });
 export const tabList = style({ flexWrap: "wrap" });
 export const tabPanel = style({ padding: `${tokens["spacing/space-16"]} 0`, minWidth: 0 });
@@ -92,11 +85,6 @@ export const info = style({
   fontSize: tokens["typography/sans/body/fontSize"],
   lineHeight: "1.462",
   marginBottom: tokens["spacing/space-16"],
-});
-export const subsettings = style({
-  margin: `${tokens["spacing/space-12"]} 0 0 ${tokens["spacing/space-16"]}`,
-  paddingLeft: tokens["spacing/space-12"],
-  borderLeft: `1px dotted ${tokens["color/line"]}`,
 });
 export const modeChoices = style({
   display: "flex",
@@ -109,7 +97,6 @@ export const data = style({
   fontSize: tokens["typography/sans/caption/fontSize"],
   fontVariantNumeric: "tabular-nums slashed-zero",
 });
-export const shortInput = style({ width: 80 });
 export const saveBar = style({
   position: "sticky",
   bottom: 0,
@@ -119,13 +106,6 @@ export const saveBar = style({
   marginTop: tokens["spacing/space-16"],
   paddingBottom: tokens["spacing/space-8"],
   background: tokens["color/sky"],
-});
-export const saveActions = style({
-  display: "flex",
-  alignItems: "center",
-  flexWrap: "wrap",
-  gap: tokens["spacing/space-8"],
-  paddingTop: tokens["spacing/space-6"],
 });
 export const saveStatus = style({
   flex: "1 1 180px",

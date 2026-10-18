@@ -267,7 +267,7 @@ pub(super) fn validate_replaced_motions(
                 .get(slot_index(&line.persona)?)
                 .is_some_and(|member| member == id)
             {
-                crate::character_reactions::validate_motion(&line.motion, definition, false)
+                crate::characters::reactions::validate_motion(&line.motion, definition, false)
                     .map_err(|_| "대사 묶음에서 사용 중인 모션이에요. 해당 대사의 모션을 바꾼 뒤 삭제해 주세요.".to_string())?;
             }
         }
@@ -287,7 +287,7 @@ pub(super) fn validate_replaced_motions(
                     .get(slot_index(&line.persona)?)
                     .is_some_and(|member| member == id)
                 {
-                    crate::character_reactions::validate_motion(&line.motion, definition, false)
+                    crate::characters::reactions::validate_motion(&line.motion, definition, false)
                         .map_err(|_| "개인 단어장에서 사용 중인 모션이에요. 해당 대사의 모션을 바꾼 뒤 삭제해 주세요.".to_string())?;
                 }
             }
@@ -445,12 +445,18 @@ pub(crate) fn registered_directed_reply(
     {
         return None;
     }
-    Some(relationship.reply_lines.iter().map(|line| SceneLine {
-        persona: actor_id.to_string(),
-        expression: line.expression.clone(),
-        text: line.text.clone(),
-        motion: line.motion.clone(),
-    }).collect())
+    Some(
+        relationship
+            .reply_lines
+            .iter()
+            .map(|line| SceneLine {
+                persona: actor_id.to_string(),
+                expression: line.expression.clone(),
+                text: line.text.clone(),
+                motion: line.motion.clone(),
+            })
+            .collect(),
+    )
 }
 
 pub fn registered_relation_scene(
@@ -469,7 +475,10 @@ pub fn registered_relation_scene(
                 continue;
             };
             if let Some(lines) = registered_directed_reply(
-                &actor.id, relationship, &mentioned.definition.name, input,
+                &actor.id,
+                relationship,
+                &mentioned.definition.name,
+                input,
             ) {
                 return Ok(Some(lines));
             }

@@ -56,10 +56,6 @@ export const settings = style({
   margin: "0 auto",
   minHeight: "100dvh",
 });
-export const previewSettings = style({
-  borderTop: `1px solid ${tokens["color/input-border"]}`,
-  minHeight: 0,
-});
 export const settingsTitle = style({
   fontFamily: `${tokens["typography/display/title/fontFamily"]}, sans-serif`,
   fontSize: tokens["typography/display/page/fontSize"],

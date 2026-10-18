@@ -34,4 +34,3 @@ export const cleanup = style({
   alignItems: "center",
   minHeight: tokens["size/control-36"],
 });
-export const cleanupButton = style({ width: 168 });

@@ -1,4 +1,4 @@
-import { Checkbox, FormField, TextField } from "../../ui";
+import { Checkbox, FormField, TextInput } from "@comet/ui";
 import type { QuietHours } from "../../types";
 import * as s from "../../common.css";
 import * as d from "../../desktop.css";
@@ -33,9 +33,8 @@ export function QuietHoursSettings({
         className={s.row}
         checked={value.enabled}
         onChange={(event) => onChange({ ...value, enabled: event.target.checked })}
-      >
-        정해진 시간에 자동 잡담 쉬기
-      </Checkbox>
+        label="정해진 시간에 자동 잡담 쉬기"
+      />
       <p className={s.quiet}>
         기기 지역 시각 ({Intl.DateTimeFormat().resolvedOptions().timeZone}). 기기의 시간대가 바뀌면
         따라가요.
@@ -44,14 +43,16 @@ export function QuietHoursSettings({
         <legend>조용한 시간과 시작 요일</legend>
         <div className={s.row}>
           <FormField className={s.field} label="조용한 시간 시작">
-            <TextField
+            <TextInput
+              fill
               type="time"
               value={value.start}
               onChange={(event) => onChange({ ...value, start: event.target.value })}
             />
           </FormField>
           <FormField className={s.field} label="조용한 시간 종료">
-            <TextField
+            <TextInput
+              fill
               type="time"
               value={value.end}
               onChange={(event) => onChange({ ...value, end: event.target.value })}
@@ -72,9 +73,8 @@ export function QuietHoursSettings({
                       : value.weekdays.filter((value) => value !== day),
                   })
                 }
-              >
-                {label}
-              </Checkbox>
+                label={label}
+              />
             ),
           )}
         </div>

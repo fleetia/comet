@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, Checkbox, Surface } from "../../ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
-import { Button as CometButton, SettingControlRow, Switch } from "@comet/ui";
+import { Button, Checkbox, SettingControlRow, Surface, Switch } from "@comet/ui";
 import { ImportIcon } from "@comet/icon";
 import * as figma from "../SettingsPanel/figmaSettings.css";
 import type { MemorySearchStatus, NlpModel } from "../../types";
@@ -158,27 +157,23 @@ export function MemorySearchSettings({
                               })
                             }
                           />
-                          <CometButton
+                          <Button
                             variant="ghost"
                             size="small"
                             disabled={!!pending}
                             onClick={() => setConfirmRemove(model)}
                           >
                             제거
-                          </CometButton>
+                          </Button>
                         </div>
                       ) : downloading ? (
-                        <CometButton
-                          variant="ghost"
-                          size="small"
-                          onClick={() => void cancel(model)}
-                        >
+                        <Button variant="ghost" size="small" onClick={() => void cancel(model)}>
                           다운로드 중단
-                        </CometButton>
+                        </Button>
                       ) : info.state === "unavailable" ? (
                         <span className={figma.caption}>준비 중</span>
                       ) : (
-                        <CometButton
+                        <Button
                           aria-label={`${LABELS[model]} 내려받기`}
                           variant="ghost"
                           size="small"
@@ -187,7 +182,7 @@ export function MemorySearchSettings({
                         >
                           <ImportIcon size={15} />
                           내려받기
-                        </CometButton>
+                        </Button>
                       )
                     }
                   />
@@ -203,20 +198,20 @@ export function MemorySearchSettings({
                       <p className={figma.caption}>
                         검색 모델과 다시 만들 수 있는 색인을 제거해요. 원문과 기억은 그대로 남아요.
                       </p>
-                      <CometButton
+                      <Button
                         variant="ghost"
                         disabled={!!pending}
                         onClick={() => void run("remove_nlp_model", { model })}
                       >
                         {LABELS[model]} 제거 확인
-                      </CometButton>
-                      <CometButton
+                      </Button>
+                      <Button
                         variant="ghost"
                         disabled={!!pending}
                         onClick={() => setConfirmRemove(null)}
                       >
                         제거 취소
-                      </CometButton>
+                      </Button>
                     </div>
                   )}
                   {info.error && <p className={figma.caption}>{info.error}</p>}
@@ -241,6 +236,7 @@ export function MemorySearchSettings({
     );
   return (
     <Surface
+      variant="panel"
       hidden={hidden}
       className={`${styles.panel} ${className ?? ""}`}
       aria-label="기억 검색 설정"
@@ -297,15 +293,14 @@ export function MemorySearchSettings({
                           },
                         })
                       }
-                    >
-                      사용
-                    </Checkbox>
+                      label="사용"
+                    />
                     <div className={styles.actions}>
                       {!info.installed && !downloading && (
                         <Button
                           className={styles.action}
                           aria-label={`${LABELS[model]} 내려받기`}
-                          variant="secondary"
+                          variant="ghost"
                           disabled={!!pending || info.state === "unavailable" || !isDesktop()}
                           onClick={() => void run("download_nlp_model", { model })}
                         >
@@ -316,7 +311,7 @@ export function MemorySearchSettings({
                         <Button
                           className={styles.action}
                           aria-label={`${LABELS[model]} 다운로드 중단`}
-                          variant="quiet"
+                          variant="ghost"
                           onClick={() => void cancel(model)}
                         >
                           다운로드 중단
@@ -326,7 +321,7 @@ export function MemorySearchSettings({
                         <Button
                           className={styles.action}
                           aria-label={`${LABELS[model]} 제거`}
-                          variant="quiet"
+                          variant="ghost"
                           disabled={!!pending}
                           onClick={() => setConfirmRemove(model)}
                         >
@@ -350,14 +345,14 @@ export function MemorySearchSettings({
                       </p>
                       <div className={styles.confirmationActions}>
                         <Button
-                          variant="secondary"
+                          variant="ghost"
                           disabled={!!pending}
                           onClick={() => void run("remove_nlp_model", { model })}
                         >
                           {LABELS[model]} 제거 확인
                         </Button>
                         <Button
-                          variant="quiet"
+                          variant="ghost"
                           disabled={!!pending}
                           onClick={() => setConfirmRemove(null)}
                         >
@@ -377,7 +372,7 @@ export function MemorySearchSettings({
               </p>
               <Button
                 className={styles.retry}
-                variant="quiet"
+                variant="ghost"
                 disabled={!!pending || status.analysis.deferred === 0 || !isDesktop()}
                 onClick={() => void run("retry_memory_analysis")}
               >

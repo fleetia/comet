@@ -1,4 +1,4 @@
-import { Button } from "../../ui";
+import { Button } from "@comet/ui";
 import { useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { localDay, text, type DataRecord } from "../toolData";
 import { CalendarColors } from "./CalendarColors";
@@ -170,19 +170,19 @@ export function PlannerCalendar({
         </div>
         <div className={s.calendarNavigation}>
           <Button
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             aria-label="이전 기간"
             onClick={() => setDay(movePeriod(day, view, -1))}
           >
             ‹
           </Button>
-          <Button variant="quiet" size="compact" onClick={() => setDay(localDay())}>
+          <Button variant="ghost" size="small" onClick={() => setDay(localDay())}>
             오늘
           </Button>
           <Button
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             aria-label="다음 기간"
             onClick={() => setDay(movePeriod(day, view, 1))}
           >

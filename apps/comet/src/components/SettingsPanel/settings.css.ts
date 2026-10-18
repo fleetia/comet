@@ -80,36 +80,6 @@ export const groupLabel = style({
   padding: "0 12px",
   selectors: { [`${navigation} > :first-child &`]: { marginTop: 0 } },
 });
-export const navigationItem = style({
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "flex-start",
-  gap: 12,
-  width: "100%",
-  minHeight: 44,
-  padding: "10px 12px",
-  borderRadius: tokens["radius/radius-12"],
-  border: "1px solid transparent",
-  textAlign: "left",
-  background: "transparent",
-  color: tokens["color/ink-2"],
-  fontWeight: 500,
-  selectors: {
-    '&[aria-selected="true"]': {
-      background: tokens["color/selected"],
-      borderColor: tokens["color/selected-border"],
-      color: tokens["color/selected-ink"],
-      fontWeight: 600,
-    },
-    '&:hover:not([aria-selected="true"])': { background: tokens["color/hover"] },
-  },
-});
-export const navigationLabel = style({ flex: 1, minWidth: 0 });
-export const sidebarNote = style({
-  marginTop: "auto",
-  padding: "24px 12px 4px",
-  fontSize: 11,
-});
 export const workspace = style({
   display: "flex",
   flexDirection: "column",
@@ -127,29 +97,12 @@ export const pageHeading = style({
   marginBottom: 20,
   justifyContent: "space-between",
 });
-export const pageIdentity = style({ display: "grid", gap: 6, minWidth: 0 });
-export const pageDescription = style({
-  margin: 0,
-  color: tokens["color/ink-2"],
-  fontSize: 13,
-  lineHeight: 1.5,
-});
 globalStyle(`${pageHeading} h1`, {
   margin: 0,
   fontFamily: tokens["typography/display/page/fontFamily"],
   fontSize: 26,
   lineHeight: "34px",
   fontWeight: 400,
-});
-export const scrollArea = style({
-  display: "flex",
-  flex: 1,
-  minWidth: 0,
-  minHeight: 0,
-  overflow: "hidden",
-  border: 0,
-  padding: 0,
-  margin: 0,
 });
 export const panel = style({
   flex: 1,
@@ -160,7 +113,6 @@ export const panel = style({
   padding: 0,
 });
 globalStyle(`${panel}[hidden]`, { display: "none" });
-export const characterPanel = style({ overflow: "hidden" });
 export const saveBar = style({
   flexShrink: 0,
   minHeight: 60,
@@ -174,27 +126,6 @@ export const columns = style({
   gap: tokens["spacing/space-26"],
   marginTop: tokens["spacing/space-16"],
   "@media": { "(max-width: 800px)": { gridTemplateColumns: "1fr" } },
-});
-export const simplePage = style({ maxWidth: 792 });
-export const dialogueLayout = style({
-  display: "flex",
-  flexDirection: "column",
-  gap: tokens["spacing/space-26"],
-  height: "100%",
-  maxWidth: 1184,
-  overflowY: "auto",
-  scrollbarGutter: "stable",
-});
-export const wordbookSection = style({
-  height: "min(640px, calc(100% - 72px))",
-  minHeight: 400,
-  flexShrink: 0,
-});
-export const talkSection = style({
-  display: "grid",
-  gap: tokens["spacing/space-12"],
-  flexShrink: 0,
-  paddingBottom: tokens["spacing/space-12"],
 });
 export const userIdentity = style({
   display: "flex",
@@ -212,42 +143,6 @@ globalStyle(`${userIdentity} strong`, {
   whiteSpace: "nowrap",
 });
 globalStyle(`${talkContext} p`, { overflowWrap: "anywhere" });
-export const generalLayout = style({
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 792px) 368px",
-  gap: tokens["spacing/space-26"],
-  maxWidth: 1184,
-  height: "100%",
-  minHeight: 0,
-  overflowY: "auto",
-  alignItems: "start",
-  "@media": {
-    "(max-width: 1400px)": {
-      gridTemplateColumns: "minmax(0, 1fr) 224px",
-    },
-    "(max-width: 1120px)": {
-      gridTemplateColumns: "minmax(0, 1fr)",
-      alignContent: "start",
-      overflowY: "auto",
-    },
-  },
-});
-export const generalMain = style({
-  minWidth: 0,
-  height: "min(716px, 100%)",
-  display: "flex",
-  flexDirection: "column",
-  gap: tokens["spacing/space-12"],
-  overflow: "hidden",
-});
-export const panelBody = style({
-  minHeight: 0,
-  overflowY: "auto",
-  flex: 1,
-  display: "flex",
-  flexDirection: "column",
-  gap: tokens["spacing/space-12"],
-});
 export const sectionBody = style({ display: "grid", gap: tokens["spacing/space-12"] });
 export const settingsRow = style({
   width: "100%",
@@ -264,11 +159,6 @@ export const statusRow = style({
   minHeight: tokens["spacing/space-32"],
 });
 globalStyle(`${statusRow} > :first-child`, { width: 188, flexShrink: 0 });
-export const rowLabel = style({
-  fontSize: tokens["typography/sans/body/fontSize"],
-  fontWeight: 600,
-  lineHeight: "1.385",
-});
 export const rowControl = style({ flexShrink: 0, width: 144, minWidth: 144 });
 export const settingsSection = style({
   display: "grid",
@@ -289,13 +179,6 @@ export const inlineHighlight = style({
   gap: tokens["spacing/space-16"],
 });
 globalStyle(`${inlineHighlight} h2`, { color: "inherit" });
-export const automaticField = style({
-  display: "flex",
-  width: 172,
-  gap: tokens["spacing/space-8"],
-  alignItems: "center",
-  flexWrap: "wrap",
-});
 export const automaticPanel = style({
   width: "100%",
   maxWidth: 792,
@@ -308,25 +191,12 @@ export const automaticPanel = style({
   borderRadius: tokens["radius/radius-18"],
   background: tokens["color/card"],
 });
-export const automaticContent = style({
-  display: "grid",
-  gap: 16,
-  minWidth: 0,
-  paddingInline: 24,
-});
 globalStyle(`${automaticPanel} > .${saveBar}`, { marginInline: 24 });
-export const pausedRow = style([settingsRow, { minHeight: 48 }]);
 export const sectionTitle = style({
   margin: 0,
   fontSize: tokens["typography/sans/body/fontSize"],
   lineHeight: "1.385",
   fontWeight: 600,
-});
-export const headingRow = style({
-  minHeight: tokens["spacing/space-32"],
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
 });
 export const footerStatus = style({
   display: "grid",
@@ -368,13 +238,6 @@ export const listRow = style({
   },
 });
 export const packList = style({ listStyle: "none", padding: 0, margin: `${tokens["spacing/space-12"]} 0` });
-export const packRow = style({
-  display: "grid",
-  gridTemplateColumns: "1fr auto",
-  alignItems: "center",
-  gap: tokens["spacing/space-16"],
-  padding: `${tokens["spacing/space-12"]} 0`,
-});
 globalStyle(`${panel} .${common.row}`, { margin: `${tokens["spacing/space-8"]} 0`, gap: tokens["spacing/space-8"] });
 globalStyle(`${panel} .${common.field}`, { marginBottom: tokens["spacing/space-12"], gap: tokens["spacing/space-4"] });
 globalStyle(`${panel} .${common.section}`, {

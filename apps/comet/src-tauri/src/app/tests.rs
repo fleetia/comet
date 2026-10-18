@@ -11,17 +11,15 @@ use super::scene::{
 use super::settings::{apply_settings, begin_download, SettingsScope};
 use super::windows::{apply_pause, expire_pause, pause_until, should_cancel_for_pause};
 use super::*;
-use crate::{character_commands, story_host};
+use crate::{characters, story};
 use std::time::Duration;
-#[path = "model_quality_smoke.rs"]
 mod model_quality_smoke;
 
-#[path = "model_roster_smoke.rs"]
 mod model_roster_smoke;
 
 pub(crate) fn state() -> AppState {
     AppState {
-        organizer: crate::organizer_runtime::Runtime::default(),
+        organizer: crate::organizer::runtime::Runtime::default(),
         db: Mutex::new(store::open(std::path::Path::new(":memory:")).unwrap()),
         inference: inference::Inference::new(PathBuf::new(), PathBuf::new(), PathBuf::new()),
         nlp: crate::nlp::NlpService::new(
@@ -60,7 +58,7 @@ pub(crate) fn state() -> AppState {
         widget_jobs: Mutex::new(HashMap::new()),
         widget_open_intents: Mutex::new(HashMap::new()),
         widget_clocks: Mutex::new(std::collections::BTreeMap::new()),
-        app_usage_tracker: Mutex::new(crate::app_usage_tracking::Tracker::default()),
+        app_usage_tracker: Mutex::new(crate::app_usage::tracking::Tracker::default()),
         last_input: AtomicI64::new(0),
         last_foreground: AtomicI64::new(0),
         last_scene: AtomicI64::new(0),
@@ -75,10 +73,10 @@ pub(crate) fn state() -> AppState {
         stopping: AtomicBool::new(false),
         update_installing: AtomicBool::new(false),
         behavior: Mutex::new(behavior::Machine::default()),
-        reactions: Mutex::new(crate::character_reaction_host::Runtime::default()),
-        animation_states: Mutex::new(crate::character_animation_states::Runtime::default()),
-        life: Mutex::new(crate::character_life::Runtime::default()),
-        guests: Mutex::new(crate::character_guests::Runtime::default()),
+        reactions: Mutex::new(crate::characters::reaction_host::Runtime::default()),
+        animation_states: Mutex::new(crate::characters::animation_states::Runtime::default()),
+        life: Mutex::new(crate::characters::life::Runtime::default()),
+        guests: Mutex::new(crate::characters::guests::Runtime::default()),
         positions: Mutex::new(HashMap::new()),
     }
 }
@@ -129,12 +127,12 @@ fn hourly_story_suppression_and_interruption_never_resurrect_a_request() {
         }
         lock(&state.story_clock).unwrap().elapsed = Duration::from_secs(3600);
         lock(&state.runtime).unwrap().hidden = true;
-        assert!(!story_host::advance(&state, Instant::now()).unwrap());
+        assert!(!story::host::advance(&state, Instant::now()).unwrap());
         lock(&state.runtime).unwrap().hidden = false;
         lock(&state.runtime).unwrap().paused = true;
-        assert!(!story_host::advance(&state, Instant::now()).unwrap());
+        assert!(!story::host::advance(&state, Instant::now()).unwrap());
         lock(&state.runtime).unwrap().paused = false;
-        assert!(story_host::advance(&state, Instant::now()).unwrap());
+        assert!(story::host::advance(&state, Instant::now()).unwrap());
         let request = lock(&state.story).unwrap().clone().unwrap();
         assert_eq!(lock(&state.runtime).unwrap().phase, "story");
         match cause {
@@ -152,7 +150,7 @@ fn hourly_story_suppression_and_interruption_never_resurrect_a_request() {
             }
         }
         assert!(lock(&state.story).unwrap().is_none());
-        assert!(!story_host::advance(&state, Instant::now()).unwrap());
+        assert!(!story::host::advance(&state, Instant::now()).unwrap());
         assert!(story::answer(
             &lock(&state.db).unwrap(),
             &request,
@@ -237,7 +235,7 @@ fn talk_remaining_lines_stop_after_each_dependency_and_host_invalidation() {
             widgets::storage::install(&db, directory.path(), &["todo".into(), "memo".into()])
                 .unwrap();
             let token = interrupt(&state, cause != "manual-pause").unwrap();
-            let lines = talk_host::prepare(&state, &db, None).unwrap().unwrap();
+            let lines = talk::host::prepare(&state, &db, None).unwrap().unwrap();
             assert!(talk::runtime::history(&db).unwrap().is_empty());
             (token, lines, store::revision(&db).unwrap())
         };
@@ -287,7 +285,7 @@ fn talk_remaining_lines_stop_after_each_dependency_and_host_invalidation() {
                 ));
             }
             "swap" => {
-                character_commands::mutate(&state, |db| {
+                characters::commands::mutate(&state, |db| {
                     characters::apply_pair(db, ["builtin-b".into(), "builtin-a".into()])
                 })
                 .unwrap();
@@ -566,7 +564,7 @@ fn inactive_character_installs_preserve_playback_but_active_definition_edits_can
         "../../../examples/character-packs/nadir-and-star-tail.comet-character.json"
     ))
     .unwrap();
-    character_commands::mutate(&state, |db| characters::create(db, &definition)).unwrap();
+    characters::commands::mutate(&state, |db| characters::create(db, &definition)).unwrap();
     assert_eq!(state.epoch.load(Ordering::SeqCst), epoch);
     assert!(!cancel.load(Ordering::SeqCst));
     assert_eq!(
@@ -577,7 +575,7 @@ fn inactive_character_installs_preserve_playback_but_active_definition_edits_can
         serde_json::to_value(lock(&state.playback).unwrap().clone()).unwrap(),
         before_playback
     );
-    character_commands::mutate(&state, |db| characters::import_pack(db, &pack)).unwrap();
+    characters::commands::mutate(&state, |db| characters::import_pack(db, &pack)).unwrap();
     assert_eq!(state.epoch.load(Ordering::SeqCst), epoch);
     assert!(!cancel.load(Ordering::SeqCst));
     assert_eq!(
@@ -595,7 +593,7 @@ fn inactive_character_installs_preserve_playback_but_active_definition_edits_can
         target_id: "builtin-b".into(),
         description: "가끔 장난을 거는 오랜 친구".into(),
     }];
-    character_commands::mutate(&state, |db| characters::save(db, "builtin-a", &edited)).unwrap();
+    characters::commands::mutate(&state, |db| characters::save(db, "builtin-a", &edited)).unwrap();
     assert!(state.epoch.load(Ordering::SeqCst) > epoch);
     assert!(cancel.load(Ordering::SeqCst));
     assert!(store::revision(&lock(&state.db).unwrap()).unwrap() > revision);
@@ -653,7 +651,7 @@ fn inactive_relationship_target_rename_and_removal_cancel_stale_character_contex
         )
         .unwrap());
         if !remove_target {
-            character_commands::mutate(&state, |db| {
+            characters::commands::mutate(&state, |db| {
                 let mut definition = target.definition.clone();
                 definition.instructions = "쉬는 동안 바꾼 지침".into();
                 characters::save(db, &target.id, &definition)
@@ -665,7 +663,7 @@ fn inactive_relationship_target_rename_and_removal_cancel_stale_character_contex
                 revision
             );
         }
-        character_commands::mutate(&state, |db| {
+        characters::commands::mutate(&state, |db| {
             if remove_target {
                 characters::remove(db, &target.id)
             } else {
@@ -740,7 +738,8 @@ fn character_change_cancels_old_playback_and_retry_preserving_the_transcript() {
     .unwrap());
     let before =
         serde_json::to_value(store::messages(&lock(&state.db).unwrap(), 100).unwrap()).unwrap();
-    character_commands::mutate(&state, |db| characters::assign(db, "a", &replacement.id)).unwrap();
+    characters::commands::mutate(&state, |db| characters::assign(db, "a", &replacement.id))
+        .unwrap();
     assert!(old.1.load(Ordering::SeqCst));
     assert!(lock(&state.playback).unwrap().is_none());
     assert!(!present_line(
@@ -765,7 +764,7 @@ fn character_change_cancels_old_playback_and_retry_preserving_the_transcript() {
         assert!(ensure_retry_characters(&db, "before-change", "a").is_err());
         assert!(store::prepared_scenes(&db).unwrap().is_empty());
     }
-    character_commands::mutate(&state, |db| characters::assign(db, "a", "builtin-a")).unwrap();
+    characters::commands::mutate(&state, |db| characters::assign(db, "a", "builtin-a")).unwrap();
     ensure_retry_characters(&lock(&state.db).unwrap(), "before-change", "a").unwrap();
 }
 
@@ -790,7 +789,7 @@ fn pack_switch_cancels_stale_playback_and_restores_the_same_characters_and_perso
         ).unwrap();
         (first_pack, cloned.pack_id.unwrap())
     };
-    character_commands::mutate(&state, |db| characters::apply_pack(db, &first_pack)).unwrap();
+    characters::commands::mutate(&state, |db| characters::apply_pack(db, &first_pack)).unwrap();
     let old = {
         let _action = lock(&state.action).unwrap();
         interrupt(&state, false).unwrap()
@@ -826,7 +825,7 @@ fn pack_switch_cancels_stale_playback_and_restores_the_same_characters_and_perso
             "wordbook": wordbook::entries(&db).unwrap(),
         })
     };
-    character_commands::mutate(&state, |db| characters::apply_pack(db, &first_pack)).unwrap();
+    characters::commands::mutate(&state, |db| characters::apply_pack(db, &first_pack)).unwrap();
     assert_eq!(state.epoch.load(Ordering::SeqCst), old.0);
     assert_eq!(
         store::revision(&lock(&state.db).unwrap()).unwrap(),
@@ -834,7 +833,7 @@ fn pack_switch_cancels_stale_playback_and_restores_the_same_characters_and_perso
     );
     assert!(!old.1.load(Ordering::SeqCst));
     assert!(lock(&state.playback).unwrap().is_some());
-    character_commands::mutate(&state, |db| characters::apply_pack(db, &second_pack)).unwrap();
+    characters::commands::mutate(&state, |db| characters::apply_pack(db, &second_pack)).unwrap();
     assert!(old.1.load(Ordering::SeqCst));
     assert!(lock(&state.playback).unwrap().is_none());
     assert!(!present_line(
@@ -850,7 +849,7 @@ fn pack_switch_cancels_stale_playback_and_restores_the_same_characters_and_perso
         false,
     )
     .unwrap());
-    character_commands::mutate(&state, |db| characters::apply_pack(db, &first_pack)).unwrap();
+    characters::commands::mutate(&state, |db| characters::apply_pack(db, &first_pack)).unwrap();
     let db = lock(&state.db).unwrap();
     assert_eq!(
         serde_json::json!({
@@ -873,7 +872,7 @@ fn character_change_rolls_back_if_prepared_scene_invalidation_fails() {
         .id;
     let before_epoch = state.epoch.load(Ordering::SeqCst);
     lock(&state.db).unwrap().execute_batch("CREATE TRIGGER fail_revision BEFORE UPDATE ON kv WHEN OLD.key='revision' BEGIN SELECT RAISE(ABORT,'storage failure'); END;").unwrap();
-    assert!(character_commands::mutate(&state, |db| characters::assign(db, "a", &id)).is_err());
+    assert!(characters::commands::mutate(&state, |db| characters::assign(db, "a", &id)).is_err());
     assert_eq!(
         characters::active_character(&lock(&state.db).unwrap(), "a")
             .unwrap()
@@ -966,8 +965,8 @@ fn shared_character_pack_uses_authored_keyword_order_after_personal_entries() {
         group: None,
     });
     let imported =
-        character_commands::mutate(&state, |db| characters::import_pack(db, &pack)).unwrap();
-    character_commands::mutate(&state, |db| {
+        characters::commands::mutate(&state, |db| characters::import_pack(db, &pack)).unwrap();
+    characters::commands::mutate(&state, |db| {
         characters::apply_pair(db, [imported[0].id.clone(), imported[1].id.clone()])
     })
     .unwrap();
@@ -1730,7 +1729,7 @@ fn set_focus_timer(
 }
 
 fn run_focus_timer(state: &AppState, action: &str) {
-    crate::widget_commands::change(state, |db| {
+    crate::widgets::commands::change(state, |db| {
         let timer = widgets::storage::instances(db)?
             .into_iter()
             .find(|instance| instance.kind == "focus-timer")
@@ -1809,7 +1808,7 @@ fn starting_and_resuming_focus_cancel_existing_speech_without_erasing_the_conver
         assert!(lock(&state.panel).unwrap().is_none());
         assert_eq!(lock(&state.runtime).unwrap().phase, RuntimePhase::Idle);
         let focused_epoch = state.epoch.load(Ordering::SeqCst);
-        crate::widget_commands::change(&state, |_| Ok(())).unwrap();
+        crate::widgets::commands::change(&state, |_| Ok(())).unwrap();
         assert_eq!(state.epoch.load(Ordering::SeqCst), focused_epoch);
         {
             let db = lock(&state.db).unwrap();
@@ -2034,10 +2033,10 @@ fn focus_hold_drops_all_balloon_reactions_without_a_catch_up() {
         at,
     )
     .unwrap();
-    assert!(!crate::widget_commands::hold_for_focus(&state, &db).unwrap());
+    assert!(!crate::widgets::commands::hold_for_focus(&state, &db).unwrap());
     set_focus_timer(&db, directory.path(), "running", "focus", Some(at + 60_000));
     state.next_idle.store(now() - 1, Ordering::SeqCst);
-    assert!(crate::widget_commands::hold_for_focus(&state, &db).unwrap());
+    assert!(crate::widgets::commands::hold_for_focus(&state, &db).unwrap());
     let pending = db
         .prepare("SELECT json_extract(data,'$.kind') FROM widget_events WHERE pending=1")
         .unwrap()
@@ -2048,12 +2047,12 @@ fn focus_hold_drops_all_balloon_reactions_without_a_catch_up() {
     assert!(pending.is_empty());
     assert!(state.next_idle.load(Ordering::SeqCst) > now());
     set_focus_timer(&db, directory.path(), "idle", "focus", None);
-    assert!(crate::widget_commands::take_pending_reaction(&state, &db)
+    assert!(crate::widgets::commands::take_pending_reaction(&state, &db)
         .unwrap()
         .is_none());
     set_focus_timer(&db, directory.path(), "running", "focus", Some(at - 1));
     widgets::storage::advance(&db, at).unwrap();
-    let finished = crate::widget_commands::take_pending_reaction(&state, &db)
+    let finished = crate::widgets::commands::take_pending_reaction(&state, &db)
         .unwrap()
         .unwrap();
     assert_eq!(finished.event.kind, "timer-finished");
@@ -2091,7 +2090,7 @@ fn focus_blocks_background_and_defers_idle_after_cancel() {
         "focus",
         Some(at + 60_000),
     );
-    assert!(crate::widget_commands::hold_for_focus(&state, &lock(&state.db).unwrap()).unwrap());
+    assert!(crate::widgets::commands::hold_for_focus(&state, &lock(&state.db).unwrap()).unwrap());
     let deferred = state.next_idle.load(Ordering::SeqCst);
     // The default 2-minute interval never drops below 80% after focus.
     assert!(deferred >= now() + 96);
@@ -2102,7 +2101,7 @@ fn focus_blocks_background_and_defers_idle_after_cancel() {
         "focus",
         None,
     );
-    assert!(!crate::widget_commands::hold_for_focus(&state, &lock(&state.db).unwrap()).unwrap());
+    assert!(!crate::widgets::commands::hold_for_focus(&state, &lock(&state.db).unwrap()).unwrap());
     assert_eq!(state.next_idle.load(Ordering::SeqCst), deferred);
 }
 
@@ -2123,7 +2122,7 @@ fn hourly_story_skips_its_turn_during_focus() {
         );
     }
     lock(&state.story_clock).unwrap().elapsed = Duration::from_secs(3600);
-    assert!(!story_host::advance(&state, Instant::now()).unwrap());
+    assert!(!story::host::advance(&state, Instant::now()).unwrap());
     assert_eq!(lock(&state.story_clock).unwrap().elapsed, Duration::ZERO);
     assert!(lock(&state.story).unwrap().is_none());
     set_focus_timer(
@@ -2134,7 +2133,7 @@ fn hourly_story_skips_its_turn_during_focus() {
         None,
     );
     lock(&state.story_clock).unwrap().elapsed = Duration::from_secs(3600);
-    assert!(story_host::advance(&state, Instant::now()).unwrap());
+    assert!(story::host::advance(&state, Instant::now()).unwrap());
 }
 
 #[test]
@@ -2905,7 +2904,7 @@ async fn shutdown_and_update_save_note_drafts_before_becoming_unavailable() {
             &state,
             async {
                 receive.await.map_err(|error| error.to_string())?;
-                crate::widget_commands::change(&state, |db| {
+                crate::widgets::commands::change(&state, |db| {
                     let instance = crate::widgets::storage::get(db, &id)?;
                     crate::widgets::storage::execute(
                         db,
@@ -2968,7 +2967,7 @@ async fn failed_note_flush_keeps_shutdown_and_update_editable() {
         assert_eq!(result.unwrap_err(), "메모 저장 실패");
         assert!(!unavailable(&state));
         assert!(!lock(&state.runtime).unwrap().hidden);
-        assert!(crate::widget_commands::change(&state, |_| Ok(())).is_ok());
+        assert!(crate::widgets::commands::change(&state, |_| Ok(())).is_ok());
     }
 }
 
@@ -3046,10 +3045,10 @@ fn quit_flush_keeps_legacy_and_resident_face_positions_without_saving_guest_or_b
             .unwrap()
             .remove(0);
         let pack_id = guest.pack_id.clone().unwrap();
-        crate::character_guests::admit_locked(
+        crate::characters::guests::admit_locked(
             &state,
             &db,
-            &crate::character_guests::Admission {
+            &crate::characters::guests::Admission {
                 run_id: uuid::Uuid::new_v4().to_string(),
                 request_id: uuid::Uuid::new_v4().to_string(),
                 epoch: 0,
@@ -3223,7 +3222,7 @@ fn partial_retry_references_only_current_characters_completed_same_turn_reply() 
 #[test]
 fn single_member_roster_keeps_snapshot_and_scripts_working() {
     let state = state();
-    character_commands::mutate(&state, |db| {
+    characters::commands::mutate(&state, |db| {
         characters::apply_roster(db, vec!["builtin-b".into()])
     })
     .unwrap();
@@ -3439,7 +3438,7 @@ mod retry_display_tests {
             persona: "builtin-a".into(),
             text: "  저장된 답변\n공백 보존  ".into(),
             expression: "평온".into(),
-            motion: crate::character_reactions::MotionOverride::Static,
+            motion: crate::characters::reactions::MotionOverride::Static,
         };
         let reply = Message {
             id: "reply:input:builtin-a".into(),
@@ -3569,7 +3568,7 @@ mod retry_display_tests {
             if matches!(scenario, "character" | "removed") {
                 // Production character edits own revision/cancellation in this boundary;
                 // the low-level storage helpers deliberately do not invalidate on their own.
-                crate::character_commands::mutate(&state, |db| {
+                crate::characters::commands::mutate(&state, |db| {
                     if scenario == "character" {
                         let mut character = crate::characters::active_character(db, "builtin-a")?;
                         character.definition.description = "변경된 설정".into();

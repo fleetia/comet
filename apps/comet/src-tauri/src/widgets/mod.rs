@@ -1,10 +1,17 @@
 pub(crate) mod appearance;
 pub(crate) mod backgrounds;
 pub(crate) mod calendar;
+pub(crate) mod commands;
+pub(crate) mod connection_host;
 pub(crate) mod connections;
+pub(crate) mod desktop;
+pub(crate) mod generated;
+pub(crate) mod memo_notes;
+pub(crate) mod music_bridge;
 pub(crate) mod music_native;
 pub(crate) mod planning;
 pub(crate) mod reminders;
+pub(crate) mod runtime;
 pub(crate) mod storage;
 #[cfg(test)]
 mod storage_tests;
@@ -209,7 +216,9 @@ pub fn act(
             entropy,
         ),
         "completion-jar" | "journal" => Err("이 위젯은 실제 사건을 모아 보여 줘요.".into()),
-        "calendar" if request.action == "configure" => calendar::configure_settings(&instance.data, &request.input, now),
+        "calendar" if request.action == "configure" => {
+            calendar::configure_settings(&instance.data, &request.input, now)
+        }
         "calendar" if request.action == "set-calendar-color" => {
             calendar::set_calendar_color(&instance.data, &request.input)
         }

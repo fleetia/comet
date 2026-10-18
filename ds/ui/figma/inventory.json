@@ -432,6 +432,27 @@
       "exports": ["Surface"]
     },
     {
+      "id": "712:1899",
+      "name": "Surface/Panel",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["Surface"]
+    },
+    {
+      "id": "712:1938",
+      "name": "Surface/Accent",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["Surface"]
+    },
+    {
+      "id": "712:1977",
+      "name": "Surface/Card",
+      "variantCount": 0,
+      "kind": "component",
+      "exports": ["Surface"]
+    },
+    {
       "id": "49:51503",
       "name": "Popover/Content",
       "variantCount": 3,
@@ -514,6 +535,13 @@
       "variantCount": 4,
       "kind": "component",
       "exports": ["Checkbox"]
+    },
+    {
+      "id": "712:34601",
+      "name": "Form/Field",
+      "variantCount": 2,
+      "kind": "component",
+      "exports": ["FormField"]
     },
     {
       "id": "49:48739",

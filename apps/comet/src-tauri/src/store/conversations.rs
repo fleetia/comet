@@ -215,6 +215,7 @@ pub fn active_conversation(conn: &Connection) -> Result<Option<ConversationSessi
     .map_err(err)
 }
 
+#[cfg(test)]
 pub fn conversations(conn: &Connection, character_id: &str) -> Result<Vec<ConversationSession>> {
     conversation_history(conn, Some(character_id), None)
 }
@@ -268,6 +269,7 @@ fn active_participants(conn: &Connection, participants: &[String]) -> Result<Vec
     Ok(result)
 }
 
+#[cfg(test)]
 pub fn create_conversation(
     conn: &Connection,
     participants: &[String],

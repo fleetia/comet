@@ -1,16 +1,9 @@
-#[path = "store/analysis.rs"]
 mod analysis;
-#[path = "store/conversations.rs"]
 mod conversations;
-#[path = "store/memory.rs"]
 mod memory;
-#[path = "store/messages.rs"]
 mod messages;
-#[path = "store/quiet_hours.rs"]
 mod quiet_hours;
-#[path = "store/search.rs"]
 mod search;
-#[path = "store/users.rs"]
 mod users;
 
 #[cfg(test)]
@@ -19,18 +12,17 @@ pub use analysis::{
     analysis_failure, analysis_status, defer_analysis, pending_user_messages,
     retry_deferred_analysis, AnalysisStatus,
 };
-#[cfg(test)]
-pub use conversations::conversation_reply_pending;
 pub use conversations::{
     active_conversation, attach_conversation_message, cancel_conversation_reply,
     clear_conversation_cancellation, conversation, conversation_context, conversation_for_message,
     conversation_history, conversation_message_allowed, conversation_messages,
-    conversation_recovery, conversation_view, conversations, create_conversation,
-    create_conversation_with_source, pause_conversations, pause_conversations_for_focus,
-    record_conversation_disclosure, record_conversation_event, save_conversation_draft,
-    set_conversation_participants, set_conversation_status, ConversationMessages,
-    ConversationSession, ConversationView, RecoveryReason,
+    conversation_recovery, conversation_view, create_conversation_with_source, pause_conversations,
+    pause_conversations_for_focus, record_conversation_disclosure, record_conversation_event,
+    save_conversation_draft, set_conversation_participants, set_conversation_status,
+    ConversationMessages, ConversationSession, ConversationView, RecoveryReason,
 };
+#[cfg(test)]
+pub use conversations::{conversation_reply_pending, conversations, create_conversation};
 #[cfg(test)]
 pub use memory::analyze_apply;
 #[allow(unused_imports)] // Developer smoke examples still inspect the complete memory list.
@@ -45,13 +37,15 @@ pub use memory::{
 pub use memory::{delete_memory, edit_memory};
 #[allow(unused_imports)] // Developer smoke examples still insert synthetic history directly.
 pub use messages::insert_message;
+#[cfg(test)]
+pub use messages::mark_message_displayed;
 pub use messages::{
     automatic_message_displayed_at, context_messages, context_messages_for,
     expire_generated_recall, has_turn_replies, input_ai_only, insert_message_with_playback,
-    insert_user_input, mark_message_displayed, mark_message_displayed_with_provenance,
-    mark_message_finished, message_displayed, message_finished, message_identities,
-    message_targets, messages, reply_scene_source, resume_conversation, save_reply_scene,
-    save_reply_scene_with_source, saved_reply, saved_reply_for_participants, saved_reply_scene,
+    insert_user_input, mark_message_displayed_with_provenance, mark_message_finished,
+    message_displayed, message_finished, message_identities, message_targets, messages,
+    reply_scene_source, resume_conversation, save_reply_scene, save_reply_scene_with_source,
+    saved_reply, saved_reply_for_participants, saved_reply_scene,
     saved_reply_scene_for_participants, select_input_ai_route, select_single_bundle_targets,
     single_bundle_selected, single_bundle_targets, MessageIdentity,
 };
@@ -111,10 +105,10 @@ INSERT OR IGNORE INTO kv VALUES('revision','0');").map_err(err)?;
     crate::widgets::storage::initialize(&conn)?;
     quiet_hours::migrate(&conn)?;
     crate::diary::initialize(&conn)?;
-    crate::generated_widgets::initialize(&conn)?;
+    crate::widgets::generated::initialize(&conn)?;
     crate::pack_stories::initialize(&conn)?;
     crate::organizer::initialize(&conn)?;
-    crate::organizer_actions::initialize(&conn)?;
+    crate::organizer::actions::initialize(&conn)?;
     Ok(conn)
 }
 
@@ -212,9 +206,7 @@ pub fn set_window_position(conn: &Connection, label: &str, pos: &WindowPosition)
 }
 
 #[cfg(test)]
-#[path = "store/tests.rs"]
 mod tests;
 
 #[cfg(test)]
-#[path = "store/identity_tests.rs"]
 mod identity_tests;

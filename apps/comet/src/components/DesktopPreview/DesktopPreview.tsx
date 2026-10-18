@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type JSX } from "react";
-import { Button } from "../../ui";
+import { Button } from "@comet/ui";
 import { CompanionBox } from "../CompanionBox/CompanionBox";
 import { Balloon } from "../Balloon/Balloon";
 import { SettingsPanel } from "../SettingsPanel/SettingsPanel";
@@ -323,11 +323,11 @@ export function DesktopPreview({ initial }: { initial: Snapshot }): JSX.Element 
         )}
       </div>
       <div className={s.demoControls}>
-        <Button variant="secondary" onClick={() => void dispatch("talk_now")}>
+        <Button variant="ghost" onClick={() => void dispatch("talk_now")}>
           둘의 대화 예시 보기
         </Button>
         <Button
-          variant="secondary"
+          variant="ghost"
           onClick={() => {
             setState((previous) => ({
               ...previous,
@@ -338,7 +338,7 @@ export function DesktopPreview({ initial }: { initial: Snapshot }): JSX.Element 
         >
           메뉴 열어 보기
         </Button>
-        <Button variant="quiet" onClick={() => setSettingsOpen(!settingsOpen)}>
+        <Button variant="ghost" onClick={() => setSettingsOpen(!settingsOpen)}>
           {settingsOpen ? "설정 접기" : "설정 살펴보기"}
         </Button>
       </div>

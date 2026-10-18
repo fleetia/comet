@@ -1,3 +1,5 @@
+pub(crate) mod commands;
+
 use crate::{
     characters::{CharacterDefinition, CharacterLine},
     types::SceneLine,
@@ -12,7 +14,9 @@ pub(crate) use authoring::{authoring_trial, AuthoringTrialRequest, AuthoringTria
 
 pub(crate) fn matches_keywords(words: &[String], input: &str) -> bool {
     let input = input.to_lowercase();
-    words.iter().any(|word| input.contains(&word.to_lowercase()))
+    words
+        .iter()
+        .any(|word| input.contains(&word.to_lowercase()))
 }
 
 fn flags_match(required: &[String], flags: &BTreeSet<String>) -> bool {
@@ -91,7 +95,7 @@ struct StrictLine {
     expression: String,
     text: String,
     #[serde(default)]
-    motion: crate::character_reactions::MotionOverride,
+    motion: crate::characters::reactions::MotionOverride,
 }
 fn strict_lines<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
@@ -269,7 +273,7 @@ pub fn validate_character(definition: &CharacterDefinition) -> Result<()> {
             {
                 return Err("등록 대사의 화자·본문·표정을 확인해 주세요.".into());
             }
-            crate::character_reactions::validate_motion(&line.motion, definition, false)?;
+            crate::characters::reactions::validate_motion(&line.motion, definition, false)?;
         }
         Ok(())
     };
@@ -407,7 +411,7 @@ pub fn validate_pack(
                 {
                     return Err("이야기 대사의 참가자·표정·본문을 확인해 주세요.".into());
                 }
-                crate::character_reactions::validate_motion(&line.motion, actor, false)?;
+                crate::characters::reactions::validate_motion(&line.motion, actor, false)?;
             }
         }
         let entry_count = scene
@@ -894,7 +898,8 @@ pub fn select(
             continue;
         }
         if !matches_keywords(&npc.invite_keywords, content)
-            && !matches_keywords(&npc.appearance_keywords, content) {
+            && !matches_keywords(&npc.appearance_keywords, content)
+        {
             continue;
         }
         let Some(pack_id) = actor.pack_id else {

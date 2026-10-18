@@ -219,7 +219,7 @@ export const matchTest = style({
 });
 export const testControls = style({ display: "flex", alignItems: "end", gap: 10 });
 globalStyle(`${testControls} > div`, { flex: 1, minWidth: 0 });
-export const preview = style({ whiteSpace: "pre-wrap", overflowWrap: "anywhere" });
+export const preview = style({ padding: 16, whiteSpace: "pre-wrap", overflowWrap: "anywhere" });
 export const previewLines = style({ margin: 0, paddingLeft: 20 });
 export const previewText = style({ display: "block", whiteSpace: "pre-wrap" });
 export const saveBar = style({ paddingTop: 16, flexShrink: 0 });

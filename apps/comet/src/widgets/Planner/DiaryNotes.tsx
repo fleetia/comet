@@ -1,12 +1,14 @@
-import { Button, FormField, TextArea, TextField } from "../../ui";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import {
-  Button as CometButton,
+  Button,
+  Dialog,
+  FormField,
   IconButton,
   NoteCard,
   SearchInput,
   SegmentedControl,
-  Dialog,
+  Textarea,
+  TextInput,
 } from "@comet/ui";
 import { DiaryDesktopNoteDetail, desktopNotes, type DesktopNotesProps } from "./DiaryDesktopNotes";
 import { DiaryNoteDetail } from "./DiaryNoteDetail";
@@ -186,14 +188,14 @@ export function DiaryNotes(
                 : "아직 메모가 없어요."}
           </p>
           {props.desktop && (
-            <CometButton
+            <Button
               variant="link"
               size="small"
               disabled={props.desktop.busy}
               onClick={() => void props.desktop?.onCreate()}
             >
               + 새 바탕화면 메모
-            </CometButton>
+            </Button>
           )}
         </div>
         <div className={ns.detailHost}>
@@ -230,7 +232,7 @@ export function DiaryNotes(
                 }
                 onDelete={() => props.diaryAction("note-delete", { id: note.id })}
                 header={(disabled) => (
-                  <CometButton
+                  <Button
                     variant="ghost"
                     size="small"
                     disabled={disabled}
@@ -239,7 +241,7 @@ export function DiaryNotes(
                     }
                   >
                     {note.pinned ? "넣어두기" : "곁에 꺼내두기"}
-                  </CometButton>
+                  </Button>
                 )}
                 details={() =>
                   note.envelopeId &&
@@ -251,13 +253,13 @@ export function DiaryNotes(
                           <span className={ns.metadataLabel}>연결</span>
                           <span className={ns.caption}>준비 봉투에서도 함께 보는 메모예요.</span>
                         </div>
-                        <CometButton
+                        <Button
                           variant="ghost"
                           size="small"
                           onClick={() => props.onOpenEnvelope?.(note.envelopeId!)}
                         >
                           {props.envelopeNames[note.envelopeId]}
-                        </CometButton>
+                        </Button>
                       </div>
                     </div>
                   ) : null
@@ -396,7 +398,8 @@ export function DiaryNoteCollection({
           }}
         >
           <FormField label="새 메모 제목" required>
-            <TextField
+            <TextInput
+              fill
               value={title}
               disabled={busy}
               maxLength={500}
@@ -404,7 +407,10 @@ export function DiaryNoteCollection({
             />
           </FormField>
           <FormField label="새 메모 내용">
-            <TextArea
+            <Textarea
+              layout="flexible"
+              fill
+              rows={3}
               className={s.textArea}
               value={body}
               disabled={busy}
@@ -419,8 +425,8 @@ export function DiaryNoteCollection({
           )}
           <div className={s.actions}>
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={busy}
               onClick={() => {
                 setTitle("");
@@ -431,13 +437,13 @@ export function DiaryNoteCollection({
             >
               취소
             </Button>
-            <Button type="submit" variant="primary" size="compact" disabled={busy || !title.trim()}>
+            <Button type="submit" variant="primary" size="small" disabled={busy || !title.trim()}>
               메모 저장
             </Button>
           </div>
         </form>
       ) : !composeOnly && !hideCreateAction ? (
-        <Button variant="quiet" size="compact" disabled={busy} onClick={() => setCreating(true)}>
+        <Button variant="ghost" size="small" disabled={busy} onClick={() => setCreating(true)}>
           + 메모 쓰기
         </Button>
       ) : null}
@@ -547,7 +553,8 @@ function DiaryNoteEditor({
           }}
         >
           <FormField label="메모 제목" required>
-            <TextField
+            <TextInput
+              fill
               value={draft.title}
               maxLength={500}
               disabled={busy}
@@ -555,7 +562,10 @@ function DiaryNoteEditor({
             />
           </FormField>
           <FormField label="메모 내용">
-            <TextArea
+            <Textarea
+              layout="flexible"
+              fill
+              rows={3}
               className={s.textArea}
               value={draft.body}
               maxLength={20000}
@@ -565,8 +575,8 @@ function DiaryNoteEditor({
           </FormField>
           <div className={s.actions}>
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={busy}
               onClick={() => {
                 setDraft(null);
@@ -578,14 +588,14 @@ function DiaryNoteEditor({
             <Button
               type="submit"
               variant="primary"
-              size="compact"
+              size="small"
               disabled={busy || !draft.title.trim()}
             >
               메모 저장
             </Button>
           </div>
           {conflict && (
-            <Button variant="secondary" size="compact" disabled={busy} onClick={edit}>
+            <Button variant="ghost" size="small" disabled={busy} onClick={edit}>
               최신 내용 다시 불러오기
             </Button>
           )}
@@ -595,7 +605,7 @@ function DiaryNoteEditor({
           <div className={s.row}>
             <h3 className={`${s.noteTitle} ${s.grow}`}>{note.title}</h3>
             {inEnvelope ? (
-              <CometButton
+              <Button
                 variant="link"
                 className={s.envelopeNoteAction}
                 aria-label={`${note.title} 메모 메뉴`}
@@ -604,11 +614,11 @@ function DiaryNoteEditor({
                 onClick={() => setMenuOpen(!menuOpen)}
               >
                 메모 편집
-              </CometButton>
+              </Button>
             ) : (
               <Button
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 aria-label={`${note.title} 메모 메뉴`}
                 aria-expanded={menuOpen}
                 disabled={busy}
@@ -621,8 +631,8 @@ function DiaryNoteEditor({
           <p className={s.noteBody}>{note.body || "아직 내용이 없어요."}</p>
           {!inEnvelope && (
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={busy}
               onClick={edit}
               aria-label={`${note.title} 메모 편집`}
@@ -632,8 +642,8 @@ function DiaryNoteEditor({
           )}
           {note.envelopeId && onOpenEnvelope && (
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={busy}
               onClick={() => {
                 if (note.envelopeId) onOpenEnvelope(note.envelopeId);
@@ -644,12 +654,12 @@ function DiaryNoteEditor({
           )}
           {menuOpen && (
             <div className={s.row}>
-              <Button variant="quiet" size="compact" disabled={busy} onClick={edit}>
+              <Button variant="ghost" size="small" disabled={busy} onClick={edit}>
                 편집
               </Button>
               <Button
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 disabled={busy}
                 onClick={async () => {
                   if (!(await diaryAction("note-update", { id: note.id, pinned: !note.pinned })))
@@ -659,8 +669,8 @@ function DiaryNoteEditor({
                 {note.pinned ? "넣어두기" : "곁에 꺼내두기"}
               </Button>
               <Button
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 disabled={busy}
                 onClick={() => setDeleting(true)}
               >
@@ -683,11 +693,11 @@ function DiaryNoteEditor({
         variant="confirm"
         footer={
           <>
-            <Button variant="secondary" disabled={busy} onClick={() => setDeleting(false)}>
+            <Button variant="ghost" disabled={busy} onClick={() => setDeleting(false)}>
               취소
             </Button>
             <Button
-              variant="critical"
+              variant="danger"
               disabled={busy}
               onClick={async () => {
                 if (await diaryAction("note-delete", { id: note.id })) {

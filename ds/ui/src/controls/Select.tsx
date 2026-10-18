@@ -1,11 +1,12 @@
 import { forwardRef, type ReactNode, type SelectHTMLAttributes } from "react";
 import { ChevDownIcon } from "@comet/icon";
 
-import { FieldMessages, useField, type FieldProps } from "./Field";
+import { FieldMessages, useField, type FieldProps, type FillProps } from "./Field";
 import * as styles from "./fields.css";
 
 export type SelectProps = SelectHTMLAttributes<HTMLSelectElement> &
-  FieldProps & { leading?: ReactNode };
+  FieldProps &
+  FillProps & { leading?: ReactNode };
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(
   (
@@ -18,6 +19,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
       multiple,
       children,
       leading,
+      fill,
       "aria-describedby": describedBy,
       "aria-invalid": invalid,
       ...props
@@ -33,13 +35,17 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
     });
 
     return (
-      <span className={styles.field}>
+      <span className={[styles.field, fill && styles.fillField].filter(Boolean).join(" ")}>
         {label && (
           <label htmlFor={field.id} className={styles.label}>
             {label}
           </label>
         )}
-        <span className={styles.selectContainer}>
+        <span
+          className={[styles.selectContainer, fill && styles.fillSelectContainer]
+            .filter(Boolean)
+            .join(" ")}
+        >
           {leading && (
             <span aria-hidden className={styles.selectLeading}>
               {leading}
@@ -55,6 +61,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
               styles.select,
               multiple && styles.multipleSelect,
               leading && styles.selectWithLeading,
+              fill && styles.fillSelect,
               className,
             ]
               .filter(Boolean)

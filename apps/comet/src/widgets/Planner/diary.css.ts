@@ -83,10 +83,6 @@ export const notesOpen = style({
     },
   },
 });
-export const notesToggle = style({
-  display: "none",
-  "@media": { "(max-width: 1080px)": { display: "inline-flex" } },
-});
 export const index = style([
   surface,
   {
@@ -172,13 +168,6 @@ globalStyle(`${pageHeading} > h1`, {
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
 });
-export const indexTitle = style({
-  fontFamily: tokens["typography/display/title-sm/fontFamily"],
-  fontSize: 15,
-  lineHeight: "22px",
-  fontWeight: 400,
-  margin: "4px 0 20px",
-});
 export const caption = style({
   color: tokens["color/ink-2"],
   fontSize: tokens["typography/sans/caption/fontSize"],
@@ -221,15 +210,6 @@ export const navItem = style({
   },
 });
 globalStyle(`${navItem}[aria-current="page"] ${caption}`, { color: "inherit", opacity: 0.8 });
-export const toolMenu = style({
-  display: "flex",
-  flexDirection: "column",
-  gap: 2,
-  marginTop: 16,
-  paddingTop: 12,
-  borderTop: `1px solid ${tokens["color/line"]}`,
-});
-export const toolMenuItem = style([navItem, { minHeight: 36, padding: "8px" }]);
 export const toolContent = style({
   minWidth: 0,
   display: "flex",

@@ -40,9 +40,10 @@ fn begin_reply(state: &AppState, playback_id: &str) -> Result<u64, String> {
     if line.source == "update" {
         return Err("업데이트 알림의 이동하기 버튼으로 설정을 열어 주세요.".into());
     }
-    let actor = crate::character_guests::actor(state, &db, &line.persona)?;
-    let center = crate::character_guests::center_id(state, &actor.id)?.unwrap_or(actor.id.clone());
-    crate::character_life::wake(state, &actor.id)?;
+    let actor = crate::characters::guests::actor(state, &db, &line.persona)?;
+    let center =
+        crate::characters::guests::center_id(state, &actor.id)?.unwrap_or(actor.id.clone());
+    crate::characters::life::wake(state, &actor.id)?;
     super::conversation::ensure_available(&db)?;
     let waiting_pack =
         super::conversation::waiting_pack_run(state, &db, std::slice::from_ref(&center))?;
@@ -149,7 +150,7 @@ fn begin_resume_on_surface(
         return Err("그때의 친구들을 다시 함께 지내기로 선택하면 이어갈 수 있어요.".into());
     }
     for id in &session.participants {
-        crate::character_life::wake(state, id)?;
+        crate::characters::life::wake(state, id)?;
     }
     super::conversation::ensure_available(&db)?;
     let recovery = store::conversation_recovery(&db, &session.id)?.and_then(|recovery| {
@@ -448,7 +449,7 @@ pub(crate) fn get_conversations(
     let db = lock(&state.db)?;
     let character = persona
         .as_deref()
-        .map(|persona| crate::character_guests::actor(&state, &db, persona))
+        .map(|persona| crate::characters::guests::actor(&state, &db, persona))
         .transpose()?;
     store::conversation_history(
         &db,
@@ -457,12 +458,13 @@ pub(crate) fn get_conversations(
     )
 }
 
+#[cfg(test)]
 pub(crate) fn conversation_sessions(
     state: &AppState,
     persona: &str,
 ) -> Result<Vec<store::ConversationSession>, String> {
     let db = lock(&state.db)?;
-    let character = crate::character_guests::actor(state, &db, persona)?;
+    let character = crate::characters::guests::actor(state, &db, persona)?;
     store::conversations(&db, &character.id)
 }
 

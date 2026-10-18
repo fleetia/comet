@@ -7,8 +7,8 @@ use crate::behavior;
 use crate::{
     characters, domain, inference, models, resources, store, story,
     types::*,
-    widget_commands::{advance_widgets, play_widget_reaction},
-    widget_connections::start_due_widget_refreshes,
+    widgets::commands::{advance_widgets, play_widget_reaction},
+    widgets::connection_host::start_due_widget_refreshes,
     widgets::storage,
 };
 use rusqlite::{Connection, OptionalExtension};
@@ -35,12 +35,12 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
             .unwrap_or(false)
         {
             super::publish(&app, &state);
-            crate::desktop_menu::refresh(&app);
+            crate::desktop::menu::refresh(&app);
         }
         let quiet_changed = super::quiet_hours::reconcile(&state).unwrap_or(false);
         let animation_changed =
-            crate::character_animation_states::refresh(&app, &state).unwrap_or(false);
-        let _ = crate::character_life::tick(&app, &state);
+            crate::characters::animation_states::refresh(&app, &state).unwrap_or(false);
+        let _ = crate::characters::life::tick(&app, &state);
         if quiet_changed || animation_changed {
             super::publish(&app, &state);
         }
@@ -68,7 +68,7 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
         let _ = flush_positions(&state, false);
         let _ = advance_widgets(&app, &state);
         let _ = crate::diary::runtime::tick(&app, &state);
-        if crate::generated_widget_commands::advance_reactions(&app, &state).unwrap_or(false) {
+        if crate::widgets::generated::commands::advance_reactions(&app, &state).unwrap_or(false) {
             continue;
         }
         start_due_widget_refreshes(&app, &state);
@@ -85,7 +85,7 @@ pub(crate) async fn background_loop(app: tauri::AppHandle, state: Arc<AppState>)
                 .map(|machine| machine.phase == behavior::Phase::Suspended)
                 .unwrap_or(false)
                 && presence::all_absent_return_due(&state).unwrap_or(false)
-                && crate::desktop_toys::current_geometry(&app)
+                && crate::desktop::toys::current_geometry(&app)
                     .await
                     .is_ok_and(|geometry| !geometry.fullscreen)
                 && lock(&state.behavior)
@@ -170,7 +170,7 @@ pub(crate) fn begin_background(state: &AppState) -> Result<Option<(u64, Arc<Atom
         }
         if presence::present_ids(state, &characters::active_ids(&db)?)?
             .iter()
-            .all(|id| crate::character_life::sleeping(state, id).unwrap_or(true))
+            .all(|id| crate::characters::life::sleeping(state, id).unwrap_or(true))
         {
             return Ok(None);
         }
@@ -340,11 +340,17 @@ pub(crate) async fn run_background(
             return Ok(());
         }
     }
-    if crate::organizer_runtime::run_next(app, state, epoch, cancel.clone(), false).await? {
+    if crate::organizer::runtime::run_next(app, state, epoch, cancel.clone(), false).await? {
         return Ok(());
     }
-    if crate::generated_widget_commands::maybe_create(app, state, &settings, epoch, cancel.clone())
-        .await?
+    if crate::widgets::generated::commands::maybe_create(
+        app,
+        state,
+        &settings,
+        epoch,
+        cancel.clone(),
+    )
+    .await?
     {
         return Ok(());
     }

@@ -245,7 +245,7 @@ async fn run(
             || store::revision(&db)? != transition.revision
             || !characters::active_ids(&db)?.contains(&transition.id)
             || lock(&state.presence)?.generation != transition.generation
-            || crate::character_life::sleeping(state, &transition.id)?
+            || crate::characters::life::sleeping(state, &transition.id)?
         {
             return Ok(());
         }
@@ -258,7 +258,7 @@ async fn run(
                 || store::revision(&db)? != transition.revision
                 || !characters::active_ids(&db)?.contains(&transition.id)
                 || lock(&state.presence)?.generation != transition.generation
-                || crate::character_life::sleeping(state, &transition.id)?
+                || crate::characters::life::sleeping(state, &transition.id)?
             {
                 return Ok(());
             }
@@ -325,7 +325,7 @@ fn commit_departure(
     if !is_current(state, epoch, cancel)
         || store::revision(&db)? != transition.revision
         || lock(&state.presence)?.generation != transition.generation
-        || crate::character_life::sleeping(state, &transition.id)?
+        || crate::characters::life::sleeping(state, &transition.id)?
         || !characters::active_ids(&db)?.contains(&transition.id)
     {
         return Ok(false);
@@ -388,7 +388,7 @@ mod tests {
             revision: store::revision(&lock(&state.db).unwrap()).unwrap(),
         };
         let epoch = state.epoch.load(Ordering::SeqCst);
-        crate::character_life::set_sleep(&state, &id, true).unwrap();
+        crate::characters::life::set_sleep(&state, &id, true).unwrap();
         assert!(!commit_departure(&state, &transition, epoch, &AtomicBool::new(false)).unwrap());
         assert!(is_present(&state, &id).unwrap());
         assert!(lock(&state.presence).unwrap().absent.is_empty());
@@ -566,18 +566,18 @@ mod tests {
         };
         lock(&state.presence).unwrap().absent.insert(nadir.clone());
         lock(&state.story_clock).unwrap().elapsed = Duration::from_secs(3600);
-        assert!(!crate::story_host::advance(&state, Instant::now()).unwrap());
+        assert!(!crate::story::host::advance(&state, Instant::now()).unwrap());
         assert!(lock(&state.story).unwrap().is_none());
         assert_eq!(lock(&state.runtime).unwrap().phase, RuntimePhase::Idle);
 
         lock(&state.presence).unwrap().absent.insert(companion);
         lock(&state.story_clock).unwrap().elapsed = Duration::from_secs(3600);
-        assert!(!crate::story_host::advance(&state, Instant::now()).unwrap());
+        assert!(!crate::story::host::advance(&state, Instant::now()).unwrap());
         assert!(lock(&state.story).unwrap().is_none());
 
         lock(&state.presence).unwrap().absent.remove(&nadir);
         lock(&state.story_clock).unwrap().elapsed = Duration::from_secs(3600);
-        assert!(crate::story_host::advance(&state, Instant::now()).unwrap());
+        assert!(crate::story::host::advance(&state, Instant::now()).unwrap());
         assert_eq!(lock(&state.story).unwrap().as_ref().unwrap().persona, nadir);
     }
 

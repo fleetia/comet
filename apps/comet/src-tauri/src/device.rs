@@ -1,3 +1,5 @@
+pub(crate) mod wake;
+
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 

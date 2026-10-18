@@ -118,7 +118,7 @@ fn speaker(state: &AppState, db: &Connection, require_idle: bool) -> Result<Opti
         return Ok(None);
     }
     for id in app::presence::present_ids(state, &characters::active_ids(db)?)? {
-        if !crate::character_life::sleeping(state, &id)? {
+        if !crate::characters::life::sleeping(state, &id)? {
             return Ok(Some(id));
         }
     }

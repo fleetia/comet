@@ -25,6 +25,7 @@ export const heading = style({
 
 export const appointments = style({ display: "grid", gap: tokens["spacing/space-8"] });
 export const appointment = style({
+  paddingInline: 12,
   display: "flex",
   alignItems: "center",
   flexWrap: "wrap",

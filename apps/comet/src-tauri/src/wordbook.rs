@@ -88,7 +88,7 @@ pub fn save(conn: &Connection, entry: &WordbookEntry) -> Result<()> {
     for line in &entry.lines {
         if !line.motion.is_inherit() {
             let owner = crate::characters::active_character(conn, &line.persona)?;
-            crate::character_reactions::validate_motion(&line.motion, &owner.definition, false)?;
+            crate::characters::reactions::validate_motion(&line.motion, &owner.definition, false)?;
         }
     }
     let data = serde_json::to_string(entry).map_err(|e| e.to_string())?;

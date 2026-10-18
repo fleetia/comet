@@ -1,3 +1,6 @@
+pub(crate) mod notifications;
+pub(crate) mod windows;
+
 use super::{appearance, EventDraft, WidgetEffect};
 use chrono::{DateTime, Days, Months, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};

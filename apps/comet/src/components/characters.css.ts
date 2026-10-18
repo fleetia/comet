@@ -30,15 +30,6 @@ export const list = style({
   minHeight: 0,
   overflow: "hidden",
 });
-export const rosterBody = style({
-  minHeight: 0,
-  flex: 1,
-  overflowY: "auto",
-  padding: tokens["spacing/space-12"],
-  display: "flex",
-  flexDirection: "column",
-  gap: tokens["spacing/space-8"],
-});
 export const libraryHeading = style({
   display: "flex",
   alignItems: "baseline",
@@ -46,24 +37,12 @@ export const libraryHeading = style({
   gap: tokens["spacing/space-6"],
   paddingBottom: 0,
 });
-export const characterList = style({ display: "flex", flexDirection: "column" });
 export const item = style({
   display: "grid",
   gridTemplateColumns: "36px minmax(0,1fr)",
   alignItems: "center",
   gap: tokens["spacing/space-12"],
   minHeight: 64,
-});
-export const itemDetail = style({
-  display: "grid",
-  gap: tokens["spacing/space-6"],
-  textAlign: "left",
-  minWidth: 0,
-});
-export const itemStatus = style({
-  fontSize: tokens["typography/sans/caption/fontSize"],
-  lineHeight: "1.385",
-  color: tokens["color/ink-2"],
 });
 export const itemName = style({ overflowWrap: "anywhere", minWidth: 0 });
 export const small = style({
@@ -92,13 +71,6 @@ export const editor = style({
   minWidth: 0,
   minHeight: 0,
 });
-export const editorHeader = style({
-  flexShrink: 0,
-  background: tokens["color/sky"],
-  display: "grid",
-  gap: tokens["spacing/space-12"],
-  paddingBottom: tokens["spacing/space-12"],
-});
 export const editorPanel = style({
   flex: 1,
   minHeight: 0,
@@ -124,22 +96,6 @@ export const subheading = style({
   lineHeight: "1.385",
   fontWeight: 600,
   margin: `0 0 ${tokens["spacing/space-8"]}`,
-});
-export const characterFace = style({
-  width: 40,
-  height: 40,
-  flexShrink: 0,
-  display: "grid",
-  placeItems: "center",
-  fontSize: tokens["typography/sans/body/fontSize"],
-  whiteSpace: "nowrap",
-  color: tokens["color/primary"],
-});
-export const characterPortrait = style({
-  width: "100%",
-  height: "100%",
-  objectFit: "contain",
-  imageRendering: "pixelated",
 });
 export const basicFields = style({
   display: "grid",
@@ -185,35 +141,11 @@ export const appearanceLayout = style({
   gap: tokens["spacing/space-16"],
   "@media": { "(max-width: 900px)": { gridTemplateColumns: "1fr" } },
 });
-export const appearanceSettings = style({
-  display: "flex",
-  flexDirection: "column",
-  gap: tokens["spacing/space-8"],
-  minWidth: 0,
-});
 export const appearanceCheckbox = style({
   width: "100%",
   maxWidth: "100%",
   whiteSpace: "normal",
   overflowWrap: "anywhere",
-});
-export const expressionHead = style({
-  display: "grid",
-  gridTemplateColumns: "70px minmax(60px,1fr) minmax(105px,1.2fr) 24px",
-  alignItems: "center",
-  gap: tokens["spacing/space-8"],
-  minHeight: tokens["size/control-36"],
-  color: tokens["color/ink-2"],
-  fontSize: tokens["typography/sans/caption/fontSize"],
-});
-export const expressionRow = style({
-  display: "grid",
-  gridTemplateColumns: "70px minmax(60px,1fr) minmax(105px,1.2fr) 24px",
-  alignItems: "center",
-  gap: tokens["spacing/space-8"],
-  minHeight: tokens["size/control-36"],
-  padding: 0,
-  fontSize: tokens["typography/sans/body/fontSize"],
 });
 export const spriteFrame = style({
   width: 24,
@@ -231,18 +163,6 @@ export const spriteImage = style({
   height: "100%",
   objectFit: "contain",
   imageRendering: "pixelated",
-});
-export const spriteActions = style({
-  display: "flex",
-  alignItems: "center",
-  gap: tokens["spacing/space-4"],
-  minWidth: 0,
-});
-export const balloonSetting = style({
-  display: "flex",
-  alignItems: "center",
-  flexWrap: "wrap",
-  gap: tokens["spacing/space-6"],
 });
 export const balloonColorInput = style({
   width: 48,
@@ -262,22 +182,6 @@ export const compactActions = style({
   gap: tokens["spacing/space-8"],
   marginTop: tokens["spacing/space-6"],
 });
-export const dialogueRow = style({
-  display: "grid",
-  gridTemplateColumns: "78px minmax(0,1fr) auto",
-  alignItems: "center",
-  gap: tokens["spacing/space-8"],
-  minHeight: 30,
-  padding: 0,
-  fontSize: tokens["typography/sans/body/fontSize"],
-});
-export const lineSummary = style({
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-  color: tokens["color/ink-2"],
-});
-export const lineEditor = style({ padding: `${tokens["spacing/space-8"]} 0 ${tokens["spacing/space-12"]}`, minWidth: 0 });
 export const line = style({ paddingBottom: tokens["spacing/space-8"] });
 export const textarea = style({ minHeight: 96 });
 export const dialogueScope = style({
@@ -304,19 +208,7 @@ export const saveBar = style({
   gap: tokens["spacing/space-8"],
   flexWrap: "wrap",
 });
-export const attributionSummary = style({
-  flexShrink: 0,
-  display: "grid",
-  gridTemplateColumns: "64px minmax(0,1fr) auto",
-  alignItems: "center",
-  columnGap: tokens["spacing/space-8"],
-  rowGap: tokens["spacing/space-6"],
-  marginTop: tokens["spacing/space-8"],
-  fontSize: tokens["typography/sans/body/fontSize"],
-});
 export const packSelector = style({ padding: tokens["spacing/space-8"] });
-export const packControls = style({ marginTop: tokens["spacing/space-8"] });
-export const packField = style({ flex: "1 1 180px", minWidth: 0 });
 export const packHint = style({ display: "block", marginTop: tokens["spacing/space-6"] });
 export const preview = style({
   padding: `${tokens["spacing/space-8"]} 0`,
@@ -367,13 +259,7 @@ export const ownerContent = style({
   flexDirection: "column",
 });
 globalStyle(`${ownerContent}[hidden]`, { display: "none" });
-export const packPicker = style({ width: "100%", justifyContent: "space-between", flexShrink: 0 });
-
-export const rosterOrder = style({
-  display: "grid",
-  gridTemplateColumns: "repeat(2,minmax(0,1fr))",
-  gap: tokens["spacing/space-8"],
-});
 globalStyle(`${libraryActions} > button`, { width: "100%" });
 
 globalStyle(`${basicFields} > div:nth-child(n+3)`, { gridColumn: "1 / -1" });
+export const sourcePanel = style({ padding: 16 });

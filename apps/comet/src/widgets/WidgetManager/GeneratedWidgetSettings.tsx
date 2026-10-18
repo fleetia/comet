@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
-import { Button, Checkbox, Heading, Inline, Text } from "../../ui";
+import { Button, Checkbox } from "@comet/ui";
+import { Heading, Inline, Text } from "../../primitives";
 import { command, errorText } from "../../hooks/useSnapshot";
 import type { GeneratedWidget, GenerationEligibility } from "../GeneratedWidgets/types";
 import * as common from "../../common.css";
@@ -90,7 +91,7 @@ export function GeneratedWidgetSettings({
           : '이 위젯을 대화로 사용하려면 아래 AI로 고치기에서 "기존 기능과 기록을 유지하며 대화로 사용할 수 있게 해 줘"라고 요청하세요.'}
       </Text>
       <Button
-        variant="secondary"
+        variant="ghost"
         disabled={!canAct}
         onClick={() => void run("open_widget_state_rules", { id: widget.id })}
       >
@@ -120,9 +121,8 @@ export function GeneratedWidgetSettings({
               enabled: event.target.checked,
             })
           }
-        >
-          위젯 사용
-        </Checkbox>
+          label="위젯 사용"
+        />
         <Text as="p" variant="caption" tone="muted">
           실행 창을 닫아도 위젯 사용 상태는 유지됩니다.
         </Text>
@@ -152,16 +152,12 @@ export function GeneratedWidgetSettings({
           >
             AI로 수정하기
           </Button>
-          <Button
-            variant="secondary"
-            disabled={generating || !request}
-            onClick={() => setRequest("")}
-          >
+          <Button variant="ghost" disabled={generating || !request} onClick={() => setRequest("")}>
             수정 입력 지우기
           </Button>
           {generating && (
             <Button
-              variant="secondary"
+              variant="ghost"
               onClick={() => {
                 void command("cancel_widget_generation").catch((cause) =>
                   setCancelError(errorText(cause)),
@@ -221,7 +217,7 @@ export function GeneratedWidgetSettings({
           <Heading level={4} variant="label">
             제거
           </Heading>
-          <Button variant="critical" disabled={!canAct} onClick={onRemove}>
+          <Button variant="danger" disabled={!canAct} onClick={onRemove}>
             위젯 제거
           </Button>
         </div>

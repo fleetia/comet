@@ -18,11 +18,6 @@ export const actual = style({
   minHeight: tokens["size/control-36"],
   flexShrink: 0,
 });
-export const actualLabel = style({
-  fontSize: tokens["typography/sans/body/fontSize"],
-  lineHeight: "1.462",
-  fontWeight: 600,
-});
 export const caption = style({
   fontSize: tokens["typography/sans/caption/fontSize"],
   lineHeight: "1.462",
@@ -48,17 +43,8 @@ export const modeChoices = style({
   flexShrink: 0,
   flexWrap: "wrap",
 });
-export const modeButton = style({ width: 136, flexShrink: 0, textAlign: "center" });
-export const connectionLayout = style({
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 800px) 368px",
-  gap: tokens["spacing/space-16"],
-  alignItems: "start",
-  minHeight: 0,
-  flex: 1,
-  "@media": { "(max-width: 1400px)": { gridTemplateColumns: "minmax(0, 800px)" } },
-});
 export const connectionPanel = style({
+  padding: 16,
   minWidth: 0,
   height: "100%",
   minHeight: 0,
@@ -89,7 +75,6 @@ export const title = style({
   fontWeight: 600,
 });
 export const field = style({ flexShrink: 0 });
-export const fileField = style({ display: "flex", alignItems: "center", gap: tokens["spacing/space-16"] });
 export const actions = style({
   minHeight: tokens["size/control-36"],
   display: "flex",
@@ -98,7 +83,6 @@ export const actions = style({
   gap: tokens["spacing/space-16"],
   flexShrink: 0,
 });
-export const downloadButton = style({ width: 144 });
 export const testButton = style({ width: 112 });
 export const result = style({
   display: "flex",
@@ -107,20 +91,6 @@ export const result = style({
   minHeight: 128,
   flexShrink: 0,
   marginTop: 0,
-});
-export const resultHeading = style({
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  minHeight: tokens["spacing/space-32"],
-  fontSize: tokens["typography/sans/body/fontSize"],
-  fontWeight: 600,
-});
-export const resultMessage = style({
-  fontSize: tokens["typography/sans/body/fontSize"],
-  lineHeight: "1.462",
-  whiteSpace: "pre-wrap",
-  overflowWrap: "anywhere",
 });
 export const summary = style({
   display: "flex",
@@ -131,13 +101,6 @@ export const summary = style({
   overflowWrap: "anywhere",
   "@media": { "(max-width: 1400px)": { display: "none" } },
 });
-export const summaryName = style({
-  fontSize: tokens["typography/sans/body/fontSize"],
-  lineHeight: "1.385",
-  fontWeight: 600,
-});
-export const editButton = style({ width: "100%", marginTop: "auto" });
-export const memorySearch = style({ minHeight: 132, flex: "0 1 270px" });
 export const organizer = style({ minHeight: 0, flex: 1, overflowY: "auto" });
 globalStyle(`${root} [hidden]`, { display: "none" });
 

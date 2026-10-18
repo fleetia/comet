@@ -36,11 +36,6 @@ export const footerRow = style({
   gap: tokens["spacing/space-8"],
 });
 globalStyle(`${footerRow} > button`, { marginLeft: "auto" });
-export const fontControls = style({
-  display: "flex",
-  alignItems: "center",
-  gap: tokens["spacing/space-6"],
-});
 export const failure = style({
   display: "grid",
   gap: tokens["spacing/space-6"],

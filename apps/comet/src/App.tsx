@@ -1,5 +1,5 @@
 import type { JSX } from "react";
-import { Button } from "./ui";
+import { Button } from "@comet/ui";
 import { CompanionBox } from "./components/CompanionBox/CompanionBox";
 import { FaceTag } from "./components/FaceTag/FaceTag";
 import { Balloon } from "./components/Balloon/Balloon";
@@ -87,7 +87,7 @@ export function App(): JSX.Element {
             <p className={s.error} role="alert">
               {error}
             </p>
-            <Button variant="secondary" onClick={reload}>
+            <Button variant="ghost" onClick={reload}>
               다시 시도
             </Button>
           </>

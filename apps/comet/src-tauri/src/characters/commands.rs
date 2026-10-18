@@ -1,0 +1,626 @@
+use crate::{
+    app::{
+        lock, now, publish,
+        windows::{open_settings_section, SettingsSection},
+        AppState,
+    },
+    characters::{
+        self, animation::AnimationAsset, CharacterDefinition, CharacterDialogue, CharacterPack,
+        InstalledCharacter, InstalledCharacterPack,
+    },
+    store, wordbook,
+};
+use rusqlite::{Connection, OptionalExtension};
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{atomic::Ordering, Arc};
+use tauri::Manager;
+use tauri_plugin_dialog::DialogExt;
+
+pub(crate) const SPRITE_SCHEME: &str = "sprite";
+
+pub(crate) fn sprite_response(
+    status: u16,
+    mime: &str,
+    body: Vec<u8>,
+    origin: Option<&str>,
+    dev_url: Option<&tauri::Url>,
+) -> tauri::http::Response<Vec<u8>> {
+    let allowed_origin = origin.filter(|origin| {
+        matches!(
+            *origin,
+            "tauri://localhost" | "http://tauri.localhost" | "https://tauri.localhost"
+        ) || (cfg!(debug_assertions)
+            && dev_url.is_some_and(|url| {
+                matches!(url.scheme(), "http" | "https")
+                    && url.origin().ascii_serialization() == *origin
+            }))
+    });
+    let mut response = tauri::http::Response::builder()
+        .status(status)
+        .header("Content-Type", mime)
+        .header("Cache-Control", "public, max-age=31536000, immutable")
+        .header("Vary", "Origin");
+    if let Some(origin) = allowed_origin {
+        response = response.header("Access-Control-Allow-Origin", origin);
+    }
+    response
+        .body(body)
+        .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()))
+}
+
+// Serves sprite://localhost/<character-id>?expression=<name>&v=<updatedAt> from the database so the
+// snapshot event never carries image bytes.
+pub(crate) fn serve_sprite(
+    ctx: tauri::UriSchemeContext<'_, tauri::Wry>,
+    request: tauri::http::Request<Vec<u8>>,
+) -> tauri::http::Response<Vec<u8>> {
+    let origin = request
+        .headers()
+        .get("Origin")
+        .and_then(|value| value.to_str().ok());
+    let dev_url = ctx.app_handle().config().build.dev_url.as_ref();
+    let Ok(url) = tauri::Url::parse(&request.uri().to_string()) else {
+        return sprite_response(400, "text/plain", Vec::new(), origin, dev_url);
+    };
+    let id = url
+        .path_segments()
+        .and_then(|mut segments| segments.next())
+        .unwrap_or("")
+        .to_string();
+    let expression = url
+        .query_pairs()
+        .find(|(key, _)| key == "expression")
+        .map(|(_, value)| value.into_owned());
+    let asset = url
+        .query_pairs()
+        .find(|(key, _)| key == "asset")
+        .map(|(_, value)| value.into_owned());
+    let state = ctx.app_handle().state::<Arc<AppState>>();
+    let found = match (expression, asset) {
+        (Some(expression), None) => {
+            lock(&state.db).and_then(|db| characters::sprite(&db, &id, &expression))
+        }
+        (None, Some(asset)) => lock(&state.db)
+            .and_then(|db| characters::animation::get(&db, &id, &asset))
+            .map(|value| {
+                value.map(|asset| characters::sprites::Sprite {
+                    mime: asset.info.mime,
+                    data: asset.bytes,
+                })
+            }),
+        _ => return sprite_response(400, "text/plain", Vec::new(), origin, dev_url),
+    };
+    match found {
+        Ok(Some(sprite)) => sprite_response(200, &sprite.mime, sprite.data, origin, dev_url),
+        Ok(None) => sprite_response(404, "text/plain", Vec::new(), origin, dev_url),
+        Err(_) => sprite_response(500, "text/plain", Vec::new(), origin, dev_url),
+    }
+}
+
+fn write_sprite(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    change: impl FnOnce(&Connection) -> Result<(), String>,
+) -> Result<(), String> {
+    {
+        let _action = lock(&state.action)?;
+        if crate::unavailable(state) {
+            return Err("앱을 종료하고 있어요.".into());
+        }
+        change(&*lock(&state.db)?)?;
+    }
+    publish(app, state);
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn choose_character_sprite(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    expression: String,
+) -> Result<bool, String> {
+    {
+        let db = lock(&state.db)?;
+        let character = characters::collection(&db)?
+            .installed
+            .into_iter()
+            .find(|character| character.id == id)
+            .ok_or("설치된 캐릭터를 찾을 수 없습니다.")?;
+        if !characters::sprite_slot_allowed(&character.definition, &expression) {
+            return Err("먼저 캐릭터에 그 표정을 추가하고 저장해 주세요.".into());
+        }
+    }
+    let (send, receive) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title(format!("{expression} 표정 이미지 선택"))
+        .add_filter("이미지", &characters::sprites::SPRITE_EXTENSIONS)
+        .pick_file(move |path| {
+            let _ = send.send(path);
+        });
+    let Some(path) = receive.await.map_err(|_| "파일 선택이 중단됐어요.")? else {
+        return Ok(false);
+    };
+    let path = path.into_path().map_err(|error| error.to_string())?;
+    let bytes = tauri::async_runtime::spawn_blocking(move || characters::sprites::read_file(&path))
+        .await
+        .map_err(|error| error.to_string())??;
+    write_sprite(&app, &state, |db| {
+        characters::set_sprite(db, &id, &expression, &bytes)
+    })?;
+    Ok(true)
+}
+#[tauri::command]
+pub(crate) async fn remove_character_sprite(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    expression: String,
+) -> Result<(), String> {
+    write_sprite(&app, &state, |db| {
+        characters::remove_sprite(db, &id, &expression)
+    })
+}
+
+#[tauri::command]
+pub(crate) async fn choose_animation_assets(
+    app: tauri::AppHandle,
+) -> Result<Vec<AnimationAsset>, String> {
+    let (send, receive) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("PNG·APNG 프레임 또는 시트 선택")
+        .add_filter("PNG·APNG 이미지", &["png", "apng"])
+        .pick_files(move |paths| {
+            let _ = send.send(paths);
+        });
+    let Some(paths) = receive.await.map_err(|_| "파일 선택이 중단됐어요.")? else {
+        return Ok(Vec::new());
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths = paths
+            .into_iter()
+            .map(|path| path.into_path().map_err(|error| error.to_string()))
+            .collect::<Result<Vec<_>, _>>()?;
+        characters::animation::read_files(&paths)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+pub(crate) fn mutate<T>(
+    state: &AppState,
+    change: impl FnOnce(&Connection) -> Result<T, String>,
+) -> Result<T, String> {
+    mutate_inner(state, false, change)
+}
+
+fn referenced_character_names(
+    conn: &Connection,
+    members: &[InstalledCharacter],
+) -> Result<BTreeMap<String, String>, String> {
+    let targets: BTreeSet<_> = members
+        .iter()
+        .flat_map(|member| &member.definition.relationships)
+        .map(|relationship| relationship.target_id.as_str())
+        .collect();
+    let mut names = BTreeMap::new();
+    for target in targets {
+        let name: Option<String> = conn
+            .query_row(
+                "SELECT json_extract(data,'$.name') FROM characters WHERE id=?",
+                [target],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        if let Some(name) = name {
+            names.insert(target.into(), name);
+        }
+    }
+    Ok(names)
+}
+
+fn mutate_inner<T>(
+    state: &AppState,
+    dialogue_changed: bool,
+    change: impl FnOnce(&Connection) -> Result<T, String>,
+) -> Result<T, String> {
+    let _action = lock(&state.action)?;
+    if crate::unavailable(state) {
+        return Err("앱을 종료하고 있어요.".into());
+    }
+    let db = lock(&state.db)?;
+    let tx = db
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    let before = characters::active_members(&tx)?;
+    let before_targets = referenced_character_names(&tx, &before)?;
+    let result = change(&tx)?;
+    let after = characters::active_members(&tx)?;
+    let roster_changed = before
+        .iter()
+        .map(|member| &member.id)
+        .ne(after.iter().map(|member| &member.id));
+    let changed = dialogue_changed
+        || before != after
+        || before_targets != referenced_character_names(&tx, &after)?;
+    if changed {
+        store::bump_revision(&tx)?;
+        store::pause_conversations(&tx)?;
+    }
+    tx.commit().map_err(|error| error.to_string())?;
+    if changed {
+        if roster_changed {
+            lock(&state.presence)?.reset(now());
+        }
+        crate::app::interrupt_with_db(state, false, &db)?;
+        *lock(&state.panel)? = None;
+        state.idle_sequence.store(0, Ordering::SeqCst);
+        state.last_input.store(now(), Ordering::SeqCst);
+        state.next_idle.store(now() + 5, Ordering::SeqCst);
+        let mut runtime = lock(&state.runtime)?;
+        runtime.phase = crate::types::RuntimePhase::Idle;
+        runtime.persona = None;
+        runtime.error = None;
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+pub(crate) async fn create_character(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    definition: CharacterDefinition,
+    animation_assets: Option<Vec<AnimationAsset>>,
+) -> Result<InstalledCharacter, String> {
+    let assets = tauri::async_runtime::spawn_blocking(move || {
+        characters::animation::prepare_assets(animation_assets.unwrap_or_default())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    let character = mutate(&state, |db| {
+        characters::create_with_assets(db, &definition, &assets)
+    })?;
+    publish(&app, &state);
+    Ok(character)
+}
+#[tauri::command]
+pub(crate) async fn save_character(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    definition: CharacterDefinition,
+    animation_assets: Option<Vec<AnimationAsset>>,
+) -> Result<(), String> {
+    let assets = tauri::async_runtime::spawn_blocking(move || {
+        characters::animation::prepare_assets(animation_assets.unwrap_or_default())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    mutate(&state, |db| {
+        characters::save_with_assets(db, &id, &definition, &assets)
+    })?;
+    publish(&app, &state);
+    Ok(())
+}
+#[tauri::command]
+pub(crate) async fn clone_character(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+) -> Result<InstalledCharacter, String> {
+    let character = mutate(&state, |db| characters::clone_character(db, &id))?;
+    publish(&app, &state);
+    Ok(character)
+}
+#[tauri::command]
+pub(crate) fn get_character_packs(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<Vec<InstalledCharacterPack>, String> {
+    characters::installed_packs(&*lock(&state.db)?)
+}
+#[tauri::command]
+pub(crate) async fn apply_character_pack(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    pack_id: String,
+) -> Result<(), String> {
+    mutate(&state, |db| characters::apply_pack(db, &pack_id))?;
+    publish(&app, &state);
+    Ok(())
+}
+#[tauri::command]
+pub(crate) async fn apply_character_roster(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    mutate(&state, |db| characters::apply_roster(db, ids))?;
+    publish(&app, &state);
+    Ok(())
+}
+#[tauri::command]
+pub(crate) async fn remove_character(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+) -> Result<(), String> {
+    mutate(&state, |db| characters::remove(db, &id))?;
+    publish(&app, &state);
+    Ok(())
+}
+#[tauri::command]
+pub(crate) fn get_character_dialogue(
+    state: tauri::State<'_, Arc<AppState>>,
+    ids: Vec<String>,
+) -> Result<CharacterDialogue, String> {
+    characters::dialogue(&*lock(&state.db)?, &ids)
+}
+#[tauri::command]
+pub(crate) async fn save_character_dialogue(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    ids: Vec<String>,
+    dialogue: CharacterDialogue,
+) -> Result<(), String> {
+    mutate_inner(&state, true, |db| {
+        characters::save_dialogue(db, &ids, &dialogue)
+    })?;
+    publish(&app, &state);
+    Ok(())
+}
+#[tauri::command]
+pub(crate) async fn preview_character_pack(json: String) -> Result<CharacterPack, String> {
+    tauri::async_runtime::spawn_blocking(move || characters::parse_pack(&json))
+        .await
+        .map_err(|error| error.to_string())?
+}
+#[tauri::command]
+pub(crate) async fn choose_character_pack(
+    app: tauri::AppHandle,
+) -> Result<Option<CharacterPack>, String> {
+    characters::files::choose(app).await
+}
+#[tauri::command]
+pub(crate) async fn import_character_pack(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    pack: CharacterPack,
+) -> Result<Vec<InstalledCharacter>, String> {
+    let prepared = tauri::async_runtime::spawn_blocking(move || characters::prepare_pack(pack))
+        .await
+        .map_err(|error| error.to_string())??;
+    let imported = mutate(&state, |db| characters::import_prepared_pack(db, &prepared))?;
+    publish(&app, &state);
+    Ok(imported)
+}
+#[tauri::command]
+pub(crate) async fn save_character_pack(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    ids: Vec<String>,
+    wordbook_ids: Vec<String>,
+    options: Option<characters::ExportOptions>,
+) -> Result<Option<String>, String> {
+    let pack = {
+        let db = lock(&state.db)?;
+        let entries = wordbook::entries(&db)?;
+        if wordbook_ids.len() > 100 {
+            return Err("공유할 단어장은 100개까지 선택해 주세요.".into());
+        }
+        let selected = wordbook_ids
+            .iter()
+            .map(|id| {
+                entries
+                    .iter()
+                    .find(|e| &e.id == id)
+                    .cloned()
+                    .ok_or_else(|| "선택한 개인 단어장을 찾지 못했어요.".to_string())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        characters::export_pack_with_options(&db, &ids, &selected, &options.unwrap_or_default())?
+    };
+    let json = tauri::async_runtime::spawn_blocking(move || characters::pack_json(&pack))
+        .await
+        .map_err(|error| error.to_string())??;
+    characters::files::save(app, json).await
+}
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SettingsCharacterRequest {
+    id: String,
+    request_id: String,
+}
+
+#[tauri::command]
+pub(crate) async fn open_characters(
+    app: tauri::AppHandle,
+    character_id: Option<String>,
+    show_memories: Option<bool>,
+) -> Result<(), String> {
+    let state = app.state::<Arc<AppState>>();
+    if let Some(id) = &character_id {
+        let exists = lock(&state.db)?
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM characters WHERE id=?)",
+                [id],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(|error| error.to_string())?;
+        if !exists {
+            return Err("설정할 친구를 찾지 못했어요.".into());
+        }
+    }
+    *lock(&state.settings_character)? = character_id.map(|id| SettingsCharacterRequest {
+        id,
+        request_id: uuid::Uuid::new_v4().to_string(),
+    });
+    open_settings_section(
+        app,
+        if show_memories == Some(true) {
+            SettingsSection::Memory
+        } else {
+            SettingsSection::Characters
+        },
+    )
+}
+
+#[tauri::command]
+pub(crate) fn get_settings_character(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<Option<SettingsCharacterRequest>, String> {
+    Ok(lock(&state.settings_character)?.clone())
+}
+
+#[tauri::command]
+pub(crate) fn ack_settings_character(
+    state: tauri::State<'_, Arc<AppState>>,
+    request_id: String,
+) -> Result<(), String> {
+    acknowledge_settings_character(&state, &request_id)
+}
+
+fn acknowledge_settings_character(state: &AppState, request_id: &str) -> Result<(), String> {
+    let mut pending = lock(&state.settings_character)?;
+    if pending
+        .as_ref()
+        .is_some_and(|request| request.request_id == request_id)
+    {
+        *pending = None;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn get_character_pack_attribution(
+    state: tauri::State<'_, Arc<AppState>>,
+    pack_id: String,
+) -> Result<characters::PackAttribution, String> {
+    characters::pack_attribution(&*lock(&state.db)?, &pack_id)
+}
+#[tauri::command]
+pub(crate) async fn save_character_pack_attribution(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    pack_id: String,
+    value: characters::PackAttribution,
+) -> Result<(), String> {
+    write_sprite(&app, &state, |db| {
+        characters::save_pack_attribution(db, &pack_id, &value)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{acknowledge_settings_character, sprite_response, SettingsCharacterRequest};
+
+    #[test]
+    fn stale_settings_character_ack_preserves_the_new_request_for_the_same_character() {
+        let state = crate::app::tests::state();
+        let request = SettingsCharacterRequest {
+            id: "builtin-a".into(),
+            request_id: "first-request".into(),
+        };
+        let previous_request_id = request.request_id.clone();
+        *state.settings_character.lock().unwrap() = Some(request);
+        let latest_request = SettingsCharacterRequest {
+            id: "builtin-a".into(),
+            request_id: "latest-request".into(),
+        };
+        *state.settings_character.lock().unwrap() = Some(latest_request.clone());
+
+        acknowledge_settings_character(&state, &previous_request_id).unwrap();
+        let pending = state.settings_character.lock().unwrap().clone().unwrap();
+        assert_eq!(pending.id, latest_request.id);
+        assert_eq!(pending.request_id, latest_request.request_id);
+
+        acknowledge_settings_character(&state, &latest_request.request_id).unwrap();
+        assert!(state.settings_character.lock().unwrap().is_none());
+        acknowledge_settings_character(&state, &previous_request_id).unwrap();
+        acknowledge_settings_character(&state, &latest_request.request_id).unwrap();
+        assert!(state.settings_character.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn sprite_cors_allows_only_app_origins_and_varies_cached_responses() {
+        for origin in [
+            "tauri://localhost",
+            "http://tauri.localhost",
+            "https://tauri.localhost",
+        ] {
+            let response = sprite_response(200, "image/png", vec![1, 2, 3], Some(origin), None);
+            assert_eq!(response.status(), 200);
+            assert_eq!(response.headers()["Access-Control-Allow-Origin"], origin);
+            assert_eq!(response.headers()["Vary"], "Origin");
+            assert_eq!(response.headers()["Content-Type"], "image/png");
+            assert_eq!(response.body(), &[1, 2, 3]);
+            assert!(!response
+                .headers()
+                .contains_key("Access-Control-Allow-Credentials"));
+        }
+        for origin in [
+            None,
+            Some("null"),
+            Some("https://example.com"),
+            Some("http://tauri.localhost.attacker.test"),
+            Some("http://tauri.localhost:1420"),
+            Some("http://127.0.0.1:1420"),
+        ] {
+            let response = sprite_response(200, "image/png", vec![], origin, None);
+            assert!(!response
+                .headers()
+                .contains_key("Access-Control-Allow-Origin"));
+            assert_eq!(response.headers()["Vary"], "Origin");
+        }
+    }
+
+    #[test]
+    fn sprite_cors_allows_the_configured_dev_origin_only_in_debug() {
+        let dev_url = tauri::Url::parse("http://127.0.0.1:5173/nested/path").unwrap();
+        let response = sprite_response(
+            200,
+            "image/png",
+            vec![],
+            Some("http://127.0.0.1:5173"),
+            Some(&dev_url),
+        );
+        assert_eq!(
+            response.headers().get("Access-Control-Allow-Origin"),
+            cfg!(debug_assertions).then_some(&tauri::http::HeaderValue::from_static(
+                "http://127.0.0.1:5173"
+            ))
+        );
+        for origin in ["http://127.0.0.1:1420", "http://localhost:5173", "null"] {
+            let response = sprite_response(200, "image/png", vec![], Some(origin), Some(&dev_url));
+            assert!(!response
+                .headers()
+                .contains_key("Access-Control-Allow-Origin"));
+        }
+        let opaque_url = tauri::Url::parse("file:///tmp/index.html").unwrap();
+        let response = sprite_response(200, "image/png", vec![], Some("null"), Some(&opaque_url));
+        assert!(!response
+            .headers()
+            .contains_key("Access-Control-Allow-Origin"));
+    }
+
+    #[test]
+    fn sprite_errors_keep_the_same_cors_contract() {
+        for status in [400, 404, 500] {
+            let response = sprite_response(
+                status,
+                "text/plain",
+                vec![],
+                Some("tauri://localhost"),
+                None,
+            );
+            assert_eq!(response.status(), status);
+            assert_eq!(
+                response.headers()["Access-Control-Allow-Origin"],
+                "tauri://localhost"
+            );
+            assert_eq!(response.headers()["Vary"], "Origin");
+        }
+    }
+}

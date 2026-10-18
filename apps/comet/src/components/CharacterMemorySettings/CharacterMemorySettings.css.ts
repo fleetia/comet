@@ -8,6 +8,7 @@ export const workspace = style({
   minHeight: 0,
 });
 export const identity = style({
+  padding: "0 12px",
   display: "grid",
   gap: 6,
   marginBottom: tokens["spacing/space-12"],
@@ -45,3 +46,4 @@ export const detailRow = style({
   marginBlock: tokens["spacing/space-12"],
   "@media": { "(max-width: 1280px)": { gridTemplateColumns: "72px minmax(0,1fr)" } },
 });
+export const exportNote = style({ padding: 12 });

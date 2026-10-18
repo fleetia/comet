@@ -2,6 +2,7 @@ import { style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
 
 export const panel = style({
+  padding: 16,
   height: 270,
   minHeight: 132,
   minWidth: 0,

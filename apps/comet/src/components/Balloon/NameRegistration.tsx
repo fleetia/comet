@@ -1,5 +1,5 @@
 import { useRef, useState, type JSX } from "react";
-import { Button, Checkbox, TextField } from "../../ui";
+import { Button, Checkbox, TextInput } from "@comet/ui";
 import type { Dispatch } from "../../types";
 import { errorText } from "../../hooks/useSnapshot";
 import * as s from "../companion.css";
@@ -47,7 +47,8 @@ export function NameRegistration({
     >
       <p className={s.conversationMeta}>{greeting}</p>
       <label htmlFor="first-user-name">뭐라고 부를까?</label>
-      <TextField
+      <TextInput
+        fill
         id="first-user-name"
         autoComplete="off"
         aria-describedby="first-user-name-hint"
@@ -79,9 +80,8 @@ export function NameRegistration({
         disabled={pending}
         description="선택한 AI 종류, 기능 사용, 오류·비정상 종료와 AI 요청의 성공 여부·응답 시간을 Google Analytics로 보내요. 대화 내용·이름·파일 경로는 보내지 않아요."
         onChange={(event) => setAnalyticsConsent(event.target.checked)}
-      >
-        (선택) 익명 사용 통계 수집에 동의해요
-      </Checkbox>
+        label="(선택) 익명 사용 통계 수집에 동의해요"
+      />
       {error && (
         <p className={s.error} role="alert">
           {error}

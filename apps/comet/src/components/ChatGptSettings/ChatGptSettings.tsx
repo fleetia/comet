@@ -1,12 +1,5 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
-import { Button, Checkbox, FormField, Select, Surface } from "../../ui";
-import {
-  Button as CometButton,
-  Checkbox as CometCheckbox,
-  Select as CometSelect,
-  SettingControlRow,
-  Switch,
-} from "@comet/ui";
+import { Button, Checkbox, FormField, Select, SettingControlRow, Surface, Switch } from "@comet/ui";
 import { SparkleIcon, UserIcon } from "@comet/icon";
 import * as figma from "../SettingsPanel/figmaSettings.css";
 import * as ai from "../ModelSettings/aiSettings.css";
@@ -155,7 +148,7 @@ export function ChatGptSettings({
               </div>
             </div>
             {!!status?.accounts.length && (
-              <CometSelect
+              <Select
                 className={ai.modelSelect}
                 aria-label="ChatGPT 계정"
                 value={status.activeAccountId ?? ""}
@@ -171,10 +164,10 @@ export function ChatGptSettings({
                     {value.connected ? "" : " · 다시 연결 필요"}
                   </option>
                 ))}
-              </CometSelect>
+              </Select>
             )}
           </div>
-          <CometCheckbox
+          <Checkbox
             checked={consent}
             disabled={busy}
             onChange={(event) => setConsent(event.target.checked)}
@@ -184,7 +177,7 @@ export function ChatGptSettings({
             내 플랜의 사용량을 써요. 기존 ChatGPT 대화나 기억은 가져오지 않아요.
           </p>
           <div className={figma.controls}>
-            <CometButton
+            <Button
               variant="ghost"
               size="small"
               disabled={busy || !consent}
@@ -196,36 +189,36 @@ export function ChatGptSettings({
               }
             >
               {account ? "다시 연결" : "ChatGPT로 로그인"}
-            </CometButton>
+            </Button>
             {account && (
-              <CometButton
+              <Button
                 variant="ghost"
                 size="small"
                 disabled={busy}
                 onClick={() => void run("logout_chatgpt", { accountId: account.id })}
               >
                 로그아웃
-              </CometButton>
+              </Button>
             )}
             {!!status?.accounts.length && (
-              <CometButton
+              <Button
                 variant="link"
                 size="small"
                 disabled={busy || !consent}
                 onClick={() => void run("login_chatgpt", { consent: true })}
               >
                 계정 추가…
-              </CometButton>
+              </Button>
             )}
             {loginPending && (
-              <CometButton
+              <Button
                 variant="ghost"
                 size="small"
                 disabled={pending === "cancel_chatgpt_login"}
                 onClick={() => void run("cancel_chatgpt_login")}
               >
                 로그인 취소
-              </CometButton>
+              </Button>
             )}
           </div>
           <p className={figma.caption}>
@@ -258,7 +251,7 @@ export function ChatGptSettings({
                 title="ChatGPT 모델"
                 description="계정에서 쓸 수 있는 모델 중에서 골라요"
                 control={
-                  <CometSelect
+                  <Select
                     aria-label="ChatGPT 모델"
                     value={draft.settings.chatgptModel}
                     disabled={!account?.connected || busy || !models.length}
@@ -275,7 +268,7 @@ export function ChatGptSettings({
                         {model.displayName}
                       </option>
                     ))}
-                  </CometSelect>
+                  </Select>
                 }
               />
               <SettingControlRow
@@ -283,7 +276,7 @@ export function ChatGptSettings({
                 title="모델 목록"
                 description="마지막으로 불러온 목록을 써요"
                 control={
-                  <CometButton
+                  <Button
                     variant="ghost"
                     size="small"
                     disabled={busy || !account?.connected}
@@ -294,7 +287,7 @@ export function ChatGptSettings({
                     }}
                   >
                     다시 불러오기
-                  </CometButton>
+                  </Button>
                 }
               />
               <SettingControlRow
@@ -302,14 +295,14 @@ export function ChatGptSettings({
                 title="플랜과 사용량"
                 description="사용량이 모자라면 다른 결제로 넘어가지 않고 알려 줘요"
                 control={
-                  <CometButton
+                  <Button
                     variant="link"
                     size="small"
                     disabled={!isDesktop()}
                     onClick={() => void run("open_chatgpt_usage")}
                   >
                     ChatGPT에서 확인 ↗
-                  </CometButton>
+                  </Button>
                 }
               />
             </div>
@@ -319,13 +312,13 @@ export function ChatGptSettings({
               </p>
             )}
             {status?.requestBlocked && account && (
-              <CometButton
+              <Button
                 variant="ghost"
                 disabled={busy}
                 onClick={() => void run("select_chatgpt_account", { accountId: account.id })}
               >
                 사용량 확인 후 다시 시도
-              </CometButton>
+              </Button>
             )}
           </section>
           {automaticDraft && (
@@ -357,7 +350,7 @@ export function ChatGptSettings({
       </div>
     );
   return (
-    <Surface className={styles.connectionPanel} aria-label="ChatGPT 연결">
+    <Surface variant="panel" className={styles.connectionPanel} aria-label="ChatGPT 연결">
       <div className={styles.body}>
         <div className={styles.heading}>
           <h2 className={styles.title}>ChatGPT로 대화하기</h2>
@@ -371,6 +364,7 @@ export function ChatGptSettings({
         {status?.accounts.length ? (
           <FormField label="ChatGPT 계정" className={styles.field}>
             <Select
+              fill
               value={status.activeAccountId ?? ""}
               disabled={busy}
               onChange={(event) =>
@@ -391,9 +385,8 @@ export function ChatGptSettings({
           checked={consent}
           disabled={busy}
           onChange={(event) => setConsent(event.target.checked)}
-        >
-          대화와 선택한 자료를 ChatGPT로 보내고 내 플랜의 사용량을 쓰는 데 동의해요.
-        </Checkbox>
+          label="대화와 선택한 자료를 ChatGPT로 보내고 내 플랜의 사용량을 쓰는 데 동의해요."
+        />
         <div className={styles.actions}>
           <Button
             variant="primary"
@@ -404,7 +397,7 @@ export function ChatGptSettings({
           </Button>
           {account && !account.connected && (
             <Button
-              variant="secondary"
+              variant="ghost"
               disabled={busy || !consent}
               onClick={() => void run("login_chatgpt", { accountId: account.id, consent: true })}
             >
@@ -413,7 +406,7 @@ export function ChatGptSettings({
           )}
           {loginPending && (
             <Button
-              variant="secondary"
+              variant="ghost"
               disabled={pending === "cancel_chatgpt_login"}
               onClick={() => void run("cancel_chatgpt_login")}
             >
@@ -422,7 +415,7 @@ export function ChatGptSettings({
           )}
           {account && (
             <Button
-              variant="quiet"
+              variant="ghost"
               disabled={busy}
               onClick={() => void run("logout_chatgpt", { accountId: account.id })}
             >
@@ -432,6 +425,7 @@ export function ChatGptSettings({
         </div>
         <FormField label="ChatGPT 모델" className={styles.field}>
           <Select
+            fill
             value={draft.settings.chatgptModel}
             disabled={!account?.connected || busy || models.length === 0}
             onChange={(event) => draft.change("chatgptModel", event.target.value)}
@@ -456,7 +450,7 @@ export function ChatGptSettings({
         )}
         {account?.connected && (
           <Button
-            variant="quiet"
+            variant="ghost"
             disabled={busy}
             onClick={() => {
               modelAccount.current = null;
@@ -468,7 +462,7 @@ export function ChatGptSettings({
           </Button>
         )}
         <Button
-          variant="quiet"
+          variant="ghost"
           disabled={!isDesktop()}
           onClick={() => void run("open_chatgpt_usage")}
         >
@@ -476,7 +470,7 @@ export function ChatGptSettings({
         </Button>
         {status?.requestBlocked && account && (
           <Button
-            variant="secondary"
+            variant="ghost"
             disabled={busy}
             onClick={() => void run("select_chatgpt_account", { accountId: account.id })}
           >

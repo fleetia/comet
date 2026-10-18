@@ -4,6 +4,8 @@
 //! persists an observation. The caller must only sample an active, opted-in
 //! timer and discard observations when its session/selection has changed.
 
+pub(crate) mod tracking;
+
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 

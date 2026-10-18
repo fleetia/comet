@@ -1,4 +1,4 @@
-import { Button, Checkbox, DateField, Select, Surface, TextField } from "../../ui";
+import { Button, Checkbox, Select, Surface, TextInput } from "@comet/ui";
 import {
   useEffect,
   useLayoutEffect,
@@ -494,16 +494,16 @@ export function DiaryPage({
           <div className={s.content}>
             <div className={s.row}>
               <Button
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 disabled={!available || !widget?.enabled || disabled}
                 onClick={() => onOpenWidgetEntry?.(entry)}
               >
                 {title} 열기 ↗
               </Button>
               <Button
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 disabled={disabled}
                 aria-label={`${title} 연결 해제`}
                 onClick={() => void removeEntry(entry)}
@@ -585,7 +585,8 @@ export function DiaryPage({
           ) : (
             <>
               {entry.kind === "event" && (
-                <TextField
+                <TextInput
+                  fill
                   type="time"
                   aria-label={`${entry.text} 시간`}
                   className={s.time}
@@ -619,8 +620,8 @@ export function DiaryPage({
                 {entry.kind === "envelope" && envelope && (
                   <Button
                     className={s.envelope}
-                    variant="quiet"
-                    size="compact"
+                    variant="ghost"
+                    size="small"
                     onClick={() => onOpenEnvelope(text(envelope.id))}
                     aria-label={`${envelopeTitle(envelope)} 열기`}
                   >
@@ -631,8 +632,8 @@ export function DiaryPage({
                   <Button
                     data-diary-action
                     className={s.rowActions}
-                    size="compact"
-                    variant="quiet"
+                    size="small"
+                    variant="ghost"
                     disabled={disabled}
                     onClick={() => void removeEntry(entry)}
                     aria-label={`${entry.text} 기록 지우기`}
@@ -654,7 +655,7 @@ export function DiaryPage({
                 </span>
                 <Button
                   data-diary-action
-                  size="compact"
+                  size="small"
                   disabled={disabled || conflict}
                   onClick={() => void saveEntry(entry)}
                 >
@@ -662,8 +663,8 @@ export function DiaryPage({
                 </Button>
                 <Button
                   data-diary-action
-                  size="compact"
-                  variant="quiet"
+                  size="small"
+                  variant="ghost"
                   disabled={disabled}
                   onClick={() => discardEntry(entry.id)}
                 >
@@ -676,8 +677,8 @@ export function DiaryPage({
             <Button
               data-diary-action
               className={s.rowActions}
-              size="compact"
-              variant="quiet"
+              size="small"
+              variant="ghost"
               disabled={disabled}
               onClick={() => void removeEntry(entry)}
               aria-label={`${entry.text} 기록 지우기`}
@@ -707,8 +708,7 @@ export function DiaryPage({
         <div className={s.appointments} role="region" aria-label="오늘의 약속">
           {dayEvents.map((event) => (
             <Surface
-              tone="inset"
-              padding="compact"
+              variant="card"
               key={`event:${text(event.id)}`}
               className={s.appointment}
               aria-label={`${event.connectionId === "local" ? "Comet 일정" : "연결 일정"}: ${text(event.title)}`}
@@ -723,7 +723,7 @@ export function DiaryPage({
               </div>
               <div className={s.row}>
                 {onOpenEvent && (
-                  <Button variant="quiet" size="compact" onClick={() => onOpenEvent(event)}>
+                  <Button variant="ghost" size="small" onClick={() => onOpenEvent(event)}>
                     일정 보기
                   </Button>
                 )}
@@ -732,8 +732,8 @@ export function DiaryPage({
                   .map((envelope) => (
                     <Button
                       key={text(envelope.id)}
-                      variant="secondary"
-                      size="compact"
+                      variant="ghost"
+                      size="small"
                       onClick={() => onOpenEnvelope(text(envelope.id))}
                     >
                       {envelopeTitle(envelope)} 열기 ↗
@@ -744,8 +744,7 @@ export function DiaryPage({
           ))}
           {dayEnvelopes.map((envelope) => (
             <Surface
-              tone="inset"
-              padding="compact"
+              variant="card"
               key={`envelope:${text(envelope.id)}`}
               className={s.appointment}
               aria-label={`준비 봉투: ${envelopeTitle(envelope)}`}
@@ -755,8 +754,8 @@ export function DiaryPage({
                 <span className={s.meta}>이날 준비할 봉투</span>
               </div>
               <Button
-                variant="secondary"
-                size="compact"
+                variant="ghost"
+                size="small"
                 disabled={disabled}
                 onClick={() => onOpenEnvelope(text(envelope.id))}
               >
@@ -829,8 +828,8 @@ export function DiaryPage({
                 <Button
                   key={value}
                   type="button"
-                  size="compact"
-                  variant={kind === value ? "primary" : "secondary"}
+                  size="small"
+                  variant={kind === value ? "primary" : "ghost"}
                   aria-pressed={kind === value}
                   disabled={disabled || !!createdTask}
                   onClick={() => {
@@ -846,7 +845,8 @@ export function DiaryPage({
             </div>
             {kind === "event" && (
               <div className={s.row}>
-                <TextField
+                <TextInput
+                  fill
                   type="time"
                   className={s.time}
                   aria-label="새 일정 시간"
@@ -860,6 +860,7 @@ export function DiaryPage({
             {kind === "envelope" && (
               <>
                 <Select
+                  fill
                   aria-label="연결할 준비 봉투"
                   value={envelopeId}
                   disabled={disabled}
@@ -924,8 +925,8 @@ export function DiaryPage({
               {!body && !time && !envelopeId && !createdTask && (
                 <Button
                   type="button"
-                  variant="quiet"
-                  size="compact"
+                  variant="ghost"
+                  size="small"
                   disabled={disabled}
                   onClick={() => setComposerOpen(false)}
                 >
@@ -995,8 +996,6 @@ function TaskLine({
         <Checkbox
           aria-label={text(item.title)}
           title="완료 상태 바꾸기"
-          children={null}
-          aria-labelledby={undefined}
           checked={done}
           disabled={busy || saving}
           onChange={() => onToggle(item)}
@@ -1012,8 +1011,8 @@ function TaskLine({
         </button>
         <div className={s.rowActions}>
           <Button
-            size="compact"
-            variant="quiet"
+            size="small"
+            variant="ghost"
             disabled={busy || saving}
             onClick={() => onEdit(item)}
             aria-label={`${text(item.title)} 편집`}
@@ -1022,8 +1021,8 @@ function TaskLine({
           </Button>
           {!done && (
             <Button
-              size="compact"
-              variant="quiet"
+              size="small"
+              variant="ghost"
               disabled={busy || saving}
               onClick={() => setMoving((value) => !value)}
               aria-label={`${text(item.title)} 날짜 옮기기`}
@@ -1033,8 +1032,8 @@ function TaskLine({
           )}
           {onRemove && (
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={busy || saving}
               onClick={onRemove}
               aria-label={`${text(item.title)} 페이지에서 빼기`}
@@ -1056,8 +1055,8 @@ function TaskLine({
           <TaskReadOnlyDetails item={item} />
           {onFocus && !done && (
             <Button
-              variant="secondary"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={busy || saving}
               onClick={() => onFocus(item)}
             >
@@ -1086,7 +1085,9 @@ function TaskLine({
             }
           }}
         >
-          <DateField
+          <TextInput
+            type="date"
+            fill
             className={s.date}
             aria-label={`${text(item.title)} 옮길 날짜`}
             required
@@ -1096,15 +1097,15 @@ function TaskLine({
           />
           <Button
             type="submit"
-            size="compact"
+            size="small"
             disabled={busy || saving || !destination || destination === date}
           >
             이 날짜로 옮기기
           </Button>
           <Button
             type="button"
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             disabled={busy || saving}
             onClick={() => setMoving(false)}
           >

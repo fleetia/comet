@@ -1,5 +1,4 @@
-import { Button, IconButton } from "../../ui";
-import { MemoWidget } from "@comet/ui";
+import { Button, IconButton, MemoWidget } from "@comet/ui";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
@@ -166,14 +165,12 @@ function NoteEditor({ id, note }: { id: string; note: DataRecord }): ReactElemen
         </MemoWidget>
         <IconButton
           className={paper.putAway}
-          label="메모 넣기"
-          variant="quiet"
+          icon="close"
+          aria-label="메모 넣기"
           size="compact"
           disabled={busy}
           onClick={() => void putAway()}
-        >
-          ×
-        </IconButton>
+        />
       </div>
       <footer className={paper.controls}>
         <WidgetDragHandle
@@ -181,29 +178,31 @@ function NoteEditor({ id, note }: { id: string; note: DataRecord }): ReactElemen
           title={text(note.title) || "메모"}
           disabled={busy || status !== "saved"}
         />
-        <IconButton
-          label="글자 크기 줄이기"
-          variant="quiet"
-          size="compact"
+        <Button
+          className={paper.fontStep}
+          aria-label="글자 크기 줄이기"
+          variant="ghost"
+          size="small"
           disabled={busy || draft.fontSize <= 12}
           onClick={() => edit({ fontSize: draft.fontSize - 2 })}
         >
           A−
-        </IconButton>
+        </Button>
         <span aria-label="글자 크기">{draft.fontSize}px</span>
-        <IconButton
-          label="글자 크기 키우기"
-          variant="quiet"
-          size="compact"
+        <Button
+          className={paper.fontStep}
+          aria-label="글자 크기 키우기"
+          variant="ghost"
+          size="small"
           disabled={busy || draft.fontSize >= 24}
           onClick={() => edit({ fontSize: draft.fontSize + 2 })}
         >
           A+
-        </IconButton>
+        </Button>
         <Button
           aria-label="새 메모 꺼내기"
-          variant="quiet"
-          size="compact"
+          variant="ghost"
+          size="small"
           disabled={busy || !isDesktop()}
           onClick={() => void create()}
         >
@@ -226,7 +225,7 @@ function NoteEditor({ id, note }: { id: string; note: DataRecord }): ReactElemen
             {error || failure}
           </p>
           {error && (
-            <Button variant="quiet" size="compact" disabled={busy} onClick={() => void flush()}>
+            <Button variant="ghost" size="small" disabled={busy} onClick={() => void flush()}>
               다시 저장
             </Button>
           )}
@@ -251,17 +250,15 @@ export function MemoNote({ id, noteId }: { id: string; noteId: string }): ReactE
   return (
     <main className={paper.stage}>
       <IconButton
-        label="메모 넣기"
-        variant="quiet"
+        icon="close"
+        aria-label="메모 넣기"
         size="compact"
         onClick={() =>
           void command("close_memo_note", { id, noteId }).catch((cause: unknown) =>
             setCloseError(errorText(cause)),
           )
         }
-      >
-        ×
-      </IconButton>
+      />
       {closeError && <p role="alert">{closeError}</p>}
       <div className={s.failure}>
         {error ? (
@@ -269,7 +266,7 @@ export function MemoNote({ id, noteId }: { id: string; noteId: string }): ReactE
             <p role="alert" className={c.error}>
               {error}
             </p>
-            <Button variant="secondary" onClick={reload}>
+            <Button variant="ghost" onClick={reload}>
               다시 불러오기
             </Button>
           </>

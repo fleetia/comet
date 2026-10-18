@@ -180,7 +180,9 @@ beforeEach(() => {
       throw new Error(`Unexpected command: ${name}`);
     });
   native.onCloseRequested.mockReset().mockResolvedValue(() => undefined);
-  vi.mocked(listen).mockClear();
+  vi.mocked(listen)
+    .mockReset()
+    .mockResolvedValue(() => undefined);
   native.destroy.mockReset().mockResolvedValue(undefined);
   native.startDragging.mockReset().mockResolvedValue(undefined);
   HTMLDialogElement.prototype.showModal = function (): void {
@@ -1830,4 +1832,58 @@ it("retries an uncertain envelope create with the same request after its linked 
     input: { eventId: "event", title: "같은 요청의 준비" },
   });
   expect(await opened().findByRole("heading", { name: "같은 요청의 준비" })).toBeTruthy();
+});
+
+it("ignores guarded navigation while a quick task save is pending", async () => {
+  setTasks([]);
+  let finish: (id: string) => void = () => undefined;
+  execute = () => new Promise<string>((resolve) => (finish = resolve)) as unknown as string;
+  await openDiary();
+  fireEvent.click(screen.getByRole("button", { name: "빠른 할 일 추가" }));
+  fireEvent.change(screen.getByLabelText(/빠른 할 일 제목/), { target: { value: "저장 중" } });
+  fireEvent.click(screen.getByRole("button", { name: "할 일 저장" }));
+  await waitFor(() => expect(actions("execute_widget")).toHaveLength(1));
+  fireEvent.click(screen.getByRole("link", { name: "캘린더" }));
+  fireEvent.click(screen.getByRole("radio", { name: "월" }));
+  expect(screen.queryByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeNull();
+  expect(screen.getByRole("radio", { name: "하루" })).toHaveProperty("checked", true);
+  await act(async () => finish("pending-task"));
+  await waitFor(() => expect(screen.queryByRole("form", { name: "빠른 할 일" })).toBeNull());
+  expect(screen.getByRole("radio", { name: "하루" })).toHaveProperty("checked", true);
+});
+
+it("lets a clean native close proceed without asking", async () => {
+  await openDiary();
+  const preventDefault = vi.fn();
+  act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault }));
+  expect(preventDefault).not.toHaveBeenCalled();
+  expect(screen.queryByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeNull();
+});
+
+it("releases native listeners that resolve after the diary unmounts", async () => {
+  const pending: ((cleanup: () => void) => void)[] = [];
+  const cleanups: ReturnType<typeof vi.fn>[] = [];
+  const deferred = (): Promise<() => void> =>
+    new Promise((resolve) => {
+      pending.push(resolve);
+    });
+  vi.mocked(listen).mockImplementation(async (name) =>
+    ["planner-note", "planner-view-target", "planner-tab"].includes(name)
+      ? deferred()
+      : () => undefined,
+  );
+  native.onCloseRequested.mockImplementation(deferred);
+  const view = render(<Diary />);
+  await screen.findByRole("navigation", { name: "내 다이어리 목차" });
+  await waitFor(() => expect(pending).toHaveLength(4));
+  view.unmount();
+  await act(async () => {
+    for (const resolve of pending) {
+      const cleanup = vi.fn();
+      cleanups.push(cleanup);
+      resolve(cleanup);
+    }
+  });
+  for (const cleanup of cleanups) expect(cleanup).toHaveBeenCalledOnce();
+  expect(command).not.toHaveBeenCalledWith("get_planner_note_target");
 });

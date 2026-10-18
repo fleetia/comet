@@ -8,20 +8,6 @@ export const workspace = style({
   minHeight: 0,
   maxWidth: 1184,
 });
-export const namePanel = style({
-  width: "100%",
-  maxWidth: 792,
-  height: 296,
-  maxHeight: "100%",
-  flexShrink: 0,
-  overflowY: "auto",
-});
-export const nameBody = style({
-  display: "flex",
-  flexDirection: "column",
-  gap: tokens["spacing/space-12"],
-  minHeight: 264,
-});
 export const heading = style({
   display: "flex",
   alignItems: "center",
@@ -43,13 +29,6 @@ export const identity = style({
   minHeight: 28,
   gap: tokens["spacing/space-16"],
 });
-export const identityName = style({
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-  fontSize: tokens["typography/sans/body/fontSize"],
-  fontWeight: 600,
-});
 export const form = style({
   display: "grid",
   gap: tokens["spacing/space-12"],
@@ -58,7 +37,6 @@ export const form = style({
   margin: 0,
   minWidth: 0,
 });
-export const nameField = style({ maxWidth: 720 });
 export const caption = style({
   color: tokens["color/ink-2"],
   fontSize: tokens["typography/sans/caption/fontSize"],
@@ -72,8 +50,8 @@ export const actions = style({
   flexWrap: "wrap",
   minHeight: tokens["size/control-36"],
 });
-export const nameAction = style({ width: 112 });
 export const memoriesPanel = style({
+  padding: 16,
   minWidth: 0,
   minHeight: 180,
   height: 424,

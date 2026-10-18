@@ -72,7 +72,7 @@ pub(crate) async fn save_settings(
         api_keys.as_ref(),
     )?;
     publish(&app, &state);
-    crate::generated_widget_commands::publish(&app);
+    crate::widgets::generated::commands::publish(&app);
     let _gate = state.gate.lock().await;
     if is_current(&state, epoch, &cancel) {
         inference::stop_local(&state.inference).await;

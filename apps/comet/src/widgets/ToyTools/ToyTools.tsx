@@ -1,13 +1,14 @@
-import { FormField, Button, TextField, Select as LegacySelect } from "../../ui";
 import { useEffect, useState, type ReactElement } from "react";
 import { Icon } from "@comet/icon";
 import {
   Balloon,
-  Button as CometButton,
+  Button,
   CharacterArtwork,
+  FormField,
   IconButton as CometIconButton,
   Select,
   Surface,
+  TextInput,
 } from "@comet/ui";
 import type { WidgetView } from "../types";
 import { isDesktop } from "../../hooks/useSnapshot";
@@ -82,9 +83,9 @@ function MotionTool({ widget, act, widgets = [widget] }: Props): ReactElement {
       </Surface>
       <div className={toy.toyFooter}>
         <span>끌어서 놓기 · 우클릭으로 정리</span>
-        <CometButton variant="link" size="small" onClick={() => void act("desktop-clear")}>
+        <Button variant="link" size="small" onClick={() => void act("desktop-clear")}>
           정리하기
-        </CometButton>
+        </Button>
       </div>
     </section>
   );
@@ -149,7 +150,7 @@ function InteractionTool({ widget, act, characters }: Props): ReactElement {
           ["poke", "콕 찌르기", "콕", "poke"],
           ["snack", "간식 나누기", "간식", "cookie"],
         ].map(([action, label, visible, icon]) => (
-          <CometButton
+          <Button
             key={action}
             aria-label={label}
             variant={action === "snack" ? "primary" : "ghost"}
@@ -161,10 +162,10 @@ function InteractionTool({ widget, act, characters }: Props): ReactElement {
             }}
           >
             {visible}
-          </CometButton>
+          </Button>
         ))}
       </div>
-      <CometButton
+      <Button
         className={toy.refill}
         variant="link"
         size="small"
@@ -172,7 +173,7 @@ function InteractionTool({ widget, act, characters }: Props): ReactElement {
         onClick={() => void act("refill")}
       >
         간식 채우기…
-      </CometButton>
+      </Button>
     </section>
   );
 }
@@ -266,9 +267,9 @@ function SmallMatchTool({ widget, act, characters, userName }: Props): ReactElem
             ))}
           </Select>
         </span>
-        <CometButton variant="link" size="small" onClick={() => setGame(null)}>
+        <Button variant="link" size="small" onClick={() => setGame(null)}>
           같이 놀기
-        </CometButton>
+        </Button>
       </div>
       {game ? (
         <>
@@ -281,17 +282,17 @@ function SmallMatchTool({ widget, act, characters, userName }: Props): ReactElem
               game === "dice" ? (
                 <div className={toy.gameActions}>
                   {result && (
-                    <CometButton size="small" variant="ghost" onClick={() => setGame(null)}>
+                    <Button size="small" variant="ghost" onClick={() => setGame(null)}>
                       그만
-                    </CometButton>
+                    </Button>
                   )}
-                  <CometButton
+                  <Button
                     size="small"
                     aria-label="주사위 굴리기"
                     onClick={() => void act("dice", target)}
                   >
                     {result ? "한 판 더" : "주사위 굴리기"}
-                  </CometButton>
+                  </Button>
                 </div>
               ) : (
                 <div className={toy.actions}>
@@ -306,14 +307,14 @@ function SmallMatchTool({ widget, act, characters, userName }: Props): ReactElem
                         ["paper", "보"],
                       ]
                   ).map(([choice, label]) => (
-                    <CometButton
+                    <Button
                       key={choice}
                       size="small"
                       variant={a === choice ? "selected" : "ghost"}
                       onClick={() => void act(game, { choice, ...target })}
                     >
                       {label}
-                    </CometButton>
+                    </Button>
                   ))}
                 </div>
               )
@@ -438,16 +439,17 @@ export function ToyTool({ widget, act, characters, widgets, userName }: Props): 
       return (
         <>
           <FormField className={c.field} label="놀이">
-            <LegacySelect
+            <Select
+              fill
               value={mode}
               disabled={d.playing === true}
               onChange={(e) => setMode(e.target.value)}
             >
               <option value="cups">컵 찾기</option>
               <option value="number">숫자 맞히기 (1–100)</option>
-            </LegacySelect>
+            </Select>
           </FormField>
-          <Button variant="secondary" onClick={() => void act("start", { mode })}>
+          <Button variant="ghost" onClick={() => void act("start", { mode })}>
             새 놀이 시작
           </Button>
           <p role="status">{text(d.hint) || "새 놀이를 시작해 주세요."}</p>
@@ -472,7 +474,8 @@ export function ToyTool({ widget, act, characters, widgets, userName }: Props): 
                 }}
               >
                 <FormField className={c.field} label="예상 숫자" required>
-                  <TextField
+                  <TextInput
+                    fill
                     type="number"
                     min="1"
                     max="100"

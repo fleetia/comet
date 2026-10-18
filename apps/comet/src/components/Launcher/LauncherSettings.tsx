@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
-import { Button } from "../../ui";
-import { Keycap } from "@comet/ui";
+import { Button, Keycap } from "@comet/ui";
 import * as styles from "./launcherSettings.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { DEFAULT_SHORTCUT, shortcutLabel, type LauncherState } from "./search";
@@ -98,7 +97,7 @@ export function LauncherSettings({ onDirtyChange, compact = false }: { onDirtyCh
       </p>}
       <div className={compact ? styles.controls : s.row}>
         <Button
-          variant="secondary"
+          variant="ghost"
           disabled={pending || !state}
           onClick={(event) => {
             event.currentTarget.focus();
@@ -116,19 +115,19 @@ export function LauncherSettings({ onDirtyChange, compact = false }: { onDirtyCh
         </Button>
         {(!compact || dirty) && <>
         <Button variant="primary" disabled={pending || !state || !dirty} onClick={() => void save(draft)}>적용</Button>
-        <Button variant="quiet" disabled={pending || !state || !dirty} onClick={() => { setDraft(state?.shortcut ?? ""); setError(null); }}>변경 취소</Button>
+        <Button variant="ghost" disabled={pending || !state || !dirty} onClick={() => { setDraft(state?.shortcut ?? ""); setError(null); }}>변경 취소</Button>
         <Button
-          variant="quiet"
+          variant="ghost"
           disabled={pending || !state?.shortcut}
           onClick={() => void save("")}
         >
           단축키 끄기
         </Button>
-        <Button variant="quiet" disabled={pending || !state} onClick={() => void save(DEFAULT_SHORTCUT)}>
+        <Button variant="ghost" disabled={pending || !state} onClick={() => void save(DEFAULT_SHORTCUT)}>
           기본값으로
         </Button>
         <Button
-          variant="quiet"
+          variant="ghost"
           onClick={() => {
             void command("open_launcher").catch((cause: unknown) => {
               if (mounted.current) setError(errorText(cause));
@@ -139,7 +138,7 @@ export function LauncherSettings({ onDirtyChange, compact = false }: { onDirtyCh
         </Button>
         </>}
       </div>
-      {compact && !dirty && <details className={styles.options}><summary>단축키 관리</summary><div className={s.row}><Button variant="quiet" size="compact" onClick={() => void save("")} disabled={pending}>끄기</Button><Button variant="quiet" size="compact" onClick={() => void save(DEFAULT_SHORTCUT)} disabled={pending}>기본값으로</Button><Button variant="quiet" size="compact" onClick={() => void command("open_launcher").catch((cause: unknown) => setError(errorText(cause)))}>빠른 실행 열기</Button></div></details>}
+      {compact && !dirty && <details className={styles.options}><summary>단축키 관리</summary><div className={s.row}><Button variant="ghost" size="small" onClick={() => void save("")} disabled={pending}>끄기</Button><Button variant="ghost" size="small" onClick={() => void save(DEFAULT_SHORTCUT)} disabled={pending}>기본값으로</Button><Button variant="ghost" size="small" onClick={() => void command("open_launcher").catch((cause: unknown) => setError(errorText(cause)))}>빠른 실행 열기</Button></div></details>}
       {recording && (
         <p className={s.quiet} role="status">
           ⌘, Ctrl 또는 Alt와 함께 눌러 주세요. Esc로 취소해요.
