@@ -2,6 +2,16 @@ import type { DataRecord } from "../toolData";
 import type { DiaryTimeCategory, DiaryTimeRecord } from "./diaryTimeTypes";
 import type { DiaryHabit, DiaryHabitCheck } from "./diaryHabitTypes";
 import type { LedgerEntry, RecurringExpense, LedgerSettings } from "./diaryLedgerTypes";
+import type {
+  Booking,
+  Expense,
+  Person,
+  Photo,
+  Transfer,
+  Travel,
+  TravelPlan,
+  TravelSettings,
+} from "../Travel/travelTypes";
 
 export type DiaryEntryKind = "note" | "todo" | "event" | "envelope" | "widget";
 
@@ -56,6 +66,14 @@ export type DiaryState = {
   ledgerEntries?: LedgerEntry[];
   ledgerRecurring?: RecurringExpense[];
   ledgerSettings?: LedgerSettings;
+  travels?: Travel[];
+  travelPlans?: TravelPlan[];
+  travelBookings?: Booking[];
+  travelExpenses?: Expense[];
+  travelPeople?: Person[];
+  travelTransfers?: Transfer[];
+  travelPhotos?: Photo[];
+  travelSettings?: TravelSettings;
 };
 
 export type DiaryAction = (action: string, input?: DataRecord) => Promise<boolean>;

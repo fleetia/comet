@@ -6,5 +6,6 @@
   "preparation": { "width": 180, "height": 200, "appearance": false },
   "memo": { "width": 214, "height": 150, "appearance": false },
   "todo": { "width": 100, "height": 30, "appearance": false },
-  "calendar": { "width": 100, "height": 30, "appearance": false }
+  "calendar": { "width": 100, "height": 30, "appearance": false },
+  "travel": { "width": 100, "height": 30, "appearance": false }
 }

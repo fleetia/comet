@@ -136,6 +136,15 @@ fn validate_view_target(
                 .as_array()
                 .is_some_and(|pages| pages.iter().any(|page| page["id"] == id))
         }
+        ("envelope", "envelopes") => crate::widgets::storage::instances(db)?
+            .iter()
+            .any(|widget| {
+                widget.kind == "preparation"
+                    && widget.installed
+                    && widget.data["envelopes"]
+                        .as_array()
+                        .is_some_and(|envelopes| envelopes.iter().any(|value| value["id"] == id))
+            }),
         ("event", "calendar") => crate::widgets::storage::instances(db)?
             .iter()
             .any(|widget| {
@@ -175,6 +184,38 @@ pub(crate) fn calendar_selected(app: &tauri::AppHandle) -> Result<bool, String> 
     let navigation = app.state::<Navigation>();
     let selected = crate::lock(&navigation.tab)?.as_str() == "calendar";
     Ok(selected)
+}
+
+#[tauri::command]
+pub(crate) fn open_travel(app: tauri::AppHandle, id: Option<String>) -> Result<(), String> {
+    let id = id.filter(|value| {
+        !value.is_empty()
+            && value.len() <= 200
+            && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    });
+    if let Some(window) = app.get_webview_window("travel") {
+        if let Some(id) = &id {
+            window.emit("travel-open", id).map_err(|e| e.to_string())?;
+        }
+        window.unminimize().map_err(|e| e.to_string())?;
+        window.show().map_err(|e| e.to_string())?;
+        return window.set_focus().map_err(|e| e.to_string());
+    }
+    let query = id.map(|id| format!("&id={id}")).unwrap_or_default();
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        "travel",
+        tauri::WebviewUrl::App(format!("index.html?view=travel{query}").into()),
+    )
+    .title("comet · 여행")
+    .inner_size(1120.0, 840.0)
+    .min_inner_size(720.0, 520.0)
+    .decorations(false)
+    .transparent(true)
+    .disable_drag_drop_handler()
+    .build()
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -228,7 +269,18 @@ mod tests {
                 .target_id,
             "event"
         );
+        db.execute(
+            "INSERT INTO widget_instances(id,kind,version,installed,enabled,revision,data) VALUES('preparation','preparation',1,1,1,1,?1)",
+            [json!({"envelopes":[{"id":"trip-bag"}]}).to_string()],
+        ).unwrap();
+        assert!(
+            validate_view_target(&db, "envelopes", Some("envelope"), Some("trip-bag"))
+                .unwrap()
+                .is_some()
+        );
         for (tab, entity, id) in [
+            ("envelopes", Some("envelope"), Some("missing")),
+            ("today", Some("envelope"), Some("trip-bag")),
             ("calendar", Some("page"), Some(page_id)),
             ("today", Some("page"), Some("missing")),
             ("calendar", Some("event"), Some("cancelled")),

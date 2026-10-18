@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { localDay, type DataRecord } from "../toolData";
 import type { DiaryState } from "./diaryTypes";
+import { addDays } from "../Travel/travelData";
 
 function preview(): DiaryState {
   const date = localDay();
@@ -51,6 +52,47 @@ function preview(): DiaryState {
       { id: "preview-lunch", date, kind: "expense", amount: 12000, category: "food", title: "점심", memo: "" },
     ],
     ledgerRecurring: [],
+    travels: [
+      {
+        id: "preview-trip",
+        title: "제주 가족 여행",
+        destination: "제주",
+        startDate: addDays(date, 3),
+        endDate: addDays(date, 4),
+        timeZone: "Asia/Seoul",
+        currency: "KRW",
+        budget: 2000000,
+        envelopeId: "book-prep",
+        finished: false,
+      },
+    ],
+    travelPlans: [
+      { id: "preview-flight", travelId: "preview-trip", kind: "move", date: addDays(date, 3), time: "09:10", title: "김포 → 제주", place: "제주공항", memo: "", arriveDate: addDays(date, 3), arriveTime: "10:20", lat: 33506600, lng: 126492900, bookingId: "preview-air" },
+      { id: "preview-car", travelId: "preview-trip", kind: "plan", date: addDays(date, 3), time: "10:50", title: "렌터카 받기", place: "제주공항 인근", memo: "현장 결제", bookingId: "preview-rent" },
+      { id: "preview-market", travelId: "preview-trip", kind: "plan", date: addDays(date, 3), time: "13:00", title: "동문시장 점심", place: "동문시장", memo: "", lat: 33512200, lng: 126527800 },
+      { id: "preview-stay", travelId: "preview-trip", kind: "plan", date: addDays(date, 3), time: "15:00", title: "애월 숙소 체크인", place: "애월 숙소", memo: "체크아웃 다음 날 오전 11:00", lat: 33462900, lng: 126331200, bookingId: "preview-house" },
+      { id: "preview-beach", travelId: "preview-trip", kind: "plan", date: addDays(date, 4), time: "10:00", title: "협재 해변", place: "협재 해변", memo: "", lat: 33394200, lng: 126239500 },
+      { id: "preview-back", travelId: "preview-trip", kind: "plan", date: addDays(date, 4), time: "14:10", title: "렌터카 반납", place: "제주공항", memo: "", lat: 33506600, lng: 126492900 },
+    ],
+    travelBookings: [
+      { id: "preview-air", travelId: "preview-trip", kind: "flight", title: "가는 항공 · 김포 → 제주", vendor: "", confirmation: "QX1704", status: "paid", amount: 388000, currency: "KRW", rate: 10000, category: "transport", paidDate: date, startDate: addDays(date, 3), startTime: "09:10", endDate: addDays(date, 3), endTime: "10:20", place: "김포공항", destination: "제주공항", link: "", memo: "", vouchers: [] },
+      { id: "preview-house", travelId: "preview-trip", kind: "stay", title: "애월 숙소", vendor: "", confirmation: "AB124821", status: "paid", amount: 400000, currency: "KRW", rate: 10000, category: "housing", paidDate: date, startDate: addDays(date, 3), startTime: "15:00", endDate: addDays(date, 4), endTime: "11:00", place: "애월", destination: "", cancelDate: date, cancelTime: "23:59", link: "", memo: "", vouchers: [] },
+      { id: "preview-rent", travelId: "preview-trip", kind: "car", title: "렌터카", vendor: "", confirmation: "", status: "onsite", amount: 160000, currency: "KRW", rate: 10000, category: "transport", startDate: addDays(date, 3), startTime: "10:50", endDate: addDays(date, 4), endTime: "14:10", place: "제주공항 인근", destination: "제주공항", link: "", memo: "", vouchers: [] },
+    ],
+    travelExpenses: [
+      { id: "preview-e-air", travelId: "preview-trip", title: "가는 항공 · 김포 → 제주", date, amount: 388000, currency: "KRW", rate: 10000, category: "transport", paid: true, payer: "me", shares: ["me", "mom", "dad", "sis"].map((person) => ({ person, weight: 1 })), memo: "", bookingId: "preview-air" },
+      { id: "preview-e-house", travelId: "preview-trip", title: "애월 숙소", date, amount: 400000, currency: "KRW", rate: 10000, category: "housing", paid: true, payer: "dad", shares: ["me", "mom", "dad", "sis"].map((person) => ({ person, weight: 1 })), memo: "", bookingId: "preview-house" },
+      { id: "preview-e-rent", travelId: "preview-trip", title: "렌터카", date: addDays(date, 3), amount: 160000, currency: "KRW", rate: 10000, category: "transport", paid: false, payer: "me", shares: ["me", "mom", "dad", "sis"].map((person) => ({ person, weight: 1 })), memo: "", bookingId: "preview-rent" },
+      { id: "preview-e-lunch", travelId: "preview-trip", title: "동문시장 점심", date: addDays(date, 3), amount: 84000, currency: "KRW", rate: 10000, category: "food", paid: true, payer: "sis", shares: ["me", "mom", "dad", "sis"].map((person) => ({ person, weight: 1 })), memo: "" },
+    ],
+    travelPeople: [
+      { id: "mom", travelId: "preview-trip", name: "엄마", color: "coral" },
+      { id: "dad", travelId: "preview-trip", name: "아빠", color: "blue" },
+      { id: "sis", travelId: "preview-trip", name: "동생", color: "green" },
+    ],
+    travelTransfers: [],
+    travelPhotos: [],
+    travelSettings: { mapTiles: false, addressSearch: false },
   };
 }
 

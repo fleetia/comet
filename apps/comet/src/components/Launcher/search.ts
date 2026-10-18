@@ -15,14 +15,23 @@ export type LauncherAction =
   | { type: "settings"; section: SettingsSection | null; widgetKind?: string }
   | { type: "widget"; id: string; expectedRevision: number }
   | { type: "chat"; content: string; target: string; clientMessageId: string }
-  | { type: "addTodo"; id: string; expectedRevision: number; title: string; requestId: string };
+  | { type: "addTodo"; id: string; expectedRevision: number; title: string; requestId: string }
+  | { type: "travel"; id: string };
+export type LauncherTravel = {
+  id: string;
+  title: string;
+  destination: string;
+  startDate: string;
+  endDate: string;
+  finished: boolean;
+};
 export type TargetBinding = { token: string; id: string; name: string };
 export type LauncherResult = {
   id: string;
   title: string;
   detail: string;
   preview: string;
-  kind: "settings" | "widget" | "chat" | "target" | "notice" | "todo";
+  kind: "settings" | "widget" | "chat" | "target" | "notice" | "todo" | "travel";
   action?:
     | Exclude<LauncherAction, { type: "chat" } | { type: "addTodo" }>
     | Omit<Extract<LauncherAction, { type: "chat" }>, "clientMessageId">
@@ -186,11 +195,32 @@ function todoResult(
       : undefined,
   };
 }
+/** Trips whose name or destination contains the query; upcoming ones first. */
+function travelResults(query: string, travels: LauncherTravel[]): { result: LauncherResult; rank: number }[] {
+  const needle = normalize(query);
+  if (!needle) return [];
+  return travels
+    .filter((travel) => [travel.title, travel.destination].some((value) => normalize(value).includes(needle)))
+    .sort((a, b) => Number(a.finished) - Number(b.finished) || b.startDate.localeCompare(a.startDate))
+    .slice(0, 3)
+    .map((travel) => ({
+      rank: normalize(travel.title).startsWith(needle) ? 0 : 1,
+      result: {
+        id: `travel:${travel.id}`,
+        title: `${travel.title} 열기`,
+        detail: `여행 · ${travel.startDate.slice(5).replace("-", "/")}–${travel.endDate.slice(5).replace("-", "/")}`,
+        preview: `여행 창에서 ‘${travel.title}’을 열어요.`,
+        kind: "travel",
+        action: { type: "travel", id: travel.id },
+      },
+    }));
+}
 export function launcherResults(
   query: string,
   snapshot: Snapshot,
   widgets: WidgetSnapshot | null,
   binding: TargetBinding | null,
+  travels: LauncherTravel[] = [],
 ): LauncherResult[] {
   const input = query.trimStart();
   if (input.startsWith(">")) {
@@ -279,6 +309,7 @@ export function launcherResults(
     const instance = widgets.widgets.find((candidate) => candidate.kind === entry.id);
     candidates.push({ rank, result: widgetResult(entry, instance) });
   }
+  candidates.push(...travelResults(normalized, travels));
   const results = candidates
     .sort((a, b) => a.rank - b.rank)
     .slice(0, 5)

@@ -237,8 +237,38 @@ pub(crate) fn tick(app: &tauri::AppHandle, state: &Arc<AppState>) -> Result<()> 
         if saved.revision != current.revision {
             let _ = app.emit("diary-updated", &saved);
         }
-        let reminders = due(&saved, at)?;
+        let mut reminders = due(&saved, at)?;
         let persona = speaker(state, &db, true)?;
+        let (urgent, travel): (Vec<_>, Vec<_>) =
+            super::travel_alerts::due(&saved, chrono::Utc::now())
+                .into_iter()
+                .partition(|alert| alert.os);
+        // Trip reminders wait for a speaker, so quiet hours delay them instead of consuming them.
+        if persona.is_some() {
+            reminders.extend(travel.into_iter().map(|alert| Reminder {
+                key: alert.key,
+                text: alert.text,
+            }));
+        }
+        let urgent: Vec<Reminder> = urgent
+            .into_iter()
+            .map(|alert| Reminder {
+                key: alert.key,
+                text: alert.text,
+            })
+            .collect();
+        for text in claim(
+            &db,
+            &urgent,
+            &at.date().format("%Y-%m-%d").to_string(),
+            saved.revision,
+            now + 60_000,
+            None,
+        )? {
+            if let Err(error) = crate::widgets::planning::notifications::show_plain(app, &text) {
+                let _ = app.emit("planner-notification-error", error);
+            }
+        }
         let prefix = format!("diary:{}", uuid::Uuid::new_v4());
         let message_id = format!("scene:{prefix}:0");
         // Suppressed due events are consumed too: leaving focus, pause or hidden mode never replays them.

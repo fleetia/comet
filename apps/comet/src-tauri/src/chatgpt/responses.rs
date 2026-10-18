@@ -148,6 +148,8 @@ fn payload(model: &str, messages: &[ChatMessage], schema: Value) -> Result<Value
         };
         input.push(json!({"role":role,"content":message.content}));
     }
+    let mut input = Value::Array(input);
+    crate::inference::attach_to_last_user(&mut input, "responses");
     // SIWC HTTP explicitly rejects max_output_tokens and temperature.
     Ok(
         json!({"model":model,"input":input,"store":false,"stream":true,"text":{"format":{"type":"json_schema","name":"response","strict":true,"schema":schema}}}),

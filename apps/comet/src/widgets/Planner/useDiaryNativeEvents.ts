@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 
-export type DiaryViewTarget = { entity: "page" | "event"; targetId: string };
+export type DiaryViewTarget = { entity: "page" | "event" | "envelope"; targetId: string };
 
 const NATIVE_TABS = [
   "today",
@@ -96,7 +96,7 @@ export function useDiaryNativeEvents({
         typeof value !== "object" ||
         !("entity" in value) ||
         !("targetId" in value) ||
-        (value.entity !== "page" && value.entity !== "event") ||
+        (value.entity !== "page" && value.entity !== "event" && value.entity !== "envelope") ||
         typeof value.targetId !== "string" ||
         !value.targetId
       ) {

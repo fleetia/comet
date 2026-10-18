@@ -52,6 +52,7 @@ pub const PACKS: &[Pack] = &[
             "widgets/paper-plane.talk",
             "widgets/preparation.talk",
             "widgets/small-match.talk",
+            "widgets/travel.talk",
             "widgets/todo.talk",
             "widgets/weather.talk",
         ],
@@ -80,6 +81,7 @@ pub const PACKS: &[Pack] = &[
             "widgets/paper-plane.talk",
             "widgets/preparation.talk",
             "widgets/small-match.talk",
+            "widgets/travel.talk",
             "widgets/todo.talk",
             "widgets/weather.talk",
         ],
@@ -770,7 +772,7 @@ mod pipeline_tests {
         selected
     }
 
-    const INITIAL_STATES: [&str; 14] = [
+    const INITIAL_STATES: [&str; 15] = [
         "todo.empty",
         "calendar.unconfigured",
         "timer.idle",
@@ -785,6 +787,7 @@ mod pipeline_tests {
         "bubbles.empty",
         "match.new",
         "fortune.fresh",
+        "travel.none",
     ];
 
     #[test]
@@ -798,7 +801,7 @@ mod pipeline_tests {
         let (db, _directory) = nadir_database(&kinds);
         let program = program(NADIR_AND_STAR_TAIL);
         let context = context::build(&db, None, 1_000, 0).unwrap();
-        assert_eq!(context.available.len(), 14);
+        assert_eq!(context.available.len(), 15);
         for scene in INITIAL_STATES {
             idle_scene(&db, &program, scene, 1_000);
         }

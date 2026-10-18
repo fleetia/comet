@@ -180,7 +180,7 @@ fn remove_calendar(data: &mut CalendarState, connection_id: &str) {
         .filter_map(|connection| connection.last_success_at)
         .max();
 }
-fn open_browser(url: &str) -> Result<(), String> {
+pub(crate) fn open_browser(url: &str) -> Result<(), String> {
     let parsed = reqwest::Url::parse(url).map_err(|_| "링크 주소가 올바르지 않습니다.")?;
     if !["http", "https"].contains(&parsed.scheme())
         || parsed.host_str().is_none()

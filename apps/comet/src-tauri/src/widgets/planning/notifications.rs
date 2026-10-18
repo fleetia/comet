@@ -36,6 +36,13 @@ pub(crate) async fn preview_planner_notification(app: tauri::AppHandle) -> Resul
     )
 }
 
+/// An immediate notification without actions, for reminders that must arrive even in quiet hours.
+pub(crate) fn show_plain(app: &tauri::AppHandle, text: &str) -> Result<(), String> {
+    // A unique identifier keeps macOS from replacing an earlier undismissed reminder.
+    let id = format!("travel-{}", uuid::Uuid::new_v4());
+    native::show(app, &id, 0, text, true, false, "travel")
+}
+
 pub(crate) fn install(app: &tauri::AppHandle) -> Result<(), String> {
     native::install(app)
 }

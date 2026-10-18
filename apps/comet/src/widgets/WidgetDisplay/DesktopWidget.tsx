@@ -164,6 +164,16 @@ export function desktopSummary(
         meta: "",
       };
     }
+    case "travel": {
+      const line = record(data.line);
+      return {
+        icon: "plane",
+        title: text(line.title) || "여행",
+        description: text(line.description),
+        value: text(line.value),
+        meta: text(line.meta),
+      };
+    }
     case "memo": {
       const note = rows(data.notes).find((note) => note.isOpen) ?? rows(data.notes)[0];
       return {
@@ -218,9 +228,10 @@ export function FreeformWidget({
   const look = { fallbackPreset: desktopSkin(widget.kind)?.fallbackPreset, ...appearance };
   switch (widget.kind) {
     case "todo":
-    case "calendar": {
+    case "calendar":
+    case "travel": {
       // The chip has room for one short value; the row uses the longer description instead.
-      const chip = summary.value || "일정 없음";
+      const chip = summary.value || (widget.kind === "travel" ? "여행" : "일정 없음");
       return (
         <div>
           <CompactFreeform
@@ -348,6 +359,7 @@ const ROW_KINDS: Record<string, WidgetKind> = {
   memo: "envelope",
   todo: "envelope",
   calendar: "envelope",
+  travel: "envelope",
 };
 
 export function CollapsedDesktopWidget({

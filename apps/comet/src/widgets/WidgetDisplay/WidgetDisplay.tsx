@@ -3,6 +3,8 @@ import { useEffect, useRef, useState, type PointerEvent, type ReactElement } fro
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWindowDrag } from "../../hooks/useWindowDrag";
 import { useWidgets } from "../useWidgets";
+import type { WidgetView } from "../types";
+import { useTravelWidgets } from "../Travel/useTravelWidgets";
 import {
   DEFAULT_APPEARANCE,
   backgroundPosition,
@@ -36,6 +38,8 @@ function isControl(target: EventTarget): boolean {
   return target instanceof Element && Boolean(target.closest("button,input,select,textarea,a"));
 }
 
+const EMPTY: WidgetView[] = [];
+
 export function WidgetDisplay({ id }: { id: string }): ReactElement {
   const { snapshot, error } = useWidgets();
   const desktop = useDesktopState();
@@ -44,7 +48,8 @@ export function WidgetDisplay({ id }: { id: string }): ReactElement {
     null,
   );
   const now = useNow();
-  const widget = snapshot?.widgets.find((item) => item.id === id && item.installed && item.enabled);
+  const all = useTravelWidgets(snapshot?.widgets ?? EMPTY);
+  const widget = all.find((item) => item.id === id && item.installed && item.enabled);
   const entry = snapshot?.catalog.find((item) => item.id === widget?.kind);
   const editing = desktop.state?.editing ?? false;
   const selected = desktop.selected === id;
@@ -113,7 +118,7 @@ export function WidgetDisplay({ id }: { id: string }): ReactElement {
         <div className={s.content} role="region" aria-label={`${name} 내용`}>
           <FreeformWidget
             widget={widget}
-            widgets={snapshot?.widgets ?? []}
+            widgets={all}
             now={now}
             interactive={!editing}
             shape={shape}

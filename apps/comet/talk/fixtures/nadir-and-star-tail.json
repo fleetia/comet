@@ -2991,6 +2991,133 @@
         "dialogue.variant": 0
       },
       "expectedScene": "situation.comfortable-silence"
+    },
+    {
+      "id": "travel.none",
+      "path": "widgets/travel.talk",
+      "state": "none",
+      "trigger": "idle",
+      "available": [
+        "travel"
+      ],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {
+        "travel.ready": true,
+        "travel.status": "enabled",
+        "travel.count": 0,
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "expectedScene": "travel.none"
+    },
+    {
+      "id": "travel.planning",
+      "path": "widgets/travel.talk",
+      "state": "planning",
+      "trigger": "idle",
+      "available": [
+        "travel"
+      ],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {
+        "travel.ready": true,
+        "travel.status": "enabled",
+        "travel.count": 1,
+        "travel.stage": "planning",
+        "travel.daysUntil": 12,
+        "travel.title": "제주 가족 여행",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "expectedScene": "travel.planning"
+    },
+    {
+      "id": "travel.before",
+      "path": "widgets/travel.talk",
+      "state": "before",
+      "trigger": "idle",
+      "available": [
+        "travel"
+      ],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {
+        "travel.ready": true,
+        "travel.status": "enabled",
+        "travel.count": 1,
+        "travel.stage": "before",
+        "travel.daysUntil": 3,
+        "travel.title": "제주 가족 여행",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "expectedScene": "travel.before"
+    },
+    {
+      "id": "travel.traveling",
+      "path": "widgets/travel.talk",
+      "state": "traveling",
+      "trigger": "idle",
+      "available": [
+        "travel"
+      ],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {
+        "travel.ready": true,
+        "travel.status": "enabled",
+        "travel.count": 1,
+        "travel.stage": "traveling",
+        "travel.daysUntil": 0,
+        "travel.title": "제주 가족 여행",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "expectedScene": "travel.traveling"
+    },
+    {
+      "id": "travel.wrapping",
+      "path": "widgets/travel.talk",
+      "state": "wrapping",
+      "trigger": "idle",
+      "available": [
+        "travel"
+      ],
+      "active": [
+        "fixture-a",
+        "fixture-b"
+      ],
+      "values": {
+        "travel.ready": true,
+        "travel.status": "enabled",
+        "travel.count": 1,
+        "travel.stage": "wrapping",
+        "travel.daysUntil": -3,
+        "travel.title": "제주 가족 여행",
+        "character.a.sourceId": "nadir",
+        "character.b.sourceId": "star-tail",
+        "character.nadir.affinity": 20,
+        "dialogue.variant": 0
+      },
+      "expectedScene": "travel.wrapping"
     }
   ]
 }

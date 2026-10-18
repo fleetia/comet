@@ -119,6 +119,21 @@ describe("local command and conversation routing", () => {
       })[0].title,
     ).toContain("켜기 설정");
   });
+  it("opens trips by name or destination and keeps conversation as the last choice", () => {
+    const travels = [
+      { id: "jeju", title: "제주 가족 여행", destination: "제주", startDate: "2026-10-24", endDate: "2026-10-25", finished: false },
+      { id: "old", title: "작년 제주", destination: "제주", startDate: "2025-05-01", endDate: "2025-05-02", finished: true },
+      { id: "tokyo", title: "도쿄 출장", destination: "도쿄", startDate: "2026-11-02", endDate: "2026-11-04", finished: false },
+    ];
+    const found = launcherResults("제주", PREVIEW_SNAPSHOT, widgets, null, travels);
+    expect(found.filter((result) => result.kind === "travel").map((result) => result.action)).toEqual([
+      { type: "travel", id: "jeju" },
+      { type: "travel", id: "old" },
+    ]);
+    expect(found.at(-2)?.kind).toBe("chat");
+    expect(launcherResults("", PREVIEW_SNAPSHOT, widgets, null, travels).some((result) => result.kind === "travel")).toBe(false);
+  });
+
   it("labels memo launch as creating a desktop sheet", () => {
     const result = results("메모").find((item) => item.id === "widget:memo");
     expect(result?.title).toBe("새 메모 꺼내기");

@@ -3,6 +3,9 @@ mod ledger;
 pub(crate) mod runtime;
 mod schema;
 mod time;
+pub(crate) mod travel;
+mod travel_alerts;
+pub(crate) mod travel_files;
 pub(crate) use schema::initialize;
 
 use crate::app::{lock, AppState};
@@ -38,6 +41,22 @@ pub(crate) struct DiaryState {
     time_records: Vec<time::TimeRecord>,
     #[serde(default)]
     time_categories: Vec<time::TimeCategory>,
+    #[serde(default)]
+    travels: Vec<travel::Travel>,
+    #[serde(default)]
+    travel_plans: Vec<travel::TravelPlan>,
+    #[serde(default)]
+    travel_bookings: Vec<travel::Booking>,
+    #[serde(default)]
+    travel_expenses: Vec<travel::Expense>,
+    #[serde(default)]
+    travel_people: Vec<travel::Person>,
+    #[serde(default)]
+    travel_transfers: Vec<travel::Transfer>,
+    #[serde(default)]
+    travel_photos: Vec<travel::Photo>,
+    #[serde(default)]
+    travel_settings: travel::TravelSettings,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -108,6 +127,16 @@ struct Move {
 
 fn err(error: impl std::fmt::Display) -> String {
     error.to_string()
+}
+
+impl DiaryState {
+    pub(crate) fn travels(&self) -> &[travel::Travel] {
+        &self.travels
+    }
+}
+
+pub(crate) fn travel_exists(db: &Connection, id: &str) -> Result<bool> {
+    Ok(read(db)?.travels.iter().any(|travel| travel.id == id))
 }
 
 pub(crate) fn read(db: &Connection) -> Result<DiaryState> {
@@ -194,6 +223,9 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
     }
     if action.starts_with("ledger-") {
         return ledger::mutate(state, action, input);
+    }
+    if action.starts_with("travel-") {
+        return travel::mutate(state, action, input);
     }
     if action.starts_with("time-") {
         return time::mutate(state, action, input);
@@ -507,6 +539,10 @@ pub(crate) fn update_diary(
         update(&*lock(&state.db)?, expected_revision, &action, &input)?
     };
     let _ = app.emit("diary-updated", &saved);
+    if action.starts_with("travel-") {
+        let (data, diary) = (state.app_data.clone(), saved.clone());
+        std::thread::spawn(move || travel_files::prune(&data, &diary));
+    }
     if action == "move-record" {
         crate::widgets::commands::publish_widgets(&app, &state);
     }

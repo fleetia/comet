@@ -22,3 +22,15 @@ export const Cost: Story = {
   name: "금액",
   args: { title: "교통비", detail: "렌터카 · 2일", value: "120,000원" },
 };
+export const Button: Story = {
+  name: "누르는 행",
+  args: {
+    title: "오전 9:10  김포 → 제주",
+    detail: "도착 오전 10:20 · 비행 1시간 10분",
+    value: "이동",
+    onClick: () => undefined,
+  },
+  parameters: {
+    docs: { description: { story: "onClick을 주면 행 전체가 하나의 버튼이 되어 편집 창을 열 수 있습니다." } },
+  },
+};

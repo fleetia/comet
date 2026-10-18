@@ -495,6 +495,9 @@ pub(crate) enum LauncherAction {
         title: String,
         request_id: String,
     },
+    Travel {
+        id: String,
+    },
 }
 
 fn claim_execution(state: &AppState, session_id: u64) -> Result<(), String> {
@@ -546,7 +549,7 @@ pub(crate) async fn execute_launcher(
             .and_then(|db| widgets::storage::get(&db, id))
             .map(|widget| crate::behavior::TOYS.contains(&widget.kind.as_str()))
             .unwrap_or(false),
-        LauncherAction::Settings { .. } => false,
+        LauncherAction::Settings { .. } | LauncherAction::Travel { .. } => false,
     };
     let result = async {
         match request.action {
@@ -604,6 +607,17 @@ pub(crate) async fn execute_launcher(
                     None,
                 )
                 .await
+            }
+            LauncherAction::Travel { id } => {
+                {
+                    let _action = lock(&state.action)?;
+                    let db = lock(&state.db)?;
+                    if !crate::diary::travel_exists(&db, &id)? {
+                        return Err("여행을 찾을 수 없어요.".into());
+                    }
+                    accept_execution(&state, request.session_id)?;
+                }
+                crate::widgets::planning::windows::open_travel(app.clone(), Some(id))
             }
             LauncherAction::AddTodo {
                 id,
