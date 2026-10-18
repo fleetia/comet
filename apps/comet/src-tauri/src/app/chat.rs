@@ -457,6 +457,7 @@ pub(crate) fn get_conversations(
     )
 }
 
+#[cfg(test)]
 pub(crate) fn conversation_sessions(
     state: &AppState,
     persona: &str,

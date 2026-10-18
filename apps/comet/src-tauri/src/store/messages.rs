@@ -665,6 +665,7 @@ pub fn message_targets(conn: &Connection, message_id: &str) -> Result<Vec<String
     Ok(result)
 }
 
+#[cfg(test)]
 pub fn mark_message_displayed(conn: &Connection, id: &str, at: i64) -> Result<()> {
     mark_message_displayed_with_provenance(conn, id, at, None)
 }

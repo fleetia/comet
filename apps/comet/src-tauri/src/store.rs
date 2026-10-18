@@ -13,13 +13,12 @@ pub use analysis::{
     retry_deferred_analysis, AnalysisStatus,
 };
 #[cfg(test)]
-pub use conversations::conversation_reply_pending;
+pub use conversations::{conversation_reply_pending, conversations, create_conversation};
 pub use conversations::{
     active_conversation, attach_conversation_message, cancel_conversation_reply,
     clear_conversation_cancellation, conversation, conversation_context, conversation_for_message,
     conversation_history, conversation_message_allowed, conversation_messages,
-    conversation_recovery, conversation_view, conversations, create_conversation,
-    create_conversation_with_source, pause_conversations, pause_conversations_for_focus,
+    conversation_recovery, conversation_view, create_conversation_with_source, pause_conversations, pause_conversations_for_focus,
     record_conversation_disclosure, record_conversation_event, save_conversation_draft,
     set_conversation_participants, set_conversation_status, ConversationMessages,
     ConversationSession, ConversationView, RecoveryReason,
@@ -36,12 +35,14 @@ pub use memory::{
 };
 #[cfg(test)]
 pub use memory::{delete_memory, edit_memory};
+#[cfg(test)]
+pub use messages::mark_message_displayed;
 #[allow(unused_imports)] // Developer smoke examples still insert synthetic history directly.
 pub use messages::insert_message;
 pub use messages::{
     automatic_message_displayed_at, context_messages, context_messages_for,
     expire_generated_recall, has_turn_replies, input_ai_only, insert_message_with_playback,
-    insert_user_input, mark_message_displayed, mark_message_displayed_with_provenance,
+    insert_user_input, mark_message_displayed_with_provenance,
     mark_message_finished, message_displayed, message_finished, message_identities,
     message_targets, messages, reply_scene_source, resume_conversation, save_reply_scene,
     save_reply_scene_with_source, saved_reply, saved_reply_for_participants, saved_reply_scene,
