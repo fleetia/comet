@@ -3,7 +3,6 @@ import { Button, Dialog, FormField, SearchInput, Select, Textarea, TextInput } f
 import { Icon } from "@comet/icon";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { createPortal } from "react-dom";
-import { theme } from "../../desktop.css";
 import { command, errorText } from "../../hooks/useSnapshot";
 import { record, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
@@ -462,7 +461,6 @@ export function FocusTimerNotes({
       {pickerOpen &&
         createPortal(
           <Dialog
-            className={theme}
             isOpen={active}
             title="다른 메모 연결하기"
             size="small"
@@ -515,7 +513,6 @@ export function FocusTimerNotes({
       {draft &&
         createPortal(
           <Dialog
-            className={theme}
             style={{
               fontFamily: `${tokens["typography/sans/body/fontFamily"]}, sans-serif`,
               fontSize: tokens["typography/sans/body/fontSize"],
