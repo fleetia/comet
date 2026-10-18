@@ -2,7 +2,6 @@ import {
   Button,
   Checkbox,
   DateField,
-  FormField,
   Select,
   TabPanel,
   TextField,
@@ -25,21 +24,12 @@ import {
   MessageInput,
   SelectField,
   TaskRow,
-  Dialog,
   Tabs,
 } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { WindowHeader } from "../../components/WindowHeader/WindowHeader";
 import { useWidgets } from "../useWidgets";
-import {
-  localDay,
-  number,
-  record,
-  rows,
-  text,
-  type DataRecord,
-  type ToolAction,
-} from "../toolData";
+import { localDay, number, record, rows, text, type DataRecord } from "../toolData";
 import type { WidgetView } from "../types";
 import { PlannerAlertNotice } from "../PlannerAlerts/PlannerAlerts";
 import { PlannerCalendar } from "./PlannerCalendar";
@@ -69,6 +59,9 @@ import { usePlannerActions } from "./usePlannerActions";
 import { usePlannerTasks } from "./usePlannerTasks";
 import { usePlannerLeave } from "./usePlannerLeave";
 import { PlannerCloseDialog } from "./PlannerCloseDialog";
+import { PlannerListManager } from "./PlannerListManager";
+import { PlannerMoveTaskDialog } from "./PlannerMoveTaskDialog";
+import { PlannerWrapDialog } from "./PlannerWrapDialog";
 import * as s from "./planner.css";
 
 const NAVIGATION = [
@@ -1395,125 +1388,32 @@ export function Planner({
         />
       )}
       {movingTask && (
-        <Dialog
-          isOpen
-          title="할 일 옮기기"
-          size="small"
-          onOpenChange={(open) => {
-            if (!open && !busy) setMovingTask(null);
-          }}
-        >
-          <form
-            className={s.form}
-            onSubmit={async (event) => {
-              event.preventDefault();
-              const item = items.find((value) => value.id === movingTask.id);
-              if (item && (await moveTaskDate(item, movingTask.date))) setMovingTask(null);
-            }}
-          >
-            {failure && (
-              <p role="alert" className={s.error}>
-                {failure.message}
-              </p>
-            )}
-            <FormField label="옮길 할 일">
-              <Select
-                value={movingTask.id}
-                disabled={busy}
-                onChange={(event) => setMovingTask({ ...movingTask, id: event.target.value })}
-              >
-                {items
-                  .filter((item) => typeof item.completedAt !== "number")
-                  .map((item) => (
-                    <option key={text(item.id)} value={text(item.id)}>
-                      {text(item.title)}
-                    </option>
-                  ))}
-              </Select>
-            </FormField>
-            <FormField label="새 계획 날짜">
-              <DateField
-                required
-                disabled={busy}
-                value={movingTask.date}
-                onChange={(event) => setMovingTask({ ...movingTask, date: event.target.value })}
-              />
-            </FormField>
-            <div className={s.actions}>
-              <Button variant="quiet" disabled={busy} onClick={() => setMovingTask(null)}>
-                취소
-              </Button>
-              <Button
-                type="submit"
-                disabled={
-                  busy ||
-                  !todo ||
-                  !movingTask.date ||
-                  !items.some((item) => item.id === movingTask.id)
-                }
-              >
-                선택한 날로 옮기기
-              </Button>
-            </div>
-          </form>
-        </Dialog>
+        <PlannerMoveTaskDialog
+          movingTask={movingTask}
+          items={items}
+          hasTodo={Boolean(todo)}
+          busy={busy}
+          failure={failure}
+          onChange={setMovingTask}
+          onMove={moveTaskDate}
+          onClose={() => setMovingTask(null)}
+        />
       )}
-      <Dialog
+      <PlannerWrapDialog
         isOpen={wrap}
-        title={`${day} 하루 마무리`}
-        size="small"
-        onOpenChange={(open) => {
-          if (!busy) setWrap(open);
-        }}
-        closeLabel="하루 마무리 닫기"
-      >
-        <form
-          className={s.form}
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (await act("plan", { ids: rollIds, date: rollDate })) setWrap(false);
-          }}
-        >
-          {failure && (
-            <p role="alert" className={s.error}>
-              {failure.message}
-            </p>
-          )}
-          <p className={s.caption}>
-            선택일 {day} · 완료 {chosen.length - remaining.length}개 · 남은 일 {remaining.length}개.
-            옮길 일만 골라요.
-          </p>
-          {remaining.map((item) => (
-            <Checkbox
-              key={text(item.id)}
-              checked={rollIds.includes(text(item.id))}
-              onChange={(e) =>
-                setRollIds((old) =>
-                  e.target.checked ? [...old, text(item.id)] : old.filter((id) => id !== item.id),
-                )
-              }
-            >
-              {text(item.title)}
-            </Checkbox>
-          ))}
-          <FormField label="옮길 날짜" className={s.field}>
-            <DateField required value={rollDate} onChange={(e) => setRollDate(e.target.value)} />
-          </FormField>
-          <p className={s.caption}>
-            선택하지 않은 일은 {day}에 그대로 남아요. 원래 기한과 계획 기간은 유지합니다.
-          </p>
-          <div className={s.actions}>
-            <Button variant="quiet" type="button" onClick={() => setWrap(false)}>
-              그대로 마치기
-            </Button>
-            <div className={s.spacer} />
-            <Button type="submit" variant="primary" disabled={busy || !rollIds.length}>
-              선택한 {rollIds.length}개 옮기기
-            </Button>
-          </div>
-        </form>
-      </Dialog>
-      <ListManager
+        day={day}
+        completedCount={chosen.length - remaining.length}
+        remaining={remaining}
+        rollIds={rollIds}
+        rollDate={rollDate}
+        busy={busy}
+        failure={failure}
+        act={act}
+        onOpenChange={setWrap}
+        onRollIdsChange={setRollIds}
+        onRollDateChange={setRollDate}
+      />
+      <PlannerListManager
         isOpen={manageLists}
         lists={lists}
         items={items}
@@ -1529,106 +1429,5 @@ export function Planner({
         onDiscard={leave.discardAndLeave}
       />
     </Root>
-  );
-}
-
-function ListManager({
-  isOpen,
-  lists,
-  items,
-  act,
-  busy,
-  failure,
-  onClose,
-}: {
-  isOpen: boolean;
-  lists: DataRecord[];
-  items: DataRecord[];
-  act: ToolAction;
-  busy: boolean;
-  failure: string | null;
-  onClose: () => void;
-}): ReactElement {
-  const [name, setName] = useState("");
-  const [renames, setRenames] = useState<Record<string, string>>({});
-  useEffect(() => {
-    if (!isOpen) {
-      setName("");
-      setRenames({});
-    }
-  }, [isOpen]);
-  return (
-    <Dialog
-      isOpen={isOpen}
-      title="목록 관리"
-      size="small"
-      closeLabel="목록 관리 닫기"
-      onOpenChange={(open) => {
-        if (!open && !busy) onClose();
-      }}
-    >
-      <div className={s.form}>
-        {failure && (
-          <p role="alert" className={s.error}>
-            {failure}
-          </p>
-        )}
-        <form
-          className={s.quick}
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (await act("list-add", { name })) setName("");
-          }}
-        >
-          <TextField
-            className={s.grow}
-            aria-label="새 목록 이름"
-            required
-            maxLength={100}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-          <Button type="submit" variant="primary" disabled={busy}>
-            목록 추가
-          </Button>
-        </form>
-        {lists.map((list) => (
-          <form
-            key={text(list.id)}
-            className={s.quick}
-            onSubmit={(e) => {
-              e.preventDefault();
-              void act("list-rename", {
-                id: text(list.id),
-                name: renames[text(list.id)] ?? text(list.name),
-              });
-            }}
-          >
-            <TextField
-              className={s.grow}
-              aria-label={`${text(list.name)} 이름`}
-              required
-              maxLength={100}
-              value={renames[text(list.id)] ?? text(list.name)}
-              onChange={(e) => setRenames((old) => ({ ...old, [text(list.id)]: e.target.value }))}
-            />
-            <Button type="submit" variant="secondary" size="compact" disabled={busy}>
-              이름 저장
-            </Button>
-            <Button
-              type="button"
-              variant="quiet"
-              size="compact"
-              disabled={
-                busy || list.id === "default" || items.some((item) => item.listId === list.id)
-              }
-              onClick={() => void act("list-delete", { id: text(list.id) })}
-            >
-              빈 목록 삭제
-            </Button>
-          </form>
-        ))}
-      </div>
-    </Dialog>
   );
 }
