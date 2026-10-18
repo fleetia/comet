@@ -1,62 +1,116 @@
-import { useRef, useState, type CSSProperties, type JSX } from "react";
-import { ConstellationChoice } from "@comet/ui";
-import { Button } from "../../ui";
+import { useEffect, useId, useRef, useState, type CSSProperties, type JSX } from "react";
+import { Balloon, ConstellationChoices, type BalloonProps } from "@comet/ui";
+import { Button, IconButton } from "../../ui";
+import { CloseIcon } from "@comet/icon";
 import type { Dispatch, StoryRequest } from "../../types";
 import { errorText } from "../../hooks/useSnapshot";
 import * as s from "./story.css";
-import * as ui from "../../common.css";
 
-type Props = { story: StoryRequest; dispatch: Dispatch; textStyle?: CSSProperties };
+type Props = {
+  story: StoryRequest;
+  dispatch: Dispatch;
+  textStyle?: CSSProperties;
+  speakerName?: string;
+  speaker?: BalloonProps["speaker"];
+  balloonClassName?: string;
+  balloonStyle?: CSSProperties;
+  skinned?: boolean;
+  onClose?: () => void;
+};
 
-export function StoryChoices({ story, dispatch, textStyle }: Props): JSX.Element {
+export function StoryChoices({
+  story,
+  dispatch,
+  textStyle,
+  speakerName,
+  speaker,
+  balloonClassName,
+  balloonStyle,
+  skinned,
+  onClose,
+}: Props): JSX.Element {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lock = useRef(false);
+  const alive = useRef(true);
+  const currentRequest = useRef(story.id);
+  currentRequest.current = story.id;
+  const titleId = useId();
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   async function choose(choiceId?: string): Promise<void> {
     if (lock.current) return;
     lock.current = true;
     setPending(true);
     setError(null);
+    const requestId = story.id;
     try {
       await dispatch(choiceId ? "choose_story" : "defer_story", {
-        requestId: story.id,
+        requestId,
         ...(choiceId ? { choiceId } : {}),
       });
     } catch (cause) {
-      setError(errorText(cause));
+      if (alive.current && currentRequest.current === requestId) setError(errorText(cause));
     } finally {
       lock.current = false;
-      setPending(false);
+      if (alive.current && currentRequest.current === requestId) setPending(false);
     }
   }
   return (
-    <div className={s.story}>
-      <p className={ui.quiet}>{story.title}</p>
-      <p className={s.prompt} style={textStyle} aria-live="polite">
-        {story.prompt}
-      </p>
-      <div className={s.choices} role="group" aria-label="이야기 선택지">
-        {story.choices.map((choice) => (
-          <ConstellationChoice
-            key={choice.id}
-            disabled={pending}
-            className={s.choice}
-            onClick={() => void choose(choice.id)}
-          >
-            {choice.label}
-          </ConstellationChoice>
-        ))}
-        <Button variant="quiet" disabled={pending} onClick={() => void choose()}>
+    <div className={s.story} role="group" aria-labelledby={titleId}>
+      <span className={s.title} id={titleId}>
+        {story.title}
+      </span>
+      <Balloon
+        speaker={speaker}
+        speakerName={speakerName}
+        tail={skinned ? "none" : "left"}
+        tailClassName={s.promptTail}
+        className={`${s.promptBalloon} ${balloonClassName ?? ""}`}
+        style={balloonStyle}
+      >
+        <p className={s.prompt} style={textStyle} aria-live="polite">
+          {story.prompt}
+        </p>
+      </Balloon>
+      {onClose && (
+        <IconButton
+          className={s.close}
+          variant="quiet"
+          size="compact"
+          label="이야기 닫기"
+          onClick={onClose}
+        >
+          <CloseIcon size={14} />
+        </IconButton>
+      )}
+      <div className={s.choices}>
+        <ConstellationChoices
+          label="이야기 선택지"
+          options={story.choices.map((choice) => ({ ...choice, disabled: pending }))}
+          onChoose={(id) => void choose(id)}
+        />
+        <Button
+          className={s.defer}
+          variant="quiet"
+          size="compact"
+          disabled={pending}
+          onClick={() => void choose()}
+        >
           다음에 듣기
         </Button>
       </div>
       {pending && (
-        <p className={ui.quiet} role="status">
+        <p className={s.status} role="status">
           이야기를 이어가고 있어요.
         </p>
       )}
       {error && (
-        <p className={ui.error} role="alert">
+        <p className={s.error} role="alert">
           {error}
         </p>
       )}

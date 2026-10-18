@@ -638,12 +638,13 @@ pub(crate) async fn send_message(
         }
         let session = match active_session {
             Some(session) => session,
-            None if session_id.is_none() => store::create_conversation(
+            None if session_id.is_none() => store::create_conversation_with_source(
                 &db,
                 &targets,
                 None,
                 None,
                 chrono::Utc::now().timestamp_millis(),
+                Some("desktop"),
             )?,
             None => return Err("대화가 접혔어요. 이어하기로 다시 열어 주세요.".into()),
         };

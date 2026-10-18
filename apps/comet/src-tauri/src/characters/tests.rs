@@ -583,6 +583,7 @@ fn installed_legacy_versions_allow_reopen_edit_and_pack_export() {
 
 #[test]
 fn legacy_character_json_defaults_to_empty_authored_context_and_default_balloon_style() {
+    assert_eq!(BalloonStyle::default().font_size, 16);
     for version in [1, 2] {
         let mut legacy = pack();
         legacy.format_version = version;
@@ -608,6 +609,53 @@ fn legacy_character_json_defaults_to_empty_authored_context_and_default_balloon_
                 && character.definition.balloon_style == BalloonStyle::default()
         }));
     }
+}
+
+#[test]
+fn stored_balloon_size_19_is_preserved_when_reopening_with_the_new_default() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.db");
+    let saved_json = {
+        let conn = Connection::open(&path).unwrap();
+        initialize_for_tests(&conn).unwrap();
+        let mut definition = get(&conn, "builtin-a").unwrap().definition;
+        assert_eq!(definition.balloon_style.font_size, 16);
+        definition.balloon_style.font_size = 19;
+        save(&conn, "builtin-a", &definition).unwrap();
+        conn.query_row(
+            "SELECT data FROM characters WHERE id='builtin-a'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap()
+    };
+    let conn = Connection::open(&path).unwrap();
+    initialize_for_tests(&conn).unwrap();
+    assert_eq!(
+        get(&conn, "builtin-a")
+            .unwrap()
+            .definition
+            .balloon_style
+            .font_size,
+        19
+    );
+    assert_eq!(
+        get(&conn, "builtin-b")
+            .unwrap()
+            .definition
+            .balloon_style
+            .font_size,
+        16
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT data FROM characters WHERE id='builtin-a'",
+            [],
+            |row| row.get::<_, String>(0)
+        )
+        .unwrap(),
+        saved_json
+    );
 }
 
 #[test]

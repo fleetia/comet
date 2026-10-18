@@ -205,7 +205,7 @@ it("retains exact per-character drafts across selection and snapshot changes aft
   });
   choose(/^B/);
   panel = selectPanel("말풍선");
-  expect(panel.getByLabelText("말풍선 글자 크기(px)")).toHaveProperty("value", "19");
+  expect(panel.getByLabelText("말풍선 글자 크기(px)")).toHaveProperty("value", "16");
   expect(panel.getByLabelText("말풍선 폰트")).toHaveProperty("value", "");
   expect(panel.getByLabelText("글자 출력 속도 (초당 글자 수)")).toHaveProperty("value", "0");
   fireEvent.change(panel.getByLabelText("말풍선 폰트"), { target: { value: "Georgia" } });
@@ -295,7 +295,7 @@ it("retains exact per-character drafts across selection and snapshot changes aft
   });
   fireEvent.click(screen.getByRole("button", { name: "캐릭터 수정 취소" }));
   panel = selectPanel("말풍선");
-  expect(panel.getByLabelText("말풍선 글자 크기(px)")).toHaveProperty("value", "19");
+  expect(panel.getByLabelText("말풍선 글자 크기(px)")).toHaveProperty("value", "16");
   expect(panel.getByLabelText("말풍선 폰트")).toHaveProperty("value", "");
   expect(panel.getByRole("button", { name: "기본색" })).toHaveProperty("disabled", true);
   expect(panel.getByLabelText("글자 출력 속도 (초당 글자 수)")).toHaveProperty("value", "0");

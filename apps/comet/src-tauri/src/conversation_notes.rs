@@ -345,12 +345,13 @@ pub(crate) fn set_conversation_note_context(
         app::conversation::ensure_available(&db)?;
         let session = match active {
             Some(session) => session,
-            None => store::create_conversation(
+            None => store::create_conversation_with_source(
                 &db,
                 &participants,
                 None,
                 None,
                 chrono::Utc::now().timestamp_millis(),
+                Some("note"),
             )?,
         };
         let context = source.map(|source| NoteContext {

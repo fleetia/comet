@@ -14,7 +14,9 @@ import {
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type {
   ConversationMessages,
+  ConversationMemoryReceipt,
   ConversationSession,
+  ConversationTimelineEvent,
   ConversationView,
   Snapshot,
 } from "../../types";
@@ -63,10 +65,73 @@ function dayLabel(timestamp: number): string {
     day: "numeric",
   });
 }
+function eventLabel(event: ConversationTimelineEvent): string {
+  if (event.kind === "focus-paused") return "집중을 시작해서 대화를 멈췄어요";
+  if (event.kind === "resumed") return "지난 대화에서 이야기를 이어가요";
+  switch (event.source) {
+    case "automatic":
+      return "바탕화면에서 먼저 말을 걸었어요";
+    case "desktop":
+      return "바탕화면에서 대화를 시작했어요";
+    case "reply":
+      return "이 말에 답장하며 대화를 시작했어요";
+    case "history":
+      return "지난 대화에서 이야기를 이어가요";
+    case "note":
+      return "메모를 참고하며 대화를 시작했어요";
+    case "music":
+      return "음악 이야기를 시작했어요";
+    default:
+      return "대화 시작";
+  }
+}
+type TranscriptRow =
+  | { kind: "message"; message: ConversationMessages["messages"][number] }
+  | { kind: "event"; event: ConversationTimelineEvent };
+
+function transcriptRows(page: ConversationMessages | null): TranscriptRow[] {
+  if (!page) return [];
+  const messages = page.messages;
+  const ids = new Set(messages.map((message) => message.id));
+  const events = (page.timelineEvents ?? [])
+    .filter(
+      (event) =>
+        event.kind !== "started" &&
+        (event.messageId
+          ? ids.has(event.messageId)
+          : !page.nextBefore || !messages.length || event.createdAt >= messages[0].createdAt),
+    )
+    .sort((left, right) => left.createdAt - right.createdAt);
+  const rows: TranscriptRow[] = [];
+  const anchored = new Map<string, ConversationTimelineEvent[]>();
+  const unanchored: ConversationTimelineEvent[] = [];
+  for (const event of events) {
+    if (event.messageId) {
+      const group = anchored.get(event.messageId) ?? [];
+      group.push(event);
+      anchored.set(event.messageId, group);
+    } else {
+      unanchored.push(event);
+    }
+  }
+  let next = 0;
+  for (const message of messages) {
+    const before = [...(anchored.get(message.id) ?? [])];
+    while (next < unanchored.length && unanchored[next].createdAt <= message.createdAt) {
+      before.push(unanchored[next++]);
+    }
+    before.sort((left, right) => left.createdAt - right.createdAt);
+    rows.push(...before.map((event): TranscriptRow => ({ kind: "event", event })));
+    rows.push({ kind: "message", message });
+  }
+  rows.push(...unanchored.slice(next).map((event): TranscriptRow => ({ kind: "event", event })));
+  return rows;
+}
 function mergePages(
   earlier: ConversationMessages,
   later: ConversationMessages,
 ): ConversationMessages {
+  const latestMessageIds = new Set(later.messages.map((message) => message.id));
   return {
     messages: Array.from(
       new Map(
@@ -77,6 +142,20 @@ function mergePages(
     characterNames: { ...earlier.characterNames, ...later.characterNames },
     userNames: { ...earlier.userNames, ...later.userNames },
     messageSources: { ...earlier.messageSources, ...later.messageSources },
+    timelineEvents: Array.from(
+      new Map(
+        [...(earlier.timelineEvents ?? []), ...(later.timelineEvents ?? [])].map((event) => [
+          event.id,
+          event,
+        ]),
+      ).values(),
+    ).sort((left, right) => left.createdAt - right.createdAt),
+    memoryReceipts: [
+      ...(earlier.memoryReceipts ?? []).filter(
+        (receipt) => !latestMessageIds.has(receipt.sourceMessageId),
+      ),
+      ...(later.memoryReceipts ?? []),
+    ],
   };
 }
 function Avatar({
@@ -141,6 +220,7 @@ export function ConversationHistoryWindow({
   const saveQueue = useRef(Promise.resolve());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const alive = useRef(true);
+  const transcriptRevision = useRef(0);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const composing = useRef(false);
   const lastSubmission = useRef<{ sessionId: string; messageId: string; content: string } | null>(
@@ -150,6 +230,7 @@ export function ConversationHistoryWindow({
   const responding = ["loading", "generating"].includes(snapshot.runtime.phase);
   const busy = responding || Boolean(snapshot.playback);
   const selectedId = selected?.id;
+  const activeCharactersKey = snapshot.characters.active.join("\0");
   const editable = Boolean(selectedId && editing === selectedId);
   const recovery =
     snapshot.conversation?.session.id === selectedId ? snapshot.conversation?.recovery : undefined;
@@ -367,6 +448,8 @@ export function ConversationHistoryWindow({
   useEffect(() => {
     if (!selectedId) return;
     let active = true;
+    transcriptRevision.current += 1;
+    const requestedLive = current.current.conversation;
     setPageLoading(true);
     setPage(null);
     const result = native
@@ -380,7 +463,9 @@ export function ConversationHistoryWindow({
         if (!active) return;
         const live = current.current.conversation;
         setPage(
-          live?.session.id === selectedId && owner.current === selectedId
+          live?.session.id === selectedId &&
+            live.session.userId === current.current.user?.id &&
+            (owner.current === selectedId || live !== requestedLive)
             ? mergePages(value, live)
             : value,
         );
@@ -394,9 +479,40 @@ export function ConversationHistoryWindow({
     return () => {
       active = false;
     };
-  }, [selectedId, native, previewConversations, revision]);
+  }, [
+    selectedId,
+    native,
+    previewConversations,
+    revision,
+    snapshot.memoryRevision,
+    snapshot.conversation?.session.id,
+    snapshot.conversation?.session.status,
+    activeCharactersKey,
+  ]);
   useEffect(() => {
-    if (!owner.current || preview) return;
+    if (preview) return;
+    const conversation = snapshot.conversation;
+    if (
+      conversation &&
+      conversation.session.id === selectedRef.current?.id &&
+      conversation.session.userId === snapshot.user?.id
+    ) {
+      setSelected(conversation.session);
+      setSessions((previous) =>
+        previous.map((session) =>
+          session.id === conversation.session.id
+            ? {
+                ...conversation.session,
+                draft: owner.current
+                  ? (draft.current?.value ?? conversation.session.draft)
+                  : conversation.session.draft,
+              }
+            : session,
+        ),
+      );
+      setPage((previous) => (previous ? mergePages(previous, conversation) : conversation));
+    }
+    if (!owner.current) return;
     if (
       snapshot.panel?.mode !== "history-input" ||
       snapshot.conversation?.session.id !== owner.current
@@ -411,18 +527,6 @@ export function ConversationHistoryWindow({
       owner.current = null;
       setEditing(null);
       return;
-    }
-    const conversation = snapshot.conversation;
-    if (conversation.session.id === selectedRef.current?.id) {
-      setSelected(conversation.session);
-      setSessions((previous) =>
-        previous.map((session) =>
-          session.id === conversation.session.id
-            ? { ...conversation.session, draft: draft.current?.value ?? conversation.session.draft }
-            : session,
-        ),
-      );
-      setPage((previous) => (previous ? mergePages(previous, conversation) : conversation));
     }
     const submitted = lastSubmission.current;
     if (
@@ -533,18 +637,32 @@ export function ConversationHistoryWindow({
   async function loadOlder(): Promise<void> {
     if (!selected || !page || page.nextBefore === null || pageLoading) return;
     const sessionId = selected.id;
+    const userId = current.current.user?.id;
+    const memoryRevision = current.current.memoryRevision;
+    const characterIds = current.current.characters.active.join("\0");
+    const revision = transcriptRevision.current;
+    function isCurrent(): boolean {
+      return (
+        alive.current &&
+        selectedRef.current?.id === sessionId &&
+        current.current.user?.id === userId &&
+        current.current.memoryRevision === memoryRevision &&
+        current.current.characters.active.join("\0") === characterIds &&
+        transcriptRevision.current === revision
+      );
+    }
     setPageLoading(true);
     try {
       const older = await command<ConversationMessages>("get_conversation_messages", {
         sessionId,
         before: page.nextBefore,
       });
-      if (selectedRef.current?.id !== sessionId) return;
+      if (!isCurrent()) return;
       setPage((previous) => (previous ? mergePages(older, previous) : older));
     } catch (cause) {
-      if (selectedRef.current?.id === sessionId) setError(errorText(cause));
+      if (isCurrent()) setError(errorText(cause));
     } finally {
-      if (selectedRef.current?.id === sessionId) setPageLoading(false);
+      if (isCurrent()) setPageLoading(false);
     }
   }
   async function retry(): Promise<void> {
@@ -646,13 +764,21 @@ export function ConversationHistoryWindow({
       if (alive.current) setPending(false);
     }
   }
-  async function openCharacterSettings(): Promise<void> {
+  async function openCharacterSettings(target?: string, showMemories = false): Promise<void> {
     const session = selectedRef.current;
-    if (operation.current || !session || session.participants.length !== 1) return;
+    const characterId =
+      target ?? (session?.participants.length === 1 ? session.participants[0] : undefined);
+    if (
+      operation.current ||
+      !session ||
+      !characterId ||
+      !session.participants.includes(characterId)
+    )
+      return;
+    const targetId = characterId;
     operation.current = true;
     setPending(true);
     setError(null);
-    const characterId = session.participants[0];
     const userId = current.current.user?.id;
     const value = draft.current;
     const editingId = owner.current;
@@ -661,7 +787,7 @@ export function ConversationHistoryWindow({
         alive.current &&
         current.current.user?.id === userId &&
         selectedRef.current?.id === session?.id &&
-        selectedRef.current?.participants[0] === characterId &&
+        selectedRef.current?.participants.includes(targetId) === true &&
         draft.current === value &&
         owner.current === editingId
       );
@@ -669,7 +795,10 @@ export function ConversationHistoryWindow({
     try {
       await flushDraft();
       if (!isCurrent()) return;
-      await command("open_characters", { characterId });
+      await command("open_characters", {
+        characterId: targetId,
+        ...(showMemories ? { showMemories: true } : {}),
+      });
     } catch (cause) {
       if (isCurrent()) setError(errorText(cause));
     } finally {
@@ -691,6 +820,14 @@ export function ConversationHistoryWindow({
         : session.participants.includes(filter)),
   );
   const participantName = selected ? sessionName(snapshot, selected) : "";
+  const started = page?.timelineEvents?.find((event) => event.kind === "started");
+  const receiptsByMessage = new Map<string, ConversationMemoryReceipt[]>();
+  for (const receipt of page?.memoryReceipts ?? []) {
+    if (!snapshot.characters.active.includes(receipt.characterId)) continue;
+    const receipts = receiptsByMessage.get(receipt.sourceMessageId) ?? [];
+    receipts.push(receipt);
+    receiptsByMessage.set(receipt.sourceMessageId, receipts);
+  }
   return (
     <Surface variant="window" className={s.window} aria-label="지난 대화 창">
       <WindowHeader
@@ -823,8 +960,16 @@ export function ConversationHistoryWindow({
               </header>
               <div className={s.log} role="log" aria-label="대화 내용">
                 <p className={s.context}>
-                  {selected.continuedFrom ? "지난 이야기에서 이어진 대화" : "대화 시작"} ·{" "}
-                  {dayLabel(selected.createdAt)} {timeLabel(selected.createdAt)}
+                  <time dateTime={new Date(started?.createdAt ?? selected.createdAt).toISOString()}>
+                    {dayLabel(started?.createdAt ?? selected.createdAt)}{" "}
+                    {timeLabel(started?.createdAt ?? selected.createdAt)}
+                  </time>
+                  {" · "}
+                  {started
+                    ? eventLabel(started)
+                    : selected.continuedFrom
+                      ? "지난 이야기에서 이어진 대화"
+                      : "대화 시작"}
                 </p>
                 {page?.nextBefore !== null && page?.nextBefore !== undefined && (
                   <Button
@@ -846,14 +991,26 @@ export function ConversationHistoryWindow({
                 {!pageLoading && page?.messages.length === 0 && (
                   <p className={s.meta}>아직 나눈 이야기가 없어요.</p>
                 )}
-                {page?.messages.map((message) => {
+                {transcriptRows(page).map((row) => {
+                  if (row.kind === "event") {
+                    return (
+                      <p className={s.context} key={`event:${row.event.id}`}>
+                        <time dateTime={new Date(row.event.createdAt).toISOString()}>
+                          {timeLabel(row.event.createdAt)}
+                        </time>
+                        {" · "}
+                        {eventLabel(row.event)}
+                      </p>
+                    );
+                  }
+                  const message = row.message;
                   const user = message.role === "user";
                   const name = user
-                    ? (page.userNames?.[message.id] ??
+                    ? (page?.userNames?.[message.id] ??
                       snapshot.messageUserNames[message.id] ??
                       snapshot.user?.name ??
                       "나")
-                    : (page.characterNames?.[message.id] ??
+                    : (page?.characterNames?.[message.id] ??
                       nameFor(snapshot, message.persona ?? ""));
                   const time = (
                     <time className={s.time} dateTime={new Date(message.createdAt).toISOString()}>
@@ -862,46 +1019,66 @@ export function ConversationHistoryWindow({
                   );
                   const provenance = user
                     ? name
-                    : `${name} · ${responseOrigin(page.messageSources?.[message.id])}`;
+                    : `${name} · ${responseOrigin(page?.messageSources?.[message.id])}`;
                   const provenanceId = `history-origin-${message.id}`;
                   return (
-                    <article
-                      className={`${s.message} ${user ? s.userMessage : ""}`}
-                      aria-label={`${name}의 메시지`}
-                      key={message.id}
-                    >
-                      {user ? (
-                        time
-                      ) : (
-                        <Avatar snapshot={snapshot} participants={[message.persona ?? ""]} />
-                      )}
-                      <div className={`${s.messageContent} ${user ? s.userMessageContent : ""}`}>
-                        <p
-                          className={`${s.bubble} ${user ? s.userBubble : ""}`}
-                          title={provenance}
-                          aria-describedby={provenanceId}
-                        >
-                          {message.content}
-                        </p>
-                        <div className={`${s.messageTools} ${user ? s.userMessageTools : ""}`}>
-                          <span className={s.messageLabel} id={provenanceId}>
-                            {provenance}
-                          </span>
-                          <ConversationMessageActions
-                            message={message}
-                            onSave={(kind) =>
-                              setSaveRequest({
-                                sessionId: selected.id,
-                                message,
-                                kind,
-                                context: selected.noteContext,
-                              })
-                            }
-                          />
+                    <div className={s.messageBlock} key={message.id}>
+                      <article
+                        className={`${s.message} ${user ? s.userMessage : ""}`}
+                        aria-label={`${name}의 메시지`}
+                      >
+                        {user ? (
+                          time
+                        ) : (
+                          <Avatar snapshot={snapshot} participants={[message.persona ?? ""]} />
+                        )}
+                        <div className={`${s.messageContent} ${user ? s.userMessageContent : ""}`}>
+                          <p
+                            className={`${s.bubble} ${user ? s.userBubble : ""}`}
+                            title={provenance}
+                            aria-describedby={provenanceId}
+                          >
+                            {message.content}
+                          </p>
+                          <div className={`${s.messageTools} ${user ? s.userMessageTools : ""}`}>
+                            <span className={s.messageLabel} id={provenanceId}>
+                              {provenance}
+                            </span>
+                            <ConversationMessageActions
+                              message={message}
+                              onSave={(kind) =>
+                                setSaveRequest({
+                                  sessionId: selected.id,
+                                  message,
+                                  kind,
+                                  context: selected.noteContext,
+                                })
+                              }
+                            />
+                          </div>
                         </div>
-                      </div>
-                      {!user && time}
-                    </article>
+                        {!user && time}
+                      </article>
+                      {(receiptsByMessage.get(message.id)?.length ?? 0) > 0 && (
+                        <div className={`${s.memoryReceipts} ${user ? s.userMemoryReceipts : ""}`}>
+                          {receiptsByMessage.get(message.id)?.map((receipt) => (
+                            <Button
+                              key={receipt.id}
+                              variant="ghost"
+                              leadingIcon={<Icon name="memory" size={15} />}
+                              className={s.memoryReceipt}
+                              disabled={pending}
+                              title={`${nameFor(snapshot, receipt.characterId)} · 최근 수정 ${dayLabel(receipt.updatedAt)} ${timeLabel(receipt.updatedAt)}`}
+                              onClick={() => {
+                                void openCharacterSettings(receipt.characterId, true);
+                              }}
+                            >
+                              기억했어요: {receipt.content}
+                            </Button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>

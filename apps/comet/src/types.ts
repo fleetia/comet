@@ -422,6 +422,20 @@ export type ConversationNoteContext = {
   body?: string;
 };
 export type ConversationNote = { noteRef: NoteReference; body: string };
+export type ConversationTimelineEvent = {
+  id: string;
+  kind: "started" | "resumed" | "focus-paused";
+  createdAt: number;
+  source?: "desktop" | "reply" | "history" | "note" | "music" | "automatic";
+  messageId?: string;
+};
+export type ConversationMemoryReceipt = {
+  id: string;
+  sourceMessageId: string;
+  characterId: string;
+  content: string;
+  updatedAt: number;
+};
 export type ConversationMessages = {
   messages: Message[];
   /** Stored origin by message ID; absent legacy origins remain unknown. */
@@ -429,6 +443,8 @@ export type ConversationMessages = {
   nextBefore: number | null;
   characterNames?: Record<string, string>;
   userNames?: Record<string, string>;
+  timelineEvents?: ConversationTimelineEvent[];
+  memoryReceipts?: ConversationMemoryReceipt[];
 };
 export type ConversationView = ConversationMessages & {
   session: ConversationSession;

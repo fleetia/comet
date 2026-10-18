@@ -1816,6 +1816,16 @@ fn starting_and_resuming_focus_cancel_existing_speech_without_erasing_the_conver
             let session = store::conversation(&db, &session_id).unwrap();
             assert_eq!(session.status, "paused");
             assert_eq!(session.draft, "쓰던 초안");
+            let events = store::conversation_view(&db, &session_id)
+                .unwrap()
+                .timeline_events;
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|event| event.kind == "focus-paused")
+                    .count(),
+                if action == "start" { 1 } else { 2 }
+            );
             assert_eq!(
                 serde_json::to_value(store::messages(&db, 100).unwrap()).unwrap(),
                 before,

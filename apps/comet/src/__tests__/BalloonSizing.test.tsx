@@ -119,6 +119,80 @@ it("measures the separate input webview without replacing the response measureme
   );
 });
 
+it("remeasures the story surface when its variable choices or feedback grow", async () => {
+  window.history.replaceState(null, "", "/?view=balloon");
+  const resized: (() => void)[] = [];
+  let height = 290;
+  let viewportHeight = 290;
+  vi.stubGlobal(
+    "ResizeObserver",
+    vi.fn(function (callback: () => void) {
+      resized.push(callback);
+      return { observe: vi.fn(), disconnect: vi.fn() };
+    }),
+  );
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback): number => {
+    callback(0);
+    return 1;
+  });
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return new DOMRect(0, 0, 340, this.tagName === "SECTION" ? viewportHeight : 196);
+  });
+  vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return this.tagName === "SECTION" ? height : 196;
+  });
+  vi.mocked(command).mockResolvedValue(undefined);
+  render(
+    <Balloon
+      snapshot={{
+        ...PREVIEW_SNAPSHOT,
+        story: {
+          id: "constellation",
+          persona: "a",
+          title: "이야기",
+          prompt: "어디로 갈까?",
+          choices: [
+            { id: "one", label: "강가를 따라서" },
+            { id: "two", label: "시장 골목으로" },
+            { id: "three", label: "오늘은 쉬자" },
+          ],
+        },
+      }}
+    />,
+  );
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("resize_balloon", {
+      width: 340,
+      height: 290,
+      contentKey: "story:constellation",
+    }),
+  );
+  height = 460;
+  viewportHeight = 138;
+  act(() => resized.forEach((callback) => callback()));
+  await waitFor(() =>
+    expect(command).toHaveBeenLastCalledWith("resize_balloon", {
+      width: 340,
+      height: 460,
+      contentKey: "story:constellation",
+    }),
+  );
+  height = 680;
+  act(() => resized.forEach((callback) => callback()));
+  await waitFor(() =>
+    expect(command).toHaveBeenLastCalledWith("resize_balloon", {
+      width: 340,
+      height: 520,
+      contentKey: "story:constellation",
+    }),
+  );
+});
+
 it("waits for fonts and discards a previous content measurement before acknowledging the next panel", async () => {
   window.history.replaceState(null, "", "/?view=balloon");
   let fontsReady!: () => void;

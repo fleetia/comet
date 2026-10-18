@@ -3,9 +3,10 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, userEvent, within } from "storybook/test";
 import { Balloon, Button, type BalloonProps } from "@comet/ui";
 import { ArrowRightIcon } from "@comet/icon";
+import { themes } from "@comet/token";
 
 const UPDATE_SPEECH_STYLE = {
-  fontSize: 19,
+  fontSize: themes.dark["typography/sans/speech/fontSize"],
   lineHeight: 1.65,
   wordBreak: "keep-all",
 } satisfies CSSProperties;

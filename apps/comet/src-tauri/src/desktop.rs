@@ -360,6 +360,51 @@ fn balloon_rect(body: Rect, area: Rect, scale: f64, size: (f64, f64)) -> Rect {
     }
 }
 
+fn story_rect(body: Rect, area: Rect, scale: f64, size: (f64, f64)) -> Option<Rect> {
+    let width = (size.0.clamp(48.0, 340.0) * scale).min(area.width);
+    let height = (size.1.clamp(32.0, 520.0) * scale).min(area.height);
+    let gap = 18.0 * scale;
+    let above = body.y - height - gap;
+    let below = body.y + body.height + gap;
+    let desired_x = body.x + body.width / 2.0 - 70.0 * scale;
+    for y in [above, below] {
+        if y >= area.y && y + height <= area.y + area.height {
+            let (x, y) = clamp_position(desired_x, y, width, height, area);
+            return Some(Rect {
+                x,
+                y,
+                width,
+                height,
+            });
+        }
+    }
+    regions_around(area, body, gap)
+        .into_iter()
+        .filter(|region| region.width >= 48.0 * scale && region.height >= 32.0 * scale)
+        .map(|region| {
+            let width = width.min(region.width);
+            let height = height.min(region.height);
+            let (x, y) = clamp_position(desired_x, above, width, height, region);
+            Rect {
+                x,
+                y,
+                width,
+                height,
+            }
+        })
+        .max_by(|left, right| {
+            let score = |rect: &Rect| {
+                (
+                    rect.width * rect.height,
+                    -((rect.x - desired_x).abs() + (rect.y - above).abs()),
+                )
+            };
+            score(left)
+                .partial_cmp(&score(right))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+}
+
 fn regions_around(area: Rect, obstacle: Rect, gap: f64) -> Vec<Rect> {
     let left = (obstacle.x - gap).clamp(area.x, area.x + area.width);
     let right = (obstacle.x + obstacle.width + gap).clamp(area.x, area.x + area.width);
@@ -1345,10 +1390,17 @@ fn position_balloon(
     size: (f64, f64),
     orbit_anchor: Option<OrbitAnchor>,
     conversation: bool,
+    story: bool,
 ) -> Result<Option<BalloonPlacement>, String> {
     let (body, area, scale) = balloon_owner_geometry(app, id)?;
     let (rect, placement) = if conversation {
         let Some(rect) = conversation_rect(body, area, scale, size, false, None) else {
+            window.hide().map_err(|error| error.to_string())?;
+            return Ok(None);
+        };
+        (rect, BalloonPlacement::default())
+    } else if story {
+        let Some(rect) = story_rect(body, area, scale, size) else {
             window.hide().map_err(|error| error.to_string())?;
             return Ok(None);
         };
@@ -1524,6 +1576,7 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         size,
         layout.orbit_anchor,
         conversation,
+        target.key.starts_with("story:"),
     )?
     else {
         return Ok(Some(BalloonPlacement::default()));
@@ -1571,7 +1624,12 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
     }
     drop((playback, story));
     if let Some((id, at)) = displayed_message {
-        store::mark_message_displayed(&db, &id, chrono::Utc::now().timestamp_millis())?;
+        store::mark_message_displayed_with_provenance(
+            &db,
+            &id,
+            at,
+            Some(state.automatic.load(Ordering::SeqCst)),
+        )?;
         if let Some(ticket) = super::lock(&state.tasks)?.participants.clone() {
             crate::character_guests::hear_displayed_locked(&state, &db, &ticket, &id, at)?;
         }
@@ -2932,6 +2990,84 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn story_aligns_the_character_with_the_constellation_and_keeps_its_gap() {
+        for scale in [1.0, 2.0] {
+            let area = Rect {
+                x: -1500.0 * scale,
+                y: 20.0 * scale,
+                width: 1440.0 * scale,
+                height: 900.0 * scale,
+            };
+            let body = Rect {
+                x: -1100.0 * scale,
+                y: 700.0 * scale,
+                width: 96.0 * scale,
+                height: 96.0 * scale,
+            };
+            for height in [230.0, 290.0, 460.0, 520.0] {
+                let story = story_rect(body, area, scale, (340.0, height)).unwrap();
+                assert_eq!(story.x + 70.0 * scale, body.x + body.width / 2.0);
+                assert_eq!(story.y + story.height + 18.0 * scale, body.y);
+                assert_eq!(story.width, 340.0 * scale);
+                assert_eq!(story.height, height * scale);
+            }
+            let top_body = Rect {
+                x: area.x,
+                y: area.y,
+                ..body
+            };
+            let story = story_rect(top_body, area, scale, (340.0, 290.0)).unwrap();
+            assert_eq!(story.x, area.x);
+            assert_eq!(story.y, top_body.y + top_body.height + 18.0 * scale);
+            assert!(story.x + story.width <= area.x + area.width);
+            assert!(story.y + story.height <= area.y + area.height);
+        }
+    }
+
+    #[test]
+    fn story_uses_free_space_without_covering_a_middle_character() {
+        for scale in [1.0, 2.0] {
+            for (area_width, area_height) in [(1440.0, 900.0), (360.0, 400.0)] {
+                let area = Rect {
+                    x: -1500.0 * scale,
+                    y: 20.0 * scale,
+                    width: area_width * scale,
+                    height: area_height * scale,
+                };
+                let body = Rect {
+                    x: area.x + area.width / 2.0 - 56.0 * scale,
+                    y: area.y + area.height / 2.0 - 44.0 * scale,
+                    width: 112.0 * scale,
+                    height: 88.0 * scale,
+                };
+                let story = story_rect(body, area, scale, (340.0, 520.0)).unwrap();
+                let gap = 18.0 * scale;
+                assert!(story.x >= area.x && story.y >= area.y);
+                assert!(story.x + story.width <= area.x + area.width);
+                assert!(story.y + story.height <= area.y + area.height);
+                assert!(
+                    story.x + story.width + gap <= body.x
+                        || story.x >= body.x + body.width + gap
+                        || story.y + story.height + gap <= body.y
+                        || story.y >= body.y + body.height + gap
+                );
+                if area_width > 1000.0 {
+                    assert_eq!(story.height, 520.0 * scale);
+                } else {
+                    assert!(story.height < 520.0 * scale);
+                }
+            }
+        }
+        let area = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 112.0,
+            height: 88.0,
+        };
+        assert!(story_rect(area, area, 1.0, (340.0, 520.0)).is_none());
     }
 
     #[test]

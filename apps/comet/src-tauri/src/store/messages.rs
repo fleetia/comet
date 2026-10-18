@@ -666,8 +666,21 @@ pub fn message_targets(conn: &Connection, message_id: &str) -> Result<Vec<String
 }
 
 pub fn mark_message_displayed(conn: &Connection, id: &str, at: i64) -> Result<()> {
-    conn.execute("INSERT OR IGNORE INTO message_presentations SELECT id,?2 FROM messages WHERE id=?1 AND role='assistant'",params![id,at]).map_err(err)?;
+    mark_message_displayed_with_provenance(conn, id, at, None)
+}
+
+pub fn mark_message_displayed_with_provenance(
+    conn: &Connection,
+    id: &str,
+    at: i64,
+    automatic: Option<bool>,
+) -> Result<()> {
+    conn.execute("INSERT OR IGNORE INTO message_presentations(message_id,shown_at,automatic) SELECT m.id,?2,?3 FROM messages m JOIN message_users u ON u.message_id=m.id WHERE m.id=?1 AND m.role='assistant' AND u.user_id=?4",params![id,at,automatic,super::active_user_id(conn)?]).map_err(err)?;
     Ok(())
+}
+
+pub fn automatic_message_displayed_at(conn: &Connection, id: &str) -> Result<Option<i64>> {
+    conn.query_row("SELECT p.shown_at FROM message_presentations p JOIN message_users u ON u.message_id=p.message_id WHERE p.message_id=?1 AND p.automatic=1 AND u.user_id=?2",params![id,super::active_user_id(conn)?],|row|row.get(0)).optional().map_err(err)
 }
 
 pub fn message_displayed(conn: &Connection, id: &str) -> Result<bool> {

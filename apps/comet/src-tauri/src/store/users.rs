@@ -37,6 +37,12 @@ pub(super) fn initialize(conn: &Connection) -> Result<()> {
         CREATE TABLE IF NOT EXISTS recall_dependencies(key TEXT NOT NULL,memory_id TEXT NOT NULL,content_version INTEGER NOT NULL,PRIMARY KEY(key,memory_id));
         CREATE TABLE IF NOT EXISTS recall_sources(key TEXT NOT NULL,message_id TEXT NOT NULL,character_id TEXT NOT NULL,user_id TEXT NOT NULL,PRIMARY KEY(key,message_id,character_id));")
         .map_err(err)?;
+    add_column(
+        &tx,
+        "message_presentations",
+        "automatic",
+        "INTEGER CHECK(automatic IN (0,1))",
+    )?;
     for (column, definition) in [
         ("character_id", "TEXT NOT NULL DEFAULT ''"),
         ("user_id", "TEXT NOT NULL DEFAULT 'legacy-user'"),

@@ -67,7 +67,7 @@ pub(crate) fn change<T>(
     let was_focused = storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?;
     let result = action(&db)?;
     if !was_focused && storage::focus_active(&db, chrono::Utc::now().timestamp_millis())? {
-        store::pause_conversations(&db)?;
+        store::pause_conversations_for_focus(&db, chrono::Utc::now().timestamp_millis())?;
         let (epoch, _) = crate::app::interrupt_with_db(state, false, &db)?;
         state.widget_epoch.store(epoch, Ordering::SeqCst);
         *lock(&state.panel)? = None;

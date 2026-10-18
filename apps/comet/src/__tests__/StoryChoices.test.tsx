@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { StoryChoices } from "../components/StoryChoices/StoryChoices";
 import { Balloon } from "../components/Balloon/Balloon";
 import { PREVIEW_SNAPSHOT } from "../previewSnapshot";
@@ -52,4 +53,87 @@ it("defers without submitting an affinity choice", async () => {
   await waitFor(() =>
     expect(dispatch).toHaveBeenCalledExactlyOnceWith("defer_story", { requestId: "request-1" }),
   );
+});
+
+it.each([2, 4])(
+  "keeps %i choices and their long original text keyboard accessible",
+  async (count) => {
+    const user = userEvent.setup();
+    const dispatch = vi.fn().mockResolvedValue(undefined);
+    const original = {
+      ...story,
+      title: "  원래  제목\n다음 줄 ",
+      prompt: "  오래된  질문\n그대로 이어지는 원문 ",
+      choices: Array.from({ length: count }, (_, index) => ({
+        id: `choice-${index}`,
+        label: `선택 ${index}  ${"긴 한국어 원문을 그대로 유지해 주세요. ".repeat(5)}\n마지막 줄 `,
+      })),
+    };
+    render(<StoryChoices story={original} dispatch={dispatch} />);
+    expect(screen.getByRole("group", { name: /원래 제목\s+다음 줄/ })).toBeTruthy();
+    expect(screen.getByText(/오래된/).textContent).toBe(original.prompt);
+    const choices = within(screen.getByRole("group", { name: "이야기 선택지" })).getAllByRole(
+      "button",
+    );
+    expect(choices).toHaveLength(count);
+    choices.forEach((choice, index) =>
+      expect(choice.textContent).toBe(original.choices[index].label),
+    );
+    for (let index = 0; index < count; index += 1) await user.tab();
+    expect(document.activeElement).toBe(choices[count - 1]);
+    await user.keyboard("{Enter}");
+    expect(dispatch).toHaveBeenCalledExactlyOnceWith("choose_story", {
+      requestId: story.id,
+      choiceId: `choice-${count - 1}`,
+    });
+  },
+);
+
+it("can close a pending choice and ignores its late failure after the story is replaced", async () => {
+  let reject!: (cause: Error) => void;
+  const dispatch = vi.fn().mockImplementation((command) =>
+    command === "choose_story"
+      ? new Promise<void>((_, fail) => {
+          reject = fail;
+        })
+      : Promise.resolve(),
+  );
+  const { rerender } = render(
+    <Balloon preview snapshot={{ ...PREVIEW_SNAPSHOT, story }} dispatch={dispatch} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: story.choices[0].label }));
+  expect(screen.getByRole("status").textContent).toBe("이야기를 이어가고 있어요.");
+  fireEvent.click(screen.getByRole("button", { name: "이야기 닫기" }));
+  await waitFor(() => expect(dispatch).toHaveBeenCalledWith("skip_talk", undefined));
+  rerender(
+    <Balloon
+      preview
+      snapshot={{ ...PREVIEW_SNAPSHOT, story: { ...story, id: "request-2" } }}
+      dispatch={dispatch}
+    />,
+  );
+  await act(async () => reject(new Error("예전 선택의 늦은 오류")));
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(
+    (screen.getByRole("button", { name: story.choices[0].label }) as HTMLButtonElement).disabled,
+  ).toBe(false);
+  fireEvent.keyDown(window, { key: "Escape" });
+  await waitFor(() =>
+    expect(dispatch.mock.calls.filter(([name]) => name === "skip_talk")).toHaveLength(2),
+  );
+});
+
+it("keeps an explicit pack text style on the story prompt", () => {
+  render(
+    <StoryChoices
+      story={story}
+      dispatch={vi.fn()}
+      textStyle={{ fontFamily: "serif", fontSize: 23, fontWeight: 700, color: "rgb(12, 34, 56)" }}
+    />,
+  );
+  const prompt = screen.getByText(story.prompt);
+  expect(prompt.style.fontSize).toBe("23px");
+  expect(prompt.style.fontFamily).toBe("serif");
+  expect(prompt.style.fontWeight).toBe("700");
+  expect(prompt.style.color).toBe("rgb(12, 34, 56)");
 });

@@ -278,7 +278,7 @@ it("uses each speaker's saved typography for speech and story prompts and restor
   expect(speech.style.color).toBe("rgb(153, 51, 102)");
   expect(speech.style.fontFamily).toContain('"Georgia"');
   rerender(<Balloon snapshot={{ ...snapshot, playback: playing("평온") }} />);
-  expect(speech.style.fontSize).toBe("19px");
+  expect(speech.style.fontSize).toBe("16px");
   expect(speech.style.color).toBe("");
   expect(speech.style.fontFamily).toBe("");
   rerender(

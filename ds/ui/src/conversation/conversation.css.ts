@@ -139,7 +139,10 @@ export const input = style({
   lineHeight: "20px",
   selectors: { "&::placeholder": { color: tokens["color/ink-3"] } },
 });
-export const inputLarge = style({ fontSize: 15, lineHeight: "normal" });
+export const inputLarge = style({
+  fontSize: tokens["typography/display/title-sm/fontSize"],
+  lineHeight: "normal",
+});
 export const send = style([
   stateTransition,
   {
@@ -219,8 +222,9 @@ export const choice = style([
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    height: 36,
-    padding: "0 12px",
+    boxSizing: "border-box",
+    minHeight: 38,
+    padding: "7.5px 15px 7.5px 11px",
     appearance: "none",
     color: tokens["color/ink"],
     fontFamily: tokens["typography/sans/body/fontFamily"],
@@ -231,7 +235,10 @@ export const choice = style([
     background: tokens["color/glass-pill"],
     backdropFilter: "blur(8px)",
     boxShadow: `0 8px 20px ${tokens["color/component/surface-shadow-alpha-240"]}`,
-    whiteSpace: "nowrap",
+    whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere",
+    maxWidth: "100%",
+    textAlign: "left",
     cursor: "pointer",
     selectors: {
       "&:hover:not(:disabled)": { background: tokens["color/selected"] },
@@ -245,10 +252,37 @@ export const choiceSelected = style({
   color: tokens["color/selected-ink"],
 });
 export const fading = style({ opacity: 0.3, cursor: "default" });
-export const choices = style({ position: "relative", width: 340, height: 196 });
+export const choiceIcon = style({
+  width: 15,
+  height: 15,
+  flexShrink: 0,
+  display: "flex",
+  alignItems: "flex-start",
+});
+export const choiceLabel = style({ minWidth: 0 });
+export const choices = style({
+  position: "relative",
+  width: 340,
+  display: "flex",
+  flexDirection: "column",
+  gap: 20,
+  paddingTop: 30,
+  paddingBottom: 10,
+  boxSizing: "border-box",
+});
 export const choiceLine = style({ position: "absolute", top: 0, left: 0, pointerEvents: "none" });
-export const choicePositions = styleVariants({
-  first: { position: "absolute", top: 30, left: 0 },
-  second: { position: "absolute", top: 88, left: 152 },
-  third: { position: "absolute", top: 148, left: 36 },
+export const dynamicLine = style({
+  fill: "none",
+  stroke: tokens["color/star-border"],
+  strokeWidth: 1,
+  strokeDasharray: "2 6",
+});
+export const choiceRow = style({
+  position: "relative",
+  display: "flex",
+  alignItems: "flex-start",
+  selectors: {
+    "&:nth-of-type(even)": { paddingLeft: 152 },
+    '&[data-position="2"]': { paddingLeft: 36, marginTop: 2 },
+  },
 });

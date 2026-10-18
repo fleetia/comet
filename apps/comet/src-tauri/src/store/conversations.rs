@@ -33,6 +33,32 @@ pub struct ConversationMessages {
     pub user_names: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub message_sources: BTreeMap<String, String>,
+    #[serde(default)]
+    pub timeline_events: Vec<ConversationEvent>,
+    #[serde(default)]
+    pub memory_receipts: Vec<ConversationMemoryReceipt>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationEvent {
+    pub id: String,
+    pub kind: String,
+    pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationMemoryReceipt {
+    pub id: String,
+    pub source_message_id: String,
+    pub character_id: String,
+    pub content: String,
+    pub updated_at: i64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -51,6 +77,10 @@ pub struct ConversationView {
     pub user_names: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub message_sources: BTreeMap<String, String>,
+    #[serde(default)]
+    pub timeline_events: Vec<ConversationEvent>,
+    #[serde(default)]
+    pub memory_receipts: Vec<ConversationMemoryReceipt>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -99,6 +129,18 @@ pub(super) fn initialize_conversations(conn: &Connection) -> Result<()> {
         );
         CREATE INDEX IF NOT EXISTS conversation_messages_message
             ON conversation_messages(message_id);
+        CREATE TABLE IF NOT EXISTS conversation_events(
+            id TEXT PRIMARY KEY,
+            conversation_id TEXT NOT NULL REFERENCES conversation_sessions(id),
+            kind TEXT NOT NULL CHECK(kind IN ('started','resumed','focus-paused')),
+            created_at INTEGER NOT NULL,
+            source TEXT,
+            message_id TEXT REFERENCES messages(id)
+        );
+        CREATE INDEX IF NOT EXISTS conversation_events_session
+            ON conversation_events(conversation_id,created_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS conversation_events_start
+            ON conversation_events(conversation_id) WHERE kind='started';
         CREATE TABLE IF NOT EXISTS conversation_message_disclosure(
             message_id TEXT NOT NULL REFERENCES messages(id),
             nadir_id TEXT NOT NULL,
@@ -233,6 +275,24 @@ pub fn create_conversation(
     continued_from: Option<&str>,
     at: i64,
 ) -> Result<ConversationSession> {
+    create_conversation_with_source(
+        conn,
+        participants,
+        seed_message_id,
+        continued_from,
+        at,
+        None,
+    )
+}
+
+pub fn create_conversation_with_source(
+    conn: &Connection,
+    participants: &[String],
+    seed_message_id: Option<&str>,
+    continued_from: Option<&str>,
+    at: i64,
+    source: Option<&str>,
+) -> Result<ConversationSession> {
     let tx = conn.unchecked_transaction().map_err(err)?;
     let participants = active_participants(&tx, participants)?;
     let mut note_context = None;
@@ -243,12 +303,21 @@ pub fn create_conversation(
         }
         note_context = parent.note_context;
     }
+    let event_at = if source == Some("automatic") {
+        seed_message_id
+            .map(|message_id| super::automatic_message_displayed_at(&tx, message_id))
+            .transpose()?
+            .flatten()
+            .ok_or("실제로 표시된 자동 발화만 시작 사건에 남길 수 있어요.")?
+    } else {
+        at
+    };
     let id = uuid::Uuid::new_v4().to_string();
     pause_conversations(&tx)?;
     tx.execute(
         "INSERT INTO conversation_sessions(id,user_id,participants,status,title,created_at,updated_at,continued_from,note_context)
-         VALUES(?1,?2,?3,'active','새 대화',?4,?4,?5,?6)",
-        params![id, active_user_id(&tx)?, serde_json::to_string(&participants).map_err(err)?, at, continued_from, note_context.as_ref().map(serde_json::to_string).transpose().map_err(err)?],
+         VALUES(?1,?2,?3,'active','새 대화',?4,?5,?6,?7)",
+        params![id, active_user_id(&tx)?, serde_json::to_string(&participants).map_err(err)?, event_at, at, continued_from, note_context.as_ref().map(serde_json::to_string).transpose().map_err(err)?],
     ).map_err(err)?;
     if let Some(seed) = seed_message_id {
         let message = attachable_message(&tx, &conversation(&tx, &id)?, seed, true)?;
@@ -257,9 +326,115 @@ pub fn create_conversation(
         }
         attach_conversation_message(&tx, &id, seed)?;
     }
+    record_conversation_event(&tx, &id, "started", source, seed_message_id, event_at)?;
     let result = conversation(&tx, &id)?;
     tx.commit().map_err(err)?;
     Ok(result)
+}
+
+pub fn record_conversation_event(
+    conn: &Connection,
+    id: &str,
+    kind: &str,
+    source: Option<&str>,
+    message_id: Option<&str>,
+    at: i64,
+) -> Result<()> {
+    let session = conversation(conn, id)?;
+    if !matches!(kind, "started" | "resumed" | "focus-paused")
+        || source.is_some_and(|source| {
+            !matches!(
+                source,
+                "desktop" | "reply" | "automatic" | "history" | "note" | "music"
+            )
+        })
+    {
+        return Err("알 수 없는 대화 사건이에요.".into());
+    }
+    if let Some(message_id) = message_id {
+        let linked: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM conversation_messages cm JOIN message_users mu ON mu.message_id=cm.message_id
+             WHERE cm.conversation_id=?1 AND cm.message_id=?2 AND mu.user_id=?3)",
+            params![id, message_id, session.user_id], |row| row.get(0),
+        ).map_err(err)?;
+        if !linked {
+            return Err("대화에 연결된 원문만 사건에 남길 수 있어요.".into());
+        }
+    }
+    conn.execute(
+        "INSERT INTO conversation_events(id,conversation_id,kind,created_at,source,message_id) VALUES(?1,?2,?3,?4,?5,?6)",
+        params![uuid::Uuid::new_v4().to_string(), id, kind, at, source, message_id],
+    ).map_err(err)?;
+    Ok(())
+}
+
+pub fn pause_conversations_for_focus(conn: &Connection, at: i64) -> Result<()> {
+    let tx = conn.unchecked_transaction().map_err(err)?;
+    if let Some(session) = active_conversation(&tx)? {
+        record_conversation_event(&tx, &session.id, "focus-paused", None, None, at)?;
+    }
+    pause_conversations(&tx)?;
+    tx.commit().map_err(err)
+}
+
+fn conversation_events(conn: &Connection, id: &str) -> Result<Vec<ConversationEvent>> {
+    let mut statement = conn.prepare(
+        "SELECT id,kind,created_at,source,message_id FROM conversation_events WHERE conversation_id=?1 ORDER BY created_at,rowid"
+    ).map_err(err)?;
+    let events = statement
+        .query_map([id], |row| {
+            Ok(ConversationEvent {
+                id: row.get(0)?,
+                kind: row.get(1)?,
+                created_at: row.get(2)?,
+                source: row.get(3)?,
+                message_id: row.get(4)?,
+            })
+        })
+        .map_err(err)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(err)?;
+    Ok(events)
+}
+
+fn conversation_memory_receipts(
+    conn: &Connection,
+    session: &ConversationSession,
+    messages: &[Message],
+) -> Result<Vec<ConversationMemoryReceipt>> {
+    let ids: Vec<&str> = messages.iter().map(|message| message.id.as_str()).collect();
+    let mut statement = conn
+        .prepare(
+            "SELECT m.id,m.source,m.character_id,m.content,m.updated FROM memories m
+         JOIN user_identities u ON u.id=m.user_id JOIN message_users mu ON mu.message_id=m.source
+         WHERE m.user_id=?1 AND mu.user_id=?1 AND u.ended_at IS NULL AND m.deleted=0 AND m.expired=0
+           AND m.character_id IN (SELECT value FROM json_each(?2))
+           AND m.character_id IN (SELECT character_id FROM character_roster)
+           AND m.source IN (SELECT value FROM json_each(?3))
+         ORDER BY m.updated,m.id",
+        )
+        .map_err(err)?;
+    let receipts = statement
+        .query_map(
+            params![
+                session.user_id,
+                serde_json::to_string(&session.participants).map_err(err)?,
+                serde_json::to_string(&ids).map_err(err)?
+            ],
+            |row| {
+                Ok(ConversationMemoryReceipt {
+                    id: row.get(0)?,
+                    source_message_id: row.get(1)?,
+                    character_id: row.get(2)?,
+                    content: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            },
+        )
+        .map_err(err)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(err)?;
+    Ok(receipts)
 }
 
 pub fn pause_conversations(conn: &Connection) -> Result<()> {
@@ -524,6 +699,8 @@ pub fn conversation_messages(
         }
     }
     Ok(ConversationMessages {
+        timeline_events: conversation_events(conn, id)?,
+        memory_receipts: conversation_memory_receipts(conn, &session, &messages)?,
         messages,
         next_before,
         character_names,
@@ -659,6 +836,8 @@ pub fn conversation_view(conn: &Connection, id: &str) -> Result<ConversationView
         character_names: page.character_names,
         user_names: page.user_names,
         message_sources: page.message_sources,
+        timeline_events: page.timeline_events,
+        memory_receipts: page.memory_receipts,
     })
 }
 
@@ -814,6 +993,296 @@ mod tests {
 
     fn ids(messages: &[Message]) -> Vec<&str> {
         messages.iter().map(|message| message.id.as_str()).collect()
+    }
+
+    #[test]
+    fn conversation_events_survive_reopen_and_pages_without_backfilling_legacy_sessions() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("timeline.sqlite");
+        let (session_id, events) = {
+            let db = store::open(&path).unwrap();
+            store::set_user_name(&db, "사건 검사", 1).unwrap();
+            let session = create_conversation_with_source(
+                &db,
+                &["builtin-a".into()],
+                None,
+                None,
+                10,
+                Some("desktop"),
+            )
+            .unwrap();
+            for index in 0..105 {
+                append(
+                    &db,
+                    &session,
+                    &message(&format!("timeline-{index}"), "user", "a", "원문"),
+                );
+            }
+            pause_conversations_for_focus(&db, 20).unwrap();
+            pause_conversations_for_focus(&db, 21).unwrap();
+            set_conversation_status(&db, &session.id, "active", 30).unwrap();
+            record_conversation_event(&db, &session.id, "resumed", Some("history"), None, 30)
+                .unwrap();
+            let page = conversation_messages(&db, &session.id, None).unwrap();
+            assert_eq!(
+                page.timeline_events
+                    .iter()
+                    .map(|event| event.kind.as_str())
+                    .collect::<Vec<_>>(),
+                ["started", "focus-paused", "resumed"]
+            );
+            assert_eq!(page.timeline_events[0].source.as_deref(), Some("desktop"));
+            assert_eq!(
+                page.timeline_events,
+                conversation_messages(&db, &session.id, page.next_before)
+                    .unwrap()
+                    .timeline_events
+            );
+            db.execute("INSERT INTO conversation_sessions(id,user_id,participants,status,title,created_at,updated_at) VALUES('legacy',?1,'[\"builtin-a\"]','paused','과거 대화',1,1)", [&session.user_id]).unwrap();
+            store::insert_message_with_source(
+                &db,
+                &message("legacy-display", "assistant", "a", "예전 원문"),
+                "script",
+                None,
+                false,
+            )
+            .unwrap();
+            store::mark_message_displayed(&db, "legacy-display", 5).unwrap();
+            db.execute_batch("ALTER TABLE message_presentations DROP COLUMN automatic")
+                .unwrap();
+            (session.id, page.timeline_events)
+        };
+        let db = store::open(&path).unwrap();
+        assert_eq!(
+            store::automatic_message_displayed_at(&db, "legacy-display").unwrap(),
+            None
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT shown_at FROM message_presentations WHERE message_id='legacy-display'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            5
+        );
+        assert_eq!(
+            conversation_view(&db, &session_id).unwrap().timeline_events,
+            events
+        );
+        assert!(conversation_view(&db, "legacy")
+            .unwrap()
+            .timeline_events
+            .is_empty());
+        store::set_user_name(&db, "다른 사용자", 40).unwrap();
+        assert!(conversation_messages(&db, &session_id, None).is_err());
+        assert!(record_conversation_event(&db, &session_id, "resumed", None, None, 40).is_err());
+    }
+
+    #[test]
+    fn automatic_start_requires_an_observed_display_and_keeps_its_original_time() {
+        let db = store::open(Path::new(":memory:")).unwrap();
+        store::set_user_name(&db, "발화 검사", 1).unwrap();
+        for (id, automatic) in [
+            ("automatic", Some(true)),
+            ("manual", Some(false)),
+            ("unknown", None),
+        ] {
+            let line = Message {
+                created_at: 20,
+                ..message(id, "assistant", "a", "  첫 말\n원문  ")
+            };
+            store::insert_message_with_source(&db, &line, "script", None, false).unwrap();
+            assert_eq!(
+                store::automatic_message_displayed_at(&db, id).unwrap(),
+                None
+            );
+            assert!(create_conversation_with_source(
+                &db,
+                &["builtin-a".into()],
+                Some(id),
+                None,
+                80,
+                Some("automatic")
+            )
+            .is_err());
+            store::mark_message_displayed_with_provenance(&db, id, 40, automatic).unwrap();
+            store::mark_message_displayed_with_provenance(
+                &db,
+                id,
+                90,
+                Some(!automatic.unwrap_or(false)),
+            )
+            .unwrap();
+            let source = if automatic == Some(true) {
+                "automatic"
+            } else {
+                "reply"
+            };
+            let session = create_conversation_with_source(
+                &db,
+                &["builtin-a".into()],
+                Some(id),
+                None,
+                100,
+                Some(source),
+            )
+            .unwrap();
+            let view = conversation_view(&db, &session.id).unwrap();
+            assert_eq!(view.timeline_events[0].source.as_deref(), Some(source));
+            assert_eq!(view.timeline_events[0].message_id.as_deref(), Some(id));
+            assert_eq!(
+                view.timeline_events[0].created_at,
+                if automatic == Some(true) { 40 } else { 100 }
+            );
+            assert_eq!(view.session.created_at, view.timeline_events[0].created_at);
+            assert_eq!(view.session.updated_at, 100);
+            assert_eq!(view.messages[0].content, line.content);
+            assert_eq!(view.message_sources[id], "script");
+        }
+        store::set_user_name(&db, "새 사용자", 110).unwrap();
+        assert_eq!(
+            store::automatic_message_displayed_at(&db, "automatic").unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn memory_receipts_follow_visible_pages_and_current_user_character_and_memory_state() {
+        let db = store::open(Path::new(":memory:")).unwrap();
+        store::set_user_name(&db, "기억 검사", 1).unwrap();
+        let session = start(&db);
+        for index in 0..105 {
+            append(
+                &db,
+                &session,
+                &message(
+                    &format!("receipt-{index}"),
+                    "user",
+                    "a",
+                    "  구름을 보는 걸 좋아해요\n원문  ",
+                ),
+            );
+        }
+        append(
+            &db,
+            &session,
+            &message("unseen-receipt", "assistant", "a", "표시되지 않은 말"),
+        );
+        db.execute("INSERT INTO message_playback(message_id,revision,line) VALUES('unseen-receipt',1,'{}')", []).unwrap();
+        for (id, source, character, user, deleted, expired) in [
+            (
+                "old-page",
+                "receipt-0",
+                "builtin-a",
+                session.user_id.as_str(),
+                0,
+                0,
+            ),
+            (
+                "visible",
+                "receipt-104",
+                "builtin-a",
+                session.user_id.as_str(),
+                0,
+                0,
+            ),
+            (
+                "hidden",
+                "unseen-receipt",
+                "builtin-a",
+                session.user_id.as_str(),
+                0,
+                0,
+            ),
+            (
+                "deleted",
+                "receipt-104",
+                "builtin-a",
+                session.user_id.as_str(),
+                1,
+                0,
+            ),
+            (
+                "expired",
+                "receipt-104",
+                "builtin-a",
+                session.user_id.as_str(),
+                0,
+                1,
+            ),
+            (
+                "wrong-friend",
+                "receipt-104",
+                "builtin-b",
+                session.user_id.as_str(),
+                0,
+                0,
+            ),
+            (
+                "wrong-user",
+                "receipt-104",
+                "builtin-a",
+                "another-user",
+                0,
+                0,
+            ),
+        ] {
+            db.execute("INSERT INTO memories(id,content,source,updated,character_id,user_id,deleted,expired) VALUES(?1,?1,?2,10,?3,?4,?5,?6)",params![id,source,character,user,deleted,expired]).unwrap();
+        }
+        let view = conversation_view(&db, &session.id).unwrap();
+        assert_eq!(view.memory_receipts.len(), 1);
+        assert_eq!(view.memory_receipts[0].id, "visible");
+        assert_eq!(view.memory_receipts[0].source_message_id, "receipt-104");
+        assert_eq!(
+            conversation_messages(&db, &session.id, view.next_before)
+                .unwrap()
+                .memory_receipts[0]
+                .id,
+            "old-page"
+        );
+        store::edit_memory(&db, "visible", "수정한 기억").unwrap();
+        assert_eq!(
+            conversation_view(&db, &session.id).unwrap().memory_receipts[0].content,
+            "수정한 기억"
+        );
+        assert_eq!(
+            conversation_view(&db, &session.id)
+                .unwrap()
+                .messages
+                .last()
+                .unwrap()
+                .content,
+            "  구름을 보는 걸 좋아해요\n원문  "
+        );
+        db.execute(
+            "DELETE FROM character_roster WHERE character_id='builtin-a'",
+            [],
+        )
+        .unwrap();
+        assert!(conversation_view(&db, &session.id)
+            .unwrap()
+            .memory_receipts
+            .is_empty());
+        db.execute(
+            "INSERT INTO character_roster(position,character_id) VALUES(0,'builtin-a')",
+            [],
+        )
+        .unwrap();
+        store::delete_memory(&db, "visible").unwrap();
+        assert!(conversation_view(&db, &session.id)
+            .unwrap()
+            .memory_receipts
+            .is_empty());
+        db.execute(
+            "UPDATE user_identities SET ended_at=20 WHERE id=?1",
+            [&session.user_id],
+        )
+        .unwrap();
+        assert!(conversation_messages(&db, &session.id, view.next_before)
+            .unwrap()
+            .memory_receipts
+            .is_empty());
     }
 
     #[test]

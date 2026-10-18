@@ -96,7 +96,7 @@ pub struct BalloonStyle {
 impl Default for BalloonStyle {
     fn default() -> Self {
         Self {
-            font_size: 19,
+            font_size: 16,
             font_family: String::new(),
             text_color: None,
             text_speed: 0,
