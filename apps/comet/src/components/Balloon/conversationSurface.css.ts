@@ -1,9 +1,7 @@
 import { style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
-import { conversationTheme } from "../../theme.css";
 
 export const inputHost = style([
-  conversationTheme,
   {
     width: 344,
     maxHeight: 520,
@@ -51,7 +49,6 @@ export const inputError = style({
   overflowWrap: "anywhere",
 });
 export const responseHost = style([
-  conversationTheme,
   {
     boxSizing: "border-box",
     width: 340,

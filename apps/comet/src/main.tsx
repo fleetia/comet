@@ -9,7 +9,7 @@ import { command, isDesktop } from "./hooks/useSnapshot";
 import { initializeAnalytics, initializeErrorReporting } from "./analytics";
 import "./fonts.css";
 
-document.documentElement.classList.add(desktop.documentRoot, desktop.theme);
+document.documentElement.classList.add(desktop.documentRoot);
 document.documentElement.dataset.cometTheme = "dark";
 initializeErrorReporting();
 void initializeAnalytics();
@@ -31,7 +31,7 @@ if (isDesktop()) {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ThemeRoot theme="dark" className={`${desktop.theme} ${desktop.root}`}>
+    <ThemeRoot theme="dark" className={desktop.root}>
       <App />
     </ThemeRoot>
   </StrictMode>,

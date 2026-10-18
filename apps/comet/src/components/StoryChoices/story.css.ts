@@ -1,9 +1,7 @@
 import { style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
-import { conversationTheme } from "../../theme.css";
 
 export const host = style([
-  conversationTheme,
   {
     position: "relative",
     width: 340,
