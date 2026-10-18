@@ -508,7 +508,7 @@ pub(crate) fn update_diary(
     };
     let _ = app.emit("diary-updated", &saved);
     if action == "move-record" {
-        crate::widget_commands::publish_widgets(&app, &state);
+        crate::widgets::commands::publish_widgets(&app, &state);
     }
     Ok(saved)
 }

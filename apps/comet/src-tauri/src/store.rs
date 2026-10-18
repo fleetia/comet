@@ -1,16 +1,9 @@
-#[path = "store/analysis.rs"]
 mod analysis;
-#[path = "store/conversations.rs"]
 mod conversations;
-#[path = "store/memory.rs"]
 mod memory;
-#[path = "store/messages.rs"]
 mod messages;
-#[path = "store/quiet_hours.rs"]
 mod quiet_hours;
-#[path = "store/search.rs"]
 mod search;
-#[path = "store/users.rs"]
 mod users;
 
 #[cfg(test)]
@@ -111,10 +104,10 @@ INSERT OR IGNORE INTO kv VALUES('revision','0');").map_err(err)?;
     crate::widgets::storage::initialize(&conn)?;
     quiet_hours::migrate(&conn)?;
     crate::diary::initialize(&conn)?;
-    crate::generated_widgets::initialize(&conn)?;
+    crate::widgets::generated::initialize(&conn)?;
     crate::pack_stories::initialize(&conn)?;
     crate::organizer::initialize(&conn)?;
-    crate::organizer_actions::initialize(&conn)?;
+    crate::organizer::actions::initialize(&conn)?;
     Ok(conn)
 }
 
@@ -212,9 +205,7 @@ pub fn set_window_position(conn: &Connection, label: &str, pos: &WindowPosition)
 }
 
 #[cfg(test)]
-#[path = "store/tests.rs"]
 mod tests;
 
 #[cfg(test)]
-#[path = "store/identity_tests.rs"]
 mod identity_tests;

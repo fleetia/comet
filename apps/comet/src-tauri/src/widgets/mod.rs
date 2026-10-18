@@ -1,3 +1,10 @@
+pub(crate) mod commands;
+pub(crate) mod connection_host;
+pub(crate) mod desktop;
+pub(crate) mod generated;
+pub(crate) mod memo_notes;
+pub(crate) mod music_bridge;
+pub(crate) mod runtime;
 pub(crate) mod appearance;
 pub(crate) mod backgrounds;
 pub(crate) mod calendar;

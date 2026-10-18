@@ -361,7 +361,7 @@ fn invalid_archive_and_late_storage_failure_never_partially_install() {
 
 #[test]
 fn image_toggle_removes_animation_references_and_preserves_donor_assets() {
-    use crate::character_animation::{Bindings, Clip, Frame};
+    use crate::characters::animation::{Bindings, Clip, Frame};
     let conn = database();
     let asset = animation::prepare_png(animation::png_fixture(2, 2, 255, false)).unwrap();
     let mut definition = get(&conn, "builtin-a").unwrap().definition;

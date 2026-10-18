@@ -138,8 +138,8 @@ pub(crate) fn reconcile_at(state: &AppState, at: NaiveDateTime) -> Result<bool, 
         lock(&state.story_clock)?.elapsed = std::time::Duration::ZERO;
     }
     widgets::storage::discard_pending_during_quiet(&db)?;
-    crate::generated_widgets::discard_pending(&db)?;
-    crate::generated_widget_commands::skip_automatic_message(&db)?;
+    crate::widgets::generated::discard_pending(&db)?;
+    crate::widgets::generated::commands::skip_automatic_message(&db)?;
     let cancel_automatic = lock(&state.widget_playback)?.as_ref().map_or_else(
         || state.automatic.load(Ordering::SeqCst),
         |event| !event_allowed(&event.event),
@@ -237,7 +237,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(crate::widget_desktop::apply_editing(&state, true).unwrap());
+        assert!(crate::widgets::desktop::apply_editing(&state, true).unwrap());
         assert!(cancel.load(Ordering::SeqCst));
         assert!(state.epoch.load(Ordering::SeqCst) > epoch);
         assert_eq!(
@@ -253,9 +253,9 @@ mod tests {
             store::revision(&lock(&state.db).unwrap()).unwrap(),
             revision
         );
-        assert!(!crate::widget_desktop::apply_editing(&state, true).unwrap());
+        assert!(!crate::widgets::desktop::apply_editing(&state, true).unwrap());
         state.next_idle.store(0, Ordering::SeqCst);
-        assert!(crate::widget_desktop::apply_editing(&state, false).unwrap());
+        assert!(crate::widgets::desktop::apply_editing(&state, false).unwrap());
         assert!(!automatic_blocked(&state, &Settings::default()).unwrap());
         assert!(state.next_idle.load(Ordering::SeqCst) > super::super::now());
         assert!(cancel.load(Ordering::SeqCst));
@@ -279,9 +279,9 @@ mod tests {
                 runtime.paused_until = Some(i64::MAX);
             }
             let settings = store::settings(&lock(&state.db).unwrap()).unwrap();
-            crate::widget_desktop::apply_editing(&state, true).unwrap();
+            crate::widgets::desktop::apply_editing(&state, true).unwrap();
             assert!(!playback_blocked(&state, &settings, false).unwrap());
-            crate::widget_desktop::apply_editing(&state, false).unwrap();
+            crate::widgets::desktop::apply_editing(&state, false).unwrap();
             assert!(!cancel.load(Ordering::SeqCst));
             assert_eq!(state.epoch.load(Ordering::SeqCst), epoch);
             let runtime = lock(&state.runtime).unwrap();
@@ -318,14 +318,14 @@ mod tests {
             )
             .unwrap();
         }
-        crate::widget_desktop::apply_editing(&state, true).unwrap();
+        crate::widgets::desktop::apply_editing(&state, true).unwrap();
         let _action = lock(&state.action).unwrap();
         let db = lock(&state.db).unwrap();
-        let pending = crate::widget_commands::take_pending_reaction(&state, &db)
+        let pending = crate::widgets::commands::take_pending_reaction(&state, &db)
             .unwrap()
             .unwrap();
         assert_eq!(pending.event.kind, "timer-finished");
-        assert!(crate::widget_commands::take_pending_reaction(&state, &db)
+        assert!(crate::widgets::commands::take_pending_reaction(&state, &db)
             .unwrap()
             .is_none());
     }
@@ -584,11 +584,11 @@ mod tests {
             assert!(begin_background(&state).unwrap().is_none());
             let _action = lock(&state.action).unwrap();
             let db = lock(&state.db).unwrap();
-            let pending = crate::widget_commands::take_pending_reaction(&state, &db)
+            let pending = crate::widgets::commands::take_pending_reaction(&state, &db)
                 .unwrap()
                 .unwrap();
             assert_eq!(pending.event.kind, "timer-finished");
-            assert!(crate::widget_commands::take_pending_reaction(&state, &db)
+            assert!(crate::widgets::commands::take_pending_reaction(&state, &db)
                 .unwrap()
                 .is_none());
         }
@@ -622,7 +622,7 @@ mod tests {
                 chrono::Utc::now().timestamp_millis(),
             )
             .unwrap();
-            assert!(crate::widget_commands::take_pending_reaction(&state, &db)
+            assert!(crate::widgets::commands::take_pending_reaction(&state, &db)
                 .unwrap()
                 .is_none());
         }

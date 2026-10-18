@@ -1,3 +1,5 @@
+pub(crate) mod commands;
+pub(crate) mod host;
 pub mod context;
 pub mod defaults;
 pub(crate) mod encryption;
@@ -114,7 +116,7 @@ pub enum Statement {
     Line {
         speaker: usize,
         expression: String,
-        motion: crate::character_reactions::MotionOverride,
+        motion: crate::characters::reactions::MotionOverride,
         parts: Vec<TextPart>,
         span: Span,
     },

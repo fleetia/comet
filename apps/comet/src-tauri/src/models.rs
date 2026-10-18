@@ -11,7 +11,6 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-#[path = "models/widget_policy.rs"]
 mod widget_policy;
 pub use widget_policy::{widget_generation_eligibility, WidgetGenerationEligibility};
 

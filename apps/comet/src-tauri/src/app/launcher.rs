@@ -1,7 +1,7 @@
 use super::{
     conversation, interrupt, lock, now, publish, schedule_idle, unavailable, windows, AppState,
 };
-use crate::{desktop_toys, store, types::RuntimePhase, widget_commands, widgets};
+use crate::{desktop, store, types::RuntimePhase, widgets};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::sync::{atomic::Ordering, Arc};
@@ -316,7 +316,7 @@ pub(crate) async fn open_launcher(
         if !was_open {
             lock(&state.launcher)?.previous_focus = previous;
         }
-        desktop_toys::clear_automatic(&app);
+        desktop::toys::clear_automatic(&app);
         let height = lock(&state.launcher)?.height;
         // On macOS the panel becomes key without activating comet, so the
         // current Space stays put. set_focus would activate the app.
@@ -527,7 +527,7 @@ fn accept_settings_execution(
         if section != Some(windows::SettingsSection::Widgets) {
             return Err("위젯 대상은 위젯 설정에서만 열 수 있어요.".into());
         }
-        crate::planner_windows::validate_widget_settings_kind(kind)?;
+        crate::widgets::planning::windows::validate_widget_settings_kind(kind)?;
     }
     accept_execution(state, session_id)
 }
@@ -561,7 +561,7 @@ pub(crate) async fn execute_launcher(
                     widget_kind.as_deref(),
                 )?;
                 if let Some(kind) = widget_kind {
-                    crate::planner_windows::open_widget_settings(app.clone(), &kind)
+                    crate::widgets::planning::windows::open_widget_settings(app.clone(), &kind)
                 } else {
                     match section {
                         Some(section) => windows::open_settings_section(app.clone(), section),
@@ -573,7 +573,7 @@ pub(crate) async fn execute_launcher(
                 id,
                 expected_revision,
             } => {
-                widget_commands::open_widget_for_launcher(
+                widgets::commands::open_widget_for_launcher(
                     app.clone(),
                     &state,
                     id,
@@ -610,7 +610,7 @@ pub(crate) async fn execute_launcher(
                 expected_revision,
                 title,
                 request_id,
-            } => widget_commands::add_todo_for_launcher(
+            } => widgets::commands::add_todo_for_launcher(
                 &app,
                 &state,
                 &id,
@@ -925,7 +925,7 @@ mod tests {
             begin_session(&state).unwrap()
         };
         let commit = |session: u64, id: &str, revision: i64| {
-            crate::widget_commands::commit_todo_for_launcher(
+            crate::widgets::commands::commit_todo_for_launcher(
                 &state,
                 session,
                 id,
@@ -960,7 +960,7 @@ mod tests {
         let request_id = uuid::Uuid::new_v4().to_string();
         let title = "내일 3시 치과 예약 확인";
         for _ in 0..2 {
-            crate::widget_commands::commit_todo_for_launcher(
+            crate::widgets::commands::commit_todo_for_launcher(
                 &state,
                 session,
                 &todo.id,

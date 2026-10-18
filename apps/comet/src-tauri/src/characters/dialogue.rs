@@ -267,7 +267,7 @@ pub(super) fn validate_replaced_motions(
                 .get(slot_index(&line.persona)?)
                 .is_some_and(|member| member == id)
             {
-                crate::character_reactions::validate_motion(&line.motion, definition, false)
+                crate::characters::reactions::validate_motion(&line.motion, definition, false)
                     .map_err(|_| "대사 묶음에서 사용 중인 모션이에요. 해당 대사의 모션을 바꾼 뒤 삭제해 주세요.".to_string())?;
             }
         }
@@ -287,7 +287,7 @@ pub(super) fn validate_replaced_motions(
                     .get(slot_index(&line.persona)?)
                     .is_some_and(|member| member == id)
                 {
-                    crate::character_reactions::validate_motion(&line.motion, definition, false)
+                    crate::characters::reactions::validate_motion(&line.motion, definition, false)
                         .map_err(|_| "개인 단어장에서 사용 중인 모션이에요. 해당 대사의 모션을 바꾼 뒤 삭제해 주세요.".to_string())?;
                 }
             }

@@ -1,3 +1,7 @@
+pub(crate) mod geometry;
+pub(crate) mod menu;
+pub(crate) mod toys;
+
 use crate::{
     characters::InstalledCharacter,
     store,
@@ -55,7 +59,7 @@ fn face_label(id: &str) -> String {
 
 // Displaying ambient content must not replace the foreground application's key window.
 fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
-    let collision_token = crate::character_collision_host::prepare_show(window);
+    let collision_token = crate::characters::collision_host::prepare_show(window);
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     {
         use std::sync::atomic::Ordering;
@@ -63,10 +67,10 @@ fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
         let epoch = state.epoch.load(Ordering::SeqCst);
         let app = app.clone();
         let label = window.label().to_string();
-        let identity = crate::character_reaction_host::window_identity(window);
+        let identity = crate::characters::reaction_host::window_identity(window);
         window.run_on_main_thread(move || {
             let state = app.state::<Arc<AppState>>();
-            let Some(window) = app.get_webview_window(&label).filter(|window| crate::character_reaction_host::window_identity(window) == identity) else { return; };
+            let Some(window) = app.get_webview_window(&label).filter(|window| crate::characters::reaction_host::window_identity(window) == identity) else { return; };
             // Never wait on locks from the UI thread: the next publish retries a skipped display.
             let (Ok(db), Ok(runtime), Ok(panel), Ok(playback), Ok(story), Ok(presence), Ok(guests)) = (
                 state.db.try_lock(), state.runtime.try_lock(),
@@ -75,10 +79,10 @@ fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
             if !passive_show_current(&state, epoch, runtime.hidden) {
                 return;
             }
-            if (is_body(&label) || is_face(&label)) && !crate::character_guests::window_current_locked(&guests, &label, identity) { return; }
+            if (is_body(&label) || is_face(&label)) && !crate::characters::guests::window_current_locked(&guests, &label, identity) { return; }
             let Ok(characters) = crate::characters::collection(&db) else { return; };
             let mut status = runtime.clone();
-            let Ok(active) = crate::character_guests::display_ids_locked(&state, &db, &guests, runtime.hidden) else { return; };
+            let Ok(active) = crate::characters::guests::display_ids_locked(&state, &db, &guests, runtime.hidden) else { return; };
             status.guest_character_ids = active.iter().filter(|id| !characters.active.contains(id)).cloned().collect();
             let present = active.iter().filter(|id| !characters.active.contains(id) || presence.contains(id)).cloned().collect::<Vec<_>>();
             let wanted = if label == "balloon" {
@@ -114,14 +118,14 @@ fn show_passive(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
             if show_linux_passive(&window).is_err() {
                 return;
             }
-            crate::character_collision_host::did_show(&window, collision_token);
+            crate::characters::collision_host::did_show(&window, collision_token);
         }).map_err(|error| error.to_string())
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         let _ = app;
         window.show().map_err(|error| error.to_string())?;
-        crate::character_collision_host::did_show(window, collision_token);
+        crate::characters::collision_host::did_show(window, collision_token);
         Ok(())
     }
 }
@@ -173,7 +177,7 @@ fn show_linux_passive(window: &WebviewWindow) -> Result<(), String> {
 pub(crate) fn hide_ambient(window: &WebviewWindow) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     let _ = remember_linux_visible_rect(window);
-    crate::character_collision_host::visibility(window, false);
+    crate::characters::collision_host::visibility(window, false);
     #[cfg(target_os = "windows")]
     {
         window.hide().map_err(|error| error.to_string())?;
@@ -564,7 +568,7 @@ fn guest_initial_position(
     id: &str,
     size: (f64, f64),
 ) -> Option<WindowPosition> {
-    let center = crate::character_guests::center_id(state, id)
+    let center = crate::characters::guests::center_id(state, id)
         .ok()
         .flatten()?;
     let center = app.get_webview_window(&body_label(&center))?;
@@ -632,7 +636,7 @@ fn create_body(app: &AppHandle, state: &AppState, spec: BodySpec) -> Result<(), 
         guest,
     } = spec;
     let guest_generation = if guest {
-        crate::character_guests::generation(state, id)?
+        crate::characters::guests::generation(state, id)?
     } else {
         None
     };
@@ -659,16 +663,16 @@ fn create_body(app: &AppHandle, state: &AppState, spec: BodySpec) -> Result<(), 
     .visible(false)
     .build()
     .map_err(|e| e.to_string())?;
-    crate::character_guests::record_window(
+    crate::characters::guests::record_window(
         state,
         &label,
         id,
-        crate::character_reaction_host::window_identity(&window),
+        crate::characters::reaction_host::window_identity(&window),
         guest_generation,
     )?;
     let monitors = window.available_monitors().map_err(|e| e.to_string())?;
     let saved = if guest {
-        crate::character_guests::transient_position(state, id)?
+        crate::characters::guests::transient_position(state, id)?
     } else {
         saved_body_position(state, index, &label)?
     };
@@ -720,7 +724,7 @@ fn create_body(app: &AppHandle, state: &AppState, spec: BodySpec) -> Result<(), 
     if guest {
         if let (Some(generation), Ok(position)) = (guest_generation, window.outer_position()) {
             let _action = super::lock(&state.action)?;
-            crate::character_guests::set_position_locked(
+            crate::characters::guests::set_position_locked(
                 state,
                 id,
                 generation,
@@ -879,14 +883,14 @@ fn create_face(app: &AppHandle, id: &str, title: &str, _body_created: bool) -> R
     .build()
     .map_err(|e| e.to_string())?;
     let state = app.state::<Arc<AppState>>();
-    let identity = crate::character_reaction_host::window_identity(&body);
+    let identity = crate::characters::reaction_host::window_identity(&body);
     let guest_generation =
-        crate::character_guests::window_authority(&state, body.label(), identity)?.flatten();
-    crate::character_guests::record_window(
+        crate::characters::guests::window_authority(&state, body.label(), identity)?.flatten();
+    crate::characters::guests::record_window(
         &state,
         &label,
         id,
-        crate::character_reaction_host::window_identity(&window),
+        crate::characters::reaction_host::window_identity(&window),
         guest_generation,
     )?;
     let saved = if guest_generation.is_some() {
@@ -981,15 +985,15 @@ fn reconcile(app: &AppHandle, state: &AppState, snapshot: &Snapshot) -> Result<(
         let size = body_size(snapshot, character);
         let mut body = app.get_webview_window(&body_label(id));
         let expected = if snapshot.runtime.guest_character_ids.contains(id) {
-            crate::character_guests::generation(state, id)?
+            crate::characters::guests::generation(state, id)?
         } else {
             None
         };
         if body.as_ref().is_some_and(|window| {
-            crate::character_guests::window_authority(
+            crate::characters::guests::window_authority(
                 state,
                 window.label(),
-                crate::character_reaction_host::window_identity(window),
+                crate::characters::reaction_host::window_identity(window),
             )
             .ok()
             .flatten()
@@ -999,7 +1003,7 @@ fn reconcile(app: &AppHandle, state: &AppState, snapshot: &Snapshot) -> Result<(
                 let _ = face.destroy();
             }
             if let Some(window) = body.take() {
-                crate::character_collision_host::remove(app, window.label());
+                crate::characters::collision_host::remove(app, window.label());
                 window.destroy().map_err(|error| error.to_string())?;
             }
         }
@@ -1048,7 +1052,7 @@ fn reconcile(app: &AppHandle, state: &AppState, snapshot: &Snapshot) -> Result<(
             .strip_prefix(BODY_PREFIX)
             .or_else(|| label.strip_prefix(FACE_PREFIX));
         if id.is_some_and(|id| !roster.iter().any(|active| active == id)) {
-            crate::character_collision_host::remove(app, &label);
+            crate::characters::collision_host::remove(app, &label);
             #[cfg(target_os = "linux")]
             if let Ok(mut layout) = linux_ambient_layout(app).lock() {
                 layout.0.remove(&label);
@@ -1481,7 +1485,7 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
     }
     let mut status = runtime.clone();
     let residents = crate::characters::active_ids(&db)?;
-    let active = crate::character_guests::display_ids_locked(&state, &db, &guests, runtime.hidden)?;
+    let active = crate::characters::guests::display_ids_locked(&state, &db, &guests, runtime.hidden)?;
     status.guest_character_ids = active
         .iter()
         .filter(|id| !residents.contains(id))
@@ -1631,7 +1635,7 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
             Some(state.automatic.load(Ordering::SeqCst)),
         )?;
         if let Some(ticket) = super::lock(&state.tasks)?.participants.clone() {
-            crate::character_guests::hear_displayed_locked(&state, &db, &ticket, &id, at)?;
+            crate::characters::guests::hear_displayed_locked(&state, &db, &ticket, &id, at)?;
         }
     }
     drop((db, _action));
@@ -2212,7 +2216,7 @@ mod tests {
         character.definition.sprite_size = 32;
         character.sprites.insert(
             "기쁨".into(),
-            crate::character_sprites::SpriteInfo {
+            crate::characters::sprites::SpriteInfo {
                 mime: "image/png".into(),
                 updated_at: 1,
             },
@@ -2258,7 +2262,7 @@ mod tests {
         guest.definition.sprite_size = 32;
         guest.sprites.insert(
             "기쁨".into(),
-            crate::character_sprites::SpriteInfo {
+            crate::characters::sprites::SpriteInfo {
                 mime: "image/png".into(),
                 updated_at: 1,
             },
@@ -2315,7 +2319,7 @@ mod tests {
         let character = &mut data.characters.installed[0];
         character.definition.face_icon = true;
         character.definition.sprite_size = 128;
-        let sprite = crate::character_sprites::SpriteInfo {
+        let sprite = crate::characters::sprites::SpriteInfo {
             mime: "image/png".into(),
             updated_at: 1,
         };

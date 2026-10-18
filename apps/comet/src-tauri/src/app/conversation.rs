@@ -1,8 +1,10 @@
+pub(crate) mod pack_context;
+
 use super::scene::{present_line, start_scene, wait_for_line};
 use super::unavailable;
 use super::{is_current, lock, now, phase, publish, schedule_idle, AppState};
 use crate::{
-    character_guests, characters, domain, inference, models, pack_stories, store, story, types::*,
+    characters, domain, inference, models, pack_stories, store, story, types::*,
     wordbook,
 };
 use rusqlite::Connection;
@@ -63,7 +65,7 @@ fn registered_message(
                     .lines
                     .iter()
                     .map(|line| {
-                        character_guests::actor(state, db, &line.persona).map(|actor| actor.id)
+                        characters::guests::actor(state, db, &line.persona).map(|actor| actor.id)
                     })
                     .collect::<Result<Vec<_>, _>>()
                     .map_or(true, |ids| ids.iter().all(|id| targets.contains(id)))
@@ -116,13 +118,13 @@ fn resolve_registered_lines(
 ) -> Result<Vec<SceneLine>, String> {
     let mut ids = Vec::new();
     for line in lines {
-        let actor = character_guests::actor(state, db, &line.persona)?;
+        let actor = characters::guests::actor(state, db, &line.persona)?;
         if !ids.contains(&actor.id) {
             ids.push(actor.id);
         }
     }
     let ticket = capture_participants_locked(state, db, &ids, state.epoch.load(Ordering::SeqCst))?;
-    character_guests::resolve_lines(state, db, &ticket, lines)
+    characters::guests::resolve_lines(state, db, &ticket, lines)
 }
 
 pub(crate) fn waiting_story(
@@ -131,7 +133,7 @@ pub(crate) fn waiting_story(
     targets: &[String],
 ) -> Result<Option<story::Request>, String> {
     let request = lock(&state.story)?.clone();
-    if crate::story_host::ensure_request_available(state, db).is_err() {
+    if crate::story::host::ensure_request_available(state, db).is_err() {
         return Ok(None);
     }
     Ok(request.filter(|request| {
@@ -161,7 +163,7 @@ pub(crate) fn cancel_pack_run_locked(state: &AppState, run_id: &str) -> Result<(
         .is_some_and(|run| run.run_id == run_id)
     {
         pack_stories::cancel_with_progress(&db, &mut *lock(&state.pack_stories)?)?;
-        character_guests::leave_run_locked(state, run_id)?;
+        characters::guests::leave_run_locked(state, run_id)?;
     }
     Ok(())
 }
@@ -171,16 +173,16 @@ fn capture_participants_locked(
     db: &Connection,
     ids: &[String],
     epoch: u64,
-) -> Result<character_guests::ParticipantTicket, String> {
+) -> Result<characters::guests::ParticipantTicket, String> {
     let ids = ids
         .iter()
-        .map(|id| character_guests::actor(state, db, id).map(|actor| actor.id))
+        .map(|id| characters::guests::actor(state, db, id).map(|actor| actor.id))
         .collect::<Result<Vec<_>, _>>()?;
     let residents = characters::active_ids(db)?;
     for id in ids.iter().filter(|id| residents.contains(id)) {
         super::presence::summon_locked(state, id)?;
     }
-    character_guests::capture(state, db, &ids, epoch)
+    characters::guests::capture(state, db, &ids, epoch)
 }
 
 fn registered_participants(
@@ -276,7 +278,7 @@ fn bind_pack_plan_locked(
             .is_some_and(|run| &run.run_id == old_id)
         {
             pack_stories::cancel_with_progress(db, &mut *lock(&state.pack_stories)?)?;
-            character_guests::leave_run_locked(state, old_id)?;
+            characters::guests::leave_run_locked(state, old_id)?;
         }
     }
     let retryable_admission = plan.retry
@@ -286,10 +288,10 @@ fn bind_pack_plan_locked(
                 && !run.ready
         });
     let admitted = if !plan.retry || retryable_admission {
-        character_guests::admit_locked(
+        characters::guests::admit_locked(
             state,
             db,
-            &character_guests::Admission {
+            &characters::guests::Admission {
                 run_id: plan.run_id.clone(),
                 request_id: plan.input_id.clone(),
                 epoch,
@@ -322,7 +324,7 @@ fn bind_pack_plan_locked(
             pack_stories::cancel_with_progress(db, &mut *lock(&state.pack_stories)?)?;
         }
         if !admitted.is_empty() {
-            character_guests::leave_run_locked(state, &plan.run_id)?;
+            characters::guests::leave_run_locked(state, &plan.run_id)?;
         }
         return Err(error);
     }
@@ -397,7 +399,7 @@ pub(crate) fn complete_pack_stage_locked(
     let Some(ticket) = lock(&state.tasks)?.participants.clone() else {
         return Ok(false);
     };
-    character_guests::validate(state, db, &ticket)?;
+    characters::guests::validate(state, db, &ticket)?;
     let Some(run) = lock(&state.pack_stories)?.run.clone() else {
         return Ok(false);
     };
@@ -422,7 +424,7 @@ pub(crate) fn complete_pack_stage_locked(
             pack_baseline: run.pack_baseline.clone(),
         },
     )?;
-    character_guests::hear_displayed_locked(
+    characters::guests::hear_displayed_locked(
         state,
         db,
         &ticket,
@@ -433,7 +435,7 @@ pub(crate) fn complete_pack_stage_locked(
             .ok_or("대사 표시를 확인할 수 없어요.")?,
     )?;
     if !finish.guest_ids.is_empty() {
-        character_guests::leave_run_locked(state, &run.run_id)?;
+        characters::guests::leave_run_locked(state, &run.run_id)?;
     }
     store::message_finished(db, &proof.playback.id)
 }
@@ -461,7 +463,7 @@ fn active_story_response(
     if request.display_started_at.is_none() {
         return Err("이야기를 표시한 뒤 답해 주세요.".into());
     }
-    crate::story_host::ensure_request_available(state, db)?;
+    crate::story::host::ensure_request_available(state, db)?;
     story::answer_for_input(
         db,
         &request,
@@ -503,7 +505,7 @@ pub(crate) fn route_input(
         }
         return Ok(Some(plan.lines));
     }
-    let allowed = character_guests::display_ids(state, db)?;
+    let allowed = characters::guests::display_ids(state, db)?;
     if let Some(lines) = store::saved_reply_scene_for_participants(db, message_id, Some(&allowed))?
     {
         return Ok(Some(lines));
@@ -528,7 +530,7 @@ pub(crate) fn route_input(
                 .map(|run| run.run_id.clone());
             pack_stories::cancel_with_progress(db, &mut *lock(&state.pack_stories)?)?;
             if let Some(id) = run_id {
-                character_guests::leave_run_locked(state, &id)?;
+                characters::guests::leave_run_locked(state, &id)?;
             }
             store::save_reply_scene_with_source(db, message_id, &[], "scenario")?;
             return Ok(Some(Vec::new()));
@@ -605,12 +607,12 @@ pub(crate) async fn send_message(
             return Err("앱을 종료하고 있어요.".into());
         }
         let db = lock(&state.db)?;
-        let wake_targets = match character_guests::actor(&state, &db, &target) {
+        let wake_targets = match characters::guests::actor(&state, &db, &target) {
             Ok(actor) => vec![actor.id],
             Err(_) => resolve_targets(&db, &target)?,
         };
         for id in wake_targets {
-            crate::character_life::wake(&state, &id)?;
+            crate::characters::life::wake(&state, &id)?;
         }
         ensure_available(&db)?;
         if store::current_user(&db)?.is_none() {
@@ -618,9 +620,9 @@ pub(crate) async fn send_message(
         }
         let settings = store::settings(&db)?;
         let active_session = store::active_conversation(&db)?;
-        let resident_target = match character_guests::actor(&state, &db, &target) {
+        let resident_target = match characters::guests::actor(&state, &db, &target) {
             Ok(actor) if actor.definition.presence_role == pack_stories::PresenceRole::Npc => {
-                character_guests::center_id(&state, &actor.id)?
+                characters::guests::center_id(&state, &actor.id)?
                     .ok_or("이 NPC의 대화가 끝났어요.")?
             }
             _ => target.clone(),
@@ -664,7 +666,7 @@ pub(crate) async fn send_message(
                 .filter(|run| targets.contains(&run.scope.center_id))
             {
                 for id in &run.participants {
-                    if character_guests::actor(&state, &db, id).is_ok()
+                    if characters::guests::actor(&state, &db, id).is_ok()
                         && !routing_targets.contains(id)
                     {
                         routing_targets.push(id.clone());
@@ -694,7 +696,7 @@ pub(crate) async fn send_message(
                 .map(|run| run.run_id.clone());
             pack_stories::cancel_with_progress(&db, &mut *lock(&state.pack_stories)?)?;
             if let Some(id) = id {
-                character_guests::leave_run_locked(&state, &id)?;
+                characters::guests::leave_run_locked(&state, &id)?;
             }
         }
         let token =
@@ -719,7 +721,7 @@ pub(crate) async fn send_message(
                     Some(capture_participants_locked(&state, &db, &ids, token.0)?);
             }
             if let Some(ticket) = lock(&state.tasks)?.participants.clone() {
-                character_guests::hear_locked(&state, &db, &ticket, &client_message_id)?;
+                characters::guests::hear_locked(&state, &db, &ticket, &client_message_id)?;
             }
             Ok(lines)
         });
@@ -747,7 +749,7 @@ pub(crate) async fn send_message(
         (token, registered, routing_targets, source, admitted)
     };
     if !admitted.is_empty() {
-        if let Err(error) = character_guests::create_admitted(&app, state.inner(), &admitted) {
+        if let Err(error) = characters::guests::create_admitted(&app, state.inner(), &admitted) {
             if super::tasks::release_failed_conversation(&state, token.0)? {
                 phase(
                     &app,
@@ -810,12 +812,12 @@ pub(crate) fn retry_turn(
         }
         let db = lock(&state.db)?;
         pack_stories::flush_cancellations(&db, &mut *lock(&state.pack_stories)?)?;
-        let wake_targets = match character_guests::actor(&state, &db, &target) {
+        let wake_targets = match characters::guests::actor(&state, &db, &target) {
             Ok(actor) => vec![actor.id],
             Err(_) => resolve_targets(&db, &target)?,
         };
         for id in wake_targets {
-            crate::character_life::wake(&state, &id)?;
+            crate::characters::life::wake(&state, &id)?;
         }
         ensure_available(&db)?;
         let latest = retry_input(&db, &message_id)?;
@@ -837,16 +839,16 @@ pub(crate) fn retry_turn(
         let requested = if target == "all" {
             original.clone()
         } else {
-            vec![character_guests::actor(&state, &db, &target)?.id]
+            vec![characters::guests::actor(&state, &db, &target)?.id]
         };
         if bundle.is_some() {
             for id in &requested {
-                character_guests::actor(&state, &db, id)?;
+                characters::guests::actor(&state, &db, id)?;
             }
         }
         let targets = pending_reply_targets(&db, &message_id, &requested)?;
         let plan = pack_stories::load_plan(&db, &message_id)?;
-        let allowed = character_guests::display_ids(&state, &db)?;
+        let allowed = characters::guests::display_ids(&state, &db)?;
         let registered = if let Some(plan) = &plan {
             if !pack_stories::current(&db, &plan.run)? {
                 return Err("저장한 이야기의 정의가 바뀌었어요.".into());
@@ -883,7 +885,7 @@ pub(crate) fn retry_turn(
         let waiting = waiting_story(&state, &db, &requested)?;
         let mut waiting_targets = requested.clone();
         for id in &requested {
-            if let Some(center) = character_guests::center_id(&state, id)? {
+            if let Some(center) = characters::guests::center_id(&state, id)? {
                 if !waiting_targets.contains(&center) {
                     waiting_targets.push(center);
                 }
@@ -943,7 +945,7 @@ pub(crate) fn retry_turn(
         (targets, token, registered, source, admitted)
     };
     if !admitted.is_empty() {
-        if let Err(error) = character_guests::create_admitted(&app, state.inner(), &admitted) {
+        if let Err(error) = characters::guests::create_admitted(&app, state.inner(), &admitted) {
             if super::tasks::release_failed_conversation(&state, token.0)? {
                 phase(
                     &app,
@@ -1095,7 +1097,7 @@ pub(crate) fn start_turn(
         epoch,
         async move {
             let selected_note = lock(&state.db).and_then(|db| {
-                let scoped = crate::pack_context::for_turn(&state, &db, &targets, &message_id, 0)?;
+                let scoped = pack_context::for_turn(&state, &db, &targets, &message_id, 0)?;
                 Ok(!scoped.allow_memories
                     || crate::conversation_notes::has_input(&db, &message_id)?)
             });
@@ -1222,7 +1224,7 @@ fn turn_context(
     db: &Connection,
     targets: &[String],
     message_id: &str,
-) -> Result<crate::pack_context::TurnContext, String> {
+) -> Result<pack_context::TurnContext, String> {
     let input: String = db
         .query_row(
             "SELECT json_extract(data,'$.content') FROM messages WHERE id=?1",
@@ -1230,7 +1232,7 @@ fn turn_context(
             |row| row.get(0),
         )
         .map_err(|error| error.to_string())?;
-    crate::pack_context::for_turn(
+    pack_context::for_turn(
         state,
         db,
         targets,
@@ -1385,7 +1387,7 @@ fn bundle_prompt(
     targets: &[String],
     message_id: &str,
     memories: &[Memory],
-    context: &crate::pack_context::TurnContext,
+    context: &pack_context::TurnContext,
 ) -> Result<(Vec<ChatMessage>, Vec<String>), String> {
     let latest: String = db
         .query_row(
@@ -1398,7 +1400,7 @@ fn bundle_prompt(
     let members = targets
         .iter()
         .map(|id| {
-            character_guests::actor(state, db, id).and_then(|mut actor| {
+            characters::guests::actor(state, db, id).and_then(|mut actor| {
                 if context.history_allowlist.is_none() {
                     actor.definition = story::profile(db, actor.clone())?;
                 }
@@ -1508,7 +1510,7 @@ pub(crate) async fn generate_turn(
 ) -> Result<(Vec<SceneLine>, i64), String> {
     let allow_memories = {
         let db = lock(&state.db)?;
-        crate::pack_context::for_turn(state, &db, targets, message_id, 0)?.allow_memories
+        pack_context::for_turn(state, &db, targets, message_id, 0)?.allow_memories
     };
     let memories = if allow_memories {
         crate::memory_commands::search_for_turn(state, message_id).await?
@@ -1553,7 +1555,7 @@ pub(crate) async fn generate_turn_with_memories(
             );
         }
         if context.history_allowlist.is_none() {
-            if let Some(context) = crate::organizer_actions::replay_context(
+            if let Some(context) = crate::organizer::actions::replay_context(
                 &db,
                 &store::active_user_id(&db)?,
                 message_id,
@@ -1621,13 +1623,13 @@ pub(crate) async fn generate_turn_with_memories(
             return Err("이전 생성 요청은 취소됐어요.".into());
         }
         let db = lock(&state.db)?;
-        character_guests::validate(state, &db, &ticket)?;
+        characters::guests::validate(state, &db, &ticket)?;
         if store::revision(&db)? != revision {
             return Err("생성하는 동안 답변의 근거가 바뀌었어요.".into());
         }
         let actors = targets
             .iter()
-            .map(|id| character_guests::resolve_actor(state, &db, &ticket, id))
+            .map(|id| characters::guests::resolve_actor(state, &db, &ticket, id))
             .collect::<Result<Vec<_>, _>>()?;
         store::save_generated_bundle(
             &db,
@@ -1685,13 +1687,13 @@ pub(crate) async fn run_turn(
     );
     let allow_organizer = {
         let db = lock(&state.db)?;
-        crate::pack_context::for_turn(state, &db, targets, message_id, 0)?
+        pack_context::for_turn(state, &db, targets, message_id, 0)?
             .history_allowlist
             .is_none()
             && !crate::conversation_notes::has_input(&db, message_id)?
     };
     if allow_organizer {
-        crate::organizer_runtime::direct(app, state, message_id, epoch, cancel.clone()).await?;
+        crate::organizer::runtime::direct(app, state, message_id, epoch, cancel.clone()).await?;
     }
     let groups = turn_groups(&*lock(&state.db)?, targets, message_id)?;
     let mut shown = 0;
@@ -1702,7 +1704,7 @@ pub(crate) async fn run_turn(
         let bundle = store::single_bundle_selected(&*lock(&state.db)?, message_id)?;
         let saved = if bundle {
             let db = lock(&state.db)?;
-            let allowed = character_guests::display_ids(state, &db)?;
+            let allowed = characters::guests::display_ids(state, &db)?;
             let mut lines = Vec::new();
             let mut missing = false;
             for persona in &group {
@@ -1831,7 +1833,6 @@ fn session_targets(
 }
 
 #[cfg(test)]
-#[path = "conversation_pack_tests.rs"]
 mod pack_controller_tests;
 
 #[cfg(test)]

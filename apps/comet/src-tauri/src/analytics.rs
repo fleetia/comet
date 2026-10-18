@@ -1,3 +1,5 @@
+pub(crate) mod crash;
+
 use crate::{store, AppState};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -199,7 +201,7 @@ pub(crate) struct Event {
     operation: Option<Operation>,
     request_outcome: Option<RequestOutcome>,
     duration_ms: Option<u64>,
-    termination_kind: Option<crate::crash_analytics::TerminationKind>,
+    termination_kind: Option<crash::TerminationKind>,
     crash_app_version: Option<String>,
     #[serde(rename = "app_version")]
     _app_version: Option<serde::de::IgnoredAny>,
@@ -557,7 +559,7 @@ pub(crate) async fn commit_consent_change<T>(
     change: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
     app.state::<Runtime>()
-        .commit_consent_change(change, || crate::crash_analytics::sync_consent(app, state))
+        .commit_consent_change(change, || crash::sync_consent(app, state))
         .await
 }
 
@@ -684,7 +686,7 @@ pub(crate) fn attach_request_observer(
 
 pub(crate) fn report_abnormal_exit(
     app: &tauri::AppHandle,
-    kind: crate::crash_analytics::TerminationKind,
+    kind: crash::TerminationKind,
     previous_version: &str,
 ) {
     let Some(revision) = request_lease(app) else {

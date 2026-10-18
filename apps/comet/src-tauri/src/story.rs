@@ -1,3 +1,5 @@
+pub(crate) mod host;
+
 use crate::talk::{encryption, files::atomic_write};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};

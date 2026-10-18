@@ -16,7 +16,7 @@ mod users;
 pub(crate) mod windows;
 
 use crate::{
-    behavior, characters, desktop, inference, models, playback, store, story, talk, talk_host,
+    behavior, characters, desktop, inference, models, playback, store, story, talk,
     types::*, widgets, wordbook,
 };
 use rusqlite::Connection;
@@ -32,8 +32,8 @@ use std::{
 use tauri::Emitter;
 
 pub(crate) struct AppState {
-    pub(crate) organizer: crate::organizer_runtime::Runtime,
-    pub(crate) app_usage_tracker: Mutex<crate::app_usage_tracking::Tracker>,
+    pub(crate) organizer: crate::organizer::runtime::Runtime,
+    pub(crate) app_usage_tracker: Mutex<crate::app_usage::tracking::Tracker>,
     pub(crate) db: Mutex<Connection>,
     pub(crate) inference: inference::Inference,
     pub(crate) nlp: crate::nlp::NlpService,
@@ -48,7 +48,7 @@ pub(crate) struct AppState {
     pub(crate) launcher_gate: tokio::sync::Mutex<()>,
     pub(crate) settings_section: Mutex<windows::SettingsSection>,
     pub(crate) settings_character:
-        Mutex<Option<crate::character_commands::SettingsCharacterRequest>>,
+        Mutex<Option<crate::characters::commands::SettingsCharacterRequest>>,
     pub(crate) settings_dirty: AtomicBool,
     pub(crate) settings_exit_confirmed: AtomicBool,
     pub(crate) tasks: Mutex<tasks::Registry>,
@@ -59,7 +59,7 @@ pub(crate) struct AppState {
     pub(crate) widget_epoch: AtomicU64,
     pub(crate) widget_playback: Mutex<Option<widgets::WidgetEvent>>,
     pub(crate) talk: Mutex<talk::runtime::ActiveProgram>,
-    pub(crate) talk_playback: Mutex<Option<talk_host::PreparedTalk>>,
+    pub(crate) talk_playback: Mutex<Option<talk::host::PreparedTalk>>,
     pub(crate) talk_turn: AtomicBool,
     pub(crate) story: Mutex<Option<story::Request>>,
     pub(crate) pack_stories: Mutex<crate::pack_stories::Runtime>,
@@ -82,10 +82,10 @@ pub(crate) struct AppState {
     pub(crate) stopping: AtomicBool,
     pub(crate) update_installing: AtomicBool,
     pub(crate) behavior: Mutex<behavior::Machine>,
-    pub(crate) reactions: Mutex<crate::character_reaction_host::Runtime>,
-    pub(crate) animation_states: Mutex<crate::character_animation_states::Runtime>,
-    pub(crate) life: Mutex<crate::character_life::Runtime>,
-    pub(crate) guests: Mutex<crate::character_guests::Runtime>,
+    pub(crate) reactions: Mutex<crate::characters::reaction_host::Runtime>,
+    pub(crate) animation_states: Mutex<crate::characters::animation_states::Runtime>,
+    pub(crate) life: Mutex<crate::characters::life::Runtime>,
+    pub(crate) guests: Mutex<crate::characters::guests::Runtime>,
     pub(crate) positions: Mutex<HashMap<String, (WindowPosition, Instant)>>,
 }
 
@@ -117,7 +117,7 @@ pub(crate) fn open_session(path: &std::path::Path) -> Result<Connection, String>
     if crate::organizer::has_incomplete_operations(&db, &user)? {
         // Finish already-authorized writes before this connection enters AppState's mutex.
         // Refresh app-owned originals first; recovery never starts a new model request.
-        let recovered = crate::organizer_runtime::collect_comet(&db, &user)
+        let recovered = crate::organizer::runtime::collect_comet(&db, &user)
             .and_then(|()| crate::organizer::recover_operations(&db, &user));
         if recovered.is_err() {
             eprintln!("Organizer operation recovery deferred");
@@ -130,10 +130,10 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
     let db = lock(&state.db)?;
     let settings = store::settings(&db)?;
     let characters = characters::collection(&db)?;
-    let present_character_ids = crate::character_guests::participant_ids(state, &db)?;
+    let present_character_ids = crate::characters::guests::participant_ids(state, &db)?;
     let mut runtime = lock(&state.runtime)?.clone();
     runtime.present_character_ids = present_character_ids;
-    runtime.guest_character_ids = crate::character_guests::guest_ids(state, &db)?;
+    runtime.guest_character_ids = crate::characters::guests::guest_ids(state, &db)?;
     let playback = lock(&state.playback)?.clone().filter(|line| {
         !matches!(line.source.as_str(), "llm" | "question")
             || crate::conversation_notes::validate_reply(&db, &line.id).is_ok()
@@ -172,10 +172,10 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
 }
 
 pub(crate) fn publish(app: &tauri::AppHandle, state: &AppState) {
-    let _ = crate::character_guests::reconcile(state);
-    let _ = crate::character_life::reconcile(state);
-    let _ = crate::character_animation_states::refresh(app, state);
-    let _ = crate::character_reaction_host::reconcile(app, state);
+    let _ = crate::characters::guests::reconcile(state);
+    let _ = crate::characters::life::reconcile(state);
+    let _ = crate::characters::animation_states::refresh(app, state);
+    let _ = crate::characters::reaction_host::reconcile(app, state);
     if let Ok(data) = snapshot(state) {
         if let Ok(_action) = lock(&state.action) {
             if let Ok(runtime) = lock(&state.runtime) {
@@ -237,7 +237,7 @@ pub(crate) fn interrupt(
         .map(|run| run.run_id.clone());
     crate::pack_stories::cancel_deferred(&mut *lock(&state.pack_stories)?);
     if let Some(run_id) = run_id {
-        crate::character_guests::leave_run_locked(state, &run_id)?;
+        crate::characters::guests::leave_run_locked(state, &run_id)?;
     }
     interrupt_for_conversation(state, automatic)
 }
@@ -254,7 +254,7 @@ pub(crate) fn interrupt_with_db(
     crate::pack_stories::flush_cancellations(db, &mut *lock(&state.pack_stories)?)?;
     crate::pack_stories::cancel_with_progress(db, &mut *lock(&state.pack_stories)?)?;
     if let Some(run_id) = run_id {
-        crate::character_guests::leave_run_locked(state, &run_id)?;
+        crate::characters::guests::leave_run_locked(state, &run_id)?;
     }
     interrupt_for_conversation(state, automatic)
 }
@@ -266,7 +266,7 @@ pub(crate) fn interrupt_for_conversation(
     if let Some(cancel) = &*lock(&state.organizer.scan_cancel)? {
         cancel.store(true, Ordering::SeqCst);
     }
-    crate::character_reaction_host::forget_speech(state)?;
+    crate::characters::reaction_host::forget_speech(state)?;
     {
         let mut tasks = lock(&state.tasks)?;
         tasks.active = None;

@@ -5,14 +5,17 @@ use super::{
     snapshot, windows, AppState,
 };
 use super::{publish, schedule_idle, unavailable};
-use crate::widget_backgrounds::{self, SCHEME as WIDGET_BACKGROUND_SCHEME};
-use crate::{behavior, characters, desktop_menu, desktop_toys, updater};
+use crate::widgets::backgrounds::SCHEME as WIDGET_BACKGROUND_SCHEME;
 use crate::{
-    character_commands::{self, serve_sprite, SPRITE_SCHEME},
-    desktop, device_wake, inference, store, story, story_host, talk_host,
+    behavior,
+    characters::{
+        self,
+        commands::{serve_sprite, SPRITE_SCHEME},
+    },
+    desktop, device, inference, store, story, talk,
     types::*,
-    widget_commands::{self, cancel_widget_jobs},
-    widget_connections,
+    updater,
+    widgets::{self, commands::cancel_widget_jobs},
 };
 use std::{
     collections::HashMap,
@@ -167,14 +170,14 @@ pub(crate) fn migrate_app_data(app_data: &Path) -> io::Result<()> {
 pub fn run() {
     tauri::Builder::default()
         .manage(crate::analytics::Runtime::default())
-        .manage(crate::character_collision_host::Runtime::default())
-        .manage(crate::planner_windows::Navigation::default())
+        .manage(crate::characters::collision_host::Runtime::default())
+        .manage(crate::widgets::planning::windows::Navigation::default())
         .plugin(launcher::plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .register_uri_scheme_protocol(SPRITE_SCHEME, serve_sprite)
-        .register_uri_scheme_protocol(WIDGET_BACKGROUND_SCHEME, widget_backgrounds::serve)
+        .register_uri_scheme_protocol(WIDGET_BACKGROUND_SCHEME, widgets::backgrounds::serve)
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(state) = app.try_state::<Arc<AppState>>() {
                 show_boxes(app, &state);
@@ -188,7 +191,7 @@ pub fn run() {
                 eprintln!("Widget context initialization deferred");
             }
             let (sidecar, runtime) = resource_paths(app.handle()).map_err(std::io::Error::other)?;
-            let talk = talk_host::initialize(&app_data);
+            let talk = talk::host::initialize(&app_data);
             if let Err(error) = story::initialize_files(&app_data) {
                 eprintln!("Story initialization: {error}");
             }
@@ -196,7 +199,7 @@ pub fn run() {
                 .or_else(|_| story::catalog())
                 .map_err(std::io::Error::other)?;
             let state = Arc::new(AppState {
-                organizer: crate::organizer_runtime::Runtime::default(),
+                organizer: crate::organizer::runtime::Runtime::default(),
                 db: Mutex::new(
                     open_session(&app_data.join(DATABASE_FILE)).map_err(std::io::Error::other)?,
                 ),
@@ -233,7 +236,7 @@ pub fn run() {
                 widget_jobs: Mutex::new(HashMap::new()),
                 widget_open_intents: Mutex::new(HashMap::new()),
                 widget_clocks: Mutex::new(std::collections::BTreeMap::new()),
-                app_usage_tracker: Mutex::new(crate::app_usage_tracking::Tracker::default()),
+                app_usage_tracker: Mutex::new(crate::app_usage::tracking::Tracker::default()),
                 last_input: AtomicI64::new(now()),
                 last_foreground: AtomicI64::new(now()),
                 last_scene: AtomicI64::new(now()),
@@ -248,43 +251,43 @@ pub fn run() {
                 stopping: AtomicBool::new(false),
                 update_installing: AtomicBool::new(false),
                 behavior: Mutex::new(behavior::Machine::default()),
-                reactions: Mutex::new(crate::character_reaction_host::Runtime::default()),
-                animation_states: Mutex::new(crate::character_animation_states::Runtime::default()),
-                life: Mutex::new(crate::character_life::Runtime::default()),
-                guests: Mutex::new(crate::character_guests::Runtime::default()),
+                reactions: Mutex::new(crate::characters::reaction_host::Runtime::default()),
+                animation_states: Mutex::new(crate::characters::animation_states::Runtime::default()),
+                life: Mutex::new(crate::characters::life::Runtime::default()),
+                guests: Mutex::new(crate::characters::guests::Runtime::default()),
                 positions: Mutex::new(HashMap::new()),
             });
             app.manage(state.clone());
             crate::analytics::attach_request_observer(app.handle(), &state.inference);
-            crate::crash_analytics::install(app.handle(), &state);
+            crate::analytics::crash::install(app.handle(), &state);
             state
                 .inference
                 .configure_chatgpt(&app.config().identifier)
                 .map_err(std::io::Error::other)?;
-            crate::character_reaction_host::install(app.handle(), state.clone());
-            app.manage(desktop_toys::Runtime::default());
-            app.manage(crate::widget_runtime::Runtime::default());
-            app.manage(crate::widget_desktop::Runtime::default());
+            crate::characters::reaction_host::install(app.handle(), state.clone());
+            app.manage(desktop::toys::Runtime::default());
+            app.manage(crate::widgets::runtime::Runtime::default());
+            app.manage(crate::widgets::desktop::Runtime::default());
             app.manage(updater::UpdateState::default());
             launcher::initialize(app.handle(), &state).map_err(std::io::Error::other)?;
-            crate::memo_notes::schedule_sync(app.handle());
+            crate::widgets::memo_notes::schedule_sync(app.handle());
             lock(&state.runtime).map_err(std::io::Error::other)?.hidden =
                 !behavior::preferences(&*lock(&state.db).map_err(std::io::Error::other)?)
                     .map_err(std::io::Error::other)?
                     .characters_visible;
             desktop::create_boxes(app.handle(), &state).map_err(std::io::Error::other)?;
-            desktop_menu::create(app.handle()).map_err(std::io::Error::other)?;
-            crate::widget_desktop::restore_on_start(app.handle(), state.clone());
-            crate::planner_notifications::install(app.handle())?;
-            if let Err(error) = device_wake::install(app.handle()) {
+            desktop::menu::create(app.handle()).map_err(std::io::Error::other)?;
+            crate::widgets::desktop::restore_on_start(app.handle(), state.clone());
+            crate::widgets::planning::notifications::install(app.handle())?;
+            if let Err(error) = device::wake::install(app.handle()) {
                 eprintln!("기기 복귀 알림 연결 실패: {error}");
             }
             let handle = app.handle().clone();
-            talk_host::watch(handle.clone(), state.clone());
-            tauri::async_runtime::spawn(story_host::run_clock(handle.clone(), state.clone()));
-            desktop_toys::start(handle.clone());
+            talk::host::watch(handle.clone(), state.clone());
+            tauri::async_runtime::spawn(story::host::run_clock(handle.clone(), state.clone()));
+            desktop::toys::start(handle.clone());
             updater::start(handle.clone());
-            tauri::async_runtime::spawn(crate::widget_connections::restore_music_bridges(
+            tauri::async_runtime::spawn(crate::widgets::connection_host::restore_music_bridges(
                 handle.clone(),
                 state.clone(),
             ));
@@ -296,30 +299,30 @@ pub fn run() {
                 if let Some(id) = window.label().strip_prefix("widget-") {
                     if uuid::Uuid::parse_str(id).is_ok() {
                         let state = window.state::<Arc<AppState>>();
-                        let _ = widget_commands::cancel_widget_opens(&state, Some(id));
+                        let _ = widgets::commands::cancel_widget_opens(&state, Some(id));
                     }
                 }
             }
             if matches!(event, WindowEvent::Moved(_)) {
-                crate::widget_desktop::moved(window);
+                crate::widgets::desktop::moved(window);
             }
             if matches!(event, WindowEvent::Destroyed) {
                 let label = window.label();
                 if label == "widget-editor" {
-                    crate::widget_desktop::editor_destroyed(window.app_handle());
+                    crate::widgets::desktop::editor_destroyed(window.app_handle());
                 }
                 #[cfg(not(target_os = "macos"))]
                 if let Some(id) = label.strip_prefix("desktop-toy-") {
-                    crate::desktop_toys::remove_actor(window.app_handle(), id);
+                    crate::desktop::toys::remove_actor(window.app_handle(), id);
                 }
                 if label == "planner" || label.starts_with("widget-") {
-                    crate::widget_runtime::refresh(window.app_handle());
+                    crate::widgets::runtime::refresh(window.app_handle());
                 }
             }
             if window.label().starts_with("generated-widget-") {
                 match event {
                     WindowEvent::CloseRequested { .. } => {
-                        let _ = crate::generated_widget_commands::cancel_for_window(
+                        let _ = crate::widgets::generated::commands::cancel_for_window(
                             window.app_handle(),
                             window.label(),
                             None,
@@ -330,7 +333,7 @@ pub fn run() {
                         let label = window.label().to_string();
                         let epoch = window.state::<Arc<AppState>>().epoch.load(Ordering::SeqCst);
                         tauri::async_runtime::spawn(async move {
-                            let _ = crate::generated_widget_commands::cancel_for_window(
+                            let _ = crate::widgets::generated::commands::cancel_for_window(
                                 &app,
                                 &label,
                                 Some(epoch),
@@ -346,7 +349,7 @@ pub fn run() {
                     let app = window.app_handle().clone();
                     let epoch = window.state::<Arc<AppState>>().epoch.load(Ordering::SeqCst);
                     tauri::async_runtime::spawn(async move {
-                        let _ = crate::generated_widget_commands::cancel_workshop_for_window(
+                        let _ = crate::widgets::generated::commands::cancel_workshop_for_window(
                             &app,
                             Some(epoch),
                         );
@@ -388,28 +391,28 @@ pub fn run() {
             }
             if let WindowEvent::Destroyed = event {
                 let state = window.state::<Arc<AppState>>();
-                let identity = crate::character_reaction_host::native_window_identity(window);
+                let identity = crate::characters::reaction_host::native_window_identity(window);
                 let tracked =
-                    crate::character_guests::forget_window(&state, window.label(), identity)
+                    crate::characters::guests::forget_window(&state, window.label(), identity)
                         .unwrap_or(false);
                 let missing = window
                     .app_handle()
                     .get_webview_window(window.label())
                     .is_none_or(|current| {
-                        crate::character_reaction_host::window_identity(&current) == 0
+                        crate::characters::reaction_host::window_identity(&current) == 0
                     });
                 if tracked || missing {
                     if missing {
                         let _ =
-                            crate::character_guests::forget_missing_window(&state, window.label());
+                            crate::characters::guests::forget_missing_window(&state, window.label());
                     }
                     if !face {
-                        crate::character_gestures::cancel_window(
+                        crate::characters::gestures::cancel_window(
                             window.app_handle(),
                             window.label(),
                         );
                     }
-                    crate::character_collision_host::remove(window.app_handle(), window.label());
+                    crate::characters::collision_host::remove(window.app_handle(), window.label());
                 }
                 return;
             }
@@ -418,7 +421,7 @@ pub fn run() {
                     WindowEvent::Moved(_)
                     | WindowEvent::Resized(_)
                     | WindowEvent::ScaleFactorChanged { .. }
-                    | WindowEvent::Focused(_) => crate::character_collision_host::refresh(
+                    | WindowEvent::Focused(_) => crate::characters::collision_host::refresh(
                         window.app_handle(),
                         window.label(),
                     ),
@@ -428,11 +431,11 @@ pub fn run() {
             let state = window.state::<Arc<AppState>>();
             match event {
                 WindowEvent::Moved(pos) => {
-                    crate::character_gestures::trace_window_moved(window, pos);
-                    if crate::character_guests::window_authority(
+                    crate::characters::gestures::trace_window_moved(window, pos);
+                    if crate::characters::guests::window_authority(
                         &state,
                         window.label(),
-                        crate::character_reaction_host::native_window_identity(window),
+                        crate::characters::reaction_host::native_window_identity(window),
                     )
                     .ok()
                     .flatten()
@@ -441,13 +444,13 @@ pub fn run() {
                         return;
                     }
                     if !face {
-                        crate::character_gestures::moved(window.app_handle(), window.label());
+                        crate::characters::gestures::moved(window.app_handle(), window.label());
                     }
                     let resident_face = face
-                        && crate::character_guests::window_authority(
+                        && crate::characters::guests::window_authority(
                             &state,
                             window.label(),
-                            crate::character_reaction_host::native_window_identity(window),
+                            crate::characters::reaction_host::native_window_identity(window),
                         )
                         .ok()
                             == Some(Some(None));
@@ -477,8 +480,8 @@ pub fn run() {
                         .app_handle()
                         .get_webview_window(window.label())
                         .filter(|view| {
-                            crate::character_reaction_host::window_identity(view)
-                                == crate::character_reaction_host::native_window_identity(window)
+                            crate::characters::reaction_host::window_identity(view)
+                                == crate::characters::reaction_host::native_window_identity(window)
                         })
                     {
                         let _ = desktop::hide_ambient(&view);
@@ -487,10 +490,10 @@ pub fn run() {
                 WindowEvent::CloseRequested { api, .. } => {
                     api.prevent_close();
                     let app = window.app_handle().clone();
-                    let authority = crate::character_guests::window_authority(
+                    let authority = crate::characters::guests::window_authority(
                         &state,
                         window.label(),
-                        crate::character_reaction_host::native_window_identity(window),
+                        crate::characters::reaction_host::native_window_identity(window),
                     )
                     .ok()
                     .flatten();
@@ -501,7 +504,7 @@ pub fn run() {
                         let id = id.to_string();
                         let state = state.inner().clone();
                         tauri::async_runtime::spawn(async move {
-                            let _ = crate::character_guests::close(&app, &state, &id, generation);
+                            let _ = crate::characters::guests::close(&app, &state, &id, generation);
                         });
                         return;
                     }
@@ -520,53 +523,53 @@ pub fn run() {
             crate::analytics::get_analytics_context,
             crate::analytics::set_analytics_consent,
             crate::analytics::send_analytics_event,
-            crate::character_guests::leave_character_guest,
-            crate::pack_story_commands::get_pack_story_definition,
-            crate::pack_story_commands::save_pack_story_definition,
-            crate::pack_story_commands::trial_pack_story,
-            crate::pack_story_commands::trial_pack_authoring,
-            crate::generated_widget_commands::get_generated_widgets,
-            crate::generated_widget_commands::get_widget_workshop_mode,
-            crate::generated_widget_commands::open_widget_workshop,
-            crate::generated_widget_commands::close_widget_workshop,
-            crate::generated_widget_commands::open_widget_state_rules,
-            crate::generated_widget_commands::close_widget_state_rules,
-            crate::generated_widget_commands::get_widget_rule_editor,
-            crate::generated_widget_commands::get_generated_widget,
-            crate::generated_widget_commands::get_generated_execution,
-            crate::generated_widget_commands::complete_generated_execution,
-            crate::generated_widget_commands::execute_generated_ui_action,
-            crate::generated_widget_commands::set_widget_creation_automatic,
-            crate::generated_widget_commands::generate_widget,
-            crate::generated_widget_commands::cancel_widget_generation,
-            crate::generated_widget_commands::import_generated_widget,
-            crate::generated_widget_commands::update_generated_state,
-            crate::generated_widget_commands::report_generated_result,
-            crate::generated_widget_commands::set_generated_widget_enabled,
-            crate::generated_widget_commands::remove_generated_widget,
-            crate::generated_widget_commands::open_generated_widget,
-            crate::generated_widget_commands::close_generated_widget,
-            crate::generated_widget_commands::get_widget_state_rules,
-            crate::generated_widget_commands::save_widget_state_rules,
-            crate::generated_widget_commands::test_widget_state_rule,
-            crate::organizer_commands::organizer_search_trial,
+            crate::characters::guests::leave_character_guest,
+            crate::pack_stories::commands::get_pack_story_definition,
+            crate::pack_stories::commands::save_pack_story_definition,
+            crate::pack_stories::commands::trial_pack_story,
+            crate::pack_stories::commands::trial_pack_authoring,
+            crate::widgets::generated::commands::get_generated_widgets,
+            crate::widgets::generated::commands::get_widget_workshop_mode,
+            crate::widgets::generated::commands::open_widget_workshop,
+            crate::widgets::generated::commands::close_widget_workshop,
+            crate::widgets::generated::commands::open_widget_state_rules,
+            crate::widgets::generated::commands::close_widget_state_rules,
+            crate::widgets::generated::commands::get_widget_rule_editor,
+            crate::widgets::generated::commands::get_generated_widget,
+            crate::widgets::generated::commands::get_generated_execution,
+            crate::widgets::generated::commands::complete_generated_execution,
+            crate::widgets::generated::commands::execute_generated_ui_action,
+            crate::widgets::generated::commands::set_widget_creation_automatic,
+            crate::widgets::generated::commands::generate_widget,
+            crate::widgets::generated::commands::cancel_widget_generation,
+            crate::widgets::generated::commands::import_generated_widget,
+            crate::widgets::generated::commands::update_generated_state,
+            crate::widgets::generated::commands::report_generated_result,
+            crate::widgets::generated::commands::set_generated_widget_enabled,
+            crate::widgets::generated::commands::remove_generated_widget,
+            crate::widgets::generated::commands::open_generated_widget,
+            crate::widgets::generated::commands::close_generated_widget,
+            crate::widgets::generated::commands::get_widget_state_rules,
+            crate::widgets::generated::commands::save_widget_state_rules,
+            crate::widgets::generated::commands::test_widget_state_rule,
+            crate::organizer::commands::organizer_search_trial,
             super::autostart::get_autostart_enabled,
             super::autostart::set_autostart_enabled,
-            crate::character_gestures::get_character_gesture_settings,
-            crate::character_gestures::trace_character_gesture,
-            crate::character_gestures::begin_character_drag,
-            crate::character_gestures::cancel_character_drag,
-            crate::character_gestures::trigger_character_interaction,
-            crate::character_gestures::arm_character_move,
-            crate::character_gestures::give_character_snack,
-            crate::character_life::begin_character_contact,
-            crate::character_life::set_character_sleep,
-            crate::character_life::give_character_item,
-            crate::character_life::wandering::report_character_motion_preference,
-            crate::character_reaction_host::trigger_character_reaction,
-            crate::character_reaction_host::acknowledge_character_reaction,
-            crate::character_reaction_host::get_character_reaction_events,
-            crate::character_reaction_host::preview_character_reaction,
+            crate::characters::gestures::get_character_gesture_settings,
+            crate::characters::gestures::trace_character_gesture,
+            crate::characters::gestures::begin_character_drag,
+            crate::characters::gestures::cancel_character_drag,
+            crate::characters::gestures::trigger_character_interaction,
+            crate::characters::gestures::arm_character_move,
+            crate::characters::gestures::give_character_snack,
+            crate::characters::life::begin_character_contact,
+            crate::characters::life::set_character_sleep,
+            crate::characters::life::give_character_item,
+            crate::characters::life::wandering::report_character_motion_preference,
+            crate::characters::reaction_host::trigger_character_reaction,
+            crate::characters::reaction_host::acknowledge_character_reaction,
+            crate::characters::reaction_host::get_character_reaction_events,
+            crate::characters::reaction_host::preview_character_reaction,
             super::get_snapshot,
             super::history::list_character_history,
             super::users::set_user_name,
@@ -584,22 +587,22 @@ pub fn run() {
             behavior::get_desktop_preferences,
             behavior::set_desktop_preferences,
             behavior::clear_desktop_toys,
-            desktop_toys::desktop_toy_action,
-            crate::character_collision_host::set_character_collision,
-            crate::character_collision_host::set_character_collision_animation,
-            crate::character_collision_host::select_character_collision_frame,
+            desktop::toys::desktop_toy_action,
+            crate::characters::collision_host::set_character_collision,
+            crate::characters::collision_host::set_character_collision_animation,
+            crate::characters::collision_host::select_character_collision_frame,
             updater::get_update_status,
             updater::check_app_update,
             updater::install_app_update,
             updater::expand_update_notice,
             updater::open_update_settings,
-            crate::memo_notes::create_memo_note,
-            crate::memo_notes::open_memo_note,
-            crate::memo_notes::close_memo_note,
-            crate::memo_notes::request_close_memo_note,
-            crate::memo_notes::save_memo_note,
-            widget_commands::get_widgets,
-            widget_commands::list_usage_applications,
+            crate::widgets::memo_notes::create_memo_note,
+            crate::widgets::memo_notes::open_memo_note,
+            crate::widgets::memo_notes::close_memo_note,
+            crate::widgets::memo_notes::request_close_memo_note,
+            crate::widgets::memo_notes::save_memo_note,
+            widgets::commands::get_widgets,
+            widgets::commands::list_usage_applications,
             crate::chatgpt::get_chatgpt_status,
             crate::chatgpt::login_chatgpt,
             crate::chatgpt::cancel_chatgpt_login,
@@ -607,105 +610,105 @@ pub fn run() {
             crate::chatgpt::logout_chatgpt,
             crate::chatgpt::list_chatgpt_models,
             crate::chatgpt::open_chatgpt_usage,
-            crate::organizer_commands::organizer_status,
-            crate::organizer_commands::organizer_save_settings,
-            crate::organizer_commands::organizer_connect_vault,
-            crate::organizer_commands::organizer_disconnect_vault,
-            crate::organizer_commands::organizer_scan_vault,
-            crate::organizer_commands::organizer_run,
-            crate::organizer_commands::organizer_pause,
-            crate::organizer_commands::organizer_touch,
-            crate::organizer_commands::organizer_search,
-            crate::organizer_commands::organizer_records,
-            crate::organizer_commands::organizer_actions,
-            crate::organizer_commands::organizer_open_source,
-            crate::organizer_commands::organizer_undo,
-            crate::organizer_commands::organizer_open_records,
-            crate::organizer_commands::organizer_open_action,
-            crate::organizer_commands::organizer_pick_folder,
+            crate::organizer::commands::organizer_status,
+            crate::organizer::commands::organizer_save_settings,
+            crate::organizer::commands::organizer_connect_vault,
+            crate::organizer::commands::organizer_disconnect_vault,
+            crate::organizer::commands::organizer_scan_vault,
+            crate::organizer::commands::organizer_run,
+            crate::organizer::commands::organizer_pause,
+            crate::organizer::commands::organizer_touch,
+            crate::organizer::commands::organizer_search,
+            crate::organizer::commands::organizer_records,
+            crate::organizer::commands::organizer_actions,
+            crate::organizer::commands::organizer_open_source,
+            crate::organizer::commands::organizer_undo,
+            crate::organizer::commands::organizer_open_records,
+            crate::organizer::commands::organizer_open_action,
+            crate::organizer::commands::organizer_pick_folder,
             crate::diary::get_diary,
             crate::diary::update_diary,
             crate::conversation_notes::get_conversation_notes,
             crate::conversation_notes::set_conversation_note_context,
             crate::conversation_notes::open_conversation_note,
             crate::conversation_notes::save_conversation_note,
-            crate::widget_runtime::get_widget_runtime,
-            widget_commands::install_widgets,
-            widget_commands::set_widget_enabled,
-            widget_commands::remove_widget,
-            widget_commands::execute_widget,
-            widget_commands::configure_widget_appearance,
-            widget_commands::choose_widget_background,
-            widget_commands::remove_widget_background,
-            widget_commands::get_widget_journal,
-            widget_commands::open_widgets,
-            widget_commands::close_widgets,
-            widget_commands::open_widget,
-            widget_commands::close_widget,
-            crate::widget_desktop::get_widget_desktop,
-            crate::widget_desktop::configure_widget_desktop,
-            crate::widget_desktop::restore_widget_desktop,
-            crate::widget_desktop::add_widget_desktop_item,
-            crate::widget_desktop::remove_widget_desktop_item,
-            crate::widget_desktop::set_widget_desktop_shape,
-            crate::widget_desktop::set_widget_desktop_editing,
-            crate::widget_desktop::get_widget_desktop_snapshot,
-            crate::widget_desktop::open_widget_stack,
-            crate::widget_desktop::close_widget_stack,
-            crate::widget_desktop::fit_widget_stack,
-            crate::widget_desktop::fit_widget_editor,
-            widget_connections::connect_calendar_ics,
-            widget_connections::connect_calendar_google,
-            widget_connections::connect_calendar_apple,
-            widget_connections::list_apple_calendars,
-            crate::planner_windows::get_planner_tab,
-            crate::planner_windows::open_planner_view,
-            crate::planner_windows::get_planner_view_target,
-            crate::planner_windows::get_planner_note_target,
-            crate::planner_windows::set_planner_tab,
-            crate::planner_windows::preview_planner_recurrence,
-            crate::planner_windows::open_planner_settings,
-            crate::planner_windows::get_planner_settings_target,
-            crate::planner_notifications::get_planner_notification_permission,
-            crate::planner_notifications::request_planner_notification_permission,
-            crate::planner_notifications::preview_planner_notification,
-            widget_connections::refresh_calendar,
-            widget_connections::disconnect_calendar,
-            widget_connections::configure_connection_widget,
-            widget_connections::music_request,
-            widget_connections::music_bridge_pair,
-            widget_connections::music_bridge_status,
-            widget_connections::music_bridge_disconnect,
-            widget_connections::export_music_extension,
-            widget_commands::set_music_expanded,
-            widget_commands::set_focus_expanded,
-            widget_connections::refresh_connection_widget,
-            widget_connections::search_weather_regions,
-            widget_connections::open_widget_link,
-            character_commands::open_characters,
-            character_commands::get_settings_character,
-            character_commands::ack_settings_character,
-            character_commands::create_character,
-            character_commands::save_character,
-            character_commands::get_character_dialogue,
-            character_commands::save_character_dialogue,
-            character_commands::clone_character,
-            character_commands::apply_character_roster,
-            character_commands::get_character_packs,
-            character_commands::apply_character_pack,
-            character_commands::remove_character,
-            character_commands::preview_character_pack,
-            character_commands::choose_character_pack,
-            character_commands::import_character_pack,
-            character_commands::save_character_pack,
-            character_commands::get_character_pack_attribution,
-            character_commands::save_character_pack_attribution,
-            crate::talk_commands::get_talk_packs,
-            crate::talk_commands::install_talk_pack,
-            crate::talk_commands::remove_talk_pack,
-            character_commands::choose_character_sprite,
-            character_commands::choose_animation_assets,
-            character_commands::remove_character_sprite,
+            crate::widgets::runtime::get_widget_runtime,
+            widgets::commands::install_widgets,
+            widgets::commands::set_widget_enabled,
+            widgets::commands::remove_widget,
+            widgets::commands::execute_widget,
+            widgets::commands::configure_widget_appearance,
+            widgets::commands::choose_widget_background,
+            widgets::commands::remove_widget_background,
+            widgets::commands::get_widget_journal,
+            widgets::commands::open_widgets,
+            widgets::commands::close_widgets,
+            widgets::commands::open_widget,
+            widgets::commands::close_widget,
+            crate::widgets::desktop::get_widget_desktop,
+            crate::widgets::desktop::configure_widget_desktop,
+            crate::widgets::desktop::restore_widget_desktop,
+            crate::widgets::desktop::add_widget_desktop_item,
+            crate::widgets::desktop::remove_widget_desktop_item,
+            crate::widgets::desktop::set_widget_desktop_shape,
+            crate::widgets::desktop::set_widget_desktop_editing,
+            crate::widgets::desktop::get_widget_desktop_snapshot,
+            crate::widgets::desktop::open_widget_stack,
+            crate::widgets::desktop::close_widget_stack,
+            crate::widgets::desktop::fit_widget_stack,
+            crate::widgets::desktop::fit_widget_editor,
+            widgets::connection_host::connect_calendar_ics,
+            widgets::connection_host::connect_calendar_google,
+            widgets::connection_host::connect_calendar_apple,
+            widgets::connection_host::list_apple_calendars,
+            crate::widgets::planning::windows::get_planner_tab,
+            crate::widgets::planning::windows::open_planner_view,
+            crate::widgets::planning::windows::get_planner_view_target,
+            crate::widgets::planning::windows::get_planner_note_target,
+            crate::widgets::planning::windows::set_planner_tab,
+            crate::widgets::planning::windows::preview_planner_recurrence,
+            crate::widgets::planning::windows::open_planner_settings,
+            crate::widgets::planning::windows::get_planner_settings_target,
+            crate::widgets::planning::notifications::get_planner_notification_permission,
+            crate::widgets::planning::notifications::request_planner_notification_permission,
+            crate::widgets::planning::notifications::preview_planner_notification,
+            widgets::connection_host::refresh_calendar,
+            widgets::connection_host::disconnect_calendar,
+            widgets::connection_host::configure_connection_widget,
+            widgets::connection_host::music_request,
+            widgets::connection_host::music_bridge_pair,
+            widgets::connection_host::music_bridge_status,
+            widgets::connection_host::music_bridge_disconnect,
+            widgets::connection_host::export_music_extension,
+            widgets::commands::set_music_expanded,
+            widgets::commands::set_focus_expanded,
+            widgets::connection_host::refresh_connection_widget,
+            widgets::connection_host::search_weather_regions,
+            widgets::connection_host::open_widget_link,
+            characters::commands::open_characters,
+            characters::commands::get_settings_character,
+            characters::commands::ack_settings_character,
+            characters::commands::create_character,
+            characters::commands::save_character,
+            characters::commands::get_character_dialogue,
+            characters::commands::save_character_dialogue,
+            characters::commands::clone_character,
+            characters::commands::apply_character_roster,
+            characters::commands::get_character_packs,
+            characters::commands::apply_character_pack,
+            characters::commands::remove_character,
+            characters::commands::preview_character_pack,
+            characters::commands::choose_character_pack,
+            characters::commands::import_character_pack,
+            characters::commands::save_character_pack,
+            characters::commands::get_character_pack_attribution,
+            characters::commands::save_character_pack_attribution,
+            crate::talk::commands::get_talk_packs,
+            crate::talk::commands::install_talk_pack,
+            crate::talk::commands::remove_talk_pack,
+            characters::commands::choose_character_sprite,
+            characters::commands::choose_animation_assets,
+            characters::commands::remove_character_sprite,
             windows::open_panel,
             super::chat::open_reply,
             super::chat::resume_chat,
@@ -749,8 +752,8 @@ pub fn run() {
             windows::hide_boxes,
             windows::set_paused,
             windows::quit_app,
-            story_host::choose_story,
-            story_host::defer_story,
+            story::host::choose_story,
+            story::host::defer_story,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build comet")
@@ -788,13 +791,13 @@ pub fn run() {
                 }
             }
             tauri::RunEvent::Exit => {
-                device_wake::shutdown(app);
+                device::wake::shutdown(app);
                 if let Some(state) = app.try_state::<Arc<AppState>>() {
                     let _ = prepare_exit(&state);
                     // Native macOS termination can skip ExitRequested. Finish before returning to Cocoa.
                     tauri::async_runtime::block_on(stop_owned_work(&state));
                 }
-                crate::crash_analytics::clean_exit(app);
+                crate::analytics::crash::clean_exit(app);
             }
             _ => {}
         });
@@ -816,7 +819,7 @@ async fn request_exit(app: &tauri::AppHandle) {
     let result = async {
         let mut notes = prepare_after_notes(
             &state,
-            crate::memo_notes::flush_notes(app, &state, None),
+            crate::widgets::memo_notes::flush_notes(app, &state, None),
             |notes| {
                 if windows::settings_exit_needs_confirmation(&state) {
                     return Err("저장하지 않은 설정을 확인한 뒤 다시 종료해 주세요.".into());
@@ -826,13 +829,13 @@ async fn request_exit(app: &tauri::AppHandle) {
             },
         )
         .await?;
-        desktop_toys::clear(app);
-        device_wake::shutdown(app);
+        desktop::toys::clear(app);
+        device::wake::shutdown(app);
         stop_owned_work(&state).await;
         let exit_app = app.clone();
         app.run_on_main_thread(move || {
             exit_app.cleanup_before_exit();
-            crate::crash_analytics::clean_exit(&exit_app);
+            crate::analytics::crash::clean_exit(&exit_app);
             std::process::exit(0);
         })
         .map_err(|error| error.to_string())?;
@@ -907,18 +910,18 @@ pub(crate) fn flush_positions(state: &AppState, all: bool) -> Result<(), String>
 
 pub(crate) async fn prepare_update_install(
     app: &tauri::AppHandle,
-) -> Result<crate::memo_notes::FlushedNotes, String> {
+) -> Result<crate::widgets::memo_notes::FlushedNotes, String> {
     let state = app.state::<Arc<AppState>>();
     let notes = prepare_after_notes(
         &state,
-        crate::memo_notes::flush_notes(app, &state, None),
+        crate::widgets::memo_notes::flush_notes(app, &state, None),
         |notes| {
             notes.ensure_current(app, &*lock(&state.db)?)?;
             prepare_update_install_locked(&state)
         },
     )
     .await?;
-    desktop_toys::clear(app);
+    desktop::toys::clear(app);
     publish(app, &state);
     let result = async {
         let (nlp, ()) = tokio::join!(state.nlp.suspend(), super::tasks::shutdown(&state));

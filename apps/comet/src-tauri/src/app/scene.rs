@@ -1,6 +1,6 @@
 use super::presence;
 use super::{is_current, lock, phase, publish, AppState};
-use crate::{characters, models, playback, store, talk_host, types::*, widget_commands, wordbook};
+use crate::{characters, models, playback, store, talk, types::*, widgets, wordbook};
 use rusqlite::Connection;
 use std::{
     sync::{
@@ -49,7 +49,7 @@ pub(crate) fn present_line(
         } {
             return Ok(false);
         }
-        let allowed = crate::character_guests::display_ids(state, &db)?;
+        let allowed = crate::characters::guests::display_ids(state, &db)?;
         store::saved_reply_for_participants(&db, id, Some(&allowed))?
     } else {
         None
@@ -64,25 +64,25 @@ pub(crate) fn present_line(
     }
     let ticket = lock(&state.tasks)?.participants.clone();
     let resolved = if let Some(ticket) = &ticket {
-        crate::character_guests::resolve_lines(state, &db, ticket, std::slice::from_ref(line))?
+        crate::characters::guests::resolve_lines(state, &db, ticket, std::slice::from_ref(line))?
     } else {
         characters::resolve_lines(&db, std::slice::from_ref(line))?
     };
     let line = &resolved[0];
     lock(&state.reactions)?.clear_ambient(&line.persona);
-    if crate::character_life::sleeping(state, &line.persona)? {
+    if crate::characters::life::sleeping(state, &line.persona)? {
         if state.automatic.load(Ordering::SeqCst) {
             return Ok(false);
         }
-        crate::character_life::wake(state, &line.persona)?;
+        crate::characters::life::wake(state, &line.persona)?;
     }
     let actor = if let Some(ticket) = &ticket {
-        crate::character_guests::resolve_actor(state, &db, ticket, &line.persona)?
+        crate::characters::guests::resolve_actor(state, &db, ticket, &line.persona)?
     } else {
         characters::active_character(&db, &line.persona)?
     };
     let resident = actor.definition.presence_role == crate::pack_stories::PresenceRole::Resident;
-    if source != "presence" && !crate::character_guests::is_present(state, &db, &line.persona)? {
+    if source != "presence" && !crate::characters::guests::is_present(state, &db, &line.persona)? {
         if state.automatic.load(Ordering::SeqCst) {
             return Ok(false);
         }
@@ -93,11 +93,11 @@ pub(crate) fn present_line(
     }
     let text_speed = actor.definition.balloon_style.text_speed;
     if (source == "widget" || (source == "reaction" && lock(&state.widget_playback)?.is_some()))
-        && !widget_commands::widget_event_current(state, &db)?
+        && !widgets::commands::widget_event_current(state, &db)?
     {
         return Ok(false);
     }
-    if source == "talk" && !talk_host::current(state, &db)? {
+    if source == "talk" && !talk::host::current(state, &db)? {
         return Ok(false);
     }
     if matches!(source, "scenario" | "npc") {
@@ -205,7 +205,7 @@ pub(crate) fn line_completion_locked(
         return Ok(None);
     }
     if let Some(ticket) = lock(&state.tasks)?.participants.clone() {
-        if ticket.epoch != epoch || crate::character_guests::validate(state, &db, &ticket).is_err()
+        if ticket.epoch != epoch || crate::characters::guests::validate(state, &db, &ticket).is_err()
         {
             return Ok(None);
         }
@@ -635,7 +635,7 @@ pub(crate) fn next_scene(state: &AppState) -> Result<(Vec<SceneLine>, &'static s
     if state.idle_sequence.load(Ordering::SeqCst) > 0
         && state.talk_turn.fetch_xor(true, Ordering::SeqCst)
     {
-        if let Some(lines) = talk_host::prepare(state, &db, None)? {
+        if let Some(lines) = talk::host::prepare(state, &db, None)? {
             return Ok((lines, "talk"));
         }
     }
@@ -747,7 +747,7 @@ mod tests {
             persona: "builtin-a".into(),
             expression: "평온".into(),
             text: "  재시도 원문\n그대로  ".into(),
-            motion: crate::character_reactions::MotionOverride::Static,
+            motion: crate::characters::reactions::MotionOverride::Static,
         };
         assert!(present_line(
             &state,

@@ -457,7 +457,7 @@ fn format8_round_trip_validation_trial_and_monotonic_aba_preserve_existing_data(
 
 #[test]
 fn format8_character_clones_keep_assets_relations_and_only_referenced_flag_declarations() {
-    use crate::character_animation::{
+    use crate::characters::animation::{
         Animation, Binding, Bindings, Clip, Frame, PackAnimationAsset,
     };
     use base64::Engine;
@@ -556,20 +556,20 @@ fn format8_character_clones_keep_assets_relations_and_only_referenced_flag_decla
         assert_eq!(cloned.definition, original.definition);
         assert_eq!(cloned.animation_assets, original.animation_assets);
         assert_eq!(
-            crate::character_animation::all(&db, &cloned.id)
+            crate::characters::animation::all(&db, &cloned.id)
                 .unwrap()
                 .iter()
                 .map(|asset| asset.payload())
                 .collect::<Vec<_>>(),
-            crate::character_animation::all(&db, &original.id)
+            crate::characters::animation::all(&db, &original.id)
                 .unwrap()
                 .iter()
                 .map(|asset| asset.payload())
                 .collect::<Vec<_>>()
         );
         assert_eq!(
-            crate::character_sprites::all(&db, &cloned.id).unwrap(),
-            crate::character_sprites::all(&db, &original.id).unwrap()
+            crate::characters::sprites::all(&db, &cloned.id).unwrap(),
+            crate::characters::sprites::all(&db, &original.id).unwrap()
         );
         let definition =
             characters::get_pack_story_definition(&db, cloned.pack_id.as_ref().unwrap())

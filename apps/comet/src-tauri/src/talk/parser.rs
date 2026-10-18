@@ -1,5 +1,5 @@
 use super::{expr, Diagnostic, Program, Registry, Scene, Span, Statement, TextPart};
-use crate::character_reactions::MotionOverride;
+use crate::characters::reactions::MotionOverride;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,

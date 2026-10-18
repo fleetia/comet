@@ -1,24 +1,29 @@
-#[path = "characters/archive.rs"]
+pub(crate) mod animation;
+pub(crate) mod animation_states;
+pub(crate) mod collision;
+pub(crate) mod collision_host;
+pub(crate) mod commands;
+pub(crate) mod files;
+pub(crate) mod gestures;
+pub(crate) mod guests;
+pub(crate) mod life;
+pub(crate) mod reaction_host;
+pub(crate) mod reactions;
+pub(crate) mod sprites;
 pub mod archive;
-#[path = "characters/bundled_motions.rs"]
 mod bundled_motions;
-#[path = "characters/story_definitions.rs"]
 mod story_definitions;
 pub use story_definitions::{
     character_definition_baseline, get_pack_story_definition, npc_only_pack,
     pack_definition_baseline, save_pack_story_definition_expected,
 };
-#[path = "characters/dialogue.rs"]
 mod dialogue;
-#[path = "characters/validation.rs"]
 mod validation;
 pub use archive::ExportOptions;
 
-use crate::character_animation::{
-    self as animation, Animation, AssetInfo, PackAnimationAsset, PreparedAsset,
-};
-use crate::character_reactions::{MotionOverride, ReactionRule};
-use crate::character_sprites::{self as sprites, SpriteInfo};
+use animation::{Animation, AssetInfo, PackAnimationAsset, PreparedAsset};
+use reactions::{MotionOverride, ReactionRule};
+use sprites::SpriteInfo;
 #[cfg(test)]
 pub use dialogue::keyword_scene;
 pub(crate) use dialogue::registered_directed_reply;
@@ -141,9 +146,9 @@ pub struct CharacterDefinition {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reactions: Vec<ReactionRule>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub body_regions: Vec<crate::character_reactions::BodyRegion>,
+    pub body_regions: Vec<reactions::BodyRegion>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub gesture_motions: Vec<crate::character_reactions::GestureMotion>,
+    pub gesture_motions: Vec<reactions::GestureMotion>,
     pub greeting: Vec<CharacterLine>,
     pub idle_lines: Vec<CharacterLine>,
     #[serde(default = "default_departure_lines")]
@@ -1306,16 +1311,12 @@ fn export_pack_contents(
 }
 
 #[cfg(test)]
-#[path = "characters/animation_tests.rs"]
 mod animation_tests;
 #[cfg(test)]
-#[path = "characters/archive_tests.rs"]
 mod archive_tests;
 #[cfg(test)]
-#[path = "characters/reaction_tests.rs"]
 mod reaction_tests;
 #[cfg(test)]
-#[path = "characters/tests.rs"]
 mod tests;
 
 pub fn resolve_lines(conn: &Connection, lines: &[SceneLine]) -> Result<Vec<SceneLine>> {
@@ -1323,7 +1324,7 @@ pub fn resolve_lines(conn: &Connection, lines: &[SceneLine]) -> Result<Vec<Scene
         .iter()
         .map(|line| {
             let owner = active_character(conn, &line.persona)?;
-            crate::character_reactions::validate_motion(&line.motion, &owner.definition, false)?;
+            reactions::validate_motion(&line.motion, &owner.definition, false)?;
             Ok(SceneLine {
                 persona: owner.id,
                 expression: line.expression.clone(),

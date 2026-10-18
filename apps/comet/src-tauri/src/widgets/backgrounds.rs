@@ -1,7 +1,10 @@
-use crate::character_sprites;
+use super::storage;
+use crate::{app::lock, characters::sprites, AppState};
 use rusqlite::{params, Connection, OptionalExtension};
-use std::path::Path;
+use std::{path::Path, sync::Arc};
+use tauri::Manager;
 
+pub(crate) const SCHEME: &str = "widget";
 pub(crate) const EXTENSIONS: [&str; 6] = ["svg", "png", "gif", "webp", "jpg", "jpeg"];
 const MAX_BYTES: usize = 2 * 1024 * 1024;
 
@@ -27,7 +30,7 @@ fn validate(bytes: &[u8]) -> Result<&'static str> {
     if bytes.is_empty() || bytes.len() > MAX_BYTES {
         return Err("배경 이미지는 1바이트 이상 2MiB 이하여야 해요.".into());
     }
-    character_sprites::detect_mime(bytes)
+    sprites::detect_mime(bytes)
         .ok_or_else(|| "SVG·PNG·GIF·WebP·JPEG 이미지만 사용할 수 있어요.".into())
 }
 
@@ -98,6 +101,40 @@ pub(crate) fn read_file(path: &Path) -> Result<Vec<u8>> {
     let bytes = std::fs::read(path).map_err(error)?;
     validate(&bytes)?;
     Ok(bytes)
+}
+
+fn response(status: u16, mime: &str, body: Vec<u8>) -> tauri::http::Response<Vec<u8>> {
+    tauri::http::Response::builder()
+        .status(status)
+        .header("Content-Type", mime)
+        .header("Cache-Control", "public, max-age=31536000, immutable")
+        .body(body)
+        .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()))
+}
+
+pub(crate) fn serve(
+    ctx: tauri::UriSchemeContext<'_, tauri::Wry>,
+    request: tauri::http::Request<Vec<u8>>,
+) -> tauri::http::Response<Vec<u8>> {
+    let Ok(url) = tauri::Url::parse(&request.uri().to_string()) else {
+        return response(400, "text/plain", Vec::new());
+    };
+    let id = url
+        .path_segments()
+        .and_then(|mut segments| segments.next())
+        .unwrap_or("")
+        .to_string();
+    if id.is_empty() {
+        return response(400, "text/plain", Vec::new());
+    }
+    let state = ctx.app_handle().state::<Arc<AppState>>();
+    match lock(&state.db)
+        .and_then(|db| storage::get(&db, &id).and_then(|_| get(&db, &id)))
+    {
+        Ok(Some(background)) => response(200, &background.mime, background.data),
+        Ok(None) => response(404, "text/plain", Vec::new()),
+        Err(_) => response(500, "text/plain", Vec::new()),
+    }
 }
 
 #[cfg(test)]

@@ -2,8 +2,7 @@ use super::presence;
 use super::scene::{next_scene, start_scene};
 use super::unavailable;
 use super::{is_current, lock, now, phase, publish, schedule_idle, AppState};
-use crate::{behavior, characters, desktop_toys};
-use crate::{desktop, inference, store, types::PanelState, widgets};
+use crate::{behavior, characters, desktop, inference, store, types::PanelState, widgets};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -119,7 +118,7 @@ pub(crate) fn begin_panel_with_source(
     mode: String,
     source: &str,
 ) -> Result<Option<u64>, String> {
-    if crate::character_guests::actor(state, &*lock(&state.db)?, persona).is_err()
+    if crate::characters::guests::actor(state, &*lock(&state.db)?, persona).is_err()
         || !["menu", "input", "history"].contains(&mode.as_str())
     {
         return Err("열 수 없는 캐릭터 메뉴예요.".into());
@@ -133,13 +132,13 @@ pub(crate) fn begin_panel_with_source(
             return Ok(None);
         }
         let db = lock(&state.db)?;
-        let id = crate::character_guests::actor(state, &db, persona)?.id;
-        let center = crate::character_guests::center_id(state, &id)?.unwrap_or(id.clone());
+        let id = crate::characters::guests::actor(state, &db, persona)?.id;
+        let center = crate::characters::guests::center_id(state, &id)?.unwrap_or(id.clone());
         lock(&state.reactions)?.clear_ambient(&id);
         if mode == "input" {
-            crate::character_life::wake(state, &id)?;
+            crate::characters::life::wake(state, &id)?;
         }
-        if crate::character_guests::generation(state, &id)?.is_none() {
+        if crate::characters::guests::generation(state, &id)?.is_none() {
             presence::summon_locked(state, &id)?;
         }
         let focusing = mode == "input"
@@ -269,10 +268,10 @@ pub(crate) fn close_panel_locked(
     let waiting =
         if idle && lock(&state.tasks)?.active.is_none() && lock(&state.playback)?.is_none() {
             if let Some(panel) = panel.filter(|panel| panel.mode == "input") {
-                let actor = crate::character_guests::actor(state, db, &panel.persona)
+                let actor = crate::characters::guests::actor(state, db, &panel.persona)
                     .map(|actor| actor.id)
                     .unwrap_or(panel.persona);
-                let center = crate::character_guests::center_id(state, &actor)?.unwrap_or(actor);
+                let center = crate::characters::guests::center_id(state, &actor)?.unwrap_or(actor);
                 super::conversation::waiting_pack_run(state, db, std::slice::from_ref(&center))
                     .ok()
                     .flatten()
@@ -347,7 +346,7 @@ pub(crate) fn talk_now(
             let db = lock(&state.db)?;
             let active = characters::active_ids(&db)?;
             for id in &active {
-                crate::character_life::wake(&state, id)?;
+                crate::characters::life::wake(&state, id)?;
             }
             super::conversation::ensure_available(&db)?;
             if presence::present_ids(&state, &active)?.is_empty() {
@@ -428,7 +427,7 @@ pub(crate) fn show_boxes(app: &tauri::AppHandle, state: &AppState) {
     state.last_input.store(now(), Ordering::SeqCst);
     drop(action);
     publish(app, state);
-    crate::desktop_menu::refresh(app);
+    crate::desktop::menu::refresh(app);
 }
 
 #[tauri::command]
@@ -459,7 +458,7 @@ pub(crate) async fn hide_boxes(
         }
         token
     };
-    desktop_toys::clear_automatic(&app);
+    desktop::toys::clear_automatic(&app);
     phase(
         &app,
         &state,
@@ -473,7 +472,7 @@ pub(crate) async fn hide_boxes(
         inference::stop_local(&state.inference).await;
     }
     publish(&app, &state);
-    crate::desktop_menu::refresh(&app);
+    crate::desktop::menu::refresh(&app);
     Ok(())
 }
 
@@ -487,7 +486,7 @@ pub(crate) fn set_paused(
     let until = pause_until(paused, minutes, chrono::Utc::now().timestamp_millis())?;
     let token = apply_pause(&state, paused, until)?;
     if paused {
-        desktop_toys::clear_automatic(&app);
+        desktop::toys::clear_automatic(&app);
     }
     if let Some((epoch, _)) = token {
         phase(
@@ -501,7 +500,7 @@ pub(crate) fn set_paused(
     } else {
         publish(&app, &state);
     }
-    crate::desktop_menu::refresh(&app);
+    crate::desktop::menu::refresh(&app);
     Ok(())
 }
 

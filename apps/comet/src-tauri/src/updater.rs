@@ -76,7 +76,7 @@ fn notice_actor_available(
         .iter()
         .any(|active| active == id)
         && app::presence::is_present(state, id)?
-        && !crate::character_life::sleeping(state, id)?)
+        && !crate::characters::life::sleeping(state, id)?)
 }
 
 fn finish_notice(state: &AppState, db: &rusqlite::Connection) -> Result<(), String> {
@@ -627,7 +627,7 @@ mod tests {
                 "sleeping" => {
                     let active = characters::active_ids(&lock(&state.db).unwrap()).unwrap();
                     for id in active {
-                        crate::character_life::set_sleep(&state, &id, true).unwrap();
+                        crate::characters::life::set_sleep(&state, &id, true).unwrap();
                     }
                 }
                 "busy" => lock(&state.runtime).unwrap().phase = RuntimePhase::Generating,

@@ -345,7 +345,7 @@ fn desktop_note_references_keep_widget_identity_and_become_unavailable_on_remova
         .into_iter()
         .find(|widget| widget.kind == "memo")
         .unwrap();
-    crate::memo_notes::create_note(&db, &widget.id).unwrap();
+    crate::widgets::memo_notes::create_note(&db, &widget.id).unwrap();
     let reference = list_notes(&db)
         .unwrap()
         .into_iter()

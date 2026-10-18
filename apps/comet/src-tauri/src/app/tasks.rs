@@ -22,7 +22,7 @@ pub(crate) enum Kind {
 pub(crate) struct Registry {
     pub(crate) active: Option<(Kind, u64)>,
     pub(crate) conversation: Option<(String, String)>,
-    pub(crate) participants: Option<crate::character_guests::ParticipantTicket>,
+    pub(crate) participants: Option<crate::characters::guests::ParticipantTicket>,
     pub(crate) pack_replay: Option<String>,
     handles: Vec<(Kind, tauri::async_runtime::JoinHandle<()>)>,
 }
@@ -296,7 +296,7 @@ mod tests {
             runtime.persona = Some("a".into());
             runtime.error = Some("old error".into());
         }
-        crate::organizer_runtime::touch(&state);
+        crate::organizer::runtime::touch(&state);
         assert!(cancel.load(Ordering::SeqCst));
         assert!(!complete(&state, Kind::Conversation, epoch, false).unwrap());
         assert_eq!(lock(&state.runtime).unwrap().phase, RuntimePhase::Loading);
@@ -317,7 +317,7 @@ mod tests {
             let _action = lock(&state.action).unwrap();
             reserve(&state, Kind::Background, true).unwrap()
         };
-        crate::organizer_runtime::touch(&state);
+        crate::organizer::runtime::touch(&state);
         let new = {
             let _action = lock(&state.action).unwrap();
             reserve_conversation(&state, Some("session"), "new-input").unwrap()
