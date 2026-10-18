@@ -550,6 +550,7 @@ pub fn run() {
             crate::widgets::generated::commands::update_generated_state,
             crate::widgets::generated::commands::report_generated_result,
             crate::widgets::generated::commands::set_generated_widget_enabled,
+            crate::widgets::generated::commands::restore_previous_generated_widget,
             crate::widgets::generated::commands::remove_generated_widget,
             crate::widgets::generated::commands::open_generated_widget,
             crate::widgets::generated::commands::close_generated_widget,
@@ -633,7 +634,6 @@ pub fn run() {
             crate::diary::get_diary,
             crate::diary::update_diary,
             crate::conversation_notes::get_conversation_notes,
-            crate::conversation_notes::set_conversation_note_context,
             crate::conversation_notes::open_conversation_note,
             crate::conversation_notes::save_conversation_note,
             crate::widgets::runtime::get_widget_runtime,
@@ -757,6 +757,7 @@ pub fn run() {
             windows::hide_boxes,
             windows::set_paused,
             windows::quit_app,
+            windows::reveal_data_folder,
             story::host::choose_story,
             story::host::defer_story,
         ])

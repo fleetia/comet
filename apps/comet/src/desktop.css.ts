@@ -2,7 +2,6 @@ import { globalStyle, style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
 import * as shared from "./common.css";
 
-export { theme } from "./theme.css";
 
 export const documentRoot = style({
   minHeight: "100%",

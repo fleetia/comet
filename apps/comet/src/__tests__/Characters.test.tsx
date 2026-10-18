@@ -494,3 +494,71 @@ it("preserves attribution drafts per package across selection and failed saves",
   fireEvent.click(screen.getByRole("button", { name: "출처 수정 취소" }));
   expect(onDirtyChange).toHaveBeenLastCalledWith(false);
 });
+
+it("imports personal records from a shared file only when each is chosen", async () => {
+  const person = { id: "person-1", name: "산책 친구", startedAt: 1, endedAt: 5 };
+  const archive = {
+    exportedAt: 10,
+    people: [person],
+    memories: [
+      {
+        id: "memory-1",
+        characterSourceId: extra.definition.sourceId,
+        personId: person.id,
+        kind: "user_fact",
+        content: "달밤 산책을 좋아해",
+        sourceId: "source-1",
+        sourceText: "달밤 산책 좋아해",
+        sourceCreatedAt: 2,
+        updatedAt: 3,
+      },
+    ],
+    affinity: [{ characterSourceId: extra.definition.sourceId, personId: person.id, score: 40 }],
+    messages: [],
+  };
+  const shared = { ...pack, formatVersion: 8 as const, archive };
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "choose_character_pack") return shared;
+    if (name === "import_character_pack") return [extra];
+    return undefined;
+  });
+  render(
+    <CharacterSharing
+      snapshot={snapshot}
+      selectedId="local-third"
+      disabled={false}
+      action="import"
+      onActionChange={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "공유 파일 가져오기" }));
+  const memories = await screen.findByRole("checkbox", { name: "기억 함께 가져오기" });
+  expect(memories).toHaveProperty("checked", false);
+  expect(screen.queryByRole("checkbox", { name: "대화 기록 함께 가져오기" })).toBeNull();
+  fireEvent.click(memories);
+  fireEvent.click(screen.getByRole("button", { name: "내용 확인 후 설치" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("import_character_pack", {
+      pack: { ...shared, archive: { ...archive, affinity: [] } },
+    }),
+  );
+});
+
+it("drops the whole archive when no personal records are chosen", async () => {
+  const { withArchiveChoice, NO_ARCHIVE } = await import(
+    "../components/CharacterSharing/archiveChoice"
+  );
+  const person = { id: "p", name: "사람", startedAt: 1, endedAt: 2 };
+  const shared = {
+    ...pack,
+    archive: {
+      exportedAt: 3,
+      people: [person],
+      memories: [],
+      affinity: [{ characterSourceId: "x", personId: "p", score: 1 }],
+      messages: [],
+    },
+  };
+  expect(withArchiveChoice(shared, NO_ARCHIVE).archive).toBeNull();
+  expect(withArchiveChoice(pack, NO_ARCHIVE)).toBe(pack);
+});

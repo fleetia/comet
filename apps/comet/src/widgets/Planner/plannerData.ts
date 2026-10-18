@@ -221,3 +221,24 @@ export function overlappingEvents(candidate: DataRecord, events: DataRecord[]): 
       eventEnd(event) > start,
   );
 }
+
+const PREVIOUS_PERIOD: Record<string, string> = { week: "지난주", month: "지난달", year: "작년" };
+/** Unfinished, undated work planned for the period just before the one shown. */
+export function periodCarryover(
+  items: DataRecord[],
+  period: string,
+  day: string,
+): { label: string; items: DataRecord[] } | null {
+  const label = PREVIOUS_PERIOD[period];
+  if (!label) return null;
+  const previous = periodAnchor(period, movePeriod(day, period, -1));
+  const carried = items.filter(
+    (item) =>
+      item.planPeriod === period &&
+      text(item.planAnchor) === previous &&
+      typeof item.completedAt !== "number" &&
+      !plannedDay(item) &&
+      ruleOf(item).mode !== "frequency",
+  );
+  return carried.length ? { label, items: carried } : null;
+}

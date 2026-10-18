@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement } from "react";
-import { Button, Checkbox } from "@comet/ui";
+import { Button, Checkbox, Dialog } from "@comet/ui";
 import { Heading, Inline, Text } from "../../primitives";
 import { command, errorText } from "../../hooks/useSnapshot";
 import type { GeneratedWidget, GenerationEligibility } from "../GeneratedWidgets/types";
@@ -36,6 +36,7 @@ export function GeneratedWidgetSettings({
   const [generating, setGenerating] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
+  const [confirmRestore, setConfirmRestore] = useState(false);
   useEffect(() => {
     onDirtyChange(widget.id, request.length > 0);
   }, [widget.id, request, onDirtyChange]);
@@ -183,7 +184,49 @@ export function GeneratedWidgetSettings({
             {notice}
           </Text>
         )}
+        <Text as="p" variant="caption" tone="muted">
+          고치기 전 모습은 보관해 둬요.
+        </Text>
+        <Button
+          variant="ghost"
+          disabled={!canAct || generating || !widget.previousDefinition}
+          onClick={() => setConfirmRestore(true)}
+        >
+          이전 모습으로 되돌리기
+        </Button>
       </section>
+      <Dialog
+        variant="confirm"
+        isOpen={confirmRestore}
+        onOpenChange={setConfirmRestore}
+        title="이전 모습으로 되돌릴까요?"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmRestore(false)}>
+              취소
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setConfirmRestore(false);
+                void run("restore_previous_generated_widget", {
+                  id: widget.id,
+                  expectedRevision: widget.revision,
+                }).then((success) => {
+                  if (success) setNotice("이전 모습으로 되돌렸어요. 위젯 창에서 실행을 다시 확인해요.");
+                });
+              }}
+            >
+              되돌리기
+            </Button>
+          </>
+        }
+      >
+        <Text as="p" variant="caption">
+          AI로 고치기 전의 코드로 돌아가요. 지금 모습은 다시 되돌릴 수 있게 보관하고, 위젯에 쌓인 기록은
+          그대로예요.
+        </Text>
+      </Dialog>
       <section className={styles.group}>
         <Heading level={4} variant="label">
           설치 정보

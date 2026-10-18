@@ -572,6 +572,32 @@ fn pause_locked(
     }
 }
 
+/// Shows the app data folder in the system file manager; it never changes its contents.
+#[tauri::command]
+pub(crate) fn reveal_data_folder(app: tauri::AppHandle) -> Result<(), String> {
+    let folder = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "데이터 폴더를 찾지 못했어요.".to_string())?;
+    #[cfg(target_os = "macos")]
+    let program = "open";
+    #[cfg(target_os = "windows")]
+    let program = "explorer";
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let program = "xdg-open";
+    let mut child = std::process::Command::new(program)
+        .arg(&folder)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|_| "데이터 폴더를 열지 못했어요.".to_string())?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
 #[tauri::command]
 pub(crate) async fn quit_app(
     app: tauri::AppHandle,

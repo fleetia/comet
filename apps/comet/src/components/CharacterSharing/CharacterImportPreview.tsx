@@ -1,8 +1,9 @@
 import type { JSX } from "react";
-import { Button, CharacterArtwork } from "@comet/ui";
+import { Button, CharacterArtwork, Checkbox } from "@comet/ui";
 import { Icon, type IconName } from "@comet/icon";
 import type { CharacterPack } from "../../types";
 import { CharacterPackPreview } from "../CharacterPackPreview/CharacterPackPreview";
+import type { ArchiveChoice } from "./archiveChoice";
 import * as styles from "./characterSharing.css";
 
 export function CharacterImportPreview({
@@ -13,6 +14,8 @@ export function CharacterImportPreview({
   pending,
   error,
   notice,
+  archiveChoice,
+  onArchiveChoiceChange,
   onChoose,
   onInstall,
   onJoin,
@@ -25,6 +28,8 @@ export function CharacterImportPreview({
   pending: boolean;
   error: string | null;
   notice: string | null;
+  archiveChoice: ArchiveChoice;
+  onArchiveChoiceChange: (choice: ArchiveChoice) => void;
   onChoose: () => void;
   onInstall: () => void;
   onJoin: () => void;
@@ -44,7 +49,13 @@ export function CharacterImportPreview({
         character.returnLines.length,
       0,
     ) ?? 0;
-  const rows: { title: string; description: string; icon: IconName }[] = pack
+  const rows: {
+    title: string;
+    description: string;
+    icon: IconName;
+    choice?: keyof ArchiveChoice;
+    present?: boolean;
+  }[] = pack
     ? [
         {
           title: "모습",
@@ -57,16 +68,30 @@ export function CharacterImportPreview({
           icon: "quote",
         },
         { title: "성격과 대화 지침", description: "아래에서 읽어 보세요", icon: "memory" },
-        { title: "기억", description: `${pack.archive?.memories.length ?? 0}개`, icon: "sparkle" },
+        {
+          title: "기억",
+          description: pack.archive?.memories.length
+            ? `${pack.archive.memories.length}개`
+            : "들어 있지 않아요",
+          icon: "sparkle",
+          choice: "memories",
+          present: Boolean(pack.archive?.memories.length),
+        },
         {
           title: "친밀도",
           description: pack.archive?.affinity.length ? "들어 있어요" : "들어 있지 않아요",
           icon: "heart",
+          choice: "affinity",
+          present: Boolean(pack.archive?.affinity.length),
         },
         {
           title: "대화 기록",
-          description: `${pack.archive?.messages.length ?? 0}개`,
+          description: pack.archive?.messages.length
+            ? `${pack.archive.messages.length}개`
+            : "들어 있지 않아요",
           icon: "history",
+          choice: "messages",
+          present: Boolean(pack.archive?.messages.length),
         },
       ]
     : [];
@@ -107,8 +132,12 @@ export function CharacterImportPreview({
             <section className={styles.section} aria-label="이 파일에 들어 있는 것">
               <h3 className={styles.sectionTitle}>이 파일에 들어 있는 것</h3>
               <div className={styles.contents}>
-                {rows.map(({ title, description, icon }) => (
-                  <div className={styles.contentRow} key={title}>
+                {rows.map(({ title, description, icon, choice, present }) => (
+                  <div
+                    className={styles.contentRow}
+                    key={title}
+                    data-absent={choice && !present ? true : undefined}
+                  >
                     <span className={styles.icon}>
                       <Icon name={icon} size={16} />
                     </span>
@@ -116,6 +145,18 @@ export function CharacterImportPreview({
                       <strong>{title}</strong>
                       <span className={styles.caption}>{description}</span>
                     </span>
+                    {choice && present && (
+                      <Checkbox
+                        className={styles.includeChoice}
+                        checked={archiveChoice[choice]}
+                        disabled={pending || installed}
+                        aria-label={`${title} 함께 가져오기`}
+                        label="함께 가져오기"
+                        onChange={(event) =>
+                          onArchiveChoiceChange({ ...archiveChoice, [choice]: event.target.checked })
+                        }
+                      />
+                    )}
                   </div>
                 ))}
               </div>

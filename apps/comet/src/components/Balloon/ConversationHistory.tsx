@@ -221,7 +221,7 @@ export function ConversationHistory({
             onSave={
               onSave
                 ? (message, kind) =>
-                    onSave({ sessionId: selected.id, context: selected.noteContext, message, kind })
+                    onSave({ sessionId: selected.id, message, kind })
                 : undefined
             }
           />

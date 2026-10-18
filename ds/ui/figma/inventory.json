@@ -376,13 +376,6 @@
       "exports": ["ConstellationChoice"]
     },
     {
-      "id": "49:54763",
-      "name": "Capsule/Reference Memo",
-      "variantCount": 0,
-      "kind": "component",
-      "exports": ["ReferenceMemo"]
-    },
-    {
       "id": "49:59696",
       "name": "Constellation/Choices",
       "variantCount": 2,

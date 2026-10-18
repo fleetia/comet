@@ -1,9 +1,7 @@
 import { style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
-import { conversationTheme } from "../../theme.css";
 
 export const inputHost = style([
-  conversationTheme,
   {
     width: 344,
     maxHeight: 520,
@@ -34,14 +32,6 @@ export const inputAction = style({
 export const resumeAction = style({ width: 106 });
 export const togetherAction = style({ width: 132, height: 34 });
 export const historyAction = style({ width: 94 });
-export const optionsPanel = style({
-  marginTop: 4,
-  padding: "8px 0",
-  border: `1px solid ${tokens["color/glass-border"]}`,
-  borderRadius: 18,
-  background: tokens["color/glass-panel"],
-  backdropFilter: "blur(12px)",
-});
 export const inputError = style({
   margin: 0,
   padding: "8px 20px 0",
@@ -51,7 +41,6 @@ export const inputError = style({
   overflowWrap: "anywhere",
 });
 export const responseHost = style([
-  conversationTheme,
   {
     boxSizing: "border-box",
     width: 340,

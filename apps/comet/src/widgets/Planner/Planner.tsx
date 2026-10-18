@@ -29,6 +29,7 @@ import { PlannerCloseDialog } from "./PlannerCloseDialog";
 import { PlannerListManager } from "./PlannerListManager";
 import { PlannerMoveTaskDialog } from "./PlannerMoveTaskDialog";
 import { PlannerWrapDialog } from "./PlannerWrapDialog";
+import { elapsedWithin, focusDuration, focusSessions } from "../PlanningTools/FocusTimerData";
 import { PlannerTodoEmpty } from "./PlannerTodoEmpty";
 import { PlannerTaskCheck } from "./PlannerTaskCheck";
 import { PlannerQuickInput } from "./PlannerQuickInput";
@@ -39,6 +40,15 @@ import { PlannerDayTaskList } from "./PlannerDayTaskList";
 import { PlannerPlans } from "./PlannerPlans";
 import { PlannerTimedTasks } from "./PlannerTimedTasks";
 import * as s from "./planner.css";
+
+function focusWithin(data: DataRecord, day: string): number {
+  const start = new Date(`${day}T00:00:00`).getTime();
+  const end = new Date(`${moveDay(day, 1)}T00:00:00`).getTime();
+  return focusSessions(data, Date.now()).reduce(
+    (sum, session) => sum + elapsedWithin(session, start, end),
+    0,
+  );
+}
 
 const NAVIGATION = [
   ["today", "오늘"],
@@ -103,6 +113,7 @@ export function Planner({
   selectedDay,
   onSelectedDayChange,
   headerActionsTarget,
+  habitSummary,
 }: {
   onBack?: () => void;
   initialTab?: string;
@@ -113,6 +124,8 @@ export function Planner({
   selectedDay?: string;
   onSelectedDayChange?: (day: string) => void;
   headerActionsTarget?: HTMLElement | null;
+  /** Scheduled and filled habits of the selected day, known only inside the diary. */
+  habitSummary?: { done: number; total: number };
 } = {}): ReactElement {
   const { snapshot, error: loadError, reload } = useWidgets();
   const widgets = snapshot?.widgets ?? [];
@@ -299,7 +312,7 @@ export function Planner({
     );
   }
   function openWrap(): void {
-    setRollIds([]);
+    setRollIds(remaining.map((item) => text(item.id)));
     setRollDate(moveDay(day, 1));
     setWrap(true);
   }
@@ -572,6 +585,7 @@ export function Planner({
               planDay={planDay}
               planScope={planScope}
               shown={shown}
+              items={items}
               lists={lists}
               visibleList={visibleList}
               showCompleted={showCompleted}
@@ -702,6 +716,8 @@ export function Planner({
         isOpen={wrap}
         day={day}
         completedCount={chosen.length - remaining.length}
+        focusLabel={timer ? focusDuration(focusWithin(record(timer.data), day)) : undefined}
+        habits={habitSummary}
         remaining={remaining}
         rollIds={rollIds}
         rollDate={rollDate}

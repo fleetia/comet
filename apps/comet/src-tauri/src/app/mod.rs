@@ -134,10 +134,7 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
     let mut runtime = lock(&state.runtime)?.clone();
     runtime.present_character_ids = present_character_ids;
     runtime.guest_character_ids = crate::characters::guests::guest_ids(state, &db)?;
-    let playback = lock(&state.playback)?.clone().filter(|line| {
-        !matches!(line.source.as_str(), "llm" | "question")
-            || crate::conversation_notes::validate_reply(&db, &line.id).is_ok()
-    });
+    let playback = lock(&state.playback)?.clone();
     let api_key_providers = inference::api_key_providers(&settings);
     Ok(Snapshot {
         has_api_key: api_key_providers.contains(&settings.api_provider),

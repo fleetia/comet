@@ -1,9 +1,7 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
-import { conversationTheme } from "../../theme.css";
 
 export const window = style([
-  conversationTheme,
   {
     display: "flex",
     flexDirection: "column",

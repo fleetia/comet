@@ -2,36 +2,10 @@ use crate::{app, diary, store, widgets::calendar::NoteReference};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::sync::{atomic::Ordering, Arc};
+use std::{collections::BTreeSet, sync::Arc};
 use tauri::Emitter;
 
 type Result<T> = std::result::Result<T, String>;
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct Checkpoint {
-    pub text: String,
-    pub saved_at: i64,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct NoteContext {
-    pub note_ref: NoteReference,
-    pub linked_at: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub checkpoint: Option<Checkpoint>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NoteContextView {
-    #[serde(flatten)]
-    pub context: NoteContext,
-    pub available: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub body: Option<String>,
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,24 +14,13 @@ pub struct NoteOption {
     pub body: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct InputNote {
-    context: NoteContext,
-    // A missing/deleted source must not make keyword playback unavailable.
-    source: Option<NoteOption>,
-}
-
 fn err(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
 pub(crate) fn initialize(db: &Connection) -> Result<()> {
     db.execute_batch(
-        "CREATE TABLE IF NOT EXISTS conversation_note_inputs(
-            message_id TEXT PRIMARY KEY REFERENCES messages(id), data TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS conversation_note_saves(
+        "CREATE TABLE IF NOT EXISTS conversation_note_saves(
             request_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, session_id TEXT NOT NULL,
             message_id TEXT NOT NULL, request TEXT NOT NULL, note_ref TEXT NOT NULL
         );",
@@ -104,140 +67,94 @@ pub(crate) fn read_note(db: &Connection, reference: &NoteReference) -> Result<No
     })
 }
 
-pub(crate) fn resolve(db: &Connection, context: &NoteContext) -> NoteContextView {
-    let source = read_note(db, &context.note_ref).ok();
-    let mut context = context.clone();
-    if let Some(source) = &source {
-        context.note_ref = source.note_ref.clone();
-    }
-    NoteContextView {
-        context,
-        available: source.is_some(),
-        body: source.map(|source| source.body),
-    }
-}
+const NOTE_MEMORY_LIMIT: usize = 2;
+const NOTE_MEMORY_CHARS: usize = 600;
 
-pub(crate) fn capture_input(
-    db: &Connection,
-    session: &store::ConversationSession,
-    message_id: &str,
-) -> Result<()> {
-    if let Some(context) = &session.note_context {
-        let input = InputNote {
-            context: context.clone(),
-            source: read_note(db, &context.note_ref).ok(),
+fn terms(text: &str) -> BTreeSet<String> {
+    let mut terms = BTreeSet::new();
+    for word in text.split(|c: char| !c.is_alphanumeric()) {
+        let chars: Vec<char> = word.to_lowercase().chars().collect();
+        // Korean words carry trailing particles; also try the stem without one or two syllables.
+        let cuts = if chars.iter().any(|c| ('가'..='힣').contains(c)) {
+            2
+        } else {
+            0
         };
-        db.execute(
-            "INSERT INTO conversation_note_inputs(message_id,data) VALUES(?1,?2)",
-            params![message_id, serde_json::to_string(&input).map_err(err)?],
-        )
-        .map_err(err)?;
+        for cut in 0..=cuts {
+            if chars.len() >= cut + 2 {
+                terms.insert(chars[..chars.len() - cut].iter().collect());
+            }
+        }
     }
-    Ok(())
+    terms
 }
 
-fn input_note(db: &Connection, message_id: &str) -> Result<Option<InputNote>> {
-    let raw: Option<String> = db
+fn clip(text: &str) -> String {
+    let text = text.trim();
+    let mut clipped: String = text.chars().take(NOTE_MEMORY_CHARS).collect();
+    if clipped.len() < text.len() {
+        clipped.push('…');
+    }
+    clipped
+}
+
+/// Memos are always part of the memory context: the notes that share words with the
+/// current input are offered next to memories, never as a separately selected source.
+pub(crate) fn note_memories(
+    db: &Connection,
+    message_id: &str,
+) -> Result<Vec<crate::types::Memory>> {
+    let input: Option<String> = db
         .query_row(
-            "SELECT data FROM conversation_note_inputs WHERE message_id=?1",
+            "SELECT json_extract(data,'$.content') FROM messages WHERE id=?1 AND role='user'",
             [message_id],
             |row| row.get(0),
         )
         .optional()
         .map_err(err)?;
-    raw.map(|raw| serde_json::from_str(&raw).map_err(err))
-        .transpose()
-}
-
-pub(crate) fn has_input(db: &Connection, message_id: &str) -> Result<bool> {
-    Ok(input_note(db, message_id)?.is_some())
-}
-
-const CHANGED: &str =
-    "참고 메모가 바뀌었거나 연결이 해제됐어요. 현재 메모를 확인하고 새 메시지로 말해 주세요.";
-
-fn validate_input(db: &Connection, message_id: &str, input: &InputNote) -> Result<()> {
-    if store::message_user_id(db, message_id)? != store::active_user_id(db)? {
-        return Err("이 사용자의 참고 메모를 찾을 수 없어요.".into());
+    let wanted = terms(&input.unwrap_or_default());
+    if wanted.is_empty() {
+        return Ok(Vec::new());
     }
-    let session = store::conversation_for_message(db, message_id)?.ok_or(CHANGED)?;
-    let current = session.note_context.as_ref().ok_or(CHANGED)?;
-    if current.note_ref.kind != input.context.note_ref.kind
-        || current.note_ref.id != input.context.note_ref.id
-        || current.note_ref.widget_id != input.context.note_ref.widget_id
-        || current.linked_at != input.context.linked_at
-    {
-        return Err(CHANGED.into());
-    }
-    let source = input.source.as_ref().ok_or(CHANGED)?;
-    let current = read_note(db, &source.note_ref).map_err(|_| CHANGED.to_string())?;
-    if current.note_ref != source.note_ref || current.body != source.body {
-        return Err(CHANGED.into());
-    }
-    Ok(())
-}
-
-pub(crate) fn prompt_context(db: &Connection, message_id: &str) -> Result<Option<Value>> {
-    let Some(input) = input_note(db, message_id)? else {
-        return Ok(None);
-    };
-    validate_input(db, message_id, &input)?;
-    Ok(Some(
-        json!({"source":input.source,"linkedAt":input.context.linked_at,"checkpoint":input.context.checkpoint,"ownership":"shared_app_record_not_a_user_fact"}),
-    ))
-}
-
-pub(crate) fn validate_reply(db: &Connection, reply_id: &str) -> Result<()> {
-    let Some(input_id) = reply_input_id(reply_id) else {
-        return Ok(());
-    };
-    if let Some(input) = input_note(db, input_id)? {
-        validate_input(db, input_id, &input)?;
-    }
-    Ok(())
-}
-
-fn reply_input_id(id: &str) -> Option<&str> {
-    id.strip_prefix("reply:")
-        .and_then(|rest| rest.split_once(':').map(|(id, _)| id))
-}
-
-pub(crate) fn history_allowed(
-    db: &Connection,
-    current_input: &str,
-    message: &crate::types::Message,
-) -> Result<bool> {
-    let Some(previous_input) = reply_input_id(&message.id) else {
-        return Ok(true);
-    };
-    let Some(previous) = input_note(db, previous_input)? else {
-        return Ok(true);
-    };
-    let Some(current) = input_note(db, current_input)? else {
-        return Ok(false);
-    };
-    Ok(validate_input(db, previous_input, &previous).is_ok()
-        && previous
-            .source
-            .as_ref()
-            .zip(current.source.as_ref())
-            .is_some_and(|(a, b)| a.note_ref == b.note_ref && a.body == b.body))
-}
-
-fn save_context(db: &Connection, session_id: &str, context: Option<&NoteContext>) -> Result<()> {
-    db.execute(
-        "UPDATE conversation_sessions SET note_context=?2,updated_at=MAX(updated_at,?3) WHERE id=?1",
-        params![
-            session_id,
-            context
-                .map(serde_json::to_string)
-                .transpose()
-                .map_err(err)?,
-            chrono::Utc::now().timestamp_millis()
-        ],
-    )
-    .map_err(err)?;
-    Ok(())
+    let user = store::current_user(db)?;
+    let mut scored = list_notes(db)?
+        .into_iter()
+        .rev()
+        .filter_map(|note| {
+            let title = terms(&note.note_ref.title);
+            let body = terms(&note.body);
+            let score =
+                wanted.intersection(&title).count() * 2 + wanted.intersection(&body).count();
+            (score > 0).then_some((score, note))
+        })
+        .collect::<Vec<_>>();
+    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
+    Ok(scored
+        .into_iter()
+        .take(NOTE_MEMORY_LIMIT)
+        .map(|(_, note)| {
+            let title = note.note_ref.title.trim();
+            let body = clip(&note.body);
+            crate::types::Memory {
+                id: format!("note:{}:{}", note.note_ref.kind, note.note_ref.id),
+                kind: "note".into(),
+                content: if title.is_empty() {
+                    body
+                } else {
+                    format!("{title}\n{body}")
+                },
+                user_id: user
+                    .as_ref()
+                    .map(|user| user.id.clone())
+                    .unwrap_or_default(),
+                user_name: user
+                    .as_ref()
+                    .map(|user| user.name.clone())
+                    .unwrap_or_default(),
+                ..Default::default()
+            }
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -286,107 +203,6 @@ fn list_notes(db: &Connection) -> Result<Vec<NoteOption>> {
 }
 
 #[tauri::command]
-pub(crate) fn set_conversation_note_context(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, Arc<app::AppState>>,
-    session_id: Option<String>,
-    note_ref: Option<NoteReference>,
-    persona: Option<String>,
-) -> Result<()> {
-    let epoch = {
-        let _action = app::lock(&state.action)?;
-        if app::unavailable(&state) {
-            return Err("앱을 종료하고 있어요.".into());
-        }
-        let db = app::lock(&state.db)?;
-        if store::current_user(&db)?.is_none() {
-            return Err("말풍선에서 이름을 먼저 알려 주세요.".into());
-        }
-        let source = note_ref
-            .as_ref()
-            .map(|reference| read_note(&db, reference))
-            .transpose()?;
-        let active = store::active_conversation(&db)?;
-        if active.is_none() && source.is_none() {
-            return Err("연결을 바꿀 대화를 먼저 열어 주세요.".into());
-        }
-        if session_id
-            .as_ref()
-            .is_some_and(|id| active.as_ref().is_none_or(|session| session.id != *id))
-        {
-            return Err("현재 대화가 바뀌었어요. 입력한 내용을 확인해 주세요.".into());
-        }
-        let requested = persona
-            .as_ref()
-            .map(|persona| {
-                crate::characters::active_character(&db, persona).map(|character| character.id)
-            })
-            .transpose()?;
-        let active = active.filter(|session| {
-            session_id.is_some()
-                || requested
-                    .as_ref()
-                    .is_none_or(|id| session.participants == [id.clone()])
-        });
-        let participants = match &active {
-            Some(session) => session.participants.clone(),
-            None => vec![requested
-                .clone()
-                .or_else(|| crate::characters::active_ids(&db).ok()?.into_iter().next())
-                .ok_or("대화할 친구를 선택해 주세요.")?],
-        };
-        let current = crate::characters::active_ids(&db)?;
-        if participants.iter().any(|id| !current.contains(id)) {
-            return Err("대화할 친구를 다시 함께 지내기로 선택해 주세요.".into());
-        }
-        for id in &participants {
-            crate::characters::life::wake(&state, id)?;
-        }
-        app::conversation::ensure_available(&db)?;
-        let session = match active {
-            Some(session) => session,
-            None => store::create_conversation_with_source(
-                &db,
-                &participants,
-                None,
-                None,
-                chrono::Utc::now().timestamp_millis(),
-                Some("note"),
-            )?,
-        };
-        let context = source.map(|source| NoteContext {
-            note_ref: source.note_ref,
-            linked_at: chrono::Utc::now().timestamp_millis().max(
-                session
-                    .note_context
-                    .as_ref()
-                    .map_or(0, |context| context.linked_at.saturating_add(1)),
-            ),
-            checkpoint: None,
-        });
-        save_context(&db, &session.id, context.as_ref())?;
-        app::presence::summon_locked(&state, &session.participants[0])?;
-        let epoch = app::interrupt(&state, false)?.0;
-        *app::lock(&state.panel)? = Some(crate::types::PanelState {
-            persona: session.participants[0].clone(),
-            mode: "input".into(),
-        });
-        state.last_input.store(app::now(), Ordering::SeqCst);
-        epoch
-    };
-    crate::desktop::request_balloon_focus(&app)?;
-    app::phase(
-        &app,
-        &state,
-        epoch,
-        crate::types::RuntimePhase::Idle,
-        None,
-        None,
-    );
-    Ok(())
-}
-
-#[tauri::command]
 pub(crate) async fn open_conversation_note(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<app::AppState>>,
@@ -416,7 +232,6 @@ struct SaveRequest<'a> {
     title: Option<&'a str>,
     #[serde(skip_serializing)]
     expected_body: Option<&'a str>,
-    checkpoint: bool,
 }
 
 fn save_note(
@@ -518,23 +333,6 @@ fn save_note(
         },
     )?
     .note_ref;
-    if request.checkpoint {
-        let at = chrono::Utc::now().timestamp_millis();
-        let context = NoteContext {
-            note_ref: reference.clone(),
-            linked_at: at.max(
-                session
-                    .note_context
-                    .as_ref()
-                    .map_or(0, |context| context.linked_at.saturating_add(1)),
-            ),
-            checkpoint: Some(Checkpoint {
-                text: request.text.into(),
-                saved_at: at,
-            }),
-        };
-        save_context(&tx, &session.id, Some(&context))?;
-    }
     tx.execute(
         "INSERT INTO conversation_note_saves VALUES(?1,?2,?3,?4,?5,?6)",
         params![
@@ -563,7 +361,6 @@ pub(crate) fn save_conversation_note(
     note_id: Option<String>,
     title: Option<String>,
     expected_body: Option<String>,
-    checkpoint: Option<bool>,
 ) -> Result<NoteReference> {
     let reference = {
         let _action = app::lock(&state.action)?;
@@ -580,7 +377,6 @@ pub(crate) fn save_conversation_note(
                 note_id: note_id.as_deref(),
                 title: title.as_deref(),
                 expected_body: expected_body.as_deref(),
-                checkpoint: checkpoint.unwrap_or(false),
             },
         )?
     };

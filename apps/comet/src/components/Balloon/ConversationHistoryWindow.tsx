@@ -1107,7 +1107,6 @@ export function ConversationHistoryWindow({
                                   sessionId: selected.id,
                                   message,
                                   kind,
-                                  context: selected.noteContext,
                                 })
                               }
                             />
