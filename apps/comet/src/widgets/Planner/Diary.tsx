@@ -1,4 +1,4 @@
-import { Button, FormField, Select, Surface, TextField } from "../../ui";
+import { Button, Select, Surface } from "../../ui";
 import {
   EnvelopeCard,
   IconButton as CometIconButton,
@@ -19,6 +19,8 @@ import { DiaryEventDialog } from "./DiaryEventDialog";
 import { useDiaryCreation } from "./useDiaryCreation";
 import { DiaryNewPageDialog } from "./DiaryNewPageDialog";
 import { useDiaryWidgetDrop } from "./useDiaryWidgetDrop";
+import { useDiaryQuickTask } from "./useDiaryQuickTask";
+import { DiaryQuickTaskForm } from "./DiaryQuickTaskForm";
 import { localDay, record, rows, text, type DataRecord } from "../toolData";
 import type { WidgetView } from "../types";
 import { DiaryCalendar } from "./DiaryCalendar";
@@ -118,21 +120,6 @@ export function Diary(): ReactElement {
   );
   const [requestedNote, setRequestedNote] = useState<{ id: string; version: number } | null>(null);
   const [archived, setArchived] = useState(false);
-  const [quickTaskOpen, setQuickTaskOpen] = useState(false);
-  const [quickTaskTitle, setQuickTaskTitle] = useState("");
-  const [quickTaskDate, setQuickTaskDate] = useState<string | null>(null);
-  const quickTaskVersion = useRef(0);
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      quickTaskVersion.current += 1;
-    };
-  }, []);
-  useEffect(() => {
-    if (!quickTaskTitle) setQuickTaskDate(tool || pageId || envelopeId ? null : day);
-  }, [quickTaskTitle, tool, pageId, envelopeId, day]);
   const [editing, setEditing] = useState<DataRecord | null>(null);
   const [notice, setNotice] = useState("");
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -264,6 +251,12 @@ export function Diary(): ReactElement {
   });
   const { addingWidget, addWidgetItem } = drop;
   const saving = busy || diary.busy || addingWidget || toolState.busy;
+  const quickTask = useDiaryQuickTask({
+    defaultDate: tool || pageId || envelopeId ? null : day,
+    saving,
+    pending,
+    createTask,
+  });
   const blocking = useRef(false);
   blocking.current =
     saving ||
@@ -277,7 +270,7 @@ export function Diary(): ReactElement {
     Boolean(editing) ||
     envelopeCreateDirty ||
     Boolean(name) ||
-    Boolean(quickTaskTitle);
+    Boolean(quickTask.title);
   const close = (): void => {
     if (isDesktop())
       void getCurrentWindow()
@@ -296,7 +289,7 @@ export function Diary(): ReactElement {
       editing ||
       envelopeCreateDirty ||
       name ||
-      quickTaskTitle ||
+      quickTask.title ||
       toolState.blocking ||
       (closing && (notesDirty || toolState.dirty))
     )
@@ -1060,9 +1053,7 @@ export function Diary(): ReactElement {
                         navigate(() => setCalendarDraft({ date: day }));
                         return;
                       }
-                      if (!quickTaskTitle)
-                        setQuickTaskDate(tool || pageId || envelopeId ? null : day);
-                      setQuickTaskOpen(true);
+                      quickTask.show();
                     }}
                   />
                 )}
@@ -1075,62 +1066,7 @@ export function Diary(): ReactElement {
                 scrollPositions.current[bodyScope] = event.currentTarget.scrollTop;
               }}
             >
-              {quickTaskOpen && (
-                <form
-                  className={s.form}
-                  aria-label="빠른 할 일"
-                  onSubmit={async (event) => {
-                    event.preventDefault();
-                    if (
-                      pending.current ||
-                      saving ||
-                      !quickTaskTitle.trim() ||
-                      quickTaskTitle.length > 500
-                    )
-                      return;
-                    const version = quickTaskVersion.current;
-                    if (await createTask(quickTaskTitle, quickTaskDate)) {
-                      if (!mounted.current || version !== quickTaskVersion.current) return;
-                      quickTaskVersion.current += 1;
-                      setQuickTaskTitle("");
-                      setQuickTaskOpen(false);
-                    }
-                  }}
-                >
-                  <FormField label="빠른 할 일 제목" required>
-                    <TextField
-                      autoFocus
-                      maxLength={500}
-                      value={quickTaskTitle}
-                      disabled={saving}
-                      onChange={(event) => {
-                        quickTaskVersion.current += 1;
-                        setQuickTaskTitle(event.target.value);
-                      }}
-                    />
-                  </FormField>
-                  <p className={s.caption}>
-                    {quickTaskDate ? `${quickTaskDate} 할 일` : "날짜 없이 모아두기"}
-                  </p>
-                  <div className={s.toolbar}>
-                    <Button
-                      type="submit"
-                      variant="primary"
-                      disabled={saving || !quickTaskTitle.trim()}
-                    >
-                      할 일 저장
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="quiet"
-                      disabled={saving}
-                      onClick={() => setQuickTaskOpen(false)}
-                    >
-                      닫아두기
-                    </Button>
-                  </div>
-                </form>
-              )}
+              {quickTask.open && <DiaryQuickTaskForm task={quickTask} saving={saving} />}
               {toolsOpened && (
                 <div hidden={!isPlannerTool(tool)} className={s.toolContent}>
                   <Planner
@@ -1410,9 +1346,7 @@ export function Diary(): ReactElement {
                 setPageMenuDirty(false);
                 setEditing(null);
                 creation.discard();
-                quickTaskVersion.current += 1;
-                setQuickTaskTitle("");
-                setQuickTaskOpen(false);
+                quickTask.discard();
                 setCalendarDraft(null);
                 setCalendarDirty(false);
                 setFeatureDirty(false);
