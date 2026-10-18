@@ -4,10 +4,8 @@ import {
   IconButton as CometIconButton,
   SegmentedControl,
   SidebarItem,
-  Dialog,
 } from "@comet/ui";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactElement } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WindowHeader } from "../../components/WindowHeader/WindowHeader";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
@@ -21,6 +19,9 @@ import { DiaryNewPageDialog } from "./DiaryNewPageDialog";
 import { useDiaryWidgetDrop } from "./useDiaryWidgetDrop";
 import { useDiaryQuickTask } from "./useDiaryQuickTask";
 import { DiaryQuickTaskForm } from "./DiaryQuickTaskForm";
+import { useDiaryLeave } from "./useDiaryLeave";
+import { useDiaryNativeEvents, type DiaryViewTarget } from "./useDiaryNativeEvents";
+import { DiaryLeaveDialog } from "./DiaryLeaveDialog";
 import { localDay, record, rows, text, type DataRecord } from "../toolData";
 import type { WidgetView } from "../types";
 import { DiaryCalendar } from "./DiaryCalendar";
@@ -109,11 +110,7 @@ export function Diary(): ReactElement {
   const [toolState, setToolState] = useState<PlannerToolState>(EMPTY_TOOL_STATE);
   const [plannerHeader, setPlannerHeader] = useState<HTMLDivElement | null>(null);
   const [toolDismissVersion, setToolDismissVersion] = useState(0);
-  const [navigationReady, setNavigationReady] = useState(false);
-  const [viewTarget, setViewTarget] = useState<{
-    entity: "page" | "event";
-    targetId: string;
-  } | null>(null);
+  const [viewTarget, setViewTarget] = useState<DiaryViewTarget | null>(null);
   const [notesOpen, setNotesOpen] = useState(false);
   const [collection, setCollection] = useState<"pages" | "envelopes" | null>(() =>
     new URLSearchParams(location.search).get("tab") === "envelopes" ? "envelopes" : null,
@@ -143,7 +140,6 @@ export function Diary(): ReactElement {
   const calendarNow = useCalendarClock(view === "week" && !pageId && !tool);
   const [pageMenuDirty, setPageMenuDirty] = useState(false);
   const [pageMenuVersion, setPageMenuVersion] = useState(0);
-  const [leave, setLeave] = useState<{ action: () => void; closing: boolean } | null>(null);
   const widgets = snapshot?.widgets ?? [];
   const enabled = (kind: string): WidgetView | undefined =>
     widgets.find((widget) => widget.kind === kind && widget.installed && widget.enabled);
@@ -257,80 +253,62 @@ export function Diary(): ReactElement {
     pending,
     createTask,
   });
-  const blocking = useRef(false);
-  blocking.current =
-    saving ||
-    pageDirty ||
-    pageMenuDirty ||
-    notesDirty ||
-    featureDirty ||
-    calendarDirty ||
-    toolState.dirty ||
-    toolState.blocking ||
-    Boolean(editing) ||
-    envelopeCreateDirty ||
-    Boolean(name) ||
-    Boolean(quickTask.title);
+  const { leave, setLeave, navigate, navigateRef, blocking } = useDiaryLeave({
+    saving,
+    unsaved:
+      pageDirty ||
+      pageMenuDirty ||
+      featureDirty ||
+      calendarDirty ||
+      Boolean(editing) ||
+      envelopeCreateDirty ||
+      Boolean(name) ||
+      Boolean(quickTask.title) ||
+      toolState.blocking,
+    closingUnsaved: notesDirty || toolState.dirty,
+  });
   const close = (): void => {
     if (isDesktop())
       void getCurrentWindow()
         .destroy()
         .catch((cause: unknown) => setFailure(errorText(cause)));
   };
-  const closeRef = useRef(close);
-  closeRef.current = close;
-  function navigate(action: () => void, closing = false): void {
-    if (saving) return;
-    if (
-      pageDirty ||
-      pageMenuDirty ||
-      featureDirty ||
-      calendarDirty ||
-      editing ||
-      envelopeCreateDirty ||
-      name ||
-      quickTask.title ||
-      toolState.blocking ||
-      (closing && (notesDirty || toolState.dirty))
-    )
-      setLeave({ action, closing });
-    else action();
-  }
-  const navigateRef = useRef(navigate);
-  navigateRef.current = navigate;
-  useEffect(() => {
-    if (!isDesktop()) return;
-    let active = true;
-    let received = false;
-    let cleanup: (() => void) | undefined;
-    function select(id: string | null): void {
-      if (!active || !id) return;
-      navigateRef.current(() => {
-        setNotesOpen(true);
-        setRequestedNote((previous) => ({ id, version: (previous?.version ?? 0) + 1 }));
-      });
-    }
-    void listen<string>("planner-note", (event) => {
-      received = true;
-      select(event.payload);
-    })
-      .then(async (unlisten) => {
-        if (!active) {
-          unlisten();
-          return;
-        }
-        cleanup = unlisten;
-        const id = await command<string | null>("get_planner_note_target");
-        if (!received) select(id);
-      })
-      .catch((cause: unknown) => {
-        if (active) setFailure(errorText(cause));
-      });
-    return () => {
-      active = false;
-      cleanup?.();
-    };
-  }, []);
+  // Project the visible calendar into the existing native animation condition.
+  const nativeTab =
+    notesOpen || collection
+      ? "today"
+      : ((tool === "today" ? "todos" : tool) ??
+        (!pageId && !envelopeId && view !== "day" ? "calendar" : "today"));
+  const navigationReady = useDiaryNativeEvents({
+    navigateRef,
+    blocking,
+    close,
+    nativeTab,
+    setFailure,
+    setViewTarget,
+    onNote: (id) => {
+      setNotesOpen(true);
+      setRequestedNote((previous) => ({ id, version: (previous?.version ?? 0) + 1 }));
+    },
+    onTab: (tab, resetCollections) => {
+      if (resetCollections || tab === "envelopes" || tab === "time") {
+        setNotesOpen(false);
+        setCollection(tab === "envelopes" ? "envelopes" : null);
+      }
+      const nextTool = toolForTab(tab);
+      setTool(nextTool);
+      if (isPlannerTool(nextTool)) setToolsOpened(true);
+      setView(tab === "calendar" ? "month" : "day");
+      if (tab === "time") setTodayTab("summary");
+      setDay(localDay());
+      setPageId("");
+      setEnvelopeId("");
+      setCalendarDraft(null);
+      setCalendarDirty(false);
+      setSelectedEvent(null);
+      setCreating(null);
+    },
+  });
   function openDay(
     date: string,
     nextView: View = "day",
@@ -372,114 +350,6 @@ export function Diary(): ReactElement {
     });
   }
   useEffect(() => {
-    if (!isDesktop()) return;
-    let active = true;
-    const cleanups: (() => void)[] = [];
-    const retain = (cleanup: () => void): void => {
-      if (active) cleanups.push(cleanup);
-      else cleanup();
-    };
-    const select = (tab: string, resetCollections = true): void => {
-      if (
-        !active ||
-        ![
-          "today",
-          "todos",
-          "calendar",
-          "plans",
-          "templates",
-          "organizer",
-          "habits",
-          "ledger",
-          "envelopes",
-          "time",
-        ].includes(tab)
-      )
-        return;
-      navigateRef.current(() => {
-        if (resetCollections || tab === "envelopes" || tab === "time") {
-          setNotesOpen(false);
-          setCollection(tab === "envelopes" ? "envelopes" : null);
-        }
-        const nextTool = toolForTab(tab);
-        setTool(nextTool);
-        if (isPlannerTool(nextTool)) setToolsOpened(true);
-        setView(tab === "calendar" ? "month" : "day");
-        if (tab === "time") setTodayTab("summary");
-        setDay(localDay());
-        setPageId("");
-        setEnvelopeId("");
-        setCalendarDraft(null);
-        setCalendarDirty(false);
-        setSelectedEvent(null);
-        setCreating(null);
-      });
-    };
-    let received = false;
-    let targetReceived = false;
-    function receiveTarget(value: unknown): void {
-      if (!active || !value) return;
-      if (
-        typeof value !== "object" ||
-        !("entity" in value) ||
-        !("targetId" in value) ||
-        (value.entity !== "page" && value.entity !== "event") ||
-        typeof value.targetId !== "string" ||
-        !value.targetId
-      ) {
-        setFailure("열 기록의 정보를 확인하지 못했어요.");
-        return;
-      }
-      setViewTarget({ entity: value.entity, targetId: value.targetId });
-    }
-    void listen("planner-view-target", (event) => {
-      targetReceived = true;
-      receiveTarget(event.payload);
-      void command("get_planner_view_target").catch((cause: unknown) => {
-        if (active) setFailure(errorText(cause));
-      });
-    })
-      .then(async (cleanup) => {
-        retain(cleanup);
-        const target = await command<unknown>("get_planner_view_target");
-        if (!targetReceived) receiveTarget(target);
-      })
-      .catch((cause: unknown) => {
-        if (active) setFailure(errorText(cause));
-      });
-    void listen<string>("planner-tab", (event) => {
-      received = true;
-      setViewTarget(null);
-      select(event.payload);
-    })
-      .then(async (cleanup) => {
-        retain(cleanup);
-        const tab = await command<string>("get_planner_tab");
-        if (!received) select(tab, false);
-      })
-      .catch((cause: unknown) => {
-        if (active) setFailure(errorText(cause));
-      })
-      .finally(() => {
-        if (active) setNavigationReady(true);
-      });
-    void getCurrentWindow()
-      .onCloseRequested((event) => {
-        if (blocking.current) {
-          event.preventDefault();
-          navigateRef.current(() => closeRef.current(), true);
-        }
-      })
-      .then(retain)
-      .catch((cause: unknown) => {
-        if (active) setFailure(errorText(cause));
-      });
-    return () => {
-      active = false;
-      cleanups.forEach((cleanup) => cleanup());
-    };
-  }, []);
-  useEffect(() => {
     if (!viewTarget || !navigationReady || !diary.state || !snapshot || saving) return;
     setViewTarget(null);
     if (viewTarget.entity === "page") {
@@ -512,24 +382,6 @@ export function Diary(): ReactElement {
       setSelectedEvent(event);
     });
   }, [viewTarget, navigationReady, diary.state, snapshot, saving]);
-
-  // Project the visible calendar into the existing native animation condition.
-  // Read startup navigation first so an initial "today" render cannot overwrite it.
-  const nativeTab =
-    notesOpen || collection
-      ? "today"
-      : ((tool === "today" ? "todos" : tool) ??
-        (!pageId && !envelopeId && view !== "day" ? "calendar" : "today"));
-  useEffect(() => {
-    if (!navigationReady || !isDesktop()) return;
-    let active = true;
-    void command("set_planner_tab", { tab: nativeTab }).catch((cause: unknown) => {
-      if (active) setFailure(errorText(cause));
-    });
-    return () => {
-      active = false;
-    };
-  }, [navigationReady, nativeTab]);
 
   function openTool(next: DiaryTool): void {
     navigate(() => {
@@ -1317,56 +1169,34 @@ export function Diary(): ReactElement {
         onOpenDay={() => openDay(day)}
         onOpenEnvelope={openEnvelope}
       />
-      <Dialog
-        isOpen={Boolean(leave)}
-        title="작성 중인 내용이 있어요"
-        variant="confirm"
-        closeLabel="작성 계속하기"
-        onOpenChange={(open) => {
-          if (!open) setLeave(null);
+      <DiaryLeaveDialog
+        leave={leave}
+        saving={saving}
+        onContinue={() => setLeave(null)}
+        onDiscard={() => {
+          const action = leave?.action;
+          if (pageDirty) {
+            discardDiaryPageDraft(page, day);
+            if (page?.date === null) discardDiaryCollectionDraft(page.id);
+            setPageContentVersion((value) => value + 1);
+          }
+          if (pageMenuDirty) setPageMenuVersion((value) => value + 1);
+          if (featureDirty) setFeatureContentVersion((value) => value + 1);
+          setPageDirty(false);
+          setPageMenuDirty(false);
+          setEditing(null);
+          creation.discard();
+          quickTask.discard();
+          setCalendarDraft(null);
+          setCalendarDirty(false);
+          setFeatureDirty(false);
+          if (toolState.blocking) {
+            setToolDismissVersion((value) => value + 1);
+          }
+          setLeave(null);
+          action?.();
         }}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setLeave(null)}>
-              계속 작성
-            </Button>
-            <Button
-              variant="critical"
-              disabled={saving}
-              onClick={() => {
-                const action = leave?.action;
-                if (pageDirty) {
-                  discardDiaryPageDraft(page, day);
-                  if (page?.date === null) discardDiaryCollectionDraft(page.id);
-                  setPageContentVersion((value) => value + 1);
-                }
-                if (pageMenuDirty) setPageMenuVersion((value) => value + 1);
-                if (featureDirty) setFeatureContentVersion((value) => value + 1);
-                setPageDirty(false);
-                setPageMenuDirty(false);
-                setEditing(null);
-                creation.discard();
-                quickTask.discard();
-                setCalendarDraft(null);
-                setCalendarDirty(false);
-                setFeatureDirty(false);
-                if (toolState.blocking) {
-                  setToolDismissVersion((value) => value + 1);
-                }
-                setLeave(null);
-                action?.();
-              }}
-            >
-              {leave?.closing ? "저장하지 않고 닫기" : "저장하지 않고 이동"}
-            </Button>
-          </>
-        }
-      >
-        <p>
-          저장하지 않은 내용을 확인하고{" "}
-          {leave?.closing ? "다이어리를 닫을까요?" : "다른 페이지로 이동할까요?"}
-        </p>
-      </Dialog>
+      />
     </main>
   );
 }
