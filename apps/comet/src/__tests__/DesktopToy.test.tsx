@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { DesktopToy } from "../DesktopToy/DesktopToy";
-import { command } from "../../hooks/useSnapshot";
+import { DesktopToy } from "../components/DesktopToy/DesktopToy";
+import { command } from "../hooks/useSnapshot";
 
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(vi.fn()) }));
-vi.mock("../../hooks/useSnapshot", () => ({
+vi.mock("../hooks/useSnapshot", () => ({
   command: vi.fn(),
   errorText: (error: unknown): string => String(error),
 }));
