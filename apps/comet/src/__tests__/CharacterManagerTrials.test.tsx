@@ -268,7 +268,7 @@ it.each([
     fireEvent.click(within(preview).getByRole("button", { name: "미리보기" }));
     await waitFor(() => expect(preview.textContent).toContain(lines[1].text));
     expect(within(preview).getByText(actors[1].definition.name)).toBeTruthy();
-    expect(urls).toContain("data:image/png;base64,guest-draft-bytes");
+    await waitFor(() => expect(urls).toContain("data:image/png;base64,guest-draft-bytes"));
     expect(urls.filter(Boolean).every((url) => url.startsWith("data:image/png;base64,"))).toBe(
       true,
     );
