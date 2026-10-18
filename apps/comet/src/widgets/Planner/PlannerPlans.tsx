@@ -7,6 +7,7 @@ import {
   movePeriod,
   PERIODS,
   periodAnchor,
+  periodCarryover,
   plannedDay,
   repeatLabel,
 } from "./plannerData";
@@ -18,6 +19,7 @@ export function PlannerPlans({
   planDay,
   planScope,
   shown,
+  items,
   lists,
   visibleList,
   showCompleted,
@@ -40,6 +42,8 @@ export function PlannerPlans({
   planDay: string;
   planScope: string;
   shown: DataRecord[];
+  /** Every task, to find unfinished work left in the previous period. */
+  items: DataRecord[];
   lists: DataRecord[];
   visibleList: string;
   showCompleted: boolean;
@@ -59,6 +63,7 @@ export function PlannerPlans({
   onEdit: (item: DataRecord) => void;
   onEnableTodo: () => Promise<void>;
 }): ReactElement {
+  const carryover = periodCarryover(items, period, planDay);
   return (
     <>
       <div className={s.toolbar}>
@@ -102,6 +107,28 @@ export function PlannerPlans({
       {hasTodo ? (
         <>
           {quickInput}
+          {carryover && (
+            <div className={s.carryover} role="status">
+              <span>
+                {carryover.label}에 못 한 일 {carryover.items.length}개
+              </span>
+              <Button
+                variant="ghost"
+                size="small"
+                disabled={busy}
+                onClick={() =>
+                  void act("plan", {
+                    ids: carryover.items.map((item) => text(item.id)),
+                    date: null,
+                    planPeriod: period,
+                    planAnchor: periodAnchor(period, planDay),
+                  })
+                }
+              >
+                가져오기
+              </Button>
+            </div>
+          )}
           <div className={s.actions}>
             <Select
               fill

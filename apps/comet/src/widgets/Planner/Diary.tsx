@@ -40,11 +40,26 @@ import { DiaryCalendarContext } from "./DiaryCalendarContext";
 import { TodoEditor } from "./TodoEditor";
 import { dayDate, deviceTimeZone, eventsOn, moveDay, periodAnchor } from "./plannerData";
 import { useDiary } from "./useDiary";
+import { habitCompleted, habitScheduled } from "./diaryHabitData";
+import type { DiaryState } from "./diaryTypes";
 import { colorForEvent } from "./calendarColorData";
 import { focusSessions } from "../PlanningTools/FocusTimerData";
 import * as s from "./diary.css";
 
 const EMPTY_TOOL_STATE: PlannerToolState = { dirty: false, busy: false, blocking: false };
+
+function habitSummary(state: DiaryState | null | undefined, day: string): { done: number; total: number } {
+  const habits = (state?.habits ?? []).filter(
+    (habit) => !habit.archived && habitScheduled(habit, day),
+  );
+  const done = habits.filter((habit) =>
+    habitCompleted(
+      habit,
+      state?.habitChecks?.find((check) => check.habitId === habit.id && check.date === day),
+    ),
+  ).length;
+  return { done, total: habits.length };
+}
 
 export function Diary(): ReactElement {
   const { snapshot, error: loadError, reload } = useWidgets();
@@ -625,6 +640,7 @@ export function Diary(): ReactElement {
                     }
                     onNavigate={openTool}
                     onStateChange={setToolState}
+                    habitSummary={habitSummary(diary.state, day)}
                   />
                 </div>
               )}

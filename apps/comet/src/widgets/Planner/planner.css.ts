@@ -801,3 +801,48 @@ globalStyle(
   `${task}[data-selected="true"] .${caption}, ${task}[data-selected="true"] .${meta}, ${eventButton}[aria-pressed="true"] .${caption}, ${weekDate}[aria-pressed="true"] .${caption}`,
   { color: "inherit" },
 );
+export const wrapStats = style({
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(96px, 1fr))",
+  gap: tokens["spacing/space-8"],
+  margin: 0,
+});
+export const wrapStat = style({
+  display: "grid",
+  gap: tokens["spacing/space-4"],
+  padding: tokens["spacing/space-12"],
+  border: `1px solid ${tokens["color/line"]}`,
+  borderRadius: tokens["radius/radius-9"],
+  background: tokens["color/card"],
+});
+globalStyle(`${wrapStat} dt`, {
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  color: tokens["color/ink-2"],
+});
+globalStyle(`${wrapStat} dd`, {
+  margin: 0,
+  fontSize: tokens["typography/sans/body/fontSize"],
+  fontWeight: 600,
+  color: tokens["color/ink"],
+});
+export const wrapHeading = style({
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  color: tokens["color/ink"],
+});
+export const wrapItem = style({
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: tokens["spacing/space-8"],
+});
+export const carryover = style({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: tokens["spacing/space-8"],
+  padding: `${tokens["spacing/space-8"]} ${tokens["spacing/space-12"]}`,
+  border: `1px solid ${tokens["color/primary"]}`,
+  borderRadius: tokens["radius/radius-9"],
+  color: tokens["color/primary"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
+});
