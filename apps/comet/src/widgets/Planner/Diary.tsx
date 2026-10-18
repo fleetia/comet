@@ -21,6 +21,8 @@ import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWidgets } from "../useWidgets";
 import { useDiaryWidgetActions } from "./useDiaryWidgetActions";
 import { useDiaryTasks } from "./useDiaryTasks";
+import { useCalendarClock, useDiaryCalendarEvents } from "./useDiaryCalendarEvents";
+import { DiaryEventDialog } from "./DiaryEventDialog";
 import { localDay, record, rows, text, type DataRecord } from "../toolData";
 import type { WidgetSnapshot, WidgetView } from "../types";
 import { DiaryCalendar } from "./DiaryCalendar";
@@ -48,7 +50,6 @@ import {
   dayDate,
   deviceTimeZone,
   eventsOn,
-  eventTime,
   frequencyRecords,
   moveDay,
   movePeriod,
@@ -151,14 +152,6 @@ export function Diary(): ReactElement {
     if (!quickTaskTitle) setQuickTaskDate(tool || pageId || envelopeId ? null : day);
   }, [quickTaskTitle, tool, pageId, envelopeId, day]);
   const [editing, setEditing] = useState<DataRecord | null>(null);
-  const [selectedEvent, setSelectedEvent] = useState<DataRecord | null>(null);
-  const [calendarDraft, setCalendarDraft] = useState<{
-    date: string;
-    event?: DataRecord;
-    revision?: number;
-    reloadKey?: number;
-  } | null>(null);
-  const [calendarDirty, setCalendarDirty] = useState(false);
   const [dropActive, setDropActive] = useState(false);
   const [notice, setNotice] = useState("");
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -181,13 +174,7 @@ export function Diary(): ReactElement {
   const [notesDirty, setNotesDirty] = useState(false);
   const [featureDirty, setFeatureDirty] = useState(false);
   const [featureContentVersion, setFeatureContentVersion] = useState(0);
-  const [calendarNow, setCalendarNow] = useState(Date.now);
-  useEffect(() => {
-    if (view !== "week" || pageId || tool) return;
-    setCalendarNow(Date.now());
-    const interval = window.setInterval(() => setCalendarNow(Date.now()), 1000);
-    return () => window.clearInterval(interval);
-  }, [view, pageId, tool]);
+  const calendarNow = useCalendarClock(view === "week" && !pageId && !tool);
   const [pageMenuDirty, setPageMenuDirty] = useState(false);
   const [pageMenuVersion, setPageMenuVersion] = useState(0);
   const [leave, setLeave] = useState<{ action: () => void; closing: boolean } | null>(null);
@@ -242,6 +229,16 @@ export function Diary(): ReactElement {
     setFailure,
     setNotice,
   });
+  const {
+    selectedEvent,
+    setSelectedEvent,
+    calendarDraft,
+    setCalendarDraft,
+    calendarDirty,
+    setCalendarDirty,
+    saveCalendarEvent,
+    reloadCalendarEvent,
+  } = useDiaryCalendarEvents({ actions, reload });
   const saving = busy || diary.busy || addingWidget || toolState.busy;
   const blocking = useRef(false);
   blocking.current =
@@ -606,72 +603,6 @@ export function Diary(): ReactElement {
       setDay(date);
       setSelectedEvent(event);
     });
-  }
-  async function saveCalendarEvent(input: DataRecord, deleting = false): Promise<boolean> {
-    if (!calendarDraft) return false;
-    const draft = calendarDraft;
-    return Boolean(
-      await run(async () => {
-        const fresh = await command<WidgetSnapshot>("get_widgets");
-        latestWidgets.current = fresh.widgets;
-        const target = await ensureWidget("calendar");
-        if (draft.event) {
-          const current = rows(record(target.data).events).find(
-            (event) => event.id === draft.event?.id,
-          );
-          const fields = [
-            "title",
-            "allDay",
-            "startDate",
-            "endDate",
-            "startAt",
-            "endAt",
-            "timeZone",
-            "location",
-            "description",
-            "cancelled",
-            "connectionId",
-          ];
-          if (!current || fields.some((field) => current[field] !== draft.event?.[field])) {
-            throw new Error(
-              "이 일정이 다른 화면에서 바뀌었어요. 초안을 확인한 뒤 최신 일정을 다시 열어 주세요.",
-            );
-          }
-        }
-        await command("execute_widget", {
-          request: {
-            requestId: crypto.randomUUID(),
-            instanceId: target.id,
-            expectedRevision: target.revision,
-            action: deleting ? "delete-event" : draft.event ? "update-event" : "create-event",
-            input: { ...input, ...(draft.event ? { id: text(draft.event.id) } : {}) },
-          },
-        });
-        reload();
-      }),
-    );
-  }
-  async function reloadCalendarEvent(): Promise<boolean> {
-    if (!calendarDraft?.event) return false;
-    const draft = calendarDraft;
-    return Boolean(
-      await run(async () => {
-        const fresh = await command<WidgetSnapshot>("get_widgets");
-        latestWidgets.current = fresh.widgets;
-        const widget = fresh.widgets.find((value) => value.kind === "calendar" && value.installed);
-        const event = rows(record(widget?.data).events).find(
-          (value) => value.id === draft.event?.id,
-        );
-        if (!widget || !event || event.connectionId !== "local")
-          throw new Error("원본 일정을 찾을 수 없어요. 작성 중인 내용은 유지됩니다.");
-        setCalendarDraft({
-          date: draft.date,
-          event,
-          revision: widget.revision,
-          reloadKey: (draft.reloadKey ?? 0) + 1,
-        });
-      }),
-    );
   }
   function openSourceWidget(widget: WidgetView, itemId?: string): void {
     if (!widget.installed || !widget.enabled) {
@@ -1608,96 +1539,19 @@ export function Diary(): ReactElement {
           onClose={() => setEditing(null)}
         />
       )}
-      <Dialog
-        isOpen={Boolean(selectedEvent)}
-        title={text(selectedEvent?.title) || "약속"}
-        size="small"
-        closeLabel="약속 닫기"
-        onOpenChange={(open) => {
-          if (!open) setSelectedEvent(null);
-        }}
-      >
-        {selectedEvent && (
-          <div className={s.form}>
-            <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
-              {text(selectedEvent.title)}
-            </p>
-            <p>
-              {selectedEvent.allDay
-                ? `${text(selectedEvent.startDate)} ~ ${moveDay(text(selectedEvent.endDate) || text(selectedEvent.startDate), -1)} · 종일`
-                : `${new Date(Number(selectedEvent.startAt)).toLocaleString("ko-KR")} ~ ${new Date(Number(selectedEvent.endAt)).toLocaleString("ko-KR")}`}{" "}
-              · {deviceTimeZone()}
-            </p>
-            <p className={s.caption}>
-              {selectedEvent.connectionId === "local"
-                ? "Comet 일정"
-                : text(selectedEvent.calendarName) || "연결된 캘린더 · 읽기 전용"}
-            </p>
-            {text(selectedEvent.location) && (
-              <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
-                장소 · {text(selectedEvent.location)}
-              </p>
-            )}
-            {text(selectedEvent.description) && (
-              <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
-                {text(selectedEvent.description)}
-              </p>
-            )}
-            {selectedEvent.connectionId === "local" ? (
-              <Button
-                variant="secondary"
-                disabled={saving || !events.some((event) => event.id === selectedEvent.id)}
-                onClick={() => {
-                  const current = events.find((event) => event.id === selectedEvent.id);
-                  if (!current) return;
-                  setCalendarDraft({ date: day, event: current, revision: calendar?.revision });
-                  setSelectedEvent(null);
-                }}
-              >
-                일정 편집
-              </Button>
-            ) : (
-              <p className={s.caption}>외부 일정은 원본 캘린더에서 수정해요.</p>
-            )}
-            <section aria-label="선택 날짜 전체 일정" className={s.form}>
-              <h3>{day} 전체 일정</h3>
-              {eventsOn(events, day).map((event) => (
-                <Button
-                  key={text(event.id)}
-                  variant="quiet"
-                  className={s.agendaEventButton}
-                  onClick={() => setSelectedEvent(event)}
-                >
-                  {eventTime(event)} · {text(event.title)}
-                </Button>
-              ))}
-            </section>
-            <Button
-              variant="primary"
-              onClick={() => {
-                setSelectedEvent(null);
-                openDay(day);
-              }}
-            >
-              이날 펼치기
-            </Button>
-            {envelopes
-              .filter((value) => value.eventId === selectedEvent.id)
-              .map((value) => (
-                <Button
-                  key={text(value.id)}
-                  variant="secondary"
-                  onClick={() => {
-                    setSelectedEvent(null);
-                    openEnvelope(text(value.id));
-                  }}
-                >
-                  {envelopeTitle(value)} ↗
-                </Button>
-              ))}
-          </div>
-        )}
-      </Dialog>
+      <DiaryEventDialog
+        event={selectedEvent}
+        day={day}
+        events={events}
+        envelopes={envelopes}
+        saving={saving}
+        onSelect={setSelectedEvent}
+        onEdit={(current) =>
+          setCalendarDraft({ date: day, event: current, revision: calendar?.revision })
+        }
+        onOpenDay={() => openDay(day)}
+        onOpenEnvelope={openEnvelope}
+      />
       <Dialog
         isOpen={Boolean(leave)}
         title="작성 중인 내용이 있어요"
