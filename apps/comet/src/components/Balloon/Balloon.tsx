@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
 import { IconButton } from "../../ui";
-import { CloseIcon, Icon } from "@comet/icon";
-import { Button as CometButton, InputCapsule } from "@comet/ui";
+import { CloseIcon } from "@comet/icon";
+import { InputCapsule } from "@comet/ui";
 import type { ConversationView, Dispatch, Message, Persona, Snapshot } from "../../types";
 import { command, errorText } from "../../hooks/useSnapshot";
 import { useBalloonSizing } from "../../hooks/useBalloonSizing";
@@ -23,6 +23,7 @@ import { useBalloonNavigation, useEscapeClose } from "./useBalloonNavigation";
 import { useConversationSubmission, useDraftReplacement } from "./useConversationSubmission";
 import { useIdleClose } from "./useIdleClose";
 import { UpdateNoticeBalloon } from "./UpdateNoticeBalloon";
+import { InputSurfaceActions, InputSurfaceMore } from "./InputSurfaceActions";
 import { BalloonHeader } from "./BalloonHeader";
 import { HistoryPanel } from "./HistoryPanel";
 import { IdleSpeech } from "./IdleSpeech";
@@ -695,43 +696,24 @@ export function Balloon({
         >
           {surface === "input" && (
             <>
-              <div className={surfaceStyle.inputActions}>
-                <CometButton
-                  variant="ghost"
-                  className={`${surfaceStyle.inputAction} ${surfaceStyle.resumeAction}`}
-                  leadingIcon={<Icon name="resume" size={15} />}
-                  disabled={
-                    navigating ||
-                    pending ||
-                    responding ||
-                    playing ||
-                    sessionsLoading ||
-                    choosingResumeNote ||
-                    Boolean(sessionsError)
-                  }
-                  onClick={() => void resumeFromInput()}
-                >
-                  이어서 하기
-                </CometButton>
-                <CometButton
-                  variant="ghost"
-                  className={`${surfaceStyle.inputAction} ${surfaceStyle.togetherAction}`}
-                  leadingIcon={<Icon name="together" size={15} />}
-                  disabled={navigating || pending || responding || playing || choosingResumeNote}
-                  onClick={() => void leave("talk_now")}
-                >
-                  함께 이야기해 봐
-                </CometButton>
-                <CometButton
-                  variant="ghost"
-                  className={`${surfaceStyle.inputAction} ${surfaceStyle.historyAction}`}
-                  leadingIcon={<Icon name="history" size={15} />}
-                  disabled={navigating || choosingResumeNote}
-                  onClick={() => void leave("open_panel", { persona, mode: "history" })}
-                >
-                  지난 대화
-                </CometButton>
-              </div>
+              <InputSurfaceActions
+                resumeDisabled={
+                  navigating ||
+                  pending ||
+                  responding ||
+                  playing ||
+                  sessionsLoading ||
+                  choosingResumeNote ||
+                  Boolean(sessionsError)
+                }
+                togetherDisabled={
+                  navigating || pending || responding || playing || choosingResumeNote
+                }
+                historyDisabled={navigating || choosingResumeNote}
+                onResume={() => void resumeFromInput()}
+                onTogether={() => void leave("talk_now")}
+                onHistory={() => void leave("open_panel", { persona, mode: "history" })}
+              />
               {choosingResumeNote ? (
                 <div className={surfaceStyle.optionsPanel}>
                   <ConversationContext
@@ -774,31 +756,20 @@ export function Balloon({
           )}
           {surface === "input" ? (
             choosingResumeNote ? null : (
-              <details
-                className={surfaceStyle.more}
+              <InputSurfaceMore
                 open={moreOpen}
-                onToggle={(event) => {
-                  const open = event.currentTarget.open;
+                onOpenChange={(open) => {
                   setMoreOpen(open);
                   if (!open) {
                     setLogOpen(false);
                     setLatestUserOpen(false);
                   }
                 }}
+                navigating={navigating}
+                onCollapse={() => void leave(closeCommand)}
               >
-                <summary className={surfaceStyle.moreSummary}>더보기</summary>
-                <div className={surfaceStyle.optionsPanel}>
-                  <CometButton
-                    variant="link"
-                    aria-label="대화 접어 두기"
-                    disabled={navigating}
-                    onClick={() => void leave(closeCommand)}
-                  >
-                    접어 두기
-                  </CometButton>
-                  {inputOptions}
-                </div>
-              </details>
+                {inputOptions}
+              </InputSurfaceMore>
             )
           ) : (
             inputOptions
