@@ -28,8 +28,6 @@ import {
   Dialog,
   Tabs,
 } from "@comet/ui";
-import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { WindowHeader } from "../../components/WindowHeader/WindowHeader";
 import { useWidgets } from "../useWidgets";
@@ -69,6 +67,8 @@ import {
 } from "./plannerData";
 import { usePlannerActions } from "./usePlannerActions";
 import { usePlannerTasks } from "./usePlannerTasks";
+import { usePlannerLeave } from "./usePlannerLeave";
+import { PlannerCloseDialog } from "./PlannerCloseDialog";
 import * as s from "./planner.css";
 
 const NAVIGATION = [
@@ -206,27 +206,26 @@ export function Planner({
   const [templateDirty, setTemplateDirty] = useState(false);
   const [preparationDirty, setPreparationDirty] = useState(false);
   const [preparationBusy, setPreparationBusy] = useState(false);
-  const [confirmClose, setConfirmClose] = useState(false);
   useEffect(() => {
     setEditing(null);
     setManageLists(false);
     setWrap(false);
     setMovingTask(null);
   }, [dismissVersion]);
-  const leaving = useRef(false);
-  const returning = useRef(false);
   const blocking = Boolean(
     editing || manageLists || wrap || movingTask || preparationDirty || preparationBusy,
   );
   const dirty = Boolean(blocking || title.trim() || templateDirty);
-  const dirtyRef = useRef(dirty);
-  dirtyRef.current = dirty;
-  const report = useRef(onStateChange);
-  report.current = onStateChange;
-  useEffect(() => {
-    report.current?.({ dirty, busy: busy || preparationBusy, blocking });
-  }, [dirty, busy, preparationBusy, blocking]);
-  useEffect(() => () => report.current?.({ dirty: false, busy: false, blocking: false }), []);
+  const leave = usePlannerLeave({
+    embedded,
+    initialTab,
+    state: { dirty, busy: busy || preparationBusy, blocking },
+    onStateChange,
+    onBack,
+    isTab: (value) => NAVIGATION.some(([key]) => key === value),
+    setTab,
+    setFailure,
+  });
   const items = rows(record(todo?.data).items),
     lists = rows(record(todo?.data).lists);
   const connections = rows(record(calendar?.data).connections);
@@ -267,51 +266,6 @@ export function Planner({
     recordingDay: tab === "plans" ? planDay : day,
     reload,
   });
-
-  useEffect(() => {
-    if (embedded || !isDesktop()) return;
-    let active = true;
-    let tabCleanup: (() => void) | undefined, closeCleanup: (() => void) | undefined;
-    let received = false;
-    const select = (value: string): void => {
-      if (active && NAVIGATION.some(([key]) => key === value)) setTab(value);
-    };
-    void listen<string>("planner-tab", (e) => {
-      received = true;
-      select(e.payload);
-    })
-      .then(async (cleanup) => {
-        if (!active) {
-          cleanup();
-          return;
-        }
-        tabCleanup = cleanup;
-        const latest = await command<string>("get_planner_tab");
-        if (!received && !initialTab) select(latest);
-      })
-      .catch((cause: unknown) => {
-        if (active) setFailure({ message: errorText(cause), saving: false });
-      });
-    void getCurrentWindow()
-      .onCloseRequested((e) => {
-        if (!leaving.current && dirtyRef.current) {
-          e.preventDefault();
-          setConfirmClose(true);
-        }
-      })
-      .then((cleanup) => {
-        if (active) closeCleanup = cleanup;
-        else cleanup();
-      })
-      .catch((cause: unknown) => {
-        if (active) setFailure({ message: errorText(cause), saving: false });
-      });
-    return () => {
-      active = false;
-      tabCleanup?.();
-      closeCleanup?.();
-    };
-  }, [embedded]);
 
   function openSettings(kind = "calendar"): void {
     if (isDesktop()) void run(() => command("open_planner_settings", { kind }));
@@ -847,14 +801,6 @@ export function Planner({
       />
     );
   }
-  async function closeWindow(): Promise<void> {
-    if (dirtyRef.current && !leaving.current) {
-      setConfirmClose(true);
-      return;
-    }
-    if (returning.current && onBack) onBack();
-    else if (isDesktop()) await getCurrentWindow().destroy();
-  }
   const shown = items.filter(
     (item) =>
       inPeriod(item, period, planDay) &&
@@ -897,17 +843,10 @@ export function Planner({
           className={s.header}
           label="플래너 닫기"
           title="할 일·연결 관리"
-          onClose={closeWindow}
+          onClose={leave.closeWindow}
           actions={
             onBack && (
-              <Button
-                variant="quiet"
-                size="compact"
-                onClick={() => {
-                  returning.current = true;
-                  void closeWindow();
-                }}
-              >
+              <Button variant="quiet" size="compact" onClick={leave.returnToDiary}>
                 다이어리로 돌아가기
               </Button>
             )
@@ -1583,40 +1522,12 @@ export function Planner({
         failure={failure?.message ?? null}
         onClose={() => setManageLists(false)}
       />
-      <Dialog
-        isOpen={confirmClose}
-        title="작성 중인 내용이 있어요"
-        variant="confirm"
-        closeLabel="플래너 종료 확인 닫기"
-        onOpenChange={(open) => {
-          if (!open) returning.current = false;
-          setConfirmClose(open);
-        }}
-        footer={
-          <>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                returning.current = false;
-                setConfirmClose(false);
-              }}
-            >
-              계속 작성
-            </Button>
-            <Button
-              variant="critical"
-              onClick={async () => {
-                leaving.current = true;
-                await closeWindow();
-              }}
-            >
-              버리고 나가기
-            </Button>
-          </>
-        }
-      >
-        <p>저장하지 않은 내용을 버리고 나갈까요?</p>
-      </Dialog>
+      <PlannerCloseDialog
+        isOpen={leave.confirmClose}
+        onOpenChange={leave.onConfirmOpenChange}
+        onKeep={leave.keepWriting}
+        onDiscard={leave.discardAndLeave}
+      />
     </Root>
   );
 }
