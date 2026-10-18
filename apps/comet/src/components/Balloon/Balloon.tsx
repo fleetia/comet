@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
-import { Button, IconButton } from "../../ui";
+import { IconButton } from "../../ui";
 import { CloseIcon, Icon } from "@comet/icon";
-import { Button as CometButton, InputCapsule, WaitingDots } from "@comet/ui";
+import { Button as CometButton, InputCapsule } from "@comet/ui";
 import type { ConversationView, Dispatch, Message, Persona, Snapshot } from "../../types";
 import { command, errorText } from "../../hooks/useSnapshot";
 import { useBalloonSizing } from "../../hooks/useBalloonSizing";
@@ -10,13 +10,12 @@ import * as s from "../companion.css";
 import * as surfaceStyle from "./conversationSurface.css";
 import { CharacterOrbit } from "./CharacterOrbit";
 import { NameRegistration } from "./NameRegistration";
-import { ConversationHistory } from "./ConversationHistory";
 import { StoryChoices } from "../StoryChoices/StoryChoices";
 import * as storyStyle from "../StoryChoices/story.css";
 import { activeCharacter, BALLOON_SPRITE, characterName, spriteUrl } from "../characterIdentity";
 import { skinStyle, useImageSlice } from "../../hooks/useImageSlice";
 import { balloonTextStyle } from "../balloonTypography";
-import { aiAvailability, responseOrigin } from "./conversationStatus";
+import { aiAvailability } from "./conversationStatus";
 import { OrganizerReceipt } from "./OrganizerReceipt";
 import { ConversationContext } from "./ConversationContext";
 import { useConversationSessions } from "./useConversationSessions";
@@ -24,6 +23,10 @@ import { useBalloonNavigation, useEscapeClose } from "./useBalloonNavigation";
 import { useConversationSubmission, useDraftReplacement } from "./useConversationSubmission";
 import { useIdleClose } from "./useIdleClose";
 import { UpdateNoticeBalloon } from "./UpdateNoticeBalloon";
+import { BalloonHeader } from "./BalloonHeader";
+import { HistoryPanel } from "./HistoryPanel";
+import { IdleSpeech } from "./IdleSpeech";
+import { runOrbitAction } from "./orbitActions";
 import { ConversationReply } from "./ConversationReply";
 import { ConversationDisclosures } from "./ConversationDisclosures";
 import { ConversationForm, type EditorKeyHandlers } from "./ConversationForm";
@@ -314,6 +317,9 @@ export function Balloon({
         ? `playback:${snapshot.playback.id}`
         : `runtime:${snapshot.runtime.phase}:${snapshot.runtime.persona ?? ""}`;
   const orbitMenu = mode === "menu" && !choosingResumeNote && !saveRequest;
+  const sleeping = Boolean(
+    character && snapshot.animationStates?.sleepingCharacterIds?.includes(character.id),
+  );
   const {
     elementRef: balloonRef,
     ready,
@@ -590,28 +596,14 @@ export function Balloon({
       onWheel={markActivity}
     >
       {surface === "input" ? null : mode && mode !== "menu" ? (
-        <header className={s.balloonHeader}>
-          {(mode === "input" || mode === "history") && (
-            <Button
-              variant="quiet"
-              size="compact"
-              disabled={navigating}
-              onClick={() => void leave("open_panel", { persona, mode: "menu" })}
-            >
-              메뉴로
-            </Button>
-          )}
-          <span>{labels[mode]}</span>
-          <IconButton
-            size="compact"
-            variant="quiet"
-            label={mode === "input" && conversation ? "대화 접어 두기" : "패널 닫기"}
-            disabled={navigating}
-            onClick={() => void leave(closeCommand)}
-          >
-            ×
-          </IconButton>
-        </header>
+        <BalloonHeader
+          label={labels[mode]}
+          showMenu={mode === "input" || mode === "history"}
+          closeLabel={mode === "input" && conversation ? "대화 접어 두기" : "패널 닫기"}
+          navigating={navigating}
+          onMenu={() => void leave("open_panel", { persona, mode: "menu" })}
+          onClose={() => void leave(closeCommand)}
+        />
       ) : (
         <IconButton
           className={s.balloonClose}
@@ -638,60 +630,20 @@ export function Balloon({
               character={character}
               paused={snapshot.runtime.paused}
               pausedUntil={snapshot.runtime.pausedUntil}
-              sleeping={Boolean(
-                character && snapshot.animationStates?.sleepingCharacterIds?.includes(character.id),
-              )}
+              sleeping={sleeping}
               busy={navigating || sessionsLoading}
               onClose={() => leave(closeCommand)}
-              onAction={(action) => {
-                switch (action) {
-                  case "chat":
-                    return perform("open_panel", { persona, mode: "input" });
-                  case "resume":
-                    if (resumableWork)
-                      return perform("resume_chat", { sessionId: resumableWork.id });
-                    else if (paused) return perform("resume_chat", { sessionId: paused.id });
-                    else setChoosingResumeNote(true);
-                    return true;
-                  case "together":
-                    return perform("talk_now");
-                  case "history":
-                    return perform("open_panel", { persona, mode: "history" });
-                  case "settings":
-                    return perform("open_settings");
-                  case "hide":
-                    return perform("hide_boxes");
-                  case "move":
-                    return perform("arm_character_move", { persona });
-                  case "snack":
-                    return perform("give_character_snack", { persona });
-                  case "drink":
-                  case "gift":
-                    if (character)
-                      return perform("give_character_item", {
-                        characterId: character.id,
-                        action,
-                        sessionId: crypto.randomUUID(),
-                      });
-                    return false;
-                  case "sleep":
-                    if (character)
-                      return perform("set_character_sleep", {
-                        characterId: character.id,
-                        sleeping: !snapshot.animationStates?.sleepingCharacterIds?.includes(
-                          character.id,
-                        ),
-                      });
-                    return false;
-                  case "pause":
-                    return perform("set_paused", { paused: false });
-                  case "pause-hour":
-                    return perform("set_paused", { paused: true, minutes: 60 });
-                  case "pause-restart":
-                    return perform("set_paused", { paused: true });
-                }
-                return false;
-              }}
+              onAction={(action) =>
+                runOrbitAction(action, {
+                  persona,
+                  character,
+                  sleeping,
+                  resumableWork,
+                  paused,
+                  perform,
+                  chooseResumeNote: () => setChoosingResumeNote(true),
+                })
+              }
             />
           )}
           {choosingResumeNote && (
@@ -854,53 +806,28 @@ export function Balloon({
         </div>
       )}
       {mode === "history" && (
-        <div style={{ display: saveRequest ? "none" : "contents" }}>
-          <ConversationHistory
-            key={`${snapshot.user?.id}:${persona}`}
-            snapshot={snapshot}
-            persona={persona}
-            sessions={sessions}
-            loading={sessionsLoading}
-            error={sessionsError}
-            previewConversations={previewConversations}
-            onResume={(id) => void perform("resume_chat", { sessionId: id })}
-            onSave={selectSave}
-          />
-          <div className={s.footer}>
-            {snapshot.relationships.map((relationship) => (
-              <span key={relationship.persona}>
-                {characterName(snapshot, relationship.persona)} 친밀도 {relationship.score}/100
-              </span>
-            ))}
-          </div>
-        </div>
+        <HistoryPanel
+          snapshot={snapshot}
+          persona={persona}
+          sessions={sessions}
+          loading={sessionsLoading}
+          error={sessionsError}
+          previewConversations={previewConversations}
+          hidden={Boolean(saveRequest)}
+          onResume={(id) => void perform("resume_chat", { sessionId: id })}
+          onSave={selectSave}
+        />
       )}
-      {!mode && !snapshot.story && <span className={s.speakerName}>{name}</span>}
       {!mode && !snapshot.story && (
-        <div
-          className={s.speech}
-          style={textStyle}
-          aria-live="polite"
-          aria-label={fullText || undefined}
-        >
-          {snapshot.playback ? (
-            <button
-              className={s.replySpeech}
-              aria-label={`${name}에게 답장: ${fullText}`}
-              title="클릭해서 답장"
-              onClick={() => void perform("open_reply", { playbackId: snapshot.playback!.id })}
-            >
-              {speech}
-            </button>
-          ) : responding ? (
-            <WaitingDots label="답변 준비 중" />
-          ) : (
-            ""
-          )}
-        </div>
-      )}
-      {!mode && !snapshot.story && snapshot.playback && (
-        <span className={s.playbackOrigin}>{responseOrigin(snapshot.playback.source)}</span>
+        <IdleSpeech
+          name={name}
+          textStyle={textStyle}
+          fullText={fullText}
+          playback={snapshot.playback}
+          responding={responding}
+          speech={speech}
+          onReply={(playbackId) => void perform("open_reply", { playbackId })}
+        />
       )}
       {mode !== "input" && mode !== "focus" && notice}
       <DraftReplacementDialog
