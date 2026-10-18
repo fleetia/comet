@@ -23,13 +23,12 @@ import { useDiaryWidgetActions } from "./useDiaryWidgetActions";
 import { useDiaryTasks } from "./useDiaryTasks";
 import { useCalendarClock, useDiaryCalendarEvents } from "./useDiaryCalendarEvents";
 import { DiaryEventDialog } from "./DiaryEventDialog";
+import { useDiaryCreation } from "./useDiaryCreation";
+import { DiaryNewPageDialog } from "./DiaryNewPageDialog";
 import { localDay, record, rows, text, type DataRecord } from "../toolData";
 import type { WidgetSnapshot, WidgetView } from "../types";
 import { DiaryCalendar } from "./DiaryCalendar";
-import {
-  PreparationCreate,
-  type PreparationCreateResult,
-} from "../PreparationTool/PreparationCreate";
+import { PreparationCreate } from "../PreparationTool/PreparationCreate";
 import { DiaryEnvelope, envelopeTitle } from "./DiaryEnvelope";
 import { OrganizerRecords } from "./OrganizerRecords";
 import { DiaryJournal } from "./DiaryJournal";
@@ -126,16 +125,6 @@ export function Diary(): ReactElement {
   );
   const [requestedNote, setRequestedNote] = useState<{ id: string; version: number } | null>(null);
   const [archived, setArchived] = useState(false);
-  const [creating, setCreating] = useState<"page" | "envelope" | null>(null);
-  const [name, setName] = useState("");
-  const [envelopeCreateDirty, setEnvelopeCreateDirty] = useState(false);
-  const envelopeCreateRequest = useRef<{
-    requestId: string;
-    instanceId: string;
-    expectedRevision: number;
-    action: string;
-    input: DataRecord;
-  } | null>(null);
   const [quickTaskOpen, setQuickTaskOpen] = useState(false);
   const [quickTaskTitle, setQuickTaskTitle] = useState("");
   const [quickTaskDate, setQuickTaskDate] = useState<string | null>(null);
@@ -239,6 +228,34 @@ export function Diary(): ReactElement {
     saveCalendarEvent,
     reloadCalendarEvent,
   } = useDiaryCalendarEvents({ actions, reload });
+  const creation = useDiaryCreation({
+    actions,
+    mutate: diary.mutate,
+    page,
+    day,
+    reload,
+    onPageCreated: (id) => {
+      setTool(null);
+      setPageId(id);
+      setEnvelopeId("");
+      setView("day");
+    },
+    onEnvelopeCreated: (id) => {
+      setTool(null);
+      setEnvelopeId(id);
+      setPageId("");
+    },
+  });
+  const {
+    creating,
+    setCreating,
+    name,
+    setName,
+    envelopeCreateDirty,
+    setEnvelopeCreateDirty,
+    createPage,
+    createEnvelope,
+  } = creation;
   const saving = busy || diary.busy || addingWidget || toolState.busy;
   const blocking = useRef(false);
   blocking.current =
@@ -514,75 +531,6 @@ export function Diary(): ReactElement {
     };
   }, [navigationReady, nativeTab]);
 
-  async function createPage(): Promise<string | null> {
-    if (page) return page.id;
-    const result = await diary.mutate("page-create", { date: day, title: "" });
-    return result?.pages.find((value) => value.date === day)?.id ?? null;
-  }
-  async function saveNew(): Promise<void> {
-    if (!name.trim()) return;
-    if (creating === "page") {
-      const result = await diary.mutate("page-create", { date: null, title: name });
-      const added = result?.pages.at(-1);
-      if (added) {
-        setName("");
-        setCreating(null);
-        setTool(null);
-        setPageId(added.id);
-        setEnvelopeId("");
-        setView("day");
-      }
-    }
-  }
-  async function createEnvelope(
-    input: DataRecord,
-    requestId: string,
-  ): Promise<PreparationCreateResult> {
-    let outcome: PreparationCreateResult = "unknown";
-    const result = await run(async () => {
-      if (!envelopeCreateRequest.current || envelopeCreateRequest.current.requestId !== requestId) {
-        if (Array.isArray(input.tasks) && input.tasks.length) await ensureWidget("todo");
-        const target = await ensureWidget("preparation");
-        envelopeCreateRequest.current = {
-          requestId,
-          instanceId: target.id,
-          expectedRevision: target.revision,
-          action: "create",
-          input,
-        };
-      }
-      let createdId: string | null;
-      try {
-        createdId = await command<string | null>("execute_widget", {
-          request: envelopeCreateRequest.current,
-        });
-      } catch (cause) {
-        const message = errorText(cause);
-        const prefix = "PREPARATION_CREATE_REJECTED:";
-        if (!message.startsWith(prefix)) throw cause;
-        outcome = "rejected";
-        envelopeCreateRequest.current = null;
-        try {
-          const fresh = await command<WidgetSnapshot>("get_widgets");
-          latestWidgets.current = fresh.widgets;
-        } catch {
-          reload();
-        }
-        throw new Error(message.slice(prefix.length).trim());
-      }
-      if (!createdId)
-        throw new Error("만든 봉투를 확인하지 못했어요. 같은 요청으로 다시 시도해 주세요.");
-      reload();
-      return createdId;
-    });
-    if (!result?.value) return outcome;
-    envelopeCreateRequest.current = null;
-    setCreating(null);
-    setTool(null);
-    setEnvelopeId(result.value);
-    setPageId("");
-    return "created";
-  }
   function openTool(next: DiaryTool): void {
     navigate(() => {
       setNotesOpen(false);
@@ -1189,10 +1137,9 @@ export function Diary(): ReactElement {
                     disabled={saving}
                     onClick={() => {
                       if (collection) {
-                        navigate(() => {
-                          setCreating(collection === "pages" ? "page" : "envelope");
-                          setName("");
-                        });
+                        navigate(() =>
+                          creation.start(collection === "pages" ? "page" : "envelope"),
+                        );
                         return;
                       }
                       if (!tool && view !== "day") {
@@ -1469,53 +1416,21 @@ export function Diary(): ReactElement {
           onDirtyChange={setCalendarDirty}
         />
       )}
-      <Dialog
+      <DiaryNewPageDialog
         isOpen={creating === "page"}
-        title="새 페이지"
-        size="small"
-        closeLabel="새로 만들기 닫기"
-        onOpenChange={(open) => {
-          if (!open && !saving) {
-            setCreating(null);
-            setName("");
-          }
-        }}
-      >
-        <form
-          className={s.form}
-          onSubmit={(event) => {
-            event.preventDefault();
-            void saveNew();
-          }}
-        >
-          <FormField label="페이지 이름">
-            <TextField
-              autoFocus
-              required
-              maxLength={500}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="예: 읽은 책"
-            />
-          </FormField>
-          <p className={s.caption}>한 가지 주제를 날짜 없이 계속 이어 쓰세요.</p>
-          <Button type="submit" variant="primary" disabled={saving || !name.trim()}>
-            만들기
-          </Button>
-        </form>
-      </Dialog>
+        name={name}
+        saving={saving}
+        onNameChange={setName}
+        onClose={creation.closePage}
+        onSubmit={() => void creation.saveNew()}
+      />
       {creating === "envelope" && (
         <PreparationCreate
           events={events}
           busy={saving}
           onCreate={createEnvelope}
           onDirtyChange={setEnvelopeCreateDirty}
-          onClose={() =>
-            navigate(() => {
-              envelopeCreateRequest.current = null;
-              setCreating(null);
-            })
-          }
+          onClose={() => navigate(creation.closeEnvelope)}
         />
       )}
       {editing && todo && (
@@ -1580,13 +1495,10 @@ export function Diary(): ReactElement {
                 setPageDirty(false);
                 setPageMenuDirty(false);
                 setEditing(null);
-                setName("");
-                setEnvelopeCreateDirty(false);
-                envelopeCreateRequest.current = null;
+                creation.discard();
                 quickTaskVersion.current += 1;
                 setQuickTaskTitle("");
                 setQuickTaskOpen(false);
-                setCreating(null);
                 setCalendarDraft(null);
                 setCalendarDirty(false);
                 setFeatureDirty(false);
