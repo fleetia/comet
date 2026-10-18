@@ -39,6 +39,14 @@ type Props = {
 };
 type Draft = { userId: string; sessionId: string; value: string; saved: string };
 
+function isFailedSubmission(snapshot: Snapshot, messageId: string): boolean {
+  return (
+    snapshot.runtime.phase === "error" &&
+    snapshot.conversation?.recovery?.reason === "incomplete" &&
+    snapshot.conversation.recovery.messageId === messageId
+  );
+}
+
 function nameFor(snapshot: Snapshot, id: string): string {
   return characterById(snapshot, id)?.definition.name ?? id;
 }
@@ -234,6 +242,9 @@ export function ConversationHistoryWindow({
   const editable = Boolean(selectedId && editing === selectedId);
   const recovery =
     snapshot.conversation?.session.id === selectedId ? snapshot.conversation?.recovery : undefined;
+  const recoverable =
+    recovery &&
+    (recovery.reason === "cancelled" || isFailedSubmission(snapshot, recovery.messageId));
 
   function persistDraft(value = draft.current): Promise<void> {
     if (!value || preview) return Promise.resolve();
@@ -531,7 +542,7 @@ export function ConversationHistoryWindow({
     const submitted = lastSubmission.current;
     if (
       submitted &&
-      snapshot.conversation.recovery?.messageId === submitted.messageId &&
+      isFailedSubmission(snapshot, submitted.messageId) &&
       draft.current?.sessionId === submitted.sessionId &&
       !draft.current.value
     ) {
@@ -619,7 +630,7 @@ export function ConversationHistoryWindow({
       if (draft.current === submitted && owner.current === submitted.sessionId) {
         submitted.saved = "";
         if (submitted.value === content) {
-          const failed = current.current.conversation?.recovery?.messageId === clientMessageId;
+          const failed = isFailedSubmission(current.current, clientMessageId);
           submitted.value = failed ? content : "";
           setInput(submitted.value);
         } else await persistDraft(submitted);
@@ -1116,7 +1127,7 @@ export function ConversationHistoryWindow({
                     <span className={s.meta}>이 창에서 이야기를 이어갈 수 있어요.</span>
                   </div>
                 )}
-                {recovery && editable && (
+                {recoverable && editable && (
                   <div className={s.actions}>
                     <span className={s.meta}>
                       {recovery.reason === "cancelled"
