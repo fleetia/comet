@@ -7,7 +7,6 @@ import { WindowHeader } from "../../components/WindowHeader/WindowHeader";
 import { useWidgets } from "../useWidgets";
 import { localDay, number, record, rows, text, type DataRecord } from "../toolData";
 import type { WidgetView } from "../types";
-import { PlannerAlertNotice } from "../PlannerAlerts/PlannerAlerts";
 import { PlannerCalendar } from "./PlannerCalendar";
 import { PlannerPreparation } from "./PlannerPreparation";
 import { PlannerTemplates } from "./PlannerTemplates";
@@ -19,7 +18,6 @@ import {
   dueLabel,
   deviceTimeZone,
   eventsOn,
-  eventTime,
   inPeriod,
   moveDay,
   movePeriod,
@@ -41,6 +39,8 @@ import { PlannerTaskCheck } from "./PlannerTaskCheck";
 import { PlannerQuickInput } from "./PlannerQuickInput";
 import { PlannerTaskActions } from "./PlannerTaskActions";
 import { PlannerDiaryTasks } from "./PlannerDiaryTasks";
+import { PlannerDayAgenda } from "./PlannerDayAgenda";
+import { PlannerDayTaskList } from "./PlannerDayTaskList";
 import * as s from "./planner.css";
 
 const NAVIGATION = [
@@ -527,148 +527,44 @@ export function Planner({
                 </div>
                 <div className={embedded ? s.embeddedContent : s.split}>
                   {!embedded && (
-                    <aside className={s.column}>
-                      <h2 className={s.heading}>
-                        선택일 {day} 일정 · {dailyEvents.length}개
-                      </h2>
-                      {!calendar || (!connections.length && !events.length) ? (
-                        <div className={s.empty}>
-                          <p className={s.caption}>내 캘린더도 함께 볼 수 있어요.</p>
-                          <Button variant="secondary" size="compact" onClick={() => openSettings()}>
-                            캘린더 연결
-                          </Button>
-                          <p className={s.caption}>할 일은 계정 없이 사용할 수 있어요.</p>
-                        </div>
-                      ) : (
-                        <>
-                          {connections.some(
-                            (c) => !["ready", "syncing"].includes(text(c.status)),
-                          ) && (
-                            <div role="status" className={s.error}>
-                              캘린더를 갱신하지 못했어요.
-                              <Button variant="quiet" size="compact" onClick={() => openSettings()}>
-                                연결 확인 ↗
-                              </Button>
-                            </div>
-                          )}
-                          {!dailyEvents.length && (
-                            <p className={s.caption}>{day}에 조회된 일정이 없어요.</p>
-                          )}
-                          {dailyEvents.map((e) => (
-                            <button
-                              type="button"
-                              key={text(e.id)}
-                              className={s.eventButton}
-                              aria-pressed={event?.id === e.id}
-                              onClick={() => setSelectedEvent(text(e.id))}
-                            >
-                              <span className={s.caption}>{eventTime(e)}</span>
-                              <span>{text(e.title)}</span>
-                              <span className={s.caption}>
-                                {e.connectionId === "local"
-                                  ? "Comet"
-                                  : text(connections.find((c) => c.id === e.connectionId)?.name)}
-                              </span>
-                            </button>
-                          ))}
-                        </>
-                      )}
-                      {event && prep()}
-                      {lastSuccess > 0 && (
-                        <p className={s.caption}>
-                          마지막 확인 {new Date(lastSuccess).toLocaleString("ko-KR")} · 읽기 연결
-                        </p>
-                      )}
-                    </aside>
+                    <PlannerDayAgenda
+                      day={day}
+                      calendar={calendar}
+                      connections={connections}
+                      events={events}
+                      dailyEvents={dailyEvents}
+                      event={event}
+                      lastSuccess={lastSuccess}
+                      preparation={prep()}
+                      onSelectEvent={setSelectedEvent}
+                      onOpenSettings={() => openSettings()}
+                    />
                   )}
-                  <section
-                    className={s.column}
-                    aria-label={
-                      allTasks
-                        ? "모든 날짜 할 일"
-                        : day === localDay()
-                          ? "오늘 할 일"
-                          : "선택 날짜 할 일"
-                    }
-                  >
-                    <div className={s.actions}>
-                      <h2 className={s.heading}>
-                        {allTasks ? "모든 날짜 할 일" : `${day} 할 일`} · {displayedTasks.length}개
-                      </h2>
-                      <Button
-                        variant="quiet"
-                        size="compact"
-                        aria-pressed={allTasks}
-                        onClick={() => setAllTasks((value) => !value)}
-                      >
-                        {allTasks ? "선택 날짜만 보기" : "모든 할 일 보기"}
-                      </Button>
-                      <div className={s.spacer} />
-                      <Button
-                        variant="quiet"
-                        size="compact"
-                        onClick={() => {
-                          setPeriod("inbox");
-                          selectTab("plans");
-                        }}
-                      >
-                        수집함 · 날짜 없음 · 미완료 {inboxCount}개
-                      </Button>
-                    </div>
-                    {!todo ? (
-                      <PlannerTodoEmpty
-                        installed={todoInstalled}
-                        busy={busy}
-                        onEnable={enableTodo}
-                      />
-                    ) : (
-                      <>
-                        {quickInput(true)}
-                        {!displayedTasks.length && (
-                          <div className={s.empty}>
-                            <p>
-                              {allTasks
-                                ? "모든 날짜와 날짜 없는 항목에 저장한 할 일이 없어요."
-                                : `${day}에 계획한 할 일이 없어요.`}
-                            </p>
-                            <Button
-                              variant="quiet"
-                              size="compact"
-                              onClick={() => selectTab("templates")}
-                            >
-                              템플릿에서 고르기
-                            </Button>
-                          </div>
-                        )}
-                        <div className={s.list}>
-                          {displayedTasks.map((item) => (
-                            <article
-                              key={text(item.id)}
-                              className={s.task}
-                              data-selected={selectedTask === item.id}
-                              onClick={() => setSelectedTask(text(item.id))}
-                            >
-                              {taskCheck(item)}
-                              <span className={s.meta}>
-                                {repeatLabel(item) ||
-                                  text(lists.find((l) => l.id === item.listId)?.name)}
-                              </span>
-                              <Button
-                                variant="quiet"
-                                size="compact"
-                                aria-label={`${text(item.title)} 편집`}
-                                onClick={() => edit(item)}
-                              >
-                                편집
-                              </Button>
-                            </article>
-                          ))}
-                        </div>
-                        {taskActions()}
-                      </>
-                    )}
-                    {calendar && <PlannerAlertNotice widget={calendar} act={act} />}
-                  </section>
+                  <PlannerDayTaskList
+                    day={day}
+                    allTasks={allTasks}
+                    displayedTasks={displayedTasks}
+                    lists={lists}
+                    inboxCount={inboxCount}
+                    selectedTask={selectedTask}
+                    hasTodo={Boolean(todo)}
+                    todoInstalled={todoInstalled}
+                    calendar={calendar}
+                    busy={busy}
+                    act={act}
+                    quickInput={quickInput(true)}
+                    taskActions={taskActions()}
+                    renderCheck={taskCheck}
+                    onToggleAllTasks={() => setAllTasks((value) => !value)}
+                    onOpenInbox={() => {
+                      setPeriod("inbox");
+                      selectTab("plans");
+                    }}
+                    onEnableTodo={enableTodo}
+                    onTemplates={() => selectTab("templates")}
+                    onSelectTask={setSelectedTask}
+                    onEdit={edit}
+                  />
                 </div>
               </>
             )}
