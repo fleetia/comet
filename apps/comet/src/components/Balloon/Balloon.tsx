@@ -35,6 +35,7 @@ import { aiAvailability, responseOrigin } from "./conversationStatus";
 import { OrganizerReceipt } from "./OrganizerReceipt";
 import { ConversationContext } from "./ConversationContext";
 import { useConversationSessions } from "./useConversationSessions";
+import { useBalloonNavigation, useEscapeClose } from "./useBalloonNavigation";
 import {
   useDraftAutosave,
   useDraftPersistence,
@@ -130,10 +131,14 @@ export function Balloon({
   });
   const [target, setTarget] = useState<Persona | "all">(persona);
   const [pending, setPending] = useState(false);
-  const [navigating, setNavigating] = useState(false);
   const [orbitCloseRequest, setOrbitCloseRequest] = useState(0);
-  const navigatingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const { navigating, navigatingRef, leave, openModelSettings } = useBalloonNavigation({
+    currentView,
+    flushDraft,
+    dispatch,
+    setError,
+  });
   useEffect(() => {
     if (updateNotice) setError(null);
   }, [updateNotice, snapshot.playback?.id]);
@@ -343,30 +348,6 @@ export function Balloon({
     persistDraft,
     setError,
   });
-  async function leave(name: string, args?: Record<string, unknown>): Promise<boolean> {
-    if (navigatingRef.current) return false;
-    navigatingRef.current = true;
-    setNavigating(true);
-    setError(null);
-    const previousView = currentView.current;
-    try {
-      await flushDraft();
-      if (currentView.current.identity !== previousView.identity) return false;
-      await dispatch(
-        name,
-        name === "close_panel" && previousView.mode === "input" && previousView.sessionId
-          ? { ...args, sessionId: previousView.sessionId }
-          : args,
-      );
-      return true;
-    } catch (cause) {
-      if (currentView.current.identity === previousView.identity) setError(errorText(cause));
-      return false;
-    } finally {
-      navigatingRef.current = false;
-      setNavigating(false);
-    }
-  }
   async function perform(name: string, args?: Record<string, unknown>): Promise<boolean> {
     setError(null);
     try {
@@ -464,40 +445,8 @@ export function Balloon({
       }
     });
   }
-  async function openModelSettings(): Promise<void> {
-    if (navigatingRef.current) return;
-    navigatingRef.current = true;
-    setNavigating(true);
-    const previousView = currentView.current;
-    try {
-      await flushDraft();
-      if (currentView.current.identity !== previousView.identity) return;
-      await dispatch("set_settings_section", { section: "model" });
-      if (currentView.current.identity !== previousView.identity) return;
-      await dispatch("open_settings");
-    } catch (cause) {
-      if (currentView.current.identity === previousView.identity) setError(errorText(cause));
-    } finally {
-      navigatingRef.current = false;
-      setNavigating(false);
-    }
-  }
   const closeCommand = snapshot.panel ? "close_panel" : "skip_talk";
-  useEffect(() => {
-    function close(event: globalThis.KeyboardEvent): void {
-      if (
-        event.key === "Escape" &&
-        !event.defaultPrevented &&
-        !event.isComposing &&
-        !draftReplacement
-      ) {
-        event.preventDefault();
-        void leave(closeCommand);
-      }
-    }
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [closeCommand, dispatch, draftReplacement]);
+  useEscapeClose({ closeCommand, dispatch, draftReplacement, leave });
   useEffect(() => {
     lastActivity.current = Date.now();
     if (
