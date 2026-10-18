@@ -61,6 +61,9 @@ pub struct GeneratedWidget {
     pub installation: Option<Installation>,
     #[serde(default)]
     pub updated_at: Option<i64>,
+    /// The definition replaced by the latest AI fix, kept so the user can go back to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_definition: Option<Definition>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -269,7 +272,11 @@ DELETE FROM widget_state_pending;
 UPDATE widget_state_rules SET last_match=NULL;",
     )
     .map_err(err)?;
-    for (column, definition) in [("installation", "TEXT"), ("updated_at", "INTEGER")] {
+    for (column, definition) in [
+        ("installation", "TEXT"),
+        ("updated_at", "INTEGER"),
+        ("previous_definition", "TEXT"),
+    ] {
         let exists: bool = tx
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM pragma_table_info('generated_widgets') WHERE name=?1)",
@@ -316,12 +323,16 @@ fn read_widget(row: &rusqlite::Row<'_>) -> rusqlite::Result<GeneratedWidget> {
             .map(|_| parse(row, 8))
             .transpose()?,
         updated_at: row.get(9)?,
+        previous_definition: row
+            .get::<_, Option<String>>(10)?
+            .map(|_| parse(row, 10))
+            .transpose()?,
     })
 }
 
 pub fn list(db: &Connection) -> Result<Vec<GeneratedWidget>> {
     let mut statement = db
-        .prepare("SELECT id,definition,state,revision,enabled,installed,status,error,installation,updated_at FROM generated_widgets ORDER BY rowid")
+        .prepare("SELECT id,definition,state,revision,enabled,installed,status,error,installation,updated_at,previous_definition FROM generated_widgets ORDER BY rowid")
         .map_err(err)?;
     let rows = statement.query_map([], read_widget).map_err(err)?;
     rows.map(|row| row.map_err(err)).collect()
@@ -330,7 +341,7 @@ pub fn list(db: &Connection) -> Result<Vec<GeneratedWidget>> {
 pub fn get(db: &Connection, id: &str) -> Result<GeneratedWidget> {
     valid_id(id)?;
     db.query_row(
-        "SELECT id,definition,state,revision,enabled,installed,status,error,installation,updated_at FROM generated_widgets WHERE id=?1",
+        "SELECT id,definition,state,revision,enabled,installed,status,error,installation,updated_at,previous_definition FROM generated_widgets WHERE id=?1",
         [id],
         read_widget,
     )
@@ -362,6 +373,7 @@ pub fn create(
             installed_at,
         }),
         updated_at: Some(installed_at),
+        previous_definition: None,
     };
     db.execute(
         "INSERT INTO generated_widgets(id,definition,state,revision,enabled,installed,status,error,installation,updated_at) VALUES(?1,?2,?3,1,1,1,'draft',NULL,?4,?5)",
@@ -392,8 +404,8 @@ fn change(
             widget.updated_at = Some(chrono::Utc::now().timestamp_millis());
         }
         let updated = tx.execute(
-            "UPDATE generated_widgets SET definition=?1,state=?2,revision=?3,enabled=?4,installed=?5,status=?6,error=?7,updated_at=?10 WHERE id=?8 AND revision=?9",
-            params![serde_json::to_string(&widget.definition).map_err(err)?, serde_json::to_string(&widget.state).map_err(err)?, widget.revision,widget.enabled,widget.installed,widget.status,widget.error,widget.id,expected_revision,widget.updated_at],
+            "UPDATE generated_widgets SET definition=?1,state=?2,revision=?3,enabled=?4,installed=?5,status=?6,error=?7,updated_at=?10,previous_definition=?11 WHERE id=?8 AND revision=?9",
+            params![serde_json::to_string(&widget.definition).map_err(err)?, serde_json::to_string(&widget.state).map_err(err)?, widget.revision,widget.enabled,widget.installed,widget.status,widget.error,widget.id,expected_revision,widget.updated_at,widget.previous_definition.as_ref().map(serde_json::to_string).transpose().map_err(err)?],
         ).map_err(err)?;
         if updated != 1 {
             return Err("위젯이 변경됐어요. 최신 상태를 확인해 주세요.".into());
@@ -439,7 +451,29 @@ pub fn replace(
 ) -> Result<GeneratedWidget> {
     validate_definition(&definition)?;
     change(db, id, expected_revision, |widget| {
-        widget.definition = definition;
+        if widget.definition != definition {
+            widget.previous_definition =
+                Some(std::mem::replace(&mut widget.definition, definition));
+        }
+        widget.status = "draft".into();
+        widget.error = None;
+        Ok(())
+    })
+}
+
+/// Swaps the current definition with the one kept before the latest fix, so it can be undone again.
+pub fn restore_previous(
+    db: &Connection,
+    id: &str,
+    expected_revision: i64,
+) -> Result<GeneratedWidget> {
+    change(db, id, expected_revision, |widget| {
+        let previous = widget
+            .previous_definition
+            .take()
+            .ok_or("되돌릴 이전 모습이 없어요.")?;
+        validate_definition(&previous)?;
+        widget.previous_definition = Some(std::mem::replace(&mut widget.definition, previous));
         widget.status = "draft".into();
         widget.error = None;
         Ok(())
@@ -1615,5 +1649,28 @@ mod tests {
         evaluate_rules(&db, &widget.id, &large, saved.revision, 1000).unwrap();
         assert!(!reaction_current(&db, &pending, &large, saved.revision, 1000).unwrap());
         assert!(take_pending(&db, 1000).unwrap().is_none());
+    }
+
+    #[test]
+    fn ai_fixes_keep_the_previous_definition_and_restoring_swaps_back() {
+        let db = database();
+        let widget = create(&db, definition(), InstallationOrigin::Manual, None).unwrap();
+        assert!(widget.previous_definition.is_none());
+        let mut fixed = definition();
+        fixed.description = "고친 설명".into();
+        let replaced = replace(&db, &widget.id, widget.revision, fixed.clone()).unwrap();
+        assert_eq!(
+            replaced.previous_definition.as_ref(),
+            Some(&widget.definition)
+        );
+        assert_eq!(
+            get(&db, &widget.id).unwrap().previous_definition,
+            Some(widget.definition.clone())
+        );
+        assert!(restore_previous(&db, &widget.id, widget.revision).is_err());
+        let restored = restore_previous(&db, &widget.id, replaced.revision).unwrap();
+        assert_eq!(restored.definition, widget.definition);
+        assert_eq!(restored.previous_definition, Some(fixed));
+        assert_eq!(restored.status, "draft");
     }
 }

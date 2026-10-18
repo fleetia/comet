@@ -21,6 +21,13 @@ type Props = {
   quitDisabled?: boolean;
   onToggleCharacters: () => void;
 };
+function fileManagerLabel(): string {
+  const agent = navigator.userAgent;
+  if (agent.includes("Mac")) return "Finder에서 보기";
+  if (agent.includes("Windows")) return "탐색기에서 보기";
+  return "폴더 열기";
+}
+
 export function GeneralSettings({
   snapshot,
   active,
@@ -36,6 +43,15 @@ export function GeneralSettings({
   const name = snapshot.user?.name || "여행자";
   const [consentPending, setConsentPending] = useState(false);
   const [consentError, setConsentError] = useState<string | null>(null);
+  const [folderError, setFolderError] = useState<string | null>(null);
+  async function revealDataFolder(): Promise<void> {
+    setFolderError(null);
+    try {
+      await command("reveal_data_folder");
+    } catch (cause) {
+      setFolderError(errorText(cause));
+    }
+  }
   const consentSaving = useRef(false);
 
   async function saveConsent(enabled: boolean): Promise<void> {
@@ -136,6 +152,23 @@ export function GeneralSettings({
             }
             onClick={onOpenOrganizer}
           />
+          <div className={styles.group}>
+            <SettingControlRow
+              className={styles.row}
+              title="데이터 폴더"
+              description="대화·기억·설정이 저장된 곳이에요. 열기만 하고 바꾸지 않아요"
+              control={
+                <Button variant="ghost" size="small" onClick={() => void revealDataFolder()}>
+                  {fileManagerLabel()}
+                </Button>
+              }
+            />
+          </div>
+          {folderError && (
+            <p role="alert" className={errorStyle}>
+              {folderError}
+            </p>
+          )}
           <Checkbox
             checked={snapshot.settings.analyticsConsent}
             disabled={consentPending}

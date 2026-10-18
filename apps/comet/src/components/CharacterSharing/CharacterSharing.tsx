@@ -9,6 +9,7 @@ import type {
 } from "../../types";
 import { CharacterPackPreview } from "../CharacterPackPreview/CharacterPackPreview";
 import { CharacterImportPreview } from "./CharacterImportPreview";
+import { NO_ARCHIVE, withArchiveChoice, type ArchiveChoice } from "./archiveChoice";
 import * as ui from "../../common.css";
 import * as s from "../characters.css";
 
@@ -60,6 +61,7 @@ export function CharacterSharing({
   const [attributions, setAttributions] = useState<Record<string, AttributionDraft>>({});
   const [wordbookIds, setWordbookIds] = useState<string[]>([]);
   const [pack, setPack] = useState<CharacterPack | null>(null);
+  const [archiveChoice, setArchiveChoice] = useState<ArchiveChoice>(NO_ARCHIVE);
   const [installed, setInstalled] = useState<InstalledCharacter[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -155,6 +157,7 @@ export function CharacterSharing({
       const chosen = await command<CharacterPack | null>("choose_character_pack");
       if (chosen) {
         setPack(chosen);
+        setArchiveChoice(NO_ARCHIVE);
         setInstalled([]);
       }
     });
@@ -537,6 +540,8 @@ export function CharacterSharing({
             pending={pending || disabled}
             error={error}
             notice={notice}
+            archiveChoice={archiveChoice}
+            onArchiveChoiceChange={setArchiveChoice}
             onChoose={() => void choosePack()}
             onCancel={() => {
               setPack(null);
@@ -547,7 +552,7 @@ export function CharacterSharing({
               void run(async () => {
                 if (!pack) return;
                 const values = await command<InstalledCharacter[]>("import_character_pack", {
-                  pack,
+                  pack: withArchiveChoice(pack, archiveChoice),
                 });
                 setInstalled(values);
                 setNotice("목록에 설치했어요. 함께 지낼지 선택해 주세요.");
