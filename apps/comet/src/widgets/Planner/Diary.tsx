@@ -6,14 +6,7 @@ import {
   SidebarItem,
   Dialog,
 } from "@comet/ui";
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type DragEvent,
-  type ReactElement,
-} from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactElement } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WindowHeader } from "../../components/WindowHeader/WindowHeader";
@@ -25,8 +18,9 @@ import { useCalendarClock, useDiaryCalendarEvents } from "./useDiaryCalendarEven
 import { DiaryEventDialog } from "./DiaryEventDialog";
 import { useDiaryCreation } from "./useDiaryCreation";
 import { DiaryNewPageDialog } from "./DiaryNewPageDialog";
+import { useDiaryWidgetDrop } from "./useDiaryWidgetDrop";
 import { localDay, record, rows, text, type DataRecord } from "../toolData";
-import type { WidgetSnapshot, WidgetView } from "../types";
+import type { WidgetView } from "../types";
 import { DiaryCalendar } from "./DiaryCalendar";
 import { PreparationCreate } from "../PreparationTool/PreparationCreate";
 import { DiaryEnvelope, envelopeTitle } from "./DiaryEnvelope";
@@ -41,7 +35,6 @@ import { LocalEventEditor } from "./LocalEventEditor";
 import { DiaryToday } from "./DiaryToday";
 import { DiaryHabits } from "./DiaryHabits";
 import { DiaryLedger } from "./DiaryLedger";
-import { hasWidgetDrag, readWidgetDrag, type WidgetDragPayload } from "../widgetDrag";
 import { Planner, type PlannerToolState, type PlannerToolTab } from "./Planner";
 import { DiaryCalendarContext } from "./DiaryCalendarContext";
 import { TodoEditor } from "./TodoEditor";
@@ -141,7 +134,6 @@ export function Diary(): ReactElement {
     if (!quickTaskTitle) setQuickTaskDate(tool || pageId || envelopeId ? null : day);
   }, [quickTaskTitle, tool, pageId, envelopeId, day]);
   const [editing, setEditing] = useState<DataRecord | null>(null);
-  const [dropActive, setDropActive] = useState(false);
   const [notice, setNotice] = useState("");
   const bodyRef = useRef<HTMLDivElement>(null);
   const scrollPositions = useRef<Record<string, number>>({});
@@ -155,8 +147,6 @@ export function Diary(): ReactElement {
   useLayoutEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = scrollPositions.current[bodyScope] ?? 0;
   }, [bodyScope]);
-  const [addingWidget, setAddingWidget] = useState(false);
-  const dropping = useRef(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [pageDirty, setPageDirty] = useState(false);
   const [pageContentVersion, setPageContentVersion] = useState(0);
@@ -256,6 +246,23 @@ export function Diary(): ReactElement {
     createPage,
     createEnvelope,
   } = creation;
+  const drop = useDiaryWidgetDrop({
+    actions,
+    otherBusy: busy || diary.busy || toolState.busy,
+    mutate: diary.mutate,
+    diaryAction,
+    planTask,
+    pages,
+    pageId,
+    envelopeId,
+    day,
+    view,
+    tool,
+    reload,
+    setFailure,
+    setNotice,
+  });
+  const { addingWidget, addWidgetItem } = drop;
   const saving = busy || diary.busy || addingWidget || toolState.busy;
   const blocking = useRef(false);
   blocking.current =
@@ -572,87 +579,6 @@ export function Diary(): ReactElement {
     const widget = widgets.find((value) => value.id === entry.refId);
     if (widget) openSourceWidget(widget, entry.itemId);
     else setFailure("원본 위젯을 찾을 수 없어요.");
-  }
-  async function addWidgetItem(payload: WidgetDragPayload, targetDate?: string): Promise<void> {
-    if (dropping.current || saving) return;
-    setNotice("");
-    if (envelopeId && !targetDate) {
-      setFailure("날짜나 내 페이지를 펼친 다음 연결해 주세요.");
-      return;
-    }
-    dropping.current = true;
-    setAddingWidget(true);
-    setFailure(null);
-    try {
-      const fresh = await command<WidgetSnapshot>("get_widgets");
-      latestWidgets.current = fresh.widgets;
-      const widget = fresh.widgets.find(
-        (value) => value.id === payload.widgetId && value.installed,
-      );
-      if (!widget) throw new Error("원본 위젯을 찾을 수 없어요.");
-      const date = targetDate ?? (pageId ? null : day);
-      const data = record(widget.data);
-      const collection =
-        payload.kind === "todo"
-          ? rows(data.items)
-          : payload.kind === "memo"
-            ? rows(data.notes)
-            : rows(data.envelopes);
-      const source =
-        payload.kind === "widget" ? null : collection.find((value) => value.id === payload.itemId);
-      const expectedKind = payload.kind === "envelope" ? "preparation" : payload.kind;
-      if (payload.kind !== "widget" && (!source || widget.kind !== expectedKind)) {
-        throw new Error("연결할 원본 항목을 찾을 수 없어요.");
-      }
-      if (payload.kind === "todo" && source && date) {
-        if (!widget.enabled) throw new Error("할 일 위젯을 먼저 켜 주세요.");
-        if (!(await planTask(source, date))) return;
-      } else {
-        let target =
-          !targetDate && pageId
-            ? pages.find((value) => value.id === pageId)
-            : pages.find((value) => value.date === date);
-        if (!target && date) {
-          const saved = await diary.mutate("page-create", { date, title: "" });
-          target = saved?.pages.find((value) => value.date === date);
-        }
-        if (!target) throw new Error("연결할 페이지를 만들지 못했어요.");
-        const label = source
-          ? text(source.title) || text(source.body) || text(source.eventLabel) || "메모"
-          : fresh.catalog.find((value) => value.id === widget.kind)?.name || widget.kind;
-        if (
-          !(await diaryAction("entry-add", {
-            pageId: target.id,
-            kind:
-              payload.kind === "todo"
-                ? "todo"
-                : payload.kind === "envelope"
-                  ? "envelope"
-                  : "widget",
-            refId:
-              payload.kind === "todo" || payload.kind === "envelope" ? payload.itemId : widget.id,
-            ...(payload.kind === "memo" ? { itemId: payload.itemId } : {}),
-            text: label.slice(0, 20000),
-          }))
-        )
-          return;
-      }
-      setNotice(date ? `${date}에 연결했어요.` : "이 페이지에 연결했어요.");
-    } catch (cause) {
-      setFailure(errorText(cause));
-    } finally {
-      dropping.current = false;
-      setAddingWidget(false);
-      reload();
-    }
-  }
-  function dropOnPage(event: DragEvent<HTMLElement>): void {
-    const payload = readWidgetDrag(event.dataTransfer);
-    if (!payload || view !== "day" || envelopeId) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setDropActive(false);
-    void addWidgetItem(payload);
   }
   const diaryPageProps: DiaryPageProps = {
     page,
@@ -990,24 +916,12 @@ export function Diary(): ReactElement {
           </Surface>
           <Surface
             padding="flush"
-            className={`${s.page} ${dropActive ? s.dropActive : ""}`}
+            className={`${s.page} ${drop.dropActive ? s.dropActive : ""}`}
             hidden={notesOpen}
             aria-label="펼친 페이지"
-            onDragOver={(event) => {
-              if (!tool && view === "day" && !envelopeId && hasWidgetDrag(event.dataTransfer)) {
-                event.preventDefault();
-                event.dataTransfer.dropEffect = "link";
-                setDropActive(true);
-              }
-            }}
-            onDragLeave={(event) => {
-              if (
-                !(event.relatedTarget instanceof Node) ||
-                !event.currentTarget.contains(event.relatedTarget)
-              )
-                setDropActive(false);
-            }}
-            onDrop={tool ? undefined : dropOnPage}
+            onDragOver={drop.onDragOver}
+            onDragLeave={drop.onDragLeave}
+            onDrop={drop.onDrop}
           >
             <div
               className={s.pageNavigation}
