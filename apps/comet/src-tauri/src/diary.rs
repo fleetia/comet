@@ -3,6 +3,7 @@ mod ledger;
 pub(crate) mod runtime;
 mod schema;
 mod time;
+mod travel;
 pub(crate) use schema::initialize;
 
 use crate::app::{lock, AppState};
@@ -38,6 +39,10 @@ pub(crate) struct DiaryState {
     time_records: Vec<time::TimeRecord>,
     #[serde(default)]
     time_categories: Vec<time::TimeCategory>,
+    #[serde(default)]
+    travels: Vec<travel::Travel>,
+    #[serde(default)]
+    travel_plans: Vec<travel::TravelPlan>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -194,6 +199,9 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
     }
     if action.starts_with("ledger-") {
         return ledger::mutate(state, action, input);
+    }
+    if action.starts_with("travel-") {
+        return travel::mutate(state, action, input);
     }
     if action.starts_with("time-") {
         return time::mutate(state, action, input);

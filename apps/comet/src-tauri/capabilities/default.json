@@ -1,7 +1,7 @@
 {
   "identifier": "desktop",
   "description": "Local desktop window controls",
-  "windows": ["body-*", "face-*", "balloon", "conversation-input", "conversation-history", "launcher", "settings", "planner", "widget-*", "desktop-toy-*", "generated-widget-*"],
+  "windows": ["body-*", "face-*", "balloon", "conversation-input", "conversation-history", "launcher", "settings", "planner", "travel", "widget-*", "desktop-toy-*", "generated-widget-*"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

@@ -654,6 +654,19 @@ export const tripRow = style([
   },
 ]);
 export const tripValue = style({ width: 160, textAlign: "right" });
+export const tripButton = style({
+  textAlign: "left",
+  cursor: "pointer",
+  font: "inherit",
+  selectors: {
+    "&:hover:not(:disabled)": { borderColor: tokens["color/selected-border"] },
+    "&:focus-visible": {
+      outline: `2px solid ${tokens["color/focus-ring"]}`,
+      outlineOffset: 2,
+    },
+    "&:disabled": { cursor: "default", opacity: 0.6 },
+  },
+});
 export const focusUsage = style([
   card,
   {

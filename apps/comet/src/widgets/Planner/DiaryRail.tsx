@@ -22,6 +22,7 @@ export function DiaryRail({
   onOpenEnvelopes,
   onOpenPages,
   onOpenSettings,
+  onOpenTravel,
 }: {
   notesOpen: boolean;
   collection: "pages" | "envelopes" | null;
@@ -39,6 +40,7 @@ export function DiaryRail({
   onOpenEnvelopes: () => void;
   onOpenPages: () => void;
   onOpenSettings: () => void;
+  onOpenTravel: () => void;
 }): ReactElement {
   return (
     <nav className={s.rail} aria-label="내 다이어리 목차">
@@ -119,6 +121,16 @@ export function DiaryRail({
         }}
       >
         준비 봉투
+      </SidebarItem>
+      <SidebarItem
+        href="#travel"
+        icon="plane"
+        onClick={(event) => {
+          event.preventDefault();
+          onOpenTravel();
+        }}
+      >
+        여행
       </SidebarItem>
       <span className={s.railDivider} />
       <SidebarItem

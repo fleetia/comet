@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { localDay, type DataRecord } from "../toolData";
 import type { DiaryState } from "./diaryTypes";
+import { addDays } from "../Travel/travelData";
 
 function preview(): DiaryState {
   const date = localDay();
@@ -51,6 +52,25 @@ function preview(): DiaryState {
       { id: "preview-lunch", date, kind: "expense", amount: 12000, category: "food", title: "점심", memo: "" },
     ],
     ledgerRecurring: [],
+    travels: [
+      {
+        id: "preview-trip",
+        title: "제주 가족 여행",
+        destination: "제주",
+        startDate: addDays(date, 3),
+        endDate: addDays(date, 4),
+        timeZone: "Asia/Seoul",
+        currency: "KRW",
+        budget: 2000000,
+        envelopeId: "book-prep",
+        finished: false,
+      },
+    ],
+    travelPlans: [
+      { id: "preview-flight", travelId: "preview-trip", kind: "move", date: addDays(date, 3), time: "09:10", title: "김포 → 제주", place: "", memo: "", arriveDate: addDays(date, 3), arriveTime: "10:20" },
+      { id: "preview-car", travelId: "preview-trip", kind: "plan", date: addDays(date, 3), time: "10:50", title: "렌터카 받기", place: "제주공항 인근", memo: "현장 결제" },
+      { id: "preview-stay", travelId: "preview-trip", kind: "plan", date: addDays(date, 3), time: "15:00", title: "애월 숙소 체크인", place: "애월", memo: "체크아웃 다음 날 오전 11:00" },
+    ],
   };
 }
 

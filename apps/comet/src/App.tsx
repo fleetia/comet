@@ -15,6 +15,7 @@ import { GeneratedWidgetExecutor } from "./widgets/GeneratedWidgets/GeneratedWid
 import { WidgetStateRules } from "./widgets/GeneratedWidgets/WidgetStateRules";
 import { Launcher } from "./components/Launcher/Launcher";
 import { Diary } from "./widgets/Planner/Diary";
+import { Travel } from "./widgets/Travel/Travel";
 import { WidgetStack } from "./widgets/WidgetDisplay/WidgetStack";
 import { WidgetDisplay } from "./widgets/WidgetDisplay/WidgetDisplay";
 import { WidgetEditor } from "./widgets/WidgetDisplay/WidgetEditor";
@@ -32,6 +33,7 @@ export function App(): JSX.Element {
   if (view === "generated-widget") return <GeneratedWidgetTool id={query.get("id") ?? ""} />;
   if (view === "widget-state-rules") return <WidgetStateRules id={query.get("id") ?? ""} />;
   if (view === "planner") return <Diary />;
+  if (view === "travel") return <Travel />;
   if (view === "desktop-toy") return <DesktopToy id={query.get("id") ?? ""} />;
   if (view === "widget-stack") return <WidgetStack />;
   if (view === "widget-display") return <WidgetDisplay id={query.get("id") ?? ""} />;

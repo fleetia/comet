@@ -326,6 +326,11 @@ export function Diary(): ReactElement {
       else setFailure("해당 기록을 현재 찾을 수 없어요. 원본이 삭제되었는지 확인해 주세요.");
       return;
     }
+    if (viewTarget.entity === "envelope") {
+      if (envelopes.some((value) => value.id === viewTarget.targetId)) openEnvelope(viewTarget.targetId);
+      else setFailure("해당 봉투를 현재 찾을 수 없어요. 봉투가 삭제되었는지 확인해 주세요.");
+      return;
+    }
     const event = events.find((value) => value.id === viewTarget.targetId);
     if (!event) {
       setFailure(
@@ -533,6 +538,11 @@ export function Diary(): ReactElement {
               })
             }
             onOpenSettings={openSettings}
+            onOpenTravel={() =>
+              void command("open_travel", {}).catch((cause: unknown) =>
+                setFailure(errorText(cause)),
+              )
+            }
           />
           <aside hidden={!notesOpen} className={s.notes}>
             <DiaryNotes

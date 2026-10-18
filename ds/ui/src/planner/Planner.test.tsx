@@ -5,6 +5,7 @@ import { HabitDay, HabitWeekTable } from "./Habit";
 import { CalendarDayCell, CalendarDayRing, CalendarWeek } from "./Calendar";
 import { FocusProgramPicker, FocusRecordsPanel } from "./Focus";
 import { LedgerCategorySummary, LedgerMonthlyBudget, LedgerQuickAdd } from "./Ledger";
+import { TripInfoRow } from "./Trip";
 
 afterEach(cleanup);
 
@@ -563,5 +564,26 @@ describe("planner composition", () => {
     expect(
       (screen.getByRole("textbox", { name: "이번 집중 메모" }) as HTMLTextAreaElement).value,
     ).toBe("원문\n  메모!");
+  });
+});
+
+describe("trip info rows", () => {
+  it("stays a static row without a handler and becomes one inert-in-forms button with it", async () => {
+    const user = userEvent.setup();
+    const open = vi.fn();
+    const submit = vi.fn();
+    const { rerender } = render(<TripInfoRow title="애월 숙소" detail="1박" value="결제 완료" />);
+    expect(screen.queryByRole("button")).toBeNull();
+    rerender(
+      <form onSubmit={submit}>
+        <TripInfoRow title="애월 숙소" detail="1박" value="결제 완료" onClick={open} />
+      </form>,
+    );
+    await user.click(screen.getByRole("button", { name: /애월 숙소.*1박.*결제 완료/ }));
+    expect(open).toHaveBeenCalledOnce();
+    expect(submit).not.toHaveBeenCalled();
+    rerender(<TripInfoRow title="애월 숙소" disabled onClick={open} />);
+    await user.click(screen.getByRole("button", { name: "애월 숙소" }));
+    expect(open).toHaveBeenCalledOnce();
   });
 });

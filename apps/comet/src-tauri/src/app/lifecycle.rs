@@ -668,6 +668,7 @@ pub fn run() {
             widgets::connection_host::list_apple_calendars,
             crate::widgets::planning::windows::get_planner_tab,
             crate::widgets::planning::windows::open_planner_view,
+            crate::widgets::planning::windows::open_travel,
             crate::widgets::planning::windows::get_planner_view_target,
             crate::widgets::planning::windows::get_planner_note_target,
             crate::widgets::planning::windows::set_planner_tab,
