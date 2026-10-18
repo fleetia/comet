@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, ChoiceTile } from "@comet/ui";
+import { Button, ChoiceButton, ChoiceTile } from "@comet/ui";
+import { HabitIcon, PlusIcon } from "@comet/icon";
 import { FriendArtwork } from "../CharacterManager/FriendsLibrary";
 import * as styles from "./characterPacks.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { CharacterCollection, InstalledCharacterPack } from "../../types";
 import * as ui from "../../common.css";
-import * as s from "../characters.css";
 
 type Props = {
   characters: CharacterCollection;
@@ -13,6 +13,10 @@ type Props = {
   hasUnsavedChanges: boolean;
   onPendingChange: (pending: boolean) => void;
   onApplied: (characterId: string) => void;
+  selectedCharacterId: string | null;
+  onSelectCharacter: (characterId: string) => void;
+  onCreate: () => void;
+  onImport: () => void;
 };
 
 export function CharacterPackSelector({
@@ -21,9 +25,12 @@ export function CharacterPackSelector({
   hasUnsavedChanges,
   onPendingChange,
   onApplied,
+  selectedCharacterId,
+  onSelectCharacter,
+  onCreate,
+  onImport,
 }: Props): JSX.Element {
   const [packs, setPacks] = useState<InstalledCharacterPack[] | null>(isDesktop() ? null : []);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,12 +66,12 @@ export function CharacterPackSelector({
       pack.characterIds.length === characters.active.length &&
       pack.characterIds.every((id, index) => id === characters.active[index]),
   );
-  const selected = packs?.find((pack) => pack.id === (selectedId ?? currentPack?.id));
-  const isApplied = Boolean(selected && selected.id === currentPack?.id);
   const busy = disabled || pending || hasUnsavedChanges;
+  const nameOf = (id: string): string | undefined =>
+    characters.installed.find((character) => character.id === id)?.definition.name;
 
-  async function apply(): Promise<void> {
-    if (!selected || busy || lock.current || isApplied) {
+  async function apply(pack: InstalledCharacterPack): Promise<void> {
+    if (busy || lock.current || pack.id === currentPack?.id) {
       return;
     }
     lock.current = true;
@@ -73,9 +80,9 @@ export function CharacterPackSelector({
     setError(null);
     setNotice(null);
     try {
-      await command("apply_character_pack", { packId: selected.id });
-      onApplied(selected.characterIds[0]);
-      setNotice(`${selected.name} 팩으로 바꿨어요.`);
+      await command("apply_character_pack", { packId: pack.id });
+      onApplied(pack.characterIds[0]);
+      setNotice(`${pack.name} 팩으로 바꿨어요.`);
     } catch (cause) {
       setError(errorText(cause));
     } finally {
@@ -86,10 +93,16 @@ export function CharacterPackSelector({
   }
 
   return (
-    <section className={s.packSelector} aria-label="캐릭터 팩 선택">
-      <p className={ui.quiet}>
-        팩을 선택한 뒤 순서를 확인하고 적용해 주세요. 선택만으로 함께 지내는 친구가 바뀌지 않아요.
-      </p>
+    <section className={styles.selector} aria-label="캐릭터 팩 선택">
+      <div className={styles.sources} role="group" aria-label="친구를 데려올 곳">
+        <ChoiceButton selected>캐릭터 팩에서</ChoiceButton>
+        <ChoiceButton disabled={disabled || pending} onClick={onCreate}>
+          새로 만들기
+        </ChoiceButton>
+        <ChoiceButton disabled={disabled || pending} onClick={onImport}>
+          파일에서
+        </ChoiceButton>
+      </div>
       {error && (
         <p className={ui.error} role="alert">
           {error}
@@ -112,83 +125,80 @@ export function CharacterPackSelector({
         ))}
       {packs?.length === 0 && (
         <p className={ui.quiet}>
-          설치한 캐릭터 팩이 없어요. 캐릭터 목록의 가져오기로 파일을 설치하면 여기서 선택할 수
-          있어요.
+          설치한 캐릭터 팩이 없어요. 파일에서 팩을 설치하면 여기서 고를 수 있어요.
         </p>
       )}
-      {packs && packs.length > 0 && (
-        <>
-          <div className={styles.packList} role="radiogroup" aria-label="설치한 캐릭터 팩">
-            {packs.map((pack, index) => (
-              <section className={styles.pack} key={pack.id}>
-                <header className={styles.packHeading}>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={selected?.id === pack.id}
-                    disabled={busy}
-                    className={styles.packName}
-                    aria-label={`${index + 1}. ${pack.name} · ${pack.characterIds.length}명`}
-                    onClick={() => {
-                      setSelectedId(pack.id);
-                      setError(null);
-                      setNotice(null);
-                    }}
-                  >
-                    {pack.name}
-                  </button>
-                  {currentPack?.id === pack.id && (
-                    <span className={styles.caption}>함께 지내는 중</span>
-                  )}
-                </header>
-                <div className={styles.characters}>
-                  {pack.characterIds.map((id) => {
-                    const character = characters.installed.find((friend) => friend.id === id);
-                    if (!character) return null;
-                    return (
-                      <ChoiceTile
-                        key={id}
-                        kind="character"
-                        label={character.definition.name}
-                        graphic={<FriendArtwork character={character} compact />}
-                        description={characters.active.includes(id) ? "함께 지내는 중" : "보유 중"}
-                        selected={selected?.id === pack.id}
-                        className={styles.character}
-                        disabled={busy}
-                        onClick={() => {
-                          setSelectedId(pack.id);
-                          setError(null);
-                          setNotice(null);
-                        }}
-                      />
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
-          </div>
-          <Button disabled={busy || !selected || isApplied} onClick={() => void apply()}>
-            {pending ? "전환 중…" : isApplied ? "함께 지내는 중" : "이 팩으로 함께 지내기"}
-          </Button>
-          {selected && (
-            <p className={ui.quiet}>
-              함께 지낼 순서:{" "}
-              {selected.characterIds
-                .map(
-                  (id) =>
-                    characters.installed.find((character) => character.id === id)?.definition.name,
-                )
-                .join(" → ")}
-              <span className={s.packHint}>기록과 친밀도는 그대로 남아요.</span>
+      {packs?.map((pack, index) => {
+        const applied = pack.id === currentPack?.id;
+        return (
+          <section
+            className={styles.pack}
+            key={pack.id}
+            aria-label={`${index + 1}. ${pack.name} · ${pack.characterIds.length}명`}
+          >
+            <header className={styles.packHeading}>
+              <h3 className={styles.packName}>{pack.name}</h3>
+              {applied && <span className={styles.badge}>지금 함께 지내는 팩</span>}
+              {!applied && (
+                <Button
+                  variant="ghost"
+                  size="small"
+                  className={styles.packAction}
+                  leadingIcon={<HabitIcon size={14} />}
+                  disabled={busy}
+                  onClick={() => void apply(pack)}
+                >
+                  {pending ? "전환 중…" : "이 팩으로 함께 지내기"}
+                </Button>
+              )}
+            </header>
+            <p className={styles.caption}>
+              함께 지낼 순서: {pack.characterIds.map(nameOf).join(" → ")} · 기록과 친밀도는 그대로
+              남아요.
             </p>
-          )}
-          {hasUnsavedChanges && (
-            <p className={ui.quiet}>
-              수정 중인 캐릭터와 대사를 저장하거나 취소한 뒤 팩을 바꿔 주세요.
-            </p>
-          )}
-        </>
+            <div className={styles.characters}>
+              {pack.characterIds.map((id) => {
+                const character = characters.installed.find((friend) => friend.id === id);
+                if (!character) return null;
+                return (
+                  <ChoiceTile
+                    key={id}
+                    kind="character"
+                    label={character.definition.name}
+                    graphic={<FriendArtwork character={character} compact />}
+                    description={
+                      characters.active.includes(id)
+                        ? "함께 지내는 중"
+                        : character.definition.presenceRole === "npc"
+                          ? "찾아오는 친구로 등록됨"
+                          : "쉬는 중"
+                    }
+                    selected={selectedCharacterId === id}
+                    className={styles.character}
+                    disabled={disabled || pending}
+                    onClick={() => onSelectCharacter(id)}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
+      {hasUnsavedChanges && (
+        <p className={ui.quiet}>수정 중인 캐릭터와 대사를 저장하거나 취소한 뒤 팩을 바꿔 주세요.</p>
       )}
+      <div className={styles.footer}>
+        <p className={styles.caption}>새로 만들기는 이름과 기본 표정 하나로 시작해요.</p>
+        <Button
+          variant="ghost"
+          size="small"
+          leadingIcon={<PlusIcon size={14} />}
+          disabled={disabled || pending}
+          onClick={onImport}
+        >
+          팩 추가…
+        </Button>
+      </div>
     </section>
   );
 }

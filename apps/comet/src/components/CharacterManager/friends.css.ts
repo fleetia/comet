@@ -217,5 +217,47 @@ export const addIntro = style({
   background: tokens["color/card-2"],
   alignSelf: "start",
 });
-export const sourceButtons = style({ display: "flex", flexDirection: "column", gap: 12 });
+export const addTitle = style({
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  margin: 0,
+  fontFamily: tokens["typography/display/title/fontFamily"],
+  fontSize: 22,
+  lineHeight: "28px",
+  fontWeight: 400,
+  color: tokens["color/ink"],
+});
+export const addIcon = style({
+  width: 36,
+  height: 36,
+  flexShrink: 0,
+  borderRadius: 18,
+  display: "grid",
+  placeItems: "center",
+  background: tokens["color/icon-tile"],
+  color: tokens["color/ink-2"],
+});
+export const pickedLabel = style({
+  margin: 0,
+  fontSize: 12,
+  lineHeight: "18px",
+  fontWeight: 400,
+  color: tokens["color/ink-2"],
+});
+export const picked = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: 10,
+  padding: 16,
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: 18,
+  background: tokens["color/card"],
+});
+export const pickedIdentity = style({
+  display: "flex",
+  alignItems: "center",
+  gap: 14,
+  minWidth: 0,
+});
 globalStyle(`${detail}[hidden], ${library}[hidden], ${subpage}[hidden]`, { display: "none" });

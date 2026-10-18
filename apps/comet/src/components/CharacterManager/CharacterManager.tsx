@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { Button, Dialog, Select } from "@comet/ui";
-import { FriendsLibrary } from "./FriendsLibrary";
+import { PlusIcon, TogetherIcon } from "@comet/icon";
+import { FriendArtwork, FriendsLibrary } from "./FriendsLibrary";
 import { FriendsSubpage } from "./FriendsSubpage";
 import * as friends from "./friends.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
@@ -42,6 +43,12 @@ function moved(ids: string[], from: number, to: number): string[] {
   const [id] = next.splice(from, 1);
   next.splice(to, 0, id);
   return next;
+}
+// "구름양과", "별꼬리와": pick the particle from the final syllable's batchim.
+function withParticle(name: string): string {
+  const code = name.charCodeAt(name.length - 1) - 0xac00;
+  if (code < 0 || code > 11171) return `${name}와(과)`;
+  return `${name}${code % 28 ? "과" : "와"}`;
 }
 function newDefinition(): CharacterDefinition {
   return {
@@ -138,6 +145,7 @@ export function CharacterManager({
   const [dialogueType, setDialogueType] = useState<DialogueType>("lines");
   const [scope, setScope] = useState<"single" | "pair">("single");
   const [packOpen, setPackOpen] = useState(false);
+  const [pickedId, setPickedId] = useState<string | null>(null);
   const [packPending, setPackPending] = useState(false);
   const [sharingPending, setSharingPending] = useState(false);
   const [sharingDirty, setSharingDirty] = useState(false);
@@ -171,6 +179,7 @@ export function CharacterManager({
   // Adding and importing friends are pages inside the friends section, not sheets.
   const subpageOpen = packOpen || sharingAction === "import";
   const together = active.includes(selectedId);
+  const picked = installed.find((character) => character.id === pickedId);
   const dialogueIds = scope === "pair" && active.length > 1 ? active : [selectedId];
   const dialogueKey = dialogueIds.join(":");
   const appliedCharacterRequest = useRef<number | null>(null);
@@ -344,36 +353,61 @@ export function CharacterManager({
         >
           <div className={friends.adding}>
             <aside className={friends.addIntro}>
-              <h2 className={friends.pageTitle}>친구 추가</h2>
-              <p className={friends.caption}>
-                캐릭터 팩에서 친구를 데려오거나 이름과 기본 표정으로 새 친구를 만들어요.
-              </p>
-              <div className={friends.sourceButtons}>
-                <Button
-                  variant="primary"
-                  disabled={anyPending}
-                  onClick={() => {
-                    setDrafts((values) => ({
-                      ...values,
-                      [NEW_ID]: values[NEW_ID] ?? newDefinition(),
-                    }));
-                    select(NEW_ID);
-                    setPackOpen(false);
-                  }}
-                >
-                  새로 만들기
-                </Button>
-                <Button
-                  variant="ghost"
-                  disabled={anyPending}
-                  onClick={() => {
-                    setPackOpen(false);
-                    setSharingAction("import");
-                  }}
-                >
-                  파일에서 가져오기…
-                </Button>
-              </div>
+              <h2 className={friends.addTitle}>
+                <span className={friends.addIcon}>
+                  <PlusIcon size={18} />
+                </span>
+                친구 추가
+              </h2>
+              <h3 className={friends.pickedLabel}>고른 친구</h3>
+              {picked ? (
+                <div className={friends.picked}>
+                  <div className={friends.pickedIdentity}>
+                    <FriendArtwork character={picked} compact />
+                    <span className={friends.fileText}>
+                      <strong>{picked.definition.name}</strong>
+                      <span className={friends.caption}>
+                        {packs.find((pack) => pack.id === picked.packId)?.name ?? "캐릭터 팩"} ·
+                        표정 {Object.keys(picked.definition.expressions).length}개 · 동작{" "}
+                        {picked.definition.animation?.clips.length ?? 0}개
+                      </span>
+                    </span>
+                  </div>
+                  {picked.definition.description && (
+                    <p className={friends.caption}>{picked.definition.description}</p>
+                  )}
+                </div>
+              ) : (
+                <p className={friends.caption}>오른쪽 팩에서 친구를 고르면 여기에 보여요.</p>
+              )}
+              <Button
+                variant="primary"
+                leadingIcon={<TogetherIcon size={15} />}
+                disabled={
+                  !picked ||
+                  rosterBlocked ||
+                  active.includes(picked.id) ||
+                  picked.definition.presenceRole === "npc" ||
+                  active.length >= MAX_ROSTER
+                }
+                onClick={() =>
+                  picked && void applyRoster([...active, picked.id], "함께 지내기 시작했어요.")
+                }
+              >
+                {!picked
+                  ? "함께 지내기"
+                  : active.includes(picked.id)
+                    ? "함께 지내는 중"
+                    : `${withParticle(picked.definition.name)} 함께 지내기`}
+              </Button>
+              {picked?.definition.presenceRole === "npc" && (
+                <p className={friends.caption}>
+                  찾아오는 친구는 초대나 등록한 이야기로만 들어와요.
+                </p>
+              )}
+              <Button variant="ghost" disabled={packPending} onClick={() => setPackOpen(false)}>
+                취소
+              </Button>
               <p className={friends.caption}>
                 함께 지내는 친구는 8명까지예요. 지금 {active.length}명이 함께 지내요.
               </p>
@@ -386,6 +420,20 @@ export function CharacterManager({
               onApplied={(id) => {
                 select(id);
                 setPackOpen(false);
+              }}
+              selectedCharacterId={picked?.id ?? null}
+              onSelectCharacter={setPickedId}
+              onCreate={() => {
+                setDrafts((values) => ({
+                  ...values,
+                  [NEW_ID]: values[NEW_ID] ?? newDefinition(),
+                }));
+                select(NEW_ID);
+                setPackOpen(false);
+              }}
+              onImport={() => {
+                setPackOpen(false);
+                setSharingAction("import");
               }}
             />
           </div>

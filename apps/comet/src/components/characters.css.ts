@@ -208,8 +208,6 @@ export const saveBar = style({
   gap: tokens["spacing/space-8"],
   flexWrap: "wrap",
 });
-export const packSelector = style({ padding: tokens["spacing/space-8"] });
-export const packHint = style({ display: "block", marginTop: tokens["spacing/space-6"] });
 export const preview = style({
   padding: `${tokens["spacing/space-8"]} 0`,
   display: "flex",
