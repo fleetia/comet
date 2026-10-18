@@ -207,44 +207,6 @@ export function InputCapsule({
   );
 }
 
-export type ReferenceMemoProps = HTMLAttributes<HTMLDivElement> & {
-  title: string;
-  onOpen?: () => void;
-  onReplace?: () => void;
-  onRemove?: () => void;
-};
-export function ReferenceMemo({
-  title,
-  onOpen,
-  onReplace,
-  onRemove,
-  className,
-  ...props
-}: ReferenceMemoProps): JSX.Element {
-  return (
-    <div {...props} className={[styles.memo, className].filter(Boolean).join(" ")}>
-      <Icon name="memo" size={16} />
-      <span className={styles.memoText}>
-        참고 중<span className={styles.memoTitle}>{title}</span>
-      </span>
-      <button type="button" className={styles.textAction} onClick={onOpen}>
-        원문
-      </button>
-      <button type="button" className={styles.textAction} onClick={onReplace}>
-        바꾸기
-      </button>
-      <button
-        type="button"
-        className={styles.textAction}
-        aria-label="참고 메모 연결 풀기"
-        onClick={onRemove}
-      >
-        <Icon name="close" size={15} />
-      </button>
-    </div>
-  );
-}
-
 export type ConstellationChoiceProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   selected?: boolean;
   fading?: boolean;
