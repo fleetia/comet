@@ -36,6 +36,12 @@ import { OrganizerReceipt } from "./OrganizerReceipt";
 import { ConversationContext } from "./ConversationContext";
 import { useConversationSessions } from "./useConversationSessions";
 import {
+  useDraftAutosave,
+  useDraftPersistence,
+  type BalloonView,
+  type ConversationDraft,
+} from "./useConversationDraft";
+import {
   ConversationMessageActions,
   ConversationSave,
   type ConversationSaveRequest,
@@ -84,7 +90,7 @@ export function Balloon({
   const sessionId = conversation?.session.id;
   const userId = snapshot.user?.id;
   const viewIdentity = `${snapshot.user?.id ?? ""}:${mode === "input" && sessionId ? `conversation:${sessionId}` : snapshot.panel ? `${mode}:${snapshot.panel.persona}${mode === "update" ? `:${snapshot.playback?.id ?? ""}` : ""}` : (snapshot.playback?.id ?? "")}`;
-  const currentView = useRef({
+  const currentView = useRef<BalloonView>({
     identity: viewIdentity,
     mode,
     sessionId,
@@ -110,15 +116,18 @@ export function Balloon({
     document.documentElement.classList.add(s.transparentDocument);
     return () => document.documentElement.classList.remove(s.transparentDocument);
   }, [transparent]);
-  const draft = useRef({
+  const draft = useRef<ConversationDraft>({
     userId: conversation?.session.userId ?? userId,
     sessionId,
     value: conversation?.session.draft ?? "",
     saved: conversation?.session.draft ?? "",
   });
-  const saveQueue = useRef(Promise.resolve());
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [input, setInput] = useState(draft.current.value);
+  const { saveTimer, persistDraft, flushDraft } = useDraftPersistence({
+    draft,
+    currentView,
+    dispatch,
+  });
   const [target, setTarget] = useState<Persona | "all">(persona);
   const [pending, setPending] = useState(false);
   const [navigating, setNavigating] = useState(false);
@@ -323,45 +332,17 @@ export function Balloon({
       (!snapshot.story || mode === "input"),
   );
   const revealing = revealedText !== fullText;
-  function persistDraft(current = draft.current): Promise<void> {
-    const value = current.value;
-    const task = saveQueue.current.then(async () => {
-      if (
-        !current.sessionId ||
-        current.userId !== currentView.current.userId ||
-        current.saved === value
-      )
-        return;
-      await dispatch("save_conversation_draft", {
-        sessionId: current.sessionId,
-        draft: value,
-        inputOwner: "desktop",
-      });
-      current.saved = value;
-    });
-    saveQueue.current = task.catch(() => {});
-    return task;
-  }
-  async function flushDraft(): Promise<void> {
-    clearTimeout(saveTimer.current);
-    await persistDraft();
-  }
-  useEffect(() => {
-    if (mode !== "input" || !sessionId || input === draft.current.saved) return;
-    saveTimer.current = setTimeout(() => {
-      void persistDraft().catch((cause: unknown) => setError(errorText(cause)));
-    }, 400);
-    return () => clearTimeout(saveTimer.current);
-  }, [input, sessionId, mode]);
-  useEffect(() => {
-    if (mode !== "input") return;
-    const current = draft.current;
-    return () => {
-      void persistDraft(current).catch((cause: unknown) => {
-        if (current.userId === currentView.current.userId) setError(errorText(cause));
-      });
-    };
-  }, [sessionId, mode, userId]);
+  useDraftAutosave({
+    draft,
+    input,
+    mode,
+    sessionId,
+    userId,
+    currentView,
+    saveTimer,
+    persistDraft,
+    setError,
+  });
   async function leave(name: string, args?: Record<string, unknown>): Promise<boolean> {
     if (navigatingRef.current) return false;
     navigatingRef.current = true;
