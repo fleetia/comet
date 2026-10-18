@@ -53,14 +53,22 @@ fn begin_reply(state: &AppState, playback_id: &str) -> Result<u64, String> {
     }
     let registered = store::current_user(&db)?.is_some();
     if registered {
-        store::create_conversation(
+        let seed = (actor.definition.presence_role == crate::pack_stories::PresenceRole::Resident
+            && !matches!(line.source.as_str(), "story" | "scenario" | "npc"))
+        .then_some(line.id.as_str());
+        let source =
+            if seed.is_some() && store::automatic_message_displayed_at(&db, &line.id)?.is_some() {
+                "automatic"
+            } else {
+                "reply"
+            };
+        store::create_conversation_with_source(
             &db,
             std::slice::from_ref(&center),
-            (actor.definition.presence_role == crate::pack_stories::PresenceRole::Resident
-                && !matches!(line.source.as_str(), "story" | "scenario" | "npc"))
-            .then_some(line.id.as_str()),
+            seed,
             None,
             chrono::Utc::now().timestamp_millis(),
+            Some(source),
         )?;
     }
     let epoch = if waiting_pack.is_some() {
@@ -150,10 +158,30 @@ fn begin_resume_on_surface(
         })
     });
     let at = chrono::Utc::now().timestamp_millis();
-    let active_id = if session.status == "ended" {
-        store::create_conversation(&db, &session.participants, None, Some(&session.id), at)?.id
+    let source = if mode == "history-input" {
+        "history"
     } else {
+        "desktop"
+    };
+    let active_id = if session.status == "ended" {
+        store::create_conversation_with_source(
+            &db,
+            &session.participants,
+            None,
+            Some(&session.id),
+            at,
+            Some(source),
+        )?
+        .id
+    } else {
+        let resumed = session.status != "active"
+            || lock(&state.panel)?
+                .as_ref()
+                .is_none_or(|panel| panel.mode != mode);
         store::set_conversation_status(&db, &session.id, "active", at)?;
+        if resumed {
+            store::record_conversation_event(&db, &session.id, "resumed", Some(source), None, at)?;
+        }
         session.id.clone()
     };
     let epoch = super::interrupt_with_db(state, false, &db)?.0;
@@ -394,7 +422,7 @@ fn begin_music_discussion(state: &AppState, id: &str, revision: i64) -> Result<u
             .ok_or("함께 지내는 친구를 먼저 골라 주세요.")?;
         (persona, draft)
     };
-    let epoch = super::windows::begin_panel(state, &persona, "input".into())?
+    let epoch = super::windows::begin_panel_with_source(state, &persona, "input".into(), "music")?
         .ok_or("대화창을 열 수 없어요.")?;
     let _action = lock(&state.action)?;
     if state.epoch.load(Ordering::SeqCst) != epoch {
@@ -488,6 +516,14 @@ mod tests {
         };
         let (_, _, view) = begin_resume_on_surface(&state, &session.id, "history-input").unwrap();
         assert_eq!(view.session.id, session.id);
+        assert_eq!(view.timeline_events.last().unwrap().kind, "resumed");
+        assert_eq!(
+            view.timeline_events.last().unwrap().source.as_deref(),
+            Some("history")
+        );
+        let (_, _, repeated) =
+            begin_resume_on_surface(&state, &session.id, "history-input").unwrap();
+        assert_eq!(repeated.timeline_events, view.timeline_events);
         assert_eq!(view.session.draft, "  저장된 초안\n그대로  ");
         assert_eq!(input_panel_mode(&state).unwrap(), "history-input");
         let epoch = state.epoch.load(Ordering::SeqCst);
@@ -634,6 +670,14 @@ mod tests {
         let current = store::active_conversation(&db).unwrap().unwrap();
         assert_ne!(current.id, old.id);
         assert_eq!(
+            store::conversation_view(&db, &current.id)
+                .unwrap()
+                .timeline_events[0]
+                .source
+                .as_deref(),
+            Some("music")
+        );
+        assert_eq!(
             store::conversation(&db, &old.id).unwrap().draft,
             "쓰던 초안\n보존"
         );
@@ -747,11 +791,22 @@ mod tests {
             line_count: 2,
         });
         assert!(begin_reply(&state, "shown").is_err());
+        assert_eq!(
+            store::automatic_message_displayed_at(&lock(&state.db).unwrap(), "shown").unwrap(),
+            None
+        );
         lock(&state.playback)
             .unwrap()
             .as_mut()
             .unwrap()
             .display_started_at = Some(at);
+        store::mark_message_displayed_with_provenance(
+            &lock(&state.db).unwrap(),
+            "shown",
+            at,
+            Some(true),
+        )
+        .unwrap();
         assert!(begin_reply(&state, "previous").is_err());
         assert_eq!(state.epoch.load(Ordering::SeqCst), epoch);
         assert!(!cancel.load(Ordering::SeqCst));
@@ -763,6 +818,9 @@ mod tests {
         assert_eq!(session.participants, vec![id]);
         let view = store::conversation_view(&db, &session.id).unwrap();
         assert_eq!(view.messages[0].content, "  원문\n그대로  ");
+        assert_eq!(view.timeline_events[0].source.as_deref(), Some("automatic"));
+        assert_eq!(view.timeline_events[0].message_id.as_deref(), Some("shown"));
+        assert_eq!(view.timeline_events[0].created_at, at);
         assert_eq!(lock(&state.panel).unwrap().as_ref().unwrap().mode, "input");
     }
 

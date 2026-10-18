@@ -440,6 +440,7 @@ pub(crate) struct SettingsCharacterRequest {
 pub(crate) async fn open_characters(
     app: tauri::AppHandle,
     character_id: Option<String>,
+    show_memories: Option<bool>,
 ) -> Result<(), String> {
     let state = app.state::<Arc<AppState>>();
     if let Some(id) = &character_id {
@@ -458,7 +459,14 @@ pub(crate) async fn open_characters(
         id,
         request_id: uuid::Uuid::new_v4().to_string(),
     });
-    open_settings_section(app, SettingsSection::Characters)
+    open_settings_section(
+        app,
+        if show_memories == Some(true) {
+            SettingsSection::Memory
+        } else {
+            SettingsSection::Characters
+        },
+    )
 }
 
 #[tauri::command]

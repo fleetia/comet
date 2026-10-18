@@ -1,13 +1,17 @@
 import { style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
+import { conversationTheme } from "../../theme.css";
 
-export const inputHost = style({
-  width: 344,
-  maxHeight: 520,
-  overflowY: "auto",
-  color: tokens["color/ink"],
-  fontFamily: tokens["typography/sans/body/fontFamily"],
-});
+export const inputHost = style([
+  conversationTheme,
+  {
+    width: 344,
+    maxHeight: 520,
+    overflowY: "auto",
+    color: tokens["color/ink"],
+    fontFamily: tokens["typography/sans/body/fontFamily"],
+  },
+]);
 export const inputContents = style({ width: "100%" });
 export const inputCapsule = style({ margin: 0 });
 export const inputActions = style({
@@ -46,12 +50,15 @@ export const optionsPanel = style({
   background: tokens["color/glass-panel"],
   backdropFilter: "blur(12px)",
 });
-export const responseHost = style({
-  boxSizing: "border-box",
-  width: 340,
-  paddingBottom: 16,
-  color: tokens["color/ink"],
-});
+export const responseHost = style([
+  conversationTheme,
+  {
+    boxSizing: "border-box",
+    width: 340,
+    paddingBottom: 16,
+    color: tokens["color/ink"],
+  },
+]);
 export const responseBubble = style({ width: "100%", minHeight: 78 });
 export const responseTail = style({ width: 15, height: 15, left: 39.5, bottom: -12.1 });
 export const responseText = style({

@@ -33,6 +33,7 @@ import { CharacterOrbit } from "./CharacterOrbit";
 import { NameRegistration } from "./NameRegistration";
 import { ConversationHistory, ConversationLog } from "./ConversationHistory";
 import { StoryChoices } from "../StoryChoices/StoryChoices";
+import * as storyStyle from "../StoryChoices/story.css";
 import { activeCharacter, BALLOON_SPRITE, characterName, spriteUrl } from "../characterIdentity";
 import { skinStyle, useImageSlice } from "../../hooks/useImageSlice";
 import { balloonTextStyle } from "../balloonTypography";
@@ -1023,6 +1024,29 @@ export function Balloon({
       </section>
     );
   }
+  if (!mode && snapshot.story) {
+    return (
+      <section ref={balloonRef} className={storyStyle.host} aria-label="말풍선">
+        <StoryChoices
+          key={snapshot.story.id}
+          story={snapshot.story}
+          dispatch={dispatch}
+          speakerName={name}
+          speaker={character?.definition.sourceId === "builtin-b" ? "nadir" : "byulkkori"}
+          textStyle={textStyle}
+          skinned={Boolean(skin && (!imageReady || slice))}
+          balloonClassName={skin && (!imageReady || slice) ? s.balloonSkinned : undefined}
+          balloonStyle={skinned}
+          onClose={() => void leave(closeCommand)}
+        />
+        {visibleError && (
+          <p className={storyStyle.error} role="alert">
+            {visibleError}
+          </p>
+        )}
+      </section>
+    );
+  }
   return (
     <section
       ref={balloonRef}
@@ -1351,14 +1375,6 @@ export function Balloon({
             ))}
           </div>
         </div>
-      )}
-      {!mode && snapshot.story && (
-        <StoryChoices
-          key={snapshot.story.id}
-          story={snapshot.story}
-          dispatch={dispatch}
-          textStyle={textStyle}
-        />
       )}
       {!mode && !snapshot.story && <span className={s.speakerName}>{name}</span>}
       {!mode && !snapshot.story && (

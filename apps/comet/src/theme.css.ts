@@ -1,5 +1,5 @@
 import { style } from "@vanilla-extract/css";
-import { tokenNames } from "@comet/token";
+import { themes, tokenNames } from "@comet/token";
 
 export const theme = style({
   selectors: {
@@ -14,5 +14,15 @@ export const theme = style({
         [tokenNames["color/glass-tail"]]: "rgb(22 30 68)",
       },
     },
+  },
+});
+
+export const conversationTheme = style({
+  vars: {
+    [tokenNames["color/glass-window"]]: themes.dark["color/glass-window"],
+    [tokenNames["color/glass-panel"]]: themes.dark["color/glass-panel"],
+    [tokenNames["color/glass-capsule"]]: themes.dark["color/glass-capsule"],
+    [tokenNames["color/glass-pill"]]: themes.dark["color/glass-pill"],
+    [tokenNames["color/glass-tail"]]: themes.dark["color/glass-tail"],
   },
 });

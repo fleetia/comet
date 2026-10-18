@@ -1,15 +1,19 @@
 import { globalStyle, style } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
+import { conversationTheme } from "../../theme.css";
 
-export const window = style({
-  display: "flex",
-  flexDirection: "column",
-  width: "100%",
-  height: "100dvh",
-  minHeight: 0,
-  borderRadius: 22,
-  backgroundColor: tokens["color/glass-window"],
-});
+export const window = style([
+  conversationTheme,
+  {
+    display: "flex",
+    flexDirection: "column",
+    width: "100%",
+    height: "100dvh",
+    minHeight: 0,
+    borderRadius: 22,
+    backgroundColor: tokens["color/glass-window"],
+  },
+]);
 export const header = style({
   flexShrink: 0,
   height: 60,
@@ -183,6 +187,38 @@ export const context = style({
   fontSize: 12,
 });
 export const message = style({ display: "flex", alignItems: "center", gap: 10 });
+export const messageBlock = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: 6,
+  width: "100%",
+  flexShrink: 0,
+});
+export const memoryReceipts = style({
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-start",
+  gap: 6,
+  paddingLeft: 46,
+});
+export const userMemoryReceipts = style({ alignItems: "flex-end", paddingLeft: 0 });
+export const memoryReceipt = style({
+  minHeight: 28,
+  height: "auto",
+  maxWidth: "100%",
+  padding: "4px 10px",
+  borderRadius: 13,
+  gap: 6,
+  fontSize: 12,
+  fontWeight: 400,
+  lineHeight: "18px",
+  textAlign: "left",
+  whiteSpace: "pre-wrap",
+  overflowWrap: "anywhere",
+  color: tokens["color/document/live-chip-label"],
+  borderColor: tokens["color/document/live-chip-border"],
+  background: tokens["color/document/live-chip-background"],
+});
 export const userMessage = style({ justifyContent: "flex-end" });
 export const messageContent = style({
   position: "relative",

@@ -26,6 +26,18 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it("opens the requested friend's memory tab and acknowledges the same destination", async () => {
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_settings_section") return "memory";
+    if (name === "get_settings_character") return { id: "builtin-b", requestId: "memory-target" };
+  });
+  const { result } = renderHook(() => useSettingsNavigation("model"));
+  await waitFor(() => expect(result.current.characterRequest?.id).toBe("builtin-b"));
+  expect(result.current.section).toBe("characters");
+  expect(result.current.memoryTabRequest).toBe(1);
+  expect(command).toHaveBeenCalledWith("ack_settings_character", { requestId: "memory-target" });
+});
+
 it("restores a selected friend before the settings listener was registered", async () => {
   vi.mocked(command).mockImplementation(async (name) =>
     name === "get_settings_section" ? "characters" : { id: "builtin-b", requestId: "target-1" },

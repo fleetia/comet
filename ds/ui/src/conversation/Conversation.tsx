@@ -1,5 +1,7 @@
 import {
   useId,
+  useLayoutEffect,
+  useRef,
   useState,
   type ButtonHTMLAttributes,
   type FormEvent,
@@ -12,7 +14,7 @@ import {
 import { Icon } from "@comet/icon";
 import availableLines from "./assets/constellation-available.svg";
 import chosenLines from "./assets/constellation-chosen.svg";
-import spark from "./assets/constellation-spark.svg";
+import route from "./assets/constellation-route.svg";
 import * as styles from "./conversation.css";
 
 export type BalloonProps = HTMLAttributes<HTMLDivElement> & {
@@ -271,14 +273,16 @@ export function ConstellationChoice({
         .filter(Boolean)
         .join(" ")}
     >
-      <img src={spark} alt="" />
-      {children}
+      <span className={styles.choiceIcon} aria-hidden="true">
+        <img src={route} alt="" />
+      </span>
+      <span className={styles.choiceLabel}>{children}</span>
     </button>
   );
 }
 export type ConstellationOption = { id: string; label: string; disabled?: boolean };
 export type ConstellationChoicesProps = HTMLAttributes<HTMLDivElement> & {
-  options: readonly [ConstellationOption, ConstellationOption, ConstellationOption];
+  options: readonly ConstellationOption[];
   selectedId?: string;
   onChoose?: (id: string) => void;
   label?: string;
@@ -293,31 +297,99 @@ export function ConstellationChoices({
 }: ConstellationChoicesProps): JSX.Element {
   const id = useId();
   const hasSelection = options.some((option) => option.id === selectedId);
-  const positions = [
-    styles.choicePositions.first,
-    styles.choicePositions.second,
-    styles.choicePositions.third,
-  ];
+  const root = useRef<HTMLDivElement>(null);
+  const [lines, setLines] = useState({ points: "", height: 196, standard: options.length === 3 });
+  useLayoutEffect(() => {
+    const element = root.current;
+    if (!element) return;
+    let active = true;
+    function measure(): void {
+      if (!active || !element) return;
+      const bounds = element.getBoundingClientRect();
+      const buttons = Array.from(
+        element.querySelectorAll<HTMLElement>("[data-constellation-option]"),
+      );
+      const boxes = buttons.map((button) => button.getBoundingClientRect());
+      const expected = [
+        [0, 30],
+        [152, 88],
+        [36, 148],
+      ];
+      const standard =
+        boxes.length === 3 &&
+        boxes.every(
+          (box, index) =>
+            Math.abs(box.x - bounds.x - expected[index][0]) <= 1 &&
+            Math.abs(box.y - bounds.y - expected[index][1]) <= 1 &&
+            Math.abs(box.height - 38) <= 1,
+        );
+      const points = [
+        { x: 55, y: 0 },
+        ...boxes.map((box) => ({
+          x: box.x - bounds.x + box.width / 2,
+          y: box.y - bounds.y + box.height / 2,
+        })),
+      ]
+        .map((point) => `${point.x},${point.y}`)
+        .join(" ");
+      setLines((previous) =>
+        previous.points === points &&
+        previous.height === bounds.height &&
+        previous.standard === standard
+          ? previous
+          : { points, height: bounds.height, standard },
+      );
+    }
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(element);
+    element
+      .querySelectorAll("[data-constellation-option]")
+      .forEach((button) => observer?.observe(button));
+    measure();
+    void document.fonts?.ready.then(measure);
+    return () => {
+      active = false;
+      observer?.disconnect();
+    };
+  }, [options]);
   return (
     <div
       {...props}
       role="group"
       aria-label={label}
       id={props.id ?? id}
+      ref={root}
       className={[styles.choices, className].filter(Boolean).join(" ")}
     >
-      <img src={hasSelection ? chosenLines : availableLines} alt="" className={styles.choiceLine} />
-      {options.map((option, index) => (
-        <ConstellationChoice
-          key={option.id}
-          selected={selectedId === option.id}
-          fading={hasSelection && selectedId !== option.id}
-          disabled={option.disabled}
-          className={positions[index]}
-          onClick={() => onChoose?.(option.id)}
+      {lines.standard ? (
+        <img
+          src={hasSelection ? chosenLines : availableLines}
+          alt=""
+          className={styles.choiceLine}
+        />
+      ) : (
+        <svg
+          width={340}
+          height={Math.max(1, lines.height)}
+          className={styles.choiceLine}
+          aria-hidden="true"
+          data-constellation-connectors="dynamic"
         >
-          {option.label}
-        </ConstellationChoice>
+          <polyline points={lines.points} className={styles.dynamicLine} />
+        </svg>
+      )}
+      {options.map((option, index) => (
+        <div key={option.id} className={styles.choiceRow} data-position={index}>
+          <ConstellationChoice
+            data-constellation-option=""
+            selected={selectedId === option.id}
+            fading={hasSelection && selectedId !== option.id}
+            disabled={option.disabled}
+            onClick={() => onChoose?.(option.id)}
+          >
+            {option.label}
+          </ConstellationChoice>
+        </div>
       ))}
     </div>
   );

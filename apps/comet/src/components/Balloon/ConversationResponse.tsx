@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useState, type CSSProperties, type JSX } from "react";
+import { useId, useLayoutEffect, useState, type JSX } from "react";
 import { Balloon, WaitingDots } from "@comet/ui";
 import type { Snapshot } from "../../types";
 import { useBalloonSizing } from "../../hooks/useBalloonSizing";
@@ -33,9 +33,7 @@ export function ConversationResponse({ snapshot, preview = false }: Props): JSX.
     snapshot.panel?.persona ??
     "builtin-a";
   const character = activeCharacter(snapshot, persona);
-  const textStyle: CSSProperties = character?.definition.balloonStyle
-    ? balloonTextStyle(character.definition.balloonStyle)
-    : { fontSize: 16 };
+  const textStyle = balloonTextStyle(character?.definition.balloonStyle);
   const sourceId = useId();
   const skin = spriteUrl(character, BALLOON_SPRITE);
   const { slice, ready: imageReady } = useImageSlice(skin);

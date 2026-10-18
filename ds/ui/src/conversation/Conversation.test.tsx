@@ -11,6 +11,7 @@ import compactLines from "./assets/orbit-compact-lines.svg";
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -167,6 +168,51 @@ describe("conversation primitives", () => {
       (screen.getByRole("button", { name: "강가를 따라서" }) as HTMLButtonElement).disabled,
     ).toBe(false);
   });
+  it.each([2, 4])(
+    "connects all %i measured choices and follows a wrapped label resize",
+    (count) => {
+      let measure!: () => void;
+      const disconnect = vi.fn();
+      vi.stubGlobal(
+        "ResizeObserver",
+        vi.fn(function (callback: () => void) {
+          measure = callback;
+          return { observe: vi.fn(), disconnect };
+        }),
+      );
+      const boxes = [
+        new DOMRect(10, 50, 130, 38),
+        new DOMRect(162, 110, 188, 64),
+        new DOMRect(46, 194, 304, 52),
+        new DOMRect(162, 266, 188, 78),
+      ];
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+        this: HTMLElement,
+      ) {
+        const position = this.parentElement?.dataset.position;
+        return this.hasAttribute("data-constellation-option") && position !== undefined
+          ? boxes[Number(position)]
+          : new DOMRect(10, 20, 340, 334);
+      });
+      const options = Array.from({ length: count }, (_, index) => ({
+        id: `${index}`,
+        label: `  원문 ${index}\n다음 줄 `,
+      }));
+      const { container, unmount } = render(<ConstellationChoices options={options} />);
+      const line = container.querySelector("polyline")!;
+      expect(line.getAttribute("points")).toBe(
+        count === 2 ? "55,0 65,49 246,122" : "55,0 65,49 246,122 188,200 246,285",
+      );
+      expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(
+        options.map((option) => option.label),
+      );
+      boxes[1] = new DOMRect(162, 110, 188, 100);
+      act(() => measure());
+      expect(line.getAttribute("points")?.split(" ")[2]).toBe("246,140");
+      unmount();
+      expect(disconnect).toHaveBeenCalledOnce();
+    },
+  );
   it("keeps orbit actions keyboard accessible, disables unavailable nodes and delegates Escape", async () => {
     const user = userEvent.setup();
     const action = vi.fn();

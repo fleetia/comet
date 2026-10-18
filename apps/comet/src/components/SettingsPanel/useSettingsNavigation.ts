@@ -85,7 +85,7 @@ export function useSettingsNavigation(initialSection?: string): {
     async function selectNative(value: string): Promise<void> {
       select(value);
       const selectedRevision = navigationRevision.current;
-      if (value !== "characters") return;
+      if (value !== "characters" && value !== "memory") return;
       const request = await command<{ id: string; requestId: string } | null>(
         "get_settings_character",
       );

@@ -98,6 +98,262 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it("shows verified start and focus events between the original messages", async () => {
+  const next = {
+    ...MESSAGE,
+    id: "after-focus",
+    content: "집중 뒤의 원문\n그대로",
+    createdAt: MESSAGE.createdAt + 2000,
+  };
+  const view: ConversationView = {
+    ...FIRST_VIEW,
+    messages: [MESSAGE, next],
+    timelineEvents: [
+      {
+        id: "start",
+        kind: "started",
+        source: "automatic",
+        messageId: MESSAGE.id,
+        createdAt: MESSAGE.createdAt,
+      },
+      { id: "focus", kind: "focus-paused", createdAt: MESSAGE.createdAt + 1000 },
+    ],
+  };
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversations") return [FIRST];
+    if (name === "get_conversation_messages") return view;
+  });
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  const log = await screen.findByRole("log", { name: "대화 내용" });
+  await waitFor(() => expect(log.textContent).toContain(next.content));
+  const content = log.textContent ?? "";
+  expect(content.indexOf("바탕화면에서 먼저 말을 걸었어요")).toBeLessThan(
+    content.indexOf(MESSAGE.content),
+  );
+  expect(content.indexOf(MESSAGE.content)).toBeLessThan(
+    content.indexOf("집중을 시작해서 대화를 멈췄어요"),
+  );
+  expect(content.indexOf("집중을 시작해서 대화를 멈췄어요")).toBeLessThan(
+    content.indexOf(next.content),
+  );
+  expect(within(log).getByText(/첫 대화 원문/).textContent).toBe(MESSAGE.content);
+});
+
+it("does not describe an unknown or manually answered origin as automatic speech", async () => {
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversations") return [FIRST];
+    if (name === "get_conversation_messages")
+      return {
+        ...FIRST_VIEW,
+        timelineEvents: [
+          { id: "start", kind: "started", source: "reply", createdAt: FIRST.createdAt },
+        ],
+      };
+  });
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  expect(await screen.findByText(/이 말에 답장하며 대화를 시작했어요/)).toBeTruthy();
+  expect(screen.queryByText(/먼저 말을 걸었어요/)).toBeNull();
+});
+
+it("reveals earlier events once when loading more messages without changing their order", async () => {
+  const latest = {
+    ...MESSAGE,
+    id: "latest-message",
+    content: "나중 원문",
+    createdAt: MESSAGE.createdAt + 2000,
+  };
+  const events: ConversationMessages["timelineEvents"] = [
+    { id: "start", kind: "started", createdAt: MESSAGE.createdAt },
+    { id: "focus", kind: "focus-paused", createdAt: MESSAGE.createdAt + 1000 },
+  ];
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversations") return [FIRST];
+    if (name === "get_conversation_messages")
+      return args?.before
+        ? { messages: [MESSAGE], nextBefore: null, timelineEvents: events }
+        : { messages: [latest], nextBefore: 5, timelineEvents: events };
+  });
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  expect(await screen.findByText(latest.content)).toBeTruthy();
+  expect(screen.queryByText(/집중을 시작해서/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "앞선 내용 더 보기" }));
+  await waitFor(() => expect(screen.getAllByRole("article")).toHaveLength(2));
+  expect(screen.getAllByText(/집중을 시작해서/)).toHaveLength(1);
+  const content = screen.getByRole("log", { name: "대화 내용" }).textContent ?? "";
+  expect(content.indexOf(MESSAGE.content)).toBeLessThan(content.indexOf("집중을 시작해서"));
+  expect(content.indexOf("집중을 시작해서")).toBeLessThan(content.indexOf(latest.content));
+});
+
+it("opens the memory owner's settings from a receipt in a group conversation", async () => {
+  const session: ConversationSession = { ...FIRST, participants: ["builtin-a", "builtin-b"] };
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversations") return [session];
+    if (name === "get_conversation_messages")
+      return {
+        ...FIRST_VIEW,
+        session,
+        memoryReceipts: [
+          {
+            id: "memory",
+            sourceMessageId: MESSAGE.id,
+            characterId: "builtin-b",
+            content: "  구름\n그대로",
+            updatedAt: MESSAGE.createdAt,
+          },
+        ],
+      };
+  });
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  const receipt = await screen.findByRole("button", { name: /기억했어요:/ });
+  expect(receipt.textContent).toContain("  구름\n그대로");
+  fireEvent.click(receipt);
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("open_characters", {
+      characterId: "builtin-b",
+      showMemories: true,
+    }),
+  );
+  expect(command).not.toHaveBeenCalledWith("resume_chat", expect.anything());
+});
+
+it("refreshes removed memories in a read-only conversation when the memory revision changes", async () => {
+  let receipts = [
+    {
+      id: "memory",
+      sourceMessageId: MESSAGE.id,
+      characterId: "builtin-a",
+      content: "기억 원문",
+      updatedAt: MESSAGE.createdAt,
+    },
+  ];
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversations") return [FIRST];
+    if (name === "get_conversation_messages") return { ...FIRST_VIEW, memoryReceipts: receipts };
+  });
+  const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  expect(await screen.findByRole("button", { name: /기억했어요: 기억 원문/ })).toBeTruthy();
+  receipts = [];
+  rerender(<ConversationHistoryWindow snapshot={{ ...SNAPSHOT, memoryRevision: 1 }} />);
+  await waitFor(() => expect(screen.queryByRole("button", { name: /기억했어요:/ })).toBeNull());
+  await waitFor(() => expect(screen.getByRole("article").textContent).toContain(MESSAGE.content));
+  expect(command).not.toHaveBeenCalledWith("resume_chat", expect.anything());
+});
+
+it("keeps a newer read-only snapshot when an earlier page request finishes late", async () => {
+  const page = deferred<ConversationMessages>();
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversations") return [FIRST];
+    if (name === "get_conversation_messages") return page.promise;
+  });
+  const { rerender } = render(
+    <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: FIRST_VIEW }} />,
+  );
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("get_conversation_messages", { sessionId: FIRST.id }),
+  );
+  const latest: ConversationView = {
+    ...FIRST_VIEW,
+    messages: [
+      MESSAGE,
+      {
+        ...MESSAGE,
+        id: "newer",
+        content: "늦은 조회보다 새로운 답장",
+        createdAt: MESSAGE.createdAt + 1000,
+      },
+    ],
+    memoryReceipts: [
+      {
+        id: "newer-memory",
+        sourceMessageId: MESSAGE.id,
+        characterId: "builtin-a",
+        content: "최신 기억",
+        updatedAt: MESSAGE.createdAt + 1000,
+      },
+    ],
+  };
+  rerender(<ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: latest }} />);
+  expect(await screen.findByText("늦은 조회보다 새로운 답장")).toBeTruthy();
+  await act(async () => page.resolve(FIRST_VIEW));
+  expect(screen.getByText("늦은 조회보다 새로운 답장")).toBeTruthy();
+  expect(screen.getByRole("button", { name: /기억했어요: 최신 기억/ })).toBeTruthy();
+  expect(command).not.toHaveBeenCalledWith("resume_chat", expect.anything());
+});
+
+it("discards an older page from before a memory revision instead of restoring its deleted receipt", async () => {
+  const older = deferred<ConversationMessages>();
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversations") return [FIRST];
+    if (name === "get_conversation_messages")
+      return args?.before ? older.promise : { ...FIRST_VIEW, nextBefore: 5, memoryReceipts: [] };
+  });
+  const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  fireEvent.click(await screen.findByRole("button", { name: "앞선 내용 더 보기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("get_conversation_messages", {
+      sessionId: FIRST.id,
+      before: 5,
+    }),
+  );
+  rerender(<ConversationHistoryWindow snapshot={{ ...SNAPSHOT, memoryRevision: 1 }} />);
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "앞선 내용 더 보기" })).toHaveProperty(
+      "disabled",
+      false,
+    ),
+  );
+  await act(async () =>
+    older.resolve({
+      messages: [{ ...MESSAGE, id: "older", content: "이전 페이지" }],
+      nextBefore: null,
+      memoryReceipts: [
+        {
+          id: "deleted-memory",
+          sourceMessageId: "older",
+          characterId: "builtin-a",
+          content: "삭제된 기억",
+          updatedAt: MESSAGE.createdAt,
+        },
+      ],
+    }),
+  );
+  expect(screen.queryByText("이전 페이지")).toBeNull();
+  expect(screen.queryByRole("button", { name: /삭제된 기억/ })).toBeNull();
+  expect(screen.getByRole("button", { name: "앞선 내용 더 보기" })).toBeTruthy();
+});
+
+it("hides a former friend's memory receipt as soon as the active roster changes", async () => {
+  let active = true;
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversations") return [FIRST];
+    if (name === "get_conversation_messages")
+      return {
+        ...FIRST_VIEW,
+        memoryReceipts: active
+          ? [
+              {
+                id: "memory",
+                sourceMessageId: MESSAGE.id,
+                characterId: "builtin-a",
+                content: "현재 친구 기억",
+                updatedAt: MESSAGE.createdAt,
+              },
+            ]
+          : [],
+      };
+  });
+  const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  expect(await screen.findByRole("button", { name: /현재 친구 기억/ })).toBeTruthy();
+  active = false;
+  rerender(
+    <ConversationHistoryWindow
+      snapshot={{ ...SNAPSHOT, characters: { ...SNAPSHOT.characters, active: ["builtin-b"] } }}
+    />,
+  );
+  expect(screen.queryByRole("button", { name: /현재 친구 기억/ })).toBeNull();
+  await waitFor(() => expect(screen.getByRole("article").textContent).toContain(MESSAGE.content));
+});
+
 async function begin(): Promise<void> {
   await waitFor(() =>
     expect(screen.getByRole("log", { name: "대화 내용" }).textContent).toContain(MESSAGE.content),

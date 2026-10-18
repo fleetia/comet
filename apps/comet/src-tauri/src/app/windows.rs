@@ -110,6 +110,15 @@ pub(crate) fn begin_panel(
     persona: &str,
     mode: String,
 ) -> Result<Option<u64>, String> {
+    begin_panel_with_source(state, persona, mode, "desktop")
+}
+
+pub(crate) fn begin_panel_with_source(
+    state: &AppState,
+    persona: &str,
+    mode: String,
+    source: &str,
+) -> Result<Option<u64>, String> {
     if crate::character_guests::actor(state, &*lock(&state.db)?, persona).is_err()
         || !["menu", "input", "history"].contains(&mode.as_str())
     {
@@ -136,12 +145,13 @@ pub(crate) fn begin_panel(
         let focusing = mode == "input"
             && widgets::storage::focus_active(&db, chrono::Utc::now().timestamp_millis())?;
         if mode == "input" && !focusing && store::current_user(&db)?.is_some() {
-            store::create_conversation(
+            store::create_conversation_with_source(
                 &db,
                 std::slice::from_ref(&center),
                 None,
                 None,
                 chrono::Utc::now().timestamp_millis(),
+                Some(source),
             )?;
         } else {
             store::pause_conversations(&db)?;

@@ -51,12 +51,16 @@ export function useBalloonSizing(
     function measure(): void {
       if (!active) return;
       const rect = element!.getBoundingClientRect();
+      const story = contentKey.startsWith("story:");
       const anchor = element!.querySelector<HTMLElement>("[data-character-orbit-anchor]");
       const width = Math.min(
         anchor ? 640 : surface === "input" ? 520 : 340,
-        Math.max(48, Math.ceil(rect.width)),
+        Math.max(48, Math.ceil(story ? Math.max(rect.width, element!.scrollWidth) : rect.width)),
       );
-      const height = Math.min(anchor ? 600 : 520, Math.max(32, Math.ceil(rect.height)));
+      const height = Math.min(
+        anchor ? 600 : 520,
+        Math.max(32, Math.ceil(story ? Math.max(rect.height, element!.scrollHeight) : rect.height)),
+      );
       const anchorRect = anchor?.getBoundingClientRect();
       requestedAnchor = anchorRect
         ? {
