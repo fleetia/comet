@@ -27,6 +27,7 @@ const meta = {
       control: "select",
       options: ["left", "center", "right", "none"],
     },
+    tailClassName: { control: false },
     content: {
       control: "select",
       options: ["text", "actions", "result", "typing"],

@@ -19,6 +19,7 @@ export type BalloonProps = HTMLAttributes<HTMLDivElement> & {
   speaker?: "byulkkori" | "nadir" | "moon-rabbit";
   speakerName?: string;
   tail?: "left" | "center" | "right" | "none";
+  tailClassName?: string;
   content?: "text" | "actions" | "result" | "typing";
   speechTrigger?: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children">;
   actions?: ReactNode;
@@ -29,6 +30,7 @@ export function Balloon({
   speaker = "byulkkori",
   speakerName,
   tail = "left",
+  tailClassName,
   content = "text",
   speechTrigger,
   actions,
@@ -82,7 +84,10 @@ export function Balloon({
       {actions && <div className={styles.actions}>{actions}</div>}
       {result && <div className={styles.result}>{result}</div>}
       {tail !== "none" && (
-        <span aria-hidden className={[styles.tail, styles.tails[tail]].join(" ")} />
+        <span
+          aria-hidden
+          className={[styles.tail, styles.tails[tail], tailClassName].filter(Boolean).join(" ")}
+        />
       )}
     </div>
   );
@@ -107,6 +112,7 @@ export type InputCapsuleProps = Omit<HTMLAttributes<HTMLFormElement>, "onSubmit"
   label?: string;
   placeholder?: string;
   sendLabel?: string;
+  sendSize?: "regular" | "compact";
 };
 
 export function InputCapsule({
@@ -125,6 +131,7 @@ export function InputCapsule({
   label = "메시지",
   placeholder = "질문 두 개만 골라 줘",
   sendLabel = "보내기",
+  sendSize = "regular",
   className,
   ...props
 }: InputCapsuleProps): JSX.Element {
@@ -161,7 +168,9 @@ export function InputCapsule({
           disabled={isInputDisabled}
           rows={textareaProps?.rows ?? (form === "multiline" ? 2 : 1)}
           onChange={(event) => change(event.currentTarget.value)}
-          className={[styles.input, textareaProps?.className].filter(Boolean).join(" ")}
+          className={[styles.input, form === "large" && styles.inputLarge, textareaProps?.className]
+            .filter(Boolean)
+            .join(" ")}
         />
       ) : (
         <input
@@ -170,16 +179,27 @@ export function InputCapsule({
           placeholder={placeholder}
           disabled={isInputDisabled}
           onChange={(event) => change(event.currentTarget.value)}
-          className={styles.input}
+          className={[styles.input, form === "large" && styles.inputLarge]
+            .filter(Boolean)
+            .join(" ")}
         />
       )}
       <button
         type="submit"
         aria-label={sending ? "보내는 중" : sendLabel}
         disabled={isSendDisabled}
-        className={[styles.send, form === "large" && styles.sendLarge].filter(Boolean).join(" ")}
+        className={[
+          styles.send,
+          form === "large" && styles.sendLarge,
+          sendSize === "compact" && styles.sendCompact,
+        ]
+          .filter(Boolean)
+          .join(" ")}
       >
-        <Icon name={sending ? "more" : "send"} size={form === "large" ? 20 : 18} />
+        <Icon
+          name={sending ? "more" : "send"}
+          size={sendSize === "compact" ? 16 : form === "large" ? 20 : 18}
+        />
       </button>
     </form>
   );

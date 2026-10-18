@@ -194,6 +194,39 @@ function chooseCharacter(name: string): void {
   selectFriend(new RegExp(`^${name}`));
 }
 
+it("opens the requested friend while preserving another friend's draft", async () => {
+  const { rerender } = render(
+    <CharacterManager
+      embedded
+      snapshot={snapshot}
+      characterRequest={{ id: actors[0].id, revision: 1 }}
+    />,
+  );
+  openCharacterPage("프로필");
+  const name = screen.getByLabelText("이름");
+  fireEvent.change(name, { target: { value: "저장하지 않은 친구 이름" } });
+  rerender(
+    <CharacterManager
+      embedded
+      snapshot={snapshot}
+      characterRequest={{ id: actors[1].id, revision: 2 }}
+    />,
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText("이름")).toHaveProperty("value", actors[1].definition.name),
+  );
+  rerender(
+    <CharacterManager
+      embedded
+      snapshot={snapshot}
+      characterRequest={{ id: actors[0].id, revision: 3 }}
+    />,
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText("이름")).toHaveProperty("value", "저장하지 않은 친구 이름"),
+  );
+});
+
 async function addDraftAsset(): Promise<void> {
   selectTab("모습·표정");
   const appearance = within(screen.getByLabelText("모습·표정", { selector: '[role="tabpanel"]' }));

@@ -17,6 +17,7 @@ export const header = style({
   padding: "0 20px",
   borderBottom: `1px solid ${tokens["color/card-border"]}`,
 });
+globalStyle(`${header} > div`, { gap: 16 });
 export const title = style({
   display: "flex",
   alignItems: "center",
@@ -25,8 +26,18 @@ export const title = style({
   fontFamily: tokens["typography/display/title/fontFamily"],
   fontSize: 17,
   fontWeight: 400,
+  lineHeight: "22px",
 });
 export const search = style({ width: 240 });
+globalStyle(`${search} > span`, { width: "100%" });
+export const searchInput = style({
+  width: "100%",
+  padding: "0 12px",
+  borderColor: tokens["color/input-border"],
+  background: tokens["color/input"],
+});
+globalStyle(`${searchInput} > svg`, { width: 15, height: 15 });
+globalStyle(`${searchInput} input::placeholder`, { color: tokens["color/ink"] });
 export const columns = style({
   display: "grid",
   gridTemplateColumns: "340px minmax(0, 1fr)",
@@ -42,14 +53,28 @@ export const sidebar = style({
   padding: "16px 14px",
   borderRight: `1px solid ${tokens["color/card-border"]}`,
 });
-export const filters = style({ flexShrink: 0, overflowX: "auto", maxWidth: "100%" });
-export const sessions = style({ overflowY: "auto", minHeight: 0, flex: 1 });
+export const filters = style({
+  flexShrink: 0,
+  overflowX: "auto",
+  maxWidth: "100%",
+  borderRadius: 17,
+});
+globalStyle(`${filters} > label`, { fontSize: 12 });
+export const sessions = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: 2,
+  overflowY: "auto",
+  minHeight: 0,
+  flex: 1,
+});
 export const day = style({
   margin: 0,
-  padding: "12px 12px 4px",
+  padding: "10px 12px 2px",
   color: tokens["color/ink-3"],
   fontSize: 12,
   fontWeight: 400,
+  flexShrink: 0,
 });
 export const session = style({
   display: "flex",
@@ -60,7 +85,8 @@ export const session = style({
   height: "auto",
   minHeight: 60,
   padding: "10px 12px",
-  margin: "2px 0",
+  margin: 0,
+  flexShrink: 0,
   borderRadius: 14,
   textAlign: "left",
   whiteSpace: "normal",
@@ -99,6 +125,10 @@ export const avatar = style({
   fontSize: 14,
 });
 export const avatarImage = style({ width: 31, height: 31, objectFit: "contain" });
+export const listAvatar = style({ width: 34, height: 34, borderRadius: 11 });
+globalStyle(`${listAvatar} img`, { width: 29, height: 29 });
+export const headerAvatar = style({ width: 40, height: 40, borderRadius: 13 });
+globalStyle(`${headerAvatar} img`, { width: 34, height: 34 });
 export const detail = style({
   display: "flex",
   flexDirection: "column",
@@ -112,7 +142,14 @@ export const detailHeader = style({
   padding: "14px 24px",
   borderBottom: `1px solid ${tokens["color/card-border"]}`,
 });
-export const detailHeading = style({ margin: 0, fontSize: 14, fontWeight: 600 });
+export const detailHeading = style({
+  margin: 0,
+  fontSize: 15,
+  lineHeight: "19px",
+  fontWeight: 600,
+});
+export const detailCopy = style({ gap: 2 });
+export const settingsButton = style({ fontWeight: 400 });
 export const meta = style({
   margin: 0,
   color: tokens["color/ink-3"],
@@ -122,9 +159,11 @@ export const meta = style({
 export const time = style({
   color: tokens["color/ink-3"],
   fontSize: 11,
+  lineHeight: "14px",
   whiteSpace: "nowrap",
   flexShrink: 0,
 });
+export const sessionTime = style({ fontSize: 11.5, lineHeight: "normal" });
 export const log = style({
   display: "flex",
   flexDirection: "column",
@@ -146,13 +185,11 @@ export const context = style({
 export const message = style({ display: "flex", alignItems: "center", gap: 10 });
 export const userMessage = style({ justifyContent: "flex-end" });
 export const messageContent = style({
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "flex-start",
-  gap: 4,
-  maxWidth: "min(460px, 76%)",
+  position: "relative",
+  maxWidth: 460,
   minWidth: 0,
 });
+export const userMessageContent = style({ maxWidth: 420 });
 export const bubble = style({
   margin: 0,
   padding: "8px 14px",
@@ -167,10 +204,33 @@ export const bubble = style({
 });
 export const userBubble = style({
   borderRadius: "16px 16px 6px 16px",
-  borderColor: tokens["color/selected-border"],
+  borderColor: "rgb(255 204 51 / 0.35)",
   background: tokens["color/component/primary-alpha-160"],
 });
 export const messageLabel = style({ color: tokens["color/ink-3"], fontSize: 11 });
+export const messageTools = style({
+  position: "absolute",
+  zIndex: 2,
+  top: "calc(100% + 4px)",
+  left: 0,
+  width: "max-content",
+  maxWidth: 300,
+  overflowWrap: "anywhere",
+  padding: "6px 10px",
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: 10,
+  background: tokens["color/glass-window"],
+  opacity: 0,
+  pointerEvents: "none",
+  selectors: {
+    [`${message}:hover &, ${message}:focus-within &, &:has(details[open])`]: {
+      opacity: 1,
+      pointerEvents: "auto",
+    },
+  },
+  "::before": { content: '""', position: "absolute", top: -5, left: 0, right: 0, height: 5 },
+});
+export const userMessageTools = style({ left: "auto", right: 0 });
 export const composer = style({
   display: "flex",
   flexDirection: "column",
@@ -181,14 +241,19 @@ export const composer = style({
 });
 export const capsule = style({
   width: "100%",
+  margin: 0,
   minHeight: 44,
   borderRadius: 22,
   boxSizing: "border-box",
-  padding: "6px 6px 6px 16px",
+  padding: "5px 5px 5px 15px",
   background: tokens["color/input"],
   borderColor: tokens["color/input-border"],
+  gap: 8,
+  boxShadow: "none",
+  backdropFilter: "none",
 });
 globalStyle(`${capsule} textarea`, { minHeight: 20, maxHeight: 120 });
+globalStyle(`${capsule} textarea::placeholder`, { color: tokens["color/ink"] });
 export const actions = style({ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 });
 export const empty = style({ color: tokens["color/ink-2"], padding: 24, margin: 0 });
 export const error = style({

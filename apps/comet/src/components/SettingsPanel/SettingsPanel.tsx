@@ -90,7 +90,7 @@ function DraftActions({
   );
 }
 export function SettingsPanel({ snapshot, preview = false, initialSection }: Props): JSX.Element {
-  const { section, visited, navigate, navigationError, memoryTabRequest } =
+  const { section, visited, navigate, navigationError, memoryTabRequest, characterRequest } =
     useSettingsNavigation(initialSection);
   const automatic = useSettingsDraft(snapshot.settings, "automatic");
   const model = useSettingsDraft(snapshot.settings, "model");
@@ -243,6 +243,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
               embedded
               onDirtyChange={setCharactersDirty}
               memoryTabRequest={memoryTabRequest}
+              characterRequest={characterRequest}
             />
           )}
         </section>

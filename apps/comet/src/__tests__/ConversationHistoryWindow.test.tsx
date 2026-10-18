@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import { listen } from "@tauri-apps/api/event";
 import { ConversationHistoryWindow } from "../components/Balloon/ConversationHistoryWindow";
 import { command, isDesktop, PREVIEW_SNAPSHOT } from "../hooks/useSnapshot";
@@ -120,7 +121,7 @@ it("shows two columns, preserves message text and starts browsing without resumi
       selector: "time",
     }),
   ).toHaveProperty("dateTime", new Date(FIRST.createdAt).toISOString());
-  expect(within(log).getByText(/오전|오후/, { selector: "time" })).toHaveProperty("dateTime");
+  expect(within(log).getByText(/^\d{1,2}:\d{2}$/, { selector: "time" })).toHaveProperty("dateTime");
   expect(command).not.toHaveBeenCalledWith("resume_chat", expect.anything());
   expect(screen.getByRole("button", { name: /이어 쓸 말/ }).textContent).not.toContain(
     "다음 문장은 숨겨요",
@@ -131,6 +132,126 @@ it("shows two columns, preserves message text and starts browsing without resumi
   );
   expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty("disabled", true);
 });
+
+it("uses the full stored message count even while only one page is loaded", async () => {
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversations") return [{ ...FIRST, messageCount: 105 }];
+    if (name === "get_conversation_messages") return { ...FIRST_VIEW, nextBefore: 123 };
+  });
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  expect(await screen.findByText(/메시지 105개$/)).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "앞선 내용 더 보기" })).toBeTruthy();
+  expect(screen.getAllByRole("article")).toHaveLength(1);
+});
+
+it("preserves provenance and keeps save controls keyboard accessible without altering the original", async () => {
+  const user = userEvent.setup();
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversations") return [FIRST];
+    if (name === "get_conversation_messages")
+      return {
+        ...FIRST_VIEW,
+        characterNames: { [MESSAGE.id]: "그때 친구" },
+        messageSources: { [MESSAGE.id]: "wordbook" },
+      };
+    if (name === "get_conversation_notes") return [];
+  });
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  const article = await screen.findByRole("article", { name: "그때 친구의 메시지" });
+  const bubble = within(article).getByText(/첫 대화 원문/);
+  expect(bubble.getAttribute("title")).toBe("그때 친구 · 등록 대사 · 단어장");
+  expect(document.getElementById(bubble.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
+    "그때 친구 · 등록 대사 · 단어장",
+  );
+  const summary = within(article).getByText("남기기", { selector: "summary" });
+  await user.click(summary);
+  expect(summary.parentElement?.hasAttribute("open")).toBe(true);
+  await user.tab();
+  expect(document.activeElement).toBe(
+    within(article).getByRole("button", { name: "메모에 남기기" }),
+  );
+  await user.keyboard("{Enter}");
+  expect(await screen.findByRole("textbox", { name: "저장할 내용" })).toHaveProperty(
+    "value",
+    MESSAGE.content,
+  );
+});
+
+it("locks competing selection and close operations until the draft is saved for character settings", async () => {
+  const save = deferred<void>();
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await begin();
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "save_conversation_draft") return save.promise;
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "이어서 말하기" }), {
+    target: { value: "설정 전에 저장" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /설정$/ }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith(
+      "save_conversation_draft",
+      expect.objectContaining({ draft: "설정 전에 저장" }),
+    ),
+  );
+  const settings = screen.getByRole("button", { name: /설정$/ });
+  const otherSession = screen.getByRole("button", { name: /두 번째 초안/ });
+  expect(settings).toHaveProperty("disabled", true);
+  expect(otherSession).toHaveProperty("disabled", true);
+  fireEvent.click(settings);
+  fireEvent.click(otherSession);
+  const closeEvent = { preventDefault: vi.fn() };
+  act(() => native.onCloseRequested.mock.calls[0][0](closeEvent));
+  expect(closeEvent.preventDefault).toHaveBeenCalled();
+  expect(command).not.toHaveBeenCalledWith("open_characters", expect.anything());
+  expect(command).not.toHaveBeenCalledWith("release_conversation_history", expect.anything());
+  expect(command).not.toHaveBeenCalledWith("resume_chat", {
+    sessionId: SECOND.id,
+    surface: "history",
+  });
+  await act(async () => save.resolve());
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("open_characters", { characterId: FIRST.participants[0] }),
+  );
+  expect(vi.mocked(command).mock.calls.filter(([name]) => name === "open_characters")).toHaveLength(
+    1,
+  );
+});
+
+it.each(["user", "owner"] as const)(
+  "does not open stale character settings when the %s changes while saving",
+  async (changed) => {
+    const save = deferred<void>();
+    const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+    await begin();
+    vi.mocked(command).mockImplementation(async (name) => {
+      if (name === "save_conversation_draft") return save.promise;
+      if (name === "get_conversations") return [];
+      if (name === "get_conversation_messages") return FIRST_VIEW;
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "이어서 말하기" }), {
+      target: { value: "저장이 늦는 이전 초안" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /설정$/ }));
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith(
+        "save_conversation_draft",
+        expect.objectContaining({ draft: "저장이 늦는 이전 초안" }),
+      ),
+    );
+    const next: Snapshot =
+      changed === "user"
+        ? { ...SNAPSHOT, user: { ...SNAPSHOT.user!, id: "another-user" } }
+        : {
+            ...SNAPSHOT,
+            panel: { persona: "builtin-a", mode: "input" },
+            conversation: SECOND_VIEW,
+          };
+    rerender(<ConversationHistoryWindow snapshot={next} />);
+    await act(async () => save.resolve());
+    expect(command).not.toHaveBeenCalledWith("open_characters", expect.anything());
+  },
+);
 
 it("waits for the exact session draft to save before changing selection", async () => {
   const save = deferred<void>();

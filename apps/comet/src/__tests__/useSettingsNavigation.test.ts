@@ -26,6 +26,103 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it("restores a selected friend before the settings listener was registered", async () => {
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "get_settings_section" ? "characters" : { id: "builtin-b", requestId: "target-1" },
+  );
+  const { result } = renderHook(() => useSettingsNavigation("characters"));
+  await waitFor(() => expect(result.current.characterRequest?.id).toBe("builtin-b"));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("ack_settings_character", { requestId: "target-1" }),
+  );
+  const request = result.current.characterRequest;
+  act(() => receive({ event: "open-settings-section", id: 2, payload: "characters" }));
+  await waitFor(() => expect(command).toHaveBeenCalledTimes(5));
+  expect(result.current.characterRequest).toBe(request);
+  act(() => result.current.navigate("model"));
+  expect(result.current.characterRequest).toBeNull();
+  act(() => receive({ event: "open-settings-section", id: 3, payload: "characters" }));
+  await waitFor(() => expect(command).toHaveBeenCalledTimes(8));
+  expect(result.current.characterRequest).toBeNull();
+});
+
+it("retires a late friend destination after manual navigation so generic reopen cannot replay it", async () => {
+  type Request = { id: string; requestId: string };
+  let pending: Request | null = { id: "builtin-b", requestId: "target-1" };
+  let finish: (value: { id: string; requestId: string }) => void = () => {};
+  let reads = 0;
+  vi.mocked(command).mockImplementation((name, args) => {
+    if (name === "get_settings_section") return Promise.resolve("characters");
+    if (name === "get_settings_character") {
+      reads += 1;
+      return reads === 1
+        ? new Promise<Request>((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve(pending);
+    }
+    if (name === "ack_settings_character" && args?.requestId === pending?.requestId) pending = null;
+    return Promise.resolve();
+  });
+  const { result } = renderHook(() => useSettingsNavigation("characters"));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_settings_character"));
+  act(() => result.current.navigate("model"));
+  await act(async () => finish({ id: "builtin-b", requestId: "target-1" }));
+  expect(result.current.characterRequest).toBeNull();
+  expect(result.current.section).toBe("model");
+  expect(command).toHaveBeenCalledWith("ack_settings_character", { requestId: "target-1" });
+  act(() => result.current.navigate("characters"));
+  act(() => receive({ event: "open-settings-section", id: 2, payload: "characters" }));
+  await waitFor(() => expect(reads).toBe(2));
+  expect(result.current.characterRequest).toBeNull();
+});
+
+it("leaves a stale read unacknowledged when a newer native request followed manual navigation", async () => {
+  type Request = { id: string; requestId: string };
+  let finish: (value: Request) => void = () => {};
+  let reads = 0;
+  vi.mocked(command).mockImplementation((name) => {
+    if (name === "get_settings_section") return Promise.resolve("characters");
+    if (name === "get_settings_character") {
+      reads += 1;
+      return reads === 1
+        ? new Promise<Request>((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve({ id: "builtin-a", requestId: "target-2" });
+    }
+    return Promise.resolve();
+  });
+  const { result } = renderHook(() => useSettingsNavigation("characters"));
+  await waitFor(() => expect(reads).toBe(1));
+  act(() => result.current.navigate("model"));
+  act(() => receive({ event: "open-settings-section", id: 2, payload: "characters" }));
+  await waitFor(() => expect(result.current.characterRequest?.id).toBe("builtin-a"));
+  await act(async () => finish({ id: "builtin-b", requestId: "target-1" }));
+  expect(result.current.characterRequest?.id).toBe("builtin-a");
+  expect(command).not.toHaveBeenCalledWith("ack_settings_character", { requestId: "target-1" });
+  expect(command).toHaveBeenCalledWith("ack_settings_character", { requestId: "target-2" });
+});
+
+it("does not acknowledge a pending destination from a disposed effect", async () => {
+  type Request = { id: string; requestId: string };
+  let finish: (value: Request) => void = () => {};
+  vi.mocked(command).mockImplementation((name) => {
+    if (name === "get_settings_section") return Promise.resolve("characters");
+    if (name === "get_settings_character")
+      return new Promise<Request>((resolve) => {
+        finish = resolve;
+      });
+    return Promise.resolve();
+  });
+  const { result, unmount } = renderHook(() => useSettingsNavigation("characters"));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_settings_character"));
+  act(() => result.current.navigate("model"));
+  unmount();
+  await act(async () => finish({ id: "builtin-b", requestId: "target-1" }));
+  expect(command).not.toHaveBeenCalledWith("ack_settings_character", expect.anything());
+});
+
 it.each([
   ["wordbook", "dialogue", "dialogue"],
   ["talk", "dialogue", "dialogue"],

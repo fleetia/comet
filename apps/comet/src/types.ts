@@ -404,6 +404,7 @@ export type ConversationSession = {
   createdAt: number;
   updatedAt: number;
   draft: string;
+  messageCount?: number;
   continuedFrom: string | null;
   noteContext?: ConversationNoteContext | null;
 };

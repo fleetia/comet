@@ -48,6 +48,10 @@ const meta = {
     sendLabel: {
       control: "text",
     },
+    sendSize: {
+      control: "select",
+      options: ["regular", "compact"],
+    },
     onValueChange: {
       control: false,
     },
@@ -84,6 +88,10 @@ export const Multiline: Story = {
 export const Large: Story = {
   name: "큰 입력",
   args: { form: "large", defaultValue: "좋아, 십 분만 쉬자." },
+};
+export const CompactSend: Story = {
+  name: "기록 창 · 작은 보내기",
+  args: { form: "multiline", sendSize: "compact" },
 };
 export const Sending: Story = { name: "보내는 중", args: { sending: true } };
 export const DraftWhileSending: Story = {

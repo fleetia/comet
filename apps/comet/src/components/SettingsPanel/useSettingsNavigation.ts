@@ -35,13 +35,19 @@ export function useSettingsNavigation(initialSection?: string): {
   navigate: (value: string) => void;
   navigationError: string | null;
   memoryTabRequest: number;
+  characterRequest: { id: string; revision: number } | null;
 } {
   const initial = initialSection ?? new URLSearchParams(window.location.search).get("section");
   const [memoryTabRequest, setMemoryTabRequest] = useState(initial === "memory" ? 1 : 0);
   const [section, setSection] = useState<SettingsSection>(sectionFrom(initial) ?? "characters");
   const [visited, setVisited] = useState<ReadonlySet<SettingsSection>>(() => new Set([section]));
   const [navigationError, setNavigationError] = useState<string | null>(null);
+  const [characterRequest, setCharacterRequest] = useState<{ id: string; revision: number } | null>(
+    null,
+  );
   const navigationRevision = useRef(0);
+  const manualNavigationRevision = useRef(0);
+  const receivedCharacterRequest = useRef<string | null>(null);
   const lastTrackedSection = useRef<SettingsSection | null>(null);
 
   function select(value: string): void {
@@ -56,6 +62,8 @@ export function useSettingsNavigation(initialSection?: string): {
     const next = sectionFrom(value);
     if (!next) return;
     select(value);
+    manualNavigationRevision.current = navigationRevision.current;
+    setCharacterRequest(null);
     if (isDesktop()) {
       void command("set_settings_section", {
         section: next === "desktop" || next === "user" || next === "organizer" ? "general" : next,
@@ -74,8 +82,34 @@ export function useSettingsNavigation(initialSection?: string): {
     let active = true;
     let cleanup: (() => void) | undefined;
     const revision = navigationRevision.current;
+    async function selectNative(value: string): Promise<void> {
+      select(value);
+      const selectedRevision = navigationRevision.current;
+      if (value !== "characters") return;
+      const request = await command<{ id: string; requestId: string } | null>(
+        "get_settings_character",
+      );
+      if (!active || !request) return;
+      if (navigationRevision.current !== selectedRevision) {
+        if (
+          manualNavigationRevision.current === navigationRevision.current &&
+          manualNavigationRevision.current > selectedRevision
+        ) {
+          await command("ack_settings_character", { requestId: request.requestId });
+        }
+        return;
+      }
+      if (receivedCharacterRequest.current !== request.requestId) {
+        receivedCharacterRequest.current = request.requestId;
+        setCharacterRequest({ id: request.id, revision: selectedRevision });
+      }
+      await command("ack_settings_character", { requestId: request.requestId });
+    }
     void listen<string>("open-settings-section", (event) => {
-      if (active) select(event.payload);
+      if (active)
+        void selectNative(event.payload).catch((cause: unknown) => {
+          if (active) setNavigationError(errorText(cause));
+        });
     })
       .then(async (unlisten) => {
         if (!active) {
@@ -84,7 +118,7 @@ export function useSettingsNavigation(initialSection?: string): {
         }
         cleanup = unlisten;
         const latest = await command<string>("get_settings_section");
-        if (active && navigationRevision.current === revision) select(latest);
+        if (active && navigationRevision.current === revision) await selectNative(latest);
       })
       .catch((cause: unknown) => {
         if (active) setNavigationError(errorText(cause));
@@ -94,5 +128,5 @@ export function useSettingsNavigation(initialSection?: string): {
       cleanup?.();
     };
   }, []);
-  return { section, visited, navigate, navigationError, memoryTabRequest };
+  return { section, visited, navigate, navigationError, memoryTabRequest, characterRequest };
 }

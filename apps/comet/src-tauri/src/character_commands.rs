@@ -429,9 +429,62 @@ pub(crate) async fn save_character_pack(
         .map_err(|error| error.to_string())??;
     character_files::save(app, json).await
 }
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SettingsCharacterRequest {
+    id: String,
+    request_id: String,
+}
+
 #[tauri::command]
-pub(crate) async fn open_characters(app: tauri::AppHandle) -> Result<(), String> {
+pub(crate) async fn open_characters(
+    app: tauri::AppHandle,
+    character_id: Option<String>,
+) -> Result<(), String> {
+    let state = app.state::<Arc<AppState>>();
+    if let Some(id) = &character_id {
+        let exists = lock(&state.db)?
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM characters WHERE id=?)",
+                [id],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(|error| error.to_string())?;
+        if !exists {
+            return Err("설정할 친구를 찾지 못했어요.".into());
+        }
+    }
+    *lock(&state.settings_character)? = character_id.map(|id| SettingsCharacterRequest {
+        id,
+        request_id: uuid::Uuid::new_v4().to_string(),
+    });
     open_settings_section(app, SettingsSection::Characters)
+}
+
+#[tauri::command]
+pub(crate) fn get_settings_character(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<Option<SettingsCharacterRequest>, String> {
+    Ok(lock(&state.settings_character)?.clone())
+}
+
+#[tauri::command]
+pub(crate) fn ack_settings_character(
+    state: tauri::State<'_, Arc<AppState>>,
+    request_id: String,
+) -> Result<(), String> {
+    acknowledge_settings_character(&state, &request_id)
+}
+
+fn acknowledge_settings_character(state: &AppState, request_id: &str) -> Result<(), String> {
+    let mut pending = lock(&state.settings_character)?;
+    if pending
+        .as_ref()
+        .is_some_and(|request| request.request_id == request_id)
+    {
+        *pending = None;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -455,7 +508,34 @@ pub(crate) async fn save_character_pack_attribution(
 
 #[cfg(test)]
 mod tests {
-    use super::sprite_response;
+    use super::{acknowledge_settings_character, sprite_response, SettingsCharacterRequest};
+
+    #[test]
+    fn stale_settings_character_ack_preserves_the_new_request_for_the_same_character() {
+        let state = crate::app::tests::state();
+        let request = SettingsCharacterRequest {
+            id: "builtin-a".into(),
+            request_id: "first-request".into(),
+        };
+        let previous_request_id = request.request_id.clone();
+        *state.settings_character.lock().unwrap() = Some(request);
+        let latest_request = SettingsCharacterRequest {
+            id: "builtin-a".into(),
+            request_id: "latest-request".into(),
+        };
+        *state.settings_character.lock().unwrap() = Some(latest_request.clone());
+
+        acknowledge_settings_character(&state, &previous_request_id).unwrap();
+        let pending = state.settings_character.lock().unwrap().clone().unwrap();
+        assert_eq!(pending.id, latest_request.id);
+        assert_eq!(pending.request_id, latest_request.request_id);
+
+        acknowledge_settings_character(&state, &latest_request.request_id).unwrap();
+        assert!(state.settings_character.lock().unwrap().is_none());
+        acknowledge_settings_character(&state, &previous_request_id).unwrap();
+        acknowledge_settings_character(&state, &latest_request.request_id).unwrap();
+        assert!(state.settings_character.lock().unwrap().is_none());
+    }
 
     #[test]
     fn sprite_cors_allows_only_app_origins_and_varies_cached_responses() {

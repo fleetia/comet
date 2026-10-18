@@ -33,6 +33,7 @@ struct BalloonAnchorEvent<'a> {
 }
 
 const BODY_SIZE: (f64, f64) = (112.0, 88.0);
+const CONVERSATION_CHARACTER_ANCHOR_X: f64 = 76.0;
 const SPRITE_PADDING: f64 = 8.0;
 const FACE_SIZE: (f64, f64) = (120.0, 36.0);
 const ORBIT_MAX_SIZE: (f64, f64) = (640.0, 600.0);
@@ -405,7 +406,7 @@ fn conversation_rect(
     let gap = 8.0 * scale;
     let width = (size.0 * scale).min(area.width);
     let height = (size.1 * scale).min(area.height);
-    let desired_x = body.x + (body.width - width) / 2.0;
+    let desired_x = body.x + body.width / 2.0 - CONVERSATION_CHARACTER_ANCHOR_X * scale;
     let desired_y = if below {
         body.y + body.height + gap
     } else {
@@ -1723,28 +1724,36 @@ mod tests {
 
     #[test]
     fn conversation_surfaces_prefer_above_and_below_the_real_character() {
-        let area = Rect {
-            x: 0.0,
-            y: 0.0,
-            width: 1200.0,
-            height: 900.0,
-        };
-        let body = Rect {
-            x: 500.0,
-            y: 400.0,
-            width: 112.0,
-            height: 88.0,
-        };
-        let response = conversation_rect(body, area, 1.0, (340.0, 120.0), false, None).unwrap();
-        let input =
-            conversation_rect(body, area, 1.0, (340.0, 54.0), true, Some(response)).unwrap();
-        assert_eq!((response.width, response.height), (340.0, 120.0));
-        assert_eq!(response.y + response.height, body.y - 8.0);
-        assert_eq!((input.width, input.height), (340.0, 54.0));
-        assert_eq!(input.y, body.y + body.height + 8.0);
-        assert!(!overlaps(response, body));
-        assert!(!overlaps(input, body));
-        assert!(!overlaps(input, response));
+        for scale in [1.0, 2.0] {
+            let area = Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1200.0 * scale,
+                height: 900.0 * scale,
+            };
+            let body = Rect {
+                x: 500.0 * scale,
+                y: 400.0 * scale,
+                width: 112.0 * scale,
+                height: 88.0 * scale,
+            };
+            let response =
+                conversation_rect(body, area, scale, (340.0, 120.0), false, None).unwrap();
+            let input =
+                conversation_rect(body, area, scale, (344.0, 54.0), true, Some(response)).unwrap();
+            assert_eq!(
+                (response.width, response.height),
+                (340.0 * scale, 120.0 * scale)
+            );
+            assert_eq!(response.y + response.height, body.y - 8.0 * scale);
+            assert_eq!((input.width, input.height), (344.0 * scale, 54.0 * scale));
+            assert_eq!(input.y, body.y + body.height + 8.0 * scale);
+            assert_eq!(response.x, body.x - 20.0 * scale);
+            assert_eq!(input.x, response.x);
+            assert!(!overlaps(response, body));
+            assert!(!overlaps(input, body));
+            assert!(!overlaps(input, response));
+        }
     }
 
     #[test]

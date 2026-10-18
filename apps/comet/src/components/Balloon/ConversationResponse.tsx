@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type JSX } from "react";
+import { useId, useLayoutEffect, useState, type CSSProperties, type JSX } from "react";
 import { Balloon, WaitingDots } from "@comet/ui";
 import type { Snapshot } from "../../types";
 import { useBalloonSizing } from "../../hooks/useBalloonSizing";
@@ -33,7 +33,10 @@ export function ConversationResponse({ snapshot, preview = false }: Props): JSX.
     snapshot.panel?.persona ??
     "builtin-a";
   const character = activeCharacter(snapshot, persona);
-  const textStyle = balloonTextStyle(character?.definition.balloonStyle);
+  const textStyle: CSSProperties = character?.definition.balloonStyle
+    ? balloonTextStyle(character.definition.balloonStyle)
+    : { fontSize: 16 };
+  const sourceId = useId();
   const skin = spriteUrl(character, BALLOON_SPRITE);
   const { slice, ready: imageReady } = useImageSlice(skin);
   const skinned = skin && slice ? skinStyle(skin, slice) : undefined;
@@ -75,11 +78,15 @@ export function ConversationResponse({ snapshot, preview = false }: Props): JSX.
   return (
     <section ref={elementRef} className={styles.responseHost} aria-label="캐릭터 대답">
       <Balloon
+        speaker={character?.definition.sourceId === "builtin-b" ? "nadir" : "byulkkori"}
         speakerName={!snapshot.playback && !waiting && previousReply ? `이전 답변 · ${name}` : name}
-        tail={skin && (!imageReady || slice) ? "none" : "center"}
+        tail={skin && (!imageReady || slice) ? "none" : "left"}
+        tailClassName={styles.responseTail}
         className={`${styles.responseBubble} ${skin && (!imageReady || slice) ? companion.balloonSkinned : ""}`}
         style={skinned}
         aria-live="polite"
+        aria-describedby={!waiting && fullText ? sourceId : undefined}
+        title={!waiting && fullText ? responseOrigin(source) : undefined}
       >
         <div
           className={styles.responseText}
@@ -100,7 +107,9 @@ export function ConversationResponse({ snapshot, preview = false }: Props): JSX.
           )}
         </div>
         {!waiting && fullText && (
-          <span className={styles.responseSource}>{responseOrigin(source)}</span>
+          <span id={sourceId} className={styles.responseSource}>
+            {responseOrigin(source)}
+          </span>
         )}
       </Balloon>
       {error && <p role="alert">{error}</p>}

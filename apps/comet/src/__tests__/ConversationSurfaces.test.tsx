@@ -63,13 +63,67 @@ it("keeps the desktop input compact and exposes existing options through more", 
   expect(options).toHaveProperty("open", false);
   expect(screen.queryByText("  적어 둔 대답\n다음 줄  ", { exact: true })).toBeNull();
   expect(screen.getByRole("button", { name: "지난 대화" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "대화 접어 두기" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "이어서 하기" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "함께 이야기해 봐" })).toBeTruthy();
   fireEvent.click(screen.getByText("더보기"));
   expect(options).toHaveProperty("open", true);
+  expect(screen.getByRole("button", { name: "대화 접어 두기" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: /받는 친구/ })).toBeTruthy();
   expect(screen.getByRole("button", { name: "AI 연결 설정" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "대화 끝내기" })).toBeTruthy();
   expect(screen.getByText("이번 대화")).toBeTruthy();
+});
+
+it("saves the current draft before resuming a paused conversation from the shortcut", async () => {
+  const snapshot = conversationSnapshot();
+  const prior = {
+    ...snapshot.conversation!,
+    session: { ...snapshot.conversation!.session, id: "paused-session", status: "paused" as const },
+  };
+  render(<Balloon snapshot={snapshot} surface="input" preview previewConversations={[prior]} />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "돌아와서 쓸 초안" } });
+  fireEvent.click(screen.getByRole("button", { name: "이어서 하기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("resume_chat", { sessionId: "paused-session" }),
+  );
+  expect(vi.mocked(command).mock.calls).toEqual([
+    [
+      "save_conversation_draft",
+      { sessionId: "surface-session", draft: "돌아와서 쓸 초안", inputOwner: "desktop" },
+    ],
+    ["resume_chat", { sessionId: "paused-session" }],
+  ]);
+});
+
+it("opens the memo chooser when there is no prior work and preserves the pending draft", async () => {
+  render(<Balloon snapshot={conversationSnapshot()} surface="input" preview />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "메모를 고르기 전 초안" } });
+  fireEvent.click(screen.getByRole("button", { name: "이어서 하기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_conversation_notes"));
+  expect(command).toHaveBeenCalledWith("save_conversation_draft", {
+    sessionId: "surface-session",
+    draft: "메모를 고르기 전 초안",
+    inputOwner: "desktop",
+  });
+  expect(command).not.toHaveBeenCalledWith("resume_chat", expect.anything());
+  expect(screen.getByRole("button", { name: "함께 이야기해 봐" })).toHaveProperty("disabled", true);
+  fireEvent.click(screen.getByRole("button", { name: "닫기" }));
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "메모를 고르기 전 초안");
+  expect(screen.getByRole("textbox")).toBe(document.activeElement);
+});
+
+it("saves the draft before asking the characters to talk together", async () => {
+  render(<Balloon snapshot={conversationSnapshot()} surface="input" preview />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "잠깐 남겨 둘 초안" } });
+  fireEvent.click(screen.getByRole("button", { name: "함께 이야기해 봐" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("talk_now", undefined));
+  expect(vi.mocked(command).mock.calls).toEqual([
+    [
+      "save_conversation_draft",
+      { sessionId: "surface-session", draft: "잠깐 남겨 둘 초안", inputOwner: "desktop" },
+    ],
+    ["talk_now", undefined],
+  ]);
 });
 
 it("preserves IME, Shift+Enter and a failed raw draft through the capsule", async () => {
@@ -171,11 +225,44 @@ it("shows recorded responses in a read-only surface without autosave or idle con
   expect(screen.queryByRole("button")).toBeNull();
   expect(screen.getByText("기록에 남은 친구 이름")).toBeTruthy();
   expect(screen.getByText("등록 대사 · 단어장")).toBeTruthy();
+  expect(screen.getByTitle("등록 대사 · 단어장").getAttribute("aria-describedby")).toBe(
+    screen.getByText("등록 대사 · 단어장").id,
+  );
   expect(screen.getByLabelText(/적어 둔 대답/).textContent).toBe("  적어 둔 대답\n다음 줄  ");
   await act(async () => {
     vi.advanceTimersByTime(95_000);
   });
   expect(command).not.toHaveBeenCalled();
+});
+
+it("uses the Figma text default only when a character has no saved style", () => {
+  const snapshot = conversationSnapshot();
+  const { rerender } = render(<ConversationResponse snapshot={snapshot} preview />);
+  expect(screen.getByLabelText(/적어 둔 대답/).style.fontSize).toBe("16px");
+  for (const fontSize of [19, 28]) {
+    rerender(
+      <ConversationResponse
+        preview
+        snapshot={{
+          ...snapshot,
+          characters: {
+            ...snapshot.characters,
+            installed: snapshot.characters.installed.map((character) => ({
+              ...character,
+              definition: {
+                ...character.definition,
+                balloonStyle: { fontSize, fontFamily: "My font", textColor: "#123456" },
+              },
+            })),
+          },
+        }}
+      />,
+    );
+    const speech = screen.getByLabelText(/적어 둔 대답/);
+    expect(speech.style.fontSize).toBe(`${fontSize}px`);
+    expect(speech.style.fontFamily).toContain("My font");
+    expect(speech.style.color).toBe("rgb(18, 52, 86)");
+  }
 });
 
 it("switches the response to waiting and live playback while history owns input", () => {

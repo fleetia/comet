@@ -139,6 +139,7 @@ export const input = style({
   lineHeight: "20px",
   selectors: { "&::placeholder": { color: tokens["color/ink-3"] } },
 });
+export const inputLarge = style({ fontSize: 15, lineHeight: "normal" });
 export const send = style([
   stateTransition,
   {
@@ -164,6 +165,7 @@ export const sendLarge = style({
   height: 38,
   background: tokens["color/cat-record"],
 });
+export const sendCompact = style({ width: 32, height: 32 });
 export const memo = style({
   boxSizing: "border-box",
   display: "flex",

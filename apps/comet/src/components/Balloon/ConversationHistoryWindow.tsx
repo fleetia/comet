@@ -48,13 +48,20 @@ function sessionName(snapshot: Snapshot, session: ConversationSession): string {
 function timeLabel(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" });
 }
+function messageTimeLabel(timestamp: number): string {
+  return timeLabel(timestamp).replace(/^오[전후]\s*/, "");
+}
 function dayLabel(timestamp: number): string {
   const date = new Date(timestamp);
   const today = new Date();
   if (date.toDateString() === today.toDateString()) return "오늘";
   today.setDate(today.getDate() - 1);
   if (date.toDateString() === today.toDateString()) return "어제";
-  return date.toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" });
+  return date.toLocaleDateString("ko-KR", {
+    year: date.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+    month: "long",
+    day: "numeric",
+  });
 }
 function mergePages(
   earlier: ConversationMessages,
@@ -75,14 +82,16 @@ function mergePages(
 function Avatar({
   snapshot,
   participants,
+  className,
 }: {
   snapshot: Snapshot;
   participants: string[];
+  className?: string;
 }): JSX.Element {
   const character = characterById(snapshot, participants[0] ?? "");
   const image = spriteSource(character, "평온");
   return (
-    <span className={s.avatar} aria-hidden="true">
+    <span className={[s.avatar, className].filter(Boolean).join(" ")} aria-hidden="true">
       {participants.length > 1 ? (
         <Icon name="together" size={17} />
       ) : image ? (
@@ -637,6 +646,37 @@ export function ConversationHistoryWindow({
       if (alive.current) setPending(false);
     }
   }
+  async function openCharacterSettings(): Promise<void> {
+    const session = selectedRef.current;
+    if (operation.current || !session || session.participants.length !== 1) return;
+    operation.current = true;
+    setPending(true);
+    setError(null);
+    const characterId = session.participants[0];
+    const userId = current.current.user?.id;
+    const value = draft.current;
+    const editingId = owner.current;
+    function isCurrent(): boolean {
+      return (
+        alive.current &&
+        current.current.user?.id === userId &&
+        selectedRef.current?.id === session?.id &&
+        selectedRef.current?.participants[0] === characterId &&
+        draft.current === value &&
+        owner.current === editingId
+      );
+    }
+    try {
+      await flushDraft();
+      if (!isCurrent()) return;
+      await command("open_characters", { characterId });
+    } catch (cause) {
+      if (isCurrent()) setError(errorText(cause));
+    } finally {
+      operation.current = false;
+      if (alive.current) setPending(false);
+    }
+  }
   const personas = Array.from(
     new Set([
       ...snapshot.characters.active,
@@ -662,6 +702,7 @@ export function ConversationHistoryWindow({
         actions={
           <div className={s.search}>
             <SearchInput
+              containerClassName={s.searchInput}
               aria-label="대화 찾기"
               placeholder="대화 찾기"
               value={query}
@@ -723,12 +764,16 @@ export function ConversationHistoryWindow({
                       void select(session);
                     }}
                   >
-                    <Avatar snapshot={snapshot} participants={session.participants} />
+                    <Avatar
+                      snapshot={snapshot}
+                      participants={session.participants}
+                      className={s.listAvatar}
+                    />
                     <span className={s.sessionCopy}>
                       <span className={s.sessionHeading}>
                         <span className={s.sessionName}>{sessionName(snapshot, session)}</span>
                         <time
-                          className={s.time}
+                          className={`${s.time} ${s.sessionTime}`}
                           dateTime={new Date(session.createdAt).toISOString()}
                         >
                           {timeLabel(session.createdAt)}
@@ -750,25 +795,29 @@ export function ConversationHistoryWindow({
           ) : (
             <>
               <header className={s.detailHeader}>
-                <Avatar snapshot={snapshot} participants={selected.participants} />
-                <div className={s.sessionCopy}>
+                <Avatar
+                  snapshot={snapshot}
+                  participants={selected.participants}
+                  className={s.headerAvatar}
+                />
+                <div className={`${s.sessionCopy} ${s.detailCopy}`}>
                   <h2 className={s.detailHeading}>{participantName}</h2>
                   <p className={s.meta}>
-                    {dayLabel(selected.createdAt)} {timeLabel(selected.createdAt)} ·{" "}
-                    {selected.title || "새 대화"}
+                    {dayLabel(selected.createdAt)} {timeLabel(selected.createdAt)}
+                    {selected.messageCount !== undefined && ` · 메시지 ${selected.messageCount}개`}
                   </p>
                 </div>
                 {selected.participants.length === 1 && (
                   <Button
                     variant="link"
                     size="small"
+                    className={s.settingsButton}
+                    disabled={pending}
                     onClick={() => {
-                      void flushDraft()
-                        .then(() => command("open_characters"))
-                        .catch((cause: unknown) => setError(errorText(cause)));
+                      void openCharacterSettings();
                     }}
                   >
-                    친구 설정
+                    {participantName} 설정
                   </Button>
                 )}
               </header>
@@ -808,9 +857,13 @@ export function ConversationHistoryWindow({
                       nameFor(snapshot, message.persona ?? ""));
                   const time = (
                     <time className={s.time} dateTime={new Date(message.createdAt).toISOString()}>
-                      {timeLabel(message.createdAt)}
+                      {messageTimeLabel(message.createdAt)}
                     </time>
                   );
+                  const provenance = user
+                    ? name
+                    : `${name} · ${responseOrigin(page.messageSources?.[message.id])}`;
+                  const provenanceId = `history-origin-${message.id}`;
                   return (
                     <article
                       className={`${s.message} ${user ? s.userMessage : ""}`}
@@ -822,28 +875,30 @@ export function ConversationHistoryWindow({
                       ) : (
                         <Avatar snapshot={snapshot} participants={[message.persona ?? ""]} />
                       )}
-                      <div className={s.messageContent}>
-                        {selected.participants.length > 1 && !user && (
-                          <span className={s.messageLabel}>{name}</span>
-                        )}
-                        <p className={`${s.bubble} ${user ? s.userBubble : ""}`}>
+                      <div className={`${s.messageContent} ${user ? s.userMessageContent : ""}`}>
+                        <p
+                          className={`${s.bubble} ${user ? s.userBubble : ""}`}
+                          title={provenance}
+                          aria-describedby={provenanceId}
+                        >
                           {message.content}
                         </p>
-                        <span className={s.messageLabel}>
-                          {name}
-                          {!user && ` · ${responseOrigin(page.messageSources?.[message.id])}`}
-                        </span>
-                        <ConversationMessageActions
-                          message={message}
-                          onSave={(kind) =>
-                            setSaveRequest({
-                              sessionId: selected.id,
-                              message,
-                              kind,
-                              context: selected.noteContext,
-                            })
-                          }
-                        />
+                        <div className={`${s.messageTools} ${user ? s.userMessageTools : ""}`}>
+                          <span className={s.messageLabel} id={provenanceId}>
+                            {provenance}
+                          </span>
+                          <ConversationMessageActions
+                            message={message}
+                            onSave={(kind) =>
+                              setSaveRequest({
+                                sessionId: selected.id,
+                                message,
+                                kind,
+                                context: selected.noteContext,
+                              })
+                            }
+                          />
+                        </div>
                       </div>
                       {!user && time}
                     </article>
@@ -941,6 +996,7 @@ export function ConversationHistoryWindow({
                 <InputCapsule
                   className={s.capsule}
                   form="multiline"
+                  sendSize="compact"
                   label="이어서 말하기"
                   placeholder={`${participantName}에게 이어서 말하기`}
                   value={input}
@@ -961,6 +1017,8 @@ export function ConversationHistoryWindow({
                   textareaProps={{
                     rows: 1,
                     maxLength: 2000,
+                    title: "Enter로 보내기 · Shift+Enter로 줄바꿈",
+                    "aria-description": "Enter로 보내기 · Shift+Enter로 줄바꿈",
                     onCompositionStart: () => {
                       composing.current = true;
                     },
@@ -981,7 +1039,7 @@ export function ConversationHistoryWindow({
                     },
                   }}
                 />
-                <p className={s.meta}>⏎ 보내기 · Shift+Enter 줄바꿈 · 답은 바탕화면에도 보여요</p>
+                <p className={s.meta}>⏎ 보내기 · 답은 여기와 바탕화면 말풍선에 같이 보여요</p>
               </footer>
             </>
           )}

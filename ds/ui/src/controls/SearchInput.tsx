@@ -7,6 +7,7 @@ import * as styles from "./fields.css";
 export type SearchInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "size" | "type"> &
   FieldProps & {
     appearance?: "outlined" | "plain" | "large" | "medium";
+    containerClassName?: string;
   };
 
 export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
@@ -17,6 +18,7 @@ export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
       error,
       id,
       className,
+      containerClassName,
       appearance = "outlined",
       disabled,
       "aria-describedby": describedBy,
@@ -41,7 +43,13 @@ export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
           </label>
         )}
         <span
-          className={[styles.searchContainer, styles.searchAppearances[appearance]].join(" ")}
+          className={[
+            styles.searchContainer,
+            styles.searchAppearances[appearance],
+            containerClassName,
+          ]
+            .filter(Boolean)
+            .join(" ")}
           data-disabled={disabled || undefined}
           data-invalid={field.invalid === true || field.invalid === "true" || undefined}
         >
