@@ -732,13 +732,14 @@ pub(crate) async fn send_message(
             tasks.active = None;
             tasks.conversation = None;
         }
+        let input_mode = super::chat::input_panel_mode(&state)?;
         *lock(&state.panel)? = Some(PanelState {
             persona: if resident_target != target {
                 target.clone()
             } else {
                 targets[0].clone()
             },
-            mode: "input".into(),
+            mode: input_mode.into(),
         });
         state.last_input.store(now(), Ordering::SeqCst);
         schedule_idle(&state, settings.idle_minutes);
@@ -930,9 +931,10 @@ pub(crate) fn retry_turn(
             "wordbook"
         };
         if let Some(session) = session {
+            let input_mode = super::chat::input_panel_mode(&state)?;
             *lock(&state.panel)? = Some(PanelState {
                 persona: session.participants[0].clone(),
-                mode: "input".into(),
+                mode: input_mode.into(),
             });
         }
         state.last_input.store(now(), Ordering::SeqCst);

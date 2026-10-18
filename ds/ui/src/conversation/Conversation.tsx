@@ -6,6 +6,8 @@ import {
   type HTMLAttributes,
   type JSX,
   type ReactNode,
+  type Ref,
+  type TextareaHTMLAttributes,
 } from "react";
 import { Icon } from "@comet/icon";
 import availableLines from "./assets/constellation-available.svg";
@@ -17,6 +19,7 @@ export type BalloonProps = HTMLAttributes<HTMLDivElement> & {
   speaker?: "byulkkori" | "nadir" | "moon-rabbit";
   speakerName?: string;
   tail?: "left" | "center" | "right" | "none";
+  tailClassName?: string;
   content?: "text" | "actions" | "result" | "typing";
   speechTrigger?: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children">;
   actions?: ReactNode;
@@ -27,6 +30,7 @@ export function Balloon({
   speaker = "byulkkori",
   speakerName,
   tail = "left",
+  tailClassName,
   content = "text",
   speechTrigger,
   actions,
@@ -80,7 +84,10 @@ export function Balloon({
       {actions && <div className={styles.actions}>{actions}</div>}
       {result && <div className={styles.result}>{result}</div>}
       {tail !== "none" && (
-        <span aria-hidden className={[styles.tail, styles.tails[tail]].join(" ")} />
+        <span
+          aria-hidden
+          className={[styles.tail, styles.tails[tail], tailClassName].filter(Boolean).join(" ")}
+        />
       )}
     </div>
   );
@@ -92,11 +99,20 @@ export type InputCapsuleProps = Omit<HTMLAttributes<HTMLFormElement>, "onSubmit"
   onValueChange?: (value: string) => void;
   onSend?: (value: string) => void;
   form?: "single" | "multiline" | "large";
+  asTextarea?: boolean;
+  textareaProps?: Omit<
+    TextareaHTMLAttributes<HTMLTextAreaElement>,
+    "value" | "defaultValue" | "onChange" | "disabled" | "placeholder" | "aria-label"
+  >;
+  inputRef?: Ref<HTMLTextAreaElement>;
   sending?: boolean;
+  disableInputWhileSending?: boolean;
+  sendDisabled?: boolean;
   disabled?: boolean;
   label?: string;
   placeholder?: string;
   sendLabel?: string;
+  sendSize?: "regular" | "compact";
 };
 
 export function InputCapsule({
@@ -105,19 +121,27 @@ export function InputCapsule({
   onValueChange,
   onSend,
   form = "single",
+  asTextarea = false,
+  textareaProps,
+  inputRef,
   sending = false,
+  disableInputWhileSending = true,
+  sendDisabled = false,
   disabled = false,
   label = "메시지",
   placeholder = "질문 두 개만 골라 줘",
   sendLabel = "보내기",
+  sendSize = "regular",
   className,
   ...props
 }: InputCapsuleProps): JSX.Element {
   const [draft, setDraft] = useState(defaultValue);
   const current = value ?? draft;
+  const isInputDisabled = disabled || (sending && disableInputWhileSending);
+  const isSendDisabled = disabled || sendDisabled || sending || !current.trim();
   function submit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
-    if (!disabled && !sending && current.trim()) {
+    if (!isSendDisabled) {
       onSend?.(current);
     }
   }
@@ -134,33 +158,48 @@ export function InputCapsule({
       aria-busy={sending || undefined}
       className={[styles.capsule, styles.capsuleForms[form], className].filter(Boolean).join(" ")}
     >
-      {form === "multiline" ? (
+      {asTextarea || form === "multiline" ? (
         <textarea
+          {...textareaProps}
+          ref={inputRef}
           aria-label={label}
           value={current}
           placeholder={placeholder}
-          disabled={disabled || sending}
-          rows={2}
+          disabled={isInputDisabled}
+          rows={textareaProps?.rows ?? (form === "multiline" ? 2 : 1)}
           onChange={(event) => change(event.currentTarget.value)}
-          className={styles.input}
+          className={[styles.input, form === "large" && styles.inputLarge, textareaProps?.className]
+            .filter(Boolean)
+            .join(" ")}
         />
       ) : (
         <input
           aria-label={label}
           value={current}
           placeholder={placeholder}
-          disabled={disabled || sending}
+          disabled={isInputDisabled}
           onChange={(event) => change(event.currentTarget.value)}
-          className={styles.input}
+          className={[styles.input, form === "large" && styles.inputLarge]
+            .filter(Boolean)
+            .join(" ")}
         />
       )}
       <button
         type="submit"
         aria-label={sending ? "보내는 중" : sendLabel}
-        disabled={disabled || sending || !current.trim()}
-        className={styles.send}
+        disabled={isSendDisabled}
+        className={[
+          styles.send,
+          form === "large" && styles.sendLarge,
+          sendSize === "compact" && styles.sendCompact,
+        ]
+          .filter(Boolean)
+          .join(" ")}
       >
-        <Icon name={sending ? "more" : "send"} size={18} />
+        <Icon
+          name={sending ? "more" : "send"}
+          size={sendSize === "compact" ? 16 : form === "large" ? 20 : 18}
+        />
       </button>
     </form>
   );

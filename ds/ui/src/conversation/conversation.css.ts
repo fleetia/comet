@@ -114,7 +114,14 @@ export const capsule = style([
 export const capsuleForms = styleVariants({
   single: {},
   multiline: { minHeight: 62, borderRadius: 22 },
-  large: { width: 340, minHeight: 54, borderRadius: 27 },
+  large: {
+    width: 340,
+    minHeight: 54,
+    paddingLeft: 20,
+    borderRadius: 27,
+    background: tokens["color/glass-capsule"],
+    boxShadow: `0 18px 40px ${tokens["color/surface-shadow"]}`,
+  },
 });
 export const input = style({
   flex: 1,
@@ -132,6 +139,7 @@ export const input = style({
   lineHeight: "20px",
   selectors: { "&::placeholder": { color: tokens["color/ink-3"] } },
 });
+export const inputLarge = style({ fontSize: 15, lineHeight: "normal" });
 export const send = style([
   stateTransition,
   {
@@ -152,6 +160,12 @@ export const send = style([
     },
   },
 ]);
+export const sendLarge = style({
+  width: 38,
+  height: 38,
+  background: tokens["color/cat-record"],
+});
+export const sendCompact = style({ width: 32, height: 32 });
 export const memo = style({
   boxSizing: "border-box",
   display: "flex",

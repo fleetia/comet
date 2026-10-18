@@ -319,7 +319,7 @@ export type StoryRequest = {
 };
 export type PanelState = {
   persona: Persona;
-  mode: "menu" | "input" | "history" | "name" | "focus" | "update";
+  mode: "menu" | "input" | "history" | "history-input" | "name" | "focus" | "update";
 };
 export type Dispatch = (name: string, args?: Record<string, unknown>) => Promise<void>;
 export type LocalModel =
@@ -404,6 +404,7 @@ export type ConversationSession = {
   createdAt: number;
   updatedAt: number;
   draft: string;
+  messageCount?: number;
   continuedFrom: string | null;
   noteContext?: ConversationNoteContext | null;
 };

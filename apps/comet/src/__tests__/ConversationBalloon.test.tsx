@@ -383,6 +383,7 @@ it("saves the draft when focus closes the input before autosave and retains it o
   rerender(<Balloon snapshot={{ ...snapshot, panel: null, conversation: null }} />);
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("save_conversation_draft", {
+      inputOwner: "desktop",
       sessionId: session.id,
       draft: "  집중 전에 쓰던 말\n",
     }),
@@ -398,6 +399,7 @@ it("saves pending text on unmount without writing a prior user's draft after ide
   first.unmount();
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("save_conversation_draft", {
+      inputOwner: "desktop",
       sessionId: session.id,
       draft: "창이 닫혀도 남을 말",
     }),
@@ -443,6 +445,7 @@ it("does not erase text entered while the previous submission is pending", async
   await act(async () => finish());
   expect(input.value).toBe("그 다음에 쓴 말");
   expect(command).toHaveBeenCalledWith("save_conversation_draft", {
+    inputOwner: "desktop",
     sessionId: session.id,
     draft: "그 다음에 쓴 말",
   });
@@ -461,6 +464,7 @@ it("flushes a draft before pausing and uses a separate explicit finish command",
   fireEvent.click(screen.getByRole("button", { name: "대화 접어 두기" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("save_conversation_draft", {
+      inputOwner: "desktop",
       sessionId: session.id,
       draft: "  남겨 둔 말\n",
     }),
@@ -526,6 +530,7 @@ it("does not close a new conversation when an older view's draft save completes"
   fireEvent.keyDown(window, { key: "Escape" });
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("save_conversation_draft", {
+      inputOwner: "desktop",
       sessionId: session.id,
       draft: "이전 초안",
     }),
@@ -705,10 +710,12 @@ it.each(["one failing test. one small fix.", "same hero new line. surprise me wi
       expect(document.activeElement).toBe(input);
       expect(screen.getByRole("button", { name: "보내기" })).toHaveProperty("disabled", false);
       expect(command).toHaveBeenCalledWith("save_conversation_draft", {
+        inputOwner: "desktop",
         sessionId: session.id,
         draft: draftText,
       });
       expect(command).not.toHaveBeenCalledWith("save_conversation_draft", {
+        inputOwner: "desktop",
         sessionId: session.id,
         draft: "",
       });
@@ -1324,6 +1331,7 @@ it("does not retry a superseded input after its pending draft save completes", a
   fireEvent.click(screen.getByRole("button", { name: "다시 이야기하기" }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("save_conversation_draft", {
+      inputOwner: "desktop",
       sessionId: session.id,
       draft: "새로 적는 초안",
     }),
@@ -1458,7 +1466,10 @@ it("keeps the draft before opening AI connection settings from recovery", async 
   fireEvent.click(screen.getByRole("button", { name: "AI 연결 확인" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("open_settings"));
   expect(vi.mocked(command).mock.calls).toEqual([
-    ["save_conversation_draft", { sessionId: session.id, draft: "  연결 확인 뒤 이어 쓸 말\n" }],
+    [
+      "save_conversation_draft",
+      { inputOwner: "desktop", sessionId: session.id, draft: "  연결 확인 뒤 이어 쓸 말\n" },
+    ],
     ["set_settings_section", { section: "model" }],
     ["open_settings"],
   ]);

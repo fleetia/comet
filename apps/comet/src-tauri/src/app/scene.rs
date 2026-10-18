@@ -159,7 +159,7 @@ pub(crate) fn present_line(
     if direct_reply {
         if let Some(panel) = lock(&state.panel)?
             .as_mut()
-            .filter(|panel| panel.mode == "input")
+            .filter(|panel| matches!(panel.mode.as_str(), "input" | "history-input"))
         {
             panel.persona.clone_from(&line.persona);
         }

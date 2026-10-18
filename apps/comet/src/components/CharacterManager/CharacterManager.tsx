@@ -32,6 +32,7 @@ type Props = {
   embedded?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
   memoryTabRequest?: number;
+  characterRequest?: { id: string; revision: number } | null;
 };
 type DialogueOwner = { key: string; ids: string[] };
 const NEW_ID = "new-character";
@@ -65,6 +66,7 @@ export function CharacterManager({
   embedded = false,
   onDirtyChange,
   memoryTabRequest = 0,
+  characterRequest,
 }: Props): JSX.Element {
   const { installed: snapshotInstalled, active } = snapshot.characters;
   const [createdCharacters, setCreatedCharacters] = useState<InstalledCharacter[]>([]);
@@ -169,6 +171,18 @@ export function CharacterManager({
   const together = active.includes(selectedId);
   const dialogueIds = scope === "pair" && active.length > 1 ? active : [selectedId];
   const dialogueKey = dialogueIds.join(":");
+  const appliedCharacterRequest = useRef<number | null>(null);
+  useEffect(() => {
+    if (
+      !characterRequest ||
+      anyPending ||
+      appliedCharacterRequest.current === characterRequest.revision ||
+      !installed.some((character) => character.id === characterRequest.id)
+    )
+      return;
+    appliedCharacterRequest.current = characterRequest.revision;
+    select(characterRequest.id);
+  }, [characterRequest, anyPending, installed]);
 
   useEffect(() => {
     onDirtyChange?.(hasUnsavedChanges);

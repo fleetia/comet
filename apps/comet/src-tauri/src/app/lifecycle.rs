@@ -213,6 +213,7 @@ pub fn run() {
                 launcher_session: AtomicU64::new(0),
                 launcher_gate: tokio::sync::Mutex::new(()),
                 settings_section: Mutex::new(windows::SettingsSection::default()),
+                settings_character: Mutex::new(None),
                 settings_dirty: AtomicBool::new(false),
                 settings_exit_confirmed: AtomicBool::new(false),
                 tasks: Mutex::new(super::tasks::Registry::default()),
@@ -366,7 +367,14 @@ pub fn run() {
                 }
                 return;
             }
-            if window.label() == "balloon" {
+            if window.label() == "conversation-history" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    // The webview flushes its draft before release_conversation_history hides it.
+                    api.prevent_close();
+                }
+                return;
+            }
+            if matches!(window.label(), "balloon" | "conversation-input") {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let app = window.app_handle();
@@ -672,6 +680,8 @@ pub fn run() {
             widget_connections::search_weather_regions,
             widget_connections::open_widget_link,
             character_commands::open_characters,
+            character_commands::get_settings_character,
+            character_commands::ack_settings_character,
             character_commands::create_character,
             character_commands::save_character,
             character_commands::get_character_dialogue,
@@ -696,6 +706,7 @@ pub fn run() {
             windows::open_panel,
             super::chat::open_reply,
             super::chat::resume_chat,
+            super::chat::release_conversation_history,
             super::chat::finish_conversation,
             super::chat::save_conversation_draft,
             super::chat::discuss_music_widget,
