@@ -1,5 +1,16 @@
 # @comet/storybook
 
+## 0.1.3
+
+### Patch Changes
+
+- 6dee429: 대화 화면의 Figma 별자리 선택지, 기억 배지와 실제 대화 이벤트를 연결하고 기본 글꼴과 반투명 표면을 맞췄습니다.
+- c819f02: 캐릭터 답장 캡슐과 독립된 지난 대화 창을 복구하고 창 전환 시 초안을 보존합니다.
+- Updated dependencies [6dee429]
+- Updated dependencies [c1ffc57]
+- Updated dependencies [c819f02]
+  - @comet/ui@0.3.0
+
 ## 0.1.2
 
 ### Patch Changes
