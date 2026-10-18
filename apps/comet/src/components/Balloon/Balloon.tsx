@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
 import { IconButton, InputCapsule } from "@comet/ui";
 import type { ConversationView, Dispatch, Message, Persona, Snapshot } from "../../types";
-import { command, errorText } from "../../hooks/useSnapshot";
+import { command } from "../../hooks/useSnapshot";
 import { useBalloonSizing } from "../../hooks/useBalloonSizing";
 import { useTypewriter } from "../../hooks/useTypewriter";
 import * as s from "../companion.css";
@@ -15,7 +15,6 @@ import { skinStyle, useImageSlice } from "../../hooks/useImageSlice";
 import { balloonTextStyle } from "../balloonTypography";
 import { aiAvailability } from "./conversationStatus";
 import { OrganizerReceipt } from "./OrganizerReceipt";
-import { ConversationContext } from "./ConversationContext";
 import { useConversationSessions } from "./useConversationSessions";
 import { useBalloonNavigation, useEscapeClose } from "./useBalloonNavigation";
 import { useConversationSubmission, useDraftReplacement } from "./useConversationSubmission";
@@ -136,7 +135,6 @@ export function Balloon({
   }, [updateNotice, snapshot.playback?.id]);
   const [logOpen, setLogOpen] = useState(false);
   const [latestUserOpen, setLatestUserOpen] = useState(false);
-  const [choosingResumeNote, setChoosingResumeNote] = useState(false);
   const [saveSelection, setSaveSelection] = useState<{
     identity: string;
     request: ConversationSaveRequest;
@@ -145,7 +143,6 @@ export function Balloon({
   function selectSave(request: ConversationSaveRequest | null): void {
     setSaveSelection(request ? { identity: viewIdentity, request } : null);
   }
-  const [contextBusy, setContextBusy] = useState(false);
   const composing = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
@@ -219,7 +216,6 @@ export function Balloon({
     });
   useEffect(() => {
     setSaveSelection(null);
-    setChoosingResumeNote(false);
   }, [viewIdentity]);
   useLayoutEffect(() => {
     // A failed send can arrive while the native window still has its previous size,
@@ -290,14 +286,11 @@ export function Balloon({
     if (mode === "input") {
       inputRef.current?.focus({ preventScroll: Boolean(visibleError) });
     }
-  }, [mode, choosingResumeNote]);
+  }, [mode]);
   useEffect(() => {
     setError(null);
     clearFailedSubmission();
   }, [mode, persona]);
-  useEffect(() => {
-    if (surface === "input") setChoosingResumeNote(false);
-  }, [viewIdentity, surface]);
   const { sessions, sessionsLoading, sessionsError } = useConversationSessions({
     mode,
     surface,
@@ -313,7 +306,7 @@ export function Balloon({
       : snapshot.playback
         ? `playback:${snapshot.playback.id}`
         : `runtime:${snapshot.runtime.phase}:${snapshot.runtime.persona ?? ""}`;
-  const orbitMenu = mode === "menu" && !choosingResumeNote && !saveRequest;
+  const orbitMenu = mode === "menu" && !saveRequest;
   const sleeping = Boolean(
     character && snapshot.animationStates?.sleepingCharacterIds?.includes(character.id),
   );
@@ -359,8 +352,6 @@ export function Balloon({
     input,
     logOpen,
     latestUserOpen,
-    choosingResumeNote,
-    contextBusy,
     saveRequest,
     responding,
     playing,
@@ -389,28 +380,9 @@ export function Balloon({
     (failedInputIndex < 0 || conversation!.messages.indexOf(latestReply) < failedInputIndex),
   );
   const paused = sessions.find((session) => session.status === "paused");
-  const resumableWork = sessions
-    .filter((session) => session.noteContext)
-    .sort(
-      (left, right) =>
-        (right.noteContext?.linkedAt ?? 0) - (left.noteContext?.linkedAt ?? 0) ||
-        right.updatedAt - left.updatedAt,
-    )[0];
-  const noteContext = conversation?.noteContext ?? conversation?.session.noteContext;
   async function resumeFromInput(): Promise<void> {
-    const resumeSession = resumableWork ?? paused;
-    if (resumeSession) {
-      await leave("resume_chat", { sessionId: resumeSession.id });
-      return;
-    }
-    const identity = currentView.current.identity;
-    try {
-      await flushDraft();
-      if (currentView.current.identity === identity && !navigatingRef.current)
-        setChoosingResumeNote(true);
-    } catch (cause) {
-      if (currentView.current.identity === identity) setError(errorText(cause));
-    }
+    if (paused) await leave("resume_chat", { sessionId: paused.id });
+    else await leave("open_panel", { persona, mode: "history" });
   }
   const recipientName = characterName(
     snapshot,
@@ -446,7 +418,7 @@ export function Balloon({
   };
   function saveMessage(message: Message, kind: ConversationSaveRequest["kind"]): void {
     if (!conversation) return;
-    selectSave({ sessionId: conversation.session.id, context: noteContext, message, kind });
+    selectSave({ sessionId: conversation.session.id, message, kind });
   }
   const speech = <SpeechText fullText={fullText} revealedText={revealedText} />;
   const notice = (visibleError || canRetry || responding) && (
@@ -468,14 +440,6 @@ export function Balloon({
   );
   const inputOptions = (
     <>
-      <ConversationContext
-        key={`${userId}:${sessionId ?? persona}`}
-        sessionId={sessionId}
-        persona={persona}
-        context={noteContext}
-        onBusyChange={setContextBusy}
-        disabled={responding || playing || pending || navigating}
-      />
       {latestUser && <OrganizerReceipt key={latestUser.id} inputId={latestUser.id} />}
       {conversation && (
         <ConversationReply
@@ -614,8 +578,7 @@ export function Balloon({
       )}
       {mode === "menu" && !saveRequest && (
         <>
-          {!choosingResumeNote && (
-            <CharacterOrbit
+          <CharacterOrbit
               key={contentKey}
               closeRequest={orbitCloseRequest}
               anchor={orbitAnchor ?? undefined}
@@ -632,25 +595,11 @@ export function Balloon({
                   persona,
                   character,
                   sleeping,
-                  resumableWork,
                   paused,
                   perform,
-                  chooseResumeNote: () => setChoosingResumeNote(true),
                 })
               }
             />
-          )}
-          {choosingResumeNote && (
-            <div className={s.inputContents}>
-              <ConversationContext
-                key={`${userId}:${persona}`}
-                persona={persona}
-                initiallyChoosing
-                onBusyChange={setContextBusy}
-                onClose={() => setChoosingResumeNote(false)}
-              />
-            </div>
-          )}
           {sessionsError && (
             <p className={s.error} role="alert">
               {sessionsError}
@@ -696,29 +645,15 @@ export function Balloon({
                   responding ||
                   playing ||
                   sessionsLoading ||
-                  choosingResumeNote ||
                   Boolean(sessionsError)
                 }
-                togetherDisabled={
-                  navigating || pending || responding || playing || choosingResumeNote
-                }
-                historyDisabled={navigating || choosingResumeNote}
+                togetherDisabled={navigating || pending || responding || playing}
+                historyDisabled={navigating}
                 onResume={() => void resumeFromInput()}
                 onTogether={() => void leave("talk_now")}
                 onHistory={() => void leave("open_panel", { persona, mode: "history" })}
               />
-              {choosingResumeNote ? (
-                <div className={surfaceStyle.optionsPanel}>
-                  <ConversationContext
-                    key={`${userId}:${persona}:resume`}
-                    persona={persona}
-                    initiallyChoosing
-                    onBusyChange={setContextBusy}
-                    onClose={() => setChoosingResumeNote(false)}
-                  />
-                </div>
-              ) : (
-                <InputCapsule
+              <InputCapsule
                   className={surfaceStyle.inputCapsule}
                   form="large"
                   asTextarea
@@ -734,7 +669,6 @@ export function Balloon({
                   onSend={() => void send()}
                   textareaProps={{ maxLength: 2000, ...editorKeys }}
                 />
-              )}
               {sessionsError && (
                 <p className={s.error} role="alert">
                   {sessionsError}

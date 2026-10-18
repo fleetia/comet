@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { ConversationContext } from "../components/Balloon/ConversationContext";
 import {
   ConversationSave,
   type ConversationSaveRequest,
@@ -9,7 +8,6 @@ import { Balloon } from "../components/Balloon/Balloon";
 import { PREVIEW_SNAPSHOT, command, isDesktop } from "../hooks/useSnapshot";
 import type {
   ConversationNote,
-  ConversationNoteContext,
   ConversationSession,
   Message,
   Snapshot,
@@ -23,11 +21,6 @@ vi.mock("../hooks/useSnapshot", async (load) => ({
 const note: ConversationNote = {
   noteRef: { kind: "diary", id: "note-one", title: "3화 수정" },
   body: "03C를 03D로 수정\n독자 검증은 아직",
-};
-const context: ConversationNoteContext = {
-  noteRef: note.noteRef,
-  linkedAt: 100,
-  checkpoint: { text: "다음에는 독자 질문 정리", savedAt: 200 },
 };
 const message: Message = {
   id: "message",
@@ -48,7 +41,6 @@ const session: ConversationSession = {
   updatedAt: 30,
   continuedFrom: null,
   draft: "",
-  noteContext: context,
 };
 const snapshot: Snapshot = {
   ...PREVIEW_SNAPSHOT,
@@ -57,11 +49,10 @@ const snapshot: Snapshot = {
     session,
     messages: [message],
     nextBefore: null,
-    noteContext: { ...context, available: true },
   },
 };
 function request(kind: ConversationSaveRequest["kind"] = "note"): ConversationSaveRequest {
-  return { sessionId: session.id, message, context, kind };
+  return { sessionId: session.id, message, kind };
 }
 beforeEach(() => {
   localStorage.clear();
@@ -127,50 +118,6 @@ it("can retry within the open form when local draft storage is unavailable", asy
   expect(screen.getByText(/초안을 임시 보관하지 못했어요/)).toBeTruthy();
 });
 
-it("shows a saved checkpoint as past text and connects only the chosen source reference", async () => {
-  render(
-    <ConversationContext
-      persona="builtin-a"
-      sessionId={session.id}
-      context={{ ...context, available: true }}
-    />,
-  );
-  expect(screen.getByText(/지난번에 남긴 내용/)).toBeTruthy();
-  expect(screen.queryByText(note.body)).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "변경" }));
-  fireEvent.change(screen.getByRole("textbox", { name: "참고할 메모 검색" }), {
-    target: { value: "독자 검증" },
-  });
-  fireEvent.click(await screen.findByRole("button", { name: "다이어리 · 3화 수정" }));
-  await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("set_conversation_note_context", {
-      sessionId: session.id,
-      persona: "builtin-a",
-      noteRef: note.noteRef,
-    }),
-  );
-  fireEvent.click(screen.getByRole("button", { name: "연결 해제" }));
-  await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("set_conversation_note_context", {
-      sessionId: session.id,
-      persona: "builtin-a",
-      noteRef: null,
-    }),
-  );
-});
-
-it("keeps unavailable source contents out of the current context and disables opening them", () => {
-  render(
-    <ConversationContext
-      persona="builtin-a"
-      context={{ ...context, available: false, body: "오래된 본문" }}
-    />,
-  );
-  expect(screen.getByRole("button", { name: "원문 열기" })).toHaveProperty("disabled", true);
-  expect(screen.getByText(/다른 메모를 고르거나 연결을 해제/)).toBeTruthy();
-  expect(screen.queryByText("오래된 본문")).toBeNull();
-});
-
 it("preserves the confirmed note text, guards appends with the original body, and reuses a lost-response request after reopening", async () => {
   vi.mocked(command).mockImplementation(async (name) => {
     if (name === "get_conversation_notes") return [note];
@@ -184,11 +131,10 @@ it("preserves the confirmed note text, guards appends with the original body, an
     "value",
     message.content,
   );
-  expect(screen.getByRole("checkbox", { name: "다음에 이어갈 내용으로 남기기" })).toHaveProperty(
-    "checked",
-    false,
-  );
-  fireEvent.click(screen.getByRole("checkbox", { name: "다음에 이어갈 내용으로 남기기" }));
+  expect(screen.queryByRole("checkbox", { name: "다음에 이어갈 내용으로 남기기" })).toBeNull();
+  fireEvent.change(screen.getByRole("combobox", { name: "저장할 메모" }), {
+    target: { value: note.noteRef.id },
+  });
   fireEvent.click(screen.getByRole("button", { name: "메모 저장" }));
   await screen.findByRole("alert");
   const firstInput = vi
@@ -201,7 +147,6 @@ it("preserves the confirmed note text, guards appends with the original body, an
     noteId: note.noteRef.id,
     title: undefined,
     expectedBody: note.body,
-    checkpoint: true,
     requestId: expect.any(String),
   });
   first.unmount();
@@ -264,43 +209,30 @@ it("does not silently cut a long source to fit a registered line", () => {
   expect(screen.getByRole("button", { name: "대사 저장" })).toHaveProperty("disabled", true);
 });
 
-it("resumes the most recently linked work even when that session ended", async () => {
-  const recentLink = {
-    ...session,
-    id: "ended-work",
-    status: "ended" as const,
-    updatedAt: 20,
-    noteContext: { ...context, linkedAt: 500 },
-  };
+it("resumes the paused chat from the menu", async () => {
+  const paused = { ...session, id: "paused-chat", status: "paused" as const };
   render(
     <Balloon
       snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "builtin-a", mode: "menu" } }}
-      previewConversations={[
-        { session, messages: [], nextBefore: null },
-        { session: recentLink, messages: [], nextBefore: null },
-      ]}
+      previewConversations={[{ session: paused, messages: [], nextBefore: null }]}
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "이어서 하기" }));
   await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("resume_chat", { sessionId: recentLink.id }),
+    expect(command).toHaveBeenCalledWith("resume_chat", { sessionId: paused.id }),
   );
 });
 
-it("offers a source choice without running AI when there is no linked work", async () => {
+it("opens past chats instead of a memo picker when nothing is paused", async () => {
   render(
     <Balloon snapshot={{ ...PREVIEW_SNAPSHOT, panel: { persona: "builtin-a", mode: "menu" } }} />,
   );
   fireEvent.click(screen.getByRole("button", { name: "이어서 하기" }));
-  fireEvent.click(await screen.findByRole("button", { name: "다이어리 · 3화 수정" }));
   await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("set_conversation_note_context", {
-      sessionId: undefined,
-      persona: "builtin-a",
-      noteRef: note.noteRef,
-    }),
+    expect(command).toHaveBeenCalledWith("open_panel", { persona: "builtin-a", mode: "history" }),
   );
-  expect(vi.mocked(command).mock.calls.some(([name]) => name === "send_message")).toBe(false);
+  expect(screen.queryByRole("region", { name: "대화에서 참고할 메모" })).toBeNull();
+  expect(command).not.toHaveBeenCalledWith("set_conversation_note_context", expect.anything());
 });
 
 it("keeps a save form open past idle timeout and does not leak it to a different user", async () => {

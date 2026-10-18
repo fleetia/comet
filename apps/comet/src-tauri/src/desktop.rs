@@ -1449,15 +1449,7 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
     let Ok(_action) = state.action.try_lock() else {
         return Ok(None);
     };
-    let (
-        Ok(db),
-        Ok(mut runtime),
-        Ok(panel),
-        Ok(mut playback),
-        Ok(mut story),
-        Ok(presence),
-        Ok(guests),
-    ) = (
+    let (Ok(db), Ok(runtime), Ok(panel), Ok(mut playback), Ok(mut story), Ok(presence), Ok(guests)) = (
         state.db.try_lock(),
         state.runtime.try_lock(),
         state.panel.try_lock(),
@@ -1465,24 +1457,9 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
         state.story.try_lock(),
         state.presence.try_lock(),
         state.guests.try_lock(),
-    )
-    else {
+    ) else {
         return Ok(None);
     };
-    if let Some(error) = playback
-        .as_ref()
-        .filter(|line| matches!(line.source.as_str(), "llm" | "question"))
-        .and_then(|line| crate::conversation_notes::validate_reply(&db, &line.id).err())
-    {
-        *playback = None;
-        runtime.phase = crate::types::RuntimePhase::Error;
-        runtime.error = Some(error);
-        let app = app.clone();
-        tauri::async_runtime::spawn(async move {
-            let state = app.state::<Arc<AppState>>();
-            super::publish(&app, &state);
-        });
-    }
     let mut status = runtime.clone();
     let residents = crate::characters::active_ids(&db)?;
     let active =

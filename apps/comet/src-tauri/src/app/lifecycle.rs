@@ -634,7 +634,6 @@ pub fn run() {
             crate::diary::get_diary,
             crate::diary::update_diary,
             crate::conversation_notes::get_conversation_notes,
-            crate::conversation_notes::set_conversation_note_context,
             crate::conversation_notes::open_conversation_note,
             crate::conversation_notes::save_conversation_note,
             crate::widgets::runtime::get_widget_runtime,
