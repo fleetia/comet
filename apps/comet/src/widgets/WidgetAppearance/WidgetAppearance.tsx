@@ -1,4 +1,5 @@
-import { Button, FormField, Heading, Surface, Text } from "../../ui";
+import { Button, FormField, Surface } from "@comet/ui";
+import { Heading, Text } from "../../primitives";
 import { ColorField } from "./ColorField";
 import { PlacementPicker } from "./PlacementPicker";
 import { useEffect, useRef, useState, type ReactElement } from "react";
@@ -127,7 +128,7 @@ export function WidgetAppearance({
     <section className={s.settings} aria-label="색상·글자">
       <div className={s.body}>
         {!compact && (
-          <Surface tone="accent" className={s.previewSurface}>
+          <Surface variant="accent" className={s.previewSurface}>
             <Text variant="caption">미리보기</Text>
             <div
               className={s.preview}
@@ -175,14 +176,14 @@ export function WidgetAppearance({
         {!compact && (
           <div className={s.fileActions}>
             <Button
-              variant="secondary"
+              variant="ghost"
               disabled={locked || saving}
               onClick={() => void changeBackground("choose_widget_background")}
             >
               {imageUrl ? "배경 이미지 바꾸기" : "배경 이미지 선택"}
             </Button>
             <Button
-              variant="secondary"
+              variant="ghost"
               disabled={locked || saving || !imageUrl}
               onClick={() => void changeBackground("remove_widget_background")}
             >
@@ -228,8 +229,8 @@ export function WidgetAppearance({
                 {error}
               </p>
               <Button
-                size="compact"
-                variant="secondary"
+                size="small"
+                variant="ghost"
                 disabled={locked || saving}
                 onClick={() => {
                   queued.current = draft;

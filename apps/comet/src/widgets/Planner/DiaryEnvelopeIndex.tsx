@@ -1,6 +1,5 @@
+import { EnvelopeCard, Surface } from "@comet/ui";
 import type { ReactElement } from "react";
-import { EnvelopeCard } from "@comet/ui";
-import { Surface } from "../../ui";
 import { localDay, rows, text, type DataRecord } from "../toolData";
 import { envelopeTitle } from "./DiaryEnvelope";
 import type { DiaryTool } from "./diaryNavigation";
@@ -29,7 +28,7 @@ export function DiaryEnvelopeIndex({
 }): ReactElement {
   return (
     <Surface
-      padding="compact"
+      variant="panel"
       className={s.index}
       hidden={collection !== "envelopes" || notesOpen}
       role="navigation"

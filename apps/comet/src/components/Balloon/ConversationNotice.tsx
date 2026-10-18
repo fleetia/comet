@@ -1,5 +1,5 @@
 import type { JSX, RefObject } from "react";
-import { Button } from "../../ui";
+import { Button } from "@comet/ui";
 import * as s from "../companion.css";
 
 type Props = {
@@ -58,23 +58,23 @@ export function ConversationNotice({
       )}
       <div className={s.row}>
         {canRetry && (
-          <Button variant="secondary" disabled={pending || navigating} onClick={onRetry}>
+          <Button variant="ghost" disabled={pending || navigating} onClick={onRetry}>
             다시 이야기하기
           </Button>
         )}
         {canRetry && (
           <>
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={pending || navigating}
               onClick={onEditInput}
             >
               입력 수정
             </Button>
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={pending || navigating}
               onClick={onOpenModelSettings}
             >
@@ -83,7 +83,7 @@ export function ConversationNotice({
           </>
         )}
         {canCancel && (
-          <Button variant="quiet" size="compact" disabled={pending} onClick={onCancel}>
+          <Button variant="ghost" size="small" disabled={pending} onClick={onCancel}>
             생성 멈추기
           </Button>
         )}

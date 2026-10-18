@@ -1,7 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
-import { IconButton } from "../../ui";
-import { CloseIcon } from "@comet/icon";
-import { InputCapsule } from "@comet/ui";
+import { IconButton, InputCapsule } from "@comet/ui";
 import type { ConversationView, Dispatch, Message, Persona, Snapshot } from "../../types";
 import { command, errorText } from "../../hooks/useSnapshot";
 import { useBalloonSizing } from "../../hooks/useBalloonSizing";
@@ -609,15 +607,13 @@ export function Balloon({
         <IconButton
           className={s.balloonClose}
           size="compact"
-          variant="quiet"
-          label={mode ? "패널 닫기" : "이야기 닫기"}
+          icon="close"
+          aria-label={mode ? "패널 닫기" : "이야기 닫기"}
           onClick={() => {
             if (orbitMenu) setOrbitCloseRequest((request) => request + 1);
             else void leave(closeCommand);
           }}
-        >
-          <CloseIcon size={14} />
-        </IconButton>
+        />
       )}
       {mode === "menu" && !saveRequest && (
         <>

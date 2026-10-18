@@ -1,6 +1,5 @@
+import { Dialog, Button, Checkbox, TextInput, FormField } from "@comet/ui";
 import type { Dispatch, ReactElement, SetStateAction } from "react";
-import { Dialog } from "@comet/ui";
-import { Button, Checkbox, DateField, FormField } from "../../ui";
 import { text, type DataRecord, type ToolAction } from "../toolData";
 import * as s from "./planner.css";
 
@@ -65,18 +64,23 @@ export function PlannerWrapDialog({
                 e.target.checked ? [...old, text(item.id)] : old.filter((id) => id !== item.id),
               )
             }
-          >
-            {text(item.title)}
-          </Checkbox>
+            label={text(item.title)}
+          />
         ))}
         <FormField label="옮길 날짜" className={s.field}>
-          <DateField required value={rollDate} onChange={(e) => onRollDateChange(e.target.value)} />
+          <TextInput
+            type="date"
+            fill
+            required
+            value={rollDate}
+            onChange={(e) => onRollDateChange(e.target.value)}
+          />
         </FormField>
         <p className={s.caption}>
           선택하지 않은 일은 {day}에 그대로 남아요. 원래 기한과 계획 기간은 유지합니다.
         </p>
         <div className={s.actions}>
-          <Button variant="quiet" type="button" onClick={() => onOpenChange(false)}>
+          <Button variant="ghost" type="button" onClick={() => onOpenChange(false)}>
             그대로 마치기
           </Button>
           <div className={s.spacer} />

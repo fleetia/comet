@@ -1,5 +1,5 @@
+import { Button } from "@comet/ui";
 import type { ReactElement } from "react";
-import { Button } from "../../ui";
 import { localDay, type DataRecord } from "../toolData";
 import { plannedDay } from "./plannerData";
 import * as s from "./planner.css";
@@ -24,12 +24,12 @@ export function PlannerTaskActions({
 }): ReactElement {
   return (
     <div className={s.actions}>
-      <Button variant="secondary" size="compact" disabled={!currentTask || busy} onClick={onFocus}>
+      <Button variant="ghost" size="small" disabled={!currentTask || busy} onClick={onFocus}>
         25분 집중
       </Button>
       <Button
-        variant="quiet"
-        size="compact"
+        variant="ghost"
+        size="small"
         disabled={!currentTask || plannedDay(currentTask) !== day || busy}
         onClick={onRemove}
       >
@@ -37,7 +37,7 @@ export function PlannerTaskActions({
       </Button>
       {showWrap && <div className={s.spacer} />}
       {showWrap && (
-        <Button variant="quiet" size="compact" onClick={onWrap}>
+        <Button variant="ghost" size="small" onClick={onWrap}>
           하루 마무리
         </Button>
       )}

@@ -33,6 +33,7 @@ export const sceneHeading = style({
   gap: tokens["spacing/space-16"],
 });
 export const preview = style({
+  padding: 16,
   display: "grid",
   gap: tokens["spacing/space-8"],
   minHeight: 160,

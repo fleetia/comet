@@ -1,7 +1,6 @@
+import { Button, MessageInput, SelectField, TextInput } from "@comet/ui";
 import type { ReactElement } from "react";
 import { Icon } from "@comet/icon";
-import { Button as CometButton, MessageInput, SelectField } from "@comet/ui";
-import { Button, DateField, TextField } from "../../ui";
 import { localDay, text, type DataRecord } from "../toolData";
 import { dayDate } from "./plannerData";
 import * as s from "./planner.css";
@@ -40,7 +39,7 @@ export function PlannerQuickInput({
   onSubmit: () => Promise<void>;
 }): ReactElement {
   const diaryQuickAdd = embedded && isToday;
-  const Input = diaryQuickAdd ? MessageInput : TextField;
+  const Input = diaryQuickAdd ? MessageInput : TextInput;
   return (
     <>
       <p
@@ -61,6 +60,7 @@ export function PlannerQuickInput({
         {diaryQuickAdd && <Icon name="plus" size={16} />}
         <div className={diaryQuickAdd ? s.diaryInput : s.grow}>
           <Input
+            fill={!diaryQuickAdd}
             className={s.grow}
             aria-label="새 할 일"
             aria-describedby={`planner-add-scope-${isToday ? "day" : "period"}`}
@@ -92,7 +92,9 @@ export function PlannerQuickInput({
                     })}
                 <Icon name="chevdown" size={12} />
               </span>
-              <DateField
+              <TextInput
+                type="date"
+                fill
                 aria-label="새 할 일 계획일"
                 value={day}
                 disabled={busy}
@@ -117,10 +119,10 @@ export function PlannerQuickInput({
                 </option>
               ))}
             </SelectField>
-            <CometButton className={s.diaryTemplate} variant="link" onClick={onTemplates}>
+            <Button className={s.diaryTemplate} variant="link" onClick={onTemplates}>
               템플릿에서 고르기
               <Icon name="arrowright" size={14} />
-            </CometButton>
+            </Button>
             <button type="submit" hidden disabled={busy || !hasTodo}>
               추가
             </button>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, TextField } from "../../ui";
+import { Button, TextInput } from "@comet/ui";
 import { command, errorText } from "../../hooks/useSnapshot";
 import type { ConversationNote, ConversationNoteContext, NoteReference } from "../../types";
 import * as s from "../companion.css";
@@ -98,24 +98,24 @@ export function ConversationContext({
           <div className={n.actions}>
             <span>참고 중: {context.noteRef.title}</span>
             <Button
-              size="compact"
-              variant="quiet"
+              size="small"
+              variant="ghost"
               disabled={pending || context.available === false}
               onClick={() => void openOriginal()}
             >
               원문 열기
             </Button>
             <Button
-              size="compact"
-              variant="quiet"
+              size="small"
+              variant="ghost"
               disabled={pending || disabled}
               onClick={() => setChoosing(!choosing)}
             >
               변경
             </Button>
             <Button
-              size="compact"
-              variant="quiet"
+              size="small"
+              variant="ghost"
               disabled={pending || disabled}
               onClick={() => void connect(null)}
             >
@@ -141,12 +141,7 @@ export function ConversationContext({
           )}
         </>
       ) : !choosing ? (
-        <Button
-          size="compact"
-          variant="quiet"
-          disabled={disabled}
-          onClick={() => setChoosing(true)}
-        >
+        <Button size="small" variant="ghost" disabled={disabled} onClick={() => setChoosing(true)}>
           메모 연결
         </Button>
       ) : null}
@@ -155,7 +150,8 @@ export function ConversationContext({
           <p className={s.conversationMeta}>
             함께 볼 메모 하나를 골라 주세요. AI에게 물으면 연결한 원문을 선택한 AI에 보내요.
           </p>
-          <TextField
+          <TextInput
+            fill
             aria-label="참고할 메모 검색"
             placeholder="제목이나 내용 검색"
             value={search}
@@ -173,8 +169,8 @@ export function ConversationContext({
             <Button
               key={`${note.noteRef.kind}:${note.noteRef.widgetId ?? ""}:${note.noteRef.id}`}
               className={n.choice}
-              size="compact"
-              variant="quiet"
+              size="small"
+              variant="ghost"
               disabled={pending || disabled}
               onClick={() => void connect(note.noteRef)}
             >
@@ -183,16 +179,16 @@ export function ConversationContext({
           ))}
           <div className={n.actions}>
             <Button
-              size="compact"
-              variant="quiet"
+              size="small"
+              variant="ghost"
               disabled={loading || pending}
               onClick={() => setRefresh((value) => value + 1)}
             >
               새로고침
             </Button>
             <Button
-              size="compact"
-              variant="quiet"
+              size="small"
+              variant="ghost"
               disabled={pending}
               onClick={() => {
                 setChoosing(false);

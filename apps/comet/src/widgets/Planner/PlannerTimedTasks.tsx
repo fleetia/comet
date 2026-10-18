@@ -1,5 +1,5 @@
+import { Button } from "@comet/ui";
 import type { ReactElement } from "react";
-import { Button } from "../../ui";
 import { number, text, type DataRecord } from "../toolData";
 import { clockLabel, dueDay } from "./plannerData";
 import * as s from "./planner.css";
@@ -34,8 +34,8 @@ export function PlannerTimedTasks({
             <span className={s.caption}>{clockLabel(number(item.dueAt))}</span>
             {renderCheck(item)}
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               aria-label={`${text(item.title)} 시간 수정`}
               onClick={() => onEdit(item)}
             >
@@ -50,8 +50,8 @@ export function PlannerTimedTasks({
           <div key={text(item.id)} className={s.actions}>
             {renderCheck(item)}
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               aria-label={`${text(item.title)} 시간 잡기`}
               onClick={() => onEdit(item)}
             >

@@ -1,5 +1,5 @@
+import { Button } from "@comet/ui";
 import type { ReactElement, ReactNode } from "react";
-import { Button } from "../../ui";
 import { localDay, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import { PlannerAlertNotice } from "../PlannerAlerts/PlannerAlerts";
@@ -61,11 +61,11 @@ export function PlannerDayTaskList({
         <h2 className={s.heading}>
           {allTasks ? "모든 날짜 할 일" : `${day} 할 일`} · {displayedTasks.length}개
         </h2>
-        <Button variant="quiet" size="compact" aria-pressed={allTasks} onClick={onToggleAllTasks}>
+        <Button variant="ghost" size="small" aria-pressed={allTasks} onClick={onToggleAllTasks}>
           {allTasks ? "선택 날짜만 보기" : "모든 할 일 보기"}
         </Button>
         <div className={s.spacer} />
-        <Button variant="quiet" size="compact" onClick={onOpenInbox}>
+        <Button variant="ghost" size="small" onClick={onOpenInbox}>
           수집함 · 날짜 없음 · 미완료 {inboxCount}개
         </Button>
       </div>
@@ -81,7 +81,7 @@ export function PlannerDayTaskList({
                   ? "모든 날짜와 날짜 없는 항목에 저장한 할 일이 없어요."
                   : `${day}에 계획한 할 일이 없어요.`}
               </p>
-              <Button variant="quiet" size="compact" onClick={onTemplates}>
+              <Button variant="ghost" size="small" onClick={onTemplates}>
                 템플릿에서 고르기
               </Button>
             </div>
@@ -99,8 +99,8 @@ export function PlannerDayTaskList({
                   {repeatLabel(item) || text(lists.find((l) => l.id === item.listId)?.name)}
                 </span>
                 <Button
-                  variant="quiet"
-                  size="compact"
+                  variant="ghost"
+                  size="small"
                   aria-label={`${text(item.title)} 편집`}
                   onClick={() => onEdit(item)}
                 >

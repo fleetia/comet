@@ -1,6 +1,5 @@
 import type { JSX } from "react";
-import { Dialog } from "@comet/ui";
-import { Button } from "../../ui";
+import { Button, Dialog } from "@comet/ui";
 
 export function DraftReplacementDialog({
   open,
@@ -22,7 +21,7 @@ export function DraftReplacementDialog({
       }}
       footer={
         <>
-          <Button variant="quiet" onClick={() => onDismiss()}>
+          <Button variant="ghost" onClick={() => onDismiss()}>
             계속 작성
           </Button>
           <Button variant="primary" onClick={onReplace}>

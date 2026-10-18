@@ -1,6 +1,5 @@
+import { Button, TaskRow } from "@comet/ui";
 import type { ReactElement, ReactNode } from "react";
-import { Button as CometButton, TaskRow } from "@comet/ui";
-import { Button } from "../../ui";
 import { localDay, number, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import { PlannerAlertNotice } from "../PlannerAlerts/PlannerAlerts";
@@ -271,8 +270,8 @@ export function PlannerDiaryTasks({
                             <div className={s.diaryTaskDetails}>
                               <TaskReadOnlyDetails item={item} />
                               <Button
-                                variant="quiet"
-                                size="compact"
+                                variant="ghost"
+                                size="small"
                                 aria-label={`${text(item.title)} 편집`}
                                 onClick={() => onEdit(item)}
                               >
@@ -295,14 +294,14 @@ export function PlannerDiaryTasks({
               </section>
             ))}
           <div className={s.diaryTaskFooter}>
-            <CometButton variant="link" aria-expanded={showCompleted} onClick={onToggleCompleted}>
+            <Button variant="link" aria-expanded={showCompleted} onClick={onToggleCompleted}>
               {showCompleted ? "완료한 일 접기" : `완료한 일 ${done.length}개 보기`}
-            </CometButton>
+            </Button>
             <div className={s.spacer} />
             {!headerActions && (
-              <CometButton variant="link" onClick={onManageLists}>
+              <Button variant="link" onClick={onManageLists}>
                 목록 관리
-              </CometButton>
+              </Button>
             )}
             <button
               type="button"
@@ -318,7 +317,7 @@ export function PlannerDiaryTasks({
           </div>
           {!headerActions && (
             <div className={s.actions}>
-              <Button variant="quiet" size="compact" onClick={onWrap}>
+              <Button variant="ghost" size="small" onClick={onWrap}>
                 하루 마무리
               </Button>
             </div>

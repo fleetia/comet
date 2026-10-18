@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { SegmentedControl, Dialog } from "@comet/ui";
-import { Button, DateField, Select, TextArea, TextField } from "../../ui";
+import { Button, Dialog, SegmentedControl, Select, Textarea, TextInput } from "@comet/ui";
 import { localDay, text, type DataRecord } from "../toolData";
 import { eventTime } from "../Planner/plannerData";
 import { PLANNER_TEMPLATES, templateItems } from "../Planner/templateCatalog";
@@ -112,7 +111,7 @@ export function PreparationCreate({
       }}
       footer={
         <div className={s.actions}>
-          <Button variant="secondary" disabled={disabled} onClick={onClose}>
+          <Button variant="ghost" disabled={disabled} onClick={onClose}>
             취소
           </Button>
           <Button
@@ -138,7 +137,8 @@ export function PreparationCreate({
           <label className={s.createLabel} htmlFor="envelope-create-name">
             이름
           </label>
-          <TextField
+          <TextInput
+            fill
             id="envelope-create-name"
             aria-label="봉투 이름"
             autoFocus
@@ -171,6 +171,7 @@ export function PreparationCreate({
             </label>
             <div className={s.createControl}>
               <Select
+                fill
                 id="envelope-create-event"
                 value={eventId}
                 disabled={locked}
@@ -201,7 +202,9 @@ export function PreparationCreate({
             <label className={s.createLabel} htmlFor="envelope-create-date">
               날짜
             </label>
-            <DateField
+            <TextInput
+              type="date"
+              fill
               id="envelope-create-date"
               required
               value={date}
@@ -214,7 +217,9 @@ export function PreparationCreate({
           <label className={s.createLabel} htmlFor="envelope-create-checks">
             챙길 것
           </label>
-          <TextArea
+          <Textarea
+            layout="flexible"
+            fill
             className={s.createTextarea}
             id="envelope-create-checks"
             rows={3}
@@ -230,6 +235,7 @@ export function PreparationCreate({
           </label>
           <div className={s.createControl}>
             <Select
+              fill
               id="envelope-create-template"
               value={templateId}
               disabled={locked}
@@ -254,6 +260,7 @@ export function PreparationCreate({
             알림
           </label>
           <Select
+            fill
             id="envelope-create-reminder"
             value={reminderDays}
             disabled={locked}

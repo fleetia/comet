@@ -1,5 +1,5 @@
+import { Button } from "@comet/ui";
 import type { ReactElement, ReactNode } from "react";
-import { Button } from "../../ui";
 import { text, type DataRecord } from "../toolData";
 import type { WidgetView } from "../types";
 import { eventTime } from "./plannerData";
@@ -37,7 +37,7 @@ export function PlannerDayAgenda({
       {!calendar || (!connections.length && !events.length) ? (
         <div className={s.empty}>
           <p className={s.caption}>내 캘린더도 함께 볼 수 있어요.</p>
-          <Button variant="secondary" size="compact" onClick={onOpenSettings}>
+          <Button variant="ghost" size="small" onClick={onOpenSettings}>
             캘린더 연결
           </Button>
           <p className={s.caption}>할 일은 계정 없이 사용할 수 있어요.</p>
@@ -47,7 +47,7 @@ export function PlannerDayAgenda({
           {connections.some((c) => !["ready", "syncing"].includes(text(c.status))) && (
             <div role="status" className={s.error}>
               캘린더를 갱신하지 못했어요.
-              <Button variant="quiet" size="compact" onClick={onOpenSettings}>
+              <Button variant="ghost" size="small" onClick={onOpenSettings}>
                 연결 확인 ↗
               </Button>
             </div>

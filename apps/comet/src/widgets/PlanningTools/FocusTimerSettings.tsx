@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
-import { SegmentedControl, SelectField, SettingControlRow, Stepper, Switch } from "@comet/ui";
-import { Button, FormField, TextField } from "../../ui";
+import {
+  Button,
+  FormField,
+  SegmentedControl,
+  SelectField,
+  SettingControlRow,
+  Stepper,
+  Switch,
+  TextInput,
+} from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { number, record, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
@@ -459,7 +467,8 @@ export function FocusTimerSettings({
             />
             {customLead && (
               <FormField label="알람 시간 직접 입력 (분 전)">
-                <TextField
+                <TextInput
+                  fill
                   type="number"
                   min={0}
                   max={120}
@@ -489,13 +498,13 @@ export function FocusTimerSettings({
                 </span>
                 <Button
                   type="button"
-                  variant="quiet"
+                  variant="ghost"
                   disabled={busy || permissionBusy}
                   onClick={() => void requestPermission()}
                 >
                   OS 알림 권한 요청
                 </Button>
-                <Button type="button" variant="quiet" onClick={() => void previewAlarm()}>
+                <Button type="button" variant="ghost" onClick={() => void previewAlarm()}>
                   알림 미리보기
                 </Button>
               </div>
@@ -565,7 +574,7 @@ export function FocusTimerSettings({
             {error && !conflict && !cheerConflict && !validationError(draft) && (
               <Button
                 type="button"
-                variant="secondary"
+                variant="ghost"
                 disabled={busy}
                 onClick={() => {
                   failedDraft.current = null;
@@ -577,7 +586,7 @@ export function FocusTimerSettings({
                 다시 저장
               </Button>
             )}
-            <Button type="button" variant="quiet" disabled={busy} onClick={cancelChanges}>
+            <Button type="button" variant="ghost" disabled={busy} onClick={cancelChanges}>
               최신 값 불러오기
             </Button>
           </div>

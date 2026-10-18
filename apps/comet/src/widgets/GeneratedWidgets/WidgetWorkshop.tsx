@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Dialog } from "@comet/ui";
-import { Button } from "../../ui";
+import { Button, Dialog } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { WidgetFrame } from "../WidgetFrame/WidgetFrame";
 import { useWindowCloseGuard } from "../useWindowCloseGuard";
@@ -134,7 +133,7 @@ export function WidgetWorkshop(): ReactElement {
           </Button>
           {busy && (
             <Button
-              variant="secondary"
+              variant="ghost"
               onClick={() => void cancel()}
             >
               제작 중단
@@ -152,7 +151,7 @@ export function WidgetWorkshop(): ReactElement {
           만든 위젯은 위젯 목록에서 실행·수정하고 설치 정보를 확인할 수 있어요.
         </p>
         <Button
-          variant="secondary"
+          variant="ghost"
           disabled={busy || !isDesktop()}
           onClick={() => void run(() => command("open_widgets"))}
         >
@@ -176,7 +175,7 @@ export function WidgetWorkshop(): ReactElement {
             onChange={(event) => setImportText(event.target.value)}
           />
           <Button
-            variant="secondary"
+            variant="ghost"
             disabled={busy || !importText.trim() || !isDesktop()}
             onClick={() =>
               void run(async () => {
@@ -204,10 +203,10 @@ export function WidgetWorkshop(): ReactElement {
           variant="confirm"
           footer={
             <>
-              <Button variant="secondary" onClick={closeGuard.keepEditing}>
+              <Button variant="ghost" onClick={closeGuard.keepEditing}>
                 계속 편집
               </Button>
-              <Button variant="critical" onClick={() => void closeGuard.discardAndClose()}>
+              <Button variant="danger" onClick={() => void closeGuard.discardAndClose()}>
                 저장하지 않고 닫기
               </Button>
             </>

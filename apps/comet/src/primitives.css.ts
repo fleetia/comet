@@ -229,42 +229,6 @@ export const selectableListRow = style({
   },
 });
 
-export const field = style({ display: "grid", minWidth: 0, gap: tokens["spacing/space-4"] });
-export const fieldLabelRow = style({
-  display: "flex",
-  minWidth: 0,
-  alignItems: "baseline",
-  justifyContent: "space-between",
-  gap: tokens["spacing/space-8"],
-});
-export const fieldLabel = style({
-  color: tokens["color/primary"],
-  fontFamily: uiFont,
-  fontSize: tokens["typography/sans/body/fontSize"],
-  fontWeight: 700,
-  lineHeight: lineHeight.compact,
-  letterSpacing: "0.045em",
-});
-export const fieldMarker = style({
-  color: tokens["color/ink-2"],
-  fontFamily: dataFont,
-  fontSize: tokens["typography/sans/caption/fontSize"],
-  fontVariantNumeric: "tabular-nums",
-  lineHeight: lineHeight.compact,
-});
-export const fieldRequired = style({
-  color: tokens["color/danger"],
-  marginInlineStart: tokens["spacing/space-6"],
-});
-export const fieldFeedback = style({
-  margin: 0,
-  fontFamily: uiFont,
-  fontSize: tokens["typography/sans/caption/fontSize"],
-  lineHeight: lineHeight.compact,
-});
-export const fieldDescription = style({ color: tokens["color/ink-2"] });
-export const fieldError = style({ color: tokens["color/danger"], fontWeight: 650 });
-
 export const tabPanel = style({
   minWidth: 0,
   padding: tokens["spacing/space-16"],

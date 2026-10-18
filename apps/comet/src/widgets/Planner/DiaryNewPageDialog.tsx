@@ -1,6 +1,5 @@
+import { Dialog, Button, FormField, TextInput } from "@comet/ui";
 import type { ReactElement } from "react";
-import { Dialog } from "@comet/ui";
-import { Button, FormField, TextField } from "../../ui";
 import * as s from "./diary.css";
 
 export function DiaryNewPageDialog({
@@ -36,7 +35,8 @@ export function DiaryNewPageDialog({
         }}
       >
         <FormField label="페이지 이름">
-          <TextField
+          <TextInput
+            fill
             autoFocus
             required
             maxLength={500}

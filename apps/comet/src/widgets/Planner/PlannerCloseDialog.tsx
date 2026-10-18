@@ -1,6 +1,5 @@
+import { Dialog, Button } from "@comet/ui";
 import type { ReactElement } from "react";
-import { Dialog } from "@comet/ui";
-import { Button } from "../../ui";
 
 export function PlannerCloseDialog({
   isOpen,
@@ -22,11 +21,11 @@ export function PlannerCloseDialog({
       onOpenChange={onOpenChange}
       footer={
         <>
-          <Button variant="secondary" onClick={onKeep}>
+          <Button variant="ghost" onClick={onKeep}>
             계속 작성
           </Button>
           <Button
-            variant="critical"
+            variant="danger"
             onClick={async () => {
               await onDiscard();
             }}

@@ -6,7 +6,7 @@ import {
   type KeyboardEvent,
   type ReactElement,
 } from "react";
-import { useFieldContext } from "../../ui";
+import { useFormField } from "@comet/ui";
 import { normalizeColor } from "./colorValue";
 import * as styles from "./controls.css";
 
@@ -33,7 +33,7 @@ export function ColorField({
   "aria-describedby": ariaDescribedBy,
   ...props
 }: ColorFieldProps): ReactElement {
-  const field = useFieldContext();
+  const field = useFormField();
   const committed = normalizeColor(value) ?? "#000000";
   const [draft, setDraft] = useState(committed);
   const [focused, setFocused] = useState(false);

@@ -1,6 +1,5 @@
-import { SegmentedControl, Select, SettingControlRow, Switch } from "@comet/ui";
+import { Button, SegmentedControl, Select, SettingControlRow, Switch, TextInput } from "@comet/ui";
 import { Icon } from "@comet/icon";
-import { Button, TextField } from "../../ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { localDay, record, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
@@ -130,7 +129,8 @@ export function ClockTool({
       <div className={clock.editorTop}>
         <label htmlFor="anniversary-title">이름</label>
         <div className={clock.titleField}>
-          <TextField
+          <TextInput
+            fill
             id="anniversary-title"
             ref={titleInput}
             aria-label="기념일 이름"
@@ -236,8 +236,9 @@ export function ClockTool({
       <div className={clock.actions}>
         {id && !editingMissing && (
           <Button
-            variant="critical"
-            size="compact"
+            className={clock.deleteAction}
+            variant="danger"
+            size="small"
             disabled={saving}
             onClick={() => void save("delete", { id })}
           >
@@ -247,8 +248,9 @@ export function ClockTool({
         )}
         <span className={clock.spacer} />
         <Button
-          variant="secondary"
-          size="compact"
+          className={clock.cancelAction}
+          variant="ghost"
+          size="small"
           disabled={saving}
           aria-label="수정 취소"
           onClick={reset}
@@ -257,8 +259,9 @@ export function ClockTool({
         </Button>
         <Button
           type="submit"
+          className={clock.saveAction}
           variant="primary"
-          size="compact"
+          size="small"
           disabled={saving || editingMissing || !title.trim()}
           aria-label={id ? "기념일 변경 저장" : "기념일 추가"}
         >
@@ -272,8 +275,8 @@ export function ClockTool({
       <header className={clock.heading}>
         <h2>기념일</h2>
         <Button
-          variant="secondary"
-          size="compact"
+          variant="ghost"
+          size="small"
           disabled={creating || saving}
           onClick={() => setCreating(true)}
         >
@@ -299,8 +302,8 @@ export function ClockTool({
               <span className={clock.countdown}>{anniversaryLabel(item, now)}</span>
               {id !== item.id && (
                 <Button
-                  variant="secondary"
-                  size="compact"
+                  variant="ghost"
+                  size="small"
                   disabled={saving}
                   aria-label={`수정 ${text(item.title)}`}
                   onClick={() => edit(item)}

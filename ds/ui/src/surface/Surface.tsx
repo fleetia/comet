@@ -5,7 +5,7 @@ import { Motion, type MotionProps } from "../motion/Motion";
 import * as styles from "./styles.css";
 
 export type SurfaceProps = Omit<MotionProps, "preset"> & {
-  variant?: "window" | "sheet" | "popover" | "card";
+  variant?: "window" | "sheet" | "panel" | "accent" | "popover" | "card";
 };
 
 export const Surface = forwardRef<HTMLDivElement, SurfaceProps>(

@@ -1,4 +1,4 @@
-import { Button } from "../../ui";
+import { Button } from "@comet/ui";
 import { useId, useRef, useState, type ReactElement } from "react";
 import { frequencyRecords, ruleOf } from "../Planner/plannerData";
 import { localDay, number, rows, text, type DataRecord, type ToolAction } from "../toolData";
@@ -76,7 +76,7 @@ export function FrequencyRecordAction({
         {count + (saved && !recorded ? 1 : 0)}/{limit}회
       </p>
       <Button
-        variant="secondary"
+        variant="ghost"
         disabled={disabled}
         aria-describedby={descriptionId}
         onClick={() => void save()}

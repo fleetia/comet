@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type JSX } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Button } from "../../ui";
-import { SettingControlRow, Stepper, Switch, Textarea, TextInput } from "@comet/ui";
+import { Button, SettingControlRow, Stepper, Switch, Textarea, TextInput } from "@comet/ui";
 import { FolderIcon, OrganizeIcon, PlusIcon } from "@comet/icon";
 import * as figma from "../SettingsPanel/figmaSettings.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
@@ -250,7 +249,7 @@ export function OrganizerSettings({
     <section className={s.root} aria-label="Ex-brain 설정">
       {view === "connect" && (
         <div className={s.subnavigation}>
-          <Button variant="quiet" size="compact" onClick={() => setView("overview")}>
+          <Button variant="ghost" size="small" onClick={() => setView("overview")}>
             ‹ Ex-brain
           </Button>
           <span>Vault 연결</span>
@@ -302,15 +301,15 @@ export function OrganizerSettings({
           <div className={figma.controls}>
             <Button
               variant="primary"
-              size="compact"
+              size="small"
               disabled={disabled}
               onClick={() => void run("organizer_run")}
             >
               지금 정리
             </Button>
             <Button
-              variant="secondary"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={
                 !isDesktop() ||
                 !status ||
@@ -323,8 +322,8 @@ export function OrganizerSettings({
               {status?.paused ? "정리 이어하기" : "정리 일시정지"}
             </Button>
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={!isDesktop()}
               onClick={() => void run("organizer_open_records")}
             >
@@ -335,8 +334,8 @@ export function OrganizerSettings({
             <div className={figma.note}>
               <strong>보류 {progress.deferred}개</strong>
               <Button
-                variant="secondary"
-                size="compact"
+                variant="ghost"
+                size="small"
                 disabled={disabled}
                 onClick={() => void run("organizer_run", { retry: true })}
               >
@@ -380,8 +379,8 @@ export function OrganizerSettings({
               />
               <Button
                 type="submit"
-                variant="secondary"
-                size="compact"
+                variant="ghost"
+                size="small"
                 disabled={!isDesktop() || !status || !query.trim() || searching}
               >
                 {searching ? "검색 중…" : "검색"}
@@ -410,8 +409,8 @@ export function OrganizerSettings({
             <div className={figma.controls}>
               <h2 className={figma.sectionTitle}>정리할 자료</h2>
               <Button
-                variant="secondary"
-                size="compact"
+                variant="ghost"
+                size="small"
                 disabled={disabled}
                 onClick={() => setView("connect")}
               >
@@ -455,16 +454,16 @@ export function OrganizerSettings({
                       </p>
                       <div className={figma.controls}>
                         <Button
-                          variant="secondary"
-                          size="compact"
+                          variant="ghost"
+                          size="small"
                           disabled={disabled}
                           onClick={() => void run("organizer_scan_vault", { id: vault.id })}
                         >
                           변경 자료 다시 읽기
                         </Button>
                         <Button
-                          variant="quiet"
-                          size="compact"
+                          variant="ghost"
+                          size="small"
                           disabled={disabled}
                           onClick={() => void run("organizer_disconnect_vault", { id: vault.id })}
                         >
@@ -527,7 +526,7 @@ export function OrganizerSettings({
                 Ex-brain 설정 저장
               </Button>
               <Button
-                variant="quiet"
+                variant="ghost"
                 disabled={disabled || !settingsDirty}
                 onClick={() => {
                   if (status) setSettings(status.settings);
@@ -596,8 +595,8 @@ export function OrganizerSettings({
                   placeholder="/Users/me/Documents/Vault"
                 />
                 <Button
-                  variant="secondary"
-                  size="compact"
+                  variant="ghost"
+                  size="small"
                   onClick={() => void run("organizer_pick_folder")}
                 >
                   폴더 선택
@@ -655,7 +654,7 @@ export function OrganizerSettings({
               />
             </div>
             <div className={s.connectActions}>
-              <Button variant="quiet" onClick={() => setView("overview")}>
+              <Button variant="ghost" onClick={() => setView("overview")}>
                 취소
               </Button>
               <Button

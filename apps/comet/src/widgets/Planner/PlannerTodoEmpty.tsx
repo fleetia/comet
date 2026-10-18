@@ -1,5 +1,5 @@
+import { Button } from "@comet/ui";
 import type { ReactElement } from "react";
-import { Button } from "../../ui";
 import * as s from "./planner.css";
 
 export function PlannerTodoEmpty({

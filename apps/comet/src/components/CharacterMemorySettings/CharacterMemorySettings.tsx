@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Dialog } from "@comet/ui";
-import { Button, Surface } from "../../ui";
+import { Button, Dialog, Surface } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { InstalledCharacter } from "../../types";
 import { CharacterWorkPanel } from "../CharacterEditor/CharacterWorkPanel";
@@ -87,7 +86,7 @@ export function CharacterMemorySettings({
               이 캐릭터 내보내기
             </Button>
             {onExportPack && (
-              <Button variant="secondary" disabled={disabled || exportDisabled || pending} onClick={onExportPack}>
+              <Button variant="ghost" disabled={disabled || exportDisabled || pending} onClick={onExportPack}>
                 팩 전체 내보내기
               </Button>
             )}
@@ -104,7 +103,7 @@ export function CharacterMemorySettings({
                 모든 사용자에 대해 남긴 기억
               </p>
               <Button
-                variant="quiet"
+                variant="ghost"
                 disabled={disabled || pending || memoryDirty || count === null || count === 0}
                 onClick={() => setConfirm(true)}
               >
@@ -121,7 +120,7 @@ export function CharacterMemorySettings({
         </CharacterWorkPanel>
         <CharacterWorkPanel>
           <h3 className={s.sectionTitle}>{character.definition.name}에 포함된 콘텐츠</h3>
-          <Surface tone="accent" padding="inline" className={layout.identity}>
+          <Surface variant="accent" className={layout.identity}>
             <strong>{character.definition.name}</strong>
             <span>보유 중 · 기억 {count === null ? "확인 중" : `${count}개`}</span>
           </Surface>
@@ -150,7 +149,7 @@ export function CharacterMemorySettings({
             <span className={s.quiet}>공유 형식</span>
             <span>UTF-8 JSON · 최대 32 MiB</span>
           </div>
-          <Surface tone="inset" padding="compact">
+          <Surface variant="card" className={layout.exportNote}>
             <p className={s.quiet}>
               스프라이트·기억·친밀도·대화 기록의 포함 여부는 내보낼 때 선택해요. API 키와 모델
               파일은 포함하지 않아요.
@@ -161,7 +160,7 @@ export function CharacterMemorySettings({
       {error && !confirm && (
         <div role="alert" className={s.error}>
           {error}
-          <Button variant="quiet" onClick={() => setRefresh((value) => value + 1)}>
+          <Button variant="ghost" onClick={() => setRefresh((value) => value + 1)}>
             다시 불러오기
           </Button>
         </div>
@@ -183,7 +182,7 @@ export function CharacterMemorySettings({
         }}
         footer={
           <>
-            <Button variant="secondary" disabled={pending} onClick={() => setConfirm(false)}>
+            <Button variant="ghost" disabled={pending} onClick={() => setConfirm(false)}>
               취소
             </Button>
             <Button variant="primary" disabled={pending} onClick={() => void forget()}>

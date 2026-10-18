@@ -1,4 +1,4 @@
-import { Button } from "../../ui";
+import { Button } from "@comet/ui";
 import type { ReactElement } from "react";
 import { record, rows, text } from "../toolData";
 import type { WidgetSnapshot, WidgetView } from "../types";
@@ -61,8 +61,8 @@ export function DiaryWidgetShelf({ snapshot, busy, onOpenWidget, onAdd }: Props)
                 {name} ↗
               </button>
               <Button
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 disabled={busy}
                 aria-label={`${name} 위젯 연결`}
                 onClick={() => onAdd(payload)}
@@ -87,8 +87,8 @@ export function DiaryWidgetShelf({ snapshot, busy, onOpenWidget, onAdd }: Props)
                         {item.title}
                       </button>
                       <Button
-                        variant="quiet"
-                        size="compact"
+                        variant="ghost"
+                        size="small"
                         disabled={busy}
                         aria-label={`${item.title} 연결`}
                         onClick={() => onAdd(item.payload)}

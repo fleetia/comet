@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, Checkbox, FormField, Select, TextArea, TextField } from "../../ui";
+import { Button, Checkbox, FormField, Select, Textarea, TextInput } from "@comet/ui";
 import { command, errorText } from "../../hooks/useSnapshot";
 import {
   CHARACTER_SLOTS,
@@ -38,10 +38,10 @@ export function ConversationMessageActions({
     <details aria-label="이 문장 남기기">
       <summary className={s.conversationSummary}>남기기</summary>
       <div className={n.actions}>
-        <Button variant="quiet" size="compact" onClick={() => onSave("note")}>
+        <Button variant="ghost" size="small" onClick={() => onSave("note")}>
           메모에 남기기
         </Button>
-        <Button variant="quiet" size="compact" onClick={() => onSave("wordbook")}>
+        <Button variant="ghost" size="small" onClick={() => onSave("wordbook")}>
           대사로 등록
         </Button>
       </div>
@@ -261,7 +261,7 @@ export function ConversationSave({
           {kind === "note" ? "메모에 저장했어요." : "개인 단어장에 저장했어요."}
           {kind === "note" && draft.checkpoint ? " 다음 ‘이어서 하기’에서 꺼내 볼 수 있어요." : ""}
         </p>
-        <Button variant="quiet" onClick={onClose}>
+        <Button variant="ghost" onClick={onClose}>
           대화로 돌아가기
         </Button>
       </div>
@@ -284,6 +284,7 @@ export function ConversationSave({
         <>
           <FormField label="저장할 메모">
             <Select
+              fill
               value={draft.noteId}
               disabled={pending || loading}
               onChange={(event) => setDraft({ ...draft, noteId: event.target.value })}
@@ -309,8 +310,8 @@ export function ConversationSave({
             </details>
           )}
           <Button
-            size="compact"
-            variant="quiet"
+            size="small"
+            variant="ghost"
             disabled={pending || loading}
             onClick={() => setRefresh((value) => value + 1)}
           >
@@ -320,7 +321,8 @@ export function ConversationSave({
       )}
       {(kind === "wordbook" || !draft.noteId) && (
         <FormField label={kind === "note" ? "메모 제목" : "대사 제목"} required>
-          <TextField
+          <TextInput
+            fill
             value={draft.title}
             disabled={pending}
             maxLength={kind === "note" ? 500 : 80}
@@ -331,7 +333,8 @@ export function ConversationSave({
       {kind === "wordbook" && (
         <>
           <FormField label="키워드" required>
-            <TextField
+            <TextInput
+              fill
               value={draft.keywords}
               disabled={pending}
               placeholder="쉼표로 구분"
@@ -340,6 +343,7 @@ export function ConversationSave({
           </FormField>
           <FormField label="재생할 친구" required>
             <Select
+              fill
               value={draft.speaker}
               disabled={pending}
               onChange={(event) => setDraft({ ...draft, speaker: event.target.value })}
@@ -363,7 +367,10 @@ export function ConversationSave({
         </p>
       )}
       <FormField label="저장할 내용" required>
-        <TextArea
+        <Textarea
+          layout="flexible"
+          fill
+          rows={3}
           className={n.bodyInput}
           value={draft.text}
           disabled={pending}
@@ -380,9 +387,8 @@ export function ConversationSave({
           checked={draft.checkpoint}
           disabled={pending}
           onChange={(event) => setDraft({ ...draft, checkpoint: event.target.checked })}
-        >
-          다음에 이어갈 내용으로 남기기
-        </Checkbox>
+          label="다음에 이어갈 내용으로 남기기"
+        />
       )}
       {draftError && (
         <p className={s.error} role="alert">
@@ -395,7 +401,7 @@ export function ConversationSave({
         </p>
       )}
       <div className={n.actions}>
-        <Button variant="quiet" disabled={pending} onClick={onClose}>
+        <Button variant="ghost" disabled={pending} onClick={onClose}>
           대화로 돌아가기
         </Button>
         <Button type="submit" disabled={pending || !valid}>

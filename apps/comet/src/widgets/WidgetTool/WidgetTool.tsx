@@ -1,5 +1,4 @@
-import { Dialog } from "@comet/ui";
-import { Button } from "../../ui";
+import { Button, Dialog } from "@comet/ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWidgets } from "../useWidgets";
@@ -110,7 +109,7 @@ export function WidgetTool({
     content = error ? (
       <div className={s.empty}>
         <p>도구를 불러오지 못했어요.</p>
-        <Button variant="secondary" onClick={reload}>
+        <Button variant="ghost" onClick={reload}>
           다시 불러오기
         </Button>
       </div>
@@ -165,7 +164,7 @@ export function WidgetTool({
         );
         footer = (
           <Button
-            variant="secondary"
+            variant="ghost"
             disabled={busy}
             onClick={() => void run(() => command("open_planner_settings", { kind: "calendar" }))}
           >
@@ -185,7 +184,7 @@ export function WidgetTool({
         content = <ConnectionTool widget={widget} />;
         footer = (
           <Button
-            variant="secondary"
+            variant="ghost"
             disabled={busy}
             onClick={() =>
               void run(() => command("open_planner_settings", { kind: "weather" }))
@@ -275,11 +274,11 @@ export function WidgetTool({
         variant="confirm"
         footer={
           <>
-            <Button variant="secondary" onClick={closeGuard.keepEditing}>
+            <Button variant="ghost" onClick={closeGuard.keepEditing}>
               계속 편집
             </Button>
             <Button
-              variant="critical"
+              variant="danger"
               disabled={busy || draftBusy}
               onClick={() => void closeGuard.discardAndClose()}
             >

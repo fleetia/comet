@@ -1,7 +1,7 @@
-import { Button, TabPanel, externalTabPanels } from "../../ui";
+import { TabPanel, externalTabPanels } from "../../primitives";
+import { Button, IconButton, Tabs } from "@comet/ui";
 import { useEffect, useId, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Button as CometButton, IconButton, Tabs } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { WindowHeader } from "../../components/WindowHeader/WindowHeader";
 import { useWidgets } from "../useWidgets";
@@ -388,9 +388,9 @@ export function Planner({
         createPortal(
           <div className={s.headerActions}>
             {tab === "today" && (
-              <CometButton variant="ghost" size="small" disabled={busy} onClick={openWrap}>
+              <Button variant="ghost" size="small" disabled={busy} onClick={openWrap}>
                 하루 마무리
-              </CometButton>
+              </Button>
             )}
             <IconButton
               icon="list"
@@ -410,7 +410,7 @@ export function Planner({
           onClose={leave.closeWindow}
           actions={
             onBack && (
-              <Button variant="quiet" size="compact" onClick={leave.returnToDiary}>
+              <Button variant="ghost" size="small" onClick={leave.returnToDiary}>
                 다이어리로 돌아가기
               </Button>
             )
@@ -420,7 +420,7 @@ export function Planner({
       {loadError && (
         <div role="alert" className={s.error}>
           목록을 불러오지 못했어요. {loadError}{" "}
-          <Button variant="quiet" size="compact" onClick={reload}>
+          <Button variant="ghost" size="small" onClick={reload}>
             다시 불러오기
           </Button>
         </div>
@@ -450,8 +450,8 @@ export function Planner({
         <div role="status" className={s.status}>
           {completionUndo.title} · 완료했어요.
           <Button
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             disabled={busy}
             onClick={() => void undoCompletion()}
           >
@@ -478,7 +478,7 @@ export function Planner({
                   NAVIGATION.map(([value]) => value),
                 )}
               />
-              <Button variant="quiet" size="compact" onClick={() => openSettings()}>
+              <Button variant="ghost" size="small" onClick={() => openSettings()}>
                 연결·알림 설정 ↗
               </Button>
             </div>
@@ -497,19 +497,19 @@ export function Planner({
                     })}
                   </strong>
                   <Button
-                    variant="quiet"
-                    size="compact"
+                    variant="ghost"
+                    size="small"
                     aria-label="이전 날짜"
                     onClick={() => setDay(moveDay(day, -1))}
                   >
                     ‹
                   </Button>
-                  <Button variant="secondary" size="compact" onClick={() => setDay(localDay())}>
+                  <Button variant="ghost" size="small" onClick={() => setDay(localDay())}>
                     오늘
                   </Button>
                   <Button
-                    variant="quiet"
-                    size="compact"
+                    variant="ghost"
+                    size="small"
                     aria-label="다음 날짜"
                     onClick={() => setDay(moveDay(day, 1))}
                   >
@@ -610,7 +610,7 @@ export function Planner({
                     {calendar ? (
                       prep()
                     ) : (
-                      <Button variant="secondary" onClick={() => openSettings()}>
+                      <Button variant="ghost" onClick={() => openSettings()}>
                         캘린더 연결
                       </Button>
                     )}

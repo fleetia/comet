@@ -58,3 +58,4 @@ export const evidence = style({
   paddingTop: tokens["spacing/space-12"],
 });
 export const original = style({ whiteSpace: "pre-wrap", overflowWrap: "anywhere" });
+export const sourceEvidence = style({ padding: 16 });

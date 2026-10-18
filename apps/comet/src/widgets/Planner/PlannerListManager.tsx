@@ -1,6 +1,5 @@
+import { Dialog, Button, TextInput } from "@comet/ui";
 import { useEffect, useState, type ReactElement } from "react";
-import { Dialog } from "@comet/ui";
-import { Button, TextField } from "../../ui";
 import { text, type DataRecord, type ToolAction } from "../toolData";
 import * as s from "./planner.css";
 
@@ -52,7 +51,8 @@ export function PlannerListManager({
             if (await act("list-add", { name })) setName("");
           }}
         >
-          <TextField
+          <TextInput
+            fill
             className={s.grow}
             aria-label="새 목록 이름"
             required
@@ -76,7 +76,8 @@ export function PlannerListManager({
               });
             }}
           >
-            <TextField
+            <TextInput
+              fill
               className={s.grow}
               aria-label={`${text(list.name)} 이름`}
               required
@@ -84,13 +85,13 @@ export function PlannerListManager({
               value={renames[text(list.id)] ?? text(list.name)}
               onChange={(e) => setRenames((old) => ({ ...old, [text(list.id)]: e.target.value }))}
             />
-            <Button type="submit" variant="secondary" size="compact" disabled={busy}>
+            <Button type="submit" variant="ghost" size="small" disabled={busy}>
               이름 저장
             </Button>
             <Button
               type="button"
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={
                 busy || list.id === "default" || items.some((item) => item.listId === list.id)
               }

@@ -1,4 +1,4 @@
-import { Button, Surface } from "../../ui";
+import { Button, Surface } from "@comet/ui";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactElement } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
@@ -442,8 +442,8 @@ export function Diary(): ReactElement {
         <div role="alert" className={s.error}>
           {failure || diary.error || loadError}{" "}
           <Button
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             onClick={() => {
               reload();
               diary.reload();
@@ -463,8 +463,8 @@ export function Diary(): ReactElement {
         <div role="status" className={s.status}>
           {completionUndo.title} · 완료했어요.
           <Button
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             disabled={saving}
             onClick={() => void undoCompletion()}
           >
@@ -566,7 +566,7 @@ export function Diary(): ReactElement {
             onOpenEnvelope={openEnvelope}
           />
           <Surface
-            padding="flush"
+            variant="panel"
             className={`${s.page} ${drop.dropActive ? s.dropActive : ""}`}
             hidden={notesOpen}
             aria-label="펼친 페이지"

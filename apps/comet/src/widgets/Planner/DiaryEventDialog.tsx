@@ -1,6 +1,5 @@
+import { Dialog, Button } from "@comet/ui";
 import type { ReactElement } from "react";
-import { Dialog } from "@comet/ui";
-import { Button } from "../../ui";
 import { text, type DataRecord } from "../toolData";
 import { envelopeTitle } from "./DiaryEnvelope";
 import { deviceTimeZone, eventsOn, eventTime, moveDay } from "./plannerData";
@@ -65,7 +64,7 @@ export function DiaryEventDialog({
           )}
           {selectedEvent.connectionId === "local" ? (
             <Button
-              variant="secondary"
+              variant="ghost"
               disabled={saving || !events.some((event) => event.id === selectedEvent.id)}
               onClick={() => {
                 const current = events.find((event) => event.id === selectedEvent.id);
@@ -84,7 +83,7 @@ export function DiaryEventDialog({
             {eventsOn(events, day).map((event) => (
               <Button
                 key={text(event.id)}
-                variant="quiet"
+                variant="ghost"
                 className={s.agendaEventButton}
                 onClick={() => onSelect(event)}
               >
@@ -106,7 +105,7 @@ export function DiaryEventDialog({
             .map((value) => (
               <Button
                 key={text(value.id)}
-                variant="secondary"
+                variant="ghost"
                 onClick={() => {
                   onSelect(null);
                   onOpenEnvelope(text(value.id));

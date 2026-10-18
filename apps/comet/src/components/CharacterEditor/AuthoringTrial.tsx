@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { TauriEvent } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Button, Checkbox, FormField, Select, TextArea, TextField } from "../../ui";
+import { Button, Checkbox, FormField, Select, Textarea, TextInput } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type {
   AnimationAsset,
@@ -260,7 +260,9 @@ export function AuthoringTrial({
         않아요.
       </p>
       <FormField label={`${title} 입력 · 한 줄에 한 번`}>
-        <TextArea
+        <Textarea
+          layout="flexible"
+          fill
           rows={3}
           maxLength={32031}
           value={inputs}
@@ -268,7 +270,7 @@ export function AuthoringTrial({
         />
       </FormField>
       <FormField label={`${title} 중심 인물`}>
-        <Select value={centerId} onChange={(event) => setCenterId(event.target.value)}>
+        <Select fill value={centerId} onChange={(event) => setCenterId(event.target.value)}>
           <option value="">선택해 주세요</option>
           {residents.map((actor) => (
             <option key={actor.id} value={actor.id}>
@@ -288,9 +290,8 @@ export function AuthoringTrial({
             checked={presentIds.includes(actor.id)}
             disabled={!presentIds.includes(actor.id) && presentIds.length >= 8}
             onChange={(event) => setPresentIds(toggle(presentIds, actor.id, event.target.checked))}
-          >
-            {actor.definition.name} · 시험 참가
-          </Checkbox>
+            label={<>{actor.definition.name} · 시험 참가</>}
+          />
         ))}
         {presentIds
           .filter((id) => !actors.some((actor) => actor.id === id))
@@ -299,21 +300,20 @@ export function AuthoringTrial({
               key={id}
               checked
               onChange={() => setPresentIds(presentIds.filter((value) => value !== id))}
-            >
-              다른 팩의 점유 자리 {index + 1}
-            </Checkbox>
+              label={<>다른 팩의 점유 자리 {index + 1}</>}
+            />
           ))}
         {definition.storyFlags.map((flag) => (
           <Checkbox
             key={flag.id}
             checked={flags.includes(flag.id)}
             onChange={(event) => setFlags(toggle(flags, flag.id, event.target.checked))}
-          >
-            {flag.id} · 시험 조건
-          </Checkbox>
+            label={<>{flag.id} · 시험 조건</>}
+          />
         ))}
         <FormField label={`${title} 친밀도`}>
-          <TextField
+          <TextInput
+            fill
             type="number"
             min={0}
             max={100}
@@ -322,7 +322,8 @@ export function AuthoringTrial({
           />
         </FormField>
         <FormField label={`${title} 현재 입력 수`}>
-          <TextField
+          <TextInput
+            fill
             type="number"
             min={0}
             value={turn}
@@ -330,7 +331,8 @@ export function AuthoringTrial({
           />
         </FormField>
         <FormField label={`${title} 다시 제안할 입력 수`}>
-          <TextField
+          <TextInput
+            fill
             type="number"
             min={0}
             value={waitTurn}
@@ -346,9 +348,8 @@ export function AuthoringTrial({
                 if (event.target.checked)
                   setIncomplete(incomplete.filter((id) => id !== scenario.id));
               }}
-            >
-              {scenario.title} · 완료한 것으로 시험
-            </Checkbox>
+              label={<>{scenario.title} · 완료한 것으로 시험</>}
+            />
             <Checkbox
               checked={incomplete.includes(scenario.id)}
               onChange={(event) => {
@@ -356,9 +357,8 @@ export function AuthoringTrial({
                 if (event.target.checked)
                   setCompleted(completed.filter((id) => id !== scenario.id));
               }}
-            >
-              {scenario.title} · 미완료로 시험
-            </Checkbox>
+              label={<>{scenario.title} · 미완료로 시험</>}
+            />
           </div>
         ))}
       </details>
@@ -376,7 +376,7 @@ export function AuthoringTrial({
       </Button>
       {packId && !draftDefinition && (
         <Button
-          variant="quiet"
+          variant="ghost"
           disabled={!visible || !expanded || busy}
           onClick={() => {
             setSnapshot(null);
@@ -397,7 +397,7 @@ export function AuthoringTrial({
             {trace.steps.map((value, index) => (
               <Button
                 key={index}
-                variant={index === stepIndex ? "primary" : "secondary"}
+                variant={index === stepIndex ? "primary" : "ghost"}
                 onClick={() => setStepIndex(index)}
               >
                 {index + 1}.{" "}

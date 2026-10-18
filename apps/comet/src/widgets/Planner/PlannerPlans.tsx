@@ -1,5 +1,5 @@
+import { Button, Checkbox, Select } from "@comet/ui";
 import type { ReactElement, ReactNode } from "react";
-import { Button, Checkbox, Select } from "../../ui";
 import { localDay, text, type DataRecord, type ToolAction } from "../toolData";
 import { PlannerTodoEmpty } from "./PlannerTodoEmpty";
 import {
@@ -66,8 +66,8 @@ export function PlannerPlans({
           {[...PERIODS, ["inbox", "수집함"]].map(([key, label]) => (
             <Button
               key={key}
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               className={s.categoryButton}
               aria-pressed={period === key}
               onClick={() => onPeriodChange(key)}
@@ -80,8 +80,8 @@ export function PlannerPlans({
         {!["someday", "inbox"].includes(period) && (
           <>
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               aria-label="이전 계획 기간"
               onClick={() => onPlanDayChange(movePeriod(planDay, period, -1))}
             >
@@ -89,8 +89,8 @@ export function PlannerPlans({
             </Button>
             <span className={s.caption}>{periodAnchor(period, planDay)}</span>
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               aria-label="다음 계획 기간"
               onClick={() => onPlanDayChange(movePeriod(planDay, period, 1))}
             >
@@ -104,6 +104,7 @@ export function PlannerPlans({
           {quickInput}
           <div className={s.actions}>
             <Select
+              fill
               className={s.listSelect}
               aria-label="조회할 목록"
               value={visibleList}
@@ -119,11 +120,10 @@ export function PlannerPlans({
             <Checkbox
               checked={showCompleted}
               onChange={(e) => onShowCompletedChange(e.target.checked)}
-            >
-              완료 포함
-            </Checkbox>
+              label="완료 포함"
+            />
             {!headerActions && (
-              <Button variant="quiet" size="compact" onClick={onManageLists}>
+              <Button variant="ghost" size="small" onClick={onManageLists}>
                 목록 관리
               </Button>
             )}
@@ -164,8 +164,8 @@ export function PlannerPlans({
                     </td>
                     <td>
                       <Button
-                        variant={plannedDay(item) === localDay() ? "quiet" : "secondary"}
-                        size="compact"
+                        variant="ghost"
+                        size="small"
                         disabled={busy}
                         onClick={() =>
                           void act("plan", {
@@ -179,8 +179,8 @@ export function PlannerPlans({
                     </td>
                     <td>
                       <Button
-                        variant="quiet"
-                        size="compact"
+                        variant="ghost"
+                        size="small"
                         aria-label={`${text(item.title)} 편집`}
                         onClick={() => onEdit(item)}
                       >

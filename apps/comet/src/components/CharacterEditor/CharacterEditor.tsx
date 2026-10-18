@@ -1,19 +1,19 @@
 import { useEffect, useId, useState, type JSX, type ReactNode } from "react";
-import { SettingControlRow, SettingsSummary, Tabs } from "@comet/ui";
+import {
+  Button,
+  FormField,
+  Select,
+  SettingControlRow,
+  SettingsSummary,
+  Surface,
+  Tabs,
+  Textarea,
+  TextInput,
+} from "@comet/ui";
 import { ChevLeftIcon, Icon } from "@comet/icon";
 import { FriendOverview, FriendProfilePreview } from "./FriendOverview";
 import * as detail from "./friendDetail.css";
-import {
-  Button,
-  ActionBar,
-  Surface,
-  FormField,
-  Select,
-  TabPanel,
-  TextArea,
-  TextField,
-  externalTabPanels,
-} from "../../ui";
+import { ActionBar, TabPanel, externalTabPanels } from "../../primitives";
 import type {
   AnimationAsset,
   AnimationClip,
@@ -111,7 +111,7 @@ function Lines({
           {title} · {lines.length} / {limit}줄
         </h3>
         <Button
-          variant="quiet"
+          variant="ghost"
           type="button"
           disabled={lines.length >= limit}
           onClick={() => onChange([...lines, { expression: DEFAULT_EXPRESSION, text: "" }])}
@@ -122,7 +122,9 @@ function Lines({
       {lines.map((line, index) => (
         <div className={e.authoredRow} key={index}>
           <span className={s.small}>{index + 1}</span>
-          <TextArea
+          <Textarea
+            layout="flexible"
+            fill
             className={e.authoredText}
             aria-label={`${title} ${index + 1} 대사`}
             rows={1}
@@ -140,6 +142,7 @@ function Lines({
             }}
           />
           <Select
+            fill
             aria-label={`${title} ${index + 1} 표정`}
             value={line.expression}
             onChange={(event) =>
@@ -166,7 +169,7 @@ function Lines({
           </div>
           <div className={s.compactActions}>
             <Button
-              variant="quiet"
+              variant="ghost"
               type="button"
               disabled={index === 0}
               aria-label={`${title} ${index + 1} 위로`}
@@ -179,7 +182,7 @@ function Lines({
               ↑
             </Button>
             <Button
-              variant="quiet"
+              variant="ghost"
               type="button"
               disabled={index === lines.length - 1}
               aria-label={`${title} ${index + 1} 아래로`}
@@ -192,7 +195,7 @@ function Lines({
               ↓
             </Button>
             <Button
-              variant="quiet"
+              variant="ghost"
               type="button"
               disabled={!allowEmpty && lines.length <= 1}
               aria-label={`${title} ${index + 1} 삭제`}
@@ -247,7 +250,8 @@ function BalloonAppearance({
         <h3 className={s.subheading}>글자 표시</h3>
         <div className={e.balloonFontFields}>
           <FormField label="글자 크기 · 12~40px">
-            <TextField
+            <TextInput
+              fill
               type="number"
               min={12}
               max={40}
@@ -263,7 +267,8 @@ function BalloonAppearance({
           </FormField>
           <FormField label="글자 색상">
             <div className={s.compactActions}>
-              <TextField
+              <TextInput
+                fill
                 className={s.balloonColorInput}
                 type="color"
                 aria-label="말풍선 글자 색"
@@ -273,7 +278,7 @@ function BalloonAppearance({
                 }
               />
               <Button
-                variant="quiet"
+                variant="ghost"
                 disabled={balloonStyle.textColor === null}
                 onClick={() => onChange({ balloonStyle: { ...balloonStyle, textColor: null } })}
               >
@@ -282,7 +287,8 @@ function BalloonAppearance({
             </div>
           </FormField>
           <FormField label="설치된 폰트 이름">
-            <TextField
+            <TextInput
+              fill
               aria-label="말풍선 폰트"
               list={fontOptionsId}
               maxLength={100}
@@ -306,7 +312,8 @@ function BalloonAppearance({
           title="글자 출력 속도"
           description="초당 1~100글자, 0이면 대사를 즉시 표시해요."
           control={
-            <TextField
+            <TextInput
+              fill
               type="number"
               min={0}
               max={100}
@@ -325,7 +332,7 @@ function BalloonAppearance({
             <h3 className={s.subheading}>말풍선 이미지</h3>
             <span className={s.small}>선택·제거 즉시 반영</span>
           </div>
-          <Surface tone="inset" padding="compact">
+          <Surface variant="card" className={e.cardCompact}>
             <span className={s.spriteFrame} aria-label="말풍선 이미지">
               {skin ? <img className={s.spriteImage} src={skin} alt="말풍선 이미지" /> : "기본"}
             </span>
@@ -338,7 +345,7 @@ function BalloonAppearance({
                 말풍선 이미지 선택
               </Button>
               {character?.sprites[BALLOON_SPRITE] && (
-                <Button variant="quiet" onClick={() => onSprite?.(BALLOON_SPRITE, true)}>
+                <Button variant="ghost" onClick={() => onSprite?.(BALLOON_SPRITE, true)}>
                   말풍선 이미지 제거
                 </Button>
               )}
@@ -355,7 +362,10 @@ function BalloonAppearance({
               key={key}
               label={key === "short" ? "짧은 대사" : "긴 대사"}
             >
-              <TextArea
+              <Textarea
+                layout="flexible"
+                fill
+                rows={3}
                 className={s.personalityInput}
                 value={sample[key]}
                 maxLength={500}
@@ -374,7 +384,7 @@ function BalloonAppearance({
         <div className={e.authoredHeading}>
           <h3 className={s.subheading}>말풍선 미리보기</h3>
           <Button
-            variant="secondary"
+            variant="ghost"
             onClick={() => {
               setVersion((value) => value + 1);
               setPlaying(true);
@@ -383,7 +393,7 @@ function BalloonAppearance({
             출력 시험
           </Button>
         </div>
-        <Surface tone="accent" className={e.balloonStage}>
+        <Surface variant="accent" className={e.balloonStage}>
           <div className={e.balloonSpecimen} style={skinned}>
             <strong>{definition.name || "새 캐릭터"}</strong>
             <p
@@ -623,8 +633,8 @@ export function CharacterEditor({
       <div className={s.compactActions}>
         {dirty && onCancel && (
           <Button
-            size="compact"
-            variant="secondary"
+            size="small"
+            variant="ghost"
             disabled={pending}
             onClick={onCancel}
             aria-label="캐릭터 수정 취소"
@@ -633,7 +643,7 @@ export function CharacterEditor({
           </Button>
         )}
         <Button
-          size="compact"
+          size="small"
           variant="primary"
           disabled={pending || !valid || !dirty}
           onClick={onSave}
@@ -649,8 +659,8 @@ export function CharacterEditor({
       {tab !== "overview" && (
         <nav className={detail.breadcrumbs} aria-label="친구 편집 경로">
           <Button
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             aria-label="친구들로 돌아가기"
             onClick={() => {
               setTab("overview");
@@ -662,8 +672,8 @@ export function CharacterEditor({
           </Button>
           <Icon name="chev" size={13} />
           <Button
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             aria-label="친구 정보로 돌아가기"
             onClick={() => setTab("overview")}
           >
@@ -729,7 +739,8 @@ export function CharacterEditor({
                 <h3 className={s.subheading}>기본 정보</h3>
                 <div className={s.basicFields}>
                   <FormField className={s.inlineField} label="이름" required>
-                    <TextField
+                    <TextInput
+                      fill
                       required
                       aria-label="이름"
                       maxLength={40}
@@ -738,7 +749,8 @@ export function CharacterEditor({
                     />
                   </FormField>
                   <FormField className={s.inlineField} label="소개">
-                    <TextField
+                    <TextInput
+                      fill
                       maxLength={500}
                       value={definition.description}
                       onChange={(event) => change("description", event.target.value)}
@@ -751,7 +763,9 @@ export function CharacterEditor({
                     </div>
                   </div>
                   <FormField className={s.personalityField} label="성격·말투">
-                    <TextArea
+                    <Textarea
+                      layout="flexible"
+                      fill
                       aria-label="성격과 말투"
                       className={s.personalityInput}
                       rows={1}
@@ -761,7 +775,9 @@ export function CharacterEditor({
                     />
                   </FormField>
                   <FormField className={s.personalityField} label="지침">
-                    <TextArea
+                    <Textarea
+                      layout="flexible"
+                      fill
                       aria-label="캐릭터 지침"
                       className={e.instructionsInput}
                       rows={3}
@@ -825,6 +841,7 @@ export function CharacterEditor({
                   <div className={s.relationshipRow} key={index}>
                     <div className={s.relationshipControls}>
                       <Select
+                        fill
                         aria-label={`관계 ${index + 1} 대상`}
                         value={relationship.targetId}
                         onChange={(event) =>
@@ -856,8 +873,8 @@ export function CharacterEditor({
                           ))}
                       </Select>
                       <Button
-                        variant="quiet"
-                        size="compact"
+                        variant="ghost"
+                        size="small"
                         type="button"
                         aria-label={`관계 ${index + 1} 삭제`}
                         onClick={() =>
@@ -870,7 +887,9 @@ export function CharacterEditor({
                         삭제
                       </Button>
                     </div>
-                    <TextArea
+                    <Textarea
+                      layout="flexible"
+                      fill
                       aria-label={`관계 ${index + 1} 설명`}
                       className={s.textarea}
                       rows={2}
@@ -935,8 +954,8 @@ export function CharacterEditor({
                 );
               })}
               <Button
-                variant="secondary"
-                size="compact"
+                variant="ghost"
+                size="small"
                 type="button"
                 disabled={!nextTarget || definition.relationships.length >= MAX_RELATIONSHIPS}
                 onClick={() => {
@@ -1002,7 +1021,7 @@ export function CharacterEditor({
             ).map(([type, label]) => (
               <Button
                 key={type}
-                variant={dialogueType === type ? "primary" : "secondary"}
+                variant={dialogueType === type ? "primary" : "ghost"}
                 aria-pressed={dialogueType === type}
                 disabled={type === "scenes" && !canEditCombination}
                 onClick={() => chooseDialogueType(type)}
@@ -1099,6 +1118,7 @@ export function CharacterEditor({
               <h3 className={s.subheading}>역할과 등장</h3>
               <FormField label="바탕화면 역할">
                 <Select
+                  fill
                   aria-label="바탕화면 역할"
                   value={definition.presenceRole ?? "resident"}
                   onChange={(event) =>
@@ -1118,7 +1138,9 @@ export function CharacterEditor({
               {(definition.presenceRole === "npc" || definition.npc) && (
                 <>
                   <FormField label="명시적인 초대 표현 · 한 줄에 하나">
-                    <TextArea
+                    <Textarea
+                      layout="flexible"
+                      fill
                       rows={2}
                       aria-label="NPC 초대 표현"
                       value={definition.npc?.inviteKeywords.join("\n") ?? ""}
@@ -1128,7 +1150,9 @@ export function CharacterEditor({
                     />
                   </FormField>
                   <FormField label="등장 키워드 · 한 줄에 하나">
-                    <TextArea
+                    <Textarea
+                      layout="flexible"
+                      fill
                       rows={2}
                       aria-label="NPC 등장 키워드"
                       value={definition.npc?.appearanceKeywords.join("\n") ?? ""}
@@ -1138,7 +1162,9 @@ export function CharacterEditor({
                     />
                   </FormField>
                   <FormField label="필요한 이야기 조건 · 한 줄에 하나">
-                    <TextArea
+                    <Textarea
+                      layout="flexible"
+                      fill
                       rows={2}
                       aria-label="NPC 등장 조건"
                       value={definition.npc?.requiredFlags.join("\n") ?? ""}
@@ -1149,6 +1175,7 @@ export function CharacterEditor({
                   </FormField>
                   <FormField label="머무는 동안">
                     <Select
+                      fill
                       aria-label="NPC 퇴장 정책"
                       value={definition.npc?.exitPolicy ?? "topicChange"}
                       onChange={(event) =>

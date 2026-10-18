@@ -1,7 +1,6 @@
 import { useId, type CSSProperties, type JSX, type ReactNode, type RefObject } from "react";
-import { ArrowRightIcon, CloseIcon } from "@comet/icon";
-import { Balloon as NoticeBalloon, Button as CometButton } from "@comet/ui";
-import { IconButton } from "../../ui";
+import { ArrowRightIcon } from "@comet/icon";
+import { Balloon as NoticeBalloon, Button as CometButton, IconButton } from "@comet/ui";
 import * as s from "../companion.css";
 
 type Props = {
@@ -76,13 +75,11 @@ export function UpdateNoticeBalloon({
       <IconButton
         className={s.balloonClose}
         size="compact"
-        variant="quiet"
-        label="업데이트 알림 닫기"
+        icon="close"
+        aria-label="업데이트 알림 닫기"
         disabled={navigating}
         onClick={onClose}
-      >
-        <CloseIcon size={14} />
-      </IconButton>
+      />
       {visibleError && (
         <p className={s.error} role="alert">
           {visibleError}

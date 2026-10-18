@@ -1,5 +1,4 @@
 import { Fragment, useEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
-import { Button } from "../../ui";
 import {
   ChatIcon,
   EnterIcon,
@@ -10,7 +9,7 @@ import {
   TogetherIcon,
   WarnIcon,
 } from "@comet/icon";
-import { Keycap } from "@comet/ui";
+import { Button, Keycap } from "@comet/ui";
 import { listen } from "@tauri-apps/api/event";
 import type { Snapshot } from "../../types";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
@@ -270,8 +269,8 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
           }}
         />
         <Button
-          variant="quiet"
-          size="compact"
+          variant="ghost"
+          size="small"
           className={styles.pickFriend}
           onClick={() => {
             edit(">");
@@ -329,8 +328,8 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
           <div className={styles.errorActions}>
             {error && selected?.kind === "chat" && !modelReady && (
               <Button
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 disabled={pending}
                 onClick={() => void execute(setup, true)}
               >
@@ -338,7 +337,7 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
               </Button>
             )}
             {widgets.error && (
-              <Button variant="quiet" size="compact" onClick={widgets.reload}>
+              <Button variant="ghost" size="small" onClick={widgets.reload}>
                 위젯 다시 읽기
               </Button>
             )}

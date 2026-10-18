@@ -1,6 +1,5 @@
+import { Dialog, Button } from "@comet/ui";
 import type { ReactElement } from "react";
-import { Dialog } from "@comet/ui";
-import { Button } from "../../ui";
 import type { DiaryLeave } from "./useDiaryLeave";
 
 export function DiaryLeaveDialog({
@@ -25,10 +24,10 @@ export function DiaryLeaveDialog({
       }}
       footer={
         <>
-          <Button variant="secondary" onClick={onContinue}>
+          <Button variant="ghost" onClick={onContinue}>
             계속 작성
           </Button>
-          <Button variant="critical" disabled={saving} onClick={onDiscard}>
+          <Button variant="danger" disabled={saving} onClick={onDiscard}>
             {leave?.closing ? "저장하지 않고 닫기" : "저장하지 않고 이동"}
           </Button>
         </>

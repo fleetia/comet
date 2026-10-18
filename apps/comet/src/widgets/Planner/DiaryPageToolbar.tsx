@@ -1,6 +1,5 @@
+import { IconButton as CometIconButton, SegmentedControl, Select } from "@comet/ui";
 import type { ReactElement } from "react";
-import { IconButton as CometIconButton, SegmentedControl } from "@comet/ui";
-import { Select } from "../../ui";
 import type { DiaryPage } from "./diaryTypes";
 import { isPlannerTool, TOOL_MENU, VIEWS, type DiaryTool, type View } from "./diaryNavigation";
 import { moveDay, movePeriod } from "./plannerData";
@@ -109,6 +108,7 @@ export function DiaryPageToolbar({
         {collection === "pages" && (
           <div className={s.pageSelect}>
             <Select
+              fill
               aria-label="내 페이지 선택"
               value={pageId}
               onChange={(event) => {

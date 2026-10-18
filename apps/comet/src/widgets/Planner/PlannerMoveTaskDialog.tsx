@@ -1,6 +1,5 @@
+import { Dialog, Button, TextInput, FormField, Select } from "@comet/ui";
 import type { ReactElement } from "react";
-import { Dialog } from "@comet/ui";
-import { Button, DateField, FormField, Select } from "../../ui";
 import { text, type DataRecord } from "../toolData";
 import * as s from "./planner.css";
 
@@ -49,6 +48,7 @@ export function PlannerMoveTaskDialog({
         )}
         <FormField label="옮길 할 일">
           <Select
+            fill
             value={movingTask.id}
             disabled={busy}
             onChange={(event) => onChange({ ...movingTask, id: event.target.value })}
@@ -63,7 +63,9 @@ export function PlannerMoveTaskDialog({
           </Select>
         </FormField>
         <FormField label="새 계획 날짜">
-          <DateField
+          <TextInput
+            type="date"
+            fill
             required
             disabled={busy}
             value={movingTask.date}
@@ -71,7 +73,7 @@ export function PlannerMoveTaskDialog({
           />
         </FormField>
         <div className={s.actions}>
-          <Button variant="quiet" disabled={busy} onClick={onClose}>
+          <Button variant="ghost" disabled={busy} onClick={onClose}>
             취소
           </Button>
           <Button

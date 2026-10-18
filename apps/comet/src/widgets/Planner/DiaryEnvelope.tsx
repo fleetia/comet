@@ -1,5 +1,15 @@
-import { Button, DateField, FormField, Select, TextField } from "../../ui";
-import { ChecklistAdd, EnvelopeHeader, ResourceLink, Surface, TaskRow, Dialog } from "@comet/ui";
+import {
+  Button,
+  ChecklistAdd,
+  Dialog,
+  EnvelopeHeader,
+  FormField,
+  ResourceLink,
+  Select,
+  Surface,
+  TaskRow,
+  TextInput,
+} from "@comet/ui";
 import { Icon } from "@comet/icon";
 import { errorText } from "../../hooks/useSnapshot";
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
@@ -218,7 +228,8 @@ export function DiaryEnvelope({
             }}
           >
             <FormField label="준비 봉투 이름" required>
-              <TextField
+              <TextInput
+                fill
                 maxLength={500}
                 disabled={disabled}
                 value={titleDraft.value}
@@ -227,8 +238,8 @@ export function DiaryEnvelope({
             </FormField>
             <div className={s.actions}>
               <Button
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 disabled={disabled}
                 onClick={() => setTitleDraft(null)}
               >
@@ -237,7 +248,7 @@ export function DiaryEnvelope({
               <Button
                 type="submit"
                 variant="primary"
-                size="compact"
+                size="small"
                 disabled={disabled || !titleDraft.value.trim()}
               >
                 이름 저장
@@ -263,13 +274,13 @@ export function DiaryEnvelope({
             actions={
               <>
                 {onFocusEnvelope && envelope.archived !== true && (
-                  <Button variant="secondary" disabled={disabled} onClick={onFocusEnvelope}>
+                  <Button variant="ghost" disabled={disabled} onClick={onFocusEnvelope}>
                     <Icon name="timer" size={15} />
                     25분 집중 시작
                   </Button>
                 )}
                 <Button
-                  variant="secondary"
+                  variant="ghost"
                   disabled={disabled}
                   onClick={() =>
                     void perform(() => save("update", { id, archived: envelope.archived !== true }))
@@ -278,8 +289,8 @@ export function DiaryEnvelope({
                   {envelope.archived === true ? "다시 꺼내기" : "준비를 마치고 보관"}
                 </Button>
                 <Button
-                  variant="quiet"
-                  size="compact"
+                  variant="ghost"
+                  size="small"
                   disabled={disabled}
                   aria-label="준비 봉투 메뉴"
                   aria-expanded={menuOpen}
@@ -294,29 +305,29 @@ export function DiaryEnvelope({
         {menuOpen && (
           <div className={s.actions}>
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={disabled || (!availableItems.length && !availableChecks.length)}
               onClick={() => setPlanning(true)}
             >
               오늘 할 일로 꺼내기
             </Button>
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={disabled}
               onClick={() => setCreateMemoRequest((value) => value + 1)}
             >
               메모 쓰기
             </Button>
             {onReturnToDay && (
-              <Button variant="quiet" size="compact" disabled={disabled} onClick={onReturnToDay}>
+              <Button variant="ghost" size="small" disabled={disabled} onClick={onReturnToDay}>
                 오늘 페이지로 돌아가기
               </Button>
             )}
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={disabled}
               onClick={() => {
                 setTitleDraft({ value: envelopeTitle(envelope), base: envelopeTitle(envelope) });
@@ -326,8 +337,8 @@ export function DiaryEnvelope({
               이름 편집
             </Button>
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={disabled}
               onClick={() => {
                 setDeleting(true);
@@ -354,16 +365,16 @@ export function DiaryEnvelope({
           <p className={s.caption}>일정이 끝났어요. 준비 봉투를 보관할까요?</p>
           <div className={s.row}>
             <Button
-              variant="secondary"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={disabled}
               onClick={() => void perform(() => save("update", { id, archived: true }))}
             >
               보관하기
             </Button>
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={disabled}
               onClick={() =>
                 void perform(() => save("update", { id, archivePromptDismissedFor: endKey }))
@@ -394,8 +405,8 @@ export function DiaryEnvelope({
                     <div className={s.checkRow} key={linkedId}>
                       <span className={`${s.caption} ${s.grow}`}>현재 조회할 수 없는 할 일</span>
                       <Button
-                        variant="quiet"
-                        size="compact"
+                        variant="ghost"
+                        size="small"
                         disabled={disabled}
                         onClick={() =>
                           void perform(() => save("todo-unlink", { id, todoId: linkedId }))
@@ -433,8 +444,8 @@ export function DiaryEnvelope({
                         <div className={s.row}>
                           {onEditTask && (
                             <Button
-                              variant="quiet"
-                              size="compact"
+                              variant="ghost"
+                              size="small"
                               disabled={disabled}
                               onClick={() => onEditTask(item)}
                             >
@@ -443,8 +454,8 @@ export function DiaryEnvelope({
                           )}
                           {onFocusTask && !done && (
                             <Button
-                              variant="secondary"
-                              size="compact"
+                              variant="ghost"
+                              size="small"
                               disabled={disabled}
                               onClick={() => onFocusTask(item)}
                             >
@@ -479,8 +490,8 @@ export function DiaryEnvelope({
                 <div className={s.checkRow}>
                   <p className={s.caption}>할 일은 만들어졌어요. 봉투 연결을 다시 시도해 주세요.</p>
                   <Button
-                    variant="secondary"
-                    size="compact"
+                    variant="ghost"
+                    size="small"
                     disabled={disabled}
                     onClick={() =>
                       void perform(async () => {
@@ -509,6 +520,7 @@ export function DiaryEnvelope({
                 >
                   <FormField className={s.grow} label="기존 할 일">
                     <Select
+                      fill
                       disabled={disabled}
                       value={todoId}
                       onChange={(event) => setTodoId(event.target.value)}
@@ -523,12 +535,7 @@ export function DiaryEnvelope({
                         ))}
                     </Select>
                   </FormField>
-                  <Button
-                    type="submit"
-                    variant="secondary"
-                    size="compact"
-                    disabled={disabled || !todoId}
-                  >
+                  <Button type="submit" variant="ghost" size="small" disabled={disabled || !todoId}>
                     봉투에 연결
                   </Button>
                 </form>
@@ -589,8 +596,8 @@ export function DiaryEnvelope({
                 <div className={s.row} key={text(item.id)}>
                   <span className={s.grow}>{text(item.title)}</span>
                   <Button
-                    variant="quiet"
-                    size="compact"
+                    variant="ghost"
+                    size="small"
                     disabled={disabled}
                     onClick={() =>
                       void perform(() => save("todo-unlink", { id, todoId: text(item.id) }))
@@ -604,8 +611,8 @@ export function DiaryEnvelope({
                 <div key={text(item.id)} className={s.checkRow}>
                   <span className={s.grow}>{text(item.text)}</span>
                   <Button
-                    variant="quiet"
-                    size="compact"
+                    variant="ghost"
+                    size="small"
                     disabled={disabled}
                     aria-label={`${text(item.text)} 체크 삭제`}
                     onClick={() =>
@@ -644,8 +651,8 @@ export function DiaryEnvelope({
                     />
                     {menuOpen && (
                       <Button
-                        variant="quiet"
-                        size="compact"
+                        variant="ghost"
+                        size="small"
                         disabled={disabled}
                         aria-label={`${text(link.title)} 자료 삭제`}
                         onClick={() =>
@@ -680,7 +687,8 @@ export function DiaryEnvelope({
                   }}
                 >
                   <FormField label="자료 이름" required>
-                    <TextField
+                    <TextInput
+                      fill
                       value={linkTitle}
                       disabled={disabled}
                       maxLength={500}
@@ -688,7 +696,8 @@ export function DiaryEnvelope({
                     />
                   </FormField>
                   <FormField label="자료 주소" required>
-                    <TextField
+                    <TextInput
+                      fill
                       type="url"
                       value={linkUrl}
                       disabled={disabled}
@@ -697,8 +706,8 @@ export function DiaryEnvelope({
                   </FormField>
                   <Button
                     type="submit"
-                    variant="secondary"
-                    size="compact"
+                    variant="ghost"
+                    size="small"
                     disabled={disabled || !linkTitle.trim() || !linkUrl.trim()}
                   >
                     자료 저장
@@ -736,6 +745,7 @@ export function DiaryEnvelope({
                 >
                   <FormField label="함께 볼 기존 메모">
                     <Select
+                      fill
                       value={noteId}
                       disabled={disabled}
                       onChange={(event) => setNoteId(event.target.value)}
@@ -750,12 +760,7 @@ export function DiaryEnvelope({
                         ))}
                     </Select>
                   </FormField>
-                  <Button
-                    type="submit"
-                    variant="secondary"
-                    size="compact"
-                    disabled={disabled || !noteId}
-                  >
+                  <Button type="submit" variant="ghost" size="small" disabled={disabled || !noteId}>
                     이 메모 함께 보기
                   </Button>
                 </form>
@@ -768,8 +773,8 @@ export function DiaryEnvelope({
               relatedPages.map((page) => (
                 <Button
                   key={page.id}
-                  variant="quiet"
-                  size="compact"
+                  variant="ghost"
+                  size="small"
                   disabled={disabled}
                   onClick={() => onOpenPage(page)}
                 >
@@ -798,8 +803,8 @@ export function DiaryEnvelope({
             <div className={s.row} key={text(item.id)}>
               <span className={s.grow}>{text(item.title)}</span>
               <Button
-                variant="secondary"
-                size="compact"
+                variant="ghost"
+                size="small"
                 disabled={disabled}
                 aria-label={`${text(item.title)} 꺼내기`}
                 onClick={async () => {
@@ -814,8 +819,8 @@ export function DiaryEnvelope({
             <div className={s.row} key={text(item.id)}>
               <span className={s.grow}>{text(item.text)}</span>
               <Button
-                variant="secondary"
-                size="compact"
+                variant="ghost"
+                size="small"
                 disabled={disabled}
                 aria-label={`${text(item.text)} 꺼내기`}
                 onClick={async () => {
@@ -857,7 +862,9 @@ export function DiaryEnvelope({
               }}
             >
               <FormField label="봉투 날짜">
-                <DateField
+                <TextInput
+                  type="date"
+                  fill
                   value={dateDraft}
                   disabled={disabled}
                   onChange={(event) => setDateDraft(event.target.value)}
@@ -866,8 +873,8 @@ export function DiaryEnvelope({
               <p className={s.caption}>날짜를 직접 정하면 외부 일정과의 연결은 해제돼요.</p>
               <div className={s.actions}>
                 <Button
-                  variant="quiet"
-                  size="compact"
+                  variant="ghost"
+                  size="small"
                   disabled={disabled}
                   onClick={async () => {
                     if (await saveSchedule({ date: null, eventId: null, eventLabel: null })) {
@@ -881,7 +888,7 @@ export function DiaryEnvelope({
                 <Button
                   type="submit"
                   variant="primary"
-                  size="compact"
+                  size="small"
                   disabled={disabled || !dateDraft}
                 >
                   날짜 저장
@@ -905,6 +912,7 @@ export function DiaryEnvelope({
               >
                 <FormField label="연결할 일정">
                   <Select
+                    fill
                     disabled={disabled}
                     value={eventId}
                     onChange={(event) => setEventId(event.target.value)}
@@ -917,12 +925,7 @@ export function DiaryEnvelope({
                     ))}
                   </Select>
                 </FormField>
-                <Button
-                  type="submit"
-                  variant="secondary"
-                  size="compact"
-                  disabled={disabled || !eventId}
-                >
+                <Button type="submit" variant="ghost" size="small" disabled={disabled || !eventId}>
                   이 일정 연결
                 </Button>
               </form>
@@ -943,11 +946,11 @@ export function DiaryEnvelope({
         variant="confirm"
         footer={
           <>
-            <Button variant="secondary" disabled={disabled} onClick={() => setDeleting(false)}>
+            <Button variant="ghost" disabled={disabled} onClick={() => setDeleting(false)}>
               취소
             </Button>
             <Button
-              variant="critical"
+              variant="danger"
               disabled={disabled}
               onClick={async () => {
                 if (await perform(() => save("delete", { id }))) setDeleting(false);

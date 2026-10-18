@@ -1,5 +1,4 @@
-import { Dialog } from "@comet/ui";
-import { Button, FormField, TextField } from "../../ui";
+import { Button, Dialog, FormField, TextInput } from "@comet/ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import type { DiaryAction, DiaryPage } from "./diaryTypes";
 import * as s from "./diaryEnvelope.css";
@@ -111,8 +110,8 @@ export function DiaryPageMenu({
   return (
     <>
       <Button
-        variant="quiet"
-        size="compact"
+        variant="ghost"
+        size="small"
         aria-label="페이지 메뉴"
         disabled={disabled}
         onClick={() => {
@@ -137,11 +136,11 @@ export function DiaryPageMenu({
         footer={
           deleting ? (
             <>
-              <Button variant="secondary" disabled={disabled} onClick={() => setDeleting(false)}>
+              <Button variant="ghost" disabled={disabled} onClick={() => setDeleting(false)}>
                 취소
               </Button>
               <Button
-                variant="critical"
+                variant="danger"
                 disabled={disabled || conflict}
                 onClick={() => void submit("page-delete")}
               >
@@ -170,7 +169,8 @@ export function DiaryPageMenu({
                   }}
                 >
                   <FormField label="페이지 제목">
-                    <TextField
+                    <TextInput
+                      fill
                       value={title}
                       maxLength={500}
                       disabled={disabled}
@@ -186,7 +186,7 @@ export function DiaryPageMenu({
               )}
               {page.date !== null && <p className={s.caption}>{page.date}의 기록을 관리해요.</p>}
               <Button
-                variant="quiet"
+                variant="ghost"
                 disabled={disabled || conflict}
                 onClick={() => setDeleting(true)}
               >
@@ -200,7 +200,7 @@ export function DiaryPageMenu({
             </p>
           )}
           {conflict && (
-            <Button variant="secondary" disabled={disabled} onClick={reset}>
+            <Button variant="ghost" disabled={disabled} onClick={reset}>
               최신 내용 다시 불러오기
             </Button>
           )}

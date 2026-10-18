@@ -1,8 +1,7 @@
 import type { JSX, KeyboardEvent, RefObject } from "react";
 import { SendIcon } from "@comet/icon";
-import { WaitingDots } from "@comet/ui";
+import { Button, Select, Textarea, WaitingDots } from "@comet/ui";
 import type { Persona } from "../../types";
-import { Button, Select, TextArea } from "../../ui";
 import * as ui from "../../common.css";
 import * as s from "../companion.css";
 
@@ -73,8 +72,8 @@ export function ConversationForm({
           <p className={s.conversationMeta}>{availability.label}</p>
           {!availability.ready && (
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={navigating}
               onClick={onOpenModelSettings}
             >
@@ -87,6 +86,7 @@ export function ConversationForm({
         <label className={ui.quiet}>
           받는 친구{" "}
           <Select
+            fill
             className={s.recipient}
             value={target}
             disabled={recipientLocked || navigating}
@@ -100,8 +100,10 @@ export function ConversationForm({
       </div>
       {showEditor && (
         <div className={s.inputCapsule}>
-          <TextArea
-            resize="none"
+          <Textarea
+            layout="flexible"
+            fill
+            style={{ resize: "none" }}
             ref={inputRef}
             className={s.input}
             aria-label={inputLabel}
@@ -129,7 +131,7 @@ export function ConversationForm({
         </div>
       )}
       {onFinish && (
-        <Button variant="quiet" size="compact" disabled={navigating} onClick={onFinish}>
+        <Button variant="ghost" size="small" disabled={navigating} onClick={onFinish}>
           대화 끝내기
         </Button>
       )}

@@ -1,5 +1,5 @@
+import { Button, FormField, TextInput } from "@comet/ui";
 import type { ReactElement } from "react";
-import { Button, FormField, TextField } from "../../ui";
 import type { DiaryQuickTask } from "./useDiaryQuickTask";
 import * as s from "./diary.css";
 
@@ -20,7 +20,8 @@ export function DiaryQuickTaskForm({
       }}
     >
       <FormField label="빠른 할 일 제목" required>
-        <TextField
+        <TextInput
+          fill
           autoFocus
           maxLength={500}
           value={task.title}
@@ -33,7 +34,7 @@ export function DiaryQuickTaskForm({
         <Button type="submit" variant="primary" disabled={saving || !task.title.trim()}>
           할 일 저장
         </Button>
-        <Button type="button" variant="quiet" disabled={saving} onClick={task.hide}>
+        <Button type="button" variant="ghost" disabled={saving} onClick={task.hide}>
           닫아두기
         </Button>
       </div>

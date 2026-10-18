@@ -1,7 +1,7 @@
 import { useEffect, useState, type JSX } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ProfileLink, Tabs as CometTabs, Dialog } from "@comet/ui";
-import { Button, ActionBar, Inline, SaveStatus } from "../../ui";
+import { Button, Dialog, ProfileLink, Tabs as CometTabs } from "@comet/ui";
+import { ActionBar, Inline, SaveStatus } from "../../primitives";
 import { OrganizerSettings } from "../OrganizerSettings/OrganizerSettings";
 import { GeneralSettings } from "./GeneralSettings";
 import { ConversationSettings } from "./ConversationSettings";
@@ -64,7 +64,7 @@ function DraftActions({
       >
         <Inline className={styles.footerActions} gap="sm">
           <Button
-            variant="quiet"
+            variant="ghost"
             className={styles.cancelButton}
             disabled={blocked || !!draft.pending || !draft.hasChanges}
             onClick={draft.reset}
@@ -339,7 +339,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
           {visited.has("dialogue") && (
             <div className={styles.subpage}>
               <div className={styles.breadcrumb}>
-                <Button variant="quiet" size="compact" onClick={() => navigate("automatic")}>
+                <Button variant="ghost" size="small" onClick={() => navigate("automatic")}>
                   ‹ 대화
                 </Button>
                 <span>{dialogueView === "wordbook" ? "단어장" : "대화팩"}</span>
@@ -399,7 +399,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
           {visited.has("user") && (
             <div className={styles.subpage}>
               <div className={styles.breadcrumb}>
-                <Button variant="quiet" size="compact" onClick={() => navigate("general")}>
+                <Button variant="ghost" size="small" onClick={() => navigate("general")}>
                   ‹ 일반
                 </Button>
                 <span>사용자</span>
@@ -419,7 +419,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
           {visited.has("organizer") && (
             <div className={styles.subpage}>
               <div className={styles.breadcrumb}>
-                <Button variant="quiet" size="compact" onClick={() => navigate("general")}>
+                <Button variant="ghost" size="small" onClick={() => navigate("general")}>
                   ‹ 일반
                 </Button>
                 <span>Ex-brain</span>
@@ -436,7 +436,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
         variant="confirm"
         footer={
           <>
-            <Button variant="secondary" onClick={() => setConfirmExit(false)}>
+            <Button variant="ghost" onClick={() => setConfirmExit(false)}>
               계속 편집
             </Button>
             <Button

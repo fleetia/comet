@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Dialog } from "@comet/ui";
-import { ActionBar, Button, Checkbox, FormField, Select, TextArea, TextField } from "../../ui";
+import { Button, Checkbox, Dialog, FormField, Select, Textarea, TextInput } from "@comet/ui";
+import { ActionBar } from "../../primitives";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type {
   AnimationAsset,
@@ -43,6 +43,7 @@ function StageLines({
         return (
           <div className={s.relationshipRow} key={index}>
             <Select
+              fill
               aria-label={`${label} ${index + 1} 화자`}
               value={line.persona}
               onChange={(event) => update({ persona: event.target.value })}
@@ -54,7 +55,9 @@ function StageLines({
                 </option>
               ))}
             </Select>
-            <TextArea
+            <Textarea
+              layout="flexible"
+              fill
               aria-label={`${label} ${index + 1} 본문`}
               value={line.text}
               rows={2}
@@ -62,6 +65,7 @@ function StageLines({
               onChange={(event) => update({ text: event.target.value })}
             />
             <Select
+              fill
               aria-label={`${label} ${index + 1} 표정`}
               value={line.expression}
               onChange={(event) => update({ expression: event.target.value })}
@@ -80,7 +84,7 @@ function StageLines({
             />
             <div className={s.compactActions}>
               <Button
-                variant="quiet"
+                variant="ghost"
                 disabled={index === 0}
                 onClick={() => {
                   const next = [...lines];
@@ -90,7 +94,7 @@ function StageLines({
               >
                 {label} {index + 1} 위로
               </Button>
-              <Button variant="quiet" onClick={() => onChange(lines.filter((_, i) => i !== index))}>
+              <Button variant="ghost" onClick={() => onChange(lines.filter((_, i) => i !== index))}>
                 {label} {index + 1} 삭제
               </Button>
             </div>
@@ -98,7 +102,7 @@ function StageLines({
         );
       })}
       <Button
-        variant="secondary"
+        variant="ghost"
         disabled={!first || lines.length >= 32}
         onClick={() =>
           onChange([...lines, { persona: first.sourceId, expression: "평온", text: "" }])
@@ -264,7 +268,9 @@ export function PackStoryEditor({
       </p>
       <fieldset className={s.fieldset} disabled={busy}>
         <FormField label="세계와 공통 규칙">
-          <TextArea
+          <Textarea
+            layout="flexible"
+            fill
             rows={3}
             maxLength={2000}
             value={editor.definition.worldRules}
@@ -275,7 +281,8 @@ export function PackStoryEditor({
           <summary>이야기 조건과 공개 여부</summary>
           {editor.definition.storyFlags.map((flag, index) => (
             <div className={s.relationshipRow} key={index}>
-              <TextField
+              <TextInput
+                fill
                 aria-label={`조건 ${index + 1} 이름`}
                 value={flag.id}
                 onChange={(event) =>
@@ -297,11 +304,10 @@ export function PackStoryEditor({
                     ),
                   })
                 }
-              >
-                생성 대화에 공개
-              </Checkbox>
+                label="생성 대화에 공개"
+              />
               <Button
-                variant="quiet"
+                variant="ghost"
                 onClick={() =>
                   update({
                     ...editor.definition,
@@ -336,18 +342,23 @@ export function PackStoryEditor({
               });
             return (
               <div className={s.relationshipRow} key={index}>
-                <TextField
+                <TextInput
+                  fill
                   aria-label={`지식 ${index + 1} 이름`}
                   value={item.id}
                   onChange={(event) => patch({ id: event.target.value })}
                 />
-                <TextArea
+                <Textarea
+                  layout="flexible"
+                  fill
                   aria-label={`지식 ${index + 1} 키워드`}
                   rows={2}
                   value={item.keywords.join("\n")}
                   onChange={(event) => patch({ keywords: entries(event.target.value) })}
                 />
-                <TextArea
+                <Textarea
+                  layout="flexible"
+                  fill
                   aria-label={`지식 ${index + 1} 본문`}
                   rows={3}
                   maxLength={2000}
@@ -366,18 +377,19 @@ export function PackStoryEditor({
                           : item.knownBy.filter((value) => value !== definition.sourceId),
                       })
                     }
-                  >
-                    {definition.name}
-                  </Checkbox>
+                    label={definition.name}
+                  />
                 ))}
-                <TextArea
+                <Textarea
+                  layout="flexible"
+                  fill
                   aria-label={`지식 ${index + 1} 공개 조건`}
                   rows={2}
                   value={item.requiredFlags.join("\n")}
                   onChange={(event) => patch({ requiredFlags: entries(event.target.value) })}
                 />
                 <Button
-                  variant="quiet"
+                  variant="ghost"
                   onClick={() =>
                     update({
                       ...editor.definition,
@@ -406,6 +418,7 @@ export function PackStoryEditor({
         </details>
         <FormField label="등록 이야기">
           <Select
+            fill
             aria-label="편집할 이야기"
             value={selectedScenario?.id ?? ""}
             onChange={(event) => setSelected(event.target.value)}
@@ -460,13 +473,15 @@ export function PackStoryEditor({
         {selectedScenario && (
           <section aria-label="선택한 이야기">
             <FormField label="이야기 제목">
-              <TextField
+              <TextInput
+                fill
                 value={selectedScenario.title}
                 onChange={(event) => updateScenario({ title: event.target.value })}
               />
             </FormField>
             <FormField label="중심 인물">
               <Select
+                fill
                 value={selectedScenario.centerId}
                 onChange={(event) =>
                   updateScenario({
@@ -499,12 +514,13 @@ export function PackStoryEditor({
                       : selectedScenario.participants.filter((source) => source !== value.sourceId),
                   })
                 }
-              >
-                {value.name}
-              </Checkbox>
+                label={value.name}
+              />
             ))}
             <FormField label="제안 키워드 · 한 줄에 하나">
-              <TextArea
+              <Textarea
+                layout="flexible"
+                fill
                 rows={2}
                 value={selectedScenario.keywords.join("\n")}
                 onChange={(event) => updateScenario({ keywords: entries(event.target.value) })}
@@ -540,7 +556,9 @@ export function PackStoryEditor({
                 ] as const
               ).map(([key, label]) => (
                 <FormField key={key} label={`${label} · 한 줄에 하나`}>
-                  <TextArea
+                  <Textarea
+                    layout="flexible"
+                    fill
                     rows={2}
                     value={selectedScenario[key].join("\n")}
                     onChange={(event) => updateScenario({ [key]: entries(event.target.value) })}
@@ -548,7 +566,8 @@ export function PackStoryEditor({
                 </FormField>
               ))}
               <FormField label="최소 친밀도">
-                <TextField
+                <TextInput
+                  fill
                   type="number"
                   min={0}
                   max={100}
@@ -564,6 +583,7 @@ export function PackStoryEditor({
               ).map(([key, label]) => (
                 <FormField key={key} label={label}>
                   <Select
+                    fill
                     value={selectedScenario[key] ?? ""}
                     onChange={(event) => updateScenario({ [key]: event.target.value || null })}
                   >
@@ -581,17 +601,17 @@ export function PackStoryEditor({
                 onChange={(event) =>
                   updateScenario({ allowIncompleteRepeat: event.target.checked })
                 }
-              >
-                중단한 이야기는 나중에 다시 제안
-              </Checkbox>
+                label="중단한 이야기는 나중에 다시 제안"
+              />
               <Checkbox
                 checked={selectedScenario.allowRepeat}
                 onChange={(event) => updateScenario({ allowRepeat: event.target.checked })}
-              >
-                완료한 이야기도 다시 제안
-              </Checkbox>
+                label="완료한 이야기도 다시 제안"
+              />
               <FormField label="마무리 뒤 남길 조건">
-                <TextArea
+                <Textarea
+                  layout="flexible"
+                  fill
                   rows={2}
                   value={selectedScenario.completion.setFlags.join("\n")}
                   onChange={(event) =>
@@ -605,7 +625,9 @@ export function PackStoryEditor({
                 />
               </FormField>
               <FormField label="함께한 경험으로 남길 문장 · 선택 사항">
-                <TextArea
+                <Textarea
+                  layout="flexible"
+                  fill
                   rows={2}
                   maxLength={500}
                   value={selectedScenario.completion.memoryTemplate ?? ""}
@@ -621,7 +643,7 @@ export function PackStoryEditor({
               </FormField>
             </details>
             <Button
-              variant="quiet"
+              variant="ghost"
               onClick={() =>
                 update({
                   ...editor.definition,

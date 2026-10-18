@@ -1,4 +1,4 @@
-import { Button, Checkbox, FormField, TextField } from "../../ui";
+import { Button, Checkbox, FormField, TextInput } from "@comet/ui";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
@@ -137,34 +137,31 @@ export function PlannerAlerts({
         <Checkbox
           checked={values.enabled === true}
           onChange={(event) => change({ enabled: event.target.checked })}
-        >
-          일정·할 일 기한 알림 켜기
-        </Checkbox>
+          label="일정·할 일 기한 알림 켜기"
+        />
         <div className={a.columns}>
           <div className={a.group}>
             <Checkbox
               checked={values.characterEnabled === true}
               onChange={(event) => change({ characterEnabled: event.target.checked })}
-            >
-              캐릭터 말풍선
-            </Checkbox>
+              label="캐릭터 말풍선"
+            />
             <Checkbox
               checked={values.osEnabled === true}
               onChange={(event) => change({ osEnabled: event.target.checked })}
-            >
-              OS 알림
-            </Checkbox>
+              label="OS 알림"
+            />
             <Checkbox
               checked={values.soundEnabled === true}
               onChange={(event) => change({ soundEnabled: event.target.checked })}
-            >
-              OS 알림 소리
-            </Checkbox>
+              label="OS 알림 소리"
+            />
             <p className={c.quiet}>말풍선을 닫거나 캐릭터를 숨겨도 OS 알림 설정은 유지돼요.</p>
           </div>
           <div className={a.group}>
             <FormField className={c.field} label="몇 분 전에 알릴까요?" required>
-              <TextField
+              <TextInput
+                fill
                 type="number"
                 min="0"
                 max="120"
@@ -175,9 +172,8 @@ export function PlannerAlerts({
             <Checkbox
               checked={values.includeAllDay === true}
               onChange={(event) => change({ includeAllDay: event.target.checked })}
-            >
-              종일 일정·날짜 기한도 알림
-            </Checkbox>
+              label="종일 일정·날짜 기한도 알림"
+            />
             <p className={c.quiet}>날짜만 있으면 오전 9시를 기준으로 알립니다.</p>
           </div>
           <div className={a.group}>
@@ -202,7 +198,7 @@ export function PlannerAlerts({
           </span>
           <Button
             type="button"
-            variant="quiet"
+            variant="ghost"
             disabled={permissionBusy}
             onClick={() => void notification("permission")}
           >
@@ -210,7 +206,7 @@ export function PlannerAlerts({
           </Button>
           <Button
             type="button"
-            variant="quiet"
+            variant="ghost"
             disabled={permissionBusy}
             onClick={() => void notification("preview")}
           >
@@ -223,11 +219,11 @@ export function PlannerAlerts({
             <Checkbox
               checked={values.moodDayStart === true}
               onChange={(event) => change({ moodDayStart: event.target.checked })}
-            >
-              하루 시작 인사
-            </Checkbox>
+              label="하루 시작 인사"
+            />
             <FormField className={c.field} label="하루 시작 시각" required>
-              <TextField
+              <TextInput
+                fill
                 type="time"
                 value={text(values.dayStart)}
                 onChange={(event) => change({ dayStart: event.target.value })}
@@ -238,25 +234,23 @@ export function PlannerAlerts({
             <Checkbox
               checked={values.moodFocusStart === true}
               onChange={(event) => change({ moodFocusStart: event.target.checked })}
-            >
-              집중 시작 응원
-            </Checkbox>
+              label="집중 시작 응원"
+            />
             <Checkbox
               checked={values.moodBreak === true}
               onChange={(event) => change({ moodBreak: event.target.checked })}
-            >
-              집중 종료·쉬기 제안
-            </Checkbox>
+              label="집중 종료·쉬기 제안"
+            />
           </div>
           <div className={a.group}>
             <Checkbox
               checked={values.moodDayEnd === true}
               onChange={(event) => change({ moodDayEnd: event.target.checked })}
-            >
-              하루 마무리 제안
-            </Checkbox>
+              label="하루 마무리 제안"
+            />
             <FormField className={c.field} label="하루 마무리 시각" required>
-              <TextField
+              <TextInput
+                fill
                 type="time"
                 value={text(values.dayEnd)}
                 onChange={(event) => change({ dayEnd: event.target.value })}
@@ -269,13 +263,13 @@ export function PlannerAlerts({
           간격을 둡니다. 놓친 알림을 몰아서 보내지 않아요.
         </p>
         <div className={s.row}>
-          <Button type="submit" variant="secondary" disabled={!dirty}>
+          <Button type="submit" variant="ghost" disabled={!dirty}>
             알림 설정 저장
           </Button>
           {dirty && (
             <Button
               type="button"
-              variant="quiet"
+              variant="ghost"
               onClick={() => {
                 setDraft(null);
                 setSaved(false);
@@ -284,7 +278,7 @@ export function PlannerAlerts({
               알림 변경 취소
             </Button>
           )}
-          <Button type="button" variant="quiet" onClick={() => void act("preview-alert")}>
+          <Button type="button" variant="ghost" onClick={() => void act("preview-alert")}>
             캐릭터 인사 미리보기
           </Button>
         </div>
@@ -341,13 +335,13 @@ export function PlannerAlertNotice({
       <p>{text(last.text)}</p>
       <div className={s.row}>
         <Button
-          variant="quiet"
+          variant="ghost"
           disabled={snoozed}
           onClick={() => void act("snooze-alert", {}, widget)}
         >
           {snoozed ? "다시 알림 예약됨" : "10분 뒤 다시 알림"}
         </Button>
-        <Button variant="quiet" onClick={() => setDismissed(observed)}>
+        <Button variant="ghost" onClick={() => setDismissed(observed)}>
           이 알림 닫기
         </Button>
         {snoozed && <span className={c.quiet}>기한은 그대로 유지됩니다.</span>}

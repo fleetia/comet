@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX } from "react";
-import { Button } from "../../ui";
+import { Button } from "@comet/ui";
 import type { Message, Snapshot } from "../../types";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import * as s from "../companion.css";
@@ -83,7 +83,7 @@ export function CharacterHistory({
       {error && (
         <div className={ui.error} role="alert">
           {error}
-          <Button variant="quiet" onClick={() => setRefresh((value) => value + 1)}>
+          <Button variant="ghost" onClick={() => setRefresh((value) => value + 1)}>
             기록 다시 불러오기
           </Button>
         </div>
@@ -91,8 +91,8 @@ export function CharacterHistory({
       {page && (
         <div className={s.row} aria-label="대화 기록 페이지">
           <Button
-            size="compact"
-            variant="quiet"
+            size="small"
+            variant="ghost"
             disabled={pending || offset === 0}
             onClick={() => setOffset(Math.max(0, offset - 50))}
           >
@@ -100,8 +100,8 @@ export function CharacterHistory({
           </Button>
           <span className={ui.quiet}>전체 {page.total}개</span>
           <Button
-            size="compact"
-            variant="quiet"
+            size="small"
+            variant="ghost"
             disabled={pending || page.nextOffset === null}
             onClick={() => {
               if (page.nextOffset !== null) setOffset(page.nextOffset);

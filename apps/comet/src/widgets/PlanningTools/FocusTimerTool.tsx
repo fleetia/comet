@@ -1,7 +1,6 @@
-import { Button, FormField, Select, TextField } from "../../ui";
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { Icon } from "@comet/icon";
-import { Checkbox } from "@comet/ui";
+import { Button, Checkbox, FormField, Select, TextInput } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import {
   localDay,
@@ -547,6 +546,7 @@ export function TimerTool({
                     {todo && (
                       <FormField label="연결할 할 일" className={s.inlineField}>
                         <Select
+                          fill
                           value={selectedTodoId}
                           disabled={busy}
                           onChange={(event) => setDraft({ ...draft, todoId: event.target.value })}
@@ -562,8 +562,8 @@ export function TimerTool({
                     )}
                     <div className={s.row}>
                       <Button
-                        variant="quiet"
-                        size="compact"
+                        variant="ghost"
+                        size="small"
                         disabled={busy}
                         onClick={() => {
                           setTab("calendar");
@@ -573,8 +573,8 @@ export function TimerTool({
                         캘린더 일정 연결
                       </Button>
                       <Button
-                        variant="quiet"
-                        size="compact"
+                        variant="ghost"
+                        size="small"
                         disabled={busy}
                         onClick={() => setUsagePickerOpen(true)}
                       >
@@ -585,7 +585,8 @@ export function TimerTool({
                 </details>
                 {custom && (
                   <FormField label="집중 시간 (분)" className={s.inlineField}>
-                    <TextField
+                    <TextInput
+                      fill
                       type="number"
                       min="0.02"
                       max="1440"
@@ -605,8 +606,8 @@ export function TimerTool({
                       <Icon name="calendar" size={13} />
                       <span>일정 · {text(draft.eventRef.title)}</span>
                       <Button
-                        variant="quiet"
-                        size="compact"
+                        variant="ghost"
+                        size="small"
                         aria-label="일정 연결 해제"
                         onClick={async () => {
                           if (await configure({ eventRef: null }))
@@ -621,8 +622,8 @@ export function TimerTool({
                       <Icon name="todo" size={13} />
                       <span>{text(tasks.find((task) => task.id === selectedTodoId)?.title)}</span>
                       <Button
-                        variant="quiet"
-                        size="compact"
+                        variant="ghost"
+                        size="small"
                         aria-label="할 일 연결 해제"
                         onClick={() => setDraft({ ...draft, todoId: "" })}
                       >
@@ -687,7 +688,7 @@ export function TimerTool({
               completionPending ? (
                 <Button
                   className={s.restSummary}
-                  variant="quiet"
+                  variant="ghost"
                   onClick={() => void transition("show-rest")}
                 >
                   휴식 {focusDuration(activeRestDuration)} 시작 ·{" "}
@@ -729,7 +730,7 @@ export function TimerTool({
           <fieldset disabled={busy} className={s.controlFields}>
             {tab === "calendar" && (
               <div className={s.tabPanel}>
-                <Button variant="quiet" size="compact" onClick={() => setTab("stats")}>
+                <Button variant="ghost" size="small" onClick={() => setTab("stats")}>
                   집중 기록으로
                 </Button>
                 <FocusTimerCalendar

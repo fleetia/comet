@@ -1,5 +1,4 @@
-import { Button, Select } from "../../ui";
-import { ContextChip, Switch } from "@comet/ui";
+import { Button, ContextChip, Select, Switch } from "@comet/ui";
 import { Icon } from "@comet/icon";
 import { createPortal } from "react-dom";
 import * as layout from "./musicSettings.css";
@@ -246,6 +245,7 @@ export function MusicSettings({
               <SettingsMenu label="음악 앱 직접 연결 설정">
                 <h3 className={layout.sectionTitle}>직접 연결 방식</h3>
                 <Select
+                  fill
                   aria-label="음악 앱"
                   value={config.provider}
                   onChange={(event) => change({ provider: event.target.value })}
@@ -312,6 +312,7 @@ export function MusicSettings({
               <div className={layout.settingRow}>
                 <span>두 앱이 함께 재생할 때</span>
                 <Select
+                  fill
                   aria-label="음악 앱 우선순위"
                   className={layout.providerSelect}
                   value={config.priority}
@@ -335,7 +336,7 @@ export function MusicSettings({
           {(data.configured !== true || (dirty && error)) && (
             <div className={layout.settingActions}>
               {dirty && (
-                <Button type="button" variant="secondary" onClick={() => setDraft(null)}>
+                <Button type="button" variant="ghost" onClick={() => setDraft(null)}>
                   {data.configured === true ? "저장한 값으로 되돌리기" : "선택 초기화"}
                 </Button>
               )}
@@ -356,8 +357,8 @@ export function MusicSettings({
               {(bridge?.connected || bridge?.pairing || bridge?.remembered) && (
                 <Button
                   type="button"
-                  size="compact"
-                  variant="quiet"
+                  size="small"
+                  variant="ghost"
                   onClick={() => void disconnect()}
                 >
                   로컬 연결 해제
@@ -398,8 +399,8 @@ export function MusicSettings({
               </span>
               <Button
                 type="button"
-                size="compact"
-                variant="secondary"
+                size="small"
+                variant="ghost"
                 onClick={async () => {
                   const result = await invoke<string | null>("export_music_extension", {});
                   if (result?.value) setExtensionSaved(true);
@@ -416,12 +417,7 @@ export function MusicSettings({
                     확장이 이 코드를 넣으면 연결돼요. 3분 동안 쓸 수 있어요.
                   </span>
                 </span>
-                <Button
-                  type="button"
-                  size="compact"
-                  variant="secondary"
-                  onClick={() => void pair()}
-                >
+                <Button type="button" size="small" variant="ghost" onClick={() => void pair()}>
                   {bridge?.connected ? "새 연결 코드 발급" : "연결 코드 만들기"}
                 </Button>
               </div>

@@ -1,5 +1,5 @@
+import { Checkbox } from "@comet/ui";
 import type { ReactElement } from "react";
-import { Checkbox } from "../../ui";
 import { localDay, number, rows, text, type DataRecord } from "../toolData";
 import { TaskReadOnlyDetails } from "./TodoEditor";
 import { dueLabel, frequencyRecords, plannedDay, ruleOf } from "./plannerData";
@@ -29,8 +29,6 @@ export function PlannerTaskCheck({
             className={s.taskCheck}
             aria-label={text(item.title)}
             title="완료 상태 바꾸기"
-            children={null}
-            aria-labelledby={undefined}
             disabled={busy || (frequency && recordingDay > localDay())}
             checked={
               frequency

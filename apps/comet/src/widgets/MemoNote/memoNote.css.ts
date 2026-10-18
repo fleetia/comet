@@ -70,3 +70,4 @@ export const editor = style({
   ":focus-visible": { outline: "1px solid #6b5300", outlineOffset: 3 },
   "::placeholder": { color: "#6b5300" },
 });
+export const fontStep = style({ width: 30, minWidth: 30, paddingInline: 0, aspectRatio: "1" });

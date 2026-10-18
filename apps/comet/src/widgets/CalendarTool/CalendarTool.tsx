@@ -1,8 +1,17 @@
-import { FormField, Button, Checkbox, DateField, TextArea, TextField } from "../../ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "@comet/icon";
-import { Badge, ContentChoice, Select, Dialog } from "@comet/ui";
+import {
+  Badge,
+  Button,
+  Checkbox,
+  ContentChoice,
+  Dialog,
+  FormField,
+  Select,
+  Textarea,
+  TextInput,
+} from "@comet/ui";
 import { localDay, record, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { CalendarColors } from "../Planner/CalendarColors";
@@ -240,7 +249,7 @@ export function CalendarTool({
           )}
           {text(event.url) && (
             <Button
-              variant="secondary"
+              variant="ghost"
               onClick={() => void run("open_widget_link", { id: widget.id, url: text(event.url) })}
             >
               원본 일정 열기
@@ -341,8 +350,8 @@ export function CalendarTool({
             </span>
           </span>
           <Button
-            size="compact"
-            variant="quiet"
+            size="small"
+            variant="ghost"
             disabled={disabled || busy || appleBusy || connections.length === 0}
             onClick={() =>
               void (async () => {
@@ -386,7 +395,9 @@ export function CalendarTool({
               </p>
             )}
             <FormField className={c.field} label="조회 날짜" required>
-              <DateField
+              <TextInput
+                type="date"
+                fill
                 min={minDay}
                 max={maxDay}
                 value={day}
@@ -400,7 +411,7 @@ export function CalendarTool({
             </FormField>
             {connections.length > 0 && (
               <Button
-                variant={showFree ? "primary" : "secondary"}
+                variant={showFree ? "primary" : "ghost"}
                 aria-pressed={showFree}
                 onClick={() => setFree((current) => !current)}
               >
@@ -468,7 +479,7 @@ export function CalendarTool({
                     <PlannerAlerts data={record(d.reminders)} act={act} onDirtyChange={setAlertsDirty} />
                   </div>
                 </details>
-                <Button className={settings.connectButton} variant="secondary" size="compact" onClick={() => setConnectionOpen(true)}>
+                <Button className={settings.connectButton} variant="ghost" size="small" onClick={() => setConnectionOpen(true)}>
                   + 캘린더 연결…
                 </Button>
               </div>
@@ -515,8 +526,8 @@ export function CalendarTool({
                     </Badge>
                     {connection.status !== "ready" && (
                       <Button
-                        variant="secondary"
-                        size="compact"
+                        variant="ghost"
+                        size="small"
                         onClick={() =>
                           void run("refresh_calendar", {
                             id: widget.id,
@@ -534,8 +545,8 @@ export function CalendarTool({
                       </summary>
                       <div className={settings.menuActions}>
                         <Button
-                          variant="quiet"
-                          size="compact"
+                          variant="ghost"
+                          size="small"
                           onClick={() =>
                             void run("refresh_calendar", {
                               id: widget.id,
@@ -546,15 +557,15 @@ export function CalendarTool({
                           다시 조회
                         </Button>
                         <Button
-                          variant="quiet"
-                          size="compact"
+                          variant="ghost"
+                          size="small"
                           onClick={() => editConnection(connection)}
                         >
                           다시 연결·캘린더 선택
                         </Button>
                         <Button
-                          variant="quiet"
-                          size="compact"
+                          variant="ghost"
+                          size="small"
                           onClick={() => setDisconnect(connection)}
                         >
                           연결 해제
@@ -629,8 +640,8 @@ export function CalendarTool({
                 </h3>
                 <Button
                   type="button"
-                  variant="quiet"
-                  size="compact"
+                  variant="ghost"
+                  size="small"
                   onClick={() => {
                     resetConnection();
                     setConnectionOpen(false);
@@ -648,7 +659,8 @@ export function CalendarTool({
                 (sideContainer ? createPortal(providers, sideContainer) : providers)}
               <div className={settings.formGroup}>
                 <FormField className={settings.formRow} label="이름" required>
-                  <TextField
+                  <TextInput
+                    fill
                     aria-label="연결 이름"
                     maxLength={100}
                     value={name}
@@ -657,7 +669,8 @@ export function CalendarTool({
                 </FormField>
                 {provider === "ics" ? (
                   <FormField className={settings.formRow} label="주소" required>
-                    <TextField
+                    <TextInput
+                      fill
                       type="url"
                       aria-label="ICS / webcal 구독 주소"
                       autoComplete="off"
@@ -676,7 +689,7 @@ export function CalendarTool({
                     </p>
                     <Button
                       type="button"
-                      variant="secondary"
+                      variant="ghost"
                       onClick={() => void loadAppleCalendars()}
                     >
                       macOS 권한 확인하고 캘린더 목록 읽기
@@ -715,10 +728,7 @@ export function CalendarTool({
                                   ? [...current, calendar.id]
                                   : current.filter((id) => id !== calendar.id),
                               )
-                            }
-                          >
-                            {calendar.name} · {calendar.sourceName}
-                          </Checkbox>
+                            } label={<>{calendar.name} · {calendar.sourceName}</>} />
                         ))}
                         {appleIds.some(
                           (id) => !appleCalendars.calendars.some((calendar) => calendar.id === id),
@@ -728,7 +738,7 @@ export function CalendarTool({
                             골라 주세요.
                           </p>
                         )}
-                        <Button type="button" variant="quiet" onClick={() => setAppleIds([])}>
+                        <Button type="button" variant="ghost" onClick={() => setAppleIds([])}>
                           Apple 캘린더 선택 초기화
                         </Button>
                       </fieldset>
@@ -741,14 +751,16 @@ export function CalendarTool({
                       캘린더를 수정하지 않아요.
                     </p>
                     <FormField className={c.field} label="Google OAuth 클라이언트 ID" required>
-                      <TextField
+                      <TextInput
+                        fill
                         autoComplete="off"
                         value={clientId}
                         onChange={(e) => setClientId(e.target.value)}
                       />
                     </FormField>
                     <FormField className={c.field} label="클라이언트 보안 비밀 (선택)">
-                      <TextField
+                      <TextInput
+                        fill
                         type="password"
                         autoComplete="off"
                         value={clientSecret}
@@ -760,7 +772,10 @@ export function CalendarTool({
                       label="조회할 캘린더 ID (줄바꿈 또는 쉼표)"
                       required
                     >
-                      <TextArea
+                      <Textarea
+                        layout="flexible"
+                        fill
+                        rows={3}
                         value={calendarIds}
                         onChange={(e) => setCalendarIds(e.target.value)}
                       />
@@ -834,7 +849,7 @@ export function CalendarTool({
               </section>
               <div className={settings.formActions}>
                 <Button
-                  variant="quiet"
+                  variant="ghost"
                   type="button"
                   onClick={() => {
                     resetConnection();
@@ -862,7 +877,7 @@ export function CalendarTool({
                       : "브라우저에서 Google 읽기 연결"}
                 </Button>
                 {connectionDirty && (
-                  <Button variant="quiet" type="button" onClick={resetConnection}>
+                  <Button variant="ghost" type="button" onClick={resetConnection}>
                     연결 입력 지우기
                   </Button>
                 )}
@@ -936,7 +951,7 @@ export function CalendarTool({
             >
               연결 해제 확인
             </Button>
-            <Button variant="secondary" disabled={busy} onClick={() => setDisconnect(null)}>
+            <Button variant="ghost" disabled={busy} onClick={() => setDisconnect(null)}>
               취소
             </Button>
           </>

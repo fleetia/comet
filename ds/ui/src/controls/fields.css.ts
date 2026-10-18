@@ -203,3 +203,11 @@ export const searchInputSizes = styleVariants({
   large: { fontSize: 20, lineHeight: "30px" },
   medium: { fontSize: 13.5, lineHeight: "20px" },
 });
+
+// `fill`: the control spans its parent. Without visible messages the wrapper steps out of layout.
+export const fillField = style({ width: "100%" });
+export const contentsField = style({ display: "contents" });
+export const fillInput = style({ width: "100%" });
+export const fillTextarea = style({ width: "100%", height: "auto" });
+export const fillSelectContainer = style({ width: "100%", flex: "1 1 auto" });
+export const fillSelect = style({ width: "100%", minWidth: 0 });

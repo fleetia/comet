@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX } from "react";
-import { IconButton } from "../../ui";
+import { IconButton } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useCharacterGestures } from "../../hooks/useCharacterGestures";
 import { useCharacterCollision } from "../../hooks/useCharacterCollision";
@@ -146,18 +146,16 @@ export function CompanionBox({
       {!imageBody && (
         <IconButton
           className={s.bodyClose}
-          variant="quiet"
           size="compact"
-          label="캐릭터 숨기기"
+          icon="close"
+          aria-label="캐릭터 숨기기"
           disabled={!isDesktop() || preview}
           onClick={() => {
             setError(null);
             void dispatch(snapshot.runtime.guestCharacterIds?.includes(id) ? "leave_character_guest" : "hide_boxes")
               .catch((cause: unknown) => setError(errorText(cause)));
           }}
-        >
-          ×
-        </IconButton>
+        />
       )}
     </div>
   );

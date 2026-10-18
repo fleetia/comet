@@ -8,7 +8,13 @@ export { Radio, type RadioProps } from "./Radio";
 export { Switch, type SwitchProps } from "./Switch";
 export { Slider, type SliderProps } from "./Slider";
 export { Stepper, type StepperProps } from "./Stepper";
-export type { FieldProps } from "./Field";
+export type { FieldProps, FillProps } from "./Field";
+export {
+  FormField,
+  useFormField,
+  type FormFieldProps,
+  type FormFieldContextValue,
+} from "./FormField";
 
 export * from "./ExtendedInputs";
 export * from "./ExtendedSelections";
