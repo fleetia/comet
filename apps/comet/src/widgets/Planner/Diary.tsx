@@ -1,13 +1,6 @@
-import { Button, Select, Surface } from "../../ui";
-import {
-  EnvelopeCard,
-  IconButton as CometIconButton,
-  SegmentedControl,
-  SidebarItem,
-} from "@comet/ui";
+import { Button, Surface } from "../../ui";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactElement } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { WindowHeader } from "../../components/WindowHeader/WindowHeader";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { useWidgets } from "../useWidgets";
 import { useDiaryWidgetActions } from "./useDiaryWidgetActions";
@@ -22,6 +15,10 @@ import { DiaryQuickTaskForm } from "./DiaryQuickTaskForm";
 import { useDiaryLeave } from "./useDiaryLeave";
 import { useDiaryNativeEvents, type DiaryViewTarget } from "./useDiaryNativeEvents";
 import { DiaryLeaveDialog } from "./DiaryLeaveDialog";
+import { DiaryRail } from "./DiaryRail";
+import { DiaryEnvelopeIndex } from "./DiaryEnvelopeIndex";
+import { DiaryPageToolbar } from "./DiaryPageToolbar";
+import { isPlannerTool, toolForTab, type DiaryTool, type View } from "./diaryNavigation";
 import { localDay, record, rows, text, type DataRecord } from "../toolData";
 import type { WidgetView } from "../types";
 import { DiaryCalendar } from "./DiaryCalendar";
@@ -38,59 +35,15 @@ import { LocalEventEditor } from "./LocalEventEditor";
 import { DiaryToday } from "./DiaryToday";
 import { DiaryHabits } from "./DiaryHabits";
 import { DiaryLedger } from "./DiaryLedger";
-import { Planner, type PlannerToolState, type PlannerToolTab } from "./Planner";
+import { Planner, type PlannerToolState } from "./Planner";
 import { DiaryCalendarContext } from "./DiaryCalendarContext";
 import { TodoEditor } from "./TodoEditor";
-import {
-  dayDate,
-  deviceTimeZone,
-  eventsOn,
-  frequencyRecords,
-  moveDay,
-  movePeriod,
-  periodAnchor,
-  ruleOf,
-} from "./plannerData";
+import { dayDate, deviceTimeZone, eventsOn, moveDay, periodAnchor } from "./plannerData";
 import { useDiary } from "./useDiary";
 import { colorForEvent } from "./calendarColorData";
 import { focusSessions } from "../PlanningTools/FocusTimerData";
 import * as s from "./diary.css";
-import * as envelopeStyles from "./diaryEnvelope.css";
 
-type View = "month" | "week" | "day";
-const VIEWS: [View, string][] = [
-  ["day", "하루"],
-  ["week", "주"],
-  ["month", "월"],
-];
-
-type DiaryTool = PlannerToolTab | "organizer" | "habits" | "ledger";
-function toolForTab(tab: string | null): DiaryTool | null {
-  switch (tab) {
-    case "todos":
-      // The task tool uses "today" internally; the native "today" route is the diary summary.
-      return "today";
-    case "plans":
-    case "templates":
-    case "organizer":
-    case "habits":
-    case "ledger":
-      return tab;
-    default:
-      return null;
-  }
-}
-function isPlannerTool(tool: DiaryTool | null): tool is PlannerToolTab {
-  return tool === "today" || tool === "plans" || tool === "templates";
-}
-const TOOL_MENU: [DiaryTool, string][] = [
-  ["plans", "기간 계획"],
-  ["templates", "템플릿"],
-  ["today", "할 일"],
-  ["organizer", "정리 기록"],
-  ["habits", "습관"],
-  ["ledger", "가계부"],
-];
 const EMPTY_TOOL_STATE: PlannerToolState = { dirty: false, busy: false, blocking: false };
 
 export function Diary(): ReactElement {
@@ -525,133 +478,47 @@ export function Diary(): ReactElement {
         </p>
       ) : (
         <div className={s.layout} data-collection={collection === "envelopes" && !notesOpen}>
-          <nav className={s.rail} aria-label="내 다이어리 목차">
-            <WindowHeader
-              nativeControls
-              className={s.railHeader}
-              label="다이어리 닫기"
-              onClose={async () => navigate(close, true)}
-            />
-            <SidebarItem
-              href="#today"
-              icon="today"
-              current={!notesOpen && !collection && !tool && view === "day"}
-              onClick={(event) => {
-                event.preventDefault();
-                openDay(localDay());
-              }}
-            >
-              오늘
-            </SidebarItem>
-            <SidebarItem
-              href="#calendar"
-              icon="calendar"
-              current={!notesOpen && !collection && !tool && view !== "day"}
-              onClick={(event) => {
-                event.preventDefault();
-                openDay(day, "month");
-              }}
-            >
-              캘린더
-            </SidebarItem>
-            <SidebarItem
-              href="#tasks"
-              icon="todo"
-              badge={items.filter((item) => item.completedAt === null).length || undefined}
-              current={!notesOpen && tool === "today"}
-              onClick={(event) => {
-                event.preventDefault();
-                openTool("today");
-              }}
-            >
-              할 일
-            </SidebarItem>
-            {(["habits", "ledger"] as const).map((section) => (
-              <SidebarItem
-                key={section}
-                href={`#${section}`}
-                icon={section === "habits" ? "habit" : "ledger"}
-                current={!notesOpen && tool === section}
-                onClick={(event) => {
-                  event.preventDefault();
-                  openTool(section);
-                }}
-              >
-                {section === "habits" ? "습관" : "가계부"}
-              </SidebarItem>
-            ))}
-            <SidebarItem
-              href="#notes"
-              icon="memo"
-              badge={notes.length || undefined}
-              current={notesOpen}
-              onClick={(event) => {
-                event.preventDefault();
-                navigate(() => {
-                  setNotesOpen(true);
-                  setCollection(null);
-                });
-              }}
-            >
-              메모
-            </SidebarItem>
-            <SidebarItem
-              href="#envelopes"
-              icon="envelope"
-              badge={envelopes.filter((value) => !value.archived).length || undefined}
-              current={!notesOpen && collection === "envelopes"}
-              onClick={(event) => {
-                event.preventDefault();
-                navigate(() => {
-                  setNotesOpen(false);
-                  setTool(null);
-                  setCollection("envelopes");
-                  setPageId("");
-                  setEnvelopeId(text(envelopes.find((value) => !value.archived)?.id));
-                });
-              }}
-            >
-              준비 봉투
-            </SidebarItem>
-            <span className={s.railDivider} />
-            <SidebarItem
-              href="#organizer"
-              icon="organize"
-              current={!notesOpen && tool === "organizer"}
-              onClick={(event) => {
-                event.preventDefault();
-                openTool("organizer");
-              }}
-            >
-              정리 기록
-            </SidebarItem>
-            <SidebarItem
-              href="#pages"
-              icon="page"
-              current={!notesOpen && collection === "pages"}
-              onClick={(event) => {
-                event.preventDefault();
-                navigate(() => {
-                  setNotesOpen(false);
-                  setTool(null);
-                  setCollection("pages");
-                  setView("day");
-                  setEnvelopeId("");
-                  const first = pages.find((value) => !value.date);
-                  setPageId(first?.id ?? "");
-                });
-              }}
-            >
-              내 페이지
-            </SidebarItem>
-            <span className={s.spread} />
-            <CometIconButton
-              icon="gear"
-              aria-label="연결·알림 설정"
-              disabled={saving}
-              onClick={openSettings}
-            />
-          </nav>
+          <DiaryRail
+            notesOpen={notesOpen}
+            collection={collection}
+            tool={tool}
+            view={view}
+            day={day}
+            items={items}
+            noteCount={notes.length}
+            envelopes={envelopes}
+            saving={saving}
+            onClose={() => navigate(close, true)}
+            onOpenDay={openDay}
+            onOpenTool={openTool}
+            onOpenNotes={() =>
+              navigate(() => {
+                setNotesOpen(true);
+                setCollection(null);
+              })
+            }
+            onOpenEnvelopes={() =>
+              navigate(() => {
+                setNotesOpen(false);
+                setTool(null);
+                setCollection("envelopes");
+                setPageId("");
+                setEnvelopeId(text(envelopes.find((value) => !value.archived)?.id));
+              })
+            }
+            onOpenPages={() =>
+              navigate(() => {
+                setNotesOpen(false);
+                setTool(null);
+                setCollection("pages");
+                setView("day");
+                setEnvelopeId("");
+                const first = pages.find((value) => !value.date);
+                setPageId(first?.id ?? "");
+              })
+            }
+            onOpenSettings={openSettings}
+          />
           <aside hidden={!notesOpen} className={s.notes}>
             <DiaryNotes
               requestedNote={requestedNote}
@@ -688,77 +555,16 @@ export function Diary(): ReactElement {
               }}
             />
           </aside>
-          <Surface
-            padding="compact"
-            className={s.index}
-            hidden={collection !== "envelopes" || notesOpen}
-            role="navigation"
-            aria-label={collection === "envelopes" ? "준비 봉투 목록" : "내 페이지 목록"}
-          >
-            <div hidden={collection !== "envelopes"}>
-              <div className={envelopeStyles.envelopeGroups}>
-                {[false, true].map((isArchived) => {
-                  const group = envelopes.filter((value) => Boolean(value.archived) === isArchived);
-                  return (
-                    <section
-                      key={String(isArchived)}
-                      id={`envelope-group-${isArchived ? "archived" : "preparing"}`}
-                      className={envelopeStyles.envelopeGroup}
-                      aria-label={isArchived ? "보관한 봉투" : "준비 중인 봉투"}
-                    >
-                      <h3 className={s.caption}>
-                        {isArchived ? "보관함" : "준비 중"} · {group.length}
-                      </h3>
-                      {group.map((value) => {
-                        const checks = rows(value.checks);
-                        const linkedIds = Array.isArray(value.todoIds) ? value.todoIds : [];
-                        const linked = items.filter((item) => linkedIds.includes(item.id));
-                        const completed =
-                          checks.filter((item) => item.done === true).length +
-                          linked.filter((item) =>
-                            ruleOf(item).mode === "frequency"
-                              ? frequencyRecords(item, localDay()).some(
-                                  (entry) => entry.date === localDay(),
-                                )
-                              : typeof item.completedAt === "number",
-                          ).length;
-                        const event = events.find(
-                          (event) => event.id === value.eventId && !event.cancelled,
-                        );
-                        const description = event
-                          ? `${text(event.startDate) || (typeof event.startAt === "number" ? localDay(new Date(event.startAt)) : "일정에 연결됨")} · ${text(event.title)}`
-                          : text(value.date) ||
-                            (value.eventId
-                              ? `${text(value.eventLabel)} · 일정 확인 필요`
-                              : "날짜 없이 준비 중");
-                        return (
-                          <EnvelopeCard
-                            key={text(value.id)}
-                            className={envelopeStyles.envelopeCard}
-                            title={envelopeTitle(value)}
-                            description={isArchived ? `${description} · 보관함` : description}
-                            completed={completed}
-                            total={checks.length + linkedIds.length}
-                            archived={isArchived}
-                            selected={!tool && envelopeId === value.id}
-                            aria-current={!tool && envelopeId === value.id ? "page" : undefined}
-                            onClick={() => openEnvelope(text(value.id))}
-                          />
-                        );
-                      })}
-                      {!group.length && (
-                        <p className={s.caption}>
-                          {isArchived
-                            ? "아직 보관한 봉투가 없어요."
-                            : "약속이 잡히기 전부터 할 일과 자료를 모아 두세요."}
-                        </p>
-                      )}
-                    </section>
-                  );
-                })}
-              </div>
-            </div>
-          </Surface>
+          <DiaryEnvelopeIndex
+            collection={collection}
+            notesOpen={notesOpen}
+            tool={tool}
+            envelopeId={envelopeId}
+            envelopes={envelopes}
+            items={items}
+            events={events}
+            onOpenEnvelope={openEnvelope}
+          />
           <Surface
             padding="flush"
             className={`${s.page} ${drop.dropActive ? s.dropActive : ""}`}
@@ -768,149 +574,35 @@ export function Diary(): ReactElement {
             onDragLeave={drop.onDragLeave}
             onDrop={drop.onDrop}
           >
-            <div
-              className={s.pageNavigation}
-              hidden={tool === "habits" || tool === "ledger"}
-              data-tauri-drag-region
-            >
-              <div className={collection === "pages" ? s.pageHeading : s.toolbar}>
-                {!tool && !pageId && !envelopeId && (
-                  <CometIconButton
-                    icon="chevleft"
-                    variant="surface"
-                    aria-label="이전 페이지"
-                    onClick={() =>
-                      openDay(
-                        view === "month"
-                          ? movePeriod(day, "month", -1)
-                          : moveDay(day, view === "week" ? -7 : -1),
-                        view,
-                      )
-                    }
-                  />
-                )}
-                <h1 className={s.title} title={pageId ? heading : undefined}>
-                  {tool
-                    ? TOOL_MENU.find(([value]) => value === tool)?.[1]
-                    : envelopeId
-                      ? "준비 봉투"
-                      : heading}
-                </h1>
-                {!tool && !pageId && !envelopeId && (
-                  <CometIconButton
-                    icon="chev"
-                    variant="surface"
-                    aria-label="다음 페이지"
-                    onClick={() =>
-                      openDay(
-                        view === "month"
-                          ? movePeriod(day, "month", 1)
-                          : moveDay(day, view === "week" ? 7 : 1),
-                        view,
-                      )
-                    }
-                  />
-                )}
-              </div>
-              <div className={s.toolbar}>
-                {collection === "envelopes" && (
-                  <SegmentedControl
-                    label="준비 봉투 분류"
-                    appearance="contained"
-                    value={archived ? "archived" : "preparing"}
-                    options={[
-                      { value: "preparing", label: "준비 중" },
-                      { value: "archived", label: "보관함" },
-                    ]}
-                    onValueChange={(value) => {
-                      setArchived(value === "archived");
-                      document
-                        .getElementById(`envelope-group-${value}`)
-                        ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-                    }}
-                  />
-                )}
-                {collection === "pages" && (
-                  <div className={s.pageSelect}>
-                    <Select
-                      aria-label="내 페이지 선택"
-                      value={pageId}
-                      onChange={(event) => {
-                        const selected = pages.find((value) => value.id === event.target.value);
-                        if (selected) openPage(selected);
-                      }}
-                    >
-                      {!pageId && <option value="">페이지 선택</option>}
-                      {pages
-                        .filter((value) => !value.date)
-                        .map((value) => (
-                          <option key={value.id} value={value.id}>
-                            {value.title}
-                          </option>
-                        ))}
-                    </Select>
-                  </div>
-                )}
-                {isPlannerTool(tool) && (
-                  <SegmentedControl
-                    label="할 일 보기"
-                    appearance="contained"
-                    value={tool}
-                    options={[
-                      { value: "today", label: "날짜별" },
-                      { value: "plans", label: "기간별" },
-                    ]}
-                    onValueChange={(value) => {
-                      if (value === "today" || value === "plans" || value === "templates") {
-                        openTool(value);
-                      }
-                    }}
-                  />
-                )}
-                {isPlannerTool(tool) && <div ref={setPlannerHeader} />}
-                {!tool && !pageId && !envelopeId && (
-                  <SegmentedControl
-                    label="다이어리 보기"
-                    appearance="contained"
-                    value={view}
-                    options={VIEWS.map(([value, label]) => ({ value, label }))}
-                    onValueChange={(value) => {
-                      if (value === "day" || value === "week" || value === "month")
-                        changeView(value);
-                    }}
-                  />
-                )}
-                {tool !== "habits" && tool !== "ledger" && tool !== "organizer" && (
-                  <CometIconButton
-                    icon="plus"
-                    variant="primary"
-                    aria-label={
-                      collection === "pages"
-                        ? "새 페이지"
-                        : collection === "envelopes"
-                          ? "새 준비 봉투"
-                          : !tool && view !== "day"
-                            ? "새 일정"
-                            : "빠른 할 일 추가"
-                    }
-                    disabled={saving}
-                    onClick={() => {
-                      if (collection) {
-                        navigate(() =>
-                          creation.start(collection === "pages" ? "page" : "envelope"),
-                        );
-                        return;
-                      }
-                      if (!tool && view !== "day") {
-                        navigate(() => setCalendarDraft({ date: day }));
-                        return;
-                      }
-                      quickTask.show();
-                    }}
-                  />
-                )}
-              </div>
-            </div>
+            <DiaryPageToolbar
+              tool={tool}
+              collection={collection}
+              view={view}
+              day={day}
+              pageId={pageId}
+              envelopeId={envelopeId}
+              heading={heading}
+              archived={archived}
+              pages={pages}
+              saving={saving}
+              onOpenDay={openDay}
+              onOpenPage={openPage}
+              onOpenTool={openTool}
+              onChangeView={changeView}
+              onArchivedChange={setArchived}
+              onPlannerHeader={setPlannerHeader}
+              onAdd={() => {
+                if (collection) {
+                  navigate(() => creation.start(collection === "pages" ? "page" : "envelope"));
+                  return;
+                }
+                if (!tool && view !== "day") {
+                  navigate(() => setCalendarDraft({ date: day }));
+                  return;
+                }
+                quickTask.show();
+              }}
+            />
             <div
               className={s.body}
               ref={bodyRef}
