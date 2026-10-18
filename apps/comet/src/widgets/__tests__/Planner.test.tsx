@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { listen } from "@tauri-apps/api/event";
 import type { ReactElement } from "react";
@@ -1544,4 +1544,51 @@ it("labels inbox counts and period additions with their actual date scope withou
     }),
   );
   expect(value).toEqual(original);
+});
+
+it("confirms a dirty planner close from the header and native close before destroying", async () => {
+  await renderPlanner(snapshot([]));
+  const clean = vi.fn();
+  native.onCloseRequested.mock.calls[0][0]({ preventDefault: clean });
+  expect(clean).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
+    target: { value: "닫기 전 초안" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "플래너 닫기" }));
+  expect(await screen.findByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
+  expect(screen.queryByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeNull();
+  const preventDefault = vi.fn();
+  act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault }));
+  expect(preventDefault).toHaveBeenCalledOnce();
+  expect(screen.getByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeTruthy();
+  expect(native.destroy).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "버리고 나가기" }));
+  await waitFor(() => expect(native.destroy).toHaveBeenCalledOnce());
+  const leaving = vi.fn();
+  native.onCloseRequested.mock.calls[0][0]({ preventDefault: leaving });
+  expect(leaving).not.toHaveBeenCalled();
+});
+
+it("returns to the diary directly when clean and only after discard confirmation when dirty", async () => {
+  useSnapshot(snapshot([]));
+  const onBack = vi.fn();
+  render(<Planner onBack={onBack} />);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_planner_tab"));
+  fireEvent.click(screen.getByRole("button", { name: "다이어리로 돌아가기" }));
+  await waitFor(() => expect(onBack).toHaveBeenCalledOnce());
+  fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
+    target: { value: "돌아가기 전 초안" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "다이어리로 돌아가기" }));
+  expect(await screen.findByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
+  fireEvent.click(screen.getByRole("button", { name: "플래너 닫기" }));
+  fireEvent.click(await screen.findByRole("button", { name: "버리고 나가기" }));
+  await waitFor(() => expect(native.destroy).toHaveBeenCalledOnce());
+  expect(onBack).toHaveBeenCalledOnce();
+  expect(screen.getByRole("textbox", { name: "새 할 일" })).toHaveProperty(
+    "value",
+    "돌아가기 전 초안",
+  );
 });
