@@ -53,25 +53,48 @@ function conversationSnapshot(draft = ""): Snapshot {
   };
 }
 
-it("keeps the desktop input compact and exposes existing options through more", () => {
+it("keeps the desktop input compact with only its shortcuts", () => {
   render(<Balloon snapshot={conversationSnapshot()} surface="input" preview />);
   const input = screen.getByRole("textbox", { name: /에게 할 말/ });
   expect(input.getAttribute("rows")).toBe("1");
   expect(input.getAttribute("maxlength")).toBe("2000");
   expect(screen.queryByRole("button", { name: "메뉴로" })).toBeNull();
-  const options = screen.getByText("더보기").closest("details");
-  expect(options).toHaveProperty("open", false);
+  expect(screen.queryByText("더보기")).toBeNull();
   expect(screen.queryByText("  적어 둔 대답\n다음 줄  ", { exact: true })).toBeNull();
   expect(screen.getByRole("button", { name: "지난 대화" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "이어서 하기" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "함께 이야기해 봐" })).toBeTruthy();
-  fireEvent.click(screen.getByText("더보기"));
-  expect(options).toHaveProperty("open", true);
-  expect(screen.getByRole("button", { name: "대화 접어 두기" })).toBeTruthy();
-  expect(screen.getByRole("combobox", { name: /받는 친구/ })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "AI 연결 설정" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "대화 끝내기" })).toBeTruthy();
-  expect(screen.getByText("이번 대화")).toBeTruthy();
+});
+
+it("shows only the error text under the desktop input when a reply fails", () => {
+  const snapshot = conversationSnapshot();
+  render(
+    <Balloon
+      snapshot={{ ...snapshot, runtime: { ...snapshot.runtime, error: "사용 한도에 도달했어요." } }}
+      surface="input"
+      preview
+    />,
+  );
+  expect(screen.getByRole("alert").textContent).toBe("사용 한도에 도달했어요.");
+  expect(screen.queryByRole("button", { name: "다시 이야기하기" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "입력 수정" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "AI 연결 확인" })).toBeNull();
+});
+
+it("folds the desktop input with Escape from the editor, saving its draft", async () => {
+  render(<Balloon snapshot={conversationSnapshot()} surface="input" preview />);
+  const input = screen.getByRole("textbox");
+  fireEvent.change(input, { target: { value: "접기 전 초안" } });
+  fireEvent.keyDown(input, { key: "Escape", isComposing: true });
+  expect(command).not.toHaveBeenCalledWith("close_panel", expect.anything());
+  fireEvent.keyDown(input, { key: "Escape" });
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("close_panel", { sessionId: "surface-session" }),
+  );
+  expect(command).toHaveBeenCalledWith(
+    "save_conversation_draft",
+    expect.objectContaining({ draft: "접기 전 초안" }),
+  );
 });
 
 it("saves the current draft before resuming a paused conversation from the shortcut", async () => {
@@ -196,26 +219,6 @@ it("allows the next draft during generation while blocking submission", async ()
   expect(screen.getByRole("button", { name: "보내기" })).toHaveProperty("disabled", true);
   expect(command).not.toHaveBeenCalledWith("send_message", expect.anything());
   expect(input).toHaveProperty("value", "새 초안");
-});
-
-it("waits while more is open and resumes the empty-input idle timeout after closing it", async () => {
-  vi.useFakeTimers();
-  render(<Balloon snapshot={conversationSnapshot()} surface="input" preview />);
-  const summary = screen.getByText("더보기");
-  const options = summary.closest("details");
-  if (!options) throw new Error("More options are missing");
-  fireEvent.click(summary);
-  fireEvent(options, new Event("toggle"));
-  await act(async () => {
-    vi.advanceTimersByTime(95_000);
-  });
-  expect(command).not.toHaveBeenCalledWith("close_panel", expect.anything());
-  fireEvent.click(summary);
-  fireEvent(options, new Event("toggle"));
-  await act(async () => {
-    vi.advanceTimersByTime(95_000);
-  });
-  expect(command).toHaveBeenCalledWith("close_panel", { idle: true, sessionId: "surface-session" });
 });
 
 it("shows recorded responses in a read-only surface without autosave or idle controls", async () => {

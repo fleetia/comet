@@ -34,14 +34,6 @@ export const inputAction = style({
 export const resumeAction = style({ width: 106 });
 export const togetherAction = style({ width: 132, height: 34 });
 export const historyAction = style({ width: 94 });
-export const more = style({ fontSize: 12 });
-export const moreSummary = style({
-  width: "max-content",
-  margin: "0 auto",
-  padding: "4px 8px",
-  color: tokens["color/ink-2"],
-  cursor: "pointer",
-});
 export const optionsPanel = style({
   marginTop: 4,
   padding: "8px 0",
@@ -49,6 +41,14 @@ export const optionsPanel = style({
   borderRadius: 18,
   background: tokens["color/glass-panel"],
   backdropFilter: "blur(12px)",
+});
+export const inputError = style({
+  margin: 0,
+  padding: "8px 20px 0",
+  color: tokens["color/danger"],
+  fontSize: tokens["typography/sans/caption/fontSize"],
+  lineHeight: "1.462",
+  overflowWrap: "anywhere",
 });
 export const responseHost = style([
   conversationTheme,

@@ -1,4 +1,4 @@
-import type { JSX, ReactNode } from "react";
+import type { JSX } from "react";
 import { Icon } from "@comet/icon";
 import { Button as CometButton } from "@comet/ui";
 import * as surfaceStyle from "./conversationSurface.css";
@@ -49,41 +49,5 @@ export function InputSurfaceActions({
         지난 대화
       </CometButton>
     </div>
-  );
-}
-
-/** The "더보기" disclosure that holds the conversation options under the desktop input. */
-export function InputSurfaceMore({
-  open,
-  onOpenChange,
-  navigating,
-  onCollapse,
-  children,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  navigating: boolean;
-  onCollapse: () => void;
-  children: ReactNode;
-}): JSX.Element {
-  return (
-    <details
-      className={surfaceStyle.more}
-      open={open}
-      onToggle={(event) => onOpenChange(event.currentTarget.open)}
-    >
-      <summary className={surfaceStyle.moreSummary}>더보기</summary>
-      <div className={surfaceStyle.optionsPanel}>
-        <CometButton
-          variant="link"
-          aria-label="대화 접어 두기"
-          disabled={navigating}
-          onClick={onCollapse}
-        >
-          접어 두기
-        </CometButton>
-        {children}
-      </div>
-    </details>
   );
 }

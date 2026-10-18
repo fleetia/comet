@@ -21,7 +21,7 @@ import { useBalloonNavigation, useEscapeClose } from "./useBalloonNavigation";
 import { useConversationSubmission, useDraftReplacement } from "./useConversationSubmission";
 import { useIdleClose } from "./useIdleClose";
 import { UpdateNoticeBalloon } from "./UpdateNoticeBalloon";
-import { InputSurfaceActions, InputSurfaceMore } from "./InputSurfaceActions";
+import { InputSurfaceActions } from "./InputSurfaceActions";
 import { BalloonHeader } from "./BalloonHeader";
 import { HistoryPanel } from "./HistoryPanel";
 import { IdleSpeech } from "./IdleSpeech";
@@ -136,7 +136,6 @@ export function Balloon({
   }, [updateNotice, snapshot.playback?.id]);
   const [logOpen, setLogOpen] = useState(false);
   const [latestUserOpen, setLatestUserOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
   const [choosingResumeNote, setChoosingResumeNote] = useState(false);
   const [saveSelection, setSaveSelection] = useState<{
     identity: string;
@@ -221,7 +220,6 @@ export function Balloon({
   useEffect(() => {
     setSaveSelection(null);
     setChoosingResumeNote(false);
-    setMoreOpen(false);
   }, [viewIdentity]);
   useLayoutEffect(() => {
     // A failed send can arrive while the native window still has its previous size,
@@ -361,7 +359,6 @@ export function Balloon({
     input,
     logOpen,
     latestUserOpen,
-    moreOpen,
     choosingResumeNote,
     contextBusy,
     saveRequest,
@@ -745,31 +742,14 @@ export function Balloon({
               )}
             </>
           )}
-          {surface === "input" && notice ? (
-            <div className={surfaceStyle.optionsPanel}>{notice}</div>
-          ) : (
-            notice
-          )}
-          {surface === "input" ? (
-            choosingResumeNote ? null : (
-              <InputSurfaceMore
-                open={moreOpen}
-                onOpenChange={(open) => {
-                  setMoreOpen(open);
-                  if (!open) {
-                    setLogOpen(false);
-                    setLatestUserOpen(false);
-                  }
-                }}
-                navigating={navigating}
-                onCollapse={() => void leave(closeCommand)}
-              >
-                {inputOptions}
-              </InputSurfaceMore>
-            )
-          ) : (
-            inputOptions
-          )}
+          {surface === "input"
+            ? visibleError && (
+                <p ref={errorRef} className={surfaceStyle.inputError} role="alert">
+                  {visibleError}
+                </p>
+              )
+            : notice}
+          {surface !== "input" && inputOptions}
         </div>
       )}
       {mode === "history" && (
