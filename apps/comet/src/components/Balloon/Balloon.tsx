@@ -1,17 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
-import { Button, IconButton, Select, TextArea } from "../../ui";
-import { SendIcon, CloseIcon, Icon } from "@comet/icon";
+import { Button, IconButton } from "../../ui";
+import { CloseIcon, Icon } from "@comet/icon";
 import { Button as CometButton, InputCapsule, WaitingDots } from "@comet/ui";
-import type { ConversationView, Dispatch, Persona, Snapshot } from "../../types";
+import type { ConversationView, Dispatch, Message, Persona, Snapshot } from "../../types";
 import { command, errorText } from "../../hooks/useSnapshot";
 import { useBalloonSizing } from "../../hooks/useBalloonSizing";
 import { useTypewriter } from "../../hooks/useTypewriter";
 import * as s from "../companion.css";
-import * as ui from "../../common.css";
 import * as surfaceStyle from "./conversationSurface.css";
 import { CharacterOrbit } from "./CharacterOrbit";
 import { NameRegistration } from "./NameRegistration";
-import { ConversationHistory, ConversationLog } from "./ConversationHistory";
+import { ConversationHistory } from "./ConversationHistory";
 import { StoryChoices } from "../StoryChoices/StoryChoices";
 import * as storyStyle from "../StoryChoices/story.css";
 import { activeCharacter, BALLOON_SPRITE, characterName, spriteUrl } from "../characterIdentity";
@@ -25,6 +24,9 @@ import { useBalloonNavigation, useEscapeClose } from "./useBalloonNavigation";
 import { useConversationSubmission, useDraftReplacement } from "./useConversationSubmission";
 import { useIdleClose } from "./useIdleClose";
 import { UpdateNoticeBalloon } from "./UpdateNoticeBalloon";
+import { ConversationReply } from "./ConversationReply";
+import { ConversationDisclosures } from "./ConversationDisclosures";
+import { ConversationForm, type EditorKeyHandlers } from "./ConversationForm";
 import { SpeechText } from "./SpeechText";
 import { ConversationNotice } from "./ConversationNotice";
 import { DraftReplacementDialog } from "./DraftReplacementDialog";
@@ -34,11 +36,7 @@ import {
   type BalloonView,
   type ConversationDraft,
 } from "./useConversationDraft";
-import {
-  ConversationMessageActions,
-  ConversationSave,
-  type ConversationSaveRequest,
-} from "./ConversationSave";
+import { ConversationSave, type ConversationSaveRequest } from "./ConversationSave";
 
 type Props = {
   snapshot: Snapshot;
@@ -425,6 +423,29 @@ export function Balloon({
     focus: "집중 중",
     update: "업데이트 알림",
   };
+  const inputLabel = target === "all" ? "모두에게 할 말" : `${recipientName}에게 할 말`;
+  function changeInput(value: string): void {
+    draft.current.value = value;
+    setInput(value);
+  }
+  const editorKeys: EditorKeyHandlers = {
+    onCompositionStart: () => {
+      composing.current = true;
+    },
+    onCompositionEnd: () => {
+      composing.current = false;
+    },
+    onKeyDown: (event) => {
+      if (shouldSubmit(event, composing.current)) {
+        event.preventDefault();
+        void send();
+      }
+    },
+  };
+  function saveMessage(message: Message, kind: ConversationSaveRequest["kind"]): void {
+    if (!conversation) return;
+    selectSave({ sessionId: conversation.session.id, context: noteContext, message, kind });
+  }
   const speech = <SpeechText fullText={fullText} revealedText={revealedText} />;
   const notice = (visibleError || canRetry || responding) && (
     <ConversationNotice
@@ -454,194 +475,57 @@ export function Balloon({
         disabled={responding || playing || pending || navigating}
       />
       {latestUser && <OrganizerReceipt key={latestUser.id} inputId={latestUser.id} />}
-      {surface !== "input" && conversation && (snapshot.playback || latestReply) && (
-        <div
-          className={s.conversationSpeech}
-          style={textStyle}
-          aria-live="polite"
-          aria-label={snapshot.playback ? fullText : undefined}
-        >
-          <span className={s.historyName}>
-            {!snapshot.playback && previousReply && "이전 답변 · "}
-            {!snapshot.playback && latestReply && conversation.characterNames?.[latestReply.id]
-              ? conversation.characterNames[latestReply.id]
-              : characterName(
-                  snapshot,
-                  snapshot.playback?.persona ?? latestReply?.persona ?? persona,
-                )}
-          </span>
-          <span className={s.responseOrigin}>
-            {responseOrigin(
-              snapshot.playback?.source ??
-                (latestReply ? conversation.messageSources?.[latestReply.id] : undefined),
-            )}
-          </span>
-          {snapshot.playback ? speech : latestReply?.content}
-        </div>
-      )}
-      {conversation && latestReply && !snapshot.playback && (
-        <div className={s.notice}>
-          <ConversationMessageActions
-            message={latestReply}
-            onSave={(kind) =>
-              selectSave({
-                sessionId: conversation.session.id,
-                context: noteContext,
-                message: latestReply,
-                kind,
-              })
-            }
-          />
-        </div>
-      )}
-      {conversation && latestUser && (
-        <details
-          className={s.conversationDetails}
-          open={latestUserOpen}
-          onToggle={(event) => setLatestUserOpen(event.currentTarget.open)}
-        >
-          <summary className={s.conversationSummary}>최근에 한 말</summary>
-          {latestUserOpen && (
-            <>
-              <p className={s.historyMessage}>{latestUser.content}</p>
-              <ConversationMessageActions
-                message={latestUser}
-                onSave={(kind) =>
-                  selectSave({
-                    sessionId: conversation.session.id,
-                    context: noteContext,
-                    message: latestUser,
-                    kind,
-                  })
-                }
-              />
-            </>
-          )}
-        </details>
+      {conversation && (
+        <ConversationReply
+          snapshot={snapshot}
+          conversation={conversation}
+          persona={persona}
+          showSpeech={surface !== "input"}
+          textStyle={textStyle}
+          fullText={fullText}
+          speech={speech}
+          latestReply={latestReply}
+          previousReply={previousReply}
+          onSave={saveMessage}
+        />
       )}
       {conversation && (
-        <details
-          className={s.conversationDetails}
-          open={logOpen}
-          onToggle={(event) => setLogOpen(event.currentTarget.open)}
-        >
-          <summary className={s.conversationSummary}>이번 대화</summary>
-          {logOpen && (
-            <ConversationLog
-              key={sessionId}
-              snapshot={snapshot}
-              sessionId={conversation.session.id}
-              page={conversation}
-              onSave={(message, kind) =>
-                selectSave({
-                  sessionId: conversation.session.id,
-                  context: noteContext,
-                  message,
-                  kind,
-                })
-              }
-            />
-          )}
-        </details>
+        <ConversationDisclosures
+          snapshot={snapshot}
+          conversation={conversation}
+          latestUser={latestUser}
+          latestUserOpen={latestUserOpen}
+          onLatestUserOpenChange={setLatestUserOpen}
+          logOpen={logOpen}
+          onLogOpenChange={setLogOpen}
+          onSave={saveMessage}
+        />
       )}
-      <form
-        className={s.form}
-        onSubmit={(event) => {
-          event.preventDefault();
-          void send();
-        }}
-      >
-        <div aria-label="대화 가능 상태">
-          <div className={s.row}>
-            <p className={s.conversationMeta}>{availability.label}</p>
-            {!availability.ready && (
-              <Button
-                variant="quiet"
-                size="compact"
-                disabled={navigating}
-                onClick={() => void openModelSettings()}
-              >
-                AI 연결 설정
-              </Button>
-            )}
-          </div>
-        </div>
-        <div className={s.recipientRow}>
-          <label className={ui.quiet}>
-            받는 친구{" "}
-            <Select
-              className={s.recipient}
-              value={target}
-              disabled={Boolean(conversation && latestUser) || navigating}
-              onChange={(event) => setTarget(event.target.value as Persona | "all")}
-            >
-              <option value={guestPersona ?? conversation?.session.participants[0] ?? persona}>
-                {recipientName}
-              </option>
-              {(snapshot.characters.active.length > 1 || target === "all") && (
-                <option value="all">모두에게</option>
-              )}
-            </Select>
-          </label>
-          <span className={ui.quiet}>Shift + Enter 줄바꿈</span>
-        </div>
-        {surface !== "input" && (
-          <div className={s.inputCapsule}>
-            <TextArea
-              resize="none"
-              ref={inputRef}
-              className={s.input}
-              aria-label={target === "all" ? "모두에게 할 말" : `${recipientName}에게 할 말`}
-              value={input}
-              rows={3}
-              disabled={!snapshot.user || navigating}
-              maxLength={2000}
-              placeholder="하고 싶은 이야기를 적어 줘."
-              onChange={(event) => {
-                draft.current.value = event.target.value;
-                setInput(event.target.value);
-              }}
-              onCompositionStart={() => {
-                composing.current = true;
-              }}
-              onCompositionEnd={() => {
-                composing.current = false;
-              }}
-              onKeyDown={(event) => {
-                if (shouldSubmit(event, composing.current)) {
-                  event.preventDefault();
-                  void send();
-                }
-              }}
-            />
-            <Button
-              type="submit"
-              className={s.capsuleSend}
-              aria-label={pending ? "전송 중" : "보내기"}
-              disabled={
-                !snapshot.user || !input.trim() || responding || playing || pending || navigating
-              }
-            >
-              <SendIcon size={18} />
-            </Button>
-          </div>
-        )}
-        {surface !== "input" && responding && (
-          <div className={s.recipientRow}>
-            <WaitingDots label="답변 준비 중" />
-          </div>
-        )}
-        {conversation && (
-          <Button
-            variant="quiet"
-            size="compact"
-            disabled={navigating}
-            onClick={() => void leave("finish_conversation", { sessionId })}
-          >
-            대화 끝내기
-          </Button>
-        )}
-      </form>
+      <ConversationForm
+        availability={availability}
+        navigating={navigating}
+        onOpenModelSettings={() => void openModelSettings()}
+        target={target}
+        onTargetChange={setTarget}
+        recipientLocked={Boolean(conversation && latestUser)}
+        recipient={guestPersona ?? conversation?.session.participants[0] ?? persona}
+        recipientName={recipientName}
+        offerAll={snapshot.characters.active.length > 1 || target === "all"}
+        showEditor={surface !== "input"}
+        inputRef={inputRef}
+        input={input}
+        inputLabel={inputLabel}
+        inputDisabled={!snapshot.user || navigating}
+        onInputChange={changeInput}
+        editorKeys={editorKeys}
+        pending={pending}
+        sendDisabled={
+          !snapshot.user || !input.trim() || responding || playing || pending || navigating
+        }
+        responding={responding}
+        onSubmit={() => void send()}
+        onFinish={conversation ? () => void leave("finish_conversation", { sessionId }) : undefined}
+      />
     </>
   );
   if (updateNotice && snapshot.playback) {
@@ -913,32 +797,15 @@ export function Balloon({
                   asTextarea
                   inputRef={inputRef}
                   value={input}
-                  label={target === "all" ? "모두에게 할 말" : `${recipientName}에게 할 말`}
+                  label={inputLabel}
                   placeholder="하고 싶은 이야기를 적어 줘."
                   disabled={!snapshot.user || navigating}
                   sending={pending}
                   disableInputWhileSending={false}
                   sendDisabled={responding || playing}
-                  onValueChange={(value) => {
-                    draft.current.value = value;
-                    setInput(value);
-                  }}
+                  onValueChange={changeInput}
                   onSend={() => void send()}
-                  textareaProps={{
-                    maxLength: 2000,
-                    onCompositionStart: () => {
-                      composing.current = true;
-                    },
-                    onCompositionEnd: () => {
-                      composing.current = false;
-                    },
-                    onKeyDown: (event) => {
-                      if (shouldSubmit(event, composing.current)) {
-                        event.preventDefault();
-                        void send();
-                      }
-                    },
-                  }}
+                  textareaProps={{ maxLength: 2000, ...editorKeys }}
                 />
               )}
               {sessionsError && (
