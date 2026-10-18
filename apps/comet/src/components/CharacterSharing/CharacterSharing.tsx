@@ -9,6 +9,7 @@ import type {
 } from "../../types";
 import { CharacterPackPreview } from "../CharacterPackPreview/CharacterPackPreview";
 import { CharacterImportPreview } from "./CharacterImportPreview";
+import { FriendsSubpage } from "../CharacterManager/FriendsSubpage";
 import { NO_ARCHIVE, withArchiveChoice, type ArchiveChoice } from "./archiveChoice";
 import * as ui from "../../common.css";
 import * as s from "../characters.css";
@@ -507,29 +508,12 @@ export function CharacterSharing({
   return (
     <>
       {children ? children(summary) : summary}
-      <Dialog
-        closeLabel="닫기"
-        isOpen={action !== null}
-        onOpenChange={(open) => {
-          if (!open && !pending) {
-            onActionChange?.(null);
-          }
-        }}
-        onCancel={(event) => {
-          if (pending) {
-            event.preventDefault();
-          }
-        }}
-        title={
-          action === "import"
-            ? "캐릭터 가져오기"
-            : action === "export"
-              ? "파일로 내보내기"
-              : "팩 정보·출처"
-        }
-        size="large"
-      >
-        {action === "import" ? (
+      {action === "import" && (
+        <FriendsSubpage
+          title="친구 가져오기"
+          backDisabled={pending}
+          onBack={() => onActionChange?.(null)}
+        >
           <CharacterImportPreview
             pack={pack}
             activeCount={active.length}
@@ -565,9 +549,25 @@ export function CharacterSharing({
               })
             }
           />
-        ) : (
-          content
-        )}
+        </FriendsSubpage>
+      )}
+      <Dialog
+        closeLabel="닫기"
+        isOpen={action === "export" || action === "attribution"}
+        onOpenChange={(open) => {
+          if (!open && !pending) {
+            onActionChange?.(null);
+          }
+        }}
+        onCancel={(event) => {
+          if (pending) {
+            event.preventDefault();
+          }
+        }}
+        title={action === "export" ? "파일로 내보내기" : "팩 정보·출처"}
+        size="large"
+      >
+        {action !== "import" && content}
       </Dialog>
     </>
   );

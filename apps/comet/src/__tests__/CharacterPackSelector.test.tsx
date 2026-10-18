@@ -200,7 +200,11 @@ it("blocks pack application for a draft on another character and unlocks after c
   const select = await screen.findByRole("radio", { name: "1. 별 친구 · 2명" });
   expect(select).toHaveProperty("disabled", true);
   expect(screen.getByText(/수정 중인 캐릭터와 대사를 저장하거나 취소/)).toBeTruthy();
-  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "닫기" }));
+  fireEvent.click(
+    within(screen.getByRole("navigation", { name: "친구 추가 경로" })).getByRole("button", {
+      name: "친구들로 돌아가기",
+    }),
+  );
   selectFriend(/^수정 중인 A/);
   openCharacterPage("프로필");
   expect(screen.getByLabelText("이름")).toHaveProperty("value", "수정 중인 A");

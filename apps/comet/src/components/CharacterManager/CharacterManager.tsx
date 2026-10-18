@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { Button, Dialog, Select } from "@comet/ui";
 import { FriendsLibrary } from "./FriendsLibrary";
+import { FriendsSubpage } from "./FriendsSubpage";
 import * as friends from "./friends.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type {
@@ -167,6 +168,8 @@ export function CharacterManager({
     storyPending ||
     Boolean(pendingTargets.roster);
   const rosterBlocked = anyPending || Object.keys(drafts).length > 0 || hasDialogueDrafts;
+  // Adding and importing friends are pages inside the friends section, not sheets.
+  const subpageOpen = packOpen || sharingAction === "import";
   const together = active.includes(selectedId);
   const dialogueIds = scope === "pair" && active.length > 1 ? active : [selectedId];
   const dialogueKey = dialogueIds.join(":");
@@ -333,7 +336,61 @@ export function CharacterManager({
         </p>
       )}
       <div className={s.layout}>
-        {libraryOpen && (
+        <FriendsSubpage
+          title="친구 추가"
+          hidden={!packOpen}
+          backDisabled={packPending}
+          onBack={() => setPackOpen(false)}
+        >
+          <div className={friends.adding}>
+            <aside className={friends.addIntro}>
+              <h2 className={friends.pageTitle}>친구 추가</h2>
+              <p className={friends.caption}>
+                캐릭터 팩에서 친구를 데려오거나 이름과 기본 표정으로 새 친구를 만들어요.
+              </p>
+              <div className={friends.sourceButtons}>
+                <Button
+                  variant="primary"
+                  disabled={anyPending}
+                  onClick={() => {
+                    setDrafts((values) => ({
+                      ...values,
+                      [NEW_ID]: values[NEW_ID] ?? newDefinition(),
+                    }));
+                    select(NEW_ID);
+                    setPackOpen(false);
+                  }}
+                >
+                  새로 만들기
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={anyPending}
+                  onClick={() => {
+                    setPackOpen(false);
+                    setSharingAction("import");
+                  }}
+                >
+                  파일에서 가져오기…
+                </Button>
+              </div>
+              <p className={friends.caption}>
+                함께 지내는 친구는 8명까지예요. 지금 {active.length}명이 함께 지내요.
+              </p>
+            </aside>
+            <CharacterPackSelector
+              characters={snapshot.characters}
+              disabled={anyPending && !packPending}
+              hasUnsavedChanges={Object.keys(drafts).length > 0 || hasDialogueDrafts}
+              onPendingChange={setPackPending}
+              onApplied={(id) => {
+                select(id);
+                setPackOpen(false);
+              }}
+            />
+          </div>
+        </FriendsSubpage>
+        {libraryOpen && !subpageOpen && (
           <FriendsLibrary
             snapshot={snapshot}
             installed={installed.map((character) => ({
@@ -390,7 +447,7 @@ export function CharacterManager({
                 onActionChange={setSharingAction}
               >
                 {(packSummary) => (
-                  <div className={friends.detail} hidden={libraryOpen}>
+                  <div className={friends.detail} hidden={libraryOpen || subpageOpen}>
                     <CharacterEditor
                       lifeContent={(visible) => (
                         <PackStoryEditor
@@ -695,70 +752,6 @@ export function CharacterManager({
           )}
         </div>
       </div>
-      <Dialog
-        closeLabel="닫기"
-        isOpen={packOpen}
-        onOpenChange={(open) => {
-          if (!packPending) {
-            setPackOpen(open);
-          }
-        }}
-        onCancel={(event) => {
-          if (packPending) {
-            event.preventDefault();
-          }
-        }}
-        title="친구 추가"
-        size="large"
-      >
-        <div className={friends.adding}>
-          <aside className={friends.addIntro}>
-            <h2 className={friends.pageTitle}>친구 추가</h2>
-            <p className={friends.caption}>
-              캐릭터 팩에서 친구를 데려오거나 이름과 기본 표정으로 새 친구를 만들어요.
-            </p>
-            <div className={friends.sourceButtons}>
-              <Button
-                variant="primary"
-                disabled={anyPending}
-                onClick={() => {
-                  setDrafts((values) => ({
-                    ...values,
-                    [NEW_ID]: values[NEW_ID] ?? newDefinition(),
-                  }));
-                  select(NEW_ID);
-                  setPackOpen(false);
-                }}
-              >
-                새로 만들기
-              </Button>
-              <Button
-                variant="ghost"
-                disabled={anyPending}
-                onClick={() => {
-                  setPackOpen(false);
-                  setSharingAction("import");
-                }}
-              >
-                파일에서 가져오기…
-              </Button>
-            </div>
-            <p className={friends.caption}>
-              함께 지내는 친구는 8명까지예요. 지금 {active.length}명이 함께 지내요.
-            </p>
-          </aside>
-          <CharacterPackSelector
-            characters={snapshot.characters}
-            disabled={anyPending && !packPending}
-            hasUnsavedChanges={Object.keys(drafts).length > 0 || hasDialogueDrafts}
-            onPendingChange={setPackPending}
-            onApplied={(id) => {
-              select(id);
-              setPackOpen(false);
-            }}
-          />
-        </div>
-      </Dialog>
       <Dialog
         closeLabel="닫기"
         isOpen={removeId !== null}

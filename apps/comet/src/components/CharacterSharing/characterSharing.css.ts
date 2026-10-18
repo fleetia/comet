@@ -6,7 +6,7 @@ export const importLayout = style({
   gridTemplateColumns: "minmax(250px,372px) minmax(0,1fr)",
   gap: 28,
   minHeight: 0,
-  padding: "16px 12px 26px",
+  padding: "8px 28px 28px",
   "@media": { "(max-width: 780px)": { gridTemplateColumns: "1fr" } },
 });
 export const previewCard = style({

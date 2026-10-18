@@ -192,12 +192,19 @@ export const detail = style({
   minWidth: 0,
   minHeight: 0,
 });
+export const subpage = style({
+  display: "flex",
+  flexDirection: "column",
+  flex: 1,
+  minWidth: 0,
+  minHeight: 0,
+  overflowY: "auto",
+});
 export const adding = style({
-  padding: "16px 28px 28px",
+  padding: "8px 28px 28px",
   display: "grid",
   gridTemplateColumns: "minmax(240px,372px) minmax(0,1fr)",
   gap: 28,
-  overflowY: "auto",
   "@media": { "(max-width: 820px)": { gridTemplateColumns: "1fr" } },
 });
 export const addIntro = style({
@@ -211,4 +218,4 @@ export const addIntro = style({
   alignSelf: "start",
 });
 export const sourceButtons = style({ display: "flex", flexDirection: "column", gap: 12 });
-globalStyle(`${detail}[hidden], ${library}[hidden]`, { display: "none" });
+globalStyle(`${detail}[hidden], ${library}[hidden], ${subpage}[hidden]`, { display: "none" });
