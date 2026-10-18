@@ -1,4 +1,4 @@
-import { Button, Checkbox, Select, TabPanel, externalTabPanels } from "../../ui";
+import { Button, TabPanel, externalTabPanels } from "../../ui";
 import { useEffect, useId, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Button as CometButton, IconButton, Tabs } from "@comet/ui";
@@ -12,19 +12,14 @@ import { PlannerPreparation } from "./PlannerPreparation";
 import { PlannerTemplates } from "./PlannerTemplates";
 import { TodoEditor } from "./TodoEditor";
 import {
-  clockLabel,
   dayDate,
-  dueDay,
-  dueLabel,
   deviceTimeZone,
   eventsOn,
   inPeriod,
   moveDay,
   movePeriod,
-  PERIODS,
   periodAnchor,
   plannedDay,
-  repeatLabel,
   ruleOf,
 } from "./plannerData";
 import { usePlannerActions } from "./usePlannerActions";
@@ -41,6 +36,8 @@ import { PlannerTaskActions } from "./PlannerTaskActions";
 import { PlannerDiaryTasks } from "./PlannerDiaryTasks";
 import { PlannerDayAgenda } from "./PlannerDayAgenda";
 import { PlannerDayTaskList } from "./PlannerDayTaskList";
+import { PlannerPlans } from "./PlannerPlans";
+import { PlannerTimedTasks } from "./PlannerTimedTasks";
 import * as s from "./planner.css";
 
 const NAVIGATION = [
@@ -570,146 +567,29 @@ export function Planner({
             )}
           </PlannerPanel>
           <PlannerPanel tabs={tabsId} embedded={embedded} current={tab} value="plans">
-            <div className={s.toolbar}>
-              <div className={s.actions} role="group" aria-label="계획 기간">
-                {[...PERIODS, ["inbox", "수집함"]].map(([key, label]) => (
-                  <Button
-                    key={key}
-                    variant="quiet"
-                    size="compact"
-                    className={s.categoryButton}
-                    aria-pressed={period === key}
-                    onClick={() => setPeriod(key)}
-                  >
-                    {label}
-                  </Button>
-                ))}
-              </div>
-              <div className={s.spacer} />
-              {!["someday", "inbox"].includes(period) && (
-                <>
-                  <Button
-                    variant="quiet"
-                    size="compact"
-                    aria-label="이전 계획 기간"
-                    onClick={() => setPlanDay(movePeriod(planDay, period, -1))}
-                  >
-                    ‹
-                  </Button>
-                  <span className={s.caption}>{periodAnchor(period, planDay)}</span>
-                  <Button
-                    variant="quiet"
-                    size="compact"
-                    aria-label="다음 계획 기간"
-                    onClick={() => setPlanDay(movePeriod(planDay, period, 1))}
-                  >
-                    ›
-                  </Button>
-                </>
-              )}
-            </div>
-            {todo ? (
-              <>
-                {quickInput(false)}
-                <div className={s.actions}>
-                  <Select
-                    className={s.listSelect}
-                    aria-label="조회할 목록"
-                    value={visibleList}
-                    onChange={(e) => setVisibleList(e.target.value)}
-                  >
-                    <option value="all">모든 목록</option>
-                    {lists.map((l) => (
-                      <option key={text(l.id)} value={text(l.id)}>
-                        {text(l.name)}
-                      </option>
-                    ))}
-                  </Select>
-                  <Checkbox
-                    checked={showCompleted}
-                    onChange={(e) => setShowCompleted(e.target.checked)}
-                  >
-                    완료 포함
-                  </Checkbox>
-                  {!headerActionsTarget && (
-                    <Button variant="quiet" size="compact" onClick={() => setManageLists(true)}>
-                      목록 관리
-                    </Button>
-                  )}
-                </div>
-                <h2 className={s.heading}>
-                  {planScope} · 표시 {shown.length}개
-                </h2>
-                <p className={s.caption}>
-                  {visibleList === "all"
-                    ? "모든 목록"
-                    : text(lists.find((list) => list.id === visibleList)?.name)}{" "}
-                  · {showCompleted ? "완료 포함" : "미완료만"}
-                </p>
-                <div style={{ overflow: "auto" }}>
-                  <table className={s.table}>
-                    <thead>
-                      <tr>
-                        <th>할 일</th>
-                        <th>목록</th>
-                        <th>기한·반복</th>
-                        <th>오늘 계획 · {localDay()}</th>
-                        <th>
-                          <span className={s.visuallyHidden}>편집</span>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {shown.map((item) => (
-                        <tr key={text(item.id)}>
-                          <td>{taskCheck(item)}</td>
-                          <td className={s.caption}>
-                            {text(lists.find((l) => l.id === item.listId)?.name)}
-                          </td>
-                          <td className={s.caption}>
-                            {[dueLabel(item) || "기한 없음", repeatLabel(item)]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </td>
-                          <td>
-                            <Button
-                              variant={plannedDay(item) === localDay() ? "quiet" : "secondary"}
-                              size="compact"
-                              disabled={busy}
-                              onClick={() =>
-                                void act("plan", {
-                                  ids: [text(item.id)],
-                                  date: plannedDay(item) === localDay() ? null : localDay(),
-                                })
-                              }
-                            >
-                              {plannedDay(item) === localDay() ? "오늘에 있음" : "오늘에 넣기"}
-                            </Button>
-                          </td>
-                          <td>
-                            <Button
-                              variant="quiet"
-                              size="compact"
-                              aria-label={`${text(item.title)} 편집`}
-                              onClick={() => edit(item)}
-                            >
-                              편집
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {!shown.length && (
-                    <p className={s.empty}>
-                      {planScope}에 표시할 할 일이 없어요. 위에서 하나씩 추가해 보세요.
-                    </p>
-                  )}
-                </div>
-              </>
-            ) : (
-              <PlannerTodoEmpty installed={todoInstalled} busy={busy} onEnable={enableTodo} />
-            )}
+            <PlannerPlans
+              period={period}
+              planDay={planDay}
+              planScope={planScope}
+              shown={shown}
+              lists={lists}
+              visibleList={visibleList}
+              showCompleted={showCompleted}
+              hasTodo={Boolean(todo)}
+              todoInstalled={todoInstalled}
+              headerActions={Boolean(headerActionsTarget)}
+              busy={busy}
+              act={act}
+              quickInput={quickInput(false)}
+              renderCheck={taskCheck}
+              onPeriodChange={setPeriod}
+              onPlanDayChange={setPlanDay}
+              onVisibleListChange={setVisibleList}
+              onShowCompletedChange={setShowCompleted}
+              onManageLists={() => setManageLists(true)}
+              onEdit={edit}
+              onEnableTodo={enableTodo}
+            />
           </PlannerPanel>
           {!embedded && (
             <TabPanel tabs={tabsId} value="calendar" selected={tab} className={s.panel}>
@@ -734,50 +614,13 @@ export function Planner({
                         캘린더 연결
                       </Button>
                     )}
-                    <section className={s.section}>
-                      <h3 className={s.heading}>시간을 정한 할 일</h3>
-                      {items
-                        .filter(
-                          (item) =>
-                            typeof item.completedAt !== "number" &&
-                            typeof item.dueAt === "number" &&
-                            dueDay(item) === day,
-                        )
-                        .sort((a, b) => number(a.dueAt) - number(b.dueAt))
-                        .map((item) => (
-                          <div key={text(item.id)} className={s.actions}>
-                            <span className={s.caption}>{clockLabel(number(item.dueAt))}</span>
-                            {taskCheck(item)}
-                            <Button
-                              variant="quiet"
-                              size="compact"
-                              aria-label={`${text(item.title)} 시간 수정`}
-                              onClick={() => edit(item)}
-                            >
-                              수정
-                            </Button>
-                          </div>
-                        ))}
-                      <h3 className={s.heading}>아직 시간을 정하지 않은 일</h3>
-                      {remaining
-                        .filter((item) => typeof item.dueAt !== "number")
-                        .map((item) => (
-                          <div key={text(item.id)} className={s.actions}>
-                            {taskCheck(item)}
-                            <Button
-                              variant="quiet"
-                              size="compact"
-                              aria-label={`${text(item.title)} 시간 잡기`}
-                              onClick={() => edit(item)}
-                            >
-                              시간 잡기
-                            </Button>
-                          </div>
-                        ))}
-                      <p className={s.caption}>
-                        내장 할 일의 기한만 바뀝니다. 외부 일정은 수정하지 않아요.
-                      </p>
-                    </section>
+                    <PlannerTimedTasks
+                      day={day}
+                      items={items}
+                      remaining={remaining}
+                      renderCheck={taskCheck}
+                      onEdit={edit}
+                    />
                   </>
                 }
               />
