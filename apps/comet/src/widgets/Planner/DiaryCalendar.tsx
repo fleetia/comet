@@ -42,10 +42,6 @@ function completed(item: DataRecord, date: string): boolean {
     ? frequencyRecords(item, date).some((entry) => entry.date === date)
     : typeof item.completedAt === "number";
 }
-export function diaryMonthDays(month: string): string[] {
-  return monthDays(month);
-}
-
 export function MiniCalendar({
   day,
   month,

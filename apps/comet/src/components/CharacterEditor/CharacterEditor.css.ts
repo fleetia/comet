@@ -34,22 +34,6 @@ export const profileMain = style({
   overflow: "visible",
   "@media": { "(max-width: 740px)": { gridColumn: 1, gridRow: 2 } },
 });
-export const profileAside = style({
-  display: "flex",
-  flexDirection: "column",
-  gap: tokens["spacing/space-16"],
-  minWidth: 0,
-  minHeight: 0,
-});
-export const identityPreview = style({
-  display: "grid",
-  gridTemplateColumns: "128px minmax(0, 1fr)",
-  alignItems: "center",
-  gap: tokens["spacing/space-26"],
-  minHeight: 200,
-  flexShrink: 0,
-  "@media": { "(max-width: 1280px)": { display: "none" } },
-});
 export const portrait = style({
   width: 128,
   height: 128,
@@ -66,19 +50,6 @@ export const appearanceLayout = style({
   height: "100%",
   "@media": { "(max-width: 1280px)": { gridTemplateColumns: "192px minmax(0,1fr)" } },
 });
-export const assetList = style({
-  minWidth: 0,
-  minHeight: 0,
-  height: "100%",
-});
-export const assetHeading = style({
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: tokens["spacing/space-8"],
-  minHeight: tokens["size/control-36"],
-  marginBottom: tokens["spacing/space-8"],
-});
 export const assetRow = style({
   display: "grid",
   gap: 0,
@@ -88,11 +59,6 @@ export const assetRow = style({
   alignContent: "start",
   textAlign: "left",
   overflowWrap: "anywhere",
-});
-export const assetMeta = style({
-  fontSize: tokens["typography/sans/caption/fontSize"],
-  lineHeight: "1.385",
-  color: tokens["color/ink-2"],
 });
 export const inspector = style({ minWidth: 0, minHeight: 0 });
 export const previewStage = style({
@@ -154,25 +120,7 @@ export const dialogueTypes = style({
   minHeight: 40,
   alignItems: "center",
 });
-export const dialogueContents = style({ minWidth: 0 });
-
 export const instructionsInput = style({ minHeight: 78, height: 78 });
-
-export const heroHeader = style({
-  display: "flex",
-  gap: tokens["spacing/space-12"],
-  alignItems: "center",
-  minHeight: 56,
-});
-export const heroIdentity = style({ minWidth: 0 });
-
-export const packCaption = style({
-  fontSize: tokens["typography/sans/caption/fontSize"],
-  lineHeight: "1.385",
-  margin: "3px 0 0",
-  color: tokens["color/ink-2"],
-  overflowWrap: "anywhere",
-});
 
 export const workPanel = style({
   display: "flex",
@@ -227,12 +175,6 @@ globalStyle(
   `${navigation} > [role="tab"]:nth-child(2), ${navigation} > [role="tab"]:nth-child(4)`,
   { "@media": { "(max-width: 1280px)": { width: 88 } } },
 );
-export const tabDivider = style({
-  width: 16,
-  flexShrink: 0,
-  color: tokens["color/line"],
-  textAlign: "center",
-});
 export const sectionBoundary = style({
   borderTop: `1px solid ${tokens["color/line"]}`,
   marginTop: tokens["spacing/space-12"],
@@ -325,9 +267,6 @@ export const independentDialogue = style({
   flexDirection: "column",
 });
 globalStyle(`${independentDialogue}[hidden]`, { display: "none" });
-export const relationshipPanel = style({ flex: "1 1 260px", maxHeight: 363, minHeight: 100 });
-export const attributionPanel = style({ flexShrink: 0 });
-
 globalStyle(`${authoredLayout}[hidden]`, { display: "none" });
 
 globalStyle(`${headerActions} > button`, {
@@ -335,11 +274,6 @@ globalStyle(`${headerActions} > button`, {
   "@media": { "(max-width: 1280px)": { width: "auto" } },
 });
 
-export const assetItems = style({
-  display: "grid",
-  gap: tokens["spacing/space-8"],
-  marginBottom: tokens["spacing/space-8"],
-});
 globalStyle(`${assetRow} > span:first-child`, {
   fontSize: tokens["typography/sans/body/fontSize"],
   lineHeight: "1.385",

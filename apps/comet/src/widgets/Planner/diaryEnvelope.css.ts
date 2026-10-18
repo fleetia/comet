@@ -117,15 +117,6 @@ export const envelopeNoteAction = style({
   color: tokens["color/ink-3"],
   fontWeight: 400,
 });
-export const storedNotePreview = style([
-  noteBody,
-  {
-    display: "-webkit-box",
-    WebkitLineClamp: 2,
-    WebkitBoxOrient: "vertical",
-    overflow: "hidden",
-  },
-]);
 export const textArea = style({
   width: "100%",
   minHeight: 104,
@@ -178,15 +169,6 @@ export const linkList = style({
   flexDirection: "column",
   gap: tokens["spacing/space-6"],
 });
-export const dateBanner = style([
-  row,
-  {
-    padding: "18px 16px",
-    minHeight: 68,
-    borderRadius: tokens["radius/radius-12"],
-    background: tokens["color/card-2"],
-  },
-]);
 export const columns = style({
   display: "grid",
   gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)",
@@ -216,15 +198,6 @@ export const memoPreview = style([
   caption,
   { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
 ]);
-
-export const desktopMemoPreview = style({
-  flex: 1,
-  minWidth: 0,
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-  justifyContent: "flex-start",
-});
 
 export const listCard = style({
   padding: 0,

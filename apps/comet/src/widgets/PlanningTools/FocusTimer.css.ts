@@ -122,9 +122,6 @@ export const inlineField = style({
   alignItems: "center",
   gap: tokens["spacing/space-8"],
 });
-export const optionalSetup = style({
-  selectors: { '[data-expanded="false"] &': { display: "none" } },
-});
 export const quiet = style({
   margin: 0,
   color: tokens["color/ink-3"],
@@ -226,22 +223,6 @@ export const activityList = style({
   gap: 0,
   minWidth: 0,
 });
-export const recordButton = style([
-  itemButton,
-  { width: "100%", flex: "none", whiteSpace: "normal" },
-]);
-export const recordRow = style([item, { width: "100%" }]);
-export const statsSummary = style({
-  display: "flex",
-  alignItems: "baseline",
-  gap: tokens["spacing/space-12"],
-  margin: `${tokens["spacing/space-8"]} 0 ${tokens["spacing/space-12"]}`,
-});
-export const chartCaption = style({ textAlign: "center", paddingBottom: tokens["spacing/space-12"] });
-export const recordHeading = style([
-  heading,
-  { borderTop: `1px solid ${tokens["color/line"]}`, paddingTop: tokens["spacing/space-16"] },
-]);
 export const memoSection = style([pane, { gap: 8 }]);
 export const noteSection = style([pane, { gap: 8 }]);
 export const noteActions = style([row, { minHeight: 32 }]);
@@ -374,13 +355,6 @@ export const textArea = style({
   resize: "vertical",
   selectors: { [`${root} ${context} &`]: { padding: tokens["spacing/space-12"] } },
 });
-export const chart = style({
-  display: "flex",
-  height: 190,
-  alignItems: "stretch",
-  gap: tokens["spacing/space-8"],
-  selectors: { '&[data-dense="true"]': { gap: 3 } },
-});
 export const bar = style({
   display: "flex",
   flexDirection: "column",
@@ -396,28 +370,6 @@ export const bar = style({
     "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: 2 },
     '&[aria-pressed="true"]': { color: tokens["color/ink"] },
   },
-});
-export const barTrack = style({
-  position: "relative",
-  background: tokens["color/card-2"],
-  borderRadius: 22,
-  width: "100%",
-  maxWidth: 42,
-  height: 155,
-  overflow: "hidden",
-});
-export const barFill = style({
-  position: "absolute",
-  left: 0,
-  right: 0,
-  bottom: 0,
-  background: tokens["color/primary"],
-  borderRadius: "inherit",
-});
-export const barLabel = style({
-  fontSize: 10,
-  fontFamily: '"IBM Plex Mono", monospace',
-  marginTop: tokens["spacing/space-8"],
 });
 export const total = style({
   fontFamily: '"IBM Plex Mono", monospace',

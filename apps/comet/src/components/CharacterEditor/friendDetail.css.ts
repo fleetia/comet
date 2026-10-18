@@ -119,7 +119,6 @@ export const breadcrumbs = style({
   flexShrink: 0,
 });
 export const currentCrumb = style({ color: tokens["color/ink"], fontSize: 13.5, fontWeight: 600 });
-export const hiddenNavigation = style({ display: "none" });
 export const profilePreview = style([
   hero,
   { alignItems: "stretch", padding: "18px 20px 20px", alignSelf: "start" },

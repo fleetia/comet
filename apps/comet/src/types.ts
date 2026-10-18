@@ -133,22 +133,6 @@ export type AuthoringState = {
   waitTurn: number;
   pendingNextScenarioId: string | null;
 };
-export type AuthoringTrialRequest = {
-  actors: { id: string; packId: string | null; definition: CharacterDefinition }[];
-  definition: PackStoryDefinition;
-  subject: AuthoringSubject;
-  context: {
-    centerId: string;
-    presentIds: string[];
-    flags: string[];
-    affinity: number;
-    turn: number;
-    waitTurn: number;
-    completedScenarioIds: string[];
-    incompleteScenarioIds: string[];
-  };
-  inputs: string[];
-};
 export type AuthoringTrialTrace = {
   blockedReasons: string[];
   steps: {

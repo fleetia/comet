@@ -7,7 +7,6 @@ export const host = style({
   overflowWrap: "anywhere",
 });
 export const focusHost = style([host, { maxWidth: "none" }]);
-export const focusHeaderActions = style({ border: 0, padding: 0, margin: 0, minWidth: 0 });
 export const status = style({
   color: tokens["color/ink-2"],
   fontSize: tokens["typography/sans/body/fontSize"],
@@ -118,31 +117,6 @@ export const prose = style({
   lineHeight: "1.462",
 });
 
-export const jarSummary = style({
-  display: "grid",
-  gap: tokens["spacing/space-8"],
-  padding: tokens["spacing/space-16"],
-  textAlign: "center",
-  background: tokens["color/glass-panel"],
-  borderRadius: tokens["radius/radius-9"],
-});
-export const jarCount = style([number, { padding: 0 }]);
-export const marbles = style({
-  display: "flex",
-  flexWrap: "wrap",
-  justifyContent: "center",
-  alignItems: "center",
-  gap: tokens["spacing/space-8"],
-  minHeight: tokens["size/control-36"],
-});
-export const marble = style({
-  width: tokens["spacing/space-16"],
-  height: tokens["spacing/space-16"],
-  borderRadius: "50%",
-  background: tokens["color/primary"],
-});
-export const completedList = style({ listStyle: "none", padding: 0, margin: 0 });
-
 export const data = style({
   fontFamily: '"IBM Plex Mono", monospace',
   fontVariantNumeric: "tabular-nums slashed-zero",
@@ -213,62 +187,9 @@ globalStyle(`${body} > button`, { alignSelf: "flex-start" });
 globalStyle(`${host} input, ${host} select, ${host} textarea`, { minWidth: 0 });
 globalStyle(`${actions} > ${common.field}`, { flex: "1 1 140px", marginBottom: 0 });
 
-export const regionSearch = style({
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) 132px",
-  gap: tokens["spacing/space-12"],
-  alignItems: "end",
-  "@media": { "(max-width: 1000px)": { gridTemplateColumns: "minmax(0, 1fr) 96px" } },
-});
-
-export const regionResult = style({
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) 144px",
-  alignItems: "center",
-  gap: tokens["spacing/space-12"],
-  minHeight: 40,
-  "@media": { "(max-width: 1000px)": { gridTemplateColumns: "minmax(0, 1fr) 96px" } },
-});
-
-export const weatherHeading = style({ display: "grid", gap: tokens["spacing/space-6"] });
-export const weatherStatus = style({
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) auto",
-  gap: tokens["spacing/space-16"],
-  alignItems: "center",
-  minHeight: 48,
-  paddingTop: tokens["spacing/space-12"],
-  borderTop: `1px solid ${tokens["color/line"]}`,
-  fontSize: tokens["typography/sans/body/fontSize"],
-  lineHeight: "1.462",
-  "@media": { "(max-width: 1000px)": { gridTemplateColumns: "1fr", gap: tokens["spacing/space-6"] } },
-});
-export const weatherResults = style({
-  display: "grid",
-  gap: tokens["spacing/space-6"],
-  padding: tokens["spacing/space-12"],
-  minHeight: 0,
-  maxHeight: 224,
-  overflowY: "auto",
-  overscrollBehavior: "contain",
-});
 export const observation = style({ display: "grid", gap: tokens["spacing/space-12"], minWidth: 0 });
-export const weatherReadings = style({
-  display: "grid",
-  gridTemplateColumns: "216fr 256fr 264fr",
-  gap: tokens["spacing/space-16"],
-  alignItems: "center",
-  minHeight: 72,
-  fontSize: tokens["typography/sans/body/fontSize"],
-  lineHeight: "1.462",
-  "@media": { "(max-width: 1000px)": { gridTemplateColumns: "1fr 1fr", gap: tokens["spacing/space-12"] } },
-});
 export const weatherTemperature = style({
   fontSize: tokens["typography/display/page/fontSize"],
   fontWeight: 700,
   lineHeight: "1.25",
-});
-export const observationSource = style({
-  paddingTop: tokens["spacing/space-12"],
-  borderTop: `1px solid ${tokens["color/line"]}`,
 });
