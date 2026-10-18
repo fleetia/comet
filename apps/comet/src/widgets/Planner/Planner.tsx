@@ -1,12 +1,4 @@
-import {
-  Button,
-  Checkbox,
-  DateField,
-  Select,
-  TabPanel,
-  TextField,
-  externalTabPanels,
-} from "../../ui";
+import { Button, Checkbox, Select, TabPanel, externalTabPanels } from "../../ui";
 import {
   useEffect,
   useId,
@@ -17,15 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { Icon } from "@comet/icon";
-import {
-  Button as CometButton,
-  IconButton,
-  MessageInput,
-  SelectField,
-  TaskRow,
-  Tabs,
-} from "@comet/ui";
+import { Button as CometButton, IconButton, TaskRow, Tabs } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { WindowHeader } from "../../components/WindowHeader/WindowHeader";
 import { useWidgets } from "../useWidgets";
@@ -62,6 +46,10 @@ import { PlannerCloseDialog } from "./PlannerCloseDialog";
 import { PlannerListManager } from "./PlannerListManager";
 import { PlannerMoveTaskDialog } from "./PlannerMoveTaskDialog";
 import { PlannerWrapDialog } from "./PlannerWrapDialog";
+import { PlannerTodoEmpty } from "./PlannerTodoEmpty";
+import { PlannerTaskCheck } from "./PlannerTaskCheck";
+import { PlannerQuickInput } from "./PlannerQuickInput";
+import { PlannerTaskActions } from "./PlannerTaskActions";
 import * as s from "./planner.css";
 
 const NAVIGATION = [
@@ -289,213 +277,79 @@ export function Planner({
       : undefined;
   }
   function taskCheck(item: DataRecord): ReactElement {
-    const frequency = ruleOf(item).mode === "frequency";
-    const recordingDay = tab === "plans" ? planDay : day;
-    const selected = selectedTask === item.id;
     return (
-      <div className={s.taskSummary}>
-        <div className={s.actions}>
-          <span onClick={(event) => event.stopPropagation()}>
-            <Checkbox
-              className={s.taskCheck}
-              aria-label={text(item.title)}
-              title="완료 상태 바꾸기"
-              children={null}
-              aria-labelledby={undefined}
-              disabled={busy || (frequency && recordingDay > localDay())}
-              checked={
-                frequency
-                  ? rows(item.frequencyRecords).some((entry) => entry.date === recordingDay)
-                  : typeof item.completedAt === "number"
-              }
-              onChange={() => void check(item)}
-            />
-          </span>
-          <button
-            type="button"
-            className={s.taskTitle}
-            aria-label={`${text(item.title)} 상세 보기`}
-            aria-expanded={selected}
-            onClick={() => setSelectedTask(text(item.id))}
-          >
-            {text(item.title)}
-            {frequency && (
-              <span className={s.caption}>
-                {" "}
-                · {frequencyRecords(item, recordingDay).length}/{number(ruleOf(item).timesPerWeek)}
-                회
-              </span>
-            )}
-          </button>
-        </div>
-        <p className={s.caption}>
-          계획 · {plannedDay(item) || "날짜 없음"}　{dueLabel(item) || "기한 없음"}
-        </p>
-        {!!text(item.memo) && (
-          <span className={s.memoPreview}>
-            메모 · {text(item.memo).split(/\r?\n/)[0]} · 상세 보기
-          </span>
-        )}
-        {selected && <TaskReadOnlyDetails item={item} />}
-      </div>
+      <PlannerTaskCheck
+        item={item}
+        recordingDay={tab === "plans" ? planDay : day}
+        selected={selectedTask === item.id}
+        busy={busy}
+        onSelect={setSelectedTask}
+        onCheck={check}
+      />
     );
   }
-  function quickInput(isToday: boolean): ReactElement {
+  const quickList = lists.some((list) => list.id === newTaskList) ? newTaskList : "default";
+  async function addTask(isToday: boolean): Promise<void> {
     const diaryQuickAdd = embedded && isToday;
-    const Input = diaryQuickAdd ? MessageInput : TextField;
-    const quickList = lists.some((list) => list.id === newTaskList) ? newTaskList : "default";
+    if (
+      await act("add", {
+        title,
+        listId: diaryQuickAdd ? quickList : visibleList === "all" ? "default" : visibleList,
+        plannedDate: isToday ? day : null,
+        planPeriod: isToday || period === "inbox" ? "none" : period,
+        planAnchor:
+          isToday || ["inbox", "someday"].includes(period) ? null : periodAnchor(period, planDay),
+      })
+    )
+      setTitle("");
+  }
+  function quickInput(isToday: boolean): ReactElement {
     return (
-      <>
-        <p
-          className={diaryQuickAdd ? s.visuallyHidden : s.caption}
-          id={`planner-add-scope-${isToday ? "day" : "period"}`}
-        >
-          {isToday
-            ? `새 할 일 계획일 · 선택일 ${day}`
-            : `새 할 일 · ${planScope}${period === "inbox" ? "" : " · 계획일 없음"}`}
-        </p>
-        <form
-          className={diaryQuickAdd ? s.diaryQuickAdd : s.quick}
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (
-              await act("add", {
-                title,
-                listId: diaryQuickAdd ? quickList : visibleList === "all" ? "default" : visibleList,
-                plannedDate: isToday ? day : null,
-                planPeriod: isToday || period === "inbox" ? "none" : period,
-                planAnchor:
-                  isToday || ["inbox", "someday"].includes(period)
-                    ? null
-                    : periodAnchor(period, planDay),
-              })
-            )
-              setTitle("");
-          }}
-        >
-          {diaryQuickAdd && <Icon name="plus" size={16} />}
-          <div className={diaryQuickAdd ? s.diaryInput : s.grow}>
-            <Input
-              className={s.grow}
-              aria-label="새 할 일"
-              aria-describedby={`planner-add-scope-${isToday ? "day" : "period"}`}
-              disabled={busy}
-              placeholder={
-                diaryQuickAdd
-                  ? "새 할 일 · Enter로 추가"
-                  : isToday
-                    ? "할 일을 입력하고 Enter"
-                    : period === "inbox"
-                      ? "날짜 없이 할 일을 적어 보세요."
-                      : "이 기간에 하고 싶은 일을 적어 보세요."
-              }
-              required
-              maxLength={500}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-          </div>
-          {diaryQuickAdd ? (
-            <>
-              <span className={s.diaryDate}>
-                <span aria-hidden="true">
-                  {day === localDay()
-                    ? "오늘"
-                    : dayDate(day).toLocaleDateString("ko-KR", {
-                        month: "numeric",
-                        day: "numeric",
-                      })}
-                  <Icon name="chevdown" size={12} />
-                </span>
-                <DateField
-                  aria-label="새 할 일 계획일"
-                  value={day}
-                  disabled={busy}
-                  required
-                  onChange={(event) => {
-                    if (event.target.value) setDay(event.target.value);
-                  }}
-                />
-              </span>
-              <SelectField
-                className={s.diaryList}
-                controlSize={32}
-                leading={<span className={s.diaryListDot} />}
-                aria-label="새 할 일 목록"
-                disabled={busy}
-                value={quickList}
-                onChange={(event) => setNewTaskList(event.target.value)}
-              >
-                {lists.map((list) => (
-                  <option key={text(list.id)} value={text(list.id)}>
-                    {text(list.name)}
-                  </option>
-                ))}
-              </SelectField>
-              <CometButton
-                className={s.diaryTemplate}
-                variant="link"
-                onClick={() => selectTab("templates")}
-              >
-                템플릿에서 고르기
-                <Icon name="arrowright" size={14} />
-              </CometButton>
-              <button type="submit" hidden disabled={busy || !todo}>
-                추가
-              </button>
-            </>
-          ) : (
-            <Button type="submit" variant="primary" disabled={busy || !todo}>
-              추가
-            </Button>
-          )}
-        </form>
-      </>
+      <PlannerQuickInput
+        isToday={isToday}
+        embedded={embedded}
+        day={day}
+        period={period}
+        planScope={planScope}
+        title={title}
+        busy={busy}
+        hasTodo={Boolean(todo)}
+        lists={lists}
+        quickList={quickList}
+        onTitleChange={setTitle}
+        onDayChange={setDay}
+        onListChange={setNewTaskList}
+        onTemplates={() => selectTab("templates")}
+        onSubmit={() => addTask(isToday)}
+      />
     );
+  }
+  function openWrap(): void {
+    setRollIds([]);
+    setRollDate(moveDay(day, 1));
+    setWrap(true);
+  }
+  async function focusSelected(): Promise<void> {
+    if (!timer) {
+      openSettings("focus-timer");
+      return;
+    }
+    if (await act("start", { durationMs: 1500000, todoId: selectedTask }, timer)) {
+      setNotice("25분 집중을 시작했어요. 할 일 완료는 직접 표시해 주세요.");
+      await run(() => command("open_widget", { id: timer.id }));
+    }
   }
   function taskActions(selectionOnly = false): ReactElement {
     return (
-      <div className={s.actions}>
-        <Button
-          variant="secondary"
-          size="compact"
-          disabled={!currentTask || busy}
-          onClick={async () => {
-            if (!timer) {
-              openSettings("focus-timer");
-              return;
-            }
-            if (await act("start", { durationMs: 1500000, todoId: selectedTask }, timer)) {
-              setNotice("25분 집중을 시작했어요. 할 일 완료는 직접 표시해 주세요.");
-              await run(() => command("open_widget", { id: timer.id }));
-            }
-          }}
-        >
-          25분 집중
-        </Button>
-        <Button
-          variant="quiet"
-          size="compact"
-          disabled={!currentTask || plannedDay(currentTask) !== day || busy}
-          onClick={() => void act("plan", { ids: [selectedTask], date: null })}
-        >
-          {day === localDay() ? "오늘에서 빼기" : "선택 날짜에서 빼기"}
-        </Button>
-        {!selectionOnly && !headerActionsTarget && <div className={s.spacer} />}
-        {!selectionOnly && !headerActionsTarget && (
-          <Button
-            variant="quiet"
-            size="compact"
-            onClick={() => {
-              setRollIds([]);
-              setRollDate(moveDay(day, 1));
-              setWrap(true);
-            }}
-          >
-            하루 마무리
-          </Button>
-        )}
-      </div>
+      <PlannerTaskActions
+        currentTask={currentTask}
+        day={day}
+        busy={busy}
+        showWrap={!selectionOnly && !headerActionsTarget}
+        onFocus={focusSelected}
+        onRemove={() => void act("plan", { ids: [selectedTask], date: null })}
+        onWrap={openWrap}
+      />
     );
   }
   function diaryTasks(): ReactElement {
@@ -750,31 +604,14 @@ export function Planner({
             </div>
             {!headerActionsTarget && (
               <div className={s.actions}>
-                <Button
-                  variant="quiet"
-                  size="compact"
-                  onClick={() => {
-                    setRollIds([]);
-                    setRollDate(moveDay(day, 1));
-                    setWrap(true);
-                  }}
-                >
+                <Button variant="quiet" size="compact" onClick={openWrap}>
                   하루 마무리
                 </Button>
               </div>
             )}
           </>
         ) : (
-          <div className={s.empty}>
-            <p>
-              {todoInstalled
-                ? "할 일 사용이 꺼져 있어요. 켜면 저장한 항목을 다시 볼 수 있어요."
-                : "할 일을 설치하면 계정 없이 수집함을 사용할 수 있어요."}
-            </p>
-            <Button variant="primary" disabled={busy} onClick={() => void enableTodo()}>
-              {todoInstalled ? "할 일 켜기" : "할 일 설치"}
-            </Button>
-          </div>
+          <PlannerTodoEmpty installed={todoInstalled} busy={busy} onEnable={enableTodo} />
         )}
         {calendar && <PlannerAlertNotice widget={calendar} act={act} />}
       </section>
@@ -808,16 +645,7 @@ export function Planner({
         createPortal(
           <div className={s.headerActions}>
             {tab === "today" && (
-              <CometButton
-                variant="ghost"
-                size="small"
-                disabled={busy}
-                onClick={() => {
-                  setRollIds([]);
-                  setRollDate(moveDay(day, 1));
-                  setWrap(true);
-                }}
-              >
+              <CometButton variant="ghost" size="small" disabled={busy} onClick={openWrap}>
                 하루 마무리
               </CometButton>
             )}
@@ -1042,16 +870,11 @@ export function Planner({
                       </Button>
                     </div>
                     {!todo ? (
-                      <div className={s.empty}>
-                        <p>
-                          {todoInstalled
-                            ? "할 일 사용이 꺼져 있어요. 켜면 저장한 항목을 다시 볼 수 있어요."
-                            : "할 일을 설치하면 계정 없이 수집함을 사용할 수 있어요."}
-                        </p>
-                        <Button variant="primary" disabled={busy} onClick={() => void enableTodo()}>
-                          {todoInstalled ? "할 일 켜기" : "할 일 설치"}
-                        </Button>
-                      </div>
+                      <PlannerTodoEmpty
+                        installed={todoInstalled}
+                        busy={busy}
+                        onEnable={enableTodo}
+                      />
                     ) : (
                       <>
                         {quickInput(true)}
@@ -1243,16 +1066,7 @@ export function Planner({
                 </div>
               </>
             ) : (
-              <div className={s.empty}>
-                <p>
-                  {todoInstalled
-                    ? "할 일 사용이 꺼져 있어요. 켜면 저장한 항목을 다시 볼 수 있어요."
-                    : "할 일을 설치하면 계정 없이 수집함을 사용할 수 있어요."}
-                </p>
-                <Button variant="primary" disabled={busy} onClick={() => void enableTodo()}>
-                  {todoInstalled ? "할 일 켜기" : "할 일 설치"}
-                </Button>
-              </div>
+              <PlannerTodoEmpty installed={todoInstalled} busy={busy} onEnable={enableTodo} />
             )}
           </PlannerPanel>
           {!embedded && (
@@ -1340,12 +1154,12 @@ export function Planner({
                 }}
               />
             ) : (
-              <div className={s.empty}>
-                <p>할 일을 시작하면 템플릿을 사용할 수 있어요.</p>
-                <Button variant="primary" disabled={busy} onClick={() => void enableTodo()}>
-                  {todoInstalled ? "할 일 켜기" : "할 일 설치"}
-                </Button>
-              </div>
+              <PlannerTodoEmpty
+                installed={todoInstalled}
+                busy={busy}
+                onEnable={enableTodo}
+                message="할 일을 시작하면 템플릿을 사용할 수 있어요."
+              />
             )}
           </PlannerPanel>
         </div>
