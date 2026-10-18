@@ -41,7 +41,8 @@ fn begin_reply(state: &AppState, playback_id: &str) -> Result<u64, String> {
         return Err("업데이트 알림의 이동하기 버튼으로 설정을 열어 주세요.".into());
     }
     let actor = crate::characters::guests::actor(state, &db, &line.persona)?;
-    let center = crate::characters::guests::center_id(state, &actor.id)?.unwrap_or(actor.id.clone());
+    let center =
+        crate::characters::guests::center_id(state, &actor.id)?.unwrap_or(actor.id.clone());
     crate::characters::life::wake(state, &actor.id)?;
     super::conversation::ensure_available(&db)?;
     let waiting_pack =

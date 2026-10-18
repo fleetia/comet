@@ -445,12 +445,18 @@ pub(crate) fn registered_directed_reply(
     {
         return None;
     }
-    Some(relationship.reply_lines.iter().map(|line| SceneLine {
-        persona: actor_id.to_string(),
-        expression: line.expression.clone(),
-        text: line.text.clone(),
-        motion: line.motion.clone(),
-    }).collect())
+    Some(
+        relationship
+            .reply_lines
+            .iter()
+            .map(|line| SceneLine {
+                persona: actor_id.to_string(),
+                expression: line.expression.clone(),
+                text: line.text.clone(),
+                motion: line.motion.clone(),
+            })
+            .collect(),
+    )
 }
 
 pub fn registered_relation_scene(
@@ -469,7 +475,10 @@ pub fn registered_relation_scene(
                 continue;
             };
             if let Some(lines) = registered_directed_reply(
-                &actor.id, relationship, &mentioned.definition.name, input,
+                &actor.id,
+                relationship,
+                &mentioned.definition.name,
+                input,
             ) {
                 return Ok(Some(lines));
             }

@@ -343,8 +343,14 @@ pub(crate) async fn run_background(
     if crate::organizer::runtime::run_next(app, state, epoch, cancel.clone(), false).await? {
         return Ok(());
     }
-    if crate::widgets::generated::commands::maybe_create(app, state, &settings, epoch, cancel.clone())
-        .await?
+    if crate::widgets::generated::commands::maybe_create(
+        app,
+        state,
+        &settings,
+        epoch,
+        cancel.clone(),
+    )
+    .await?
     {
         return Ok(());
     }

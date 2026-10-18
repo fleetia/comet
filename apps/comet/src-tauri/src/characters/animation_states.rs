@@ -91,7 +91,8 @@ pub(crate) fn refresh(app: &tauri::AppHandle, state: &AppState) -> Result<bool, 
     let blocked = lock(&state.runtime)
         .map(|runtime| runtime.hidden || runtime.paused || crate::app::unavailable(state))
         .unwrap_or(true);
-    let calendar_visible = crate::widgets::planning::windows::calendar_selected(app).unwrap_or(false)
+    let calendar_visible = crate::widgets::planning::windows::calendar_selected(app)
+        .unwrap_or(false)
         && app.get_webview_window("planner").is_some_and(|window| {
             window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(true)
         });

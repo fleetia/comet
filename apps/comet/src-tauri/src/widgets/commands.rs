@@ -584,9 +584,10 @@ pub(crate) async fn choose_widget_background(
         return Ok(false);
     };
     let path = path.into_path().map_err(|error| error.to_string())?;
-    let bytes = tauri::async_runtime::spawn_blocking(move || widgets::backgrounds::read_file(&path))
-        .await
-        .map_err(|error| error.to_string())??;
+    let bytes =
+        tauri::async_runtime::spawn_blocking(move || widgets::backgrounds::read_file(&path))
+            .await
+            .map_err(|error| error.to_string())??;
     change(&state, |db| {
         let tx = db
             .unchecked_transaction()

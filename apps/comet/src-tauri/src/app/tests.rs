@@ -738,7 +738,8 @@ fn character_change_cancels_old_playback_and_retry_preserving_the_transcript() {
     .unwrap());
     let before =
         serde_json::to_value(store::messages(&lock(&state.db).unwrap(), 100).unwrap()).unwrap();
-    characters::commands::mutate(&state, |db| characters::assign(db, "a", &replacement.id)).unwrap();
+    characters::commands::mutate(&state, |db| characters::assign(db, "a", &replacement.id))
+        .unwrap();
     assert!(old.1.load(Ordering::SeqCst));
     assert!(lock(&state.playback).unwrap().is_none());
     assert!(!present_line(

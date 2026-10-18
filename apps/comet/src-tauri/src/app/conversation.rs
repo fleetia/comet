@@ -4,8 +4,7 @@ use super::scene::{present_line, start_scene, wait_for_line};
 use super::unavailable;
 use super::{is_current, lock, now, phase, publish, schedule_idle, AppState};
 use crate::{
-    characters, domain, inference, models, pack_stories, store, story, types::*,
-    wordbook,
+    characters, domain, inference, models, pack_stories, store, story, types::*, wordbook,
 };
 use rusqlite::Connection;
 use serde_json::json;

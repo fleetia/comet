@@ -1,11 +1,11 @@
 pub(crate) mod commands;
-pub(crate) mod host;
 pub mod context;
 pub mod defaults;
 pub(crate) mod encryption;
 mod evaluator;
 mod expr;
 pub(crate) mod files;
+pub(crate) mod host;
 mod legacy;
 mod parser;
 mod retired;

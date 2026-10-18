@@ -195,11 +195,7 @@ pub(crate) fn definition_revision(definition: &CharacterDefinition) -> String {
     format!("{:x}", Sha256::digest(fingerprint(definition).as_bytes()))
 }
 
-fn phase_motion(
-    gesture: &reactions::GestureMotion,
-    phase: &str,
-    moving: bool,
-) -> MotionOverride {
+fn phase_motion(gesture: &reactions::GestureMotion, phase: &str, moving: bool) -> MotionOverride {
     let selected = match phase {
         "start" => gesture.start.as_ref(),
         "hold" => {
@@ -377,8 +373,13 @@ fn prepare_direct_checked(
         && (!crate::characters::life::ambient_allowed(state, character_id)?
             || lock(&state.reactions)?.blocks_character(character_id)
             || ambient_token.is_some_and(|token| {
-                !crate::characters::life::wandering::accepts_start(state, character_id, token, window)
-                    .unwrap_or(false)
+                !crate::characters::life::wandering::accepts_start(
+                    state,
+                    character_id,
+                    token,
+                    window,
+                )
+                .unwrap_or(false)
             }))
     {
         return Ok(None);
@@ -389,8 +390,11 @@ fn prepare_direct_checked(
         return Ok(None);
     };
     let actor = crate::characters::guests::actor_ticket(state, &db, character_id)?;
-    let authority =
-        crate::characters::guests::window_authority(state, &format!("body-{character_id}"), window)?;
+    let authority = crate::characters::guests::window_authority(
+        state,
+        &format!("body-{character_id}"),
+        window,
+    )?;
     if actor.guest_generation.is_some() && authority.is_none()
         || authority.is_some_and(|generation| generation != actor.guest_generation)
     {
@@ -404,8 +408,7 @@ fn prepare_direct_checked(
         return Ok(None);
     }
     let entropy = uuid::Uuid::new_v4().as_u128() as u64;
-    let selected =
-        reactions::select_gesture(&definition, gesture, region_id, entropy).cloned();
+    let selected = reactions::select_gesture(&definition, gesture, region_id, entropy).cloned();
     let Some(selected) = selected else {
         return Ok(None);
     };
@@ -979,9 +982,10 @@ fn prepare_reaction(
             }
             if reactions.runs.get(character_id).is_some_and(|run| {
                 run.phase != "end"
-                    && run.gesture.as_ref().is_some_and(|motion| {
-                        reactions::sustained_gesture(&motion.gesture)
-                    })
+                    && run
+                        .gesture
+                        .as_ref()
+                        .is_some_and(|motion| reactions::sustained_gesture(&motion.gesture))
             }) {
                 return Ok(None);
             }

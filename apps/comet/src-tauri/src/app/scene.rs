@@ -205,7 +205,8 @@ pub(crate) fn line_completion_locked(
         return Ok(None);
     }
     if let Some(ticket) = lock(&state.tasks)?.participants.clone() {
-        if ticket.epoch != epoch || crate::characters::guests::validate(state, &db, &ticket).is_err()
+        if ticket.epoch != epoch
+            || crate::characters::guests::validate(state, &db, &ticket).is_err()
         {
             return Ok(None);
         }

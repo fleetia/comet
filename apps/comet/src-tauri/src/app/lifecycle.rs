@@ -252,7 +252,9 @@ pub fn run() {
                 update_installing: AtomicBool::new(false),
                 behavior: Mutex::new(behavior::Machine::default()),
                 reactions: Mutex::new(crate::characters::reaction_host::Runtime::default()),
-                animation_states: Mutex::new(crate::characters::animation_states::Runtime::default()),
+                animation_states: Mutex::new(
+                    crate::characters::animation_states::Runtime::default(),
+                ),
                 life: Mutex::new(crate::characters::life::Runtime::default()),
                 guests: Mutex::new(crate::characters::guests::Runtime::default()),
                 positions: Mutex::new(HashMap::new()),
@@ -403,8 +405,10 @@ pub fn run() {
                     });
                 if tracked || missing {
                     if missing {
-                        let _ =
-                            crate::characters::guests::forget_missing_window(&state, window.label());
+                        let _ = crate::characters::guests::forget_missing_window(
+                            &state,
+                            window.label(),
+                        );
                     }
                     if !face {
                         crate::characters::gestures::cancel_window(

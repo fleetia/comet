@@ -1,5 +1,7 @@
 use crate::{
-    app, inference, lock, organizer as records, organizer::actions as actions, store,
+    app, inference, lock, organizer as records,
+    organizer::actions,
+    store,
     types::{ChatMessage, Message, Settings},
     AppState,
 };

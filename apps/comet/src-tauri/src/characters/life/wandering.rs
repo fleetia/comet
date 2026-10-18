@@ -904,7 +904,8 @@ fn frame(
                 .filter_map(|other| {
                     let position = other.outer_position().ok()?;
                     let scale = other.scale_factor().ok()?;
-                    let shape = crate::characters::collision_host::body_bounds(&app, other.label())?;
+                    let shape =
+                        crate::characters::collision_host::body_bounds(&app, other.label())?;
                     Some(Rect {
                         x: position.x as f64 + shape.x * scale,
                         y: position.y as f64 + shape.y * scale,

@@ -275,7 +275,15 @@ mod tests {
 
     #[test]
     fn planner_settings_reject_kinds_outside_the_diary() {
-        for kind in ["todo", "calendar", "weather", "music", "clock", "focus-timer", "preparation"] {
+        for kind in [
+            "todo",
+            "calendar",
+            "weather",
+            "music",
+            "clock",
+            "focus-timer",
+            "preparation",
+        ] {
             assert!(super::planner_settings_kind(kind));
         }
         for kind in ["memo", "interaction", "fishing", "unknown"] {

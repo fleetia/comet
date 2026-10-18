@@ -14,7 +14,9 @@ pub(crate) use authoring::{authoring_trial, AuthoringTrialRequest, AuthoringTria
 
 pub(crate) fn matches_keywords(words: &[String], input: &str) -> bool {
     let input = input.to_lowercase();
-    words.iter().any(|word| input.contains(&word.to_lowercase()))
+    words
+        .iter()
+        .any(|word| input.contains(&word.to_lowercase()))
 }
 
 fn flags_match(required: &[String], flags: &BTreeSet<String>) -> bool {
@@ -896,7 +898,8 @@ pub fn select(
             continue;
         }
         if !matches_keywords(&npc.invite_keywords, content)
-            && !matches_keywords(&npc.appearance_keywords, content) {
+            && !matches_keywords(&npc.appearance_keywords, content)
+        {
             continue;
         }
         let Some(pack_id) = actor.pack_id else {

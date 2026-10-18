@@ -388,7 +388,12 @@ pub(crate) fn open(
                 for id in ids {
                     remove_actor(app, &id);
                 }
-                crate::widgets::runtime::attempt_result(app, widget_id, &attempt, Err(error.clone()));
+                crate::widgets::runtime::attempt_result(
+                    app,
+                    widget_id,
+                    &attempt,
+                    Err(error.clone()),
+                );
                 return Err(error);
             }
         }

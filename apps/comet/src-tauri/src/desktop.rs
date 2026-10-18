@@ -1485,7 +1485,8 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
     }
     let mut status = runtime.clone();
     let residents = crate::characters::active_ids(&db)?;
-    let active = crate::characters::guests::display_ids_locked(&state, &db, &guests, runtime.hidden)?;
+    let active =
+        crate::characters::guests::display_ids_locked(&state, &db, &guests, runtime.hidden)?;
     status.guest_character_ids = active
         .iter()
         .filter(|id| !residents.contains(id))

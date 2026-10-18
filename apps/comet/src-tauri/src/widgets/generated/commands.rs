@@ -1,7 +1,8 @@
 use crate::{
     app::{self, is_current, lock, tasks, AppState},
-    characters, exbrain, widgets::generated as generated, inference, models, store,
+    characters, exbrain, inference, models, store,
     types::{ChatMessage, RuntimePhase, SceneLine, Settings},
+    widgets::generated,
     widgets::{self, storage, EventDraft, WidgetEvent},
 };
 use rusqlite::{params, OptionalExtension};

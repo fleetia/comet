@@ -128,9 +128,7 @@ pub(crate) fn serve(
         return response(400, "text/plain", Vec::new());
     }
     let state = ctx.app_handle().state::<Arc<AppState>>();
-    match lock(&state.db)
-        .and_then(|db| storage::get(&db, &id).and_then(|_| get(&db, &id)))
-    {
+    match lock(&state.db).and_then(|db| storage::get(&db, &id).and_then(|_| get(&db, &id))) {
         Ok(Some(background)) => response(200, &background.mime, background.data),
         Ok(None) => response(404, "text/plain", Vec::new()),
         Err(_) => response(500, "text/plain", Vec::new()),

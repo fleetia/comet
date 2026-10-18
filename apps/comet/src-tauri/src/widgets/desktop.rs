@@ -154,7 +154,10 @@ pub(crate) struct Point {
 }
 impl Point {
     fn valid(&self) -> bool {
-        self.x.is_finite() && self.y.is_finite() && self.x.abs() <= 32768.0 && self.y.abs() <= 32768.0
+        self.x.is_finite()
+            && self.y.is_finite()
+            && self.x.abs() <= 32768.0
+            && self.y.abs() <= 32768.0
     }
     fn near(&self, other: &Point) -> bool {
         (self.x - other.x).abs() < 1.0 && (self.y - other.y).abs() < 1.0
@@ -194,7 +197,12 @@ struct Rect {
 }
 impl Rect {
     fn at(point: &Point, (width, height): (f64, f64)) -> Self {
-        Self { x: point.x, y: point.y, width, height }
+        Self {
+            x: point.x,
+            y: point.y,
+            width,
+            height,
+        }
     }
     fn intersects(&self, other: &Rect) -> bool {
         self.x < other.x + other.width
@@ -244,8 +252,12 @@ fn clamp_point(point: &Point, size: (f64, f64), areas: &[Rect]) -> Point {
     }
     let center = (point.x + size.0 / 2.0, point.y + size.1 / 2.0);
     let distance = |area: &Rect| {
-        let dx = (area.x - center.0).max(center.0 - area.x - area.width).max(0.0);
-        let dy = (area.y - center.1).max(center.1 - area.y - area.height).max(0.0);
+        let dx = (area.x - center.0)
+            .max(center.0 - area.x - area.width)
+            .max(0.0);
+        let dy = (area.y - center.1)
+            .max(center.1 - area.y - area.height)
+            .max(0.0);
         dx * dx + dy * dy
     };
     let area = areas
@@ -253,8 +265,12 @@ fn clamp_point(point: &Point, size: (f64, f64), areas: &[Rect]) -> Point {
         .min_by(|a, b| distance(a).total_cmp(&distance(b)))
         .expect("areas is not empty");
     Point {
-        x: point.x.clamp(area.x, (area.x + area.width - size.0).max(area.x)),
-        y: point.y.clamp(area.y, (area.y + area.height - size.1).max(area.y)),
+        x: point
+            .x
+            .clamp(area.x, (area.x + area.width - size.0).max(area.x)),
+        y: point
+            .y
+            .clamp(area.y, (area.y + area.height - size.1).max(area.y)),
     }
 }
 
@@ -307,21 +323,30 @@ fn snap(point: &Point, size: (f64, f64), others: &[Rect], grid: bool, guides: bo
         })
     };
     Point {
-        x: axis(point.x, snap_axis(point.x, size.0, others.iter().map(|r| (r.x, r.width)))),
-        y: axis(point.y, snap_axis(point.y, size.1, others.iter().map(|r| (r.y, r.height)))),
+        x: axis(
+            point.x,
+            snap_axis(point.x, size.0, others.iter().map(|r| (r.x, r.width))),
+        ),
+        y: axis(
+            point.y,
+            snap_axis(point.y, size.1, others.iter().map(|r| (r.y, r.height))),
+        ),
     }
 }
 
 /// Unlike freeform widgets, keep the whole stack reachable after its content changes size.
 fn clamp_stack_point(point: &Point, size: (f64, f64), areas: &[Rect]) -> Point {
-    let distance = |candidate: &Point| {
-        (candidate.x - point.x).powi(2) + (candidate.y - point.y).powi(2)
-    };
+    let distance =
+        |candidate: &Point| (candidate.x - point.x).powi(2) + (candidate.y - point.y).powi(2);
     areas
         .iter()
         .map(|area| Point {
-            x: point.x.clamp(area.x, (area.x + area.width - size.0).max(area.x)),
-            y: point.y.clamp(area.y, (area.y + area.height - size.1).max(area.y)),
+            x: point
+                .x
+                .clamp(area.x, (area.x + area.width - size.0).max(area.x)),
+            y: point
+                .y
+                .clamp(area.y, (area.y + area.height - size.1).max(area.y)),
         })
         .min_by(|a, b| distance(a).total_cmp(&distance(b)))
         .unwrap_or_else(|| point.clone())
@@ -338,7 +363,10 @@ fn stack_origin(area: Rect, size: (f64, f64), anchor: &Anchor) -> Point {
         Anchor::BottomLeft => (left, bottom),
         Anchor::BottomRight => (right, bottom),
     };
-    Point { x: x.max(area.x), y: y.max(area.y) }
+    Point {
+        x: x.max(area.x),
+        y: y.max(area.y),
+    }
 }
 
 fn fit_size(width: f64, height: f64, area: Rect) -> Result<(f64, f64), String> {
@@ -406,7 +434,11 @@ fn pruned(mut layout: Layout, placeable: &HashMap<String, String>) -> Layout {
     layout
         .shapes
         .retain(|id, shape| layout.order.contains(id) && shape.valid());
-    if layout.stack_position.as_ref().is_some_and(|point| !point.valid()) {
+    if layout
+        .stack_position
+        .as_ref()
+        .is_some_and(|point| !point.valid())
+    {
         layout.stack_position = None;
     }
     layout
@@ -429,7 +461,10 @@ fn validate(layout: &Layout) -> Result<(), String> {
             .shapes
             .iter()
             .any(|(id, shape)| !layout.order.contains(id) || !shape.valid())
-        || layout.stack_position.as_ref().is_some_and(|point| !point.valid())
+        || layout
+            .stack_position
+            .as_ref()
+            .is_some_and(|point| !point.valid())
     {
         return Err("위젯 배치 목록이 올바르지 않아요.".into());
     }
@@ -507,7 +542,11 @@ fn configured(current: &Layout, input: LayoutSettings) -> Layout {
     }
 }
 
-fn configure(db: &Connection, expected_revision: i64, input: LayoutSettings) -> Result<Stored, String> {
+fn configure(
+    db: &Connection,
+    expected_revision: i64,
+    input: LayoutSettings,
+) -> Result<Stored, String> {
     let stored = current(db, expected_revision)?;
     commit(db, &stored, configured(&stored.layout, input))
 }
@@ -560,7 +599,8 @@ fn widget_id(id: &str) -> Result<(), String> {
 
 /// Called after a widget is disabled or removed so stale ids never block later saves.
 pub(crate) fn prune(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
-    let (before, after) = widgets::commands::change(state, |db| Ok((read(db)?.revision, load(db)?)))?;
+    let (before, after) =
+        widgets::commands::change(state, |db| Ok((read(db)?.revision, load(db)?)))?;
     if after.revision != before {
         emit_state(app, state, &after);
     }
@@ -617,7 +657,11 @@ fn window_rect(window: &tauri::WebviewWindow) -> Result<Rect, String> {
 }
 
 /// Records where the app put a window so the resulting Moved event is not saved as a drag.
-fn place(app: &tauri::AppHandle, window: &tauri::WebviewWindow, point: &Point) -> Result<(), String> {
+fn place(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    point: &Point,
+) -> Result<(), String> {
     window
         .set_position(tauri::LogicalPosition::new(point.x, point.y))
         .map_err(|e| e.to_string())?;
@@ -719,13 +763,20 @@ fn open_display(app: &tauri::AppHandle, state: &AppState, id: &str) -> Result<()
                 .filter_map(|other| {
                     let point = layout.positions.get(other)?;
                     let kind = kinds.get(other)?;
-                    Some(Rect::at(point, display_size(layout.shapes.get(other), kind)))
+                    Some(Rect::at(
+                        point,
+                        display_size(layout.shapes.get(other), kind),
+                    ))
                 })
                 .collect();
             auto_place(primary_area(app)?, size, &occupied)
         }
     };
-    if !layout.positions.get(id).is_some_and(|saved| saved.near(&point)) {
+    if !layout
+        .positions
+        .get(id)
+        .is_some_and(|saved| saved.near(&point))
+    {
         let (stored, changed) = widgets::commands::change(state, |db| {
             update(db, |layout| {
                 if layout.order.iter().any(|value| value == id) {
@@ -866,7 +917,10 @@ fn open_editor(app: &tauri::AppHandle) -> Result<(), String> {
         tauri::WebviewUrl::App("index.html?view=widget-editor".into()),
     )
     .title("comet · 바탕화면 위젯 편집")
-    .inner_size(EDITOR_WIDTH, 600.0_f64.min(area.height - INSET * 2.0).max(200.0))
+    .inner_size(
+        EDITOR_WIDTH,
+        600.0_f64.min(area.height - INSET * 2.0).max(200.0),
+    )
     .position(area.x + (area.width - EDITOR_WIDTH) / 2.0, area.y + INSET)
     .resizable(false)
     .decorations(false)
@@ -1014,15 +1068,16 @@ fn settle(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
     }
     let state = app.state::<Arc<AppState>>();
     let rect = window_rect(&window)?;
-    let mut point = Point { x: rect.x, y: rect.y };
+    let mut point = Point {
+        x: rect.x,
+        y: rect.y,
+    };
     let id = label.strip_prefix(DISPLAY);
     if id.is_some() {
         let layout = read(&*lock(&state.db)?)?.layout;
         let mut others = Vec::new();
         for (other, display) in app.webview_windows() {
-            if other != label
-                && other.starts_with(DISPLAY)
-                && display.is_visible().unwrap_or(false)
+            if other != label && other.starts_with(DISPLAY) && display.is_visible().unwrap_or(false)
             {
                 others.push(window_rect(&display)?);
             }
@@ -1048,14 +1103,20 @@ fn settle(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
             match id {
                 Some(id) => {
                     if layout.order.iter().any(|value| value == id)
-                        && !layout.positions.get(id).is_some_and(|saved| saved.near(&point))
+                        && !layout
+                            .positions
+                            .get(id)
+                            .is_some_and(|saved| saved.near(&point))
                     {
                         layout.positions.insert(id.into(), point.clone());
                     }
                 }
                 None => {
                     if layout.mode == Mode::Stack
-                        && !layout.stack_position.as_ref().is_some_and(|saved| saved.near(&point))
+                        && !layout
+                            .stack_position
+                            .as_ref()
+                            .is_some_and(|saved| saved.near(&point))
                     {
                         layout.stack_position = Some(point.clone());
                     }
@@ -1130,7 +1191,12 @@ pub(crate) async fn add_widget_desktop_item(
         })
     })?;
     let current = emit_state(&app, &state, &stored);
-    sync(&app, &state, &stored.layout, stored.layout.mode == Mode::Stack)?;
+    sync(
+        &app,
+        &state,
+        &stored.layout,
+        stored.layout.mode == Mode::Stack,
+    )?;
     Ok(current)
 }
 
@@ -1331,7 +1397,10 @@ mod tests {
         storage::install(
             db,
             directory.path(),
-            &kinds.iter().map(|kind| kind.to_string()).collect::<Vec<_>>(),
+            &kinds
+                .iter()
+                .map(|kind| kind.to_string())
+                .collect::<Vec<_>>(),
         )
         .unwrap();
         kinds
@@ -1352,7 +1421,12 @@ mod tests {
     fn settings(layout: &Layout) -> LayoutSettings {
         serde_json::from_value(serde_json::to_value(layout).unwrap()).unwrap()
     }
-    const AREA: Rect = Rect { x: 0.0, y: 25.0, width: 1440.0, height: 875.0 };
+    const AREA: Rect = Rect {
+        x: 0.0,
+        y: 25.0,
+        width: 1440.0,
+        height: 875.0,
+    };
 
     #[test]
     fn desktop_layout_has_an_independent_revision_and_preserves_other_preferences() {
@@ -1388,11 +1462,17 @@ mod tests {
     fn desktop_layout_rejects_invalid_and_unknown_widget_ids() {
         let db = database();
         for id in ["invalid", "00000000-0000-0000-0000-000000000000"] {
-            let input = Layout { order: vec![id.into()], ..Layout::default() };
+            let input = Layout {
+                order: vec![id.into()],
+                ..Layout::default()
+            };
             assert!(configure(&db, 0, settings(&input)).is_err());
         }
         let id = install(&db, &["clock"]).remove(0);
-        let duplicate = Layout { order: vec![id.clone(), id], ..Layout::default() };
+        let duplicate = Layout {
+            order: vec![id.clone(), id],
+            ..Layout::default()
+        };
         assert!(configure(&db, 0, settings(&duplicate)).is_err());
         assert_eq!(read(&db).unwrap().revision, 0);
     }
@@ -1410,11 +1490,8 @@ mod tests {
         assert!(legacy.layout.pinned.is_empty());
         assert!(legacy.layout.stack_position.is_none());
         assert_eq!(load(&db).unwrap().revision, 2);
-        let serialized = serde_json::to_value(desktop_state(
-            &crate::app::tests::state(),
-            &legacy,
-        ))
-        .unwrap();
+        let serialized =
+            serde_json::to_value(desktop_state(&crate::app::tests::state(), &legacy)).unwrap();
         assert_eq!(serialized["revision"], 2);
         assert_eq!(serialized["editing"], false);
         assert_eq!(serialized["mode"], "freeform");
@@ -1525,7 +1602,10 @@ mod tests {
         input.pinned = ids.clone();
         input.anchor = Anchor::BottomLeft;
         let next = configure(&db, next.revision, input).unwrap();
-        assert_eq!(next.layout.positions.keys().collect::<Vec<_>>(), vec![&ids[1]]);
+        assert_eq!(
+            next.layout.positions.keys().collect::<Vec<_>>(),
+            vec![&ids[1]]
+        );
         assert!(next.layout.shapes.is_empty());
         assert_eq!(next.layout.pinned, vec![ids[1].clone()]);
         assert!(next.layout.stack_position.is_none());
@@ -1543,7 +1623,9 @@ mod tests {
         };
         let saved = restore(&db, 0, snapshot.clone()).unwrap();
         let (moved, changed) = update(&db, |layout| {
-            layout.positions.insert(ids[0].clone(), Point { x: 500.0, y: 500.0 });
+            layout
+                .positions
+                .insert(ids[0].clone(), Point { x: 500.0, y: 500.0 });
             layout.mode = Mode::Stack;
             Ok(())
         })
@@ -1566,8 +1648,12 @@ mod tests {
         update(&db, |layout| {
             layout.order.push(ids[0].clone());
             layout.pinned.push(ids[0].clone());
-            layout.positions.insert(ids[0].clone(), Point { x: 1.0, y: 2.0 });
-            layout.shapes.insert(ids[0].clone(), shape(184.0, 184.0, 0.0));
+            layout
+                .positions
+                .insert(ids[0].clone(), Point { x: 1.0, y: 2.0 });
+            layout
+                .shapes
+                .insert(ids[0].clone(), shape(184.0, 184.0, 0.0));
             Ok(())
         })
         .unwrap();
@@ -1585,7 +1671,14 @@ mod tests {
 
     #[test]
     fn display_windows_open_only_for_placed_enabled_widgets_in_freeform() {
-        for mutation in ["none", "stack", "unplaced", "disable", "remove", "reinstall"] {
+        for mutation in [
+            "none",
+            "stack",
+            "unplaced",
+            "disable",
+            "remove",
+            "reinstall",
+        ] {
             let directory = tempfile::tempdir().unwrap();
             let mut state = crate::app::tests::state();
             state.app_data = directory.path().into();
@@ -1622,7 +1715,11 @@ mod tests {
                 _ => {}
             }
             drop(db);
-            assert_eq!(displayable(&state, &id).is_ok(), mutation == "none", "{mutation}");
+            assert_eq!(
+                displayable(&state, &id).is_ok(),
+                mutation == "none",
+                "{mutation}"
+            );
         }
     }
 
@@ -1648,19 +1745,36 @@ mod tests {
 
     #[test]
     fn clamping_keeps_visible_spots_and_pulls_lost_ones_into_the_nearest_work_area() {
-        let second = Rect { x: 1440.0, y: 0.0, width: 1920.0, height: 1080.0 };
+        let second = Rect {
+            x: 1440.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
         let areas = [AREA, second];
-        let visible = Point { x: 1400.0, y: 100.0 };
+        let visible = Point {
+            x: 1400.0,
+            y: 100.0,
+        };
         assert_eq!(clamp_point(&visible, (200.0, 100.0), &areas), visible);
-        let lost = Point { x: 4000.0, y: -500.0 };
+        let lost = Point {
+            x: 4000.0,
+            y: -500.0,
+        };
         assert_eq!(
             clamp_point(&lost, (200.0, 100.0), &areas),
             Point { x: 3160.0, y: 0.0 }
         );
-        let barely = Point { x: 1430.0, y: 100.0 };
+        let barely = Point {
+            x: 1430.0,
+            y: 100.0,
+        };
         assert_eq!(
             clamp_point(&barely, (200.0, 100.0), &[AREA]),
-            Point { x: 1240.0, y: 100.0 }
+            Point {
+                x: 1240.0,
+                y: 100.0
+            }
         );
         assert_eq!(clamp_point(&lost, (200.0, 100.0), &[]), lost);
     }
@@ -1698,19 +1812,38 @@ mod tests {
 
     #[test]
     fn snapping_prefers_nearby_widget_edges_then_the_grid() {
-        let others = [Rect { x: 100.0, y: 100.0, width: 200.0, height: 100.0 }];
+        let others = [Rect {
+            x: 100.0,
+            y: 100.0,
+            width: 200.0,
+            height: 100.0,
+        }];
         let size = (120.0, 80.0);
         let point = Point { x: 305.0, y: 97.0 };
-        assert_eq!(snap(&point, size, &others, false, true), Point { x: 300.0, y: 100.0 });
-        assert_eq!(snap(&point, size, &others, true, false), Point { x: 304.0, y: 96.0 });
+        assert_eq!(
+            snap(&point, size, &others, false, true),
+            Point { x: 300.0, y: 100.0 }
+        );
+        assert_eq!(
+            snap(&point, size, &others, true, false),
+            Point { x: 304.0, y: 96.0 }
+        );
         assert_eq!(snap(&point, size, &others, false, false), point);
         let far = Point { x: 500.0, y: 403.0 };
-        assert_eq!(snap(&far, size, &others, true, true), Point { x: 504.0, y: 400.0 });
+        assert_eq!(
+            snap(&far, size, &others, true, true),
+            Point { x: 504.0, y: 400.0 }
+        );
     }
 
     #[test]
     fn stack_fold_uses_the_target_width_for_anchored_and_saved_positions() {
-        let area = Rect { x: 0.0, y: 0.0, width: 1364.0, height: 1024.0 };
+        let area = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1364.0,
+            height: 1024.0,
+        };
         let saved = Point { x: 954.0, y: 24.0 };
         for _ in 0..2 {
             assert_eq!(clamp_stack_point(&saved, (354.0, 320.0), &[area]), saved);
@@ -1729,21 +1862,63 @@ mod tests {
 
     #[test]
     fn stack_bounds_preserve_visible_positions_and_choose_the_nearest_monitor() {
-        let left = Rect { x: -1364.0, y: -200.0, width: 1364.0, height: 1024.0 };
-        let right = Rect { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0 };
+        let left = Rect {
+            x: -1364.0,
+            y: -200.0,
+            width: 1364.0,
+            height: 1024.0,
+        };
+        let right = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
         let areas = [left, right];
-        let visible = Point { x: -800.5, y: 20.25 };
+        let visible = Point {
+            x: -800.5,
+            y: 20.25,
+        };
         assert_eq!(clamp_stack_point(&visible, (454.0, 92.0), &areas), visible);
         for (point, expected) in [
             (Point { x: -410.0, y: 24.0 }, Point { x: -454.0, y: 24.0 }),
-            (Point { x: -1400.0, y: -240.0 }, Point { x: -1364.0, y: -200.0 }),
-            (Point { x: 1800.0, y: 1000.0 }, Point { x: 1466.0, y: 988.0 }),
-            (Point { x: 4000.0, y: -500.0 }, Point { x: 1466.0, y: 0.0 }),
+            (
+                Point {
+                    x: -1400.0,
+                    y: -240.0,
+                },
+                Point {
+                    x: -1364.0,
+                    y: -200.0,
+                },
+            ),
+            (
+                Point {
+                    x: 1800.0,
+                    y: 1000.0,
+                },
+                Point {
+                    x: 1466.0,
+                    y: 988.0,
+                },
+            ),
+            (
+                Point {
+                    x: 4000.0,
+                    y: -500.0,
+                },
+                Point { x: 1466.0, y: 0.0 },
+            ),
         ] {
             assert_eq!(clamp_stack_point(&point, (454.0, 92.0), &areas), expected);
         }
         assert_eq!(clamp_stack_point(&visible, (454.0, 92.0), &[]), visible);
-        let tiny = Rect { x: -200.0, y: 50.0, width: 40.0, height: 30.0 };
+        let tiny = Rect {
+            x: -200.0,
+            y: 50.0,
+            width: 40.0,
+            height: 30.0,
+        };
         assert_eq!(
             clamp_stack_point(&visible, (80.0, 48.0), &[tiny]),
             Point { x: -200.0, y: 50.0 }
@@ -1753,10 +1928,16 @@ mod tests {
     #[test]
     fn stack_anchor_and_fit_use_the_work_area() {
         let size = (300.0, 200.0);
-        assert_eq!(stack_origin(AREA, size, &Anchor::TopLeft), Point { x: 24.0, y: 49.0 });
+        assert_eq!(
+            stack_origin(AREA, size, &Anchor::TopLeft),
+            Point { x: 24.0, y: 49.0 }
+        );
         assert_eq!(
             stack_origin(AREA, size, &Anchor::BottomRight),
-            Point { x: 1116.0, y: 676.0 }
+            Point {
+                x: 1116.0,
+                y: 676.0
+            }
         );
         assert_eq!(fit_size(606.0, 92.0, AREA).unwrap(), (606.0, 92.0));
         assert_eq!(fit_size(12.0, 12.0, AREA).unwrap(), (80.0, 48.0));
@@ -1769,7 +1950,10 @@ mod tests {
     fn closing_the_stack_survives_settings_changes_and_legacy_layouts_start_open() {
         let legacy: Layout = serde_json::from_str(r#"{"mode":"stack","order":[]}"#).unwrap();
         assert!(!legacy.stack_hidden);
-        let hidden = Layout { stack_hidden: true, ..Layout::default() };
+        let hidden = Layout {
+            stack_hidden: true,
+            ..Layout::default()
+        };
         let input = LayoutSettings {
             mode: Mode::Stack,
             order: vec![],

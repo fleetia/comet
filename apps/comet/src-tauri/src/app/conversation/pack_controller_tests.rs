@@ -536,7 +536,9 @@ fn idle_input_fold_keeps_ready_npc_story_but_explicit_close_or_active_playback_c
                 );
             } else {
                 assert!(lock(&state.pack_stories).unwrap().run.is_none());
-                assert!(characters::guests::guest_ids(&state, &db).unwrap().is_empty());
+                assert!(characters::guests::guest_ids(&state, &db)
+                    .unwrap()
+                    .is_empty());
                 assert_eq!(
                     db.query_row(
                         "SELECT COUNT(*) FROM pack_story_outcomes WHERE kind='cancelled'",
@@ -746,7 +748,9 @@ fn cancelled_guest_plan_errors_without_implicit_admission_or_ai_fallback() {
     assert!(prepare_pack_retry_locked(&state, &db, &plan, epoch)
         .unwrap_err()
         .contains("NPC"));
-    assert!(characters::guests::guest_ids(&state, &db).unwrap().is_empty());
+    assert!(characters::guests::guest_ids(&state, &db)
+        .unwrap()
+        .is_empty());
     assert!(!store::input_ai_only(&db, &intro.input_id).unwrap());
     assert_eq!(effects(&db), (0, 0));
 }
@@ -1049,7 +1053,9 @@ fn directed_registered_relation_can_mention_absent_npc_without_admitting_or_adva
         lines[0].text,
         definition.relationships[0].reply_lines[0].text
     );
-    assert!(characters::guests::guest_ids(&state, &db).unwrap().is_empty());
+    assert!(characters::guests::guest_ids(&state, &db)
+        .unwrap()
+        .is_empty());
     assert!(lock(&state.pack_stories).unwrap().run.is_none());
     assert!(!store::input_ai_only(&db, &input).unwrap());
     assert_eq!(effects(&db), (0, 0));
@@ -1318,7 +1324,9 @@ fn standalone_entry_exact_cancellation_leaves_guest_quietly_after_registered_pri
         } else {
             assert!(result.unwrap().unwrap().is_empty());
             assert!(lock(&state.pack_stories).unwrap().run.is_none());
-            assert!(characters::guests::guest_ids(&state, &db).unwrap().is_empty());
+            assert!(characters::guests::guest_ids(&state, &db)
+                .unwrap()
+                .is_empty());
             assert!(!store::input_ai_only(&db, &input).unwrap());
             assert_eq!(
                 db.query_row(

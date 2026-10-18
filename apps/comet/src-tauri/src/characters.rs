@@ -1,5 +1,7 @@
 pub(crate) mod animation;
 pub(crate) mod animation_states;
+pub mod archive;
+mod bundled_motions;
 pub(crate) mod collision;
 pub(crate) mod collision_host;
 pub(crate) mod commands;
@@ -10,8 +12,6 @@ pub(crate) mod life;
 pub(crate) mod reaction_host;
 pub(crate) mod reactions;
 pub(crate) mod sprites;
-pub mod archive;
-mod bundled_motions;
 mod story_definitions;
 pub use story_definitions::{
     character_definition_baseline, get_pack_story_definition, npc_only_pack,
@@ -22,8 +22,6 @@ mod validation;
 pub use archive::ExportOptions;
 
 use animation::{Animation, AssetInfo, PackAnimationAsset, PreparedAsset};
-use reactions::{MotionOverride, ReactionRule};
-use sprites::SpriteInfo;
 #[cfg(test)]
 pub use dialogue::keyword_scene;
 pub(crate) use dialogue::registered_directed_reply;
@@ -32,6 +30,8 @@ pub use dialogue::{
     dialogue, greeting, idle_scene, registered_keyword_scene, registered_relation_scene,
     save_dialogue,
 };
+use reactions::{MotionOverride, ReactionRule};
+use sprites::SpriteInfo;
 use validation::decode_sprite;
 pub(crate) use validation::sprite_slot_allowed;
 pub(crate) use validation::validate_definition;

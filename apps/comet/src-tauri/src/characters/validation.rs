@@ -3,9 +3,9 @@ use super::{
     PackSprite, Result, BALLOON_FONT_SIZE_RANGE, BALLOON_SPRITE, DEFAULT_EXPRESSION,
     MAX_PACK_BYTES, MAX_ROSTER, SLOTS, SPRITE_SIZE_RANGE,
 };
-use crate::characters::animation as animation;
-use crate::characters::reactions as reactions;
-use crate::characters::sprites as sprites;
+use crate::characters::animation;
+use crate::characters::reactions;
+use crate::characters::sprites;
 use crate::types::{SceneLine, WordbookEntry};
 use base64::Engine;
 use std::collections::{BTreeMap, HashSet};

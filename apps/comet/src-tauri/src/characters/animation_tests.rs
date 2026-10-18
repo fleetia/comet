@@ -2,9 +2,7 @@ use super::*;
 use crate::characters::animation::{self, Binding, Bindings, Clip, Frame};
 
 fn animated() -> (CharacterDefinition, PreparedAsset) {
-    let asset =
-        animation::prepare_png(animation::png_fixture(4, 2, 255, false))
-            .unwrap();
+    let asset = animation::prepare_png(animation::png_fixture(4, 2, 255, false)).unwrap();
     let mut definition = builtin("a");
     definition.animation = Some(Animation {
         clips: vec![Clip {

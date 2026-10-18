@@ -5,8 +5,8 @@ use crate::{
         AppState,
     },
     characters::{
-        self, animation::AnimationAsset, CharacterDefinition, CharacterDialogue, CharacterPack, InstalledCharacter,
-        InstalledCharacterPack,
+        self, animation::AnimationAsset, CharacterDefinition, CharacterDialogue, CharacterPack,
+        InstalledCharacter, InstalledCharacterPack,
     },
     store, wordbook,
 };

@@ -16,8 +16,8 @@ mod users;
 pub(crate) mod windows;
 
 use crate::{
-    behavior, characters, desktop, inference, models, playback, store, story, talk,
-    types::*, widgets, wordbook,
+    behavior, characters, desktop, inference, models, playback, store, story, talk, types::*,
+    widgets, wordbook,
 };
 use rusqlite::Connection;
 use std::{

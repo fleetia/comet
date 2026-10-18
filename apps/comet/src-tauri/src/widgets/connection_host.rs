@@ -845,7 +845,8 @@ async fn refresh_observation(
         let mut candidates = native.as_ref().cloned().unwrap_or_default();
         let mut bridge_error = None;
         if bridge_connected {
-            match crate::widgets::music_bridge::request(&instance.id, "observe", Value::Null).await {
+            match crate::widgets::music_bridge::request(&instance.id, "observe", Value::Null).await
+            {
                 Ok(mut observation) => {
                     observation["provider"] = json!("spotify");
                     observation["transport"] = json!("spicetify");
@@ -885,12 +886,13 @@ async fn refresh_observation(
         data["error"] = Value::Null;
         return Ok(data);
     }
-    let mut observation = crate::widgets::music_bridge::request(&instance.id, "observe", Value::Null)
-        .await
-        .map_err(|message| connections::ConnectionError {
-            status: "offline".into(),
-            message,
-        })?;
+    let mut observation =
+        crate::widgets::music_bridge::request(&instance.id, "observe", Value::Null)
+            .await
+            .map_err(|message| connections::ConnectionError {
+                status: "offline".into(),
+                message,
+            })?;
     observation["observedAt"] = json!(timestamp());
     observation["provider"] = json!("spicetify");
     observation["source"] = json!("Spotify · Spicetify");
@@ -1112,8 +1114,11 @@ pub(crate) async fn export_music_extension(app: AppHandle) -> Result<Option<Stri
     };
     let path = path.into_path().map_err(|error| error.to_string())?;
     tauri::async_runtime::spawn_blocking(move || {
-        std::fs::write(&path, include_str!("../../../integrations/spicetify/comet.js"))
-            .map_err(|error| format!("확장 파일을 저장하지 못했어요: {error}"))?;
+        std::fs::write(
+            &path,
+            include_str!("../../../integrations/spicetify/comet.js"),
+        )
+        .map_err(|error| format!("확장 파일을 저장하지 못했어요: {error}"))?;
         Ok(Some(path.to_string_lossy().into_owned()))
     })
     .await
