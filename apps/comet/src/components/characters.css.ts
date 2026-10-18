@@ -262,3 +262,4 @@ globalStyle(`${ownerContent}[hidden]`, { display: "none" });
 globalStyle(`${libraryActions} > button`, { width: "100%" });
 
 globalStyle(`${basicFields} > div:nth-child(n+3)`, { gridColumn: "1 / -1" });
+export const sourcePanel = style({ padding: 16 });

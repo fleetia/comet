@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
-import { Button, EnvelopeCard, SegmentedControl, Dialog } from "@comet/ui";
-import { FormField, Select } from "../../ui";
+import { Button, Dialog, EnvelopeCard, FormField, SegmentedControl, Select } from "@comet/ui";
 import { command, errorText } from "../../hooks/useSnapshot";
 import { localDay, record, rows, text, type DataRecord, type ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
@@ -426,6 +425,7 @@ function EnvelopeSchedule({
       <summary>일정 연결 · 변경</summary>
       <FormField label="봉투에 연결할 일정">
         <Select
+          fill
           value={selected}
           disabled={busy}
           onChange={(event) => {

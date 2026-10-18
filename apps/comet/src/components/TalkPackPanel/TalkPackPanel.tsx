@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button } from "../../ui";
-import { Balloon as PreviewBalloon, SettingControlRow, Switch } from "@comet/ui";
+import { Balloon as PreviewBalloon, Button, SettingControlRow, Switch } from "@comet/ui";
 import { ChatIcon, ImportIcon, TogetherIcon } from "@comet/icon";
 import byulBody from "../../assets/figma/talk-byul-body.svg";
 import byulFace from "../../assets/figma/talk-byul-face.svg";
@@ -183,8 +182,8 @@ export function TalkPackPanel(): JSX.Element {
                   description={pack.description}
                   control={
                     <Button
-                      variant="secondary"
-                      size="compact"
+                      variant="ghost"
+                      size="small"
                       aria-label={`${pack.name} 설치`}
                       disabled={pending !== null || !pack.bundled}
                       onClick={() => void run(pack, true)}

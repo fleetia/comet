@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
-import { Dialog } from "@comet/ui";
-import { Button, Checkbox, Select, TextField, Surface } from "../../ui";
+import { Button, Checkbox, Dialog, Select, Surface, TextInput } from "@comet/ui";
 import { command, errorText } from "../../hooks/useSnapshot";
 import type {
   CharacterExportOptions,
@@ -177,7 +176,8 @@ export function CharacterSharing({
             </p>
             <label className={ui.field}>
               제작자
-              <TextField
+              <TextInput
+                fill
                 disabled={!attributionLoaded}
                 value={author}
                 maxLength={120}
@@ -186,7 +186,8 @@ export function CharacterSharing({
             </label>
             <label className={ui.field}>
               출처 URL
-              <TextField
+              <TextInput
+                fill
                 disabled={!attributionLoaded}
                 value={sourceUrl}
                 maxLength={2048}
@@ -195,7 +196,7 @@ export function CharacterSharing({
               />
             </label>
             <Button
-              variant="secondary"
+              variant="ghost"
               disabled={!attributionLoaded}
               onClick={() =>
                 void run(async () => {
@@ -213,8 +214,8 @@ export function CharacterSharing({
             </Button>
             {currentAttributionDirty && (
               <Button
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 onClick={() => {
                   if (attribution) {
                     setAttributions((values) => ({
@@ -229,8 +230,8 @@ export function CharacterSharing({
             )}
             {!attributionLoaded && error && (
               <Button
-                variant="secondary"
-                size="compact"
+                variant="ghost"
+                size="small"
                 onClick={() => setAttributionRevision((value) => value + 1)}
               >
                 출처 다시 불러오기
@@ -243,7 +244,7 @@ export function CharacterSharing({
             {!exportScope && (
               <label className={ui.field}>
                 내보낼 대상
-                <Select value={scope} onChange={(event) => setScope(event.target.value)}>
+                <Select fill value={scope} onChange={(event) => setScope(event.target.value)}>
                   <option value="selected">선택한 캐릭터 하나</option>
                   <option value="pair" disabled={active.length < 2}>
                     함께 지내는 친구들의 조합
@@ -271,7 +272,7 @@ export function CharacterSharing({
             )}
             <div className={ui.row} role="group" aria-label="내보내기 구성">
               <Button
-                variant="secondary"
+                variant="ghost"
                 aria-pressed={
                   !options.includeMemories && !options.includeAffinity && !options.includeMessages
                 }
@@ -287,7 +288,7 @@ export function CharacterSharing({
                 캐릭터만 내보내기
               </Button>
               <Button
-                variant="secondary"
+                variant="ghost"
                 aria-pressed={
                   options.includeMemories && !options.includeAffinity && !options.includeMessages
                 }
@@ -318,9 +319,8 @@ export function CharacterSharing({
                   onChange={(event) =>
                     setOptions((value) => ({ ...value, [key]: event.target.checked }))
                   }
-                >
-                  {label}
-                </Checkbox>
+                  label={label}
+                />
               ))}
             </fieldset>
             <p className={ui.quiet}>
@@ -355,9 +355,8 @@ export function CharacterSharing({
                             : values.filter((id) => id !== entry.id),
                         )
                       }
-                    >
-                      {entry.title}
-                    </Checkbox>
+                      label={entry.title}
+                    />
                     <p className={ui.quiet}>{entry.keywords.join(", ")}</p>
                     <div className={s.preview}>
                       {entry.lines.map((line, index) => (
@@ -372,7 +371,7 @@ export function CharacterSharing({
             </details>
             <div className={ui.row}>
               <Button
-                variant="secondary"
+                variant="ghost"
                 disabled={!ids.length || contentDirty || attributionDirty}
                 onClick={() =>
                   void run(async () => {
@@ -396,7 +395,7 @@ export function CharacterSharing({
           </div>
         )}
         {(full || action === "import") && (
-          <Button variant="secondary" size="compact" onClick={() => void choosePack()}>
+          <Button variant="ghost" size="small" onClick={() => void choosePack()}>
             공유 파일 가져오기
           </Button>
         )}
@@ -420,7 +419,7 @@ export function CharacterSharing({
                 >
                   내용 확인 후 설치
                 </Button>
-                <Button variant="secondary" onClick={() => setPack(null)}>
+                <Button variant="ghost" onClick={() => setPack(null)}>
                   가져오기 취소
                 </Button>
               </div>
@@ -441,7 +440,7 @@ export function CharacterSharing({
                   가져온 친구와 함께 지내기
                 </Button>
                 <Button
-                  variant="secondary"
+                  variant="ghost"
                   onClick={() => {
                     setPack(null);
                     setInstalled([]);
@@ -475,12 +474,12 @@ export function CharacterSharing({
     return content;
   }
   const summary = (
-    <Surface aria-label="캐릭터팩 출처">
+    <Surface variant="panel" className={s.sourcePanel} aria-label="캐릭터팩 출처">
       <div className={s.sourceHeading}>
         <h3 className={s.subheading}>캐릭터팩 출처</h3>
         <Button
-          variant="quiet"
-          size="compact"
+          variant="ghost"
+          size="small"
           disabled={!packId || disabled}
           onClick={() => onActionChange?.("attribution")}
         >

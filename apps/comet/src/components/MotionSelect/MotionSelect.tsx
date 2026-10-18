@@ -1,5 +1,5 @@
 import type { JSX } from "react";
-import { Checkbox, FormField, Select, TextField } from "../../ui";
+import { Checkbox, FormField, Select, TextInput } from "@comet/ui";
 import {
   CHARACTER_SLOTS,
   type AnimationClip,
@@ -53,6 +53,7 @@ export function MotionSelect({
   return (
     <div className={s.container}>
       <Select
+        fill
         aria-label={`${label} 동작`}
         value={selected}
         onChange={(event) => {
@@ -83,11 +84,11 @@ export function MotionSelect({
             <Checkbox
               checked={value.repeat}
               onChange={(event) => onChange({ ...value, repeat: event.target.checked })}
-            >
-              {label} 반복
-            </Checkbox>
+              label={<>{label} 반복</>}
+            />
             <FormField label="반복 간격(초)">
-              <TextField
+              <TextInput
+                fill
                 className={s.number}
                 aria-label={`${label} 동작 반복 간격(초)`}
                 type="number"

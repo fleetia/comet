@@ -62,6 +62,7 @@ export const assetRow = style({
 });
 export const inspector = style({ minWidth: 0, minHeight: 0 });
 export const previewStage = style({
+  padding: 16,
   display: "grid",
   placeItems: "center",
   minHeight: 204,
@@ -87,7 +88,7 @@ export const commonSettings = style({
   paddingTop: tokens["spacing/space-16"],
   marginTop: tokens["spacing/space-16"],
 });
-export const expressionBindings = style({ marginTop: tokens["spacing/space-12"] });
+export const expressionBindings = style({ padding: 12, marginTop: tokens["spacing/space-12"] });
 export const balloonLayout = style({
   display: "grid",
   gridTemplateColumns: "minmax(0,792fr) minmax(0,632fr)",
@@ -97,6 +98,7 @@ export const balloonLayout = style({
   "@media": { "(max-width: 1280px)": { gridTemplateColumns: "minmax(0,1.2fr) minmax(0,1fr)" } },
 });
 export const balloonStage = style({
+  padding: 16,
   display: "grid",
   placeItems: "center",
   minHeight: 464,
@@ -241,6 +243,7 @@ export const authoredMotion = style({
 });
 export const authoredText = style({ height: 40, minHeight: 40, resize: "vertical" });
 export const speechPreview = style({
+  padding: 16,
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
   marginBlock: tokens["spacing/space-12"],
@@ -300,3 +303,5 @@ globalStyle(`${profileMain} input, ${profileMain} textarea`, {
 });
 // Standalone form row: align with the surrounding fields instead of a settings list group.
 export const formControlRow = style({ paddingInline: 0, borderTop: 0 });
+export const cardPanel = style({ padding: 16 });
+export const cardCompact = style({ padding: 12 });

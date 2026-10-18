@@ -1,4 +1,4 @@
-import { Button, Checkbox, DateField, FormField, Select } from "../../ui";
+import { Button, Checkbox, FormField, Select, TextInput } from "@comet/ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { localDay, text, type DataRecord, type ToolAction } from "../toolData";
 import { PLANNER_TEMPLATES, templateItems } from "./templateCatalog";
@@ -48,8 +48,8 @@ export function PlannerTemplates({
           {PLANNER_TEMPLATES.map((template) => (
             <Button
               key={template.id}
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               className={s.categoryButton}
               aria-pressed={selected.id === template.id}
               onClick={() => {
@@ -101,7 +101,9 @@ export function PlannerTemplates({
           <p className={s.caption}>{selected.description}</p>
           {selected.id === "occasion" && (
             <FormField label="기념일·여행 기준 날짜" className={s.field}>
-              <DateField
+              <TextInput
+                type="date"
+                fill
                 required
                 value={base}
                 onChange={(e) => {
@@ -133,12 +135,12 @@ export function PlannerTemplates({
                           );
                           setSaved(false);
                         }}
-                      >
-                        {text(item.title)}
-                      </Checkbox>
+                        label={text(item.title)}
+                      />
                     </td>
                     <td>
                       <Select
+                        fill
                         aria-label={`${text(item.title)} 반복`}
                         value={item.repeatRule ? "suggested" : "none"}
                         onChange={(e) =>
@@ -157,7 +159,9 @@ export function PlannerTemplates({
                       </Select>
                     </td>
                     <td>
-                      <DateField
+                      <TextInput
+                        type="date"
+                        fill
                         required
                         aria-label={`${text(item.title)} 첫 날짜`}
                         value={text(item.dueDate)}
@@ -173,6 +177,7 @@ export function PlannerTemplates({
             <span className={s.caption}>목록 · {selected.title}</span>
             <FormField label="계획 기간" className={s.field}>
               <Select
+                fill
                 value={period}
                 onChange={(e) => {
                   setPeriod(e.target.value);
@@ -207,7 +212,7 @@ export function PlannerTemplates({
               {onShowPlans && (
                 <Button
                   type="button"
-                  variant="secondary"
+                  variant="ghost"
                   onClick={() => onShowPlans(period, savedAnchor)}
                 >
                   기간 계획에서 보기

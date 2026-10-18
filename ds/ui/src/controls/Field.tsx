@@ -10,6 +10,12 @@ export type FieldProps = {
   error?: ReactNode;
 };
 
+/** Text-like controls that can span their parent's width. */
+export type FillProps = {
+  /** Spans the parent width instead of the Figma default width. */
+  fill?: boolean;
+};
+
 type FieldStateProps = FieldProps & {
   id?: string;
   "aria-describedby"?: string;
@@ -67,4 +73,14 @@ export function FieldMessages({
       )}
     </>
   );
+}
+
+/** Wrapper class for a text-like field; a filled field without messages joins the parent layout. */
+export function fieldClassName(fill: boolean | undefined, props: FieldProps): string {
+  if (!fill) {
+    return styles.field;
+  }
+  return props.label || props.description || props.error
+    ? `${styles.field} ${styles.fillField}`
+    : `${styles.field} ${styles.contentsField}`;
 }

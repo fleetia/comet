@@ -1,11 +1,11 @@
-import { Button, TabPanel, externalTabPanels } from "../../ui";
+import { TabPanel, externalTabPanels } from "../../primitives";
 import { useEffect, useId, useRef, useState, type ReactElement } from "react";
 import { isDesktop } from "../../hooks/useSnapshot";
 import { record, text, type DataRecord } from "../toolData";
 import type { WidgetValue, WidgetView } from "../types";
 import { MusicLibrary } from "./MusicLibrary";
 import { Icon } from "@comet/icon";
-import { ContextMenu, IconButton, MusicWidget, Tabs } from "@comet/ui";
+import { Button, ContextMenu, IconButton, MusicWidget, Tabs } from "@comet/ui";
 import {
   artworkUrl,
   finiteNumber,
@@ -211,7 +211,7 @@ export function MusicTool({
         <p>설정창의 위젯에서 음악 앱을 연결해 주세요.</p>
         <p className={c.quiet}>곡 정보만 읽어요. 재생과 음량은 음악 앱에서 바꿔요.</p>
         <Button
-          variant="secondary"
+          variant="ghost"
           disabled={busy}
           onClick={() => void invoke<void>("open_planner_settings", { kind: "music" })}
         >
@@ -346,8 +346,8 @@ export function MusicTool({
               externalPanels={externalTabPanels(tabsId, tabItems.map((item) => item.value))}
             />
             <Button
-              size="compact"
-              variant="quiet"
+              size="small"
+              variant="ghost"
               aria-label="상세 접기"
               disabled={busy}
               onClick={() => void expand(false)}

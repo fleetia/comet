@@ -151,14 +151,17 @@ globalStyle(`${actions} > button`, {
   borderRadius: 16,
   fontSize: 13.5,
 });
-globalStyle(`${actions} > button[data-variant="critical"]`, {
+export const deleteAction = style({});
+export const cancelAction = style({});
+export const saveAction = style({});
+globalStyle(`${actions} > ${deleteAction}`, {
   width: 101,
   border: `1px solid ${tokens["color/danger-border"]}`,
   background: "transparent",
   gap: 7,
 });
-globalStyle(`${actions} > button[data-variant="secondary"]`, { width: 57 });
-globalStyle(`${actions} > button[data-variant="primary"]`, {
+globalStyle(`${actions} > ${cancelAction}`, { width: 57 });
+globalStyle(`${actions} > ${saveAction}`, {
   width: 65,
   height: 32,
   minHeight: 32,

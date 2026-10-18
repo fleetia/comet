@@ -1,6 +1,6 @@
 import { useEffect, useState, type JSX } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Button, Surface } from "../../ui";
+import { Button, Surface } from "@comet/ui";
 import { version } from "../../../package.json";
 import cometIcon from "../../assets/figma/comet-about.svg";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
@@ -97,7 +97,7 @@ export function UpdatePanel({
   const available = status.version && ["available", "error"].includes(status.phase);
   const message = error ?? status.message;
   return (
-    <Surface tone="accent" className={styles.panel} aria-label="comet 업데이트">
+    <Surface variant="accent" className={styles.panel} aria-label="comet 업데이트">
       <div className={styles.identity}>
         <span className={styles.appTile}>
           <img src={cometIcon} alt="" width={66} height={66} />

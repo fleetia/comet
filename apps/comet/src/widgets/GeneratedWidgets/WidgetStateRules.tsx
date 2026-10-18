@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { Dialog } from "@comet/ui";
-import { Button, Checkbox, Select, TextField } from "../../ui";
+import { Button, Checkbox, Dialog, Select, TextInput } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { CharacterCollection, MotionOverride } from "../../types";
 import { WidgetFrame } from "../WidgetFrame/WidgetFrame";
@@ -153,7 +152,7 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
       footer={
         <div className={s.actions}>
           <Button
-            variant="secondary"
+            variant="ghost"
             disabled={busy || !editor || rules.length >= 64}
             onClick={add}
           >
@@ -162,8 +161,8 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
           <Button variant="primary" disabled={busy || !editor} onClick={() => void save()}>
             저장
           </Button>
-          <Button variant="secondary" disabled={busy || !dirty} onClick={cancel}>수정 취소</Button>
-          <Button variant="secondary" disabled={busy} onClick={() => {
+          <Button variant="ghost" disabled={busy || !dirty} onClick={cancel}>수정 취소</Button>
+          <Button variant="ghost" disabled={busy} onClick={() => {
             if (dirty) setConfirmReload(true); else void load();
           }}>최신 내용 확인</Button>
           {saved && <span role="status">저장했어요.</span>}
@@ -206,12 +205,9 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
               <div className={s.actions}>
                 <Checkbox
                   checked={rule.enabled}
-                  onChange={() => update(rule.id, { enabled: !rule.enabled })}
-                >
-                  조건 {index + 1} 사용
-                </Checkbox>
+                  onChange={() => update(rule.id, { enabled: !rule.enabled })} label={<>조건 {index + 1} 사용</>} />
                 <Button
-                  variant="secondary"
+                  variant="ghost"
                   onClick={() => {
                     if (lock.current) return;
                     setRules((before) => before.filter((item) => item.id !== rule.id));
@@ -225,7 +221,8 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
               <div className={s.row}>
                 <label className={s.field}>
                   상태 필드
-                  <TextField
+                  <TextInput
+                    fill
                     aria-label={`조건 ${index + 1} 상태 필드`}
                     value={rule.field}
                     placeholder="count"
@@ -235,6 +232,7 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
                 <label className={s.field}>
                   비교
                   <Select
+                    fill
                     aria-label={`조건 ${index + 1} 비교`}
                     value={rule.operator}
                     onChange={(event) => update(rule.id, { operator: event.target.value })}
@@ -248,7 +246,8 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
                 </label>
                 <label className={s.field}>
                   값
-                  <TextField
+                  <TextInput
+                    fill
                     aria-label={`조건 ${index + 1} 값`}
                     value={rule.valueJson}
                     onChange={(event) => update(rule.id, { valueJson: event.target.value })}
@@ -258,6 +257,7 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
               <label className={s.field}>
                 캐릭터
                 <Select
+                  fill
                   value={rule.characterId}
                   aria-label={`조건 ${index + 1} 캐릭터`}
                   onChange={(event) =>
@@ -288,6 +288,7 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
                 <label className={s.field}>
                   표정
                   <Select
+                    fill
                     value={rule.expression ?? ""}
                     onChange={(event) =>
                       update(rule.id, { expression: event.target.value || null })
@@ -301,7 +302,8 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
                 </label>
                 <label className={s.field}>
                   다시 말하기 간격(초)
-                  <TextField
+                  <TextInput
+                    fill
                     type="number"
                     min={0}
                     max={86400}
@@ -316,6 +318,7 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
                 <label className={s.field}>
                   동작
                   <Select
+                    fill
                     value={
                       rule.motion?.mode === "clip"
                         ? rule.motion.clipId
@@ -342,7 +345,7 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
                   </Select>
                 </label>
               </div>
-              <Button variant="secondary" disabled={testing !== null}
+              <Button variant="ghost" disabled={testing !== null}
                 onClick={() => void test(rule)}>조건 {index + 1} 시험</Button>
               {trial?.ruleId === rule.id && <p role={trial.result.valid ? "status" : "alert"}>
                 {!trial.result.valid ? trial.result.error : !trial.result.fieldPresent
@@ -358,8 +361,8 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
           onOpenChange={(open) => { if (!open) closeGuard.keepEditing(); }}
           footer={
             <>
-              <Button variant="secondary" onClick={closeGuard.keepEditing}>계속 편집</Button>
-              <Button variant="critical" onClick={() => void closeGuard.discardAndClose()}>저장하지 않고 닫기</Button>
+              <Button variant="ghost" onClick={closeGuard.keepEditing}>계속 편집</Button>
+              <Button variant="danger" onClick={() => void closeGuard.discardAndClose()}>저장하지 않고 닫기</Button>
             </>
           }
         >
@@ -369,8 +372,8 @@ export function WidgetStateRules({ id }: { id: string }): ReactElement {
           onOpenChange={setConfirmReload}
           footer={
             <>
-              <Button variant="secondary" onClick={() => setConfirmReload(false)}>계속 편집</Button>
-              <Button variant="critical" onClick={() => { setConfirmReload(false); void load(); }}>초안 버리고 불러오기</Button>
+              <Button variant="ghost" onClick={() => setConfirmReload(false)}>계속 편집</Button>
+              <Button variant="danger" onClick={() => { setConfirmReload(false); void load(); }}>초안 버리고 불러오기</Button>
             </>
           }
         >

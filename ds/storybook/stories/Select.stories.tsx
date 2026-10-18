@@ -24,12 +24,13 @@ const meta = {
     label: { control: "text" },
     description: { control: "text" },
     error: { control: "text" },
+    fill: { control: "boolean", description: "부모 폭 채우기" },
   },
   parameters: {
     docs: {
       description: {
         component:
-          "native select를 사용합니다. 옵션은 option·optgroup children으로 전달하고 defaultValue 또는 value·onChange로 선택을 관리합니다. 옵션 팝업과 키보드 조작은 운영체제와 브라우저의 기본 동작을 따릅니다.",
+          "native select를 사용합니다. 옵션은 option·optgroup children으로 전달하고 defaultValue 또는 value·onChange로 선택을 관리합니다. 옵션 팝업과 키보드 조작은 운영체제와 브라우저의 기본 동작을 따릅니다. fill은 부모 폭을 채웁니다(Figma의 Fill container). 설명·오류가 없으면 감싸는 span이 레이아웃에서 빠져 부모 grid·flex가 컨트롤을 직접 배치합니다.",
       },
     },
   },
@@ -66,4 +67,9 @@ export const LongLabel: Story = {
       <Select {...args} style={{ width: "100%" }} />
     </div>
   ),
+};
+export const Fill: Story = {
+  name: "부모 폭 채우기",
+  args: { fill: true },
+  decorators: [(Story) => <div style={{ width: 360 }}>{Story()}</div>],
 };

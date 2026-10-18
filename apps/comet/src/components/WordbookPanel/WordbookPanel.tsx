@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, FormField, Select, Surface, TextArea, TextField } from "../../ui";
-import { SearchInput, SettingControlRow, Switch } from "@comet/ui";
+import {
+  Button,
+  FormField,
+  SearchInput,
+  Select,
+  SettingControlRow,
+  Surface,
+  Switch,
+  Textarea,
+  TextInput,
+} from "@comet/ui";
 import { CloseIcon, PlusIcon, TextIcon } from "@comet/icon";
 import { command, errorText } from "../../hooks/useSnapshot";
 import type {
@@ -374,7 +383,7 @@ export function WordbookPanel({
             <Button
               type="button"
               variant="primary"
-              size="compact"
+              size="small"
               disabled={pending || list.length >= 100}
               onClick={create}
             >
@@ -394,6 +403,7 @@ export function WordbookPanel({
               onChange={(event) => setSearch(event.target.value)}
             />
             <Select
+              fill
               aria-label="분류로 찾기"
               value={groupFilter}
               onChange={(event) => setGroupFilter(event.target.value as typeof groupFilter)}
@@ -484,7 +494,8 @@ export function WordbookPanel({
                 <div className={w.editorCard}>
                   <div className={w.fields}>
                     <FormField label="제목" required>
-                      <TextField
+                      <TextInput
+                        fill
                         maxLength={80}
                         value={current.entry.title}
                         onChange={(event) =>
@@ -494,6 +505,7 @@ export function WordbookPanel({
                     </FormField>
                     <FormField label="분류 (선택)">
                       <Select
+                        fill
                         value={current.entry.group ?? ""}
                         onChange={(event) =>
                           update({
@@ -513,7 +525,9 @@ export function WordbookPanel({
                   </div>
                   <div className={w.keywordField}>
                     <FormField label="키워드" required>
-                      <TextArea
+                      <Textarea
+                        layout="flexible"
+                        fill
                         className={w.keywordsInput}
                         rows={1}
                         placeholder="안녕, 반가워"
@@ -530,6 +544,7 @@ export function WordbookPanel({
                     {current.entry.lines.map((line, index) => (
                       <div className={w.line} key={index}>
                         <Select
+                          fill
                           aria-label={`${index + 1}번 화자`}
                           value={line.persona}
                           onChange={(event) =>
@@ -552,7 +567,9 @@ export function WordbookPanel({
                             ),
                           )}
                         </Select>
-                        <TextArea
+                        <Textarea
+                          layout="flexible"
+                          fill
                           aria-label={`대사 ${index + 1}`}
                           className={w.lineText}
                           rows={1}
@@ -565,8 +582,8 @@ export function WordbookPanel({
                         />
                         <Button
                           type="button"
-                          variant="quiet"
-                          size="compact"
+                          variant="ghost"
+                          size="small"
                           aria-label={`${index + 1}번 대사 삭제`}
                           disabled={current.entry.lines.length === 1}
                           onClick={() =>
@@ -584,6 +601,7 @@ export function WordbookPanel({
                           <summary>{index + 1}번 대사 표정·동작·순서</summary>
                           <div className={w.lineControls}>
                             <Select
+                              fill
                               aria-label={`${index + 1}번 표정`}
                               value={line.expression}
                               onChange={(event) =>
@@ -616,8 +634,8 @@ export function WordbookPanel({
                             />
                             <Button
                               type="button"
-                              variant="quiet"
-                              size="compact"
+                              variant="ghost"
+                              size="small"
                               aria-label={`${index + 1}번 대사 위로`}
                               disabled={index === 0}
                               onClick={() => moveLine(index, -1)}
@@ -626,8 +644,8 @@ export function WordbookPanel({
                             </Button>
                             <Button
                               type="button"
-                              variant="quiet"
-                              size="compact"
+                              variant="ghost"
+                              size="small"
                               aria-label={`${index + 1}번 대사 아래로`}
                               disabled={index === current.entry.lines.length - 1}
                               onClick={() => moveLine(index, 1)}
@@ -640,8 +658,8 @@ export function WordbookPanel({
                     ))}
                     <Button
                       type="button"
-                      variant="secondary"
-                      size="compact"
+                      variant="ghost"
+                      size="small"
                       disabled={current.entry.lines.length >= 8}
                       onClick={() =>
                         update({
@@ -712,7 +730,8 @@ export function WordbookPanel({
                   <section className={w.matchTest} aria-label="저장된 키워드 테스트">
                     <div className={w.testControls}>
                       <FormField label="테스트할 말">
-                        <TextField
+                        <TextInput
+                          fill
                           value={testInput}
                           maxLength={2000}
                           placeholder="예: 안녕, 오늘도 반가워"
@@ -727,7 +746,7 @@ export function WordbookPanel({
                       </FormField>
                       <Button
                         type="button"
-                        variant="secondary"
+                        variant="ghost"
                         disabled={testing || !testInput.trim()}
                         onClick={() => void testMatch()}
                       >
@@ -768,7 +787,7 @@ export function WordbookPanel({
                 <p className={s.quiet}>
                   공백·줄바꿈·화자 순서를 그대로 확인해요. 실제로 재생하지 않아요.
                 </p>
-                <Surface tone="accent" className={w.preview} aria-label="키워드 대사 미리보기">
+                <Surface variant="accent" className={w.preview} aria-label="키워드 대사 미리보기">
                   <PreviewLines lines={current.entry.lines} owners={owners} />
                 </Surface>
               </details>
@@ -794,7 +813,7 @@ export function WordbookPanel({
                 </span>
                 <Button
                   type="button"
-                  variant="quiet"
+                  variant="ghost"
                   disabled={pending || (!current.dirty && current.persisted)}
                   onClick={cancel}
                 >
@@ -806,7 +825,7 @@ export function WordbookPanel({
                 {current.persisted && (
                   <Button
                     type="button"
-                    variant="quiet"
+                    variant="ghost"
                     disabled={pending}
                     onClick={() => setConfirmDelete(true)}
                   >
@@ -820,7 +839,7 @@ export function WordbookPanel({
                   <div className={w.actions}>
                     <Button
                       type="button"
-                      variant="secondary"
+                      variant="ghost"
                       disabled={pending}
                       onClick={() => void remove()}
                     >
@@ -828,7 +847,7 @@ export function WordbookPanel({
                     </Button>
                     <Button
                       type="button"
-                      variant="quiet"
+                      variant="ghost"
                       disabled={pending}
                       onClick={() => setConfirmDelete(false)}
                     >

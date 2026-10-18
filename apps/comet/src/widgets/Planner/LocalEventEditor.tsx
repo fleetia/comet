@@ -1,5 +1,4 @@
-import { Dialog } from "@comet/ui";
-import { Button, Checkbox, DateField, FormField, TextArea, TextField } from "../../ui";
+import { Button, Checkbox, Dialog, FormField, Textarea, TextInput } from "@comet/ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { localDay, text, type DataRecord } from "../toolData";
 import {
@@ -244,7 +243,7 @@ export function LocalEventEditor({
           {event && onDelete && (
             <Button
               type="button"
-              variant="quiet"
+              variant="ghost"
               disabled={disabled}
               onClick={() => setConfirmation("delete")}
             >
@@ -252,7 +251,7 @@ export function LocalEventEditor({
             </Button>
           )}
           <span className={s.spacer} />
-          <Button type="button" variant="quiet" disabled={disabled} onClick={close}>
+          <Button type="button" variant="ghost" disabled={disabled} onClick={close}>
             취소
           </Button>
           <Button type="submit" form="local-event-editor" variant="primary" disabled={disabled}>
@@ -275,7 +274,8 @@ export function LocalEventEditor({
           style={{ border: 0, padding: 0, margin: 0 }}
         >
           <FormField label="일정 제목" className={s.field}>
-            <TextField
+            <TextInput
+              fill
               ref={titleRef}
               required
               maxLength={500}
@@ -284,25 +284,30 @@ export function LocalEventEditor({
             />
           </FormField>
           <p className={s.caption}>Comet 일정 · 이 기기에 저장</p>
-          <Checkbox checked={allDay} onChange={(change) => setAllDay(change.target.checked)}>
-            종일
-          </Checkbox>
+          <Checkbox
+            checked={allDay}
+            onChange={(change) => setAllDay(change.target.checked)}
+            label="종일"
+          />
           <Checkbox
             checked={moveTogether}
             onChange={(change) => setMoveTogether(change.target.checked)}
-          >
-            시작 변경 시 종료도 함께 이동 · 길이 유지
-          </Checkbox>
+            label="시작 변경 시 종료도 함께 이동 · 길이 유지"
+          />
           <div className={s.fields}>
             <FormField label="시작 날짜" className={s.field}>
-              <DateField
+              <TextInput
+                type="date"
+                fill
                 required
                 value={startDate}
                 onChange={(change) => changeStart(change.target.value, startTime)}
               />
             </FormField>
             <FormField label="종료 날짜" className={s.field}>
-              <DateField
+              <TextInput
+                type="date"
+                fill
                 required
                 value={endDate}
                 onChange={(change) => setEndDate(change.target.value)}
@@ -311,7 +316,8 @@ export function LocalEventEditor({
             {!allDay && (
               <>
                 <FormField label="시작 시각" className={s.field}>
-                  <TextField
+                  <TextInput
+                    fill
                     type="time"
                     required
                     value={startTime}
@@ -319,7 +325,8 @@ export function LocalEventEditor({
                   />
                 </FormField>
                 <FormField label="종료 시각" className={s.field}>
-                  <TextField
+                  <TextInput
+                    fill
                     type="time"
                     required
                     value={endTime}
@@ -331,7 +338,8 @@ export function LocalEventEditor({
           </div>
           {!allDay && <p className={s.caption}>기기 시간대: {deviceTimeZone()}</p>}
           <FormField label="장소" className={s.field}>
-            <TextField
+            <TextInput
+              fill
               value={location}
               maxLength={2000}
               onChange={(change) => setLocation(change.target.value)}
@@ -339,7 +347,9 @@ export function LocalEventEditor({
           </FormField>
           <p className={s.caption}>이 일정의 안건 · Enter는 줄바꿈</p>
           <FormField label="메모" className={s.field}>
-            <TextArea
+            <Textarea
+              layout="flexible"
+              fill
               rows={3}
               value={description}
               maxLength={20000}
@@ -357,7 +367,7 @@ export function LocalEventEditor({
             <div role="alert" className={s.error}>
               <p>{displayedError}</p>
               {event && onReload && (
-                <Button type="button" variant="quiet" onClick={() => setConfirmation("reload")}>
+                <Button type="button" variant="ghost" onClick={() => setConfirmation("reload")}>
                   최신 일정 다시 열기
                 </Button>
               )}
@@ -373,7 +383,7 @@ export function LocalEventEditor({
               <div className={s.actions}>
                 <Button
                   type="button"
-                  variant="critical"
+                  variant="danger"
                   onClick={() => {
                     if (confirmation === "close") {
                       onClose();
@@ -388,7 +398,7 @@ export function LocalEventEditor({
                   {confirmation === "delete" && "일정 삭제"}
                   {confirmation === "reload" && "변경 버리고 다시 열기"}
                 </Button>
-                <Button type="button" variant="secondary" onClick={() => setConfirmation(null)}>
+                <Button type="button" variant="ghost" onClick={() => setConfirmation(null)}>
                   계속 편집
                 </Button>
               </div>

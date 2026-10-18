@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ActionBar, Button, Inline, SaveStatus } from "../../ui";
+import { ActionBar, Inline, SaveStatus } from "../../primitives";
 import { Icon, CalendarIcon, RemoveIcon } from "@comet/icon";
-import { SettingControlRow, SettingsSummary, Switch, ToggleChip } from "@comet/ui";
+import { Button, SettingControlRow, SettingsSummary, Switch, ToggleChip } from "@comet/ui";
 import { useWidgets } from "../../widgets/useWidgets";
 import * as figma from "../SettingsPanel/figmaSettings.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
@@ -134,7 +134,7 @@ export function DesktopPreferences({
             ))}
         </div>
         <Button
-          variant="secondary"
+          variant="ghost"
           className={figma.fullButton}
           disabled={pending || !loaded}
           onClick={() =>
@@ -196,8 +196,8 @@ export function DesktopPreferences({
           <div className={figma.controls}>
             <h2 className={figma.sectionTitle}>장난감</h2>
             <Button
-              variant="secondary"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={pending || !loaded}
               onClick={() =>
                 void command("clear_desktop_toys").catch((cause: unknown) =>
@@ -272,7 +272,7 @@ export function DesktopPreferences({
             >
               <Inline gap="sm">
                 <Button
-                  variant="quiet"
+                  variant="ghost"
                   disabled={pending || !loaded || !dirty}
                   onClick={() => edit(saved.current)}
                 >

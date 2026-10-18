@@ -1,8 +1,7 @@
 import { useRef, useState, type JSX } from "react";
 import { ExitIcon, HideIcon, MemoryIcon } from "@comet/icon";
-import { Button, SettingControlRow, SettingsSummary } from "@comet/ui";
+import { Button, Checkbox, SettingControlRow, SettingsSummary } from "@comet/ui";
 import type { Snapshot } from "../../types";
-import { Checkbox } from "../../ui";
 import { command, errorText } from "../../hooks/useSnapshot";
 import { error as errorStyle } from "../../common.css";
 import { AutostartSettings } from "../AutostartSettings/AutostartSettings";
@@ -143,9 +142,8 @@ export function GeneralSettings({
             aria-busy={consentPending}
             description="선택한 AI 종류, 기능 사용, 오류·비정상 종료와 AI 요청의 성공 여부·응답 시간을 Google Analytics로 보내요. 대화 내용·이름·파일 경로는 보내지 않아요."
             onChange={(event) => void saveConsent(event.target.checked)}
-          >
-            (선택) 익명 사용 통계 수집에 동의해요
-          </Checkbox>
+            label="(선택) 익명 사용 통계 수집에 동의해요"
+          />
           {consentError && (
             <p role="alert" className={errorStyle}>
               {consentError}

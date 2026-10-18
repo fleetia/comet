@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX } from "react";
-import { Button } from "../../ui";
+import { Button } from "@comet/ui";
 import type {
   ConversationMessages,
   ConversationSession,
@@ -113,7 +113,7 @@ export function ConversationLog({
   return (
     <div className={s.conversationLog}>
       {before !== null && (
-        <Button size="compact" variant="quiet" disabled={pending} onClick={() => void loadOlder()}>
+        <Button size="small" variant="ghost" disabled={pending} onClick={() => void loadOlder()}>
           {pending ? "불러오는 중" : "앞선 내용 더 보기"}
         </Button>
       )}
@@ -190,7 +190,7 @@ export function ConversationHistory({
   if (legacy) {
     return (
       <>
-        <Button size="compact" variant="quiet" onClick={() => setLegacy(false)}>
+        <Button size="small" variant="ghost" onClick={() => setLegacy(false)}>
           대화 목록으로
         </Button>
         <CharacterHistory snapshot={snapshot} characterId={persona} />
@@ -201,10 +201,10 @@ export function ConversationHistory({
     return (
       <>
         <div className={s.historyToolbar}>
-          <Button size="compact" variant="quiet" onClick={() => setSelected(null)}>
+          <Button size="small" variant="ghost" onClick={() => setSelected(null)}>
             대화 목록으로
           </Button>
-          <Button size="compact" onClick={() => onResume(selected.id)}>
+          <Button size="small" onClick={() => onResume(selected.id)}>
             {selected.status === "ended" ? "이어서 말하기" : "이어하기"}
           </Button>
         </div>
@@ -236,7 +236,7 @@ export function ConversationHistory({
             <p className={s.error} role="alert">
               {pageError}
             </p>
-            <Button variant="quiet" size="compact" onClick={() => setRefresh((value) => value + 1)}>
+            <Button variant="ghost" size="small" onClick={() => setRefresh((value) => value + 1)}>
               다시 불러오기
             </Button>
           </div>
@@ -292,7 +292,7 @@ export function ConversationHistory({
           </button>
         );
       })}
-      <Button size="compact" variant="quiet" onClick={() => setLegacy(true)}>
+      <Button size="small" variant="ghost" onClick={() => setLegacy(true)}>
         이전 기록
       </Button>
     </div>

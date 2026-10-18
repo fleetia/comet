@@ -7,13 +7,15 @@ import {
   type JSX,
   type KeyboardEvent,
 } from "react";
-import { Button, IconButton, Select, TextArea } from "../../ui";
-import { SendIcon, CloseIcon, ArrowRightIcon, Icon } from "@comet/icon";
+import { SendIcon, ArrowRightIcon, Icon } from "@comet/icon";
 import {
   Balloon as NoticeBalloon,
-  Button as CometButton,
+  Button,
   Dialog,
+  IconButton,
   InputCapsule,
+  Select,
+  Textarea,
   WaitingDots,
 } from "@comet/ui";
 import type {
@@ -729,23 +731,23 @@ export function Balloon({
       )}
       <div className={s.row}>
         {canRetry && (
-          <Button variant="secondary" disabled={pending || navigating} onClick={() => void retry()}>
+          <Button variant="ghost" disabled={pending || navigating} onClick={() => void retry()}>
             다시 이야기하기
           </Button>
         )}
         {canRetry && (
           <>
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={pending || navigating}
               onClick={editFailedInput}
             >
               입력 수정
             </Button>
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={pending || navigating}
               onClick={() => void openModelSettings()}
             >
@@ -755,8 +757,8 @@ export function Balloon({
         )}
         {responding && snapshot.activeRequest && (
           <Button
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             disabled={pending}
             onClick={() => void cancelGeneration()}
           >
@@ -879,8 +881,8 @@ export function Balloon({
             <p className={s.conversationMeta}>{availability.label}</p>
             {!availability.ready && (
               <Button
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 disabled={navigating}
                 onClick={() => void openModelSettings()}
               >
@@ -893,6 +895,7 @@ export function Balloon({
           <label className={ui.quiet}>
             받는 친구{" "}
             <Select
+              fill
               className={s.recipient}
               value={target}
               disabled={Boolean(conversation && latestUser) || navigating}
@@ -910,8 +913,10 @@ export function Balloon({
         </div>
         {surface !== "input" && (
           <div className={s.inputCapsule}>
-            <TextArea
-              resize="none"
+            <Textarea
+              layout="flexible"
+              fill
+              style={{ resize: "none" }}
               ref={inputRef}
               className={s.input}
               aria-label={target === "all" ? "모두에게 할 말" : `${recipientName}에게 할 말`}
@@ -956,8 +961,8 @@ export function Balloon({
         )}
         {conversation && (
           <Button
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             disabled={navigating}
             onClick={() => void leave("finish_conversation", { sessionId })}
           >
@@ -992,14 +997,14 @@ export function Balloon({
           actions={
             expanded && (
               <div id={updateActionsId} className={s.updateNoticeAction}>
-                <CometButton
+                <Button
                   variant="link"
                   trailingIcon={<ArrowRightIcon size={14} />}
                   disabled={navigating}
                   onClick={() => void leave("open_update_settings", { playbackId })}
                 >
                   이동하기
-                </CometButton>
+                </Button>
               </div>
             )
           }
@@ -1009,13 +1014,11 @@ export function Balloon({
         <IconButton
           className={s.balloonClose}
           size="compact"
-          variant="quiet"
-          label="업데이트 알림 닫기"
+          icon="close"
+          aria-label="업데이트 알림 닫기"
           disabled={navigating}
           onClick={() => void leave(closeCommand)}
-        >
-          <CloseIcon size={14} />
-        </IconButton>
+        />
         {visibleError && (
           <p className={s.error} role="alert">
             {visibleError}
@@ -1077,8 +1080,8 @@ export function Balloon({
         <header className={s.balloonHeader}>
           {(mode === "input" || mode === "history") && (
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={navigating}
               onClick={() => void leave("open_panel", { persona, mode: "menu" })}
             >
@@ -1088,27 +1091,23 @@ export function Balloon({
           <span>{labels[mode]}</span>
           <IconButton
             size="compact"
-            variant="quiet"
-            label={mode === "input" && conversation ? "대화 접어 두기" : "패널 닫기"}
+            icon="close"
+            aria-label={mode === "input" && conversation ? "대화 접어 두기" : "패널 닫기"}
             disabled={navigating}
             onClick={() => void leave(closeCommand)}
-          >
-            ×
-          </IconButton>
+          />
         </header>
       ) : (
         <IconButton
           className={s.balloonClose}
           size="compact"
-          variant="quiet"
-          label={mode ? "패널 닫기" : "이야기 닫기"}
+          icon="close"
+          aria-label={mode ? "패널 닫기" : "이야기 닫기"}
           onClick={() => {
             if (orbitMenu) setOrbitCloseRequest((request) => request + 1);
             else void leave(closeCommand);
           }}
-        >
-          <CloseIcon size={14} />
-        </IconButton>
+        />
       )}
       {mode === "menu" && !saveRequest && (
         <>
@@ -1228,7 +1227,7 @@ export function Balloon({
           {surface === "input" && (
             <>
               <div className={surfaceStyle.inputActions}>
-                <CometButton
+                <Button
                   variant="ghost"
                   className={`${surfaceStyle.inputAction} ${surfaceStyle.resumeAction}`}
                   leadingIcon={<Icon name="resume" size={15} />}
@@ -1244,8 +1243,8 @@ export function Balloon({
                   onClick={() => void resumeFromInput()}
                 >
                   이어서 하기
-                </CometButton>
-                <CometButton
+                </Button>
+                <Button
                   variant="ghost"
                   className={`${surfaceStyle.inputAction} ${surfaceStyle.togetherAction}`}
                   leadingIcon={<Icon name="together" size={15} />}
@@ -1253,8 +1252,8 @@ export function Balloon({
                   onClick={() => void leave("talk_now")}
                 >
                   함께 이야기해 봐
-                </CometButton>
-                <CometButton
+                </Button>
+                <Button
                   variant="ghost"
                   className={`${surfaceStyle.inputAction} ${surfaceStyle.historyAction}`}
                   leadingIcon={<Icon name="history" size={15} />}
@@ -1262,7 +1261,7 @@ export function Balloon({
                   onClick={() => void leave("open_panel", { persona, mode: "history" })}
                 >
                   지난 대화
-                </CometButton>
+                </Button>
               </div>
               {choosingResumeNote ? (
                 <div className={surfaceStyle.optionsPanel}>
@@ -1337,14 +1336,14 @@ export function Balloon({
               >
                 <summary className={surfaceStyle.moreSummary}>더보기</summary>
                 <div className={surfaceStyle.optionsPanel}>
-                  <CometButton
+                  <Button
                     variant="link"
                     aria-label="대화 접어 두기"
                     disabled={navigating}
                     onClick={() => void leave(closeCommand)}
                   >
                     접어 두기
-                  </CometButton>
+                  </Button>
                   {inputOptions}
                 </div>
               </details>
@@ -1414,7 +1413,7 @@ export function Balloon({
         }}
         footer={
           <>
-            <Button variant="quiet" onClick={() => setDraftReplacement(null)}>
+            <Button variant="ghost" onClick={() => setDraftReplacement(null)}>
               계속 작성
             </Button>
             <Button variant="primary" onClick={replaceDraft}>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type JSX } from "react";
-import { Button, Surface } from "../../ui";
+import { Button, Surface } from "@comet/ui";
 import type {
   AnimationAsset,
   CharacterDefinition,
@@ -123,7 +123,7 @@ export function CharacterLinePreview({
   return (
     <CharacterWorkPanel className={s.authoredPreview} aria-label="선택한 대사 미리보기">
       <h3 className={common.subheading}>선택한 대사 미리보기</h3>
-      <Surface tone="accent" className={s.previewStage}>
+      <Surface variant="accent" className={s.previewStage}>
         {playing && player.frameIndex !== null && loaded.frames?.[player.frameIndex] ? (
           <AnimationFrameView
             frames={loaded.frames}
@@ -138,7 +138,7 @@ export function CharacterLinePreview({
         )}
         <strong>{definition.name}</strong>
       </Surface>
-      <Surface tone="inset" className={s.speechPreview} style={balloonTextStyle(style)}>
+      <Surface variant="card" className={s.speechPreview} style={balloonTextStyle(style)}>
         {text || "대사를 선택해 주세요."}
       </Surface>
       <div className={common.compactActions}>
@@ -153,7 +153,7 @@ export function CharacterLinePreview({
         >
           미리보기
         </Button>
-        <Button variant="quiet" disabled={!playing} onClick={() => setPlaying(false)}>
+        <Button variant="ghost" disabled={!playing} onClick={() => setPlaying(false)}>
           정지
         </Button>
         <span className={common.small}>

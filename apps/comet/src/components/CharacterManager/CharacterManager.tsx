@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
-import { Dialog } from "@comet/ui";
-import { Button, Select } from "../../ui";
+import { Button, Dialog, Select } from "@comet/ui";
 import { FriendsLibrary } from "./FriendsLibrary";
 import * as friends from "./friends.css";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
@@ -413,14 +412,14 @@ export function CharacterManager({
                       headerActions={
                         <>
                           <Button
-                            variant="quiet"
+                            variant="ghost"
                             disabled={!selected?.packId || anyPending}
                             onClick={() => setSharingAction("attribution")}
                           >
                             출처 편집
                           </Button>
                           <Button
-                            variant="quiet"
+                            variant="ghost"
                             disabled={!selected || selectedPending || dirty || hasDialogueDrafts}
                             onClick={() =>
                               void run(async () => {
@@ -611,6 +610,7 @@ export function CharacterManager({
                           <label className={s.scopeField}>
                             대사 소유{" "}
                             <Select
+                              fill
                               aria-label="등록 대사 대상"
                               value={scope}
                               disabled={packPending || Boolean(pendingTargets.roster)}
@@ -628,8 +628,8 @@ export function CharacterManager({
                           </label>
                           {dialogueDirty[dialogueKey] && (
                             <Button
-                              variant="quiet"
-                              size="compact"
+                              variant="ghost"
+                              size="small"
                               disabled={dialoguePending[dialogueKey]}
                               onClick={() => {
                                 setDialogueVersions((values) => ({
@@ -733,7 +733,7 @@ export function CharacterManager({
                 새로 만들기
               </Button>
               <Button
-                variant="secondary"
+                variant="ghost"
                 disabled={anyPending}
                 onClick={() => {
                   setPackOpen(false);
@@ -797,7 +797,7 @@ export function CharacterManager({
             >
               목록에서 제거 확인
             </Button>
-            <Button variant="secondary" disabled={anyPending} onClick={() => setRemoveId(null)}>
+            <Button variant="ghost" disabled={anyPending} onClick={() => setRemoveId(null)}>
               취소
             </Button>
           </>

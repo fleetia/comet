@@ -1,8 +1,6 @@
 import {
-  createContext,
   createElement,
   forwardRef,
-  useContext,
   type ComponentPropsWithoutRef,
   type HTMLAttributes,
   type ReactElement,
@@ -216,19 +214,6 @@ export const SelectableListRow = forwardRef<HTMLButtonElement, SelectableListRow
   ),
 );
 SelectableListRow.displayName = "SelectableListRow";
-
-export type FieldContextValue = {
-  controlId: string;
-  describedBy?: string;
-  isInvalid: boolean;
-  isRequired: boolean;
-};
-
-export const FieldContext = createContext<FieldContextValue | null>(null);
-
-export function useFieldContext(): FieldContextValue | null {
-  return useContext(FieldContext);
-}
 
 export function tabPanelIds(tabs: string, value: string): { tabId: string; panelId: string } {
   return { tabId: `${tabs}-${value}-tab`, panelId: `${tabs}-${value}-panel` };

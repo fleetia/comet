@@ -1,12 +1,6 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
-import {
-  ActionBar,
-  Button,
-  FormField,
-  SelectableListRow,
-  Surface,
-  TextArea,
-} from "../../ui";
+import { Button, FormField, Surface, Textarea } from "@comet/ui";
+import { ActionBar, SelectableListRow } from "../../primitives";
 import type { Memory, MemoryPage } from "../../types";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import * as s from "../../common.css";
@@ -74,7 +68,7 @@ export function MemorySettings({
         pagination={
           <div className={s.row} aria-label="기억 페이지">
             <Button
-              variant="quiet"
+              variant="ghost"
               disabled={loading || dirty || offset === 0}
               onClick={() => setOffset(Math.max(0, offset - 50))}
             >
@@ -87,7 +81,7 @@ export function MemorySettings({
                 : ""}
             </span>
             <Button
-              variant="quiet"
+              variant="ghost"
               disabled={loading || dirty || page?.nextOffset == null}
               onClick={() => {
                 if (page?.nextOffset != null) setOffset(page.nextOffset);
@@ -110,7 +104,7 @@ export function MemorySettings({
       {error && (
         <div role="alert" className={s.error}>
           {error}
-          <Button variant="quiet" onClick={() => setRefresh((value) => value + 1)}>
+          <Button variant="ghost" onClick={() => setRefresh((value) => value + 1)}>
             다시 불러오기
           </Button>
         </div>
@@ -198,7 +192,7 @@ export function MemoryEditor({
   const actions = current ? (
     <ActionBar status={drafts[current.id]?.dirty ? "변경 사항 있음" : "저장됨"}>
       <Button
-        variant="quiet"
+        variant="ghost"
         disabled={pending || disabled || !drafts[current.id]?.dirty}
         onClick={() =>
           setDrafts((previous) => ({
@@ -256,7 +250,7 @@ export function MemoryEditor({
             <fieldset className={layout.editor} disabled={pending || disabled}>
               <div className={layout.editorHeading}>
                 <h3 className={layout.heading}>선택한 기억</h3>
-                <Button variant="quiet" onClick={() => setConfirmDelete(true)}>
+                <Button variant="ghost" onClick={() => setConfirmDelete(true)}>
                   이 기억 지우기
                 </Button>
               </div>
@@ -265,7 +259,9 @@ export function MemoryEditor({
                 {current.userName} · {new Date(current.updatedAt).toLocaleDateString("ko-KR")}
               </p>
               <FormField className={s.field} label="기억 내용">
-                <TextArea
+                <Textarea
+                  layout="flexible"
+                  fill
                   className={layout.memoryText}
                   rows={8}
                   maxLength={500}
@@ -282,7 +278,7 @@ export function MemoryEditor({
               </FormField>
               <details open className={layout.evidence}>
                 <summary>기억의 근거</summary>
-                <Surface tone="accent">
+                <Surface variant="accent" className={layout.sourceEvidence}>
                   <p className={s.quiet}>
                     {new Date(current.sourceCreatedAt).toLocaleDateString("ko-KR")}
                   </p>
@@ -293,7 +289,7 @@ export function MemoryEditor({
               {onManage && (
                 <div className={layout.editorHeading}>
                   <span className={s.quiet}>모든 사용자의 기억을 지우려면</span>
-                  <Button variant="quiet" onClick={onManage}>
+                  <Button variant="ghost" onClick={onManage}>
                     캐릭터 관리로 이동
                   </Button>
                 </div>
@@ -302,10 +298,10 @@ export function MemoryEditor({
                 <div>
                   <p>이 기억을 지울까요? 삭제한 기억은 되돌릴 수 없어요.</p>
                   <div className={s.row}>
-                    <Button variant="secondary" onClick={() => void update(true)}>
+                    <Button variant="ghost" onClick={() => void update(true)}>
                       기억 삭제 확인
                     </Button>
-                    <Button variant="quiet" onClick={() => setConfirmDelete(false)}>
+                    <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
                       삭제 취소
                     </Button>
                   </div>

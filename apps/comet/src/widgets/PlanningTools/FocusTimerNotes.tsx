@@ -1,6 +1,5 @@
-import { Button, FormField, Select, TextArea, TextField } from "../../ui";
 import { tokens } from "@comet/token";
-import { SearchInput, Textarea, Dialog } from "@comet/ui";
+import { Button, Dialog, FormField, SearchInput, Select, Textarea, TextInput } from "@comet/ui";
 import { Icon } from "@comet/icon";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { createPortal } from "react-dom";
@@ -307,8 +306,8 @@ export function FocusTimerNotes({
             </span>
             {memoError && (
               <Button
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 disabled={memoConflict || memoSaving || composing}
                 onClick={() => void saveMemo()}
               >
@@ -326,7 +325,7 @@ export function FocusTimerNotes({
               <p role="alert" className={s.error}>
                 다른 화면에서 집중 메모가 바뀌었어요. 입력한 초안은 남아 있어요.
               </p>
-              <Button variant="quiet" onClick={onReloadMemo}>
+              <Button variant="ghost" onClick={onReloadMemo}>
                 최신 집중 메모 불러오기
               </Button>
             </div>
@@ -391,8 +390,8 @@ export function FocusTimerNotes({
             details={(disabled, status) => (
               <div className={s.row}>
                 <Button
-                  variant="secondary"
-                  size="compact"
+                  variant="ghost"
+                  size="small"
                   disabled={disabled || !source.available}
                   onClick={() =>
                     void command("open_conversation_note", { noteRef }).catch((cause: unknown) =>
@@ -404,8 +403,8 @@ export function FocusTimerNotes({
                   {noteRef.kind === "diary" ? "다이어리에서 열기" : "바탕화면에서 열기"}
                 </Button>
                 <Button
-                  variant="quiet"
-                  size="compact"
+                  variant="ghost"
+                  size="small"
                   disabled={!canConnect || inlineDirty || diary.busy || Boolean(draft)}
                   onClick={() => void onConnect(null)}
                 >
@@ -424,8 +423,8 @@ export function FocusTimerNotes({
             </p>
             {noteRef && (
               <Button
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 disabled={!canConnect || inlineDirty || diary.busy}
                 onClick={() => void onConnect(null)}
               >
@@ -438,8 +437,8 @@ export function FocusTimerNotes({
       <div className={s.noteActions}>
         <Button
           className={s.noteActionButton}
-          variant="secondary"
-          size="compact"
+          variant="ghost"
+          size="small"
           disabled={diary.busy}
           onClick={() => {
             setError("");
@@ -450,8 +449,8 @@ export function FocusTimerNotes({
         </Button>
         <Button
           className={s.noteActionButton}
-          variant="secondary"
-          size="compact"
+          variant="ghost"
+          size="small"
           disabled={!canConnect || inlineDirty}
           title={!canConnect ? "노트 연결은 다음 집중을 준비할 때 바꿀 수 있어요." : undefined}
           onClick={() => setPickerOpen(true)}
@@ -478,6 +477,7 @@ export function FocusTimerNotes({
               />
               <FormField label="연결할 노트">
                 <Select
+                  fill
                   disabled={!canConnect || inlineDirty}
                   value={noteKey(noteRef)}
                   onChange={async (event) => {
@@ -500,7 +500,7 @@ export function FocusTimerNotes({
                   )}
                 </Select>
               </FormField>
-              <Button variant="quiet" onClick={() => setPickerOpen(false)}>
+              <Button variant="ghost" onClick={() => setPickerOpen(false)}>
                 닫기
               </Button>
             </div>
@@ -541,7 +541,8 @@ export function FocusTimerNotes({
                 }}
               >
                 <FormField label="노트 제목" required>
-                  <TextField
+                  <TextInput
+                    fill
                     disabled={diary.busy}
                     value={draft.title}
                     maxLength={500}
@@ -549,7 +550,10 @@ export function FocusTimerNotes({
                   />
                 </FormField>
                 <FormField label="노트 내용">
-                  <TextArea
+                  <Textarea
+                    layout="flexible"
+                    fill
+                    rows={3}
                     disabled={diary.busy}
                     className={s.textArea}
                     value={draft.body}
@@ -578,12 +582,12 @@ export function FocusTimerNotes({
                   >
                     원본에 저장
                   </Button>
-                  <Button variant="quiet" disabled={diary.busy} onClick={() => setDraft(null)}>
+                  <Button variant="ghost" disabled={diary.busy} onClick={() => setDraft(null)}>
                     닫기
                   </Button>
                   {conflict && current && (
                     <Button
-                      variant="quiet"
+                      variant="ghost"
                       disabled={diary.busy}
                       onClick={() =>
                         setDraft({

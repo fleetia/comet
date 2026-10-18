@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { ActionBar, Button, Select, SelectableListRow, Surface, TextArea } from "../../ui";
+import { Button, Select, Surface, Textarea } from "@comet/ui";
+import { ActionBar, SelectableListRow } from "../../primitives";
 import { command, errorText } from "../../hooks/useSnapshot";
 import type { CharacterDialogue, InstalledCharacter, SceneLine, WordbookEntry } from "../../types";
 import { MotionSelect, motionError, motionOwner } from "../MotionSelect/MotionSelect";
@@ -193,7 +194,7 @@ export function CharacterDialogueEditor({
             <p role="alert" className={ui.error}>
               {error}
             </p>
-            <Button variant="secondary" onClick={() => setRevision((value) => value + 1)}>
+            <Button variant="ghost" onClick={() => setRevision((value) => value + 1)}>
               다시 불러오기
             </Button>
           </>
@@ -204,7 +205,7 @@ export function CharacterDialogueEditor({
     <>
       {selected && (
         <ActionBar status={selectedDirty ? "선택한 장면 변경사항 있음" : "저장된 장면"}>
-          <Button variant="quiet" disabled={pending || !selectedDirty} onClick={cancelSelected}>
+          <Button variant="ghost" disabled={pending || !selectedDirty} onClick={cancelSelected}>
             장면 수정 취소
           </Button>
           <Button
@@ -218,7 +219,7 @@ export function CharacterDialogueEditor({
       )}
       {hasStructureChanges && (
         <ActionBar status="추가·삭제·순서 변경과 모든 장면 초안을 함께 저장해요.">
-          <Button variant="quiet" disabled={pending} onClick={cancelStructure}>
+          <Button variant="ghost" disabled={pending} onClick={cancelStructure}>
             구성 수정 취소
           </Button>
           <Button
@@ -275,11 +276,7 @@ export function CharacterDialogueEditor({
                   <span>{scene.lines[0]?.text || "새 장면"}</span>
                 </SelectableListRow>
               ))}
-              <Button
-                variant="secondary"
-                disabled={pending || scenes.length >= 64}
-                onClick={addScene}
-              >
+              <Button variant="ghost" disabled={pending || scenes.length >= 64} onClick={addScene}>
                 장면 추가
               </Button>
             </CharacterWorkPanel>
@@ -290,7 +287,7 @@ export function CharacterDialogueEditor({
                     <h3 className={common.subheading}>장면 {sceneIndex + 1}</h3>
                     <span className={common.small}>현재 함께 지내는 조합</span>
                   </div>
-                  <Surface tone="accent" className={s.preview} aria-label="장면 미리보기">
+                  <Surface variant="accent" className={s.preview} aria-label="장면 미리보기">
                     {selected.lines.map((line, index) => (
                       <p key={index}>
                         <strong>
@@ -305,6 +302,7 @@ export function CharacterDialogueEditor({
                     <div className={s.line} key={index}>
                       <div className={ui.row}>
                         <Select
+                          fill
                           aria-label={`장면 ${sceneIndex + 1} 대사 ${index + 1} 화자`}
                           value={line.persona}
                           onChange={(event) =>
@@ -330,6 +328,7 @@ export function CharacterDialogueEditor({
                           ))}
                         </Select>
                         <Select
+                          fill
                           aria-label={`장면 ${sceneIndex + 1} 대사 ${index + 1} 표정`}
                           value={line.expression}
                           onChange={(event) =>
@@ -353,7 +352,7 @@ export function CharacterDialogueEditor({
                           ))}
                         </Select>
                         <Button
-                          variant="secondary"
+                          variant="ghost"
                           disabled={index === 0}
                           aria-label={`장면 ${sceneIndex + 1} 대사 ${index + 1} 위로`}
                           onClick={() => {
@@ -365,7 +364,7 @@ export function CharacterDialogueEditor({
                           ↑
                         </Button>
                         <Button
-                          variant="secondary"
+                          variant="ghost"
                           disabled={selected.lines.length === 1}
                           aria-label={`장면 ${sceneIndex + 1} 대사 ${index + 1} 삭제`}
                           onClick={() => changeScene(selected.lines.filter((_, i) => i !== index))}
@@ -373,7 +372,10 @@ export function CharacterDialogueEditor({
                           삭제
                         </Button>
                       </div>
-                      <TextArea
+                      <Textarea
+                        layout="flexible"
+                        fill
+                        rows={3}
                         className={common.textarea}
                         aria-label={`장면 ${sceneIndex + 1} 대사 ${index + 1}`}
                         maxLength={500}
@@ -401,7 +403,7 @@ export function CharacterDialogueEditor({
                     </div>
                   ))}
                   <Button
-                    variant="secondary"
+                    variant="ghost"
                     disabled={selected.lines.length >= 8}
                     onClick={() =>
                       changeScene([
@@ -419,21 +421,21 @@ export function CharacterDialogueEditor({
 
                   <div className={s.structureActions}>
                     <Button
-                      variant="secondary"
+                      variant="ghost"
                       disabled={sceneIndex === 0}
                       onClick={() => moveScene(-1)}
                     >
                       장면 위로
                     </Button>
                     <Button
-                      variant="secondary"
+                      variant="ghost"
                       disabled={sceneIndex === scenes.length - 1}
                       onClick={() => moveScene(1)}
                     >
                       장면 아래로
                     </Button>
                     <Button
-                      variant="quiet"
+                      variant="ghost"
                       onClick={() => {
                         setRemovedDrafts((previous) => ({ ...previous, [selected.id]: selected }));
                         setScenes((values) => values.filter((scene) => scene.id !== selected.id));

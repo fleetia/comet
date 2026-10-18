@@ -1,5 +1,5 @@
 import type { JSX } from "react";
-import { Button, FormField, Select, TextField } from "../../ui";
+import { Button, FormField, Select, TextInput } from "@comet/ui";
 import type { CharacterBodyRegion, CharacterDefinition, CharacterGestureMotion } from "../../types";
 import { MotionSelect } from "../MotionSelect/MotionSelect";
 import { SUSTAINED_GESTURES } from "../AnimationEditor/helpers";
@@ -60,7 +60,8 @@ export function GestureMotionEditor({
         <fieldset key={region.id}>
           <legend>{region.name || "새 부위"}</legend>
           <FormField label="부위 이름">
-            <TextField
+            <TextInput
+              fill
               aria-label={`부위 ${index + 1} 이름`}
               value={region.name}
               onChange={(event) => updateRegion(index, { name: event.target.value })}
@@ -71,7 +72,8 @@ export function GestureMotionEditor({
               key={key}
               label={{ x: "왼쪽", y: "위쪽", width: "너비", height: "높이" }[key] + " (%)"}
             >
-              <TextField
+              <TextInput
+                fill
                 type="number"
                 min={0}
                 max={100}
@@ -86,7 +88,8 @@ export function GestureMotionEditor({
           ))}
           {(["x", "y"] as const).map((key) => (
             <FormField key={key} label={`잡는 점 ${key} (%)`}>
-              <TextField
+              <TextInput
+                fill
                 type="number"
                 min={0}
                 max={100}
@@ -111,7 +114,7 @@ export function GestureMotionEditor({
           ))}
           <Button
             type="button"
-            variant="quiet"
+            variant="ghost"
             disabled={motions.some((motion) => motion.regionId === region.id)}
             onClick={() =>
               onChange({ ...definition, bodyRegions: regions.filter((_, at) => at !== index) })
@@ -123,7 +126,7 @@ export function GestureMotionEditor({
       ))}
       <Button
         type="button"
-        variant="secondary"
+        variant="ghost"
         disabled={regions.length >= 16}
         onClick={() =>
           onChange({
@@ -151,6 +154,7 @@ export function GestureMotionEditor({
           <fieldset key={motion.id}>
             <legend>교감 동작 {index + 1}</legend>
             <Select
+              fill
               aria-label={`교감 ${index + 1} 행동`}
               value={motion.gesture}
               onChange={(event) => {
@@ -169,6 +173,7 @@ export function GestureMotionEditor({
               ))}
             </Select>
             <Select
+              fill
               aria-label={`교감 ${index + 1} 부위`}
               value={motion.regionId ?? ""}
               onChange={(event) =>
@@ -183,6 +188,7 @@ export function GestureMotionEditor({
               ))}
             </Select>
             <Select
+              fill
               aria-label={`교감 ${index + 1} 표정`}
               value={motion.expression ?? ""}
               onChange={(event) =>
@@ -214,7 +220,7 @@ export function GestureMotionEditor({
             ))}
             <Button
               type="button"
-              variant="quiet"
+              variant="ghost"
               onClick={() =>
                 onChange({ ...definition, gestureMotions: motions.filter((_, at) => at !== index) })
               }
@@ -226,7 +232,7 @@ export function GestureMotionEditor({
       })}
       <Button
         type="button"
-        variant="secondary"
+        variant="ghost"
         disabled={motions.length >= 32}
         onClick={() =>
           onChange({

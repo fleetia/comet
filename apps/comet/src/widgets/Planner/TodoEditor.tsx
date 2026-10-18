@@ -1,5 +1,4 @@
-import { Dialog } from "@comet/ui";
-import { Button, Checkbox, DateField, FormField, Select, TextArea, TextField } from "../../ui";
+import { Button, Checkbox, Dialog, FormField, Select, Textarea, TextInput } from "@comet/ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { localDay, number, record, text, type DataRecord, type ToolAction } from "../toolData";
@@ -181,15 +180,15 @@ export function TodoEditor({
         <div className={s.actions}>
           <Button
             type="button"
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             disabled={busy}
             onClick={() => setConfirmDelete(true)}
           >
             삭제
           </Button>
           <div className={s.spacer} />
-          <Button type="button" variant="quiet" disabled={busy} onClick={close}>
+          <Button type="button" variant="ghost" disabled={busy} onClick={close}>
             취소
           </Button>
           <Button type="submit" form="planner-todo-editor" variant="primary" disabled={busy}>
@@ -228,7 +227,8 @@ export function TodoEditor({
         }}
       >
         <fieldset className={s.form} disabled={busy} style={{ border: 0, padding: 0, margin: 0 }}>
-          <TextField
+          <TextInput
+            fill
             ref={titleRef}
             aria-label="할 일 제목"
             required
@@ -238,7 +238,7 @@ export function TodoEditor({
           />
           <div className={s.fields}>
             <FormField label="목록" className={s.field}>
-              <Select value={listId} onChange={(e) => setListId(e.target.value)}>
+              <Select fill value={listId} onChange={(e) => setListId(e.target.value)}>
                 {lists.map((list) => (
                   <option key={text(list.id)} value={text(list.id)}>
                     {text(list.name)}
@@ -247,7 +247,7 @@ export function TodoEditor({
               </Select>
             </FormField>
             <FormField label="계획 기간" className={s.field}>
-              <Select value={period} onChange={(e) => setPeriod(e.target.value)}>
+              <Select fill value={period} onChange={(e) => setPeriod(e.target.value)}>
                 <option value="none">분류 안 함</option>
                 {PERIODS.map(([key, label]) => (
                   <option key={key} value={key}>
@@ -259,7 +259,9 @@ export function TodoEditor({
             <div className={s.field}>
               <FormField id="planner-todo-due-date" label="기한 · 첫 날짜" className={s.field}>
                 {day ? (
-                  <DateField
+                  <TextInput
+                    type="date"
+                    fill
                     value={day}
                     onChange={(e) => {
                       setDay(e.target.value);
@@ -271,7 +273,7 @@ export function TodoEditor({
                     id="planner-todo-due-date"
                     aria-label="날짜 지정"
                     type="button"
-                    variant="secondary"
+                    variant="ghost"
                     onClick={() => setDay(localDay())}
                   >
                     날짜 지정
@@ -281,8 +283,8 @@ export function TodoEditor({
               {day && (
                 <Button
                   type="button"
-                  variant="quiet"
-                  size="compact"
+                  variant="ghost"
+                  size="small"
                   onClick={() => {
                     setDay("");
                     setTime("");
@@ -296,13 +298,18 @@ export function TodoEditor({
               <p className={s.caption}>기기 시간대 · {deviceTimeZone()}</p>
               <FormField id="planner-todo-due-time" label="시각 (선택)" className={s.field}>
                 {time ? (
-                  <TextField type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+                  <TextInput
+                    fill
+                    type="time"
+                    value={time}
+                    onChange={(e) => setTime(e.target.value)}
+                  />
                 ) : (
                   <Button
                     id="planner-todo-due-time"
                     aria-label="시각 추가"
                     type="button"
-                    variant="secondary"
+                    variant="ghost"
                     onClick={() => {
                       if (!day) setDay(localDay());
                       setTime("09:00");
@@ -313,14 +320,20 @@ export function TodoEditor({
                 )}
               </FormField>
               {time && (
-                <Button type="button" variant="quiet" size="compact" onClick={() => setTime("")}>
+                <Button type="button" variant="ghost" size="small" onClick={() => setTime("")}>
                   시각 지우기
                 </Button>
               )}
             </div>
             {!["none", "someday"].includes(period) && (
               <FormField label="계획에 속하는 날짜" className={s.field}>
-                <DateField required value={anchor} onChange={(e) => setAnchor(e.target.value)} />
+                <TextInput
+                  type="date"
+                  fill
+                  required
+                  value={anchor}
+                  onChange={(e) => setAnchor(e.target.value)}
+                />
               </FormField>
             )}
           </div>
@@ -336,8 +349,8 @@ export function TodoEditor({
                 <Button
                   key={value}
                   type="button"
-                  variant="quiet"
-                  size="compact"
+                  variant="ghost"
+                  size="small"
                   aria-pressed={mode === value}
                   className={s.categoryButton}
                   onClick={() => {
@@ -352,7 +365,8 @@ export function TodoEditor({
             {mode !== "none" && mode !== "frequency" && (
               <div className={s.actions}>
                 {mode === "completion" && <span className={s.caption}>완료한 날부터</span>}
-                <TextField
+                <TextInput
+                  fill
                   aria-label="반복 간격"
                   className={s.short}
                   type="number"
@@ -363,6 +377,7 @@ export function TodoEditor({
                   onChange={(e) => setInterval(Number(e.target.value))}
                 />
                 <Select
+                  fill
                   aria-label="반복 단위"
                   className={s.listSelect}
                   value={unit}
@@ -393,15 +408,15 @@ export function TodoEditor({
                         e.target.checked ? [...before, i].sort() : before.filter((d) => d !== i),
                       )
                     }
-                  >
-                    {label}
-                  </Checkbox>
+                    label={label}
+                  />
                 ))}
               </div>
             )}
             {mode === "calendar" && unit === "month" && (
               <div className={s.actions}>
                 <Select
+                  fill
                   aria-label="매월 반복 기준"
                   value={monthlyMode}
                   onChange={(e) => setMonthlyMode(e.target.value)}
@@ -413,6 +428,7 @@ export function TodoEditor({
                 {monthlyMode === "nth-weekday" && (
                   <>
                     <Select
+                      fill
                       aria-label="몇 번째"
                       value={nth}
                       onChange={(e) => setNth(Number(e.target.value))}
@@ -424,6 +440,7 @@ export function TodoEditor({
                       ))}
                     </Select>
                     <Select
+                      fill
                       aria-label="월 반복 요일"
                       value={weekday}
                       onChange={(e) => setWeekday(Number(e.target.value))}
@@ -441,7 +458,8 @@ export function TodoEditor({
             {mode === "frequency" && (
               <div className={s.actions}>
                 <span>일주일에</span>
-                <TextField
+                <TextInput
+                  fill
                   className={s.short}
                   aria-label="주간 목표 횟수"
                   type="number"
@@ -481,7 +499,9 @@ export function TodoEditor({
             )}
           </div>
           <FormField label="메모" className={s.field}>
-            <TextArea
+            <Textarea
+              layout="flexible"
+              fill
               rows={2}
               value={memo}
               maxLength={20000}
@@ -490,7 +510,7 @@ export function TodoEditor({
           </FormField>
           <div className={s.actions}>
             <FormField label="변경 적용" className={s.field}>
-              <Select value={scope} onChange={(e) => setScope(e.target.value)}>
+              <Select fill value={scope} onChange={(e) => setScope(e.target.value)}>
                 <option value="occurrence">이번 회차</option>
                 <option value="following">이번 및 이후 회차</option>
               </Select>
@@ -499,8 +519,8 @@ export function TodoEditor({
               (item.repeat && item.repeat !== "none")) && (
               <Button
                 type="button"
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 disabled={dirty}
                 onClick={async () => {
                   if (await act("skip", { id: text(item.id) })) onClose();
@@ -514,7 +534,7 @@ export function TodoEditor({
             <div role="alert" className={s.error}>
               {error}
               {onReload && (
-                <Button type="button" variant="quiet" onClick={onReload}>
+                <Button type="button" variant="ghost" onClick={onReload}>
                   최신 내용 다시 불러오기
                 </Button>
               )}
@@ -524,10 +544,10 @@ export function TodoEditor({
             <div className={s.preview}>
               <p>저장하지 않은 변경을 버릴까요?</p>
               <div className={s.actions}>
-                <Button type="button" variant="critical" onClick={onClose}>
+                <Button type="button" variant="danger" onClick={onClose}>
                   변경 버리고 닫기
                 </Button>
-                <Button type="button" variant="secondary" onClick={() => setConfirmClose(false)}>
+                <Button type="button" variant="ghost" onClick={() => setConfirmClose(false)}>
                   계속 편집
                 </Button>
               </div>
@@ -539,14 +559,14 @@ export function TodoEditor({
               <div className={s.actions}>
                 <Button
                   type="button"
-                  variant="critical"
+                  variant="danger"
                   onClick={async () => {
                     if (await act("delete", { id: text(item.id) })) onClose();
                   }}
                 >
                   이 회차 삭제
                 </Button>
-                <Button type="button" variant="quiet" onClick={() => setConfirmDelete(false)}>
+                <Button type="button" variant="ghost" onClick={() => setConfirmDelete(false)}>
                   취소
                 </Button>
               </div>

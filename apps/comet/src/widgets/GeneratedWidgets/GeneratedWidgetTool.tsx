@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { Button, TextField } from "../../ui";
+import { Button, TextInput } from "@comet/ui";
 import { listen } from "@tauri-apps/api/event";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { WidgetFrame } from "../WidgetFrame/WidgetFrame";
@@ -357,7 +357,7 @@ export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
       footer={
         <div className={s.actions}>
           <Button
-            variant="secondary"
+            variant="ghost"
             onClick={() =>
               void command("open_widget_state_rules", { id }).catch((cause) =>
                 setError(errorText(cause)),
@@ -367,7 +367,7 @@ export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
             상태별 대사
           </Button>
           <Button
-            variant="secondary"
+            variant="ghost"
             onClick={() =>
               void command("open_widgets").catch((cause) => setError(errorText(cause)))
             }
@@ -384,7 +384,7 @@ export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
               {error}
             </p>
             <Button
-              variant="secondary"
+              variant="ghost"
               disabled={busy}
               onClick={() => {
                 suspended.current = false;
@@ -470,7 +470,8 @@ function WidgetInput({
   return (
     <label className={s.field}>
       {node.label}
-      <TextField
+      <TextInput
+        fill
         aria-label={node.label}
         value={draft}
         onFocus={() => {

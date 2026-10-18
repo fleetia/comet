@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { FormField } from "@comet/ui";
 import { command } from "../../hooks/useSnapshot";
+import { ColorField } from "./ColorField";
 import { APPEARANCE_SAVE_DELAY, WidgetAppearance } from "./WidgetAppearance";
 import type { WidgetView } from "../types";
 
@@ -124,4 +126,16 @@ it("keeps background image actions revision guarded", async () => {
       expectedRevision: 4,
     }),
   );
+});
+
+it("takes its label, required state and error from the surrounding form field", () => {
+  render(
+    <FormField label="배경 색상" required error="색상이 필요해요">
+      <ColorField value="#112233" onValueChange={() => undefined} />
+    </FormField>,
+  );
+  const color = screen.getByRole("textbox", { name: "배경 색상" });
+  expect(color).toHaveProperty("required", true);
+  expect(color.getAttribute("aria-invalid")).toBe("true");
+  expect(screen.getByText("색상이 필요해요").id).toBe(color.getAttribute("aria-describedby"));
 });

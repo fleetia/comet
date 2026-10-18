@@ -1,10 +1,13 @@
-import { Button, Checkbox, Heading, Inline, Surface, Text } from "../../ui";
+import { Heading, Inline, Text } from "../../primitives";
 import {
-  SettingControlRow,
-  SettingsSummary,
-  Switch,
+  Button,
+  Checkbox,
   type ContextMenuAction,
   Dialog,
+  SettingControlRow,
+  SettingsSummary,
+  Surface,
+  Switch,
 } from "@comet/ui";
 import { Icon, SparkleIcon } from "@comet/icon";
 import { WidgetDetailPreview } from "./WidgetDetailPreview";
@@ -446,7 +449,7 @@ export function WidgetManager({
                 ? "필수 연결"
                 : (OPTIONAL_CONNECTIONS[entry?.id ?? ""]?.[item.id] ?? "선택 연동")}
             </Text>
-            <Button variant="secondary" size="compact" onClick={() => focusWidget(item.id)}>
+            <Button variant="ghost" size="small" onClick={() => focusWidget(item.id)}>
               {findView(item.id)?.installed ? "설정" : "추가"}
             </Button>
           </div>
@@ -506,7 +509,7 @@ export function WidgetManager({
           <Text as="p" role="alert" className={common.error}>
             {generatedError}
           </Text>
-          <Button variant="secondary" onClick={reloadGenerated}>
+          <Button variant="ghost" onClick={reloadGenerated}>
             AI 위젯 다시 불러오기
           </Button>
         </Inline>
@@ -518,7 +521,7 @@ export function WidgetManager({
       )}
       {!snapshot ? (
         error ? (
-          <Button variant="secondary" onClick={reload}>
+          <Button variant="ghost" onClick={reload}>
             다시 불러오기
           </Button>
         ) : (
@@ -531,8 +534,8 @@ export function WidgetManager({
           {detailOpen && (
             <nav className={styles.breadcrumb} aria-label="위젯 위치">
               <Button
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 className={styles.backButton}
                 aria-label="‹ 위젯"
                 onClick={() => {
@@ -624,7 +627,7 @@ export function WidgetManager({
                       <div className={details.launch}>
                         {placed(widget.id) ? (
                           <Button
-                            variant="secondary"
+                            variant="ghost"
                             className={details.launchButton}
                             disabled={!canAct}
                             onClick={() =>
@@ -636,7 +639,7 @@ export function WidgetManager({
                           </Button>
                         ) : (
                           <Button
-                            variant={widget.kind === "preparation" ? "secondary" : "primary"}
+                            variant={widget.kind === "preparation" ? "ghost" : "primary"}
                             className={details.launchButton}
                             disabled={!canAct || !widget.enabled || !desktop.state}
                             onClick={() => void run("add_widget_desktop_item", { id: widget.id })}
@@ -670,8 +673,8 @@ export function WidgetManager({
                       <>
                         <div className={details.manage}>
                           <Button
-                            variant="quiet"
-                            size="compact"
+                            variant="ghost"
+                            size="small"
                             className={details.editLink}
                             aria-label="상태별 캐릭터 대사 편집"
                             disabled={!canAct}
@@ -681,8 +684,8 @@ export function WidgetManager({
                             상태별 대사
                           </Button>
                           <Button
-                            variant="critical"
-                            size="compact"
+                            variant="danger"
+                            size="small"
                             disabled={!canAct}
                             onClick={() => {
                               setDeleteData(false);
@@ -703,7 +706,7 @@ export function WidgetManager({
                       widget?.missing.length ||
                       (runtimeError && widget?.installed) ||
                       running?.actionError) && (
-                      <Surface className={styles.runtimeMessages}>
+                      <Surface variant="panel" className={styles.runtimeMessages}>
                         {widget?.error && (
                           <Text as="p" role="alert" className={common.error}>
                             {widget.error}
@@ -719,7 +722,7 @@ export function WidgetManager({
                             <Text variant="caption" role="status">
                               {failureStatus} · {runtimeError}
                             </Text>
-                            <Button variant="secondary" size="compact" onClick={runtime.reload}>
+                            <Button variant="ghost" size="small" onClick={runtime.reload}>
                               다시 확인
                             </Button>
                           </div>
@@ -732,7 +735,7 @@ export function WidgetManager({
                       </Surface>
                     )}
                     {widget?.installed && !CONFIGURABLE_WIDGETS.includes(widget.kind) && (
-                      <Surface className={styles.genericPanel} role="status">
+                      <Surface variant="panel" className={styles.genericPanel} role="status">
                         <Heading level={4} variant="label">
                           따로 정할 설정이 없어요
                         </Heading>
@@ -755,7 +758,7 @@ export function WidgetManager({
                       </Surface>
                     )}
                     {!widget?.installed ? (
-                      <Surface className={styles.genericPanel}>
+                      <Surface variant="panel" className={styles.genericPanel}>
                         <Heading level={4} variant="label">
                           사용 시작
                         </Heading>
@@ -844,7 +847,7 @@ export function WidgetManager({
         footer={
           <>
             <Button
-              variant={confirmation === "install" ? "primary" : "critical"}
+              variant={confirmation === "install" ? "primary" : "danger"}
               disabled={
                 !canAct ||
                 (confirmation === "install"
@@ -864,7 +867,7 @@ export function WidgetManager({
             >
               {confirmation === "install" ? "설치 확인" : "제거 확인"}
             </Button>
-            <Button variant="secondary" disabled={busy} onClick={() => setConfirmation(null)}>
+            <Button variant="ghost" disabled={busy} onClick={() => setConfirmation(null)}>
               취소
             </Button>
           </>
@@ -899,9 +902,8 @@ export function WidgetManager({
                   checked={deleteData}
                   disabled={busy}
                   onChange={(event) => setDeleteData(event.target.checked)}
-                >
-                  이 위젯의 작성 데이터도 삭제
-                </Checkbox>
+                  label="이 위젯의 작성 데이터도 삭제"
+                />
               )}
               {removedGenerated && (
                 <Text as="p" variant="caption" tone="muted">

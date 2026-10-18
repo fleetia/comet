@@ -1,7 +1,5 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type JSX } from "react";
-import { Balloon, ConstellationChoices, type BalloonProps } from "@comet/ui";
-import { Button, IconButton } from "../../ui";
-import { CloseIcon } from "@comet/icon";
+import { Balloon, type BalloonProps, Button, ConstellationChoices, IconButton } from "@comet/ui";
 import type { Dispatch, StoryRequest } from "../../types";
 import { errorText } from "../../hooks/useSnapshot";
 import * as s from "./story.css";
@@ -80,13 +78,11 @@ export function StoryChoices({
       {onClose && (
         <IconButton
           className={s.close}
-          variant="quiet"
           size="compact"
-          label="이야기 닫기"
+          icon="close"
+          aria-label="이야기 닫기"
           onClick={onClose}
-        >
-          <CloseIcon size={14} />
-        </IconButton>
+        />
       )}
       <div className={s.choices}>
         <ConstellationChoices
@@ -96,8 +92,8 @@ export function StoryChoices({
         />
         <Button
           className={s.defer}
-          variant="quiet"
-          size="compact"
+          variant="ghost"
+          size="small"
           disabled={pending}
           onClick={() => void choose()}
         >

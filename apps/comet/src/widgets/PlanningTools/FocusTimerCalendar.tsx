@@ -1,5 +1,4 @@
-import { Dialog } from "@comet/ui";
-import { Button, DateField, FormField, TextField } from "../../ui";
+import { Button, Dialog, FormField, TextInput } from "@comet/ui";
 import { useRef, useState, type ReactElement } from "react";
 import { command, errorText } from "../../hooks/useSnapshot";
 import { localDay, record, rows, text, type DataRecord, type ToolAction } from "../toolData";
@@ -176,12 +175,12 @@ export function FocusTimerCalendar({
           {dayDate(day).getMonth() + 1}월 {dayDate(day).getDate()}일
         </h2>
         <div className={s.row}>
-          <Button variant="quiet" size="compact" onClick={() => setDay(localDay())}>
+          <Button variant="ghost" size="small" onClick={() => setDay(localDay())}>
             오늘
           </Button>
           <Button
-            variant="secondary"
-            size="compact"
+            variant="ghost"
+            size="small"
             onClick={() => {
               setCreating(true);
               setEventDay(day);
@@ -196,8 +195,8 @@ export function FocusTimerCalendar({
       </div>
       <div className={s.heading}>
         <Button
-          variant="quiet"
-          size="compact"
+          variant="ghost"
+          size="small"
           aria-label="이전 주"
           onClick={() => setDay(moveDay(day, -7))}
         >
@@ -205,8 +204,8 @@ export function FocusTimerCalendar({
         </Button>
         <span className={s.quiet}>{day.slice(0, 7).replace("-", "년 ")}월</span>
         <Button
-          variant="quiet"
-          size="compact"
+          variant="ghost"
+          size="small"
           aria-label="다음 주"
           onClick={() => setDay(moveDay(day, 7))}
         >
@@ -220,8 +219,8 @@ export function FocusTimerCalendar({
             <Button
               key={date}
               className={s.day}
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               aria-pressed={date === day}
               aria-label={date}
               onClick={() => setDay(date)}
@@ -257,12 +256,13 @@ export function FocusTimerCalendar({
           >
             <div className={s.heading}>
               <strong>새 일정</strong>
-              <Button type="button" variant="quiet" size="compact" onClick={importFocus}>
+              <Button type="button" variant="ghost" size="small" onClick={importFocus}>
                 집중할 일 가져오기
               </Button>
             </div>
             <FormField label="일정 제목" required>
-              <TextField
+              <TextInput
+                fill
                 value={eventTitle}
                 maxLength={500}
                 onChange={(event) => setEventTitle(event.target.value)}
@@ -270,7 +270,9 @@ export function FocusTimerCalendar({
             </FormField>
             <div className={s.fields}>
               <FormField label="일정 날짜" required>
-                <DateField
+                <TextInput
+                  type="date"
+                  fill
                   value={eventDay}
                   onChange={(event) => {
                     const next = event.target.value;
@@ -280,19 +282,26 @@ export function FocusTimerCalendar({
                 />
               </FormField>
               <FormField label="종료 날짜" required>
-                <DateField value={endDay} onChange={(event) => setEndDay(event.target.value)} />
+                <TextInput
+                  type="date"
+                  fill
+                  value={endDay}
+                  onChange={(event) => setEndDay(event.target.value)}
+                />
               </FormField>
             </div>
             <div className={s.fields}>
               <FormField label="시작" required>
-                <TextField
+                <TextInput
+                  fill
                   type="time"
                   value={start}
                   onChange={(event) => setStart(event.target.value)}
                 />
               </FormField>
               <FormField label="종료" required>
-                <TextField
+                <TextInput
+                  fill
                   type="time"
                   value={end}
                   onChange={(event) => setEnd(event.target.value)}
@@ -307,7 +316,7 @@ export function FocusTimerCalendar({
               </Button>
               <Button
                 type="button"
-                variant="quiet"
+                variant="ghost"
                 disabled={busy}
                 onClick={() => setCreating(false)}
               >
@@ -321,7 +330,7 @@ export function FocusTimerCalendar({
             <Button variant="primary" onClick={() => void openSettings()}>
               캘린더 켜기
             </Button>
-            <Button variant="quiet" onClick={() => setCreating(false)}>
+            <Button variant="ghost" onClick={() => setCreating(false)}>
               취소
             </Button>
           </div>
@@ -338,7 +347,7 @@ export function FocusTimerCalendar({
         {daily.map((event) => (
           <div key={text(event.id)} className={s.item}>
             <Button
-              variant="quiet"
+              variant="ghost"
               className={s.itemButton}
               onClick={() => setDetail(event)}
               aria-label={`${text(event.title)} 일정 상세`}
@@ -351,8 +360,8 @@ export function FocusTimerCalendar({
               </span>
             </Button>
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={!canPrepare}
               onClick={() => void onPrepare(event)}
               aria-label={`${text(event.title)} 이 일정으로 집중 준비`}

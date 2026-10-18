@@ -1,13 +1,5 @@
-import {
-  FormField,
-  Rule,
-  Button,
-  Checkbox,
-  DateField,
-  Select,
-  TextArea,
-  TextField,
-} from "../../ui";
+import { Button, Checkbox, FormField, Select, Textarea, TextInput } from "@comet/ui";
+import { Rule } from "../../primitives";
 import { useEffect, useId, useRef, useState, type ReactElement } from "react";
 import {
   localDay,
@@ -173,7 +165,8 @@ export function TodoTool({ widget, act }: Props): ReactElement {
         {editing && <h2 className={s.sectionTitle}>할 일 수정</h2>}
         <div className={s.actions}>
           <div className={todo.titleField}>
-            <TextField
+            <TextInput
+              fill
               aria-label="할 일 제목"
               placeholder="할 일 추가"
               required
@@ -192,7 +185,7 @@ export function TodoTool({ widget, act }: Props): ReactElement {
               {editing ? "변경 저장" : "추가"}
             </Button>
             {editing && (
-              <Button type="button" variant="secondary" onClick={resetDraft}>
+              <Button type="button" variant="ghost" onClick={resetDraft}>
                 수정 취소
               </Button>
             )}
@@ -204,10 +197,17 @@ export function TodoTool({ widget, act }: Props): ReactElement {
             {selectedOptions && <span className={s.optionSummary}>{selectedOptions}</span>}
           </summary>
           <FormField className={c.field} label="메모">
-            <TextArea maxLength={20000} value={memo} onChange={(e) => setMemo(e.target.value)} />
+            <Textarea
+              layout="flexible"
+              fill
+              rows={3}
+              maxLength={20000}
+              value={memo}
+              onChange={(e) => setMemo(e.target.value)}
+            />
           </FormField>
           <FormField className={c.field} label="목록">
-            <Select value={list} onChange={(e) => setList(e.target.value)}>
+            <Select fill value={list} onChange={(e) => setList(e.target.value)}>
               {lists.map((item) => (
                 <option key={text(item.id)} value={text(item.id)}>
                   {text(item.name)}
@@ -217,6 +217,7 @@ export function TodoTool({ widget, act }: Props): ReactElement {
           </FormField>
           <FormField className={c.field} label="기한 종류">
             <Select
+              fill
               value={dueKind}
               onChange={(e) => {
                 setDueKind(e.target.value);
@@ -230,7 +231,8 @@ export function TodoTool({ widget, act }: Props): ReactElement {
           </FormField>
           {dueKind !== "none" && (
             <FormField className={c.field} label="기한" required>
-              <TextField
+              <TextInput
+                fill
                 type={dueKind === "date" ? "date" : "datetime-local"}
                 value={due}
                 aria-describedby={dueKind === "time" ? timeZoneId : undefined}
@@ -244,7 +246,7 @@ export function TodoTool({ widget, act }: Props): ReactElement {
             </p>
           )}
           <FormField className={c.field} label="반복">
-            <Select value={repeat} onChange={(e) => setRepeat(e.target.value)}>
+            <Select fill value={repeat} onChange={(e) => setRepeat(e.target.value)}>
               <option value="none">반복 없음</option>
               <option value="daily">매일</option>
               <option value="weekly">매주</option>
@@ -264,8 +266,8 @@ export function TodoTool({ widget, act }: Props): ReactElement {
             ["wrap", "하루 마무리"],
           ].map(([value, label]) => (
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               className={s.filterButton}
               aria-pressed={filter === value}
               key={value}
@@ -276,6 +278,7 @@ export function TodoTool({ widget, act }: Props): ReactElement {
           ))}
         </nav>
         <Select
+          fill
           className={todo.listSelect}
           aria-label="조회할 목록"
           value={visibleList}
@@ -300,14 +303,14 @@ export function TodoTool({ widget, act }: Props): ReactElement {
           <div className={todo.completionNotice}>
             <p role="status">{completedNotice.title} 완료했어요.</p>
             <Button
-              variant="secondary"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={completing || typeof lastCompleted.completedAt !== "number"}
               onClick={() => void changeCompletion(lastCompleted)}
             >
               완료 되돌리기
             </Button>
-            <Button variant="quiet" size="compact" onClick={() => setCompletedNotice(null)}>
+            <Button variant="ghost" size="small" onClick={() => setCompletedNotice(null)}>
               알림 닫기
             </Button>
           </div>
@@ -326,12 +329,11 @@ export function TodoTool({ widget, act }: Props): ReactElement {
                 checked={typeof item.completedAt === "number"}
                 disabled={completing}
                 onChange={() => void changeCompletion(item)}
-              >
-                {null}
-              </Checkbox>
+                label={null}
+              />
               <Button
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 className={todo.itemTitle}
                 data-completed={typeof item.completedAt === "number" || undefined}
                 aria-label={`${text(item.title)} 상세 보기`}
@@ -347,12 +349,12 @@ export function TodoTool({ widget, act }: Props): ReactElement {
                 payload={{ v: 1, kind: "todo", widgetId: widget.id, itemId: text(item.id) }}
                 title={text(item.title)}
               />
-              <Button variant="secondary" size="compact" onClick={() => edit(item)}>
+              <Button variant="ghost" size="small" onClick={() => edit(item)}>
                 수정
               </Button>
               <Button
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 onClick={() => void act("delete", { id: text(item.id) })}
               >
                 삭제
@@ -400,9 +402,8 @@ export function TodoTool({ widget, act }: Props): ReactElement {
                     : current.filter((id) => id !== item.id),
                 )
               }
-            >
-              이월할 항목 선택
-            </Checkbox>
+              label="이월할 항목 선택"
+            />
           )}
         </article>
       ))}
@@ -440,9 +441,14 @@ export function TodoTool({ widget, act }: Props): ReactElement {
           }}
         >
           <FormField className={c.field} label="이월 날짜" required>
-            <DateField value={rollDate} onChange={(e) => setRollDate(e.target.value)} />
+            <TextInput
+              type="date"
+              fill
+              value={rollDate}
+              onChange={(e) => setRollDate(e.target.value)}
+            />
           </FormField>
-          <Button type="submit" variant="secondary" disabled={rollover.length === 0}>
+          <Button type="submit" variant="ghost" disabled={rollover.length === 0}>
             선택한 항목만 이월
           </Button>
           {rolloverError && (
@@ -464,13 +470,14 @@ export function TodoTool({ widget, act }: Props): ReactElement {
           }}
         >
           <FormField className={c.field} label="새 목록 이름" required>
-            <TextField
+            <TextInput
+              fill
               maxLength={100}
               value={listName}
               onChange={(e) => setListName(e.target.value)}
             />
           </FormField>
-          <Button type="submit" variant="secondary">
+          <Button type="submit" variant="ghost">
             목록 추가
           </Button>
         </form>
@@ -509,14 +516,14 @@ function ListEditor({
       }}
     >
       <FormField className={c.field} label={<> {text(item.name)} 이름 </>} required>
-        <TextField maxLength={100} value={name} onChange={(e) => setName(e.target.value)} />
+        <TextInput fill maxLength={100} value={name} onChange={(e) => setName(e.target.value)} />
       </FormField>
       <div className={s.row}>
-        <Button type="submit" variant="secondary">
+        <Button type="submit" variant="ghost">
           이름 저장
         </Button>
         <Button
-          variant="secondary"
+          variant="ghost"
           type="button"
           disabled={item.id === "default" || occupied}
           onClick={() => void act("list-delete", { id: text(item.id) })}

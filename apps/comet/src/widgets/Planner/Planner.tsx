@@ -1,13 +1,4 @@
-import {
-  Button,
-  Checkbox,
-  DateField,
-  FormField,
-  Select,
-  TabPanel,
-  TextField,
-  externalTabPanels,
-} from "../../ui";
+import { TabPanel, externalTabPanels } from "../../primitives";
 import {
   useEffect,
   useId,
@@ -20,13 +11,17 @@ import {
 import { createPortal } from "react-dom";
 import { Icon } from "@comet/icon";
 import {
-  Button as CometButton,
+  Button,
+  Checkbox,
+  Dialog,
+  FormField,
   IconButton,
   MessageInput,
+  Select,
   SelectField,
-  TaskRow,
-  Dialog,
   Tabs,
+  TaskRow,
+  TextInput,
 } from "@comet/ui";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -450,8 +445,6 @@ export function Planner({
               className={s.taskCheck}
               aria-label={text(item.title)}
               title="완료 상태 바꾸기"
-              children={null}
-              aria-labelledby={undefined}
               disabled={busy || (frequency && recordingDay > localDay())}
               checked={
                 frequency
@@ -492,7 +485,7 @@ export function Planner({
   }
   function quickInput(isToday: boolean): ReactElement {
     const diaryQuickAdd = embedded && isToday;
-    const Input = diaryQuickAdd ? MessageInput : TextField;
+    const Input = diaryQuickAdd ? MessageInput : TextInput;
     const quickList = lists.some((list) => list.id === newTaskList) ? newTaskList : "default";
     return (
       <>
@@ -526,6 +519,7 @@ export function Planner({
           {diaryQuickAdd && <Icon name="plus" size={16} />}
           <div className={diaryQuickAdd ? s.diaryInput : s.grow}>
             <Input
+              fill={!diaryQuickAdd}
               className={s.grow}
               aria-label="새 할 일"
               aria-describedby={`planner-add-scope-${isToday ? "day" : "period"}`}
@@ -557,7 +551,9 @@ export function Planner({
                       })}
                   <Icon name="chevdown" size={12} />
                 </span>
-                <DateField
+                <TextInput
+                  type="date"
+                  fill
                   aria-label="새 할 일 계획일"
                   value={day}
                   disabled={busy}
@@ -582,14 +578,14 @@ export function Planner({
                   </option>
                 ))}
               </SelectField>
-              <CometButton
+              <Button
                 className={s.diaryTemplate}
                 variant="link"
                 onClick={() => selectTab("templates")}
               >
                 템플릿에서 고르기
                 <Icon name="arrowright" size={14} />
-              </CometButton>
+              </Button>
               <button type="submit" hidden disabled={busy || !todo}>
                 추가
               </button>
@@ -607,8 +603,8 @@ export function Planner({
     return (
       <div className={s.actions}>
         <Button
-          variant="secondary"
-          size="compact"
+          variant="ghost"
+          size="small"
           disabled={!currentTask || busy}
           onClick={async () => {
             if (!timer) {
@@ -624,8 +620,8 @@ export function Planner({
           25분 집중
         </Button>
         <Button
-          variant="quiet"
-          size="compact"
+          variant="ghost"
+          size="small"
           disabled={!currentTask || plannedDay(currentTask) !== day || busy}
           onClick={() => void act("plan", { ids: [selectedTask], date: null })}
         >
@@ -634,8 +630,8 @@ export function Planner({
         {!selectionOnly && !headerActionsTarget && <div className={s.spacer} />}
         {!selectionOnly && !headerActionsTarget && (
           <Button
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             onClick={() => {
               setRollIds([]);
               setRollDate(moveDay(day, 1));
@@ -848,8 +844,8 @@ export function Planner({
                               <div className={s.diaryTaskDetails}>
                                 <TaskReadOnlyDetails item={item} />
                                 <Button
-                                  variant="quiet"
-                                  size="compact"
+                                  variant="ghost"
+                                  size="small"
                                   aria-label={`${text(item.title)} 편집`}
                                   onClick={() => edit(item)}
                                 >
@@ -872,18 +868,18 @@ export function Planner({
                 </section>
               ))}
             <div className={s.diaryTaskFooter}>
-              <CometButton
+              <Button
                 variant="link"
                 aria-expanded={showCompleted}
                 onClick={() => setShowCompleted((value) => !value)}
               >
                 {showCompleted ? "완료한 일 접기" : `완료한 일 ${done.length}개 보기`}
-              </CometButton>
+              </Button>
               <div className={s.spacer} />
               {!headerActionsTarget && (
-                <CometButton variant="link" onClick={() => setManageLists(true)}>
+                <Button variant="link" onClick={() => setManageLists(true)}>
                   목록 관리
-                </CometButton>
+                </Button>
               )}
               <button
                 type="button"
@@ -901,8 +897,8 @@ export function Planner({
             {!headerActionsTarget && (
               <div className={s.actions}>
                 <Button
-                  variant="quiet"
-                  size="compact"
+                  variant="ghost"
+                  size="small"
                   onClick={() => {
                     setRollIds([]);
                     setRollDate(moveDay(day, 1));
@@ -966,7 +962,7 @@ export function Planner({
         createPortal(
           <div className={s.headerActions}>
             {tab === "today" && (
-              <CometButton
+              <Button
                 variant="ghost"
                 size="small"
                 disabled={busy}
@@ -977,7 +973,7 @@ export function Planner({
                 }}
               >
                 하루 마무리
-              </CometButton>
+              </Button>
             )}
             <IconButton
               icon="list"
@@ -998,8 +994,8 @@ export function Planner({
           actions={
             onBack && (
               <Button
-                variant="quiet"
-                size="compact"
+                variant="ghost"
+                size="small"
                 onClick={() => {
                   returning.current = true;
                   void closeWindow();
@@ -1014,7 +1010,7 @@ export function Planner({
       {loadError && (
         <div role="alert" className={s.error}>
           목록을 불러오지 못했어요. {loadError}{" "}
-          <Button variant="quiet" size="compact" onClick={reload}>
+          <Button variant="ghost" size="small" onClick={reload}>
             다시 불러오기
           </Button>
         </div>
@@ -1044,8 +1040,8 @@ export function Planner({
         <div role="status" className={s.status}>
           {completionUndo.title} · 완료했어요.
           <Button
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             disabled={busy}
             onClick={() => void undoCompletion()}
           >
@@ -1072,7 +1068,7 @@ export function Planner({
                   NAVIGATION.map(([value]) => value),
                 )}
               />
-              <Button variant="quiet" size="compact" onClick={() => openSettings()}>
+              <Button variant="ghost" size="small" onClick={() => openSettings()}>
                 연결·알림 설정 ↗
               </Button>
             </div>
@@ -1091,19 +1087,19 @@ export function Planner({
                     })}
                   </strong>
                   <Button
-                    variant="quiet"
-                    size="compact"
+                    variant="ghost"
+                    size="small"
                     aria-label="이전 날짜"
                     onClick={() => setDay(moveDay(day, -1))}
                   >
                     ‹
                   </Button>
-                  <Button variant="secondary" size="compact" onClick={() => setDay(localDay())}>
+                  <Button variant="ghost" size="small" onClick={() => setDay(localDay())}>
                     오늘
                   </Button>
                   <Button
-                    variant="quiet"
-                    size="compact"
+                    variant="ghost"
+                    size="small"
                     aria-label="다음 날짜"
                     onClick={() => setDay(moveDay(day, 1))}
                   >
@@ -1125,7 +1121,7 @@ export function Planner({
                       {!calendar || (!connections.length && !events.length) ? (
                         <div className={s.empty}>
                           <p className={s.caption}>내 캘린더도 함께 볼 수 있어요.</p>
-                          <Button variant="secondary" size="compact" onClick={() => openSettings()}>
+                          <Button variant="ghost" size="small" onClick={() => openSettings()}>
                             캘린더 연결
                           </Button>
                           <p className={s.caption}>할 일은 계정 없이 사용할 수 있어요.</p>
@@ -1137,7 +1133,7 @@ export function Planner({
                           ) && (
                             <div role="status" className={s.error}>
                               캘린더를 갱신하지 못했어요.
-                              <Button variant="quiet" size="compact" onClick={() => openSettings()}>
+                              <Button variant="ghost" size="small" onClick={() => openSettings()}>
                                 연결 확인 ↗
                               </Button>
                             </div>
@@ -1187,8 +1183,8 @@ export function Planner({
                         {allTasks ? "모든 날짜 할 일" : `${day} 할 일`} · {displayedTasks.length}개
                       </h2>
                       <Button
-                        variant="quiet"
-                        size="compact"
+                        variant="ghost"
+                        size="small"
                         aria-pressed={allTasks}
                         onClick={() => setAllTasks((value) => !value)}
                       >
@@ -1196,8 +1192,8 @@ export function Planner({
                       </Button>
                       <div className={s.spacer} />
                       <Button
-                        variant="quiet"
-                        size="compact"
+                        variant="ghost"
+                        size="small"
                         onClick={() => {
                           setPeriod("inbox");
                           selectTab("plans");
@@ -1228,8 +1224,8 @@ export function Planner({
                                 : `${day}에 계획한 할 일이 없어요.`}
                             </p>
                             <Button
-                              variant="quiet"
-                              size="compact"
+                              variant="ghost"
+                              size="small"
                               onClick={() => selectTab("templates")}
                             >
                               템플릿에서 고르기
@@ -1250,8 +1246,8 @@ export function Planner({
                                   text(lists.find((l) => l.id === item.listId)?.name)}
                               </span>
                               <Button
-                                variant="quiet"
-                                size="compact"
+                                variant="ghost"
+                                size="small"
                                 aria-label={`${text(item.title)} 편집`}
                                 onClick={() => edit(item)}
                               >
@@ -1275,8 +1271,8 @@ export function Planner({
                 {[...PERIODS, ["inbox", "수집함"]].map(([key, label]) => (
                   <Button
                     key={key}
-                    variant="quiet"
-                    size="compact"
+                    variant="ghost"
+                    size="small"
                     className={s.categoryButton}
                     aria-pressed={period === key}
                     onClick={() => setPeriod(key)}
@@ -1289,8 +1285,8 @@ export function Planner({
               {!["someday", "inbox"].includes(period) && (
                 <>
                   <Button
-                    variant="quiet"
-                    size="compact"
+                    variant="ghost"
+                    size="small"
                     aria-label="이전 계획 기간"
                     onClick={() => setPlanDay(movePeriod(planDay, period, -1))}
                   >
@@ -1298,8 +1294,8 @@ export function Planner({
                   </Button>
                   <span className={s.caption}>{periodAnchor(period, planDay)}</span>
                   <Button
-                    variant="quiet"
-                    size="compact"
+                    variant="ghost"
+                    size="small"
                     aria-label="다음 계획 기간"
                     onClick={() => setPlanDay(movePeriod(planDay, period, 1))}
                   >
@@ -1313,6 +1309,7 @@ export function Planner({
                 {quickInput(false)}
                 <div className={s.actions}>
                   <Select
+                    fill
                     className={s.listSelect}
                     aria-label="조회할 목록"
                     value={visibleList}
@@ -1328,11 +1325,10 @@ export function Planner({
                   <Checkbox
                     checked={showCompleted}
                     onChange={(e) => setShowCompleted(e.target.checked)}
-                  >
-                    완료 포함
-                  </Checkbox>
+                    label="완료 포함"
+                  />
                   {!headerActionsTarget && (
-                    <Button variant="quiet" size="compact" onClick={() => setManageLists(true)}>
+                    <Button variant="ghost" size="small" onClick={() => setManageLists(true)}>
                       목록 관리
                     </Button>
                   )}
@@ -1373,8 +1369,8 @@ export function Planner({
                           </td>
                           <td>
                             <Button
-                              variant={plannedDay(item) === localDay() ? "quiet" : "secondary"}
-                              size="compact"
+                              variant={plannedDay(item) === localDay() ? "ghost" : "ghost"}
+                              size="small"
                               disabled={busy}
                               onClick={() =>
                                 void act("plan", {
@@ -1388,8 +1384,8 @@ export function Planner({
                           </td>
                           <td>
                             <Button
-                              variant="quiet"
-                              size="compact"
+                              variant="ghost"
+                              size="small"
                               aria-label={`${text(item.title)} 편집`}
                               onClick={() => edit(item)}
                             >
@@ -1439,7 +1435,7 @@ export function Planner({
                     {calendar ? (
                       prep()
                     ) : (
-                      <Button variant="secondary" onClick={() => openSettings()}>
+                      <Button variant="ghost" onClick={() => openSettings()}>
                         캘린더 연결
                       </Button>
                     )}
@@ -1458,8 +1454,8 @@ export function Planner({
                             <span className={s.caption}>{clockLabel(number(item.dueAt))}</span>
                             {taskCheck(item)}
                             <Button
-                              variant="quiet"
-                              size="compact"
+                              variant="ghost"
+                              size="small"
                               aria-label={`${text(item.title)} 시간 수정`}
                               onClick={() => edit(item)}
                             >
@@ -1474,8 +1470,8 @@ export function Planner({
                           <div key={text(item.id)} className={s.actions}>
                             {taskCheck(item)}
                             <Button
-                              variant="quiet"
-                              size="compact"
+                              variant="ghost"
+                              size="small"
                               aria-label={`${text(item.title)} 시간 잡기`}
                               onClick={() => edit(item)}
                             >
@@ -1576,6 +1572,7 @@ export function Planner({
             )}
             <FormField label="옮길 할 일">
               <Select
+                fill
                 value={movingTask.id}
                 disabled={busy}
                 onChange={(event) => setMovingTask({ ...movingTask, id: event.target.value })}
@@ -1590,7 +1587,9 @@ export function Planner({
               </Select>
             </FormField>
             <FormField label="새 계획 날짜">
-              <DateField
+              <TextInput
+                type="date"
+                fill
                 required
                 disabled={busy}
                 value={movingTask.date}
@@ -1598,7 +1597,7 @@ export function Planner({
               />
             </FormField>
             <div className={s.actions}>
-              <Button variant="quiet" disabled={busy} onClick={() => setMovingTask(null)}>
+              <Button variant="ghost" disabled={busy} onClick={() => setMovingTask(null)}>
                 취소
               </Button>
               <Button
@@ -1650,18 +1649,23 @@ export function Planner({
                   e.target.checked ? [...old, text(item.id)] : old.filter((id) => id !== item.id),
                 )
               }
-            >
-              {text(item.title)}
-            </Checkbox>
+              label={text(item.title)}
+            />
           ))}
           <FormField label="옮길 날짜" className={s.field}>
-            <DateField required value={rollDate} onChange={(e) => setRollDate(e.target.value)} />
+            <TextInput
+              type="date"
+              fill
+              required
+              value={rollDate}
+              onChange={(e) => setRollDate(e.target.value)}
+            />
           </FormField>
           <p className={s.caption}>
             선택하지 않은 일은 {day}에 그대로 남아요. 원래 기한과 계획 기간은 유지합니다.
           </p>
           <div className={s.actions}>
-            <Button variant="quiet" type="button" onClick={() => setWrap(false)}>
+            <Button variant="ghost" type="button" onClick={() => setWrap(false)}>
               그대로 마치기
             </Button>
             <div className={s.spacer} />
@@ -1692,7 +1696,7 @@ export function Planner({
         footer={
           <>
             <Button
-              variant="secondary"
+              variant="ghost"
               onClick={() => {
                 returning.current = false;
                 setConfirmClose(false);
@@ -1701,7 +1705,7 @@ export function Planner({
               계속 작성
             </Button>
             <Button
-              variant="critical"
+              variant="danger"
               onClick={async () => {
                 leaving.current = true;
                 await closeWindow();
@@ -1766,7 +1770,8 @@ function ListManager({
             if (await act("list-add", { name })) setName("");
           }}
         >
-          <TextField
+          <TextInput
+            fill
             className={s.grow}
             aria-label="새 목록 이름"
             required
@@ -1790,7 +1795,8 @@ function ListManager({
               });
             }}
           >
-            <TextField
+            <TextInput
+              fill
               className={s.grow}
               aria-label={`${text(list.name)} 이름`}
               required
@@ -1798,13 +1804,13 @@ function ListManager({
               value={renames[text(list.id)] ?? text(list.name)}
               onChange={(e) => setRenames((old) => ({ ...old, [text(list.id)]: e.target.value }))}
             />
-            <Button type="submit" variant="secondary" size="compact" disabled={busy}>
+            <Button type="submit" variant="ghost" size="small" disabled={busy}>
               이름 저장
             </Button>
             <Button
               type="button"
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={
                 busy || list.id === "default" || items.some((item) => item.listId === list.id)
               }

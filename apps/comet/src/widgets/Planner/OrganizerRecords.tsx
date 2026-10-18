@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button } from "../../ui";
-import { OrganizationCard, SearchInput, SegmentedControl, Dialog } from "@comet/ui";
+import { Button, Dialog, OrganizationCard, SearchInput, SegmentedControl } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type {
   OrganizerAction,
@@ -155,8 +154,8 @@ export function OrganizerRecords(): JSX.Element {
         />
         <Button
           type="submit"
-          variant="secondary"
-          size="compact"
+          variant="ghost"
+          size="small"
           disabled={pending || !isDesktop() || !query.trim()}
         >
           검색
@@ -177,8 +176,8 @@ export function OrganizerRecords(): JSX.Element {
         />
         {hits && (
           <Button
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             onClick={() => {
               setHits(null);
               setQuery("");
@@ -289,7 +288,7 @@ export function OrganizerRecords(): JSX.Element {
               <div className={s.actions}>
                 {selectedAction && (
                   <Button
-                    variant="secondary"
+                    variant="ghost"
                     disabled={pending}
                     onClick={() =>
                       void run("organizer_open_action", { operationId: selectedAction.id })
@@ -300,7 +299,7 @@ export function OrganizerRecords(): JSX.Element {
                 )}
                 {(selectedRecord || selectedAction?.sourceId) && (
                   <Button
-                    variant="secondary"
+                    variant="ghost"
                     disabled={pending || !isDesktop() || selectedRecord?.source.active === false}
                     onClick={() =>
                       void run("organizer_open_source", {
@@ -312,7 +311,7 @@ export function OrganizerRecords(): JSX.Element {
                   </Button>
                 )}
                 <Button
-                  variant="quiet"
+                  variant="ghost"
                   disabled={
                     pending ||
                     !isDesktop() ||

@@ -1,10 +1,14 @@
-import { Button, FormField, Select, Surface, TextField } from "../../ui";
 import {
+  Button,
+  Dialog,
   EnvelopeCard,
+  FormField,
   IconButton as CometIconButton,
   SegmentedControl,
+  Select,
   SidebarItem,
-  Dialog,
+  Surface,
+  TextInput,
 } from "@comet/ui";
 import {
   useEffect,
@@ -976,8 +980,8 @@ export function Diary(): ReactElement {
         <div role="alert" className={s.error}>
           {failure || diary.error || loadError}{" "}
           <Button
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             onClick={() => {
               reload();
               diary.reload();
@@ -997,8 +1001,8 @@ export function Diary(): ReactElement {
         <div role="status" className={s.status}>
           {completionUndo.title} · 완료했어요.
           <Button
-            variant="quiet"
-            size="compact"
+            variant="ghost"
+            size="small"
             disabled={saving}
             onClick={() => void undoCompletion()}
           >
@@ -1176,7 +1180,7 @@ export function Diary(): ReactElement {
             />
           </aside>
           <Surface
-            padding="compact"
+            variant="panel"
             className={s.index}
             hidden={collection !== "envelopes" || notesOpen}
             role="navigation"
@@ -1247,7 +1251,7 @@ export function Diary(): ReactElement {
             </div>
           </Surface>
           <Surface
-            padding="flush"
+            variant="panel"
             className={`${s.page} ${dropActive ? s.dropActive : ""}`}
             hidden={notesOpen}
             aria-label="펼친 페이지"
@@ -1332,6 +1336,7 @@ export function Diary(): ReactElement {
                 {collection === "pages" && (
                   <div className={s.pageSelect}>
                     <Select
+                      fill
                       aria-label="내 페이지 선택"
                       value={pageId}
                       onChange={(event) => {
@@ -1443,7 +1448,8 @@ export function Diary(): ReactElement {
                   }}
                 >
                   <FormField label="빠른 할 일 제목" required>
-                    <TextField
+                    <TextInput
+                      fill
                       autoFocus
                       maxLength={500}
                       value={quickTaskTitle}
@@ -1467,7 +1473,7 @@ export function Diary(): ReactElement {
                     </Button>
                     <Button
                       type="button"
-                      variant="quiet"
+                      variant="ghost"
                       disabled={saving}
                       onClick={() => setQuickTaskOpen(false)}
                     >
@@ -1695,7 +1701,8 @@ export function Diary(): ReactElement {
           }}
         >
           <FormField label="페이지 이름">
-            <TextField
+            <TextInput
+              fill
               autoFocus
               required
               maxLength={500}
@@ -1782,7 +1789,7 @@ export function Diary(): ReactElement {
             )}
             {selectedEvent.connectionId === "local" ? (
               <Button
-                variant="secondary"
+                variant="ghost"
                 disabled={saving || !events.some((event) => event.id === selectedEvent.id)}
                 onClick={() => {
                   const current = events.find((event) => event.id === selectedEvent.id);
@@ -1801,7 +1808,7 @@ export function Diary(): ReactElement {
               {eventsOn(events, day).map((event) => (
                 <Button
                   key={text(event.id)}
-                  variant="quiet"
+                  variant="ghost"
                   className={s.agendaEventButton}
                   onClick={() => setSelectedEvent(event)}
                 >
@@ -1823,7 +1830,7 @@ export function Diary(): ReactElement {
               .map((value) => (
                 <Button
                   key={text(value.id)}
-                  variant="secondary"
+                  variant="ghost"
                   onClick={() => {
                     setSelectedEvent(null);
                     openEnvelope(text(value.id));
@@ -1845,11 +1852,11 @@ export function Diary(): ReactElement {
         }}
         footer={
           <>
-            <Button variant="secondary" onClick={() => setLeave(null)}>
+            <Button variant="ghost" onClick={() => setLeave(null)}>
               계속 작성
             </Button>
             <Button
-              variant="critical"
+              variant="danger"
               disabled={saving}
               onClick={() => {
                 const action = leave?.action;

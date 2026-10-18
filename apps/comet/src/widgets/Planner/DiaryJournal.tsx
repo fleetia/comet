@@ -1,4 +1,4 @@
-import { Button } from "../../ui";
+import { Button } from "@comet/ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import * as s from "./diaryEnvelope.css";
@@ -65,7 +65,7 @@ export function DiaryJournal({ date }: { date: string }): ReactElement {
               {error}
             </p>
           )}
-          <Button variant="quiet" size="compact" disabled={busy} onClick={() => void load(null)}>
+          <Button variant="ghost" size="small" disabled={busy} onClick={() => void load(null)}>
             기록 새로고침
           </Button>
           {entries.length === 0 && !busy && !error && (
@@ -84,8 +84,8 @@ export function DiaryJournal({ date }: { date: string }): ReactElement {
           ))}
           {more && entries.length > 0 && (
             <Button
-              variant="quiet"
-              size="compact"
+              variant="ghost"
+              size="small"
               disabled={busy}
               onClick={() => void load(entries[entries.length - 1][0])}
             >

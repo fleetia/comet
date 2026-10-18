@@ -16,12 +16,13 @@ const meta = {
     label: { control: "text" },
     description: { control: "text" },
     error: { control: "text" },
+    fill: { control: "boolean", description: "부모 폭 채우기" },
   },
   parameters: {
     docs: {
       description: {
         component:
-          "native input에 label, 설명, 오류를 연결합니다. error가 있으면 aria-invalid와 오류 설명을 제공합니다. label을 생략할 때는 aria-label이나 aria-labelledby를 지정하세요. 입력값은 defaultValue 또는 value와 onChange로 소비자가 관리합니다.",
+          "native input에 label, 설명, 오류를 연결합니다. error가 있으면 aria-invalid와 오류 설명을 제공합니다. label을 생략할 때는 aria-label이나 aria-labelledby를 지정하세요. 입력값은 defaultValue 또는 value와 onChange로 소비자가 관리합니다. fill은 부모 폭을 채웁니다(Figma의 Fill container). 설명·오류가 없으면 감싸는 span이 레이아웃에서 빠져 부모 grid·flex가 컨트롤을 직접 배치합니다.",
       },
     },
   },
@@ -50,4 +51,9 @@ export const Time: Story = {
     description: "오전·오후, 시·분과 선택 아이콘이 잘리지 않도록 고유 너비를 유지해요.",
     style: { width: "auto" },
   },
+};
+export const Fill: Story = {
+  name: "부모 폭 채우기",
+  args: { fill: true, description: undefined },
+  decorators: [(Story) => <div style={{ width: 360 }}>{Story()}</div>],
 };

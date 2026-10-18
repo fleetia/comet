@@ -44,6 +44,7 @@ export const modeChoices = style({
   flexWrap: "wrap",
 });
 export const connectionPanel = style({
+  padding: 16,
   minWidth: 0,
   height: "100%",
   minHeight: 0,

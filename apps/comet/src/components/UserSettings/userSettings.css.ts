@@ -51,6 +51,7 @@ export const actions = style({
   minHeight: tokens["size/control-36"],
 });
 export const memoriesPanel = style({
+  padding: 16,
   minWidth: 0,
   minHeight: 180,
   height: 424,

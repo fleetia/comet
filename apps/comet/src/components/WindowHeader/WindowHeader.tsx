@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
-import { IconButton } from "../../ui";
-import { CloseIcon } from "@comet/icon";
+import { IconButton } from "@comet/ui";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { errorText, isDesktop } from "../../hooks/useSnapshot";
 import cometIcon from "../../../src-tauri/icons/source.svg";
@@ -170,16 +169,14 @@ export function WindowHeader({
             {!nativeControls && (
               <IconButton
                 className={s.close}
-                variant="quiet"
                 size="compact"
-                label={label}
+                icon="close"
+                aria-label={label}
                 disabled={!enabled}
                 onMouseDown={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={() => void close()}
-              >
-                <CloseIcon size={16} />
-              </IconButton>
+              />
             )}
           </div>
         </div>

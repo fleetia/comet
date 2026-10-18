@@ -1,5 +1,4 @@
-import { Button, FormField, TextArea } from "../../ui";
-import { ChartBarItem, FocusRecordRow, IconButton } from "@comet/ui";
+import { Button, ChartBarItem, FocusRecordRow, FormField, IconButton, Textarea } from "@comet/ui";
 import { FocusPanel } from "./FocusPanel";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { localDay, text, type DataRecord, type ToolAction } from "../toolData";
@@ -315,7 +314,7 @@ function FocusSessionDetail({
   }
   return (
     <section className={s.recordsPanel} aria-label="집중 기록 상세">
-      <Button variant="quiet" disabled={busy} onClick={onBack}>
+      <Button variant="ghost" disabled={busy} onClick={onBack}>
         ‹ 집중 기록
       </Button>
       <span className={s.caption}>세션 전체 집중</span>
@@ -349,7 +348,10 @@ function FocusSessionDetail({
         )}
       </dl>
       <FormField label="집중 기록 메모">
-        <TextArea
+        <Textarea
+          layout="flexible"
+          fill
+          rows={3}
           disabled={busy}
           className={s.textArea}
           value={memo}
@@ -366,13 +368,13 @@ function FocusSessionDetail({
         </p>
       )}
       <div className={s.row}>
-        <Button variant="secondary" disabled={busy || conflict} onClick={() => void save()}>
+        <Button variant="ghost" disabled={busy || conflict} onClick={() => void save()}>
           기록 메모 저장
         </Button>
         {saved && <span className={s.quiet}>저장됨</span>}
         {conflict && (
           <Button
-            variant="quiet"
+            variant="ghost"
             onClick={() => {
               setMemo(session.memo);
               setBaseMemo(session.memo);
@@ -383,7 +385,7 @@ function FocusSessionDetail({
         )}
       </div>
       {text(session.noteRef.id) && (
-        <Button variant="quiet" onClick={() => onOpenNote(session.noteRef)}>
+        <Button variant="ghost" onClick={() => onOpenNote(session.noteRef)}>
           연결한 노트 열기
         </Button>
       )}
