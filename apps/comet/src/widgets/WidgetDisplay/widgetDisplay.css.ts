@@ -103,21 +103,10 @@ export const unavailable = style({
 
 export const cover = style({ width: 44, height: 44, objectFit: "cover", borderRadius: 12 });
 export const expanded = style({ width: "100%", minWidth: 0 });
-export const weatherStack = style({
+export const stackCard = style({
   width: "100%",
   overflow: "hidden",
   background: tokens["color/glass-panel"],
   border: `1px solid ${tokens["color/glass-border"]}`,
   borderRadius: 20,
 });
-export const weatherControls = style({
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 12,
-  height: 50,
-  padding: "10px 14px 12px 16px",
-  borderTop: `1px solid ${tokens["color/divider"]}`,
-});
-export const weatherPinLabel = style({ flex: 1, fontSize: 13 });
-export const weatherDivider = style({ width: 1, height: 20, background: tokens["color/divider"] });

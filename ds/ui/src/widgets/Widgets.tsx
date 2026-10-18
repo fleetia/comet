@@ -1,4 +1,5 @@
 import {
+  forwardRef,
   useId,
   type ButtonHTMLAttributes,
   type HTMLAttributes,
@@ -212,6 +213,102 @@ export function WidgetStackSummary({
   );
 }
 export const WidgetCollapsedBar = WidgetStackSummary;
+
+/** Put on the element whose hover reveals its `WidgetHoverActions`. */
+export const widgetHoverHost = styles.hoverHost;
+
+export type WidgetHoverActionsProps = HTMLAttributes<HTMLDivElement> & {
+  /** Settings or open action of the widget. */
+  settings?: { label: string; onClick: () => void; disabled?: boolean };
+  onCollapse?: () => void;
+  collapseLabel?: string;
+  /** Drag handle; spread drag and keyboard handlers here. */
+  handle?: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label" | "children"> & {
+    label: string;
+  };
+};
+/** Floating top-right actions of a stacked widget, shown while its host is hovered or focused. */
+export function WidgetHoverActions({
+  settings,
+  onCollapse,
+  collapseLabel = "접기",
+  handle,
+  className,
+  ...props
+}: WidgetHoverActionsProps): JSX.Element {
+  const { label: handleLabel, className: handleClass, ...handleProps } = handle ?? { label: "" };
+  return (
+    <div
+      {...props}
+      role="toolbar"
+      aria-label={props["aria-label"] ?? "위젯 동작"}
+      className={[styles.hoverActions, className].filter(Boolean).join(" ")}
+    >
+      {settings && (
+        <button
+          type="button"
+          aria-label={settings.label}
+          title={settings.label}
+          disabled={settings.disabled}
+          className={styles.hoverAction}
+          onClick={settings.onClick}
+        >
+          <Icon name="gear" size={14} />
+        </button>
+      )}
+      {onCollapse && (
+        <button
+          type="button"
+          aria-label={collapseLabel}
+          title={collapseLabel}
+          className={styles.hoverAction}
+          onClick={onCollapse}
+        >
+          <Icon name="chev" size={14} style={{ transform: "rotate(-90deg)" }} />
+        </button>
+      )}
+      {handle && (
+        <button
+          type="button"
+          {...handleProps}
+          aria-label={handleLabel}
+          title={handleLabel}
+          className={[styles.hoverAction, styles.hoverHandle, handleClass]
+            .filter(Boolean)
+            .join(" ")}
+        >
+          <Icon name="grip" size={14} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+export type WidgetBubbleProps = HTMLAttributes<HTMLDivElement> & {
+  /** Side of the trigger the bubble opens on; the tail points back to it. */
+  placement?: "above" | "below";
+  /** Horizontal center of the tail from the bubble's left edge, in pixels. */
+  tailOffset?: number;
+};
+/**
+ * A widget opened from the collapsed capsule bar. The content keeps its own surface;
+ * the tail takes `--comet-widget-bubble-fill` so it matches a custom widget background.
+ */
+export const WidgetBubble = forwardRef<HTMLDivElement, WidgetBubbleProps>(
+  ({ placement = "below", tailOffset = 28, className, children, ...props }, ref) => (
+    <div
+      role="dialog"
+      {...props}
+      ref={ref}
+      data-placement={placement}
+      className={[styles.bubble, className].filter(Boolean).join(" ")}
+    >
+      <span aria-hidden className={styles.bubbleTail} style={{ left: tailOffset }} />
+      {children}
+    </div>
+  ),
+);
+WidgetBubble.displayName = "WidgetBubble";
 
 export type TravelSummaryProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "title"> & {
   title: string;

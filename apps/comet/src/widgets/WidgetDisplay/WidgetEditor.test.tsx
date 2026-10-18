@@ -42,10 +42,9 @@ beforeEach(() => {
     mode: "stack",
     order: ["clock", "focus"],
     anchor: "top-right",
-    width: "normal",
+    width: 370,
     overlapped: true,
     oneExpanded: true,
-    pinned: [],
     positions: { clock: { x: 10, y: 20 } },
     shapes: {},
     snapToGrid: false,
@@ -114,10 +113,9 @@ it("changes layout mode and stack options live with the current revision", async
         mode: "stack",
         order: ["clock", "focus"],
         anchor: "bottom-left",
-        width: "normal",
+        width: 370,
         overlapped: true,
         oneExpanded: true,
-        pinned: [],
         snapToGrid: false,
         showGuides: true,
       },
@@ -154,6 +152,7 @@ it("shows freeform snapping options and lists only unplaced supported widgets to
 });
 
 it("edits the selected widget's shape immediately without a save step", async () => {
+  state.mode = "freeform";
   render(<WidgetEditor />);
   await waitFor(() => expect(command).toHaveBeenCalledWith("get_widget_desktop"));
   await select("focus");
@@ -179,6 +178,7 @@ it("edits the selected widget's shape immediately without a save step", async ()
 });
 
 it("saves colors and text placement for appearance kinds without an explicit save", async () => {
+  state.mode = "freeform";
   render(<WidgetEditor />);
   await waitFor(() => expect(command).toHaveBeenCalledWith("get_widget_desktop"));
   await select("clock");
@@ -196,6 +196,69 @@ it("saves colors and text placement for appearance kinds without an explicit sav
     }),
   );
   expect(screen.queryByText(/먼저 저장/)).toBeNull();
+});
+
+it("sets the stack width in pixels and clamps typed values on blur", async () => {
+  render(<WidgetEditor />);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_widget_desktop"));
+  expect(screen.queryByRole("radio", { name: "넓게" })).toBeNull();
+  const width = screen.getByLabelText("모아두기 너비(px)");
+  expect(width).toHaveProperty("value", "370");
+  fireEvent.click(screen.getByRole("button", { name: "너비 늘리기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("configure_widget_desktop", {
+      expectedRevision: 5,
+      input: expect.objectContaining({ width: 380 }),
+    }),
+  );
+  vi.mocked(command).mockClear();
+  fireEvent.change(width, { target: { value: "9" } });
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+  expect(command).not.toHaveBeenCalledWith("configure_widget_desktop", expect.anything());
+  fireEvent.change(width, { target: { value: "9000" } });
+  fireEvent.blur(width);
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("configure_widget_desktop", {
+      expectedRevision: 6,
+      input: expect.objectContaining({ width: 600 }),
+    }),
+  );
+});
+
+it("edits a stack-only look per widget with theme following, opacity and corners", async () => {
+  render(<WidgetEditor />);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_widget_desktop"));
+  await select("focus");
+  expect(screen.queryByRole("tablist", { name: "위젯 꾸미기" })).toBeNull();
+  const look = within(screen.getByRole("group", { name: "모아두기 꾸미기" }));
+  const theme = look.getByRole("switch", { name: "테마에 따르기" });
+  expect(theme).toHaveProperty("checked", true);
+  expect(look.getByLabelText("배경 색상")).toHaveProperty("disabled", true);
+  fireEvent.change(look.getByRole("slider", { name: "배경 투명도" }), { target: { value: "35" } });
+  fireEvent.change(look.getByRole("slider", { name: "모서리" }), { target: { value: "6" } });
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("set_widget_stack_style", {
+      id: "focus",
+      style: {
+        followTheme: true,
+        backgroundColor: "#FFFFFF",
+        textColor: "#1F2340",
+        opacity: 35,
+        radius: 6,
+      },
+    }),
+  );
+  expect(
+    vi.mocked(command).mock.calls.filter(([name]) => name === "set_widget_stack_style"),
+  ).toHaveLength(1);
+  fireEvent.click(theme);
+  expect(look.getByLabelText("배경 색상")).toHaveProperty("disabled", false);
+  await waitFor(() =>
+    expect(command).toHaveBeenLastCalledWith("set_widget_stack_style", {
+      id: "focus",
+      style: expect.objectContaining({ followTheme: false, opacity: 35 }),
+    }),
+  );
 });
 
 it("restores the edit-start snapshot and finishes editing", async () => {

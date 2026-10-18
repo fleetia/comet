@@ -655,6 +655,7 @@ pub fn run() {
             crate::widgets::desktop::add_widget_desktop_item,
             crate::widgets::desktop::remove_widget_desktop_item,
             crate::widgets::desktop::set_widget_desktop_shape,
+            crate::widgets::desktop::set_widget_stack_style,
             crate::widgets::desktop::set_widget_desktop_editing,
             crate::widgets::desktop::get_widget_desktop_snapshot,
             crate::widgets::desktop::open_widget_stack,

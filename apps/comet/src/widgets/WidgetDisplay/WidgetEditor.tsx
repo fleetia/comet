@@ -4,6 +4,7 @@ import {
   Checkbox,
   IconButton,
   SegmentedControl,
+  Stepper,
   Switch,
   Tabs,
   type WidgetShape,
@@ -17,8 +18,15 @@ import { WidgetAppearance } from "../WidgetAppearance/WidgetAppearance";
 import type { WidgetView } from "../types";
 import { desktopSummary, desktopWidgets } from "./DesktopWidget";
 import { defaultShape } from "./desktopShape";
-import { DEFAULT_LAYOUT, desktopKind, useDesktopState, type DesktopLayout } from "./desktopState";
+import {
+  DEFAULT_LAYOUT,
+  desktopKind,
+  STACK_WIDTH,
+  useDesktopState,
+  type DesktopLayout,
+} from "./desktopState";
 import { ShapeEditor } from "./ShapeEditor";
+import { StackStyleEditor } from "./StackStyleEditor";
 import * as s from "./widgetEditor.css";
 
 /** Shape edits (drawing, sliders) arrive many times a second; save the settled value. */
@@ -30,6 +38,62 @@ const ANCHORS: [DesktopLayout["anchor"], string][] = [
   ["bottom-left", "왼쪽 아래"],
   ["bottom-right", "오른쪽 아래"],
 ];
+
+/** Pixel width of the stack rows; out-of-range typing waits and is clamped on blur. */
+function StackWidthField({
+  value,
+  disabled,
+  onSave,
+}: {
+  value: number;
+  disabled: boolean;
+  onSave: (width: number) => void;
+}): ReactElement {
+  const [draft, setDraft] = useState<number | string>(value);
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => setDraft(value), [value]);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  const inRange = (width: number): boolean =>
+    Number.isInteger(width) && width >= STACK_WIDTH.min && width <= STACK_WIDTH.max;
+  function save(width: number): void {
+    window.clearTimeout(timer.current);
+    if (width !== value) onSave(width);
+  }
+  return (
+    <span className={s.widthField}>
+      <Stepper
+        aria-label="모아두기 너비(px)"
+        size="compact"
+        min={STACK_WIDTH.min}
+        max={STACK_WIDTH.max}
+        step={10}
+        value={draft}
+        disabled={disabled}
+        decreaseLabel="너비 줄이기"
+        increaseLabel="너비 늘리기"
+        onChange={(event) => {
+          if (event.currentTarget.value === "") setDraft("");
+        }}
+        onValueChange={(width) => {
+          setDraft(width);
+          window.clearTimeout(timer.current);
+          if (inRange(width))
+            timer.current = window.setTimeout(() => save(width), SHAPE_SAVE_DELAY);
+        }}
+        onBlur={() => {
+          const typed = Math.round(Number(draft));
+          const width =
+            Number.isFinite(typed) && draft !== ""
+              ? Math.min(STACK_WIDTH.max, Math.max(STACK_WIDTH.min, typed))
+              : value;
+          setDraft(width);
+          save(width);
+        }}
+      />
+      <span aria-hidden="true">px</span>
+    </span>
+  );
+}
 
 export function WidgetEditor(): ReactElement {
   const { snapshot, error: widgetError } = useWidgets();
@@ -107,19 +171,10 @@ export function WidgetEditor(): ReactElement {
         </div>
         <div className={s.setting}>
           <span>너비</span>
-          <SegmentedControl
-            label="모아두기 너비"
-            size="compact"
+          <StackWidthField
             value={layout.width}
-            disabled={desktop.busy}
-            options={[
-              { value: "narrow", label: "좁게" },
-              { value: "normal", label: "보통" },
-              { value: "wide", label: "넓게" },
-            ]}
-            onValueChange={(width) =>
-              void desktop.configure({ width: width as DesktopLayout["width"] })
-            }
+            disabled={!desktop.state}
+            onSave={(width) => void desktop.configure({ width })}
           />
         </div>
         <div className={s.setting}>
@@ -201,51 +256,58 @@ export function WidgetEditor(): ReactElement {
                   선택 해제
                 </Button>
               </div>
-              {layout.mode === "stack" && (
-                <p className={s.hint}>모양과 색상은 자유 배치에서 바탕화면에 보여요.</p>
+              {layout.mode === "stack" ? (
+                <StackStyleEditor
+                  key={active.id}
+                  id={active.id}
+                  value={layout.stackStyles?.[active.id]}
+                  disabled={!desktop.state}
+                  onSave={(id, style) => void desktop.run("set_widget_stack_style", { id, style })}
+                />
+              ) : (
+                <Tabs
+                  label="위젯 꾸미기"
+                  value={page}
+                  onValueChange={(value) => setTab(value as "shape" | "appearance")}
+                  items={[
+                    {
+                      value: "shape",
+                      label: "모양",
+                      content: (
+                        <ShapeEditor
+                          key={active.id}
+                          widget={active}
+                          value={
+                            draft?.id === active.id
+                              ? draft.shape
+                              : (layout.shapes[active.id] ?? defaultShape(active))
+                          }
+                          disabled={!desktop.state}
+                          onChange={(shape) => changeShape(active.id, shape)}
+                          onReset={() => {
+                            window.clearTimeout(timer.current);
+                            pendingShape.current = null;
+                            setDraft(null);
+                            void desktop.run("set_widget_desktop_shape", {
+                              id: active.id,
+                              shape: null,
+                            });
+                          }}
+                        />
+                      ),
+                    },
+                    ...(hasAppearance
+                      ? [
+                          {
+                            value: "appearance",
+                            label: "색상·글자",
+                            content: <WidgetAppearance key={active.id} widget={active} compact />,
+                          },
+                        ]
+                      : []),
+                  ]}
+                />
               )}
-              <Tabs
-                label="위젯 꾸미기"
-                value={page}
-                onValueChange={(value) => setTab(value as "shape" | "appearance")}
-                items={[
-                  {
-                    value: "shape",
-                    label: "모양",
-                    content: (
-                      <ShapeEditor
-                        key={active.id}
-                        widget={active}
-                        value={
-                          draft?.id === active.id
-                            ? draft.shape
-                            : (layout.shapes[active.id] ?? defaultShape(active))
-                        }
-                        disabled={!desktop.state}
-                        onChange={(shape) => changeShape(active.id, shape)}
-                        onReset={() => {
-                          window.clearTimeout(timer.current);
-                          pendingShape.current = null;
-                          setDraft(null);
-                          void desktop.run("set_widget_desktop_shape", {
-                            id: active.id,
-                            shape: null,
-                          });
-                        }}
-                      />
-                    ),
-                  },
-                  ...(hasAppearance
-                    ? [
-                        {
-                          value: "appearance",
-                          label: "색상·글자",
-                          content: <WidgetAppearance key={active.id} widget={active} compact />,
-                        },
-                      ]
-                    : []),
-                ]}
-              />
               <details className={s.more}>
                 <summary>{layout.mode === "stack" ? "모아두기 설정" : "자유 배치 설정"}</summary>
                 {options}
@@ -256,7 +318,11 @@ export function WidgetEditor(): ReactElement {
               className={s.section}
               aria-label={layout.mode === "stack" ? "모아두기 설정" : "자유 배치 설정"}
             >
-              <p className={s.hint}>바탕화면의 위젯을 누르면 모양과 색상을 바꿀 수 있어요.</p>
+              <p className={s.hint}>
+                {layout.mode === "stack"
+                  ? "모아두기의 위젯을 누르면 색상과 모서리를 바꿀 수 있어요."
+                  : "바탕화면의 위젯을 누르면 모양과 색상을 바꿀 수 있어요."}
+              </p>
               {options}
             </section>
           )}

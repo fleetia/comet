@@ -127,3 +127,14 @@ export const footer = style({
   padding: "10px 16px 14px",
   borderTop: `1px solid ${tokens["color/divider"]}`,
 });
+export const colors = style({
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: 10,
+});
+globalStyle(`${colors} > div`, { minWidth: 0, margin: 0 });
+export const widthField = style({
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+});

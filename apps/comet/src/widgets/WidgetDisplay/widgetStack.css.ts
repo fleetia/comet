@@ -20,6 +20,9 @@ export const root = style({
   gap: 6,
   width: "max-content",
   padding: 12,
+  // Resolved here, above any row override, so stack styles can scale the theme fill.
+  vars: { "--comet-stack-theme-fill": tokens["color/glass-panel"] },
+  selectors: { '&[data-align="end"]': { alignItems: "flex-end" } },
 });
 export const toolbar = style({
   display: "flex",
@@ -45,6 +48,8 @@ export const grip = style({
   background: tokens["color/glass-border"],
 });
 export const capsuleDock = style({ width: "max-content" });
+export const bubbleSlot = style({ boxSizing: "border-box", maxWidth: "100%" });
+export const bubble = style({ position: "relative" });
 export const stack = style({
   display: "flex",
   flexDirection: "column",
@@ -102,3 +107,8 @@ export const error = style({
   color: tokens["color/danger"],
   fontSize: 12,
 });
+// Stack styles round the widget's own surface; the tail and floating actions keep their shape.
+globalStyle(
+  `${row}[data-styled] > :not([role="toolbar"]), ${bubble}[data-styled] > :not([aria-hidden]):not([role="toolbar"])`,
+  { borderRadius: "var(--comet-stack-radius)" },
+);

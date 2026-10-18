@@ -5,16 +5,35 @@ import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import desktopKinds from "../desktopKinds.json";
 
 export type DesktopShape = WidgetShape;
+/** Stack-only look of one widget. Freeform colors live with the widget's own appearance. */
+export type StackStyle = {
+  followTheme: boolean;
+  backgroundColor: string;
+  textColor: string;
+  /** Background opacity in percent, applied on top of the theme's own translucency. */
+  opacity: number;
+  radius: number;
+};
+export const STACK_WIDTH = { min: 280, max: 600, default: 370 } as const;
+export const STACK_RADIUS = { min: 0, max: 24, default: 20 } as const;
+export const DEFAULT_STACK_STYLE: StackStyle = {
+  followTheme: true,
+  backgroundColor: "#FFFFFF",
+  textColor: "#1F2340",
+  opacity: 100,
+  radius: STACK_RADIUS.default,
+};
 export type DesktopLayout = {
   mode: "freeform" | "stack";
   order: string[];
   anchor: "top-left" | "top-right" | "bottom-left" | "bottom-right";
-  width: "narrow" | "normal" | "wide";
+  /** Stack row width in logical pixels, STACK_WIDTH.min..max. */
+  width: number;
   overlapped: boolean;
   oneExpanded: boolean;
-  pinned: string[];
   positions: Record<string, { x: number; y: number }>;
   shapes: Record<string, DesktopShape>;
+  stackStyles?: Record<string, StackStyle>;
   snapToGrid: boolean;
   showGuides: boolean;
   stackPosition?: { x: number; y: number } | null;
@@ -23,15 +42,7 @@ export type DesktopLayout = {
 export type DesktopState = DesktopLayout & { revision: number; editing: boolean };
 export type LayoutSettings = Pick<
   DesktopLayout,
-  | "mode"
-  | "order"
-  | "anchor"
-  | "width"
-  | "overlapped"
-  | "oneExpanded"
-  | "pinned"
-  | "snapToGrid"
-  | "showGuides"
+  "mode" | "order" | "anchor" | "width" | "overlapped" | "oneExpanded" | "snapToGrid" | "showGuides"
 >;
 
 type DesktopKind = { width: number; height: number; appearance: boolean };
@@ -45,10 +56,9 @@ export const DEFAULT_LAYOUT: DesktopLayout = {
   mode: "stack",
   order: [],
   anchor: "top-right",
-  width: "normal",
+  width: STACK_WIDTH.default,
   overlapped: true,
   oneExpanded: true,
-  pinned: [],
   positions: {},
   shapes: {},
   snapToGrid: false,
@@ -63,7 +73,6 @@ export function layoutSettings(layout: DesktopLayout): LayoutSettings {
     width: layout.width,
     overlapped: layout.overlapped,
     oneExpanded: layout.oneExpanded,
-    pinned: layout.pinned ?? [],
     snapToGrid: layout.snapToGrid,
     showGuides: layout.showGuides !== false,
   };
