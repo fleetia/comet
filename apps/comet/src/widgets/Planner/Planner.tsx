@@ -49,7 +49,6 @@ import { PlannerPreparation } from "./PlannerPreparation";
 import { PlannerTemplates } from "./PlannerTemplates";
 import { TaskReadOnlyDetails, TodoEditor } from "./TodoEditor";
 import { envelopeTitle } from "./DiaryEnvelope";
-import type { DiaryState } from "./diaryTypes";
 import {
   clockLabel,
   dayDate,
@@ -68,6 +67,8 @@ import {
   repeatLabel,
   ruleOf,
 } from "./plannerData";
+import { usePlannerActions } from "./usePlannerActions";
+import { usePlannerTasks } from "./usePlannerTasks";
 import * as s from "./planner.css";
 
 const NAVIGATION = [
@@ -145,10 +146,16 @@ export function Planner({
   headerActionsTarget?: HTMLElement | null;
 } = {}): ReactElement {
   const { snapshot, error: loadError, reload } = useWidgets();
-  const [failure, setFailure] = useState<{ message: string; saving: boolean } | null>(null);
-  const [notice, setNotice] = useState("");
-  const [busy, setBusy] = useState(false);
-  const pending = useRef(false);
+  const widgets = snapshot?.widgets ?? [];
+  const enabled = (kind: string): WidgetView | undefined =>
+    widgets.find((w) => w.kind === kind && w.installed && w.enabled);
+  const todoInstalled = widgets.some((widget) => widget.kind === "todo" && widget.installed);
+  const todo = enabled("todo"),
+    calendar = enabled("calendar"),
+    preparation = enabled("preparation"),
+    timer = enabled("focus-timer");
+  const actions = usePlannerActions({ todo, reload });
+  const { failure, setFailure, notice, setNotice, busy, run, act } = actions;
   const [internalTab, setInternalTab] = useState(
     initialTab || new URLSearchParams(window.location.search).get("tab") || "today",
   );
@@ -181,12 +188,6 @@ export function Planner({
     if (onSelectedDayChange) onSelectedDayChange(value);
     else setInternalDay(value);
   }
-  const [completionUndo, setCompletionUndo] = useState<{
-    id: string;
-    title: string;
-    date: string;
-    frequency: boolean;
-  } | null>(null);
   const [period, setPeriod] = useState("week");
   const [planDay, setPlanDay] = useState(localDay());
   const [title, setTitle] = useState("");
@@ -226,14 +227,6 @@ export function Planner({
     report.current?.({ dirty, busy: busy || preparationBusy, blocking });
   }, [dirty, busy, preparationBusy, blocking]);
   useEffect(() => () => report.current?.({ dirty: false, busy: false, blocking: false }), []);
-  const widgets = snapshot?.widgets ?? [];
-  const enabled = (kind: string): WidgetView | undefined =>
-    widgets.find((w) => w.kind === kind && w.installed && w.enabled);
-  const todoInstalled = widgets.some((widget) => widget.kind === "todo" && widget.installed);
-  const todo = enabled("todo"),
-    calendar = enabled("calendar"),
-    preparation = enabled("preparation"),
-    timer = enabled("focus-timer");
   const items = rows(record(todo?.data).items),
     lists = rows(record(todo?.data).lists);
   const connections = rows(record(calendar?.data).connections);
@@ -268,6 +261,12 @@ export function Planner({
   ).length;
   const planScope = planScopeLabel(period, planDay);
   const lastSuccess = Math.max(0, ...connections.map((c) => number(c.lastSuccessAt)));
+  const { completionUndo, check, undoCompletion, moveTaskDate } = usePlannerTasks({
+    actions,
+    items,
+    recordingDay: tab === "plans" ? planDay : day,
+    reload,
+  });
 
   useEffect(() => {
     if (embedded || !isDesktop()) return;
@@ -314,50 +313,6 @@ export function Planner({
     };
   }, [embedded]);
 
-  async function run(operation: () => Promise<unknown>, saving = false): Promise<boolean> {
-    if (!isDesktop()) {
-      setFailure({
-        message: "미리보기에서는 저장하지 않아요. 실제 조작은 데스크톱 앱에서 할 수 있어요.",
-        saving: false,
-      });
-      return false;
-    }
-    if (pending.current) return false;
-    pending.current = true;
-    setBusy(true);
-    setFailure(null);
-    setNotice("");
-    try {
-      await operation();
-      return true;
-    } catch (cause: unknown) {
-      setFailure({ message: errorText(cause), saving });
-      reload();
-      return false;
-    } finally {
-      pending.current = false;
-      setBusy(false);
-    }
-  }
-  const act: ToolAction = (action, input = {}, target = todo) => {
-    if (!target) {
-      setFailure({ message: "이 도구를 먼저 설치하고 켜 주세요.", saving: false });
-      return Promise.resolve(false);
-    }
-    return run(
-      () =>
-        command("execute_widget", {
-          request: {
-            requestId: crypto.randomUUID(),
-            instanceId: target.id,
-            expectedRevision: target.revision,
-            action,
-            input,
-          },
-        }),
-      target.kind === "todo" && action === "add",
-    );
-  };
   function openSettings(kind = "calendar"): void {
     if (isDesktop()) void run(() => command("open_planner_settings", { kind }));
     else window.location.assign(`/?view=settings&section=widgets&preview=installed`);
@@ -385,58 +340,6 @@ export function Planner({
     return !busy && value?.widgetId === todo?.id
       ? items.find((item) => item.id === value?.id)
       : undefined;
-  }
-  async function moveTaskDate(item: DataRecord, toDate: string | null): Promise<boolean> {
-    if (typeof item.completedAt === "number") return false;
-    const fromDate = plannedDay(item);
-    if (fromDate === (toDate || "")) return true;
-    if (fromDate && toDate) {
-      return run(async () => {
-        const diary = await command<DiaryState>("get_diary");
-        await command("update_diary", {
-          expectedRevision: diary.revision,
-          action: "move-record",
-          input: { todoId: text(item.id), fromDate, toDate, title: text(item.title) },
-        });
-      });
-    }
-    return act("plan", { ids: [text(item.id)], date: toDate });
-  }
-  async function check(item: DataRecord): Promise<void> {
-    const id = text(item.id);
-    const date = tab === "plans" ? planDay : day;
-    const frequency = ruleOf(item).mode === "frequency";
-    const existing = rows(item.frequencyRecords).find((entry) => entry.date === date);
-    const completed = frequency ? !!existing : typeof item.completedAt === "number";
-    const ok = await act(
-      frequency
-        ? completed
-          ? "undo-frequency"
-          : "record-frequency"
-        : completed
-          ? "undo"
-          : "complete",
-      frequency ? (existing ? { id, recordId: text(existing.id) } : { id, date }) : { id },
-    );
-    if (ok) setCompletionUndo(completed ? null : { id, title: text(item.title), date, frequency });
-  }
-  async function undoCompletion(): Promise<void> {
-    if (!completionUndo) return;
-    const { id, date, frequency } = completionUndo;
-    const current = items.find((item) => item.id === id);
-    const entry = rows(current?.frequencyRecords).find((value) => value.date === date);
-    if (frequency && !entry) {
-      setFailure({ message: "최신 완료 기록을 불러온 뒤 다시 취소해 주세요.", saving: false });
-      reload();
-      return;
-    }
-    if (
-      await act(
-        frequency ? "undo-frequency" : "undo",
-        frequency ? { id, recordId: text(entry?.id) } : { id },
-      )
-    )
-      setCompletionUndo(null);
   }
   function taskCheck(item: DataRecord): ReactElement {
     const frequency = ruleOf(item).mode === "frequency";
