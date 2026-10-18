@@ -1,20 +1,7 @@
-import {
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type JSX,
-  type KeyboardEvent,
-} from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
 import { Button, IconButton, Select, TextArea } from "../../ui";
-import { SendIcon, CloseIcon, ArrowRightIcon, Icon } from "@comet/icon";
-import {
-  Balloon as NoticeBalloon,
-  Button as CometButton,
-  InputCapsule,
-  WaitingDots,
-} from "@comet/ui";
+import { SendIcon, CloseIcon, Icon } from "@comet/icon";
+import { Button as CometButton, InputCapsule, WaitingDots } from "@comet/ui";
 import type { ConversationView, Dispatch, Persona, Snapshot } from "../../types";
 import { command, errorText } from "../../hooks/useSnapshot";
 import { useBalloonSizing } from "../../hooks/useBalloonSizing";
@@ -37,6 +24,7 @@ import { useConversationSessions } from "./useConversationSessions";
 import { useBalloonNavigation, useEscapeClose } from "./useBalloonNavigation";
 import { useConversationSubmission, useDraftReplacement } from "./useConversationSubmission";
 import { useIdleClose } from "./useIdleClose";
+import { UpdateNoticeBalloon } from "./UpdateNoticeBalloon";
 import { SpeechText } from "./SpeechText";
 import { ConversationNotice } from "./ConversationNotice";
 import { DraftReplacementDialog } from "./DraftReplacementDialog";
@@ -90,7 +78,6 @@ export function Balloon({
   const guestPersona = snapshot.runtime.guestCharacterIds?.includes(persona) ? persona : undefined;
   const mode = snapshot.panel?.mode;
   const updateNotice = snapshot.playback?.source === "update" && (!mode || mode === "update");
-  const updateActionsId = useId();
   const conversation = snapshot.conversation;
   const sessionId = conversation?.session.id;
   const userId = snapshot.user?.id;
@@ -115,6 +102,8 @@ export function Balloon({
   const skin = spriteUrl(character, BALLOON_SPRITE);
   const { slice, ready: imageReady } = useImageSlice(skin);
   const skinned = skin && slice ? skinStyle(skin, slice) : undefined;
+  // Keep the skinned frame while its image loads so the balloon does not flash a default tail.
+  const skinFramed = Boolean(skin && (!imageReady || slice));
   const transparent = !preview;
   useLayoutEffect(() => {
     if (!transparent) return;
@@ -659,57 +648,22 @@ export function Balloon({
     const playbackId = snapshot.playback.id;
     const expanded = mode === "update";
     return (
-      <section ref={balloonRef} className={s.updateNoticeHost} aria-label="업데이트 알림">
-        <NoticeBalloon
-          aria-live="polite"
-          speakerName={name}
-          tail={skin && (!imageReady || slice) ? "none" : "left"}
-          content={expanded ? "actions" : "text"}
-          className={`${s.updateNoticeBalloon} ${skin && (!imageReady || slice) ? s.balloonSkinned : ""}`}
-          style={skinned}
-          speechTrigger={{
-            "aria-label": fullText,
-            "aria-expanded": expanded,
-            "aria-controls": expanded ? updateActionsId : undefined,
-            disabled: navigating,
-            style: { ...textStyle, lineHeight: 1.65, wordBreak: "keep-all" },
-            onClick: () => {
-              if (!expanded) void leave("expand_update_notice", { playbackId });
-            },
-          }}
-          actions={
-            expanded && (
-              <div id={updateActionsId} className={s.updateNoticeAction}>
-                <CometButton
-                  variant="link"
-                  trailingIcon={<ArrowRightIcon size={14} />}
-                  disabled={navigating}
-                  onClick={() => void leave("open_update_settings", { playbackId })}
-                >
-                  이동하기
-                </CometButton>
-              </div>
-            )
-          }
-        >
-          {speech}
-        </NoticeBalloon>
-        <IconButton
-          className={s.balloonClose}
-          size="compact"
-          variant="quiet"
-          label="업데이트 알림 닫기"
-          disabled={navigating}
-          onClick={() => void leave(closeCommand)}
-        >
-          <CloseIcon size={14} />
-        </IconButton>
-        {visibleError && (
-          <p className={s.error} role="alert">
-            {visibleError}
-          </p>
-        )}
-      </section>
+      <UpdateNoticeBalloon
+        hostRef={balloonRef}
+        speakerName={name}
+        skinFramed={skinFramed}
+        skinned={skinned}
+        textStyle={textStyle}
+        fullText={fullText}
+        expanded={expanded}
+        navigating={navigating}
+        visibleError={visibleError}
+        onExpand={() => void leave("expand_update_notice", { playbackId })}
+        onOpenSettings={() => void leave("open_update_settings", { playbackId })}
+        onClose={() => void leave(closeCommand)}
+      >
+        {speech}
+      </UpdateNoticeBalloon>
     );
   }
   if (!mode && snapshot.story) {
@@ -722,8 +676,8 @@ export function Balloon({
           speakerName={name}
           speaker={character?.definition.sourceId === "builtin-b" ? "nadir" : "byulkkori"}
           textStyle={textStyle}
-          skinned={Boolean(skin && (!imageReady || slice))}
-          balloonClassName={skin && (!imageReady || slice) ? s.balloonSkinned : undefined}
+          skinned={skinFramed}
+          balloonClassName={skinFramed ? s.balloonSkinned : undefined}
           balloonStyle={skinned}
           onClose={() => void leave(closeCommand)}
         />
@@ -741,7 +695,7 @@ export function Balloon({
       className={
         surface === "input"
           ? surfaceStyle.inputHost
-          : `${s.balloon} ${mode ? s.balloonPanel : ""} ${orbitMenu ? s.balloonOrbit : ""} ${preview && !orbitMenu ? s.balloonPreview : ""} ${!orbitMenu && skin && (!imageReady || slice) ? s.balloonSkinned : ""}`
+          : `${s.balloon} ${mode ? s.balloonPanel : ""} ${orbitMenu ? s.balloonOrbit : ""} ${preview && !orbitMenu ? s.balloonPreview : ""} ${!orbitMenu && skinFramed ? s.balloonSkinned : ""}`
       }
       style={surface === "input" || orbitMenu ? undefined : skinned}
       aria-label={mode ? labels[mode] : "말풍선"}
