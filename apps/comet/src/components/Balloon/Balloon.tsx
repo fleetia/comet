@@ -12,7 +12,6 @@ import { SendIcon, CloseIcon, ArrowRightIcon, Icon } from "@comet/icon";
 import {
   Balloon as NoticeBalloon,
   Button as CometButton,
-  Dialog,
   InputCapsule,
   WaitingDots,
 } from "@comet/ui";
@@ -38,6 +37,9 @@ import { useConversationSessions } from "./useConversationSessions";
 import { useBalloonNavigation, useEscapeClose } from "./useBalloonNavigation";
 import { useConversationSubmission, useDraftReplacement } from "./useConversationSubmission";
 import { useIdleClose } from "./useIdleClose";
+import { SpeechText } from "./SpeechText";
+import { ConversationNotice } from "./ConversationNotice";
+import { DraftReplacementDialog } from "./DraftReplacementDialog";
 import {
   useDraftAutosave,
   useDraftPersistence,
@@ -348,7 +350,6 @@ export function Balloon({
       (!mode || mode === "input" || mode === "update") &&
       (!snapshot.story || mode === "input"),
   );
-  const revealing = revealedText !== fullText;
   useDraftAutosave({
     draft,
     input,
@@ -435,76 +436,23 @@ export function Balloon({
     focus: "집중 중",
     update: "업데이트 알림",
   };
-  const speech = (
-    <span className={s.speechText}>
-      <span style={{ visibility: revealing ? "hidden" : undefined }}>{fullText}</span>
-      {revealing && (
-        <span className={s.speechReveal} aria-hidden="true">
-          {revealedText}
-        </span>
-      )}
-    </span>
-  );
+  const speech = <SpeechText fullText={fullText} revealedText={revealedText} />;
   const notice = (visibleError || canRetry || responding) && (
-    <div className={s.notice}>
-      {failedContent && (
-        <div aria-label="답변에 실패한 이번 입력">
-          <span className={s.historyName}>
-            이번 입력 · {hasCurrentReply ? "답변을 마치지 못했어요" : "답변을 받지 못했어요"}
-          </span>
-          <p className={s.failedInput}>{failedContent}</p>
-        </div>
-      )}
-      {canRetry && (
-        <p role="status">
-          {recovery?.reason === "cancelled"
-            ? "생성을 멈췄어요."
-            : "답변을 끝내지 못했어요. 보낸 내용은 남아 있어요."}
-        </p>
-      )}
-      {visibleError && (
-        <p ref={errorRef} className={s.error} role="alert">
-          {visibleError}
-        </p>
-      )}
-      <div className={s.row}>
-        {canRetry && (
-          <Button variant="secondary" disabled={pending || navigating} onClick={() => void retry()}>
-            다시 이야기하기
-          </Button>
-        )}
-        {canRetry && (
-          <>
-            <Button
-              variant="quiet"
-              size="compact"
-              disabled={pending || navigating}
-              onClick={editFailedInput}
-            >
-              입력 수정
-            </Button>
-            <Button
-              variant="quiet"
-              size="compact"
-              disabled={pending || navigating}
-              onClick={() => void openModelSettings()}
-            >
-              AI 연결 확인
-            </Button>
-          </>
-        )}
-        {responding && snapshot.activeRequest && (
-          <Button
-            variant="quiet"
-            size="compact"
-            disabled={pending}
-            onClick={() => void cancelGeneration()}
-          >
-            생성 멈추기
-          </Button>
-        )}
-      </div>
-    </div>
+    <ConversationNotice
+      failedContent={failedContent}
+      hasCurrentReply={hasCurrentReply}
+      canRetry={canRetry}
+      recoveryReason={recovery?.reason}
+      visibleError={visibleError}
+      errorRef={errorRef}
+      pending={pending}
+      navigating={navigating}
+      canCancel={Boolean(responding && snapshot.activeRequest)}
+      onRetry={() => void retry()}
+      onEditInput={editFailedInput}
+      onOpenModelSettings={() => void openModelSettings()}
+      onCancel={() => void cancelGeneration()}
+    />
   );
   const inputOptions = (
     <>
@@ -1134,29 +1082,11 @@ export function Balloon({
         <span className={s.playbackOrigin}>{responseOrigin(snapshot.playback.source)}</span>
       )}
       {mode !== "input" && mode !== "focus" && notice}
-      <Dialog
-        isOpen={Boolean(draftReplacement && canRetry)}
-        title="작성 중인 초안을 바꿀까요?"
-        variant="confirm"
-        closeLabel="초안 교체 닫기"
-        onOpenChange={(open) => {
-          if (!open) dismissDraftReplacement();
-        }}
-        footer={
-          <>
-            <Button variant="quiet" onClick={() => dismissDraftReplacement()}>
-              계속 작성
-            </Button>
-            <Button variant="primary" onClick={replaceDraft}>
-              초안 바꾸기
-            </Button>
-          </>
-        }
-      >
-        <p>
-          작성 중인 초안 대신 답변을 마치지 못한 입력을 가져와요. 이미 보낸 원문은 그대로 남아요.
-        </p>
-      </Dialog>
+      <DraftReplacementDialog
+        open={Boolean(draftReplacement && canRetry)}
+        onDismiss={dismissDraftReplacement}
+        onReplace={replaceDraft}
+      />
     </section>
   );
 }
