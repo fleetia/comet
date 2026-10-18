@@ -1,5 +1,17 @@
 # @comet/ui
 
+## 0.5.0
+
+### Minor Changes
+
+- 32b7413: 메모 참고 대화 제거에 맞춰 쓰지 않는 ReferenceMemo 컴포넌트와 스토리, Figma 매핑을 정리합니다.
+- 47c8da6: 모아두기 위젯의 접힌 말풍선과 호버 조작을 추가하고, 너비와 위젯별 꾸미기를 편집할 수 있게 했습니다.
+
+### Patch Changes
+
+- Updated dependencies [82b8ddd]
+  - @comet/token@0.1.1
+
 ## 0.4.0
 
 ### Minor Changes
