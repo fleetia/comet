@@ -1474,3 +1474,136 @@ it("keeps the draft before opening AI connection settings from recovery", async 
     ["open_settings"],
   ]);
 });
+
+it.each([
+  ["the same request", 42, "멈추기 실패"],
+  ["a newer request", 43, null],
+])("reports a late cancel failure only while %s is displayed", async (_label, epoch, shown) => {
+  let rejectCancel!: (reason: Error) => void;
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "cancel_generation")
+      await new Promise<void>((_resolve, reject) => {
+        rejectCancel = reject;
+      });
+  });
+  const snapshot = conversationSnapshot();
+  const generating = (requestEpoch: number): Snapshot => ({
+    ...snapshot,
+    activeRequest: { epoch: requestEpoch, sessionId: session.id, messageId: "input" },
+    runtime: { ...snapshot.runtime, phase: "generating" },
+  });
+  const view = render(<Balloon snapshot={generating(42)} />);
+  fireEvent.click(screen.getByRole("button", { name: "생성 멈추기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("cancel_generation", {
+      request: generating(42).activeRequest,
+    }),
+  );
+  view.rerender(<Balloon snapshot={generating(epoch)} />);
+  await act(async () => rejectCancel(new Error("멈추기 실패")));
+  expect(screen.queryByRole("alert")?.textContent ?? null).toBe(shown);
+  expect(screen.getByRole("button", { name: "생성 멈추기" })).toHaveProperty("disabled", false);
+});
+
+it.each(["save_conversation_draft", "set_settings_section"])(
+  "does not open AI settings for an older conversation after %s completes",
+  async (slowCommand) => {
+    let finish!: () => void;
+    vi.mocked(command).mockImplementation(async (name) => {
+      if (name === slowCommand)
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+    });
+    const snapshot = recoverySnapshot();
+    const view = render(<Balloon snapshot={snapshot} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "설정 전 초안" } });
+    fireEvent.click(screen.getByRole("button", { name: "AI 연결 확인" }));
+    await waitFor(() => expect(command).toHaveBeenCalledWith(slowCommand, expect.anything()));
+    view.rerender(
+      <Balloon
+        snapshot={{
+          ...snapshot,
+          conversation: {
+            session: { ...session, id: "next", draft: "새 초안" },
+            messages: [],
+            nextBefore: null,
+          },
+        }}
+      />,
+    );
+    await act(async () => finish());
+    expect(command).not.toHaveBeenCalledWith("open_settings");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("textbox")).toHaveProperty("value", "새 초안");
+  },
+);
+
+it("does not send an older conversation's text after its draft flush completes", async () => {
+  let finishSave!: () => void;
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "save_conversation_draft")
+      await new Promise<void>((resolve) => {
+        finishSave = resolve;
+      });
+  });
+  const snapshot = conversationSnapshot();
+  const view = render(<Balloon snapshot={snapshot} />);
+  const input = screen.getByRole("textbox");
+  fireEvent.change(input, { target: { value: "이전 대화에 보낼 말" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("save_conversation_draft", {
+      inputOwner: "desktop",
+      sessionId: session.id,
+      draft: "이전 대화에 보낼 말",
+    }),
+  );
+  view.rerender(
+    <Balloon
+      snapshot={{
+        ...snapshot,
+        conversation: {
+          session: { ...session, id: "next", draft: "새 초안" },
+          messages: [],
+          nextBefore: null,
+        },
+      }}
+    />,
+  );
+  await act(async () => finishSave());
+  expect(command).not.toHaveBeenCalledWith("send_message", expect.anything());
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "새 초안");
+  expect(screen.getByRole("button", { name: "보내기" })).toHaveProperty("disabled", false);
+});
+
+it("keeps Escape for the draft replacement confirmation before closing the conversation", async () => {
+  render(<Balloon snapshot={recoverySnapshot("바꾸지 않을 초안")} />);
+  fireEvent.click(screen.getByRole("button", { name: "입력 수정" }));
+  expect(screen.getByRole("dialog", { name: "작성 중인 초안을 바꿀까요?" })).toBeTruthy();
+  fireEvent.keyDown(window, { key: "Escape" });
+  await act(async () => {});
+  expect(command).not.toHaveBeenCalledWith("close_panel", expect.anything());
+  fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
+  fireEvent.keyDown(window, { key: "Escape" });
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("close_panel", { sessionId: session.id }),
+  );
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "바꾸지 않을 초안");
+});
+
+it("does not idle-close the conversation while IME composition is active", async () => {
+  vi.useFakeTimers();
+  render(<Balloon snapshot={conversationSnapshot()} />);
+  const input = screen.getByRole("textbox");
+  fireEvent.compositionStart(input);
+  await act(async () => {
+    vi.advanceTimersByTime(100_000);
+  });
+  expect(command).not.toHaveBeenCalledWith("close_panel", expect.anything());
+  fireEvent.compositionEnd(input);
+  await act(async () => {
+    vi.advanceTimersByTime(1_000);
+  });
+  expect(command).toHaveBeenCalledWith("close_panel", { sessionId: session.id, idle: true });
+});
