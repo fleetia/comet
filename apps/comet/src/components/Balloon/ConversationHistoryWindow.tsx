@@ -47,6 +47,15 @@ function isFailedSubmission(snapshot: Snapshot, messageId: string): boolean {
   );
 }
 
+function matchesFilter(session: ConversationSession, filter: string): boolean {
+  return (
+    filter === "all" ||
+    (filter === "together"
+      ? session.participants.length > 1
+      : session.participants.includes(filter))
+  );
+}
+
 function nameFor(snapshot: Snapshot, id: string): string {
   return characterById(snapshot, id)?.definition.name ?? id;
 }
@@ -200,6 +209,8 @@ export function ConversationHistoryWindow({
   const [selected, setSelected] = useState<ConversationSession | null>(null);
   const [page, setPage] = useState<ConversationMessages | null>(null);
   const [filter, setFilter] = useState(initialPersona ?? "all");
+  const filterScope = useRef(filter);
+  const filterRequest = useRef(0);
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
   const [revision, setRevision] = useState(0);
@@ -270,6 +281,20 @@ export function ConversationHistoryWindow({
     clearTimeout(saveTimer.current);
     await persistDraft();
   }
+  function showSelection(session: ConversationSession | null): void {
+    if (selectedRef.current?.id !== session?.id) {
+      setPage(null);
+      setSaveRequest(null);
+      setError(null);
+    }
+    selectedRef.current = session;
+    setSelected(session);
+    const owned = Boolean(
+      session && owner.current === session.id && draft.current?.sessionId === session.id,
+    );
+    setEditing(owned ? owner.current : null);
+    setInput(owned ? (draft.current?.value ?? session?.draft ?? "") : (session?.draft ?? ""));
+  }
   function adopt(view: ConversationView): void {
     owner.current = view.session.id;
     draft.current = {
@@ -292,7 +317,9 @@ export function ConversationHistoryWindow({
   async function select(session: ConversationSession, resumeEnded = false): Promise<void> {
     if (
       operation.current ||
-      (selectedRef.current?.id === session.id && owner.current === session.id)
+      (selectedRef.current?.id === session.id &&
+        owner.current === session.id &&
+        draft.current?.sessionId === session.id)
     )
       return;
     operation.current = true;
@@ -358,12 +385,39 @@ export function ConversationHistoryWindow({
   });
   filterRef.current = async (persona: string): Promise<void> => {
     if (operation.current) return;
+    const request = ++filterRequest.current;
+    const userId = current.current.user?.id;
+    const previousOwner = owner.current;
+    const value = draft.current;
+    const text = value?.value;
     try {
       await flushDraft();
+      if (
+        !alive.current ||
+        operation.current ||
+        request !== filterRequest.current ||
+        userId !== current.current.user?.id ||
+        previousOwner !== owner.current ||
+        value !== draft.current ||
+        text !== draft.current?.value
+      )
+        return;
+      filterScope.current = persona;
       setFilter(persona);
+      if (!selectedRef.current || !matchesFilter(selectedRef.current, persona)) {
+        showSelection(sessions.find((session) => matchesFilter(session, persona)) ?? null);
+      }
       setRevision((value) => value + 1);
     } catch (cause) {
-      setError(errorText(cause));
+      if (
+        alive.current &&
+        !operation.current &&
+        request === filterRequest.current &&
+        userId === current.current.user?.id &&
+        previousOwner === owner.current &&
+        value === draft.current
+      )
+        setError(errorText(cause));
     }
   };
   useEffect(() => {
@@ -429,21 +483,14 @@ export function ConversationHistoryWindow({
       .then((value) => {
         if (!active) return;
         setSessions(value);
-        const refreshed = value.find((session) => session.id === selectedRef.current?.id);
-        if (refreshed) {
-          setSelected(refreshed);
-          if (!owner.current) setInput(refreshed.draft);
-        }
-        if (!selectedRef.current) {
-          const first =
-            value.find(
-              (session) => !initialPersona || session.participants.includes(initialPersona),
-            ) ?? value[0];
-          if (first) {
-            selectedRef.current = first;
-            setSelected(first);
-            setInput(first.draft);
-          }
+        const previous = selectedRef.current;
+        if (previous && matchesFilter(previous, filterScope.current)) {
+          const refreshed = value.find((session) => session.id === previous.id);
+          if (refreshed) showSelection(refreshed);
+        } else {
+          showSelection(
+            value.find((session) => matchesFilter(session, filterScope.current)) ?? null,
+          );
         }
       })
       .catch((cause: unknown) => {
@@ -546,8 +593,12 @@ export function ConversationHistoryWindow({
       draft.current?.sessionId === submitted.sessionId &&
       !draft.current.value
     ) {
-      draft.current.value = submitted.content;
-      setInput(submitted.content);
+      const value = draft.current;
+      value.value = submitted.content;
+      if (selectedRef.current?.id === submitted.sessionId) setInput(submitted.content);
+      void persistDraft(value).catch((cause: unknown) => {
+        if (alive.current && draft.current === value) setError(errorText(cause));
+      });
     }
   }, [snapshot]);
   useEffect(() => {
@@ -823,13 +874,7 @@ export function ConversationHistoryWindow({
       ...sessions.flatMap((session) => session.participants),
     ]),
   );
-  const visibleSessions = sessions.filter(
-    (session) =>
-      filter === "all" ||
-      (filter === "together"
-        ? session.participants.length > 1
-        : session.participants.includes(filter)),
-  );
+  const visibleSessions = sessions.filter((session) => matchesFilter(session, filter));
   const participantName = selected ? sessionName(snapshot, selected) : "";
   const started = page?.timelineEvents?.find((event) => event.kind === "started");
   const receiptsByMessage = new Map<string, ConversationMemoryReceipt[]>();
