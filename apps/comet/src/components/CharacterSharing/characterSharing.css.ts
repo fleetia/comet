@@ -91,8 +91,9 @@ export const contentRow = style({
   borderBottom: `1px solid ${tokens["color/divider"]}`,
   boxSizing: "border-box",
   fontSize: 13,
-  selectors: { "&:last-child": { borderBottom: 0 } },
+  selectors: { "&:last-child": { borderBottom: 0 }, "&[data-absent]": { opacity: 0.55 } },
 });
+export const includeChoice = style({ marginLeft: "auto", flexShrink: 0 });
 export const icon = style({
   width: 30,
   height: 30,

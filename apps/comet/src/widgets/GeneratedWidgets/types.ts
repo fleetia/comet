@@ -29,6 +29,8 @@ export type GeneratedWidget = {
     installedAt: number;
   } | null;
   updatedAt: number | null;
+  /** Definition replaced by the latest AI fix; present only when there is one to go back to. */
+  previousDefinition?: WidgetDefinition;
 };
 export type GenerationEligibility = {
   allowed: boolean;

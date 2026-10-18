@@ -81,3 +81,13 @@ it("blocks duplicate consent saves while the native command is pending", () => {
   expect(command).toHaveBeenCalledExactlyOnceWith("set_analytics_consent", { enabled: true });
   expect(checkbox).toHaveProperty("disabled", true);
 });
+
+it("opens the data folder in the system file manager and shows a failure in place", async () => {
+  render(<GeneralSettings {...props()} />);
+  const reveal = screen.getByRole("button", { name: /에서 보기|폴더 열기/ });
+  fireEvent.click(reveal);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("reveal_data_folder"));
+  vi.mocked(command).mockRejectedValueOnce(new Error("데이터 폴더를 열지 못했어요."));
+  fireEvent.click(reveal);
+  expect((await screen.findByRole("alert")).textContent).toBe("데이터 폴더를 열지 못했어요.");
+});

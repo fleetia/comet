@@ -860,6 +860,24 @@ pub(crate) fn set_generated_widget_enabled(
 }
 
 #[tauri::command]
+pub(crate) fn restore_previous_generated_widget(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+    expected_revision: i64,
+) -> Result<()> {
+    crate::widgets::commands::change(&state, |db| {
+        let widget = generated::restore_previous(db, &id, expected_revision)?;
+        cancel_bound(&state, db, Some(&id), false, None)?;
+        observe_generated_state(&state, db, &widget)?;
+        Ok(widget)
+    })?;
+    crate::widgets::commands::cancel_widget_scene(&app, &state)?;
+    publish(&app);
+    Ok(())
+}
+
+#[tauri::command]
 pub(crate) fn remove_generated_widget(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
