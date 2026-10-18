@@ -6,6 +6,13 @@ export type WidgetDefinition = {
   description: string;
   source: string;
   initialState: WidgetValue;
+  actions?: WidgetActionDefinition[];
+};
+export type WidgetActionDefinition = {
+  id: string;
+  description: string;
+  operation: "read" | "create" | "update" | "delete" | "control";
+  inputSchema: WidgetValue;
 };
 export type GeneratedWidget = {
   id: string;

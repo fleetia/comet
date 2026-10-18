@@ -9,6 +9,33 @@ import { runWidget, type WidgetNode } from "./sandbox";
 import * as s from "./generatedWidgets.css";
 import * as common from "../../common.css";
 
+type GeneratedActionError = { message: string; interpreterFailure?: GeneratedWidget };
+
+function isGeneratedActionError(cause: unknown): cause is GeneratedActionError {
+  if (
+    !cause ||
+    typeof cause !== "object" ||
+    !("message" in cause) ||
+    typeof cause.message !== "string"
+  ) {
+    return false;
+  }
+  if (!("interpreterFailure" in cause)) {
+    return true;
+  }
+  const failed = cause.interpreterFailure;
+  return (
+    !!failed &&
+    typeof failed === "object" &&
+    "id" in failed &&
+    typeof failed.id === "string" &&
+    "revision" in failed &&
+    typeof failed.revision === "number" &&
+    "status" in failed &&
+    failed.status === "error"
+  );
+}
+
 export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
   const [widget, setWidget] = useState<GeneratedWidget | null>(null);
   const [view, setView] = useState<WidgetNode[]>([]);
@@ -84,6 +111,31 @@ export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
     let interpreterFailed = false;
     let failed = false;
     try {
+      if (
+        userAction &&
+        action &&
+        typeof action === "object" &&
+        !Array.isArray(action) &&
+        typeof action.type === "string" &&
+        before.definition.actions?.some((definition) => definition.id === action.type)
+      ) {
+        const { type, ...input } = action;
+        const result = await command<{ widget: GeneratedWidget; view: WidgetNode[] }>(
+          "execute_generated_ui_action",
+          {
+            id,
+            expectedRevision: before.revision,
+            requestId: crypto.randomUUID(),
+            actionId: type,
+            input,
+          },
+        );
+        if (mounted.current && !abort.signal.aborted) {
+          accept(result.widget);
+          setView(result.view);
+        }
+        return;
+      }
       const result = await runWidget(
         before.definition.source,
         before.state,
@@ -130,16 +182,29 @@ export function GeneratedWidgetTool({ id }: { id: string }): ReactElement {
       }
       failed = true;
       pendingActions.current = [];
-      const message = errorText(cause);
+      const hostError = isGeneratedActionError(cause) ? cause : null;
+      const reportedFailure =
+        hostError?.interpreterFailure?.id === id &&
+        hostError.interpreterFailure.revision > before.revision
+          ? hostError.interpreterFailure
+          : null;
+      const message = hostError?.message ?? errorText(cause);
       setError(message);
       // Only interpreter failures qualify for AI repair. Storage conflicts never regenerate code.
-      if (interpreterFailed && current.current?.revision === before.revision) {
+      if (
+        (interpreterFailed || reportedFailure !== null) &&
+        current.current?.id === before.id &&
+        (current.current.revision === before.revision ||
+          (reportedFailure !== null && current.current.revision === reportedFailure.revision))
+      ) {
         try {
-          const failed = await command<GeneratedWidget>("report_generated_result", {
-            id,
-            expectedRevision: before.revision,
-            error: message,
-          });
+          const failed =
+            reportedFailure ??
+            (await command<GeneratedWidget>("report_generated_result", {
+              id,
+              expectedRevision: before.revision,
+              error: message,
+            }));
           if (!mounted.current || abort.signal.aborted) {
             return;
           }

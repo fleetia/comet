@@ -99,6 +99,18 @@ export const Result: Story = {
     ),
   },
 };
+export const WidgetClarification: Story = {
+  name: "위젯 기록 · 빠진 내용 묻기",
+  args: { children: "컵라면은 얼마였어?" },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "필요한 내용이 빠지면 캐릭터가 짧게 묻습니다. 사용자는 기존 입력칸에서 이어서 답하며, 저장되기 전에는 실행 결과를 표시하지 않습니다.",
+      },
+    },
+  },
+};
 export const Typing: Story = {
   name: "입력 중",
   args: { speaker: "nadir", content: "typing", tail: "center", children: "같은 음절인데" },

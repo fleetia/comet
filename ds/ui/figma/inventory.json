@@ -2184,6 +2184,13 @@
       "variantCount": 0,
       "kind": "component",
       "exports": ["FocusRecordRow"]
+    },
+    {
+      "id": "690:1895",
+      "name": "Conversation/Action Receipt",
+      "variantCount": 4,
+      "kind": "component",
+      "exports": ["ActionReceipt"]
     }
   ],
   "unsynced": [

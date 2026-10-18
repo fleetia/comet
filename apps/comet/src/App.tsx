@@ -9,6 +9,7 @@ import { SettingsPanel } from "./components/SettingsPanel/SettingsPanel";
 import { WidgetTool } from "./widgets/WidgetTool/WidgetTool";
 import { WidgetWorkshop } from "./widgets/GeneratedWidgets/WidgetWorkshop";
 import { GeneratedWidgetTool } from "./widgets/GeneratedWidgets/GeneratedWidgetTool";
+import { GeneratedWidgetExecutor } from "./widgets/GeneratedWidgets/GeneratedWidgetExecutor";
 import { WidgetStateRules } from "./widgets/GeneratedWidgets/WidgetStateRules";
 import { Launcher } from "./components/Launcher/Launcher";
 import { Diary } from "./widgets/Planner/Diary";
@@ -24,6 +25,7 @@ export function App(): JSX.Element {
   const { snapshot, error, reload } = useSnapshot();
   const query = new URLSearchParams(window.location.search);
   const view = query.get("view");
+  if (view === "generated-widget-executor") return <GeneratedWidgetExecutor token={query.get("token") ?? ""} />;
   if (view === "widget-workshop") return <WidgetWorkshop />;
   if (view === "generated-widget") return <GeneratedWidgetTool id={query.get("id") ?? ""} />;
   if (view === "widget-state-rules") return <WidgetStateRules id={query.get("id") ?? ""} />;

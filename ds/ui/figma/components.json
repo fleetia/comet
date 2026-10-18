@@ -244,6 +244,15 @@
           "name": "Input/Segment"
         }
       ]
+    },
+    {
+      "export": "ActionReceipt",
+      "sources": [
+        {
+          "id": "690:1895",
+          "name": "Conversation/Action Receipt"
+        }
+      ]
     }
   ]
 }

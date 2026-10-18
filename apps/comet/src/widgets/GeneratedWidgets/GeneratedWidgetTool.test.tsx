@@ -101,6 +101,107 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it("uses the host executor for declared UI actions and retains the reducer result", async () => {
+  const original: GeneratedWidget = {
+    ...READY,
+    definition: {
+      ...READY.definition,
+      actions: [
+        { id: "increment", description: "한 단 늘리기", operation: "update", inputSchema: {} },
+      ],
+    },
+  };
+  const saved: GeneratedWidget = { ...original, state: { count: 1 }, revision: 2 };
+  vi.mocked(command).mockImplementation((name) =>
+    Promise.resolve(
+      name === "execute_generated_ui_action" ? { widget: saved, view: result(1).view } : original,
+    ),
+  );
+  render(<GeneratedWidgetTool id="counter" />);
+  await userEvent.click(await screen.findByRole("button", { name: "한 단 더" }));
+  expect(await screen.findByText("1")).toBeTruthy();
+  expect(command).toHaveBeenCalledWith("execute_generated_ui_action", {
+    id: "counter",
+    expectedRevision: 1,
+    requestId: expect.any(String),
+    actionId: "increment",
+    input: {},
+  });
+  expect(vi.mocked(runWidget).mock.calls.every((call) => call[2] === null)).toBe(true);
+  expect(writes()).toEqual([]);
+});
+
+it.each([false, true])(
+  "repairs a host interpreter failure once at its saved revision (publish first: %s)",
+  async (publishFirst) => {
+    const original: GeneratedWidget = {
+      ...READY,
+      definition: {
+        ...READY.definition,
+        actions: [
+          { id: "increment", description: "한 단 늘리기", operation: "update", inputSchema: {} },
+        ],
+      },
+    };
+    const failed: GeneratedWidget = {
+      ...original,
+      status: "error",
+      error: "reducer failed",
+      revision: 2,
+    };
+    const repaired: GeneratedWidget = {
+      ...original,
+      revision: 3,
+      definition: { ...original.definition, source: "repaired source" },
+    };
+    let stored = original;
+    vi.mocked(command).mockImplementation((name) => {
+      if (name === "execute_generated_ui_action") {
+        stored = failed;
+        if (publishFirst) changed();
+        return Promise.reject({ message: "reducer failed", interpreterFailure: failed });
+      }
+      if (name === "generate_widget") stored = repaired;
+      return Promise.resolve(stored);
+    });
+    render(<GeneratedWidgetTool id="counter" />);
+    await userEvent.click(await screen.findByRole("button", { name: "한 단 더" }));
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("generate_widget", {
+        id: "counter",
+        expectedRevision: 2,
+        request: "기존 기능과 사용자 상태를 유지하며 실행 오류를 수정해 주세요: reducer failed",
+      }),
+    );
+    expect(writes()).toEqual(["generate_widget"]);
+    expect(screen.queryByRole("alert")).toBeNull();
+  },
+);
+
+it.each(["취소된 요청", "위젯 revision 충돌", "저장 실패"])(
+  "shows the host message without repairing code for %s",
+  async (message) => {
+    const original: GeneratedWidget = {
+      ...READY,
+      definition: {
+        ...READY.definition,
+        actions: [
+          { id: "increment", description: "한 단 늘리기", operation: "update", inputSchema: {} },
+        ],
+      },
+    };
+    vi.mocked(command).mockImplementation((name) =>
+      name === "execute_generated_ui_action"
+        ? Promise.reject({ message })
+        : Promise.resolve(original),
+    );
+    render(<GeneratedWidgetTool id="counter" />);
+    await userEvent.click(await screen.findByRole("button", { name: "한 단 더" }));
+    expect((await screen.findByRole("alert")).textContent).toBe(message);
+    expect(writes()).toEqual([]);
+  },
+);
+
 it("waits for visibility before rendering or ticking and renders immediately on return", async () => {
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
   visibility(true);

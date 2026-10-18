@@ -281,6 +281,11 @@ export function OrganizerRecords(): JSX.Element {
                   캐릭터에게 직접 요청해 저장한 기록이에요. 결과와 원문을 열어 확인할 수 있어요.
                 </p>
               )}
+              {selectedAction?.undoSupported === false && !selectedAction.undone && (
+                <p id="organizer-undo-reason" className={s.caption}>
+                  {selectedAction.undoReason?.trim() || "이 동작은 되돌릴 수 없어요."}
+                </p>
+              )}
               <div className={s.actions}>
                 {selectedAction && (
                   <Button
@@ -312,7 +317,13 @@ export function OrganizerRecords(): JSX.Element {
                     pending ||
                     !isDesktop() ||
                     selected.state === "undone" ||
-                    selected.state === "conflict"
+                    selected.state === "conflict" ||
+                    selectedAction?.undoSupported === false
+                  }
+                  aria-describedby={
+                    selectedAction?.undoSupported === false && !selectedAction.undone
+                      ? "organizer-undo-reason"
+                      : undefined
                   }
                   onClick={() =>
                     void run("organizer_undo", {

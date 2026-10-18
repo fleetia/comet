@@ -61,6 +61,8 @@ export type OrganizerAction = {
   targetId?: string;
   createdAt: number;
   undone: boolean;
+  undoSupported?: boolean;
+  undoReason?: string | null;
   error?: string | null;
 };
 export type OrganizerSearchHit = {

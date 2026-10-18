@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 
+pub(crate) mod actions;
+pub(crate) mod execution;
 pub(crate) mod rule_editor;
 
 type Result<T> = std::result::Result<T, String>;
@@ -22,6 +24,8 @@ pub struct Definition {
     pub description: String,
     pub source: String,
     pub initial_state: Value,
+    #[serde(default)]
+    pub actions: Vec<actions::ActionDefinition>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -165,18 +169,83 @@ pub fn validate_definition(definition: &Definition) -> Result<()> {
     {
         return Err("source must contain complete JavaScript code: function render(s,now){...} function reduce(s,a,now){...}. A filename or URL is not code.".into());
     }
-    validate_state(&definition.initial_state)
+    validate_state(&definition.initial_state)?;
+    actions::validate_actions(&definition.actions)
+}
+
+pub fn validate_generated_definition(definition: &Definition) -> Result<()> {
+    validate_definition(definition)?;
+    if definition.actions.is_empty() {
+        return Err("새로 만들거나 AI로 수정한 위젯에는 대화 동작이 하나 이상 필요해요. 조회 전용 위젯은 상태를 바꾸지 않는 read 동작을 추가해 주세요.".into());
+    }
+    Ok(())
+}
+
+// Model output uses JSON strings for dynamic objects; installed/shared definitions stay objects.
+pub fn parse_generated_definition(value: Value) -> Result<Definition> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct GeneratedAction {
+        id: String,
+        description: String,
+        operation: String,
+        input_schema_json: String,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct GeneratedDefinition {
+        name: String,
+        description: String,
+        source: String,
+        initial_state_json: String,
+        actions: Vec<GeneratedAction>,
+    }
+    let generated: GeneratedDefinition = serde_json::from_value(value).map_err(err)?;
+    if generated.initial_state_json.len() > MAX_STATE_BYTES {
+        return Err("위젯 상태는 64KiB 이하의 JSON 객체여야 해요.".into());
+    }
+    let actions = generated
+        .actions
+        .into_iter()
+        .map(|action| {
+            Ok(actions::ActionDefinition {
+                id: action.id,
+                description: action.description,
+                operation: action.operation,
+                input_schema: serde_json::from_str(&action.input_schema_json).map_err(err)?,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let definition = Definition {
+        name: generated.name,
+        description: generated.description,
+        source: generated.source,
+        initial_state: serde_json::from_str(&generated.initial_state_json).map_err(err)?,
+        actions,
+    };
+    validate_generated_definition(&definition)?;
+    Ok(definition)
 }
 
 pub fn definition_schema() -> Value {
     json!({
         "type": "object", "additionalProperties": false,
-        "required": ["name", "description", "source", "initialState"],
+        "required": ["name", "description", "source", "initialStateJson", "actions"],
         "properties": {
             "name": {"type": "string", "minLength": 1, "maxLength": 80},
             "description": {"type": "string", "maxLength": 500},
             "source": {"type": "string", "minLength": 1, "maxLength": MAX_SOURCE_BYTES, "description":"Complete inline JavaScript with function render(s,now) and function reduce(s,a,now). Never a filename or URL."},
-            "initialState": {"type": "object", "additionalProperties": true}
+            "initialStateJson": {"type": "string", "maxLength":MAX_STATE_BYTES,"description":"A JSON object encoded as a string, e.g. {\"count\":0}."},
+            "actions": {"type":"array","minItems":1,"maxItems":16,"items":{
+                "type":"object","additionalProperties":false,
+                "required":["id","description","operation","inputSchemaJson"],
+                "properties":{
+                    "id":{"type":"string","minLength":1,"maxLength":64},
+                    "description":{"type":"string","minLength":1,"maxLength":300},
+                    "operation":{"type":"string","enum":["read","create","update","delete","control"]},
+                    "inputSchemaJson":{"type":"string","maxLength":8192,"description":"The action input JSON Schema encoded as a string. Root type object, properties, required, additionalProperties false."}
+                }
+            }}
         }
     })
 }
@@ -213,6 +282,7 @@ UPDATE widget_state_rules SET last_match=NULL;",
             .map_err(err)?;
         }
     }
+    actions::initialize(&tx)?;
     tx.commit().map_err(err)
 }
 
@@ -996,6 +1066,7 @@ mod tests {
             description: "오늘 마신 물을 셉니다.".into(),
             source: "({ render: state => ({ text: String(state.count) }) })".into(),
             initial_state: json!({"count":0,"note":"처음"}),
+            actions: vec![],
         }
     }
 
@@ -1204,6 +1275,105 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("Complete inline JavaScript"));
+    }
+
+    fn generated_wire_value() -> Value {
+        json!({
+            "name":"독서 기록","description":"읽은 책을 기록해요",
+            "source":"function render(s){return []} function reduce(s){return s}",
+            "initialStateJson":json!({"books":[],"note":"  원문\n그대로  "}).to_string(),
+            "actions":[{"id":"read","description":"기록 조회","operation":"read",
+                "inputSchemaJson":json!({"type":"object","properties":{},"required":[],"additionalProperties":false}).to_string()}]
+        })
+    }
+
+    #[test]
+    fn model_json_strings_preserve_shared_definition_objects_and_user_text() {
+        let parsed = parse_generated_definition(generated_wire_value()).unwrap();
+        assert_eq!(
+            parsed.initial_state,
+            json!({"books":[],"note":"  원문\n그대로  "})
+        );
+        assert_eq!(
+            parsed.actions[0].input_schema,
+            json!({"type":"object","properties":{},"required":[],"additionalProperties":false})
+        );
+        let shared = serde_json::to_value(&parsed).unwrap();
+        assert!(shared["initialState"].is_object());
+        assert!(shared["actions"][0]["inputSchema"].is_object());
+        assert!(shared.get("initialStateJson").is_none());
+        assert!(shared["actions"][0].get("inputSchemaJson").is_none());
+        let imported: Definition = serde_json::from_value(shared).unwrap();
+        validate_definition(&imported).unwrap();
+        assert_eq!(imported, parsed);
+    }
+
+    #[test]
+    fn model_wire_rejects_empty_null_and_invalid_dynamic_objects() {
+        for state in [
+            Value::Null,
+            json!({}),
+            json!(""),
+            json!("null"),
+            json!("[]"),
+            json!("{bad}"),
+            json!("{\"constructor\":0}"),
+        ] {
+            let mut value = generated_wire_value();
+            value["initialStateJson"] = state;
+            assert!(parse_generated_definition(value).is_err());
+        }
+        for actions in [Value::Null, json!([]), json!({})] {
+            let mut value = generated_wire_value();
+            value["actions"] = actions;
+            assert!(parse_generated_definition(value).is_err());
+        }
+        for schema in [Value::Null, json!({}), json!(""), json!("null"), json!("[]"), json!("{}"), json!("{bad}"), json!("{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":true}")] {
+            let mut value = generated_wire_value();
+            value["actions"][0]["inputSchemaJson"] = schema;
+            assert!(parse_generated_definition(value).is_err());
+        }
+        let mut value = generated_wire_value();
+        value["actions"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("inputSchemaJson");
+        assert!(parse_generated_definition(value).is_err());
+        for schema in [
+            json!({"type":"object","properties":{},"required":null,"additionalProperties":false}),
+            json!({"type":"object","properties":null,"required":[],"additionalProperties":false}),
+            json!({"type":"object","properties":{"choice":{"type":"string","enum":[]}},"required":[],"additionalProperties":false}),
+            json!({"type":"object","properties":{"choice":{"type":"string","enum":null}},"required":[],"additionalProperties":false}),
+        ] {
+            let mut value = generated_wire_value();
+            value["actions"][0]["inputSchemaJson"] = json!(schema.to_string());
+            assert!(parse_generated_definition(value).is_err());
+        }
+    }
+
+    #[test]
+    fn model_output_schema_uses_only_closed_objects_with_all_properties_required() {
+        fn check(schema: &Value) {
+            if schema["type"] == "object" {
+                assert_eq!(schema["additionalProperties"], false);
+                let properties = schema["properties"].as_object().unwrap();
+                let required = schema["required"].as_array().unwrap();
+                assert_eq!(required.len(), properties.len());
+                for (key, property) in properties {
+                    assert!(required.contains(&json!(key)));
+                    check(property);
+                }
+            } else if schema["type"] == "array" {
+                check(&schema["items"]);
+            }
+        }
+        let schema = definition_schema();
+        check(&schema);
+        assert_eq!(schema["properties"]["initialStateJson"]["type"], "string");
+        assert_eq!(
+            schema["properties"]["actions"]["items"]["properties"]["inputSchemaJson"]["type"],
+            "string"
+        );
     }
 
     #[test]
