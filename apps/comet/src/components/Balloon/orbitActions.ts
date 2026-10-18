@@ -4,25 +4,21 @@ type Context = {
   persona: Persona;
   character: InstalledCharacter | undefined;
   sleeping: boolean;
-  resumableWork: ConversationSession | undefined;
   paused: ConversationSession | undefined;
   perform: (name: string, args?: Record<string, unknown>) => Promise<boolean>;
-  chooseResumeNote: () => void;
 };
 
-/** Routes a character menu action to its command. Resuming prefers linked work, then a paused chat. */
+/** Routes a character menu action to its command. Resuming opens the paused chat, else past chats. */
 export function runOrbitAction(
   action: string,
-  { persona, character, sleeping, resumableWork, paused, perform, chooseResumeNote }: Context,
+  { persona, character, sleeping, paused, perform }: Context,
 ): boolean | Promise<boolean> {
   switch (action) {
     case "chat":
       return perform("open_panel", { persona, mode: "input" });
     case "resume":
-      if (resumableWork) return perform("resume_chat", { sessionId: resumableWork.id });
-      else if (paused) return perform("resume_chat", { sessionId: paused.id });
-      else chooseResumeNote();
-      return true;
+      if (paused) return perform("resume_chat", { sessionId: paused.id });
+      return perform("open_panel", { persona, mode: "history" });
     case "together":
       return perform("talk_now");
     case "history":

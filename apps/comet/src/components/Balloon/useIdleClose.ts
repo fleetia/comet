@@ -15,8 +15,6 @@ export function useIdleClose({
   logOpen,
   latestUserOpen,
   moreOpen,
-  choosingResumeNote,
-  contextBusy,
   saveRequest,
   responding,
   playing,
@@ -32,8 +30,6 @@ export function useIdleClose({
   logOpen: boolean;
   latestUserOpen: boolean;
   moreOpen: boolean;
-  choosingResumeNote: boolean;
-  contextBusy: boolean;
   saveRequest: ConversationSaveRequest | null;
   responding: boolean;
   playing: boolean;
@@ -52,8 +48,6 @@ export function useIdleClose({
     logOpen ||
     latestUserOpen ||
     moreOpen ||
-    choosingResumeNote ||
-    contextBusy ||
     Boolean(saveRequest) ||
     input.length > 0;
   useEffect(() => {
@@ -65,7 +59,6 @@ export function useIdleClose({
       logOpen ||
       latestUserOpen ||
       moreOpen ||
-      contextBusy ||
       saveRequest ||
       responding ||
       playing ||
@@ -93,7 +86,6 @@ export function useIdleClose({
     logOpen,
     latestUserOpen,
     moreOpen,
-    contextBusy,
     saveRequest,
     responding,
     playing,

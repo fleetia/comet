@@ -37,10 +37,6 @@ pub(crate) fn present_line(
     {
         return Ok(false);
     }
-    if direct_reply && matches!(source, "llm" | "question") {
-        // Recheck under the same action boundary as saving/displaying the response.
-        crate::conversation_notes::validate_reply(&db, id)?;
-    }
     let saved = if direct_reply {
         if if matches!(source, "scenario" | "npc") {
             store::message_finished(&db, id)?
@@ -311,18 +307,11 @@ async fn wait_for_displayed_line_until(
             if !is_current(state, epoch, &cancel) {
                 return Ok(None);
             }
-            let db = lock(&state.db)?;
             let mut playback = lock(&state.playback)?;
             let Some(line) = playback.as_ref().filter(|line| line.id == line_id) else {
                 drop(playback);
                 return missing_display_line(state);
             };
-            if matches!(line.source.as_str(), "llm" | "question") {
-                if let Err(error) = crate::conversation_notes::validate_reply(&db, &line.id) {
-                    *playback = None;
-                    return Err(error);
-                }
-            }
             if line.display_started_at.is_some() {
                 Some(line.clone())
             } else if tokio::time::Instant::now() >= deadline {
@@ -395,9 +384,7 @@ async fn wait_for_valid_line(
         let at = chrono::Utc::now().timestamp_millis();
         if matches!(line.source.as_str(), "llm" | "question") {
             let db = lock(&state.db)?;
-            if !store::recall_valid(&db, &line.id, at)?
-                || crate::conversation_notes::validate_reply(&db, &line.id).is_err()
-            {
+            if !store::recall_valid(&db, &line.id, at)? {
                 return Ok(false);
             }
         }

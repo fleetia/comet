@@ -95,21 +95,19 @@ it("saves the current draft before resuming a paused conversation from the short
   ]);
 });
 
-it("opens the memo chooser when there is no prior work and preserves the pending draft", async () => {
+it("opens past chats when there is no paused chat and saves the pending draft first", async () => {
   render(<Balloon snapshot={conversationSnapshot()} surface="input" preview />);
-  fireEvent.change(screen.getByRole("textbox"), { target: { value: "메모를 고르기 전 초안" } });
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "지난 대화를 열기 전 초안" } });
   fireEvent.click(screen.getByRole("button", { name: "이어서 하기" }));
-  await waitFor(() => expect(command).toHaveBeenCalledWith("get_conversation_notes"));
-  expect(command).toHaveBeenCalledWith("save_conversation_draft", {
-    sessionId: "surface-session",
-    draft: "메모를 고르기 전 초안",
-    inputOwner: "desktop",
-  });
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("open_panel", { persona: "builtin-a", mode: "history" }),
+  );
+  expect(vi.mocked(command).mock.calls[0]).toEqual([
+    "save_conversation_draft",
+    { sessionId: "surface-session", draft: "지난 대화를 열기 전 초안", inputOwner: "desktop" },
+  ]);
+  expect(command).not.toHaveBeenCalledWith("get_conversation_notes");
   expect(command).not.toHaveBeenCalledWith("resume_chat", expect.anything());
-  expect(screen.getByRole("button", { name: "함께 이야기해 봐" })).toHaveProperty("disabled", true);
-  fireEvent.click(screen.getByRole("button", { name: "닫기" }));
-  expect(screen.getByRole("textbox")).toHaveProperty("value", "메모를 고르기 전 초안");
-  expect(screen.getByRole("textbox")).toBe(document.activeElement);
 });
 
 it("saves the draft before asking the characters to talk together", async () => {

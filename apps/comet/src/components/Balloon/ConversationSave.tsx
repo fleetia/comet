@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Button, Checkbox, FormField, Select, Textarea, TextInput } from "@comet/ui";
+import { Button, FormField, Select, Textarea, TextInput } from "@comet/ui";
 import { command, errorText } from "../../hooks/useSnapshot";
 import {
   CHARACTER_SLOTS,
   type ConversationNote,
-  type ConversationNoteContext,
   type Message,
   type NoteReference,
   type Snapshot,
@@ -17,7 +16,6 @@ import * as n from "./conversationNotes.css";
 export type ConversationSaveRequest = {
   sessionId: string;
   message: Message;
-  context?: ConversationNoteContext | null;
   kind: "note" | "wordbook";
 };
 
@@ -55,7 +53,6 @@ type SaveDraft = {
   keywords: string;
   speaker: string;
   noteId: string;
-  checkpoint: boolean;
 };
 
 function restoredDraft(key: string, fallback: SaveDraft): SaveDraft {
@@ -67,8 +64,7 @@ function restoredDraft(key: string, fallback: SaveDraft): SaveDraft {
       typeof candidate.title === "string" &&
       typeof candidate.keywords === "string" &&
       typeof candidate.speaker === "string" &&
-      typeof candidate.noteId === "string" &&
-      typeof candidate.checkpoint === "boolean"
+      typeof candidate.noteId === "string"
       ? (candidate as SaveDraft)
       : fallback;
   } catch {
@@ -85,7 +81,7 @@ export function ConversationSave({
   request: ConversationSaveRequest;
   onClose: () => void;
 }): JSX.Element {
-  const { message, sessionId, kind, context } = request;
+  const { message, sessionId, kind } = request;
   const draftKey = `comet.conversation-save:${snapshot.user?.id ?? ""}:${sessionId}:${message.id}:${kind}`;
   const sourceCharacter = activeCharacter(snapshot, message.persona ?? "");
   const sourceSlot = sourceCharacter ? snapshot.characters.active.indexOf(sourceCharacter.id) : 0;
@@ -95,8 +91,7 @@ export function ConversationSave({
       title: "",
       keywords: "",
       speaker: CHARACTER_SLOTS[Math.max(0, sourceSlot)],
-      noteId: context?.noteRef.kind === "diary" ? context.noteRef.id : "",
-      checkpoint: false,
+      noteId: "",
     }),
   );
   const [notes, setNotes] = useState<ConversationNote[]>([]);
@@ -211,7 +206,6 @@ export function ConversationSave({
           text: draft.text,
           noteId: draft.noteId || undefined,
           title: draft.noteId ? undefined : draft.title.trim(),
-          checkpoint: draft.checkpoint,
         };
         await command<NoteReference>("save_conversation_note", {
           ...input,
@@ -259,7 +253,6 @@ export function ConversationSave({
       <div className={n.form}>
         <p role="status">
           {kind === "note" ? "메모에 저장했어요." : "개인 단어장에 저장했어요."}
-          {kind === "note" && draft.checkpoint ? " 다음 ‘이어서 하기’에서 꺼내 볼 수 있어요." : ""}
         </p>
         <Button variant="ghost" onClick={onClose}>
           대화로 돌아가기
@@ -296,7 +289,7 @@ export function ConversationSave({
                 </option>
               ))}
               {draft.noteId && !selectedNote && (
-                <option value={draft.noteId}>연결했던 메모 · 사용할 수 없음</option>
+                <option value={draft.noteId}>고른 메모 · 사용할 수 없음</option>
               )}
             </Select>
           </FormField>
@@ -381,14 +374,6 @@ export function ConversationSave({
         <p className={s.conversationMeta}>
           {[...draft.text].length}/300자 · 공백과 줄바꿈도 그대로 저장해요.
         </p>
-      )}
-      {kind === "note" && (
-        <Checkbox
-          checked={draft.checkpoint}
-          disabled={pending}
-          onChange={(event) => setDraft({ ...draft, checkpoint: event.target.checked })}
-          label="다음에 이어갈 내용으로 남기기"
-        />
       )}
       {draftError && (
         <p className={s.error} role="alert">

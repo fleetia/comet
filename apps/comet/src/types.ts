@@ -390,20 +390,12 @@ export type ConversationSession = {
   draft: string;
   messageCount?: number;
   continuedFrom: string | null;
-  noteContext?: ConversationNoteContext | null;
 };
 export type NoteReference = {
   kind: "diary" | "memo";
   id: string;
   widgetId?: string;
   title: string;
-};
-export type ConversationNoteContext = {
-  noteRef: NoteReference;
-  linkedAt: number;
-  checkpoint?: { text: string; savedAt: number } | null;
-  available?: boolean;
-  body?: string;
 };
 export type ConversationNote = { noteRef: NoteReference; body: string };
 export type ConversationTimelineEvent = {
@@ -432,7 +424,6 @@ export type ConversationMessages = {
 };
 export type ConversationView = ConversationMessages & {
   session: ConversationSession;
-  noteContext?: ConversationNoteContext | null;
   recovery?: { messageId: string; reason: "cancelled" | "incomplete" };
 };
 export type UserIdentity = { id: string; name: string; startedAt: number; endedAt: number | null };
