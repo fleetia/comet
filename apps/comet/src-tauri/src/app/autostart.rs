@@ -35,6 +35,14 @@ pub(crate) fn set_autostart_enabled(
     Ok(actual)
 }
 
+/// Unregisters the login item for the full app reset. Unsupported or unbundled
+/// runs have nothing registered, so those errors are not worth blocking on.
+pub(crate) fn disable(identifier: &str) {
+    if let Ok(_operation) = super::lock(&OPERATION) {
+        let _ = platform::set_enabled(identifier, false);
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod platform {
     use objc2_foundation::NSBundle;

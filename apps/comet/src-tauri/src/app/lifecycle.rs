@@ -188,6 +188,9 @@ pub fn run() {
             let app_data = app.path().app_data_dir()?;
             migrate_app_data(&app_data)?;
             std::fs::create_dir_all(&app_data)?;
+            if let Err(error) = super::reset::apply_pending(&app_data) {
+                eprintln!("Reset cleanup incomplete: {error}");
+            }
             if crate::exbrain::initialize(&app_data).is_err() {
                 eprintln!("Widget context initialization deferred");
             }
@@ -694,6 +697,7 @@ pub fn run() {
             crate::widgets::planning::notifications::preview_planner_notification,
             widgets::connection_host::refresh_calendar,
             widgets::connection_host::disconnect_calendar,
+            super::reset::reset_app,
             widgets::connection_host::configure_connection_widget,
             widgets::connection_host::music_request,
             widgets::connection_host::music_bridge_pair,

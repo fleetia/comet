@@ -1,6 +1,12 @@
 import { useRef, useState, type JSX } from "react";
 import { ExitIcon, HideIcon, MemoryIcon } from "@comet/icon";
-import { Button, Checkbox, SettingControlRow, SettingsSummary } from "@comet/ui";
+import {
+  Button,
+  Checkbox,
+  Dialog,
+  SettingControlRow,
+  SettingsSummary,
+} from "@comet/ui";
 import type { Snapshot } from "../../types";
 import { command, errorText } from "../../hooks/useSnapshot";
 import { error as errorStyle } from "../../common.css";
@@ -28,6 +34,16 @@ function fileManagerLabel(): string {
   return "폴더 열기";
 }
 
+function clearStoredDrafts(): void {
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith("comet.")) localStorage.removeItem(key);
+    }
+  } catch {
+    // 저장소를 쓸 수 없으면 지울 초안도 없다.
+  }
+}
+
 export function GeneralSettings({
   snapshot,
   active,
@@ -50,6 +66,25 @@ export function GeneralSettings({
       await command("reveal_data_folder");
     } catch (cause) {
       setFolderError(errorText(cause));
+    }
+  }
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetPending, setResetPending] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const resetting = useRef(false);
+  const resetDisabled = quitDisabled || hasChanges;
+  async function resetApp(): Promise<void> {
+    if (resetting.current || resetDisabled) return;
+    resetting.current = true;
+    setResetPending(true);
+    setResetError(null);
+    try {
+      await command("reset_app");
+      clearStoredDrafts();
+    } catch (cause) {
+      setResetError(errorText(cause));
+      resetting.current = false;
+      setResetPending(false);
     }
   }
   const consentSaving = useRef(false);
@@ -89,7 +124,12 @@ export function GeneralSettings({
               title="comet 종료"
               description="저장하지 않은 변경이 있으면 먼저 물어봐요"
               control={
-                <Button variant="ghost" size="small" disabled={quitDisabled} onClick={onQuit}>
+                <Button
+                  variant="ghost"
+                  size="small"
+                  disabled={quitDisabled}
+                  onClick={onQuit}
+                >
                   <ExitIcon size={15} />
                   종료
                 </Button>
@@ -103,7 +143,9 @@ export function GeneralSettings({
             <SettingsSummary
               title={name}
               description="친구들이 부르는 이름"
-              leading={<span className={styles.avatar}>{Array.from(name)[0]}</span>}
+              leading={
+                <span className={styles.avatar}>{Array.from(name)[0]}</span>
+              }
               className={styles.summary}
               onClick={onOpenUser}
             />
@@ -131,7 +173,11 @@ export function GeneralSettings({
               title="바탕화면 친구"
               description="함께 지내는 친구와 말풍선"
               control={
-                <Button variant="ghost" size="small" onClick={onToggleCharacters}>
+                <Button
+                  variant="ghost"
+                  size="small"
+                  onClick={onToggleCharacters}
+                >
                   <HideIcon size={15} />
                   {snapshot.runtime.hidden ? "친구 표시" : "친구 숨기기"}
                 </Button>
@@ -158,7 +204,11 @@ export function GeneralSettings({
               title="데이터 폴더"
               description="대화·기억·설정이 저장된 곳이에요. 열기만 하고 바꾸지 않아요"
               control={
-                <Button variant="ghost" size="small" onClick={() => void revealDataFolder()}>
+                <Button
+                  variant="ghost"
+                  size="small"
+                  onClick={() => void revealDataFolder()}
+                >
                   {fileManagerLabel()}
                 </Button>
               }
@@ -169,6 +219,23 @@ export function GeneralSettings({
               {folderError}
             </p>
           )}
+          <div className={styles.group}>
+            <SettingControlRow
+              className={styles.row}
+              title="초기화"
+              description="모든 설정·대화·기억·내려받은 모델을 지우고 별꼬리만 남겨요"
+              control={
+                <Button
+                  variant="ghost"
+                  size="small"
+                  disabled={resetDisabled}
+                  onClick={() => setResetOpen(true)}
+                >
+                  초기화
+                </Button>
+              }
+            />
+          </div>
           <Checkbox
             checked={snapshot.settings.analyticsConsent}
             disabled={consentPending}
@@ -184,6 +251,46 @@ export function GeneralSettings({
           )}
         </section>
       </div>
+      <Dialog
+        isOpen={resetOpen}
+        title="comet을 초기화할까요?"
+        variant="confirm"
+        onOpenChange={(open) => {
+          if (!resetPending) setResetOpen(open);
+        }}
+        onCancel={(event) => {
+          if (resetPending) event.preventDefault();
+        }}
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              disabled={resetPending}
+              onClick={() => setResetOpen(false)}
+            >
+              취소
+            </Button>
+            <Button
+              variant="primary"
+              disabled={resetPending || resetDisabled}
+              onClick={() => void resetApp()}
+            >
+              모두 지우고 초기화
+            </Button>
+          </>
+        }
+      >
+        <p>
+          설정, 대화, 기억, 단어장, 위젯, API 키와 ChatGPT 연결, 내려받은 모델이
+          모두 지워지고 별꼬리만 남아요. 끝나면 comet이 다시 시작돼요. 이 작업은
+          되돌릴 수 없어요.
+        </p>
+        {resetError && (
+          <p role="alert" className={errorStyle}>
+            {resetError}
+          </p>
+        )}
+      </Dialog>
     </div>
   );
 }

@@ -218,6 +218,26 @@ impl Service {
         state.loaded = true;
         Ok(())
     }
+    /// Drops every saved account and its stored credentials; used by the full app reset.
+    pub(crate) async fn forget_all(&self) -> Result<()> {
+        self.initialize().await?;
+        self.cancel_login()?;
+        let _refresh = self.0.refresh.lock().await;
+        let accounts = {
+            let mut inner = lock(&self.0.state)?;
+            let accounts = inner.saved.accounts.clone();
+            inner.saved = Saved::default();
+            inner.usage_blocked = false;
+            inner.notice = None;
+            self.0.generation.fetch_add(1, Ordering::SeqCst);
+            accounts
+        };
+        for account in accounts.iter().filter(|account| account.tokens.is_some()) {
+            // Revocation is best effort; a stalled network must not block the reset.
+            let _ = tokio::time::timeout(Duration::from_secs(5), auth::revoke(account)).await;
+        }
+        self.persist().await
+    }
     async fn persist(&self) -> Result<()> {
         let service = self.clone();
         // OS credential prompts may wait indefinitely. They never own UI state or an async worker.
