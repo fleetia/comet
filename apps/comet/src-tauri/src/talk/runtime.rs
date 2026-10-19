@@ -185,7 +185,7 @@ fn upgrade_bundled_dialogue(root: &Path) -> Result<(), String> {
                 .collect::<Result<Vec<_>, _>>()?
                 .contains(&document.source)
             {
-                let new = defaults::pack(pack)
+                let new = defaults::migration_pack(pack)
                     .and_then(|pack| pack.files.iter().find(|(name, _)| name == path))
                     .ok_or("기본 대본을 찾지 못했어요.")?
                     .1;
@@ -235,7 +235,7 @@ fn migrate_defaults(root: &Path) {
     if !root.exists() {
         return;
     }
-    let Some(nadir) = defaults::pack(defaults::NADIR_AND_STAR_TAIL) else {
+    let Some(nadir) = defaults::migration_pack(defaults::NADIR_AND_STAR_TAIL) else {
         return;
     };
     // The retirement migration owns these sources so authored retired scenes stay reachable.
@@ -363,7 +363,7 @@ fn install_default_packs(root: &Path) -> Result<(), String> {
     if marker.try_exists().map_err(|error| error.to_string())? {
         return Ok(());
     }
-    if let Some(nadir) = defaults::pack(defaults::NADIR_AND_STAR_TAIL) {
+    if let Some(nadir) = defaults::migration_pack(defaults::NADIR_AND_STAR_TAIL) {
         relocate_factory_bundle(root, nadir)?;
     }
     for pack in defaults::PACKS.iter().filter(|pack| pack.default_installed) {
@@ -472,9 +472,12 @@ pub fn pack_statuses(root: &Path) -> Result<Vec<PackStatus>, String> {
     for id in installed {
         if defaults::pack(&id).is_none() {
             statuses.push(PackStatus {
-                name: id.clone(),
-                id,
-                description: String::new(),
+                name: defaults::migration_pack(&id)
+                    .map_or_else(|| id.clone(), |pack| pack.name.into()),
+                id: id.clone(),
+                description: defaults::migration_pack(&id)
+                    .map(|_| "이전에 설치한 대화팩이에요. 제거하면 앱에서 다시 설치할 수 없어요.".into())
+                    .unwrap_or_default(),
                 installed: true,
                 bundled: false,
                 default_installed: false,
@@ -773,9 +776,10 @@ mod tests {
         assert_eq!(program.packs, BTreeSet::from(["byulkkori".to_owned()]));
         assert!(program.scenes.iter().all(|scene| scene.pack.is_some()));
         let statuses = pack_statuses(&root).unwrap();
-        assert_eq!(statuses.len(), 2);
+        assert_eq!(statuses.len(), 1);
         assert!(statuses[0].installed && statuses[0].default_installed);
-        assert!(!statuses[1].installed && statuses[1].bundled);
+        assert_eq!(statuses[0].id, defaults::BYULKKORI);
+        assert!(install_bundled_pack(&root, defaults::NADIR_AND_STAR_TAIL).is_err());
 
         fs::write(&entry, "format: 1\n").unwrap();
         initialize_files(directory.path()).unwrap();
@@ -790,19 +794,19 @@ mod tests {
             .scenes
             .is_empty());
 
-        install_bundled_pack(&root, "nadir-and-star-tail").unwrap();
-        assert!(install_bundled_pack(&root, "nadir-and-star-tail").is_err());
+        install_bundled_pack(&root, "byulkkori").unwrap();
+        assert!(install_bundled_pack(&root, "byulkkori").is_err());
         assert!(install_bundled_pack(&root, "unknown").is_err());
         assert!(remove_pack(&root, "../talk").is_err());
         let program = load_bundle(&root, &context::registry()).unwrap();
         assert_eq!(
             program.packs,
-            BTreeSet::from(["nadir-and-star-tail".to_owned()])
+            BTreeSet::from(["byulkkori".to_owned()])
         );
         assert!(program
             .scenes
             .iter()
-            .all(|scene| scene.pair.is_some() && scene.key.contains("nadir-and-star-tail")));
+            .all(|scene| scene.pack.as_deref() == Some("byulkkori")));
 
         fs::remove_dir_all(&root).unwrap();
         initialize_files(directory.path()).unwrap();
@@ -810,7 +814,44 @@ mod tests {
     }
 
     fn nadir_files() -> &'static [(&'static str, &'static str)] {
-        defaults::pack(defaults::NADIR_AND_STAR_TAIL).unwrap().files
+        defaults::migration_pack(defaults::NADIR_AND_STAR_TAIL)
+            .unwrap()
+            .files
+    }
+
+    #[test]
+    fn retired_pair_stays_visible_only_while_installed_and_cannot_be_reinstalled() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = initialize_files(directory.path()).unwrap();
+        // Simulate a copy installed by an earlier app version.
+        install_pack(
+            &root,
+            defaults::migration_pack(defaults::NADIR_AND_STAR_TAIL).unwrap(),
+        )
+        .unwrap();
+        let entry = root.join("packs/nadir-and-star-tail/index.talk");
+        let authored = format!("{}\n# 내가 고친 대본\n", decoded(&entry));
+        fs::write(&entry, crate::talk::encryption::encode(&authored).unwrap()).unwrap();
+        let original = fs::read(&entry).unwrap();
+        initialize_files(directory.path()).unwrap();
+        assert_eq!(fs::read(&entry).unwrap(), original);
+        assert!(load_bundle(&root, &context::registry())
+            .unwrap()
+            .packs
+            .contains(defaults::NADIR_AND_STAR_TAIL));
+        let statuses = pack_statuses(&root).unwrap();
+        let legacy = statuses
+            .iter()
+            .find(|pack| pack.id == defaults::NADIR_AND_STAR_TAIL)
+            .unwrap();
+        assert_eq!(legacy.name, "나디르와 별꼬리");
+        assert!(legacy.installed);
+        assert!(!legacy.bundled && !legacy.default_installed);
+        assert!(install_bundled_pack(&root, defaults::NADIR_AND_STAR_TAIL).is_err());
+        remove_pack(&root, defaults::NADIR_AND_STAR_TAIL).unwrap();
+        initialize_files(directory.path()).unwrap();
+        assert_eq!(pack_statuses(&root).unwrap().len(), 1);
+        assert!(!entry.exists());
     }
 
     #[test]
@@ -993,7 +1034,11 @@ mod dialogue_upgrade_tests {
     fn stock_sources_upgrade_without_changing_authored_files_or_history_keys() {
         let directory = tempfile::tempdir().unwrap();
         let root = initialize_files(directory.path()).unwrap();
-        install_bundled_pack(&root, defaults::NADIR_AND_STAR_TAIL).unwrap();
+        install_pack(
+            &root,
+            defaults::migration_pack(defaults::NADIR_AND_STAR_TAIL).unwrap(),
+        )
+        .unwrap();
         let solo = root.join("packs/byulkkori/situations/solo.talk");
         let pair = root.join("packs/nadir-and-star-tail/situations/index.talk");
         fs::write(&solo, OLD_SOLO).unwrap();
@@ -1076,7 +1121,11 @@ mod dialogue_upgrade_tests {
         ] {
             let directory = tempfile::tempdir().unwrap();
             let root = initialize_files(directory.path()).unwrap();
-            install_bundled_pack(&root, defaults::NADIR_AND_STAR_TAIL).unwrap();
+            install_pack(
+                &root,
+                defaults::migration_pack(defaults::NADIR_AND_STAR_TAIL).unwrap(),
+            )
+            .unwrap();
             let solo = root.join("packs/byulkkori/situations/solo.talk");
             let pair = root.join("packs/nadir-and-star-tail/situations/index.talk");
             let expected = (source(&solo), source(&pair));
@@ -1094,7 +1143,11 @@ mod dialogue_upgrade_tests {
     fn edited_sources_and_deleted_packs_are_never_replaced_or_resurrected() {
         let directory = tempfile::tempdir().unwrap();
         let root = initialize_files(directory.path()).unwrap();
-        install_bundled_pack(&root, defaults::NADIR_AND_STAR_TAIL).unwrap();
+        install_pack(
+            &root,
+            defaults::migration_pack(defaults::NADIR_AND_STAR_TAIL).unwrap(),
+        )
+        .unwrap();
         let solo = root.join("packs/byulkkori/situations/solo.talk");
         let authored_source = format!(
             "{}\n# 내가 고친 대사  \n",

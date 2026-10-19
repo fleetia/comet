@@ -15,13 +15,6 @@ export const firstBalloon = style({
   minWidth: 0,
   boxSizing: "border-box",
 });
-export const secondBalloon = style({
-  width: 212,
-  maxWidth: "100%",
-  minWidth: 0,
-  boxSizing: "border-box",
-  alignSelf: "flex-end",
-});
 export const sceneCharacters = style({
   display: "flex",
   alignItems: "center",
@@ -31,18 +24,6 @@ export const sceneCharacters = style({
 export const byul = style({ position: "relative", display: "block", width: 72, height: 72 });
 export const byulBody = style({ position: "absolute", top: "12.5%", left: "20.31%" });
 export const byulFace = style({ position: "absolute", top: "23.44%", left: "12.5%" });
-export const nadir = style({
-  display: "grid",
-  placeItems: "center",
-  width: 60,
-  height: 60,
-  borderRadius: 18,
-  color: tokens["color/ink"],
-  background: tokens["color/glass-capsule"],
-  border: `1px solid ${tokens["color/live"]}`,
-  boxShadow: `0 0 15px ${tokens["color/component/live-alpha-160"]}`,
-  fontSize: 12,
-});
 export const note = style({
   margin: 0,
   paddingTop: 14,

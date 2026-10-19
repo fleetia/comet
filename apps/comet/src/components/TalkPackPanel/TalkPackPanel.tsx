@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import { Balloon as PreviewBalloon, Button, SettingControlRow, Switch } from "@comet/ui";
-import { ChatIcon, ImportIcon, TogetherIcon } from "@comet/icon";
+import { ChatIcon, ImportIcon } from "@comet/icon";
 import byulBody from "../../assets/figma/talk-byul-body.svg";
 import byulFace from "../../assets/figma/talk-byul-face.svg";
 import * as figma from "../SettingsPanel/figmaSettings.css";
@@ -17,14 +17,6 @@ const PREVIEW_PACKS: TalkPack[] = [
     installed: true,
     bundled: true,
     defaultInstalled: true,
-  },
-  {
-    id: "nadir-and-star-tail",
-    name: "나디르와 별꼬리",
-    description: "나디르·별꼬리 추가팩 전용 대화. 두 캐릭터가 함께 지낼 때만 재생돼요.",
-    installed: false,
-    bundled: true,
-    defaultInstalled: false,
   },
 ];
 
@@ -85,22 +77,18 @@ export function TalkPackPanel(): JSX.Element {
         <p className={figma.caption}>
           시간·날씨·위젯에 맞춰 친구들이 이야기해요. 대화팩은 대사만 담아요.
         </p>
-        <div className={t.scene} aria-label="나디르와 별꼬리 대화 예시">
+        <div className={t.scene} aria-label="별꼬리 기본 대화 예시">
           <PreviewBalloon className={t.firstBalloon} speaker="byulkkori" tail="left">
             구름이 조금 꼈네. 산책하기 딱 좋겠다!
-          </PreviewBalloon>
-          <PreviewBalloon className={t.secondBalloon} speaker="nadir" tail="right">
-            그럼 간식도 챙겨 갈까요.
           </PreviewBalloon>
           <div className={t.sceneCharacters}>
             <span className={t.byul}>
               <img src={byulBody} alt="" className={t.byulBody} />
               <img src={byulFace} alt="" className={t.byulFace} />
             </span>
-            <span className={t.nadir}>(¬‿¬)</span>
           </div>
         </div>
-        <p className={figma.caption}>나디르와 별꼬리 팩 · 날씨 위젯이 ‘구름 조금’일 때</p>
+        <p className={figma.caption}>별꼬리 기본 대화 · 날씨 위젯이 ‘구름 조금’일 때</p>
         <p className={t.note}>팩을 끄면 그 팩의 대사만 쉬어요. 단어장과 반응 대사는 그대로예요.</p>
         {selected && (
           <div className={figma.note}>
@@ -120,11 +108,7 @@ export function TalkPackPanel(): JSX.Element {
               .map((pack) => (
                 <div key={pack.id} className={t.installedCard}>
                   <span className={figma.icon}>
-                    {pack.id === "nadir-and-star-tail" ? (
-                      <TogetherIcon size={20} />
-                    ) : (
-                      <ChatIcon size={20} />
-                    )}
+                    <ChatIcon size={20} />
                   </span>
                   <button
                     type="button"

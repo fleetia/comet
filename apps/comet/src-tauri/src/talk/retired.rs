@@ -109,7 +109,7 @@ pub(super) fn migrate(root: &Path) -> Result<(), String> {
         (defaults::BYULKKORI, &BYULKKORI),
         (defaults::NADIR_AND_STAR_TAIL, &NADIR),
     ] {
-        let pack = defaults::pack(id).ok_or("기본 대화팩을 찾지 못했어요.")?;
+        let pack = defaults::migration_pack(id).ok_or("기본 대화팩을 찾지 못했어요.")?;
         let replacement = pack
             .files
             .iter()
@@ -458,7 +458,10 @@ mod tests {
     fn older_factory_upgrade_cannot_disconnect_a_user_edited_retired_script() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("talk");
-        for (name, source) in defaults::pack(defaults::NADIR_AND_STAR_TAIL).unwrap().files {
+        for (name, source) in defaults::migration_pack(defaults::NADIR_AND_STAR_TAIL)
+            .unwrap()
+            .files
+        {
             let path = root.join(name);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(path, source).unwrap();
