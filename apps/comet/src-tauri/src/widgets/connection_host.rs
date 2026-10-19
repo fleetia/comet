@@ -647,6 +647,29 @@ fn forget_music_credential(owner: String, pairing: String) {
     });
 }
 
+/// Deletes the OS credentials owned by widget connections (calendar sign-ins and
+/// music pairings). The widget rows are left for the caller to wipe.
+pub(crate) fn forget_external_credentials(instances: &[WidgetInstance]) -> Result<(), String> {
+    for instance in instances {
+        match instance.kind.as_str() {
+            "calendar" => {
+                if let Ok(data) = decode_calendar(&instance.data) {
+                    for connection in &data.connections {
+                        calendar::disconnect(connection).map_err(|error| error.message)?;
+                    }
+                }
+            }
+            "music" => {
+                if let Some(pairing) = pairing_id(&instance.data) {
+                    crate::widgets::music_bridge::forget(&instance.id, pairing)?;
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn clear_music_pairing(db: &rusqlite::Connection, id: &str) -> Result<(), String> {
     clear_music_pairing_with(db, id, forget_music_credential)
 }

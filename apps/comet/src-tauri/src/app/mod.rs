@@ -7,6 +7,7 @@ pub(crate) mod launcher;
 pub(crate) mod lifecycle;
 pub(crate) mod presence;
 pub(crate) mod quiet_hours;
+mod reset;
 pub(crate) mod scene;
 mod settings;
 pub(crate) mod tasks;
