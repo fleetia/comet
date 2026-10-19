@@ -57,39 +57,46 @@ pub const PACKS: &[Pack] = &[
             "widgets/weather.talk",
         ],
     },
-    Pack {
-        id: NADIR_AND_STAR_TAIL,
-        name: "나디르와 별꼬리",
-        description: "나디르·별꼬리 추가팩 전용 대화. 두 캐릭터가 함께 지낼 때만 재생돼요.",
-        default_installed: false,
-        files: nadir![
-            "index.talk",
-            "pairs/default.talk",
-            "situations/index.talk",
-            "widgets/ball.talk",
-            "widgets/bubbles.talk",
-            "widgets/calendar.talk",
-            "widgets/clock.talk",
-            "widgets/collection.talk",
-            "widgets/focus-timer.talk",
-            "widgets/fortune.talk",
-            "widgets/index.talk",
-            "widgets/interaction.talk",
-            "widgets/journal.talk",
-            "widgets/memo.talk",
-            "widgets/music.talk",
-            "widgets/paper-plane.talk",
-            "widgets/preparation.talk",
-            "widgets/small-match.talk",
-            "widgets/travel.talk",
-            "widgets/todo.talk",
-            "widgets/weather.talk",
-        ],
-    },
 ];
+
+// Retained only to recognize and migrate already-installed content. Never offered for install.
+const LEGACY_NADIR: Pack = Pack {
+    id: NADIR_AND_STAR_TAIL,
+    name: "나디르와 별꼬리",
+    description: "나디르·별꼬리 추가팩 전용 대화. 두 캐릭터가 함께 지낼 때만 재생돼요.",
+    default_installed: false,
+    files: nadir![
+        "index.talk",
+        "pairs/default.talk",
+        "situations/index.talk",
+        "widgets/ball.talk",
+        "widgets/bubbles.talk",
+        "widgets/calendar.talk",
+        "widgets/clock.talk",
+        "widgets/collection.talk",
+        "widgets/focus-timer.talk",
+        "widgets/fortune.talk",
+        "widgets/index.talk",
+        "widgets/interaction.talk",
+        "widgets/journal.talk",
+        "widgets/memo.talk",
+        "widgets/music.talk",
+        "widgets/paper-plane.talk",
+        "widgets/preparation.talk",
+        "widgets/small-match.talk",
+        "widgets/travel.talk",
+        "widgets/todo.talk",
+        "widgets/weather.talk",
+    ],
+};
 
 pub fn pack(id: &str) -> Option<&'static Pack> {
     PACKS.iter().find(|pack| pack.id == id)
+}
+
+/// Factory content for compatibility migrations, including retired packs.
+pub(super) fn migration_pack(id: &str) -> Option<&'static Pack> {
+    pack(id).or_else(|| (id == NADIR_AND_STAR_TAIL).then_some(&LEGACY_NADIR))
 }
 
 #[cfg(test)]
@@ -338,7 +345,7 @@ mod tests {
 
     #[test]
     fn retired_widget_assets_are_absent_from_every_shipped_program() {
-        for pack in PACKS {
+        for pack in PACKS.iter().chain(std::iter::once(&super::LEGACY_NADIR)) {
             let program = program(pack.id);
             for kind in [
                 "completion-jar",
@@ -360,6 +367,15 @@ mod tests {
     }
 
     #[test]
+    fn retired_pair_is_not_in_the_installable_catalog() {
+        assert!(super::pack(NADIR_AND_STAR_TAIL).is_none());
+        assert!(super::migration_pack(NADIR_AND_STAR_TAIL).is_some());
+        assert_eq!(PACKS.len(), 1);
+        assert_eq!(PACKS[0].id, BYULKKORI);
+        assert!(PACKS[0].default_installed);
+    }
+
+    #[test]
     fn embedded_assets_match_the_parsed_import_graph_of_every_pack() {
         assert_eq!(
             PACKS.iter().filter(|pack| pack.default_installed).count(),
@@ -376,7 +392,7 @@ mod tests {
                 .unwrap()
                 .starts_with("format: 1\n")
         );
-        for pack in PACKS {
+        for pack in PACKS.iter().chain(std::iter::once(&super::LEGACY_NADIR)) {
             embedded_matches(pack);
         }
     }

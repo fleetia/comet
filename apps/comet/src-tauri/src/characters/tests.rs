@@ -59,6 +59,12 @@ fn fresh_install_starts_with_byulkkori_alone_as_a_removable_pack() {
     let only = &current.installed[0];
     assert_eq!(current.active, std::slice::from_ref(&only.id));
     assert_eq!(only.definition.name, "별꼬리");
+    assert_eq!(only.definition.source_id, "character-1");
+    let packs = installed_packs(&conn).unwrap();
+    assert_eq!(packs.len(), 1);
+    assert_eq!(packs[0].name, "별꼬리");
+    assert!(packs[0].official);
+    assert_eq!(packs[0].character_ids, current.active);
     assert!(only.pack_id.is_some(), "installed as an ordinary pack");
     assert_eq!(only.sprites.len(), 9);
     assert!(only.definition.face_icon);
@@ -1761,6 +1767,11 @@ fn official_byulkkori_attribution_uses_requested_display_label_without_a_source_
         "/../character-packs/catalog.json"
     )))
     .unwrap();
+    assert!(!catalog["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry["id"] == "nadir-and-star-tail"));
     let entry = catalog["packages"]
         .as_array()
         .unwrap()
