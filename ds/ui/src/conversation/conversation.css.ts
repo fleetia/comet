@@ -10,7 +10,7 @@ export const glass = style({
   background: tokens["color/glass-panel"],
   border: `1px solid ${tokens["color/glass-border"]}`,
   backdropFilter: "blur(12px)",
-  boxShadow: `inset 0 1px 0 ${tokens["color/surface-highlight"]}, 0 22px 48px ${tokens["color/surface-shadow"]}`,
+  boxShadow: `inset 0 1px 0 ${tokens["color/surface-highlight"]}`,
 });
 globalStyle(`${glass} *, ${glass} *::before, ${glass} *::after`, { boxSizing: "border-box" });
 export const balloon = style([
@@ -120,7 +120,6 @@ export const capsuleForms = styleVariants({
     paddingLeft: 20,
     borderRadius: 27,
     background: tokens["color/glass-capsule"],
-    boxShadow: `0 18px 40px ${tokens["color/surface-shadow"]}`,
   },
 });
 export const input = style({
