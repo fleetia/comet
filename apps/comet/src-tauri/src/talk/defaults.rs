@@ -42,16 +42,15 @@ pub const PACKS: &[Pack] = &[
             "widgets/bubbles.talk",
             "widgets/calendar.talk",
             "widgets/clock.talk",
-            "widgets/collection.talk",
             "widgets/focus-timer.talk",
             "widgets/fortune.talk",
             "widgets/interaction.talk",
-            "widgets/journal.talk",
             "widgets/memo.talk",
             "widgets/music.talk",
             "widgets/paper-plane.talk",
             "widgets/preparation.talk",
             "widgets/small-match.talk",
+            "widgets/planner.talk",
             "widgets/travel.talk",
             "widgets/todo.talk",
             "widgets/weather.talk",
@@ -475,6 +474,21 @@ mod tests {
     fn assert_cooldowns_and_touch_repeats(id: &str) {
         let program = program(id);
         for scene in &program.scenes {
+            if id == BYULKKORI {
+                // 별꼬리는 장면 성격별로 쿨다운을 나눈다: 혼잣말·놀이는 짧게, 상태 안내는 길게.
+                let allowed = match scene.trigger.as_str() {
+                    "idle" => 10 * 60 * 1000..=6 * 60 * 60 * 1000,
+                    "interaction.touch" => 0..=0,
+                    _ => 0..=60 * 60 * 1000,
+                };
+                assert!(
+                    allowed.contains(&scene.cooldown_ms),
+                    "{id} {} {}ms",
+                    scene.id,
+                    scene.cooldown_ms
+                );
+                continue;
+            }
             assert_eq!(
                 scene.cooldown_ms,
                 if scene.trigger == "idle" {
