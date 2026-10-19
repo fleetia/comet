@@ -753,6 +753,8 @@ pub fn run() {
             conversation::retry_turn,
             windows::cancel_generation,
             settings::save_settings,
+            super::appearance::get_appearance,
+            super::appearance::save_appearance,
             settings::clear_api_key,
             settings::test_connection,
             settings::test_local_model,

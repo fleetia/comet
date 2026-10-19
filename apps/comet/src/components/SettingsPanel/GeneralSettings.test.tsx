@@ -14,6 +14,7 @@ import { GeneralSettings } from "./GeneralSettings";
 
 vi.mock("../../hooks/useSnapshot", () => ({
   command: vi.fn(),
+  isDesktop: () => false,
   errorText: (cause: unknown) =>
     cause instanceof Error ? cause.message : String(cause),
 }));
@@ -34,6 +35,7 @@ function props(consent = false): ComponentProps<typeof GeneralSettings> {
     active: true,
     onOpenUser: vi.fn(),
     onOpenOrganizer: vi.fn(),
+    onOpenTheme: vi.fn(),
     onBusyChange: vi.fn(),
     hasChanges: false,
     onShortcutDirtyChange: vi.fn(),

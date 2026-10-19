@@ -1,11 +1,11 @@
 import { useState, type JSX } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Icon } from "@comet/icon";
+import { Icon, PlusIcon } from "@comet/icon";
 import bodyPart from "../../ui/src/choices/assets/body-part.svg";
 import cup from "../../ui/src/choices/assets/cup.svg";
 import circle from "../../ui/src/choices/assets/widget-circle.svg";
 import cloud from "../../ui/src/choices/assets/widget-cloud.svg";
-import { ChoiceTile } from "@comet/ui";
+import { ChoiceTile, SkinScene } from "@comet/ui";
 import character from "../../ui/src/choices/assets/imgGroup1.svg";
 import frame from "../../ui/src/choices/assets/imgGroup.svg";
 import frameGraphic from "../../ui/src/choices/assets/imgOriginalGraphic.svg";
@@ -41,6 +41,7 @@ const meta = {
         "expression-text",
         "body-part",
         "theme",
+        "theme-add",
         "desktop-layout",
         "cup",
         "widget-preview",
@@ -151,121 +152,6 @@ export const Anchor: Story = {
     selected: false,
   },
 };
-function ThemeScene({ mode }: { mode: "play" | "night" | "day" | "paper" }): JSX.Element {
-  const play = mode === "play";
-  const paper = mode === "paper";
-  const day = mode === "day";
-  const background = play
-    ? "#ffe7a3"
-    : paper
-      ? "#e6dccb"
-      : day
-        ? "linear-gradient(171.126deg,#c9d7f5 8.616%,#f6d9c7 108.62%)"
-        : "radial-gradient(ellipse at 20% 120%,rgba(118,92,214,.4),transparent 70%),#0a0f26";
-  const color = play ? "#2a2340" : paper ? "#2b2620" : day ? "#142040" : "#eef1ff";
-  const bubble = play
-    ? "white"
-    : paper
-      ? "#fbf7ee"
-      : day
-        ? "rgba(255,255,255,.7)"
-        : "rgba(22,30,68,.95)";
-  const border = play
-    ? "#2a2340"
-    : paper
-      ? "#e2d6c1"
-      : day
-        ? "rgba(255,255,255,.9)"
-        : "rgba(182,160,234,.45)";
-  return (
-    <span
-      style={{
-        display: "block",
-        position: "relative",
-        flex: 1,
-        height: 112,
-        overflow: "hidden",
-        borderRadius: 14,
-        background,
-        color,
-        fontFamily: play ? "Jua" : paper ? "Gowun Dodum" : "IBM Plex Sans KR",
-      }}
-    >
-      <span
-        style={{
-          position: "absolute",
-          display: "flex",
-          flexDirection: "column",
-          gap: 2,
-          left: play || paper ? 12 : 8,
-          top: play || paper ? 12 : 10,
-          padding: "7px 11px",
-          borderRadius: 12,
-          background: bubble,
-          border: `1px solid ${border}`,
-          boxShadow: play
-            ? "3px 3px 0 #2a2340"
-            : paper
-              ? "0 6px 7px rgba(80,58,24,.18)"
-              : undefined,
-          fontSize: 12,
-          whiteSpace: "nowrap",
-        }}
-      >
-        <span
-          style={{
-            fontSize: 10,
-            fontWeight: play || paper ? 400 : 600,
-            color: paper ? "#b4432b" : day ? "#4b3aa6" : play ? color : "#c9b8f5",
-          }}
-        >
-          별꼬리
-        </span>
-        <span>오늘 하늘 맑다!</span>
-      </span>
-      <span
-        style={{
-          position: "absolute",
-          display: "flex",
-          alignItems: "center",
-          boxSizing: "border-box",
-          height: play ? 33 : 30,
-          bottom: play || paper ? 12 : 10,
-          right: play || paper ? 12 : 8,
-          padding: "0 12px",
-          borderRadius: 14,
-          background: play
-            ? "#ffd23f"
-            : paper
-              ? "#fbf7ee"
-              : day
-                ? "rgba(255,255,255,.62)"
-                : "rgba(20,28,64,.9)",
-          border: `${play ? 2.5 : 1}px solid ${border}`,
-          boxShadow: play ? "3px 3px 0 #2a2340" : undefined,
-          fontSize: 12,
-          whiteSpace: "nowrap",
-        }}
-      >
-        3:24 · 23°
-      </span>
-    </span>
-  );
-}
-function ThemePreview({ theme }: { theme: "play" | "night" | "paper" }): JSX.Element {
-  return (
-    <span style={{ display: "flex", gap: 4, width: "100%", height: 112 }}>
-      {theme === "night" ? (
-        <>
-          <ThemeScene mode="night" />
-          <ThemeScene mode="day" />
-        </>
-      ) : (
-        <ThemeScene mode={theme} />
-      )}
-    </span>
-  );
-}
 export const Themes: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
@@ -283,10 +169,25 @@ export const Themes: Story = {
                 : "종이 질감과 차분한 글씨"
           }
           selected={theme === "night"}
-          graphic={<ThemePreview theme={theme} />}
+          graphic={
+            theme === "night" ? (
+              <span style={{ display: "flex", gap: 4, width: "100%" }}>
+                <SkinScene theme="dark" />
+                <SkinScene theme="light" />
+              </span>
+            ) : (
+              <SkinScene theme={theme} />
+            )
+          }
           badge={theme === "night" ? <img src={check} alt="" /> : undefined}
         />
       ))}
+      <ChoiceTile
+        kind="theme-add"
+        label="내 스킨"
+        description="배경·말풍선·위젯 색을 직접 골라요"
+        graphic={<PlusIcon size={18} />}
+      />
     </div>
   ),
 };

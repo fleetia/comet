@@ -11,6 +11,7 @@ export type ChoiceTileProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "chi
     | "expression-text"
     | "body-part"
     | "theme"
+    | "theme-add"
     | "desktop-layout"
     | "cup"
     | "widget-preview"
@@ -51,7 +52,11 @@ export function ChoiceTile({
       {!hasFooter && badge != null && <span className={styles.badge}>{badge}</span>}
       <span
         aria-hidden
-        className={[styles.graphic, kind === "theme" && styles.themeGraphic]
+        className={[
+          styles.graphic,
+          kind === "theme" && styles.themeGraphic,
+          kind === "theme-add" && styles.themeAddGraphic,
+        ]
           .filter(Boolean)
           .join(" ")}
       >

@@ -5,7 +5,8 @@ import * as shared from "./common.css";
 
 export const documentRoot = style({
   minHeight: "100%",
-  colorScheme: "dark",
+  colorScheme: "light",
+  selectors: { '&[data-comet-theme="dark"]': { colorScheme: "dark" } },
   color: tokens["color/ink"],
   fontFamily: `${tokens["typography/sans/body/fontFamily"]}, sans-serif`,
   fontSize: tokens["typography/sans/body/fontSize"],

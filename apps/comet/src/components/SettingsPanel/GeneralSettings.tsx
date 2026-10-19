@@ -13,6 +13,8 @@ import { error as errorStyle } from "../../common.css";
 import { AutostartSettings } from "../AutostartSettings/AutostartSettings";
 import { LauncherSettings } from "../Launcher/LauncherSettings";
 import { UpdatePanel } from "../UpdatePanel/UpdatePanel";
+import { appearanceSummary } from "../ThemeSettings/ThemeSettings";
+import { useAppearance } from "../../hooks/useAppearance";
 import * as styles from "./figmaSettings.css";
 
 type Props = {
@@ -20,6 +22,7 @@ type Props = {
   active: boolean;
   onOpenUser: () => void;
   onOpenOrganizer: () => void;
+  onOpenTheme: () => void;
   onBusyChange: (busy: boolean) => void;
   hasChanges: boolean;
   onShortcutDirtyChange: (dirty: boolean) => void;
@@ -49,6 +52,7 @@ export function GeneralSettings({
   active,
   onOpenUser,
   onOpenOrganizer,
+  onOpenTheme,
   onBusyChange,
   hasChanges,
   onShortcutDirtyChange,
@@ -57,6 +61,7 @@ export function GeneralSettings({
   onToggleCharacters,
 }: Props): JSX.Element {
   const name = snapshot.user?.name || "여행자";
+  const { appearance } = useAppearance();
   const [consentPending, setConsentPending] = useState(false);
   const [consentError, setConsentError] = useState<string | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
@@ -168,6 +173,12 @@ export function GeneralSettings({
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>화면</h2>
           <div className={styles.group}>
+            <SettingsSummary
+              className={styles.groupLink}
+              title="테마"
+              description={appearanceSummary(appearance)}
+              onClick={onOpenTheme}
+            />
             <SettingControlRow
               className={styles.row}
               title="바탕화면 친구"

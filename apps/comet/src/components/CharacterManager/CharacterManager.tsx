@@ -25,6 +25,7 @@ import { CharacterPackSelector } from "../CharacterPackSelector/CharacterPackSel
 import { MemorySettings } from "../MemorySettings/MemorySettings";
 import { CharacterMemorySettings } from "../CharacterMemorySettings/CharacterMemorySettings";
 import { WindowHeader } from "../WindowHeader/WindowHeader";
+import type { CharacterRequest } from "../SettingsPanel/useSettingsNavigation";
 import * as ui from "../../common.css";
 import * as s from "../characters.css";
 
@@ -33,7 +34,9 @@ type Props = {
   embedded?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
   memoryTabRequest?: number;
-  characterRequest?: { id: string; revision: number } | null;
+  characterRequest?: CharacterRequest | null;
+  /** Opens the app-wide theme page from a friend's balloon settings. */
+  onOpenTheme?: () => void;
 };
 type DialogueOwner = { key: string; ids: string[] };
 const NEW_ID = "new-character";
@@ -74,6 +77,7 @@ export function CharacterManager({
   onDirtyChange,
   memoryTabRequest = 0,
   characterRequest,
+  onOpenTheme,
 }: Props): JSX.Element {
   const { installed: snapshotInstalled, active } = snapshot.characters;
   const [createdCharacters, setCreatedCharacters] = useState<InstalledCharacter[]>([]);
@@ -589,6 +593,8 @@ export function CharacterManager({
                           : "새로 만날 친구"
                       }
                       memoryTabRequest={memoryTabRequest}
+                      tabRequest={characterRequest}
+                      onOpenTheme={onOpenTheme}
                       memoryContent={(onManage) => (
                         <>
                           {!selected && (

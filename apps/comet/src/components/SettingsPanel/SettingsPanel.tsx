@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { Button, Dialog, ProfileLink, Tabs as CometTabs } from "@comet/ui";
 import { ActionBar, Inline, SaveStatus } from "../../primitives";
 import { OrganizerSettings } from "../OrganizerSettings/OrganizerSettings";
+import { ThemeSettings } from "../ThemeSettings/ThemeSettings";
 import { GeneralSettings } from "./GeneralSettings";
 import { ConversationSettings } from "./ConversationSettings";
 import { quietHoursError } from "./QuietHoursSettings";
@@ -90,8 +91,15 @@ function DraftActions({
   );
 }
 export function SettingsPanel({ snapshot, preview = false, initialSection }: Props): JSX.Element {
-  const { section, visited, navigate, navigationError, memoryTabRequest, characterRequest } =
-    useSettingsNavigation(initialSection);
+  const {
+    section,
+    visited,
+    navigate,
+    navigationError,
+    memoryTabRequest,
+    characterRequest,
+    openCharacter,
+  } = useSettingsNavigation(initialSection);
   const automatic = useSettingsDraft(snapshot.settings, "automatic");
   const model = useSettingsDraft(snapshot.settings, "model");
   const [organizerDirty, setOrganizerDirty] = useState(false);
@@ -155,7 +163,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
   const topSection =
     section === "dialogue"
       ? "automatic"
-      : section === "user" || section === "organizer"
+      : section === "user" || section === "organizer" || section === "theme"
         ? "general"
         : section;
   const topSections = [
@@ -171,7 +179,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
       item.value,
       {
         tabId: `settings-${item.value}-tab`,
-        panelId: `settings-${item.value === "automatic" && section === "dialogue" ? "dialogue" : item.value === "general" && (section === "user" || section === "organizer") ? section : item.value}-panel`,
+        panelId: `settings-${item.value === "automatic" && section === "dialogue" ? "dialogue" : item.value === "general" && (section === "user" || section === "organizer" || section === "theme") ? section : item.value}-panel`,
       },
     ]),
   );
@@ -244,6 +252,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
               onDirtyChange={setCharactersDirty}
               memoryTabRequest={memoryTabRequest}
               characterRequest={characterRequest}
+              onOpenTheme={() => navigate("theme")}
             />
           )}
         </section>
@@ -377,6 +386,7 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
               active={section === "general"}
               onOpenUser={() => navigate("user")}
               onOpenOrganizer={() => navigate("organizer")}
+              onOpenTheme={() => navigate("theme")}
               onBusyChange={setUpdateBusy}
               quitDisabled={widgetsBusy || updateBusy}
               hasChanges={hasChanges}
@@ -425,6 +435,29 @@ export function SettingsPanel({ snapshot, preview = false, initialSection }: Pro
                 <span>Ex-brain</span>
               </div>
               <OrganizerSettings onDirtyChange={setOrganizerDirty} />
+            </div>
+          )}
+        </section>
+        <section
+          role="tabpanel"
+          tabIndex={0}
+          id="settings-theme-panel"
+          aria-labelledby="settings-general-tab"
+          hidden={section !== "theme"}
+          className={styles.settingsPage}
+        >
+          {visited.has("theme") && (
+            <div className={styles.subpage}>
+              <div className={styles.breadcrumb}>
+                <Button variant="ghost" size="small" onClick={() => navigate("general")}>
+                  ‹ 일반
+                </Button>
+                <span>테마</span>
+              </div>
+              <ThemeSettings
+                snapshot={snapshot}
+                onOpenBalloon={(id) => openCharacter(id, "balloon")}
+              />
             </div>
           )}
         </section>

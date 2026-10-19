@@ -9,6 +9,7 @@
   ],
   "exports": {
     ".": "./src/index.ts",
+    "./skin": "./src/skin.ts",
     "./styles.css": "./styles.css",
     "./figma/variables.json": "./figma/variables.json"
   },

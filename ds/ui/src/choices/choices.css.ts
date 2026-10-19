@@ -105,6 +105,26 @@ export const kinds = styleVariants({
     borderRadius: 18,
     textAlign: "left",
   },
+  "theme-add": {
+    width: 366,
+    minHeight: 172,
+    gap: 4,
+    padding: 16,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    background: "transparent",
+    textAlign: "center",
+  },
+});
+export const themeAddGraphic = style({
+  width: 40,
+  height: 40,
+  marginBottom: 8,
+  borderRadius: 20,
+  border: `1px solid ${tokens["color/card-border"]}`,
+  background: tokens["color/card"],
+  color: tokens["color/ink-2"],
 });
 export const graphic = style({
   display: "flex",

@@ -2,8 +2,12 @@ import { useEffect, useLayoutEffect, useState, type JSX, type PropsWithChildren 
 import { DocsContainer, type DocsContainerProps } from "@storybook/addon-docs/blocks";
 import { GLOBALS_UPDATED } from "storybook/internal/core-events";
 import type { GlobalsUpdatedPayload } from "storybook/internal/types";
-import type { Theme } from "@comet/token";
+import { themes, type Theme } from "@comet/token";
 import { catalogThemes } from "./catalogThemes";
+
+export function catalogTheme(value: unknown): Theme {
+  return typeof value === "string" && value in themes ? (value as Theme) : "light";
+}
 
 export function ThemedDocsContainer({
   context,
@@ -12,12 +16,12 @@ export function ThemedDocsContainer({
   const { channel } = context;
   const [theme, setTheme] = useState<Theme>(() => {
     const update: GlobalsUpdatedPayload | undefined = channel.last(GLOBALS_UPDATED)?.[0];
-    return update?.globals.theme === "dark" ? "dark" : "light";
+    return catalogTheme(update?.globals.theme);
   });
 
   useEffect(() => {
     const updateTheme = ({ globals }: GlobalsUpdatedPayload): void => {
-      setTheme(globals.theme === "dark" ? "dark" : "light");
+      setTheme(catalogTheme(globals.theme));
     };
     channel.on(GLOBALS_UPDATED, updateTheme);
     const update: GlobalsUpdatedPayload | undefined = channel.last(GLOBALS_UPDATED)?.[0];
@@ -34,7 +38,7 @@ export function ThemedDocsContainer({
   }, [theme]);
 
   return (
-    <DocsContainer context={context} theme={catalogThemes[theme]}>
+    <DocsContainer context={context} theme={catalogThemes[theme === "dark" ? "dark" : "light"]}>
       {children}
     </DocsContainer>
   );

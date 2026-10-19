@@ -364,3 +364,41 @@ it("adds and removes expressions, protects the default one, and gates images on 
   openCharacterPage("대사·반응");
   expect(screen.getByLabelText("인사 1 표정")).toBeTruthy();
 });
+
+it("lets a friend follow the app theme again by clearing its own text look and balloon image", () => {
+  const onChange = vi.fn();
+  const onSprite = vi.fn();
+  const onOpenTheme = vi.fn();
+  const styled: InstalledCharacter = {
+    ...byulkkori,
+    definition: {
+      ...byulkkori.definition,
+      balloonStyle: { fontSize: 22, fontFamily: "Georgia", textColor: "#ff0000", textSpeed: 30 },
+    },
+    sprites: { ...byulkkori.sprites, $balloon: { mime: "image/png", updatedAt: 1 } },
+  };
+  render(
+    <CharacterEditor
+      definition={styled.definition}
+      character={styled}
+      onChange={onChange}
+      onSave={() => {}}
+      onSprite={onSprite}
+      onOpenTheme={onOpenTheme}
+      pending={false}
+      dirty={false}
+    />,
+  );
+  openCharacterPage("말풍선");
+  const follow = screen.getByRole("switch", { name: "전체 테마 따르기" });
+  expect(follow).toHaveProperty("checked", false);
+  fireEvent.click(follow);
+  expect(onChange).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      balloonStyle: { fontSize: 16, fontFamily: "", textColor: null, textSpeed: 30 },
+    }),
+  );
+  expect(onSprite).toHaveBeenLastCalledWith("$balloon", true);
+  fireEvent.click(screen.getByRole("button", { name: /전체 테마 바꾸기/ }));
+  expect(onOpenTheme).toHaveBeenCalledOnce();
+});

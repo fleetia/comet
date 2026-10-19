@@ -1,5 +1,5 @@
 import { create, type ThemeVars } from "storybook/theming";
-import { themes, type Theme } from "@comet/token";
+import { themes } from "@comet/token";
 
 function parseColor(value: string): [number, number, number, number] {
   const channels = value.match(/[\d.]+/g)?.map(Number);
@@ -22,7 +22,7 @@ function resolveColor(value: string, backdrop?: string): string {
   return `rgb(${channels.join(", ")})`;
 }
 
-function createCatalogTheme(theme: Theme): ThemeVars {
+function createCatalogTheme(theme: "dark" | "light"): ThemeVars {
   const palette = themes[theme];
   const canvas = resolveColor(palette["color/document/backdrop-panel/sky"]);
   const window = resolveColor(palette["color/glass-window"], canvas);

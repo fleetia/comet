@@ -9,6 +9,8 @@ const themeCollection = {
   modes: [
     { modeId: "dark", name: "Dark" },
     { modeId: "light", name: "Light" },
+    { modeId: "paper", name: "Paper" },
+    { modeId: "play", name: "Play" },
   ],
 };
 const sharedCollection = {
@@ -57,6 +59,8 @@ describe("Figma token generation", () => {
           valuesByMode: {
             dark: { r: 0.25, g: 0.5, b: 1, a: 0.125 },
             light: { r: 1, g: 1, b: 1, a: 1 },
+            paper: { r: 1, g: 1, b: 1, a: 1 },
+            play: { r: 0, g: 0, b: 0, a: 1 },
           },
         },
         {
@@ -72,8 +76,10 @@ describe("Figma token generation", () => {
     expect(result.themes.light["color/alias"]).toBe("rgb(255 255 255)");
     expect(result.css.split('[data-comet-theme="dark"]')[0]).not.toContain("--comet-color-alias:");
     expect(result.css).toContain("--comet-color-alias: rgb(255 255 255);");
+    expect(result.themes.play["color/alias"]).toBe("rgb(0 0 0)");
+    expect(result.css).toContain('[data-comet-theme="play"] {');
     expect(result.themes.dark["spacing/base"]).toBe(4);
-    expect(result.themes.light["spacing/base"]).toBe(4);
+    expect(result.themes.play["spacing/base"]).toBe(4);
   });
 
   it("rejects paths that normalize to the same CSS property", () => {
@@ -119,7 +125,11 @@ describe("Figma token generation", () => {
         collections: [
           {
             ...themeCollection,
-            modes: [themeCollection.modes[0], { modeId: "other", name: "Other" }],
+            modes: [
+              themeCollection.modes[0],
+              { modeId: "other", name: "Other" },
+              ...themeCollection.modes.slice(2),
+            ],
           },
         ],
         variables: [],
