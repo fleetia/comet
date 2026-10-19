@@ -1,7 +1,7 @@
 import type { Preview } from "@storybook/react-vite";
 import { useEffect } from "storybook/preview-api";
 import { themes, tokens } from "@comet/token";
-import { ThemedDocsContainer } from "./ThemedDocsContainer";
+import { catalogTheme, ThemedDocsContainer } from "./ThemedDocsContainer";
 import "@comet/token/styles.css";
 import "./fonts.css";
 import "../stories/catalog.css";
@@ -16,6 +16,8 @@ const preview: Preview = {
         items: [
           { value: "dark", title: "밤하늘 · Dark" },
           { value: "light", title: "낮 · Light" },
+          { value: "paper", title: "따뜻한 종이 · Paper" },
+          { value: "play", title: "놀이 · Play" },
         ],
         dynamicTitle: true,
       },
@@ -69,7 +71,7 @@ const preview: Preview = {
   },
   decorators: [
     (Story, context) => {
-      const theme = context.globals.theme === "dark" ? "dark" : "light";
+      const theme = catalogTheme(context.globals.theme);
       useEffect(() => {
         document.documentElement.dataset.cometTheme = theme;
       }, [theme]);
@@ -79,7 +81,7 @@ const preview: Preview = {
           className="comet-catalog"
           data-comet-theme={theme}
           data-comet-motion={context.globals.motion === "reduced" ? "reduced" : undefined}
-          style={{ color: tokens["color/ink"], colorScheme: theme }}
+          style={{ color: tokens["color/ink"], colorScheme: theme === "dark" ? "dark" : "light" }}
         >
           <Story />
         </div>

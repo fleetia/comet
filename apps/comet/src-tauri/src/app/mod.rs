@@ -1,3 +1,4 @@
+pub(crate) mod appearance;
 mod autostart;
 mod background;
 mod chat;

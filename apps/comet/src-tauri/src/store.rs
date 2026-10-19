@@ -138,6 +138,15 @@ pub fn save_settings(conn: &Connection, value: &Settings) -> Result<()> {
     value.remember_api_profile();
     put(conn, "settings", &value)
 }
+pub fn appearance(conn: &Connection) -> Result<crate::app::appearance::Appearance> {
+    Ok(get(conn, "appearance")?.unwrap_or_default())
+}
+pub fn save_appearance(
+    conn: &Connection,
+    value: &crate::app::appearance::Appearance,
+) -> Result<()> {
+    put(conn, "appearance", value)
+}
 pub fn revision(conn: &Connection) -> Result<i64> {
     Ok(get(conn, "revision")?.unwrap_or(0))
 }

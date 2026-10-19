@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const themeNames = ["dark", "light"];
+const themeNames = ["dark", "light", "paper", "play"];
 const supportedTypes = new Set(["COLOR", "FLOAT", "TIMING", "STRING"]);
 const owns = (object, key) => Object.hasOwn(object, key);
 
@@ -36,10 +36,10 @@ function modesFor(collection) {
     throw new Error(`Missing default mode: ${collection.name}`);
   }
   if (modes.length === 1) {
-    return { dark: modes[0].modeId, light: modes[0].modeId };
+    return Object.fromEntries(themeNames.map((theme) => [theme, modes[0].modeId]));
   }
-  if (modes.length !== 2) {
-    throw new Error(`Expected shared or dark/light modes: ${collection.name}`);
+  if (modes.length !== themeNames.length) {
+    throw new Error(`Expected shared or ${themeNames.join("/")} modes: ${collection.name}`);
   }
   return Object.fromEntries(
     themeNames.map((theme) => {
@@ -159,7 +159,8 @@ export function buildTokenArtifacts(source) {
   const shared = variables.filter(
     (variable) =>
       source.collections.find((collection) => collection.id === variable.collectionId).modes
-        .length === 1 && themes.dark[variable.name] === themes.light[variable.name],
+        .length === 1 &&
+      themeNames.every((theme) => themes[theme][variable.name] === themes.dark[variable.name]),
   );
   const themed = variables.filter((variable) => !shared.includes(variable));
   const declarations = (items, theme) =>

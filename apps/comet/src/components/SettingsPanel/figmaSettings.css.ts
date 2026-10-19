@@ -189,3 +189,13 @@ export const nested = style({ minWidth: 0 });
 globalStyle(`${group} > .${nested} + .${nested}`, {
   borderTop: `1px solid ${tokens["color/divider"]}`,
 });
+export const groupLink = style({
+  width: "100%",
+  minHeight: 56,
+  padding: "11px 16px",
+  border: "none",
+  borderRadius: 0,
+  background: "transparent",
+  selectors: { "& + &": { borderTop: `1px solid ${tokens["color/divider"]}` } },
+});
+globalStyle(`${groupLink} + ${row}`, { borderTop: `1px solid ${tokens["color/divider"]}` });

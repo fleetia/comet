@@ -1,16 +1,16 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { ThemeRoot } from "@comet/ui";
 // Load app primitives before feature styles so feature classes can override them.
 import "./primitives.css";
 import { App } from "./App";
+import { AppTheme } from "./components/AppTheme/AppTheme";
+import { surfaceFor } from "./appearance";
 import * as desktop from "./desktop.css";
 import { command, isDesktop } from "./hooks/useSnapshot";
 import { initializeAnalytics, initializeErrorReporting } from "./analytics";
 import "./fonts.css";
 
 document.documentElement.classList.add(desktop.documentRoot);
-document.documentElement.dataset.cometTheme = "dark";
 initializeErrorReporting();
 void initializeAnalytics();
 
@@ -31,8 +31,11 @@ if (isDesktop()) {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ThemeRoot theme="dark" className={desktop.root}>
+    <AppTheme
+      surface={surfaceFor(new URLSearchParams(window.location.search).get("view"), isDesktop())}
+      className={desktop.root}
+    >
       <App />
-    </ThemeRoot>
+    </AppTheme>
   </StrictMode>,
 );

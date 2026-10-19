@@ -6,11 +6,12 @@ import {
   SettingControlRow,
   SettingsSummary,
   Surface,
+  Switch,
   Tabs,
   Textarea,
   TextInput,
 } from "@comet/ui";
-import { ChevLeftIcon, Icon } from "@comet/icon";
+import { ChevLeftIcon, Icon, PaletteIcon } from "@comet/icon";
 import { FriendOverview, FriendProfilePreview } from "./FriendOverview";
 import * as detail from "./friendDetail.css";
 import { ActionBar, TabPanel, externalTabPanels } from "../../primitives";
@@ -26,7 +27,14 @@ import type {
 } from "../../types";
 import { BALLOON_SPRITE, DEFAULT_EXPRESSION, spriteUrl } from "../characterIdentity";
 import { skinStyle, useImageSlice } from "../../hooks/useImageSlice";
-import { balloonTextStyle, DEFAULT_BALLOON_STYLE } from "../balloonTypography";
+import {
+  balloonTextStyle,
+  DEFAULT_BALLOON_STYLE,
+  followsTheme,
+  themedBalloonStyle,
+} from "../balloonTypography";
+import { appearanceSummary } from "../ThemeSettings/ThemeSettings";
+import { useAppearance } from "../../hooks/useAppearance";
 import { AppearanceEditor, type AssetSelection } from "./AppearanceEditor";
 import { CharacterWorkPanel } from "./CharacterWorkPanel";
 import { CharacterLinePreview } from "./CharacterLinePreview";
@@ -66,6 +74,9 @@ type Props = {
   memoryContent?: ReactNode | ((onManage: () => void) => ReactNode);
   settingsContent?: ReactNode;
   memoryTabRequest?: number;
+  /** Opens this friend on a tab once per revision, e.g. the balloon tab from theme settings. */
+  tabRequest?: { id: string; revision: number; tab?: "balloon" } | null;
+  onOpenTheme?: () => void;
   isTogether?: boolean;
   dialogueType?: DialogueType;
   onDialogueTypeChange?: (type: DialogueType) => void;
@@ -210,6 +221,57 @@ function Lines({
   );
 }
 
+/** The friend's link to the app-wide skin: follow it again, or open the theme page. */
+function BalloonTheme({
+  definition,
+  character,
+  onChange,
+  onSprite,
+  onOpenTheme,
+}: Pick<Props, "definition" | "character" | "onSprite" | "onOpenTheme"> & {
+  onChange: (patch: Pick<CharacterDefinition, "balloonStyle">) => void;
+}): JSX.Element {
+  const { appearance } = useAppearance();
+  const following = followsTheme({ definition, sprites: character?.sprites ?? {} });
+  const hasImage = Boolean(character?.sprites[BALLOON_SPRITE]);
+  return (
+    <section className={e.balloonTheme} aria-label="말풍선 테마">
+      <h3 className={s.subheading}>테마</h3>
+      <SettingControlRow
+        className={e.formControlRow}
+        title="전체 테마 따르기"
+        description={
+          following
+            ? `지금 전체 테마: ${appearanceSummary(appearance)}`
+            : hasImage
+              ? "켜면 바꾼 글자 크기·글꼴·색을 비우고 말풍선 이미지를 지워요"
+              : "켜면 바꾼 글자 크기·글꼴·색을 비워요"
+        }
+        control={
+          <Switch
+            aria-label="전체 테마 따르기"
+            checked={following}
+            disabled={following}
+            onChange={() => {
+              onChange({ balloonStyle: themedBalloonStyle(definition.balloonStyle) });
+              if (hasImage) onSprite?.(BALLOON_SPRITE, true);
+            }}
+          />
+        }
+      />
+      {onOpenTheme && (
+        <SettingsSummary
+          className={e.formControlRow}
+          title="전체 테마 바꾸기"
+          description="스킨과 화면 모드는 설정 › 일반 › 테마에서 정해요"
+          leading={<PaletteIcon size={18} />}
+          onClick={onOpenTheme}
+        />
+      )}
+    </section>
+  );
+}
+
 function BalloonAppearance({
   definition,
   character,
@@ -217,7 +279,8 @@ function BalloonAppearance({
   onSprite,
   footer,
   visible,
-}: Pick<Props, "definition" | "character" | "onSprite"> & {
+  onOpenTheme,
+}: Pick<Props, "definition" | "character" | "onSprite" | "onOpenTheme"> & {
   onChange: (patch: Pick<CharacterDefinition, "balloonStyle">) => void;
   footer: ReactNode;
   visible: boolean;
@@ -247,6 +310,13 @@ function BalloonAppearance({
   return (
     <section aria-label="말풍선 설정" className={e.balloonLayout}>
       <CharacterWorkPanel footer={footer}>
+        <BalloonTheme
+          definition={definition}
+          character={character}
+          onChange={onChange}
+          onSprite={onSprite}
+          onOpenTheme={onOpenTheme}
+        />
         <h3 className={s.subheading}>글자 표시</h3>
         <div className={e.balloonFontFields}>
           <FormField label="글자 크기 · 12~40px">
@@ -450,6 +520,8 @@ export function CharacterEditor({
   memoryContent,
   settingsContent,
   memoryTabRequest = 0,
+  tabRequest,
+  onOpenTheme,
   isTogether = false,
   dialogueType: controlledDialogueType,
   onDialogueTypeChange,
@@ -488,6 +560,9 @@ export function CharacterEditor({
   useEffect(() => {
     if (memoryTabRequest > 0) setTab("memory");
   }, [memoryTabRequest]);
+  useEffect(() => {
+    if (tabRequest?.tab && tabRequest.id === character?.id) setTab(tabRequest.tab);
+  }, [tabRequest?.revision, character?.id]);
   function change<K extends keyof CharacterDefinition>(
     key: K,
     value: CharacterDefinition[K],
@@ -1006,6 +1081,7 @@ export function CharacterEditor({
             definition={definition}
             character={character}
             onSprite={onSprite}
+            onOpenTheme={onOpenTheme}
             onChange={(patch) => onChange({ ...definition, ...patch })}
           />
         </fieldset>

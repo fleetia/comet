@@ -360,6 +360,18 @@ export type ApiProfile = {
   apiModel: string;
   apiTokenParameter: "max_tokens" | "max_completion_tokens";
 };
+export type ColorMode = "system" | "dark" | "light";
+export type SkinName = "night" | "paper" | "play" | "custom";
+export type CustomSkin = { background: string; balloon: string; widget: string; accent: string };
+export type Appearance = {
+  colorMode: ColorMode;
+  skin: SkinName;
+  customSkin: CustomSkin | null;
+  /** Desktop surface opacity in percent, 20–100; 100 is opaque. */
+  balloonOpacity: number;
+  widgetOpacity: number;
+  revision: number;
+};
 export type Settings = {
   analyticsConsent: boolean;
   mode: ProviderKind;

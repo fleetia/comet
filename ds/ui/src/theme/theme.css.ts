@@ -11,7 +11,13 @@ export const root = style({
   selectors: {
     '&[data-comet-theme="dark"]': { colorScheme: "dark" },
     '&[data-comet-theme="light"]': { colorScheme: "light" },
+    '&[data-comet-theme="paper"]': { colorScheme: "light" },
+    '&[data-comet-theme="play"]': { colorScheme: "light" },
   },
+});
+
+export const skinTypeface = style({
+  fontFamily: `${tokens["text/skin-font-family"]}, ${tokens["typography/sans/body/fontFamily"]}, sans-serif`,
 });
 
 globalStyle(`${root}, ${root} *, ${root} *::before, ${root} *::after`, { boxSizing: "border-box" });

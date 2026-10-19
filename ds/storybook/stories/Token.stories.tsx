@@ -59,6 +59,13 @@ function TokenPreview({ path }: { path: TokenPath }): JSX.Element {
   return <div className="comet-catalog-token-preview" style={style} aria-hidden="true" />;
 }
 
+const MODE_LABELS: Record<Theme, string> = {
+  dark: "밤하늘 · Dark",
+  light: "낮 · Light",
+  paper: "따뜻한 종이 · Paper",
+  play: "놀이 · Play",
+};
+
 function TokenCatalog({ category, mode }: TokenCatalogProps): JSX.Element {
   const searchId = useId();
   const [query, setQuery] = useState("");
@@ -69,7 +76,7 @@ function TokenCatalog({ category, mode }: TokenCatalogProps): JSX.Element {
       matchesCategory && `${path} ${tokenNames[path]}`.toLocaleLowerCase().includes(normalized)
     );
   });
-  const modes: Theme[] = mode === "both" ? ["dark", "light"] : [mode];
+  const modes = mode === "both" ? (Object.keys(themes) as Theme[]) : [mode];
 
   return (
     <section aria-label="디자인 토큰 목록">
@@ -92,7 +99,7 @@ function TokenCatalog({ category, mode }: TokenCatalogProps): JSX.Element {
             <th scope="col">토큰</th>
             {modes.map((theme) => (
               <th scope="col" key={theme}>
-                {theme === "dark" ? "밤하늘 · Dark" : "낮 · Light"}
+                {MODE_LABELS[theme]}
               </th>
             ))}
           </tr>
@@ -134,15 +141,15 @@ const meta = {
     },
     mode: {
       control: "radio",
-      options: ["both", "dark", "light"],
-      description: "양쪽 모드를 나란히 보거나 한 모드만 보기",
+      options: ["both", ...Object.keys(themes)],
+      description: "모든 모드를 나란히 보거나 한 모드만 보기",
     },
   },
   parameters: {
     docs: {
       description: {
         component:
-          'Figma variable·text style에서 생성한 토큰 전체입니다. `tokens[path]`는 타입이 지정된 CSS var 참조이고 `themes.dark`와 `themes.light`는 모드별 원본 값입니다. `@comet/token/styles.css`를 한 번 불러오고 컨테이너에 `data-comet-theme="dark"` 또는 `"light"`를 지정하세요. 표의 숫자는 원본 값이며 길이·시간의 CSS 단위는 배포 CSS가 처리합니다.',
+          'Figma variable·text style에서 생성한 토큰 전체입니다. `tokens[path]`는 타입이 지정된 CSS var 참조이고 `themes.dark`·`themes.light`·`themes.paper`·`themes.play`는 모드별 원본 값입니다. paper(따뜻한 종이)와 play(놀이)는 한 모습뿐인 스킨입니다. `@comet/token/styles.css`를 한 번 불러오고 컨테이너에 `data-comet-theme="dark"`·`"light"`·`"paper"`·`"play"` 중 하나를 지정하세요. 표의 숫자는 원본 값이며 길이·시간의 CSS 단위는 배포 CSS가 처리합니다.',
       },
     },
   },
@@ -152,7 +159,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const AllTokens: Story = { name: "전체 토큰" };
-export const Colors: Story = { name: "색상 · Dark / Light", args: { category: "color" } };
+export const Colors: Story = { name: "색상 · 모든 모드", args: { category: "color" } };
 export const Typography: Story = { name: "타이포그래피", args: { category: "typography" } };
 export const Spacing: Story = { name: "간격", args: { category: "spacing" } };
 export const Radius: Story = { name: "모서리", args: { category: "radius" } };

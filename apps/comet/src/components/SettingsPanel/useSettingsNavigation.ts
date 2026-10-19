@@ -10,11 +10,13 @@ export const SETTINGS_SECTIONS = [
   { id: "dialogue", label: "대사", group: "대화" },
   { id: "desktop", label: "바탕화면", group: "앱" },
   { id: "organizer", label: "Ex-brain", group: "앱" },
+  { id: "theme", label: "테마", group: "앱" },
   { id: "user", label: "사용자", group: "앱" },
   { id: "model", label: "AI 연결", group: "앱" },
   { id: "general", label: "일반", group: "앱" },
 ] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]["id"];
+export type CharacterRequest = { id: string; revision: number; tab?: "balloon" };
 
 function sectionFrom(value: unknown): SettingsSection | null {
   if (value === "memory") {
@@ -35,16 +37,15 @@ export function useSettingsNavigation(initialSection?: string): {
   navigate: (value: string) => void;
   navigationError: string | null;
   memoryTabRequest: number;
-  characterRequest: { id: string; revision: number } | null;
+  characterRequest: CharacterRequest | null;
+  openCharacter: (id: string, tab: CharacterRequest["tab"]) => void;
 } {
   const initial = initialSection ?? new URLSearchParams(window.location.search).get("section");
   const [memoryTabRequest, setMemoryTabRequest] = useState(initial === "memory" ? 1 : 0);
   const [section, setSection] = useState<SettingsSection>(sectionFrom(initial) ?? "characters");
   const [visited, setVisited] = useState<ReadonlySet<SettingsSection>>(() => new Set([section]));
   const [navigationError, setNavigationError] = useState<string | null>(null);
-  const [characterRequest, setCharacterRequest] = useState<{ id: string; revision: number } | null>(
-    null,
-  );
+  const [characterRequest, setCharacterRequest] = useState<CharacterRequest | null>(null);
   const navigationRevision = useRef(0);
   const manualNavigationRevision = useRef(0);
   const receivedCharacterRequest = useRef<string | null>(null);
@@ -66,7 +67,10 @@ export function useSettingsNavigation(initialSection?: string): {
     setCharacterRequest(null);
     if (isDesktop()) {
       void command("set_settings_section", {
-        section: next === "desktop" || next === "user" || next === "organizer" ? "general" : next,
+        section:
+          next === "desktop" || next === "user" || next === "organizer" || next === "theme"
+            ? "general"
+            : next,
       }).catch((cause: unknown) => setNavigationError(errorText(cause)));
     }
   }
@@ -128,5 +132,18 @@ export function useSettingsNavigation(initialSection?: string): {
       cleanup?.();
     };
   }, []);
-  return { section, visited, navigate, navigationError, memoryTabRequest, characterRequest };
+  /** Opens a friend on one editor tab, e.g. the balloon page from the theme settings. */
+  function openCharacter(id: string, tab: CharacterRequest["tab"]): void {
+    navigate("characters");
+    setCharacterRequest({ id, tab, revision: navigationRevision.current });
+  }
+  return {
+    section,
+    visited,
+    navigate,
+    navigationError,
+    memoryTabRequest,
+    characterRequest,
+    openCharacter,
+  };
 }

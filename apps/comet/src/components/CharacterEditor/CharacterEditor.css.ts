@@ -307,3 +307,12 @@ globalStyle(`${profileMain} input, ${profileMain} textarea`, {
 export const formControlRow = style({ paddingInline: 0, borderTop: 0 });
 export const cardPanel = style({ padding: 16 });
 export const cardCompact = style({ padding: 12 });
+export const balloonTheme = style({
+  display: "flex",
+  flexDirection: "column",
+  minWidth: 0,
+  gap: tokens["spacing/space-8"],
+  marginBottom: tokens["spacing/space-12"],
+  paddingBottom: tokens["spacing/space-12"],
+  borderBottom: `1px solid ${tokens["color/line"]}`,
+});

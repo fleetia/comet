@@ -24,3 +24,15 @@ globalFontFace("IBM Plex Mono", {
   fontStyle: "normal",
   fontDisplay: "swap",
 });
+globalFontFace("Gowun Dodum", {
+  src: 'url("/fonts/gowundodum/GowunDodum-Regular.ttf") format("truetype")',
+  fontWeight: 400,
+  fontStyle: "normal",
+  fontDisplay: "swap",
+});
+globalFontFace("Jua", {
+  src: 'url("/fonts/jua/Jua-Regular.ttf") format("truetype")',
+  fontWeight: 400,
+  fontStyle: "normal",
+  fontDisplay: "swap",
+});
