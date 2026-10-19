@@ -826,7 +826,7 @@ export function CharacterEditor({
           <CharacterWorkPanel footer={definitionActions}>
             <section aria-label="다른 캐릭터와의 관계">
               <h3 className={s.subheading}>다른 캐릭터와의 관계</h3>
-              <p className={s.small}>
+              <p className={`${s.small} ${e.relationshipIntro}`}>
                 이 캐릭터가 상대를 어떻게 생각하고 대하는지 적어요. 상대의 관점은 상대 캐릭터에서
                 따로 설정해요.
               </p>
@@ -953,22 +953,24 @@ export function CharacterEditor({
                   </div>
                 );
               })}
-              <Button
-                variant="ghost"
-                size="small"
-                type="button"
-                disabled={!nextTarget || definition.relationships.length >= MAX_RELATIONSHIPS}
-                onClick={() => {
-                  if (nextTarget) {
-                    change("relationships", [
-                      ...definition.relationships,
-                      { targetId: nextTarget.id, description: "" },
-                    ]);
-                  }
-                }}
-              >
-                관계 추가
-              </Button>
+              <div className={e.relationshipAdd}>
+                <Button
+                  variant="ghost"
+                  size="small"
+                  type="button"
+                  disabled={!nextTarget || definition.relationships.length >= MAX_RELATIONSHIPS}
+                  onClick={() => {
+                    if (nextTarget) {
+                      change("relationships", [
+                        ...definition.relationships,
+                        { targetId: nextTarget.id, description: "" },
+                      ]);
+                    }
+                  }}
+                >
+                  관계 추가
+                </Button>
+              </div>
               {relationshipTargets.length === 0 && (
                 <p className={s.small}>다른 캐릭터를 추가하면 관계를 설정할 수 있어요.</p>
               )}

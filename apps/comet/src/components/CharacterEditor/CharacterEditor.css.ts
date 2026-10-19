@@ -290,6 +290,8 @@ globalStyle(`${dialogueTypes} > button:first-child`, {
   "@media": { "(max-width: 1280px)": { width: "auto" } },
 });
 
+export const relationshipIntro = style({ marginBottom: tokens["spacing/space-16"] });
+export const relationshipAdd = style({ marginTop: tokens["spacing/space-16"] });
 export const relationshipWorkspace = style({
   height: "100%",
   minHeight: 0,

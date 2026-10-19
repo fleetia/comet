@@ -101,6 +101,12 @@ export const queue = style({
 });
 export const retry = style({ width: 264, "@media": { "(max-width: 1400px)": { width: 200 } } });
 export const confirmation = style({ display: "flex", flexDirection: "column", gap: tokens["spacing/space-8"] });
+export const rowDetail = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: tokens["spacing/space-8"],
+  padding: `0 ${tokens["spacing/space-16"]} ${tokens["spacing/space-12"]}`,
+});
 export const confirmationActions = style({
   display: "flex",
   alignItems: "center",
