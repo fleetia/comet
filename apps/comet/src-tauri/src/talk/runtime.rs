@@ -123,8 +123,48 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
     if let Err(error) = upgrade_bundled_dialogue(&root) {
         eprintln!(".talk dialogue migration: {error}");
     }
+    if let Err(error) = replace_byulkkori_dialogue(&root) {
+        eprintln!(".talk byulkkori dialogue replacement: {error}");
+    }
     migrate_encryption(&root);
     Ok(root)
+}
+
+/// One-time overwrite of the installed Byulkkori pack with the rewritten bundled dialogue,
+/// including user edits inside that pack. A pack the user already removed is never restored.
+fn replace_byulkkori_dialogue(root: &Path) -> Result<(), String> {
+    let marker = app_data_of(root)?.join(".talk-byulkkori-dialogue-v4");
+    if marker.try_exists().map_err(|error| error.to_string())? || !root.exists() {
+        return Ok(());
+    }
+    let pack = defaults::pack(defaults::BYULKKORI).ok_or("기본 대본을 찾지 못했어요.")?;
+    let target = root.join(PACKS_DIRECTORY).join(pack.id);
+    if target.exists() {
+        let app_data = app_data_of(root)?;
+        let staging = app_data.join(format!(".talk-pack-{}", uuid::Uuid::new_v4()));
+        let backup = app_data.join(format!(".talk-pack-old-{}", uuid::Uuid::new_v4()));
+        let staged = write_encrypted_tree(&staging, pack.files).and_then(|_| {
+            super::load_pack(
+                &staging.join("index.talk"),
+                &super::context::registry(),
+                pack.id,
+            )
+            .map(|_| ())
+            .map_err(|errors| serde_json::to_string(&errors).unwrap_or_default())
+        });
+        if let Err(error) = staged {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(error);
+        }
+        fs::rename(&target, &backup).map_err(|error| error.to_string())?;
+        if let Err(error) = fs::rename(&staging, &target) {
+            let _ = fs::rename(&backup, &target);
+            let _ = fs::remove_dir_all(&staging);
+            return Err(error.to_string());
+        }
+        let _ = fs::remove_dir_all(&backup);
+    }
+    super::files::atomic_write(&marker, b"1\n")
 }
 
 fn upgrade_bundled_dialogue(root: &Path) -> Result<(), String> {
@@ -1051,8 +1091,8 @@ mod dialogue_upgrade_tests {
         reset_upgrade(directory.path());
         initialize_files(directory.path()).unwrap();
         let after = super::super::load_bundle(&root, &super::super::context::registry()).unwrap();
-        // The two inputs contribute 16 solo scenes and 8 pair scenes in total.
-        assert_eq!(after.scenes.len(), before.scenes.len() + 24);
+        // The two inputs contribute 18 solo scenes and 8 pair scenes in total.
+        assert_eq!(after.scenes.len(), before.scenes.len() + 26);
         let added: std::collections::BTreeSet<_> = after
             .scenes
             .iter()
@@ -1078,6 +1118,8 @@ mod dialogue_upgrade_tests {
                 "solo.imaginary-rain",
                 "solo.round-and-star",
                 "solo.staying-near",
+                "solo.new-friend",
+                "solo.close-friend",
                 "situation.unfinished-syllable",
                 "situation.small-game",
                 "situation.shared-quiet",
@@ -1193,5 +1235,40 @@ mod dialogue_upgrade_tests {
         assert_eq!(fs::read(&entry).unwrap(), authored_bytes);
         assert!(!directory.path().join(".talk-dialogue-v3").exists());
         super::super::load_bundle(&root, &super::super::context::registry()).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod byulkkori_replacement_tests {
+    use super::*;
+
+    fn source(path: &Path) -> String {
+        super::super::encryption::decode(&fs::read(path).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn installed_pack_is_overwritten_once_and_a_removed_pack_stays_removed() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = initialize_files(directory.path()).unwrap();
+        let todo = root.join("packs/byulkkori/widgets/todo.talk");
+        let stock = fs::read(&todo).unwrap();
+        fs::write(&todo, super::super::encryption::encode("format: 1\n# 사용자 수정\n").unwrap())
+            .unwrap();
+        fs::write(root.join("packs/byulkkori/widgets/journal.talk"), b"format: 1\n").unwrap();
+        fs::remove_file(directory.path().join(".talk-byulkkori-dialogue-v4")).unwrap();
+        initialize_files(directory.path()).unwrap();
+        assert_eq!(
+            super::super::encryption::decode(&fs::read(&todo).unwrap()).unwrap(),
+            super::super::encryption::decode(&stock).unwrap()
+        );
+        assert!(!root.join("packs/byulkkori/widgets/journal.talk").exists());
+        fs::write(&todo, "format: 1\n# later edit\n".as_bytes()).unwrap();
+        initialize_files(directory.path()).unwrap();
+        assert_eq!(source(&todo), "format: 1\n# later edit\n");
+
+        remove_pack(&root, "byulkkori").unwrap();
+        fs::remove_file(directory.path().join(".talk-byulkkori-dialogue-v4")).unwrap();
+        initialize_files(directory.path()).unwrap();
+        assert!(!root.join("packs/byulkkori").exists());
     }
 }
