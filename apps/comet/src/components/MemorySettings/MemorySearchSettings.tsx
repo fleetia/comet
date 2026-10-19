@@ -187,14 +187,16 @@ export function MemorySearchSettings({
                     }
                   />
                   {downloading && (
-                    <progress
-                      aria-label={`${LABELS[model]} 다운로드 진행`}
-                      max={info.totalBytes || 1}
-                      value={info.downloadedBytes}
-                    />
+                    <div className={styles.rowDetail}>
+                      <progress
+                        aria-label={`${LABELS[model]} 다운로드 진행`}
+                        max={info.totalBytes || 1}
+                        value={info.downloadedBytes}
+                      />
+                    </div>
                   )}
                   {confirmRemove === model && (
-                    <div className={styles.confirmation}>
+                    <div className={`${styles.confirmation} ${styles.rowDetail}`}>
                       <p className={figma.caption}>
                         검색 모델과 다시 만들 수 있는 색인을 제거해요. 원문과 기억은 그대로 남아요.
                       </p>
@@ -214,7 +216,11 @@ export function MemorySearchSettings({
                       </Button>
                     </div>
                   )}
-                  {info.error && <p className={figma.caption}>{info.error}</p>}
+                  {info.error && (
+                    <div className={styles.rowDetail}>
+                      <p className={figma.caption}>{info.error}</p>
+                    </div>
+                  )}
                 </div>
               );
             })
