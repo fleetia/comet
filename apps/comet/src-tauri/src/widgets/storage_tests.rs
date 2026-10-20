@@ -191,11 +191,61 @@ fn planner_batch_is_atomic_and_frequency_records_are_idempotent() {
 }
 
 #[test]
+fn completion_jar_counts_direct_completions_and_follows_undo() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    install(&db, directory.path(), &["todo"]);
+    act(&db, "todo", "add", json!({"title":"메일 정리하기"}), 1, 1);
+    let item_id = instance(&db, "todo").data["items"][0]["id"].clone();
+    act(&db, "todo", "complete", json!({"id":item_id}), 2, 2);
+    // Installing later still counts what was already completed.
+    install(&db, directory.path(), &["completion-jar"]);
+    let completed = instance(&db, "completion-jar").data["completed"].clone();
+    assert_eq!(completed.as_array().unwrap().len(), 1);
+    assert_eq!(completed[0]["title"], "메일 정리하기");
+    act(&db, "todo", "undo", json!({"id":item_id}), 3, 3);
+    assert!(instance(&db, "completion-jar").data["completed"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn previously_retired_play_widgets_install_again_with_their_data() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    db.execute(
+        "INSERT INTO widget_instances VALUES('old-plant','plant',1,0,0,3,?1,NULL)",
+        [json!({"stage":2,"water":0,"updatedAt":0}).to_string()],
+    )
+    .unwrap();
+    install(
+        &db,
+        directory.path(),
+        &["plant", "device", "guessing", "fishing", "pet"],
+    );
+    let snapshot = storage::snapshot(&db).unwrap();
+    let plant = snapshot
+        .widgets
+        .iter()
+        .find(|view| view.instance.kind == "plant")
+        .unwrap();
+    assert_eq!(plant.instance.id, "old-plant");
+    assert_eq!(plant.instance.data["stage"], 2);
+    for kind in ["device", "guessing", "fishing", "pet"] {
+        assert!(snapshot
+            .widgets
+            .iter()
+            .any(|view| view.instance.kind == kind && view.instance.installed));
+    }
+}
+
+#[test]
 fn widget_onboarding_is_read_compatible_and_installation_never_writes_it() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
     let before = storage::snapshot(&db).unwrap();
-    assert_eq!(before.catalog.len(), 15);
+    assert_eq!(before.catalog.len(), 21);
     assert!(before.widgets.is_empty());
     assert!(!before.onboarding_done);
     install(&db, directory.path(), &["memo"]);

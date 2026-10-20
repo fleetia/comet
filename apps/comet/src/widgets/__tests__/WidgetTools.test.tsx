@@ -159,20 +159,24 @@ it("protects an edited envelope connection from header and native close until ex
   await waitFor(() => expect(command).toHaveBeenCalledWith("close_widget", { id: "preparation" }));
   expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
 });
-it.each(["completion-jar", "device", "guessing", "fishing", "plant", "pet"])(
-  "does not reopen the retired %s tool from a stale snapshot",
-  (kind) => {
-    vi.mocked(useWidgets).mockReturnValue({
-      snapshot: { ...PREVIEW_WIDGETS, widgets: [widget(kind, { answer: 2 })] },
-      error: null,
-      reload: vi.fn(),
-    });
-    render(<WidgetTool id={kind} />);
-    expect(screen.getByText(/설치되지 않았거나 제거한 도구/)).toBeTruthy();
-    expect(screen.queryByText(/정답.*2/)).toBeNull();
-    expect(command).not.toHaveBeenCalled();
-  },
-);
+it.each([
+  ["completion-jar", "모은 구슬"],
+  ["device", "배터리"],
+  ["fishing", "낚시"],
+  ["plant", "식물"],
+])("opens the revived %s widget as its Figma card", (kind, label) => {
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: {
+      ...PREVIEW_WIDGETS,
+      widgets: [widget(kind, kind === "completion-jar" ? { completed: [] } : {})],
+    },
+    error: null,
+    reload: vi.fn(),
+  });
+  render(<WidgetTool id={kind} />);
+  expect(screen.getByRole("region", { name: label })).toBeTruthy();
+  expect(screen.queryByText(/설치되지 않았거나 제거한 도구/)).toBeNull();
+});
 
 it.each(["weather", "music", "preparation"])(
   "deep-links the %s tool to its settings detail",
@@ -185,9 +189,11 @@ it.each(["weather", "music", "preparation"])(
     render(<WidgetTool id={kind} />);
     fireEvent.click(
       screen.getByRole("button", {
-        name: { preparation: "캘린더 연결 설정", weather: "날씨 설정 열기", music: "음악 설정 열기" }[
-          kind
-        ],
+        name: {
+          preparation: "캘린더 연결 설정",
+          weather: "날씨 설정 열기",
+          music: "음악 설정 열기",
+        }[kind],
       }),
     );
     await waitFor(() =>
@@ -307,26 +313,6 @@ it("uses the actual fishing phase when rendering legacy fishing", () => {
   fireEvent.click(screen.getByRole("button", { name: "낚싯줄 거두기" }));
   expect(act).toHaveBeenCalledWith("reel");
 });
-it("restores the active guessing mode when reopening a number game", () => {
-  render(
-    <ToyTool
-      widget={widget("guessing", {
-        mode: "number",
-        playing: true,
-        hint: "더 큰 숫자예요.",
-        attempts: 2,
-      })}
-      act={act}
-    />,
-  );
-  expect(screen.getByLabelText("놀이")).toHaveProperty("value", "number");
-  const guess = screen.getByRole("spinbutton", { name: "예상 숫자" });
-  expect(guess).toHaveProperty("required", true);
-  fireEvent.change(guess, { target: { value: "" } });
-  expect(guess).toHaveProperty("validity.valueMissing", true);
-  expect(screen.queryByRole("button", { name: "1번 컵" })).toBeNull();
-});
-
 it("cancels anniversary edits without reusing the old record for a new anniversary", async () => {
   render(
     <ClockTool

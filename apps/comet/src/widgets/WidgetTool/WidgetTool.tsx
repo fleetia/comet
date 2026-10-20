@@ -13,8 +13,22 @@ import { ClockTool, TimerTool } from "../PlanningTools/PlanningTools";
 import { PreparationTool } from "../PreparationTool/PreparationTool";
 import { CalendarTool } from "../CalendarTool/CalendarTool";
 import { ConnectionTool } from "../ConnectionTools/ConnectionTools";
+import { BatteryTool } from "../ConnectionTools/BatteryTool";
+import { CompletionJarTool } from "../CompletionJar/CompletionJarTool";
 import { CollapsedDesktopWidget } from "../WidgetDisplay/DesktopWidget";
 import { DESKTOP_TOYS } from "../ToyTools/desktopToys";
+
+/** Kinds drawn as a floating card or companion scene instead of a tool window. */
+const COMPANION_KINDS = [
+  "interaction",
+  "small-match",
+  "fortune",
+  "guessing",
+  "fishing",
+  "plant",
+  "completion-jar",
+  "device",
+];
 import { transparentDocument } from "../../components/companion.css";
 import * as c from "../../common.css";
 import * as s from "../tools.css";
@@ -186,20 +200,40 @@ export function WidgetTool({
           <Button
             variant="ghost"
             disabled={busy}
-            onClick={() =>
-              void run(() => command("open_planner_settings", { kind: "weather" }))
-            }
+            onClick={() => void run(() => command("open_planner_settings", { kind: "weather" }))}
           >
             날씨 설정 열기
           </Button>
         );
         break;
+      case "completion-jar":
+      case "device":
+        content = (
+          <CompanionTool
+            widget={widget}
+            act={act}
+            onClose={closeGuard.requestClose}
+            busy={busy}
+            error={failure || undefined}
+          >
+            {widget.kind === "device" ? (
+              <BatteryTool widget={widget} />
+            ) : (
+              <CompletionJarTool widget={widget} />
+            )}
+          </CompanionTool>
+        );
+        break;
       case "interaction":
       case "small-match":
       case "fortune":
+      case "guessing":
+      case "fishing":
+      case "plant":
       case "ball":
       case "paper-plane":
       case "bubbles":
+      case "pet":
         content = (
           <CompanionTool
             widget={widget}
@@ -220,9 +254,7 @@ export function WidgetTool({
   const frameless = Boolean(
     widget?.installed &&
     widget.enabled &&
-    ["music", "focus-timer", "interaction", "small-match", "fortune", ...DESKTOP_TOYS].includes(
-      widget.kind,
-    ),
+    ["music", "focus-timer", ...COMPANION_KINDS, ...DESKTOP_TOYS].includes(widget.kind),
   );
   return (
     <WidgetFrame

@@ -42,12 +42,18 @@ pub const PACKS: &[Pack] = &[
             "widgets/bubbles.talk",
             "widgets/calendar.talk",
             "widgets/clock.talk",
+            "widgets/completion-jar.talk",
+            "widgets/device.talk",
+            "widgets/fishing.talk",
             "widgets/focus-timer.talk",
             "widgets/fortune.talk",
+            "widgets/guessing.talk",
             "widgets/interaction.talk",
             "widgets/memo.talk",
             "widgets/music.talk",
             "widgets/paper-plane.talk",
+            "widgets/pet.talk",
+            "widgets/plant.talk",
             "widgets/preparation.talk",
             "widgets/small-match.talk",
             "widgets/planner.talk",
@@ -310,6 +316,11 @@ mod tests {
                 ),
                 ("negative.null-weather", "weather.cold", "condition_false"),
                 ("negative.unknown-result", "match.dice", "condition_false"),
+                (
+                    "negative.event-mismatch",
+                    "guessing.attempt",
+                    "trigger_mismatch",
+                ),
             ],
         );
     }
@@ -343,8 +354,8 @@ mod tests {
     }
 
     #[test]
-    fn retired_widget_assets_are_absent_from_every_shipped_program() {
-        for pack in PACKS.iter().chain(std::iter::once(&super::LEGACY_NADIR)) {
+    fn revived_widget_assets_stay_out_of_the_legacy_pack() {
+        for pack in [&super::LEGACY_NADIR] {
             let program = program(pack.id);
             for kind in [
                 "completion-jar",
@@ -819,6 +830,15 @@ mod pipeline_tests {
         "fortune.fresh",
         "travel.none",
     ];
+    /// Widgets brought back after the legacy Nadir pack was frozen; only the default pack has them.
+    const REVIVED: [(&str, &str); 6] = [
+        ("completion-jar", "jar.empty"),
+        ("device", "device.permission-needed"),
+        ("guessing", "guessing.idle"),
+        ("fishing", "fishing.idle"),
+        ("plant", "plant.dry"),
+        ("pet", "pet.resting"),
+    ];
 
     #[test]
     fn all_current_installed_widget_initial_states_reach_a_shipped_scene() {
@@ -826,8 +846,9 @@ mod pipeline_tests {
         let kinds = catalog
             .iter()
             .map(|manifest| manifest.id.as_str())
+            .filter(|kind| !REVIVED.iter().any(|(revived, _)| revived == kind))
             .collect::<Vec<_>>();
-        assert_eq!(INITIAL_STATES.len(), catalog.len());
+        assert_eq!(INITIAL_STATES.len(), kinds.len());
         let (db, _directory) = nadir_database(&kinds);
         let program = program(NADIR_AND_STAR_TAIL);
         let context = context::build(&db, None, 1_000, 0).unwrap();
@@ -853,7 +874,11 @@ mod pipeline_tests {
         )
         .unwrap();
         let program = program(BYULKKORI);
-        for scene in INITIAL_STATES {
+        assert_eq!(INITIAL_STATES.len() + REVIVED.len(), catalog.len());
+        for scene in INITIAL_STATES
+            .into_iter()
+            .chain(REVIVED.map(|(_, scene)| scene))
+        {
             idle_scene(&db, &program, scene, 1_000);
         }
     }

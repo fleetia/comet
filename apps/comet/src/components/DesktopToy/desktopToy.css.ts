@@ -37,10 +37,7 @@ export const bubble = style({
   background: "rgba(201,184,245,0.12)",
 });
 export const pet = style({
-  fontSize: 34,
-  lineHeight: 1,
-  width: 38,
-  height: 38,
-  display: "grid",
-  placeItems: "center",
+  display: "block",
+  width: 46,
+  height: 46,
 });

@@ -110,16 +110,7 @@ pub struct WidgetEvent {
     pub event: EventDraft,
 }
 
-pub const RETIRED_KINDS: &[&str] = &[
-    "completion-jar",
-    "device",
-    "guessing",
-    "fishing",
-    "plant",
-    "pet",
-    "collection",
-    "journal",
-];
+pub const RETIRED_KINDS: &[&str] = &["collection", "journal"];
 
 pub fn is_retired(kind: &str) -> bool {
     RETIRED_KINDS.contains(&kind)

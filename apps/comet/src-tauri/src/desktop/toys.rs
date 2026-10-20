@@ -41,6 +41,7 @@ fn parse_kind(kind: &str) -> Result<Kind, String> {
         "ball" => Ok(Kind::Ball),
         "paper-plane" => Ok(Kind::PaperPlane),
         "bubbles" => Ok(Kind::Bubbles),
+        "pet" => Ok(Kind::Pet),
         _ => Err("바탕화면에서 꺼낼 수 없는 장난감이에요.".into()),
     }
 }
@@ -65,6 +66,13 @@ pub(crate) struct Outcome {
     pub owner: Option<String>,
     pub automatic: bool,
     pub popped: bool,
+    /// Pet care chosen from its context menu.
+    pub care: Option<Care>,
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Care {
+    Fed,
+    Stroked,
 }
 #[derive(Clone, Copy, Debug)]
 struct Motion {
@@ -177,6 +185,7 @@ fn outcome(actor: &Actor, popped: bool) -> Outcome {
         owner: actor.owner.clone(),
         automatic: actor.automatic,
         popped,
+        care: None,
     }
 }
 fn pop_bubble(actor: &mut Actor) -> Option<Outcome> {
@@ -487,7 +496,8 @@ fn open_one(
         resting: 0.0,
         reported: false,
         created: now,
-        expires: (automatic || matches!(kind, Kind::Bubbles | Kind::Pet))
+        // A pet stays until it is sent home from its menu.
+        expires: (automatic || kind == Kind::Bubbles)
             .then_some(now + Duration::from_secs(if automatic { 20 } else { 45 })),
         ignore_cursor: true,
         last_sent: None,
@@ -909,6 +919,19 @@ fn perform_action(app: &AppHandle, id: &str, action: &str) -> Result<Frame, Stri
         }
         "pop" if actor.kind == Kind::Bubbles => {
             popped = pop_bubble(actor);
+        }
+        "feed" | "stroke" if actor.kind == Kind::Pet && !actor.dragging => {
+            // A small hop acknowledges the care; walking resumes on landing.
+            actor.motion.vy = if action == "feed" { -260.0 } else { -160.0 } * actor.scale;
+            actor.moving = true;
+            popped = Some(Outcome {
+                care: Some(if action == "feed" {
+                    Care::Fed
+                } else {
+                    Care::Stroked
+                }),
+                ..outcome(actor, false)
+            });
         }
         "dismiss" => {}
         _ => return Err("알 수 없는 장난감 조작이에요.".into()),

@@ -20,10 +20,11 @@ it("shows the three Figma catalog groups and lets keyboard users open a widget",
   expect(daily.getByRole("button", { name: "시계·기념일 미설치" })).toBeTruthy();
   expect(
     within(screen.getByRole("region", { name: "놀이 상자" })).getAllByRole("button"),
-  ).toHaveLength(6);
+  ).toHaveLength(10);
   expect(
     within(screen.getByRole("region", { name: "생활 정보" })).getAllByRole("button"),
-  ).toHaveLength(2);
+  ).toHaveLength(3);
+  expect(daily.getByRole("button", { name: "할 일 완료 구슬 미설치" })).toBeTruthy();
   const focus = daily.getByRole("button", { name: "집중 타이머 켜짐" });
   expect(focus.getAttribute("aria-pressed")).toBe("true");
   focus.focus();

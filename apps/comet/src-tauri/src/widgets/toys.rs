@@ -1,6 +1,7 @@
 use super::{EventDraft, WidgetEffect};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -68,6 +69,9 @@ struct Fishing {
     expires_at: i64,
     last_catch: Option<String>,
     catches: u32,
+    /// Catch counts by item id, shown as the collection grid.
+    #[serde(default)]
+    collected: BTreeMap<String, u32>,
 }
 #[derive(Serialize, Deserialize)]
 struct Fortune {
@@ -257,6 +261,16 @@ fn choice_label(choice: &str) -> &str {
     }
 }
 
+/// Keep in sync with the fishing collection grid in `ToyTools.tsx`.
+const FISHING_CATCHES: [(&str, &str); 6] = [
+    ("shell", "조개껍데기"),
+    ("conch", "작은 소라"),
+    ("glass-marble", "유리구슬"),
+    ("fish-blue", "파란 물고기"),
+    ("fish-gold", "금빛 물고기"),
+    ("stone", "동그란 돌"),
+];
+
 pub fn initial(kind: &str) -> Value {
     match kind {
         "interaction" => json!({"snacks":6,"touches":0,"lastReactionAt":null}),
@@ -268,7 +282,9 @@ pub fn initial(kind: &str) -> Value {
         "guessing" => {
             json!({"mode":"cups","answer":0,"playing":false,"attempts":0,"hint":"놀이를 시작해 주세요."})
         }
-        "fishing" => json!({"phase":"idle","biteAt":0,"expiresAt":0,"lastCatch":null,"catches":0}),
+        "fishing" => {
+            json!({"phase":"idle","biteAt":0,"expiresAt":0,"lastCatch":null,"catches":0,"collected":{}})
+        }
         "fortune" => json!({"text":"가상 장난 운세입니다.","draws":0,"fictional":true}),
         "plant" => json!({"stage":0,"water":0,"updatedAt":0}),
         "pet" => json!({"x":10.0,"y":50.0,"food":null,"lastAt":0}),
@@ -510,9 +526,9 @@ pub fn act(
                     state.playing = true;
                     state.attempts = 0;
                     state.hint = if range == 3 {
-                        "세 컵 중 하나를 골라 주세요."
+                        "구슬은 몇 번 컵에 있을까요?"
                     } else {
-                        "1부터 100 사이의 숫자예요."
+                        "1부터 100 사이 숫자 하나 골랐어요. 맞혀 볼래요?"
                     }
                     .into();
                     effect(state, vec![])
@@ -534,13 +550,12 @@ pub fn act(
                         state.hint = format!("이번 정답은 {}였어요.", state.answer);
                     } else {
                         state.hint = if state.mode == "cups" {
-                            "그 컵은 비어 있어요."
+                            format!("{}번 컵은 비어 있어요.", args.value)
                         } else if args.value < state.answer {
-                            "더 큰 숫자예요."
+                            format!("{}보다 더 커요", args.value)
                         } else {
-                            "더 작은 숫자예요."
-                        }
-                        .into();
+                            format!("{}보다 더 작아요", args.value)
+                        };
                     }
                     let text = state.hint.clone();
                     let outcome = if args.value == state.answer {
@@ -588,15 +603,12 @@ pub fn act(
                             vec![event("fishing.missed", "이번에는 빈 낚싯줄을 거뒀어요.")],
                         );
                     }
-                    let catches = [
-                        ("fish-blue", "파란 물고기"),
-                        ("fish-gold", "금빛 물고기"),
-                        ("sock", "양말"),
-                        ("stone", "동그란 돌"),
-                    ];
-                    let (id, name) = catches[(entropy % catches.len() as u64) as usize];
+                    let (id, name) =
+                        FISHING_CATCHES[(entropy % FISHING_CATCHES.len() as u64) as usize];
                     state.last_catch = Some(name.into());
                     state.catches = state.catches.saturating_add(1);
+                    let count = state.collected.entry(id.into()).or_default();
+                    *count = count.saturating_add(1);
                     effect(
                         state,
                         vec![EventDraft {
@@ -977,7 +989,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(wrong.data["answer"], 50);
-        assert_eq!(wrong.data["hint"], "더 큰 숫자예요.");
+        assert_eq!(wrong.data["hint"], "20보다 더 커요");
         let won = act("guessing", &wrong.data, "guess", &json!({"value":50}), 2, 0).unwrap();
         assert_eq!(won.data["attempts"], 2);
         assert_eq!(won.data["playing"], false);
@@ -990,7 +1002,9 @@ mod tests {
         assert!(!early.events.iter().any(|e| e.kind == "item-acquired"));
         let bite = tick("fishing", &cast.data, 2100).unwrap().unwrap();
         let caught = act("fishing", &bite.data, "reel", &json!({}), 2200, 2).unwrap();
-        assert_eq!(caught.events[0].payload["itemId"], "sock");
+        assert_eq!(caught.events[0].payload["itemId"], "glass-marble");
+        assert_eq!(caught.data["collected"]["glass-marble"], 1);
+        assert_eq!(caught.data["catches"], 1);
         assert!(act("fishing", &caught.data, "reel", &json!({}), 2201, 2).is_err());
         assert!(tick("fishing", &caught.data, 3000).unwrap().is_none());
     }

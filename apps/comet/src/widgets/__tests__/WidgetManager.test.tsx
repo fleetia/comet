@@ -273,7 +273,7 @@ it("browses the catalog with a search only, without a status filter, checkboxes 
   expect(catalog.queryAllByRole("checkbox")).toEqual([]);
   expect(catalog.queryByRole("combobox")).toBeNull();
   expect(screen.queryByText(/^공식 \d+개/)).toBeNull();
-  expect(catalog.getByText(/모두 15개/)).toBeTruthy();
+  expect(catalog.getByText(/모두 21개/)).toBeTruthy();
   expect(
     catalog
       .getAllByRole("switch", { name: / 사용$/ })
@@ -736,7 +736,7 @@ it("includes created and imported widgets in the same list, counts and filters",
   expect(list.getByRole("button", { name: "할 일 켜짐" })).toBeTruthy();
   expect(list.getByRole("button", { name: "단수 세기 켜짐" })).toBeTruthy();
   expect(list.getByRole("button", { name: "물 마시기 실행 검사 대기" })).toBeTruthy();
-  expect(list.getByText(/모두 17개/)).toBeTruthy();
+  expect(list.getByText(/모두 23개/)).toBeTruthy();
   expect(
     list
       .getAllByRole("switch", { name: / 사용$/ })
@@ -965,7 +965,7 @@ it("omits retired collection and journal even when legacy records are present", 
   render(<WidgetManager embedded />);
   expect(screen.queryByRole("button", { name: /^수집함·소품/ })).toBeNull();
   expect(screen.queryByRole("button", { name: /^함께한 사건 일지/ })).toBeNull();
-  expect(PREVIEW_WIDGETS.catalog).toHaveLength(15);
+  expect(PREVIEW_WIDGETS.catalog).toHaveLength(21);
 });
 
 it("exposes AI creation and automatic creation in the Figma experiment rows", async () => {

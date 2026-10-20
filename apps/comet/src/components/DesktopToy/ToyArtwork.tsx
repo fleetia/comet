@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import paperPlane from "./assets/paper-plane.svg";
+import pet from "./assets/pet.svg";
 import * as s from "./desktopToy.css";
 
 const bubbles = [
@@ -33,10 +34,6 @@ export function ToyArtwork({
       );
     }
     case "pet":
-      return (
-        <span className={s.pet} aria-hidden="true">
-          🐌
-        </span>
-      );
+      return <img src={pet} alt="" aria-hidden="true" className={s.pet} />;
   }
 }

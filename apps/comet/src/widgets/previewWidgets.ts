@@ -58,7 +58,12 @@ export function getWidgetPreview(): WidgetSnapshot {
       format: "24h",
       anniversaries: [{ id: "day", title: "함께 지내기 시작한 날", date: day }],
     },
-    "completion-jar": { completed: [{ id: "walk", title: "동네 한 바퀴 걷기" }] },
+    "completion-jar": {
+      completed: Array.from({ length: 12 }, (_, index) => ({
+        id: `done-${index}`,
+        title: ["동네 한 바퀴 걷기", "메일 정리하기"][index] ?? "할 일",
+      })),
+    },
     calendar: {
       connections: [
         { id: "example", name: "예시 일정", provider: "ics", status: "ready", lastSuccessAt: now },
@@ -154,7 +159,16 @@ export function getWidgetPreview(): WidgetSnapshot {
         },
       },
     },
-    device: { configured: false, status: "setup" },
+    device: {
+      configured: true,
+      status: "ready",
+      lastSuccessAt: now,
+      observation: {
+        hasBattery: true,
+        powerSource: "ac",
+        batteries: [{ percent: 64, status: "charging" }],
+      },
+    },
     interaction: { snacks: 6, touches: 3 },
     ball: { x: 50, y: 50, moving: false },
     "paper-plane": { x: 50, y: 50, flying: false },
@@ -165,10 +179,15 @@ export function getWidgetPreview(): WidgetSnapshot {
       ],
     },
     "small-match": { a: "3", b: "5", result: "예시 · B가 이겼어요." },
-    guessing: { mode: "cups", playing: false, attempts: 0, hint: "놀이를 시작해 주세요." },
-    fishing: { phase: "idle", lastCatch: null, catches: 0 },
+    guessing: { mode: "number", playing: true, attempts: 2, hint: "50보다 더 커요" },
+    fishing: {
+      phase: "idle",
+      lastCatch: "조개껍데기",
+      catches: 9,
+      collected: { shell: 3, conch: 1, "glass-marble": 2 },
+    },
     fortune: { text: "예시 운세 · 잠깐의 산책에서 작은 즐거움을 만날지도 몰라요." },
-    plant: { stage: 1, water: 1 },
+    plant: { stage: 2, water: 1 },
     pet: { x: 35, y: 50, food: null },
     collection: { items: [{ itemId: "shell", name: "조개껍데기", quantity: 1 }], decorations: [] },
     journal: {},
@@ -186,7 +205,7 @@ export function getWidgetPreview(): WidgetSnapshot {
       data: data[entry.id] ?? {},
       error: null,
       missing: [],
-      status: entry.id === "device" ? "setup" : "enabled",
+      status: "enabled",
       packageBytes: 0,
     })),
   };
