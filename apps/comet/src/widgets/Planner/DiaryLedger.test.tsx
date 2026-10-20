@@ -156,6 +156,63 @@ it("keeps an edited draft when the entry changes remotely and requires an explic
   expect(screen.getByLabelText("기록 이름")).toHaveProperty("value", "다른 화면 수정");
 });
 
+it("shows travel ownership errors without closing the editor or claiming the edit was saved", async () => {
+  const failure = "여행에서 자동으로 기록한 내 몫이에요. 여행의 비용이나 예약에서 고쳐 주세요.";
+  const linked = { ...entry, amount: 101, memo: "여행 · 제주 가족 여행" };
+  const onAction = vi.fn<DiaryAction>().mockRejectedValue(failure);
+  render(
+    <DiaryLedger
+      state={{ ...state, ledgerEntries: [linked] }}
+      date="2026-01-15"
+      busy={false}
+      onAction={onAction}
+    />,
+  );
+  const savedRow = screen.getByRole("button", { name: "점심 편집" }).parentElement!;
+  fireEvent.click(screen.getByRole("button", { name: "점심 편집" }));
+  change("기록 금액 (원)", "202");
+  fireEvent.click(screen.getByRole("button", { name: "저장" }));
+  await waitFor(() =>
+    expect(within(screen.getByRole("dialog")).getByRole("alert").textContent).toBe(failure),
+  );
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  expect(screen.getByLabelText("기록 금액 (원)")).toHaveProperty("value", "202");
+  expect(within(savedRow).getByText("101원")).toBeTruthy();
+  expect(within(savedRow).queryByText("202원")).toBeNull();
+  expect(onAction).toHaveBeenCalledExactlyOnceWith(
+    "ledger-entry-update",
+    expect.objectContaining({ id: linked.id, expected: linked, amount: 202 }),
+  );
+  expect(screen.getByRole("button", { name: "저장" })).toHaveProperty("disabled", false);
+});
+
+it("shows a supplied action error only after a failed save and clears it on successful retry", async () => {
+  const failure = "다른 화면에서 내용이 바뀌었어요.";
+  const onAction = vi.fn<DiaryAction>().mockResolvedValueOnce(false).mockResolvedValue(true);
+  render(
+    <DiaryLedger
+      state={{ ...state, ledgerEntries: [entry] }}
+      date="2026-01-15"
+      busy={false}
+      onAction={onAction}
+      actionError={failure}
+    />,
+  );
+  expect(screen.queryByRole("alert")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "점심 편집" }));
+  expect(within(screen.getByRole("dialog")).queryByRole("alert")).toBeNull();
+  change("기록 금액 (원)", "10000");
+  fireEvent.click(screen.getByRole("button", { name: "저장" }));
+  await waitFor(() =>
+    expect(within(screen.getByRole("dialog")).getByRole("alert").textContent).toBe(failure),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "저장" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(screen.queryByRole("alert")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "점심 편집" }));
+  expect(within(screen.getByRole("dialog")).queryByRole("alert")).toBeNull();
+});
+
 it("persists selected months, weekend adjustment and manual recording then generates only the displayed period", async () => {
   const onAction = vi.fn<DiaryAction>().mockResolvedValue(true);
   render(<DiaryLedger state={state} date="2026-01-15" busy={false} onAction={onAction} />);
