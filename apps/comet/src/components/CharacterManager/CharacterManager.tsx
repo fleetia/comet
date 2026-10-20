@@ -187,6 +187,13 @@ export function CharacterManager({
   const dialogueIds = scope === "pair" && active.length > 1 ? active : [selectedId];
   const dialogueKey = dialogueIds.join(":");
   const appliedCharacterRequest = useRef<number | null>(null);
+  // A visiting friend's page sends the user to a resident's name reaction for it.
+  const [reactionRequest, setReactionRequest] = useState<{
+    id: string;
+    revision: number;
+    tab: "relationships";
+    relationshipTarget: string;
+  } | null>(null);
   useEffect(() => {
     if (
       !characterRequest ||
@@ -196,6 +203,7 @@ export function CharacterManager({
     )
       return;
     appliedCharacterRequest.current = characterRequest.revision;
+    setReactionRequest(null);
     select(characterRequest.id);
   }, [characterRequest, anyPending, installed]);
 
@@ -593,7 +601,16 @@ export function CharacterManager({
                           : "새로 만날 친구"
                       }
                       memoryTabRequest={memoryTabRequest}
-                      tabRequest={characterRequest}
+                      tabRequest={reactionRequest ?? characterRequest}
+                      onOpenReaction={(residentId) => {
+                        setReactionRequest({
+                          id: residentId,
+                          revision: Date.now(),
+                          tab: "relationships",
+                          relationshipTarget: selectedId,
+                        });
+                        select(residentId);
+                      }}
                       onOpenTheme={onOpenTheme}
                       memoryContent={(onManage) => (
                         <>

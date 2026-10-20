@@ -20,7 +20,72 @@ type Props = {
   onRemove?: () => void;
   onOpen: (page: string) => void;
   headerActions?: ReactNode;
+  /** Friends living together; a visiting friend lists how each reacts to its name. */
+  presentIds?: string[];
+  onOpenReaction?: (residentId: string) => void;
 };
+
+/** Picks 을/를 from whether the last Hangul syllable has a final consonant. */
+function objectParticle(word: string): string {
+  const code = word.charCodeAt(word.length - 1) - 0xac00;
+  return code >= 0 && code < 11172 && code % 28 === 0 ? "를" : "을";
+}
+
+function NameReactions({
+  character,
+  definition,
+  residents,
+  onOpenReaction,
+}: {
+  character: InstalledCharacter;
+  definition: CharacterDefinition;
+  residents: InstalledCharacter[];
+  onOpenReaction?: (residentId: string) => void;
+}): JSX.Element {
+  const name = definition.name;
+  return (
+    <section className={styles.reactions} aria-label="이름을 들었을 때">
+      <h2 className={styles.sectionTitle}>이름을 들었을 때</h2>
+      {residents.length === 0 ? (
+        <p className={styles.caption}>함께 지내는 친구가 생기면 친구마다 반응을 정할 수 있어요.</p>
+      ) : (
+        <ul className={styles.reactionList}>
+          {residents.map((resident) => {
+            const line = resident.definition.relationships.find(
+              (relation) => relation.targetId === character.id,
+            )?.replyLines?.[0]?.text;
+            return (
+              <li key={resident.id} className={styles.reactionRow}>
+                <span className={styles.reactionArtwork} aria-hidden="true">
+                  <FriendArtwork character={resident} compact />
+                </span>
+                <span className={styles.reactionText}>
+                  <strong>
+                    {resident.definition.name}에게 ‘{name}’{objectParticle(name)} 말하면
+                  </strong>
+                  <span className={styles.caption}>{line ? `“${line}”` : "정하지 않음"}</span>
+                </span>
+                <Button
+                  variant="ghost"
+                  size="small"
+                  leadingIcon={<Icon name="repeat" size={14} />}
+                  aria-label={`${resident.definition.name}의 반응 ${line ? "바꾸기" : "정하기"}`}
+                  onClick={() => onOpenReaction?.(resident.id)}
+                >
+                  {line ? "바꾸기" : "정하기"}
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <p className={styles.caption}>
+        친구마다 따로 정해요. 이 반응은 이름을 들었을 때만 하고, {name}
+        {objectParticle(name)} 부르지는 않아요.
+      </p>
+    </section>
+  );
+}
 
 export function FriendOverview({
   character,
@@ -37,7 +102,15 @@ export function FriendOverview({
   onRemove,
   onOpen,
   headerActions,
+  presentIds = [],
+  onOpenReaction,
 }: Props): JSX.Element {
+  const residents = installed.filter(
+    (friend) =>
+      friend.id !== character?.id &&
+      friend.definition.presenceRole !== "npc" &&
+      presentIds.includes(friend.id),
+  );
   const categories: { page: string; title: string; description: string; icon: IconName }[] = [
     { page: "profile", title: "프로필", description: "이름, 소개, 성격과 말투", icon: "sparkle" },
     {
@@ -121,6 +194,14 @@ export function FriendOverview({
             onChange={(event) => onTogetherChange?.(event.target.checked)}
           />
         </div>
+        {character && definition.presenceRole === "npc" && (
+          <NameReactions
+            character={character}
+            definition={definition}
+            residents={residents}
+            onOpenReaction={onOpenReaction}
+          />
+        )}
       </aside>
       <div className={styles.overviewBody}>
         <section className={styles.section} aria-label="캐릭터">

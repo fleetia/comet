@@ -1251,6 +1251,54 @@ fn registered_resident_line_keeps_valid_waiting_npc_as_listener_without_changing
 }
 
 #[test]
+fn visiting_friend_name_gets_the_reaction_but_an_exact_invite_still_brings_it_in() {
+    let (state, ids) = fixture(true);
+    {
+        let db = lock(&state.db).unwrap();
+        let mut guest = characters::get(&db, &ids[1]).unwrap().definition;
+        guest.npc = Some(pack_stories::NpcDefinition {
+            invite_keywords: vec!["손님 불러 줘".into()],
+            entry_lines: vec![characters::CharacterLine {
+                expression: "평온".into(),
+                text: "초대받아 왔어.".into(),
+                motion: Default::default(),
+            }],
+            ..Default::default()
+        });
+        characters::save(&db, &ids[1], &guest).unwrap();
+        let mut center = characters::get(&db, &ids[0]).unwrap().definition;
+        center.relationships = vec![characters::CharacterRelationship {
+            target_id: ids[1].clone(),
+            description: "가끔 놀러 오는 친구".into(),
+            reply_lines: vec![characters::CharacterLine {
+                expression: "평온".into(),
+                text: "달빛 산책 좋아하는 애지?".into(),
+                motion: Default::default(),
+            }],
+        }];
+        characters::save(&db, &ids[0], &center).unwrap();
+        let input = uuid::Uuid::new_v4().to_string();
+        let lines = record_input_and_route(
+            &state,
+            &db,
+            "손님 요즘 어때?",
+            &ids[0],
+            &ids[..1],
+            &input,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(lines[0].text, "달빛 산책 좋아하는 애지?");
+        assert!(lock(&state.pack_stories).unwrap().run.is_none());
+        assert!(!characters::guests::is_present(&state, &db, &ids[1]).unwrap());
+    }
+    let entry = choose(&state, &ids[0], "손님 불러 줘");
+    assert_eq!(entry.run.stage, pack_stories::Stage::Entry);
+    assert_eq!(entry.lines[0].text, "초대받아 왔어.");
+}
+
+#[test]
 fn standalone_entry_exact_cancellation_leaves_guest_quietly_after_registered_priority() {
     for content in [
         "그만",

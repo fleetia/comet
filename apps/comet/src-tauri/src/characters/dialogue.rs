@@ -474,6 +474,12 @@ pub fn registered_relation_scene(
             else {
                 continue;
             };
+            // An exact invite brings a visiting friend in; only a plain mention gets the reaction.
+            if mentioned.definition.npc.as_ref().is_some_and(|npc| {
+                crate::pack_stories::matches_keywords(&npc.invite_keywords, input)
+            }) {
+                continue;
+            }
             if let Some(lines) = registered_directed_reply(
                 &actor.id,
                 relationship,
