@@ -524,7 +524,7 @@ export const dial = style({
 export const dialSvg = style({ position: "absolute", inset: 0, overflow: "visible" });
 export const dialTrack = style({ stroke: tokens["color/track"] });
 export const dialArc = style({
-  stroke: tokens["color/focus-ring"],
+  stroke: tokens["color/cat-exercise"],
   selectors: { '[data-rest="true"] &': { stroke: tokens["color/cat-rest"] } },
 });
 export const dialGlow = style({ fill: tokens["color/comet"], opacity: 0.2 });
@@ -711,8 +711,7 @@ export const settingsPreview = style({
   outline: `1px solid ${tokens["color/chip-border"]}`,
   outlineOffset: -1,
   borderRadius: 24,
-  background:
-    "radial-gradient(ellipse at 50% 0%, rgba(182,160,234,.2), transparent 70%), rgba(26,36,86,.28)",
+  background: `radial-gradient(ellipse at 50% 0%, ${tokens["color/preview-glow"]}, ${tokens["color/preview-glow-transparent"]} 70%), ${tokens["color/preview-panel"]}`,
 });
 export const previewHeader = style({
   display: "flex",

@@ -415,8 +415,7 @@ function OrbitMenu({
               cx={anchor.x}
               cy={anchor.y}
               r={branch ? 14 : ring.bodyRadius}
-              stroke="#A6B2E6"
-              strokeOpacity="0.165"
+              stroke={tokens["color/component/input-border-alpha-165"]}
               strokeWidth="1.2"
               strokeDasharray="2 6"
             />
@@ -425,8 +424,7 @@ function OrbitMenu({
                 cx={anchor.x}
                 cy={anchor.y - ring.bodyRadius}
                 r="7"
-                stroke="#FFCC33"
-                strokeOpacity="0.55"
+                stroke={tokens["color/connector"]}
                 strokeWidth="1.2"
                 strokeDasharray="2 3"
               />
@@ -438,8 +436,7 @@ function OrbitMenu({
                   ? `M${ring.x} ${ring.y}L${anchor.x} ${anchor.y}`
                   : `M${ring.x} ${ring.connectorY}L${anchor.x} ${anchor.y - ring.bodyRadius - 7}`
               }
-              stroke="#FFCC33"
-              strokeOpacity="0.55"
+              stroke={tokens["color/connector"]}
               strokeWidth="1.4"
               strokeDasharray="3 4"
             />
@@ -448,8 +445,7 @@ function OrbitMenu({
               cx={ring.x}
               cy={ring.y}
               r={ring.radius}
-              stroke="#A6B2E6"
-              strokeOpacity="0.3"
+              stroke={tokens["color/orbit"]}
               strokeWidth="1.2"
               strokeDasharray="2 6"
             />

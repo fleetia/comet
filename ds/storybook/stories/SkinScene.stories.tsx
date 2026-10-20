@@ -47,6 +47,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Paper: Story = { name: "따뜻한 종이" };
+export const Light: Story = { name: "낮 · 새벽 유리", args: { theme: "light" } };
 export const Play: Story = { name: "놀이", args: { theme: "play" } };
 export const Large: Story = { name: "지금 모습", args: { theme: "dark", size: "large" } };
 export const CustomSkin: Story = {
