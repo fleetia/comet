@@ -5,8 +5,28 @@ import {
   focusBuckets,
   focusSessions,
   readAppUsage,
+  taskFocusInput,
   type FocusSession,
 } from "./FocusTimerData";
+
+it("starts a task with its own title and an empty session context, not its description", () => {
+  const item = {
+    id: "task",
+    title: "응답 확인",
+    memo: "할 일에 남겨 둘 참고 내용",
+    noteRef: { kind: "diary", id: "task-note" },
+  };
+  const original = structuredClone(item);
+  expect(taskFocusInput(item)).toEqual({
+    durationMs: 1500000,
+    title: "응답 확인",
+    todoId: "task",
+    eventRef: null,
+    noteRef: null,
+    memo: "",
+  });
+  expect(item).toEqual(original);
+});
 
 function at(value: string): number {
   return new Date(value).getTime();

@@ -308,7 +308,11 @@ it("puts a period task into Today by changing only its planned date", async () =
 it("brings last week's unfinished undated plans into this week in one step", async () => {
   await renderPlanner(
     snapshot([
-      item("left", "주간 회고 쓰기", { plannedDate: null, planPeriod: "week", planAnchor: "2026-09-14" }),
+      item("left", "주간 회고 쓰기", {
+        plannedDate: null,
+        planPeriod: "week",
+        planAnchor: "2026-09-14",
+      }),
       item("done", "기획서 마무리", {
         plannedDate: null,
         planPeriod: "week",
@@ -452,7 +456,10 @@ it("counts today's frequency record as done today and excludes it from day-end c
   const wrap = within(screen.getByRole("dialog", { name: "오늘은 여기까지" }));
   expect(wrap.queryByRole("checkbox", { name: /오늘 산책 목표/ })).toBeNull();
   expect(wrap.getByText("못 한 일 · 0개")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "0개 옮기고 마치기" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "0개 옮기고 마치기" })).toHaveProperty(
+    "disabled",
+    true,
+  );
 });
 
 it("records frequency on the displayed past date and disables future completion", async () => {
@@ -1404,7 +1411,20 @@ it("separates keyboard detail selection from completion and offers completion un
 });
 
 it("requires the explicit focus button and never completes the selected task when starting a timer", async () => {
-  await renderPlanner(snapshot([item("focus", "집중할 자료")], [widget("focus-timer", {})]));
+  await renderPlanner(
+    snapshot(
+      [item("focus", "집중할 자료", { memo: "할 일 참고 메모" })],
+      [
+        widget("focus-timer", {
+          title: "이전 준비 봉투",
+          todoId: "previous",
+          memo: "이전 집중 메모",
+          eventRef: { id: "previous-event" },
+          noteRef: { kind: "diary", id: "previous-note" },
+        }),
+      ],
+    ),
+  );
   fireEvent.click(screen.getByRole("button", { name: "집중할 자료 상세 보기" }));
   expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
   fireEvent.click(screen.getByRole("button", { name: "25분 집중" }));
@@ -1413,7 +1433,14 @@ it("requires the explicit focus button and never completes the selected task whe
       request: expect.objectContaining({
         instanceId: "focus-timer-id",
         action: "start",
-        input: { durationMs: 1500000, todoId: "focus" },
+        input: {
+          durationMs: 1500000,
+          title: "집중할 자료",
+          todoId: "focus",
+          memo: "",
+          eventRef: null,
+          noteRef: null,
+        },
       }),
     }),
   );

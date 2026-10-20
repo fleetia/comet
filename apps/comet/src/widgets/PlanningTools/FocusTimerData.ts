@@ -33,6 +33,19 @@ export type FocusBucket = {
   sessions: FocusSession[];
 };
 
+/** A task launch starts a new context, unlike continuing the timer's current work. */
+export function taskFocusInput(item: DataRecord): DataRecord {
+  return {
+    durationMs: 1500000,
+    title: text(item.title),
+    todoId: text(item.id),
+    eventRef: null,
+    noteRef: null,
+    // Task descriptions stay on the task; this memo belongs to the new focus session.
+    memo: "",
+  };
+}
+
 export function focusSessions(data: DataRecord, now: number): FocusSession[] {
   const saved = rows(data.sessions).map((session) => readSession(session));
   const current = record(data.activeSession);
