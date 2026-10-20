@@ -287,15 +287,18 @@ pub(crate) fn give_character_item(
         event
     };
     wandering::cancel(&app, state.inner(), &character_id)?;
-    if event.is_some() {
-        characters::reaction_host::direct_start(
+    let reaction_started = event.is_some()
+        && characters::reaction_host::direct_start(
             &app,
             state.inner().clone(),
             &character_id,
             &action,
             None,
             characters::reaction_host::window_identity(&window),
-        )?;
+        )?
+        .is_some();
+    if !reaction_started {
+        app::publish(&app, &state);
     }
     crate::widgets::commands::publish_widgets(&app, &state);
     Ok(())
