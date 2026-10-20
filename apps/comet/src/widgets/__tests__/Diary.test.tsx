@@ -1746,6 +1746,53 @@ it("routes native habit and ledger navigation to the matching screen and preserv
   expect(actions("update_diary")).toEqual([]);
 });
 
+it("keeps the travel ownership error inside the ledger editor after the real diary hook rejects a save", async () => {
+  const failure = "여행에서 자동으로 기록한 내 몫이에요. 여행의 비용이나 예약에서 고쳐 주세요.";
+  const entry = {
+    id: "travel-ledger",
+    date: DAY,
+    kind: "expense" as const,
+    amount: 101,
+    category: "culture",
+    title: "입장료",
+    memo: "여행 · 제주 가족 여행",
+  };
+  diary.ledgerEntries = [entry];
+  update = () => {
+    throw new Error(failure);
+  };
+  await openDiary();
+  fireEvent.click(screen.getByRole("link", { name: "가계부" }));
+  const savedRow = screen.getByRole("button", { name: "입장료 편집" }).parentElement!;
+  fireEvent.click(screen.getByRole("button", { name: "입장료 편집" }));
+  const editor = within(screen.getByRole("dialog", { name: "수입·지출 편집" }));
+  fireEvent.change(editor.getByLabelText("기록 금액 (원)"), { target: { value: "202" } });
+  fireEvent.click(editor.getByRole("button", { name: "저장" }));
+  await waitFor(() => expect(editor.getByRole("alert").textContent).toBe(failure));
+  expect(editor.getByLabelText("기록 금액 (원)")).toHaveProperty("value", "202");
+  expect(editor.getByRole("button", { name: "저장" })).toHaveProperty("disabled", false);
+  expect(within(savedRow).getByText("101원")).toBeTruthy();
+  expect(within(savedRow).queryByText("202원")).toBeNull();
+  expect(actions("update_diary")).toEqual([
+    {
+      expectedRevision: 3,
+      action: "ledger-entry-update",
+      input: { ...entry, amount: 202, expected: entry },
+    },
+  ]);
+  fireEvent.click(editor.getByRole("button", { name: "취소" }));
+  fireEvent.click(screen.getByRole("button", { name: "변경 버리기" }));
+  const ledger = within(screen.getByRole("region", { name: "가계부" }));
+  fireEvent.change(ledger.getByLabelText("금액 (원)"), { target: { value: "0" } });
+  fireEvent.change(ledger.getByLabelText("어디에 썼나요?"), { target: { value: "새 기록" } });
+  fireEvent.click(ledger.getByRole("button", { name: "추가" }));
+  expect(ledger.getByRole("alert").textContent).toBe("원 단위 금액과 어디에 썼는지 입력해 주세요.");
+  fireEvent.click(screen.getByRole("button", { name: "입장료 편집" }));
+  const reopened = within(screen.getByRole("dialog", { name: "수입·지출 편집" }));
+  expect(reopened.queryByRole("alert")).toBeNull();
+  expect(reopened.getByLabelText("기록 금액 (원)")).toHaveProperty("value", "101");
+});
+
 it("unlocks a rejected envelope draft and creates a new request from the refreshed widget revision", async () => {
   const preparation = widget("preparation", { envelopes: [] });
   widgets.widgets = [preparation];

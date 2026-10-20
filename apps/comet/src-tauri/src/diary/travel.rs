@@ -1392,6 +1392,15 @@ mod tests {
         yen["rate"] = json!(91_200);
         act(&mut state, "travel-booking-update", yen);
         assert_eq!(state.ledger_entries[0].amount, 22_800);
+        let current = state.ledger_entries[0].clone();
+        let mut edit = with_expected(json!(current), &current.id, &current);
+        edit["amount"] = json!(45_600);
+        let before = state.clone();
+        assert_eq!(
+            super::super::ledger::mutate(&mut state, "ledger-entry-update", &edit),
+            Err("여행에서 자동으로 기록한 내 몫이에요. 여행의 비용이나 예약에서 고쳐 주세요.".into())
+        );
+        assert_eq!(state, before);
         let booking = state.travel_bookings[0].clone();
         act(
             &mut state,
@@ -1399,6 +1408,93 @@ mod tests {
             json!({"id": booking.id, "expected": booking}),
         );
         assert!(state.travel_expenses.is_empty() && state.ledger_entries.is_empty());
+    }
+
+    #[test]
+    fn linked_ledger_edits_are_rejected_before_source_updates_can_overwrite_them() {
+        let mut state = created();
+        let travel_id = state.travels[0].id.clone();
+        let expense_input = json!({
+            "travelId": travel_id, "title": "입장료", "date": "2026-10-24", "amount": 101,
+            "currency": "KRW", "category": "culture", "paid": true, "payer": "me",
+            "shares": [{"person": "me", "weight": 1}], "memo": ""
+        });
+        act(&mut state, "travel-expense-create", expense_input.clone());
+        let current = state.ledger_entries[0].clone();
+        let before = state.clone();
+        for (key, value) in [
+            ("amount", json!(202)),
+            ("title", json!("바꾼 이름")),
+            ("memo", json!("바꾼 메모")),
+            ("date", json!("2026-10-25")),
+            ("category", json!("other")),
+            ("kind", json!("income")),
+            ("amount", json!(202)),
+        ] {
+            let mut edit = with_expected(json!(current), &current.id, &current);
+            edit[key] = value;
+            assert_eq!(
+                super::super::ledger::mutate(&mut state, "ledger-entry-update", &edit),
+                Err("여행에서 자동으로 기록한 내 몫이에요. 여행의 비용이나 예약에서 고쳐 주세요.".into()),
+                "{key}"
+            );
+            assert_eq!(state, before, "{key}");
+        }
+
+        // The reported reproduction: a memo-only source save must not appear to
+        // undo an accepted 101 -> 202 ledger edit. That edit is now rejected above.
+        let expense = state.travel_expenses[0].clone();
+        let mut source_edit = with_expected(expense_input, &expense.id, &expense);
+        source_edit["memo"] = json!("메모만 고침");
+        act(&mut state, "travel-expense-update", source_edit.clone());
+        assert_eq!(state.ledger_entries[0], current);
+        assert_eq!(state.travel_expenses[0].memo, "메모만 고침");
+
+        let expense = state.travel_expenses[0].clone();
+        source_edit["expected"] = json!(expense);
+        source_edit["amount"] = json!(303);
+        act(&mut state, "travel-expense-update", source_edit);
+        assert_eq!(state.ledger_entries[0].id, current.id);
+        assert_eq!(state.ledger_entries[0].amount, 303);
+
+        let travel = state.travels[0].clone();
+        let mut rename = with_expected(jeju(), &travel.id, &travel);
+        rename["title"] = json!("새 여행 이름");
+        act(&mut state, "travel-update", rename);
+        assert_eq!(state.ledger_entries[0].amount, 303);
+        assert_eq!(state.ledger_entries[0].memo, "여행 · 새 여행 이름");
+    }
+
+    #[test]
+    fn ledger_ownership_uses_the_link_not_the_memo_and_ends_when_travel_is_deleted() {
+        let mut state = created();
+        let travel_id = state.travels[0].id.clone();
+        act(&mut state, "travel-booking-create", stay(&travel_id));
+        let linked = state.ledger_entries[0].clone();
+
+        // Identical user-written titles and memos do not make an ordinary entry
+        // travel-owned. Only the expense's ledger_entry_id does.
+        super::super::ledger::mutate(&mut state, "ledger-entry-create", &json!(linked))
+            .unwrap();
+        let manual = state.ledger_entries[1].clone();
+        let mut edit = with_expected(json!(manual), &manual.id, &manual);
+        edit["amount"] = json!(202);
+        super::super::ledger::mutate(&mut state, "ledger-entry-update", &edit).unwrap();
+        assert_eq!(state.ledger_entries[1].amount, 202);
+        assert_eq!(state.ledger_entries[0], linked);
+
+        let travel = state.travels[0].clone();
+        act(
+            &mut state,
+            "travel-delete",
+            json!({"id": travel.id, "expected": travel}),
+        );
+        assert_eq!(state.ledger_entries[0], linked);
+        let mut edit = with_expected(json!(linked), &linked.id, &linked);
+        edit["amount"] = json!(303);
+        super::super::ledger::mutate(&mut state, "ledger-entry-update", &edit).unwrap();
+        assert_eq!(state.ledger_entries[0].amount, 303);
+        assert_eq!(state.ledger_entries[1].amount, 202);
     }
 
     #[test]
@@ -1421,8 +1517,20 @@ mod tests {
         // 123.45달러 × 1,380원 = 170,361원, 내 몫 1/3 = 56,787원
         assert_eq!(won(12_345, "USD", 13_800_000), 170_361);
         assert_eq!(state.ledger_entries[0].amount, 56_787);
+        let linked = state.ledger_entries[0].clone();
+        let mut edit = with_expected(json!(linked), &linked.id, &linked);
+        edit["amount"] = json!(170_361);
+        let before = state.clone();
+        assert!(super::super::ledger::mutate(&mut state, "ledger-entry-update", &edit).is_err());
+        assert_eq!(state, before);
         let expense = state.travel_expenses[0].clone();
-        state.ledger_entries.clear();
+        super::super::ledger::mutate(
+            &mut state,
+            "ledger-entry-delete",
+            &json!({"id": linked.id, "expected": linked}),
+        )
+        .unwrap();
+        assert!(state.ledger_entries.is_empty());
         let mut renamed = with_expected(dinner.clone(), &expense.id, &expense);
         renamed["title"] = json!("흑돼지 저녁");
         act(&mut state, "travel-expense-update", renamed);

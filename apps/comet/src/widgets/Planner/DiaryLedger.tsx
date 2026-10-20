@@ -51,6 +51,7 @@ export function DiaryLedger({
   date,
   onDateChange,
   onAction,
+  actionError,
   busy,
   onDirtyChange,
 }: {
@@ -58,6 +59,7 @@ export function DiaryLedger({
   date: string;
   onDateChange?: (date: string) => void;
   onAction: DiaryAction;
+  actionError?: string | null;
   busy: boolean;
   onDirtyChange?: (dirty: boolean) => void;
 }): ReactElement {
@@ -71,6 +73,8 @@ export function DiaryLedger({
   const [editorEpoch, setEditorEpoch] = useState(0);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState("");
+  const [actionFailed, setActionFailed] = useState(false);
+  const visibleFailure = actionFailed && actionError ? actionError : failure;
   const [showTable, setShowTable] = useState(false);
   const pending = useRef(false);
   const settings = state.ledgerSettings ?? DEFAULT_LEDGER_SETTINGS;
@@ -136,8 +140,10 @@ export function DiaryLedger({
     pending.current = true;
     setSaving(true);
     setFailure("");
+    setActionFailed(false);
     try {
       const saved = await onAction(action, input);
+      setActionFailed(!saved);
       if (!saved) setFailure("저장하지 못했어요. 입력 내용을 유지했으니 다시 시도해 주세요.");
       return saved;
     } catch (error) {
@@ -150,6 +156,7 @@ export function DiaryLedger({
   }
   function openEditor(value: Editor) {
     setFailure("");
+    setActionFailed(false);
     setEditorEpoch((epoch) => epoch + 1);
     setEditor(value);
   }
@@ -203,9 +210,9 @@ export function DiaryLedger({
           onClick={() => openEditor({ kind: mode === "recurring" ? "recurring" : "entry" })}
         />
       </div>
-      {failure && (
+      {visibleFailure && (
         <p className={s.error} role="alert">
-          {failure}
+          {visibleFailure}
         </p>
       )}
       <div className={s.columns}>
@@ -225,6 +232,7 @@ export function DiaryLedger({
                 onAdd={async () => {
                   const amount = ledgerAmount(quickAmount);
                   if (!amount || !quickTitle.trim()) {
+                    setActionFailed(false);
                     setFailure("원 단위 금액과 어디에 썼는지 입력해 주세요.");
                     return;
                   }
@@ -545,7 +553,7 @@ export function DiaryLedger({
           entries={entries}
           recurring={recurring}
           busy={disabled}
-          failure={failure}
+          failure={visibleFailure}
           run={run}
           onReload={() => {
             if (editor.kind === "settings") openEditor(editor);

@@ -358,6 +358,15 @@ pub(super) fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Res
             if action == "ledger-entry-delete" {
                 state.ledger_entries.remove(at);
             } else {
+                // Travel owns the converted, split amount and all derived fields.
+                // Direct edits would be silently replaced by its next sync.
+                if state
+                    .travel_expenses
+                    .iter()
+                    .any(|expense| expense.ledger_entry_id.as_deref() == Some(id.as_str()))
+                {
+                    return Err("여행에서 자동으로 기록한 내 몫이에요. 여행의 비용이나 예약에서 고쳐 주세요.".into());
+                }
                 let mut value = entry(state, input, id)?;
                 value.recurring_id = state.ledger_entries[at].recurring_id.clone();
                 value.occurrence_date = state.ledger_entries[at].occurrence_date.clone();

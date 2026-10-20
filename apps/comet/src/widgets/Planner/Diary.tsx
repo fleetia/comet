@@ -673,6 +673,7 @@ export function Diary(): ReactElement {
                   date={day}
                   onDateChange={(date) => navigate(() => setDay(date))}
                   onAction={diaryAction}
+                  actionError={diary.error}
                   busy={saving}
                   onDirtyChange={setFeatureDirty}
                 />
