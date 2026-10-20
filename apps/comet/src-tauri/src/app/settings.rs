@@ -102,7 +102,7 @@ fn validate_settings(
     if scope == Some(SettingsScope::Automatic) {
         return Ok(());
     }
-    if !["local", "api", "chatgpt"].contains(&settings.mode.as_str())
+    if !["local", "api", "chatgpt", "apple"].contains(&settings.mode.as_str())
         || !["max_tokens", "max_completion_tokens"].contains(&settings.api_token_parameter.as_str())
     {
         return Err("설정값을 확인해 주세요.".into());
@@ -153,6 +153,12 @@ pub(crate) fn apply_settings_with_keys(
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
     let current = store::settings(&tx)?;
+    if scope != Some(SettingsScope::Automatic)
+        && settings.mode == "apple"
+        && current.mode != "apple"
+    {
+        crate::apple_models::status().require()?;
+    }
     let analytics_consent = current.analytics_consent;
     let old_presence = current.random_presence_enabled;
     let old_automatic = current.autonomous_enabled;
@@ -165,6 +171,7 @@ pub(crate) fn apply_settings_with_keys(
             local_idle_enabled: settings.local_idle_enabled,
             api_idle_enabled: settings.api_idle_enabled,
             chatgpt_idle_enabled: settings.chatgpt_idle_enabled,
+            apple_idle_enabled: settings.apple_idle_enabled,
             idle_minutes: settings.idle_minutes,
             quiet_hours: settings.quiet_hours.clone(),
             ..current
@@ -497,6 +504,55 @@ pub(crate) async fn test_local_model(
             if result.is_err() || changed {
                 inference::stop_local(&worker.inference).await;
             }
+            if finish_test(&worker, epoch, &cancel, result, send).unwrap_or(false) {
+                publish(&worker_app, &worker);
+            }
+        },
+    )?;
+    receive
+        .await
+        .map_err(|_| "모델 테스트가 중단됐어요.".to_string())?
+}
+
+#[tauri::command]
+pub(crate) async fn test_apple_model(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<LocalModelTest, String> {
+    crate::apple_models::status().require()?;
+    let (epoch, cancel) = begin_test(&state, false)?;
+    publish(&app, &state);
+    let (send, receive) = tokio::sync::oneshot::channel();
+    let worker = state.inner().clone();
+    let worker_app = app.clone();
+    super::tasks::spawn(
+        app,
+        state.inner().clone(),
+        super::tasks::Kind::ModelTest,
+        epoch,
+        async move {
+            let Some(_gate) = super::tasks::acquire_gate(&worker, epoch, cancel.clone()).await
+            else {
+                let _ = send.send(Err("모델 테스트가 취소됐어요.".into()));
+                return;
+            };
+            let settings = Settings {
+                mode: "apple".into(),
+                ..Settings::default()
+            };
+            let started = std::time::Instant::now();
+            let result = inference::generate(
+                &worker.inference,
+                &settings,
+                &[ChatMessage { role: "user".into(), content: "한국어 한 문장으로 짧게 인사해 줘.".into() }],
+                serde_json::json!({"type":"object","properties":{"text":{"type":"string","minLength":1,"maxLength":300}},"required":["text"],"additionalProperties":false}),
+                128,
+                cancel.clone(),
+            ).await.and_then(|value| {
+                let reply = value["text"].as_str().filter(|text| !text.trim().is_empty())
+                    .ok_or("Apple 모델이 빈 응답을 보냈어요.")?;
+                Ok(LocalModelTest { reply: reply.into(), elapsed_ms: started.elapsed().as_millis() as u64 })
+            });
             if finish_test(&worker, epoch, &cancel, result, send).unwrap_or(false) {
                 publish(&worker_app, &worker);
             }

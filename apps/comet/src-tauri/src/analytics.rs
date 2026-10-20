@@ -103,6 +103,7 @@ enum RequestOutcome {
 #[serde(rename_all = "snake_case")]
 enum AiProvider {
     Local,
+    Apple,
     Chatgpt,
     Claude,
     Gemini,
@@ -113,6 +114,7 @@ enum AiProvider {
 #[derive(Clone, Copy, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 enum ModelFamily {
+    SystemLanguageModel,
     Unspecified,
     Custom,
     OSeries,
@@ -130,6 +132,7 @@ enum ModelFamily {
 #[derive(Clone, Copy, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 enum ModelSource {
+    Os,
     Catalog,
     CustomFile,
     Service,
@@ -239,6 +242,10 @@ impl Event {
                 let source = self.ai_model_source.ok_or(INVALID_EVENT)?;
                 let configuration = self.configuration_source.ok_or(INVALID_EVENT)?;
                 let valid_source = match (provider, source) {
+                    (AiProvider::Apple, ModelSource::Os) => {
+                        family == ModelFamily::SystemLanguageModel
+                    }
+                    (AiProvider::Apple, _) => false,
                     (AiProvider::Local, ModelSource::Catalog) => family != ModelFamily::Custom,
                     (AiProvider::Local, ModelSource::CustomFile) => family == ModelFamily::Custom,
                     (AiProvider::Local, ModelSource::Service) => false,
@@ -313,6 +320,10 @@ impl Event {
                     .filter(|value| *value <= 86_400_000)
                     .ok_or(INVALID_EVENT)?;
                 let valid_source = match (provider, source) {
+                    (AiProvider::Apple, ModelSource::Os) => {
+                        family == ModelFamily::SystemLanguageModel
+                    }
+                    (AiProvider::Apple, _) => false,
                     (AiProvider::Local, ModelSource::Catalog) => family != ModelFamily::Custom,
                     (AiProvider::Local, ModelSource::CustomFile) => family == ModelFamily::Custom,
                     (AiProvider::Local, ModelSource::Service) => false,
@@ -708,6 +719,7 @@ mod tests {
     #[test]
     fn diagnostic_events_keep_only_fixed_codes_and_numeric_request_duration() {
         for payload in [
+            json!({"event":"comet_ai_request_completed","ai_provider":"apple","ai_model_family":"system_language_model","ai_model_source":"os","request_outcome":"success","duration_ms":100}),
             json!({"event":"comet_error","error_source":"frontend_runtime","error_code":"unexpected_error"}),
             json!({"event":"comet_error","error_source":"frontend_command","error_code":"command_failed","operation":"save_settings"}),
             json!({"event":"comet_ai_request_completed","ai_provider":"local","ai_model_family":"qwen","ai_model_source":"catalog","request_outcome":"success","duration_ms":250}),
@@ -747,6 +759,7 @@ mod tests {
     #[test]
     fn rejects_diagnostic_content_and_cross_event_parameters() {
         for payload in [
+            json!({"event":"comet_ai_request_completed","ai_provider":"apple","ai_model_family":"system_language_model","ai_model_source":"service","request_outcome":"success","duration_ms":100}),
             json!({"event":"comet_error","error_source":"frontend_runtime","error_code":"unexpected_error","message":"private content"}),
             json!({"event":"comet_error","error_source":"frontend_command","error_code":"command_failed","operation":"private-name"}),
             json!({"event":"comet_error","error_source":"frontend_command","error_code":"unexpected_error","operation":"other"}),

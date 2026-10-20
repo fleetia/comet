@@ -344,7 +344,11 @@ export type LocalModelStatus = {
   recommended: boolean;
   widgetCreation: boolean;
 };
-export type DeviceInfo = { totalMemory: number | null; appleSilicon: boolean };
+export type DeviceInfo = {
+  totalMemory: number | null;
+  appleSilicon: boolean;
+  platform: "macos" | "windows" | "linux" | "other";
+};
 export type LocalModelTest = { reply: string; elapsedMs: number };
 export type QuietHours = {
   enabled: boolean;
@@ -352,7 +356,22 @@ export type QuietHours = {
   end: string;
   weekdays: number[];
 };
-export type ProviderKind = "local" | "api" | "chatgpt";
+export type ProviderKind = "local" | "api" | "chatgpt" | "apple";
+export type AppleModelStatus = {
+  available: boolean;
+  reason:
+    | "available"
+    | "unsupportedPlatform"
+    | "unsupportedOs"
+    | "bridgeUnavailable"
+    | "deviceNotEligible"
+    | "appleIntelligenceNotEnabled"
+    | "modelNotReady"
+    | "unsupportedLanguage"
+    | "unknown";
+  message: string;
+  locale: string;
+};
 export type ApiProvider = "custom" | "claude" | "gemini" | "glm";
 export type AiProvider = Exclude<ProviderKind, "api"> | ApiProvider;
 export type ApiProfile = {
@@ -386,6 +405,7 @@ export type Settings = {
   apiModel: string;
   chatgptModel: string;
   chatgptIdleEnabled: boolean;
+  appleIdleEnabled: boolean;
   apiTokenParameter: "max_tokens" | "max_completion_tokens";
   localIdleEnabled: boolean;
   apiIdleEnabled: boolean;
@@ -436,6 +456,7 @@ export type ConversationMemoryReceipt = {
 };
 export type ConversationMessages = {
   messages: Message[];
+  recovery?: { messageId: string; reason: "cancelled" | "incomplete" };
   /** Stored origin by message ID; absent legacy origins remain unknown. */
   messageSources?: Record<string, string>;
   nextBefore: number | null;
@@ -446,7 +467,6 @@ export type ConversationMessages = {
 };
 export type ConversationView = ConversationMessages & {
   session: ConversationSession;
-  recovery?: { messageId: string; reason: "cancelled" | "incomplete" };
 };
 export type UserIdentity = { id: string; name: string; startedAt: number; endedAt: number | null };
 export type CharacterExportOptions = {
@@ -540,6 +560,7 @@ export type RuntimeStatus = {
 export type ActiveRequest = { epoch: number; sessionId?: string; messageId?: string };
 export type Snapshot = {
   chatgptReady?: boolean;
+  appleModel: AppleModelStatus;
   animationStates?: {
     musicPlaying: boolean;
     calendarOpen: boolean;

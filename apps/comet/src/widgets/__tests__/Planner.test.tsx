@@ -145,6 +145,33 @@ it("creates a local Today task without a connected account or an invented due da
 });
 
 it.each([
+  ["   ", "할 일 제목을 입력해 주세요."],
+  ["가".repeat(501), "할 일 제목은 500자 이내로 입력해 주세요."],
+])("validates a quick task before saving and preserves the input %j", async (title, message) => {
+  await renderPlanner(snapshot([]));
+  const input = screen.getByRole("textbox", { name: "새 할 일" });
+  fireEvent.change(input, { target: { value: title } });
+  fireEvent.submit(input.closest("form")!);
+  expect(screen.getByRole("alert").textContent).toContain(message);
+  expect(screen.getByRole("alert").textContent).not.toContain("저장을 확인하지 못했어요");
+  expect(input).toHaveProperty("value", title);
+  expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
+  expect(reload).not.toHaveBeenCalled();
+
+  fireEvent.change(input, { target: { value: "  고친 제목  " } });
+  fireEvent.submit(input.closest("form")!);
+  await waitFor(() => expect(input).toHaveProperty("value", ""));
+  expectAction("add", {
+    title: "  고친 제목  ",
+    listId: "default",
+    plannedDate: TODAY,
+    planPeriod: "none",
+    planAnchor: null,
+  });
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it.each([
   {
     installed: false,
     label: "할 일 설치",

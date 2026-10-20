@@ -218,7 +218,6 @@ export function CharacterOrbit({
         onExitComplete={() => {
           if (!mainOpen) void finishAction();
         }}
-        className={styles.readableOrbit}
         size="compact"
         parent={name}
         title="함께하기"
@@ -236,7 +235,6 @@ export function CharacterOrbit({
         <OrbitBranch
           data-character-orbit-branch="interaction"
           aria-label={`${name} 교감`}
-          className={styles.readableOrbit}
           origin={{ x: 214.9, y: 178 }}
           center={{ x: 406, y: 234 }}
           title="교감"
@@ -254,7 +252,6 @@ export function CharacterOrbit({
       {pausePresent && (
         <OrbitBranch
           data-character-orbit-branch="pause"
-          className={styles.readableOrbit}
           origin={{ x: 473, y: 222.19 }}
           center={{ x: 500, y: 390 }}
           title="자동 잡담 쉬기"

@@ -21,6 +21,29 @@ beforeEach(() => {
   vi.mocked(command).mockResolvedValue(undefined);
 });
 
+it.each([
+  ["macos", "Apple 온디바이스 AI · 추천"],
+  ["windows", "ChatGPT · 추천"],
+] as const)(
+  "shows the %s recommendation while preserving the saved API choice",
+  (platform, firstOption) => {
+    render(
+      <SettingsPanel
+        initialSection="model"
+        snapshot={{
+          ...PREVIEW_SNAPSHOT,
+          device: { ...PREVIEW_SNAPSHOT.device, platform },
+          settings: { ...PREVIEW_SNAPSHOT.settings, mode: "api", apiProvider: "claude" },
+        }}
+      />,
+    );
+    const selector = screen.getByLabelText("대화에 쓸 AI");
+    expect(within(selector).getAllByRole("option")[0].textContent).toBe(firstOption);
+    expect(selector).toHaveProperty("value", "claude");
+    expect(command).not.toHaveBeenCalledWith("save_settings", expect.anything());
+  },
+);
+
 it.each(["claude", "gemini", "glm"] as const)(
   "connects %s with its fixed endpoint and preserves custom API controls",
   async (provider) => {
@@ -301,7 +324,7 @@ it("tests and saves the local reasoning draft and restores the saved toggle on c
 it("shows how the chosen model fits this computer and offers the recommended one", () => {
   const snapshot = {
     ...PREVIEW_SNAPSHOT,
-    device: { totalMemory: 16 * 2 ** 30, appleSilicon: true },
+    device: { totalMemory: 16 * 2 ** 30, appleSilicon: true, platform: "macos" as const },
     localModels: PREVIEW_SNAPSHOT.localModels.map((model) => ({
       ...model,
       fit: model.id === "gemma-4-12b" ? ("tight" as const) : ("fits" as const),
@@ -381,7 +404,7 @@ it.each([
 it("asks before downloading a model that this computer's memory cannot hold", async () => {
   const snapshot = {
     ...PREVIEW_SNAPSHOT,
-    device: { totalMemory: 8 * 2 ** 30, appleSilicon: true },
+    device: { totalMemory: 8 * 2 ** 30, appleSilicon: true, platform: "macos" as const },
     localModels: PREVIEW_SNAPSHOT.localModels.map((model) => ({
       ...model,
       fit: "insufficient" as const,

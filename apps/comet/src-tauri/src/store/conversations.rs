@@ -25,6 +25,8 @@ pub struct ConversationSession {
 pub struct ConversationMessages {
     pub messages: Vec<Message>,
     pub next_before: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery: Option<ConversationRecovery>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub character_names: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -680,6 +682,7 @@ pub fn conversation_messages(
         }
     }
     Ok(ConversationMessages {
+        recovery: conversation_recovery(conn, id)?,
         timeline_events: conversation_events(conn, id)?,
         memory_receipts: conversation_memory_receipts(conn, &session, &messages)?,
         messages,
@@ -807,7 +810,7 @@ pub fn conversation_view(conn: &Connection, id: &str) -> Result<ConversationView
     let page = conversation_messages(conn, id, None)?;
     Ok(ConversationView {
         session,
-        recovery: conversation_recovery(conn, id)?,
+        recovery: page.recovery,
         messages: page.messages,
         next_before: page.next_before,
         character_names: page.character_names,
@@ -2149,5 +2152,49 @@ mod tests {
             .unwrap()
             .is_none());
         assert!(cancel_conversation_reply(&db, &session.id, "input").is_err());
+    }
+
+    #[test]
+    fn read_only_history_reports_recovery_after_restart_and_clears_when_presented() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history-recovery.sqlite");
+        let db = store::open(&path).unwrap();
+        let session = start(&db);
+        store::insert_user_input(
+            &db,
+            &message("input", "user", "a", "  남긴 원문\n그대로  "),
+            true,
+        )
+        .unwrap();
+        save_conversation_draft(&db, &session.id, "새로 쓰는 초안").unwrap();
+        drop(db);
+
+        let db = store::open(&path).unwrap();
+        let page = conversation_messages(&db, &session.id, None).unwrap();
+        assert_eq!(
+            page.recovery,
+            Some(ConversationRecovery {
+                message_id: "input".into(),
+                reason: RecoveryReason::Incomplete,
+            })
+        );
+        assert_eq!(page.messages[0].content, "  남긴 원문\n그대로  ");
+        assert_eq!(conversation(&db, &session.id).unwrap().status, "paused");
+        assert_eq!(
+            conversation(&db, &session.id).unwrap().draft,
+            "새로 쓰는 초안"
+        );
+
+        set_conversation_status(&db, &session.id, "active", 2).unwrap();
+        append(
+            &db,
+            &session,
+            &message("reply:input:builtin-a", "assistant", "a", "완료한 답변"),
+        );
+        store::mark_message_displayed(&db, "reply:input:builtin-a", 3).unwrap();
+        assert!(conversation_messages(&db, &session.id, None)
+            .unwrap()
+            .recovery
+            .is_none());
     }
 }

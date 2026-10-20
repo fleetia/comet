@@ -28,6 +28,18 @@
         {
           "id": "49:49326",
           "name": "Capsule/Input"
+        },
+        {
+          "id": "780:1930",
+          "name": "Capsule/Input · Single, Disabled"
+        },
+        {
+          "id": "780:1943",
+          "name": "Capsule/Input · Multiline, Disabled"
+        },
+        {
+          "id": "780:1956",
+          "name": "Capsule/Input · Large, Disabled"
         }
       ]
     },

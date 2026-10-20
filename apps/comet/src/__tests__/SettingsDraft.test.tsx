@@ -96,6 +96,16 @@ it("preserves edited fields across incoming snapshots and resets to the latest s
   expect(result.current.hasChanges).toBe(false);
 });
 
+it("tests Apple explicitly without changing or saving the selected provider", async () => {
+  vi.mocked(command).mockResolvedValue({ elapsedMs: 250, reply: "안녕!" });
+  const { result } = renderHook(() => useSettingsDraft(PREVIEW_SNAPSHOT.settings, "model"));
+  await act(async () => result.current.run("test_apple_model"));
+  expect(command).toHaveBeenCalledExactlyOnceWith("test_apple_model", undefined);
+  expect(result.current.settings.mode).toBe("local");
+  expect(result.current.hasChanges).toBe(false);
+  expect(result.current.notice).toBe("0.3초 · 안녕!");
+});
+
 it("keeps provider models and keys separate across switches and a failed save", async () => {
   const { result } = renderHook(() => useSettingsDraft(PREVIEW_SNAPSHOT.settings, "model"));
   act(() => result.current.selectProvider("claude"));

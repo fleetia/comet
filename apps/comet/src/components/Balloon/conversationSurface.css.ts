@@ -33,13 +33,21 @@ export const resumeAction = style({ width: 106 });
 export const togetherAction = style({ width: 132, height: 34 });
 export const historyAction = style({ width: 94 });
 export const inputError = style({
-  margin: 0,
-  padding: "8px 20px 0",
-  color: tokens["color/danger"],
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-start",
+  gap: 8,
+  margin: "8px 0 0",
+  padding: "12px 16px",
+  borderRadius: 12,
+  border: `1px solid ${tokens["color/input-border"]}`,
+  background: tokens["color/glass-panel"],
+  color: tokens["color/ink"],
   fontSize: tokens["typography/sans/caption/fontSize"],
   lineHeight: "1.462",
   overflowWrap: "anywhere",
 });
+export const inputErrorMessage = style({ margin: 0 });
 export const responseHost = style([
   {
     boxSizing: "border-box",

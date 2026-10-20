@@ -758,6 +758,8 @@ pub fn run() {
             settings::clear_api_key,
             settings::test_connection,
             settings::test_local_model,
+            settings::test_apple_model,
+            crate::apple_models::apple_model_status,
             settings::pick_model_file,
             settings::download_model,
             settings::cancel_download,

@@ -40,12 +40,12 @@ export function ConversationSettings({
   );
   const sprite = spriteSource(character, "기쁨");
   const line = character?.definition.idleLines[0]?.text || character?.definition.greeting[0]?.text;
-  const generationKey =
-    settings.mode === "local"
-      ? "localIdleEnabled"
-      : settings.mode === "chatgpt"
-        ? "chatgptIdleEnabled"
-        : "apiIdleEnabled";
+  const generationKey = {
+    local: "localIdleEnabled",
+    apple: "appleIdleEnabled",
+    chatgpt: "chatgptIdleEnabled",
+    api: "apiIdleEnabled",
+  } as const;
   const error = quietHoursError(quiet);
   return (
     <div className={styles.split}>
@@ -176,9 +176,11 @@ export function ConversationSettings({
                     </Button>
                     <Switch
                       aria-label="AI로 새 잡담 만들기"
-                      checked={settings[generationKey]}
+                      checked={settings[generationKey[settings.mode]]}
                       disabled={!settings.autonomousEnabled}
-                      onChange={(event) => draft.change(generationKey, event.target.checked)}
+                      onChange={(event) =>
+                        draft.change(generationKey[settings.mode], event.target.checked)
+                      }
                     />
                   </div>
                 }

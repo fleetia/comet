@@ -277,6 +277,16 @@ export function Planner({
   }
   const quickList = lists.some((list) => list.id === newTaskList) ? newTaskList : "default";
   async function addTask(isToday: boolean): Promise<void> {
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle || Array.from(title).length > 500) {
+      setFailure({
+        message: trimmedTitle
+          ? "할 일 제목은 500자 이내로 입력해 주세요."
+          : "할 일 제목을 입력해 주세요.",
+        saving: false,
+      });
+      return;
+    }
     const diaryQuickAdd = embedded && isToday;
     if (
       await act("add", {

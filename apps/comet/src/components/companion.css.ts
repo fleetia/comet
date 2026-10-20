@@ -136,10 +136,6 @@ export const orbitAnchor = style({
   height: 52,
   pointerEvents: "none",
 });
-export const readableOrbit = style({});
-const orbitTextShadow =
-  "-1px -1px 0 #0a0f26, 0 -1px 0 #0a0f26, 1px -1px 0 #0a0f26, -1px 0 0 #0a0f26, 1px 0 0 #0a0f26, -1px 1px 0 #0a0f26, 0 1px 0 #0a0f26, 1px 1px 0 #0a0f26, 0 1px 3px rgba(0,0,0,0.8)";
-globalStyle(`${readableOrbit} [data-orbit-label]`, { textShadow: orbitTextShadow });
 // Keep input sections in normal block flow inside one bounded viewport. As flex
 // siblings, an expanded log and failure notice squeezed the reply down to its labels.
 export const inputContents = style({
@@ -478,8 +474,11 @@ export const orbitPauseStatus = style({
   left: 0,
   width: 296,
   margin: "4px 12px 12px",
-  textShadow: orbitTextShadow,
-  color: "var(--comet-color-ink-2)",
+  boxSizing: "border-box",
+  padding: "6px 8px",
+  borderRadius: 8,
+  background: tokens["color/glass-panel"],
+  color: tokens["color/ink-2"],
   fontSize: 12,
   textAlign: "center",
 });
@@ -491,5 +490,8 @@ export const orbitError = style({
   margin: 0,
   color: tokens["color/ink"],
   fontSize: 12,
-  textShadow: orbitTextShadow,
+  boxSizing: "border-box",
+  padding: "6px 8px",
+  borderRadius: 8,
+  background: tokens["color/glass-panel"],
 });

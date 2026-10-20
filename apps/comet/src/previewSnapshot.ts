@@ -40,6 +40,7 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
     apiModel: "",
     chatgptModel: "",
     chatgptIdleEnabled: false,
+    appleIdleEnabled: false,
     apiTokenParameter: "max_tokens",
     localIdleEnabled: false,
     apiIdleEnabled: false,
@@ -125,5 +126,11 @@ export const PREVIEW_SNAPSHOT: Snapshot = {
       "ministral-3-14b-q5-k-m",
     ].includes(id),
   })),
-  device: { totalMemory: null, appleSilicon: false },
+  appleModel: {
+    available: false,
+    reason: "unknown",
+    message: "브라우저 미리보기에서는 Apple 모델 상태를 확인할 수 없어요.",
+    locale: "ko-KR",
+  },
+  device: { totalMemory: null, appleSilicon: false, platform: "other" },
 };

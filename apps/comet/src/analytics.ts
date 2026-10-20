@@ -25,7 +25,7 @@ const SETTINGS_SECTIONS = [
   "model",
   "general",
 ] as const;
-const AI_PROVIDERS = ["local", "chatgpt", "claude", "gemini", "glm", "custom"] as const;
+const AI_PROVIDERS = ["local", "chatgpt", "apple", "claude", "gemini", "glm", "custom"] as const;
 const WIDGET_ACTIONS = [
   "add",
   "complete",
@@ -235,11 +235,13 @@ function commandEvent(name: string, args: Record<string, unknown>): AnalyticsEve
         source = model === "custom" ? "custom_file" : "catalog";
       } else if (provider === "chatgpt") {
         model = settings.chatgptModel;
+      } else if (provider === "apple") {
+        source = "os";
       }
       return {
         event: "comet_ai_configured",
         ai_provider: provider,
-        ai_model_family: modelFamily(model),
+        ai_model_family: provider === "apple" ? "system_language_model" : modelFamily(model),
         ai_model_source: source,
         configuration_source: "saved",
       };

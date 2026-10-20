@@ -66,7 +66,7 @@ it("keeps the desktop input compact with only its shortcuts", () => {
   expect(screen.getByRole("button", { name: "함께 이야기해 봐" })).toBeTruthy();
 });
 
-it("shows only the error text under the desktop input when a reply fails", () => {
+it("shows the desktop failure with an AI settings action that preserves the draft", async () => {
   const snapshot = conversationSnapshot();
   render(
     <Balloon
@@ -79,6 +79,17 @@ it("shows only the error text under the desktop input when a reply fails", () =>
   expect(screen.queryByRole("button", { name: "다시 이야기하기" })).toBeNull();
   expect(screen.queryByRole("button", { name: "입력 수정" })).toBeNull();
   expect(screen.queryByRole("button", { name: "AI 연결 확인" })).toBeNull();
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "계속 쓸 초안" } });
+  fireEvent.click(screen.getByRole("button", { name: "AI 연결 열기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("open_settings"));
+  expect(vi.mocked(command).mock.calls).toEqual([
+    [
+      "save_conversation_draft",
+      { sessionId: "surface-session", draft: "계속 쓸 초안", inputOwner: "desktop" },
+    ],
+    ["set_settings_section", { section: "model" }],
+    ["open_settings"],
+  ]);
 });
 
 it("folds the desktop input with Escape from the editor, saving its draft", async () => {

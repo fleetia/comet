@@ -98,6 +98,127 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it("explains the read-only composer before resuming and keeps the saved draft", async () => {
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  const input = await screen.findByRole("textbox", { name: "이어서 말하기" });
+  expect(input).toHaveProperty("disabled", true);
+  expect(input).toHaveProperty("placeholder", "이어서 말하기를 눌러 대화를 재개하세요");
+  expect(input).toHaveProperty("value", FIRST.draft);
+  expect(screen.getByRole("button", { name: "보내기" })).toHaveProperty("disabled", true);
+  await begin();
+  expect(input).toHaveProperty("disabled", false);
+  expect(input).toHaveProperty("value", FIRST.draft);
+  expect(input.getAttribute("placeholder")).toContain("에게 이어서 말하기");
+});
+
+it.each(["restart", "other-session-error"])(
+  "shows stored recovery on first read-only visit after %s without granting editing",
+  async (state) => {
+    const failedInput = { ...MESSAGE, role: "user", id: "failed", content: "보존한 원문" };
+    const page: ConversationMessages = {
+      messages: [failedInput],
+      nextBefore: null,
+      recovery: { messageId: failedInput.id, reason: "incomplete" },
+    };
+    vi.mocked(command).mockImplementation(async (name) => {
+      if (name === "get_conversations") return [FIRST];
+      if (name === "get_conversation_messages") return page;
+    });
+    render(
+      <ConversationHistoryWindow
+        snapshot={{
+          ...SNAPSHOT,
+          modelReady: false,
+          settings: { ...SNAPSHOT.settings, mode: "local" },
+          ...(state === "other-session-error"
+            ? {
+                conversation: SECOND_VIEW,
+                runtime: { ...SNAPSHOT.runtime, phase: "error", error: "다른 대화 연결 오류" },
+              }
+            : {}),
+        }}
+      />,
+    );
+    expect(
+      await screen.findByText("답변을 마치지 못했어요. 보낸 내용은 남아 있어요."),
+    ).toBeTruthy();
+    expect(screen.getByText("AI 자유 대화 · 모델 준비 필요")).toBeTruthy();
+    expect(screen.queryByText("다른 대화 연결 오류")).toBeNull();
+    expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty("disabled", true);
+    expect(screen.queryByRole("button", { name: "다시 이야기하기" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "입력 수정" })).toBeNull();
+    expect(screen.getByRole("button", { name: "AI 연결 확인" })).toBeTruthy();
+    expect(command).not.toHaveBeenCalledWith("resume_chat", expect.anything());
+  },
+);
+
+it.each(["loading", "generating", "playing"] as const)(
+  "does not describe the selected %s turn as failed in read-only history",
+  async (phase) => {
+    const pending: ConversationView = {
+      ...FIRST_VIEW,
+      recovery: { messageId: "pending-input", reason: "incomplete" },
+    };
+    vi.mocked(command).mockImplementation(async (name) => {
+      if (name === "get_conversations") return [FIRST];
+      if (name === "get_conversation_messages") return pending;
+    });
+    render(
+      <ConversationHistoryWindow
+        snapshot={{
+          ...SNAPSHOT,
+          conversation: pending,
+          runtime: { ...SNAPSHOT.runtime, phase },
+        }}
+      />,
+    );
+    await screen.findByText(/첫 대화 원문/);
+    expect(screen.queryByText("답변을 마치지 못했어요. 보낸 내용은 남아 있어요.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "다시 이야기하기" })).toBeNull();
+  },
+);
+
+it("clears recovered history when a reply succeeds and ignores stale recovery from an older page", async () => {
+  const older = deferred<ConversationMessages>();
+  const failed: ConversationView = {
+    ...FIRST_VIEW,
+    nextBefore: 5,
+    recovery: { messageId: "failed-input", reason: "incomplete" },
+  };
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversations") return [FIRST];
+    if (name === "get_conversation_messages") return args?.before ? older.promise : failed;
+  });
+  const { rerender } = render(
+    <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: failed }} />,
+  );
+  await screen.findByText("답변을 마치지 못했어요. 보낸 내용은 남아 있어요.");
+  fireEvent.click(screen.getByRole("button", { name: "앞선 내용 더 보기" }));
+  rerender(
+    <ConversationHistoryWindow
+      snapshot={{
+        ...SNAPSHOT,
+        conversation: {
+          ...failed,
+          recovery: undefined,
+          messages: [...failed.messages, { ...MESSAGE, id: "success", content: "완료한 답변" }],
+        },
+      }}
+    />,
+  );
+  await screen.findByText("완료한 답변");
+  expect(screen.queryByText("답변을 마치지 못했어요. 보낸 내용은 남아 있어요.")).toBeNull();
+  await act(async () =>
+    older.resolve({
+      messages: [{ ...MESSAGE, id: "older", content: "앞선 원문" }],
+      nextBefore: null,
+      recovery: failed.recovery,
+    }),
+  );
+  expect(screen.getByText("앞선 원문")).toBeTruthy();
+  expect(screen.queryByText("답변을 마치지 못했어요. 보낸 내용은 남아 있어요.")).toBeNull();
+});
+
 it("shows verified start and focus events between the original messages", async () => {
   const next = {
     ...MESSAGE,

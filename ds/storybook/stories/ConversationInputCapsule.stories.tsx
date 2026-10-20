@@ -119,3 +119,23 @@ export const DraftWhileSending: Story = {
   },
 };
 export const Disabled: Story = { name: "입력 불가", args: { disabled: true } };
+export const ResumeRequired: Story = {
+  name: "지난 대화 · 재개 전",
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "재개 전에는 저장된 초안을 유지하고 입력과 보내기를 비활성화합니다. [Figma · Multiline Disabled](https://www.figma.com/design/aWNznF6uo5AlqF0YokiXZY?node-id=780-1943)",
+      },
+    },
+  },
+  args: {
+    form: "multiline",
+    sendSize: "compact",
+    defaultValue: "",
+    disabled: true,
+    placeholder: "이어서 말하기를 눌러 대화를 재개하세요",
+    label: "이어서 말하기",
+    style: { width: 420 },
+  },
+};
