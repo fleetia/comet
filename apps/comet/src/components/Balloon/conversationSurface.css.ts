@@ -28,6 +28,19 @@ export const inputAction = style({
   fontSize: 13,
   fontWeight: 400,
   lineHeight: "normal",
+  // These controls sit directly on a transparent desktop window, not a panel.
+  // Keep an opaque backing beneath the ghost tints, including while pressed.
+  selectors: {
+    "&&:not(:disabled)": {
+      background: tokens["color/glass-window"],
+    },
+    "&&:hover:not(:disabled)": {
+      background: `linear-gradient(${tokens["color/chip"]}, ${tokens["color/chip"]}), ${tokens["color/glass-window"]}`,
+    },
+    "&&:active:not(:disabled)": {
+      background: `linear-gradient(${tokens["color/track"]}, ${tokens["color/track"]}), ${tokens["color/glass-window"]}`,
+    },
+  },
 });
 export const resumeAction = style({ width: 106 });
 export const togetherAction = style({ width: 132, height: 34 });
