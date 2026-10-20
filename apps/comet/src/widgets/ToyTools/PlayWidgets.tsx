@@ -333,7 +333,7 @@ export function GuessingTool({
 
 export function PetTool({ widget, act }: Props): ReactElement {
   return (
-    <Card icon="pet" title="작은 펫">
+    <Card icon="paw" title="작은 펫">
       <div className={s.companionRow}>
         <ToyArtwork kind="pet" />
         <p className={s.status}>바탕화면 아래를 천천히 돌아다녀요.</p>

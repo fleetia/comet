@@ -31,7 +31,7 @@ export const WIDGET_ICONS: Record<string, IconName> = {
   guessing: "cupdown",
   fishing: "fish",
   plant: "plant",
-  pet: "pet",
+  pet: "paw",
   fortune: "crystal",
   ball: "ball2",
   "paper-plane": "plane",
