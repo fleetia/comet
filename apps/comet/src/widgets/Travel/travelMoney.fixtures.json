@@ -1,0 +1,347 @@
+[
+  {
+    "name": "odd equal",
+    "amount": 101,
+    "currency": "KRW",
+    "rate": 10000,
+    "shares": [
+      {
+        "person": "me",
+        "weight": 1
+      },
+      {
+        "person": "a",
+        "weight": 1
+      }
+    ],
+    "won": 101,
+    "expected": {
+      "me": 50,
+      "a": 51
+    }
+  },
+  {
+    "name": "three equal",
+    "amount": 100,
+    "currency": "KRW",
+    "rate": 10000,
+    "shares": [
+      {
+        "person": "me",
+        "weight": 1
+      },
+      {
+        "person": "mom",
+        "weight": 1
+      },
+      {
+        "person": "sis",
+        "weight": 1
+      }
+    ],
+    "won": 100,
+    "expected": {
+      "me": 34,
+      "mom": 33,
+      "sis": 33
+    }
+  },
+  {
+    "name": "weighted",
+    "amount": 5,
+    "currency": "KRW",
+    "rate": 10000,
+    "shares": [
+      {
+        "person": "me",
+        "weight": 1
+      },
+      {
+        "person": "a",
+        "weight": 2
+      },
+      {
+        "person": "z",
+        "weight": 3
+      }
+    ],
+    "won": 5,
+    "expected": {
+      "me": 1,
+      "a": 2,
+      "z": 2
+    }
+  },
+  {
+    "name": "small weighted",
+    "amount": 2,
+    "currency": "KRW",
+    "rate": 10000,
+    "shares": [
+      {
+        "person": "me",
+        "weight": 2
+      },
+      {
+        "person": "a",
+        "weight": 1
+      },
+      {
+        "person": "z",
+        "weight": 1
+      }
+    ],
+    "won": 2,
+    "expected": {
+      "me": 1,
+      "a": 1,
+      "z": 0
+    }
+  },
+  {
+    "name": "one won",
+    "amount": 1,
+    "currency": "KRW",
+    "rate": 10000,
+    "shares": [
+      {
+        "person": "me",
+        "weight": 1
+      },
+      {
+        "person": "a",
+        "weight": 1
+      }
+    ],
+    "won": 1,
+    "expected": {
+      "me": 0,
+      "a": 1
+    }
+  },
+  {
+    "name": "zero",
+    "amount": 0,
+    "currency": "KRW",
+    "rate": 10000,
+    "shares": [
+      {
+        "person": "me",
+        "weight": 1
+      },
+      {
+        "person": "a",
+        "weight": 1
+      }
+    ],
+    "won": 0,
+    "expected": {
+      "me": 0,
+      "a": 0
+    }
+  },
+  {
+    "name": "USD minor units",
+    "amount": 101,
+    "currency": "USD",
+    "rate": 1000000,
+    "shares": [
+      {
+        "person": "me",
+        "weight": 1
+      },
+      {
+        "person": "a",
+        "weight": 1
+      }
+    ],
+    "won": 101,
+    "expected": {
+      "me": 50,
+      "a": 51
+    }
+  },
+  {
+    "name": "FX rounds first",
+    "amount": 3,
+    "currency": "USD",
+    "rate": 500000,
+    "shares": [
+      {
+        "person": "me",
+        "weight": 1
+      },
+      {
+        "person": "a",
+        "weight": 1
+      },
+      {
+        "person": "z",
+        "weight": 1
+      }
+    ],
+    "won": 2,
+    "expected": {
+      "me": 1,
+      "a": 1,
+      "z": 0
+    }
+  },
+  {
+    "name": "FX rounds to zero",
+    "amount": 5,
+    "currency": "USD",
+    "rate": 10000,
+    "shares": [
+      {
+        "person": "me",
+        "weight": 1
+      },
+      {
+        "person": "a",
+        "weight": 1
+      }
+    ],
+    "won": 0,
+    "expected": {
+      "me": 0,
+      "a": 0
+    }
+  },
+  {
+    "name": "JPY fractional rate",
+    "amount": 11,
+    "currency": "JPY",
+    "rate": 95000,
+    "shares": [
+      {
+        "person": "me",
+        "weight": 2
+      },
+      {
+        "person": "a",
+        "weight": 1
+      }
+    ],
+    "won": 105,
+    "expected": {
+      "me": 70,
+      "a": 35
+    }
+  },
+  {
+    "name": "large weighted products",
+    "amount": 9000000000001,
+    "currency": "JPY",
+    "rate": 10000000,
+    "shares": [
+      {
+        "person": "me",
+        "weight": 100
+      },
+      {
+        "person": "a",
+        "weight": 99
+      },
+      {
+        "person": "z",
+        "weight": 1
+      }
+    ],
+    "won": 9000000000001000,
+    "expected": {
+      "me": 4500000000000500,
+      "a": 4455000000000495,
+      "z": 45000000000005
+    }
+  },
+  {
+    "name": "divisible legacy",
+    "amount": 90000,
+    "currency": "KRW",
+    "rate": 10000,
+    "shares": [
+      {
+        "person": "me",
+        "weight": 1
+      },
+      {
+        "person": "mom",
+        "weight": 1
+      },
+      {
+        "person": "sis",
+        "weight": 1
+      }
+    ],
+    "won": 90000,
+    "expected": {
+      "me": 30000,
+      "mom": 30000,
+      "sis": 30000
+    }
+  },
+  {
+    "name": "unshared self",
+    "amount": 101,
+    "currency": "KRW",
+    "rate": 10000,
+    "shares": [
+      {
+        "person": "me",
+        "weight": 1
+      }
+    ],
+    "won": 101,
+    "expected": {
+      "me": 101
+    }
+  },
+  {
+    "name": "self excluded",
+    "amount": 101,
+    "currency": "KRW",
+    "rate": 10000,
+    "shares": [
+      {
+        "person": "a",
+        "weight": 1
+      },
+      {
+        "person": "z",
+        "weight": 1
+      }
+    ],
+    "won": 101,
+    "expected": {
+      "a": 51,
+      "z": 50
+    }
+  },
+  {
+    "name": "stable UUID ties",
+    "amount": 101,
+    "currency": "KRW",
+    "rate": 10000,
+    "shares": [
+      {
+        "person": "me",
+        "weight": 1
+      },
+      {
+        "person": "22222222-2222-4222-8222-222222222222",
+        "weight": 1
+      },
+      {
+        "person": "11111111-1111-4111-8111-111111111111",
+        "weight": 1
+      }
+    ],
+    "won": 101,
+    "expected": {
+      "me": 33,
+      "22222222-2222-4222-8222-222222222222": 34,
+      "11111111-1111-4111-8111-111111111111": 34
+    }
+  }
+]

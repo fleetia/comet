@@ -50,9 +50,13 @@ export function rateText(rate: number): string {
 }
 
 /** Won value rounded half up, the same rule as the saved ledger records. */
-export function toWon(amount: number, currency: string, rate: number): number {
+function wonUnits(amount: number, currency: string, rate: number): bigint {
   const scale = 10n ** BigInt(exponent(currency)) * 10_000n;
-  return Number((BigInt(amount) * BigInt(rate) + scale / 2n) / scale);
+  return (BigInt(amount) * BigInt(rate) + scale / 2n) / scale;
+}
+
+export function toWon(amount: number, currency: string, rate: number): number {
+  return Number(wonUnits(amount, currency, rate));
 }
 
 /** The rate typed last for this currency, to prefill a new record. */
@@ -62,11 +66,32 @@ export function lastRate(trip: Pick<TripData, "expenses" | "bookings">, currency
   return records.at(-1)?.rate ?? null;
 }
 
+/** Largest remainder in whole won; tied remainders use stable person IDs, not payer or array order.
+ * Keep this allocation identical to diary::travel::split_shares. IDs are ASCII UUIDs or "me".
+ */
+function splitShares(expense: Expense): Map<string, number> {
+  const total = expense.shares.reduce((sum, share) => sum + BigInt(share.weight), 0n);
+  if (!total) return new Map();
+  const value = wonUnits(expense.amount, expense.currency, expense.rate);
+  const shares = expense.shares.map(({ person, weight }) => {
+    const weighted = value * BigInt(weight);
+    return { person, amount: weighted / total, remainder: weighted % total };
+  });
+  let remaining = value - shares.reduce((sum, share) => sum + share.amount, 0n);
+  shares.sort(
+    (a, b) =>
+      Number(b.remainder - a.remainder) || (a.person < b.person ? -1 : a.person > b.person ? 1 : 0),
+  );
+  for (const share of shares) {
+    if (remaining === 0n) break;
+    share.amount += 1n;
+    remaining -= 1n;
+  }
+  return new Map(shares.map((share) => [share.person, Number(share.amount)]));
+}
+
 export function shareOf(expense: Expense, person: string): number {
-  const total = expense.shares.reduce((sum, share) => sum + share.weight, 0);
-  const weight = expense.shares.find((share) => share.person === person)?.weight ?? 0;
-  if (!total) return 0;
-  return Math.round((toWon(expense.amount, expense.currency, expense.rate) * weight) / total);
+  return splitShares(expense).get(person) ?? 0;
 }
 
 export function personName(trip: Pick<TripData, "people">, id: string): string {
@@ -80,7 +105,7 @@ export function balances(trip: TripData): Map<string, number> {
   const add = (id: string, value: number) => result.set(id, (result.get(id) ?? 0) + value);
   for (const expense of trip.expenses.filter((value) => value.paid)) {
     add(expense.payer, toWon(expense.amount, expense.currency, expense.rate));
-    for (const share of expense.shares) add(share.person, -shareOf(expense, share.person));
+    for (const [person, amount] of splitShares(expense)) add(person, -amount);
   }
   for (const transfer of trip.transfers) {
     add(transfer.from, transfer.amount);
