@@ -12,6 +12,7 @@ import {
   toWon,
 } from "./travelMoney";
 import type { Expense, TripData } from "./travelTypes";
+import splitCases from "./travelMoney.fixtures.json";
 
 const travel = {
   id: "jeju",
@@ -125,5 +126,84 @@ describe("settlement", () => {
       budgetPercent: 6,
       remaining: 1_880_000,
     });
+  });
+});
+
+describe("conserved weighted shares", () => {
+  it.each(splitCases)(
+    "allocates $name exactly and independently of payer or share order",
+    (fixture) => {
+      for (const shares of [fixture.shares, [...fixture.shares].reverse()]) {
+        for (const payer of ["me", ...shares.map((share) => share.person)]) {
+          const bill = expense({ ...fixture, shares, payer });
+          const allocated = shares.map((share) => shareOf(bill, share.person));
+          expect(toWon(bill.amount, bill.currency, bill.rate)).toBe(fixture.won);
+          expect(
+            Object.fromEntries(shares.map((share, index) => [share.person, allocated[index]])),
+          ).toEqual(fixture.expected);
+          expect(allocated.reduce((sum, value) => sum + value, 0)).toBe(fixture.won);
+          expect(shareOf(bill, "absent")).toBe(0);
+          expect([...balances(trip([bill])).values()].reduce((sum, value) => sum + value, 0)).toBe(
+            0,
+          );
+        }
+      }
+    },
+  );
+
+  it("conserves repeated odd bills before and after recording settlement", () => {
+    const bills = Array.from({ length: 100 }, (_, index) =>
+      expense({
+        id: String(index),
+        amount: 101,
+        shares: [
+          { person: "me", weight: 1 },
+          { person: "a", weight: 1 },
+        ],
+      }),
+    );
+    const before = trip(bills);
+    expect(Object.fromEntries(balances(before))).toMatchObject({ me: 5100, a: -5100 });
+    expect(settle(before)).toEqual([{ from: "a", to: "me", amount: 5100 }]);
+    const transfers = settle(before).map((value, index) => ({
+      ...value,
+      id: String(index),
+      travelId: "jeju",
+      date: "2026-10-26",
+    }));
+    expect([...balances(trip(bills, transfers)).values()].every((value) => value === 0)).toBe(true);
+  });
+
+  it("keeps under-ten-won transfer suppression separate from balanced accounting", () => {
+    const before = trip([
+      expense({
+        amount: 11,
+        shares: [
+          { person: "me", weight: 1 },
+          { person: "a", weight: 1 },
+        ],
+      }),
+    ]);
+    expect(Object.fromEntries(balances(before))).toMatchObject({ me: 6, a: -6 });
+    expect(settle(before)).toEqual([]);
+    expect(costSummary(before).perPerson).toBe(4);
+  });
+
+  it("uses integer arithmetic for unequal weights across every small total", () => {
+    for (let amount = 0; amount <= 301; amount += 1) {
+      const bill = expense({
+        amount,
+        shares: [
+          { person: "me", weight: 3 },
+          { person: "a", weight: 7 },
+          { person: "z", weight: 11 },
+        ],
+      });
+      const allocated = bill.shares.map((share) => shareOf(bill, share.person));
+      expect(allocated.reduce((sum, value) => sum + value, 0)).toBe(amount);
+      for (const [index, share] of bill.shares.entries()) {
+        expect(Math.abs(allocated[index] - (amount * share.weight) / 21)).toBeLessThan(1);
+      }
+    }
   });
 });

@@ -603,23 +603,90 @@ fn expense(state: &DiaryState, input: &Value, id: String) -> Result<Expense> {
     })
 }
 
-/// My part of an expense in won. The ledger keeps only this, never the whole bill.
-pub(crate) fn my_share(expense: &Expense) -> u64 {
-    let total: u64 = expense
+/// Largest remainder in whole won. Stable person IDs break ties, never payer or array order.
+/// Keep this identical to travelMoney.ts; results retain the input share order.
+fn split_shares(expense: &Expense) -> Vec<u64> {
+    let total: u128 = expense
         .shares
         .iter()
-        .map(|share| u64::from(share.weight))
+        .map(|share| u128::from(share.weight))
         .sum();
-    let mine = expense
-        .shares
-        .iter()
-        .find(|share| share.person == ME)
-        .map_or(0, |share| u64::from(share.weight));
+    let mut amounts = vec![0; expense.shares.len()];
     if total == 0 {
-        return 0;
+        return amounts;
     }
     let value = u128::from(won(expense.amount, &expense.currency, expense.rate));
-    ((value * u128::from(mine) + u128::from(total) / 2) / u128::from(total)) as u64
+    let mut remainders: Vec<_> = expense
+        .shares
+        .iter()
+        .enumerate()
+        .map(|(index, share)| {
+            let weighted = value * u128::from(share.weight);
+            amounts[index] = (weighted / total) as u64;
+            (index, weighted % total)
+        })
+        .collect();
+    let remaining = value
+        - amounts
+            .iter()
+            .map(|amount| u128::from(*amount))
+            .sum::<u128>();
+    remainders.sort_by(|(a, left), (b, right)| {
+        right
+            .cmp(left)
+            .then_with(|| expense.shares[*a].person.cmp(&expense.shares[*b].person))
+    });
+    for (index, _) in remainders.into_iter().take(remaining as usize) {
+        amounts[index] += 1;
+    }
+    amounts
+}
+
+/// My part of an expense in won. The ledger keeps only this, never the whole bill.
+pub(crate) fn my_share(expense: &Expense) -> u64 {
+    expense
+        .shares
+        .iter()
+        .zip(split_shares(expense))
+        .find(|(share, _)| share.person == ME)
+        .map_or(0, |(_, amount)| amount)
+}
+
+/// Upgrade only amounts that still match the old derived rounding. Do not recreate deleted links,
+/// overwrite manual amounts or metadata, or delete a historical entry whose new share is zero.
+pub(super) fn reconcile_split_rounding(state: &mut DiaryState) -> bool {
+    let mut changed = false;
+    for expense in state.travel_expenses.iter().filter(|expense| expense.paid) {
+        let Some(entry) = expense.ledger_entry_id.as_ref().and_then(|id| {
+            state
+                .ledger_entries
+                .iter_mut()
+                .find(|entry| &entry.id == id)
+        }) else {
+            continue;
+        };
+        let total: u128 = expense
+            .shares
+            .iter()
+            .map(|share| u128::from(share.weight))
+            .sum();
+        if total == 0 || entry.kind != "expense" {
+            continue;
+        }
+        let mine = expense
+            .shares
+            .iter()
+            .find(|share| share.person == ME)
+            .map_or(0, |share| u128::from(share.weight));
+        let value = u128::from(won(expense.amount, &expense.currency, expense.rate));
+        let previous = ((value * mine + total / 2) / total) as u64;
+        let current = my_share(expense);
+        if entry.amount == previous && entry.amount != current {
+            entry.amount = current;
+            changed = true;
+        }
+    }
+    changed
 }
 
 /// Keeps the linked ledger entry equal to my paid share. A link whose entry was
@@ -1385,6 +1452,111 @@ mod tests {
         let mut no_rate = dinner;
         no_rate["rate"] = json!(0);
         assert!(mutate(&mut state, "travel-expense-create", &no_rate).is_err());
+    }
+
+    #[test]
+    fn saved_personal_shares_match_the_frontend_allocation_fixtures() {
+        let fixtures: Vec<Value> = serde_json::from_str(include_str!(
+            "../../../src/widgets/Travel/travelMoney.fixtures.json"
+        ))
+        .unwrap();
+        for fixture in fixtures {
+            let mut state = created();
+            let mut bill = json!({
+                "id": "split", "travelId": state.travels[0].id,
+                "title": "비용", "date": "2026-10-24", "category": "food",
+                "paid": true, "payer": "me", "memo": ""
+            });
+            for key in ["amount", "currency", "rate", "shares"] {
+                bill[key] = fixture[key].clone();
+            }
+            let mut expense: Expense = serde_json::from_value(bill).unwrap();
+            let expected = fixture["expected"][ME].as_u64().unwrap_or(0);
+            for payer in ["me", "a", "z"] {
+                expense.payer = payer.into();
+                let amounts = split_shares(&expense);
+                assert_eq!(
+                    amounts.iter().sum::<u64>(),
+                    fixture["won"].as_u64().unwrap()
+                );
+                for (share, amount) in expense.shares.iter().zip(amounts) {
+                    assert_eq!(
+                        amount,
+                        fixture["expected"][&share.person].as_u64().unwrap(),
+                        "{} / {}",
+                        fixture["name"],
+                        share.person
+                    );
+                }
+                assert_eq!(my_share(&expense), expected, "{}", fixture["name"]);
+                expense.shares.reverse();
+                assert_eq!(my_share(&expense), expected, "{} reversed", fixture["name"]);
+            }
+            state.travel_expenses.push(expense);
+            sync_ledger(&mut state, "split").unwrap();
+            assert_eq!(
+                state
+                    .ledger_entries
+                    .iter()
+                    .map(|entry| entry.amount)
+                    .sum::<u64>(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn split_upgrade_preserves_manual_history_metadata_and_deleted_links() {
+        let mut state = created();
+        for (id, amount, paid, ledger_amount, kind) in [
+            ("derived", 101, true, 51, "expense"),
+            ("manual", 101, true, 777, "expense"),
+            ("income", 101, true, 51, "income"),
+            ("unpaid", 101, false, 51, "expense"),
+            ("zero", 1, true, 1, "expense"),
+            ("divisible", 100, true, 50, "expense"),
+        ] {
+            state.travel_expenses.push(
+                serde_json::from_value(json!({
+                    "id": id, "travelId": state.travels[0].id,
+                    "title": "비용", "date": "2026-10-24", "category": "food",
+                    "paid": paid, "payer": "me", "memo": "", "amount": amount,
+                    "currency": "KRW", "rate": 10000,
+                    "shares": [{"person": "me", "weight": 1}, {"person": "a", "weight": 1}],
+                    "ledgerEntryId": id
+                }))
+                .unwrap(),
+            );
+            state.ledger_entries.push(LedgerEntry {
+                id: id.into(),
+                date: "2026-10-24".into(),
+                kind: kind.into(),
+                amount: ledger_amount,
+                category: "food".into(),
+                title: "남길 제목".into(),
+                memo: "남길 메모".into(),
+                recurring_id: None,
+                occurrence_date: None,
+            });
+        }
+        let mut deleted = state.travel_expenses[0].clone();
+        deleted.id = "deleted".into();
+        deleted.ledger_entry_id = Some("missing".into());
+        state.travel_expenses.push(deleted.clone());
+        deleted.id = "unlinked".into();
+        deleted.ledger_entry_id = None;
+        state.travel_expenses.push(deleted);
+        let mut unrelated = state.ledger_entries[0].clone();
+        unrelated.id = "unrelated".into();
+        state.ledger_entries.push(unrelated);
+        let expenses = state.travel_expenses.clone();
+        let mut expected = state.ledger_entries.clone();
+        expected[0].amount = 50;
+        expected[4].amount = 0;
+        assert!(reconcile_split_rounding(&mut state));
+        assert_eq!(state.ledger_entries, expected);
+        assert_eq!(state.travel_expenses, expenses);
+        assert!(!reconcile_split_rounding(&mut state));
     }
 
     #[test]
