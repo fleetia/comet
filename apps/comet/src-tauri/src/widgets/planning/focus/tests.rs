@@ -778,7 +778,7 @@ fn starting_with_null_todo_clears_the_previous_selection_without_rewriting_histo
 fn explicit_task_launch_replaces_context_without_rewriting_prior_sessions_or_tasks() {
     let mut related = BTreeMap::new();
     let mut todos = super::super::initial("todo");
-    for title in ["응답 확인", "자료 검토"] {
+    for (index, title) in ["응답 확인", "자료 검토"].iter().enumerate() {
         todos = super::super::act(
             "todo",
             &todos,
@@ -786,7 +786,7 @@ fn explicit_task_launch_replaces_context_without_rewriting_prior_sessions_or_tas
             &json!({"title":title,"memo":"할 일 참고 메모"}),
             &BTreeMap::new(),
             0,
-            7,
+            index as u64,
         )
         .unwrap()
         .data;
