@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { command, errorText, isDesktop } from "./useSnapshot";
 
 type OrbitAnchor = { x: number; y: number };
-type BalloonPlacement = { orbitAnchor: OrbitAnchor | null };
+type BalloonPlacement = { orbitAnchor: OrbitAnchor | null; conversationTailX?: number | null };
 
 export function useBalloonSizing(
   preview: boolean,
@@ -16,6 +16,10 @@ export function useBalloonSizing(
   const elementRef = useRef<HTMLElement>(null);
   const [measuredKey, setMeasuredKey] = useState<string | null>(null);
   const [orbitAnchor, setOrbitAnchor] = useState<OrbitAnchor | null>(null);
+  const [conversationTail, setConversationTail] = useState<{
+    contentKey: string;
+    x: number;
+  } | null>(null);
   const native =
     !preview &&
     isDesktop() &&
@@ -36,10 +40,15 @@ export function useBalloonSizing(
     let requestedAnchor: OrbitAnchor | null = null;
     let unlisten: (() => void) | undefined;
     void listen<BalloonPlacement & { contentKey: string }>("balloon-orbit-anchor", (event) => {
-      if (!active || event.payload.contentKey !== contentKey || !requestedAnchor) return;
-      if (!event.payload.orbitAnchor) return;
-      eventRevision += 1;
-      setOrbitAnchor(event.payload.orbitAnchor);
+      if (!active || event.payload.contentKey !== contentKey) return;
+      if (requestedAnchor && event.payload.orbitAnchor) {
+        eventRevision += 1;
+        setOrbitAnchor(event.payload.orbitAnchor);
+      }
+      if (event.payload.conversationTailX != null) {
+        eventRevision += 1;
+        setConversationTail({ contentKey, x: event.payload.conversationTailX });
+      }
     })
       .then((dispose) => {
         if (active) unlisten = dispose;
@@ -85,7 +94,14 @@ export function useBalloonSizing(
         .then((placement) => {
           if (!active || revision !== measurementRevision) return;
           setMeasuredKey(contentKey);
-          if (previousEvent === eventRevision) setOrbitAnchor(placement?.orbitAnchor ?? null);
+          if (previousEvent === eventRevision) {
+            setOrbitAnchor(placement?.orbitAnchor ?? null);
+            setConversationTail(
+              placement?.conversationTailX != null
+                ? { contentKey, x: placement.conversationTailX }
+                : null,
+            );
+          }
         })
         .catch((cause: unknown) => {
           if (active && revision === measurementRevision) {
@@ -117,5 +133,11 @@ export function useBalloonSizing(
       window.cancelAnimationFrame(frame);
     };
   }, [native, contentKey, imageReady, fontKey, onError, surface]);
-  return { elementRef, ready: !native || measuredKey === contentKey, orbitAnchor, native };
+  return {
+    elementRef,
+    ready: !native || measuredKey === contentKey,
+    orbitAnchor,
+    conversationTailX: conversationTail?.contentKey === contentKey ? conversationTail.x : null,
+    native,
+  };
 }

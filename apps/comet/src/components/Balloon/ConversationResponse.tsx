@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useState, type JSX } from "react";
+import { useId, useLayoutEffect, useState, type CSSProperties, type JSX } from "react";
 import { Balloon, WaitingDots } from "@comet/ui";
 import type { Snapshot } from "../../types";
 import { useBalloonSizing } from "../../hooks/useBalloonSizing";
@@ -44,7 +44,7 @@ export function ConversationResponse({ snapshot, preview = false }: Props): JSX.
   const contentKey = snapshot.panel
     ? `panel:${snapshot.panel.persona}:${snapshot.panel.mode}${snapshot.playback ? `:playback:${snapshot.playback.id}` : ""}`
     : "conversation:closed";
-  const { elementRef, ready } = useBalloonSizing(
+  const { elementRef, ready, conversationTailX } = useBalloonSizing(
     preview,
     contentKey,
     imageReady,
@@ -74,7 +74,18 @@ export function ConversationResponse({ snapshot, preview = false }: Props): JSX.
   }, [preview]);
   if (!active) return null;
   return (
-    <section ref={elementRef} className={styles.responseHost} aria-label="캐릭터 대답">
+    <section
+      ref={elementRef}
+      className={styles.responseHost}
+      aria-label="캐릭터 대답"
+      style={
+        conversationTailX == null
+          ? undefined
+          : ({
+              "--comet-response-tail-x": `${conversationTailX}px`,
+            } as CSSProperties)
+      }
+    >
       <Balloon
         speaker={character?.definition.sourceId === "builtin-b" ? "nadir" : "byulkkori"}
         speakerName={!snapshot.playback && !waiting && previousReply ? `이전 답변 · ${name}` : name}
