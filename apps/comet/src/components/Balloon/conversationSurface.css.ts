@@ -33,9 +33,14 @@ export const resumeAction = style({ width: 106 });
 export const togetherAction = style({ width: 132, height: 34 });
 export const historyAction = style({ width: 94 });
 export const inputError = style({
-  margin: 0,
-  padding: "8px 20px 0",
-  color: tokens["color/danger"],
+  boxSizing: "border-box",
+  margin: "8px 0 0",
+  padding: "8px 19px",
+  border: `1px solid ${tokens["color/danger-border"]}`,
+  borderRadius: tokens["radius/radius-12"],
+  // Window colors follow the skin but not the balloon-opacity slider.
+  background: tokens["color/glass-window"],
+  color: tokens["color/ink"],
   fontSize: tokens["typography/sans/caption/fontSize"],
   lineHeight: "1.462",
   overflowWrap: "anywhere",
