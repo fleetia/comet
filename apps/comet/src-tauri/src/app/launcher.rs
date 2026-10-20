@@ -547,7 +547,7 @@ pub(crate) async fn execute_launcher(
         LauncherAction::Chat { .. } | LauncherAction::AddTodo { .. } => true,
         LauncherAction::Widget { id, .. } => lock(&state.db)
             .and_then(|db| widgets::storage::get(&db, id))
-            .map(|widget| crate::behavior::TOYS.contains(&widget.kind.as_str()))
+            .map(|widget| crate::behavior::DESKTOP_TOYS.contains(&widget.kind.as_str()))
             .unwrap_or(false),
         LauncherAction::Settings { .. } | LauncherAction::Travel { .. } => false,
     };

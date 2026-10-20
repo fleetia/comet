@@ -1115,7 +1115,10 @@ it("reloads the selected transcript when a hidden history window is opened again
 it("focuses the resumed editor and saves a new draft before stopping the identified generation", async () => {
   const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
   await begin();
-  expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "이어서 말하기" }));
+  // Enabling the editor commits before its passive effect moves focus.
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "이어서 말하기" })),
+  );
   const activeRequest = { epoch: 42, sessionId: FIRST.id, messageId: "generating-input" };
   rerender(
     <ConversationHistoryWindow

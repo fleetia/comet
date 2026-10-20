@@ -126,8 +126,58 @@ pub fn initialize_files(app_data: &Path) -> Result<PathBuf, String> {
     if let Err(error) = replace_byulkkori_dialogue(&root) {
         eprintln!(".talk byulkkori dialogue replacement: {error}");
     }
+    if let Err(error) = add_revived_widget_dialogue(&root) {
+        eprintln!(".talk revived widget dialogue: {error}");
+    }
     migrate_encryption(&root);
     Ok(root)
+}
+
+const REVIVED_WIDGET_FILES: [&str; 6] = [
+    "widgets/completion-jar.talk",
+    "widgets/device.talk",
+    "widgets/guessing.talk",
+    "widgets/fishing.talk",
+    "widgets/plant.talk",
+    "widgets/pet.talk",
+];
+
+/// One-time addition of the revived widget scripts to an installed Byulkkori pack. Only an
+/// entry that still matches the previous factory index is updated, so user imports survive.
+fn add_revived_widget_dialogue(root: &Path) -> Result<(), String> {
+    let marker = app_data_of(root)?.join(".talk-byulkkori-revived-widgets-v1");
+    if marker.try_exists().map_err(|error| error.to_string())? || !root.exists() {
+        return Ok(());
+    }
+    let pack = defaults::pack(defaults::BYULKKORI).ok_or("기본 대본을 찾지 못했어요.")?;
+    let target = root.join(PACKS_DIRECTORY).join(pack.id);
+    let entry = target.join("index.talk");
+    let previous = super::encryption::decode(
+        include_str!("../../content/previous-byulkkori-index-v4.talk").as_bytes(),
+    )?;
+    let current = match fs::read(&entry) {
+        Ok(bytes) => Some(super::encryption::decode(&bytes)?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.to_string()),
+    };
+    if current.as_deref() == Some(previous.as_str()) {
+        let bundled = |name: &str| {
+            pack.files
+                .iter()
+                .find(|(path, _)| *path == name)
+                .map(|(_, source)| *source)
+                .ok_or("기본 대본을 찾지 못했어요.")
+        };
+        for name in REVIVED_WIDGET_FILES {
+            let path = target.join(name);
+            if !path.try_exists().map_err(|error| error.to_string())? {
+                super::files::atomic_write(&path, bundled(name)?.as_bytes())?;
+            }
+        }
+        // The entry goes last: until it imports them, the added files stay inert.
+        super::files::atomic_write(&entry, bundled("index.talk")?.as_bytes())?;
+    }
+    super::files::atomic_write(&marker, b"1\n")
 }
 
 /// One-time overwrite of the installed Byulkkori pack with the rewritten bundled dialogue,
@@ -516,7 +566,9 @@ pub fn pack_statuses(root: &Path) -> Result<Vec<PackStatus>, String> {
                     .map_or_else(|| id.clone(), |pack| pack.name.into()),
                 id: id.clone(),
                 description: defaults::migration_pack(&id)
-                    .map(|_| "이전에 설치한 대화팩이에요. 제거하면 앱에서 다시 설치할 수 없어요.".into())
+                    .map(|_| {
+                        "이전에 설치한 대화팩이에요. 제거하면 앱에서 다시 설치할 수 없어요.".into()
+                    })
                     .unwrap_or_default(),
                 installed: true,
                 bundled: false,
@@ -839,10 +891,7 @@ mod tests {
         assert!(install_bundled_pack(&root, "unknown").is_err());
         assert!(remove_pack(&root, "../talk").is_err());
         let program = load_bundle(&root, &context::registry()).unwrap();
-        assert_eq!(
-            program.packs,
-            BTreeSet::from(["byulkkori".to_owned()])
-        );
+        assert_eq!(program.packs, BTreeSet::from(["byulkkori".to_owned()]));
         assert!(program
             .scenes
             .iter()
@@ -1143,7 +1192,8 @@ mod dialogue_upgrade_tests {
         fs::write(&solo, OLD_SOLO).unwrap();
         initialize_files(directory.path()).unwrap();
         assert_eq!(fs::read(&solo).unwrap(), OLD_SOLO.as_bytes());
-        assert!(!root.join("packs/byulkkori/widgets/pet.talk").exists());
+        // Revived widget scripts ship with the default pack only.
+        assert!(root.join("packs/byulkkori/widgets/pet.talk").exists());
         assert!(!root
             .join("packs/nadir-and-star-tail/widgets/plant.talk")
             .exists());
@@ -1252,9 +1302,16 @@ mod byulkkori_replacement_tests {
         let root = initialize_files(directory.path()).unwrap();
         let todo = root.join("packs/byulkkori/widgets/todo.talk");
         let stock = fs::read(&todo).unwrap();
-        fs::write(&todo, super::super::encryption::encode("format: 1\n# 사용자 수정\n").unwrap())
-            .unwrap();
-        fs::write(root.join("packs/byulkkori/widgets/journal.talk"), b"format: 1\n").unwrap();
+        fs::write(
+            &todo,
+            super::super::encryption::encode("format: 1\n# 사용자 수정\n").unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            root.join("packs/byulkkori/widgets/journal.talk"),
+            b"format: 1\n",
+        )
+        .unwrap();
         fs::remove_file(directory.path().join(".talk-byulkkori-dialogue-v4")).unwrap();
         initialize_files(directory.path()).unwrap();
         assert_eq!(
@@ -1270,5 +1327,35 @@ mod byulkkori_replacement_tests {
         fs::remove_file(directory.path().join(".talk-byulkkori-dialogue-v4")).unwrap();
         initialize_files(directory.path()).unwrap();
         assert!(!root.join("packs/byulkkori").exists());
+    }
+
+    #[test]
+    fn revived_widget_scripts_join_only_a_factory_entry_once() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = initialize_files(directory.path()).unwrap();
+        let pack = root.join("packs/byulkkori");
+        let entry = pack.join("index.talk");
+        let shipped = source(&entry);
+        let previous = include_str!("../../content/previous-byulkkori-index-v4.talk");
+        let reset = |entry_bytes: &[u8]| {
+            fs::write(&entry, entry_bytes).unwrap();
+            for name in REVIVED_WIDGET_FILES {
+                let _ = fs::remove_file(pack.join(name));
+            }
+            fs::remove_file(directory.path().join(".talk-byulkkori-revived-widgets-v1")).unwrap();
+            initialize_files(directory.path()).unwrap();
+        };
+
+        reset(previous.as_bytes());
+        assert_eq!(source(&entry), shipped);
+        assert!(REVIVED_WIDGET_FILES
+            .iter()
+            .all(|name| pack.join(name).exists()));
+        super::super::load_pack(&entry, &super::super::context::registry(), "byulkkori").unwrap();
+
+        let edited = super::super::encryption::encode("format: 1\n# 사용자 수정\n").unwrap();
+        reset(&edited);
+        assert_eq!(source(&entry), "format: 1\n# 사용자 수정\n");
+        assert!(!pack.join("widgets/pet.talk").exists());
     }
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX, type PointerEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { Menu, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { command, errorText } from "../../hooks/useSnapshot";
 import { transparentDocument } from "../companion.css";
 import { ToyArtwork } from "./ToyArtwork";
@@ -65,10 +66,21 @@ export function DesktopToy({ id }: { id: string }): JSX.Element | null {
       event.currentTarget.releasePointerCapture(event.pointerId);
     act(action);
   }
+  async function openPetMenu(): Promise<void> {
+    const menu = await Menu.new({
+      items: [
+        { id: "feed", text: "먹이 주기", action: () => act("feed") },
+        { id: "stroke", text: "쓰다듬기", action: () => act("stroke") },
+        await PredefinedMenuItem.new({ item: "Separator" }),
+        { id: "home", text: "집으로 보내기", action: () => act("dismiss") },
+      ],
+    });
+    await menu.popup();
+  }
   if (!frame) return null;
   const title =
     error ??
-    `${names[frame.kind]} · 끌어서 놓기 · 우클릭으로 정리${frame.externalWindowsAvailable ? "" : " · 다른 창을 읽지 못해 화면 가장자리만 사용 중"}`;
+    `${names[frame.kind]} · ${frame.kind === "pet" ? "끌면 따라오고, 우클릭으로 돌봐요" : "끌어서 놓기 · 우클릭으로 정리"}${frame.externalWindowsAvailable ? "" : " · 다른 창을 읽지 못해 화면 가장자리만 사용 중"}`;
   return (
     <div className={s.frame}>
       <button
@@ -95,7 +107,9 @@ export function DesktopToy({ id }: { id: string }): JSX.Element | null {
         }}
         onContextMenu={(event) => {
           event.preventDefault();
-          act("dismiss");
+          if (frame.kind === "pet")
+            void openPetMenu().catch((cause: unknown) => setError(errorText(cause)));
+          else act("dismiss");
         }}
         style={{
           transform:

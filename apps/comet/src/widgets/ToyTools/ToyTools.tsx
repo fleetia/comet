@@ -4,11 +4,9 @@ import {
   Balloon,
   Button,
   CharacterArtwork,
-  FormField,
   IconButton as CometIconButton,
   Select,
   Surface,
-  TextInput,
 } from "@comet/ui";
 import type { WidgetView } from "../types";
 import { isDesktop } from "../../hooks/useSnapshot";
@@ -18,14 +16,13 @@ import { number, record, text, type DataRecord, type ToolAction } from "../toolD
 import type { CharacterCollection } from "../../types";
 import { activeTargets } from "../../components/Launcher/search";
 import { FriendArtwork } from "../../components/CharacterManager/FriendsLibrary";
+import { FishingTool, GuessingTool, PetTool, PlantTool } from "./PlayWidgets";
 import diceThree from "./assets/dice-three.svg";
 import diceFive from "./assets/dice-five.svg";
 import { ToyArtwork } from "../../components/DesktopToy/ToyArtwork";
 import planeTrail from "./assets/toy-plane-trail.svg";
 import ballTrail from "./assets/toy-ball-trail.svg";
 import * as toy from "./toyTools.css";
-import * as s from "../tools.css";
-import * as c from "../../common.css";
 
 type Props = {
   widget: WidgetView;
@@ -381,8 +378,15 @@ export function CompanionTool({
   onClose,
   busy = false,
   error,
+  children,
   ...props
-}: Props & { onClose: () => Promise<void>; busy?: boolean; error?: string | null }): ReactElement {
+}: Props & {
+  onClose: () => Promise<void>;
+  busy?: boolean;
+  error?: string | null;
+  /** Replaces the toy body for floating cards that are not toys. */
+  children?: ReactElement;
+}): ReactElement {
   const [failure, setFailure] = useState<string | null>(null);
   const drag = useWindowDrag(isDesktop(), setFailure);
   useEffect(() => {
@@ -407,7 +411,7 @@ export function CompanionTool({
         onClick={() => void onClose().catch((cause: unknown) => setFailure(String(cause)))}
       />
       <fieldset className={toy.nativeBody} disabled={busy}>
-        <ToyTool {...props} />
+        {children ?? <ToyTool {...props} />}
       </fieldset>
       {(error || failure) && (
         <p className={toy.error} role="alert">
@@ -420,14 +424,11 @@ export function CompanionTool({
 
 export function ToyTool({ widget, act, characters, widgets, userName }: Props): ReactElement {
   const d = record(widget.data);
-  const [guess, setGuess] = useState("50");
-  const [mode, setMode] = useState(text(d.mode) === "number" ? "number" : "cups");
   const [fortuneOwner, setFortuneOwner] = useState<string | null>(null);
   switch (widget.kind) {
     case "ball":
     case "paper-plane":
     case "bubbles":
-    case "pet":
       return <MotionTool widget={widget} act={act} widgets={widgets} />;
     case "interaction":
       return <InteractionTool widget={widget} act={act} characters={characters} />;
@@ -437,84 +438,16 @@ export function ToyTool({ widget, act, characters, widgets, userName }: Props): 
       );
     case "guessing":
       return (
-        <>
-          <FormField className={c.field} label="놀이">
-            <Select
-              fill
-              value={mode}
-              disabled={d.playing === true}
-              onChange={(e) => setMode(e.target.value)}
-            >
-              <option value="cups">컵 찾기</option>
-              <option value="number">숫자 맞히기 (1–100)</option>
-            </Select>
-          </FormField>
-          <Button variant="ghost" onClick={() => void act("start", { mode })}>
-            새 놀이 시작
-          </Button>
-          <p role="status">{text(d.hint) || "새 놀이를 시작해 주세요."}</p>
-          {d.playing === true &&
-            (text(d.mode) === "cups" ? (
-              <div className={s.row}>
-                {[1, 2, 3].map((value) => (
-                  <Button
-                    variant="primary"
-                    key={value}
-                    onClick={() => void act("guess", { value })}
-                  >
-                    {value}번 컵
-                  </Button>
-                ))}
-              </div>
-            ) : (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void act("guess", { value: Number(guess) });
-                }}
-              >
-                <FormField className={c.field} label="예상 숫자" required>
-                  <TextInput
-                    fill
-                    type="number"
-                    min="1"
-                    max="100"
-                    value={guess}
-                    onChange={(e) => setGuess(e.target.value)}
-                  />
-                </FormField>
-                <Button type="submit" variant="primary">
-                  맞혀 보기
-                </Button>
-              </form>
-            ))}
-          <p className={c.quiet}>시도 {number(d.attempts)}번</p>
-        </>
+        <section className={toy.play} aria-label="맞히기 놀이">
+          <GuessingTool widget={widget} act={act} characters={characters} />
+          <PlayCompanion
+            characters={characters}
+            face={text(d.mode) === "number" && d.playing === true ? "(－_－)" : "(・o・)"}
+          />
+        </section>
       );
     case "fishing":
-      return (
-        <>
-          <div className={s.number} aria-hidden="true">
-            🎣
-          </div>
-          <p role="status">
-            {text(d.phase) === "bite"
-              ? "입질이에요! 지금 거둬 보세요."
-              : text(d.phase) === "waiting"
-                ? "입질을 기다리고 있어요."
-                : "낚싯줄을 던져 보세요."}
-          </p>
-          <Button
-            variant="primary"
-            onClick={() => void act(text(d.phase) === "idle" ? "cast" : "reel")}
-          >
-            {text(d.phase) === "idle" ? "낚싯줄 던지기" : "낚싯줄 거두기"}
-          </Button>
-          <p>
-            최근 획득: {text(d.lastCatch) || "아직 없어요"} · 총 {number(d.catches)}번
-          </p>
-        </>
-      );
+      return <FishingTool widget={widget} act={act} />;
     case "fortune": {
       const hasDrawn =
         typeof d.draws === "number" ? d.draws > 0 : text(d.text) !== "가상 장난 운세입니다.";
@@ -579,24 +512,9 @@ export function ToyTool({ widget, act, characters, widgets, userName }: Props): 
       );
     }
     case "plant":
-      return (
-        <>
-          <div className={s.number} aria-hidden="true">
-            {["🪴", "🌱", "🌿", "🌸"][number(d.stage)]}
-          </div>
-          <p role="status">
-            {["씨앗", "새싹", "잎", "꽃"][number(d.stage)]} · 남은 물 {number(d.water)}
-          </p>
-          <p className={c.quiet}>물이 있으면 1분마다 한 단계 자라요.</p>
-          <Button
-            variant="primary"
-            disabled={number(d.water) >= 3 || number(d.stage) >= 3}
-            onClick={() => void act("water")}
-          >
-            물 주기
-          </Button>
-        </>
-      );
+      return <PlantTool widget={widget} act={act} />;
+    case "pet":
+      return <PetTool widget={widget} act={act} />;
     default:
       return <p>지원하는 놀이를 선택해 주세요.</p>;
   }

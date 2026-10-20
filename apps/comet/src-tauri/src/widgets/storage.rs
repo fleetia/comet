@@ -270,6 +270,7 @@ pub fn install(db: &Connection, directory: &Path, kinds: &[String]) -> Result<()
             instance.revision += 1;
             put(&tx, &instance)?;
         }
+        synchronize_jar(&tx)?;
         discard_pending(&tx)?;
         tx.commit().map_err(err)
     })();
@@ -874,6 +875,9 @@ fn apply_effect(
             collect_item(db, &event.event)?;
         }
     }
+    if instance.kind == "todo" {
+        synchronize_jar(db)?;
+    }
     db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND (json_extract(data,'$.expiresAt')<=?1 OR NOT EXISTS(SELECT 1 FROM widget_instances i WHERE i.id=widget_events.instance_id AND i.installed=1 AND i.enabled=1 AND i.revision=json_extract(widget_events.data,'$.revision')))",[now]).map_err(err)?;
     db.execute("UPDATE widget_events SET pending=0 WHERE pending=1 AND seq NOT IN (SELECT seq FROM widget_events WHERE pending=1 ORDER BY CASE WHEN json_extract(data,'$.kind') IN ('timer-finished','calendar-reminder','planner-reminder') THEN 0 ELSE 1 END,seq DESC LIMIT 8)",[]).map_err(err)?;
     Ok(())
@@ -974,6 +978,44 @@ fn collect_item(db: &Connection, event: &EventDraft) -> Result<()> {
     }
     collection.revision += 1;
     put(db, &collection)
+}
+
+/// The jar mirrors the todo owner: every direct completion, including each
+/// frequency record, is one marble.
+fn synchronize_jar(db: &Connection) -> Result<()> {
+    let all = instances(db)?;
+    let Some(mut jar) = all
+        .iter()
+        .find(|entry| entry.kind == "completion-jar" && entry.installed)
+        .cloned()
+    else {
+        return Ok(());
+    };
+    let mut completed = all
+        .iter()
+        .find(|entry| entry.kind == "todo")
+        .and_then(|entry| entry.data["items"].as_array())
+        .into_iter()
+        .flatten()
+        .flat_map(|item| {
+            let mut marbles = vec![];
+            if item["completedAt"].is_number() {
+                marbles.push(json!({"id":item["id"],"title":item["title"],"completedAt":item["completedAt"]}));
+            }
+            for record in item["frequencyRecords"].as_array().into_iter().flatten() {
+                marbles.push(json!({"id":record["id"],"title":item["title"],"completedAt":record["createdAt"]}));
+            }
+            marbles
+        })
+        .collect::<Vec<_>>();
+    completed.sort_by_key(|marble| std::cmp::Reverse(marble["completedAt"].as_i64().unwrap_or(0)));
+    let data = json!({"completed":completed});
+    if jar.data != data {
+        jar.data = data;
+        jar.revision += 1;
+        put(db, &jar)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

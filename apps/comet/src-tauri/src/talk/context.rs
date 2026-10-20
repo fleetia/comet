@@ -935,6 +935,7 @@ mod tests {
                 json!(true),
             ),
             ("bubbles", "bubbles", vec!["streak"], "count", json!(1)),
+            ("pet", "pet", vec!["arrivals"], "moving", json!(true)),
         ] {
             let mut data =
                 json!({"moving":true,"flying":true,"bubbles":[{"id":1}],"food":{"x":50,"y":50}});
@@ -1009,7 +1010,7 @@ mod tests {
             ),
             0,
         );
-        assert_eq!(values["guessing.hint"], Value::Null);
+        assert_eq!(values["guessing.hint"], "더 큰 숫자예요.");
         assert!(!values
             .keys()
             .any(|key| key.contains("answer") || key.contains("Token")));
@@ -1077,7 +1078,7 @@ mod tests {
             },
         };
         let context = build(&db, Some(&event), 100, 5).unwrap();
-        assert_eq!(context.available.len(), 15);
+        assert_eq!(context.available.len(), 21);
         // Trips come from the diary; a fresh diary has none and no nearest-trip fields.
         assert_eq!(context.values["travel.count"], 0);
         assert_eq!(context.values["travel.title"], Value::Null);
@@ -1111,14 +1112,14 @@ mod tests {
             ),
             1500,
         );
-        assert_eq!(wake["device.woke"], Value::Null);
+        assert_eq!(wake["device.woke"], true);
         assert_eq!(wake["device.ready"], false);
         assert_eq!(wake["device.percent"], Value::Null);
     }
     #[test]
     fn initial_refresh_is_loading_and_weather_age_uses_observation_time() {
         let now = 10_000_000;
-        for kind in ["weather", "music"] {
+        for kind in ["weather", "music", "device"] {
             let (values, _) = project(
                 &snapshot(
                     kind,
@@ -1158,7 +1159,7 @@ mod tests {
             assert_eq!(values["weather.temperature"], Value::Null);
             assert!(!available.contains("weather"));
         }
-        for kind in ["weather", "music"] {
+        for kind in ["weather", "music", "device"] {
             let (values, _) = project(
                 &snapshot(
                     kind,

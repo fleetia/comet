@@ -103,7 +103,56 @@ unsafe extern "C-unwind" fn down(view: &AnyObject, _: Sel, _: *mut AnyObject) {
 unsafe extern "C-unwind" fn up(view: &AnyObject, _: Sel, _: *mut AnyObject) {
     callbacks(view, "release");
 }
-unsafe extern "C-unwind" fn right_down(view: &AnyObject, _: Sel, _: *mut AnyObject) {
+unsafe extern "C-unwind" fn right_down(view: &AnyObject, _: Sel, event: *mut AnyObject) {
+    let pet = PANELS.with(|panels| {
+        panels
+            .borrow()
+            .values()
+            .any(|panel| std::ptr::eq(&*panel.view, view) && panel.frame.kind == Kind::Pet)
+    });
+    if !pet {
+        callbacks(view, "dismiss");
+        return;
+    }
+    // The pet keeps a care menu instead of disappearing on the first right click.
+    let allocated: *mut AnyObject = msg_send![class!(NSMenu), alloc];
+    let menu: *mut AnyObject = msg_send![allocated, init];
+    let Some(menu) = Retained::from_raw(menu) else {
+        return;
+    };
+    let empty: *mut AnyObject = msg_send![class!(NSString), string];
+    for (title, action) in [
+        (c"먹이 주기", Some(sel!(cometPetFeed:))),
+        (c"쓰다듬기", Some(sel!(cometPetStroke:))),
+        (c"", None),
+        (c"집으로 보내기", Some(sel!(cometPetHome:))),
+    ] {
+        let Some(action) = action else {
+            let separator: *mut AnyObject = msg_send![class!(NSMenuItem), separatorItem];
+            let _: () = msg_send![&*menu, addItem: separator];
+            continue;
+        };
+        let title: *mut AnyObject =
+            msg_send![class!(NSString), stringWithUTF8String: title.as_ptr()];
+        let allocated: *mut AnyObject = msg_send![class!(NSMenuItem), alloc];
+        let item: *mut AnyObject =
+            msg_send![allocated, initWithTitle: title, action: action, keyEquivalent: empty];
+        let Some(item) = Retained::from_raw(item) else {
+            continue;
+        };
+        let _: () = msg_send![&*item, setTarget: view];
+        let _: () = msg_send![&*menu, addItem: &*item];
+    }
+    let _: () =
+        msg_send![class!(NSMenu), popUpContextMenu: &*menu, withEvent: event, forView: view];
+}
+unsafe extern "C-unwind" fn pet_feed(view: &AnyObject, _: Sel, _: *mut AnyObject) {
+    callbacks(view, "feed");
+}
+unsafe extern "C-unwind" fn pet_stroke(view: &AnyObject, _: Sel, _: *mut AnyObject) {
+    callbacks(view, "stroke");
+}
+unsafe extern "C-unwind" fn pet_home(view: &AnyObject, _: Sel, _: *mut AnyObject) {
     callbacks(view, "dismiss");
 }
 unsafe extern "C-unwind" fn accessibility_press(view: &AnyObject, _: Sel) -> Bool {
@@ -118,7 +167,6 @@ unsafe extern "C-unwind" fn dragged(_: &AnyObject, _: Sel, _: *mut AnyObject) {}
 #[link(name = "AppKit", kind = "framework")]
 unsafe extern "C" {
     fn NSRectFillUsingOperation(rect: NSRect, operation: usize);
-    static NSFontAttributeName: *const AnyObject;
 }
 unsafe fn color(red: f64, green: f64, blue: f64, alpha: f64) {
     let value: *mut AnyObject =
@@ -145,6 +193,36 @@ fn bubble_palette(index: u8) -> BubblePalette {
 }
 fn rect(x: f64, y: f64, width: f64, height: f64) -> NSRect {
     NSRect::new(NSPoint::new(x, y), NSSize::new(width, height))
+}
+/// Draws Figma's 46×46 small pet centered in the toy view.
+unsafe fn draw_pet() {
+    let at = |x: f64, y: f64| NSPoint::new(x + 5.0, y + 5.0);
+    let fur = (1.0, 0.824, 0.478, 1.0);
+    color(fur.0, fur.1, fur.2, fur.3);
+    for ear in [
+        [(12.0, 18.0), (10.0, 7.0), (19.0, 14.0)],
+        [(34.0, 18.0), (36.0, 7.0), (27.0, 14.0)],
+    ] {
+        let path: *mut AnyObject = msg_send![class!(NSBezierPath), bezierPath];
+        let _: () = msg_send![path, moveToPoint: at(ear[0].0, ear[0].1)];
+        for (x, y) in &ear[1..] {
+            let _: () = msg_send![path, lineToPoint: at(*x, *y)];
+        }
+        let _: () = msg_send![path, closePath];
+        let _: () = msg_send![path, fill];
+    }
+    oval(rect(12.0, 20.0, 32.0, 26.0), fur);
+    oval(rect(19.0, 31.0, 18.0, 12.0), (1.0, 0.914, 0.722, 1.0));
+    let ink = (0.102, 0.078, 0.2, 1.0);
+    oval(rect(20.0, 28.0, 4.0, 4.0), ink);
+    oval(rect(32.0, 28.0, 4.0, 4.0), ink);
+    let mouth: *mut AnyObject = msg_send![class!(NSBezierPath), bezierPath];
+    let _: () = msg_send![mouth, moveToPoint: at(21.0, 29.0)];
+    let _: () = msg_send![mouth, curveToPoint: at(25.0, 29.0), controlPoint1: at(22.33, 30.33), controlPoint2: at(23.67, 30.33)];
+    color(ink.0, ink.1, ink.2, ink.3);
+    let _: () = msg_send![mouth, setLineWidth: 1.4_f64];
+    let _: () = msg_send![mouth, setLineCapStyle: 1_usize];
+    let _: () = msg_send![mouth, stroke];
 }
 unsafe extern "C-unwind" fn draw(view: &AnyObject, _: Sel, _: NSRect) {
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -218,14 +296,7 @@ unsafe extern "C-unwind" fn draw(view: &AnyObject, _: Sel, _: NSRect) {
                     let _: () = msg_send![path,setLineWidth:1.5_f64];
                     let _: () = msg_send![path, stroke];
                 }
-                Kind::Pet => {
-                    let text = CString::new("🐌").expect("constant glyph");
-                    let text: *mut AnyObject =
-                        msg_send![class!(NSString),stringWithUTF8String:text.as_ptr()];
-                    let font: *mut AnyObject = msg_send![class!(NSFont),systemFontOfSize:34.0_f64];
-                    let attributes: *mut AnyObject = msg_send![class!(NSDictionary),dictionaryWithObject:font, forKey:NSFontAttributeName];
-                    let _: () = msg_send![text,drawAtPoint:NSPoint::new(9.0,7.0), withAttributes:attributes];
-                }
+                Kind::Pet => draw_pet(),
             }
         }
     }));
@@ -276,6 +347,18 @@ fn view_class() -> &'static AnyClass {
         class.add_method(
             sel!(rightMouseDown:),
             right_down as unsafe extern "C-unwind" fn(_, _, _),
+        );
+        class.add_method(
+            sel!(cometPetFeed:),
+            pet_feed as unsafe extern "C-unwind" fn(_, _, _),
+        );
+        class.add_method(
+            sel!(cometPetStroke:),
+            pet_stroke as unsafe extern "C-unwind" fn(_, _, _),
+        );
+        class.add_method(
+            sel!(cometPetHome:),
+            pet_home as unsafe extern "C-unwind" fn(_, _, _),
         );
         class.add_method(
             sel!(accessibilityPerformPress),
@@ -329,8 +412,12 @@ unsafe fn create_panel(app: AppHandle, frame: Frame, x: f64, y: f64) -> Result<(
     let role: *mut AnyObject =
         msg_send![class!(NSString),stringWithUTF8String:c"AXButton".as_ptr()];
     let _: () = msg_send![&*view,setAccessibilityRole:role];
-    let help = CString::new("끌어서 던지기, 우클릭으로 정리. 비눗방울은 눌러 터뜨리기.")
-        .expect("constant help");
+    let help = CString::new(if frame.kind == Kind::Pet {
+        "끌면 따라오고, 우클릭으로 먹이 주기·쓰다듬기·집으로 보내기."
+    } else {
+        "끌어서 던지기, 우클릭으로 정리. 비눗방울은 눌러 터뜨리기."
+    })
+    .expect("constant help");
     let help: *mut AnyObject = msg_send![class!(NSString),stringWithUTF8String:help.as_ptr()];
     let _: () = msg_send![&*view,setAccessibilityHelp:help];
     let id = frame.id.clone();

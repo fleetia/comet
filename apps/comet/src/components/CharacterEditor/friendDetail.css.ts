@@ -160,3 +160,43 @@ export const greetingStage = style({
   background: tokens["color/input"],
 });
 export const greeting = style({ width: "100%", boxSizing: "border-box", maxWidth: 286 });
+export const reactions = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: 10,
+  width: "100%",
+  paddingTop: 14,
+  borderTop: `1px solid ${tokens["color/divider"]}`,
+});
+export const reactionList = style({
+  display: "flex",
+  flexDirection: "column",
+  margin: 0,
+  padding: 0,
+  listStyle: "none",
+  borderRadius: tokens["radius/radius-14"],
+  border: `1px solid ${tokens["color/card-border"]}`,
+  background: tokens["color/card"],
+});
+export const reactionRow = style({
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  padding: "10px 12px",
+  selectors: { "& + &": { borderTop: `1px solid ${tokens["color/divider"]}` } },
+});
+export const reactionArtwork = style({ width: 32, height: 32, flexShrink: 0 });
+globalStyle(`${reactionArtwork} img, ${reactionArtwork} > *`, {
+  maxWidth: 32,
+  maxHeight: 32,
+});
+export const reactionText = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: 2,
+  flex: 1,
+  minWidth: 0,
+  fontSize: 12.5,
+  lineHeight: "17px",
+  color: tokens["color/ink"],
+});

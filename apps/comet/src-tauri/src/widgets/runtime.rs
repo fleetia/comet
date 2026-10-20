@@ -113,7 +113,7 @@ fn collect(app: &tauri::AppHandle) -> Result<Snapshot, String> {
         .filter(|instance| !widgets::is_retired(&instance.kind))
     {
         let mut errors = Vec::new();
-        let is_toy = crate::behavior::TOYS.contains(&instance.kind.as_str());
+        let is_toy = crate::behavior::DESKTOP_TOYS.contains(&instance.kind.as_str());
         let planner = matches!(instance.kind.as_str(), "todo" | "calendar");
         let mut read = |label: &str| match query_window(app, label) {
             Ok(state) => state,

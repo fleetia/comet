@@ -5,6 +5,9 @@ use std::sync::{atomic::Ordering, Arc};
 use tauri::{Emitter, Manager};
 
 pub(crate) const TOYS: [&str; 3] = ["ball", "paper-plane", "bubbles"];
+/// Toys taken out onto the desktop. The pet is only ever taken out by the user,
+/// so it stays out of the automatic play list in `TOYS`.
+pub(crate) const DESKTOP_TOYS: [&str; 4] = ["ball", "paper-plane", "bubbles", "pet"];
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
@@ -330,7 +333,15 @@ pub(crate) async fn tick(app: &tauri::AppHandle, state: &AppState) -> Result<(),
                     "비눗방울 놀이가 끝났어요.".into()
                 },
             ),
-            desktop::toys::Kind::Pet => ("desktop.pet.rested", "바탕화면 펫이 쉬고 있어요.".into()),
+            desktop::toys::Kind::Pet => match outcome.care {
+                Some(desktop::toys::Care::Fed) => {
+                    ("desktop.pet.fed", "작은 펫에게 먹이를 줬어요.".into())
+                }
+                Some(desktop::toys::Care::Stroked) => {
+                    ("desktop.pet.stroked", "작은 펫을 쓰다듬었어요.".into())
+                }
+                None => ("desktop.pet.rested", "바탕화면 펫이 쉬고 있어요.".into()),
+            },
         };
         changed |= widgets::storage::record_desktop_result(
             &db,

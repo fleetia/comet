@@ -405,7 +405,7 @@ pub(crate) async fn execute_widget(
             if !instance.installed
                 || !instance.enabled
                 || instance.revision != request.expected_revision
-                || !crate::behavior::TOYS.contains(&instance.kind.as_str())
+                || !crate::behavior::DESKTOP_TOYS.contains(&instance.kind.as_str())
             {
                 return Err("장난감 상태가 바뀌었어요. 다시 열어 주세요.".into());
             }
@@ -894,7 +894,7 @@ async fn open_widget_inner(
         }
         return crate::widgets::planning::windows::open_travel(app.clone(), None);
     }
-    if crate::behavior::TOYS.contains(&instance.kind.as_str()) {
+    if crate::behavior::DESKTOP_TOYS.contains(&instance.kind.as_str()) {
         let token = crate::desktop::toys::launch_token(app, id)?;
         let geometry = crate::desktop::toys::current_geometry(app).await?;
         return change(state, |db| {
@@ -957,6 +957,11 @@ async fn open_widget_inner(
             | "interaction"
             | "small-match"
             | "fortune"
+            | "guessing"
+            | "fishing"
+            | "plant"
+            | "completion-jar"
+            | "device"
             | "ball"
             | "paper-plane"
             | "bubbles"
@@ -974,14 +979,18 @@ async fn open_widget_inner(
         match current.kind.as_str() {
             "music" => 370.0,
             "focus-timer" => 946.0,
-            "interaction" | "small-match" | "fortune" | "ball" | "paper-plane" | "bubbles" => 330.0,
+            "interaction" | "small-match" | "fortune" | "guessing" | "fishing" | "plant"
+            | "completion-jar" | "device" | "ball" | "paper-plane" | "bubbles" => 330.0,
             _ => 360.0,
         },
         match current.kind.as_str() {
             "music" => 310.0,
             "focus-timer" => 580.0,
             "interaction" => 250.0,
-            "small-match" => 430.0,
+            "small-match" | "guessing" => 430.0,
+            "fishing" => 380.0,
+            "plant" => 360.0,
+            "completion-jar" | "device" => 240.0,
             "fortune" => 340.0,
             "ball" | "paper-plane" | "bubbles" => 400.0,
             _ => 480.0,

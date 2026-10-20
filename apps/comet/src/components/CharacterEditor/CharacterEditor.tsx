@@ -74,8 +74,18 @@ type Props = {
   memoryContent?: ReactNode | ((onManage: () => void) => ReactNode);
   settingsContent?: ReactNode;
   memoryTabRequest?: number;
-  /** Opens this friend on a tab once per revision, e.g. the balloon tab from theme settings. */
-  tabRequest?: { id: string; revision: number; tab?: "balloon" } | null;
+  /**
+   * Opens this friend on a tab once per revision, e.g. the balloon tab from theme settings.
+   * `relationshipTarget` opens that relationship's name reaction, adding a draft if missing.
+   */
+  tabRequest?: {
+    id: string;
+    revision: number;
+    tab?: "balloon" | "relationships";
+    relationshipTarget?: string;
+  } | null;
+  /** From a visiting friend's page, edits how a resident reacts to its name. */
+  onOpenReaction?: (residentId: string) => void;
   onOpenTheme?: () => void;
   isTogether?: boolean;
   dialogueType?: DialogueType;
@@ -391,7 +401,9 @@ function BalloonAppearance({
               aria-label="글자 출력 속도 (초당 글자 수)"
               value={balloonStyle.textSpeed}
               onChange={(event) =>
-                onChange({ balloonStyle: { ...balloonStyle, textSpeed: Number(event.target.value) } })
+                onChange({
+                  balloonStyle: { ...balloonStyle, textSpeed: Number(event.target.value) },
+                })
               }
             />
           }
@@ -537,7 +549,9 @@ export function CharacterEditor({
   removeDisabled,
   onExport,
   statusDescription,
+  onOpenReaction,
 }: Props): JSX.Element {
+  const [reactionTarget, setReactionTarget] = useState<string | null>(null);
   const [previewSelection, setPreviewSelection] = useState<{
     group: "greeting" | "idleLines" | "departureLines" | "returnLines";
     index: number;
@@ -561,7 +575,16 @@ export function CharacterEditor({
     if (memoryTabRequest > 0) setTab("memory");
   }, [memoryTabRequest]);
   useEffect(() => {
-    if (tabRequest?.tab && tabRequest.id === character?.id) setTab(tabRequest.tab);
+    if (!tabRequest?.tab || tabRequest.id !== character?.id) return;
+    setTab(tabRequest.tab);
+    const target = tabRequest.relationshipTarget;
+    setReactionTarget(target ?? null);
+    if (target && !definition.relationships.some(({ targetId }) => targetId === target)) {
+      change("relationships", [
+        ...definition.relationships,
+        { targetId: target, description: "", replyLines: [] },
+      ]);
+    }
   }, [tabRequest?.revision, character?.id]);
   function change<K extends keyof CharacterDefinition>(
     key: K,
@@ -803,6 +826,8 @@ export function CharacterEditor({
               else setTab(page);
             }}
             headerActions={headerActions}
+            presentIds={presentIds}
+            onOpenReaction={onOpenReaction}
           />
         }
       </TabPanel>
@@ -981,7 +1006,7 @@ export function CharacterEditor({
                         )
                       }
                     />
-                    <details>
+                    <details open={relationship.targetId === reactionTarget || undefined}>
                       <summary>이름을 언급했을 때의 등록 반응</summary>
                       <Lines
                         title={`관계 ${index + 1} 반응`}
