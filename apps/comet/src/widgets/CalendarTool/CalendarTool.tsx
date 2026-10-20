@@ -892,7 +892,7 @@ export function CalendarTool({
                   <span>
                     comet에 저장한 일정
                     <span className={settings.caption}>
-                      이 Mac에만 저장돼요 · 다이어리에서 만들고 고쳐요
+                      이 기기에만 저장돼요 · 다이어리에서 만들고 고쳐요
                     </span>
                   </span>
                   <span className={settings.caption}>
