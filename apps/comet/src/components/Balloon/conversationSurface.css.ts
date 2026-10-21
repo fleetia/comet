@@ -49,7 +49,12 @@ export const responseHost = style([
   },
 ]);
 export const responseBubble = style({ width: "100%", minHeight: 78 });
-export const responseTail = style({ width: 15, height: 15, left: 39.5, bottom: -12.1 });
+export const responseTail = style({
+  width: 15,
+  height: 15,
+  left: "calc(var(--comet-response-tail-x, 47px) - 7.5px)",
+  bottom: -12.1,
+});
 export const responseText = style({
   maxHeight: 360,
   overflowY: "auto",

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Balloon } from "../components/Balloon/Balloon";
+import { ConversationResponse } from "../components/Balloon/ConversationResponse";
 import { PREVIEW_SNAPSHOT, command } from "../hooks/useSnapshot";
 import { listen } from "@tauri-apps/api/event";
 
@@ -489,4 +490,161 @@ it("restores the menu when an action fails after its exit", async () => {
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "설정" })).toHaveProperty("disabled", false),
   );
+});
+
+it.each([{ orbitAnchor: null, conversationTailX: 219 }, { orbitAnchor: null }])(
+  "anchors the conversation tail to its current speaker and keeps newer movement ahead of resize reply %j",
+  async (stalePlacement) => {
+    window.history.replaceState(null, "", "/?view=balloon");
+    let resized: () => void = () => {};
+    vi.stubGlobal(
+      "ResizeObserver",
+      vi.fn(function (callback: () => void) {
+        resized = callback;
+        return { observe: vi.fn(), disconnect: vi.fn() };
+      }),
+    );
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback): number => {
+      callback(0);
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    let height = 120;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      () => new DOMRect(0, 0, 340, height),
+    );
+    let resolveResize: (placement: unknown) => void = () => {};
+    vi.mocked(command).mockImplementation(async (name) => {
+      if (name === "resize_balloon")
+        return new Promise((resolve) => {
+          resolveResize = resolve;
+        });
+    });
+    const first = { ...PREVIEW_SNAPSHOT, panel: { persona: "a", mode: "input" as const } };
+    const { rerender } = render(<ConversationResponse snapshot={first} />);
+    const host = () => screen.getByLabelText("캐릭터 대답");
+    const tail = () => host().style.getPropertyValue("--comet-response-tail-x");
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("resize_balloon", {
+        width: 340,
+        height: 120,
+        contentKey: "panel:a:input",
+      }),
+    );
+    await act(async () => resolveResize({ orbitAnchor: null, conversationTailX: 219 }));
+    expect(tail()).toBe("219px");
+    const previousListener = vi.mocked(listen).mock.calls.at(-1)?.[1];
+    height = 180;
+    act(() => resized());
+    await waitFor(() =>
+      expect(command).toHaveBeenLastCalledWith("resize_balloon", {
+        width: 340,
+        height: 180,
+        contentKey: "panel:a:input",
+      }),
+    );
+    act(() =>
+      previousListener?.({
+        event: "balloon-orbit-anchor",
+        id: 1,
+        payload: { contentKey: "panel:a:input", orbitAnchor: null, conversationTailX: 247 },
+      }),
+    );
+    await act(async () => resolveResize(stalePlacement));
+    expect(tail()).toBe("247px");
+    height = 200;
+    act(() => resized());
+    await waitFor(() =>
+      expect(command).toHaveBeenLastCalledWith("resize_balloon", {
+        width: 340,
+        height: 200,
+        contentKey: "panel:a:input",
+      }),
+    );
+    const staleResize = resolveResize;
+    rerender(
+      <ConversationResponse snapshot={{ ...first, panel: { persona: "b", mode: "input" } }} />,
+    );
+    expect(tail()).toBe("");
+    await waitFor(() =>
+      expect(command).toHaveBeenLastCalledWith("resize_balloon", {
+        width: 340,
+        height: 200,
+        contentKey: "panel:b:input",
+      }),
+    );
+    act(() =>
+      previousListener?.({
+        event: "balloon-orbit-anchor",
+        id: 1,
+        payload: { contentKey: "panel:a:input", orbitAnchor: null, conversationTailX: 300 },
+      }),
+    );
+    await act(async () => staleResize({ orbitAnchor: null, conversationTailX: 300 }));
+    expect(tail()).toBe("");
+    await act(async () => resolveResize({ orbitAnchor: null, conversationTailX: 47 }));
+    expect(tail()).toBe("47px");
+  },
+);
+
+it("keeps a speaker's tail while the next playback waits for its native placement", async () => {
+  window.history.replaceState(null, "", "/?view=balloon");
+  vi.stubGlobal(
+    "ResizeObserver",
+    vi.fn(function () {
+      return { observe: vi.fn(), disconnect: vi.fn() };
+    }),
+  );
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(0, 0, 340, 120),
+  );
+  let resolveResize: (placement: unknown) => void = () => {};
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "resize_balloon")
+      return new Promise((resolve) => {
+        resolveResize = resolve;
+      });
+  });
+  const first = { ...PREVIEW_SNAPSHOT, panel: { persona: "a", mode: "input" as const } };
+  const { rerender } = render(<ConversationResponse snapshot={first} />);
+  const tail = () =>
+    screen.getByLabelText("캐릭터 대답").style.getPropertyValue("--comet-response-tail-x");
+  await waitFor(() => expect(command).toHaveBeenCalledWith("resize_balloon", expect.anything()));
+  await act(async () => resolveResize({ orbitAnchor: null, conversationTailX: 219 }));
+  const previousListener = vi.mocked(listen).mock.calls.at(-1)?.[1];
+  rerender(
+    <ConversationResponse
+      snapshot={{
+        ...first,
+        playback: {
+          id: "next-line",
+          persona: "a",
+          text: "같은 친구가 다음 대사를 이어 말해요.",
+          expression: "평온",
+          source: "script",
+          endsAt: 1,
+          lineIndex: 1,
+          lineCount: 2,
+        },
+      }}
+    />,
+  );
+  expect(tail()).toBe("219px");
+  await waitFor(() =>
+    expect(command).toHaveBeenLastCalledWith("resize_balloon", {
+      width: 340,
+      height: 120,
+      contentKey: "panel:a:input:playback:next-line",
+    }),
+  );
+  act(() =>
+    previousListener?.({
+      event: "balloon-orbit-anchor",
+      id: 1,
+      payload: { contentKey: "panel:a:input", orbitAnchor: null, conversationTailX: 300 },
+    }),
+  );
+  expect(tail()).toBe("219px");
+  await act(async () => resolveResize({ orbitAnchor: null, conversationTailX: 247 }));
+  expect(tail()).toBe("247px");
 });

@@ -27,6 +27,8 @@ pub(crate) enum BalloonSurface {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct BalloonPlacement {
     orbit_anchor: Option<OrbitAnchor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    conversation_tail_x: Option<f64>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -34,10 +36,13 @@ pub(crate) struct BalloonPlacement {
 struct BalloonAnchorEvent<'a> {
     content_key: &'a str,
     orbit_anchor: Option<OrbitAnchor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    conversation_tail_x: Option<f64>,
 }
 
 const BODY_SIZE: (f64, f64) = (112.0, 88.0);
 const CONVERSATION_CHARACTER_ANCHOR_X: f64 = 76.0;
+const CONVERSATION_TAIL_CENTER_X: f64 = 47.0;
 const SPRITE_PADDING: f64 = 8.0;
 const FACE_SIZE: (f64, f64) = (120.0, 36.0);
 const ORBIT_MAX_SIZE: (f64, f64) = (640.0, 600.0);
@@ -497,6 +502,18 @@ fn conversation_rect(
         })
 }
 
+// Preserve the existing nominal tail offset while compensating for screen clamping.
+fn conversation_tail_x(body: Rect, response: Rect, scale: f64) -> f64 {
+    let target = body.x + body.width / 2.0
+        - (CONVERSATION_CHARACTER_ANCHOR_X - CONVERSATION_TAIL_CENTER_X) * scale;
+    // set_window_rect rounds physical coordinates and dimensions before sending them to Tauri.
+    let x = (target - response.x.round()) / scale;
+    let width = response.width.round() / scale;
+    // Include the CSS containing block's 1px border offset: ceil(22 + 15 / sqrt(2) + 1).
+    let inset = 34.0_f64.min(width / 2.0);
+    x.clamp(inset, width - inset)
+}
+
 fn balloon_placement(
     body: Rect,
     area: Rect,
@@ -534,6 +551,7 @@ fn balloon_placement(
                 x: (center.0 - rect.x) / scale,
                 y: (center.1 - rect.y) / scale,
             }),
+            ..BalloonPlacement::default()
         },
     )
 }
@@ -1402,7 +1420,13 @@ fn position_balloon(
             window.hide().map_err(|error| error.to_string())?;
             return Ok(None);
         };
-        (rect, BalloonPlacement::default())
+        (
+            rect,
+            BalloonPlacement {
+                conversation_tail_x: Some(conversation_tail_x(body, rect, scale)),
+                ..BalloonPlacement::default()
+            },
+        )
     } else if story {
         let Some(rect) = story_rect(body, area, scale, size) else {
             window.hide().map_err(|error| error.to_string())?;
@@ -1569,6 +1593,7 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
             BalloonAnchorEvent {
                 content_key: &target.key,
                 orbit_anchor: placement.orbit_anchor,
+                conversation_tail_x: placement.conversation_tail_x,
             },
         )
         .map_err(|error| error.to_string())?;
@@ -1833,6 +1858,114 @@ mod tests {
             height: 80.0,
         };
         assert!(conversation_rect(area, area, 1.0, (340.0, 54.0), true, None).is_none());
+    }
+
+    #[test]
+    fn conversation_tail_preserves_nominal_offset_and_tracks_the_right_edge_speaker() {
+        let area = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1364.0,
+            height: 1024.0,
+        };
+        let first = Rect {
+            x: 1024.0,
+            y: 788.0,
+            width: 136.0,
+            height: 136.0,
+        };
+        let second = Rect { x: 1204.0, ..first };
+        let first_response =
+            conversation_rect(first, area, 1.0, (340.0, 120.0), false, None).unwrap();
+        let second_response =
+            conversation_rect(second, area, 1.0, (340.0, 120.0), false, None).unwrap();
+        assert_eq!(conversation_tail_x(first, first_response, 1.0), 47.0);
+        assert_eq!(second_response.x, 1024.0);
+        assert_eq!(conversation_tail_x(second, second_response, 1.0), 219.0);
+        assert_eq!(
+            second_response.x + conversation_tail_x(second, second_response, 1.0),
+            1243.0
+        );
+        // The nominal 29px left-of-center offset is intentional and remains unchanged.
+        assert_eq!(second.x + second.width / 2.0 - 1243.0, 29.0);
+    }
+
+    #[test]
+    fn conversation_tail_tracks_horizontal_clamping_above_and_below_at_fractional_scale() {
+        for scale in [1.0, 1.25, 1.5, 2.0] {
+            let area = Rect {
+                x: -1701.0,
+                y: 37.0,
+                width: 1364.0 * scale,
+                height: 1024.0 * scale,
+            };
+            for horizontal in [0.0, 0.5, 1.0] {
+                for vertical in [0.0, 1.0] {
+                    let body = Rect {
+                        x: (area.x + horizontal * (area.width - 136.0 * scale)).round(),
+                        y: (area.y + vertical * (area.height - 136.0 * scale)).round(),
+                        width: (136.0 * scale).round(),
+                        height: (136.0 * scale).round(),
+                    };
+                    let response =
+                        conversation_rect(body, area, scale, (340.0, 120.0), false, None).unwrap();
+                    let x = conversation_tail_x(body, response, scale);
+                    let actual = response.x.round() + x * scale;
+                    let target = body.x + body.width / 2.0 - 29.0 * scale;
+                    let expected = target.clamp(
+                        response.x.round() + 34.0 * scale,
+                        response.x.round() + response.width.round() - 34.0 * scale,
+                    );
+                    assert!(
+                        (actual - expected).abs() < 0.000001,
+                        "scale={scale}, body={body:?}, response={response:?}"
+                    );
+                    assert!(!overlaps(response, body));
+                    // Corners can select a side region instead; keep the tail inside that frame.
+                    if horizontal == 0.5 {
+                        if vertical == 0.0 {
+                            assert!(response.y >= body.y + body.height);
+                        } else {
+                            assert!(response.y + response.height <= body.y);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn conversation_tail_uses_rounded_native_position_and_width_and_stays_inside_narrow_frames() {
+        for scale in [1.0, 1.25, 1.5, 2.0] {
+            for width in [48.0, 67.0, 68.0, 80.0, 340.0] {
+                let response = Rect {
+                    x: -991.6,
+                    y: 200.0,
+                    width: width * scale + 0.4,
+                    height: 120.0,
+                };
+                for target in [-400.0, 0.0, 47.0, 219.0, 500.0] {
+                    let body = Rect {
+                        x: response.x.round() + (target + 29.0 - 68.0) * scale,
+                        y: 400.0,
+                        width: 136.0 * scale,
+                        height: 136.0 * scale,
+                    };
+                    let x = conversation_tail_x(body, response, scale);
+                    let actual_width = response.width.round() / scale;
+                    let inset = 34.0_f64.min(actual_width / 2.0);
+                    assert!((x - target.clamp(inset, actual_width - inset)).abs() < 0.000001);
+                    assert!(x - 15.0_f64 / 2.0_f64.sqrt() >= 0.0);
+                    assert!(x + 15.0_f64 / 2.0_f64.sqrt() <= actual_width);
+                    if actual_width >= 68.0 {
+                        assert!(x + 1.0 - 15.0_f64 / 2.0_f64.sqrt() >= 22.0);
+                        assert!(x + 1.0 + 15.0_f64 / 2.0_f64.sqrt() <= actual_width - 22.0);
+                    } else {
+                        assert_eq!(x, actual_width / 2.0);
+                    }
+                }
+            }
+        }
     }
 
     #[test]
@@ -2910,7 +3043,8 @@ mod tests {
         let anchor = Some(OrbitAnchor { x: 56.0, y: 44.0 });
         assert_eq!(
             serde_json::to_value(BalloonPlacement {
-                orbit_anchor: anchor
+                orbit_anchor: anchor,
+                ..BalloonPlacement::default()
             })
             .unwrap(),
             serde_json::json!({"orbitAnchor": {"x":56.0,"y":44.0}})
@@ -2918,10 +3052,32 @@ mod tests {
         assert_eq!(
             serde_json::to_value(BalloonAnchorEvent {
                 content_key: "panel:one:menu",
-                orbit_anchor: anchor
+                orbit_anchor: anchor,
+                conversation_tail_x: None
             })
             .unwrap(),
             serde_json::json!({"contentKey":"panel:one:menu", "orbitAnchor":{"x":56.0,"y":44.0}})
+        );
+    }
+
+    #[test]
+    fn conversation_tail_placement_and_movement_event_keep_the_frontend_wire_contract() {
+        assert_eq!(
+            serde_json::to_value(BalloonPlacement {
+                conversation_tail_x: Some(219.0),
+                ..BalloonPlacement::default()
+            })
+            .unwrap(),
+            serde_json::json!({"orbitAnchor": null, "conversationTailX": 219.0})
+        );
+        assert_eq!(
+            serde_json::to_value(BalloonAnchorEvent {
+                content_key: "panel:one:input:playback:two",
+                orbit_anchor: None,
+                conversation_tail_x: Some(219.0)
+            })
+            .unwrap(),
+            serde_json::json!({"contentKey":"panel:one:input:playback:two", "orbitAnchor":null, "conversationTailX":219.0})
         );
     }
 
