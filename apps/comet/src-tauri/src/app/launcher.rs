@@ -130,7 +130,19 @@ pub(crate) fn initialize(app: &tauri::AppHandle, state: &AppState) -> Result<(),
         Err(error) => runtime.shortcut_error = Some(error),
     }
     drop(runtime);
-    tauri::WebviewWindowBuilder::new(
+    Ok(())
+}
+
+// Called only while holding launcher_gate, before taking action/state locks.
+// Registering the shortcut does not need a resident hidden WebView. Keep the
+// window after its first use so closing/reopening still preserves local drafts.
+async fn ensure_window(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
+    if let Some(window) = app.get_webview_window("launcher") {
+        return Ok(window);
+    }
+    // Build from the async caller, not a synchronous native event handler:
+    // WebView2 creation on Windows can otherwise deadlock.
+    let window = tauri::WebviewWindowBuilder::new(
         app,
         "launcher",
         tauri::WebviewUrl::App("index.html?view=launcher".into()),
@@ -149,12 +161,29 @@ pub(crate) fn initialize(app: &tauri::AppHandle, state: &AppState) -> Result<(),
     .map_err(|error| error.to_string())?;
     #[cfg(target_os = "macos")]
     {
-        let window = app
-            .get_webview_window("launcher")
-            .ok_or("빠른 실행 창을 만들지 못했어요.")?;
-        native_panel::convert(window.ns_window().map_err(|error| error.to_string())?);
+        // Setup previously ran this on the native thread. Lazy opens arrive
+        // from async commands/shortcuts; finish panel conversion before show.
+        let conversion = async {
+            let (send, receive) = tokio::sync::oneshot::channel();
+            let target = window.clone();
+            app.run_on_main_thread(move || {
+                let result = target
+                    .ns_window()
+                    .map(native_panel::convert)
+                    .map_err(|error| error.to_string());
+                let _ = send.send(result);
+            })
+            .map_err(|error| error.to_string())?;
+            receive.await.map_err(|error| error.to_string())?
+        }
+        .await;
+        if let Err(error) = conversion {
+            // Do not cache a partially initialized window after a failed open.
+            let _ = window.destroy();
+            return Err(error);
+        }
     }
-    Ok(())
+    Ok(window)
 }
 
 #[tauri::command]
@@ -305,10 +334,8 @@ pub(crate) async fn open_launcher(
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
     let _gate = state.launcher_gate.lock().await;
-    let window = app
-        .get_webview_window("launcher")
-        .ok_or("빠른 실행 창을 찾지 못했어요.")?;
     let previous = capture_focus(&app);
+    let window = ensure_window(&app).await?;
     {
         let _action = lock(&state.action)?;
         let was_open = state.launcher_open.load(Ordering::SeqCst);
