@@ -65,7 +65,7 @@ function InputErrorPreview({ skin, balloonOpacity, desktop, message }: Props) {
 }
 
 const meta = {
-  title: "UI/conversation/DesktopInputError",
+  title: "App/conversation/DesktopInputError",
   component: InputErrorPreview,
   tags: ["autodocs"],
   args: { skin: "dark", balloonOpacity: 100, desktop: "white", message: error },
