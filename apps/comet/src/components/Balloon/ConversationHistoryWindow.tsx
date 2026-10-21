@@ -740,6 +740,7 @@ export function ConversationHistoryWindow({
     try {
       await flushDraft();
       if (draft.current !== value || owner.current !== value?.sessionId) return;
+      transcript.followTail();
       await command("retry_turn", {
         messageId: recovery.messageId,
         target: page?.messages.find((message) => message.id === recovery.messageId)?.persona,

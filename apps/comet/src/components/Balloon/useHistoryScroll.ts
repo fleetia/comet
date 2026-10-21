@@ -32,7 +32,7 @@ export function useHistoryScroll(sessionId: string | undefined, page: Conversati
     position.current = {
       sessionId,
       firstId,
-      firstTop: firstMessage(firstId)?.offsetTop ?? 0,
+      firstTop: (firstMessage(firstId)?.offsetTop ?? element.offsetTop) - element.offsetTop,
       top: element.scrollTop,
       height: element.scrollHeight,
       viewport: element.clientHeight,
@@ -69,10 +69,11 @@ export function useHistoryScroll(sessionId: string | undefined, page: Conversati
     const saved = position.current;
     if (saved) {
       const anchor = firstMessage(saved.firstId);
-      if (!saved.pinned && anchor && anchor.offsetTop !== saved.firstTop) {
+      const firstTop = anchor ? anchor.offsetTop - element.offsetTop : undefined;
+      if (!saved.pinned && firstTop !== undefined && firstTop !== saved.firstTop) {
         // Anchor to the old first message, not total height: a reply can arrive
         // while older messages load, and must not shift an older reading position.
-        element.scrollTop = saved.top + anchor.offsetTop - saved.firstTop;
+        element.scrollTop = saved.top + firstTop - saved.firstTop;
       } else if (
         saved.pinned &&
         (saved.reloading ||

@@ -1198,11 +1198,14 @@ it("confirms replacing another draft with a cancelled input and flushes before o
 // jsdom has no layout. Model the bounded transcript's geometry and scroll clamping,
 // keeping these assertions separate from native WebKit visual acceptance.
 function historyGeometry(viewport = 400) {
+  let logTop = 80;
   const tops = new WeakMap<HTMLElement, number>();
   const writes = vi.fn();
   const isLog = (element: HTMLElement) => element.getAttribute("role") === "log";
   const messages = (element: HTMLElement) =>
     Array.from(element.querySelectorAll("article"), (article) => article.parentElement!);
+  const events = (element: HTMLElement) =>
+    Array.from(element.querySelectorAll(":scope > p:not([role])")).slice(1);
   const above = (element: HTMLElement) =>
     40 +
     (Array.from(element.querySelectorAll("button")).some(
@@ -1211,7 +1214,8 @@ function historyGeometry(viewport = 400) {
       ? 30
       : 0) +
     (element.textContent?.includes("대화 기록을 불러오고 있어요.") ? 20 : 0);
-  const height = (element: HTMLElement) => above(element) + messages(element).length * 100;
+  const height = (element: HTMLElement) =>
+    above(element) + messages(element).length * 100 + events(element).length * 30;
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (
     this: HTMLElement,
   ) {
@@ -1238,12 +1242,24 @@ function historyGeometry(viewport = 400) {
   vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function (
     this: HTMLElement,
   ) {
+    if (isLog(this)) return logTop;
     const log = this.closest('[role="log"]') as HTMLElement | null;
     return log && this.hasAttribute("data-history-message")
-      ? above(log) + Array.from(messages(log)).indexOf(this) * 100
+      ? logTop +
+          above(log) +
+          Array.from(messages(log)).indexOf(this) * 100 +
+          events(log).filter(
+            (event) => event.compareDocumentPosition(this) & Node.DOCUMENT_POSITION_FOLLOWING,
+          ).length *
+            30
       : 0;
   });
-  return { writes };
+  return {
+    writes,
+    moveLog: (top: number): void => {
+      logTop = top;
+    },
+  };
 }
 
 function scrollHistory(log: HTMLElement, top: number): void {
@@ -1316,7 +1332,7 @@ it.each([0, 200])(
 );
 
 it.each([
-  [20, true],
+  [24, true],
   [25, false],
 ] as const)(
   "follows only within the small bottom margin (%ipx away: %s)",
@@ -1338,6 +1354,47 @@ it.each([
     expect(log.scrollTop).toBe(follows ? log.scrollHeight - log.clientHeight : top);
   },
 );
+
+it("keeps the reading position when the header moves the transcript within its offset parent", async () => {
+  const { moveLog } = historyGeometry();
+  const view = longHistory();
+  mockHistory(view);
+  const snapshot = { ...SNAPSHOT, conversation: view };
+  const { rerender } = render(<ConversationHistoryWindow snapshot={snapshot} />);
+  await screen.findByText("first 원문 7");
+  const log = screen.getByRole("log", { name: "대화 내용" });
+  scrollHistory(log, 200);
+  moveLog(120);
+  rerender(<ConversationHistoryWindow snapshot={{ ...snapshot }} />);
+  expect(log.scrollTop).toBe(200);
+});
+
+it("preserves the reading position when a timeline event appears before the first message", async () => {
+  historyGeometry();
+  const view = longHistory();
+  mockHistory(view);
+  const { rerender } = render(
+    <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: view }} />,
+  );
+  await screen.findByText("first 원문 7");
+  const log = screen.getByRole("log", { name: "대화 내용" });
+  scrollHistory(log, 200);
+  rerender(
+    <ConversationHistoryWindow
+      snapshot={{
+        ...SNAPSHOT,
+        conversation: {
+          ...view,
+          timelineEvents: [
+            { id: "before-first", kind: "focus-paused", createdAt: MESSAGE.createdAt - 1 },
+          ],
+        },
+      }}
+    />,
+  );
+  await screen.findByText(/집중을 시작해서 대화를 멈췄어요/);
+  expect(log.scrollTop).toBe(230);
+});
 
 it("follows when a previously fitting history first becomes scrollable", async () => {
   historyGeometry();
@@ -1381,6 +1438,40 @@ it("returns to the tail for an own send, but lets the reader scroll up before it
   rerender(<ConversationHistoryWindow snapshot={{ ...live, conversation: appendHistory(sent) }} />);
   await screen.findByText("새 답장 reply");
   expect(log.scrollTop).toBe(100);
+});
+
+it("returns to the tail when retrying an incomplete turn and follows its reply", async () => {
+  historyGeometry();
+  const view: ConversationView = {
+    ...longHistory(),
+    recovery: { messageId: MESSAGE.id, reason: "cancelled" },
+  };
+  mockHistory(view);
+  const { rerender } = render(
+    <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: view }} />,
+  );
+  await begin();
+  const log = screen.getByRole("log", { name: "대화 내용" });
+  scrollHistory(log, 100);
+  fireEvent.click(screen.getByRole("button", { name: "다시 이야기하기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("retry_turn", {
+      messageId: MESSAGE.id,
+      target: MESSAGE.persona,
+    }),
+  );
+  expect(log.scrollTop).toBe(log.scrollHeight - log.clientHeight);
+  rerender(
+    <ConversationHistoryWindow
+      snapshot={{
+        ...SNAPSHOT,
+        panel: { persona: "builtin-a", mode: "history-input" },
+        conversation: appendHistory(view),
+      }}
+    />,
+  );
+  await screen.findByText("새 답장 reply");
+  expect(log.scrollTop).toBe(log.scrollHeight - log.clientHeight);
 });
 
 it("does not carry tail following into another session or react to the old session's reply", async () => {
