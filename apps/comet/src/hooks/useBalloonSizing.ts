@@ -12,12 +12,13 @@ export function useBalloonSizing(
   fontKey: string,
   onError: (error: string) => void,
   surface?: "input",
+  placementKey = contentKey,
 ) {
   const elementRef = useRef<HTMLElement>(null);
   const [measuredKey, setMeasuredKey] = useState<string | null>(null);
   const [orbitAnchor, setOrbitAnchor] = useState<OrbitAnchor | null>(null);
   const [conversationTail, setConversationTail] = useState<{
-    contentKey: string;
+    placementKey: string;
     x: number;
   } | null>(null);
   const native =
@@ -47,7 +48,7 @@ export function useBalloonSizing(
       }
       if (event.payload.conversationTailX != null) {
         eventRevision += 1;
-        setConversationTail({ contentKey, x: event.payload.conversationTailX });
+        setConversationTail({ placementKey, x: event.payload.conversationTailX });
       }
     })
       .then((dispose) => {
@@ -98,7 +99,7 @@ export function useBalloonSizing(
             setOrbitAnchor(placement?.orbitAnchor ?? null);
             setConversationTail(
               placement?.conversationTailX != null
-                ? { contentKey, x: placement.conversationTailX }
+                ? { placementKey, x: placement.conversationTailX }
                 : null,
             );
           }
@@ -132,12 +133,12 @@ export function useBalloonSizing(
       unlisten?.();
       window.cancelAnimationFrame(frame);
     };
-  }, [native, contentKey, imageReady, fontKey, onError, surface]);
+  }, [native, contentKey, imageReady, fontKey, onError, surface, placementKey]);
   return {
     elementRef,
     ready: !native || measuredKey === contentKey,
     orbitAnchor,
-    conversationTailX: conversationTail?.contentKey === contentKey ? conversationTail.x : null,
+    conversationTailX: conversationTail?.placementKey === placementKey ? conversationTail.x : null,
     native,
   };
 }

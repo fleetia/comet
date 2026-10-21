@@ -509,8 +509,8 @@ fn conversation_tail_x(body: Rect, response: Rect, scale: f64) -> f64 {
     // set_window_rect rounds physical coordinates and dimensions before sending them to Tauri.
     let x = (target - response.x.round()) / scale;
     let width = response.width.round() / scale;
-    // A rotated 15px tail extends ~10.61px either side; retain a small border inset.
-    let inset = 12.0_f64.min(width / 2.0);
+    // Include the CSS containing block's 1px border offset: ceil(22 + 15 / sqrt(2) + 1).
+    let inset = 34.0_f64.min(width / 2.0);
     x.clamp(inset, width - inset)
 }
 
@@ -1913,8 +1913,8 @@ mod tests {
                     let actual = response.x.round() + x * scale;
                     let target = body.x + body.width / 2.0 - 29.0 * scale;
                     let expected = target.clamp(
-                        response.x.round() + 12.0 * scale,
-                        response.x.round() + response.width.round() - 12.0 * scale,
+                        response.x.round() + 34.0 * scale,
+                        response.x.round() + response.width.round() - 34.0 * scale,
                     );
                     assert!(
                         (actual - expected).abs() < 0.000001,
@@ -1937,7 +1937,7 @@ mod tests {
     #[test]
     fn conversation_tail_uses_rounded_native_position_and_width_and_stays_inside_narrow_frames() {
         for scale in [1.0, 1.25, 1.5, 2.0] {
-            for width in [48.0, 80.0, 340.0] {
+            for width in [48.0, 67.0, 68.0, 80.0, 340.0] {
                 let response = Rect {
                     x: -991.6,
                     y: 200.0,
@@ -1953,9 +1953,16 @@ mod tests {
                     };
                     let x = conversation_tail_x(body, response, scale);
                     let actual_width = response.width.round() / scale;
-                    assert!((x - target.clamp(12.0, actual_width - 12.0)).abs() < 0.000001);
+                    let inset = 34.0_f64.min(actual_width / 2.0);
+                    assert!((x - target.clamp(inset, actual_width - inset)).abs() < 0.000001);
                     assert!(x - 15.0_f64 / 2.0_f64.sqrt() >= 0.0);
                     assert!(x + 15.0_f64 / 2.0_f64.sqrt() <= actual_width);
+                    if actual_width >= 68.0 {
+                        assert!(x + 1.0 - 15.0_f64 / 2.0_f64.sqrt() >= 22.0);
+                        assert!(x + 1.0 + 15.0_f64 / 2.0_f64.sqrt() <= actual_width - 22.0);
+                    } else {
+                        assert_eq!(x, actual_width / 2.0);
+                    }
                 }
             }
         }

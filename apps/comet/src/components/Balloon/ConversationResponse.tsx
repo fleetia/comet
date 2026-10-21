@@ -50,6 +50,8 @@ export function ConversationResponse({ snapshot, preview = false }: Props): JSX.
     imageReady,
     `${textStyle.fontSize}:${textStyle.fontFamily ?? ""}`,
     setError,
+    undefined,
+    snapshot.panel?.persona,
   );
   const fullText = snapshot.playback?.text ?? latestReply?.content ?? "";
   const revealedText = useTypewriter(

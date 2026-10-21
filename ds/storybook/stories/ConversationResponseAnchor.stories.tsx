@@ -7,10 +7,9 @@ import { ConversationResponse } from "../../../apps/comet/src/components/Balloon
 import { PREVIEW_SNAPSHOT } from "../../../apps/comet/src/previewSnapshot";
 import type { Snapshot } from "../../../apps/comet/src/types";
 
-function ResponseAnchorExample(): JSX.Element {
-  const [second, setSecond] = useState(false);
+function responseSnapshot(second: boolean): Snapshot {
   const persona = second ? "builtin-b" : "builtin-a";
-  const snapshot: Snapshot = {
+  return {
     ...PREVIEW_SNAPSHOT,
     panel: { persona, mode: "input" },
     conversation: {
@@ -40,6 +39,11 @@ function ResponseAnchorExample(): JSX.Element {
       nextBefore: null,
     },
   };
+}
+
+function ResponseAnchorExample(): JSX.Element {
+  const [second, setSecond] = useState(false);
+  const snapshot = responseSnapshot(second);
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div style={{ display: "flex", gap: 8 }}>
@@ -100,7 +104,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "실제 앱의 ConversationResponse와 기존 DS Balloon을 사용합니다. 1364px 화면의 오른쪽 560px를 재현한 합성 배치이며, 네이티브 배치가 반환하는 47px/219px 꼬리 중심을 CSS 변수로 주입합니다. 네이티브 창 이동·DPI·위아래 방향의 실기 검증이 아니며, 기존 꼬리의 세로 모양은 유지합니다.",
+          "실제 앱의 ConversationResponse와 기존 DS Balloon을 사용합니다. 1364px 화면의 오른쪽 560px를 재현한 합성 배치이며, 네이티브 배치가 반환하는 47px/219px 꼬리 중심을 CSS 변수로 주입합니다. 모서리 예제는 반경 22px, 회전한 15px 꼬리와 테두리 원점 1px를 고려한 좌우 34px 여백을 보여 줍니다. 같은 창 소유자의 다음 대사는 새 배치가 올 때까지 마지막 꼬리 위치를 유지합니다. 네이티브 창 이동·DPI·위아래 방향의 실기 검증이 아니며, 기존 꼬리의 세로 모양은 유지합니다.",
       },
     },
   },
@@ -114,13 +118,49 @@ export const SpeakerSwitch: Story = {
     const canvas = within(canvasElement);
     const user = userEvent.setup({ document: canvasElement.ownerDocument });
     const response = canvas.getByRole("region", { name: "캐릭터 대답" });
-    const tailCenter = () =>
-      getComputedStyle(response).getPropertyValue("--comet-response-tail-x").trim();
-    await expect(tailCenter()).toBe("47px");
+    const tailLeft = (): number => {
+      const tail = response.querySelector('[aria-hidden="true"]');
+      if (!tail) {
+        throw new Error("Conversation response tail is missing");
+      }
+      return tail.getBoundingClientRect().left;
+    };
+    const firstTail = tailLeft();
     await user.click(canvas.getByRole("button", { name: "오른쪽 친구" }));
-    await expect(tailCenter()).toBe("219px");
+    await expect(tailLeft() - firstTail).toBeCloseTo(180);
     await expect(within(response).getByText("이번에는 오른쪽 친구가 대답해요.")).toBeVisible();
     await user.click(canvas.getByRole("button", { name: "첫 친구" }));
-    await expect(tailCenter()).toBe("47px");
+    await expect(tailLeft()).toBeCloseTo(firstTail);
+  },
+};
+
+export const CornerInsets: Story = {
+  name: "모서리 · 좌우 꼬리 한계",
+  render: () => (
+    <div style={{ display: "grid", gap: 24 }}>
+      {[34, 306].map((x, index) => (
+        <div key={x}>
+          <p>{index ? "오른쪽 모서리" : "왼쪽 모서리"}</p>
+          <div style={{ "--comet-response-tail-x": `${x}px` } as CSSProperties}>
+            <ConversationResponse snapshot={responseSnapshot(Boolean(index))} preview />
+          </div>
+        </div>
+      ))}
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    for (const response of canvas.getAllByRole("region", { name: "캐릭터 대답" })) {
+      const bubble = response.firstElementChild;
+      const tail = bubble?.querySelector('[aria-hidden="true"]');
+      if (!bubble || !tail) {
+        throw new Error("Conversation response tail is missing");
+      }
+      const bubbleRect = bubble.getBoundingClientRect();
+      const tailRect = tail.getBoundingClientRect();
+      const radius = Number.parseFloat(getComputedStyle(bubble).borderBottomLeftRadius);
+      await expect(tailRect.left - bubbleRect.left).toBeGreaterThanOrEqual(radius);
+      await expect(bubbleRect.right - tailRect.right).toBeGreaterThanOrEqual(radius);
+    }
   },
 };
