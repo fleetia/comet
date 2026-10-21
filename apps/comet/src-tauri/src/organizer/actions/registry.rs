@@ -196,9 +196,16 @@ pub(crate) fn entities_for(db: &Connection, kind: &str, query: &str) -> Result<V
     Ok(context(definition, &id, revision, &data, query))
 }
 
-fn valid_day(value: &str) -> bool {
-    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+fn query_day(value: &str) -> Result<String> {
+    if chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
         .is_ok_and(|date| date.format("%Y-%m-%d").to_string() == value)
+    {
+        return Ok(value.to_owned());
+    }
+    // Preserve the date in the supplied offset when replaying timestamp-based plans.
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|at| at.date_naive().to_string())
+        .map_err(|_| "조회할 날짜 범위를 확인해 주세요.".into())
 }
 
 fn matches_dates(item: &Value, from: Option<&str>, through: Option<&str>) -> bool {
@@ -251,12 +258,10 @@ pub(crate) fn query_registry(db: &Connection, kind: &str, input: &Value) -> Resu
     catalog::validate(definition, input)?;
     let (id, revision, mut data) = owner(db, definition)?;
     let query = input["query"].as_str().unwrap_or_default();
-    let from = input["from"].as_str();
-    let through = input["through"].as_str();
-    if from.is_some_and(|day| !valid_day(day))
-        || through.is_some_and(|day| !valid_day(day))
-        || from.zip(through).is_some_and(|(a, b)| a > b)
-    {
+    let from = input["from"].as_str().map(query_day).transpose()?;
+    let through = input["through"].as_str().map(query_day).transpose()?;
+    let (from, through) = (from.as_deref(), through.as_deref());
+    if from.zip(through).is_some_and(|(a, b)| a > b) {
         return Err("조회할 날짜 범위를 확인해 주세요.".into());
     }
     let field = definition.collection;
