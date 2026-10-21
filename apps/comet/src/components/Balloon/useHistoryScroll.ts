@@ -20,10 +20,19 @@ type Position = {
 const BOTTOM_MARGIN = 24;
 
 /** Follow a live tail without taking the reader away from older messages. */
-export function useHistoryScroll(sessionId: string | undefined, page: ConversationMessages | null) {
+export function useHistoryScroll(
+  sessionId: string | undefined,
+  page: ConversationMessages | null,
+  userId?: string,
+) {
   const log = useRef<HTMLDivElement>(null);
   const position = useRef<Position | null>(null);
-  const restoration = useRef<HistoryReadingPosition | null>(null);
+  const scope = useRef({ sessionId, userId });
+  const restoration = useRef<{
+    sessionId: string | undefined;
+    userId: string | undefined;
+    value: HistoryReadingPosition;
+  } | null>(null);
   const reading = useRef<HistoryReadingPosition>({ anchor: null, followingTail: true });
 
   function firstMessage(id: string | undefined): HTMLElement | undefined {
@@ -34,7 +43,7 @@ export function useHistoryScroll(sessionId: string | undefined, page: Conversati
 
   function remember(): void {
     const element = log.current;
-    if (!element || !sessionId || !page) return;
+    if (!element || !sessionId || !page || element.clientHeight === 0) return;
     reading.current = capture();
     const firstId = page.messages[0]?.id;
     position.current = {
@@ -51,7 +60,13 @@ export function useHistoryScroll(sessionId: string | undefined, page: Conversati
 
   function capture(): HistoryReadingPosition {
     const element = log.current;
-    if (!element || !page) return reading.current;
+    // GTK can refresh while hidden. Zero-size geometry is not a new reading position.
+    if (!element || !page || element.clientHeight === 0) {
+      const pending = restoration.current;
+      return pending && pending.sessionId === sessionId && pending.userId === userId
+        ? pending.value
+        : reading.current;
+    }
     const messages = Array.from(element.querySelectorAll<HTMLElement>("[data-history-message]"));
     const anchor = messages.find(
       (message) => message.offsetTop - element.offsetTop + message.offsetHeight > element.scrollTop,
@@ -69,7 +84,7 @@ export function useHistoryScroll(sessionId: string | undefined, page: Conversati
   }
 
   function restore(value: HistoryReadingPosition): void {
-    restoration.current = value;
+    restoration.current = { sessionId, userId, value };
   }
 
   function followTail(): void {
@@ -84,6 +99,17 @@ export function useHistoryScroll(sessionId: string | undefined, page: Conversati
   // Snapshot churn with unchanged geometry does not write the scroll position.
   useLayoutEffect(() => {
     const element = log.current;
+    if (scope.current.sessionId !== sessionId || scope.current.userId !== userId) {
+      scope.current = { sessionId, userId };
+      position.current = null;
+      reading.current = { anchor: null, followingTail: true };
+      if (element) element.scrollTop = 0;
+    }
+    if (
+      restoration.current &&
+      (restoration.current.sessionId !== sessionId || restoration.current.userId !== userId)
+    )
+      restoration.current = null;
     if (!element || !sessionId) {
       position.current = null;
       return;
@@ -98,7 +124,9 @@ export function useHistoryScroll(sessionId: string | undefined, page: Conversati
       if (position.current) position.current.reloading = true;
       return;
     }
-    const restored = restoration.current;
+    // Keep pending restoration and the last visible measurement until shown again.
+    if (element.clientHeight === 0) return;
+    const restored = restoration.current?.value;
     if (restored) {
       const anchor = firstMessage(restored.anchor?.messageId);
       if (restored.followingTail) element.scrollTop = element.scrollHeight;

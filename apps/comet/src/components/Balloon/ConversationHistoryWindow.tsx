@@ -256,6 +256,7 @@ export function ConversationHistoryWindow({
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const alive = useRef(true);
   const transcriptRevision = useRef(0);
+  const transcriptIdentity = useRef<{ sessionId: string; userId: string | undefined } | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const composing = useRef(false);
   const lastSubmission = useRef<{ sessionId: string; messageId: string; content: string } | null>(
@@ -264,7 +265,7 @@ export function ConversationHistoryWindow({
   const responding = ["loading", "generating"].includes(snapshot.runtime.phase);
   const busy = responding || Boolean(snapshot.playback);
   const selectedId = selected?.id;
-  const transcript = useHistoryScroll(selectedId, page);
+  const transcript = useHistoryScroll(selectedId, page, snapshot.user?.id);
   const activeCharactersKey = snapshot.characters.active.join("\0");
   const editable = Boolean(selectedId && editing === selectedId);
   const recovery =
@@ -504,6 +505,9 @@ export function ConversationHistoryWindow({
       if (event.payload.persona !== "all") {
         if (operation.current) reopenPersona.current = event.payload.persona;
         else void filterRef.current(event.payload.persona);
+      } else {
+        // A reused hidden view still needs current database content on reopening.
+        setRevision((value) => value + 1);
       }
     })
       .then(retain)
@@ -622,6 +626,29 @@ export function ConversationHistoryWindow({
     if (!selectedId) return;
     let active = true;
     transcriptRevision.current += 1;
+    const userId = current.current.user?.id;
+    const identity = transcriptIdentity.current;
+    const restoring = restoreReading.current;
+    if (restoring && (restoring.selectedId !== selectedId || restoring.userId !== userId))
+      restoreReading.current = null;
+    // Revalidation must not discard older loaded pages or their reading anchor.
+    // Requery those pages from the database rather than retaining stale message bodies.
+    if (
+      !restoreReading.current &&
+      page &&
+      userId &&
+      identity?.sessionId === selectedId &&
+      identity.userId === userId
+    ) {
+      restoreReading.current = {
+        userId,
+        selectedId,
+        filter: filterScope.current,
+        query,
+        ...transcript.capture(),
+      };
+    }
+    transcriptIdentity.current = { sessionId: selectedId, userId };
     const requestedLive = current.current.conversation;
     setPageLoading(true);
     setPage(null);
@@ -760,6 +787,7 @@ export function ConversationHistoryWindow({
     clearTimeout(saveTimer.current);
     restoreSelection.current = null;
     restoreReading.current = null;
+    transcriptIdentity.current = null;
     draft.current = null;
     owner.current = null;
     selectedRef.current = null;

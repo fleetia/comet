@@ -1336,6 +1336,9 @@ function historyGeometry(viewport = 400) {
     moveLog: (top: number): void => {
       logTop = top;
     },
+    resizeViewport: (height: number): void => {
+      viewport = height;
+    },
   };
 }
 
@@ -1808,6 +1811,322 @@ it("requeries older pages beyond the newest 100 messages to restore the reading 
     ),
   );
 });
+
+it.each(["reopen", "memoryRevision", "hidden-reopen"])(
+  "requeries a paginated reading anchor while refreshing latest messages on %s",
+  async (refresh) => {
+    const geometry = historyGeometry();
+    let history = longHistory(104);
+    const fallback = vi.mocked(command).getMockImplementation()!;
+    vi.mocked(command).mockImplementation(async (name, args) => {
+      if (name === "get_conversation_messages") {
+        const end = typeof args?.before === "number" ? args.before : history.messages.length;
+        return {
+          messages: history.messages.slice(Math.max(0, end - 100), end),
+          nextBefore: end > 100 ? end - 100 : null,
+        };
+      }
+      return fallback(name, args);
+    });
+    const { rerender } = render(
+      <ConversationHistoryWindow snapshot={SNAPSHOT} initialPersona="builtin-a" />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "앞선 내용 더 보기" }));
+    await screen.findByText("first 원문 2");
+    const log = screen.getByRole("log");
+    scrollHistory(log, 155);
+    const anchorOffset = (): number => {
+      const anchor = log.querySelector<HTMLElement>('[data-history-message="first-2"]');
+      expect(anchor).not.toBeNull();
+      return anchor!.offsetTop - log.offsetTop - log.scrollTop;
+    };
+    const beforeOffset = anchorOffset();
+    expect(screen.queryByRole("button", { name: "앞선 내용 더 보기" })).toBeNull();
+    if (refresh !== "memoryRevision") {
+      fireEvent.click(screen.getByRole("button", { name: "지난 대화 닫기" }));
+      await waitFor(() =>
+        expect(command).toHaveBeenCalledWith(
+          "release_conversation_history",
+          expect.objectContaining({ generation: 1 }),
+        ),
+      );
+    }
+    history = longHistory(105);
+    if (refresh === "hidden-reopen") {
+      geometry.resizeViewport(0);
+      rerender(
+        <ConversationHistoryWindow
+          snapshot={{ ...SNAPSHOT, memoryRevision: SNAPSHOT.memoryRevision + 1 }}
+          initialPersona="builtin-a"
+        />,
+      );
+      await screen.findByText("first 원문 104");
+      // Hidden GTK views can report a reset scroll position and dispatch scroll.
+      scrollHistory(log, 0);
+      geometry.resizeViewport(400);
+    }
+    if (refresh !== "memoryRevision") {
+      const reopen = vi
+        .mocked(listen)
+        .mock.calls.find(([event]) => event === "conversation-history-open")?.[1];
+      expect(reopen).toBeTypeOf("function");
+      await act(async () =>
+        reopen?.({
+          event: "conversation-history-open",
+          id: 12,
+          payload: { generation: 2, persona: refresh === "hidden-reopen" ? "all" : "builtin-a" },
+        }),
+      );
+    } else {
+      rerender(
+        <ConversationHistoryWindow
+          snapshot={{ ...SNAPSHOT, memoryRevision: SNAPSHOT.memoryRevision + 1 }}
+          initialPersona="builtin-a"
+        />,
+      );
+    }
+    await screen.findByText("first 원문 104");
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("get_conversation_messages", {
+        sessionId: FIRST.id,
+        before: 5,
+      }),
+    );
+    expect(screen.getByText("first 원문 2")).toBeTruthy();
+    expect(anchorOffset()).toBe(beforeOffset);
+    expect(screen.queryByRole("button", { name: "앞선 내용 더 보기" })).toBeNull();
+  },
+);
+
+it("keeps the restoration anchor when a memory refresh supersedes older-page hydration", async () => {
+  historyGeometry();
+  const staleOlder = deferred<ConversationMessages>();
+  let history = longHistory(104);
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_history_state")
+      return {
+        generation: 3,
+        restoration: {
+          userId: FIRST.userId,
+          selectedId: FIRST.id,
+          filter: "all",
+          query: "",
+          anchor: { messageId: "first-2", offset: 85 },
+          followingTail: false,
+        },
+      };
+    if (name === "get_conversation_messages") {
+      if (args?.before === 4) return staleOlder.promise;
+      const end = typeof args?.before === "number" ? args.before : history.messages.length;
+      return {
+        messages: history.messages.slice(Math.max(0, end - 100), end),
+        nextBefore: end > 100 ? end - 100 : null,
+      };
+    }
+    return fallback(name, args);
+  });
+  const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("get_conversation_messages", {
+      sessionId: FIRST.id,
+      before: 4,
+    }),
+  );
+  history = longHistory(105);
+  rerender(
+    <ConversationHistoryWindow
+      snapshot={{ ...SNAPSHOT, memoryRevision: SNAPSHOT.memoryRevision + 1 }}
+    />,
+  );
+  await screen.findByText("first 원문 104");
+  expect(screen.getByText("first 원문 2")).toBeTruthy();
+  expect(screen.getByRole("log").scrollTop).toBe(155);
+  await act(async () =>
+    staleOlder.resolve({
+      messages: [{ ...MESSAGE, id: "first-2", content: "오래된 복원 응답" }],
+      nextBefore: null,
+    }),
+  );
+  expect(screen.queryByText("오래된 복원 응답")).toBeNull();
+  expect(screen.getByRole("log").scrollTop).toBe(155);
+});
+
+it.each(["session", "user"])(
+  "does not apply an old reading anchor after the %s changes during hydration",
+  async (change) => {
+    historyGeometry();
+    const older = deferred<ConversationMessages>();
+    const first = longHistory(104);
+    let target = longHistory(10, SECOND);
+    let changedUser = false;
+    const fallback = vi.mocked(command).getMockImplementation()!;
+    vi.mocked(command).mockImplementation(async (name, args) => {
+      if (name === "get_conversation_history_state")
+        return {
+          generation: 3,
+          restoration: changedUser
+            ? null
+            : {
+                userId: FIRST.userId,
+                selectedId: FIRST.id,
+                filter: "all",
+                query: "",
+                anchor: { messageId: "first-2", offset: 85 },
+                followingTail: false,
+              },
+        };
+      if (name === "get_conversations") return changedUser ? [target.session] : [FIRST, SECOND];
+      if (name === "get_conversation_messages" || name === "resume_chat") {
+        if (args?.sessionId === target.session.id) return target;
+        if (args?.before === 4) return older.promise;
+        return { messages: first.messages.slice(4), nextBefore: 4 };
+      }
+      return fallback(name, args);
+    });
+    const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("get_conversation_messages", {
+        sessionId: FIRST.id,
+        before: 4,
+      }),
+    );
+    if (change === "user") {
+      changedUser = true;
+      target = longHistory(10, { ...SECOND, id: "foreign", userId: "other-user" });
+      rerender(
+        <ConversationHistoryWindow
+          snapshot={{ ...SNAPSHOT, user: { ...SNAPSHOT.user!, id: "other-user" } }}
+        />,
+      );
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: /두 번째 초안/ }));
+    }
+    await screen.findByText(`${target.session.id} 원문 9`);
+    const log = screen.getByRole("log");
+    const selectedTop = log.scrollTop;
+    await act(async () =>
+      older.resolve({
+        messages: [{ ...MESSAGE, id: "first-2", content: "다른 대화의 오래된 복원 응답" }],
+        nextBefore: null,
+      }),
+    );
+    expect(screen.queryByText("다른 대화의 오래된 복원 응답")).toBeNull();
+    expect(screen.getByText(`${target.session.id} 원문 9`)).toBeTruthy();
+    expect(log.scrollTop).toBe(selectedTop);
+  },
+);
+
+it("preserves an initially hidden saved anchor across a second hidden memory refresh", async () => {
+  const geometry = historyGeometry(0);
+  let history = longHistory(104);
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_history_state")
+      return {
+        generation: 3,
+        restoration: {
+          userId: FIRST.userId,
+          selectedId: FIRST.id,
+          filter: "all",
+          query: "",
+          anchor: { messageId: "first-2", offset: 85 },
+          followingTail: false,
+        },
+      };
+    if (name === "get_conversation_messages") {
+      const end = typeof args?.before === "number" ? args.before : history.messages.length;
+      return {
+        messages: history.messages.slice(Math.max(0, end - 100), end),
+        nextBefore: end > 100 ? end - 100 : null,
+      };
+    }
+    return fallback(name, args);
+  });
+  const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await screen.findByText("first 원문 2");
+  const log = screen.getByRole("log");
+  expect(log.clientHeight).toBe(0);
+  history = longHistory(105);
+  const refreshed = { ...SNAPSHOT, memoryRevision: SNAPSHOT.memoryRevision + 1 };
+  rerender(<ConversationHistoryWindow snapshot={refreshed} />);
+  await screen.findByText("first 원문 104");
+  expect(command).toHaveBeenCalledWith("get_conversation_messages", {
+    sessionId: FIRST.id,
+    before: 5,
+  });
+  expect(screen.getByText("first 원문 2")).toBeTruthy();
+  scrollHistory(log, 0);
+  geometry.resizeViewport(400);
+  rerender(<ConversationHistoryWindow snapshot={{ ...refreshed }} />);
+  expect(log.scrollTop).toBe(155);
+  const anchor = log.querySelector<HTMLElement>('[data-history-message="first-2"]')!;
+  expect(anchor.offsetTop - log.offsetTop - log.scrollTop).toBe(85);
+});
+
+it.each([
+  ["session", false],
+  ["session", true],
+  ["user", false],
+  ["user", true],
+] as const)(
+  "isolates hidden pending restoration after a %s change (tail=%s)",
+  async (change, followingTail) => {
+    const geometry = historyGeometry(0);
+    const first = longHistory(104);
+    let changedUser = false;
+    let target = longHistory(10, SECOND);
+    // Deliberately overlap an anchor ID to test scope, not accidental ID absence.
+    target.messages[2] = { ...target.messages[2], id: "first-2" };
+    const fallback = vi.mocked(command).getMockImplementation()!;
+    vi.mocked(command).mockImplementation(async (name, args) => {
+      if (name === "get_conversation_history_state")
+        return {
+          generation: 3,
+          restoration: changedUser
+            ? null
+            : {
+                userId: FIRST.userId,
+                selectedId: FIRST.id,
+                filter: "all",
+                query: "",
+                anchor: { messageId: "first-2", offset: 85 },
+                followingTail,
+              },
+        };
+      if (name === "get_conversations") return changedUser ? [target.session] : [FIRST, SECOND];
+      if (name === "get_conversation_messages" || name === "resume_chat") {
+        if (args?.sessionId === target.session.id) return target;
+        const end = typeof args?.before === "number" ? args.before : first.messages.length;
+        return {
+          messages: first.messages.slice(Math.max(0, end - 100), end),
+          nextBefore: end > 100 ? end - 100 : null,
+        };
+      }
+      return fallback(name, args);
+    });
+    let snapshot = SNAPSHOT;
+    const { rerender } = render(<ConversationHistoryWindow snapshot={snapshot} />);
+    await screen.findByText(followingTail ? "first 원문 103" : "first 원문 2");
+    expect(screen.getByRole("log").clientHeight).toBe(0);
+    if (change === "user") {
+      changedUser = true;
+      target = longHistory(10, { ...SECOND, id: "foreign", userId: "other-user" });
+      target.messages[2] = { ...target.messages[2], id: "first-2" };
+      snapshot = { ...SNAPSHOT, user: { ...SNAPSHOT.user!, id: "other-user" } };
+      rerender(<ConversationHistoryWindow snapshot={snapshot} />);
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: /두 번째 초안/ }));
+    }
+    await screen.findByText(`${target.session.id} 원문 9`);
+    geometry.resizeViewport(400);
+    rerender(<ConversationHistoryWindow snapshot={{ ...snapshot }} />);
+    const log = screen.getByRole("log");
+    expect(log.scrollTop).toBe(0);
+    expect(screen.getByText(`${target.session.id} 원문 9`)).toBeTruthy();
+    expect(screen.queryByText("first 원문 103")).toBeNull();
+  },
+);
 
 it("restores tail following against newly queried messages", async () => {
   historyGeometry();
