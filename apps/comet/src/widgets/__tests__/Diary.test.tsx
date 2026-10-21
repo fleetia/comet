@@ -791,6 +791,89 @@ it("shows an independently dated envelope in the day, month and week and opens t
   expect(actions("execute_widget")).toEqual([]);
 });
 
+it.each(["journal", "envelope", "page"] as const)(
+  "starts task focus from %s details without inheriting the previous timer context",
+  async (source) => {
+    const item = { ...task("response", "늦은 도착 응답 확인"), memo: "할 일 참고 메모" };
+    setTasks([item]);
+    diary.pages = [
+      {
+        id: "collection",
+        title: "자료 모음",
+        date: null,
+        entries: [
+          { id: "reference", kind: "todo", text: "늦은 도착 응답 확인", refId: "response" },
+        ],
+      },
+    ];
+    const timer = widget("focus-timer", {
+      status: "idle",
+      title: "이전 준비 봉투",
+      todoId: "previous",
+      memo: "이전 집중 메모",
+      eventRef: { id: "previous-event" },
+      noteRef: { kind: "diary", id: "previous-note" },
+    });
+    widgets.widgets.push(
+      timer,
+      widget("preparation", {
+        envelopes: [
+          {
+            id: "envelope",
+            title: "여행 준비",
+            date: DAY,
+            eventId: "",
+            checks: [],
+            links: [],
+            todoIds: ["response"],
+            archived: false,
+          },
+        ],
+      }),
+    );
+    const original = structuredClone(widgets);
+    execute = () => null;
+    const existing = vi.mocked(command).getMockImplementation()!;
+    vi.mocked(command).mockImplementation((name, args) =>
+      name === "open_widget" ? Promise.resolve(undefined) : existing(name, args),
+    );
+    await openDiary();
+    if (source === "envelope") fireEvent.click(opened().getByRole("button", { name: /여행 준비/ }));
+    if (source === "page") {
+      showPage("자료 모음");
+      fireEvent.click(opened().getByRole("button", { name: "할 일·위젯 연결과 기존 기록 편집" }));
+    }
+    const existingButtons = opened().queryAllByRole("button", { name: "25분 집중 시작" });
+    fireEvent.click(opened().getByRole("button", { name: "늦은 도착 응답 확인 상세 보기" }));
+    const taskButtons = opened()
+      .getAllByRole("button", { name: "25분 집중 시작" })
+      .filter((button: HTMLElement) => !existingButtons.includes(button));
+    expect(taskButtons).toHaveLength(1);
+    fireEvent.click(taskButtons[0]!);
+    await waitFor(() =>
+      expect(actions("execute_widget")).toEqual([
+        {
+          request: expect.objectContaining({
+            instanceId: timer.id,
+            action: "start",
+            input: {
+              durationMs: 1500000,
+              title: "늦은 도착 응답 확인",
+              todoId: "response",
+              memo: "",
+              eventRef: null,
+              noteRef: null,
+            },
+          }),
+        },
+      ]),
+    );
+    await waitFor(() => expect(command).toHaveBeenCalledWith("open_widget", { id: timer.id }));
+    expect(widgets).toEqual(original);
+    expect(actions("update_diary")).toEqual([]);
+  },
+);
+
 it("owns native close protection for both journal drafts and embedded planning tools", async () => {
   setTasks([]);
   await openDiary();

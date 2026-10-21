@@ -3,6 +3,7 @@ import { command } from "../../hooks/useSnapshot";
 import { record, rows, text, type DataRecord } from "../toolData";
 import type { WidgetView } from "../types";
 import { preparationFocusInput } from "../PreparationTool/preparationData";
+import { taskFocusInput } from "../PlanningTools/FocusTimerData";
 import type { DiaryAction } from "./diaryTypes";
 import { plannedDay, ruleOf } from "./plannerData";
 import type { DiaryWidgetActions } from "./useDiaryWidgetActions";
@@ -112,7 +113,7 @@ export function useDiaryTasks({
       await run(() => command("open_planner_settings", { kind: "focus-timer" }));
       return;
     }
-    if (await act("start", { durationMs: 1500000, todoId: text(item.id) }, timer)) {
+    if (await act("start", taskFocusInput(item), timer)) {
       setNotice("25분 집중을 시작했어요. 할 일 완료는 직접 표시해 주세요.");
       await run(() => command("open_widget", { id: timer.id }));
     }
