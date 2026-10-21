@@ -1898,6 +1898,131 @@ it.each(["reopen", "memoryRevision", "hidden-reopen"])(
   },
 );
 
+it("keeps loaded older pages and the reading anchor when reacquiring the same history editor", async () => {
+  historyGeometry();
+  const history = longHistory(104);
+  let draft = "History draft A";
+  const latest = (): ConversationView => ({
+    ...history,
+    session: { ...FIRST, draft },
+    messages: history.messages.slice(4).map((message) =>
+      message.id === "first-103" ? { ...message, content: "최신 원문" } : message,
+    ),
+    nextBefore: 4,
+  });
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversations") return [{ ...FIRST, draft }];
+    if (name === "resume_chat") return latest();
+    if (name === "get_conversation_messages")
+      return args?.before === 4
+        ? { messages: history.messages.slice(0, 4), nextBefore: null }
+        : latest();
+    return fallback(name, args);
+  });
+  const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await screen.findByText("최신 원문");
+  fireEvent.click(screen.getByRole("button", { name: "이어서 말하기" }));
+  await waitFor(() =>
+    expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty("disabled", false),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "앞선 내용 더 보기" }));
+  await screen.findByText("first 원문 2");
+  const log = screen.getByRole("log");
+  scrollHistory(log, 155);
+  fireEvent.click(screen.getByRole("button", { name: "지난 대화 닫기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("release_conversation_history", expect.anything()),
+  );
+  draft = "Desktop draft B";
+  rerender(
+    <ConversationHistoryWindow
+      snapshot={{ ...SNAPSHOT, panel: { persona: "builtin-a", mode: "input" }, conversation: latest() }}
+    />,
+  );
+  const reopen = vi.mocked(listen).mock.calls.find(([event]) => event === "conversation-history-open")?.[1];
+  await act(async () =>
+    reopen?.({ event: "conversation-history-open", id: 13, payload: { generation: 2, persona: "all" } }),
+  );
+  await screen.findByText("first 원문 2");
+  fireEvent.click(screen.getByRole("button", { name: "이어서 말하기" }));
+  await waitFor(() =>
+    expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty("disabled", false),
+  );
+  expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty("value", draft);
+  expect(screen.getByText("최신 원문")).toBeTruthy();
+  expect(screen.getByText("first 원문 2")).toBeTruthy();
+  const anchor = log.querySelector<HTMLElement>('[data-history-message="first-2"]')!;
+  expect(anchor.offsetTop - log.offsetTop - log.scrollTop).toBe(85);
+  expect(screen.queryByRole("button", { name: "앞선 내용 더 보기" })).toBeNull();
+});
+
+it("replaces older loaded pages when adopting another session", async () => {
+  historyGeometry();
+  const first = longHistory(104);
+  const second = longHistory(10, SECOND);
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_messages") {
+      if (args?.sessionId === SECOND.id) return second;
+      return args?.before === 4
+        ? { messages: first.messages.slice(0, 4), nextBefore: null }
+        : { messages: first.messages.slice(4), nextBefore: 4 };
+    }
+    if (name === "resume_chat") return second;
+    return fallback(name, args);
+  });
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  fireEvent.click(await screen.findByRole("button", { name: "앞선 내용 더 보기" }));
+  await screen.findByText("first 원문 2");
+  fireEvent.click(screen.getByRole("button", { name: /두 번째 초안/ }));
+  await screen.findByText("second 원문 9");
+  expect(screen.queryByText("first 원문 2")).toBeNull();
+  expect(screen.queryByText("first 원문 103")).toBeNull();
+  expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty("value", SECOND.draft);
+});
+
+it("does not merge a late editor adoption into another user's same-id transcript", async () => {
+  historyGeometry();
+  const first = longHistory(104);
+  const pending = deferred<ConversationView>();
+  const foreignSession = { ...FIRST, userId: "other-user", draft: "Other user draft" };
+  const foreign = {
+    ...longHistory(10, foreignSession),
+    messages: [{ ...MESSAGE, id: "foreign-message", content: "Other user transcript" }],
+  };
+  let changedUser = false;
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversations") return [changedUser ? foreignSession : FIRST];
+    if (name === "get_conversation_messages") {
+      if (changedUser) return foreign;
+      return args?.before === 4
+        ? { messages: first.messages.slice(0, 4), nextBefore: null }
+        : { messages: first.messages.slice(4), nextBefore: 4 };
+    }
+    if (name === "resume_chat") return changedUser ? foreign : pending.promise;
+    return fallback(name, args);
+  });
+  const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  fireEvent.click(await screen.findByRole("button", { name: "앞선 내용 더 보기" }));
+  await screen.findByText("first 원문 2");
+  fireEvent.click(screen.getByRole("button", { name: "이어서 말하기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("resume_chat", expect.anything()));
+  changedUser = true;
+  rerender(<ConversationHistoryWindow snapshot={{ ...SNAPSHOT, user: { ...SNAPSHOT.user!, id: foreignSession.userId } }} />);
+  await screen.findByText("Other user transcript");
+  await act(async () => pending.resolve({ ...first, messages: first.messages.slice(4), nextBefore: 4 }));
+  fireEvent.click(screen.getByRole("button", { name: "이어서 말하기" }));
+  await waitFor(() =>
+    expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty("disabled", false),
+  );
+  expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty("value", foreignSession.draft);
+  expect(screen.getByText("Other user transcript")).toBeTruthy();
+  expect(screen.queryByText("first 원문 2")).toBeNull();
+  expect(screen.queryByText("first 원문 103")).toBeNull();
+});
+
 it("keeps the restoration anchor when a memory refresh supersedes older-page hydration", async () => {
   historyGeometry();
   const staleOlder = deferred<ConversationMessages>();

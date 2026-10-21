@@ -313,6 +313,9 @@ export function ConversationHistoryWindow({
     setInput(owned ? (draft.current?.value ?? session?.draft ?? "") : (session?.draft ?? ""));
   }
   function adopt(view: ConversationView): void {
+    const sameTranscript =
+      selectedRef.current?.id === view.session.id &&
+      selectedRef.current.userId === view.session.userId;
     owner.current = view.session.id;
     draft.current = {
       userId: view.session.userId,
@@ -322,7 +325,8 @@ export function ConversationHistoryWindow({
     };
     selectedRef.current = view.session;
     setSelected(view.session);
-    setPage(view);
+    // Acquiring the editor does not discard older pages of the same transcript.
+    setPage((previous) => (sameTranscript && previous ? mergePages(previous, view) : view));
     setInput(view.session.draft);
     setEditing(view.session.id);
     setSessions((previous) => [
