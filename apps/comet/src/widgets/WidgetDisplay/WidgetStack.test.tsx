@@ -330,6 +330,108 @@ it("opens a folded widget as a bubble beside the capsule bar and closes it from 
   expect(command).not.toHaveBeenCalledWith("open_widget", { id: "focus" });
 });
 
+async function openFocusBubble(): Promise<HTMLSelectElement> {
+  localStorage.clear();
+  state.order = ["focus"];
+  state.overlapped = true;
+  setWidgets([
+    {
+      ...widget("focus", "focus-timer"),
+      data: { status: "idle", durationMs: 60000, remainingMs: 60000 },
+    },
+    {
+      ...widget("todo", "todo"),
+      data: { items: [{ id: "task", title: "원고 마무리", completedAt: null }] },
+    },
+  ]);
+  render(<WidgetStack />);
+  const capsule = within(await screen.findByRole("group", { name: "접어 둔 위젯" }));
+  fireEvent.click(capsule.getByRole("button", { name: /집중/ }));
+  fireEvent.click(screen.getByText("이번 집중 연결"));
+  return screen.getByLabelText("연결할 할 일") as HTMLSelectElement;
+}
+
+// jsdom does not open an operating-system select popup. Model only the native
+// :open state; all widget rendering, task selection, and dismissal remain real.
+function nativePopup(select: HTMLSelectElement): { open: boolean } {
+  const popup = { open: false };
+  const bubble = screen.getByRole("dialog");
+  const query = bubble.querySelector.bind(bubble);
+  vi.spyOn(bubble, "querySelector").mockImplementation((selector: string) =>
+    selector === "select:open" ? (popup.open ? select : null) : query(selector),
+  );
+  return popup;
+}
+
+it("keeps the focus bubble mounted while a native task select takes focus", async () => {
+  const select = await openFocusBubble();
+  const popup = nativePopup(select);
+  for (const value of ["task", "", "task"]) {
+    select.focus();
+    fireEvent.pointerDown(select, { button: 0 });
+    // WebKitGTK can deliver pointerup before it transfers focus to the popup.
+    fireEvent.pointerUp(select, { button: 0 });
+    popup.open = true;
+    fireEvent.blur(window);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    popup.open = false;
+    fireEvent.change(select, { target: { value } });
+    fireEvent.focus(window);
+    expect(screen.getByLabelText("연결할 할 일")).toBe(select);
+    expect(select.value).toBe(value);
+  }
+  // A still-focused select must not exempt a later, real window deactivation.
+  fireEvent.blur(window);
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+it.each([" ", "ArrowDown"])("keeps a keyboard-opened native select alive for %j", async (key) => {
+  const select = await openFocusBubble();
+  const popup = nativePopup(select);
+  select.focus();
+  fireEvent.keyDown(select, { key, altKey: key === "ArrowDown" });
+  fireEvent.keyUp(select, { key });
+  popup.open = true;
+  fireEvent.blur(window);
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  popup.open = false;
+  fireEvent.focus(window);
+  fireEvent.keyDown(select, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+it("does not exempt window deactivation just because a select was pressed", async () => {
+  const select = await openFocusBubble();
+  nativePopup(select);
+  select.focus();
+  fireEvent.pointerDown(select, { button: 0 });
+  fireEvent.pointerUp(select, { button: 0 });
+  fireEvent.blur(window);
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+it.each(["outside", "Escape"])(
+  "keeps %s dismissal while a native select is open",
+  async (dismissal) => {
+    const select = await openFocusBubble();
+    nativePopup(select).open = true;
+    fireEvent.blur(window);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    if (dismissal === "outside") fireEvent.pointerDown(document.body);
+    else fireEvent.keyDown(select, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  },
+);
+
+it("retains blur dismissal when a WebView does not recognize the open selector", async () => {
+  await openFocusBubble();
+  vi.spyOn(screen.getByRole("dialog"), "querySelector").mockImplementation(() => {
+    throw new DOMException("Unsupported selector", "SyntaxError");
+  });
+  fireEvent.blur(window);
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
 it("opens window widgets straight from the capsule bar and bubbles above bottom anchors", async () => {
   setWidgets([widget("memo", "memo"), widget("weather", "weather")]);
   state.order = ["memo", "weather"];

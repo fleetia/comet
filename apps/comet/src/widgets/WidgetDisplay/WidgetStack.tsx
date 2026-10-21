@@ -187,6 +187,17 @@ export function WidgetStack(): ReactElement {
   useEffect(() => {
     if (!bubbleOpen) return;
     const close = (): void => setBubble(null);
+    const blur = (): void => {
+      // A native select popup temporarily owns window focus in WebKitGTK.
+      // Its open state distinguishes that handoff from leaving the app, even
+      // when pointerup arrives before blur or the select stays focused later.
+      try {
+        if (bubbleRef.current?.querySelector("select:open")) return;
+      } catch {
+        // Older WebViews without :open retain the existing blur dismissal.
+      }
+      close();
+    };
     const press = (event: globalThis.PointerEvent): void => {
       const target = event.target;
       if (
@@ -201,11 +212,11 @@ export function WidgetStack(): ReactElement {
     };
     document.addEventListener("pointerdown", press);
     document.addEventListener("keydown", key);
-    window.addEventListener("blur", close);
+    window.addEventListener("blur", blur);
     return () => {
       document.removeEventListener("pointerdown", press);
       document.removeEventListener("keydown", key);
-      window.removeEventListener("blur", close);
+      window.removeEventListener("blur", blur);
     };
   }, [bubbleOpen]);
   // The tail points at the capsule that opened the bubble.
