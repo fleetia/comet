@@ -40,6 +40,15 @@ pub(crate) fn configure_runtime(command: &mut Command, runtime: &Path) -> Result
     Ok(())
 }
 
+/// GGML discovers backend modules in the executable directory and child cwd;
+/// the loader path alone only resolves their shared-library dependencies.
+pub(crate) fn configure_llama_runtime(command: &mut Command, runtime: &Path) -> Result<(), String> {
+    configure_runtime(command, runtime)?;
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    command.current_dir(runtime);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,5 +93,52 @@ mod tests {
         assert_eq!(std::env::split_paths(value).next().unwrap(), runtime);
         #[cfg(target_os = "linux")]
         assert!(command.get_envs().all(|(key, _)| key != "PATH"));
+    }
+
+    #[test]
+    fn llama_runtime_sets_only_the_owned_child_backend_directory() {
+        let parent_directory = std::env::current_dir().unwrap();
+        let runtime = parent_directory.join("bundled-runtime");
+        let inherited_directory = parent_directory.join("unrelated-launch-directory");
+        let mut command = Command::new("unused");
+        command.current_dir(&inherited_directory);
+        configure_llama_runtime(&mut command, &runtime).unwrap();
+
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        assert_eq!(command.get_current_dir(), Some(runtime.as_path()));
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            command.get_current_dir(),
+            Some(inherited_directory.as_path())
+        );
+        assert_eq!(std::env::current_dir().unwrap(), parent_directory);
+        assert!(command
+            .get_envs()
+            .all(|(key, _)| key != "GGML_BACKEND_PATH"));
+
+        let mut loader_only = Command::new("unused");
+        configure_runtime(&mut loader_only, &runtime).unwrap();
+        assert_eq!(
+            command.get_envs().collect::<Vec<_>>(),
+            loader_only.get_envs().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn generic_runtime_preserves_other_sidecars_working_directory() {
+        let parent_directory = std::env::current_dir().unwrap();
+        let runtime = parent_directory.join("bundled-runtime");
+        let mut command = Command::new("unused");
+        configure_runtime(&mut command, &runtime).unwrap();
+        assert_eq!(command.get_current_dir(), None);
+
+        let existing_directory = parent_directory.join("other-sidecar-directory");
+        command.current_dir(&existing_directory);
+        configure_runtime(&mut command, &runtime).unwrap();
+        assert_eq!(
+            command.get_current_dir(),
+            Some(existing_directory.as_path())
+        );
+        assert_eq!(std::env::current_dir().unwrap(), parent_directory);
     }
 }
