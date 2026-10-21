@@ -35,6 +35,32 @@ struct OpenRequest {
     persona: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReleasePolicy {
+    Hide,
+    Destroy,
+}
+
+impl ReleasePolicy {
+    fn for_backend(uses_gtk: bool) -> Self {
+        if uses_gtk {
+            Self::Hide
+        } else {
+            Self::Destroy
+        }
+    }
+
+    fn current() -> Self {
+        Self::for_backend(cfg!(any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        )))
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Runtime {
     generation: u64,
@@ -58,6 +84,12 @@ impl Runtime {
 
     fn can_release(&self, generation: u64) -> bool {
         !self.destroying && generation == self.generation
+    }
+
+    fn begin_release(&mut self, policy: ReleasePolicy) {
+        // GTK reuses the existing view while awaiting the upstream ownership fix.
+        // Only actual destruction needs to defer subsequent opens until Destroyed.
+        self.destroying = policy == ReleasePolicy::Destroy;
     }
 
     fn destroyed(&mut self) -> Option<OpenRequest> {
@@ -230,10 +262,15 @@ pub(crate) async fn release(
             };
             let released =
                 super::chat::release_history_editor_locked(&state, session_id.as_deref())?;
-            // destroy is queued even on the main thread. Reopens wait for Destroyed,
-            // rather than showing the doomed old handle or constructing a duplicate label.
-            runtime.destroying = true;
-            if let Err(error) = window.destroy() {
+            let policy = ReleasePolicy::current();
+            runtime.begin_release(policy);
+            // GTK hides and reuses its view until the upstream ownership fix lands.
+            // Other backends destroy after saving; queued destruction defers reopens.
+            let closed = match policy {
+                ReleasePolicy::Hide => window.hide(),
+                ReleasePolicy::Destroy => window.destroy(),
+            };
+            if let Err(error) = closed {
                 runtime.destroying = false;
                 if released {
                     if let Some(panel) = lock(&state.panel)?.as_mut() {
@@ -247,7 +284,7 @@ pub(crate) async fn release(
             drop(runtime);
             if released {
                 super::publish(&handle, &state);
-                // Destruction succeeded; a focus failure must not look like an unsaved close.
+                // Close succeeded; a focus failure must not look like an unsaved close.
                 if let Err(error) = crate::desktop::request_balloon_focus(&handle) {
                     eprintln!("History released but input focus failed: {error}");
                 }
@@ -282,6 +319,51 @@ mod tests {
     use super::*;
 
     #[test]
+    fn release_policy_hides_gtk_and_destroys_other_backends() {
+        assert_eq!(ReleasePolicy::for_backend(true), ReleasePolicy::Hide);
+        assert_eq!(ReleasePolicy::for_backend(false), ReleasePolicy::Destroy);
+    }
+
+    #[test]
+    fn release_policy_matches_the_compiled_backend() {
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))]
+        assert_eq!(ReleasePolicy::current(), ReleasePolicy::Hide);
+        #[cfg(not(any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        )))]
+        assert_eq!(ReleasePolicy::current(), ReleasePolicy::Destroy);
+    }
+
+    #[test]
+    fn hidden_view_reopens_without_waiting_for_a_destroyed_event() {
+        let mut runtime = Runtime::default();
+        let first = runtime.open("all");
+        runtime.begin_release(ReleasePolicy::Hide);
+        assert!(!runtime.destroying);
+        let reopened = runtime.open("all");
+        assert!(runtime.pending_open.is_none());
+        assert!(!runtime.can_release(first.generation));
+        assert!(runtime.can_release(reopened.generation));
+        // Repeated hide/open cycles must never strand an open in the destroy queue.
+        runtime.begin_release(ReleasePolicy::Hide);
+        let latest = runtime.open("new");
+        assert!(!runtime.destroying);
+        assert!(runtime.pending_open.is_none());
+        assert!(!runtime.can_release(reopened.generation));
+        assert!(runtime.can_release(latest.generation));
+    }
+
+    #[test]
     fn reopened_window_rejects_obsolete_close() {
         let mut runtime = Runtime::default();
         let first = runtime.open("all");
@@ -295,7 +377,7 @@ mod tests {
     fn reopen_during_queued_destroy_waits_and_keeps_latest_intent() {
         let mut runtime = Runtime::default();
         let first = runtime.open("all");
-        runtime.destroying = true;
+        runtime.begin_release(ReleasePolicy::Destroy);
         runtime.open("old");
         let latest = runtime.open("new");
         assert!(!runtime.can_release(first.generation));

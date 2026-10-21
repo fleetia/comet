@@ -80,13 +80,3 @@ codegen-units = 1
 lto = true
 opt-level = "s"
 strip = true
-
-[target.'cfg(target_os = "linux")'.dev-dependencies]
-wry = "=0.55.1"
-
-# Same-version source from https://static.crates.io/crates/wry/wry-0.55.1.crate
-# SHA256: 186f9871daa55fd9c016578b810d149de58367113db7fb72b462d2323ce19514
-# Only GTK IPC capture differs: https://github.com/tauri-apps/wry/issues/1871
-# Remove when upstream ships the fix, after finalization and native churn checks.
-[patch.crates-io]
-wry = { path = "vendor/wry" }

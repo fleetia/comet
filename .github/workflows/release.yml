@@ -240,7 +240,6 @@ jobs:
         run: |
           xvfb-run --auto-servernum cargo test --locked --manifest-path apps/comet/src-tauri/Cargo.toml
           xvfb-run --auto-servernum cargo test --locked --manifest-path apps/comet/src-tauri/Cargo.toml linux_input_shape_survives_hidden_realized_and_destroyed_windows -- --ignored
-          xvfb-run --auto-servernum cargo test --locked --manifest-path apps/comet/src-tauri/Cargo.toml --test wry_ipc_release -- --ignored --test-threads=1
       # DEB is a manual-install experiment, not a Tauri updater payload.
       # Keep signing credentials and latest.json generation in the supported updater jobs.
       - name: Build experimental Linux package
