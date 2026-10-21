@@ -28,6 +28,23 @@ export const inputAction = style({
   fontSize: 13,
   fontWeight: 400,
   lineHeight: "normal",
+  // These controls sit directly on a transparent desktop window, not a panel.
+  // Keep the backing opaque even when a disabled foreground is muted.
+  selectors: {
+    "&&": {
+      background: tokens["color/glass-window"],
+    },
+    "&&:disabled": {
+      opacity: 1,
+      color: `color-mix(in srgb, ${tokens["color/ink"]} 45%, ${tokens["color/glass-window"]})`,
+    },
+    "&&:hover:not(:disabled)": {
+      background: `linear-gradient(${tokens["color/chip"]}, ${tokens["color/chip"]}), ${tokens["color/glass-window"]}`,
+    },
+    "&&:active:not(:disabled)": {
+      background: `linear-gradient(${tokens["color/track"]}, ${tokens["color/track"]}), ${tokens["color/glass-window"]}`,
+    },
+  },
 });
 export const resumeAction = style({ width: 106 });
 export const togetherAction = style({ width: 132, height: 34 });

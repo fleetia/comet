@@ -65,6 +65,7 @@ const preview: Preview = {
             "planner",
             "widgets",
           ],
+          "App",
         ],
       },
     },
