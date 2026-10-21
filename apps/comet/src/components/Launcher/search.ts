@@ -323,7 +323,13 @@ export function launcherResults(
     const targets = targetResults(snapshot, "").map((result) => ({
       ...result,
       title: result.recipient ? `${result.recipient.name}에게 말 걸기` : "모두에게 말 걸기",
-      detail: result.recipient ? "바탕화면에 있어요" : "친구들이 순서대로 답해요",
+      detail: result.recipient
+        ? snapshot.runtime.hidden
+          ? "지금은 쉬고 있어요"
+          : snapshot.runtime.presentCharacterIds.includes(result.recipient.id)
+            ? "바탕화면에 있어요"
+            : "자리 비움"
+        : "친구들이 순서대로 답해요",
     }));
     const order = ["widget:focus-timer", "widget:memo", "settings"];
     return [
