@@ -195,33 +195,7 @@ pub(crate) fn begin_panel_with_source(
 }
 
 fn open_conversation_history(app: &tauri::AppHandle, persona: &str) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("conversation-history") {
-        window
-            .emit("conversation-history-persona", persona)
-            .map_err(|error| error.to_string())?;
-        window.unminimize().map_err(|error| error.to_string())?;
-        window.show().map_err(|error| error.to_string())?;
-        return window.set_focus().map_err(|error| error.to_string());
-    }
-    let mut url =
-        tauri::Url::parse("https://comet.local/index.html").map_err(|error| error.to_string())?;
-    url.query_pairs_mut()
-        .append_pair("view", "conversation-history")
-        .append_pair("persona", persona);
-    tauri::WebviewWindowBuilder::new(
-        app,
-        "conversation-history",
-        tauri::WebviewUrl::App(format!("index.html?{}", url.query().unwrap_or_default()).into()),
-    )
-    .title("comet · 지난 대화")
-    .inner_size(1200.0, 788.0)
-    .min_inner_size(800.0, 560.0)
-    .decorations(false)
-    .transparent(true)
-    .disable_drag_drop_handler()
-    .build()
-    .map_err(|error| error.to_string())?;
-    Ok(())
+    super::history_window::open(app, persona)
 }
 
 #[tauri::command]

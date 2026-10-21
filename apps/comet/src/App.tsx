@@ -1,10 +1,13 @@
-import type { JSX } from "react";
+import { useRef, type JSX } from "react";
 import { Button } from "@comet/ui";
 import { CompanionBox } from "./components/CompanionBox/CompanionBox";
 import { FaceTag } from "./components/FaceTag/FaceTag";
 import { Balloon } from "./components/Balloon/Balloon";
 import { ConversationResponse } from "./components/Balloon/ConversationResponse";
-import { ConversationHistoryWindow } from "./components/Balloon/ConversationHistoryWindow";
+import {
+  ConversationHistoryWindow,
+  type HistoryWindowState,
+} from "./components/Balloon/ConversationHistoryWindow";
 import { DesktopPreview } from "./components/DesktopPreview/DesktopPreview";
 import { DesktopToy } from "./components/DesktopToy/DesktopToy";
 import { SettingsPanel } from "./components/SettingsPanel/SettingsPanel";
@@ -26,9 +29,21 @@ import * as s from "./common.css";
 
 export function App(): JSX.Element {
   const { snapshot, error, reload } = useSnapshot();
+  const historyLoaded = useRef(false);
+  historyLoaded.current = Boolean(snapshot);
+  async function closeUnloadedHistory(): Promise<void> {
+    const state = await command<HistoryWindowState>("get_conversation_history_state");
+    // A newly loaded editor owns its close/save lifecycle, not the old loading shell.
+    if (historyLoaded.current) return;
+    await command("release_conversation_history", {
+      generation: state.generation,
+      restoration: state.restoration,
+    });
+  }
   const query = new URLSearchParams(window.location.search);
   const view = query.get("view");
-  if (view === "generated-widget-executor") return <GeneratedWidgetExecutor token={query.get("token") ?? ""} />;
+  if (view === "generated-widget-executor")
+    return <GeneratedWidgetExecutor token={query.get("token") ?? ""} />;
   if (view === "widget-workshop") return <WidgetWorkshop />;
   if (view === "generated-widget") return <GeneratedWidgetTool id={query.get("id") ?? ""} />;
   if (view === "widget-state-rules") return <WidgetStateRules id={query.get("id") ?? ""} />;
@@ -71,7 +86,7 @@ export function App(): JSX.Element {
             }
             onClose={
               view === "conversation-history"
-                ? () => command("release_conversation_history")
+                ? closeUnloadedHistory
                 : view === "settings" ||
                     view === "characters" ||
                     view === "widgets" ||

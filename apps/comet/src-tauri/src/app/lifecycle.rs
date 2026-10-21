@@ -215,6 +215,7 @@ pub fn run() {
                 playback: Mutex::new(None),
                 panel: Mutex::new(None),
                 launcher: Mutex::new(launcher::Runtime::default()),
+                history_window: Mutex::new(super::history_window::Runtime::default()),
                 launcher_open: AtomicBool::new(false),
                 widget_editing: AtomicBool::new(false),
                 launcher_session: AtomicU64::new(0),
@@ -378,7 +379,7 @@ pub fn run() {
             }
             if window.label() == "conversation-history" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
-                    // The webview flushes its draft before release_conversation_history hides it.
+                    // The webview flushes its draft before release_conversation_history destroys it.
                     api.prevent_close();
                 }
                 return;
@@ -737,6 +738,7 @@ pub fn run() {
             super::chat::open_reply,
             super::chat::resume_chat,
             super::chat::release_conversation_history,
+            super::history_window::get_conversation_history_state,
             super::chat::finish_conversation,
             super::chat::save_conversation_draft,
             super::chat::discuss_music_widget,
@@ -816,6 +818,13 @@ pub fn run() {
                         request_exit(&app).await;
                     });
                 }
+            }
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: WindowEvent::Destroyed,
+                ..
+            } if label == "conversation-history" => {
+                super::history_window::destroyed(app);
             }
             tauri::RunEvent::Exit => {
                 device::wake::shutdown(app);

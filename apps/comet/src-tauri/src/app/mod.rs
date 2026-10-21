@@ -4,6 +4,7 @@ mod background;
 mod chat;
 pub(crate) mod conversation;
 mod history;
+mod history_window;
 pub(crate) mod launcher;
 pub(crate) mod lifecycle;
 pub(crate) mod presence;
@@ -44,6 +45,7 @@ pub(crate) struct AppState {
     pub(crate) playback: Mutex<Option<Playback>>,
     pub(crate) panel: Mutex<Option<PanelState>>,
     pub(crate) launcher: Mutex<launcher::Runtime>,
+    pub(crate) history_window: Mutex<history_window::Runtime>,
     pub(crate) launcher_open: AtomicBool,
     pub(crate) widget_editing: AtomicBool,
     pub(crate) launcher_session: AtomicU64,
