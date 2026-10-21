@@ -29,10 +29,14 @@ export const inputAction = style({
   fontWeight: 400,
   lineHeight: "normal",
   // These controls sit directly on a transparent desktop window, not a panel.
-  // Keep an opaque backing beneath the ghost tints, including while pressed.
+  // Keep the backing opaque even when a disabled foreground is muted.
   selectors: {
-    "&&:not(:disabled)": {
+    "&&": {
       background: tokens["color/glass-window"],
+    },
+    "&&:disabled": {
+      opacity: 1,
+      color: `color-mix(in srgb, ${tokens["color/ink"]} 45%, ${tokens["color/glass-window"]})`,
     },
     "&&:hover:not(:disabled)": {
       background: `linear-gradient(${tokens["color/chip"]}, ${tokens["color/chip"]}), ${tokens["color/glass-window"]}`,

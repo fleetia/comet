@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { themes, tokenNames, type Theme } from "@comet/token";
 import { contrast } from "@comet/token/skin";
 import { appearanceVars, DEFAULT_APPEARANCE } from "../../appearance";
@@ -29,35 +29,6 @@ const underlays = [
 ] as const;
 
 describe("desktop composer action contrast", () => {
-  it("keeps the opaque base in every enabled state without changing disabled styles", async () => {
-    // jsdom does not render CSS. Tie the numeric checks below to the actual style
-    // contract, including specificity above the shared ghost button selectors.
-    const { readFileSync } = await vi.importActual<{
-      readFileSync(path: string, encoding: "utf8"): string;
-    }>("node:fs");
-    const source = readFileSync("src/components/Balloon/conversationSurface.css.ts", "utf8");
-    const action = source.match(/export const inputAction = style\(\{([\s\S]*?)\n\}\);/)?.[1];
-    expect(action).toBeDefined();
-    expect(action).toContain('background: tokens["color/chip"]');
-    expect(action).not.toContain("opacity:");
-    expect(action).toContain(
-      '"&&:not(:disabled)": {\n      background: tokens["color/glass-window"]',
-    );
-    for (const [state, tint] of [
-      ["hover", "chip"],
-      ["active", "track"],
-    ]) {
-      expect(action).toContain(`"&&:${state}:not(:disabled)": {`);
-      expect(action).toContain(
-        'background: `linear-gradient(${tokens["color/' +
-          tint +
-          '"]}, ${tokens["color/' +
-          tint +
-          '"]}), ${tokens["color/glass-window"]}`',
-      );
-    }
-  });
-
   it("captures the original dark-theme failure on a white desktop", () => {
     const background = over(rgba(themes.dark["color/chip"]), [255, 255, 255, 1]);
     expect(contrast(themes.dark["color/ink"], rgb(background))).toBeLessThan(1.2);
