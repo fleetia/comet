@@ -144,6 +144,39 @@ jobs:
         run: |
           xvfb-run --auto-servernum cargo test --locked --manifest-path apps/comet/src-tauri/Cargo.toml
           xvfb-run --auto-servernum cargo test --locked --manifest-path apps/comet/src-tauri/Cargo.toml linux_input_shape_survives_hidden_realized_and_destroyed_windows -- --ignored
+          xvfb-run --auto-servernum cargo test --locked --manifest-path apps/comet/src-tauri/Cargo.toml --test wry_ipc_release -- --ignored --test-threads=1
+      - name: Verify GTK finalization regression rejects the original strong capture
+        if: runner.os == 'Linux'
+        env:
+          GDK_BACKEND: x11
+        shell: bash
+        run: |
+          source=apps/comet/src-tauri/vendor/wry/src/webkitgtk/mod.rs
+          backup="$RUNNER_TEMP/wry-gtk-patched.rs"
+          cp "$source" "$backup"
+          trap 'cp "$backup" "$source"' EXIT
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          p = Path("apps/comet/src-tauri/vendor/wry/src/webkitgtk/mod.rs")
+          source = p.read_text()
+          weak = "    let webview = webview.downgrade();\n"
+          upgraded = "if let (Some(webview), Some(js)) = (webview.upgrade(), msg.js_value()) {"
+          assert source.count(weak) == 1 and source.count(upgraded) == 1
+          p.write_text(source.replace(weak, "").replace(upgraded, "if let Some(js) = msg.js_value() {"))
+          PYCODE
+          set +e
+          xvfb-run --auto-servernum cargo test --locked --manifest-path apps/comet/src-tauri/Cargo.toml --test wry_ipc_release -- --ignored --test-threads=1 > "$RUNNER_TEMP/wry-original.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/wry-original.log"
+          if [ "$status" -eq 0 ]; then
+            echo "Original strong capture unexpectedly passed finalization regression"
+            exit 1
+          fi
+          grep -F "closed WebView retained; check IPC handler ownership" "$RUNNER_TEMP/wry-original.log"
+          cp "$backup" "$source"
+          trap - EXIT
+          xvfb-run --auto-servernum cargo test --locked --manifest-path apps/comet/src-tauri/Cargo.toml --test wry_ipc_release -- --ignored --test-threads=1
       - name: Build native bundle
         if: runner.os == 'Linux' || github.event_name != 'pull_request'
         run: pnpm tauri build --bundles ${{ matrix.bundle }}
