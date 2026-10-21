@@ -308,11 +308,7 @@ it("puts a period task into Today by changing only its planned date", async () =
 it("brings last week's unfinished undated plans into this week in one step", async () => {
   await renderPlanner(
     snapshot([
-      item("left", "주간 회고 쓰기", {
-        plannedDate: null,
-        planPeriod: "week",
-        planAnchor: "2026-09-14",
-      }),
+      item("left", "주간 회고 쓰기", { plannedDate: null, planPeriod: "week", planAnchor: "2026-09-14" }),
       item("done", "기획서 마무리", {
         plannedDate: null,
         planPeriod: "week",
@@ -456,10 +452,7 @@ it("counts today's frequency record as done today and excludes it from day-end c
   const wrap = within(screen.getByRole("dialog", { name: "오늘은 여기까지" }));
   expect(wrap.queryByRole("checkbox", { name: /오늘 산책 목표/ })).toBeNull();
   expect(wrap.getByText("못 한 일 · 0개")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "0개 옮기고 마치기" })).toHaveProperty(
-    "disabled",
-    true,
-  );
+  expect(screen.getByRole("button", { name: "0개 옮기고 마치기" })).toHaveProperty("disabled", true);
 });
 
 it("records frequency on the displayed past date and disables future completion", async () => {

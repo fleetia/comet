@@ -381,6 +381,94 @@ fn widget_controls_have_receipts_and_explicitly_cannot_be_undone() {
 }
 
 #[test]
+fn task_focus_start_clears_previous_context_and_preserves_source_records() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    storage::install(
+        &db,
+        directory.path(),
+        &["todo".into(), "focus-timer".into()],
+    )
+    .unwrap();
+    let task = run(
+        &db,
+        "task_add",
+        "",
+        json!({"title":"자료 검토","memo":"할 일 원문"}),
+    );
+    let note = run(
+        &db,
+        "note_create",
+        "",
+        json!({"title":"이전 노트","body":"노트 원문"}),
+    );
+    let todos = storage::instances(&db)
+        .unwrap()
+        .into_iter()
+        .find(|widget| widget.kind == "todo")
+        .unwrap();
+    let notes = diary::read(&db).unwrap();
+    let timer = storage::instances(&db)
+        .unwrap()
+        .into_iter()
+        .find(|widget| widget.kind == "focus-timer")
+        .unwrap();
+    let mut data = timer.data;
+    data["title"] = json!("이전 작업");
+    data["memo"] = json!("이전 집중 메모");
+    data["eventRef"] =
+        json!({"calendarWidgetId":"calendar","id":"previous-event","title":"이전 일정"});
+    data["noteRef"] = json!({"kind":"diary","id":note.target_id,"title":"이전 노트"});
+    db.execute(
+        "UPDATE widget_instances SET data=?1 WHERE id=?2",
+        params![data.to_string(), timer.id],
+    )
+    .unwrap();
+    for (action, input, now) in [
+        ("start", json!({"durationMs":10000}), 1000),
+        ("cancel", json!({}), 2000),
+    ] {
+        let current = storage::get(&db, &timer.id).unwrap();
+        storage::execute(
+            &db,
+            &WidgetRequest {
+                request_id: uuid::Uuid::new_v4().to_string(),
+                instance_id: timer.id.clone(),
+                expected_revision: current.revision,
+                action: action.into(),
+                input,
+            },
+            now,
+            0,
+        )
+        .unwrap();
+    }
+    let history = storage::get(&db, &timer.id).unwrap().data["sessions"].clone();
+    for title in [None, Some("직접 정한 집중 제목")] {
+        let mut input = json!({"durationMs":1500000,"todoId":task.target_id});
+        if let Some(title) = title {
+            input["title"] = json!(title);
+        }
+        run(&db, "focus_start", "", input);
+        let current = storage::get(&db, &timer.id).unwrap().data;
+        for context in [&current, &current["activeSession"]] {
+            assert_eq!(context["title"], title.unwrap_or("자료 검토"));
+            assert_eq!(context["todoId"], task.target_id);
+            assert_eq!(context["memo"], "");
+            assert!(context["eventRef"].is_null());
+            assert!(context["noteRef"].is_null());
+        }
+        assert_eq!(
+            current["sessions"].as_array().unwrap().first(),
+            history.as_array().unwrap().first()
+        );
+        assert_eq!(storage::get(&db, &todos.id).unwrap().data, todos.data);
+        assert_eq!(diary::read(&db).unwrap(), notes);
+        run(&db, "focus_cancel", "", json!({}));
+    }
+}
+
+#[test]
 fn task_partial_edit_preserves_recurrence_and_undo_respects_diary_references() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
