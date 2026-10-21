@@ -519,6 +519,11 @@ it("binds embedded configure to the timer and preserves explicit linked todo tar
       input: { id: "task" },
     }),
   });
+  await waitFor(() =>
+    expect(
+      screen.getByRole("region", { name: "집중 타이머" }).getAttribute("data-window-resizing"),
+    ).toBe("false"),
+  );
 });
 
 it("surfaces rejected embedded timer commands without losing its input", async () => {
