@@ -198,7 +198,16 @@ it("previews a pack member's unsaved animation bytes without requesting a stored
       .closest("details")!;
     details.open = true;
     fireEvent(details, new Event("toggle"));
-    fireEvent.click(screen.getByRole("button", { name: "등록 이야기 시험" }));
+    const trialButton = screen.getByRole("button", { name: "등록 이야기 시험" });
+    await waitFor(() => {
+      expect(trialButton).toHaveProperty("disabled", false);
+      expect(trialButton.closest("fieldset")).toHaveProperty("disabled", false);
+    });
+    fireEvent.click(trialButton);
+    await waitFor(() =>
+      expect(vi.mocked(command).mock.calls.some(([name]) => name === "trial_pack_authoring")).toBe(true),
+    );
+    await screen.findByLabelText("등록 이야기 시험 결과");
     await waitFor(() => expect(urls).toContain("data:image/png;base64,draft-bytes"));
     expect(urls.filter(Boolean)).toEqual(["data:image/png;base64,draft-bytes"]);
   } finally {
