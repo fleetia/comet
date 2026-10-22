@@ -1,4 +1,4 @@
-import { useRef, type JSX } from "react";
+import { useRef, type JSX, type ReactNode } from "react";
 import { Button } from "@comet/ui";
 import { CompanionBox } from "./components/CompanionBox/CompanionBox";
 import { FaceTag } from "./components/FaceTag/FaceTag";
@@ -25,25 +25,13 @@ import { WidgetEditor } from "./widgets/WidgetDisplay/WidgetEditor";
 import { MemoNote } from "./widgets/MemoNote/MemoNote";
 import { WindowHeader } from "./components/WindowHeader/WindowHeader";
 import { command, isDesktop, useSnapshot } from "./hooks/useSnapshot";
+import { useAnalyticsConsent } from "./hooks/useAnalyticsConsent";
 import * as s from "./common.css";
 
-export function App(): JSX.Element {
-  const { snapshot, error, reload } = useSnapshot();
-  const historyLoaded = useRef(false);
-  historyLoaded.current = Boolean(snapshot);
-  async function closeUnloadedHistory(): Promise<void> {
-    const state = await command<HistoryWindowState>("get_conversation_history_state");
-    // A newly loaded editor owns its close/save lifecycle, not the old loading shell.
-    if (historyLoaded.current) return;
-    await command("release_conversation_history", {
-      generation: state.generation,
-      restoration: state.restoration,
-    });
-  }
-  const query = new URLSearchParams(window.location.search);
+// Independent tools own their own data subscriptions; they do not need app history.
+function standaloneRoute(query: URLSearchParams): JSX.Element | null {
   const view = query.get("view");
-  if (view === "generated-widget-executor")
-    return <GeneratedWidgetExecutor token={query.get("token") ?? ""} />;
+  if (view === "generated-widget-executor") return <GeneratedWidgetExecutor token={query.get("token") ?? ""} />;
   if (view === "widget-workshop") return <WidgetWorkshop />;
   if (view === "generated-widget") return <GeneratedWidgetTool id={query.get("id") ?? ""} />;
   if (view === "widget-state-rules") return <WidgetStateRules id={query.get("id") ?? ""} />;
@@ -56,6 +44,38 @@ export function App(): JSX.Element {
   if (view === "memo-note") {
     return <MemoNote id={query.get("id") ?? ""} noteId={query.get("noteId") ?? ""} />;
   }
+  return null;
+}
+
+function StandaloneWindow({ children }: { children: ReactNode }): JSX.Element {
+  useAnalyticsConsent();
+  return <>{children}</>;
+}
+
+export function App(): JSX.Element {
+  const query = new URLSearchParams(window.location.search);
+  const standalone = standaloneRoute(query);
+  return standalone ? (
+    <StandaloneWindow>{standalone}</StandaloneWindow>
+  ) : (
+    <SnapshotWindow query={query} />
+  );
+}
+
+function SnapshotWindow({ query }: { query: URLSearchParams }): JSX.Element {
+  const { snapshot, error, reload } = useSnapshot();
+  const historyLoaded = useRef(false);
+  historyLoaded.current = Boolean(snapshot);
+  async function closeUnloadedHistory(): Promise<void> {
+    const state = await command<HistoryWindowState>("get_conversation_history_state");
+    // A newly loaded editor owns its close/save lifecycle, not the old loading shell.
+    if (historyLoaded.current) return;
+    await command("release_conversation_history", {
+      generation: state.generation,
+      restoration: state.restoration,
+    });
+  }
+  const view = query.get("view");
   if (query.get("view") === "widget") {
     return (
       <WidgetTool

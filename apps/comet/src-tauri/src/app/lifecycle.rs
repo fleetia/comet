@@ -530,6 +530,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             crate::analytics::get_analytics_context,
+            crate::analytics::get_analytics_consent,
             crate::analytics::set_analytics_consent,
             crate::analytics::send_analytics_event,
             crate::characters::guests::leave_character_guest,

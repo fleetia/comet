@@ -188,6 +188,8 @@ pub(crate) fn publish(app: &tauri::AppHandle, state: &AppState) {
         }
         desktop::sync_boxes(app, state, &data);
         desktop::sync_balloon(app, &data);
+        // Standalone windows need consent updates, not the full application snapshot.
+        let _ = app.emit("analytics-consent", data.settings.analytics_consent);
         let _ = app.emit("app-state", data);
     }
 }
