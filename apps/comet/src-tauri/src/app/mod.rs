@@ -144,6 +144,7 @@ pub(crate) fn snapshot(state: &AppState) -> Result<Snapshot, String> {
         has_api_key: api_key_providers.contains(&settings.api_provider),
         api_key_providers,
         chatgpt_ready: state.inference.chatgpt.ready(),
+        apple_model: crate::apple_models::status(),
         model_ready: models::selected_ready(&state.app_data, &settings),
         local_models: models::model_statuses(&state.app_data),
         device: crate::device::info(),

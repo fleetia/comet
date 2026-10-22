@@ -111,6 +111,7 @@ fn request_selection(settings: &Settings) -> Option<RequestSelection> {
             )
         }
         "chatgpt" => ("chatgpt", model_family(&settings.chatgpt_model), "service"),
+        "apple" => ("apple", "system_language_model", "os"),
         "api" => {
             let provider = match settings.api_provider {
                 ApiProvider::Custom => "custom",
@@ -951,6 +952,9 @@ pub async fn generate_widget(
     max_tokens: u32,
     cancel: Arc<AtomicBool>,
 ) -> Result<Value, String> {
+    if settings.mode == "apple" {
+        return Err(crate::apple_models::WIDGET_UNSUPPORTED.into());
+    }
     generate_with_budget(
         inference,
         settings,
@@ -1026,6 +1030,9 @@ pub(crate) async fn generate_with_attachment(
     attachment: Attachment,
     cancel: Arc<AtomicBool>,
 ) -> Result<Value, String> {
+    if settings.mode == "apple" {
+        return Err("Apple 온디바이스 AI는 PDF·이미지 첨부를 지원하지 않아요. 직접 입력하거나 다른 AI를 직접 선택해 주세요.".into());
+    }
     if settings.mode == "local" {
         return Err("이 기기의 모델은 PDF·이미지를 읽지 못해요. 직접 입력하거나 API·ChatGPT 연결을 사용해 주세요.".into());
     }
@@ -1092,6 +1099,17 @@ async fn generate_observed(
     if cancel.load(Ordering::Acquire) {
         return Err("취소됨".into());
     }
+    if settings.mode == "apple" {
+        return crate::apple_models::generate(
+            messages,
+            schema,
+            budget.output_tokens,
+            budget.timeout,
+            cancel,
+            telemetry,
+        )
+        .await;
+    }
     if settings.mode == "chatgpt" {
         return crate::chatgpt::generate(
             &inference.chatgpt,
@@ -1103,6 +1121,9 @@ async fn generate_observed(
             Some(telemetry),
         )
         .await;
+    }
+    if !matches!(settings.mode.as_str(), "local" | "api") {
+        return Err("지원하지 않는 AI 선택이에요. 설정에서 사용할 AI를 직접 선택해 주세요.".into());
     }
     let local = settings.mode == "local";
     let (url, key, configured) = if local {
@@ -1137,6 +1158,9 @@ pub async fn test_connection(
 ) -> Result<String, String> {
     if cancel.load(Ordering::Acquire) {
         return Err("취소됨".into());
+    }
+    if settings.mode != "api" {
+        return Err("API 연결 테스트는 API를 직접 선택했을 때만 사용할 수 있어요.".into());
     }
     let url = endpoint(settings)?;
     if settings.api_model.trim().is_empty() {
@@ -1201,6 +1225,99 @@ pub async fn test_local(
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn apple_and_unknown_modes_never_fall_through_to_saved_api_credentials() {
+        let directory = tempfile::tempdir().unwrap();
+        let inference = Inference::new(directory.path().into(), PathBuf::new(), PathBuf::new());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let messages = [ChatMessage {
+            role: "user".into(),
+            content: "x".repeat(13_000),
+        }];
+        let schema = json!({"type":"object","properties":{"text":{"type":"string"}},"required":["text"],"additionalProperties":false});
+        for mode in ["apple", "unknown"] {
+            let settings = Settings {
+                mode: mode.into(),
+                base_url: format!("http://{}/v1", listener.local_addr().unwrap()),
+                api_model: "saved-api".into(),
+                ..Settings::default()
+            };
+            assert!(generate(
+                &inference,
+                &settings,
+                &messages,
+                schema.clone(),
+                128,
+                Arc::new(AtomicBool::new(false))
+            )
+            .await
+            .is_err());
+            assert!(test_connection(
+                &inference,
+                &settings,
+                None,
+                Arc::new(AtomicBool::new(false))
+            )
+            .await
+            .is_err());
+        }
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), listener.accept())
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn apple_unsupported_capabilities_and_cancelled_requests_do_not_dispatch() {
+        let directory = tempfile::tempdir().unwrap();
+        let inference = Inference::new(directory.path().into(), PathBuf::new(), PathBuf::new());
+        let settings = Settings {
+            mode: "apple".into(),
+            ..Settings::default()
+        };
+        let messages = [ChatMessage {
+            role: "user".into(),
+            content: "hello".into(),
+        }];
+        let cancel = Arc::new(AtomicBool::new(false));
+        assert!(generate_widget(
+            &inference,
+            &settings,
+            &messages,
+            json!({}),
+            128,
+            cancel.clone()
+        )
+        .await
+        .unwrap_err()
+        .contains("위젯"));
+        let file = Attachment {
+            name: "example.png".into(),
+            mime: "image/png".into(),
+            data: String::new(),
+        };
+        assert!(generate_with_attachment(
+            &inference,
+            &settings,
+            &messages,
+            json!({}),
+            128,
+            file,
+            cancel.clone()
+        )
+        .await
+        .unwrap_err()
+        .contains("첨부"));
+        cancel.store(true, Ordering::Release);
+        assert_eq!(
+            generate(&inference, &settings, &messages, json!({}), 128, cancel)
+                .await
+                .unwrap_err(),
+            "취소됨"
+        );
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_credentials_use_secret_service_instead_of_the_mock_backend() {

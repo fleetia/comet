@@ -235,9 +235,11 @@ export function ConstellationChoice({
         .filter(Boolean)
         .join(" ")}
     >
-      <span className={styles.choiceIcon} aria-hidden="true">
-        <img src={route} alt="" />
-      </span>
+      <span
+        className={styles.choiceIcon}
+        aria-hidden="true"
+        style={{ maskImage: `url("${route}")` }}
+      />
       <span className={styles.choiceLabel}>{children}</span>
     </button>
   );
@@ -324,10 +326,10 @@ export function ConstellationChoices({
       className={[styles.choices, className].filter(Boolean).join(" ")}
     >
       {lines.standard ? (
-        <img
-          src={hasSelection ? chosenLines : availableLines}
-          alt=""
-          className={styles.choiceLine}
+        <span
+          aria-hidden="true"
+          className={styles.standardChoiceLine}
+          style={{ maskImage: `url("${hasSelection ? chosenLines : availableLines}")` }}
         />
       ) : (
         <svg

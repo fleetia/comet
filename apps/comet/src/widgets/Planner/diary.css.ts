@@ -9,7 +9,6 @@ export const window = style({
   overflow: "hidden",
   color: tokens["color/ink"],
   background: tokens["color/glass-window"],
-  backgroundImage: `url("${settingsNight}")`,
   backgroundSize: "cover",
   backgroundPosition: "center top",
   backgroundRepeat: "no-repeat",
@@ -18,6 +17,9 @@ export const window = style({
   borderRadius: tokens["radius/radius-22"],
   boxSizing: "border-box",
   fontSize: tokens["typography/sans/body/fontSize"],
+  selectors: {
+    '[data-comet-theme="dark"] &': { backgroundImage: `url("${settingsNight}")` },
+  },
 });
 globalStyle(`${window} dialog::backdrop`, {
   borderRadius: tokens["radius/radius-22"],

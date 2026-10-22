@@ -109,6 +109,46 @@ it("waits for explicit catalog retry after a model-list failure", async () => {
   expect(modelCalls()).toHaveLength(2);
 });
 
+it("separates login from plan permission and does not load or enable models without sharing", async () => {
+  vi.mocked(command).mockResolvedValue({
+    ...connected,
+    accounts: connected.accounts.map((account) => ({ ...account, sharing: false })),
+  });
+  render(<Settings savedModel="saved-model" />);
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    expect.stringContaining("플랜을 사용할 권한이 없어요"),
+  );
+  expect(screen.getByLabelText("ChatGPT 모델")).toHaveProperty("disabled", true);
+  expect(screen.getByLabelText("ChatGPT 모델")).toHaveProperty("value", "saved-model");
+  expect(screen.getByRole("button", { name: "선택한 계정 다시 연결" })).toBeTruthy();
+  expect(command).not.toHaveBeenCalledWith("list_chatgpt_models");
+  expect(command).not.toHaveBeenCalledWith("save_settings", expect.anything());
+});
+
+it("keeps the saved model visible but unverified when a catalog refresh fails", async () => {
+  let modelRequests = 0;
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name !== "list_chatgpt_models") {
+      return connected;
+    }
+    modelRequests += 1;
+    if (modelRequests > 1) {
+      throw new Error("모델 목록 확인 실패");
+    }
+    return [{ slug: "saved-model", displayName: "저장한 모델" }];
+  });
+  render(<Settings savedModel="saved-model" />);
+  await waitFor(() =>
+    expect(screen.getByLabelText("ChatGPT 모델")).toHaveProperty("disabled", false),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "모델 목록 다시 불러오기" }));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "모델 목록 확인 실패");
+  expect(screen.getByLabelText("ChatGPT 모델")).toHaveProperty("value", "saved-model");
+  expect(screen.getByLabelText("ChatGPT 모델")).toHaveProperty("disabled", true);
+  expect(screen.getByText("플랜 권한 있음 · 모델 확인 필요")).toBeTruthy();
+});
+
 it("locks each Figma draft scope while its save is pending", async () => {
   let finish!: () => void;
   vi.mocked(command).mockImplementation(async (name) => {

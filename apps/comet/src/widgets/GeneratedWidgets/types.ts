@@ -37,7 +37,7 @@ export type GenerationEligibility = {
   reason: string;
   model: string;
   parameterBillions: number | null;
-  source: "catalog" | "gguf" | "api-name" | "unknown";
+  source: "catalog" | "gguf" | "api-name" | "chatgpt-catalog" | "apple-system" | "unknown";
 };
 export type Workshop = {
   widgets: GeneratedWidget[];

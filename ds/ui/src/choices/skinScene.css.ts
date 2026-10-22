@@ -10,6 +10,11 @@ export const scene = style({
   borderRadius: 14,
   background: tokens["color/sky"],
   color: tokens["color/ink"],
+  selectors: {
+    '&[data-comet-theme="light"]': {
+      background: `linear-gradient(171.125583deg, ${tokens["color/skin-sky-start"]} 8.616%, ${tokens["color/skin-sky-end"]} 108.62%)`,
+    },
+  },
 });
 export const sizes = styleVariants({
   tile: { height: 112, fontSize: 12 },

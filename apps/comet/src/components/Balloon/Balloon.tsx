@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
-import { IconButton, InputCapsule } from "@comet/ui";
+import { Button, IconButton, InputCapsule } from "@comet/ui";
 import type { ConversationView, Dispatch, Message, Persona, Snapshot } from "../../types";
 import { command } from "../../hooks/useSnapshot";
 import { useBalloonSizing } from "../../hooks/useBalloonSizing";
@@ -678,9 +678,19 @@ export function Balloon({
           )}
           {surface === "input"
             ? visibleError && (
-                <p ref={errorRef} className={surfaceStyle.inputError} role="alert">
-                  {visibleError}
-                </p>
+                <div className={surfaceStyle.inputError}>
+                  <p ref={errorRef} className={surfaceStyle.inputErrorMessage} role="alert">
+                    {visibleError}
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="small"
+                    disabled={pending || navigating}
+                    onClick={() => void openModelSettings()}
+                  >
+                    AI 연결 열기
+                  </Button>
+                </div>
               )
             : notice}
           {surface !== "input" && inputOptions}

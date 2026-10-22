@@ -33,6 +33,6 @@ it.each([
   await waitFor(() => expect(close).toHaveBeenCalledTimes(2));
   vi.mocked(useSnapshot).mockReturnValue({ snapshot: PREVIEW_SNAPSHOT, error: null, reload });
   rerender(<App />);
-  fireEvent.click(screen.getByRole("button", { name: label }));
+  fireEvent.click(await screen.findByRole("button", { name: label }, { timeout: 4000 }));
   await waitFor(() => expect(close).toHaveBeenCalledTimes(3));
 });

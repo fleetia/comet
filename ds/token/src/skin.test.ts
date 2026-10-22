@@ -16,6 +16,9 @@ describe("skin derivation", () => {
   it("recolors role tokens, keeps each component token's alpha, and leaves list colors alone", () => {
     const values = deriveSkin(themes.light, paper);
     expect(values["color/sky"]).toBe("rgb(230 220 203)");
+    expect(values["color/skin-sky-start"]).toBe(values["color/sky"]);
+    expect(values["color/skin-sky-end"]).toBe(values["color/sky"]);
+    expect(values["color/preview-panel"]).toBe("rgb(251 247 238 / 0.42)");
     expect(values["color/glass-panel"]).toBe("rgb(251 247 238)");
     expect(values["color/ink"]).toBe("rgb(43 38 32)");
     expect(values["color/primary"]).toBe("rgb(180 67 43)");

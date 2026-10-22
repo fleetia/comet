@@ -62,7 +62,6 @@ export const Interactive: Story = {
     const user = userEvent.setup({ document: canvasElement.ownerDocument });
     const group = canvas.getByRole("group", { name: "이야기 선택" });
     await waitFor(() => expect(group.getBoundingClientRect().height).toBe(196));
-    await expect(group.firstElementChild?.tagName).toBe("IMG");
     await expect(group.firstElementChild?.getBoundingClientRect().width).toBe(340);
     await expect(group.firstElementChild?.getBoundingClientRect().height).toBe(196);
     await user.tab();

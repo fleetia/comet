@@ -11,14 +11,16 @@ import {
 } from "@comet/ui";
 import { MemorySearchSettings } from "../MemorySettings/MemorySearchSettings";
 import { ChatGptSettings } from "../ChatGptSettings/ChatGptSettings";
+import { AppleModelSettings } from "./AppleModelSettings";
 import { OrganizerSettings } from "../OrganizerSettings/OrganizerSettings";
 import type { AiProvider, LocalModel, LocalModelStatus, Settings, Snapshot } from "../../types";
 import {
-  AI_PROVIDERS,
   API_MODEL_EXAMPLES,
   getAiProvider,
+  getAiProviders,
   getAiProviderLabel,
   getApiProfile,
+  getRecommendedAiProvider,
 } from "../../aiProviders";
 import type { SettingsDraft } from "../../hooks/useSettingsDraft";
 import * as common from "../../common.css";
@@ -82,6 +84,7 @@ export function ModelSettings({
   const keylessApi = isKeylessApiUrl(settings.baseUrl);
   const provider = getAiProvider(settings);
   const providerLabel = getAiProviderLabel(settings);
+  const recommendedProvider = getRecommendedAiProvider(snapshot.device.platform);
   const customApi = settings.apiProvider === "custom";
   const savedProfile = getApiProfile(snapshot.settings, settings.apiProvider);
   const hasSavedApiKey =
@@ -105,12 +108,25 @@ export function ModelSettings({
         disabled={!!pending}
         className={styles.provider}
       >
-        {AI_PROVIDERS.map((item) => (
+        {getAiProviders(snapshot.device.platform, provider).map((item) => (
           <option key={item.value} value={item.value}>
             {item.label}
+            {item.value === recommendedProvider ? " · 추천" : ""}
           </option>
         ))}
       </Select>
+      {recommendedProvider && (
+        <p className={figma.caption}>
+          {snapshot.device.platform === "macos"
+            ? "macOS에서는 Apple 온디바이스 AI를"
+            : "Windows에서는 ChatGPT를"}{" "}
+          먼저 추천해요. 저장한 선택은 유지해요.
+        </p>
+      )}
+      <div className={figma.note}>
+        <SparkleIcon size={13} />
+        <p className={figma.caption}>AI가 없어도 인사, 단어장, 대화팩 대사는 그대로 동작해요.</p>
+      </div>
       {provider !== getAiProvider(snapshot.settings) && (
         <p className={figma.caption}>
           <span>현재 사용 · {getAiProviderLabel(snapshot.settings)}</span> ·{" "}
@@ -118,12 +134,6 @@ export function ModelSettings({
         </p>
       )}
     </>
-  );
-  const noAi = (
-    <div className={figma.note}>
-      <SparkleIcon size={13} />
-      <p className={figma.caption}>AI가 없어도 인사, 단어장, 대화팩 대사는 그대로 동작해요.</p>
-    </div>
   );
   const extras = (
     <>
@@ -157,6 +167,16 @@ export function ModelSettings({
       <div className={styles.connection} hidden={organizerOpen}>
         {settings.mode === "chatgpt" ? (
           <ChatGptSettings
+            draft={draft}
+            automaticDraft={automaticDraft}
+            automaticFooter={automaticFooter}
+            footer={save}
+            inspectorHeader={providerHeader}
+            supportingContent={extras}
+          />
+        ) : settings.mode === "apple" ? (
+          <AppleModelSettings
+            initialStatus={snapshot.appleModel}
             draft={draft}
             automaticDraft={automaticDraft}
             automaticFooter={automaticFooter}
@@ -274,7 +294,6 @@ export function ModelSettings({
                   <p className={figma.caption}>확인만으로 쓰는 방식이 바뀌지는 않아요.</p>
                 </>
               )}
-              {noAi}
               {download?.error && (
                 <p className={common.error} role="alert">
                   {download.error}

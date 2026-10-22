@@ -416,6 +416,9 @@
   --comet-color-pill-border: rgb(166 178 230 / 0.36);
   --comet-color-pill-shadow: rgb(0 0 0 / 0.26);
   --comet-color-pressed: rgb(255 255 255 / 0.1);
+  --comet-color-preview-glow: rgb(182 160 234 / 0.2);
+  --comet-color-preview-glow-transparent: rgb(182 160 234 / 0);
+  --comet-color-preview-panel: rgb(26 36 86 / 0.28);
   --comet-color-primary: rgb(255 204 51);
   --comet-color-primary-hover: rgb(255 214 92);
   --comet-color-primary-pressed: rgb(242 188 20);
@@ -429,6 +432,8 @@
   --comet-color-selected-ink: rgb(255 224 138);
   --comet-color-sep: rgb(18 26 62);
   --comet-color-skin-play-bubble: rgb(255 255 255);
+  --comet-color-skin-sky-end: rgb(10 15 38);
+  --comet-color-skin-sky-start: rgb(10 15 38);
   --comet-color-sky: rgb(10 15 38);
   --comet-color-sky-glow-blue: rgb(64 110 220 / 0.2);
   --comet-color-sky-glow-violet: rgb(118 92 214 / 0.26);
@@ -686,6 +691,9 @@
   --comet-color-pill-border: rgb(255 255 255 / 0.8);
   --comet-color-pill-shadow: rgb(32 44 96 / 0.18);
   --comet-color-pressed: rgb(20 32 64 / 0.09);
+  --comet-color-preview-glow: rgb(255 255 255 / 0.7);
+  --comet-color-preview-glow-transparent: rgb(255 255 255 / 0);
+  --comet-color-preview-panel: rgb(255 255 255 / 0.42);
   --comet-color-primary: rgb(30 42 85);
   --comet-color-primary-hover: rgb(42 58 112);
   --comet-color-primary-pressed: rgb(20 29 64);
@@ -699,6 +707,8 @@
   --comet-color-selected-ink: rgb(20 32 64);
   --comet-color-sep: rgb(255 255 255 / 0.9);
   --comet-color-skin-play-bubble: rgb(255 255 255);
+  --comet-color-skin-sky-end: rgb(246 217 199);
+  --comet-color-skin-sky-start: rgb(201 215 245);
   --comet-color-sky: rgb(180 196 236);
   --comet-color-sky-glow-blue: rgb(204 215 243 / 0.85);
   --comet-color-sky-glow-violet: rgb(255 233 212 / 0.5);
@@ -956,6 +966,9 @@
   --comet-color-pill-border: rgb(226 214 193);
   --comet-color-pill-shadow: rgb(80 58 24 / 0.18);
   --comet-color-pressed: rgb(43 38 32 / 0.09);
+  --comet-color-preview-glow: rgb(251 247 238 / 0.7);
+  --comet-color-preview-glow-transparent: rgb(251 247 238 / 0);
+  --comet-color-preview-panel: rgb(251 247 238 / 0.42);
   --comet-color-primary: rgb(180 67 43);
   --comet-color-primary-hover: rgb(189 90 68);
   --comet-color-primary-pressed: rgb(164 64 42);
@@ -969,6 +982,8 @@
   --comet-color-selected-ink: rgb(43 38 32);
   --comet-color-sep: rgb(251 247 238 / 0.9);
   --comet-color-skin-play-bubble: rgb(251 247 238);
+  --comet-color-skin-sky-end: rgb(230 220 203);
+  --comet-color-skin-sky-start: rgb(230 220 203);
   --comet-color-sky: rgb(230 220 203);
   --comet-color-sky-glow-blue: rgb(251 247 238 / 0.2);
   --comet-color-sky-glow-violet: rgb(251 247 238 / 0.3);
@@ -1226,6 +1241,9 @@
   --comet-color-pill-border: rgb(42 35 64);
   --comet-color-pill-shadow: rgb(42 35 64 / 0.18);
   --comet-color-pressed: rgb(42 35 64 / 0.09);
+  --comet-color-preview-glow: rgb(255 255 255 / 0.7);
+  --comet-color-preview-glow-transparent: rgb(255 255 255 / 0);
+  --comet-color-preview-panel: rgb(255 255 255 / 0.42);
   --comet-color-primary: rgb(255 210 63);
   --comet-color-primary-hover: rgb(228 187 62);
   --comet-color-primary-pressed: rgb(229 189 63);
@@ -1239,6 +1257,8 @@
   --comet-color-selected-ink: rgb(42 35 64);
   --comet-color-sep: rgb(255 255 255 / 0.9);
   --comet-color-skin-play-bubble: rgb(255 255 255);
+  --comet-color-skin-sky-end: rgb(255 231 163);
+  --comet-color-skin-sky-start: rgb(255 231 163);
   --comet-color-sky: rgb(255 231 163);
   --comet-color-sky-glow-blue: rgb(255 255 255 / 0.2);
   --comet-color-sky-glow-violet: rgb(255 255 255 / 0.3);

@@ -24,6 +24,28 @@ impl WidgetGenerationEligibility {
 }
 
 pub fn widget_generation_eligibility(settings: &Settings) -> WidgetGenerationEligibility {
+    if !matches!(settings.mode.as_str(), "local" | "api" | "chatgpt") {
+        return WidgetGenerationEligibility {
+            allowed: false,
+            reason: if settings.mode == "apple" {
+                crate::apple_models::WIDGET_UNSUPPORTED.into()
+            } else {
+                "설정에서 지원하는 AI를 직접 선택해 주세요.".into()
+            },
+            model: if settings.mode == "apple" {
+                "Apple Foundation Models"
+            } else {
+                ""
+            }
+            .into(),
+            parameter_billions: None,
+            source: if settings.mode == "apple" {
+                "apple-system"
+            } else {
+                "unknown"
+            },
+        };
+    }
     if settings.mode == "chatgpt" {
         return WidgetGenerationEligibility {
             allowed: !settings.chatgpt_model.trim().is_empty(),
@@ -198,6 +220,19 @@ fn gguf_size_label(reader: impl Read) -> io::Result<Option<String>> {
 mod tests {
     use super::*;
     use crate::types::LocalModel;
+
+    #[test]
+    fn apple_never_inherits_a_saved_large_gguf_or_api_widget_capability() {
+        for mode in ["apple", "unknown"] {
+            let settings = Settings {
+                mode: mode.into(),
+                local_model: LocalModel::Qwen35_27B,
+                api_model: "other-70b".into(),
+                ..Settings::default()
+            };
+            assert!(!widget_generation_eligibility(&settings).allowed);
+        }
+    }
 
     fn gguf(label: Option<&str>) -> Vec<u8> {
         let mut data = b"GGUF".to_vec();

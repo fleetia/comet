@@ -136,7 +136,10 @@ export const input = style({
   fontFamily: "inherit",
   fontSize: 14,
   lineHeight: "20px",
-  selectors: { "&::placeholder": { color: tokens["color/ink-3"] } },
+  selectors: {
+    "&::placeholder": { color: tokens["color/ink-3"] },
+    "&:disabled": { cursor: "not-allowed" },
+  },
 });
 export const inputLarge = style({
   fontSize: tokens["typography/display/title-sm/fontSize"],
@@ -158,7 +161,7 @@ export const send = style([
     cursor: "pointer",
     selectors: {
       "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: 3 },
-      "&:disabled": { cursor: "default" },
+      "&:disabled": { opacity: 0.4, cursor: "not-allowed" },
     },
   },
 ]);
@@ -211,6 +214,10 @@ export const choiceIcon = style({
   flexShrink: 0,
   display: "flex",
   alignItems: "flex-start",
+  backgroundColor: tokens["color/spark"],
+  maskSize: "11.25px 11.25px",
+  maskPosition: "left top",
+  maskRepeat: "no-repeat",
 });
 export const choiceLabel = style({ minWidth: 0 });
 export const choices = style({
@@ -224,9 +231,20 @@ export const choices = style({
   boxSizing: "border-box",
 });
 export const choiceLine = style({ position: "absolute", top: 0, left: 0, pointerEvents: "none" });
+export const standardChoiceLine = style([
+  choiceLine,
+  {
+    width: 340,
+    height: 196,
+    // The SVG mask already supplies 0.45 alpha; the theme token owns the final opacity.
+    backgroundColor: `rgb(from ${tokens["color/star-line"]} r g b / calc(alpha / 0.45))`,
+    maskSize: "100% 100%",
+    maskRepeat: "no-repeat",
+  },
+]);
 export const dynamicLine = style({
   fill: "none",
-  stroke: tokens["color/star-border"],
+  stroke: tokens["color/star-line"],
   strokeWidth: 1,
   strokeDasharray: "2 6",
 });

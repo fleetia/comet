@@ -30,6 +30,25 @@ it("uses ChatGPT readiness independently of local model and API key readiness", 
   });
 });
 
+it("uses Apple availability and reports its unavailable reason independently of local models", () => {
+  const snapshot = {
+    ...PREVIEW_SNAPSHOT,
+    modelReady: true,
+    hasApiKey: true,
+    settings: { ...PREVIEW_SNAPSHOT.settings, mode: "apple" as const },
+  };
+  expect(aiAvailability(snapshot)).toEqual({
+    ready: false,
+    label: `AI 자유 대화 · ${snapshot.appleModel.message}`,
+  });
+  expect(
+    aiAvailability({
+      ...snapshot,
+      appleModel: { ...snapshot.appleModel, available: true, reason: "available" },
+    }),
+  ).toEqual({ ready: true, label: "AI 자유 대화 · Apple 온디바이스 AI 준비됨" });
+});
+
 it.each([
   ["https://api.example.com/v1", "model", false, false],
   ["https://api.example.com/v1", "model", true, true],
