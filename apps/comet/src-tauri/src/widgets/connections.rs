@@ -962,6 +962,67 @@ mod tests {
         }
     }
 
+    #[test]
+    fn macos_battery_zero_is_present_and_unreadable_percent_is_an_error() {
+        let empty = parse_macos_battery("Now drawing from 'AC Power'\n", 100).unwrap();
+        assert_eq!(empty["hasBattery"], false);
+        assert_eq!(empty["batteries"], json!([]));
+
+        let zero = parse_macos_battery(
+            "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=123)\t0%; discharging; (no estimate) present: true\n",
+            100,
+        )
+        .unwrap();
+        assert_eq!(zero["hasBattery"], true);
+        assert_eq!(zero["batteries"][0]["percent"], 0);
+        assert_eq!(zero["batteries"][0]["status"], "discharging");
+        assert_eq!(zero["observedAt"], 100);
+
+        let unreadable = parse_macos_battery(
+            "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=123)\tunknown%; discharging; (no estimate) present: true\n",
+            100,
+        )
+        .unwrap_err();
+        assert_eq!(unreadable.status, "offline");
+        assert_eq!(unreadable.message, "배터리 잔량을 읽지 못했어요.");
+    }
+
+    #[test]
+    fn windows_battery_absent_zero_and_unknown_percent_remain_distinct() {
+        let absent = parse_windows_battery("[]", 100).unwrap();
+        assert_eq!(absent["hasBattery"], false);
+        assert_eq!(absent["batteries"], json!([]));
+
+        let zero =
+            parse_windows_battery(r#"[{"EstimatedChargeRemaining":0,"BatteryStatus":1}]"#, 100)
+                .unwrap();
+        assert_eq!(zero["hasBattery"], true);
+        assert_eq!(zero["batteries"][0]["percent"], 0);
+        assert_eq!(zero["batteries"][0]["status"], "discharging");
+
+        for output in [
+            r#"[{"EstimatedChargeRemaining":null,"BatteryStatus":null}]"#,
+            r#"[{}]"#,
+        ] {
+            let unknown = parse_windows_battery(output, 100).unwrap();
+            assert_eq!(unknown["hasBattery"], true);
+            assert_eq!(unknown["batteries"][0]["percent"], Value::Null);
+            assert_eq!(unknown["batteries"][0]["status"], "unknown");
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn configured_linux_battery_refresh_reports_platform_support() {
+        let data = configure("device", &initial("device"), &json!({})).unwrap();
+        let error = refresh("device", &data, 100).await.unwrap_err();
+        assert_eq!(error.status, "unsupported");
+        assert_eq!(
+            error.message,
+            "현재 배터리 정보 조회는 macOS와 Windows를 지원해요."
+        );
+    }
+
     #[tokio::test]
     async fn subprocess_reader_rejects_oversized_output_without_retaining_it() {
         let bytes = vec![b'a'; MAX_COMMAND_BYTES + 2];

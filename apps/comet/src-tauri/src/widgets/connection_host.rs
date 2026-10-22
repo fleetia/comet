@@ -1235,18 +1235,14 @@ pub(crate) async fn music_bridge_pair(
     outcome
 }
 
-async fn refresh_information(
-    app: &AppHandle,
-    state: &Arc<AppState>,
-    id: &str,
-    manual: bool,
-) -> Result<(), String> {
-    let time = timestamp();
-    let job = begin(state, id, None, |instance| {
+fn begin_information(state: &AppState, id: &str, manual: bool, time: i64) -> Result<Job, String> {
+    begin(state, id, None, |instance| {
         if !manual && lock(&state.widget_jobs)?.contains_key(id) {
             return Err("이미 조회 중입니다.".into());
         }
-        if !["weather", "music"].contains(&instance.kind.as_str()) {
+        if !["weather", "music"].contains(&instance.kind.as_str())
+            && !(manual && instance.kind == "device")
+        {
             return Err("정보 연결 위젯이 아닙니다.".into());
         }
         if instance.data["configured"] != true {
@@ -1270,7 +1266,17 @@ async fn refresh_information(
         data["status"] = json!("syncing");
         data["lastAttemptAt"] = json!(time);
         Ok(Some(data))
-    })?;
+    })
+}
+
+async fn refresh_information(
+    app: &AppHandle,
+    state: &Arc<AppState>,
+    id: &str,
+    manual: bool,
+) -> Result<(), String> {
+    let time = timestamp();
+    let job = begin_information(state, id, manual, time)?;
     publish_widgets(app, state);
     let result = execute(&job, async {
         Ok(refresh_observation(&job.instance, time).await)
@@ -1414,6 +1420,204 @@ pub(crate) fn start_due_widget_refreshes(app: &AppHandle, state: &Arc<AppState>)
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn installed_information(state: &AppState, kind: &str, configured: bool) -> String {
+        let directory = tempfile::tempdir().unwrap();
+        let db = lock(&state.db).unwrap();
+        storage::install(&db, directory.path(), &[kind.into()]).unwrap();
+        let instance = storage::instances(&db)
+            .unwrap()
+            .into_iter()
+            .find(|item| item.kind == kind)
+            .unwrap();
+        let mut data = instance.data;
+        data["configured"] = json!(configured);
+        storage::commit_data(&db, &instance.id, instance.revision, data, vec![], 1).unwrap();
+        instance.id
+    }
+
+    #[test]
+    fn manual_information_refresh_accepts_device_and_preserves_kind_and_configuration_gates() {
+        let state = crate::lifecycle_tests::state();
+        for kind in ["weather", "music", "device"] {
+            let id = installed_information(&state, kind, true);
+            let job = begin_information(&state, &id, true, 100_000).unwrap();
+            assert_eq!(job.instance.kind, kind);
+            assert_eq!(job.instance.data["status"], "syncing");
+            assert_eq!(job.instance.data["lastAttemptAt"], 100_000);
+            assert_eq!(job.instance.data["failureCount"], 0);
+        }
+        let id = installed_information(&state, "clock", true);
+        assert_eq!(
+            begin_information(&state, &id, true, 100_000).err().unwrap(),
+            "정보 연결 위젯이 아닙니다."
+        );
+        lock(&state.db)
+            .unwrap()
+            .execute(
+                "UPDATE widget_instances SET kind='unknown' WHERE id=?1",
+                [&id],
+            )
+            .unwrap();
+        assert_eq!(
+            begin_information(&state, &id, true, 100_000).err().unwrap(),
+            "정보 연결 위젯이 아닙니다."
+        );
+        let state = crate::lifecycle_tests::state();
+        let id = installed_information(&state, "device", false);
+        assert_eq!(
+            begin_information(&state, &id, true, 100_000).err().unwrap(),
+            "조회할 정보 연결을 먼저 설정해 주세요."
+        );
+        assert!(lock(&state.widget_jobs).unwrap().is_empty());
+        assert_eq!(
+            begin_information(&state, &id, false, 100_000)
+                .err()
+                .unwrap(),
+            "정보 연결 위젯이 아닙니다."
+        );
+    }
+
+    #[test]
+    fn manual_device_refresh_preserves_throttle_and_resets_failure_backoff() {
+        let state = crate::lifecycle_tests::state();
+        let id = installed_information(&state, "device", true);
+        {
+            let db = lock(&state.db).unwrap();
+            let instance = storage::get(&db, &id).unwrap();
+            let mut data = instance.data;
+            data["failureCount"] = json!(5);
+            data["nextRefreshAt"] = json!(i64::MAX);
+            data["lastAttemptAt"] = json!(100_000);
+            storage::commit_data(&db, &id, instance.revision, data, vec![], 1).unwrap();
+        }
+        assert_eq!(
+            begin_information(&state, &id, true, 129_999).err().unwrap(),
+            "잠시 기다린 뒤 다시 조회해 주세요."
+        );
+        let job = begin_information(&state, &id, true, 130_000).unwrap();
+        assert_eq!(job.instance.data["failureCount"], 0);
+        assert_eq!(job.instance.data["status"], "syncing");
+        assert_eq!(
+            begin_information(&state, &id, true, 130_001).err().unwrap(),
+            "잠시 기다린 뒤 다시 조회해 주세요."
+        );
+        assert!(!job.cancel.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn manual_device_jobs_reject_stale_cancelled_and_superseded_results() {
+        let state = crate::lifecycle_tests::state();
+        let id = installed_information(&state, "device", true);
+        let stale = begin_information(&state, &id, true, 100_000).unwrap();
+        {
+            let db = lock(&state.db).unwrap();
+            storage::bump_revision(&db, &id, stale.instance.revision).unwrap();
+        }
+        assert!(finish(&state, &stale, |_, _| panic!("stale result committed")).is_err());
+        let cancelled = begin_information(&state, &id, true, 130_000).unwrap();
+        crate::widgets::commands::cancel_widget_jobs(&state, Some(&id)).unwrap();
+        let result: Result<(), String> = execute(&cancelled, std::future::pending()).await;
+        assert_eq!(result.unwrap_err(), "위젯 조회를 취소했습니다.");
+        assert!(finish(&state, &cancelled, |_, _| panic!(
+            "cancelled result committed"
+        ))
+        .is_err());
+        let old = begin_information(&state, &id, true, 160_000).unwrap();
+        let current = begin_information(&state, &id, true, 190_000).unwrap();
+        assert!(old.cancel.load(Ordering::SeqCst));
+        assert!(finish(&state, &old, |_, _| panic!("superseded result committed")).is_err());
+        assert!(is_current(&state, &current, &current.instance).unwrap());
+        finish(&state, &current, |db, instance| {
+            let mut data = instance.data.clone();
+            data["status"] = json!("ready");
+            storage::commit_data(db, &id, instance.revision, data, vec![], 1)
+        })
+        .unwrap();
+        assert!(lock(&state.widget_jobs).unwrap().is_empty());
+        let db = lock(&state.db).unwrap();
+        assert_eq!(storage::get(&db, &id).unwrap().data["status"], "ready");
+    }
+
+    #[tokio::test]
+    async fn manual_device_refresh_reaches_the_device_configuration_check() {
+        let state = crate::lifecycle_tests::state();
+        let id = installed_information(&state, "device", true);
+        {
+            let db = lock(&state.db).unwrap();
+            let instance = storage::get(&db, &id).unwrap();
+            let mut data = instance.data;
+            data["config"] = json!({"unexpected": true});
+            storage::commit_data(&db, &id, instance.revision, data, vec![], 1).unwrap();
+        }
+        let job = begin_information(&state, &id, true, 100_000).unwrap();
+        let error = refresh_observation(&job.instance, 100_000)
+            .await
+            .unwrap_err();
+        assert_eq!(error.status, "permission-needed");
+        assert_eq!(error.message, "기기 조회 설정을 다시 확인해 주세요.");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn manual_device_refresh_reports_and_stores_linux_unsupported() {
+        let state = crate::lifecycle_tests::state();
+        let id = installed_information(&state, "device", true);
+        let job = begin_information(&state, &id, true, 100_000).unwrap();
+        let error = execute(&job, async {
+            Ok(refresh_observation(&job.instance, 100_000).await)
+        })
+        .await
+        .unwrap()
+        .unwrap_err();
+        assert_eq!(error.status, "unsupported");
+        assert_eq!(
+            error.message,
+            "현재 배터리 정보 조회는 macOS와 Windows를 지원해요."
+        );
+        finish(&state, &job, |db, current| {
+            let data = information_failure(
+                &current.data,
+                &error,
+                100_000,
+                connections::refresh_interval("device", &current.data),
+            );
+            storage::commit_data(db, &id, current.revision, data, vec![], 1)
+        })
+        .unwrap();
+        let db = lock(&state.db).unwrap();
+        let stored = storage::get(&db, &id).unwrap();
+        assert_eq!(stored.data["status"], "unsupported");
+        assert_eq!(stored.data["error"], error.message);
+        assert_eq!(stored.data["nextRefreshAt"], i64::MAX);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[tokio::test]
+    #[ignore = "reads the host battery with pmset or Win32_Battery"]
+    async fn manual_device_refresh_reads_supported_host_battery() {
+        let state = crate::lifecycle_tests::state();
+        let id = installed_information(&state, "device", true);
+        let job = begin_information(&state, &id, true, 100_000).unwrap();
+        let data = execute(&job, async {
+            Ok(refresh_observation(&job.instance, 100_000).await)
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(data["status"], "ready");
+        assert_eq!(data["lastSuccessAt"], 100_000);
+        assert!(data["observation"]["hasBattery"].is_boolean());
+        assert!(data["observation"]["batteries"].is_array());
+        assert_eq!(
+            data["observation"]["source"],
+            if cfg!(target_os = "macos") {
+                "macOS pmset"
+            } else {
+                "Windows Win32_Battery"
+            }
+        );
+    }
+
     fn music_instance(now: i64) -> WidgetInstance {
         WidgetInstance {
             id: "music-test".into(),

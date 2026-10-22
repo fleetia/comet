@@ -150,6 +150,39 @@ it("asks for battery access once before the first refresh", async () => {
   });
 });
 
+it("refreshes an already configured battery without configuring it again", async () => {
+  render(<BatteryTool widget={widget("device", { configured: true })} />);
+  fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "새로고침" })).toHaveProperty("disabled", false),
+  );
+  expect(command).toHaveBeenCalledExactlyOnceWith("refresh_connection_widget", { id: "device" });
+});
+
+it("preserves the Linux unsupported error returned by battery refresh", async () => {
+  const unsupported = "현재 배터리 정보 조회는 macOS와 Windows를 지원해요.";
+  vi.mocked(command).mockRejectedValueOnce(unsupported);
+  render(<BatteryTool widget={widget("device", { configured: true })} />);
+  fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(unsupported));
+  expect(command).toHaveBeenCalledExactlyOnceWith("refresh_connection_widget", { id: "device" });
+  expect(screen.queryByText("0%")).toBeNull();
+  expect(screen.queryByText(/에는 읽을 수 있는 배터리가 없어요/)).toBeNull();
+});
+
+it("does not refresh the battery when its initial configuration fails", async () => {
+  vi.mocked(command).mockRejectedValueOnce("기기 정보 조회가 허용되지 않았어요.");
+  render(<BatteryTool widget={widget("device", { configured: false })} />);
+  fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+  await waitFor(() =>
+    expect(screen.getByRole("alert").textContent).toBe("기기 정보 조회가 허용되지 않았어요."),
+  );
+  expect(command).toHaveBeenCalledExactlyOnceWith("configure_connection_widget", {
+    id: "device",
+    input: {},
+  });
+});
+
 it("shows the reading of the first battery and the power source", () => {
   render(
     <BatteryTool
@@ -165,4 +198,56 @@ it("shows the reading of the first battery and the power source", () => {
   );
   expect(screen.getByText("64%")).toBeTruthy();
   expect(screen.getByRole("status").textContent).toBe("충전 중 · 전원 연결됨");
+});
+
+it("shows a device without a battery separately from a zero or unknown reading", () => {
+  render(
+    <BatteryTool
+      widget={widget("device", {
+        configured: true,
+        observation: { hasBattery: false, powerSource: "ac", batteries: [] },
+      })}
+    />,
+  );
+  expect(screen.getByRole("status").textContent).toMatch(/에는 읽을 수 있는 배터리가 없어요\.$/);
+  expect(screen.queryByText("0%")).toBeNull();
+  expect(screen.queryByText("—")).toBeNull();
+});
+
+it("shows a measured zero percent as a battery reading", () => {
+  render(
+    <BatteryTool
+      widget={widget("device", {
+        configured: true,
+        observation: {
+          hasBattery: true,
+          powerSource: "battery",
+          batteries: [{ percent: 0, status: "discharging" }],
+        },
+      })}
+    />,
+  );
+  expect(screen.getByText("0%")).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toBe("배터리 사용 중 · 전원 분리됨");
+  expect(screen.queryByText("—")).toBeNull();
+  expect(screen.queryByText(/에는 읽을 수 있는 배터리가 없어요/)).toBeNull();
+});
+
+it.each([
+  { batteries: [] },
+  { batteries: [{ status: "unknown" }] },
+  { batteries: [{ percent: null, status: "unknown" }] },
+])("shows an unknown battery reading without inventing zero percent (%j)", ({ batteries }) => {
+  render(
+    <BatteryTool
+      widget={widget("device", {
+        configured: true,
+        observation: { hasBattery: true, powerSource: "unknown", batteries },
+      })}
+    />,
+  );
+  expect(screen.getByText("—")).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toBe("상태 확인 불가");
+  expect(screen.queryByText("0%")).toBeNull();
+  expect(screen.queryByText(/에는 읽을 수 있는 배터리가 없어요/)).toBeNull();
 });
