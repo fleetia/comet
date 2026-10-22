@@ -133,6 +133,8 @@ pub(crate) fn initialize(app: &tauri::AppHandle, state: &AppState) -> Result<(),
     Ok(())
 }
 
+const OPEN_FAILED: &str = "빠른 실행 창을 열지 못했어요. 앱을 다시 시작한 뒤 다시 시도해 주세요.";
+
 // Called only while holding launcher_gate, before taking action/state locks.
 // Registering the shortcut does not need a resident hidden WebView. Keep the
 // window after its first use so closing/reopening still preserves local drafts.
@@ -335,7 +337,21 @@ pub(crate) async fn open_launcher(
 ) -> Result<(), String> {
     let _gate = state.launcher_gate.lock().await;
     let previous = capture_focus(&app);
-    let window = ensure_window(&app).await?;
+    // Shortcut and tray opens only log errors; surface first-open failures in
+    // the launcher settings until a later open succeeds.
+    let window = match ensure_window(&app).await {
+        Ok(window) => {
+            let mut runtime = lock(&state.launcher)?;
+            if runtime.shortcut_error.as_deref() == Some(OPEN_FAILED) {
+                runtime.shortcut_error = None;
+            }
+            window
+        }
+        Err(error) => {
+            lock(&state.launcher)?.shortcut_error = Some(OPEN_FAILED.into());
+            return Err(error);
+        }
+    };
     {
         let _action = lock(&state.action)?;
         let was_open = state.launcher_open.load(Ordering::SeqCst);
