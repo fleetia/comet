@@ -29,7 +29,8 @@ export const inspector = style({
   padding: "18px 20px 20px",
   borderRadius: 24,
   border: `1px solid ${tokens["color/chip-border"]}`,
-  background: `radial-gradient(ellipse at 50% 0, ${tokens["color/component/cat-rest-alpha-160"]}, transparent 70%), ${tokens["color/card-2"]}`,
+  background: `radial-gradient(ellipse at 50% 0, ${tokens["color/inspector-glow"]}, transparent 70%), ${tokens["color/card-2"]}`,
+  boxShadow: `0 1px 2px ${tokens["color/card-shadow"]}`,
 });
 export const listHeading = style({
   display: "flex",
