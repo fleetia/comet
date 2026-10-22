@@ -137,6 +137,11 @@ export function deriveSkin(
   const soft = (factor: number): Paint => [border[0], border[1] * factor];
   const roles: Record<string, Paint> = {
     sky: [c.background, 1],
+    "skin-sky-start": [c.background, 1],
+    "skin-sky-end": [c.background, 1],
+    "preview-panel": [c.balloon, 0.42],
+    "preview-glow": [c.balloon, 0.7],
+    "preview-glow-transparent": [c.balloon, 0],
     "sky-glow-violet": [c.balloon, 0.3],
     "sky-glow-blue": [c.balloon, 0.2],
     "document/backdrop-panel/sky": [c.background, 1],
