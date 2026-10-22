@@ -519,6 +519,7 @@ export function ConversationHistoryWindow({
         if (active) setError(errorText(cause));
       });
     void listen<{ generation: number; persona: string }>("conversation-history-open", (event) => {
+      if (event.payload.generation < (generation.current ?? 0)) return;
       generation.current = Math.max(generation.current ?? 0, event.payload.generation);
       if (event.payload.persona !== "all") {
         if (operation.current) reopenPersona.current = event.payload.persona;
@@ -543,12 +544,21 @@ export function ConversationHistoryWindow({
     setRestorationReady(false);
     setLoading(true);
     setListError(null);
+    const requestedGeneration = generation.current;
     void command<HistoryWindowState>("get_conversation_history_state")
       .then((state) => {
         if (!active) return;
+        // A newer open owns the current filter/selection, including an all-scope refresh.
+        const openedSinceRequest = generation.current !== requestedGeneration;
+        const staleState = state.generation < (generation.current ?? 0);
         generation.current = Math.max(generation.current ?? 0, state.generation);
         const saved = state.restoration;
-        if (saved && saved.userId === current.current.user?.id) {
+        if (
+          !openedSinceRequest &&
+          !staleState &&
+          saved &&
+          saved.userId === current.current.user?.id
+        ) {
           const selectedFilter =
             initialPersona && initialPersona !== "all" ? initialPersona : saved.filter;
           filterScope.current = selectedFilter;

@@ -124,6 +124,7 @@ it.each(["restart", "other-session-error"])(
       recovery: { messageId: failedInput.id, reason: "incomplete" },
     };
     vi.mocked(command).mockImplementation(async (name) => {
+      if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
       if (name === "get_conversations") return [FIRST];
       if (name === "get_conversation_messages") return page;
     });
@@ -163,6 +164,7 @@ it.each(["loading", "generating", "playing"] as const)(
       recovery: { messageId: "pending-input", reason: "incomplete" },
     };
     vi.mocked(command).mockImplementation(async (name) => {
+      if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
       if (name === "get_conversations") return [FIRST];
       if (name === "get_conversation_messages") return pending;
     });
@@ -189,6 +191,7 @@ it("clears recovered history when a reply succeeds and ignores stale recovery fr
     recovery: { messageId: "failed-input", reason: "incomplete" },
   };
   vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
     if (name === "get_conversations") return [FIRST];
     if (name === "get_conversation_messages") return args?.before ? older.promise : failed;
   });
@@ -2671,4 +2674,113 @@ it("restores a selected transcript even when the saved search hides it from the 
     "value",
     SECOND.draft,
   );
+});
+
+it.each([
+  ["builtin-b", 1],
+  ["builtin-b", 2],
+  ["all", 1],
+  ["all", 2],
+] as const)(
+  "keeps the newer %s open intent when initial state generation %s arrives late",
+  async (persona, stateGeneration) => {
+    const hydration = deferred<{
+      generation: number;
+      restoration: null | {
+        userId: string;
+        selectedId: string;
+        filter: string;
+        query: string;
+        anchor: null;
+        followingTail: boolean;
+      };
+    }>();
+    const other = { ...SECOND, participants: ["builtin-b"] };
+    const fallback = vi.mocked(command).getMockImplementation()!;
+    vi.mocked(command).mockImplementation(async (name, args) => {
+      if (name === "get_conversation_history_state") return hydration.promise;
+      if (name === "get_conversations") return [other, FIRST];
+      if (name === "get_conversation_messages" && args?.sessionId === other.id)
+        return { ...SECOND_VIEW, session: other };
+      return fallback(name, args);
+    });
+    const { container } = render(
+      <ConversationHistoryWindow snapshot={SNAPSHOT} initialPersona="all" />,
+    );
+    await waitFor(() => expect(command).toHaveBeenCalledWith("get_conversation_history_state"));
+    const reopen = vi
+      .mocked(listen)
+      .mock.calls.find(([event]) => event === "conversation-history-open")?.[1];
+    expect(reopen).toBeTypeOf("function");
+    await act(async () => {
+      reopen?.({
+        event: "conversation-history-open",
+        id: 100,
+        payload: { generation: 2, persona },
+      });
+    });
+    await waitFor(() =>
+      expect(container.querySelector(`input[value="${persona}"]`)).toHaveProperty("checked", true),
+    );
+    await act(async () => {
+      hydration.resolve({
+        generation: stateGeneration,
+        restoration: {
+          userId: FIRST.userId,
+          selectedId: FIRST.id,
+          filter: "builtin-a",
+          query: "old search",
+          anchor: null,
+          followingTail: true,
+        },
+      });
+    });
+    await screen.findByText("다음 대화 원문");
+    expect(container.querySelector(`input[value="${persona}"]`)).toHaveProperty("checked", true);
+    expect(screen.getByRole("searchbox", { name: "대화 찾기" })).toHaveProperty("value", "");
+    expect(screen.queryByText(/첫 대화 원문/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "지난 대화 닫기" }));
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith(
+        "release_conversation_history",
+        expect.objectContaining({ generation: 2 }),
+      ),
+    );
+  },
+);
+
+it("ignores an older persona-open event after a newer History open", async () => {
+  const other = { ...SECOND, participants: ["builtin-b"] };
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversations") return [FIRST, other];
+    if (name === "get_conversation_messages" && args?.sessionId === other.id)
+      return { ...SECOND_VIEW, session: other };
+    return fallback(name, args);
+  });
+  const { container } = render(
+    <ConversationHistoryWindow snapshot={SNAPSHOT} initialPersona="builtin-a" />,
+  );
+  await screen.findByText(/첫 대화 원문/);
+  const reopen = vi
+    .mocked(listen)
+    .mock.calls.find(([event]) => event === "conversation-history-open")?.[1];
+  await act(async () => {
+    reopen?.({
+      event: "conversation-history-open",
+      id: 101,
+      payload: { generation: 3, persona: "builtin-b" },
+    });
+  });
+  await screen.findByText("다음 대화 원문");
+  await act(async () => {
+    reopen?.({
+      event: "conversation-history-open",
+      id: 102,
+      payload: { generation: 2, persona: "builtin-a" },
+    });
+  });
+  expect(container.querySelector('input[value="builtin-b"]')).toHaveProperty("checked", true);
+  expect(screen.getByText("다음 대화 원문")).toBeTruthy();
+  expect(screen.queryByText(/첫 대화 원문/)).toBeNull();
 });
