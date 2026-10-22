@@ -875,6 +875,43 @@ it("flushes before returning input ownership on a native close request", async (
   );
 });
 
+it("ignores input while the closing draft save and release are pending", async () => {
+  const save = deferred<void>();
+  const release = deferred<boolean>();
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await begin();
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "save_conversation_draft") return save.promise;
+    if (name === "release_conversation_history") return release.promise;
+    return fallback(name, args);
+  });
+  const input = screen.getByRole("textbox", { name: "이어서 말하기" });
+  const content = "  닫기 전 초안\n그대로 보존  ";
+  fireEvent.change(input, { target: { value: content } });
+  act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault: vi.fn() }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("save_conversation_draft", {
+      sessionId: FIRST.id,
+      draft: content,
+      inputOwner: "history",
+    }),
+  );
+  fireEvent.change(input, { target: { value: "저장 응답 대기 중 입력" } });
+  expect(input).toHaveProperty("value", content);
+  expect(command).not.toHaveBeenCalledWith("release_conversation_history", expect.anything());
+
+  await act(async () => save.resolve());
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("release_conversation_history", expect.anything()),
+  );
+  fireEvent.change(input, { target: { value: "닫기 응답 대기 중 입력" } });
+  expect(input).toHaveProperty("value", content);
+  expect(vi.mocked(command).mock.calls.filter(([name]) => name === "save_conversation_draft"))
+    .toHaveLength(1);
+  await act(async () => release.resolve(true));
+});
+
 it("preserves a rejected send and does not send while composing Korean text", async () => {
   render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
   await begin();
@@ -2332,7 +2369,7 @@ it("cancels a close waiting for draft persistence when History is reopened", asy
   );
 });
 
-it("does not destroy an open save dialog on native close", async () => {
+it("explains why native close is blocked without destroying an open save dialog", async () => {
   const fallback = vi.mocked(command).getMockImplementation()!;
   vi.mocked(command).mockImplementation(async (name, args) =>
     name === "get_conversation_notes" ? [] : fallback(name, args),
@@ -2341,9 +2378,136 @@ it("does not destroy an open save dialog on native close", async () => {
   await screen.findByText(/첫 대화 원문/);
   fireEvent.click(screen.getByRole("button", { name: "메모에 남기기" }));
   await screen.findByRole("form", { name: "대화를 메모에 남기기" });
-  act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault: vi.fn() }));
+  const event = { preventDefault: vi.fn() };
+  act(() => native.onCloseRequested.mock.calls[0][0](event));
+  expect(event.preventDefault).toHaveBeenCalled();
+  expect(screen.getByRole("alert")).toHaveProperty(
+    "textContent",
+    "저장하거나 취소한 뒤 닫아 주세요.",
+  );
   expect(command).not.toHaveBeenCalledWith("release_conversation_history", expect.anything());
   expect(screen.getByRole("form", { name: "대화를 메모에 남기기" })).toBeTruthy();
+});
+
+it("explains why native close is blocked by a pending draft replacement", async () => {
+  const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await begin();
+  const failedInput = { ...MESSAGE, id: "cancelled-input", role: "user", content: "원래 입력" };
+  rerender(
+    <ConversationHistoryWindow
+      snapshot={{
+        ...SNAPSHOT,
+        panel: { persona: "builtin-a", mode: "history-input" },
+        conversation: {
+          ...FIRST_VIEW,
+          messages: [failedInput],
+          recovery: { messageId: failedInput.id, reason: "cancelled" },
+        },
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "입력 수정" }));
+  const event = { preventDefault: vi.fn() };
+  act(() => native.onCloseRequested.mock.calls[0][0](event));
+  expect(event.preventDefault).toHaveBeenCalled();
+  expect(screen.getByRole("alert")).toHaveProperty(
+    "textContent",
+    "저장하거나 취소한 뒤 닫아 주세요.",
+  );
+  expect(command).not.toHaveBeenCalledWith("release_conversation_history", expect.anything());
+  expect(screen.getByRole("dialog", { name: "작성 중인 초안을 바꿀까요?" })).toBeTruthy();
+  expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty(
+    "value",
+    FIRST.draft,
+  );
+});
+
+it.each(["generating", "playing"] as const)(
+  "explains why native close is blocked while %s and allows closing once idle",
+  async (phase) => {
+    const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+    await screen.findByText(/첫 대화 원문/);
+    rerender(
+      <ConversationHistoryWindow
+        snapshot={{
+          ...SNAPSHOT,
+          runtime: { ...SNAPSHOT.runtime, phase },
+          playback:
+            phase === "playing"
+              ? {
+                  id: "wordbook-reply",
+                  persona: "builtin-a",
+                  text: "아직 말하는 중이에요.",
+                  expression: "평온",
+                  source: "wordbook",
+                  endsAt: FIRST.createdAt + 5000,
+                  lineIndex: 0,
+                  lineCount: 1,
+                }
+              : null,
+        }}
+      />,
+    );
+    const event = { preventDefault: vi.fn() };
+    act(() => native.onCloseRequested.mock.calls[0][0](event));
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveProperty(
+      "textContent",
+      "대답이 끝난 뒤 닫아 주세요.",
+    );
+    expect(command).not.toHaveBeenCalledWith("release_conversation_history", expect.anything());
+
+    rerender(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+    fireEvent.click(screen.getByRole("button", { name: "지난 대화 닫기" }));
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("release_conversation_history", expect.anything()),
+    );
+  },
+);
+
+it("refreshes a rejected close generation and retries without losing the editor draft", async () => {
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await begin();
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  let releases = 0;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "release_conversation_history") return ++releases > 1;
+    if (name === "get_conversation_history_state") return { generation: 7, restoration: null };
+    return fallback(name, args);
+  });
+  const event = { preventDefault: vi.fn() };
+  act(() => native.onCloseRequested.mock.calls[0][0](event));
+  expect(event.preventDefault).toHaveBeenCalled();
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    "창 상태가 바뀌었어요. 다시 닫아 주세요.",
+  );
+  expect(vi.mocked(command).mock.calls.filter(([name]) => name === "get_conversation_history_state"))
+    .toHaveLength(2);
+  expect(command).toHaveBeenCalledWith(
+    "release_conversation_history",
+    expect.objectContaining({ sessionId: FIRST.id, generation: 1 }),
+  );
+  const input = screen.getByRole("textbox", { name: "이어서 말하기" });
+  expect(input).toHaveProperty("disabled", false);
+  expect(input).toHaveProperty("value", FIRST.draft);
+  const content = "  다시 닫기 전에도 편집 가능\n원문 유지  ";
+  fireEvent.change(input, { target: { value: content } });
+  expect(input).toHaveProperty("value", content);
+  fireEvent.click(screen.getByRole("button", { name: "지난 대화 닫기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith(
+      "release_conversation_history",
+      expect.objectContaining({ sessionId: FIRST.id, generation: 7 }),
+    ),
+  );
+  expect(releases).toBe(2);
+  expect(command).toHaveBeenCalledWith("save_conversation_draft", {
+    sessionId: FIRST.id,
+    draft: content,
+    inputOwner: "history",
+  });
+  expect(screen.queryByRole("alert")).toBeNull();
 });
 
 it("retries failed navigation hydration instead of permanently trapping the window", async () => {
