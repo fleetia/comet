@@ -1,5 +1,16 @@
 # @comet/storybook
 
+## 0.1.8
+
+### Patch Changes
+
+- 4a7337f: 낮 모드에서 설정·다이어리에 남던 밤 배경을 제거하고, 새벽 스킨 미리보기와 집중 타이머·대화 장식의 색상을 Figma와 테마 토큰에 맞췄습니다.
+- Updated dependencies [2e3ba09]
+- Updated dependencies [4a7337f]
+- Updated dependencies [189de29]
+  - @comet/token@0.3.0
+  - @comet/ui@0.7.1
+
 ## 0.1.7
 
 ### Patch Changes
