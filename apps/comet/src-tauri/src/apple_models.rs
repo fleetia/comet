@@ -390,13 +390,21 @@ mod tests {
         assert!(total <= 4096, "short roster prompt requires {total}");
         eprintln!("Apple baseline byte budget, roster: {total}/4096");
         request(&prompt, &schema, 512).unwrap();
-        let analysis = crate::domain::analysis_batch(&[message], &[], 1);
-        request(
-            &analysis.messages,
-            &crate::domain::analysis_schema(),
-            MAX_OUTPUT_TOKENS,
-        )
-        .unwrap();
+        let mixed = crate::types::Message {
+            id: "apple-mixed-request".into(),
+            content: "오늘은 파란 종이로 작은 배를 만들었어. 같이 산책 가자는 말로 짧게 답해 줘."
+                .into(),
+            ..message
+        };
+        let analysis = crate::domain::analysis_batch(std::slice::from_ref(&mixed), &[], 1);
+        assert_eq!(analysis.submitted_ids, [mixed.id.as_str()]);
+        let payload: Value = serde_json::from_str(&analysis.messages[1].content).unwrap();
+        assert_eq!(payload["userMessages"][0]["text"], mixed.content);
+        let schema = crate::domain::analysis_schema();
+        request(&analysis.messages, &schema, MAX_OUTPUT_TOKENS).unwrap();
+        let total = baseline_budget(&analysis.messages, &schema, MAX_OUTPUT_TOKENS as usize);
+        assert!(total <= 4096, "memory extraction requires {total}");
+        eprintln!("Apple baseline byte budget, memory extraction: {total}/4096");
     }
 
     #[test]
