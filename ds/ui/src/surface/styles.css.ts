@@ -45,7 +45,7 @@ export const variants = styleVariants({
     borderRadius: tokens["radius/radius-16"],
     background: tokens["color/card"],
     backdropFilter: "none",
-    boxShadow: "none",
+    boxShadow: `0 1px 2px ${tokens["color/card-shadow"]}`,
   },
 });
 

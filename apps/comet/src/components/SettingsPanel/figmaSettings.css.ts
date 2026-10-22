@@ -25,7 +25,8 @@ export const inspector = style({
   padding: "18px 20px 20px",
   border: `1px solid ${tokens["color/chip-border"]}`,
   borderRadius: 24,
-  background: `radial-gradient(ellipse at 50% 0, ${tokens["color/component/cat-rest-alpha-160"]}, transparent 70%), ${tokens["color/card-2"]}`,
+  background: `radial-gradient(ellipse at 50% 0, ${tokens["color/inspector-glow"]}, transparent 70%), ${tokens["color/card-2"]}`,
+  boxShadow: `0 1px 2px ${tokens["color/card-shadow"]}`,
 });
 export const inspectorTitle = style({
   display: "flex",
@@ -75,6 +76,7 @@ export const group = style({
   border: `1px solid ${tokens["color/card-border"]}`,
   borderRadius: tokens["radius/radius-18"],
   background: tokens["color/card"],
+  boxShadow: `0 1px 2px ${tokens["color/card-shadow"]}`,
 });
 export const row = style({
   minHeight: 56,
@@ -108,6 +110,7 @@ export const summary = style({
   background: tokens["color/card"],
   border: `1px solid ${tokens["color/card-border"]}`,
   borderRadius: 18,
+  boxShadow: `0 1px 2px ${tokens["color/card-shadow"]}`,
 });
 export const avatar = style({
   display: "inline-grid",
@@ -137,6 +140,7 @@ export const note = style({
   borderRadius: 16,
   background: tokens["color/card"],
   border: `1px solid ${tokens["color/card-border"]}`,
+  boxShadow: `0 1px 2px ${tokens["color/card-shadow"]}`,
 });
 export const noteCopy = style({ display: "grid", gap: 2, minWidth: 0 });
 export const statusDot = style({

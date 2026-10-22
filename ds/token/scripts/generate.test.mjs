@@ -31,7 +31,7 @@ describe("Figma token generation", () => {
   it("converts the live source's alpha, dimensions, typography, and durations without applying a theme globally", () => {
     const { css, tokenNames, themes } = buildTokenArtifacts(source);
     expect(themes.dark["color/sky-glow-violet"]).toBe("rgb(118 92 214 / 0.26)");
-    expect(themes.light["color/sky-glow-violet"]).toBe("rgb(255 233 212 / 0.5)");
+    expect(themes.light["color/sky-glow-violet"]).toBe("rgb(226 232 246 / 0.5)");
     expect(css).toContain("--comet-spacing-space-4: 4px;");
     expect(css).toContain("--comet-typography-sans-body-sm-font-size: 12.5px;");
     expect(css).toContain("--comet-typography-sans-body-font-weight: 400;");
