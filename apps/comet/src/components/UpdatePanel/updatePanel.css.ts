@@ -10,8 +10,9 @@ export const panel = style({
   gap: 14,
   padding: "18px 20px 20px",
   borderRadius: 24,
-  background: `radial-gradient(ellipse at 50% 0, ${tokens["color/component/cat-rest-alpha-160"]}, transparent 70%), ${tokens["color/card-2"]}`,
+  background: `radial-gradient(ellipse at 50% 0, ${tokens["color/inspector-glow"]}, transparent 70%), ${tokens["color/card-2"]}`,
   borderColor: tokens["color/chip-border"],
+  boxShadow: `inset 0 1px 0 ${tokens["color/window-highlight"]}, 0 1px 2px ${tokens["color/card-shadow"]}`,
 });
 export const identity = style({
   display: "flex",

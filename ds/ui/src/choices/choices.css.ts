@@ -104,6 +104,15 @@ export const kinds = styleVariants({
     padding: "10px 10px 12px",
     borderRadius: 18,
     textAlign: "left",
+    boxShadow: `0 1px 2px ${tokens["color/card-shadow"]}`,
+    selectors: {
+      '&[aria-pressed="true"]': {
+        borderColor: tokens["color/selected-icon"],
+        borderWidth: 2,
+        padding: "9px 9px 11px",
+        boxShadow: `0 2px 8px ${tokens["color/card-shadow"]}`,
+      },
+    },
   },
   "theme-add": {
     width: 366,
