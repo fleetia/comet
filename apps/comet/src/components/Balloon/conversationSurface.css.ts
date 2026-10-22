@@ -28,6 +28,23 @@ export const inputAction = style({
   fontSize: 13,
   fontWeight: 400,
   lineHeight: "normal",
+  // These controls sit directly on a transparent desktop window, not a panel.
+  // Keep the backing opaque even when a disabled foreground is muted.
+  selectors: {
+    "&&": {
+      background: tokens["color/glass-window"],
+    },
+    "&&:disabled": {
+      opacity: 1,
+      color: `color-mix(in srgb, ${tokens["color/ink"]} 45%, ${tokens["color/glass-window"]})`,
+    },
+    "&&:hover:not(:disabled)": {
+      background: `linear-gradient(${tokens["color/chip"]}, ${tokens["color/chip"]}), ${tokens["color/glass-window"]}`,
+    },
+    "&&:active:not(:disabled)": {
+      background: `linear-gradient(${tokens["color/track"]}, ${tokens["color/track"]}), ${tokens["color/glass-window"]}`,
+    },
+  },
 });
 export const resumeAction = style({ width: 106 });
 export const togetherAction = style({ width: 132, height: 34 });
@@ -36,13 +53,10 @@ export const inputError = style({
   display: "flex",
   flexDirection: "column",
   alignItems: "flex-start",
-  gap: 8,
-  margin: "8px 0 0",
-  padding: "12px 16px",
-  borderRadius: 12,
-  border: `1px solid ${tokens["color/input-border"]}`,
-  background: tokens["color/glass-panel"],
-  color: tokens["color/ink"],
+  gap: 4,
+  margin: 0,
+  padding: "8px 20px 0",
+  color: tokens["color/danger"],
   fontSize: tokens["typography/sans/caption/fontSize"],
   lineHeight: "1.462",
   overflowWrap: "anywhere",
@@ -57,7 +71,12 @@ export const responseHost = style([
   },
 ]);
 export const responseBubble = style({ width: "100%", minHeight: 78 });
-export const responseTail = style({ width: 15, height: 15, left: 39.5, bottom: -12.1 });
+export const responseTail = style({
+  width: 15,
+  height: 15,
+  left: "calc(var(--comet-response-tail-x, 47px) - 7.5px)",
+  bottom: -12.1,
+});
 export const responseText = style({
   maxHeight: 360,
   overflowY: "auto",

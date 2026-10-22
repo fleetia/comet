@@ -196,9 +196,16 @@ pub(crate) fn entities_for(db: &Connection, kind: &str, query: &str) -> Result<V
     Ok(context(definition, &id, revision, &data, query))
 }
 
-fn valid_day(value: &str) -> bool {
-    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+fn query_day(value: &str) -> Result<String> {
+    if chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
         .is_ok_and(|date| date.format("%Y-%m-%d").to_string() == value)
+    {
+        return Ok(value.to_owned());
+    }
+    // Preserve the date in the supplied offset when replaying timestamp-based plans.
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|at| at.date_naive().to_string())
+        .map_err(|_| "조회할 날짜 범위를 확인해 주세요.".into())
 }
 
 fn matches_dates(item: &Value, from: Option<&str>, through: Option<&str>) -> bool {
@@ -251,12 +258,10 @@ pub(crate) fn query_registry(db: &Connection, kind: &str, input: &Value) -> Resu
     catalog::validate(definition, input)?;
     let (id, revision, mut data) = owner(db, definition)?;
     let query = input["query"].as_str().unwrap_or_default();
-    let from = input["from"].as_str();
-    let through = input["through"].as_str();
-    if from.is_some_and(|day| !valid_day(day))
-        || through.is_some_and(|day| !valid_day(day))
-        || from.zip(through).is_some_and(|(a, b)| a > b)
-    {
+    let from = input["from"].as_str().map(query_day).transpose()?;
+    let through = input["through"].as_str().map(query_day).transpose()?;
+    let (from, through) = (from.as_deref(), through.as_deref());
+    if from.zip(through).is_some_and(|(a, b)| a > b) {
         return Err("조회할 날짜 범위를 확인해 주세요.".into());
     }
     let field = definition.collection;
@@ -564,7 +569,12 @@ fn fill_missing(payload: &mut Value, original: &Value, fields: &str) {
     }
 }
 
-fn payload(definition: &Definition, action: &Action, data: &Value) -> Result<Value> {
+fn payload(
+    db: &Connection,
+    definition: &Definition,
+    action: &Action,
+    data: &Value,
+) -> Result<Value> {
     let mut payload = action.input.clone();
     if definition.target != !action.target_id.is_empty()
         || action.target_id.len() > 200
@@ -649,6 +659,19 @@ fn payload(definition: &Definition, action: &Action, data: &Value) -> Result<Val
         if payload.get("color").is_none() {
             payload["color"] = json!("record");
         }
+    }
+    if definition.id == "focus_start" && payload.get("todoId").is_some() {
+        let (_, _, todos) = owner(db, catalog::definition("task_query")?)?;
+        let task = todos["items"]
+            .as_array()
+            .and_then(|items| items.iter().find(|item| item["id"] == payload["todoId"]))
+            .ok_or("항목을 찾을 수 없습니다.")?;
+        if payload.get("title").is_none() {
+            payload["title"] = task["title"].clone();
+        }
+        payload["memo"] = json!("");
+        payload["eventRef"] = Value::Null;
+        payload["noteRef"] = Value::Null;
     }
     if definition.id == "time_record" {
         if payload.get("title").is_none() {
@@ -770,7 +793,7 @@ pub(crate) fn execute_registry(
             "원본이 바뀌었어요. 최신 revision {revision}의 내용을 확인하고 다시 요청해 주세요."
         ));
     }
-    let payload = payload(definition, action, &before)?;
+    let payload = payload(&tx, definition, action, &before)?;
     let timestamp = chrono::Utc::now().timestamp_millis();
     let after = if definition.owner == "diary" {
         serde_json::to_value(diary::update_in_transaction(

@@ -773,3 +773,65 @@ fn starting_with_null_todo_clears_the_previous_selection_without_rewriting_histo
     assert!(next.data["activeSession"]["todoId"].is_null());
     assert_eq!(next.data["sessions"][0]["todoId"], "previous-task");
 }
+
+#[test]
+fn explicit_task_launch_replaces_context_without_rewriting_prior_sessions_or_tasks() {
+    let mut related = BTreeMap::new();
+    let mut todos = super::super::initial("todo");
+    for (index, title) in ["응답 확인", "자료 검토"].iter().enumerate() {
+        todos = super::super::act(
+            "todo",
+            &todos,
+            "add",
+            &json!({"title":title,"memo":"할 일 참고 메모"}),
+            &BTreeMap::new(),
+            0,
+            index as u64,
+        )
+        .unwrap()
+        .data;
+    }
+    related.insert("todo".into(), todos.clone());
+    let mut data = manual_timer();
+    data["title"] = json!("이전 준비 봉투");
+    data["memo"] = json!("이전 집중 메모");
+    data["eventRef"] = json!({
+        "calendarWidgetId":"calendar","id":"old-event","title":"이전 일정"
+    });
+    data["noteRef"] = json!({"kind":"diary","id":"old-note","title":"이전 노트"});
+    let started = run(&data, "start", json!({"durationMs":10000}), 1000);
+    let ended = run(&started.data, "cancel", json!({}), 2000);
+    let previous = ended.data["sessions"][0].clone();
+    let mut state = ended.data;
+    for (index, item) in todos["items"].as_array().unwrap().iter().enumerate() {
+        let now = 3000 + index as i64 * 3000;
+        let history = state["sessions"].clone();
+        let input = json!({
+            "durationMs":1500000,"title":item["title"],"todoId":item["id"],
+            "memo":"","eventRef":null,"noteRef":null
+        });
+        let next = act(&state, "start", &input, &related, now).unwrap();
+        for target in [&next.data, &next.data["activeSession"]] {
+            assert_eq!(target["title"], item["title"]);
+            assert_eq!(target["todoId"], item["id"]);
+            assert_eq!(target["memo"], "");
+            assert!(target["eventRef"].is_null());
+            assert!(target["noteRef"].is_null());
+        }
+        assert_eq!(next.data["sessions"], history);
+        let edited = run(
+            &next.data,
+            "update-memo",
+            json!({"memo":"이 세션에서 적은 메모"}),
+            now + 500,
+        );
+        state = run(&edited.data, "cancel", json!({}), now + 1000).data;
+        assert_eq!(state["sessions"][0], previous);
+        assert_eq!(state["sessions"][index + 1]["title"], item["title"]);
+        assert_eq!(
+            state["sessions"][index + 1]["memo"],
+            "이 세션에서 적은 메모"
+        );
+    }
+    assert_eq!(related["todo"], todos);
+}

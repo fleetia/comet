@@ -29,7 +29,12 @@ import { PlannerCloseDialog } from "./PlannerCloseDialog";
 import { PlannerListManager } from "./PlannerListManager";
 import { PlannerMoveTaskDialog } from "./PlannerMoveTaskDialog";
 import { PlannerWrapDialog } from "./PlannerWrapDialog";
-import { elapsedWithin, focusDuration, focusSessions } from "../PlanningTools/FocusTimerData";
+import {
+  elapsedWithin,
+  focusDuration,
+  focusSessions,
+  taskFocusInput,
+} from "../PlanningTools/FocusTimerData";
 import { PlannerTodoEmpty } from "./PlannerTodoEmpty";
 import { PlannerTaskCheck } from "./PlannerTaskCheck";
 import { PlannerQuickInput } from "./PlannerQuickInput";
@@ -327,11 +332,12 @@ export function Planner({
     setWrap(true);
   }
   async function focusSelected(): Promise<void> {
+    if (!currentTask) return;
     if (!timer) {
       openSettings("focus-timer");
       return;
     }
-    if (await act("start", { durationMs: 1500000, todoId: selectedTask }, timer)) {
+    if (await act("start", taskFocusInput(currentTask), timer)) {
       setNotice("25분 집중을 시작했어요. 할 일 완료는 직접 표시해 주세요.");
       await run(() => command("open_widget", { id: timer.id }));
     }

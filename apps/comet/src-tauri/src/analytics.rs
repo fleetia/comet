@@ -532,6 +532,12 @@ pub(crate) async fn get_analytics_context(
     ))
 }
 
+// Lightweight bootstrap for windows which do not consume the application snapshot.
+#[tauri::command]
+pub(crate) fn get_analytics_consent(state: tauri::State<'_, Arc<AppState>>) -> Result<bool, String> {
+    analytics_consent(&state)
+}
+
 fn analytics_consent(state: &AppState) -> Result<bool, String> {
     let db = crate::lock(&state.db)?;
     Ok(store::settings(&db)?.analytics_consent)

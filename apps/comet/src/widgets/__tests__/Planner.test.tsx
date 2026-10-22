@@ -1431,7 +1431,20 @@ it("separates keyboard detail selection from completion and offers completion un
 });
 
 it("requires the explicit focus button and never completes the selected task when starting a timer", async () => {
-  await renderPlanner(snapshot([item("focus", "집중할 자료")], [widget("focus-timer", {})]));
+  await renderPlanner(
+    snapshot(
+      [item("focus", "집중할 자료", { memo: "할 일 참고 메모" })],
+      [
+        widget("focus-timer", {
+          title: "이전 준비 봉투",
+          todoId: "previous",
+          memo: "이전 집중 메모",
+          eventRef: { id: "previous-event" },
+          noteRef: { kind: "diary", id: "previous-note" },
+        }),
+      ],
+    ),
+  );
   fireEvent.click(screen.getByRole("button", { name: "집중할 자료 상세 보기" }));
   expect(command).not.toHaveBeenCalledWith("execute_widget", expect.anything());
   fireEvent.click(screen.getByRole("button", { name: "25분 집중" }));
@@ -1440,7 +1453,14 @@ it("requires the explicit focus button and never completes the selected task whe
       request: expect.objectContaining({
         instanceId: "focus-timer-id",
         action: "start",
-        input: { durationMs: 1500000, todoId: "focus" },
+        input: {
+          durationMs: 1500000,
+          title: "집중할 자료",
+          todoId: "focus",
+          memo: "",
+          eventRef: null,
+          noteRef: null,
+        },
       }),
     }),
   );

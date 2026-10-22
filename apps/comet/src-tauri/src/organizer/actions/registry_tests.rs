@@ -381,6 +381,94 @@ fn widget_controls_have_receipts_and_explicitly_cannot_be_undone() {
 }
 
 #[test]
+fn task_focus_start_clears_previous_context_and_preserves_source_records() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    storage::install(
+        &db,
+        directory.path(),
+        &["todo".into(), "focus-timer".into()],
+    )
+    .unwrap();
+    let task = run(
+        &db,
+        "task_add",
+        "",
+        json!({"title":"자료 검토","memo":"할 일 원문"}),
+    );
+    let note = run(
+        &db,
+        "note_create",
+        "",
+        json!({"title":"이전 노트","body":"노트 원문"}),
+    );
+    let todos = storage::instances(&db)
+        .unwrap()
+        .into_iter()
+        .find(|widget| widget.kind == "todo")
+        .unwrap();
+    let notes = diary::read(&db).unwrap();
+    let timer = storage::instances(&db)
+        .unwrap()
+        .into_iter()
+        .find(|widget| widget.kind == "focus-timer")
+        .unwrap();
+    let mut data = timer.data;
+    data["title"] = json!("이전 작업");
+    data["memo"] = json!("이전 집중 메모");
+    data["eventRef"] =
+        json!({"calendarWidgetId":"calendar","id":"previous-event","title":"이전 일정"});
+    data["noteRef"] = json!({"kind":"diary","id":note.target_id,"title":"이전 노트"});
+    db.execute(
+        "UPDATE widget_instances SET data=?1 WHERE id=?2",
+        params![data.to_string(), timer.id],
+    )
+    .unwrap();
+    for (action, input, now) in [
+        ("start", json!({"durationMs":10000}), 1000),
+        ("cancel", json!({}), 2000),
+    ] {
+        let current = storage::get(&db, &timer.id).unwrap();
+        storage::execute(
+            &db,
+            &WidgetRequest {
+                request_id: uuid::Uuid::new_v4().to_string(),
+                instance_id: timer.id.clone(),
+                expected_revision: current.revision,
+                action: action.into(),
+                input,
+            },
+            now,
+            0,
+        )
+        .unwrap();
+    }
+    let history = storage::get(&db, &timer.id).unwrap().data["sessions"].clone();
+    for title in [None, Some("직접 정한 집중 제목")] {
+        let mut input = json!({"durationMs":1500000,"todoId":task.target_id});
+        if let Some(title) = title {
+            input["title"] = json!(title);
+        }
+        run(&db, "focus_start", "", input);
+        let current = storage::get(&db, &timer.id).unwrap().data;
+        for context in [&current, &current["activeSession"]] {
+            assert_eq!(context["title"], title.unwrap_or("자료 검토"));
+            assert_eq!(context["todoId"], task.target_id);
+            assert_eq!(context["memo"], "");
+            assert!(context["eventRef"].is_null());
+            assert!(context["noteRef"].is_null());
+        }
+        assert_eq!(
+            current["sessions"].as_array().unwrap().first(),
+            history.as_array().unwrap().first()
+        );
+        assert_eq!(storage::get(&db, &todos.id).unwrap().data, todos.data);
+        assert_eq!(diary::read(&db).unwrap(), notes);
+        run(&db, "focus_cancel", "", json!({}));
+    }
+}
+
+#[test]
 fn task_partial_edit_preserves_recurrence_and_undo_respects_diary_references() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();
@@ -478,6 +566,86 @@ fn preparation_create_receipt_selects_the_new_envelope_and_undo_preserves_existi
         query_registry(&db, "event_query", &json!({})).unwrap()["events"][0]["id"],
         event.target_id
     );
+}
+
+#[test]
+fn calendar_query_accepts_rfc3339_bounds_as_inclusive_calendar_dates() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    storage::install(&db, directory.path(), &["calendar".into()]).unwrap();
+    for (title, start, end) in [
+        ("어제 일정", "2026-10-20", "2026-10-21"),
+        ("오늘 종일 일정", "2026-10-21", "2026-10-22"),
+        ("내일 일정", "2026-10-22", "2026-10-23"),
+    ] {
+        run(
+            &db,
+            "event_add",
+            "",
+            json!({"title":title,"allDay":true,"startDate":start,"endDate":end}),
+        );
+    }
+    let start = chrono::DateTime::parse_from_rfc3339("2026-10-21T00:30:00+09:00")
+        .unwrap()
+        .timestamp_millis();
+    run(
+        &db,
+        "event_add",
+        "",
+        json!({"title":"오늘 시간 일정","allDay":false,"startAt":start,"endAt":start+3600000,"timeZone":"Asia/Seoul"}),
+    );
+    let canonical = query_registry(
+        &db,
+        "event_query",
+        &json!({"from":"2026-10-21","through":"2026-10-21"}),
+    )
+    .unwrap();
+    let timestamp_bounds = query_registry(
+        &db,
+        "event_query",
+        &json!({"from":"2026-10-21T00:00:00+09:00","through":"2026-10-21T23:59:59.999+09:00"}),
+    )
+    .unwrap();
+    assert_eq!(timestamp_bounds, canonical);
+    assert_eq!(timestamp_bounds["totalCount"], 2);
+    let events = timestamp_bounds["events"].as_array().unwrap();
+    assert!(events
+        .iter()
+        .any(|event| event["title"] == "오늘 종일 일정"));
+    assert!(events
+        .iter()
+        .any(|event| event["title"] == "오늘 시간 일정"));
+    for bounds in [
+        json!({"from":"2026-10-21T00:00:00+09:00"}),
+        json!({"through":"2026-10-21T23:59:59.999+09:00"}),
+    ] {
+        assert_eq!(
+            query_registry(&db, "event_query", &bounds).unwrap()["totalCount"],
+            3,
+            "{bounds}"
+        );
+    }
+}
+
+#[test]
+fn calendar_query_rejects_invalid_ambiguous_and_reversed_date_bounds() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    storage::install(&db, directory.path(), &["calendar".into()]).unwrap();
+    for bounds in [
+        json!({"from":"2026-02-30"}),
+        json!({"through":"2026-02-30T23:59:59+09:00"}),
+        json!({"from":"2026-10-21T00:00:00"}),
+        json!({"through":"2026-10-21T23:59:59+09:00 trailing"}),
+        json!({"from":"2026-10-22","through":"2026-10-21"}),
+        json!({"from":"2026-10-22T00:00:00+09:00","through":"2026-10-21T23:59:59.999+09:00"}),
+    ] {
+        assert_eq!(
+            query_registry(&db, "event_query", &bounds).unwrap_err(),
+            "조회할 날짜 범위를 확인해 주세요.",
+            "{bounds}"
+        );
+    }
 }
 
 #[test]

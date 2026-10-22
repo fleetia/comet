@@ -314,3 +314,15 @@ it("switches the response to waiting and live playback while history owns input"
   expect(screen.getByText("등록 대사")).toBeTruthy();
   expect(screen.queryByRole("textbox")).toBeNull();
 });
+
+it("keeps the existing tail size and vertical styling while allowing a native horizontal anchor", async () => {
+  const { readFileSync } = await vi.importActual<{
+    readFileSync(path: string, encoding: "utf8"): string;
+  }>("node:fs");
+  const css = readFileSync("src/components/Balloon/conversationSurface.css.ts", "utf8");
+  const tail = css.match(/export const responseTail = style\(\{([\s\S]*?)\}\);/)?.[1];
+  expect(tail).toContain("width: 15");
+  expect(tail).toContain("height: 15");
+  expect(tail).toContain('left: "calc(var(--comet-response-tail-x, 47px) - 7.5px)"');
+  expect(tail).toContain("bottom: -12.1");
+});

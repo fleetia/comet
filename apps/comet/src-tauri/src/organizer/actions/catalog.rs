@@ -78,7 +78,7 @@ pub(super) const DEFINITIONS: &[Definition] = &[
     definition!("anniversary_add","clock","add","anniversaries","write",false,true,false,"title,date,countMode,repeat,celebrate","title,date","기념일 등록. countMode remaining/elapsed/anniversary, repeat none/yearly."),
     definition!("anniversary_update","clock","update","anniversaries","write",false,true,true,"title,date,countMode,repeat,celebrate","","기존 기념일 수정."),
     definition!("focus_query","focus-timer","","","read",false,false,false,"","","집중 타이머의 현재 상태와 최근 세션 조회."),
-    definition!("focus_start","focus-timer","start","","control",false,false,false,"durationMs,title,todoId","","집중 타이머 시작. durationMs는 밀리초, 선택한 todoId만 연결."),
+    definition!("focus_start","focus-timer","start","","control",false,false,false,"durationMs,title,todoId","","집중 타이머 시작. durationMs는 밀리초. todoId를 지정하면 해당 할 일로 새 맥락을 시작하며 이전 메모·일정·노트 연결을 비운다. title을 생략하면 할 일 제목을 쓴다."),
     definition!("focus_pause","focus-timer","pause","","control",false,false,false,"","","실행 중인 집중 타이머 일시정지."),
     definition!("focus_resume","focus-timer","resume","","control",false,false,false,"","","일시정지한 집중 타이머 재개."),
     definition!("focus_cancel","focus-timer","cancel","","control",false,false,false,"","","집중 타이머 종료. 진행 시간은 기존 규칙으로 기록."),
@@ -127,6 +127,11 @@ fn property(field: &str) -> Value {
         "status" => json!({"type":"string","enum":["done","missed","clear"]}),
         "mode" => json!({"type":"string","enum":["check","count"]}),
         "body" | "memo" | "text" | "description" => json!({"type":"string","maxLength":20000}),
+        "from" | "through" => json!({
+            "type":"string","maxLength":1000,
+            "description":"조회 시작일(from)과 마지막 날(through)은 양 끝을 포함한다. anchorTime 기준 YYYY-MM-DD로 보낸다. 하루 조회는 두 값에 같은 날짜를 쓴다. 경계가 없으면 해당 필드를 생략한다. 기존 요청의 시간대 포함 RFC3339 값도 허용하며 그 오프셋의 날짜로 해석하고 시각은 사용하지 않는다.",
+            "examples":["2026-10-21"]
+        }),
         "dueDate" | "plannedDate" | "planAnchor" | "reminderTime" | "date" => {
             json!({"type":["string","null"],"maxLength":20})
         }

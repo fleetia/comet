@@ -61,6 +61,37 @@ function executed(): unknown[][] {
 
 describe("local command and conversation routing", () => {
   it.each([
+    [true, true, "지금은 쉬고 있어요"],
+    [true, false, "지금은 쉬고 있어요"],
+    [false, true, "바탕화면에 있어요"],
+    [false, false, "자리 비움"],
+  ] as const)(
+    "reflects hidden=%s and present=%s in initial character rows",
+    (hidden, present, detail) => {
+      const id = PREVIEW_SNAPSHOT.characters.active[0];
+      const snapshot = {
+        ...PREVIEW_SNAPSHOT,
+        runtime: {
+          ...PREVIEW_SNAPSHOT.runtime,
+          hidden,
+          presentCharacterIds: present ? [id] : [],
+        },
+      };
+      for (const query of ["", "  "]) {
+        const found = launcherResults(query, snapshot, widgets, null);
+        expect(found.find((result) => result.id === `target:${id}`)).toMatchObject({
+          kind: "target",
+          detail,
+          recipient: { id, token: "A" },
+        });
+        expect(found.find((result) => result.id === "target:all")?.detail).toBe(
+          "친구들이 순서대로 답해요",
+        );
+      }
+    },
+  );
+
+  it.each([
     ["단어장 설정", "dialogue"],
     ["대화팩 설정", "dialogue"],
     ["사용자 설정", "general"],
@@ -211,6 +242,38 @@ describe("local command and conversation routing", () => {
       )[0].action,
     ).toBeUndefined();
   });
+});
+
+it("refreshes character presence labels and selects a hidden recipient without sending", async () => {
+  const id = PREVIEW_SNAPSHOT.characters.active[0];
+  const snapshot = {
+    ...PREVIEW_SNAPSHOT,
+    runtime: { ...PREVIEW_SNAPSHOT.runtime, hidden: false, presentCharacterIds: [id] },
+  };
+  const { rerender } = render(<Launcher snapshot={snapshot} />);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_launcher_state"));
+  const selected = (): HTMLElement => screen.getByRole("option", { selected: true });
+  expect(selected().textContent).toContain("바탕화면에 있어요");
+
+  const hidden = { ...snapshot, runtime: { ...snapshot.runtime, hidden: true } };
+  rerender(<Launcher snapshot={hidden} />);
+  expect(selected().textContent).toContain("지금은 쉬고 있어요");
+  rerender(
+    <Launcher
+      snapshot={{ ...snapshot, runtime: { ...snapshot.runtime, presentCharacterIds: [] } }}
+    />,
+  );
+  expect(selected().textContent).toContain("자리 비움");
+  rerender(<Launcher snapshot={snapshot} />);
+  expect(selected().textContent).toContain("바탕화면에 있어요");
+
+  rerender(<Launcher snapshot={hidden} />);
+  const input = screen.getByRole("combobox") as HTMLInputElement;
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(input.value).toBe(">A ");
+  expect(selected().textContent).toContain("캐릭터 표시 후 말 걸기");
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(executed()).toHaveLength(0);
 });
 
 it("previews only chat rows and uses arrows and Enter for the selected row", async () => {

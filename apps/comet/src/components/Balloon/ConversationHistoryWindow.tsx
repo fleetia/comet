@@ -29,6 +29,7 @@ import {
 } from "./ConversationSave";
 import { aiAvailability, responseOrigin } from "./conversationStatus";
 import { draftPreview } from "./ConversationHistory";
+import { useHistoryScroll } from "./useHistoryScroll";
 import * as s from "./conversationHistoryWindow.css";
 
 type Props = {
@@ -250,6 +251,7 @@ export function ConversationHistoryWindow({
   const responding = ["loading", "generating"].includes(snapshot.runtime.phase);
   const busy = responding || Boolean(snapshot.playback);
   const selectedId = selected?.id;
+  const transcript = useHistoryScroll(selectedId, page);
   const activeCharactersKey = snapshot.characters.active.join("\0");
   const editable = Boolean(selectedId && editing === selectedId);
   const selectedIsLive = snapshot.conversation?.session.id === selectedId;
@@ -348,6 +350,7 @@ export function ConversationHistoryWindow({
         adopt(view);
       } else {
         draft.current = null;
+        if (selectedRef.current?.id !== session.id) setPage(null);
         selectedRef.current = session;
         setSelected(session);
         setEditing(null);
@@ -670,6 +673,7 @@ export function ConversationHistoryWindow({
     try {
       await flushDraft();
       if (draft.current !== submitted || owner.current !== submitted.sessionId) return;
+      transcript.followTail();
       lastSubmission.current = {
         sessionId: submitted.sessionId,
         messageId: clientMessageId,
@@ -739,6 +743,7 @@ export function ConversationHistoryWindow({
     try {
       await flushDraft();
       if (draft.current !== value || owner.current !== value?.sessionId) return;
+      transcript.followTail();
       await command("retry_turn", {
         messageId: recovery.messageId,
         target: page?.messages.find((message) => message.id === recovery.messageId)?.persona,
@@ -1017,7 +1022,13 @@ export function ConversationHistoryWindow({
                   </Button>
                 )}
               </header>
-              <div className={s.log} role="log" aria-label="대화 내용">
+              <div
+                className={s.log}
+                role="log"
+                aria-label="대화 내용"
+                ref={transcript.log}
+                onScroll={transcript.onScroll}
+              >
                 <p className={s.context}>
                   <time dateTime={new Date(started?.createdAt ?? selected.createdAt).toISOString()}>
                     {dayLabel(started?.createdAt ?? selected.createdAt)}{" "}
@@ -1081,7 +1092,11 @@ export function ConversationHistoryWindow({
                     : `${name} · ${responseOrigin(page?.messageSources?.[message.id])}`;
                   const provenanceId = `history-origin-${message.id}`;
                   return (
-                    <div className={s.messageBlock} key={message.id}>
+                    <div
+                      className={s.messageBlock}
+                      key={message.id}
+                      data-history-message={message.id}
+                    >
                       <article
                         className={`${s.message} ${user ? s.userMessage : ""}`}
                         aria-label={`${name}의 메시지`}

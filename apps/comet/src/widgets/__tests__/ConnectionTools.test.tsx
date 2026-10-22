@@ -51,6 +51,28 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
+it.each(["Linux x86_64", "Win32", "MacIntel"])(
+  "describes local calendar storage without assuming macOS on %s",
+  (platform) => {
+    vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
+    render(
+      <CalendarTool
+        mode="settings"
+        widget={widget("calendar", {
+          connections: [],
+          events: [{ id: "local-event", connectionId: "local" }],
+        })}
+        act={act}
+      />,
+    );
+    const localCalendar = within(screen.getByRole("region", { name: "comet 일정" }));
+    expect(
+      localCalendar.getByText("이 기기에만 저장돼요 · 다이어리에서 만들고 고쳐요"),
+    ).toBeTruthy();
+    expect(localCalendar.queryByText(/Mac|macOS|Windows|Linux/)).toBeNull();
+    expect(localCalendar.getByText("1개")).toBeTruthy();
+  },
+);
 it("requests Apple access only from the explicit button and connects only selected calendars", async () => {
   vi.mocked(command)
     .mockResolvedValueOnce("prompt")

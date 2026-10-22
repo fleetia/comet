@@ -791,6 +791,89 @@ it("shows an independently dated envelope in the day, month and week and opens t
   expect(actions("execute_widget")).toEqual([]);
 });
 
+it.each(["journal", "envelope", "page"] as const)(
+  "starts task focus from %s details without inheriting the previous timer context",
+  async (source) => {
+    const item = { ...task("response", "늦은 도착 응답 확인"), memo: "할 일 참고 메모" };
+    setTasks([item]);
+    diary.pages = [
+      {
+        id: "collection",
+        title: "자료 모음",
+        date: null,
+        entries: [
+          { id: "reference", kind: "todo", text: "늦은 도착 응답 확인", refId: "response" },
+        ],
+      },
+    ];
+    const timer = widget("focus-timer", {
+      status: "idle",
+      title: "이전 준비 봉투",
+      todoId: "previous",
+      memo: "이전 집중 메모",
+      eventRef: { id: "previous-event" },
+      noteRef: { kind: "diary", id: "previous-note" },
+    });
+    widgets.widgets.push(
+      timer,
+      widget("preparation", {
+        envelopes: [
+          {
+            id: "envelope",
+            title: "여행 준비",
+            date: DAY,
+            eventId: "",
+            checks: [],
+            links: [],
+            todoIds: ["response"],
+            archived: false,
+          },
+        ],
+      }),
+    );
+    const original = structuredClone(widgets);
+    execute = () => null;
+    const existing = vi.mocked(command).getMockImplementation()!;
+    vi.mocked(command).mockImplementation((name, args) =>
+      name === "open_widget" ? Promise.resolve(undefined) : existing(name, args),
+    );
+    await openDiary();
+    if (source === "envelope") fireEvent.click(opened().getByRole("button", { name: /여행 준비/ }));
+    if (source === "page") {
+      showPage("자료 모음");
+      fireEvent.click(opened().getByRole("button", { name: "할 일·위젯 연결과 기존 기록 편집" }));
+    }
+    const existingButtons = opened().queryAllByRole("button", { name: "25분 집중 시작" });
+    fireEvent.click(opened().getByRole("button", { name: "늦은 도착 응답 확인 상세 보기" }));
+    const taskButtons = opened()
+      .getAllByRole("button", { name: "25분 집중 시작" })
+      .filter((button: HTMLElement) => !existingButtons.includes(button));
+    expect(taskButtons).toHaveLength(1);
+    fireEvent.click(taskButtons[0]!);
+    await waitFor(() =>
+      expect(actions("execute_widget")).toEqual([
+        {
+          request: expect.objectContaining({
+            instanceId: timer.id,
+            action: "start",
+            input: {
+              durationMs: 1500000,
+              title: "늦은 도착 응답 확인",
+              todoId: "response",
+              memo: "",
+              eventRef: null,
+              noteRef: null,
+            },
+          }),
+        },
+      ]),
+    );
+    await waitFor(() => expect(command).toHaveBeenCalledWith("open_widget", { id: timer.id }));
+    expect(widgets).toEqual(original);
+    expect(actions("update_diary")).toEqual([]);
+  },
+);
+
 it("owns native close protection for both journal drafts and embedded planning tools", async () => {
   setTasks([]);
   await openDiary();
@@ -1744,6 +1827,53 @@ it("routes native habit and ledger navigation to the matching screen and preserv
   }
   expect(screen.queryByRole("region", { name: "습관 기록" })).toBeNull();
   expect(actions("update_diary")).toEqual([]);
+});
+
+it("keeps the travel ownership error inside the ledger editor after the real diary hook rejects a save", async () => {
+  const failure = "여행에서 자동으로 기록한 내 몫이에요. 여행의 비용이나 예약에서 고쳐 주세요.";
+  const entry = {
+    id: "travel-ledger",
+    date: DAY,
+    kind: "expense" as const,
+    amount: 101,
+    category: "culture",
+    title: "입장료",
+    memo: "여행 · 제주 가족 여행",
+  };
+  diary.ledgerEntries = [entry];
+  update = () => {
+    throw new Error(failure);
+  };
+  await openDiary();
+  fireEvent.click(screen.getByRole("link", { name: "가계부" }));
+  const savedRow = screen.getByRole("button", { name: "입장료 편집" }).parentElement!;
+  fireEvent.click(screen.getByRole("button", { name: "입장료 편집" }));
+  const editor = within(screen.getByRole("dialog", { name: "수입·지출 편집" }));
+  fireEvent.change(editor.getByLabelText("기록 금액 (원)"), { target: { value: "202" } });
+  fireEvent.click(editor.getByRole("button", { name: "저장" }));
+  await waitFor(() => expect(editor.getByRole("alert").textContent).toBe(failure));
+  expect(editor.getByLabelText("기록 금액 (원)")).toHaveProperty("value", "202");
+  expect(editor.getByRole("button", { name: "저장" })).toHaveProperty("disabled", false);
+  expect(within(savedRow).getByText("101원")).toBeTruthy();
+  expect(within(savedRow).queryByText("202원")).toBeNull();
+  expect(actions("update_diary")).toEqual([
+    {
+      expectedRevision: 3,
+      action: "ledger-entry-update",
+      input: { ...entry, amount: 202, expected: entry },
+    },
+  ]);
+  fireEvent.click(editor.getByRole("button", { name: "취소" }));
+  fireEvent.click(screen.getByRole("button", { name: "변경 버리기" }));
+  const ledger = within(screen.getByRole("region", { name: "가계부" }));
+  fireEvent.change(ledger.getByLabelText("금액 (원)"), { target: { value: "0" } });
+  fireEvent.change(ledger.getByLabelText("어디에 썼나요?"), { target: { value: "새 기록" } });
+  fireEvent.click(ledger.getByRole("button", { name: "추가" }));
+  expect(ledger.getByRole("alert").textContent).toBe("원 단위 금액과 어디에 썼는지 입력해 주세요.");
+  fireEvent.click(screen.getByRole("button", { name: "입장료 편집" }));
+  const reopened = within(screen.getByRole("dialog", { name: "수입·지출 편집" }));
+  expect(reopened.queryByRole("alert")).toBeNull();
+  expect(reopened.getByLabelText("기록 금액 (원)")).toHaveProperty("value", "101");
 });
 
 it("unlocks a rejected envelope draft and creates a new request from the refreshed widget revision", async () => {

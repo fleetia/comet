@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { listen } from "@tauri-apps/api/event";
 import { ConversationHistoryWindow } from "../components/Balloon/ConversationHistoryWindow";
+import { useHistoryScroll } from "../components/Balloon/useHistoryScroll";
 import { command, isDesktop, PREVIEW_SNAPSHOT } from "../hooks/useSnapshot";
 import type {
   ConversationMessages,
@@ -1313,4 +1314,408 @@ it("confirms replacing another draft with a cancelled input and flushes before o
   ]);
   expect(command).not.toHaveBeenCalledWith("send_message", expect.anything());
   expect(failedInput.content).toBe("  원래 입력\n보존  ");
+});
+
+// jsdom has no layout. Model the bounded transcript's geometry and scroll clamping,
+// keeping these assertions separate from native WebKit visual acceptance.
+function historyGeometry(viewport = 400) {
+  let logTop = 80;
+  const tops = new WeakMap<HTMLElement, number>();
+  const writes = vi.fn();
+  const isLog = (element: HTMLElement) => element.getAttribute("role") === "log";
+  const messages = (element: HTMLElement) =>
+    Array.from(element.querySelectorAll("article"), (article) => article.parentElement!);
+  const events = (element: HTMLElement) =>
+    Array.from(element.querySelectorAll(":scope > p:not([role])")).slice(1);
+  const above = (element: HTMLElement) =>
+    40 +
+    (Array.from(element.querySelectorAll("button")).some(
+      (button) => button.textContent === "앞선 내용 더 보기",
+    )
+      ? 30
+      : 0) +
+    (element.textContent?.includes("대화 기록을 불러오고 있어요.") ? 20 : 0);
+  const height = (element: HTMLElement) =>
+    above(element) + messages(element).length * 100 + events(element).length * 30;
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return isLog(this) ? viewport : 0;
+  });
+  vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return isLog(this) ? Math.max(viewport, height(this)) : 0;
+  });
+  vi.spyOn(HTMLElement.prototype, "scrollTop", "get").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return isLog(this) ? Math.min(tops.get(this) ?? 0, Math.max(0, height(this) - viewport)) : 0;
+  });
+  vi.spyOn(HTMLElement.prototype, "scrollTop", "set").mockImplementation(function (
+    this: HTMLElement,
+    value,
+  ) {
+    if (!isLog(this)) return;
+    tops.set(this, Math.max(0, Math.min(value, height(this) - viewport)));
+    writes(value);
+  });
+  vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    if (isLog(this)) return logTop;
+    const log = this.closest('[role="log"]') as HTMLElement | null;
+    return log && this.hasAttribute("data-history-message")
+      ? logTop +
+          above(log) +
+          Array.from(messages(log)).indexOf(this) * 100 +
+          events(log).filter(
+            (event) => event.compareDocumentPosition(this) & Node.DOCUMENT_POSITION_FOLLOWING,
+          ).length *
+            30
+      : 0;
+  });
+  return {
+    writes,
+    moveLog: (top: number): void => {
+      logTop = top;
+    },
+  };
+}
+
+function scrollHistory(log: HTMLElement, top: number): void {
+  log.scrollTop = top;
+  fireEvent.scroll(log);
+}
+
+function longHistory(count = 8, session = FIRST): ConversationView {
+  return {
+    session,
+    messages: Array.from({ length: count }, (_, index) => ({
+      ...MESSAGE,
+      id: index === 0 && session === FIRST ? MESSAGE.id : `${session.id}-${index}`,
+      content: index === 0 && session === FIRST ? MESSAGE.content : `${session.id} 원문 ${index}`,
+    })),
+    nextBefore: null,
+  };
+}
+
+function mockHistory(first: ConversationView, second = longHistory(10, SECOND)): void {
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversations") return [first.session, second.session];
+    if (name === "get_conversation_messages" || name === "resume_chat")
+      return args?.sessionId === second.session.id ? second : first;
+  });
+}
+
+function appendHistory(view: ConversationView, id = "reply"): ConversationView {
+  return { ...view, messages: [...view.messages, { ...MESSAGE, id, content: `새 답장 ${id}` }] };
+}
+
+it("follows a pinned history tail after a reply, without jumping on initial load or snapshot churn", async () => {
+  const { writes } = historyGeometry();
+  const view = longHistory();
+  mockHistory(view);
+  const { rerender } = render(
+    <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: view }} />,
+  );
+  await screen.findByText("first 원문 7");
+  const log = screen.getByRole("log", { name: "대화 내용" });
+  expect(log.scrollTop).toBe(0);
+  scrollHistory(log, log.scrollHeight);
+  const next = { ...SNAPSHOT, conversation: appendHistory(view) };
+  rerender(<ConversationHistoryWindow snapshot={next} />);
+  await screen.findByText("새 답장 reply");
+  expect(log.scrollTop).toBe(log.scrollHeight - log.clientHeight);
+  writes.mockClear();
+  rerender(<ConversationHistoryWindow snapshot={{ ...next }} />);
+  expect(writes).not.toHaveBeenCalled();
+});
+
+it.each([0, 200])(
+  "preserves a reader's history position at %i when replies arrive",
+  async (top) => {
+    historyGeometry();
+    const view = longHistory();
+    mockHistory(view);
+    const { rerender } = render(
+      <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: view }} />,
+    );
+    await screen.findByText("first 원문 7");
+    const log = screen.getByRole("log", { name: "대화 내용" });
+    scrollHistory(log, top);
+    rerender(
+      <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: appendHistory(view) }} />,
+    );
+    await screen.findByText("새 답장 reply");
+    expect(log.scrollTop).toBe(top);
+  },
+);
+
+it.each([
+  [24, true],
+  [25, false],
+] as const)(
+  "follows only within the small bottom margin (%ipx away: %s)",
+  async (distance, follows) => {
+    historyGeometry();
+    const view = longHistory();
+    mockHistory(view);
+    const { rerender } = render(
+      <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: view }} />,
+    );
+    await screen.findByText("first 원문 7");
+    const log = screen.getByRole("log", { name: "대화 내용" });
+    const top = log.scrollHeight - log.clientHeight - distance;
+    scrollHistory(log, top);
+    rerender(
+      <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: appendHistory(view) }} />,
+    );
+    await screen.findByText("새 답장 reply");
+    expect(log.scrollTop).toBe(follows ? log.scrollHeight - log.clientHeight : top);
+  },
+);
+
+it("keeps the reading position when the header moves the transcript within its offset parent", async () => {
+  const { moveLog } = historyGeometry();
+  const view = longHistory();
+  mockHistory(view);
+  const snapshot = { ...SNAPSHOT, conversation: view };
+  const { rerender } = render(<ConversationHistoryWindow snapshot={snapshot} />);
+  await screen.findByText("first 원문 7");
+  const log = screen.getByRole("log", { name: "대화 내용" });
+  scrollHistory(log, 200);
+  moveLog(120);
+  rerender(<ConversationHistoryWindow snapshot={{ ...snapshot }} />);
+  expect(log.scrollTop).toBe(200);
+});
+
+it("preserves the reading position when a timeline event appears before the first message", async () => {
+  historyGeometry();
+  const view = longHistory();
+  mockHistory(view);
+  const { rerender } = render(
+    <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: view }} />,
+  );
+  await screen.findByText("first 원문 7");
+  const log = screen.getByRole("log", { name: "대화 내용" });
+  scrollHistory(log, 200);
+  rerender(
+    <ConversationHistoryWindow
+      snapshot={{
+        ...SNAPSHOT,
+        conversation: {
+          ...view,
+          timelineEvents: [
+            { id: "before-first", kind: "focus-paused", createdAt: MESSAGE.createdAt - 1 },
+          ],
+        },
+      }}
+    />,
+  );
+  await screen.findByText(/집중을 시작해서 대화를 멈췄어요/);
+  expect(log.scrollTop).toBe(230);
+});
+
+it("follows when a previously fitting history first becomes scrollable", async () => {
+  historyGeometry();
+  const view = longHistory(3);
+  mockHistory(view);
+  const { rerender } = render(
+    <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: view }} />,
+  );
+  await screen.findByText("first 원문 2");
+  const log = screen.getByRole("log", { name: "대화 내용" });
+  expect(log.scrollTop).toBe(0);
+  rerender(
+    <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: appendHistory(view) }} />,
+  );
+  await screen.findByText("새 답장 reply");
+  expect(log.scrollTop).toBe(40);
+});
+
+it("returns to the tail for an own send, but lets the reader scroll up before its reply", async () => {
+  historyGeometry();
+  const view = longHistory();
+  mockHistory(view);
+  const { rerender } = render(
+    <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: view }} />,
+  );
+  await begin();
+  const log = screen.getByRole("log", { name: "대화 내용" });
+  scrollHistory(log, 200);
+  const input = screen.getByRole("textbox", { name: "이어서 말하기" });
+  fireEvent.change(input, { target: { value: "안녕" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() => expect(command).toHaveBeenCalledWith("send_message", expect.anything()));
+  expect(log.scrollTop).toBe(log.scrollHeight - log.clientHeight);
+  const sent = appendHistory(view, "sent");
+  sent.messages[sent.messages.length - 1].role = "user";
+  const live = { ...SNAPSHOT, panel: { persona: "builtin-a", mode: "history-input" as const } };
+  rerender(<ConversationHistoryWindow snapshot={{ ...live, conversation: sent }} />);
+  await screen.findByText("새 답장 sent");
+  expect(log.scrollTop).toBe(log.scrollHeight - log.clientHeight);
+  scrollHistory(log, 100);
+  rerender(<ConversationHistoryWindow snapshot={{ ...live, conversation: appendHistory(sent) }} />);
+  await screen.findByText("새 답장 reply");
+  expect(log.scrollTop).toBe(100);
+});
+
+it("returns to the tail when retrying an incomplete turn and follows its reply", async () => {
+  historyGeometry();
+  const view: ConversationView = {
+    ...longHistory(),
+    recovery: { messageId: MESSAGE.id, reason: "cancelled" },
+  };
+  mockHistory(view);
+  const { rerender } = render(
+    <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: view }} />,
+  );
+  await begin();
+  const log = screen.getByRole("log", { name: "대화 내용" });
+  scrollHistory(log, 100);
+  fireEvent.click(screen.getByRole("button", { name: "다시 이야기하기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("retry_turn", {
+      messageId: MESSAGE.id,
+      target: MESSAGE.persona,
+    }),
+  );
+  expect(log.scrollTop).toBe(log.scrollHeight - log.clientHeight);
+  rerender(
+    <ConversationHistoryWindow
+      snapshot={{
+        ...SNAPSHOT,
+        panel: { persona: "builtin-a", mode: "history-input" },
+        conversation: appendHistory(view),
+      }}
+    />,
+  );
+  await screen.findByText("새 답장 reply");
+  expect(log.scrollTop).toBe(log.scrollHeight - log.clientHeight);
+});
+
+it("does not carry tail following into another session or react to the old session's reply", async () => {
+  historyGeometry();
+  const first = longHistory();
+  const second = longHistory(10, SECOND);
+  mockHistory(first, second);
+  const { rerender } = render(
+    <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: first }} />,
+  );
+  await screen.findByText("first 원문 7");
+  const log = screen.getByRole("log", { name: "대화 내용" });
+  scrollHistory(log, log.scrollHeight);
+  fireEvent.click(screen.getByRole("button", { name: /두 번째 초안/ }));
+  await screen.findByText("second 원문 9");
+  expect(log.scrollTop).toBe(0);
+  rerender(
+    <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: appendHistory(first) }} />,
+  );
+  await waitFor(() => expect(log.textContent).toContain("second 원문 9"));
+  expect(log.scrollTop).toBe(0);
+  expect(screen.queryByText("새 답장 reply")).toBeNull();
+});
+
+it.each([false, true])(
+  "handles older-page prepends and simultaneous replies (pinned: %s)",
+  async (pinned) => {
+    historyGeometry();
+    const older = deferred<ConversationMessages>();
+    const view = { ...longHistory(), nextBefore: 5 };
+    mockHistory(view);
+    const fallback = vi.mocked(command).getMockImplementation()!;
+    vi.mocked(command).mockImplementation(async (name, args) =>
+      name === "get_conversation_messages" && args?.before ? older.promise : fallback(name, args),
+    );
+    const { rerender } = render(
+      <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: view }} />,
+    );
+    await screen.findByText("first 원문 7");
+    const log = screen.getByRole("log", { name: "대화 내용" });
+    scrollHistory(log, 100);
+    fireEvent.click(screen.getByRole("button", { name: "앞선 내용 더 보기" }));
+    if (pinned) scrollHistory(log, log.scrollHeight);
+    await act(async () => {
+      rerender(
+        <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: appendHistory(view) }} />,
+      );
+      older.resolve({
+        messages: [
+          { ...MESSAGE, id: "earlier-1", content: "앞선 원문 1" },
+          { ...MESSAGE, id: "earlier-2", content: "앞선 원문 2" },
+        ],
+        nextBefore: 3,
+      });
+    });
+    await screen.findByText("앞선 원문 1");
+    expect(screen.getByText("새 답장 reply")).toBeTruthy();
+    expect(log.scrollTop).toBe(pinned ? log.scrollHeight - log.clientHeight : 300);
+  },
+);
+
+it("restores an older reading position after a same-session history refresh", async () => {
+  historyGeometry();
+  const view = longHistory();
+  mockHistory(view);
+  const { rerender } = render(
+    <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: view }} />,
+  );
+  await screen.findByText("first 원문 7");
+  const log = screen.getByRole("log", { name: "대화 내용" });
+  scrollHistory(log, 200);
+  rerender(
+    <ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: view, memoryRevision: 1 }} />,
+  );
+  await screen.findByText("first 원문 7");
+  expect(log.scrollTop).toBe(200);
+});
+
+it("opens a long ended history at the top after a short pinned session", async () => {
+  historyGeometry();
+  const ended = deferred<ConversationMessages>();
+  const first = longHistory(2);
+  const second = longHistory(10, { ...SECOND, status: "ended" });
+  mockHistory(first, second);
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) =>
+    name === "get_conversation_messages" && args?.sessionId === SECOND.id
+      ? ended.promise
+      : fallback(name, args),
+  );
+  render(<ConversationHistoryWindow snapshot={{ ...SNAPSHOT, conversation: first }} />);
+  await screen.findByText("first 원문 1");
+  const log = screen.getByRole("log", { name: "대화 내용" });
+  expect(log.scrollTop).toBe(0);
+  fireEvent.click(screen.getByRole("button", { name: /두 번째 초안/ }));
+  await act(async () => ended.resolve(second));
+  await screen.findByText("second 원문 9");
+  expect(log.scrollTop).toBe(0);
+});
+
+it("retains explicit send-follow intent while the same history is reloading", () => {
+  historyGeometry();
+  const view = longHistory();
+  function ReloadingHistory({ page }: { page: ConversationMessages | null }) {
+    const transcript = useHistoryScroll(FIRST.id, page);
+    return (
+      <>
+        <div role="log" ref={transcript.log} onScroll={transcript.onScroll}>
+          {page?.messages.map((message) => (
+            <div key={message.id} data-history-message={message.id}>
+              <article>{message.content}</article>
+            </div>
+          ))}
+        </div>
+        <button onClick={transcript.followTail}>Follow sent message</button>
+      </>
+    );
+  }
+  const { rerender } = render(<ReloadingHistory page={view} />);
+  const log = screen.getByRole("log");
+  scrollHistory(log, 200);
+  rerender(<ReloadingHistory page={null} />);
+  fireEvent.click(screen.getByRole("button", { name: "Follow sent message" }));
+  rerender(<ReloadingHistory page={appendHistory(view)} />);
+  expect(log.scrollTop).toBe(log.scrollHeight - log.clientHeight);
 });

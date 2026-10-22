@@ -555,14 +555,12 @@ async fn local_endpoint(
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .kill_on_drop(true);
-    crate::sidecar::configure_runtime(command.as_std_mut(), &inference.runtime_dir)?;
+    crate::sidecar::configure_llama_runtime(command.as_std_mut(), &inference.runtime_dir)?;
     if cfg!(target_os = "macos") {
         command.args(["--n-gpu-layers", "auto"]);
     }
     #[cfg(target_os = "windows")]
-    command
-        .current_dir(&inference.runtime_dir)
-        .creation_flags(0x08000000);
+    command.creation_flags(0x08000000);
     let mut child = command.spawn().map_err(|_| {
         "로컬 실행기를 시작하지 못했습니다. 실행 파일과 라이브러리를 확인해 주세요."
     })?;
