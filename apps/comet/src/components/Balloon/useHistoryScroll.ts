@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { ConversationMessages } from "../../types";
 
 export type HistoryReadingPosition = {
@@ -97,7 +97,7 @@ export function useHistoryScroll(
 
   // Measure after each committed layout, including composer/loading-height changes.
   // Snapshot churn with unchanged geometry does not write the scroll position.
-  useLayoutEffect(() => {
+  function apply(): void {
     const element = log.current;
     if (scope.current.sessionId !== sessionId || scope.current.userId !== userId) {
       scope.current = { sessionId, userId };
@@ -156,7 +156,20 @@ export function useHistoryScroll(
       }
     }
     remember();
-  });
+  }
+  const latest = useRef(apply);
+  latest.current = apply;
+  useLayoutEffect(apply);
+  // A reused hidden view can finish refreshing before it is shown, leaving no
+  // later render. Apply pending restoration once the log has geometry again.
+  useEffect(() => {
+    const element = log.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => latest.current());
+    observer.observe(element);
+    return () => observer.disconnect();
+    // The log mounts only with a selected session; observe each mounted element.
+  }, [sessionId]);
 
   return { log, onScroll: remember, followTail, capture, restore };
 }

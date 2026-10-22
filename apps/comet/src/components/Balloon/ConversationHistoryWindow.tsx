@@ -255,6 +255,7 @@ export function ConversationHistoryWindow({
   const saveQueue = useRef(Promise.resolve());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const alive = useRef(true);
+  const closing = useRef(false);
   const transcriptRevision = useRef(0);
   const transcriptIdentity = useRef<{ sessionId: string; userId: string | undefined } | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
@@ -384,18 +385,21 @@ export function ConversationHistoryWindow({
       setRestorationAttempt((value) => value + 1);
       return;
     }
-    if (
-      operation.current ||
-      saveRequest ||
-      replacement ||
-      (loading && !selectedRef.current) ||
-      busy
-    )
+    if (operation.current || (loading && !selectedRef.current)) return;
+    // Explain blocked closes: the native close request is always prevented.
+    if (saveRequest || replacement) {
+      setError("저장하거나 취소한 뒤 닫아 주세요.");
       return;
+    }
+    if (busy) {
+      setError("대답이 끝난 뒤 닫아 주세요.");
+      return;
+    }
     const closingGeneration = generation.current;
     const userId = current.current.user?.id;
     if (native && closingGeneration === null) return;
     operation.current = true;
+    closing.current = true;
     setPending(true);
     setError(null);
     try {
@@ -420,7 +424,13 @@ export function ConversationHistoryWindow({
             }
           : null,
       });
-      if (!released) return;
+      if (!released) {
+        // An open that never reached this view leaves its generation stale.
+        const state = await command<HistoryWindowState>("get_conversation_history_state");
+        generation.current = Math.max(generation.current ?? 0, state.generation);
+        if (alive.current) setError("창 상태가 바뀌었어요. 다시 닫아 주세요.");
+        return;
+      }
       owner.current = null;
       draft.current = null;
       setEditing(null);
@@ -428,6 +438,7 @@ export function ConversationHistoryWindow({
       if (alive.current) setError(errorText(cause));
     } finally {
       operation.current = false;
+      closing.current = false;
       if (alive.current) setPending(false);
     }
   }
@@ -1436,7 +1447,8 @@ export function ConversationHistoryWindow({
                   sendDisabled={busy || pending}
                   disableInputWhileSending={false}
                   onValueChange={(value) => {
-                    if (draft.current && editable) {
+                    // Text typed after the closing flush would not be saved.
+                    if (draft.current && editable && !closing.current) {
                       draft.current.value = value;
                       setInput(value);
                     }
