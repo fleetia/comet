@@ -25,7 +25,7 @@ export const inspector = style({
   padding: "18px 20px 20px",
   border: `1px solid ${tokens["color/chip-border"]}`,
   borderRadius: 24,
-  background: `radial-gradient(ellipse at 50% 0, ${tokens["color/component/cat-rest-alpha-160"]}, transparent 70%), ${tokens["color/card-2"]}`,
+  background: `radial-gradient(ellipse at 50% 0, ${tokens["color/preview-glow"]}, ${tokens["color/preview-glow-transparent"]} 70%), ${tokens["color/preview-panel"]}`,
 });
 export const inspectorTitle = style({
   display: "flex",
