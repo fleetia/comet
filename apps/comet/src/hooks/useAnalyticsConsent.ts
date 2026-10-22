@@ -25,8 +25,9 @@ export function useAnalyticsConsent(): void {
         if (active && !receivedEvent) updateAnalyticsConsent(initial === true);
       })
       .catch(() => {
-        // A failed consent channel must not leave this window opted in.
-        if (active) updateAnalyticsConsent(false);
+        // A failed consent channel must not leave this window opted in,
+        // but a newer event already carries the current consent.
+        if (active && !receivedEvent) updateAnalyticsConsent(false);
       });
     return () => {
       active = false;

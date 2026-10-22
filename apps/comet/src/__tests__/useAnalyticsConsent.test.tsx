@@ -47,6 +47,29 @@ it("subscribes before reading and keeps withdrawal over a stale initial grant", 
   expect(updateAnalyticsConsent).toHaveBeenCalledTimes(2);
 });
 
+it.each([true, false])(
+  "keeps event consent %s over a late failed initial read",
+  async (payload) => {
+    let receive: (event: Event<boolean>) => void = () => {};
+    let rejectInitial: (error: Error) => void = () => {};
+    vi.mocked(listen).mockImplementation(async (_name, callback) => {
+      receive = callback as typeof receive;
+      return () => {};
+    });
+    vi.mocked(invoke).mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectInitial = reject;
+        }),
+    );
+    renderHook(useAnalyticsConsent);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("get_analytics_consent"));
+    act(() => receive({ event: "analytics-consent", id: 1, payload }));
+    await act(async () => rejectInitial(new Error("offline")));
+    expect(updateAnalyticsConsent).toHaveBeenCalledExactlyOnceWith(payload);
+  },
+);
+
 it("applies initial consent when no event arrived", async () => {
   vi.mocked(listen).mockResolvedValue(vi.fn());
   vi.mocked(invoke).mockResolvedValue(true);
