@@ -3,11 +3,23 @@ pub(crate) mod wake;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Platform {
+    Macos,
+    Windows,
+    Linux,
+    #[default]
+    Other,
+}
+
 /// Hardware facts for model recommendations. Read once per process, because snapshots that
 /// carry them are rebuilt every 250 ms during a download.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceInfo {
+    #[serde(default)]
+    pub platform: Platform,
     /// Physical memory in bytes; `None` when the OS did not report it.
     pub total_memory: Option<u64>,
     /// macOS builds run llama.cpp on Metal; other release builds use the CPU.
@@ -17,6 +29,12 @@ pub struct DeviceInfo {
 pub fn info() -> DeviceInfo {
     static INFO: OnceLock<DeviceInfo> = OnceLock::new();
     *INFO.get_or_init(|| DeviceInfo {
+        platform: match std::env::consts::OS {
+            "macos" => Platform::Macos,
+            "windows" => Platform::Windows,
+            "linux" => Platform::Linux,
+            _ => Platform::Other,
+        },
         total_memory: total_memory(),
         apple_silicon: cfg!(all(target_os = "macos", target_arch = "aarch64")),
     })

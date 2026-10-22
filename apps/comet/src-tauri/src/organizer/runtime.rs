@@ -79,6 +79,7 @@ pub(crate) fn ready(state: &AppState, settings: &Settings) -> bool {
             !settings.api_model.trim().is_empty() && inference::api_credentials_ready(settings)
         }
         "chatgpt" => !settings.chatgpt_model.trim().is_empty() && state.inference.chatgpt.ready(),
+        "apple" => crate::apple_models::status().available,
         _ => false,
     }
 }

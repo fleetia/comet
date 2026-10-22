@@ -1,6 +1,7 @@
 mod analytics;
 mod app;
 mod app_usage;
+mod apple_models;
 mod behavior;
 mod characters;
 mod chatgpt;

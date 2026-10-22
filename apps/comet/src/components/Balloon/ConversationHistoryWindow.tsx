@@ -27,7 +27,7 @@ import {
   ConversationSave,
   type ConversationSaveRequest,
 } from "./ConversationSave";
-import { responseOrigin } from "./conversationStatus";
+import { aiAvailability, responseOrigin } from "./conversationStatus";
 import { draftPreview } from "./ConversationHistory";
 import { useHistoryScroll } from "./useHistoryScroll";
 import * as s from "./conversationHistoryWindow.css";
@@ -157,6 +157,7 @@ function mergePages(
       ).values(),
     ),
     nextBefore: earlier.nextBefore,
+    recovery: later.recovery,
     characterNames: { ...earlier.characterNames, ...later.characterNames },
     userNames: { ...earlier.userNames, ...later.userNames },
     messageSources: { ...earlier.messageSources, ...later.messageSources },
@@ -253,11 +254,13 @@ export function ConversationHistoryWindow({
   const transcript = useHistoryScroll(selectedId, page);
   const activeCharactersKey = snapshot.characters.active.join("\0");
   const editable = Boolean(selectedId && editing === selectedId);
-  const recovery =
-    snapshot.conversation?.session.id === selectedId ? snapshot.conversation?.recovery : undefined;
-  const recoverable =
-    recovery &&
-    (recovery.reason === "cancelled" || isFailedSubmission(snapshot, recovery.messageId));
+  const selectedIsLive = snapshot.conversation?.session.id === selectedId;
+  const recovery = page?.recovery;
+  const selectedResponding =
+    (snapshot.activeRequest?.sessionId === selectedId && responding) ||
+    (selectedIsLive && (busy || snapshot.runtime.phase === "playing"));
+  const recoverable = recovery && !selectedResponding;
+  const availability = aiAvailability(snapshot);
 
   function persistDraft(value = draft.current): Promise<void> {
     if (!value || preview) return Promise.resolve();
@@ -1167,11 +1170,13 @@ export function ConversationHistoryWindow({
                     {error}
                   </p>
                 )}
-                {editable && snapshot.runtime.error && (
-                  <p className={s.error} role="alert">
-                    {snapshot.runtime.error}
-                  </p>
-                )}
+                {selectedIsLive &&
+                  snapshot.runtime.phase === "error" &&
+                  snapshot.runtime.error && (
+                    <p className={s.error} role="alert">
+                      {snapshot.runtime.error}
+                    </p>
+                  )}
                 {!editable && (
                   <div className={s.actions}>
                     <Button
@@ -1186,31 +1191,38 @@ export function ConversationHistoryWindow({
                     <span className={s.meta}>이 창에서 이야기를 이어갈 수 있어요.</span>
                   </div>
                 )}
-                {recoverable && editable && (
+                {recoverable && (
                   <div className={s.actions}>
-                    <span className={s.meta}>
+                    <span className={s.meta} role="status">
                       {recovery.reason === "cancelled"
                         ? "생성을 멈췄어요."
                         : "답변을 마치지 못했어요. 보낸 내용은 남아 있어요."}
                     </span>
-                    <Button
-                      size="small"
-                      variant="ghost"
-                      disabled={pending || busy}
-                      onClick={() => {
-                        void retry();
-                      }}
-                    >
-                      다시 이야기하기
-                    </Button>
-                    <Button
-                      size="small"
-                      variant="ghost"
-                      disabled={pending || busy}
-                      onClick={editFailedInput}
-                    >
-                      입력 수정
-                    </Button>
+                    {recovery.reason === "incomplete" && !availability.ready && (
+                      <span className={s.meta}>{availability.label}</span>
+                    )}
+                    {editable && (
+                      <Button
+                        size="small"
+                        variant="ghost"
+                        disabled={pending || busy}
+                        onClick={() => {
+                          void retry();
+                        }}
+                      >
+                        다시 이야기하기
+                      </Button>
+                    )}
+                    {editable && (
+                      <Button
+                        size="small"
+                        variant="ghost"
+                        disabled={pending || busy}
+                        onClick={editFailedInput}
+                      >
+                        입력 수정
+                      </Button>
+                    )}
                     <Button
                       size="small"
                       variant="ghost"
@@ -1245,7 +1257,11 @@ export function ConversationHistoryWindow({
                   form="multiline"
                   sendSize="compact"
                   label="이어서 말하기"
-                  placeholder={`${participantName}에게 이어서 말하기`}
+                  placeholder={
+                    editable
+                      ? `${participantName}에게 이어서 말하기`
+                      : "이어서 말하기를 눌러 대화를 재개하세요"
+                  }
                   value={input}
                   inputRef={textarea}
                   sending={sending}
@@ -1286,7 +1302,11 @@ export function ConversationHistoryWindow({
                     },
                   }}
                 />
-                <p className={s.meta}>⏎ 보내기 · 답은 여기와 바탕화면 말풍선에 같이 보여요</p>
+                <p className={s.meta}>
+                  {editable
+                    ? "⏎ 보내기 · 답은 여기와 바탕화면 말풍선에 같이 보여요"
+                    : "이어서 말하기를 눌러 대화를 재개하세요."}
+                </p>
               </footer>
             </>
           )}

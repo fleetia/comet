@@ -1,4 +1,4 @@
-import type { AiProvider, ApiProfile, ApiProvider, Settings } from "./types";
+import type { AiProvider, ApiProfile, ApiProvider, DeviceInfo, Settings } from "./types";
 
 export const AI_PROVIDERS: ReadonlyArray<{ value: AiProvider; label: string }> = [
   { value: "local", label: "이 기기의 모델" },
@@ -7,7 +7,37 @@ export const AI_PROVIDERS: ReadonlyArray<{ value: AiProvider; label: string }> =
   { value: "gemini", label: "Gemini" },
   { value: "glm", label: "GLM" },
   { value: "custom", label: "사용자 지정 API" },
+  { value: "apple", label: "Apple 온디바이스 AI" },
 ];
+
+export function getRecommendedAiProvider(platform: DeviceInfo["platform"]): AiProvider | null {
+  if (platform === "macos") {
+    return "apple";
+  }
+  if (platform === "windows") {
+    return "chatgpt";
+  }
+  return null;
+}
+
+export function getAiProviders(
+  platform: DeviceInfo["platform"],
+  selectedProvider: AiProvider,
+): typeof AI_PROVIDERS {
+  const providers = AI_PROVIDERS.filter(
+    (provider) =>
+      provider.value !== "apple" || platform === "macos" || selectedProvider === "apple",
+  );
+  const recommendation = getRecommendedAiProvider(platform);
+  if (!recommendation) {
+    return providers;
+  }
+  const priority: AiProvider[] = platform === "macos" ? ["apple", "chatgpt"] : ["chatgpt"];
+  return [
+    ...priority.flatMap((value) => providers.filter((provider) => provider.value === value)),
+    ...providers.filter((provider) => !priority.includes(provider.value)),
+  ];
+}
 
 export const API_DEFAULTS: Record<ApiProvider, ApiProfile> = {
   custom: { baseUrl: "https://api.openai.com/v1", apiModel: "", apiTokenParameter: "max_tokens" },
@@ -61,7 +91,7 @@ export function selectAiProvider(settings: Settings, provider: AiProvider): Sett
           [settings.apiProvider]: getApiProfile(settings, settings.apiProvider),
         }
       : settings.apiProfiles;
-  if (provider === "local" || provider === "chatgpt") {
+  if (provider === "local" || provider === "chatgpt" || provider === "apple") {
     return { ...settings, mode: provider, apiProfiles };
   }
   return {

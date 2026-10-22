@@ -2,6 +2,11 @@ import type { Snapshot } from "../../types";
 
 /** Configuration readiness, not a promise that an inference request will succeed. */
 export function aiAvailability(snapshot: Snapshot): { ready: boolean; label: string } {
+  if (snapshot.settings.mode === "apple") {
+    return snapshot.appleModel.available
+      ? { ready: true, label: "AI 자유 대화 · Apple 온디바이스 AI 준비됨" }
+      : { ready: false, label: `AI 자유 대화 · ${snapshot.appleModel.message}` };
+  }
   if (snapshot.settings.mode === "local") {
     return snapshot.modelReady
       ? { ready: true, label: "AI 자유 대화 · 로컬 모델 준비됨" }
