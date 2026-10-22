@@ -1,13 +1,12 @@
-import type { JSX, ReactNode } from "react";
+import { lazy, type JSX, type ReactNode } from "react";
 import { Button } from "@comet/ui";
 import { CompanionBox } from "./components/CompanionBox/CompanionBox";
 import { FaceTag } from "./components/FaceTag/FaceTag";
 import { Balloon } from "./components/Balloon/Balloon";
 import { ConversationResponse } from "./components/Balloon/ConversationResponse";
 import { ConversationHistoryWindow } from "./components/Balloon/ConversationHistoryWindow";
-import { DesktopPreview } from "./components/DesktopPreview/DesktopPreview";
+import "./settingsSurfaceStyles";
 import { DesktopToy } from "./components/DesktopToy/DesktopToy";
-import { SettingsPanel } from "./components/SettingsPanel/SettingsPanel";
 import { WidgetTool } from "./widgets/WidgetTool/WidgetTool";
 import { WidgetWorkshop } from "./widgets/GeneratedWidgets/WidgetWorkshop";
 import { GeneratedWidgetTool } from "./widgets/GeneratedWidgets/GeneratedWidgetTool";
@@ -24,11 +23,26 @@ import { WindowHeader } from "./components/WindowHeader/WindowHeader";
 import { command, isDesktop, useSnapshot } from "./hooks/useSnapshot";
 import { useAnalyticsConsent } from "./hooks/useAnalyticsConsent";
 import * as s from "./common.css";
+import { LazySurface } from "./components/LazySurface";
+
+// Keep these identities stable across snapshot updates, preserving mounted drafts.
+const SettingsPanel = lazy(() =>
+  import("./components/SettingsPanel/SettingsPanel").then((module) => ({
+    default: module.SettingsPanel,
+  })),
+);
+// Preview also imports SettingsPanel; keep that alternate eager path out of native views.
+const DesktopPreview = lazy(() =>
+  import("./components/DesktopPreview/DesktopPreview").then((module) => ({
+    default: module.DesktopPreview,
+  })),
+);
 
 // Independent tools own their own data subscriptions; they do not need app history.
 function standaloneRoute(query: URLSearchParams): JSX.Element | null {
   const view = query.get("view");
-  if (view === "generated-widget-executor") return <GeneratedWidgetExecutor token={query.get("token") ?? ""} />;
+  if (view === "generated-widget-executor")
+    return <GeneratedWidgetExecutor token={query.get("token") ?? ""} />;
   if (view === "widget-workshop") return <WidgetWorkshop />;
   if (view === "generated-widget") return <GeneratedWidgetTool id={query.get("id") ?? ""} />;
   if (view === "widget-state-rules") return <WidgetStateRules id={query.get("id") ?? ""} />;
@@ -136,7 +150,15 @@ function SnapshotWindow({ query }: { query: URLSearchParams }): JSX.Element {
   }
   if (view === "settings" || view === "characters" || view === "widgets") {
     return (
-      <SettingsPanel snapshot={snapshot} initialSection={view === "settings" ? undefined : view} />
+      <LazySurface
+        desktop
+        title={view === "settings" ? "설정" : view === "characters" ? "캐릭터" : "위젯"}
+      >
+        <SettingsPanel
+          snapshot={snapshot}
+          initialSection={view === "settings" ? undefined : view}
+        />
+      </LazySurface>
     );
   }
   if (query.get("view") === "balloon") {
@@ -156,5 +178,9 @@ function SnapshotWindow({ query }: { query: URLSearchParams }): JSX.Element {
   if (isDesktop()) {
     return <CompanionBox id={snapshot.characters.active[0]} snapshot={snapshot} />;
   }
-  return <DesktopPreview initial={snapshot} />;
+  return (
+    <LazySurface>
+      <DesktopPreview initial={snapshot} />
+    </LazySurface>
+  );
 }
