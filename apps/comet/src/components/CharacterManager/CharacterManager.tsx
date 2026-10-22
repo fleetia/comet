@@ -597,7 +597,7 @@ export function CharacterManager({
                       }}
                       statusDescription={
                         selected
-                          ? `${selected.packId ? (packs.find((pack) => pack.id === selected.packId)?.name ?? "캐릭터 팩") : "직접 만든 친구"} · ${together ? (snapshot.runtime.presentCharacterIds.includes(selectedId) && !snapshot.runtime.hidden ? "바탕화면에 있어요" : "자리 비움") : "쉬는 중"}`
+                          ? `${selected.packId ? (packs.find((pack) => pack.id === selected.packId)?.name ?? "캐릭터 팩") : "직접 만든 친구"} · ${together ? (snapshot.runtime.hidden ? "지금은 쉬고 있어요" : snapshot.runtime.presentCharacterIds.includes(selectedId) ? "바탕화면에 있어요" : "자리 비움") : "쉬는 중"}`
                           : "새로 만날 친구"
                       }
                       memoryTabRequest={memoryTabRequest}

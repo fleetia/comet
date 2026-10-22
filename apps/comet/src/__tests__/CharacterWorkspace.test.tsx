@@ -164,6 +164,28 @@ it("shows an empty temporary presence without changing the active roster", () =>
   expect(screen.getByRole("switch", { name: "함께 지내기" })).toHaveProperty("checked", true);
 });
 
+it("shows global hiding before desktop presence in the friend detail status", () => {
+  const runtime = (hidden: boolean, presentCharacterIds: string[]): Snapshot => ({
+    ...snapshot,
+    runtime: { ...snapshot.runtime, hidden, presentCharacterIds },
+  });
+  const { rerender } = render(
+    <CharacterManager embedded snapshot={runtime(true, ["builtin-a"])} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "A 자세히" }));
+  expect(screen.getByText("직접 만든 친구 · 지금은 쉬고 있어요")).toBeTruthy();
+  rerender(<CharacterManager embedded snapshot={runtime(false, ["builtin-a"])} />);
+  expect(screen.getByText("직접 만든 친구 · 바탕화면에 있어요")).toBeTruthy();
+  rerender(<CharacterManager embedded snapshot={runtime(false, [])} />);
+  expect(screen.getByText("직접 만든 친구 · 자리 비움")).toBeTruthy();
+  rerender(<CharacterManager embedded snapshot={runtime(true, [])} />);
+  expect(screen.getByText("직접 만든 친구 · 지금은 쉬고 있어요")).toBeTruthy();
+  choose(/^모래/);
+  expect(screen.getByText("직접 만든 친구 · 쉬는 중")).toBeTruthy();
+  addNewFriend();
+  expect(screen.getByText("새로 만날 친구")).toBeTruthy();
+});
+
 it("retains exact per-character drafts across selection and snapshot changes after a save failure", async () => {
   const onDirtyChange = vi.fn();
   const { rerender } = render(
