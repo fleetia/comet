@@ -293,12 +293,12 @@ impl Event {
                     ErrorSource::FrontendCommand
                         if code == ErrorCode::CommandFailed && self.operation.is_some() =>
                     {
-                        json!({ "error_source": source, "error_code": code, "operation": self.operation })
+                        json!({ "error_source": source, "error_code": code, "operation": self.operation, "error_count": 1 })
                     }
                     ErrorSource::FrontendRuntime | ErrorSource::FrontendPromise
                         if code == ErrorCode::UnexpectedError && self.operation.is_none() =>
                     {
-                        json!({ "error_source": source, "error_code": code })
+                        json!({ "error_source": source, "error_code": code, "error_count": 1 })
                     }
                     _ => return Err(INVALID_EVENT.into()),
                 }
@@ -358,7 +358,8 @@ impl Event {
                     .as_deref()
                     .filter(|value| valid_app_version(value))
                     .ok_or(INVALID_EVENT)?;
-                json!({ "termination_kind": self.termination_kind.ok_or(INVALID_EVENT)?, "crash_app_version": version })
+                json!({ "termination_kind": self.termination_kind.ok_or(INVALID_EVENT)?, "crash_app_version": version,
+                    "abnormal_exit_count": 1 })
             }
             _ => return Err(INVALID_EVENT.into()),
         };
@@ -727,6 +728,7 @@ mod tests {
         for payload in [
             json!({"event":"comet_ai_request_completed","ai_provider":"apple","ai_model_family":"system_language_model","ai_model_source":"os","request_outcome":"success","duration_ms":100}),
             json!({"event":"comet_error","error_source":"frontend_runtime","error_code":"unexpected_error"}),
+            json!({"event":"comet_error","error_source":"frontend_promise","error_code":"unexpected_error"}),
             json!({"event":"comet_error","error_source":"frontend_command","error_code":"command_failed","operation":"save_settings"}),
             json!({"event":"comet_ai_request_completed","ai_provider":"local","ai_model_family":"qwen","ai_model_source":"catalog","request_outcome":"success","duration_ms":250}),
             json!({"event":"comet_ai_request_completed","ai_provider":"claude","ai_model_family":"claude","ai_model_source":"service","request_outcome":"error","duration_ms":12,"error_code":"ai_request_failed"}),
@@ -759,6 +761,16 @@ mod tests {
                 assert!(params.get("ai_success_count").is_none());
                 assert!(params.get("ai_measured_duration_ms").is_none());
             }
+            for (event, counter) in [
+                ("comet_error", "error_count"),
+                ("comet_abnormal_exit", "abnormal_exit_count"),
+            ] {
+                if payload["event"] == event {
+                    assert_eq!(params[counter].as_u64(), Some(1));
+                } else {
+                    assert!(params.get(counter).is_none());
+                }
+            }
         }
     }
 
@@ -787,6 +799,23 @@ mod tests {
                     event.body(&test_context("qa"), "123.456", 10).is_err(),
                     "{payload}"
                 );
+            }
+        }
+        for mut payload in [
+            json!({"event":"comet_error","error_source":"frontend_runtime","error_code":"unexpected_error"}),
+            json!({"event":"comet_error","error_source":"frontend_command","error_code":"command_failed","operation":"save_settings"}),
+            json!({"event":"comet_abnormal_exit","termination_kind":"unclean_exit","crash_app_version":"0.13.1"}),
+            json!({"event":"comet_ai_request_completed","ai_provider":"local","ai_model_family":"qwen","ai_model_source":"catalog","request_outcome":"error","duration_ms":12,"error_code":"ai_request_failed"}),
+            json!({"event":"comet_app_started"}),
+        ] {
+            assert!(serde_json::from_value::<Event>(payload.clone()).is_ok());
+            for counter in ["error_count", "abnormal_exit_count"] {
+                payload[counter] = json!(1);
+                assert!(
+                    serde_json::from_value::<Event>(payload.clone()).is_err(),
+                    "{payload}"
+                );
+                payload.as_object_mut().unwrap().remove(counter);
             }
         }
     }
@@ -917,6 +946,8 @@ mod tests {
             assert!(params.get("ai_request_count").is_none());
             assert!(params.get("ai_success_count").is_none());
             assert!(params.get("ai_measured_duration_ms").is_none());
+            assert!(params.get("error_count").is_none());
+            assert!(params.get("abnormal_exit_count").is_none());
             assert!(params
                 .as_object()
                 .unwrap()
