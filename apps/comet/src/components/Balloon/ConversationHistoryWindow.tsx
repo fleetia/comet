@@ -29,7 +29,7 @@ import {
 } from "./ConversationSave";
 import { aiAvailability, responseOrigin } from "./conversationStatus";
 import { draftPreview } from "./ConversationHistory";
-import { useHistoryScroll } from "./useHistoryScroll";
+import { useHistoryScroll, type HistoryReadingPosition } from "./useHistoryScroll";
 import * as s from "./conversationHistoryWindow.css";
 
 type Props = {
@@ -38,6 +38,14 @@ type Props = {
   preview?: boolean;
   previewConversations?: ConversationView[];
 };
+type HistoryRestoration = HistoryReadingPosition & {
+  userId: string;
+  selectedId: string | null;
+  filter: string;
+  query: string;
+};
+export type HistoryWindowState = { generation: number; restoration: HistoryRestoration | null };
+
 type Draft = { userId: string; sessionId: string; value: string; saved: string };
 
 function isFailedSubmission(snapshot: Snapshot, messageId: string): boolean {
@@ -207,6 +215,13 @@ export function ConversationHistoryWindow({
   preview = false,
   previewConversations,
 }: Props): JSX.Element {
+  const native = isDesktop() && !preview;
+  const [restorationReady, setRestorationReady] = useState(!native);
+  const [restorationAttempt, setRestorationAttempt] = useState(0);
+  const generation = useRef<number | null>(null);
+  const reopenPersona = useRef<string | null>(null);
+  const restoreSelection = useRef<HistoryRestoration | null>(null);
+  const restoreReading = useRef<HistoryRestoration | null>(null);
   const [sessions, setSessions] = useState<ConversationSession[]>([]);
   const [selected, setSelected] = useState<ConversationSession | null>(null);
   const [page, setPage] = useState<ConversationMessages | null>(null);
@@ -241,17 +256,18 @@ export function ConversationHistoryWindow({
   const saveQueue = useRef(Promise.resolve());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const alive = useRef(true);
+  const closing = useRef(false);
   const transcriptRevision = useRef(0);
+  const transcriptIdentity = useRef<{ sessionId: string; userId: string | undefined } | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const composing = useRef(false);
   const lastSubmission = useRef<{ sessionId: string; messageId: string; content: string } | null>(
     null,
   );
-  const native = isDesktop() && !preview;
   const responding = ["loading", "generating"].includes(snapshot.runtime.phase);
   const busy = responding || Boolean(snapshot.playback);
   const selectedId = selected?.id;
-  const transcript = useHistoryScroll(selectedId, page);
+  const transcript = useHistoryScroll(selectedId, page, snapshot.user?.id);
   const activeCharactersKey = snapshot.characters.active.join("\0");
   const editable = Boolean(selectedId && editing === selectedId);
   const selectedIsLive = snapshot.conversation?.session.id === selectedId;
@@ -301,6 +317,9 @@ export function ConversationHistoryWindow({
     setInput(owned ? (draft.current?.value ?? session?.draft ?? "") : (session?.draft ?? ""));
   }
   function adopt(view: ConversationView): void {
+    const sameTranscript =
+      selectedRef.current?.id === view.session.id &&
+      selectedRef.current.userId === view.session.userId;
     owner.current = view.session.id;
     draft.current = {
       userId: view.session.userId,
@@ -310,7 +329,8 @@ export function ConversationHistoryWindow({
     };
     selectedRef.current = view.session;
     setSelected(view.session);
-    setPage(view);
+    // Acquiring the editor does not discard older pages of the same transcript.
+    setPage((previous) => (sameTranscript && previous ? mergePages(previous, view) : view));
     setInput(view.session.draft);
     setEditing(view.session.id);
     setSessions((previous) => [
@@ -364,16 +384,56 @@ export function ConversationHistoryWindow({
     }
   }
   async function close(): Promise<void> {
-    if (operation.current) return;
+    if (!restorationReady) {
+      setRestorationAttempt((value) => value + 1);
+      return;
+    }
+    if (operation.current || (loading && !selectedRef.current)) return;
+    // Explain blocked closes: the native close request is always prevented.
+    if (saveRequest || replacement) {
+      setError("저장하거나 취소한 뒤 닫아 주세요.");
+      return;
+    }
+    if (busy) {
+      setError("대답이 끝난 뒤 닫아 주세요.");
+      return;
+    }
+    const closingGeneration = generation.current;
+    const userId = current.current.user?.id;
+    if (native && closingGeneration === null) return;
     operation.current = true;
+    closing.current = true;
     setPending(true);
     setError(null);
     try {
       await flushDraft();
-      await command(
-        "release_conversation_history",
-        owner.current ? { sessionId: owner.current } : {},
-      );
+      if (userId !== current.current.user?.id || closingGeneration !== generation.current) return;
+      const released = await command<boolean>("release_conversation_history", {
+        ...(owner.current ? { sessionId: owner.current } : {}),
+        generation: closingGeneration,
+        restoration: userId
+          ? {
+              userId,
+              selectedId: selectedRef.current?.id ?? null,
+              filter,
+              query,
+              ...(restoreReading.current &&
+              restoreReading.current.selectedId === selectedRef.current?.id
+                ? {
+                    anchor: restoreReading.current.anchor,
+                    followingTail: restoreReading.current.followingTail,
+                  }
+                : transcript.capture()),
+            }
+          : null,
+      });
+      if (!released) {
+        // An open that never reached this view leaves its generation stale.
+        const state = await command<HistoryWindowState>("get_conversation_history_state");
+        generation.current = Math.max(generation.current ?? 0, state.generation);
+        if (alive.current) setError("창 상태가 바뀌었어요. 다시 닫아 주세요.");
+        return;
+      }
       owner.current = null;
       draft.current = null;
       setEditing(null);
@@ -381,6 +441,7 @@ export function ConversationHistoryWindow({
       if (alive.current) setError(errorText(cause));
     } finally {
       operation.current = false;
+      closing.current = false;
       if (alive.current) setPending(false);
     }
   }
@@ -427,6 +488,13 @@ export function ConversationHistoryWindow({
     }
   };
   useEffect(() => {
+    if (!pending && reopenPersona.current) {
+      const persona = reopenPersona.current;
+      reopenPersona.current = null;
+      void filterRef.current(persona);
+    }
+  }, [pending]);
+  useEffect(() => {
     alive.current = true;
     return () => {
       alive.current = false;
@@ -450,8 +518,16 @@ export function ConversationHistoryWindow({
       .catch((cause: unknown) => {
         if (active) setError(errorText(cause));
       });
-    void listen<string>("conversation-history-persona", (event) => {
-      void filterRef.current(event.payload);
+    void listen<{ generation: number; persona: string }>("conversation-history-open", (event) => {
+      if (event.payload.generation < (generation.current ?? 0)) return;
+      generation.current = Math.max(generation.current ?? 0, event.payload.generation);
+      if (event.payload.persona !== "all") {
+        if (operation.current) reopenPersona.current = event.payload.persona;
+        else void filterRef.current(event.payload.persona);
+      } else {
+        // A reused hidden view still needs current database content on reopening.
+        setRevision((value) => value + 1);
+      }
     })
       .then(retain)
       .catch((cause: unknown) => {
@@ -463,10 +539,53 @@ export function ConversationHistoryWindow({
     };
   }, [native]);
   useEffect(() => {
+    if (!native) return;
+    let active = true;
+    setRestorationReady(false);
+    setLoading(true);
+    setListError(null);
+    const requestedGeneration = generation.current;
+    void command<HistoryWindowState>("get_conversation_history_state")
+      .then((state) => {
+        if (!active) return;
+        // A newer open owns the current filter/selection, including an all-scope refresh.
+        const openedSinceRequest = generation.current !== requestedGeneration;
+        const staleState = state.generation < (generation.current ?? 0);
+        generation.current = Math.max(generation.current ?? 0, state.generation);
+        const saved = state.restoration;
+        if (
+          !openedSinceRequest &&
+          !staleState &&
+          saved &&
+          saved.userId === current.current.user?.id
+        ) {
+          const selectedFilter =
+            initialPersona && initialPersona !== "all" ? initialPersona : saved.filter;
+          filterScope.current = selectedFilter;
+          setFilter(selectedFilter);
+          setQuery(saved.query);
+          setSearch(saved.query.trim());
+          restoreSelection.current = saved;
+          restoreReading.current = saved;
+        }
+        setRestorationReady(true);
+      })
+      .catch((cause: unknown) => {
+        if (active) {
+          setListError(errorText(cause));
+          setLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [native, snapshot.user?.id, restorationAttempt]);
+  useEffect(() => {
     const timer = setTimeout(() => setSearch(query.trim()), 200);
     return () => clearTimeout(timer);
   }, [query]);
   useEffect(() => {
+    if (!restorationReady) return;
     let active = true;
     setLoading(true);
     setListError(null);
@@ -486,9 +605,31 @@ export function ConversationHistoryWindow({
             .map((view) => view.session),
         );
     void result
-      .then((value) => {
+      .then(async (value) => {
         if (!active) return;
         setSessions(value);
+        const restored = restoreSelection.current;
+        restoreSelection.current = null;
+        if (restored && restored.userId === current.current.user?.id) {
+          // Searching narrows the sidebar, not the already selected transcript.
+          const candidates =
+            native &&
+            search &&
+            restored.selectedId &&
+            !value.some((session) => session.id === restored.selectedId)
+              ? await command<ConversationSession[]>("get_conversations")
+              : value;
+          if (!active) return;
+          showSelection(
+            candidates.find(
+              (session) =>
+                session.id === restored.selectedId && matchesFilter(session, filterScope.current),
+            ) ??
+              value.find((session) => matchesFilter(session, filterScope.current)) ??
+              null,
+          );
+          return;
+        }
         const previous = selectedRef.current;
         if (previous && matchesFilter(previous, filterScope.current)) {
           const refreshed = value.find((session) => session.id === previous.id);
@@ -508,11 +649,34 @@ export function ConversationHistoryWindow({
     return () => {
       active = false;
     };
-  }, [native, search, revision, snapshot.user?.id, previewConversations]);
+  }, [native, restorationReady, search, revision, snapshot.user?.id, previewConversations]);
   useEffect(() => {
     if (!selectedId) return;
     let active = true;
     transcriptRevision.current += 1;
+    const userId = current.current.user?.id;
+    const identity = transcriptIdentity.current;
+    const restoring = restoreReading.current;
+    if (restoring && (restoring.selectedId !== selectedId || restoring.userId !== userId))
+      restoreReading.current = null;
+    // Revalidation must not discard older loaded pages or their reading anchor.
+    // Requery those pages from the database rather than retaining stale message bodies.
+    if (
+      !restoreReading.current &&
+      page &&
+      userId &&
+      identity?.sessionId === selectedId &&
+      identity.userId === userId
+    ) {
+      restoreReading.current = {
+        userId,
+        selectedId,
+        filter: filterScope.current,
+        query,
+        ...transcript.capture(),
+      };
+    }
+    transcriptIdentity.current = { sessionId: selectedId, userId };
     const requestedLive = current.current.conversation;
     setPageLoading(true);
     setPage(null);
@@ -523,7 +687,31 @@ export function ConversationHistoryWindow({
             snapshot.conversation ?? { messages: [], nextBefore: null },
         );
     void result
-      .then((value) => {
+      .then(async (latest) => {
+        let value = latest;
+        const saved = restoreReading.current;
+        if (saved?.selectedId === selectedId && saved.userId === current.current.user?.id) {
+          while (
+            native &&
+            active &&
+            !saved.followingTail &&
+            saved.anchor &&
+            value.nextBefore !== null &&
+            !value.messages.some((message) => message.id === saved.anchor?.messageId)
+          ) {
+            const before = value.nextBefore;
+            const older = await command<ConversationMessages>("get_conversation_messages", {
+              sessionId: selectedId,
+              before,
+            });
+            if (!active) return;
+            value = mergePages(older, value);
+            if (value.nextBefore === before) break;
+          }
+          if (!active) return;
+          transcript.restore(saved);
+          restoreReading.current = null;
+        }
         if (!active) return;
         const live = current.current.conversation;
         setPage(
@@ -625,6 +813,9 @@ export function ConversationHistoryWindow({
   }, [selectedId, editing, recovery?.messageId]);
   useEffect(() => {
     clearTimeout(saveTimer.current);
+    restoreSelection.current = null;
+    restoreReading.current = null;
+    transcriptIdentity.current = null;
     draft.current = null;
     owner.current = null;
     selectedRef.current = null;
@@ -634,6 +825,10 @@ export function ConversationHistoryWindow({
     setEditing(null);
     setInput("");
     setSaveRequest(null);
+    filterScope.current = initialPersona ?? "all";
+    setFilter(initialPersona ?? "all");
+    setQuery("");
+    setSearch("");
   }, [snapshot.user?.id]);
   useEffect(() => {
     const escape = (event: KeyboardEvent): void => {
@@ -941,6 +1136,15 @@ export function ConversationHistoryWindow({
               <p className={s.error} role="alert">
                 {listError}
               </p>
+            )}
+            {listError && !restorationReady && (
+              <Button
+                variant="ghost"
+                size="small"
+                onClick={() => setRestorationAttempt((value) => value + 1)}
+              >
+                다시 불러오기
+              </Button>
             )}
             {!loading && !listError && visibleSessions.length === 0 && (
               <p className={s.empty}>
@@ -1269,7 +1473,8 @@ export function ConversationHistoryWindow({
                   sendDisabled={busy || pending}
                   disableInputWhileSending={false}
                   onValueChange={(value) => {
-                    if (draft.current && editable) {
+                    // Text typed after the closing flush would not be saved.
+                    if (draft.current && editable && !closing.current) {
                       draft.current.value = value;
                       setInput(value);
                     }

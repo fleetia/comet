@@ -33,6 +33,7 @@ pub(crate) fn state() -> AppState {
         playback: Mutex::new(None),
         panel: Mutex::new(None),
         launcher: Mutex::new(super::launcher::Runtime::default()),
+        history_window: Mutex::new(super::history_window::Runtime::default()),
         launcher_open: AtomicBool::new(false),
         widget_editing: AtomicBool::new(false),
         launcher_session: AtomicU64::new(0),

@@ -1,10 +1,13 @@
-import { lazy, type JSX, type ReactNode } from "react";
+import { lazy, useRef, type JSX, type ReactNode } from "react";
 import { Button } from "@comet/ui";
 import { CompanionBox } from "./components/CompanionBox/CompanionBox";
 import { FaceTag } from "./components/FaceTag/FaceTag";
 import { Balloon } from "./components/Balloon/Balloon";
 import { ConversationResponse } from "./components/Balloon/ConversationResponse";
-import { ConversationHistoryWindow } from "./components/Balloon/ConversationHistoryWindow";
+import {
+  ConversationHistoryWindow,
+  type HistoryWindowState,
+} from "./components/Balloon/ConversationHistoryWindow";
 import "./settingsSurfaceStyles";
 import { DesktopToy } from "./components/DesktopToy/DesktopToy";
 import { WidgetTool } from "./widgets/WidgetTool/WidgetTool";
@@ -75,6 +78,17 @@ export function App(): JSX.Element {
 
 function SnapshotWindow({ query }: { query: URLSearchParams }): JSX.Element {
   const { snapshot, error, reload } = useSnapshot();
+  const historyLoaded = useRef(false);
+  historyLoaded.current = Boolean(snapshot);
+  async function closeUnloadedHistory(): Promise<void> {
+    const state = await command<HistoryWindowState>("get_conversation_history_state");
+    // A newly loaded editor owns its close/save lifecycle, not the old loading shell.
+    if (historyLoaded.current) return;
+    await command("release_conversation_history", {
+      generation: state.generation,
+      restoration: state.restoration,
+    });
+  }
   const view = query.get("view");
   if (query.get("view") === "widget") {
     return (
@@ -106,7 +120,7 @@ function SnapshotWindow({ query }: { query: URLSearchParams }): JSX.Element {
             }
             onClose={
               view === "conversation-history"
-                ? () => command("release_conversation_history")
+                ? closeUnloadedHistory
                 : view === "settings" ||
                     view === "characters" ||
                     view === "widgets" ||

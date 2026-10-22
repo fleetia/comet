@@ -92,6 +92,8 @@ beforeEach(() => {
   vi.mocked(command)
     .mockReset()
     .mockImplementation(async (name, args) => {
+      if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+      if (name === "release_conversation_history") return true;
       if (name === "get_conversations") return [FIRST, SECOND];
       if (name === "get_conversation_messages" || name === "resume_chat")
         return args?.sessionId === SECOND.id ? SECOND_VIEW : FIRST_VIEW;
@@ -122,6 +124,7 @@ it.each(["restart", "other-session-error"])(
       recovery: { messageId: failedInput.id, reason: "incomplete" },
     };
     vi.mocked(command).mockImplementation(async (name) => {
+      if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
       if (name === "get_conversations") return [FIRST];
       if (name === "get_conversation_messages") return page;
     });
@@ -161,6 +164,7 @@ it.each(["loading", "generating", "playing"] as const)(
       recovery: { messageId: "pending-input", reason: "incomplete" },
     };
     vi.mocked(command).mockImplementation(async (name) => {
+      if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
       if (name === "get_conversations") return [FIRST];
       if (name === "get_conversation_messages") return pending;
     });
@@ -187,6 +191,7 @@ it("clears recovered history when a reply succeeds and ignores stale recovery fr
     recovery: { messageId: "failed-input", reason: "incomplete" },
   };
   vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
     if (name === "get_conversations") return [FIRST];
     if (name === "get_conversation_messages") return args?.before ? older.promise : failed;
   });
@@ -242,6 +247,8 @@ it("shows verified start and focus events between the original messages", async 
     ],
   };
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "get_conversations") return [FIRST];
     if (name === "get_conversation_messages") return view;
   });
@@ -263,6 +270,8 @@ it("shows verified start and focus events between the original messages", async 
 
 it("does not describe an unknown or manually answered origin as automatic speech", async () => {
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "get_conversations") return [FIRST];
     if (name === "get_conversation_messages")
       return {
@@ -289,6 +298,8 @@ it("reveals earlier events once when loading more messages without changing thei
     { id: "focus", kind: "focus-paused", createdAt: MESSAGE.createdAt + 1000 },
   ];
   vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "get_conversations") return [FIRST];
     if (name === "get_conversation_messages")
       return args?.before
@@ -309,6 +320,8 @@ it("reveals earlier events once when loading more messages without changing thei
 it("opens the memory owner's settings from a receipt in a group conversation", async () => {
   const session: ConversationSession = { ...FIRST, participants: ["builtin-a", "builtin-b"] };
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "get_conversations") return [session];
     if (name === "get_conversation_messages")
       return {
@@ -349,6 +362,8 @@ it("refreshes removed memories in a read-only conversation when the memory revis
     },
   ];
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "get_conversations") return [FIRST];
     if (name === "get_conversation_messages") return { ...FIRST_VIEW, memoryReceipts: receipts };
   });
@@ -364,6 +379,8 @@ it("refreshes removed memories in a read-only conversation when the memory revis
 it("keeps a newer read-only snapshot when an earlier page request finishes late", async () => {
   const page = deferred<ConversationMessages>();
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "get_conversations") return [FIRST];
     if (name === "get_conversation_messages") return page.promise;
   });
@@ -405,6 +422,8 @@ it("keeps a newer read-only snapshot when an earlier page request finishes late"
 it("discards an older page from before a memory revision instead of restoring its deleted receipt", async () => {
   const older = deferred<ConversationMessages>();
   vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "get_conversations") return [FIRST];
     if (name === "get_conversation_messages")
       return args?.before ? older.promise : { ...FIRST_VIEW, nextBefore: 5, memoryReceipts: [] };
@@ -447,6 +466,8 @@ it("discards an older page from before a memory revision instead of restoring it
 it("hides a former friend's memory receipt as soon as the active roster changes", async () => {
   let active = true;
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "get_conversations") return [FIRST];
     if (name === "get_conversation_messages")
       return {
@@ -505,6 +526,8 @@ it.each([true, false])(
     const other = { ...SECOND, participants: ["builtin-b"] };
     const fallback = vi.mocked(command).getMockImplementation()!;
     vi.mocked(command).mockImplementation(async (name, args) => {
+      if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+      if (name === "release_conversation_history") return true;
       if (name === "get_conversations") return hasMatch ? [FIRST, other] : [FIRST];
       if (name === "get_conversation_messages" && args?.sessionId === other.id)
         return { ...SECOND_VIEW, session: other };
@@ -513,12 +536,21 @@ it.each([true, false])(
     render(<ConversationHistoryWindow snapshot={SNAPSHOT} initialPersona="builtin-a" />);
     await screen.findByText(/첫 대화 원문/);
     fireEvent.click(screen.getByRole("button", { name: "지난 대화 닫기" }));
-    await waitFor(() => expect(command).toHaveBeenCalledWith("release_conversation_history", {}));
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith(
+        "release_conversation_history",
+        expect.objectContaining({ generation: 1 }),
+      ),
+    );
     const reopen = vi
       .mocked(listen)
-      .mock.calls.find(([event]) => event === "conversation-history-persona")?.[1];
+      .mock.calls.find(([event]) => event === "conversation-history-open")?.[1];
     await act(async () =>
-      reopen?.({ event: "conversation-history-persona", id: 2, payload: "builtin-b" }),
+      reopen?.({
+        event: "conversation-history-open",
+        id: 2,
+        payload: { generation: 2, persona: "builtin-b" },
+      }),
     );
     if (hasMatch) {
       await screen.findByText("다음 대화 원문");
@@ -557,7 +589,10 @@ it("preserves an owned draft across an explicit friend filter change without res
   expect(vi.mocked(command).mock.calls.filter(([name]) => name === "resume_chat")).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "지난 대화 닫기" }));
   await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("release_conversation_history", { sessionId: FIRST.id }),
+    expect(command).toHaveBeenCalledWith(
+      "release_conversation_history",
+      expect.objectContaining({ sessionId: FIRST.id, generation: 1 }),
+    ),
   );
 });
 
@@ -592,6 +627,8 @@ it("does not apply a pending filter while another conversation is being selected
   await begin();
   const fallback = vi.mocked(command).getMockImplementation()!;
   vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "save_conversation_draft") return saved.promise;
     if (name === "resume_chat") return resumed.promise;
     return fallback(name, args);
@@ -624,6 +661,8 @@ it("does not apply a pending filter while another conversation is being selected
 it("keeps the selected transcript when a text search only changes the matching list", async () => {
   const fallback = vi.mocked(command).getMockImplementation()!;
   vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "get_conversations" && args?.query) return [SECOND];
     return fallback(name, args);
   });
@@ -670,6 +709,8 @@ it("persists a failed hidden draft without replacing the other friend's visible 
   const other = { ...SECOND, participants: ["builtin-b"] };
   const fallback = vi.mocked(command).getMockImplementation()!;
   vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "get_conversations") return [FIRST, other];
     if (name === "get_conversation_messages" && args?.sessionId === other.id)
       return { ...SECOND_VIEW, session: other };
@@ -743,6 +784,8 @@ it("shows two columns, preserves message text and starts browsing without resumi
 
 it("uses the full stored message count even while only one page is loaded", async () => {
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "get_conversations") return [{ ...FIRST, messageCount: 105 }];
     if (name === "get_conversation_messages") return { ...FIRST_VIEW, nextBefore: 123 };
   });
@@ -755,6 +798,8 @@ it("uses the full stored message count even while only one page is loaded", asyn
 it("preserves provenance and keeps save controls keyboard accessible without altering the original", async () => {
   const user = userEvent.setup();
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "get_conversations") return [FIRST];
     if (name === "get_conversation_messages")
       return {
@@ -790,6 +835,8 @@ it("locks competing selection and close operations until the draft is saved for 
   render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
   await begin();
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "save_conversation_draft") return save.promise;
   });
   fireEvent.change(screen.getByRole("textbox", { name: "이어서 말하기" }), {
@@ -833,6 +880,8 @@ it.each(["user", "owner"] as const)(
     const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
     await begin();
     vi.mocked(command).mockImplementation(async (name) => {
+      if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+      if (name === "release_conversation_history") return true;
       if (name === "save_conversation_draft") return save.promise;
       if (name === "get_conversations") return [];
       if (name === "get_conversation_messages") return FIRST_VIEW;
@@ -866,6 +915,8 @@ it("waits for the exact session draft to save before changing selection", async 
   render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
   await begin();
   vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "save_conversation_draft") return save.promise;
     if (name === "resume_chat" || name === "get_conversation_messages")
       return args?.sessionId === SECOND.id ? SECOND_VIEW : FIRST_VIEW;
@@ -922,6 +973,8 @@ it("flushes before returning input ownership on a native close request", async (
   render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
   await begin();
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "save_conversation_draft") return save.promise;
   });
   fireEvent.change(screen.getByRole("textbox", { name: "이어서 말하기" }), {
@@ -939,14 +992,56 @@ it("flushes before returning input ownership on a native close request", async (
   expect(command).not.toHaveBeenCalledWith("release_conversation_history", expect.anything());
   await act(async () => save.resolve());
   await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("release_conversation_history", { sessionId: FIRST.id }),
+    expect(command).toHaveBeenCalledWith(
+      "release_conversation_history",
+      expect.objectContaining({ sessionId: FIRST.id, generation: 1 }),
+    ),
   );
+});
+
+it("ignores input while the closing draft save and release are pending", async () => {
+  const save = deferred<void>();
+  const release = deferred<boolean>();
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await begin();
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "save_conversation_draft") return save.promise;
+    if (name === "release_conversation_history") return release.promise;
+    return fallback(name, args);
+  });
+  const input = screen.getByRole("textbox", { name: "이어서 말하기" });
+  const content = "  닫기 전 초안\n그대로 보존  ";
+  fireEvent.change(input, { target: { value: content } });
+  act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault: vi.fn() }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("save_conversation_draft", {
+      sessionId: FIRST.id,
+      draft: content,
+      inputOwner: "history",
+    }),
+  );
+  fireEvent.change(input, { target: { value: "저장 응답 대기 중 입력" } });
+  expect(input).toHaveProperty("value", content);
+  expect(command).not.toHaveBeenCalledWith("release_conversation_history", expect.anything());
+
+  await act(async () => save.resolve());
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("release_conversation_history", expect.anything()),
+  );
+  fireEvent.change(input, { target: { value: "닫기 응답 대기 중 입력" } });
+  expect(input).toHaveProperty("value", content);
+  expect(vi.mocked(command).mock.calls.filter(([name]) => name === "save_conversation_draft"))
+    .toHaveLength(1);
+  await act(async () => release.resolve(true));
 });
 
 it("preserves a rejected send and does not send while composing Korean text", async () => {
   render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
   await begin();
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "send_message") throw new Error("모델 준비 실패");
   });
   const input = screen.getByRole("textbox", { name: "이어서 말하기" });
@@ -981,6 +1076,8 @@ it("uses the newly created continuation session returned when an ended conversat
     },
   };
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "get_conversations") return [ended];
     if (name === "get_conversation_messages") return FIRST_VIEW;
     if (name === "resume_chat") return continuation;
@@ -1006,6 +1103,8 @@ it("uses the newly created continuation session returned when an ended conversat
 it("discards a late message response after another conversation is selected", async () => {
   const firstPage = deferred<ConversationMessages>();
   vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "get_conversations") return [FIRST, SECOND];
     if (name === "get_conversation_messages")
       return args?.sessionId === FIRST.id ? firstPage.promise : SECOND_VIEW;
@@ -1066,6 +1165,8 @@ it.each(["before", "after"])(
     let storedDraft = FIRST.draft;
     const fallback = vi.mocked(command).getMockImplementation()!;
     vi.mocked(command).mockImplementation(async (name, args) => {
+      if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+      if (name === "release_conversation_history") return true;
       if (name === "save_conversation_draft") storedDraft = args?.draft as string;
       if (name === "send_message") {
         storedDraft = "";
@@ -1131,7 +1232,10 @@ it.each(["before", "after"])(
       .mock.calls.filter(([name]) => name === "save_conversation_draft").length;
     act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault: vi.fn() }));
     await waitFor(() =>
-      expect(command).toHaveBeenCalledWith("release_conversation_history", { sessionId: FIRST.id }),
+      expect(command).toHaveBeenCalledWith(
+        "release_conversation_history",
+        expect.objectContaining({ sessionId: FIRST.id, generation: 1 }),
+      ),
     );
     expect(storedDraft).toBe("");
     expect(
@@ -1187,6 +1291,8 @@ it.each(["before", "after"])(
 it("filters group conversations and sends a text search to the complete history query", async () => {
   const together = { ...SECOND, participants: ["builtin-a", "builtin-b"], draft: "함께 쓴 계획" };
   vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "get_conversations") return args?.query ? [together] : [FIRST, together];
     if (name === "get_conversation_messages") return FIRST_VIEW;
   });
@@ -1212,7 +1318,12 @@ it("reloads the selected transcript when a hidden history window is opened again
     expect(screen.getByRole("log", { name: "대화 내용" }).textContent).toContain(MESSAGE.content),
   );
   fireEvent.click(screen.getByRole("button", { name: "지난 대화 닫기" }));
-  await waitFor(() => expect(command).toHaveBeenCalledWith("release_conversation_history", {}));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith(
+      "release_conversation_history",
+      expect.objectContaining({ generation: 1 }),
+    ),
+  );
   const updated = {
     ...FIRST_VIEW,
     messages: [
@@ -1221,15 +1332,21 @@ it("reloads the selected transcript when a hidden history window is opened again
     ],
   };
   vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "get_conversations") return [FIRST, SECOND];
     if (name === "get_conversation_messages") return updated;
   });
   const reopen = vi
     .mocked(listen)
-    .mock.calls.find(([event]) => event === "conversation-history-persona")?.[1];
+    .mock.calls.find(([event]) => event === "conversation-history-open")?.[1];
   expect(reopen).toBeTypeOf("function");
   await act(async () =>
-    reopen?.({ event: "conversation-history-persona", id: 1, payload: "builtin-a" }),
+    reopen?.({
+      event: "conversation-history-open",
+      id: 1,
+      payload: { generation: 2, persona: "builtin-a" },
+    }),
   );
   expect(await screen.findByText("바탕화면에서 더 나눈 이야기")).toBeTruthy();
 });
@@ -1380,6 +1497,9 @@ function historyGeometry(viewport = 400) {
     moveLog: (top: number): void => {
       logTop = top;
     },
+    resizeViewport: (height: number): void => {
+      viewport = height;
+    },
   };
 }
 
@@ -1402,6 +1522,8 @@ function longHistory(count = 8, session = FIRST): ConversationView {
 
 function mockHistory(first: ConversationView, second = longHistory(10, SECOND)): void {
   vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_history_state") return { generation: 1, restoration: null };
+    if (name === "release_conversation_history") return true;
     if (name === "get_conversations") return [first.session, second.session];
     if (name === "get_conversation_messages" || name === "resume_chat")
       return args?.sessionId === second.session.id ? second : first;
@@ -1718,4 +1840,947 @@ it("retains explicit send-follow intent while the same history is reloading", ()
   fireEvent.click(screen.getByRole("button", { name: "Follow sent message" }));
   rerender(<ReloadingHistory page={appendHistory(view)} />);
   expect(log.scrollTop).toBe(log.scrollHeight - log.clientHeight);
+});
+
+it("restores selection, filter and search from identifiers but reads the current database draft", async () => {
+  const fresh = { ...SECOND, draft: "다른 창에서 고친 최신 초안" };
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_history_state")
+      return {
+        generation: 7,
+        restoration: {
+          userId: FIRST.userId,
+          selectedId: SECOND.id,
+          filter: "builtin-a",
+          query: "이야기",
+          anchor: null,
+          followingTail: true,
+        },
+      };
+    if (name === "get_conversations") return [FIRST, fresh];
+    if (name === "resume_chat") return { ...SECOND_VIEW, session: fresh };
+    return fallback(name, args);
+  });
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} initialPersona="all" />);
+  await screen.findByText("다음 대화 원문");
+  expect(command).toHaveBeenCalledWith("get_conversations", { query: "이야기" });
+  expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty(
+    "value",
+    fresh.draft,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "이어서 말하기" }));
+  await waitFor(() =>
+    expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty(
+      "disabled",
+      false,
+    ),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "지난 대화 닫기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("release_conversation_history", {
+      sessionId: SECOND.id,
+      generation: 7,
+      restoration: {
+        userId: FIRST.userId,
+        selectedId: SECOND.id,
+        filter: "builtin-a",
+        query: "이야기",
+        anchor: null,
+        followingTail: true,
+      },
+    }),
+  );
+});
+
+it.each(["another-user", FIRST.userId])(
+  "does not restore a missing or foreign selection (%s)",
+  async (userId) => {
+    const fallback = vi.mocked(command).getMockImplementation()!;
+    vi.mocked(command).mockImplementation(async (name, args) =>
+      name === "get_conversation_history_state"
+        ? {
+            generation: 2,
+            restoration: {
+              userId,
+              selectedId: "deleted-session",
+              filter: "all",
+              query: "",
+              anchor: { messageId: "deleted-message", offset: 10 },
+              followingTail: false,
+            },
+          }
+        : fallback(name, args),
+    );
+    render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+    await screen.findByText(/첫 대화 원문/);
+    expect(command).not.toHaveBeenCalledWith(
+      "get_conversation_messages",
+      expect.objectContaining({ sessionId: "deleted-session" }),
+    );
+  },
+);
+
+it("requeries older pages beyond the newest 100 messages to restore the reading anchor", async () => {
+  historyGeometry();
+  const history = longHistory(205);
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_history_state")
+      return {
+        generation: 3,
+        restoration: {
+          userId: FIRST.userId,
+          selectedId: FIRST.id,
+          filter: "all",
+          query: "",
+          anchor: { messageId: "first-3", offset: -15 },
+          followingTail: false,
+        },
+      };
+    if (name === "get_conversation_messages") {
+      const end = typeof args?.before === "number" ? args.before : 205;
+      return {
+        messages: history.messages.slice(Math.max(0, end - 100), end),
+        nextBefore: end > 100 ? end - 100 : null,
+      };
+    }
+    return fallback(name, args);
+  });
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await screen.findByText("first 원문 204");
+  const log = screen.getByRole("log");
+  expect(command).toHaveBeenCalledWith("get_conversation_messages", {
+    sessionId: FIRST.id,
+    before: 105,
+  });
+  expect(command).toHaveBeenCalledWith("get_conversation_messages", {
+    sessionId: FIRST.id,
+    before: 5,
+  });
+  expect(log.scrollTop).toBe(355);
+  fireEvent.click(screen.getByRole("button", { name: "지난 대화 닫기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith(
+      "release_conversation_history",
+      expect.objectContaining({
+        restoration: expect.objectContaining({
+          followingTail: false,
+          anchor: expect.objectContaining({ messageId: "first-4", offset: 85 }),
+        }),
+      }),
+    ),
+  );
+});
+
+it.each(["reopen", "memoryRevision", "hidden-reopen"])(
+  "requeries a paginated reading anchor while refreshing latest messages on %s",
+  async (refresh) => {
+    const geometry = historyGeometry();
+    let history = longHistory(104);
+    const fallback = vi.mocked(command).getMockImplementation()!;
+    vi.mocked(command).mockImplementation(async (name, args) => {
+      if (name === "get_conversation_messages") {
+        const end = typeof args?.before === "number" ? args.before : history.messages.length;
+        return {
+          messages: history.messages.slice(Math.max(0, end - 100), end),
+          nextBefore: end > 100 ? end - 100 : null,
+        };
+      }
+      return fallback(name, args);
+    });
+    const { rerender } = render(
+      <ConversationHistoryWindow snapshot={SNAPSHOT} initialPersona="builtin-a" />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "앞선 내용 더 보기" }));
+    await screen.findByText("first 원문 2");
+    const log = screen.getByRole("log");
+    scrollHistory(log, 155);
+    const anchorOffset = (): number => {
+      const anchor = log.querySelector<HTMLElement>('[data-history-message="first-2"]');
+      expect(anchor).not.toBeNull();
+      return anchor!.offsetTop - log.offsetTop - log.scrollTop;
+    };
+    const beforeOffset = anchorOffset();
+    expect(screen.queryByRole("button", { name: "앞선 내용 더 보기" })).toBeNull();
+    if (refresh !== "memoryRevision") {
+      fireEvent.click(screen.getByRole("button", { name: "지난 대화 닫기" }));
+      await waitFor(() =>
+        expect(command).toHaveBeenCalledWith(
+          "release_conversation_history",
+          expect.objectContaining({ generation: 1 }),
+        ),
+      );
+    }
+    history = longHistory(105);
+    if (refresh === "hidden-reopen") {
+      geometry.resizeViewport(0);
+      rerender(
+        <ConversationHistoryWindow
+          snapshot={{ ...SNAPSHOT, memoryRevision: SNAPSHOT.memoryRevision + 1 }}
+          initialPersona="builtin-a"
+        />,
+      );
+      await screen.findByText("first 원문 104");
+      // Hidden GTK views can report a reset scroll position and dispatch scroll.
+      scrollHistory(log, 0);
+      geometry.resizeViewport(400);
+    }
+    if (refresh !== "memoryRevision") {
+      const reopen = vi
+        .mocked(listen)
+        .mock.calls.find(([event]) => event === "conversation-history-open")?.[1];
+      expect(reopen).toBeTypeOf("function");
+      await act(async () =>
+        reopen?.({
+          event: "conversation-history-open",
+          id: 12,
+          payload: { generation: 2, persona: refresh === "hidden-reopen" ? "all" : "builtin-a" },
+        }),
+      );
+    } else {
+      rerender(
+        <ConversationHistoryWindow
+          snapshot={{ ...SNAPSHOT, memoryRevision: SNAPSHOT.memoryRevision + 1 }}
+          initialPersona="builtin-a"
+        />,
+      );
+    }
+    await screen.findByText("first 원문 104");
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("get_conversation_messages", {
+        sessionId: FIRST.id,
+        before: 5,
+      }),
+    );
+    expect(screen.getByText("first 원문 2")).toBeTruthy();
+    expect(anchorOffset()).toBe(beforeOffset);
+    expect(screen.queryByRole("button", { name: "앞선 내용 더 보기" })).toBeNull();
+  },
+);
+
+it("keeps loaded older pages and the reading anchor when reacquiring the same history editor", async () => {
+  historyGeometry();
+  const history = longHistory(104);
+  let draft = "History draft A";
+  const latest = (): ConversationView => ({
+    ...history,
+    session: { ...FIRST, draft },
+    messages: history.messages.slice(4).map((message) =>
+      message.id === "first-103" ? { ...message, content: "최신 원문" } : message,
+    ),
+    nextBefore: 4,
+  });
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversations") return [{ ...FIRST, draft }];
+    if (name === "resume_chat") return latest();
+    if (name === "get_conversation_messages")
+      return args?.before === 4
+        ? { messages: history.messages.slice(0, 4), nextBefore: null }
+        : latest();
+    return fallback(name, args);
+  });
+  const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await screen.findByText("최신 원문");
+  fireEvent.click(screen.getByRole("button", { name: "이어서 말하기" }));
+  await waitFor(() =>
+    expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty("disabled", false),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "앞선 내용 더 보기" }));
+  await screen.findByText("first 원문 2");
+  const log = screen.getByRole("log");
+  scrollHistory(log, 155);
+  fireEvent.click(screen.getByRole("button", { name: "지난 대화 닫기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("release_conversation_history", expect.anything()),
+  );
+  draft = "Desktop draft B";
+  rerender(
+    <ConversationHistoryWindow
+      snapshot={{ ...SNAPSHOT, panel: { persona: "builtin-a", mode: "input" }, conversation: latest() }}
+    />,
+  );
+  const reopen = vi.mocked(listen).mock.calls.find(([event]) => event === "conversation-history-open")?.[1];
+  await act(async () =>
+    reopen?.({ event: "conversation-history-open", id: 13, payload: { generation: 2, persona: "all" } }),
+  );
+  await screen.findByText("first 원문 2");
+  fireEvent.click(screen.getByRole("button", { name: "이어서 말하기" }));
+  await waitFor(() =>
+    expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty("disabled", false),
+  );
+  expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty("value", draft);
+  expect(screen.getByText("최신 원문")).toBeTruthy();
+  expect(screen.getByText("first 원문 2")).toBeTruthy();
+  const anchor = log.querySelector<HTMLElement>('[data-history-message="first-2"]')!;
+  expect(anchor.offsetTop - log.offsetTop - log.scrollTop).toBe(85);
+  expect(screen.queryByRole("button", { name: "앞선 내용 더 보기" })).toBeNull();
+});
+
+it("replaces older loaded pages when adopting another session", async () => {
+  historyGeometry();
+  const first = longHistory(104);
+  const second = longHistory(10, SECOND);
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_messages") {
+      if (args?.sessionId === SECOND.id) return second;
+      return args?.before === 4
+        ? { messages: first.messages.slice(0, 4), nextBefore: null }
+        : { messages: first.messages.slice(4), nextBefore: 4 };
+    }
+    if (name === "resume_chat") return second;
+    return fallback(name, args);
+  });
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  fireEvent.click(await screen.findByRole("button", { name: "앞선 내용 더 보기" }));
+  await screen.findByText("first 원문 2");
+  fireEvent.click(screen.getByRole("button", { name: /두 번째 초안/ }));
+  await screen.findByText("second 원문 9");
+  expect(screen.queryByText("first 원문 2")).toBeNull();
+  expect(screen.queryByText("first 원문 103")).toBeNull();
+  expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty("value", SECOND.draft);
+});
+
+it("does not merge a late editor adoption into another user's same-id transcript", async () => {
+  historyGeometry();
+  const first = longHistory(104);
+  const pending = deferred<ConversationView>();
+  const foreignSession = { ...FIRST, userId: "other-user", draft: "Other user draft" };
+  const foreign = {
+    ...longHistory(10, foreignSession),
+    messages: [{ ...MESSAGE, id: "foreign-message", content: "Other user transcript" }],
+  };
+  let changedUser = false;
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversations") return [changedUser ? foreignSession : FIRST];
+    if (name === "get_conversation_messages") {
+      if (changedUser) return foreign;
+      return args?.before === 4
+        ? { messages: first.messages.slice(0, 4), nextBefore: null }
+        : { messages: first.messages.slice(4), nextBefore: 4 };
+    }
+    if (name === "resume_chat") return changedUser ? foreign : pending.promise;
+    return fallback(name, args);
+  });
+  const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  fireEvent.click(await screen.findByRole("button", { name: "앞선 내용 더 보기" }));
+  await screen.findByText("first 원문 2");
+  fireEvent.click(screen.getByRole("button", { name: "이어서 말하기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("resume_chat", expect.anything()));
+  changedUser = true;
+  rerender(<ConversationHistoryWindow snapshot={{ ...SNAPSHOT, user: { ...SNAPSHOT.user!, id: foreignSession.userId } }} />);
+  await screen.findByText("Other user transcript");
+  await act(async () => pending.resolve({ ...first, messages: first.messages.slice(4), nextBefore: 4 }));
+  fireEvent.click(screen.getByRole("button", { name: "이어서 말하기" }));
+  await waitFor(() =>
+    expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty("disabled", false),
+  );
+  expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty("value", foreignSession.draft);
+  expect(screen.getByText("Other user transcript")).toBeTruthy();
+  expect(screen.queryByText("first 원문 2")).toBeNull();
+  expect(screen.queryByText("first 원문 103")).toBeNull();
+});
+
+it("keeps the restoration anchor when a memory refresh supersedes older-page hydration", async () => {
+  historyGeometry();
+  const staleOlder = deferred<ConversationMessages>();
+  let history = longHistory(104);
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_history_state")
+      return {
+        generation: 3,
+        restoration: {
+          userId: FIRST.userId,
+          selectedId: FIRST.id,
+          filter: "all",
+          query: "",
+          anchor: { messageId: "first-2", offset: 85 },
+          followingTail: false,
+        },
+      };
+    if (name === "get_conversation_messages") {
+      if (args?.before === 4) return staleOlder.promise;
+      const end = typeof args?.before === "number" ? args.before : history.messages.length;
+      return {
+        messages: history.messages.slice(Math.max(0, end - 100), end),
+        nextBefore: end > 100 ? end - 100 : null,
+      };
+    }
+    return fallback(name, args);
+  });
+  const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("get_conversation_messages", {
+      sessionId: FIRST.id,
+      before: 4,
+    }),
+  );
+  history = longHistory(105);
+  rerender(
+    <ConversationHistoryWindow
+      snapshot={{ ...SNAPSHOT, memoryRevision: SNAPSHOT.memoryRevision + 1 }}
+    />,
+  );
+  await screen.findByText("first 원문 104");
+  expect(screen.getByText("first 원문 2")).toBeTruthy();
+  expect(screen.getByRole("log").scrollTop).toBe(155);
+  await act(async () =>
+    staleOlder.resolve({
+      messages: [{ ...MESSAGE, id: "first-2", content: "오래된 복원 응답" }],
+      nextBefore: null,
+    }),
+  );
+  expect(screen.queryByText("오래된 복원 응답")).toBeNull();
+  expect(screen.getByRole("log").scrollTop).toBe(155);
+});
+
+it.each(["session", "user"])(
+  "does not apply an old reading anchor after the %s changes during hydration",
+  async (change) => {
+    historyGeometry();
+    const older = deferred<ConversationMessages>();
+    const first = longHistory(104);
+    let target = longHistory(10, SECOND);
+    let changedUser = false;
+    const fallback = vi.mocked(command).getMockImplementation()!;
+    vi.mocked(command).mockImplementation(async (name, args) => {
+      if (name === "get_conversation_history_state")
+        return {
+          generation: 3,
+          restoration: changedUser
+            ? null
+            : {
+                userId: FIRST.userId,
+                selectedId: FIRST.id,
+                filter: "all",
+                query: "",
+                anchor: { messageId: "first-2", offset: 85 },
+                followingTail: false,
+              },
+        };
+      if (name === "get_conversations") return changedUser ? [target.session] : [FIRST, SECOND];
+      if (name === "get_conversation_messages" || name === "resume_chat") {
+        if (args?.sessionId === target.session.id) return target;
+        if (args?.before === 4) return older.promise;
+        return { messages: first.messages.slice(4), nextBefore: 4 };
+      }
+      return fallback(name, args);
+    });
+    const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("get_conversation_messages", {
+        sessionId: FIRST.id,
+        before: 4,
+      }),
+    );
+    if (change === "user") {
+      changedUser = true;
+      target = longHistory(10, { ...SECOND, id: "foreign", userId: "other-user" });
+      rerender(
+        <ConversationHistoryWindow
+          snapshot={{ ...SNAPSHOT, user: { ...SNAPSHOT.user!, id: "other-user" } }}
+        />,
+      );
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: /두 번째 초안/ }));
+    }
+    await screen.findByText(`${target.session.id} 원문 9`);
+    const log = screen.getByRole("log");
+    const selectedTop = log.scrollTop;
+    await act(async () =>
+      older.resolve({
+        messages: [{ ...MESSAGE, id: "first-2", content: "다른 대화의 오래된 복원 응답" }],
+        nextBefore: null,
+      }),
+    );
+    expect(screen.queryByText("다른 대화의 오래된 복원 응답")).toBeNull();
+    expect(screen.getByText(`${target.session.id} 원문 9`)).toBeTruthy();
+    expect(log.scrollTop).toBe(selectedTop);
+  },
+);
+
+it("preserves an initially hidden saved anchor across a second hidden memory refresh", async () => {
+  const geometry = historyGeometry(0);
+  let history = longHistory(104);
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_history_state")
+      return {
+        generation: 3,
+        restoration: {
+          userId: FIRST.userId,
+          selectedId: FIRST.id,
+          filter: "all",
+          query: "",
+          anchor: { messageId: "first-2", offset: 85 },
+          followingTail: false,
+        },
+      };
+    if (name === "get_conversation_messages") {
+      const end = typeof args?.before === "number" ? args.before : history.messages.length;
+      return {
+        messages: history.messages.slice(Math.max(0, end - 100), end),
+        nextBefore: end > 100 ? end - 100 : null,
+      };
+    }
+    return fallback(name, args);
+  });
+  const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await screen.findByText("first 원문 2");
+  const log = screen.getByRole("log");
+  expect(log.clientHeight).toBe(0);
+  history = longHistory(105);
+  const refreshed = { ...SNAPSHOT, memoryRevision: SNAPSHOT.memoryRevision + 1 };
+  rerender(<ConversationHistoryWindow snapshot={refreshed} />);
+  await screen.findByText("first 원문 104");
+  expect(command).toHaveBeenCalledWith("get_conversation_messages", {
+    sessionId: FIRST.id,
+    before: 5,
+  });
+  expect(screen.getByText("first 원문 2")).toBeTruthy();
+  scrollHistory(log, 0);
+  geometry.resizeViewport(400);
+  rerender(<ConversationHistoryWindow snapshot={{ ...refreshed }} />);
+  expect(log.scrollTop).toBe(155);
+  const anchor = log.querySelector<HTMLElement>('[data-history-message="first-2"]')!;
+  expect(anchor.offsetTop - log.offsetTop - log.scrollTop).toBe(85);
+});
+
+it.each([
+  ["session", false],
+  ["session", true],
+  ["user", false],
+  ["user", true],
+] as const)(
+  "isolates hidden pending restoration after a %s change (tail=%s)",
+  async (change, followingTail) => {
+    const geometry = historyGeometry(0);
+    const first = longHistory(104);
+    let changedUser = false;
+    let target = longHistory(10, SECOND);
+    // Deliberately overlap an anchor ID to test scope, not accidental ID absence.
+    target.messages[2] = { ...target.messages[2], id: "first-2" };
+    const fallback = vi.mocked(command).getMockImplementation()!;
+    vi.mocked(command).mockImplementation(async (name, args) => {
+      if (name === "get_conversation_history_state")
+        return {
+          generation: 3,
+          restoration: changedUser
+            ? null
+            : {
+                userId: FIRST.userId,
+                selectedId: FIRST.id,
+                filter: "all",
+                query: "",
+                anchor: { messageId: "first-2", offset: 85 },
+                followingTail,
+              },
+        };
+      if (name === "get_conversations") return changedUser ? [target.session] : [FIRST, SECOND];
+      if (name === "get_conversation_messages" || name === "resume_chat") {
+        if (args?.sessionId === target.session.id) return target;
+        const end = typeof args?.before === "number" ? args.before : first.messages.length;
+        return {
+          messages: first.messages.slice(Math.max(0, end - 100), end),
+          nextBefore: end > 100 ? end - 100 : null,
+        };
+      }
+      return fallback(name, args);
+    });
+    let snapshot = SNAPSHOT;
+    const { rerender } = render(<ConversationHistoryWindow snapshot={snapshot} />);
+    await screen.findByText(followingTail ? "first 원문 103" : "first 원문 2");
+    expect(screen.getByRole("log").clientHeight).toBe(0);
+    if (change === "user") {
+      changedUser = true;
+      target = longHistory(10, { ...SECOND, id: "foreign", userId: "other-user" });
+      target.messages[2] = { ...target.messages[2], id: "first-2" };
+      snapshot = { ...SNAPSHOT, user: { ...SNAPSHOT.user!, id: "other-user" } };
+      rerender(<ConversationHistoryWindow snapshot={snapshot} />);
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: /두 번째 초안/ }));
+    }
+    await screen.findByText(`${target.session.id} 원문 9`);
+    geometry.resizeViewport(400);
+    rerender(<ConversationHistoryWindow snapshot={{ ...snapshot }} />);
+    const log = screen.getByRole("log");
+    expect(log.scrollTop).toBe(0);
+    expect(screen.getByText(`${target.session.id} 원문 9`)).toBeTruthy();
+    expect(screen.queryByText("first 원문 103")).toBeNull();
+  },
+);
+
+it("restores tail following against newly queried messages", async () => {
+  historyGeometry();
+  mockHistory(longHistory(10));
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) =>
+    name === "get_conversation_history_state"
+      ? {
+          generation: 2,
+          restoration: {
+            userId: FIRST.userId,
+            selectedId: FIRST.id,
+            filter: "all",
+            query: "",
+            anchor: null,
+            followingTail: true,
+          },
+        }
+      : fallback(name, args),
+  );
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await screen.findByText("first 원문 9");
+  const log = screen.getByRole("log");
+  expect(log.scrollTop).toBe(log.scrollHeight - log.clientHeight);
+});
+
+it("keeps the window and editor when close-time draft persistence fails", async () => {
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await begin();
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "save_conversation_draft") throw new Error("초안을 저장하지 못했어요");
+    return fallback(name, args);
+  });
+  const input = screen.getByRole("textbox", { name: "이어서 말하기" });
+  fireEvent.change(input, { target: { value: "버리면 안 되는 원문" } });
+  act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault: vi.fn() }));
+  await screen.findByText("초안을 저장하지 못했어요");
+  expect(input).toHaveProperty("value", "버리면 안 되는 원문");
+  expect(input).toHaveProperty("disabled", false);
+  expect(command).not.toHaveBeenCalledWith("release_conversation_history", expect.anything());
+});
+
+it("cancels a close waiting for draft persistence when History is reopened", async () => {
+  const save = deferred<void>();
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await begin();
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) =>
+    name === "save_conversation_draft" ? save.promise : fallback(name, args),
+  );
+  fireEvent.change(screen.getByRole("textbox", { name: "이어서 말하기" }), {
+    target: { value: "재열기 중에도 유지" },
+  });
+  act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault: vi.fn() }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("save_conversation_draft", expect.anything()),
+  );
+  const reopen = vi
+    .mocked(listen)
+    .mock.calls.find(([event]) => event === "conversation-history-open")?.[1];
+  await act(async () => {
+    reopen?.({
+      event: "conversation-history-open",
+      id: 8,
+      payload: { generation: 2, persona: "all" },
+    });
+    save.resolve();
+  });
+  expect(command).not.toHaveBeenCalledWith("release_conversation_history", expect.anything());
+  expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty("disabled", false);
+  fireEvent.click(screen.getByRole("button", { name: "지난 대화 닫기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith(
+      "release_conversation_history",
+      expect.objectContaining({ generation: 2 }),
+    ),
+  );
+});
+
+it("explains why native close is blocked without destroying an open save dialog", async () => {
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) =>
+    name === "get_conversation_notes" ? [] : fallback(name, args),
+  );
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await screen.findByText(/첫 대화 원문/);
+  fireEvent.click(screen.getByRole("button", { name: "메모에 남기기" }));
+  await screen.findByRole("form", { name: "대화를 메모에 남기기" });
+  const event = { preventDefault: vi.fn() };
+  act(() => native.onCloseRequested.mock.calls[0][0](event));
+  expect(event.preventDefault).toHaveBeenCalled();
+  expect(screen.getByRole("alert")).toHaveProperty(
+    "textContent",
+    "저장하거나 취소한 뒤 닫아 주세요.",
+  );
+  expect(command).not.toHaveBeenCalledWith("release_conversation_history", expect.anything());
+  expect(screen.getByRole("form", { name: "대화를 메모에 남기기" })).toBeTruthy();
+});
+
+it("explains why native close is blocked by a pending draft replacement", async () => {
+  const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await begin();
+  const failedInput = { ...MESSAGE, id: "cancelled-input", role: "user", content: "원래 입력" };
+  rerender(
+    <ConversationHistoryWindow
+      snapshot={{
+        ...SNAPSHOT,
+        panel: { persona: "builtin-a", mode: "history-input" },
+        conversation: {
+          ...FIRST_VIEW,
+          messages: [failedInput],
+          recovery: { messageId: failedInput.id, reason: "cancelled" },
+        },
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "입력 수정" }));
+  const event = { preventDefault: vi.fn() };
+  act(() => native.onCloseRequested.mock.calls[0][0](event));
+  expect(event.preventDefault).toHaveBeenCalled();
+  expect(screen.getByRole("alert")).toHaveProperty(
+    "textContent",
+    "저장하거나 취소한 뒤 닫아 주세요.",
+  );
+  expect(command).not.toHaveBeenCalledWith("release_conversation_history", expect.anything());
+  expect(screen.getByRole("dialog", { name: "작성 중인 초안을 바꿀까요?" })).toBeTruthy();
+  expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty(
+    "value",
+    FIRST.draft,
+  );
+});
+
+it.each(["generating", "playing"] as const)(
+  "explains why native close is blocked while %s and allows closing once idle",
+  async (phase) => {
+    const { rerender } = render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+    await screen.findByText(/첫 대화 원문/);
+    rerender(
+      <ConversationHistoryWindow
+        snapshot={{
+          ...SNAPSHOT,
+          runtime: { ...SNAPSHOT.runtime, phase },
+          playback:
+            phase === "playing"
+              ? {
+                  id: "wordbook-reply",
+                  persona: "builtin-a",
+                  text: "아직 말하는 중이에요.",
+                  expression: "평온",
+                  source: "wordbook",
+                  endsAt: FIRST.createdAt + 5000,
+                  lineIndex: 0,
+                  lineCount: 1,
+                }
+              : null,
+        }}
+      />,
+    );
+    const event = { preventDefault: vi.fn() };
+    act(() => native.onCloseRequested.mock.calls[0][0](event));
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveProperty(
+      "textContent",
+      "대답이 끝난 뒤 닫아 주세요.",
+    );
+    expect(command).not.toHaveBeenCalledWith("release_conversation_history", expect.anything());
+
+    rerender(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+    fireEvent.click(screen.getByRole("button", { name: "지난 대화 닫기" }));
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("release_conversation_history", expect.anything()),
+    );
+  },
+);
+
+it("refreshes a rejected close generation and retries without losing the editor draft", async () => {
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await begin();
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  let releases = 0;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "release_conversation_history") return ++releases > 1;
+    if (name === "get_conversation_history_state") return { generation: 7, restoration: null };
+    return fallback(name, args);
+  });
+  const event = { preventDefault: vi.fn() };
+  act(() => native.onCloseRequested.mock.calls[0][0](event));
+  expect(event.preventDefault).toHaveBeenCalled();
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    "창 상태가 바뀌었어요. 다시 닫아 주세요.",
+  );
+  expect(vi.mocked(command).mock.calls.filter(([name]) => name === "get_conversation_history_state"))
+    .toHaveLength(2);
+  expect(command).toHaveBeenCalledWith(
+    "release_conversation_history",
+    expect.objectContaining({ sessionId: FIRST.id, generation: 1 }),
+  );
+  const input = screen.getByRole("textbox", { name: "이어서 말하기" });
+  expect(input).toHaveProperty("disabled", false);
+  expect(input).toHaveProperty("value", FIRST.draft);
+  const content = "  다시 닫기 전에도 편집 가능\n원문 유지  ";
+  fireEvent.change(input, { target: { value: content } });
+  expect(input).toHaveProperty("value", content);
+  fireEvent.click(screen.getByRole("button", { name: "지난 대화 닫기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith(
+      "release_conversation_history",
+      expect.objectContaining({ sessionId: FIRST.id, generation: 7 }),
+    ),
+  );
+  expect(releases).toBe(2);
+  expect(command).toHaveBeenCalledWith("save_conversation_draft", {
+    sessionId: FIRST.id,
+    draft: content,
+    inputOwner: "history",
+  });
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("retries failed navigation hydration instead of permanently trapping the window", async () => {
+  vi.mocked(command).mockRejectedValueOnce(new Error("창 상태 읽기 실패"));
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await screen.findByText("창 상태 읽기 실패");
+  fireEvent.click(screen.getByRole("button", { name: "다시 불러오기" }));
+  await screen.findByText(/첫 대화 원문/);
+  fireEvent.click(screen.getByRole("button", { name: "지난 대화 닫기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith(
+      "release_conversation_history",
+      expect.objectContaining({ generation: 1 }),
+    ),
+  );
+});
+
+it("restores a selected transcript even when the saved search hides it from the sidebar", async () => {
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversation_history_state")
+      return {
+        generation: 2,
+        restoration: {
+          userId: FIRST.userId,
+          selectedId: SECOND.id,
+          filter: "all",
+          query: "no-match",
+          anchor: null,
+          followingTail: true,
+        },
+      };
+    if (name === "get_conversations" && args?.query) return [];
+    return fallback(name, args);
+  });
+  render(<ConversationHistoryWindow snapshot={SNAPSHOT} />);
+  await screen.findByText("다음 대화 원문");
+  expect(screen.getByText("찾는 대화가 없어요.")).toBeTruthy();
+  expect(screen.getByRole("textbox", { name: "이어서 말하기" })).toHaveProperty(
+    "value",
+    SECOND.draft,
+  );
+});
+
+it.each([
+  ["builtin-b", 1],
+  ["builtin-b", 2],
+  ["all", 1],
+  ["all", 2],
+] as const)(
+  "keeps the newer %s open intent when initial state generation %s arrives late",
+  async (persona, stateGeneration) => {
+    const hydration = deferred<{
+      generation: number;
+      restoration: null | {
+        userId: string;
+        selectedId: string;
+        filter: string;
+        query: string;
+        anchor: null;
+        followingTail: boolean;
+      };
+    }>();
+    const other = { ...SECOND, participants: ["builtin-b"] };
+    const fallback = vi.mocked(command).getMockImplementation()!;
+    vi.mocked(command).mockImplementation(async (name, args) => {
+      if (name === "get_conversation_history_state") return hydration.promise;
+      if (name === "get_conversations") return [other, FIRST];
+      if (name === "get_conversation_messages" && args?.sessionId === other.id)
+        return { ...SECOND_VIEW, session: other };
+      return fallback(name, args);
+    });
+    const { container } = render(
+      <ConversationHistoryWindow snapshot={SNAPSHOT} initialPersona="all" />,
+    );
+    await waitFor(() => expect(command).toHaveBeenCalledWith("get_conversation_history_state"));
+    const reopen = vi
+      .mocked(listen)
+      .mock.calls.find(([event]) => event === "conversation-history-open")?.[1];
+    expect(reopen).toBeTypeOf("function");
+    await act(async () => {
+      reopen?.({
+        event: "conversation-history-open",
+        id: 100,
+        payload: { generation: 2, persona },
+      });
+    });
+    await waitFor(() =>
+      expect(container.querySelector(`input[value="${persona}"]`)).toHaveProperty("checked", true),
+    );
+    await act(async () => {
+      hydration.resolve({
+        generation: stateGeneration,
+        restoration: {
+          userId: FIRST.userId,
+          selectedId: FIRST.id,
+          filter: "builtin-a",
+          query: "old search",
+          anchor: null,
+          followingTail: true,
+        },
+      });
+    });
+    await screen.findByText("다음 대화 원문");
+    expect(container.querySelector(`input[value="${persona}"]`)).toHaveProperty("checked", true);
+    expect(screen.getByRole("searchbox", { name: "대화 찾기" })).toHaveProperty("value", "");
+    expect(screen.queryByText(/첫 대화 원문/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "지난 대화 닫기" }));
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith(
+        "release_conversation_history",
+        expect.objectContaining({ generation: 2 }),
+      ),
+    );
+  },
+);
+
+it("ignores an older persona-open event after a newer History open", async () => {
+  const other = { ...SECOND, participants: ["builtin-b"] };
+  const fallback = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation(async (name, args) => {
+    if (name === "get_conversations") return [FIRST, other];
+    if (name === "get_conversation_messages" && args?.sessionId === other.id)
+      return { ...SECOND_VIEW, session: other };
+    return fallback(name, args);
+  });
+  const { container } = render(
+    <ConversationHistoryWindow snapshot={SNAPSHOT} initialPersona="builtin-a" />,
+  );
+  await screen.findByText(/첫 대화 원문/);
+  const reopen = vi
+    .mocked(listen)
+    .mock.calls.find(([event]) => event === "conversation-history-open")?.[1];
+  await act(async () => {
+    reopen?.({
+      event: "conversation-history-open",
+      id: 101,
+      payload: { generation: 3, persona: "builtin-b" },
+    });
+  });
+  await screen.findByText("다음 대화 원문");
+  await act(async () => {
+    reopen?.({
+      event: "conversation-history-open",
+      id: 102,
+      payload: { generation: 2, persona: "builtin-a" },
+    });
+  });
+  expect(container.querySelector('input[value="builtin-b"]')).toHaveProperty("checked", true);
+  expect(screen.getByText("다음 대화 원문")).toBeTruthy();
+  expect(screen.queryByText(/첫 대화 원문/)).toBeNull();
 });

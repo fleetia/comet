@@ -6,7 +6,6 @@ use crate::{
     types::{PanelState, RuntimePhase},
 };
 use std::sync::{atomic::Ordering, Arc};
-use tauri::Manager;
 
 #[tauri::command]
 pub(crate) fn open_reply(
@@ -281,11 +280,7 @@ pub(crate) fn focus_history_editor(
         let session = store::active_conversation(&db)?.ok_or("진행 중인 대화가 없어요.")?;
         store::conversation_view(&db, &session.id)?
     };
-    if let Some(window) = app.get_webview_window("conversation-history") {
-        window.unminimize().map_err(|error| error.to_string())?;
-        window.show().map_err(|error| error.to_string())?;
-        window.set_focus().map_err(|error| error.to_string())?;
-    }
+    super::history_window::open(app, "all")?;
     Ok(Some(view))
 }
 
@@ -319,26 +314,33 @@ pub(crate) fn input_panel_mode(state: &AppState) -> Result<&'static str, String>
 }
 
 #[tauri::command]
-pub(crate) fn release_conversation_history(
+pub(crate) async fn release_conversation_history(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     session_id: Option<String>,
-) -> Result<(), String> {
-    let released = release_history_editor(&state, session_id.as_deref())?;
-    let hidden = app
-        .get_webview_window("conversation-history")
-        .map(|window| window.hide().map_err(|error| error.to_string()))
-        .transpose();
-    if released {
-        let focused = crate::desktop::request_balloon_focus(&app);
-        super::publish(&app, &state);
-        focused?;
-    }
-    hidden.map(|_| ())
+    generation: u64,
+    restoration: Option<super::history_window::Restoration>,
+) -> Result<bool, String> {
+    super::history_window::release(
+        app,
+        state.inner().clone(),
+        session_id,
+        generation,
+        restoration,
+    )
+    .await
 }
 
+#[cfg(test)]
 fn release_history_editor(state: &AppState, session_id: Option<&str>) -> Result<bool, String> {
     let _action = lock(&state.action)?;
+    release_history_editor_locked(state, session_id)
+}
+
+pub(super) fn release_history_editor_locked(
+    state: &AppState,
+    session_id: Option<&str>,
+) -> Result<bool, String> {
     let db = lock(&state.db)?;
     let Some(session_id) = session_id else {
         if lock(&state.panel)?
