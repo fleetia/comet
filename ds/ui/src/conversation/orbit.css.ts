@@ -173,9 +173,6 @@ export const itemLabel = style({
   lineHeight: "18px",
   whiteSpace: "nowrap",
   color: tokens["color/ink"],
-  background: tokens["color/glass-panel"],
-  padding: "1px 5px",
-  borderRadius: 6,
 });
 export const labelPositions = styleVariants({
   left: { right: "calc(100% + 6px)" },
@@ -190,9 +187,6 @@ export const hubLabel = style({
   lineHeight: "18px",
   fontWeight: 600,
   whiteSpace: "nowrap",
-  background: tokens["color/glass-panel"],
-  padding: "1px 5px",
-  borderRadius: 6,
 });
 export const character = style({ position: "absolute", display: "grid", placeItems: "center" });
 export const characterFallback = style({
