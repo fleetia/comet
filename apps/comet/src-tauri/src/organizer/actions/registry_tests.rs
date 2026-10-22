@@ -569,6 +569,86 @@ fn preparation_create_receipt_selects_the_new_envelope_and_undo_preserves_existi
 }
 
 #[test]
+fn calendar_query_accepts_rfc3339_bounds_as_inclusive_calendar_dates() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    storage::install(&db, directory.path(), &["calendar".into()]).unwrap();
+    for (title, start, end) in [
+        ("어제 일정", "2026-10-20", "2026-10-21"),
+        ("오늘 종일 일정", "2026-10-21", "2026-10-22"),
+        ("내일 일정", "2026-10-22", "2026-10-23"),
+    ] {
+        run(
+            &db,
+            "event_add",
+            "",
+            json!({"title":title,"allDay":true,"startDate":start,"endDate":end}),
+        );
+    }
+    let start = chrono::DateTime::parse_from_rfc3339("2026-10-21T00:30:00+09:00")
+        .unwrap()
+        .timestamp_millis();
+    run(
+        &db,
+        "event_add",
+        "",
+        json!({"title":"오늘 시간 일정","allDay":false,"startAt":start,"endAt":start+3600000,"timeZone":"Asia/Seoul"}),
+    );
+    let canonical = query_registry(
+        &db,
+        "event_query",
+        &json!({"from":"2026-10-21","through":"2026-10-21"}),
+    )
+    .unwrap();
+    let timestamp_bounds = query_registry(
+        &db,
+        "event_query",
+        &json!({"from":"2026-10-21T00:00:00+09:00","through":"2026-10-21T23:59:59.999+09:00"}),
+    )
+    .unwrap();
+    assert_eq!(timestamp_bounds, canonical);
+    assert_eq!(timestamp_bounds["totalCount"], 2);
+    let events = timestamp_bounds["events"].as_array().unwrap();
+    assert!(events
+        .iter()
+        .any(|event| event["title"] == "오늘 종일 일정"));
+    assert!(events
+        .iter()
+        .any(|event| event["title"] == "오늘 시간 일정"));
+    for bounds in [
+        json!({"from":"2026-10-21T00:00:00+09:00"}),
+        json!({"through":"2026-10-21T23:59:59.999+09:00"}),
+    ] {
+        assert_eq!(
+            query_registry(&db, "event_query", &bounds).unwrap()["totalCount"],
+            3,
+            "{bounds}"
+        );
+    }
+}
+
+#[test]
+fn calendar_query_rejects_invalid_ambiguous_and_reversed_date_bounds() {
+    let db = database();
+    let directory = tempfile::tempdir().unwrap();
+    storage::install(&db, directory.path(), &["calendar".into()]).unwrap();
+    for bounds in [
+        json!({"from":"2026-02-30"}),
+        json!({"through":"2026-02-30T23:59:59+09:00"}),
+        json!({"from":"2026-10-21T00:00:00"}),
+        json!({"through":"2026-10-21T23:59:59+09:00 trailing"}),
+        json!({"from":"2026-10-22","through":"2026-10-21"}),
+        json!({"from":"2026-10-22T00:00:00+09:00","through":"2026-10-21T23:59:59.999+09:00"}),
+    ] {
+        assert_eq!(
+            query_registry(&db, "event_query", &bounds).unwrap_err(),
+            "조회할 날짜 범위를 확인해 주세요.",
+            "{bounds}"
+        );
+    }
+}
+
+#[test]
 fn calendar_query_includes_timed_events_and_remote_events_remain_read_only() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();

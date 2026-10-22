@@ -127,6 +127,11 @@ fn property(field: &str) -> Value {
         "status" => json!({"type":"string","enum":["done","missed","clear"]}),
         "mode" => json!({"type":"string","enum":["check","count"]}),
         "body" | "memo" | "text" | "description" => json!({"type":"string","maxLength":20000}),
+        "from" | "through" => json!({
+            "type":"string","maxLength":1000,
+            "description":"조회 시작일(from)과 마지막 날(through)은 양 끝을 포함한다. anchorTime 기준 YYYY-MM-DD로 보낸다. 하루 조회는 두 값에 같은 날짜를 쓴다. 경계가 없으면 해당 필드를 생략한다. 기존 요청의 시간대 포함 RFC3339 값도 허용하며 그 오프셋의 날짜로 해석하고 시각은 사용하지 않는다.",
+            "examples":["2026-10-21"]
+        }),
         "dueDate" | "plannedDate" | "planAnchor" | "reminderTime" | "date" => {
             json!({"type":["string","null"],"maxLength":20})
         }
