@@ -472,6 +472,12 @@ fn active_story_response(
 
 fn ensure_model_ready(state: &AppState, db: &Connection) -> Result<(), String> {
     let settings = store::settings(db)?;
+    if settings.mode == "apple" {
+        return crate::apple_models::status().require();
+    }
+    if !matches!(settings.mode.as_str(), "local" | "api" | "chatgpt") {
+        return Err("설정에서 사용할 AI를 직접 선택해 주세요.".into());
+    }
     if settings.mode == "local" && !models::selected_ready(&state.app_data, &settings) {
         return Err(inference::not_ready_message(&settings));
     }
@@ -1559,6 +1565,15 @@ pub(crate) async fn generate_turn_with_memories(
                 }
             }
         }
+        let settings = store::settings(&db)?;
+        if settings.mode == "apple" {
+            let input: String = db.query_row(
+                "SELECT json_extract(data, '$.content') FROM messages WHERE id=?1 AND role='user'",
+                [message_id],
+                |row| row.get(0),
+            ).map_err(|error| error.to_string())?;
+            crate::apple_models::require_complete_input(&prompt, &input)?;
+        }
         for target in targets {
             store::record_recall(
                 &db,
@@ -1568,7 +1583,6 @@ pub(crate) async fn generate_turn_with_memories(
             )?;
             store::inherit_recall(&db, &reply_id(message_id, target), &history_ids)?;
         }
-        let settings = store::settings(&db)?;
         let ticket =
             capture_participants_locked(state, &db, targets, state.epoch.load(Ordering::SeqCst))?;
         (settings, prompt, store::revision(&db)?, bundle, ticket)

@@ -136,7 +136,10 @@ export const input = style({
   fontFamily: "inherit",
   fontSize: 14,
   lineHeight: "20px",
-  selectors: { "&::placeholder": { color: tokens["color/ink-3"] } },
+  selectors: {
+    "&::placeholder": { color: tokens["color/ink-3"] },
+    "&:disabled": { cursor: "not-allowed" },
+  },
 });
 export const inputLarge = style({
   fontSize: tokens["typography/display/title-sm/fontSize"],
@@ -158,7 +161,7 @@ export const send = style([
     cursor: "pointer",
     selectors: {
       "&:focus-visible": { outline: `2px solid ${tokens["color/focus-ring"]}`, outlineOffset: 3 },
-      "&:disabled": { cursor: "default" },
+      "&:disabled": { opacity: 0.4, cursor: "not-allowed" },
     },
   },
 ]);

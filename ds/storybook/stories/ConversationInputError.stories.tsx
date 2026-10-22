@@ -79,7 +79,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "실제 앱 Balloon의 바탕화면 입력 오류 상태입니다. 로컬 실행기나 AI 요청 없이 고정 오류를 표시합니다. 오류는 말풍선 불투명도와 독립적인 color/glass-window 배경, color/ink 글자, color/danger-border 테두리를 사용합니다. 긴 문구는 344px 입력 영역에서 줄바꿈하며 520px를 넘으면 입력 영역 안에서 스크롤합니다. 브라우저 예제이며 네이티브 창의 크기 조절·클리핑 검증을 대신하지 않습니다.",
+          "실제 앱 Balloon의 바탕화면 입력 오류 상태입니다. 로컬 실행기나 AI 요청 없이 고정 오류를 표시합니다. 오류는 입력창 아래에 배경 없이 color/danger 글자로 표시합니다. 긴 문구는 344px 입력 영역에서 줄바꿈하며 520px를 넘으면 입력 영역 안에서 스크롤합니다. 브라우저 예제이며 네이티브 창의 크기 조절·클리핑 검증을 대신하지 않습니다.",
       },
     },
   },
@@ -96,7 +96,7 @@ export const OnWhiteDesktop: Story = {
   },
 };
 export const TransparentBalloon: Story = {
-  name: "말풍선 0% · 오류 배경 유지",
+  name: "말풍선 0% · 패턴 바탕화면",
   args: { balloonOpacity: 0, desktop: "patterned" },
 };
 export const LongError: Story = {

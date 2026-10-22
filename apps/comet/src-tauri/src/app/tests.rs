@@ -2349,6 +2349,44 @@ fn scoped_settings_saves_preserve_other_sections_newer_values() {
 }
 
 #[test]
+fn apple_selection_keeps_saved_providers_and_invalidates_work_without_reselecting() {
+    let state = state();
+    let selected = Settings {
+        mode: "apple".into(),
+        local_model: LocalModel::Qwen35_27B,
+        api_model: "saved-api".into(),
+        chatgpt_model: "saved-chatgpt".into(),
+        ..Settings::default()
+    };
+    store::save_settings(&lock(&state.db).unwrap(), &selected).unwrap();
+    let old = interrupt(&state, true).unwrap();
+    let automatic = Settings {
+        mode: "unfinished-draft".into(),
+        apple_idle_enabled: true,
+        ..Settings::default()
+    };
+    apply_settings(&state, &automatic, Some(SettingsScope::Automatic), None).unwrap();
+    let saved = store::settings(&lock(&state.db).unwrap()).unwrap();
+    assert_eq!(saved.mode, "apple");
+    assert_eq!(saved.local_model, selected.local_model);
+    assert_eq!(saved.api_model, selected.api_model);
+    assert_eq!(saved.chatgpt_model, selected.chatgpt_model);
+    assert!(saved.apple_idle_enabled);
+    assert!(old.1.load(Ordering::SeqCst));
+    // An unavailable saved choice remains editable; availability never switches it.
+    apply_settings(&state, &saved, Some(SettingsScope::Model), None).unwrap();
+    let other = Settings {
+        mode: "local".into(),
+        ..saved
+    };
+    apply_settings(&state, &other, Some(SettingsScope::Model), None).unwrap();
+    assert_eq!(
+        store::settings(&lock(&state.db).unwrap()).unwrap().mode,
+        "local"
+    );
+}
+
+#[test]
 fn analytics_consent_is_preserved_by_all_unrelated_settings_save_scopes() {
     for consent in [true, false] {
         for scope in [

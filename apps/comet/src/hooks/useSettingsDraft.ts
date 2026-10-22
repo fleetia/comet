@@ -100,7 +100,7 @@ export function useSettingsDraft(savedSettings: Settings, scope: SettingsScope):
         if (picked) change("localModelPath", picked);
         return;
       }
-      if (name === "test_local_model") {
+      if (name === "test_local_model" || name === "test_apple_model") {
         const result = await command<LocalModelTest>(name, args);
         setNotice(`${(result.elapsedMs / 1000).toFixed(1)}초 · ${result.reply}`);
         return;

@@ -37,6 +37,54 @@ beforeEach(() => {
   });
 });
 afterEach(cleanup);
+
+it("hydrates the first lazy open when its event preceded listener registration", async () => {
+  let ready: (() => void) | undefined;
+  vi.mocked(listen).mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        ready = () => resolve(vi.fn<() => void>());
+      }),
+  );
+  const opened = { ...initial, sessionId: 4 };
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "get_launcher_state" ? opened : undefined,
+  );
+  render(<Launcher snapshot={PREVIEW_SNAPSHOT} />);
+  expect(command).not.toHaveBeenCalledWith("get_launcher_state");
+  await act(async () => ready?.());
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_launcher_state"));
+  const input = screen.getByRole("combobox");
+  fireEvent.change(input, { target: { value: "메모" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("execute_launcher", {
+      request: expect.objectContaining({ sessionId: 4 }),
+    }),
+  );
+});
+
+it("ignores a stale hydration response after a rapid reopen event", async () => {
+  let hydrate: ((state: LauncherState) => void) | undefined;
+  vi.mocked(command).mockImplementation((name) =>
+    name === "get_launcher_state"
+      ? new Promise<LauncherState>((resolve) => {
+          hydrate = resolve;
+        })
+      : Promise.resolve(undefined),
+  );
+  render(<Launcher snapshot={PREVIEW_SNAPSHOT} />);
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_launcher_state"));
+  act(() => receive({ event: "launcher-opened", id: 2, payload: { ...initial, sessionId: 3 } }));
+  const input = screen.getByRole("combobox") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "다음에 쓸 초안" } });
+  await act(async () => hydrate?.(initial));
+  expect(input.value).toBe("다음에 쓸 초안");
+  fireEvent.keyDown(input, { key: "Escape" });
+  await waitFor(() => expect(command).toHaveBeenCalledWith("close_launcher", { sessionId: 3 }));
+  expect(command).not.toHaveBeenCalledWith("close_launcher", { sessionId: 1 });
+});
+
 function results(
   query: string,
   state: WidgetSnapshot | null = widgets,

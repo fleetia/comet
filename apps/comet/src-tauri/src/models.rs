@@ -588,6 +588,7 @@ mod tests {
         let device = |memory: u64, apple_silicon| crate::device::DeviceInfo {
             total_memory: Some(memory << 30),
             apple_silicon,
+            ..Default::default()
         };
         assert_eq!(recommended(device(8, true)), Some(LocalModel::Qwen38_2B));
         assert_eq!(recommended(device(16, true)), Some(LocalModel::Qwen35_9B));
@@ -599,7 +600,8 @@ mod tests {
         assert_eq!(
             recommended(crate::device::DeviceInfo {
                 total_memory: None,
-                apple_silicon: true
+                apple_silicon: true,
+                ..Default::default()
             }),
             None
         );
@@ -660,6 +662,7 @@ mod tests {
                 let suggestion = recommended(crate::device::DeviceInfo {
                     total_memory: Some(memory << 30),
                     apple_silicon,
+                    ..Default::default()
                 });
                 assert!(suggestion.is_none_or(automatic_recommendation_eligible));
             }

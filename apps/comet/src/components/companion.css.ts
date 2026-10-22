@@ -1,4 +1,4 @@
-import { globalStyle, style, styleVariants } from "@vanilla-extract/css";
+import { createVar, globalStyle, style, styleVariants } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
 
 export const bodyFrame = style({ position: "relative", width: "100%", height: "100dvh" });
@@ -136,9 +136,24 @@ export const orbitAnchor = style({
   height: 52,
   pointerEvents: "none",
 });
-export const readableOrbit = style({});
-const orbitTextShadow =
-  "-1px -1px 0 #0a0f26, 0 -1px 0 #0a0f26, 1px -1px 0 #0a0f26, -1px 0 0 #0a0f26, 1px 0 0 #0a0f26, -1px 1px 0 #0a0f26, 0 1px 0 #0a0f26, 1px 1px 0 #0a0f26, 0 1px 3px rgba(0,0,0,0.8)";
+// Orbit labels sit on the bare desktop, so outline them against the skin: white
+// around the dark day-mode ink, navy around the light night-mode ink.
+const orbitOutline = createVar();
+const orbitGlow = createVar();
+const orbitTextShadow = [-1, 0, 1]
+  .flatMap((x) => [-1, 0, 1].map((y) => [x, y]))
+  .filter(([x, y]) => x || y)
+  .map(([x, y]) => `${x}px ${y}px 0 ${orbitOutline}`)
+  .concat(`0 1px 3px ${orbitGlow}`)
+  .join(", ");
+export const readableOrbit = style({
+  vars: { [orbitOutline]: "#ffffff", [orbitGlow]: "transparent" },
+  selectors: {
+    '[data-comet-theme="dark"] &': {
+      vars: { [orbitOutline]: "#0a0f26", [orbitGlow]: "rgba(0,0,0,0.8)" },
+    },
+  },
+});
 globalStyle(`${readableOrbit} [data-orbit-label]`, { textShadow: orbitTextShadow });
 // Keep input sections in normal block flow inside one bounded viewport. As flex
 // siblings, an expanded log and failure notice squeezed the reply down to its labels.
@@ -472,24 +487,30 @@ export const resting = style({
   fontSize: tokens["typography/sans/body/fontSize"],
 });
 
-export const orbitPauseStatus = style({
-  position: "absolute",
-  top: 306,
-  left: 0,
-  width: 296,
-  margin: "4px 12px 12px",
-  textShadow: orbitTextShadow,
-  color: "var(--comet-color-ink-2)",
-  fontSize: 12,
-  textAlign: "center",
-});
-export const orbitError = style({
-  position: "absolute",
-  top: 284,
-  left: 8,
-  width: 288,
-  margin: 0,
-  color: tokens["color/ink"],
-  fontSize: 12,
-  textShadow: orbitTextShadow,
-});
+export const orbitPauseStatus = style([
+  readableOrbit,
+  {
+    position: "absolute",
+    top: 306,
+    left: 0,
+    width: 296,
+    margin: "4px 12px 12px",
+    textShadow: orbitTextShadow,
+    color: tokens["color/ink-2"],
+    fontSize: 12,
+    textAlign: "center",
+  },
+]);
+export const orbitError = style([
+  readableOrbit,
+  {
+    position: "absolute",
+    top: 284,
+    left: 8,
+    width: 288,
+    margin: 0,
+    color: tokens["color/ink"],
+    fontSize: 12,
+    textShadow: orbitTextShadow,
+  },
+]);

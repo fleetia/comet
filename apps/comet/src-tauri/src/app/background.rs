@@ -257,6 +257,8 @@ pub(crate) async fn run_background(
     if !pending.is_empty() {
         let ready = if settings.mode == "local" {
             inference::is_local_running(&state.inference, &settings).await
+        } else if settings.mode == "apple" {
+            crate::apple_models::status().available
         } else if settings.mode == "chatgpt" {
             state.inference.chatgpt.ready() && !settings.chatgpt_model.is_empty()
         } else {
@@ -358,6 +360,7 @@ pub(crate) async fn run_background(
         "api" => settings.api_idle_enabled,
         "chatgpt" => settings.chatgpt_idle_enabled,
         "local" => settings.local_idle_enabled,
+        "apple" => settings.apple_idle_enabled,
         _ => false,
     };
     if store::current_user(&*lock(&state.db)?)?.is_none()
@@ -372,6 +375,8 @@ pub(crate) async fn run_background(
     }
     let ready = if settings.mode == "local" {
         models::selected_ready(&state.app_data, &settings)
+    } else if settings.mode == "apple" {
+        crate::apple_models::status().available
     } else if settings.mode == "chatgpt" {
         !settings.chatgpt_model.is_empty() && state.inference.chatgpt.ready()
     } else {
@@ -399,7 +404,7 @@ pub(crate) async fn run_background(
     }
     let question = targets.len() == 1 && state.idle_sequence.load(Ordering::SeqCst) % 2 == 1;
     state.last_preparation.store(now(), Ordering::SeqCst);
-    if settings.mode == "local" && !resources::background_allowed() {
+    if matches!(settings.mode.as_str(), "local" | "apple") && !resources::background_allowed() {
         return Ok(());
     }
     if matches!(settings.mode.as_str(), "api" | "chatgpt") {

@@ -189,6 +189,8 @@ pub struct Settings {
     pub chatgpt_model: String,
     #[serde(default)]
     pub chatgpt_idle_enabled: bool,
+    #[serde(default)]
+    pub apple_idle_enabled: bool,
     #[serde(default = "default_autonomous_enabled")]
     pub autonomous_enabled: bool,
     #[serde(default)]
@@ -219,6 +221,7 @@ impl Default for Settings {
             api_profiles: Default::default(),
             chatgpt_model: String::new(),
             chatgpt_idle_enabled: false,
+            apple_idle_enabled: false,
             autonomous_enabled: true,
             random_presence_enabled: false,
             local_idle_enabled: false,
@@ -528,6 +531,8 @@ pub struct Snapshot {
     #[serde(default)]
     pub api_key_providers: Vec<ApiProvider>,
     pub chatgpt_ready: bool,
+    #[serde(default)]
+    pub apple_model: crate::apple_models::AppleModelStatus,
     pub model_ready: bool,
     pub local_models: Vec<LocalModelStatus>,
     #[serde(default)]
@@ -585,9 +590,16 @@ mod tests {
         }
         assert!(serde_json::from_value::<RuntimePhase>(serde_json::json!("unknown")).is_err());
         assert!(!Settings::default().local_idle_enabled);
+        assert!(!Settings::default().apple_idle_enabled);
         assert!(Settings::default().autonomous_enabled);
         let mut saved = serde_json::to_value(Settings::default()).unwrap();
         saved["localIdleEnabled"] = serde_json::json!(true);
+        saved.as_object_mut().unwrap().remove("appleIdleEnabled");
+        assert!(
+            !serde_json::from_value::<Settings>(saved.clone())
+                .unwrap()
+                .apple_idle_enabled
+        );
         assert!(
             serde_json::from_value::<Settings>(saved)
                 .unwrap()

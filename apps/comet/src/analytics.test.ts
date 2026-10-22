@@ -127,6 +127,7 @@ describe("desktop analytics", () => {
     [{ mode: "local", localModel: "custom" }, "local", "custom", "custom_file"],
     [{ mode: "chatgpt", chatgptModel: "gpt-5.4" }, "chatgpt", "gpt", "service"],
     [{ mode: "chatgpt", chatgptModel: "o3" }, "chatgpt", "o_series", "service"],
+    [{ mode: "apple", apiModel: "private-unused-model" }, "apple", "system_language_model", "os"],
     [
       { mode: "api", apiProvider: "claude", apiModel: "claude-opus-test" },
       "claude",
