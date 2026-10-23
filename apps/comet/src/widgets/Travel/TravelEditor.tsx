@@ -177,6 +177,7 @@ export function TravelEditor({
           </FormField>
           <FormField label="준비 봉투" description="짐과 할 일은 준비 봉투에서 챙겨요.">
             <Select
+              fill
               value={draft.envelopeId}
               disabled={busy}
               onChange={(event) => update({ envelopeId: event.target.value })}
