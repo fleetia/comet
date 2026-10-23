@@ -16,6 +16,7 @@ use std::time::Duration;
 mod model_quality_smoke;
 
 mod model_roster_smoke;
+mod model_travel_summary_smoke;
 
 pub(crate) fn state() -> AppState {
     AppState {
