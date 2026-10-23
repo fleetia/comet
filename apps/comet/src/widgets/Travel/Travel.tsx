@@ -73,7 +73,7 @@ function initialTab(): TravelTab {
   return TABS.some(([tab]) => tab === hash) ? (hash as TravelTab) : "overview";
 }
 
-export function Travel(): ReactElement {
+export function Travel({ onClose }: { onClose?: () => void } = {}): ReactElement {
   const { snapshot, error: loadError, reload } = useWidgets();
   const state = useDiary();
   const [selectedId, setSelectedId] = useState(() => new URLSearchParams(location.search).get("id") ?? "");
@@ -132,13 +132,23 @@ export function Travel(): ReactElement {
     if (!isDesktop()) return;
     let active = true;
     let cleanup: (() => void) | undefined;
-    void listen<string>("travel-open", (event) => {
-      setSelectedId(event.payload);
+    let received = false;
+    const select = (id: string | null): void => {
+      if (!active) return;
+      setSelectedId(id ?? "");
       setTab("overview");
       setBookingId("");
-    }).then((unlisten) => {
-      if (active) cleanup = unlisten;
-      else unlisten();
+    };
+    void listen<string | null>("travel-open", (event) => {
+      received = true;
+      select(event.payload);
+    }).then(async (unlisten) => {
+      if (!active) { unlisten(); return; }
+      cleanup = unlisten;
+      const id = await command<string | null>("get_travel_target");
+      if (!received) select(id);
+    }).catch((cause: unknown) => {
+      if (active) setFailure(errorText(cause));
     });
     return () => {
       active = false;
@@ -221,11 +231,31 @@ export function Travel(): ReactElement {
   }
 
   const close = (): void => {
+    if (onClose) { onClose(); return; }
     if (isDesktop())
       void getCurrentWindow()
         .destroy()
         .catch((cause: unknown) => setFailure(errorText(cause)));
   };
+
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    if (!isDesktop()) return;
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void getCurrentWindow().onCloseRequested((event) => {
+      if (!active) return;
+      event.preventDefault();
+      closeRef.current();
+    }).then((cleanup) => {
+      if (active) unlisten = cleanup;
+      else cleanup();
+    }).catch((cause: unknown) => {
+      if (active) setFailure(errorText(cause));
+    });
+    return () => { active = false; unlisten?.(); };
+  }, []);
 
   const body = (current: TripData): ReactElement => {
     switch (tab) {

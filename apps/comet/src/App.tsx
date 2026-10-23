@@ -26,6 +26,7 @@ import { WindowHeader } from "./components/WindowHeader/WindowHeader";
 import { command, isDesktop, useSnapshot } from "./hooks/useSnapshot";
 import { useAnalyticsConsent } from "./hooks/useAnalyticsConsent";
 import * as s from "./common.css";
+import { PlanningWindow } from "./components/PlanningWindow";
 import { LazySurface } from "./components/LazySurface";
 
 // Keep these identities stable across snapshot updates, preserving mounted drafts.
@@ -49,8 +50,8 @@ function standaloneRoute(query: URLSearchParams): JSX.Element | null {
   if (view === "widget-workshop") return <WidgetWorkshop />;
   if (view === "generated-widget") return <GeneratedWidgetTool id={query.get("id") ?? ""} />;
   if (view === "widget-state-rules") return <WidgetStateRules id={query.get("id") ?? ""} />;
-  if (view === "planner") return <Diary />;
-  if (view === "travel") return <Travel />;
+  if (view === "planner") return <PlanningWindow label="planner">{(close) => <Diary onClose={close} />}</PlanningWindow>;
+  if (view === "travel") return <PlanningWindow label="travel">{(close) => <Travel onClose={close} />}</PlanningWindow>;
   if (view === "desktop-toy") return <DesktopToy id={query.get("id") ?? ""} />;
   if (view === "widget-stack") return <WidgetStack />;
   if (view === "widget-display") return <WidgetDisplay id={query.get("id") ?? ""} />;

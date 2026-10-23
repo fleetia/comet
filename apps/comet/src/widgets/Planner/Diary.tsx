@@ -61,7 +61,7 @@ function habitSummary(state: DiaryState | null | undefined, day: string): { done
   return { done, total: habits.length };
 }
 
-export function Diary(): ReactElement {
+export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement {
   const { snapshot, error: loadError, reload } = useWidgets();
   const diary = useDiary();
   const [day, setDay] = useState(localDay());
@@ -236,6 +236,7 @@ export function Diary(): ReactElement {
     closingUnsaved: notesDirty || toolState.dirty,
   });
   const close = (): void => {
+    if (onClose) { onClose(); return; }
     if (isDesktop())
       void getCurrentWindow()
         .destroy()
@@ -261,8 +262,8 @@ export function Diary(): ReactElement {
     onTab: (tab, resetCollections) => {
       if (resetCollections || tab === "envelopes" || tab === "time") {
         setNotesOpen(false);
-        setCollection(tab === "envelopes" ? "envelopes" : null);
       }
+      setCollection(tab === "envelopes" ? "envelopes" : null);
       const nextTool = toolForTab(tab);
       setTool(nextTool);
       if (isPlannerTool(nextTool)) setToolsOpened(true);

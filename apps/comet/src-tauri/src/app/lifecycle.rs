@@ -368,6 +368,13 @@ pub fn run() {
                 launcher::window_event(window, event);
                 return;
             }
+            if matches!(window.label(), "planner" | "travel") {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    // Frontend guards approve closing before releasing its generation.
+                    api.prevent_close();
+                }
+                return;
+            }
             if window.label() == "settings" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
@@ -675,6 +682,9 @@ pub fn run() {
             crate::widgets::planning::windows::get_planner_tab,
             crate::widgets::planning::windows::open_planner_view,
             crate::widgets::planning::windows::open_travel,
+            crate::widgets::planning::windows::lifecycle::get_planning_window_state,
+            crate::widgets::planning::windows::lifecycle::release_planning_window,
+            crate::widgets::planning::windows::lifecycle::get_travel_target,
             crate::diary::travel_files::travel_attach_vouchers,
             crate::diary::travel_files::travel_open_voucher,
             crate::diary::travel_files::travel_open_photo,
@@ -828,6 +838,13 @@ pub fn run() {
                 ..
             } if label == "conversation-history" => {
                 super::history_window::destroyed(app);
+            }
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: WindowEvent::Destroyed,
+                ..
+            } if matches!(label.as_str(), "planner" | "travel") => {
+                crate::widgets::planning::windows::destroyed(app, &label);
             }
             tauri::RunEvent::Exit => {
                 device::wake::shutdown(app);
