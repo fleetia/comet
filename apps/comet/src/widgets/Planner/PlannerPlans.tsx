@@ -130,20 +130,21 @@ export function PlannerPlans({
             </div>
           )}
           <div className={s.actions}>
-            <Select
-              fill
-              className={s.listSelect}
-              aria-label="조회할 목록"
-              value={visibleList}
-              onChange={(e) => onVisibleListChange(e.target.value)}
-            >
-              <option value="all">모든 목록</option>
-              {lists.map((l) => (
-                <option key={text(l.id)} value={text(l.id)}>
-                  {text(l.name)}
-                </option>
-              ))}
-            </Select>
+            <div className={s.listSelect}>
+              <Select
+                fill
+                aria-label="조회할 목록"
+                value={visibleList}
+                onChange={(e) => onVisibleListChange(e.target.value)}
+              >
+                <option value="all">모든 목록</option>
+                {lists.map((l) => (
+                  <option key={text(l.id)} value={text(l.id)}>
+                    {text(l.name)}
+                  </option>
+                ))}
+              </Select>
+            </div>
             <Checkbox
               checked={showCompleted}
               onChange={(e) => onShowCompletedChange(e.target.checked)}
