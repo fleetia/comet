@@ -588,3 +588,51 @@ fn planner_instruction_keeps_the_revision_copy_and_new_item_target_contracts() {
             .contains(&json!("expectedRevision"))
     );
 }
+
+#[test]
+fn an_unreadable_query_input_keeps_its_raw_value_locally_but_not_in_replay() {
+    let db = store::open(std::path::Path::new(":memory:")).unwrap();
+    let user = store::active_user_id(&db).unwrap();
+    let request = "Show my diary note QA travel pouch.";
+    let contexts = json!({"note_query":actions::entities_for(&db,"note_query",request).unwrap()});
+    let query = |input_json: &str| Plan {
+        question: String::new(),
+        operations: vec![Proposal {
+            kind: "note_query".into(),
+            target_id: String::new(),
+            expected_revision: contexts["note_query"]["revision"].as_i64().unwrap(),
+            input_json: input_json.into(),
+            mode: "explicit".into(),
+            evidence: "Show my diary note".into(),
+        }],
+    };
+    let catalog = catalog(&db).unwrap();
+    let mut turn = new_turn(&message("query", request)).unwrap();
+    turn.selected = vec!["note_query".into()];
+    let outcome = prepare_plan(query("{"), &mut turn, &catalog, &contexts);
+    save_planning_outcome(&db, &user, "query", &mut turn, outcome).unwrap_err();
+
+    let saved = load_turn(&db, &user, "query").unwrap().unwrap();
+    assert_eq!(saved.state, "failed");
+    assert_eq!(
+        saved.error.as_deref(),
+        Some("작업의 입력 형식을 읽지 못했어요.")
+    );
+    let rejected = saved.rejected_input.as_ref().unwrap();
+    assert_eq!(rejected["kind"], "note_query");
+    assert_eq!(rejected["inputJson"], "{");
+    assert!(rejected["parseError"].as_str().unwrap().contains("EOF"));
+    let raw = actions::turn_context(&db, &user, "query").unwrap().unwrap();
+    let replayed = replay(&db, &user, serde_json::from_str(&raw).unwrap(), &mut []).unwrap();
+    assert!(!replayed.to_string().contains("parseError"));
+
+    prepare_plan(
+        query(r#"{"query":"QA travel pouch"}"#),
+        &mut turn,
+        &catalog,
+        &contexts,
+    )
+    .unwrap();
+    assert!(turn.rejected_input.is_none());
+    assert_eq!(turn.operations.len(), 1);
+}

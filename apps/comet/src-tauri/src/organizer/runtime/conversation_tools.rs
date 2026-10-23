@@ -53,6 +53,9 @@ struct Turn {
     selected: Vec<String>,
     #[serde(default)]
     error: Option<String>,
+    // Local diagnosis only; replay never sends this to a model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rejected_input: Option<Value>,
     // replay_context uses this provenance boundary for model-visible context.
     source_refs: Vec<Value>,
     requires_effect: bool,
@@ -162,7 +165,7 @@ fn new_turn(message: &Message) -> Result<Turn, String> {
     Ok(Turn {
         tool_version: 1, state: "selecting".into(), request: message.content.clone(),
         anchor_time: at, question: String::new(), operations: vec![], selected: vec![],
-        error: None, source_refs: vec![], requires_effect: false,
+        error: None, rejected_input: None, source_refs: vec![], requires_effect: false,
         notice: "동작 결과는 operations.result와 실제 저장 영수증만 근거로 설명한다. 계획·질문은 실행 완료가 아니다. 조회 결과는 이 요청 시점의 관측이며 현재 상태를 보장하지 않는다.".into(),
     })
 }
@@ -195,6 +198,7 @@ fn prepare_plan(
     catalog: &[Value],
     contexts: &Value,
 ) -> Result<(), String> {
+    turn.rejected_input = None;
     if plan.operations.len() > MAX_OPERATIONS || plan.question.chars().count() > 1000 {
         return Err("한 번에 처리할 수 있는 작업 범위를 넘었어요.".into());
     }
@@ -222,8 +226,15 @@ fn prepare_plan(
             );
         }
         authorize(&turn.request, spec, &proposal)?;
-        let mut input: Value = serde_json::from_str(&proposal.input_json)
-            .map_err(|_| "작업의 입력 형식을 읽지 못했어요.")?;
+        let mut input: Value = match serde_json::from_str(&proposal.input_json) {
+            Ok(input) => input,
+            Err(error) => {
+                turn.rejected_input = Some(
+                    json!({"kind":proposal.kind,"inputJson":proposal.input_json,"parseError":error.to_string()}),
+                );
+                return Err("작업의 입력 형식을 읽지 못했어요.".into());
+            }
+        };
         if !input.is_object() || proposal.input_json.len() > 32_000 {
             return Err("작업 입력의 형식 또는 크기를 확인해 주세요.".into());
         }
