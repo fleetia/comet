@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DiaryPage, discardDiaryPageDraft, type DiaryPageProps } from "../Planner/DiaryPage";
+import { DiaryToday } from "../Planner/DiaryToday";
 import type { DiaryPage as Page } from "../Planner/diaryTypes";
 import type { DataRecord } from "../toolData";
 import type { WidgetView } from "../types";
@@ -470,4 +471,114 @@ it("makes composer mode and Enter behavior explicit while keeping memo newlines"
   expect(screen.getByRole("button", { name: "할 일 추가" })).toBeTruthy();
   await user.type(input, "챙길 일{Enter}");
   await waitFor(() => expect(callbacks.onAddTask).toHaveBeenCalledExactlyOnceWith("챙길 일"));
+});
+
+it("resizes restored multiline records when the hidden journal is revealed", () => {
+  const callbacks = new Map<Element, ResizeObserverCallback>();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      private targets = new Set<Element>();
+      constructor(private callback: ResizeObserverCallback) {}
+      observe = (target: Element): void => {
+        this.targets.add(target);
+        callbacks.set(target, this.callback);
+      };
+      disconnect = (): void => {
+        for (const target of this.targets) callbacks.delete(target);
+        this.targets.clear();
+      };
+      unobserve = (target: Element): void => {
+        callbacks.delete(target);
+      };
+    },
+  );
+  const frames = new Map<number, FrameRequestCallback>();
+  let nextFrame = 0;
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    frames.set(++nextFrame, callback);
+    return nextFrame;
+  });
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+    frames.delete(id);
+  });
+  let width = 400;
+  vi.spyOn(HTMLTextAreaElement.prototype, "clientWidth", "get").mockImplementation(function (
+    this: HTMLTextAreaElement,
+  ) {
+    return this.closest("[hidden]") ? 0 : width;
+  });
+  vi.spyOn(HTMLTextAreaElement.prototype, "scrollHeight", "get").mockImplementation(function (
+    this: HTMLTextAreaElement,
+  ) {
+    return this.closest("[hidden]") ? 0 : !this.value.includes("\n") ? 32 : width < 300 ? 144 : 96;
+  });
+  const text =
+    "QA diary: I planned a quiet island walk.\nThe guesthouse is not paid yet.\nI will pay at the guesthouse.";
+  const options = props({
+    page: { ...initialPage, entries: [{ id: "saved", kind: "note", text }] },
+  });
+  try {
+    const view = render(
+      <DiaryToday
+        day={DAY}
+        widgets={[]}
+        items={[]}
+        events={[]}
+        notes={[]}
+        busy={false}
+        onTask={vi.fn()}
+        onTasks={vi.fn()}
+        onEvent={vi.fn()}
+        onNotes={vi.fn()}
+        journal={<DiaryPage {...options} />}
+      />,
+    );
+    const area = view.container.querySelector("textarea")!;
+    expect(area.value).toBe(text);
+    expect(area.style.height).toBe("32px");
+    const notifyResize = (): void => {
+      act(() => {
+        callbacks.get(area)?.([], {} as ResizeObserver);
+        const pending = [...frames.values()];
+        frames.clear();
+        for (const frame of pending) frame(0);
+      });
+    };
+    fireEvent.click(screen.getByRole("radio", { name: "한 줄 기록" }));
+    notifyResize();
+    expect(area.style.height).toBe("96px");
+    width = 240;
+    notifyResize();
+    expect(area.style.height).toBe("144px");
+    width = 400;
+    notifyResize();
+    expect(area.style.height).toBe("96px");
+    const scheduled = vi.mocked(window.requestAnimationFrame).mock.calls.length;
+    notifyResize();
+    expect(window.requestAnimationFrame).toHaveBeenCalledTimes(scheduled);
+    fireEvent.click(screen.getByRole("radio", { name: "요약" }));
+    notifyResize();
+    fireEvent.click(screen.getByRole("radio", { name: "한 줄 기록" }));
+    notifyResize();
+    expect(screen.getByRole("textbox", { name: "메모 내용" })).toBe(area);
+    expect(area.style.height).toBe("96px");
+    expect(area.value).toBe(text);
+    fireEvent.change(area, { target: { value: "short" } });
+    expect(area.style.height).toBe("32px");
+    const draft = `${text}\n  Keep these spaces.  `;
+    fireEvent.change(area, { target: { value: draft } });
+    expect(area.style.height).toBe("96px");
+    expect(area.value).toBe(draft);
+    expect(options.onDiaryAction).not.toHaveBeenCalled();
+    width = 240;
+    act(() => callbacks.get(area)?.([], {} as ResizeObserver));
+    expect(frames.size).toBeGreaterThan(0);
+    view.unmount();
+    expect(callbacks.size).toBe(0);
+    expect(frames.size).toBe(0);
+  } finally {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  }
 });
