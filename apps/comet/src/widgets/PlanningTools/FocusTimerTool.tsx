@@ -55,7 +55,7 @@ function savedDraft(widget: WidgetView): Draft {
     memo: text(data.memo),
   };
 }
-function readDraft(widget: WidgetView): Draft {
+export function readDraft(widget: WidgetView): Draft {
   const saved = savedDraft(widget);
   try {
     const value: unknown = JSON.parse(
