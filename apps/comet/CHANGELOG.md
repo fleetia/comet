@@ -1,5 +1,13 @@
 # comet
 
+## 0.19.4
+
+### Patch Changes
+
+- 52fc575: 바탕화면 말풍선과 메모·위젯 모음이 선택한 스킨의 글꼴을 상속하도록 고쳤습니다. 친구가 고른 글꼴과 설정·집중 도구의 글꼴은 유지합니다.
+- Updated dependencies [52fc575]
+  - @comet/ui@0.7.2
+
 ## 0.19.3
 
 ### Patch Changes
