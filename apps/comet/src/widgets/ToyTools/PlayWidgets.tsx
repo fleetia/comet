@@ -323,7 +323,7 @@ export function GuessingTool({
             ))}
           </div>
           <span className={s.hintChip} role="status">
-            {attempts > 0 ? text(d.hint) : "컵이 섞이는 걸 잘 봐요"}
+            {attempts > 0 ? text(d.hint) : "구슬이 있을 것 같은 컵을 골라 주세요"}
           </span>
         </>
       )}
