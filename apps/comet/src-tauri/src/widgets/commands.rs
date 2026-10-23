@@ -1641,19 +1641,20 @@ pub(crate) async fn set_focus_expanded(
     height: Option<f64>,
     auto_fit: Option<bool>,
 ) -> Result<(), String> {
-    let (window, start, position, scale) = change(&state, |db| {
+    change(&state, |db| {
         let instance = storage::get(db, &id)?;
         if instance.kind != "focus-timer" || !instance.installed || !instance.enabled {
             return Err("집중 타이머를 먼저 켜 주세요.".into());
         }
-        let window = app
-            .get_webview_window(&format!("widget-{id}"))
-            .ok_or("집중 타이머 창을 찾을 수 없어요.")?;
-        let start = window.inner_size().map_err(|error| error.to_string())?;
-        let position = window.outer_position().map_err(|error| error.to_string())?;
-        let scale = window.scale_factor().map_err(|error| error.to_string())?;
-        Ok((window, start, position, scale))
+        Ok(())
     })?;
+    // Native geometry queries wait for the main thread, which can be waiting for this DB.
+    let window = app
+        .get_webview_window(&format!("widget-{id}"))
+        .ok_or("집중 타이머 창을 찾을 수 없어요.")?;
+    let start = window.inner_size().map_err(|error| error.to_string())?;
+    let position = window.outer_position().map_err(|error| error.to_string())?;
+    let scale = window.scale_factor().map_err(|error| error.to_string())?;
     let collapsed = collapsed.unwrap_or(false);
     let mut target = focus_resize_target(start, scale, expanded, collapsed, height);
     if auto_fit.unwrap_or(false) && !collapsed {
