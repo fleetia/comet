@@ -351,6 +351,90 @@ async function openFocusBubble(): Promise<HTMLSelectElement> {
   return screen.getByLabelText("연결할 할 일") as HTMLSelectElement;
 }
 
+async function openFocusNotes(): Promise<void> {
+  await openFocusBubble();
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "기록과 노트" })));
+  fireEvent.click(screen.getByRole("radio", { name: "노트" }));
+}
+
+it("keeps the focus bubble open when typing in its portaled note editor", async () => {
+  await openFocusNotes();
+  fireEvent.click(screen.getByRole("button", { name: "새 메모 쓰기" }));
+  const editor = screen.getByRole("dialog", { name: "새 다이어리 메모" });
+  const title = within(editor).getByLabelText(/노트 제목/);
+  expect(editor.parentElement).toBe(document.body);
+  fireEvent.pointerDown(title, { button: 0 });
+  expect(screen.getByRole("dialog", { name: "새 다이어리 메모" })).toBe(editor);
+  fireEvent.change(title, { target: { value: "QA packing note" } });
+  expect(title).toHaveProperty("value", "QA packing note");
+  const body = within(editor).getByLabelText("노트 내용");
+  fireEvent.pointerDown(body, { button: 0 });
+  fireEvent.change(body, { target: { value: "Pack the cable." } });
+  expect(body).toHaveProperty("value", "Pack the cable.");
+  const close = within(editor).getByRole("button", { name: "노트 닫기" });
+  fireEvent.pointerDown(close, { button: 0 });
+  fireEvent.click(close);
+  expect(screen.queryByRole("dialog", { name: "새 다이어리 메모" })).toBeNull();
+  expect(screen.getByRole("dialog", { name: "집중 타이머" })).toBeTruthy();
+  fireEvent.pointerDown(document.body);
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+it("keeps the focus bubble open while searching its portaled note picker", async () => {
+  await openFocusNotes();
+  fireEvent.click(screen.getByRole("button", { name: "다른 메모 연결하기" }));
+  const picker = screen.getByRole("dialog", { name: "다른 메모 연결하기" });
+  const search = within(picker).getByLabelText("연결할 노트 검색");
+  fireEvent.pointerDown(search, { button: 0 });
+  fireEvent.change(search, { target: { value: "packing" } });
+  expect(screen.getByRole("dialog", { name: "다른 메모 연결하기" })).toBe(picker);
+  expect(search).toHaveProperty("value", "packing");
+});
+
+it("dismisses only the note editor on its modal backdrop and can reopen it", async () => {
+  await openFocusNotes();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    fireEvent.click(screen.getByRole("button", { name: "새 메모 쓰기" }));
+    const editor = screen.getByRole("dialog", { name: "새 다이어리 메모" });
+    // Native dialog backdrops retarget their pointer/click events to the dialog.
+    fireEvent.pointerDown(editor, { button: 0 });
+    fireEvent.click(editor);
+    expect(screen.queryByRole("dialog", { name: "새 다이어리 메모" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "집중 타이머" })).toBeTruthy();
+  }
+  fireEvent.pointerDown(document.body);
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+it.each(["outside", "blur", "Escape"])(
+  "retains %s dismissal while the focus note editor is open",
+  async (dismissal) => {
+    await openFocusNotes();
+    fireEvent.click(screen.getByRole("button", { name: "새 메모 쓰기" }));
+    const title = screen.getByLabelText(/노트 제목/);
+    fireEvent.pointerDown(title, { button: 0 });
+    if (dismissal === "outside") fireEvent.pointerDown(document.body);
+    else if (dismissal === "blur") fireEvent.blur(window);
+    else fireEvent.keyDown(title, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  },
+);
+
+it("does not treat an unrelated body dialog as owned by the focus bubble", async () => {
+  await openFocusBubble();
+  const unrelated = document.createElement("dialog");
+  unrelated.open = true;
+  const input = document.createElement("input");
+  unrelated.append(input);
+  document.body.append(unrelated);
+  try {
+    fireEvent.pointerDown(input, { button: 0 });
+    expect(screen.queryByRole("dialog", { name: "집중 타이머" })).toBeNull();
+  } finally {
+    unrelated.remove();
+  }
+});
+
 // jsdom does not open an operating-system select popup. Model only the native
 // :open state; all widget rendering, task selection, and dismissal remain real.
 function nativePopup(select: HTMLSelectElement): { open: boolean } {
