@@ -575,7 +575,7 @@ dependencies = [
 
 [[package]]
 name = "comet"
-version = "0.19.4"
+version = "0.19.5"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
