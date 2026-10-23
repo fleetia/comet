@@ -1,6 +1,6 @@
 import { Button, ChartBarItem, FocusRecordRow, FormField, IconButton, Textarea } from "@comet/ui";
 import { FocusPanel } from "./FocusPanel";
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement, type RefObject } from "react";
 import { localDay, text, type DataRecord, type ToolAction } from "../toolData";
 import { clockLabel, moveDay, movePeriod, periodAnchor } from "../Planner/plannerData";
 import {
@@ -33,6 +33,7 @@ export function FocusTimerStats({
   selectedId,
   onSelect,
   onOpenNote,
+  noteButtonRef,
   act,
   onNotes,
   onClose,
@@ -43,6 +44,7 @@ export function FocusTimerStats({
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onOpenNote: (ref: DataRecord) => void;
+  noteButtonRef?: RefObject<HTMLButtonElement | null>;
   act: ToolAction;
   onNotes?: () => void;
   onClose?: () => void;
@@ -94,6 +96,7 @@ export function FocusTimerStats({
         session={selected}
         onBack={() => onSelect(null)}
         onOpenNote={onOpenNote}
+        noteButtonRef={noteButtonRef}
         act={act}
       />
     );
@@ -262,11 +265,13 @@ function FocusSessionDetail({
   session,
   onBack,
   onOpenNote,
+  noteButtonRef,
   act,
 }: {
   session: FocusSession;
   onBack: () => void;
   onOpenNote: (ref: DataRecord) => void;
+  noteButtonRef?: RefObject<HTMLButtonElement | null>;
   act: ToolAction;
 }): ReactElement {
   const [initial] = useState(() => sessionMemoDraft(session));
@@ -385,7 +390,7 @@ function FocusSessionDetail({
         )}
       </div>
       {text(session.noteRef.id) && (
-        <Button variant="ghost" onClick={() => onOpenNote(session.noteRef)}>
+        <Button ref={noteButtonRef} variant="ghost" onClick={() => onOpenNote(session.noteRef)}>
           연결한 노트 열기
         </Button>
       )}
