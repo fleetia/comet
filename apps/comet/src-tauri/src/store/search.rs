@@ -537,6 +537,30 @@ pub fn search_memories(
     )
 }
 
+/// Loads a candidate once and applies the current recall eligibility, so hidden
+/// memories never consume a channel's top-twenty slots.
+fn eligible_hit(
+    conn: &Connection,
+    hits: &mut BTreeMap<String, Option<MemorySearchHit>>,
+    id: &str,
+    at: i64,
+) -> Result<bool> {
+    if let Some(hit) = hits.get(id) {
+        return Ok(hit.is_some());
+    }
+    let hit=conn.query_row(&format!("SELECT {MEMORY_FIELDS},m.content_version FROM memories m WHERE id=?1 AND deleted=0 AND expired=0"),[id],|row|Ok(MemorySearchHit{memory:memory_row(row)?,content_version:row.get(11)?,methods:Vec::new()})).optional().map_err(err)?;
+    let hit = match hit {
+        Some(mut hit) if eligible_memory(conn, &hit.memory, at)? => {
+            hit.memory.recall_weight = recall_weight(hit.memory.retired_at, at);
+            Some(hit)
+        }
+        _ => None,
+    };
+    let eligible = hit.is_some();
+    hits.insert(id.to_owned(), hit);
+    Ok(eligible)
+}
+
 fn search_scoped(
     conn: &Connection,
     query: &str,
@@ -547,6 +571,7 @@ fn search_scoped(
 ) -> Result<Vec<MemorySearchHit>> {
     let scope = serde_json::to_string(&scope).map_err(err)?;
     let mut ranks: BTreeMap<String, (f64, BTreeSet<String>)> = BTreeMap::new();
+    let mut hits = BTreeMap::new();
     let raw_terms = query_terms(search_words(query));
     let kiwi_terms = query_terms(kiwi.iter().flat_map(|term| search_words(term)));
     let expression = |terms: &[String]| {
@@ -582,8 +607,8 @@ fn search_scoped(
         WHERE memory_fts MATCH ?1 AND m.deleted=0 AND m.expired=0
         AND (?2='null' OR m.character_id IN (SELECT value FROM json_each(?2)))
         AND memory_id IN (SELECT memory_id FROM qualified)
-        ORDER BY bm25(memory_fts),m.id LIMIT 20").map_err(err)?;
-        let lexical = statement
+        ORDER BY bm25(memory_fts),m.id").map_err(err)?;
+        let rows = statement
             .query_map(
                 params![
                     clauses.join(" OR "),
@@ -595,9 +620,18 @@ fn search_scoped(
                 ],
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?)),
             )
-            .map_err(err)?
-            .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(err)?;
+        // Rows stream in BM25 order; stop at the twentieth eligible candidate.
+        let mut lexical = Vec::new();
+        for row in rows {
+            let (id, kiwi_match) = row.map_err(err)?;
+            if eligible_hit(conn, &mut hits, &id, at)? {
+                lexical.push((id, kiwi_match));
+                if lexical.len() == 20 {
+                    break;
+                }
+            }
+        }
         for (rank, (id, kiwi_match)) in lexical.into_iter().enumerate() {
             let entry = ranks.entry(id).or_default();
             entry.0 += 1.0 / (61 + rank) as f64;
@@ -645,21 +679,26 @@ fn search_scoped(
                     .total_cmp(&left.1)
                     .then_with(|| left.0.cmp(&right.0))
             });
-            for (rank, (id, _)) in candidates.into_iter().take(20).enumerate() {
+            let mut rank = 0;
+            for (id, _) in candidates {
+                if rank == 20 {
+                    break;
+                }
+                if !eligible_hit(conn, &mut hits, &id, at)? {
+                    continue;
+                }
                 let entry = ranks.entry(id).or_default();
                 entry.0 += 1.0 / (61 + rank) as f64;
                 entry.1.insert("semantic".into());
+                rank += 1;
             }
         }
     }
     let mut candidates = Vec::new();
     for (id, (rank, methods)) in ranks {
-        let hit=conn.query_row(&format!("SELECT {MEMORY_FIELDS},m.content_version FROM memories m WHERE id=?1 AND deleted=0 AND expired=0"),[id],|row|Ok(MemorySearchHit{memory:memory_row(row)?,content_version:row.get(11)?,methods:methods.into_iter().collect()})).optional().map_err(err)?;
-        if let Some(mut hit) = hit {
-            if !eligible_memory(conn, &hit.memory, at)? {
-                continue;
-            }
-            hit.memory.recall_weight = recall_weight(hit.memory.retired_at, at);
+        // Every ranked id passed eligible_hit within this call.
+        if let Some(mut hit) = hits.remove(&id).flatten() {
+            hit.methods = methods.into_iter().collect();
             candidates.push((rank * hit.memory.recall_weight, hit));
         }
     }

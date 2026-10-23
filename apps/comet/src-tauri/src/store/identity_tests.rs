@@ -171,6 +171,85 @@ fn scoped_search_applies_owner_filter_before_top_twenty_and_decay_cap() {
 }
 
 #[test]
+fn undisclosed_chapter_memories_do_not_consume_top_twenty_candidates() {
+    let db = open(Path::new(":memory:")).unwrap();
+    let at = chrono::Utc::now().timestamp_millis();
+    set_user_name(&db, "민수", at).unwrap();
+    let user = active_user_id(&db).unwrap();
+    // A fresh user's disclosure level is 0, so chapter-1 memories stay hidden.
+    for index in 0..25 {
+        insert_experience(
+            &db,
+            "builtin-a",
+            &user,
+            &format!("hidden-{index}"),
+            &format!("녹차 {index}"),
+            "비공개 이야기",
+            at,
+            Some(1),
+        )
+        .unwrap();
+    }
+    insert_experience(
+        &db,
+        "builtin-a",
+        &user,
+        "public",
+        "녹차를 마시며 함께 들은 길고 공개된 오래된 이야기",
+        "공개 이야기",
+        at,
+        None,
+    )
+    .unwrap();
+    set_search_profile(&db, "semantic", Some("e5-test")).unwrap();
+    let rows = db
+        .prepare("SELECT id,content,content_version,source FROM memories")
+        .unwrap()
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    let mut public_id = String::new();
+    for (id, content, version, source) in rows {
+        let mut vector = vec![0.0; 384];
+        if source == "public" {
+            public_id = id.clone();
+            vector[0] = 0.6;
+            vector[1] = 0.8;
+        } else {
+            vector[0] = 1.0;
+        }
+        let window = MemoryEmbedding {
+            window_start: 0,
+            window_end: content.len(),
+            vector,
+        };
+        assert!(save_vector_index(&db, &id, version, "e5-test", &[window]).unwrap());
+    }
+    let mut query = vec![0.0; 384];
+    query[0] = 1.0;
+    let scope = ["builtin-a".to_string()];
+    for (text, kiwi, semantic) in [
+        ("녹차", vec![], None),
+        ("", vec!["녹차".to_string()], None),
+        ("", vec![], Some(("e5-test", query.as_slice(), 0.5))),
+    ] {
+        let hits = search_memories_for(&db, text, &kiwi, semantic, &scope, at).unwrap();
+        assert_eq!(
+            hits.iter().map(|hit| &hit.memory.id).collect::<Vec<_>>(),
+            [&public_id]
+        );
+    }
+}
+
+#[test]
 fn experience_requires_a_completed_direct_reply_and_only_quotes_user_source() {
     let db = open(Path::new(":memory:")).unwrap();
     let at = chrono::Utc::now().timestamp_millis();
