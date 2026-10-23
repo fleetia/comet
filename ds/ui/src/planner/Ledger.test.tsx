@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// happy-dom does not validate the amount pattern on submit.
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Ledger12MonthForecast, LedgerQuickAdd } from "./Ledger";

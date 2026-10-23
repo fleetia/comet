@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// happy-dom does not normalize CSS colors or expand border-image shorthands.
 import {
   openCharacterPage,
   selectFriend,

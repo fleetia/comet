@@ -435,7 +435,7 @@ it("does not treat an unrelated body dialog as owned by the focus bubble", async
   }
 });
 
-// jsdom does not open an operating-system select popup. Model only the native
+// The test DOM does not open an operating-system select popup. Model only the native
 // :open state; all widget rendering, task selection, and dismissal remain real.
 function nativePopup(select: HTMLSelectElement): { open: boolean } {
   const popup = { open: false };

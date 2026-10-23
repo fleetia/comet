@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// happy-dom does not reflect ARIA attributes such as ariaExpanded.
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   act as reactAct,

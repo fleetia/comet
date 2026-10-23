@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// happy-dom does not normalize CSS colors or expand border-image shorthands.
 import { openCharacterPage } from "./characterNavigation";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";

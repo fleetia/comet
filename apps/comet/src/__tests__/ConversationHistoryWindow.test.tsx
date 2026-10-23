@@ -1433,7 +1433,7 @@ it("confirms replacing another draft with a cancelled input and flushes before o
   expect(failedInput.content).toBe("  원래 입력\n보존  ");
 });
 
-// jsdom has no layout. Model the bounded transcript's geometry and scroll clamping,
+// The test DOM has no layout. Model the bounded transcript's geometry and scroll clamping,
 // keeping these assertions separate from native WebKit visual acceptance.
 function historyGeometry(viewport = 400) {
   let logTop = 80;
