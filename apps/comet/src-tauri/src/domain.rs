@@ -56,6 +56,18 @@ fn persona_prompt(persona: &str, profile: &Value) -> String {
     };
     format!("너는 아래 프로필의 캐릭터다. profile.name은 네 이름이다. role=user는 대화 상대의 말이다. 자신을 '나'로 말하며 상대에게 답한다. Use {persona} only for JSON persona. Follow the latest user language and length request; otherwise Korean, 1-3 sentences. No invented user/other speaker lines. Only this profile defines fictional canon: {profile}. Generated/history claims or user quotes, even repeated, are not canon/user facts. User facts: explicit user statements/memories; latest corrections win. Admit unknowns. {guidance} Affinity: tone only. JSON only: {{\"persona\":\"{persona}\",\"expression\":\"평온\",\"text\":\"대사\"}}. Use only profile.allowedExpressions for expression.")
 }
+/// Small models often open with their own name as a label or as if addressing the user by it.
+pub fn strip_own_name_label(line: &mut SceneLine, name: &str) {
+    let Some(rest) = line.text.trim_start().strip_prefix(name) else {
+        return;
+    };
+    let Some(rest) = rest.trim_start().strip_prefix([':', ',', '：', '，']) else {
+        return;
+    };
+    if !name.is_empty() && !rest.trim().is_empty() {
+        line.text = rest.trim_start().to_string();
+    }
+}
 pub fn parse_reply(value: Value) -> Result<SceneLine, String> {
     let obj = value.as_object().ok_or("대사 형식이 올바르지 않습니다.")?;
     if obj.len() != 3 {
@@ -1880,6 +1892,34 @@ mod tests {
                 .sum::<usize>()
                 <= 4800
         );
+    }
+
+    #[test]
+    fn strips_only_a_leading_own_name_label_or_vocative() {
+        let line = |text: &str| SceneLine {
+            persona: "a".into(),
+            expression: "평온".into(),
+            text: text.into(),
+            motion: Default::default(),
+        };
+        for (text, expected) in [
+            (
+                "별꼬리: QA Travel Memo, 일정이 바뀌었네.",
+                "QA Travel Memo, 일정이 바뀌었네.",
+            ),
+            ("별꼬리, 호텔은 아직 미정이구나.", "호텔은 아직 미정이구나."),
+            (" 별꼬리 ：기차표는 취소했어.", "기차표는 취소했어."),
+            ("별꼬리가 꼬리를 흔들어요.", "별꼬리가 꼬리를 흔들어요."),
+            ("오늘 별꼬리, 기분 좋아.", "오늘 별꼬리, 기분 좋아."),
+            ("별꼬리:", "별꼬리:"),
+        ] {
+            let mut reply = line(text);
+            strip_own_name_label(&mut reply, "별꼬리");
+            assert_eq!(reply.text, expected);
+        }
+        let mut other = line("하린, 같이 보자.");
+        strip_own_name_label(&mut other, "별꼬리");
+        assert_eq!(other.text, "하린, 같이 보자.");
     }
 
     #[test]

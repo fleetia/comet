@@ -1515,7 +1515,7 @@ pub(crate) async fn generate_turn_with_memories(
     cancel: Arc<AtomicBool>,
     memories: &[store::MemorySearchHit],
 ) -> Result<(Vec<SceneLine>, i64), String> {
-    let (settings, prompt, revision, bundle, ticket, expressions) = {
+    let (settings, prompt, revision, bundle, ticket, expressions, names) = {
         let _action = lock(&state.action)?;
         if cancel.load(Ordering::SeqCst) {
             return Err("이전 생성 요청은 취소됐어요.".into());
@@ -1590,6 +1590,10 @@ pub(crate) async fn generate_turn_with_memories(
             .map(|id| characters::guests::actor(state, &db, id).map(|actor| actor.definition))
             .collect::<Result<Vec<_>, _>>()?;
         let expressions = domain::generated_expressions(&definitions);
+        let names = definitions
+            .into_iter()
+            .map(|definition| definition.name)
+            .collect::<Vec<_>>();
         (
             settings,
             prompt,
@@ -1597,6 +1601,7 @@ pub(crate) async fn generate_turn_with_memories(
             bundle,
             ticket,
             expressions,
+            names,
         )
     };
     let paired = targets.len() == 2;
@@ -1613,7 +1618,7 @@ pub(crate) async fn generate_turn_with_memories(
         cancel.clone(),
     )
     .await?;
-    let lines = if bundle || paired {
+    let mut lines = if bundle || paired {
         domain::parse_lines_for(value, targets, targets.len(), targets.len(), true)?
     } else {
         let line = domain::parse_reply(value)?;
@@ -1625,6 +1630,11 @@ pub(crate) async fn generate_turn_with_memories(
         }
         vec![line]
     };
+    for line in &mut lines {
+        if let Some(index) = targets.iter().position(|target| *target == line.persona) {
+            domain::strip_own_name_label(line, &names[index]);
+        }
+    }
     domain::validate_generated_expressions(&lines, &expressions)?;
     if bundle {
         let _action = lock(&state.action)?;
