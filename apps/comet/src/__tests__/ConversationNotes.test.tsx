@@ -167,6 +167,45 @@ it("preserves the confirmed note text, guards appends with the original body, an
   ).toEqual({ ...firstInput, expectedBody: latestBody });
 });
 
+it("opens the exact saved note from the success view and keeps the conversation return", async () => {
+  const savedRef = { kind: "diary" as const, id: "note-new", title: "새 기록" };
+  const onClose = vi.fn();
+  vi.mocked(command).mockImplementation(async (name) => {
+    if (name === "get_conversation_notes") return [note];
+    if (name === "save_conversation_note") return savedRef;
+    if (name === "open_conversation_note") throw new Error("메모를 찾을 수 없어요.");
+  });
+  render(<ConversationSave snapshot={snapshot} request={request()} onClose={onClose} />);
+  await screen.findByRole("option", { name: note.noteRef.title });
+  fireEvent.change(screen.getByRole("textbox", { name: "메모 제목" }), {
+    target: { value: savedRef.title },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "메모 저장" }));
+  fireEvent.click(await screen.findByRole("button", { name: "메모 열기" }));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "메모를 찾을 수 없어요.");
+  expect(
+    vi.mocked(command).mock.calls.filter(([name]) => name === "open_conversation_note"),
+  ).toEqual([["open_conversation_note", { noteRef: savedRef }]]);
+  expect(
+    vi.mocked(command).mock.calls.filter(([name]) => name === "save_conversation_note"),
+  ).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "대화로 돌아가기" }));
+  expect(onClose).toHaveBeenCalledOnce();
+});
+
+it("offers no note link after registering a line", async () => {
+  render(<ConversationSave snapshot={snapshot} request={request("wordbook")} onClose={vi.fn()} />);
+  fireEvent.change(screen.getByRole("textbox", { name: "대사 제목" }), {
+    target: { value: "준비" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "키워드" }), {
+    target: { value: "준비" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "대사 저장" }));
+  await screen.findByText("개인 단어장에 저장했어요.");
+  expect(screen.queryByRole("button", { name: "메모 열기" })).toBeNull();
+});
+
 it("registers exactly the reviewed text with a chosen speaker and no automatic idle playback", async () => {
   render(<ConversationSave snapshot={snapshot} request={request("wordbook")} onClose={vi.fn()} />);
   fireEvent.change(screen.getByRole("textbox", { name: "대사 제목" }), {
