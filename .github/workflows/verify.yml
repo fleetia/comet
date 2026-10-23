@@ -29,6 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       ds_only: ${{ steps.scope.outputs.ds_only }}
+      native_required: ${{ steps.scope.outputs.native_required }}
+      bundle_required: ${{ steps.scope.outputs.bundle_required }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,10 +42,12 @@ jobs:
         run: |
           if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] &&
             git show "$BASE_SHA:ds/scripts/ci-scope.mjs" > "$RUNNER_TEMP/comet-ci-scope.mjs" &&
-            node "$RUNNER_TEMP/comet-ci-scope.mjs" >> "$GITHUB_OUTPUT"; then
-            :
+            node "$RUNNER_TEMP/comet-ci-scope.mjs" > "$RUNNER_TEMP/comet-ci-scope-output"; then
+            cat "$RUNNER_TEMP/comet-ci-scope-output" >> "$GITHUB_OUTPUT"
           else
             echo "ds_only=false" >> "$GITHUB_OUTPUT"
+            echo "native_required=true" >> "$GITHUB_OUTPUT"
+            echo "bundle_required=true" >> "$GITHUB_OUTPUT"
           fi
       - uses: pnpm/action-setup@v4
         with:
@@ -68,11 +72,11 @@ jobs:
       - run: pnpm test:native-runtime
         if: steps.scope.outputs.ds_only != 'true'
       - run: pnpm build
-        if: github.event_name == 'pull_request' && steps.scope.outputs.ds_only != 'true'
+        if: steps.scope.outputs.ds_only != 'true'
 
   desktop:
     needs: frontend
-    if: needs.frontend.outputs.ds_only != 'true'
+    if: needs.frontend.outputs.ds_only != 'true' && needs.frontend.outputs.native_required != 'false'
     name: ${{ matrix.runner }} / ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
@@ -145,10 +149,10 @@ jobs:
           xvfb-run --auto-servernum cargo test --locked --manifest-path apps/comet/src-tauri/Cargo.toml
           xvfb-run --auto-servernum cargo test --locked --manifest-path apps/comet/src-tauri/Cargo.toml linux_input_shape_survives_hidden_realized_and_destroyed_windows -- --ignored
       - name: Build native bundle
-        if: runner.os == 'Linux' || github.event_name != 'pull_request'
+        if: needs.frontend.outputs.bundle_required != 'false'
         run: pnpm tauri build --bundles ${{ matrix.bundle }}
       - name: Verify and archive macOS app
-        if: runner.os == 'macOS' && github.event_name != 'pull_request'
+        if: runner.os == 'macOS' && needs.frontend.outputs.bundle_required != 'false'
         run: |
           codesign --verify --deep --strict 'apps/comet/src-tauri/target/release/bundle/macos/comet.app'
           for installer in apps/comet/src-tauri/target/release/bundle/dmg/*.dmg; do
@@ -156,10 +160,10 @@ jobs:
           done
           ditto -c -k --sequesterRsrc --keepParent 'apps/comet/src-tauri/target/release/bundle/macos/comet.app' 'apps/comet/src-tauri/target/release/bundle/comet-macOS-arm64.zip'
       - name: Verify experimental Linux package
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && needs.frontend.outputs.bundle_required != 'false'
         run: python3 scripts/verify_linux_bundle.py apps/comet/src-tauri/target/release/bundle/deb/*.deb
       - uses: actions/upload-artifact@v4
-        if: runner.os == 'Linux' || github.event_name != 'pull_request'
+        if: needs.frontend.outputs.bundle_required != 'false'
         with:
           name: comet-${{ matrix.arch }}-${{ runner.os }}
           path: |
