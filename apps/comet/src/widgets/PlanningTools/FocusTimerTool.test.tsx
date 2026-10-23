@@ -6,6 +6,22 @@ import type { DataRecord, ToolAction } from "../toolData";
 import type { WidgetView } from "../types";
 import { command } from "../../hooks/useSnapshot";
 
+const diary = vi.hoisted(() => ({
+  save: vi.fn<(action: string, input?: DataRecord) => Promise<boolean>>(),
+}));
+vi.mock("../Planner/useDiary", async (load) => {
+  const actual = await load<typeof import("../Planner/useDiary")>();
+  return {
+    useDiary: () => {
+      const value = actual.useDiary();
+      return {
+        ...value,
+        mutate: async (action: string, input?: DataRecord) =>
+          (await diary.save(action, input)) ? value.state : null,
+      };
+    },
+  };
+});
 vi.mock("../../hooks/useSnapshot", async (load) => ({
   ...(await load<typeof import("../../hooks/useSnapshot")>()),
   command: vi.fn().mockResolvedValue(undefined),
@@ -30,6 +46,7 @@ const action = vi.fn<ToolAction>();
 beforeEach(() => {
   localStorage.clear();
   action.mockReset().mockResolvedValue(true);
+  diary.save.mockReset().mockResolvedValue(false);
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-10-07T10:00:00"));
 });
@@ -40,6 +57,168 @@ afterEach(() => {
 async function click(name: string, role = "button"): Promise<void> {
   await reactAct(async () => fireEvent.click(screen.getByRole(role, { name })));
 }
+
+function noteTimer(): WidgetView {
+  return widget("focus-timer", {
+    status: "idle",
+    title: "다음 집중",
+    memo: "현재 집중 메모",
+    noteRef: null,
+    sessions: [
+      {
+        id: "previous-session",
+        title: "이전 집중",
+        startedAt: Date.now() - 600000,
+        endedAt: Date.now() - 300000,
+        elapsedMs: 300000,
+        segments: [{ startAt: Date.now() - 600000, endAt: Date.now() - 300000 }],
+        memo: "기존 기록 메모",
+        noteRef: { kind: "diary", id: "book-note", title: "책 모임 아이디어" },
+      },
+    ],
+  });
+}
+
+it.each(["cancel", "header", "footer", "save"])(
+  "returns to the selected record and its note button after %s",
+  async (dismissal) => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const timer = noteTimer();
+    render(<TimerTool widget={timer} widgets={[]} act={action} />);
+    await user.click(screen.getByRole("button", { name: "이전 집중 집중 기록 상세" }));
+    fireEvent.change(screen.getByLabelText("집중 기록 메모"), {
+      target: { value: "  기록 초안\n둘째 줄  " },
+    });
+    const timerDraft = localStorage.getItem(`comet.focus.draft:${timer.id}`);
+    const opener = screen.getByRole("button", { name: "연결한 노트 열기" });
+    opener.focus();
+    await user.keyboard("{Enter}");
+    const dialog = screen.getByRole("dialog", { name: "원본 노트" });
+    expect(screen.getByLabelText(/노트 제목/)).toHaveProperty("value", "책 모임 아이디어");
+    if (dismissal === "cancel") {
+      fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    } else if (dismissal === "save") {
+      diary.save.mockResolvedValueOnce(true);
+      await user.click(screen.getByRole("button", { name: "원본에 저장" }));
+    } else {
+      await user.click(
+        screen.getByRole("button", {
+          name: dismissal === "header" ? "노트 닫기" : "닫기",
+        }),
+      );
+    }
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("heading", { name: "이전 집중" })).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "연결한 노트 열기" }));
+    expect(screen.getByLabelText("집중 기록 메모")).toHaveProperty(
+      "value",
+      "  기록 초안\n둘째 줄  ",
+    );
+    expect(localStorage.getItem(`comet.focus.draft:${timer.id}`)).toBe(timerDraft);
+    expect(action).not.toHaveBeenCalled();
+    if (dismissal === "save") {
+      expect(diary.save).toHaveBeenCalledExactlyOnceWith("note-update", {
+        id: "book-note",
+        title: "책 모임 아이디어",
+        body: "좋았던 문장 하나씩 골라오기.\n질문은 정답이 없는 것으로.",
+        expectedTitle: "책 모임 아이디어",
+        expectedBody: "좋았던 문장 하나씩 골라오기.\n질문은 정답이 없는 것으로.",
+      });
+    } else {
+      expect(diary.save).not.toHaveBeenCalled();
+    }
+  },
+);
+
+it("retains a requested note after a rejected save and falls back when its record disappears", async () => {
+  vi.useRealTimers();
+  const user = userEvent.setup();
+  const timer = noteTimer();
+  const view = render(<TimerTool widget={timer} widgets={[]} act={action} />);
+  await user.click(screen.getByRole("button", { name: "이전 집중 집중 기록 상세" }));
+  screen.getByRole("button", { name: "연결한 노트 열기" }).focus();
+  await user.keyboard("{Enter}");
+  await user.click(screen.getByRole("button", { name: "원본에 저장" }));
+  const dialog = screen.getByRole("dialog", { name: "원본 노트" });
+  expect(dialog.contains(document.activeElement)).toBe(true);
+  view.rerender(
+    <TimerTool
+      widget={{ ...timer, data: { ...(timer.data as DataRecord), sessions: [] } }}
+      widgets={[]}
+      act={action}
+    />,
+  );
+  fireEvent(dialog, new Event("cancel", { cancelable: true }));
+  expect(screen.getByRole("radio", { name: "기록" })).toHaveProperty("checked", true);
+  expect(document.activeElement).toBe(screen.getByLabelText("일정과 집중 기록"));
+  expect(action).not.toHaveBeenCalled();
+});
+
+it("focuses the record context once when the note closes while its host is busy", async () => {
+  vi.useRealTimers();
+  const user = userEvent.setup();
+  const timer = noteTimer();
+  const view = render(<TimerTool widget={timer} widgets={[]} act={action} />);
+  await user.click(screen.getByRole("button", { name: "이전 집중 집중 기록 상세" }));
+  screen.getByRole("button", { name: "연결한 노트 열기" }).focus();
+  await user.keyboard("{Enter}");
+  view.rerender(<TimerTool widget={timer} widgets={[]} act={action} busy />);
+  await user.click(screen.getByRole("button", { name: "닫기" }));
+  const context = screen.getByLabelText("일정과 집중 기록");
+  expect(screen.getByRole("heading", { name: "이전 집중" })).toBeTruthy();
+  expect(document.activeElement).toBe(context);
+  view.rerender(<TimerTool widget={timer} widgets={[]} act={action} />);
+  expect(document.activeElement).toBe(context);
+  expect(action).not.toHaveBeenCalled();
+  expect(diary.save).not.toHaveBeenCalled();
+});
+
+it.each(["another-widget", "inactive"])(
+  "does not restore a record focus into %s after a late note save",
+  async (nextScope) => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    let finish: (saved: boolean) => void = () => {};
+    diary.save.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const timer = noteTimer();
+    const view = render(<TimerTool widget={timer} widgets={[]} act={action} />);
+    await user.click(screen.getByRole("button", { name: "이전 집중 집중 기록 상세" }));
+    screen.getByRole("button", { name: "연결한 노트 열기" }).focus();
+    await user.keyboard("{Enter}");
+    await user.click(screen.getByRole("button", { name: "원본에 저장" }));
+    expect(screen.getByRole("dialog", { name: "원본 노트" })).toBeTruthy();
+    const next =
+      nextScope === "another-widget"
+        ? {
+            ...timer,
+            id: "other-focus-id",
+            data: { status: "idle", title: "다른 집중", memo: "다른 메모", sessions: [] },
+          }
+        : timer;
+    view.rerender(
+      <TimerTool widget={next} widgets={[]} act={action} active={nextScope !== "inactive"} />,
+    );
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    if (nextScope === "inactive") outside.focus();
+    await reactAct(async () => finish(true));
+    if (nextScope === "another-widget") {
+      expect(screen.getByRole("radio", { name: "노트" })).toHaveProperty("checked", true);
+      expect(screen.getByLabelText("집중할 일")).toHaveProperty("value", "다른 집중");
+      expect(screen.getByLabelText("이번 집중 메모")).toHaveProperty("value", "다른 메모");
+    } else {
+      expect(document.activeElement).toBe(outside);
+    }
+    outside.remove();
+    expect(action).not.toHaveBeenCalled();
+  },
+);
 
 describe("focus workspace", () => {
   it("lets the embedded timer track shrink while preserving standalone widths", async () => {

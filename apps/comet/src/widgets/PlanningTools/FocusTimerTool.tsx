@@ -31,6 +31,7 @@ type Draft = {
   noteRef: DataRecord | null;
   memo: string;
 };
+type RecordNoteOrigin = { widgetId: string; sessionId: string };
 function sameReference(left: DataRecord | null, right: DataRecord | null): boolean {
   if (left === null || right === null) {
     return left === right;
@@ -155,12 +156,32 @@ export function TimerTool({
   const [tab, setTab] = useState("stats");
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [requestedNote, setRequestedNote] = useState<DataRecord | null>(null);
+  const recordNoteOrigin = useRef<RecordNoteOrigin | null>(null);
+  const recordNoteButton = useRef<HTMLButtonElement | null>(null);
+  const [restoreRecordFocus, setRestoreRecordFocus] = useState<RecordNoteOrigin | null>(null);
   const [error, setError] = useState("");
   const [completingTodo, setCompletingTodo] = useState(false);
   const completingTodoLock = useRef<string | null>(null);
   const previous = useRef({ id: widget.id, draft: savedDraft(widget) });
   const saved = savedDraft(widget);
   const savedKey = JSON.stringify(saved);
+  useEffect(() => {
+    if (!restoreRecordFocus || tab !== "stats") {
+      return;
+    }
+    setRestoreRecordFocus(null);
+    if (
+      restoreRecordFocus.widgetId !== widget.id ||
+      restoreRecordFocus.sessionId !== selectedSession ||
+      !active ||
+      !expanded ||
+      collapsed
+    ) {
+      return;
+    }
+    const target = hostBusy ? null : recordNoteButton.current;
+    (target ?? context.current)?.focus();
+  }, [restoreRecordFocus, tab, widget.id, selectedSession, active, expanded, collapsed, hostBusy]);
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(interval);
@@ -732,7 +753,13 @@ export function TimerTool({
             </fieldset>
           )}
         </div>
-        <aside ref={context} className={s.context} aria-label="일정과 집중 기록" inert={!expanded}>
+        <aside
+          ref={context}
+          className={s.context}
+          aria-label="일정과 집중 기록"
+          tabIndex={-1}
+          inert={!expanded}
+        >
           <fieldset disabled={busy} className={s.controlFields}>
             {tab === "calendar" && (
               <div className={s.tabPanel}>
@@ -762,6 +789,7 @@ export function TimerTool({
                   sessions={sessions}
                   day={localDay(new Date(now))}
                   selectedId={selectedSession}
+                  noteButtonRef={recordNoteButton}
                   onSelect={setSelectedSession}
                   onNotes={() => setTab("notes")}
                   onClose={() => void resize(false)}
@@ -772,6 +800,10 @@ export function TimerTool({
                   }
                   act={act}
                   onOpenNote={(ref) => {
+                    recordNoteOrigin.current = selectedSession
+                      ? { widgetId: widget.id, sessionId: selectedSession }
+                      : null;
+                    setRestoreRecordFocus(null);
                     setRequestedNote(ref);
                     setTab("notes");
                   }}
@@ -799,6 +831,15 @@ export function TimerTool({
                   canConnect={idle && active}
                   requested={requestedNote}
                   onRequestedHandled={() => setRequestedNote(null)}
+                  onRequestedNoteClose={() => {
+                    const origin = recordNoteOrigin.current;
+                    recordNoteOrigin.current = null;
+                    if (origin?.widgetId !== widget.id || origin.sessionId !== selectedSession) {
+                      return;
+                    }
+                    setTab("stats");
+                    setRestoreRecordFocus(origin);
+                  }}
                   onConnect={connectNote}
                   onMemoChange={(memo) => setDraft({ ...draft, memo })}
                   onSaveMemo={saveMemo}

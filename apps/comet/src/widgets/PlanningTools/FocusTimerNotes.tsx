@@ -74,6 +74,7 @@ export function FocusTimerNotes({
   canConnect,
   requested,
   onRequestedHandled,
+  onRequestedNoteClose,
   onConnect,
   onMemoChange,
   onSaveMemo,
@@ -93,6 +94,7 @@ export function FocusTimerNotes({
   canConnect: boolean;
   requested: DataRecord | null;
   onRequestedHandled: () => void;
+  onRequestedNoteClose?: () => void;
   onConnect: (ref: DataRecord | null) => Promise<boolean>;
   onMemoChange: (value: string) => void;
   onSaveMemo: () => Promise<boolean>;
@@ -109,6 +111,7 @@ export function FocusTimerNotes({
   const currentDraft = useRef(draft);
   currentDraft.current = draft;
   const savingDraft = useRef(false);
+  const requestedEditor = useRef(false);
   const [error, setError] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [inlineDirty, setInlineDirty] = useState(false);
@@ -119,8 +122,8 @@ export function FocusTimerNotes({
   const composition = useRef(false);
   const pendingMemo = useRef(false);
   const alive = useRef(true);
-  const latest = useRef({ memo, memoConflict, onSaveMemo, active });
-  latest.current = { memo, memoConflict, onSaveMemo, active };
+  const latest = useRef({ memo, memoConflict, onSaveMemo, active, onRequestedNoteClose });
+  latest.current = { memo, memoConflict, onSaveMemo, active, onRequestedNoteClose };
   const memoDirty = memo !== (memoBase ?? memoSaved);
   const reportInline = useCallback(
     (_id: string, value: boolean): void => setInlineDirty(value),
@@ -205,14 +208,24 @@ export function FocusTimerNotes({
       setError("초안을 임시 보관하지 못했어요. 창을 닫기 전에 메모를 저장해 주세요.");
     }
   }, [draft]);
-  async function openNote(ref: DataRecord): Promise<void> {
+  function closeEditor(): void {
+    const requested = requestedEditor.current;
+    requestedEditor.current = false;
+    setDraft(null);
+    if (requested) {
+      latest.current.onRequestedNoteClose?.();
+    }
+  }
+  async function openNote(ref: DataRecord, fromRequest = false): Promise<void> {
     setError("");
+    requestedEditor.current = false;
     if (ref.kind === "diary") {
       const note = diary.state?.notes.find((value) => value.id === ref.id);
       if (!note) {
         setError("연결한 노트를 찾을 수 없어요. 원본이 삭제되었는지 확인해 주세요.");
         return;
       }
+      requestedEditor.current = fromRequest;
       setDraft(readDraft(note.id, note));
       return;
     }
@@ -224,7 +237,7 @@ export function FocusTimerNotes({
   }
   useEffect(() => {
     if (!requested || (requested.kind === "diary" && !diary.state)) return;
-    void openNote(requested);
+    void openNote(requested, true);
     onRequestedHandled();
   }, [requested, diary.state]);
   async function saveNote(): Promise<void> {
@@ -247,7 +260,7 @@ export function FocusTimerNotes({
       } catch {
         /* The saved source remains authoritative. */
       }
-      if (alive.current && currentDraft.current === draft) setDraft(null);
+      if (alive.current && currentDraft.current === draft) closeEditor();
     } catch (cause: unknown) {
       if (alive.current) setError(errorText(cause));
     } finally {
@@ -522,7 +535,7 @@ export function FocusTimerNotes({
             title={draft?.id ? "원본 노트" : "새 다이어리 메모"}
             closeLabel="노트 닫기"
             onOpenChange={(open) => {
-              if (!open && !diary.busy) setDraft(null);
+              if (!open && !diary.busy) closeEditor();
             }}
           >
             {draft && (
@@ -579,7 +592,7 @@ export function FocusTimerNotes({
                   >
                     원본에 저장
                   </Button>
-                  <Button variant="ghost" disabled={diary.busy} onClick={() => setDraft(null)}>
+                  <Button variant="ghost" disabled={diary.busy} onClick={closeEditor}>
                     닫기
                   </Button>
                   {conflict && current && (

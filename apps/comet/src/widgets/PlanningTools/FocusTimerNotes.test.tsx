@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act as reactAct, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState, type ReactElement } from "react";
+import userEvent from "@testing-library/user-event";
 import { FocusTimerNotes } from "./FocusTimerNotes";
 import type { WidgetView } from "../types";
 import type { DiaryState } from "../Planner/diaryTypes";
@@ -45,6 +46,20 @@ const props = {
   onMemoChange: vi.fn(),
   onSaveMemo: vi.fn().mockResolvedValue(true),
 };
+
+it("returns focus to the direct note-title opener without changing the original", async () => {
+  const user = userEvent.setup();
+  const noteRef = { kind: "diary", id: "note", title: "원본 제목" };
+  render(<FocusTimerNotes {...props} noteRef={noteRef} />);
+  const opener = screen.getByRole("button", { name: "제목 편집" });
+  opener.focus();
+  await user.keyboard("{Enter}");
+  const dialog = screen.getByRole("dialog", { name: "원본 노트" });
+  fireEvent(dialog, new Event("cancel", { cancelable: true }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(opener);
+  expect(mocked.mutate).not.toHaveBeenCalled();
+});
 
 it("keeps memo body text out of a note reference even when used as a visible title", async () => {
   const memo: WidgetView = {
