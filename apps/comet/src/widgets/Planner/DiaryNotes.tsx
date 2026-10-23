@@ -61,6 +61,14 @@ function keepDraft(key: string, draft: NoteDraft | null): boolean {
   }
 }
 
+export function discardDiaryEnvelopeNoteDrafts(envelopeId: string, notes: DiaryNote[]): void {
+  localStorage.removeItem(`comet.diary.note-compose:${envelopeId}`);
+  for (const note of notes) {
+    if (note.envelopeId === envelopeId)
+      localStorage.removeItem(`comet.diary.note-draft:envelope:${note.id}`);
+  }
+}
+
 export function DiaryNotes(
   props: NoteCollectionProps & { desktop?: DesktopNotesProps },
 ): ReactElement {
