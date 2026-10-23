@@ -740,9 +740,11 @@ export function WidgetManager({
                           따로 정할 설정이 없어요
                         </Heading>
                         <Text as="p" variant="caption" tone="muted">
-                          {widget.enabled
-                            ? `${entry.name}은 목록에서 바로 열어 써요.`
-                            : `${entry.name} 사용이 꺼져 있어요. 켜면 바로 쓸 수 있어요.`}
+                          {!widget.enabled
+                            ? `${entry.name} 사용이 꺼져 있어요. 켜면 바로 쓸 수 있어요.`
+                            : widget.kind === "memo"
+                              ? "새 낱장을 꺼내요. 저장한 메모는 다이어리의 메모에서 찾아 다시 열어요."
+                              : `${entry.name}은 목록에서 바로 열어 써요.`}
                         </Text>
                         <Button
                           variant="primary"
@@ -753,7 +755,11 @@ export function WidgetManager({
                               : void run("set_widget_enabled", { id: widget.id, enabled: true })
                           }
                         >
-                          {widget.enabled ? "열기" : "사용 켜기"}
+                          {!widget.enabled
+                            ? "사용 켜기"
+                            : widget.kind === "memo"
+                              ? "새 메모 꺼내기"
+                              : "열기"}
                         </Button>
                       </Surface>
                     )}

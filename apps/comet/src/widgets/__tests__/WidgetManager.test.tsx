@@ -715,6 +715,26 @@ it("keeps a deep-linked widget without its own settings visible instead of closi
   expect(screen.getByRole("region", { name: "할 일 설정" }).hidden).toBe(false);
 });
 
+it("names the memo detail action as taking out a new memo and points to saved memos", async () => {
+  vi.mocked(useWidgets).mockReturnValue({
+    snapshot: { ...PREVIEW_WIDGETS, widgets: [installed("memo")] },
+    error: null,
+    reload,
+  });
+  vi.mocked(listen).mockResolvedValue(() => undefined);
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "get_planner_settings_target" ? "memo" : undefined,
+  );
+  render(<WidgetManager embedded />);
+  const detail = within(await screen.findByRole("region", { name: "메모 설정" }));
+  expect(
+    detail.getByText("새 낱장을 꺼내요. 저장한 메모는 다이어리의 메모에서 찾아 다시 열어요."),
+  ).toBeTruthy();
+  expect(detail.queryByRole("button", { name: "열기" })).toBeNull();
+  fireEvent.click(detail.getByRole("button", { name: "새 메모 꺼내기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("create_memo_note", { id: "memo" }));
+});
+
 it("includes created and imported widgets in the same list, counts and filters", () => {
   generatedSnapshot([
     generated(),

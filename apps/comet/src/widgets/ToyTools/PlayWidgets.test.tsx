@@ -105,6 +105,7 @@ it("picks a cup, then offers another round or stopping after the answer", () => 
       act={act}
     />,
   );
+  expect(screen.getByRole("status").textContent).toBe("구슬이 있을 것 같은 컵을 골라 주세요");
   fireEvent.click(screen.getByRole("button", { name: "2번" }));
   expect(act).toHaveBeenCalledWith("guess", { value: 2 });
   rerender(
