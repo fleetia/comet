@@ -726,6 +726,73 @@ pub(crate) fn character_script(db: &Connection, sequence: u64) -> Result<Vec<Sce
 mod tests {
     use super::*;
 
+    #[test]
+    fn generated_expression_choices_reach_single_expression_character_presentation() {
+        let state = super::super::tests::state();
+        let member = {
+            let db = lock(&state.db).unwrap();
+            let definition = serde_json::from_value(serde_json::json!({
+                "sourceId":"single-expression", "name":"QA 단일 표정", "description":"", "personality":"",
+                "expressions":{"평온":"기본"},
+                "greeting":[{"expression":"평온","text":"안녕"}],
+                "idleLines":[{"expression":"평온","text":"쉬는 중"}]
+            })).unwrap();
+            let member = characters::create(&db, &definition).unwrap();
+            characters::apply_roster(&db, vec![member.id.clone()]).unwrap();
+            member
+        };
+        let targets = vec![member.id.clone()];
+        let token = super::super::interrupt(&state, false).unwrap();
+        let revision = {
+            let db = lock(&state.db).unwrap();
+            presence::summon_locked(&state, &member.id).unwrap();
+            let ticket = characters::guests::capture(&state, &db, &targets, token.0).unwrap();
+            lock(&state.tasks).unwrap().participants = Some(ticket);
+            store::revision(&db).unwrap()
+        };
+        let expressions = crate::domain::generated_expressions([&member.definition]);
+        let schema = crate::domain::scene_schema_for(&targets, 1, 1, &expressions);
+        assert_eq!(expressions, ["평온"]);
+        for expression in schema["properties"]["lines"]["items"]["properties"]["expression"]["enum"]
+            .as_array()
+            .unwrap()
+        {
+            let lines = crate::domain::parse_lines_for(
+                serde_json::json!({"lines":[{"persona":member.id,"expression":expression,"text":"  생성 원문\n그대로  "}]}),
+                &targets,
+                1,
+                1,
+                true,
+            )
+            .unwrap();
+            crate::domain::validate_generated_expressions(&lines, &expressions).unwrap();
+            let id = format!("generated-expression:{}", expression.as_str().unwrap());
+            store::record_recall(&lock(&state.db).unwrap(), &id, &[], 1).unwrap();
+            assert!(present_line(
+                &state, &lines[0], "llm", &id, 0, 1, revision, token.0, &token.1, true,
+            )
+            .unwrap());
+            assert_eq!(
+                lock(&state.playback).unwrap().as_ref().unwrap().text,
+                "  생성 원문\n그대로  "
+            );
+        }
+        let invalid_authored = SceneLine {
+            persona: member.id,
+            expression: "호기심".into(),
+            text: "  등록 원문\n그대로  ".into(),
+            motion: Default::default(),
+        };
+        let db = lock(&state.db).unwrap();
+        assert!(characters::guests::resolve_lines(
+            &state,
+            &db,
+            lock(&state.tasks).unwrap().participants.as_ref().unwrap(),
+            &[invalid_authored],
+        )
+        .is_err());
+    }
+
     #[tokio::test]
     async fn retry_display_timeout_replays_exact_saved_line_and_skips_visible_duplicates() {
         let state = super::super::tests::state();

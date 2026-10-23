@@ -279,7 +279,7 @@ pub fn parse_pack(json: &str) -> Result<CharacterPack> {
     }
     let mut value: serde_json::Value =
         serde_json::from_str(json).map_err(|_| "캐릭터팩 JSON을 읽을 수 없습니다.")?;
-    if matches!(value["formatVersion"].as_u64(), Some(2..=7)) {
+    if matches!(value["formatVersion"].as_u64(), Some(2..=8)) {
         convert_pack_speakers(&mut value, false)?;
     }
     if let Some(scenes) = value.get("pairScenes").and_then(|v| v.as_array()) {

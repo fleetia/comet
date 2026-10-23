@@ -219,6 +219,90 @@ describe("focus workspace", () => {
     });
   });
 
+  it("clears an acknowledged note link when another window starts a new task context", async () => {
+    const timer = widget("focus-timer", {
+      status: "idle",
+      mode: "focus",
+      durationMs: 1500000,
+      memo: "",
+      noteRef: null,
+    });
+    const view = render(<TimerTool widget={timer} widgets={[]} act={action} />);
+    await click("노트", "radio");
+    await click("다른 메모 연결하기");
+    await reactAct(async () =>
+      fireEvent.change(screen.getByLabelText("연결할 노트"), {
+        target: { value: JSON.stringify(["diary", "", "book-note"]) },
+      }),
+    );
+    expect(action).toHaveBeenLastCalledWith("configure", {
+      noteRef: { kind: "diary", id: "book-note", title: "책 모임 아이디어" },
+    });
+    const acknowledged = {
+      ...(timer.data as DataRecord),
+      noteRef: { id: "book-note", kind: "diary", title: "책 모임 아이디어" },
+    };
+    view.rerender(
+      <TimerTool
+        widget={{ ...timer, revision: 2, data: acknowledged }}
+        widgets={[]}
+        act={action}
+      />,
+    );
+    expect(screen.getByLabelText("연결한 메모 내용")).toBeTruthy();
+    view.rerender(
+      <TimerTool
+        widget={{
+          ...timer,
+          revision: 3,
+          data: {
+            ...acknowledged,
+            status: "running",
+            title: "새 할 일",
+            todoId: "next-task",
+            noteRef: null,
+            memo: "",
+          },
+        }}
+        widgets={[]}
+        act={action}
+      />,
+    );
+    expect(screen.getByLabelText("이번 집중 메모")).toHaveProperty("value", "");
+    expect(screen.queryByLabelText("연결한 메모 내용")).toBeNull();
+    expect(screen.getByText("원래 쓰던 메모를 이번 집중에 연결할 수 있어요.")).toBeTruthy();
+  });
+
+  it("keeps a different local note selection over an external reference change", async () => {
+    const timer = widget("focus-timer", {
+      status: "idle",
+      mode: "focus",
+      durationMs: 1500000,
+      noteRef: { id: "previous-note", kind: "diary", title: "이전 노트" },
+    });
+    const view = render(<TimerTool widget={timer} widgets={[]} act={action} />);
+    await click("노트", "radio");
+    await click("다른 메모 연결하기");
+    await reactAct(async () =>
+      fireEvent.change(screen.getByLabelText("연결할 노트"), {
+        target: { value: JSON.stringify(["diary", "", "book-note"]) },
+      }),
+    );
+    view.rerender(
+      <TimerTool
+        widget={{
+          ...timer,
+          revision: 2,
+          data: { ...(timer.data as DataRecord), noteRef: null },
+        }}
+        widgets={[]}
+        act={action}
+      />,
+    );
+    expect(screen.getByLabelText("연결한 메모 내용")).toBeTruthy();
+    expect(screen.getByText("책 모임 아이디어")).toBeTruthy();
+  });
+
   it("preserves a dirty current memo when another window changes it", async () => {
     const timer = widget("focus-timer", {
       status: "running",

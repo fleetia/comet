@@ -1515,7 +1515,7 @@ pub(crate) async fn generate_turn_with_memories(
     cancel: Arc<AtomicBool>,
     memories: &[store::MemorySearchHit],
 ) -> Result<(Vec<SceneLine>, i64), String> {
-    let (settings, prompt, revision, bundle, ticket) = {
+    let (settings, prompt, revision, bundle, ticket, expressions) = {
         let _action = lock(&state.action)?;
         if cancel.load(Ordering::SeqCst) {
             return Err("이전 생성 요청은 취소됐어요.".into());
@@ -1585,7 +1585,19 @@ pub(crate) async fn generate_turn_with_memories(
         }
         let ticket =
             capture_participants_locked(state, &db, targets, state.epoch.load(Ordering::SeqCst))?;
-        (settings, prompt, store::revision(&db)?, bundle, ticket)
+        let definitions = targets
+            .iter()
+            .map(|id| characters::guests::actor(state, &db, id).map(|actor| actor.definition))
+            .collect::<Result<Vec<_>, _>>()?;
+        let expressions = domain::generated_expressions(&definitions);
+        (
+            settings,
+            prompt,
+            store::revision(&db)?,
+            bundle,
+            ticket,
+            expressions,
+        )
     };
     let paired = targets.len() == 2;
     let value = inference::generate(
@@ -1593,9 +1605,9 @@ pub(crate) async fn generate_turn_with_memories(
         &settings,
         &prompt,
         if bundle || paired {
-            domain::scene_schema_for(targets, targets.len(), targets.len())
+            domain::scene_schema_for(targets, targets.len(), targets.len(), &expressions)
         } else {
-            domain::reply_schema_for(targets)
+            domain::reply_schema_for(targets, &expressions)
         },
         if bundle || paired { 512 } else { 256 },
         cancel.clone(),
@@ -1613,6 +1625,7 @@ pub(crate) async fn generate_turn_with_memories(
         }
         vec![line]
     };
+    domain::validate_generated_expressions(&lines, &expressions)?;
     if bundle {
         let _action = lock(&state.action)?;
         if !is_current(state, ticket.epoch, &cancel) {

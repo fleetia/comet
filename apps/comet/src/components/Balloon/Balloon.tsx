@@ -380,9 +380,14 @@ export function Balloon({
     (failedInputIndex < 0 || conversation!.messages.indexOf(latestReply) < failedInputIndex),
   );
   const paused = sessions.find((session) => session.status === "paused");
+  const historyArgs = {
+    persona,
+    mode: "history",
+    ...(target === "all" ? { historyAll: true } : {}),
+  };
   async function resumeFromInput(): Promise<void> {
     if (paused) await leave("resume_chat", { sessionId: paused.id });
-    else await leave("open_panel", { persona, mode: "history" });
+    else await leave("open_panel", historyArgs);
   }
   const recipientName = characterName(
     snapshot,
@@ -651,7 +656,7 @@ export function Balloon({
                 historyDisabled={navigating}
                 onResume={() => void resumeFromInput()}
                 onTogether={() => void leave("talk_now")}
-                onHistory={() => void leave("open_panel", { persona, mode: "history" })}
+                onHistory={() => void leave("open_panel", historyArgs)}
               />
               <InputCapsule
                   className={surfaceStyle.inputCapsule}

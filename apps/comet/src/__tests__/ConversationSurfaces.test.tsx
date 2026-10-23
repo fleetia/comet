@@ -186,28 +186,84 @@ it("preserves IME, Shift+Enter and a failed raw draft through the capsule", asyn
   );
 });
 
-it("flushes the desktop draft before opening the separate history window", async () => {
-  render(<Balloon snapshot={conversationSnapshot()} surface="input" preview />);
-  fireEvent.change(screen.getByRole("textbox"), { target: { value: "아직 보내지 않은 말" } });
-  fireEvent.click(screen.getByRole("button", { name: "지난 대화" }));
-  await waitFor(() =>
-    expect(command).toHaveBeenCalledWith("open_panel", {
-      persona: "builtin-a",
-      mode: "history",
-    }),
-  );
-  expect(vi.mocked(command).mock.calls).toEqual([
-    [
-      "save_conversation_draft",
-      {
-        sessionId: "surface-session",
-        draft: "아직 보내지 않은 말",
-        inputOwner: "desktop",
-      },
-    ],
-    ["open_panel", { persona: "builtin-a", mode: "history" }],
-  ]);
-});
+it.each(["지난 대화", "이어서 하기"])(
+  "opens all-recipient history from %s without selecting its first speaker",
+  async (shortcut) => {
+    const snapshot = conversationSnapshot();
+    render(
+      <Balloon
+        snapshot={{
+          ...snapshot,
+          conversation: {
+            ...snapshot.conversation!,
+            session: {
+              ...snapshot.conversation!.session,
+              participants: ["builtin-a", "builtin-b"],
+            },
+          },
+        }}
+        surface="input"
+        preview
+      />,
+    );
+    const draft = "  함께 쓸 초안\n원문  ";
+    fireEvent.change(screen.getByRole("textbox", { name: "모두에게 할 말" }), {
+      target: { value: draft },
+    });
+    fireEvent.click(screen.getByRole("button", { name: shortcut }));
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("open_panel", {
+        persona: "builtin-a",
+        mode: "history",
+        historyAll: true,
+      }),
+    );
+    expect(vi.mocked(command).mock.calls).toEqual([
+      ["save_conversation_draft", { sessionId: "surface-session", draft, inputOwner: "desktop" }],
+      ["open_panel", { persona: "builtin-a", mode: "history", historyAll: true }],
+    ]);
+  },
+);
+
+it.each(["builtin-a", "builtin-b"])(
+  "flushes the desktop draft before opening the separate history window for %s",
+  async (persona) => {
+    const snapshot = conversationSnapshot();
+    render(
+      <Balloon
+        snapshot={{
+          ...snapshot,
+          panel: { persona, mode: "input" },
+          conversation: {
+            ...snapshot.conversation!,
+            session: { ...snapshot.conversation!.session, participants: [persona] },
+          },
+        }}
+        surface="input"
+        preview
+      />,
+    );
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "아직 보내지 않은 말" } });
+    fireEvent.click(screen.getByRole("button", { name: "지난 대화" }));
+    await waitFor(() =>
+      expect(command).toHaveBeenCalledWith("open_panel", {
+        persona,
+        mode: "history",
+      }),
+    );
+    expect(vi.mocked(command).mock.calls).toEqual([
+      [
+        "save_conversation_draft",
+        {
+          sessionId: "surface-session",
+          draft: "아직 보내지 않은 말",
+          inputOwner: "desktop",
+        },
+      ],
+      ["open_panel", { persona, mode: "history" }],
+    ]);
+  },
+);
 
 it("allows the next draft during generation while blocking submission", async () => {
   const snapshot = conversationSnapshot();

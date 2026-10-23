@@ -31,16 +31,55 @@ describe("map links", () => {
     expect(at?.lng).toBeCloseTo(lng, 4);
   });
 
+  it.each([
+    ["35, 139", 35, 139],
+    ["35.5, 139", 35.5, 139],
+    ["35, -139.5", 35, -139.5],
+    ["0, 0", 0, 0],
+    ["90, -180", 90, -180],
+    ["-90, 180", -90, 180],
+  ])("reads plain coordinates %s", (input, lat, lng) => {
+    expect(parseMapLink(input)).toEqual({ lat, lng });
+  });
+
   it("converts Naver web-mercator metres and rejects text without a place", () => {
     const at = parseMapLink("https://map.naver.com/p?c=14085345.5,3959233.4,15,0,0,0,dh");
     expect(at?.lat).toBeCloseTo(33.5, 1);
     expect(at?.lng).toBeCloseTo(126.53, 1);
     expect(parseMapLink("https://naver.me/abc")).toBeNull();
     expect(parseMapLink("95.0, 10.0")).toBeNull();
+    expect(parseMapLink("91, 139")).toBeNull();
+    expect(parseMapLink("-91, 139.5")).toBeNull();
+    expect(parseMapLink("35, 181")).toBeNull();
+    expect(parseMapLink("35.5, -181")).toBeNull();
   });
 });
 
 describe("drawn map", () => {
+  it.each([
+    ["90, -180", 85.0511287798066],
+    ["-90, 180", -85.0511287798066],
+    ["85.05, 139", 85.05],
+  ])("keeps polar map geometry finite for %s", (input, projectedLatitude) => {
+    const point = parseMapLink(input)!;
+    const box = bounds([point])!;
+    const frame = { width: 840, height: 360, padding: 48 };
+    const at = projector(box, frame)(point);
+    expect(Number.isFinite(at.x)).toBe(true);
+    expect(Number.isFinite(at.y)).toBe(true);
+    const restored = unprojector(box, frame)(at.x, at.y);
+    expect(restored.lat).toBeCloseTo(projectedLatitude, 6);
+    expect(restored.lng).toBeCloseTo(point.lng, 6);
+    const zoom = tileZoom(box, frame);
+    expect(Number.isInteger(zoom)).toBe(true);
+    const tiles = tilesFor(box, frame, zoom);
+    expect(tiles.length).toBeGreaterThan(0);
+    for (const tile of tiles) {
+      expect([tile.left, tile.top, tile.size].every(Number.isFinite)).toBe(true);
+      expect(tile.size).toBeGreaterThan(0);
+    }
+  });
+
   it("keeps schedule order per day, lists unplaced plans and finds photos within 300 m", () => {
     const plans = [
       plan("airport", "2026-10-24", "10:20", 33_506_600, 126_492_900),

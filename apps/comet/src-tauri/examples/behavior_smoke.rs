@@ -201,6 +201,8 @@ async fn run(runtime: &inference::Inference) -> Result<(), String> {
         .iter()
         .map(|member| member.id.clone())
         .collect::<Vec<_>>();
+    let expressions =
+        domain::generated_expressions(members.iter().map(|member| &member.definition));
     let value = generate(
         runtime,
         "idle-scene",
@@ -211,10 +213,11 @@ async fn run(runtime: &inference::Inference) -> Result<(), String> {
             false,
             &characters::collection(&conn)?.installed,
         ),
-        domain::scene_schema_for(&targets, 2, 4),
+        domain::scene_schema_for(&targets, 2, 4, &expressions),
     )
     .await?;
     let lines = domain::parse_lines_for(value, &targets, 2, 4, false)?;
+    domain::validate_generated_expressions(&lines, &expressions)?;
     store::add_scene(
         &conn,
         &types::PreparedScene {

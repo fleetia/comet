@@ -416,7 +416,10 @@ async fn actual_model_memory_semantics_smoke() {
         ),
         Some(&current),
     );
-    let schema = crate::domain::reply_schema_for(std::slice::from_ref(&character.id));
+    let schema = crate::domain::reply_schema_for(
+        std::slice::from_ref(&character.id),
+        &crate::domain::generated_expressions([&character.definition]),
+    );
     let mut samples = vec![(
         "same_name_new_person",
         prompt,
@@ -505,7 +508,10 @@ async fn actual_model_memory_semantics_smoke() {
     samples.push((
         "new_user_story_disclosure",
         prompt,
-        crate::domain::reply_schema_for(std::slice::from_ref(&nadir.id)),
+        crate::domain::reply_schema_for(
+            std::slice::from_ref(&nadir.id),
+            &crate::domain::generated_expressions([&nadir.definition]),
+        ),
         json!({"recallCount":memories.len(),"privateSentinelExcluded":true,"disclosureLevel":0}),
     ));
 

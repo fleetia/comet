@@ -7,6 +7,7 @@ export type Coordinate = { lat: number; lng: number };
 export const DAY_COLORS = ["blue", "coral", "green", "violet", "yellow", "pink", "gray"] as const;
 
 const MICRO = 1_000_000;
+const MERCATOR_LATITUDE_LIMIT = 85.0511287798066;
 
 function valid(lat: number, lng: number): Coordinate | null {
   return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180
@@ -43,7 +44,7 @@ export function parseMapLink(text: string): Coordinate | null {
           ? fromMercator(Number(m[1]), Number(m[2]))
           : pair(m[2], m[1]),
     ],
-    [/^\s*(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)\s*$/, (m) => pair(m[1], m[2])],
+    [/^\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/, (m) => pair(m[1], m[2])],
   ];
   for (const [pattern, read] of patterns) {
     const match = value.match(pattern);
@@ -118,7 +119,8 @@ export function bounds(points: Coordinate[]): Bounds | null {
 }
 
 function mercatorY(lat: number): number {
-  const rad = (lat * Math.PI) / 180;
+  const clamped = Math.max(-MERCATOR_LATITUDE_LIMIT, Math.min(MERCATOR_LATITUDE_LIMIT, lat));
+  const rad = (clamped * Math.PI) / 180;
   return Math.log(Math.tan(Math.PI / 4 + rad / 2));
 }
 

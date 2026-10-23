@@ -6,8 +6,9 @@ pub mod characters {
 
 pub mod domain {
     pub use crate::domain::{
-        analysis_batch_for_conversations, analysis_schema, parse_lines_for, parse_reply,
-        prompt_messages, reply_schema, roster_scene_prompt, scene_schema_for,
+        analysis_batch_for_conversations, analysis_schema, generated_expressions, parse_lines_for,
+        parse_reply, prompt_messages, reply_schema, roster_scene_prompt, scene_schema_for,
+        validate_generated_expressions,
     };
 }
 
