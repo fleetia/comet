@@ -6,7 +6,7 @@ export const glass = style({
   position: "relative",
   boxSizing: "border-box",
   color: tokens["color/ink"],
-  fontFamily: tokens["typography/sans/body/fontFamily"],
+  fontFamily: "inherit",
   background: tokens["color/glass-panel"],
   border: `1px solid ${tokens["color/glass-border"]}`,
   backdropFilter: "blur(12px)",

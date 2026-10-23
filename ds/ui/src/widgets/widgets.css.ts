@@ -478,7 +478,7 @@ export const summaryItem = style({
 export const freeform = style({
   position: "relative",
   flexShrink: 0,
-  fontFamily: tokens["typography/sans/body/fontFamily"],
+  fontFamily: "inherit",
   color: tokens["color/ink"],
 });
 export const asset = style({ position: "absolute", top: 0, left: 0, pointerEvents: "none" });

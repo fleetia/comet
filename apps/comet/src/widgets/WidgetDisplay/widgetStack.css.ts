@@ -7,7 +7,7 @@ export const window = style({
   overflow: "hidden",
   background: "transparent",
   color: tokens["color/ink"],
-  fontFamily: tokens["typography/sans/body/fontFamily"],
+  fontFamily: "inherit",
   fontSize: 13,
   lineHeight: "18px",
 });
