@@ -130,6 +130,7 @@ export function AnimationEditor({
   hideNavigation = false,
 }: Props): JSX.Element {
   const animation = saved ?? EMPTY_ANIMATION;
+  const animationKey = JSON.stringify(animation);
   const [selectedId, setSelectedId] = useState(animation.clips[0]?.id ?? "");
   const clip =
     animation.clips.find((item) => item.id === (selectedClipId ?? selectedId)) ??
@@ -157,7 +158,7 @@ export function AnimationEditor({
     chooseVersion.current += 1;
     setChoosing(false);
     setError(null);
-  }, [character?.id, animation, clip?.id, visible]);
+  }, [character?.id, animationKey, clip?.id, visible]);
   useEffect(() => {
     setPlaying(false);
     setManualIndex(0);

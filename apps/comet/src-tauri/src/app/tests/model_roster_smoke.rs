@@ -281,18 +281,22 @@ async fn automatic_sample(
         .next_idle
         .store(crate::app::now() + 45, Ordering::SeqCst);
     let started = Instant::now();
+    let expressions = domain::generated_expressions(roster.iter().map(|member| &member.definition));
     let generated = background::background_generate(
         state,
         settings,
         &prompt,
-        domain::scene_schema_for(&targets, minimum, maximum),
+        domain::scene_schema_for(&targets, minimum, maximum, &expressions),
         512,
         cancel,
     )
     .await;
     let parsed = generated
         .clone()
-        .and_then(|value| domain::parse_lines_for(value, &targets, minimum, maximum, false));
+        .and_then(|value| domain::parse_lines_for(value, &targets, minimum, maximum, false))
+        .and_then(|lines| {
+            domain::validate_generated_expressions(&lines, &expressions).map(|()| lines)
+        });
     write_sample(
         output,
         &json!({

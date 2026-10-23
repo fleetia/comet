@@ -595,6 +595,54 @@ fn legacy_pack_versions_are_discarded_without_relaxing_field_validation() {
 }
 
 #[test]
+fn format8_round_trip_preserves_two_speaker_dialogue_and_directed_fields() {
+    let mut expected = pack();
+    expected.format_version = 8;
+    expected.characters[0].relationships = vec![CharacterRelationship {
+        target_id: expected.characters[1].source_id.clone(),
+        description: "  첫 인물에서 둘째 인물로 향하는 관계\n방향 보존  ".into(),
+        reply_lines: vec![CharacterLine {
+            expression: "평온".into(),
+            text: "  이름을 들은 첫 인물의 답변\n원문 보존  ".into(),
+            motion: Default::default(),
+        }],
+    }];
+    expected.characters[1].presence_role = crate::pack_stories::PresenceRole::Npc;
+    expected.characters[1].npc = Some(crate::pack_stories::NpcDefinition {
+        invite_keywords: vec!["합성 친구 와줘".into()],
+        entry_lines: vec![CharacterLine {
+            expression: "평온".into(),
+            text: "  초대받은 둘째 인물\n등장 원문  ".into(),
+            motion: Default::default(),
+        }],
+        ..Default::default()
+    });
+    expected.wordbook[0].lines = expected.pair_scenes[0].clone();
+
+    let json = pack_json(&expected).unwrap();
+    let wire: serde_json::Value = serde_json::from_str(&json).unwrap();
+    for (index, character) in expected.characters.iter().enumerate() {
+        assert_eq!(wire["pairScenes"][0][index]["speaker"], character.source_id);
+        assert_eq!(
+            wire["wordbook"][0]["lines"][index]["speaker"],
+            character.source_id
+        );
+    }
+    let parsed = parse_pack(&json).unwrap();
+    assert_eq!(
+        serde_json::to_value(&parsed).unwrap(),
+        serde_json::to_value(&expected).unwrap()
+    );
+
+    let mut invalid = wire.clone();
+    invalid["pairScenes"][0][0]["speaker"] = serde_json::json!("missing");
+    assert!(parse_pack(&invalid.to_string()).is_err());
+    let mut invalid = wire;
+    invalid["wordbook"][0]["lines"][0]["persona"] = serde_json::json!("a");
+    assert!(parse_pack(&invalid.to_string()).is_err());
+}
+
+#[test]
 fn installed_legacy_versions_allow_reopen_edit_and_pack_export() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("legacy.sqlite");

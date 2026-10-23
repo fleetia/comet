@@ -4,7 +4,7 @@ import {
   addNewFriend,
   openCharacterLibrary,
 } from "./characterNavigation";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { CharacterManager } from "../components/CharacterManager/CharacterManager";
 import {
@@ -279,6 +279,63 @@ it("rejects stale image selections after character navigation and draft cancella
   expect(vi.mocked(command).mock.calls.filter(([name]) => name === "save_character")).toHaveLength(
     0,
   );
+});
+
+describe("real usage patterns", () => {
+  it.each([
+    { name: "preserves pending image choices across equivalent snapshots", fps: 8 },
+    { name: "discards pending image choices after saved animation content changes", fps: 12 },
+  ])("$name", async ({ fps }) => {
+    const snapshot = structuredClone(PREVIEW_SNAPSHOT);
+    snapshot.characters.installed[0].definition.animation = {
+      clips: [
+        {
+          id: "saved-clip",
+          name: "저장된 동작",
+          fps: 8,
+          frames: [{ assetId: first.assetId, x: 0, y: 0, width: 16, height: 16 }],
+        },
+      ],
+      bindings: {},
+      overrides: {},
+    };
+    snapshot.characters.installed[0].animationAssets = { [first.assetId]: first };
+    let resolve: (assets: AnimationAsset[]) => void = () => {};
+    vi.mocked(command).mockImplementation(async (name) => {
+      if (name === "choose_animation_assets")
+        return new Promise<AnimationAsset[]>((done) => {
+          resolve = done;
+        });
+      if (name === "get_character_dialogue") return { pairScenes: [], wordbook: [] };
+    });
+    const { rerender } = render(<CharacterManager embedded snapshot={snapshot} />);
+    openCharacterPage("프로필");
+    const editor = appearance();
+    fireEvent.click(editor.getByRole("button", { name: "PNG/APNG 프레임 추가" }));
+    const refreshed = structuredClone(snapshot);
+    const animation = refreshed.characters.installed[0].definition.animation;
+    expect(animation).toBeTruthy();
+    if (animation) animation.clips[0].fps = fps;
+    rerender(<CharacterManager embedded snapshot={refreshed} />);
+    await act(async () => resolve([second]));
+
+    expect(editor.getByLabelText("동작 속도(fps)")).toHaveProperty("value", String(fps));
+    expect(screen.getByRole("button", { name: "캐릭터 저장" })).toHaveProperty(
+      "disabled",
+      fps !== 8,
+    );
+    if (fps === 8) {
+      expect(editor.getByRole("button", { name: "2번 프레임 선택" })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "캐릭터 저장" }));
+      await waitFor(() => expect(latestSave().animationAssets).toEqual([second]));
+      expect(
+        latestSave().definition.animation?.clips[0].frames.map(({ assetId }) => assetId),
+      ).toEqual([first.assetId, second.assetId]);
+    } else {
+      expect(editor.queryByRole("button", { name: "2번 프레임 선택" })).toBeNull();
+      expect(vi.mocked(command).mock.calls.some(([name]) => name === "save_character")).toBe(false);
+    }
+  });
 });
 
 it("discards pending image choices after collapsing and editing the motion while keeping the draft", async () => {

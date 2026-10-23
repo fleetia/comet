@@ -31,6 +31,16 @@ type Draft = {
   noteRef: DataRecord | null;
   memo: string;
 };
+function sameReference(left: DataRecord | null, right: DataRecord | null): boolean {
+  if (left === null || right === null) {
+    return left === right;
+  }
+  const keys = Object.keys(left);
+  return (
+    keys.length === Object.keys(right).length &&
+    keys.every((key) => Object.hasOwn(right, key) && left[key] === right[key])
+  );
+}
 function savedDraft(widget: WidgetView): Draft {
   const data = record(widget.data);
   const duration =
@@ -168,14 +178,10 @@ export function TimerTool({
         title: current.title === before.title ? next.title : current.title,
         minutes: current.minutes === before.minutes ? next.minutes : current.minutes,
         todoId: current.todoId === before.todoId ? next.todoId : current.todoId,
-        eventRef:
-          JSON.stringify(current.eventRef) === JSON.stringify(before.eventRef)
-            ? next.eventRef
-            : current.eventRef,
-        noteRef:
-          JSON.stringify(current.noteRef) === JSON.stringify(before.noteRef)
-            ? next.noteRef
-            : current.noteRef,
+        eventRef: sameReference(current.eventRef, before.eventRef)
+          ? next.eventRef
+          : current.eventRef,
+        noteRef: sameReference(current.noteRef, before.noteRef) ? next.noteRef : current.noteRef,
         memo: current.memo === before.memo ? next.memo : current.memo,
       }));
     }

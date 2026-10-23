@@ -356,9 +356,14 @@ mod tests {
         crate::store::insert_message(&db, &message).unwrap();
         for targets in [vec!["a".into()], vec!["a".into(), "b".into()]] {
             let schema = if targets.len() == 1 {
-                crate::domain::reply_schema_for(&targets)
+                crate::domain::reply_schema_for(&targets, &crate::domain::EXPRESSIONS)
             } else {
-                crate::domain::scene_schema_for(&targets, targets.len(), targets.len())
+                crate::domain::scene_schema_for(
+                    &targets,
+                    targets.len(),
+                    targets.len(),
+                    &crate::domain::EXPRESSIONS,
+                )
             };
             let prompt = crate::app::conversation::turn_prompt(&db, &targets, &message.id).unwrap();
             require_complete_input(&prompt, &message.content).unwrap();
@@ -385,7 +390,12 @@ mod tests {
         )
         .unwrap();
         require_complete_input(&prompt, &message.content).unwrap();
-        let schema = crate::domain::scene_schema_for(&targets, targets.len(), targets.len());
+        let schema = crate::domain::scene_schema_for(
+            &targets,
+            targets.len(),
+            targets.len(),
+            &crate::domain::EXPRESSIONS,
+        );
         let total = baseline_budget(&prompt, &schema, 512);
         assert!(total <= 4096, "short roster prompt requires {total}");
         eprintln!("Apple baseline byte budget, roster: {total}/4096");
@@ -449,7 +459,8 @@ mod tests {
 
     #[test]
     fn structured_output_checks_members_enums_lengths_and_array_bounds() {
-        let schema = crate::domain::scene_schema_for(&["a".into()], 1, 1);
+        let schema =
+            crate::domain::scene_schema_for(&["a".into()], 1, 1, &crate::domain::EXPRESSIONS);
         assert!(validate_response(
             &json!({"lines":[{"persona":"a","expression":"평온","text":"안녕"}]}),
             &schema

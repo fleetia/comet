@@ -448,6 +448,8 @@ pub(crate) async fn run_background(
             store::current_user(&db)?.as_ref(),
         )
     };
+    let expressions =
+        domain::generated_expressions(characters.iter().map(|member| &member.definition));
     let result = background_generate(
         state,
         &settings,
@@ -456,6 +458,7 @@ pub(crate) async fn run_background(
             &targets,
             if targets.len() == 1 { 1 } else { 2 },
             if targets.len() == 1 { 1 } else { 4 },
+            &expressions,
         ),
         512,
         cancel.clone(),
@@ -468,6 +471,7 @@ pub(crate) async fn run_background(
         if targets.len() == 1 { 1 } else { 4 },
         false,
     )?;
+    domain::validate_generated_expressions(&lines, &expressions)?;
     let _action = lock(&state.action)?;
     let db = lock(&state.db)?;
     if !is_current(state, epoch, &cancel)

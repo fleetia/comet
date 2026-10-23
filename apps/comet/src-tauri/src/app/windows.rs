@@ -78,6 +78,7 @@ pub(crate) fn open_panel(
     state: tauri::State<'_, Arc<AppState>>,
     persona: String,
     mode: String,
+    history_all: Option<bool>,
 ) -> Result<(), String> {
     if super::chat::focus_history_editor(&app, &state)?.is_some() {
         return Ok(());
@@ -98,7 +99,14 @@ pub(crate) fn open_panel(
         None,
     );
     if history {
-        open_conversation_history(&app, &persona)?;
+        open_conversation_history(
+            &app,
+            if history_all == Some(true) {
+                "all"
+            } else {
+                &persona
+            },
+        )?;
     }
     state.nlp.warmup();
     Ok(())
