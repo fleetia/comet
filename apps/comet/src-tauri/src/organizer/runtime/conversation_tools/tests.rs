@@ -477,3 +477,114 @@ fn automatic_habit_statements_cannot_decrease_existing_progress() {
     action.input["status"] = json!("clear");
     assert!(validate_habit_statement(&db, &action).is_err());
 }
+
+fn task_proposal(target_id: &str, input: Value, revision: i64) -> Proposal {
+    Proposal {
+        kind: "task_add".into(),
+        target_id: target_id.into(),
+        expected_revision: revision,
+        input_json: input.to_string(),
+        mode: "explicit".into(),
+        evidence: "추가해줘".into(),
+    }
+}
+
+#[test]
+fn new_task_named_by_its_list_is_saved_to_that_list_but_unknown_targets_stay_rejected() {
+    let db = store::open(std::path::Path::new(":memory:")).unwrap();
+    let user = store::active_user_id(&db).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
+    let request = "QA 조약돌 할 일 추가해줘";
+    let context = actions::entities_for(&db, "task_add", request).unwrap();
+    let revision = context["revision"].as_i64().unwrap();
+    let list = context["lists"][0]["id"].as_str().unwrap().to_string();
+    let contexts = json!({ "task_add": context });
+    let catalog = catalog(&db).unwrap();
+    let plan = |proposal| Plan {
+        question: String::new(),
+        operations: vec![proposal],
+    };
+    let mut turn = new_turn(&message("task", request)).unwrap();
+    turn.selected = vec!["task_add".into()];
+    for target in ["missing-item", "read"] {
+        let proposal = task_proposal(target, json!({"title":"QA 조약돌"}), revision);
+        assert!(prepare_plan(plan(proposal), &mut turn, &catalog, &contexts).is_err());
+    }
+    let conflicting = task_proposal(
+        &list,
+        json!({"title":"QA 조약돌","listId":"other"}),
+        revision,
+    );
+    assert!(prepare_plan(plan(conflicting), &mut turn, &catalog, &contexts).is_err());
+    let stale = task_proposal(&list, json!({"title":"QA 조약돌"}), revision + 1);
+    assert!(prepare_plan(plan(stale), &mut turn, &catalog, &contexts).is_err());
+    assert!(turn.operations.is_empty());
+
+    let proposal = task_proposal(&list, json!({"title":"QA 조약돌"}), revision);
+    prepare_plan(plan(proposal), &mut turn, &catalog, &contexts).unwrap();
+    let planned = &turn.operations[0].proposal;
+    assert!(planned.target_id.is_empty());
+    let input: Value = serde_json::from_str(&planned.input_json).unwrap();
+    assert_eq!(input, json!({"title":"QA 조약돌","listId":list}));
+    actions::execute_registry(
+        &db,
+        &user,
+        "task",
+        0,
+        request,
+        &actions::Action {
+            kind: planned.kind.clone(),
+            target_id: planned.target_id.clone(),
+            expected_revision: planned.expected_revision,
+            input,
+        },
+    )
+    .unwrap();
+    let saved = actions::entities_for(&db, "task_add", request).unwrap();
+    assert_eq!(saved["revision"], revision + 1);
+    assert_eq!(saved["items"].as_array().unwrap().len(), 1);
+    assert_eq!(saved["items"][0]["title"], "QA 조약돌");
+}
+
+#[test]
+fn a_repeated_identical_creation_is_planned_once_but_other_requested_records_remain() {
+    let db = store::open(std::path::Path::new(":memory:")).unwrap();
+    let request = "QA 짐 목록 메모 저장해줘: 충전기 챙기기";
+    let contexts = json!({"note_create":actions::entities_for(&db,"note_create",request).unwrap()});
+    let note = Proposal {
+        kind: "note_create".into(),
+        target_id: String::new(),
+        expected_revision: contexts["note_create"]["revision"].as_i64().unwrap(),
+        input_json: json!({"title":"QA 짐 목록","body":"충전기 챙기기"}).to_string(),
+        mode: "explicit".into(),
+        evidence: "저장해줘".into(),
+    };
+    let mut other = note.clone();
+    other.input_json = json!({"title":"QA 짐 목록 2","body":"충전기 챙기기"}).to_string();
+    let mut turn = new_turn(&message("note", request)).unwrap();
+    turn.selected = vec!["note_create".into()];
+    let plan = Plan {
+        question: String::new(),
+        operations: vec![note.clone(), note, other],
+    };
+    prepare_plan(plan, &mut turn, &catalog(&db).unwrap(), &contexts).unwrap();
+    assert_eq!(turn.operations.len(), 2);
+    assert_ne!(
+        turn.operations[0].proposal.input_json,
+        turn.operations[1].proposal.input_json
+    );
+}
+
+#[test]
+fn planner_instruction_keeps_the_revision_copy_and_new_item_target_contracts() {
+    assert!(PLAN_INSTRUCTION
+        .contains("expectedRevision은 context[kind].revision 숫자를 그대로 복사한다"));
+    assert!(PLAN_INSTRUCTION.contains("목록·위젯 ID(ownerId)를 넣지 않는다"));
+    assert!(
+        plan_schema()["properties"]["operations"]["items"]["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("expectedRevision"))
+    );
+}
