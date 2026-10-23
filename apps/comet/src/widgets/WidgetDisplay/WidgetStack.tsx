@@ -148,6 +148,7 @@ export function WidgetStack(): ReactElement {
   const toolbarRef = useRef<HTMLElement>(null);
   const dockRef = useRef<HTMLDivElement>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
+  const bubbleDialogPress = useRef<Event | null>(null);
   const lastFit = useRef("");
   const dragging = useRef<string | null>(null);
   const drag = useWindowDrag(isDesktop(), desktop.setError);
@@ -199,6 +200,7 @@ export function WidgetStack(): ReactElement {
       close();
     };
     const press = (event: globalThis.PointerEvent): void => {
+      if (bubbleDialogPress.current === event) return;
       const target = event.target;
       if (
         target instanceof Node &&
@@ -362,6 +364,12 @@ export function WidgetStack(): ReactElement {
     >
       <WidgetBubble
         ref={bubbleRef}
+        onPointerDownCapture={(event) => {
+          // A body-portaled dialog is outside this DOM node, but its events
+          // still pass through its owning bubble in the React tree.
+          if (event.target instanceof Element && event.target.closest("dialog[open]"))
+            bubbleDialogPress.current = event.nativeEvent;
+        }}
         aria-label={name(bubbled)}
         placement={side.above ? "above" : "below"}
         tailOffset={tail}
