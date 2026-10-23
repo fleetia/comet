@@ -63,7 +63,7 @@ export function DiaryEnvelope({
   onEditTask?: (item: DataRecord) => void;
   onFocusTask?: (item: DataRecord) => void;
   onFocusEnvelope?: () => void;
-  onOpenEvent?: (event: DataRecord) => void;
+  onOpenEvent?: (event: DataRecord, day: string) => void;
   onCreateTask: (title: string) => Promise<string | null>;
   onOpenPage: (page: DiaryPage) => void;
   onDirtyChange?: (dirty: boolean) => void;
@@ -263,7 +263,9 @@ export function DiaryEnvelope({
             completed={completedCount}
             total={linkedIds.length + checks.length}
             disabled={disabled}
-            onOpenEvent={connected && onOpenEvent ? () => onOpenEvent(connected) : undefined}
+            onOpenEvent={
+              connected && onOpenEvent ? () => onOpenEvent(connected, scheduledDay) : undefined
+            }
             onChangeDate={() => {
               setDateDraft(text(envelope.date));
               setDateBase({ date: text(envelope.date), eventId: text(envelope.eventId) });
