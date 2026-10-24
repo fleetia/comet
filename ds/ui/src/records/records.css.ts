@@ -514,7 +514,48 @@ export const taskEnvelope = style({
 export const taskText = style({ display: "flex", alignItems: "center", gap: 6, minWidth: 0 });
 export const taskTitle = style({ fontSize: 14, lineHeight: "19px" });
 export const taskDone = style({ textDecoration: "line-through", color: tokens["color/list-gray"] });
-export const taskDue = style([caption, noWrap, { color: tokens["color/list-gray"] }]);
+export const taskDue = style([
+  caption,
+  noWrap,
+  { display: "inline-flex", alignItems: "center", gap: 4, color: tokens["color/list-gray"] },
+]);
+/** Resets a native button so the date or deadline keeps its look; chip rules below win. */
+export const taskPlainButton = style({
+  border: 0,
+  padding: 0,
+  background: "transparent",
+  font: "inherit",
+  color: "inherit",
+  cursor: "pointer",
+  selectors: {
+    "&:disabled": { cursor: "default" },
+    "&:focus-visible": {
+      outline: `2px solid ${tokens["color/selected-icon"]}`,
+      outlineOffset: 2,
+      borderRadius: 4,
+    },
+  },
+});
+export const deadlineChip = style([
+  caption,
+  noWrap,
+  {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    height: 22,
+    padding: "0 8px",
+    boxSizing: "border-box",
+    border: `1px solid ${tokens["color/input-border"]}`,
+    borderRadius: tokens["radius/radius-12"],
+    color: tokens["color/ink-2"],
+  },
+]);
+export const deadlineOverdue = style({
+  borderColor: tokens["color/danger-border"],
+  color: tokens["color/danger"],
+  fontWeight: 600,
+});
 export const taskList = style([row, caption, { width: 74, gap: 6, flexShrink: 0 }]);
 export const taskRepeat = style([
   row,

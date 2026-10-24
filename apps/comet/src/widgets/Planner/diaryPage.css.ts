@@ -114,6 +114,10 @@ export const meta = style({
   fontSize: tokens["typography/sans/caption/fontSize"],
   lineHeight: "1.462",
 });
+export const taskMeta = style([
+  meta,
+  { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 },
+]);
 
 export const controls = style({
   display: "flex",

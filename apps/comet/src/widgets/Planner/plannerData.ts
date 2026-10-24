@@ -208,6 +208,35 @@ export function dueLabel(item: DataRecord, referenceDay = localDay()): string {
   return `마감 ${day}${at}${relative ? ` · ${relative}` : ""}${overdue ? " · 기한 지남" : ""}`;
 }
 
+/**
+ * Short deadline for the flag chip, e.g. "마감 13:30 · 지남". Empty when the due date is the
+ * task's only date: without its own plan date or a due time, it already shows as the plan date.
+ */
+export function deadlineChipLabel(item: DataRecord, referenceDay = localDay()): string {
+  const day = dueDay(item);
+  const timed = typeof item.dueAt === "number";
+  if (!day || (!Object.hasOwn(item, "plannedDate") && !timed)) return "";
+  const relative =
+    timed && day === plannedDay(item)
+      ? ""
+      : day === referenceDay
+        ? "오늘"
+        : day === moveDay(referenceDay, 1)
+          ? "내일"
+          : day;
+  const when = [relative, timed ? clockLabel(item.dueAt as number) : ""].filter(Boolean).join(" ");
+  return `마감 ${when}${isOverdue(item) ? " · 지남" : ""}`;
+}
+
+export function isOverdue(item: DataRecord): boolean {
+  const day = dueDay(item);
+  return (
+    Boolean(day) &&
+    typeof item.completedAt !== "number" &&
+    (typeof item.dueAt === "number" ? item.dueAt < Date.now() : day < localDay())
+  );
+}
+
 /** Advisory only: adjacent intervals do not overlap; cancelled/self events are ignored. */
 export function overlappingEvents(candidate: DataRecord, events: DataRecord[]): DataRecord[] {
   const start = eventStart(candidate),

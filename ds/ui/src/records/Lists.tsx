@@ -21,7 +21,18 @@ export type TaskRowProps = Omit<
   completed: boolean;
   onCompletedChange?: (completed: boolean) => void;
   description?: ReactNode;
+  /** The plan date or time. With `deadline`, it is the date the task is planned for. */
   due?: ReactNode;
+  /** Marks `due` as a planned time with a clock. */
+  plannedTime?: boolean;
+  /** Opens where the plan date is changed; makes `due` a button named `dueLabel`. */
+  onDueClick?: () => void;
+  dueLabel?: string;
+  /** A deadline separate from the plan date, shown as a flag chip. */
+  deadline?: ReactNode;
+  onDeadlineClick?: () => void;
+  deadlineLabel?: string;
+  /** Colors the deadline chip when one is given, otherwise `due`. */
   overdue?: boolean;
   selected?: boolean;
   disabled?: boolean;
@@ -42,6 +53,12 @@ export const TaskRow = forwardRef<HTMLDivElement, TaskRowProps>(
       onCompletedChange,
       description,
       due,
+      plannedTime = false,
+      onDueClick,
+      dueLabel,
+      deadline,
+      onDeadlineClick,
+      deadlineLabel,
       overdue = false,
       selected = false,
       disabled,
@@ -93,15 +110,45 @@ export const TaskRow = forwardRef<HTMLDivElement, TaskRowProps>(
         </span>
         {description && <span className={styles.meta}>{description}</span>}
       </span>
-      {due && (
-        <span
-          className={[styles.taskDue, overdue && !completed && styles.danger]
-            .filter(Boolean)
-            .join(" ")}
+      {deadline && (
+        <DeadlineChip
+          overdue={overdue && !completed}
+          disabled={disabled}
+          onClick={onDeadlineClick}
+          aria-label={onDeadlineClick ? deadlineLabel : undefined}
         >
-          {due}
-        </span>
+          {deadline}
+        </DeadlineChip>
       )}
+      {due &&
+        (() => {
+          const className = [
+            styles.taskDue,
+            !deadline && overdue && !completed && styles.danger,
+            onDueClick && styles.taskPlainButton,
+          ]
+            .filter(Boolean)
+            .join(" ");
+          const content = (
+            <>
+              {plannedTime && <Icon name="clock" size={12} />}
+              {due}
+            </>
+          );
+          return onDueClick ? (
+            <button
+              type="button"
+              className={className}
+              disabled={disabled}
+              aria-label={dueLabel}
+              onClick={onDueClick}
+            >
+              {content}
+            </button>
+          ) : (
+            <span className={className}>{content}</span>
+          );
+        })()}
       {list && (
         <span className={styles.taskList}>
           <span className={`${styles.listDot} ${styles.listColors[tone]}`} aria-hidden />
@@ -118,6 +165,45 @@ export const TaskRow = forwardRef<HTMLDivElement, TaskRowProps>(
   ),
 );
 TaskRow.displayName = "TaskRow";
+
+export type DeadlineChipProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> & {
+  children: ReactNode;
+  overdue?: boolean;
+};
+/** A deadline with a flag; the flag follows the chip's text color. Clickable with `onClick`. */
+export function DeadlineChip({
+  children,
+  overdue = false,
+  onClick,
+  className,
+  ...props
+}: DeadlineChipProps): ReactElement {
+  const classes = [
+    styles.deadlineChip,
+    overdue && styles.deadlineOverdue,
+    onClick && styles.taskPlainButton,
+    className,
+  ];
+  const content = (
+    <>
+      <Icon name="flag" size={12} />
+      {children}
+    </>
+  );
+  if (!onClick) {
+    return <span className={classes.filter(Boolean).join(" ")}>{content}</span>;
+  }
+  return (
+    <button
+      type="button"
+      {...props}
+      onClick={onClick}
+      className={classes.filter(Boolean).join(" ")}
+    >
+      {content}
+    </button>
+  );
+}
 
 export type SettingsRowProps = ButtonHTMLAttributes<HTMLButtonElement> & { icon?: IconName };
 export const SettingsRow = forwardRef<HTMLButtonElement, SettingsRowProps>(
