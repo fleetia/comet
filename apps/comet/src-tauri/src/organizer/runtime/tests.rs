@@ -199,7 +199,8 @@ fn summary_request_keeps_state_and_actor_rules_apart_from_untouched_source() {
     assert!(!prompt[0].content.contains(text));
     assert_eq!(
         serde_json::from_str::<Value>(&prompt[1].content).unwrap(),
-        json!({"source":source,"part":2,"totalParts":3,"text":text,
+        json!({"source":source,"part":2,"totalParts":3,
+            "sourceUnits":[{"id":"u1","headings":[],"text":text}],
             "previousValidationError":"결과 JSON 형식 오류: missing field"})
     );
 }

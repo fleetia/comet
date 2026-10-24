@@ -571,3 +571,123 @@ fn fresh_reply_can_use_remaining_character_source_after_shared_memory_is_forgott
     forget_character_memories(&db, "builtin-b").unwrap();
     assert!(!recall_valid(&db, "new-b-reply", at).unwrap());
 }
+
+#[test]
+fn current_user_fact_context_is_scoped_without_weakening_query_search() {
+    let db = open(Path::new(":memory:")).unwrap();
+    let at = chrono::Utc::now().timestamp_millis();
+    set_user_name(&db, "이전 사용자", at).unwrap();
+    let old = input("former-fact", "b", "나는 커피를 좋아해.", at);
+    insert_message(&db, &old).unwrap();
+    analyze(&db, &old, "user_fact");
+    set_user_name(&db, "현재 사용자", at + 1).unwrap();
+    let other_character = input("a-fact", "a", "나는 주말에 등산해.", at + 2);
+    insert_message(&db, &other_character).unwrap();
+    analyze(&db, &other_character, "user_fact");
+    let correction = input(
+        "current-fact",
+        "b",
+        "나는 지금 커피를 좋아하지 않고 차를 좋아해.",
+        at + 3,
+    );
+    insert_message(&db, &correction).unwrap();
+    analyze(&db, &correction, "user_fact");
+    insert_experience(
+        &db,
+        "builtin-b",
+        &active_user_id(&db).unwrap(),
+        "experience",
+        "함께 음료 이야기를 했다.",
+        "음료 이야기",
+        at + 4,
+        None,
+    )
+    .unwrap();
+    let scope = ["builtin-b".into()];
+    let question = "내가 지금 좋아하는 음료와 QA B가 말한 음료를 구별해 알려 줘.";
+    assert!(
+        search_memories_for(&db, question, &[], None, &scope, at + 4)
+            .unwrap()
+            .is_empty()
+    );
+
+    let changed = db.total_changes();
+    let facts = current_user_facts_for(&db, &scope, at + 4).unwrap();
+    assert_eq!(facts.len(), 1);
+    assert_eq!(facts[0].content, correction.content);
+    assert_eq!(facts[0].source_message_id, correction.id);
+    assert_eq!(facts[0].character_id, "builtin-b");
+    assert_eq!(facts[0].user_id, active_user_id(&db).unwrap());
+    assert_eq!(facts[0].kind, "user_fact");
+    assert!(facts[0].retired_at.is_none());
+    assert!(current_user_facts_for(&db, &[], at + 4).unwrap().is_empty());
+    assert_eq!(db.total_changes(), changed, "Context loading is read-only");
+}
+
+#[test]
+fn current_user_fact_context_filters_before_its_four_fact_limit() {
+    let db = open(Path::new(":memory:")).unwrap();
+    let at = chrono::Utc::now().timestamp_millis();
+    set_user_name(&db, "현재 사용자", at).unwrap();
+    let user = active_user_id(&db).unwrap();
+    for index in 0..25 {
+        let id = format!("hidden-{index}");
+        db.execute(
+            "INSERT INTO memories(id,content,source,updated,character_id,user_id,kind,required_chapter)
+             VALUES(?1,'비공개 사실',?1,?2,'builtin-b',?3,'user_fact',1)",
+            params![id, at + 100, user],
+        )
+        .unwrap();
+    }
+    for index in 0..7 {
+        let id = format!("visible-{index}");
+        db.execute(
+            "INSERT INTO memories(id,content,source,updated,character_id,user_id,kind)
+             VALUES(?1,'공개 사실',?1,?2,'builtin-b',?3,'user_fact')",
+            params![id, at + index, user],
+        )
+        .unwrap();
+    }
+    db.execute("UPDATE memories SET deleted=1 WHERE id='visible-6'", [])
+        .unwrap();
+    db.execute("UPDATE memories SET expired=1 WHERE id='visible-5'", [])
+        .unwrap();
+    let changed = db.total_changes();
+    let facts = current_user_facts_for(&db, &["builtin-b".into()], at + 200).unwrap();
+    assert_eq!(
+        facts
+            .iter()
+            .map(|memory| memory.id.as_str())
+            .collect::<Vec<_>>(),
+        ["visible-4", "visible-3", "visible-2", "visible-1"]
+    );
+    assert_eq!(db.total_changes(), changed);
+}
+
+#[test]
+fn current_user_fact_context_reads_edits_and_identity_changes_fresh() {
+    let db = open(Path::new(":memory:")).unwrap();
+    let at = chrono::Utc::now().timestamp_millis();
+    set_user_name(&db, "현재 사용자", at).unwrap();
+    let source = input("fact-source", "b", "나는 홍차를 좋아해.", at);
+    insert_message(&db, &source).unwrap();
+    analyze(&db, &source, "user_fact");
+    let scope = ["builtin-b".into()];
+    let first = current_user_facts_for(&db, &scope, at).unwrap().remove(0);
+    edit_memory_for(&db, "builtin-b", &first.id, "나는 보리차를 좋아해.").unwrap();
+    let edited = current_user_facts_for(&db, &scope, at + 1)
+        .unwrap()
+        .remove(0);
+    assert_eq!(edited.id, first.id);
+    assert_eq!(edited.content, "나는 보리차를 좋아해.");
+    set_user_name(&db, "다음 사용자", at + 2).unwrap();
+    assert!(current_user_facts_for(&db, &scope, at + 2)
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        memories(&db).unwrap().len(),
+        1,
+        "Former facts remain stored"
+    );
+    assert_eq!(messages(&db, 10).unwrap()[0].content, source.content);
+}

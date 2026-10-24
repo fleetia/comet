@@ -501,7 +501,15 @@ pub(crate) fn authorize_evidence(
         {
             return Err("예정이나 다른 사람의 기록은 자동으로 저장하지 않아요.".into());
         }
-    } else if !instruction
+    } else if !has_explicit_request(query) {
+        return Err("실행을 요청한 문장을 확인하지 못했어요. 할 작업을 직접 요청해 주세요.".into());
+    }
+    Ok(())
+}
+
+pub(crate) fn has_explicit_request(query: &str) -> bool {
+    let instruction = instruction_text(&query.to_lowercase());
+    instruction
         .split(['.', '!', '?', '\n', '。', '！', '？'])
         .any(|clause| {
             asks_action(
@@ -553,10 +561,6 @@ pub(crate) fn authorize_evidence(
                 ],
             )
         })
-    {
-        return Err("실행을 요청한 문장을 확인하지 못했어요. 할 작업을 직접 요청해 주세요.".into());
-    }
-    Ok(())
 }
 
 fn fill_missing(payload: &mut Value, original: &Value, fields: &str) {
