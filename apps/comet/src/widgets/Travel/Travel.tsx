@@ -244,17 +244,23 @@ export function Travel({ onClose }: { onClose?: () => void } = {}): ReactElement
     if (!isDesktop()) return;
     let active = true;
     let unlisten: (() => void) | undefined;
-    void getCurrentWindow().onCloseRequested((event) => {
-      if (!active) return;
-      event.preventDefault();
-      closeRef.current();
-    }).then((cleanup) => {
-      if (active) unlisten = cleanup;
-      else cleanup();
-    }).catch((cause: unknown) => {
-      if (active) setFailure(errorText(cause));
-    });
-    return () => { active = false; unlisten?.(); };
+    void getCurrentWindow()
+      .onCloseRequested((event) => {
+        event.preventDefault();
+        if (!active) return;
+        closeRef.current();
+      })
+      .then((cleanup) => {
+        if (active) unlisten = cleanup;
+        else cleanup();
+      })
+      .catch((cause: unknown) => {
+        if (active) setFailure(errorText(cause));
+      });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
   }, []);
 
   const body = (current: TripData): ReactElement => {

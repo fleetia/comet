@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { command, errorText, isDesktop } from "../hooks/useSnapshot";
 
 type WindowState = { generation: number; active: boolean };
@@ -27,6 +28,35 @@ export function PlanningWindow({
     setState(next);
     setClosing(null);
   }
+  useEffect(() => {
+    if (!isDesktop()) return;
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void getCurrentWindow()
+      .onCloseRequested((event) => {
+        // Tauri destroys unless prevented. Only an editor-free startup can use
+        // that fallback; mounted editors own their existing close guards.
+        if (!active || current.current !== null) {
+          event.preventDefault();
+        }
+      })
+      .then((cleanup) => {
+        if (active) {
+          unlisten = cleanup;
+        } else {
+          cleanup();
+        }
+      })
+      .catch((cause: unknown) => {
+        if (active) {
+          setError(errorText(cause));
+        }
+      });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
   useEffect(() => {
     alive.current = true;
     if (!isDesktop()) return;

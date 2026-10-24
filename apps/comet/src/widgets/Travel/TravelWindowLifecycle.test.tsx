@@ -77,13 +77,15 @@ it("reopens with fresh target and no stale editor after native or header closure
   fireEvent.click(screen.getByRole("button", { name: "고치기" }));
   expect(screen.getByRole("dialog")).toBeTruthy();
   const preventDefault = vi.fn();
-  act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault }));
-  expect(preventDefault).toHaveBeenCalledOnce();
+  act(() => native.onCloseRequested.mock.calls.forEach(([handler]) => handler({ preventDefault })));
+  expect(preventDefault).toHaveBeenCalled();
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(native.destroy).not.toHaveBeenCalled();
   target = null;
   await act(async () =>
-    handlers.get("planning-window-state")!({ payload: { label: "travel", generation: 2, active: true } }),
+    handlers.get("planning-window-state")!({
+      payload: { label: "travel", generation: 2, active: true },
+    }),
   );
   await screen.findByRole("heading", { name: "Trip a" });
   expect(screen.queryByRole("dialog")).toBeNull();
@@ -91,7 +93,22 @@ it("reopens with fresh target and no stale editor after native or header closure
   await waitFor(() => expect(screen.queryByRole("heading", { name: "Trip a" })).toBeNull());
   target = "b";
   await act(async () =>
-    handlers.get("planning-window-state")!({ payload: { label: "travel", generation: 3, active: true } }),
+    handlers.get("planning-window-state")!({
+      payload: { label: "travel", generation: 3, active: true },
+    }),
   );
   await screen.findByRole("heading", { name: "Trip b" });
+});
+
+it("prevents Tauri's default destroy in a close callback retained after unmount", async () => {
+  const view = render(<Travel onClose={vi.fn()} />);
+  await screen.findByRole("heading", { name: "Trip b" });
+  await waitFor(() => expect(native.onCloseRequested).toHaveBeenCalledOnce());
+  const handler = native.onCloseRequested.mock.calls[0][0] as (event: {
+    preventDefault: () => void;
+  }) => void;
+  view.unmount();
+  const preventDefault = vi.fn();
+  act(() => handler({ preventDefault }));
+  expect(preventDefault).toHaveBeenCalledOnce();
 });

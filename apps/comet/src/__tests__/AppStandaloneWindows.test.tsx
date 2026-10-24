@@ -7,9 +7,14 @@ import { App } from "../App";
 vi.mock("@tauri-apps/api/core", async (load) => ({
   ...(await load<typeof import("@tauri-apps/api/core")>()),
   isTauri: () => true,
-  invoke: vi.fn(async (name: string) => name === "get_planning_window_state" ? { generation: 1, active: true } : false),
+  invoke: vi.fn(async (name: string) =>
+    name === "get_planning_window_state" ? { generation: 1, active: true } : false,
+  ),
 }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => vi.fn()) }));
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ onCloseRequested: vi.fn(async () => vi.fn()) }),
+}));
 vi.mock("../analytics", () => ({
   updateAnalyticsConsent: vi.fn(),
   trackSuccessfulCommand: vi.fn(),

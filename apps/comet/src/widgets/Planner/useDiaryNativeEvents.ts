@@ -152,8 +152,8 @@ export function useDiaryNativeEvents({
       });
     void getCurrentWindow()
       .onCloseRequested((event) => {
-        if (!active) return;
         event.preventDefault();
+        if (!active) return;
         navigateRef.current(() => closeRef.current(), true);
       })
       .then(retain)

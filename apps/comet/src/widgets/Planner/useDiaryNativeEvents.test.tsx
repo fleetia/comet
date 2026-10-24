@@ -94,7 +94,7 @@ it("ignores a native close callback retained after its editor unmounts", async (
   navigate.mockClear();
   const preventDefault = vi.fn();
   act(() => callback({ preventDefault }));
-  expect(preventDefault).not.toHaveBeenCalled();
+  expect(preventDefault).toHaveBeenCalledOnce();
   expect(navigate).not.toHaveBeenCalled();
   expect(close).not.toHaveBeenCalled();
 });

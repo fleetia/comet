@@ -6,6 +6,8 @@ import { command } from "../hooks/useSnapshot";
 import { PlanningWindow } from "./PlanningWindow";
 import { DiaryNoteDetail } from "../widgets/Planner/DiaryNoteDetail";
 
+const native = vi.hoisted(() => ({ destroy: vi.fn(), onCloseRequested: vi.fn() }));
+vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => native }));
 vi.mock("../hooks/useSnapshot", () => ({
   command: vi.fn(),
   isDesktop: () => true,
@@ -18,6 +20,8 @@ const save = vi.fn().mockResolvedValue(true);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  native.destroy.mockResolvedValue(undefined);
+  native.onCloseRequested.mockResolvedValue(() => undefined);
   localStorage.clear();
   vi.mocked(listen).mockImplementation(async (_name, handler) => {
     receive = handler as typeof receive;
@@ -243,10 +247,71 @@ it("keeps a second planning window mounted when another window closes or reopens
 
 it("does not let another window's early event suppress its own startup hydration", async () => {
   let finish!: (value: unknown) => void;
-  vi.mocked(command).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  vi.mocked(command).mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
   render(fixture());
   await waitFor(() => expect(command).toHaveBeenCalledWith("get_planning_window_state"));
   await act(async () => receive({ payload: { label: "travel", generation: 8, active: false } }));
   await act(async () => finish({ generation: 1, active: true }));
   expect(screen.getByLabelText("draft")).toBeTruthy();
+});
+
+async function nativeClose(): Promise<void> {
+  for (const [handler] of native.onCloseRequested.mock.calls) {
+    const event = { preventDefault: vi.fn() };
+    await handler(event);
+    // Match Tauri's onCloseRequested wrapper, including its default destroy.
+    if (!event.preventDefault.mock.calls.length) await native.destroy();
+  }
+}
+
+it.each(["listener", "state getter"])(
+  "allows native close after startup %s failure",
+  async (failure) => {
+    if (failure === "listener") {
+      vi.mocked(listen).mockRejectedValueOnce(new Error("listener unavailable"));
+    } else {
+      vi.mocked(command).mockRejectedValueOnce(new Error("state unavailable"));
+    }
+    render(fixture());
+    await screen.findByRole("alert");
+    await nativeClose();
+    expect(native.destroy).toHaveBeenCalledOnce();
+    expect(screen.queryByLabelText("draft")).toBeNull();
+    expect(command).not.toHaveBeenCalledWith("release_planning_window", expect.anything());
+  },
+);
+
+it("prevents default destroy in a startup close callback retained after unmount", async () => {
+  const view = render(fixture());
+  await screen.findByLabelText("draft");
+  view.unmount();
+  await nativeClose();
+  expect(native.destroy).not.toHaveBeenCalled();
+});
+
+it("preserves an editor opened by a newer event when startup hydration later fails", async () => {
+  let reject!: (cause: unknown) => void;
+  vi.mocked(command).mockImplementationOnce(
+    () =>
+      new Promise((_resolve, fail) => {
+        reject = fail;
+      }),
+  );
+  render(fixture());
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_planning_window_state"));
+  await state(2);
+  fireEvent.change(screen.getByLabelText("draft"), { target: { value: "keep draft" } });
+  await act(async () => reject(new Error("old hydration failed")));
+  await nativeClose();
+  expect(native.destroy).not.toHaveBeenCalled();
+  expect((screen.getByLabelText("draft") as HTMLInputElement).value).toBe("keep draft");
+  fireEvent.click(screen.getByText("close"));
+  fireEvent.click(screen.getByText("keep"));
+  expect(command).not.toHaveBeenCalledWith("release_planning_window", expect.anything());
+  expect((screen.getByLabelText("draft") as HTMLInputElement).value).toBe("keep draft");
 });
