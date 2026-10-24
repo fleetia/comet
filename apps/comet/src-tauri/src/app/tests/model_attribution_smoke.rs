@@ -126,8 +126,7 @@ async fn sample(
         let at = chrono::Utc::now().timestamp_millis();
         let raw_hits = store::search_memories_for(&db, question, &[], None, targets, at)?;
         let facts = store::current_user_facts_for(&db, targets, at)?;
-        let revalidated = store::revalidate_search_hits(&db, &searched)?;
-        let prompt = conversation::turn_prompt_for_state(state, &db, targets, name, &revalidated)?;
+        let prompt = conversation::turn_prompt_for_state(state, &db, targets, name, &searched)?;
         let user = store::require_user(&db)?;
         let character = characters::get(&db, &target)?;
         let history = store::conversation_context(&db, &session.id, &target)?;

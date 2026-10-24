@@ -214,6 +214,9 @@ it("retains entry drafts and matching input and result across closing and reopen
   });
   fireEvent.click(screen.getByRole("switch", { name: "자동 잡담에도 사용" }));
   const matching = screen.getByText("입력으로 매칭 확인");
+  expect(
+    screen.getByText("저장된 키워드만 확인해요. 실제 대화에서는 그 대화 친구들의 대사만 찾아요."),
+  ).toBeTruthy();
   fireEvent.change(screen.getByRole("textbox", { name: "테스트할 말" }), {
     target: { value: "안녕, 다시 만나" },
   });

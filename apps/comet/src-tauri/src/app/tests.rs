@@ -14,6 +14,7 @@ use super::*;
 use crate::{characters, story};
 use std::time::Duration;
 mod model_attribution_smoke;
+mod model_preference_recall_smoke;
 mod model_quality_smoke;
 mod model_review_smoke;
 

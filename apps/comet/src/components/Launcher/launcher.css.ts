@@ -50,11 +50,11 @@ export const input = style({
   },
 });
 export const hint = style({
-  position: "absolute",
-  width: 1,
-  height: 1,
-  overflow: "hidden",
-  clipPath: "inset(50%)",
+  margin: 0,
+  padding: "10px 22px 0",
+  fontSize: 12,
+  color: tokens["color/ink-3"],
+  flexShrink: 0,
 });
 export const results = style({
   listStyle: "none",

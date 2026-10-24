@@ -524,8 +524,9 @@ pub fn current_user_facts_for(
         .map_err(err)?;
     let mut facts = Vec::new();
     for row in rows {
-        let memory = row.map_err(err)?;
+        let mut memory = row.map_err(err)?;
         if memory.retired_at.is_none() && eligible_memory(conn, &memory, at)? {
+            memory.recall_weight = recall_weight(None, at);
             facts.push(memory);
             if facts.len() == 4 {
                 break;
@@ -533,6 +534,26 @@ pub fn current_user_facts_for(
         }
     }
     Ok(facts)
+}
+
+/// Recent user facts join before query hits because lexical coverage misses
+/// paraphrased questions such as a drink recommendation; the total stays eight.
+pub fn recall_for_turn(
+    conn: &Connection,
+    hits: &[MemorySearchHit],
+    character_ids: &[String],
+    at: i64,
+) -> Result<Vec<Memory>> {
+    let mut memories = current_user_facts_for(conn, character_ids, at)?;
+    for hit in revalidate_search_hits(conn, hits)? {
+        if memories.len() >= 8 {
+            break;
+        }
+        if memories.iter().all(|memory| memory.id != hit.id) {
+            memories.push(hit);
+        }
+    }
+    Ok(memories)
 }
 
 pub fn search_memories_for(

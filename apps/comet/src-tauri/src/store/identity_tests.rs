@@ -691,3 +691,43 @@ fn current_user_fact_context_reads_edits_and_identity_changes_fresh() {
     );
     assert_eq!(messages(&db, 10).unwrap()[0].content, source.content);
 }
+
+#[test]
+fn paraphrased_question_recalls_current_user_facts_without_lexical_hits() {
+    let db = open(Path::new(":memory:")).unwrap();
+    let at = chrono::Utc::now().timestamp_millis();
+    set_user_name(&db, "민수", at).unwrap();
+    let tea = input(
+        "tea",
+        "a",
+        "I chose jasmine tea because I like light floral flavors, not very sweet drinks.",
+        at,
+    );
+    insert_message(&db, &tea).unwrap();
+    analyze(&db, &tea, "user_fact");
+    let other = input("other", "b", "나는 녹차를 좋아해", at + 1);
+    insert_message(&db, &other).unwrap();
+    analyze(&db, &other, "user_fact");
+    let scope = ["builtin-a".to_string()];
+    let question = "What drink do you think I'd enjoy on the train?";
+    let hits = search_memories_for(&db, question, &[], None, &scope, at + 2).unwrap();
+    assert!(hits.is_empty(), "raw coverage stays unchanged");
+    let recalled = recall_for_turn(&db, &hits, &scope, at + 2).unwrap();
+    assert_eq!(
+        recalled
+            .iter()
+            .map(|memory| memory.source_message_id.as_str())
+            .collect::<Vec<_>>(),
+        ["tea"]
+    );
+    let hits = search_memories_for(&db, "jasmine tea", &[], None, &scope, at + 2).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(
+        recall_for_turn(&db, &hits, &scope, at + 2).unwrap().len(),
+        1
+    );
+    set_user_name(&db, "지연", at + 3).unwrap();
+    assert!(recall_for_turn(&db, &[], &scope, at + 4)
+        .unwrap()
+        .is_empty());
+}

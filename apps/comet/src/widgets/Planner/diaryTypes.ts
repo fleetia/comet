@@ -42,6 +42,8 @@ export type DiaryNote = {
   title: string;
   body: string;
   pinned: boolean;
+  /** When the note was last pinned; recent pins sort first. */
+  pinnedAt?: number;
   envelopeId?: string;
 };
 

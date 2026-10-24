@@ -56,15 +56,14 @@ fn registered_message(
     let entries: Vec<_> = wordbook::entries(db)?
         .into_iter()
         .filter(|entry| {
-            targets.len() != 1
-                || entry
-                    .lines
-                    .iter()
-                    .map(|line| {
-                        characters::guests::actor(state, db, &line.persona).map(|actor| actor.id)
-                    })
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_or(true, |ids| ids.iter().all(|id| targets.contains(id)))
+            entry
+                .lines
+                .iter()
+                .map(|line| {
+                    characters::guests::actor(state, db, &line.persona).map(|actor| actor.id)
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map_or(true, |ids| ids.iter().all(|id| targets.contains(id)))
         })
         .collect();
     if let Some(entry) = wordbook::match_entry(&entries, content) {
@@ -1206,38 +1205,30 @@ pub(crate) fn turn_prompt_for_state(
     db: &Connection,
     targets: &[String],
     message_id: &str,
-    memories: &[Memory],
+    memories: &[store::MemorySearchHit],
 ) -> Result<Vec<ChatMessage>, String> {
     ensure_current_user_message(db, message_id)?;
     let context = turn_context(state, db, targets, message_id)?;
-    let memories = turn_memory_context(db, targets, &context, memories)?;
+    let memories = turn_memory_context(db, message_id, &context, memories)?;
     let recalled = with_note_memories(db, message_id, &context, &memories)?;
     bundle_prompt(state, db, targets, message_id, &recalled, &context).map(|(prompt, _)| prompt)
 }
 
 fn turn_memory_context(
     db: &Connection,
-    targets: &[String],
+    message_id: &str,
     context: &pack_context::TurnContext,
-    searched: &[Memory],
+    searched: &[store::MemorySearchHit],
 ) -> Result<Vec<Memory>, String> {
     if !context.allow_memories {
         return Ok(Vec::new());
     }
-    let mut memories = if context.history_allowlist.is_none() {
-        store::current_user_facts_for(db, targets, chrono::Utc::now().timestamp_millis())?
-    } else {
-        Vec::new()
-    };
-    for memory in searched {
-        if memories.len() == 8 {
-            break;
-        }
-        if !memories.iter().any(|existing| existing.id == memory.id) {
-            memories.push(memory.clone());
-        }
-    }
-    Ok(memories)
+    store::recall_for_turn(
+        db,
+        searched,
+        &store::message_targets(db, message_id)?,
+        chrono::Utc::now().timestamp_millis(),
+    )
 }
 
 fn turn_context(
@@ -1544,12 +1535,7 @@ pub(crate) async fn generate_turn_with_memories(
         let db = lock(&state.db)?;
         ensure_current_user_message(&db, message_id)?;
         let context = turn_context(state, &db, targets, message_id)?;
-        let memories = if context.allow_memories {
-            store::revalidate_search_hits(&db, memories)?
-        } else {
-            Vec::new()
-        };
-        let memories = turn_memory_context(&db, targets, &context, &memories)?;
+        let memories = turn_memory_context(&db, message_id, &context, memories)?;
         let recalled = with_note_memories(&db, message_id, &context, &memories)?;
         let bundle = store::single_bundle_selected(&db, message_id)?;
         let (mut prompt, history_ids) = if bundle {
@@ -1878,6 +1864,63 @@ mod pack_controller_tests;
 #[cfg(test)]
 mod session_tests {
     use super::*;
+
+    #[test]
+    fn grouped_turn_prompt_keeps_original_fact_scope_and_order_without_duplicates() {
+        let state = super::super::tests::state();
+        let db = lock(&state.db).unwrap();
+        let at = chrono::Utc::now().timestamp_millis();
+        store::set_user_name(&db, "현재 사용자", at).unwrap();
+        for (id, target, text, updated) in [
+            ("a-fact", "a", "나는 홍차를 좋아해.", at),
+            ("b-fact", "b", "나는 산책을 좋아해.", at + 1),
+        ] {
+            let message = Message {
+                id: id.into(),
+                role: "user".into(),
+                persona: Some(target.into()),
+                content: text.into(),
+                expression: None,
+                created_at: updated,
+                status: "complete".into(),
+            };
+            store::insert_message(&db, &message).unwrap();
+            store::analyze_apply_batch(
+                &db,
+                &serde_json::json!({"revision":store::revision(&db).unwrap(),
+                    "memories":[{"kind":"user_fact","certain":true,
+                        "sourceMessageId":id,"evidence":text,"supersedesId":""}],
+                    "events":[]}),
+                &[id.into()],
+            )
+            .unwrap();
+            db.execute(
+                "UPDATE memories SET updated=?1 WHERE source=?2",
+                rusqlite::params![updated, id],
+            )
+            .unwrap();
+        }
+        let input = Message {
+            id: "grouped-input".into(),
+            role: "user".into(),
+            persona: Some("both".into()),
+            content: "오늘 뭐 하면 좋을까?".into(),
+            expression: None,
+            created_at: at + 2,
+            status: "complete".into(),
+        };
+        store::insert_message(&db, &input).unwrap();
+        let prompt =
+            turn_prompt_for_state(&state, &db, &["builtin-a".into()], &input.id, &[]).unwrap();
+        let data: serde_json::Value = serde_json::from_str(&prompt[1].content).unwrap();
+        let sources = data["userFacts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|memory| memory["sourceMessageId"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(sources, ["b-fact", "a-fact"]);
+    }
 
     #[test]
     fn resumed_all_uses_original_participants_and_retry_survives_other_history() {

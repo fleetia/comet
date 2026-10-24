@@ -108,6 +108,14 @@ function executed(): unknown[][] {
 }
 
 describe("local command and conversation routing", () => {
+  it("describes the search scope until a friend is being picked", async () => {
+    const input = await compose("");
+    const hint = document.getElementById("launcher-hint");
+    expect(hint?.textContent).toBe("설정·위젯·여행을 찾아요. 메모는 다이어리에서 찾아요.");
+    fireEvent.change(input, { target: { value: ">" } });
+    expect(hint?.textContent).toBe("친구를 고르고 말을 적어 주세요. 예: >B 오늘 졸리네");
+  });
+
   it.each([
     [true, true, "지금은 쉬고 있어요"],
     [true, false, "지금은 쉬고 있어요"],

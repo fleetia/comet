@@ -54,13 +54,12 @@ pub(crate) use messages::{insert_message_with_actor, save_generated_bundle};
 #[cfg(test)]
 pub use messages::{insert_message_with_source, insert_message_with_talk};
 pub use search::{
-    clear_search_index, current_user_facts_for, memory_count, memory_revision,
-    next_memory_for_index, pending_index_count, revalidate_search_hits, save_kiwi_index,
-    save_vector_index, search_memories_for, set_search_profile, IndexMemory, MemoryEmbedding,
-    MemoryPage, MemorySearchHit,
+    clear_search_index, memory_count, memory_revision, next_memory_for_index, pending_index_count,
+    recall_for_turn, save_kiwi_index, save_vector_index, search_memories_for, set_search_profile,
+    IndexMemory, MemoryEmbedding, MemoryPage, MemorySearchHit,
 };
 #[cfg(test)]
-pub use search::{memory_page, search_memories};
+pub use search::{current_user_facts_for, memory_page, revalidate_search_hits, search_memories};
 #[cfg(test)]
 pub use users::require_user;
 pub use users::{
