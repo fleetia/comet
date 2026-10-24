@@ -135,9 +135,9 @@ it("plans and completes the same linked task while pinning the existing envelope
   );
   fireEvent.click(screen.getByRole("button", { name: "세션 아이디어 메모 메뉴" }));
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: "곁에 꺼내두기" })).toHaveProperty("disabled", false),
+    expect(screen.getByRole("button", { name: "목록 위에 고정" })).toHaveProperty("disabled", false),
   );
-  fireEvent.click(screen.getByRole("button", { name: "곁에 꺼내두기" }));
+  fireEvent.click(screen.getByRole("button", { name: "목록 위에 고정" }));
   await waitFor(() =>
     expect(props.diaryAction).toHaveBeenCalledWith("note-update", { id: "note", pinned: true }),
   );
@@ -504,4 +504,47 @@ it("keeps the empty resource card ready for adding links without an extra messag
   );
   expect(resources.queryByText("아직 모아 둔 자료가 없어요.")).toBeNull();
   expect(resources.getByRole("link", { name: /준비 자료/ })).toBeTruthy();
+});
+
+it("lists pinned notes first, most recently pinned on top, also while searching", () => {
+  const make = (id: string, extra: Partial<DiaryNote> = {}): DiaryNote => ({
+    id,
+    title: `${id} 메모`,
+    body: "공통 본문",
+    pinned: false,
+    ...extra,
+  });
+  const notes = [
+    make("첫째"),
+    make("옛 고정", { pinned: true, pinnedAt: 100 }),
+    make("둘째"),
+    make("새 고정", { pinned: true, pinnedAt: 200 }),
+    make("기록 전 고정", { pinned: true }),
+  ];
+  const diaryAction = vi.fn<DiaryAction>().mockResolvedValue(true);
+  render(<DiaryNotes notes={notes} diaryAction={diaryAction} busy={false} />);
+  const order = () =>
+    within(screen.getByLabelText("메모 목록"))
+      .getAllByText(/ 메모$|^고정한 메모$|^다른 메모$/)
+      .map((element) => element.textContent);
+  expect(order()).toEqual([
+    "고정한 메모",
+    "새 고정 메모",
+    "옛 고정 메모",
+    "기록 전 고정 메모",
+    "다른 메모",
+    "첫째 메모",
+    "둘째 메모",
+  ]);
+  expect(screen.getByRole("button", { name: "고정 풀기" })).toBeTruthy();
+  fireEvent.change(screen.getByRole("searchbox", { name: "메모 검색" }), {
+    target: { value: "째" },
+  });
+  expect(order()).toEqual(["첫째 메모", "둘째 메모"]);
+  fireEvent.change(screen.getByRole("searchbox", { name: "메모 검색" }), {
+    target: { value: "고정" },
+  });
+  expect(order()).toEqual(["고정한 메모", "새 고정 메모", "옛 고정 메모", "기록 전 고정 메모"]);
+  fireEvent.click(screen.getByRole("radio", { name: "바탕화면에 꺼낸 것" }));
+  expect(screen.queryByText("고정한 메모")).toBeNull();
 });
