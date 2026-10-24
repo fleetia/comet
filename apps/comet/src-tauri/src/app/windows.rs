@@ -359,7 +359,7 @@ pub(crate) async fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub(crate) fn open_organizer_settings(app: tauri::AppHandle) -> Result<(), String> {
+pub(crate) async fn open_organizer_settings(app: tauri::AppHandle) -> Result<(), String> {
     open_settings_section(app, SettingsSection::Organizer)
 }
 
