@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// happy-dom computes this button's accessible name differently.
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { TalkPackPanel } from "../components/TalkPackPanel/TalkPackPanel";

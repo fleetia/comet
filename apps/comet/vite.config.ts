@@ -12,10 +12,10 @@ export default defineConfig({
     watch: { ignored: ["**/src-tauri/**"] },
   },
   test: {
-    environment: "jsdom",
+    environment: "happy-dom",
     include: ["src/**/*.test.{ts,tsx}"],
     restoreMocks: true,
-    // Bound concurrent jsdom editors while keeping file isolation and the default 5s timeout.
+    // Bound concurrent happy-dom editors while keeping file isolation and the default 5s timeout.
     maxWorkers: 2,
   },
 });

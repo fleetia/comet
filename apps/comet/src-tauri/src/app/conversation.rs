@@ -56,15 +56,14 @@ fn registered_message(
     let entries: Vec<_> = wordbook::entries(db)?
         .into_iter()
         .filter(|entry| {
-            targets.len() != 1
-                || entry
-                    .lines
-                    .iter()
-                    .map(|line| {
-                        characters::guests::actor(state, db, &line.persona).map(|actor| actor.id)
-                    })
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_or(true, |ids| ids.iter().all(|id| targets.contains(id)))
+            entry
+                .lines
+                .iter()
+                .map(|line| {
+                    characters::guests::actor(state, db, &line.persona).map(|actor| actor.id)
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map_or(true, |ids| ids.iter().all(|id| targets.contains(id)))
         })
         .collect();
     if let Some(entry) = wordbook::match_entry(&entries, content) {
@@ -1524,7 +1523,12 @@ pub(crate) async fn generate_turn_with_memories(
         ensure_current_user_message(&db, message_id)?;
         let context = turn_context(state, &db, targets, message_id)?;
         let memories = if context.allow_memories {
-            store::revalidate_search_hits(&db, memories)?
+            store::recall_for_turn(
+                &db,
+                memories,
+                &store::message_targets(&db, message_id)?,
+                chrono::Utc::now().timestamp_millis(),
+            )?
         } else {
             Vec::new()
         };

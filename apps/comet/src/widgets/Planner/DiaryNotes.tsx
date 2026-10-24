@@ -61,6 +61,14 @@ function keepDraft(key: string, draft: NoteDraft | null): boolean {
   }
 }
 
+export function discardDiaryEnvelopeNoteDrafts(envelopeId: string, notes: DiaryNote[]): void {
+  localStorage.removeItem(`comet.diary.note-compose:${envelopeId}`);
+  for (const note of notes) {
+    if (note.envelopeId === envelopeId)
+      localStorage.removeItem(`comet.diary.note-draft:envelope:${note.id}`);
+  }
+}
+
 export function DiaryNotes(
   props: NoteCollectionProps & { desktop?: DesktopNotesProps },
 ): ReactElement {
@@ -99,13 +107,18 @@ export function DiaryNotes(
   const desktop = desktopNotes(props.desktop?.widgets ?? []);
   const visibleDiary =
     view === "desktop" ? [] : props.notes.filter((note) => matchesNote(note, query));
+  const pinnedDiary = visibleDiary
+    .filter((note) => note.pinned)
+    .sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0));
+  const otherDiary = visibleDiary.filter((note) => !note.pinned);
   const visibleDesktop = desktop.filter(
     ({ note }) =>
       (view !== "desktop" || note.isOpen) &&
       `${text(note.title)} ${text(note.body)}`.toLocaleLowerCase().includes(query),
   );
   const visibleKeys = [
-    ...visibleDiary.map((note) => `diary:${note.id}`),
+    ...pinnedDiary.map((note) => `diary:${note.id}`),
+    ...otherDiary.map((note) => `diary:${note.id}`),
     ...visibleDesktop.map((item) => item.key),
   ];
   const active = selection && visibleKeys.includes(selection) ? selection : visibleKeys[0];
@@ -113,6 +126,22 @@ export function DiaryNotes(
   function choose(key: string): void {
     setSelection(key);
     setCreating(false);
+  }
+  function diaryCard(note: DiaryNote): ReactElement {
+    return (
+      <NoteCard
+        key={note.id}
+        className={ns.preview}
+        layout="preview"
+        title={note.title || "빈 메모"}
+        description={<span className={ns.previewBody}>{note.body || "아직 내용이 없어요."}</span>}
+        kind="envelope"
+        tag={note.envelopeId ? props.envelopeNames?.[note.envelopeId] : undefined}
+        selected={!creating && active === `diary:${note.id}`}
+        aria-label={`${note.title} 메모 열기`}
+        onClick={() => choose(`diary:${note.id}`)}
+      />
+    );
   }
   return (
     <section className={ns.page} aria-label="계속 쓸 메모">
@@ -148,22 +177,12 @@ export function DiaryNotes(
             onChange={(event) => setSearch(event.target.value)}
           />
           <div className={ns.cards} aria-label="메모 목록">
-            {visibleDiary.map((note) => (
-              <NoteCard
-                key={note.id}
-                className={ns.preview}
-                layout="preview"
-                title={note.title || "빈 메모"}
-                description={
-                  <span className={ns.previewBody}>{note.body || "아직 내용이 없어요."}</span>
-                }
-                kind="envelope"
-                tag={note.envelopeId ? props.envelopeNames?.[note.envelopeId] : undefined}
-                selected={!creating && active === `diary:${note.id}`}
-                aria-label={`${note.title} 메모 열기`}
-                onClick={() => choose(`diary:${note.id}`)}
-              />
-            ))}
+            {pinnedDiary.length > 0 && <p className={ns.groupLabel}>고정한 메모</p>}
+            {pinnedDiary.map(diaryCard)}
+            {pinnedDiary.length > 0 && (otherDiary.length > 0 || visibleDesktop.length > 0) && (
+              <p className={ns.groupLabel}>다른 메모</p>
+            )}
+            {otherDiary.map(diaryCard)}
             {visibleDesktop.map(({ key, note }) => (
               <NoteCard
                 key={key}
@@ -240,7 +259,7 @@ export function DiaryNotes(
                       void props.diaryAction("note-update", { id: note.id, pinned: !note.pinned })
                     }
                   >
-                    {note.pinned ? "넣어두기" : "곁에 꺼내두기"}
+                    {note.pinned ? "고정 풀기" : "목록 위에 고정"}
                   </Button>
                 )}
                 details={() =>
@@ -666,7 +685,7 @@ function DiaryNoteEditor({
                     setError("메모 위치를 바꾸지 못했어요. 다시 시도해 주세요.");
                 }}
               >
-                {note.pinned ? "넣어두기" : "곁에 꺼내두기"}
+                {note.pinned ? "고정 풀기" : "목록 위에 고정"}
               </Button>
               <Button
                 variant="ghost"
@@ -713,8 +732,7 @@ function DiaryNoteEditor({
         }
       >
         <p>
-          이 메모를 함께 보여주는 준비 봉투와 계속 쓸 메모에서도 삭제돼요. 잠시 치우려면 넣어두기를
-          사용하세요.
+          이 메모를 함께 보여주는 준비 봉투에서도 삭제돼요.
         </p>
       </Dialog>
     </article>

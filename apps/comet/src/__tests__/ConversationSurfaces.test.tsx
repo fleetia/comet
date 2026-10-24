@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// happy-dom does not normalize CSS colors or expand border-image shorthands.
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Balloon } from "../components/Balloon/Balloon";

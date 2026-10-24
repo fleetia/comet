@@ -111,6 +111,9 @@ struct Note {
     title: String,
     body: String,
     pinned: bool,
+    /// When the note was last pinned; the list shows the most recent first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pinned_at: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     envelope_id: Option<String>,
 }
@@ -392,11 +395,13 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
         }
         "note-create" => {
             capacity(state.notes.len(), 2000)?;
+            let pinned = boolean(input, "pinned", false)?;
             state.notes.push(Note {
                 id: new_id(),
                 title: string(input, "title", 500, false)?,
                 body: string(input, "body", 20000, false)?,
-                pinned: boolean(input, "pinned", false)?,
+                pinned,
+                pinned_at: pinned.then(|| chrono::Utc::now().timestamp_millis()),
                 envelope_id: optional_string(input, "envelopeId", 200)?,
             });
         }
@@ -424,7 +429,11 @@ fn mutate(state: &mut DiaryState, action: &str, input: &Value) -> Result<()> {
                 if input.get("body").is_some() {
                     note.body = string(input, "body", 20000, false)?;
                 }
-                note.pinned = boolean(input, "pinned", note.pinned)?;
+                let pinned = boolean(input, "pinned", note.pinned)?;
+                if pinned != note.pinned {
+                    note.pinned_at = pinned.then(|| chrono::Utc::now().timestamp_millis());
+                }
+                note.pinned = pinned;
                 if input.get("envelopeId").is_some() {
                     note.envelope_id = optional_string(input, "envelopeId", 200)?;
                 }

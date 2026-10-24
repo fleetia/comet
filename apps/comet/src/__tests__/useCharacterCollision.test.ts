@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// happy-dom formats DOMException text differently.
 import { useLayoutEffect } from "react";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi, type MockInstance } from "vitest";

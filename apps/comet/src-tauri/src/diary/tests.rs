@@ -470,3 +470,27 @@ fn collection_page_delete_preserves_the_original_source_page_and_notes() {
     assert_eq!(deleted.pages, vec![source_page]);
     assert_eq!(deleted.notes, state.notes);
 }
+
+#[test]
+fn pinning_a_note_records_when_and_unpinning_or_editing_keeps_it_consistent() {
+    let db = database();
+    let state = act(
+        &db,
+        "note-create",
+        json!({"title":"집중 노트","body":"","pinned":true}),
+    );
+    let created = state.notes[0].pinned_at.expect("pinned on create");
+    let note = state.notes[0].id.clone();
+    let state = act(&db, "note-update", json!({"id":note,"body":"이어 쓰기"}));
+    assert_eq!(state.notes[0].pinned_at, Some(created));
+    let state = act(&db, "note-update", json!({"id":note,"pinned":false}));
+    assert_eq!(state.notes[0].pinned_at, None);
+    let state = act(&db, "note-update", json!({"id":note,"pinned":true}));
+    assert!(state.notes[0].pinned_at.unwrap() >= created);
+    let plain = act(&db, "note-create", json!({"title":"그냥 메모","body":""}));
+    assert_eq!(plain.notes[1].pinned_at, None);
+    // Notes saved before pinnedAt existed still load.
+    let legacy: Note =
+        serde_json::from_value(json!({"id":"old","title":"","body":"","pinned":true})).unwrap();
+    assert_eq!(legacy.pinned_at, None);
+}

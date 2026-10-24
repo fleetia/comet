@@ -62,6 +62,7 @@ export const caption = style({
   lineHeight: "17px",
 });
 export const listFooter = style([caption, { padding: "6px 4px 0" }]);
+export const groupLabel = style([caption, { margin: 0, padding: "6px 12px 0" }]);
 export const detailHost = style({
   minWidth: 0,
   minHeight: 0,

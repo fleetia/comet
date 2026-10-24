@@ -37,7 +37,7 @@ import {
   weatherConfig,
   weatherTemperature,
 } from "../ConnectionTools/weatherData";
-import { TimerTool } from "../PlanningTools/FocusTimerTool";
+import { readDraft, TimerTool } from "../PlanningTools/FocusTimerTool";
 import { MusicTool } from "../MusicTool/MusicTool";
 import { preparationFocusInput, preparationProgress } from "../PreparationTool/preparationData";
 import { useConnectionCommand } from "../useConnectionCommand";
@@ -125,7 +125,9 @@ export function desktopSummary(
             ? ""
             : "이전 정보 · 갱신 필요",
       };
-    case "focus-timer":
+    case "focus-timer": {
+      // Before a start, the row shows the same unsaved choice as the open timer.
+      const draft = (text(data.status) || "idle") === "idle" ? readDraft(widget) : undefined;
       return {
         icon: "timer",
         title:
@@ -140,10 +142,13 @@ export function desktopSummary(
                   ? "휴식 끝"
                   : "집중 끝"
                 : "집중 준비",
-        description: text(data.title) || "집중할 일을 정해 주세요",
-        value: countdown(focusRemaining(widget, now)),
+        description: (draft ? draft.title : text(data.title)) || "집중할 일을 정해 주세요",
+        value: countdown(
+          draft ? Math.round(Number(draft.minutes) * 60000) || 0 : focusRemaining(widget, now),
+        ),
         meta: "",
       };
+    }
     case "music":
       return {
         icon: "music",

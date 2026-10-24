@@ -26,7 +26,7 @@ import { PreparationCreate } from "../PreparationTool/PreparationCreate";
 import { DiaryEnvelope, envelopeTitle } from "./DiaryEnvelope";
 import { OrganizerRecords } from "./OrganizerRecords";
 import { DiaryJournal } from "./DiaryJournal";
-import { DiaryNotes } from "./DiaryNotes";
+import { DiaryNotes, discardDiaryEnvelopeNoteDrafts } from "./DiaryNotes";
 import { DiaryPage, discardDiaryPageDraft, type DiaryPageProps } from "./DiaryPage";
 import { DiaryCollectionPage, discardDiaryCollectionDraft } from "./DiaryCollectionPage";
 import { DiaryPageMenu } from "./DiaryPageMenu";
@@ -896,8 +896,11 @@ export function Diary({ onClose }: { onClose?: () => void } = {}): ReactElement 
         onDiscard={() => {
           const action = leave?.action;
           if (pageDirty) {
-            discardDiaryPageDraft(page, day);
-            if (page?.date === null) discardDiaryCollectionDraft(page.id);
+            if (envelope) discardDiaryEnvelopeNoteDrafts(text(envelope.id), notes);
+            else {
+              discardDiaryPageDraft(page, day);
+              if (page?.date === null) discardDiaryCollectionDraft(page.id);
+            }
             setPageContentVersion((value) => value + 1);
           }
           if (pageMenuDirty) setPageMenuVersion((value) => value + 1);

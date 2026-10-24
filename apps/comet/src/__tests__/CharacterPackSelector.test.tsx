@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// happy-dom does not disable controls inside a disabled fieldset.
 import { openCharacterPage, selectFriend, openFriendPacks } from "./characterNavigation";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";

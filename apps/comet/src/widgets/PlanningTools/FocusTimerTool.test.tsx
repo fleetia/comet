@@ -222,7 +222,7 @@ it.each(["another-widget", "inactive"])(
 
 describe("focus workspace", () => {
   it("lets the embedded timer track shrink while preserving standalone widths", async () => {
-    // jsdom has no layout engine; actual 330px clipping is checked in a browser fixture.
+    // The test DOM has no layout engine; actual 330px clipping is checked in a browser fixture.
     const { readFileSync } = await vi.importActual<{
       readFileSync(path: string, encoding: "utf8"): string;
     }>("node:fs");

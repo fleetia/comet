@@ -52,6 +52,49 @@ it("keeps a completed break finished after its deadline has been cleared", () =>
   }
 });
 
+it("shows the unstarted focus choice instead of the previous confirmed session", () => {
+  localStorage.clear();
+  const now = Date.now();
+  const data = { status: "idle", mode: "focus", title: "원고", focusDurationMs: 180000, remainingMs: 180000 };
+  const base = JSON.stringify({
+    title: "원고",
+    minutes: "3",
+    todoId: "",
+    eventRef: null,
+    noteRef: null,
+    memo: "",
+  });
+  const choose = (draft: Record<string, string>, savedBase = base): void =>
+    localStorage.setItem(
+      "comet.focus.draft:focus-timer",
+      JSON.stringify({ base: savedBase, draft: { todoId: "", memo: "", ...draft }, memoBase: "" }),
+    );
+  expect(desktopSummary(widget("focus-timer", data), now)).toMatchObject({
+    description: "원고",
+    value: "03:00",
+  });
+  choose({ title: "교정", minutes: "25" });
+  expect(desktopSummary(widget("focus-timer", data), now)).toMatchObject({
+    title: "집중 준비",
+    description: "교정",
+    value: "25:00",
+  });
+  choose({ title: "", minutes: "25" });
+  expect(desktopSummary(widget("focus-timer", data), now).description).toBe(
+    "집중할 일을 정해 주세요",
+  );
+  // A draft written against an older confirmed session is not this choice.
+  choose({ title: "교정", minutes: "25" }, "{}");
+  expect(desktopSummary(widget("focus-timer", data), now).value).toBe("03:00");
+  choose({ title: "교정", minutes: "25" });
+  const running = { ...data, status: "running", remainingMs: 120000, deadline: now + 120000 };
+  expect(desktopSummary(widget("focus-timer", running), now)).toMatchObject({
+    description: "원고",
+    value: "02:00",
+  });
+  localStorage.clear();
+});
+
 it("does not repeat the empty calendar message or show a placeholder dash for unfetched weather", () => {
   const now = Date.now();
   const calendar = desktopSummary(widget("calendar", { events: [] }), now);

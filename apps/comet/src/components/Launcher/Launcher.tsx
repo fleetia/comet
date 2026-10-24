@@ -293,7 +293,7 @@ export function Launcher({ snapshot }: { snapshot: Snapshot }): JSX.Element {
       <p id="launcher-hint" className={styles.hint}>
         {query.startsWith(">")
           ? "친구를 고르고 말을 적어 주세요. 예: >B 오늘 졸리네"
-          : "설정 · 공 던지기 · 하고 싶은 말     > 친구 고르기"}
+          : "설정·위젯·여행을 찾아요. 메모는 다이어리에서 찾아요."}
       </p>
       <ul
         className={styles.results}

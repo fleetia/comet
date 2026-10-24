@@ -167,7 +167,7 @@ it("hides the highlight for a radio outside its form with the same form owner", 
     .querySelector<HTMLSpanElement>('[aria-hidden="true"]')!;
   expect(external.form).toBe(today.form);
   expect(marker.hidden).toBe(false);
-  // jsdom does not uncheck radios across form= associations.
+  // The test DOM does not uncheck radios across form= associations.
   today.checked = false;
   await user.click(external);
   expect(external.checked).toBe(true);

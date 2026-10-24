@@ -1396,6 +1396,115 @@ it("shows complete event details and the selected-day agenda before explicit edi
   expect(body.scrollTop).toBe(180);
 });
 
+it.each(["timed", "all-day", "UTC-boundary"] as const)(
+  "opens a linked %s event on its own day after reopening the diary",
+  async (kind) => {
+    const startAt =
+      kind === "UTC-boundary"
+        ? Date.parse("2026-11-06T00:30:00Z")
+        : new Date("2026-11-06T10:00:00").getTime();
+    const eventDay = kind === "all-day" ? "2026-11-06" : localDay(new Date(startAt));
+    const event = {
+      id: "departure",
+      connectionId: "local",
+      title: "여행 출발",
+      ...(kind === "all-day"
+        ? { allDay: true, startDate: eventDay, endDate: "2026-11-09" }
+        : { allDay: false, startAt, endAt: startAt + 3600000 }),
+    };
+    widgets.widgets = [
+      widget("calendar", {
+        connections: [],
+        events: [
+          event,
+          {
+            id: "same-day",
+            connectionId: "local",
+            title: "출발 당일 일정",
+            allDay: true,
+            startDate: eventDay,
+            endDate: "2026-11-07",
+          },
+          {
+            id: "today",
+            connectionId: "local",
+            title: "오늘만 있는 일정",
+            allDay: true,
+            startDate: DAY,
+            endDate: NEXT_DAY,
+          },
+        ],
+      }),
+      widget("preparation", {
+        envelopes: [
+          {
+            id: "travel",
+            title: "여행 준비",
+            eventId: event.id,
+            date: DAY,
+            checks: [],
+            links: [],
+            todoIds: [],
+          },
+        ],
+      }),
+    ];
+    const stored = structuredClone({ widgets, diary });
+    for (let reopen = 0; reopen < 2; reopen += 1) {
+      await openDiary();
+      fireEvent.click(screen.getByRole("link", { name: /^준비 봉투/ }));
+      fireEvent.click(screen.getByRole("button", { name: /여행 준비/ }));
+      fireEvent.click(opened().getByRole("button", { name: "일정 보기" }));
+      const detail = within(screen.getByRole("dialog", { name: event.title }));
+      expect(detail.getByRole("heading", { name: `${eventDay} 전체 일정` })).toBeTruthy();
+      const agenda = within(detail.getByRole("region", { name: "선택 날짜 전체 일정" }));
+      expect(agenda.getByRole("button", { name: /출발 당일 일정/ })).toBeTruthy();
+      expect(agenda.queryByRole("button", { name: /오늘만 있는 일정/ })).toBeNull();
+      fireEvent.click(detail.getByRole("button", { name: "약속 닫기" }));
+      expect(opened().getByRole("heading", { name: "여행 준비" })).toBeTruthy();
+      fireEvent.click(opened().getByRole("button", { name: "일정 보기" }));
+      fireEvent.click(screen.getByRole("button", { name: "이날 펼치기" }));
+      expect(screen.queryByRole("dialog", { name: event.title })).toBeNull();
+      expect(opened().getAllByText(event.title).length).toBeGreaterThan(0);
+      expect(opened().queryByText("오늘만 있는 일정")).toBeNull();
+      expect(screen.getByRole("radio", { name: "하루" })).toHaveProperty("checked", true);
+      cleanup();
+    }
+    expect(actions("execute_widget")).toEqual([]);
+    expect(actions("update_diary")).toEqual([]);
+    expect({ widgets, diary }).toEqual(stored);
+  },
+);
+
+it("keeps the clicked date when opening a multi-day calendar event", async () => {
+  widgets.widgets = [
+    widget("calendar", {
+      connections: [],
+      events: [
+        {
+          id: "multi-day",
+          connectionId: "local",
+          title: "여러 날 여행",
+          allDay: true,
+          startDate: DAY,
+          endDate: "2026-10-06",
+        },
+      ],
+    }),
+  ];
+  await openDiary();
+  fireEvent.click(screen.getByRole("radio", { name: "월" }));
+  // The second week segment starts on October 5, not the event's October 3 start.
+  fireEvent.click(screen.getAllByRole("button", { name: "여러 날 여행" })[1]);
+  expect(screen.getByRole("heading", { name: "2026-10-05 전체 일정" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "이날 펼치기" }));
+  showJournal();
+  fireEvent.click(opened().getByRole("button", { name: "일정 보기" }));
+  expect(screen.getByRole("heading", { name: "2026-10-05 전체 일정" })).toBeTruthy();
+  expect(actions("execute_widget")).toEqual([]);
+  expect(actions("update_diary")).toEqual([]);
+});
+
 it.each(["close", "escape"])(
   "preserves month scroll when viewing a different day's event via %s",
   async (close) => {
@@ -2046,4 +2155,138 @@ it("uses current native navigation instead of a retained envelope URL on remount
   render(<Diary onClose={vi.fn()} />);
   await waitFor(() => expect(screen.getByRole("link", { name: "오늘" }).getAttribute("aria-current")).toBe("page"));
   expect(screen.getByRole("link", { name: /^준비 봉투/ }).getAttribute("aria-current")).not.toBe("page");
+});
+
+it.each(["close", "navigate"] as const)(
+  "discards only the current envelope's note edits after confirmed %s and keeps continue-writing intact",
+  async (destination) => {
+    widgets.widgets = [
+      widget("preparation", {
+        envelopes: [
+          { id: "trip", title: "여행 준비", checks: [], links: [], todoIds: [], archived: false },
+          { id: "other", title: "다른 준비", checks: [], links: [], todoIds: [], archived: false },
+        ],
+      }),
+    ];
+    diary.notes = [
+      { id: "packing", title: "여행 짐", body: "저장된 원문", pinned: true, envelopeId: "trip" },
+      {
+        id: "other-note",
+        title: "다른 메모",
+        body: "다른 원문",
+        pinned: false,
+        envelopeId: "other",
+      },
+    ];
+    const original = structuredClone(diary);
+    window.history.replaceState(null, "", "/?view=planner&tab=envelopes");
+    const nativeCommand = vi.mocked(command).getMockImplementation()!;
+    vi.mocked(command).mockImplementation((name, args) =>
+      name === "get_planner_tab" ? Promise.resolve("envelopes") : nativeCommand(name, args),
+    );
+    const view = render(<Diary />);
+    const envelope = within(await screen.findByRole("article", { name: "여행 준비 준비 봉투" }));
+    await waitFor(() => expect(command).toHaveBeenCalledWith("get_planner_tab"));
+    fireEvent.click(envelope.getByRole("button", { name: "여행 짐 메모 메뉴" }));
+    fireEvent.click(envelope.getByRole("button", { name: "편집" }));
+    const draftBody = "저장된 원문\n  버릴 임시 줄  ";
+    fireEvent.change(envelope.getByRole("textbox", { name: "메모 내용" }), {
+      target: { value: draftBody },
+    });
+    const draftKey = "comet.diary.note-draft:envelope:packing";
+    const storedDraft = localStorage.getItem(draftKey);
+    expect(JSON.parse(storedDraft || "null")).toMatchObject({ body: draftBody });
+    const unrelatedKeys = [
+      "comet.diary.note-draft:sidebar:packing",
+      "comet.diary.note-draft:envelope:other-note",
+      "comet.diary.note-compose:other",
+      `comet:diary-draft:day:${DAY}`,
+    ];
+    const unrelatedDraft = JSON.stringify({
+      title: "다른 초안",
+      body: "따로 보존할 내용",
+      baseTitle: "이전 제목",
+      baseBody: "이전 원문",
+    });
+    for (const key of unrelatedKeys) localStorage.setItem(key, unrelatedDraft);
+    const leave = (): void => {
+      if (destination === "close")
+        fireEvent.click(screen.getByRole("button", { name: "다이어리 닫기" }));
+      else showNotes();
+    };
+    leave();
+    fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
+    expect(envelope.getByRole("textbox", { name: "메모 내용" })).toHaveProperty("value", draftBody);
+    expect(localStorage.getItem(draftKey)).toBe(storedDraft);
+    expect(native.destroy).not.toHaveBeenCalled();
+    leave();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: destination === "close" ? "저장하지 않고 닫기" : "저장하지 않고 이동",
+      }),
+    );
+    expect(localStorage.getItem(draftKey)).toBeNull();
+    for (const key of unrelatedKeys) expect(localStorage.getItem(key)).toBe(unrelatedDraft);
+    if (destination === "close") {
+      await waitFor(() => expect(native.destroy).toHaveBeenCalledOnce());
+      view.unmount();
+      render(<Diary />);
+    } else {
+      fireEvent.click(screen.getByRole("link", { name: /^준비 봉투/ }));
+    }
+    const reopened = within(await screen.findByRole("article", { name: "여행 준비 준비 봉투" }));
+    expect(reopened.queryByRole("textbox", { name: "메모 내용" })).toBeNull();
+    expect(reopened.getByText("저장된 원문")).toBeTruthy();
+    expect(diary).toEqual(original);
+    expect(actions("update_diary")).toEqual([]);
+    expect(actions("execute_widget")).toEqual([]);
+  },
+);
+
+it("discards an unsaved envelope note composer on native close without reviving it on reopen", async () => {
+  widgets.widgets = [
+    widget("preparation", {
+      envelopes: [
+        { id: "trip", title: "여행 준비", checks: [], links: [], todoIds: [], archived: false },
+      ],
+    }),
+  ];
+  window.history.replaceState(null, "", "/?view=planner&tab=envelopes");
+  const nativeCommand = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation((name, args) =>
+    name === "get_planner_tab" ? Promise.resolve("envelopes") : nativeCommand(name, args),
+  );
+  const view = render(<Diary />);
+  await screen.findByRole("article", { name: "여행 준비 준비 봉투" });
+  await waitFor(() => expect(command).toHaveBeenCalledWith("get_planner_tab"));
+  fireEvent.click(screen.getByRole("button", { name: "준비 봉투 메뉴" }));
+  fireEvent.click(screen.getByRole("button", { name: "메모 쓰기" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "새 메모 제목" }), {
+    target: { value: "버릴 새 메모" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "새 메모 내용" }), {
+    target: { value: "  미저장 내용\n  " },
+  });
+  const draftKey = "comet.diary.note-compose:trip";
+  const storedDraft = localStorage.getItem(draftKey);
+  expect(storedDraft).toContain("버릴 새 메모");
+  const preventDefault = vi.fn();
+  act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault }));
+  expect(preventDefault).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
+  expect(screen.getByRole("textbox", { name: "새 메모 내용" })).toHaveProperty(
+    "value",
+    "  미저장 내용\n  ",
+  );
+  expect(localStorage.getItem(draftKey)).toBe(storedDraft);
+  act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault }));
+  fireEvent.click(screen.getByRole("button", { name: "저장하지 않고 닫기" }));
+  expect(localStorage.getItem(draftKey)).toBeNull();
+  await waitFor(() => expect(native.destroy).toHaveBeenCalledOnce());
+  view.unmount();
+  render(<Diary />);
+  await screen.findByRole("article", { name: "여행 준비 준비 봉투" });
+  expect(screen.queryByRole("textbox", { name: "새 메모 제목" })).toBeNull();
+  expect(screen.queryByRole("textbox", { name: "새 메모 내용" })).toBeNull();
+  expect(actions("update_diary")).toEqual([]);
 });
