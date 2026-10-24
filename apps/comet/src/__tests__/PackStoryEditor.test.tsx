@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import {
   PackStoryEditor,
   type PackStoryDraft,
@@ -8,6 +9,8 @@ import {
 import { command, PREVIEW_SNAPSHOT } from "../hooks/useSnapshot";
 import type {
   AnimationAsset,
+  AuthoringState,
+  AuthoringTrialTrace,
   InstalledCharacter,
   PackStorySnapshot,
   ScenarioDefinition,
@@ -29,6 +32,15 @@ const installed = ["a", "b"].flatMap((pack) =>
     definition: { ...actor.definition, sourceId: `${pack}-source-${index}` },
   })),
 );
+const trialState: AuthoringState = {
+  stage: null,
+  ready: true,
+  presentIds: [installed[0].id],
+  flags: [],
+  turn: 0,
+  waitTurn: 0,
+  pendingNextScenarioId: null,
+};
 function snapshot(packId: string, baseline = "1"): PackStorySnapshot {
   const actor = installed.find((value) => value.packId === packId)!;
   const line = { persona: actor.definition.sourceId, text: "등록 원문", expression: "평온" };
@@ -92,6 +104,14 @@ function Harness({
     />
   );
 }
+async function openTrial(): Promise<HTMLButtonElement> {
+  const world = await screen.findByLabelText("세계와 공통 규칙");
+  await waitFor(() => expect(world.closest("fieldset")).toHaveProperty("disabled", false));
+  await userEvent.setup().click(screen.getByText("등록 이야기 시험", { selector: "summary" }));
+  const button = screen.getByRole<HTMLButtonElement>("button", { name: "등록 이야기 시험" });
+  await waitFor(() => expect(button).toHaveProperty("disabled", false));
+  return button;
+}
 beforeEach(() => {
   vi.mocked(command).mockReset();
   vi.mocked(command).mockImplementation(async (name, args) =>
@@ -138,15 +158,6 @@ it("previews a pack member's unsaved animation bytes without requesting a stored
     }),
   );
   try {
-    const state = {
-      stage: null,
-      ready: true,
-      presentIds: [actor.id],
-      flags: [],
-      turn: 0,
-      waitTurn: 0,
-      pendingNextScenarioId: null,
-    };
     vi.mocked(command).mockImplementation(async (name) =>
       name === "get_pack_story_definition"
         ? snapshot("a")
@@ -159,8 +170,8 @@ it("previews a pack member's unsaved animation bytes without requesting a stored
                 stage: "intro",
                 conditions: [],
                 blockedReasons: [],
-                beforeState: state,
-                afterState: { ...state, stage: "intro" },
+                beforeState: trialState,
+                afterState: { ...trialState, stage: "intro" },
                 lines: [
                   {
                     persona: actor.id,
@@ -192,17 +203,7 @@ it("previews a pack member's unsaved animation bytes without requesting a stored
         trialAssets={{ [actor.id]: [pending] }}
       />,
     );
-    await screen.findByLabelText("세계와 공통 규칙");
-    const details = screen
-      .getByText("등록 이야기 시험", { selector: "summary" })
-      .closest("details")!;
-    details.open = true;
-    fireEvent(details, new Event("toggle"));
-    const trialButton = screen.getByRole("button", { name: "등록 이야기 시험" });
-    await waitFor(() => {
-      expect(trialButton).toHaveProperty("disabled", false);
-      expect(trialButton.closest("fieldset")).toHaveProperty("disabled", false);
-    });
+    const trialButton = await openTrial();
     fireEvent.click(trialButton);
     await waitFor(() =>
       expect(vi.mocked(command).mock.calls.some(([name]) => name === "trial_pack_authoring")).toBe(true),
@@ -280,33 +281,32 @@ it("preserves per-pack drafts and rejects an old save even after A to B to A", a
 
 it("drops late trial results when its section closes or its visible tab changes", async () => {
   const view = render(<Harness packId="a" />);
-  await screen.findByLabelText("세계와 공통 규칙");
+  const trialButton = await openTrial();
+  const user = userEvent.setup();
   const summary = screen.getByText("등록 이야기 시험", { selector: "summary" });
-  const details = summary.closest("details")!;
-  details.open = true;
-  fireEvent(details, new Event("toggle"));
   fireEvent.change(screen.getByLabelText("등록 이야기 시험 입력 · 한 줄에 한 번"), {
     target: { value: "좋아\n계속" },
   });
-  let finish!: (value: unknown) => void;
+  let finish!: (value: AuthoringTrialTrace) => void;
   vi.mocked(command).mockReturnValueOnce(
-    new Promise((resolve) => {
+    new Promise<AuthoringTrialTrace>((resolve) => {
       finish = resolve;
     }),
   );
-  fireEvent.click(screen.getByRole("button", { name: "등록 이야기 시험" }));
-  await act(async () => {
-    fireEvent.click(summary);
-  });
+  fireEvent.click(trialButton);
+  await waitFor(() =>
+    expect(
+      vi.mocked(command).mock.calls.filter(([name]) => name === "trial_pack_authoring"),
+    ).toHaveLength(1),
+  );
+  await user.click(summary);
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "등록 이야기 시험" })).toHaveProperty(
       "disabled",
       true,
     ),
   );
-  await act(async () => {
-    fireEvent.click(summary);
-  });
+  await user.click(summary);
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "등록 이야기 시험" })).toHaveProperty(
       "disabled",
@@ -318,9 +318,19 @@ it("drops late trial results when its section closes or its visible tab changes"
       blockedReasons: [],
       steps: [
         {
+          input: "좋아",
+          source: "registered",
           stage: "ending",
+          conditions: [],
+          blockedReasons: [],
+          beforeState: trialState,
+          afterState: { ...trialState, stage: "ending" },
           lines: [{ persona: "a-source-0", expression: "평온", text: "오래된 시험 결과" }],
+          lineDurationsMs: [500],
           plannedEffects: { setFlags: ["done"], memoryTemplate: null },
+          modelRequired: false,
+          modelNotRunReason: null,
+          presentationAssumed: true,
         },
       ],
     });
