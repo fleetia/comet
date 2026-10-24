@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// happy-dom does not disable controls inside a disabled fieldset.
 import { afterEach, expect, it, vi } from "vitest";
 import {
   act as reactAct,

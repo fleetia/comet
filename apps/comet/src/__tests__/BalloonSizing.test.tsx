@@ -26,7 +26,7 @@ afterEach(() => {
   window.history.replaceState(null, "", "/");
 });
 it("bounds a block-flow input viewport without growing the native balloon", async () => {
-  // jsdom cannot verify visual clipping. Assert the source layout contract here;
+  // The test DOM cannot verify visual clipping. Assert the source layout contract here;
   // expanded-history and failed-send geometry still requires native acceptance.
   const { readFileSync } = await vi.importActual<{
     readFileSync(path: string, encoding: "utf8"): string;
@@ -265,7 +265,7 @@ it.each([
       return 1;
     });
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
-    // jsdom has no layout. Model both natural growth and an already capped bubble,
+    // The test DOM has no layout. Model both natural growth and an already capped bubble,
     // and verify the hook's native sizing contract independently of DOM ordering.
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
       this: HTMLElement,
