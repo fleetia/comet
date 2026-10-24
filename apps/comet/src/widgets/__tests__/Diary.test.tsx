@@ -248,6 +248,8 @@ it("keeps repeated todo open events on the list and preserves the today destinat
 
 it("opens the preparation collection from its initial deep link after widgets load", async () => {
   window.history.replaceState(null, "", "/?view=planner&tab=envelopes");
+  const original = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation((name, args) => name === "get_planner_tab" ? Promise.resolve("envelopes") : original(name, args));
   widgets.widgets = [
     widget("preparation", {
       envelopes: [
@@ -2091,11 +2093,12 @@ it("ignores guarded navigation while a quick task save is pending", async () => 
   expect(screen.getByRole("radio", { name: "하루" })).toHaveProperty("checked", true);
 });
 
-it("lets a clean native close proceed without asking", async () => {
+it("routes a clean native close through the approved close callback", async () => {
   await openDiary();
   const preventDefault = vi.fn();
   act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault }));
-  expect(preventDefault).not.toHaveBeenCalled();
+  expect(preventDefault).toHaveBeenCalledOnce();
+  expect(native.destroy).toHaveBeenCalledOnce();
   expect(screen.queryByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeNull();
 });
 
@@ -2125,6 +2128,33 @@ it("releases native listeners that resolve after the diary unmounts", async () =
   });
   for (const cleanup of cleanups) expect(cleanup).toHaveBeenCalledOnce();
   expect(command).not.toHaveBeenCalledWith("get_planner_note_target");
+  expect(command).not.toHaveBeenCalledWith("get_planner_view_target");
+  expect(command).not.toHaveBeenCalledWith("get_planner_tab");
+});
+
+
+it("retains a dirty draft on cancel and calls the lifecycle close only after discard", async () => {
+  const onClose = vi.fn();
+  render(<Diary onClose={onClose} />);
+  await screen.findByRole("navigation", { name: "내 다이어리 목차" });
+  fireEvent.click(screen.getByRole("button", { name: "빠른 할 일 추가" }));
+  fireEvent.change(screen.getByLabelText(/빠른 할 일 제목/), { target: { value: "keep until approved" } });
+  act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault: vi.fn() }));
+  fireEvent.click(screen.getByRole("button", { name: "계속 작성" }));
+  expect(onClose).not.toHaveBeenCalled();
+  expect(screen.getByLabelText(/빠른 할 일 제목/)).toHaveProperty("value", "keep until approved");
+  act(() => native.onCloseRequested.mock.calls[0][0]({ preventDefault: vi.fn() }));
+  fireEvent.click(screen.getByRole("button", { name: "저장하지 않고 닫기" }));
+  expect(onClose).toHaveBeenCalledOnce();
+  expect(native.destroy).not.toHaveBeenCalled();
+});
+
+
+it("uses current native navigation instead of a retained envelope URL on remount", async () => {
+  window.history.replaceState(null, "", "/?view=planner&tab=envelopes");
+  render(<Diary onClose={vi.fn()} />);
+  await waitFor(() => expect(screen.getByRole("link", { name: "오늘" }).getAttribute("aria-current")).toBe("page"));
+  expect(screen.getByRole("link", { name: /^준비 봉투/ }).getAttribute("aria-current")).not.toBe("page");
 });
 
 it.each(["close", "navigate"] as const)(
@@ -2150,6 +2180,10 @@ it.each(["close", "navigate"] as const)(
     ];
     const original = structuredClone(diary);
     window.history.replaceState(null, "", "/?view=planner&tab=envelopes");
+    const nativeCommand = vi.mocked(command).getMockImplementation()!;
+    vi.mocked(command).mockImplementation((name, args) =>
+      name === "get_planner_tab" ? Promise.resolve("envelopes") : nativeCommand(name, args),
+    );
     const view = render(<Diary />);
     const envelope = within(await screen.findByRole("article", { name: "여행 준비 준비 봉투" }));
     await waitFor(() => expect(command).toHaveBeenCalledWith("get_planner_tab"));
@@ -2218,6 +2252,10 @@ it("discards an unsaved envelope note composer on native close without reviving 
     }),
   ];
   window.history.replaceState(null, "", "/?view=planner&tab=envelopes");
+  const nativeCommand = vi.mocked(command).getMockImplementation()!;
+  vi.mocked(command).mockImplementation((name, args) =>
+    name === "get_planner_tab" ? Promise.resolve("envelopes") : nativeCommand(name, args),
+  );
   const view = render(<Diary />);
   await screen.findByRole("article", { name: "여행 준비 준비 봉투" });
   await waitFor(() => expect(command).toHaveBeenCalledWith("get_planner_tab"));

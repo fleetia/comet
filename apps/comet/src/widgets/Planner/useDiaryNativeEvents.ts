@@ -24,7 +24,6 @@ const NATIVE_TABS = [
  */
 export function useDiaryNativeEvents({
   navigateRef,
-  blocking,
   close,
   nativeTab,
   setFailure,
@@ -42,6 +41,7 @@ export function useDiaryNativeEvents({
   onTab: (tab: string, resetCollections: boolean) => void;
 }): boolean {
   const [navigationReady, setNavigationReady] = useState(false);
+  const navigationRevision = useRef(0);
   const closeRef = useRef(close);
   closeRef.current = close;
   const handlers = useRef({ onNote, onTab });
@@ -50,12 +50,15 @@ export function useDiaryNativeEvents({
     if (!isDesktop()) return;
     let active = true;
     let received = false;
+    const initialRevision = navigationRevision.current;
     let cleanup: (() => void) | undefined;
     function select(id: string | null): void {
       if (!active || !id) return;
       navigateRef.current(() => handlers.current.onNote(id));
     }
     void listen<string>("planner-note", (event) => {
+      if (!active) return;
+      navigationRevision.current += 1;
       received = true;
       select(event.payload);
     })
@@ -66,7 +69,7 @@ export function useDiaryNativeEvents({
         }
         cleanup = unlisten;
         const id = await command<string | null>("get_planner_note_target");
-        if (!received) select(id);
+        if (!received && initialRevision === navigationRevision.current) select(id);
       })
       .catch((cause: unknown) => {
         if (active) setFailure(errorText(cause));
@@ -79,6 +82,7 @@ export function useDiaryNativeEvents({
   useEffect(() => {
     if (!isDesktop()) return;
     let active = true;
+    const initialRevision = navigationRevision.current;
     const cleanups: (() => void)[] = [];
     const retain = (cleanup: () => void): void => {
       if (active) cleanups.push(cleanup);
@@ -106,29 +110,39 @@ export function useDiaryNativeEvents({
       setViewTarget({ entity: value.entity, targetId: value.targetId });
     }
     void listen("planner-view-target", (event) => {
+      if (!active) return;
+      navigationRevision.current += 1;
       targetReceived = true;
       receiveTarget(event.payload);
-      void command("get_planner_view_target").catch((cause: unknown) => {
-        if (active) setFailure(errorText(cause));
-      });
     })
       .then(async (cleanup) => {
+        if (!active) {
+          cleanup();
+          return;
+        }
         retain(cleanup);
         const target = await command<unknown>("get_planner_view_target");
-        if (!targetReceived) receiveTarget(target);
+        if (!targetReceived && initialRevision === navigationRevision.current)
+          receiveTarget(target);
       })
       .catch((cause: unknown) => {
         if (active) setFailure(errorText(cause));
       });
     void listen<string>("planner-tab", (event) => {
+      if (!active) return;
+      navigationRevision.current += 1;
       received = true;
       setViewTarget(null);
       select(event.payload);
     })
       .then(async (cleanup) => {
+        if (!active) {
+          cleanup();
+          return;
+        }
         retain(cleanup);
         const tab = await command<string>("get_planner_tab");
-        if (!received) select(tab, false);
+        if (!received && initialRevision === navigationRevision.current) select(tab, false);
       })
       .catch((cause: unknown) => {
         if (active) setFailure(errorText(cause));
@@ -138,10 +152,9 @@ export function useDiaryNativeEvents({
       });
     void getCurrentWindow()
       .onCloseRequested((event) => {
-        if (blocking.current) {
-          event.preventDefault();
-          navigateRef.current(() => closeRef.current(), true);
-        }
+        event.preventDefault();
+        if (!active) return;
+        navigateRef.current(() => closeRef.current(), true);
       })
       .then(retain)
       .catch((cause: unknown) => {

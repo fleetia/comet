@@ -7,9 +7,14 @@ import { App } from "../App";
 vi.mock("@tauri-apps/api/core", async (load) => ({
   ...(await load<typeof import("@tauri-apps/api/core")>()),
   isTauri: () => true,
-  invoke: vi.fn(async () => false),
+  invoke: vi.fn(async (name: string) =>
+    name === "get_planning_window_state" ? { generation: 1, active: true } : false,
+  ),
 }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => vi.fn()) }));
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ onCloseRequested: vi.fn(async () => vi.fn()) }),
+}));
 vi.mock("../analytics", () => ({
   updateAnalyticsConsent: vi.fn(),
   trackSuccessfulCommand: vi.fn(),
@@ -64,11 +69,12 @@ it.each([
 ])("%s mounts without a full app snapshot subscription or bootstrap", async (view) => {
   window.history.replaceState(null, "", `/?view=${view}`);
   render(<App />);
-  expect(screen.getByText(view)).toBeTruthy();
+  expect(await screen.findByText(view)).toBeTruthy();
   await waitFor(() => expect(invoke).toHaveBeenCalledWith("get_analytics_consent"));
-  expect(listen).toHaveBeenCalledTimes(1);
+  const planning = view === "planner" || view === "travel";
+  expect(listen).toHaveBeenCalledTimes(planning ? 2 : 1);
   expect(listen).toHaveBeenCalledWith("analytics-consent", expect.any(Function));
-  expect(invoke).toHaveBeenCalledTimes(1);
+  expect(invoke).toHaveBeenCalledTimes(planning ? 2 : 1);
   expect(invoke).not.toHaveBeenCalledWith("get_snapshot", undefined);
 });
 
