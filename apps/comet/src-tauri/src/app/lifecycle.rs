@@ -776,6 +776,7 @@ pub fn run() {
             crate::memory_commands::remove_nlp_model,
             crate::memory_commands::retry_memory_analysis,
             windows::open_settings,
+            windows::open_organizer_settings,
             windows::get_settings_section,
             windows::set_settings_section,
             windows::set_settings_dirty,

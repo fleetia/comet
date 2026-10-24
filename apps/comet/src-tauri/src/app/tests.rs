@@ -2603,6 +2603,7 @@ fn settings_navigation_defaults_to_characters_and_maps_legacy_destinations() {
         "memory",
         "model",
         "general",
+        "organizer",
     ] {
         let value = serde_json::Value::String(section.into());
         let parsed: windows::SettingsSection = serde_json::from_value(value.clone()).unwrap();

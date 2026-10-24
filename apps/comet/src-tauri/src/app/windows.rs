@@ -23,6 +23,7 @@ pub(crate) enum SettingsSection {
     Model,
     #[serde(alias = "updates", alias = "user")]
     General,
+    Organizer,
 }
 
 impl SettingsSection {
@@ -35,6 +36,7 @@ impl SettingsSection {
             Self::Dialogue => "dialogue",
             Self::Memory => "memory",
             Self::Model => "model",
+            Self::Organizer => "organizer",
         }
     }
 }
@@ -354,6 +356,11 @@ pub(crate) fn talk_now(
 pub(crate) async fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
     let section = *lock(&app.state::<Arc<AppState>>().settings_section)?;
     open_settings_section(app, section)
+}
+
+#[tauri::command]
+pub(crate) fn open_organizer_settings(app: tauri::AppHandle) -> Result<(), String> {
+    open_settings_section(app, SettingsSection::Organizer)
 }
 
 #[tauri::command]

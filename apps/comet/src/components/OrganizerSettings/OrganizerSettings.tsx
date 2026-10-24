@@ -223,9 +223,9 @@ export function OrganizerSettings({
         const latest = await command<OrganizerStatus>("organizer_status");
         if (!current()) return;
         acceptStatus(latest);
-        if (current()) setSearchError(errorText(cause));
+        if (current()) setSearchError(`검색하지 못했어요. ${errorText(cause)}`);
       } catch {
-        if (current()) setSearchError("검색 연결을 다시 확인한 뒤 시도해 주세요.");
+        if (current()) setSearchError("검색하지 못했어요. 연결을 확인해 주세요.");
       }
     } finally {
       if (mounted.current && sequence === searchSequence.current) {
@@ -387,7 +387,12 @@ export function OrganizerSettings({
               </Button>
             </div>
           </form>
-          {hits?.length === 0 && <p role="status">검색 결과가 없어요.</p>}
+          {hits?.length === 0 && (
+            <div role="status" className={s.searchEmpty}>
+              <p className={figma.caption}>일치하는 자료가 없어요.</p>
+              <p className={figma.caption}>원문을 고쳤다면 ‘변경 자료 다시 읽기’ 뒤에 찾아보세요.</p>
+            </div>
+          )}
           {hits && hits.length > 0 && (
             <ul className={s.hits}>
               {hits.map((hit) => (
