@@ -502,7 +502,8 @@ export const taskSelected = style({
   background: tokens["color/component/selected-icon-alpha-140"],
   borderRadius: 12,
 });
-export const taskDiary = style({ width: 1180, minHeight: 40, padding: "6px 12px" });
+// Diary rows fill their list so the divider runs edge to edge at any window width.
+export const taskDiary = style({ width: "100%", minHeight: 40, padding: "6px 12px" });
 export const taskWithoutDivider = style({ borderTop: "none" });
 export const taskEnvelope = style({
   width: "100%",
