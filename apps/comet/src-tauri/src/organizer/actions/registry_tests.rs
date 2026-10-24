@@ -843,3 +843,194 @@ fn deleting_or_undoing_a_referenced_task_is_atomic_and_rejected() {
         .unwrap()
         .is_empty());
 }
+
+fn ask(db: &Connection, kind: &str, target: &str, input: Value, query: &str) -> Result<Receipt> {
+    let user = store::active_user_id(db).unwrap();
+    let revision = entities_for(db, kind, "").unwrap()["revision"]
+        .as_i64()
+        .unwrap();
+    execute_registry(
+        db,
+        &user,
+        &uuid::Uuid::new_v4().to_string(),
+        0,
+        query,
+        &Action {
+            kind: kind.into(),
+            target_id: target.into(),
+            expected_revision: revision,
+            input,
+        },
+    )
+}
+
+fn saved_diary(db: &Connection) -> Value {
+    serde_json::to_value(diary::read(db).unwrap()).unwrap()
+}
+
+#[test]
+fn travel_booking_from_conversation_follows_the_ledger_and_undoes_together() {
+    let db = database();
+    let user = store::active_user_id(&db).unwrap();
+    let travel = ask(
+        &db,
+        "travel_create",
+        "",
+        json!({"title":"오사카","destination":"오사카","startDate":"2026-11-01",
+               "endDate":"2026-11-03","timeZone":"Asia/Tokyo","currency":"JPY"}),
+        "오사카 여행 만들어줘",
+    )
+    .unwrap()
+    .target_id;
+    let hotel = json!({"travelId":travel,"kind":"stay","title":"난바 호텔","status":"paid",
+                       "amount":"24000","startDate":"2026-11-01"});
+    let missing = ask(
+        &db,
+        "travel_booking_add",
+        "",
+        hotel.clone(),
+        "난바 호텔 24000엔 예약 추가해줘",
+    );
+    assert!(missing.unwrap_err().contains("JPY 환율"));
+    let mut rated = hotel;
+    rated["rate"] = json!("9.12");
+    rated["confirmation"] = json!("HX-99812");
+    let booking = ask(
+        &db,
+        "travel_booking_add",
+        "",
+        rated,
+        "난바 호텔 24000엔, 예약번호 HX-99812, 환율 9.12로 예약 추가해줘",
+    )
+    .unwrap();
+    assert_eq!(booking.title, "오사카 · 난바 호텔");
+    assert_eq!(
+        booking.result.as_ref().unwrap()["item"]["confirmation"],
+        "•••• 9812"
+    );
+    let lunch = ask(
+        &db,
+        "travel_expense_add",
+        "",
+        json!({"travelId":travel,"title":"라멘","date":"2026-11-01","amount":"1200","paid":true}),
+        "라멘 1200엔 비용 추가해줘",
+    )
+    .unwrap();
+    assert_eq!(lunch.result.as_ref().unwrap()["item"]["rate"], 91_200);
+    let trip = query_registry(&db, "travel_query", &json!({"travelId":travel})).unwrap();
+    assert_eq!(trip["travelBookings"][0]["confirmation"], "•••• 9812");
+    assert!(!trip.to_string().contains("HX-99812"));
+    assert_eq!(trip["summary"]["paid"], 218_880 + 10_944);
+    assert_eq!(
+        query_registry(&db, "ledger_query", &json!({})).unwrap()["expenseTotal"],
+        218_880 + 10_944
+    );
+    undo(&db, &user, &booking.id).unwrap();
+    let trip = query_registry(&db, "travel_query", &json!({"travelId":travel})).unwrap();
+    assert_eq!(trip["travelBookings"], json!([]));
+    assert_eq!(trip["travelExpenses"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        query_registry(&db, "ledger_query", &json!({})).unwrap()["expenseTotal"],
+        10_944
+    );
+}
+
+#[test]
+fn travel_edits_keep_unmentioned_fields_and_never_take_masked_or_invented_numbers() {
+    let db = database();
+    let travel = ask(
+        &db,
+        "travel_create",
+        "",
+        json!({"title":"제주","startDate":"2026-11-01","endDate":"2026-11-02",
+               "timeZone":"Asia/Seoul","currency":"KRW","budget":500_000}),
+        "제주 여행 만들어줘",
+    )
+    .unwrap()
+    .target_id;
+    let booking = ask(
+        &db,
+        "travel_booking_add",
+        "",
+        json!({"travelId":travel,"kind":"stay","title":"애월 숙소","status":"paid",
+               "amount":"400000","startDate":"2026-11-01","confirmation":"AB12-4821"}),
+        "애월 숙소 40만원, 예약번호 AB12-4821 예약 추가해줘",
+    )
+    .unwrap()
+    .target_id;
+    ask(
+        &db,
+        "travel_booking_update",
+        &booking,
+        json!({"title":"애월 숙소 B"}),
+        "숙소 이름 바꿔줘",
+    )
+    .unwrap();
+    let saved = saved_diary(&db);
+    assert_eq!(saved["travelBookings"][0]["confirmation"], "AB12-4821");
+    assert_eq!(saved["travelBookings"][0]["title"], "애월 숙소 B");
+    assert_eq!(saved["travelBookings"][0]["category"], "housing");
+    assert_eq!(saved["travels"][0]["budget"], 500_000);
+    for (value, query) in [
+        ("•••• 4821", "예약번호 •••• 4821로 바꿔줘"),
+        ("ZZ-0001", "예약번호 바꿔줘"),
+    ] {
+        assert!(ask(
+            &db,
+            "travel_booking_update",
+            &booking,
+            json!({"confirmation":value}),
+            query
+        )
+        .unwrap_err()
+        .contains("예약번호"));
+    }
+    let context = entities_for(&db, "travel_booking_update", "").unwrap();
+    assert_eq!(context["travelBookings"][0]["confirmation"], "•••• 4821");
+    assert!(!context.to_string().contains("AB12-4821"));
+    assert!(ask(
+        &db,
+        "travel_expense_add",
+        "",
+        json!({"travelId":travel,"title":"귤","date":"2026-11-01","amount":"12.5","paid":true}),
+        "귤 12.5원 비용 추가해줘",
+    )
+    .unwrap_err()
+    .contains("KRW"));
+    let plan = ask(
+        &db,
+        "travel_plan_add",
+        "",
+        json!({"travelId":travel,"kind":"plan","date":"2026-11-01","title":"오름"}),
+        "오름 일정 추가해줘",
+    )
+    .unwrap()
+    .target_id;
+    assert!(ask(
+        &db,
+        "travel_plan_update",
+        &plan,
+        json!({"travelId":"other"}),
+        "일정 옮겨줘"
+    )
+    .is_err());
+    let finished = ask(
+        &db,
+        "travel_finish",
+        &travel,
+        json!({"finished":true}),
+        "제주 여행 정리 마쳐줘",
+    )
+    .unwrap();
+    assert_eq!(finished.result.as_ref().unwrap()["item"]["finished"], true);
+    assert_eq!(saved_diary(&db)["travels"][0]["budget"], 500_000);
+    let user = store::active_user_id(&db).unwrap();
+    let removed = ask(&db, "travel_delete", &travel, json!({}), "제주 여행 지워줘").unwrap();
+    assert_eq!(removed.title, "제주");
+    let saved = saved_diary(&db);
+    assert_eq!(saved["travels"], json!([]));
+    assert_eq!(saved["travelBookings"], json!([]));
+    assert_eq!(saved["ledgerEntries"].as_array().unwrap().len(), 1);
+    undo(&db, &user, &removed.id).unwrap();
+    assert_eq!(saved_diary(&db)["travelBookings"][0]["confirmation"], "AB12-4821");
+}
