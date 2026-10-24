@@ -5,6 +5,7 @@ mod schema;
 mod time;
 pub(crate) mod travel;
 mod travel_alerts;
+pub(crate) mod travel_conversation;
 pub(crate) mod travel_files;
 pub(crate) use schema::initialize;
 

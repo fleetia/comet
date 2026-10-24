@@ -98,6 +98,25 @@ pub(super) const DEFINITIONS: &[Definition] = &[
     definition!("match_coin","small-match","coin","","control",false,false,false,"choice","choice","동전을 던진다. choice는 heads 또는 tails."),
     definition!("fortune_query","fortune","","","read",false,false,false,"","","최근 장난 운세 조회. 실제 예측이 아닌 가상 놀이."),
     definition!("fortune_draw","fortune","draw","","control",false,false,false,"","","가상의 장난 운세 뽑기."),
+    definition!("travel_query","diary","","travels","read",false,false,false,"query,travelId,from,through","","여행 목록과 단계(planning/before/traveling/wrapping/done) 조회. travelId를 주면 그 여행의 일정·예약·비용·사람·보낸 기록과 앱이 계산한 비용 요약(summary)·정산(settlement)을 돌려준다. 금액 합계·정산은 이 값만 쓴다."),
+    definition!("travel_create","diary","travel-create","travels","write",false,true,false,"title,destination,startDate,endDate,timeZone,currency,budget","title,startDate,endDate,timeZone,currency","여행 만들기. timeZone은 현지 IANA 시간대, currency는 결제 통화(KRW 등), budget은 원화 예산 정수. 마지막 날은 첫날부터 1년 안."),
+    definition!("travel_update","diary","travel-update","travels","write",false,true,true,"title,destination,startDate,endDate,timeZone,currency,budget","","기존 여행의 명시한 필드만 수정."),
+    definition!("travel_delete","diary","travel-delete","travels","write",false,true,true,"","","여행과 그 일정·예약·비용·사람·보낸 기록·사진 기록 삭제. 가계부에 들어간 기록은 남는다. 앱이 먼저 확인 질문을 한다."),
+    definition!("travel_finish","diary","travel-update","travels","write",false,true,true,"finished","finished","정리 마치기(finished=true) 또는 다시 정리하기(finished=false)."),
+    definition!("travel_plan_add","diary","travel-plan-create","travelPlans","write",false,true,false,"travelId,kind,date,time,title,place,memo,arriveDate,arriveTime,departZone,arriveZone,bookingId","travelId,kind,date,title","여행 일정 추가. kind plan(일반)/move(이동). 날짜·시각은 여행 시간대 YYYY-MM-DD·HH:MM, N일째는 첫날이 1일째. move는 time(출발)·arriveDate·arriveTime이 모두 필요하고 시간대가 다르면 departZone/arriveZone. 모델이 추천한 일정은 사용자가 고른 것만 저장."),
+    definition!("travel_plan_update","diary","travel-plan-update","travelPlans","write",false,true,true,"kind,date,time,title,place,memo,arriveDate,arriveTime,departZone,arriveZone,bookingId","","기존 여행 일정의 명시한 필드만 수정. 다른 여행으로 옮길 수 없다."),
+    definition!("travel_plan_delete","diary","travel-plan-delete","travelPlans","write",false,true,true,"","","여행 일정 삭제."),
+    definition!("travel_booking_add","diary","travel-booking-create","travelBookings","write",false,true,false,"travelId,kind,title,vendor,confirmation,status,amount,currency,rate,category,paidDate,startDate,startTime,startZone,endDate,endTime,endZone,place,destination,cancelDate,cancelTime,link,memo","travelId,kind,title,status,startDate","여행 예약 추가. kind flight/train/bus/stay/car/ticket/food/other, status paid/onsite/unpaid. amount·rate는 사용자가 적은 소수 문자열. currency 생략 시 여행 통화, rate 생략 시 context.lastRates, 둘 다 없으면 question으로 묻는다. 환율을 추정하지 않는다. confirmation·link는 request에 그대로 있는 값만. 바우처·위치는 여행 창에서."),
+    definition!("travel_booking_update","diary","travel-booking-update","travelBookings","write",false,true,true,"kind,title,vendor,confirmation,status,amount,currency,rate,category,paidDate,startDate,startTime,startZone,endDate,endTime,endZone,place,destination,cancelDate,cancelTime,link,memo","","기존 예약의 명시한 필드만 수정. 가려진 예약번호(••••)를 다시 보내지 않는다."),
+    definition!("travel_booking_delete","diary","travel-booking-delete","travelBookings","write",false,true,true,"","","예약과 그 예약에서 생긴 비용·가계부 기록 삭제."),
+    definition!("travel_expense_add","diary","travel-expense-create","travelExpenses","write",false,true,false,"travelId,title,date,amount,currency,rate,category,paid,payer,shares,memo","travelId,title,date,amount,paid","여행 비용 추가. amount·rate는 사용자가 적은 소수 문자열. paid는 낸 비용 true, 예정 false. payer 생략 시 나(me), shares 생략 시 모두 똑같이. payer·shares.person은 context의 사람 ID 또는 me."),
+    definition!("travel_expense_update","diary","travel-expense-update","travelExpenses","write",false,true,true,"title,date,amount,currency,rate,category,paid,payer,shares,memo","","기존 여행 비용의 명시한 필드만 수정. 예약에서 생긴 비용의 금액·날짜·결제는 예약 수정으로 바꾼다."),
+    definition!("travel_expense_delete","diary","travel-expense-delete","travelExpenses","write",false,true,true,"","","여행 비용과 연결된 가계부 기록 삭제. 예약에서 생긴 비용은 예약에서 지운다."),
+    definition!("travel_person_add","diary","travel-person-create","travelPeople","write",false,true,false,"travelId,name","travelId,name","함께 가는 사람 추가. 똑같이 나누던 비용에 함께 들어간다."),
+    definition!("travel_person_update","diary","travel-person-update","travelPeople","write",false,true,true,"name","name","함께 가는 사람 이름 바꾸기."),
+    definition!("travel_person_delete","diary","travel-person-delete","travelPeople","write",false,true,true,"","","함께 가는 사람 삭제. 낸 비용이나 보낸 기록이 있으면 지울 수 없다."),
+    definition!("travel_transfer_add","diary","travel-transfer-create","travelTransfers","write",false,true,false,"travelId,from,to,amount,date","travelId,from,to,amount,date","정산 중 보낸 기록 추가. amount는 원 단위 정수, from·to는 사람 ID 또는 me."),
+    definition!("travel_transfer_delete","diary","travel-transfer-delete","travelTransfers","write",false,true,true,"","","보낸 기록 삭제."),
 ];
 
 pub(super) fn definition(id: &str) -> Result<&'static Definition> {
@@ -107,7 +126,54 @@ pub(super) fn definition(id: &str) -> Result<&'static Definition> {
         .ok_or_else(|| "등록되지 않은 작업이에요.".into())
 }
 
-fn property(field: &str) -> Value {
+/// Travel fields share names with ledger and habit fields but not their meaning.
+fn travel_property(kind: &str, field: &str) -> Option<Value> {
+    Some(match field {
+        "amount" if kind == "travel_transfer_add" => {
+            json!({"type":"integer","minimum":1,"maximum":100_000_000_000_u64})
+        }
+        "budget" => json!({"type":"integer","minimum":0,"maximum":100_000_000_000_u64}),
+        "amount" | "rate" => json!({
+            "type":"string","maxLength":20,
+            "description":"사용자가 적은 숫자 그대로의 소수 문자열. rate는 결제 통화 1단위가 몇 원인지.",
+            "examples":["12.50","1200","9.12"]
+        }),
+        "kind" if kind.starts_with("travel_plan") => {
+            json!({"type":"string","enum":["plan","move"]})
+        }
+        "kind" => {
+            json!({"type":"string","enum":["flight","train","bus","stay","car","ticket","food","other"]})
+        }
+        "status" => json!({"type":"string","enum":["paid","onsite","unpaid"]}),
+        "paid" | "finished" => json!({"type":"boolean"}),
+        "shares" => json!({
+            "type":"array","minItems":1,"maxItems":31,
+            "items":{"type":"object","required":["person","weight"],"properties":{
+                "person":{"type":"string","maxLength":200},
+                "weight":{"type":"integer","minimum":1,"maximum":100}
+            }}
+        }),
+        "date" | "startDate" | "endDate" | "arriveDate" | "paidDate" | "cancelDate" => {
+            json!({"type":["string","null"],"maxLength":10,"description":"YYYY-MM-DD"})
+        }
+        "time" | "arriveTime" | "startTime" | "endTime" | "cancelTime" => {
+            json!({"type":["string","null"],"maxLength":5,"description":"HH:MM"})
+        }
+        "departZone" | "arriveZone" | "startZone" | "endZone" | "timeZone" => {
+            json!({"type":["string","null"],"maxLength":64,"description":"IANA 시간대"})
+        }
+        _ => return None,
+    })
+}
+
+fn property(kind: &str, field: &str) -> Value {
+    if let Some(value) = kind
+        .starts_with("travel_")
+        .then(|| travel_property(kind, field))
+        .flatten()
+    {
+        return value;
+    }
     match field {
         "amount" => json!({"type":"integer","minimum":1,"maximum":100_000_000_000_u64}),
         "count" | "weeklyGoal" | "target" => json!({"type":"integer","minimum":1,"maximum":10000}),
@@ -144,7 +210,7 @@ pub(super) fn schema(definition: &Definition) -> Value {
         .fields
         .split(',')
         .filter(|key| !key.is_empty())
-        .map(|key| (key.into(), property(key)))
+        .map(|key| (key.into(), property(definition.id, key)))
         .collect();
     let required: Vec<_> = definition
         .required
@@ -186,6 +252,7 @@ fn validate_value(value: &Value, schema: &Value) -> Result<()> {
         "boolean" => value.is_boolean(),
         "array" => value.is_array(),
         "null" => value.is_null(),
+        "object" => value.is_object(),
         _ => false,
     };
     let valid = schema["type"].as_str().is_some_and(type_matches)
@@ -234,6 +301,22 @@ fn validate_value(value: &Value, schema: &Value) -> Result<()> {
         }
         for value in values {
             validate_value(value, &schema["items"])?;
+        }
+    }
+    if let (Some(fields), Some(properties)) = (value.as_object(), schema["properties"].as_object())
+    {
+        for key in schema["required"].as_array().into_iter().flatten() {
+            if !key.as_str().is_some_and(|key| fields.contains_key(key)) {
+                return Err("작업 입력의 값 형식이 올바르지 않아요.".into());
+            }
+        }
+        for (key, value) in fields {
+            validate_value(
+                value,
+                properties
+                    .get(key)
+                    .ok_or("작업 입력의 값 형식이 올바르지 않아요.")?,
+            )?;
         }
     }
     Ok(())
