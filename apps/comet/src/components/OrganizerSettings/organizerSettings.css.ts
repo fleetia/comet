@@ -51,6 +51,7 @@ export const search = style({ display: "grid", gap: 8, minWidth: 0 });
 export const path = style({ display: "flex", gap: 8, minWidth: 0, alignItems: "center" });
 globalStyle(`${path} > span`, { flex: 1, minWidth: 0 });
 export const fullInput = style({ width: "100%" });
+export const searchEmpty = style({ display: "grid", gap: 6 });
 export const hits = style({ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 });
 globalStyle(`${hits} li`, {
   padding: 12,
