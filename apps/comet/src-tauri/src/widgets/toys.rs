@@ -429,6 +429,18 @@ pub fn act(
         }
         "small-match" => {
             let mut state: Match = decode(data)?;
+            if action == "choose" {
+                // Opening a game from the character menu only picks it; nothing is played.
+                let game = input["game"].as_str().unwrap_or_default();
+                if !matches!(game, "dice" | "coin" | "rps") {
+                    return Err("주사위, 동전, 가위바위보 중에서 골라 주세요.".into());
+                }
+                state.game = game.into();
+                state.a.clear();
+                state.b.clear();
+                state.result.clear();
+                return effect(state, vec![]);
+            }
             let target = play_target(input, matches!(action, "coin" | "rps"))?;
             match action {
                 "dice" => {

@@ -153,6 +153,20 @@ it("starts with the play selector and renders only the chosen game balloon", () 
   expect(screen.queryByText("앞면? 뒷면? 골라 봐요.")).toBeNull();
 });
 
+it("follows a game picked from the character menu while the window is open", () => {
+  const act = vi.fn().mockResolvedValue(true);
+  const view = render(<ToyTool widget={toyWidget("small-match")} act={act} />);
+  expect(screen.queryByText("앞면? 뒷면? 골라 봐요.")).toBeNull();
+  view.rerender(
+    <ToyTool
+      widget={{ ...toyWidget("small-match"), revision: 2, data: { game: "coin" } }}
+      act={act}
+    />,
+  );
+  expect(screen.getByText("앞면? 뒷면? 골라 봐요.")).toBeTruthy();
+  expect(act).not.toHaveBeenCalled();
+});
+
 it("routes game and fortune actions to the selected companion identity", () => {
   const act = vi.fn().mockResolvedValue(true);
   const characters = {

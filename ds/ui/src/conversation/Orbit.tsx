@@ -104,6 +104,19 @@ export type OrbitMenuItems =
       OrbitMenuItem,
       OrbitMenuItem,
     ];
+/** Primary ring items: up to seven use the designed slots, an eighth spreads them evenly. */
+export type OrbitPrimaryItems =
+  | OrbitMenuItems
+  | readonly [
+      OrbitMenuItem,
+      OrbitMenuItem,
+      OrbitMenuItem,
+      OrbitMenuItem,
+      OrbitMenuItem,
+      OrbitMenuItem,
+      OrbitMenuItem,
+      OrbitMenuItem,
+    ];
 export type OrbitExpandedMenuProps = HTMLAttributes<HTMLDivElement> & {
   open?: boolean;
   size?: "full" | "compact";
@@ -111,7 +124,7 @@ export type OrbitExpandedMenuProps = HTMLAttributes<HTMLDivElement> & {
   parent: string;
   title: string;
   hubIcon?: IconName;
-  items: OrbitMenuItems;
+  items: OrbitPrimaryItems;
   secondaryItems?: OrbitMenuItems;
   selectedId?: string;
   onAction?: (id: string) => void;
@@ -176,11 +189,32 @@ const playSecondaryPositions = [
   [183.5, 226.5],
 ] as const;
 
+/** Evenly spreads `count` nodes over the ring's 240° arc (150° → 390°, clockwise from the left). */
+function ringPositions(
+  count: number,
+  ring: { x: number; y: number; radius: number },
+  node: number,
+): { positions: [number, number][]; labels: ("left" | "right" | "top")[] } {
+  const positions: [number, number][] = [];
+  const labels: ("left" | "right" | "top")[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const angle = ((150 + (240 * index) / Math.max(1, count - 1)) * Math.PI) / 180;
+    const cos = Math.cos(angle);
+    positions.push([
+      Math.round((ring.x + ring.radius * cos - node / 2) * 100) / 100,
+      Math.round((ring.y + ring.radius * Math.sin(angle) - node / 2) * 100) / 100,
+    ]);
+    // Only a node at the very top keeps its label above; the pair around it reads sideways.
+    labels.push(cos < -0.05 ? "left" : cos > 0.05 ? "right" : "top");
+  }
+  return { positions, labels };
+}
+
 export type OrbitBranchProps = Omit<HTMLAttributes<HTMLDivElement>, "content"> & {
   origin: { x: number; y: number };
   center: { x: number; y: number };
   title: string;
-  items: OrbitMenuItems;
+  items: OrbitPrimaryItems;
   open?: boolean;
   hubIcon?: IconName;
   selectedId?: string;
@@ -320,7 +354,12 @@ function OrbitMenu({
 }: OrbitExpandedMenuProps & { branch?: boolean }): JSX.Element {
   const isCompact = size === "compact" || content === "play";
   const isPlay = content === "play";
-  const positions =
+  const ring = isPlay
+    ? { width: 310, height: 330, x: 160, y: 150, radius: 72, bodyRadius: 46, connectorY: 193 }
+    : isCompact
+      ? { width: 310, height: 340, x: 156, y: 144, radius: 68, bodyRadius: 44, connectorY: 186 }
+      : { width: 440, height: 470, x: 220, y: 196, radius: 104, bodyRadius: 72, connectorY: 245 };
+  const designed: readonly (readonly [number, number])[] =
     branch && items.length === 2
       ? [
           [178, 75],
@@ -331,10 +370,15 @@ function OrbitMenu({
         : isCompact
           ? compactPositions
           : fullPositions;
+  // More nodes than designed slots keep the designed arc but spread evenly over it.
+  const spread =
+    items.length <= designed.length ? null : ringPositions(items.length, ring, isCompact ? 28 : 40);
+  const positions = spread?.positions ?? designed;
   const labels =
-    branch && items.length === 2
+    spread?.labels ??
+    (branch && items.length === 2
       ? (["left", "right"] as const)
-      : (["left", "left", "left", "top", "right", "right", "right"] as const);
+      : (["left", "left", "left", "top", "right", "right", "right"] as const));
   const { present, visualRef, exiting } = useOrbitPresence(
     open,
     items.length,
@@ -358,11 +402,6 @@ function OrbitMenu({
     characterAnchor && Number.isFinite(characterAnchor.x) && Number.isFinite(characterAnchor.y)
       ? characterAnchor
       : undefined;
-  const ring = isPlay
-    ? { width: 310, height: 330, x: 160, y: 150, radius: 72, bodyRadius: 46, connectorY: 193 }
-    : isCompact
-      ? { width: 310, height: 340, x: 156, y: 144, radius: 68, bodyRadius: 44, connectorY: 186 }
-      : { width: 440, height: 470, x: 220, y: 196, radius: 104, bodyRadius: 72, connectorY: 245 };
   const launch = anchor ?? {
     x: characterPosition[0] + (isCompact ? 24 : 30),
     y: characterPosition[1] + (isCompact ? 24 : 30),
@@ -375,9 +414,24 @@ function OrbitMenu({
       data-orbit-branch={branch || undefined}
       onKeyDown={(event) => {
         onKeyDown?.(event);
-        if (!event.defaultPrevented && !event.nativeEvent.isComposing && event.key === "Escape") {
+        if (event.defaultPrevented || event.nativeEvent.isComposing) return;
+        if (event.key === "Escape") {
           event.preventDefault();
           onBack?.();
+        } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          // ←/→ walk this ring only; Enter is the focused node's own click.
+          const nodes = [
+            ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+              ":scope > [data-orbit-visual] > [data-orbit-primary] > button:not(:disabled)",
+            ),
+          ];
+          if (!nodes.length) return;
+          event.preventDefault();
+          const at = nodes.indexOf(document.activeElement as HTMLButtonElement);
+          const step = event.key === "ArrowRight" ? 1 : -1;
+          const next =
+            at < 0 ? (step > 0 ? 0 : nodes.length - 1) : (at + step + nodes.length) % nodes.length;
+          nodes[next].focus();
         }
       }}
       className={[styles.menu, isCompact && styles.compact, isPlay && styles.play, className]

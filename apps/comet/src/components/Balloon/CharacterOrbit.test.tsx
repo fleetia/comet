@@ -215,3 +215,77 @@ describe("full exit motion", () => {
     expect(action).not.toHaveBeenCalled();
   });
 });
+
+describe("같이 놀기", () => {
+  it("fans games, then toys, and closes the menu when a game opens", async () => {
+    const action = vi.fn();
+    const view = render(<CharacterOrbit {...base} onAction={action} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "같이 놀기" }));
+    expect(screen.getByRole("group", { name: "별꼬리 같이 놀기" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "같이 놀기" }).getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+    for (const name of [
+      "주사위 굴리기",
+      "동전 던지기",
+      "가위바위보",
+      "숫자 맞히기",
+      "컵 찾기",
+      "장난 운세",
+    ])
+      expect(screen.getByRole("button", { name })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "장난감 꺼내기" }));
+    expect(view.container.firstElementChild?.getAttribute("style")).toContain("width: 800px");
+    for (const name of ["공", "종이비행기", "비눗방울", "작은 펫"])
+      expect(screen.getByRole("button", { name })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "종이비행기" }));
+    await waitFor(() => expect(action).toHaveBeenCalledExactlyOnceWith("toy-paper-plane"));
+    expect(screen.queryByRole("group", { name: "별꼬리 같이 놀기" })).toBeNull();
+  });
+
+  it("swaps the 교감 ring for the play ring instead of stacking them", async () => {
+    render(<CharacterOrbit {...base} onAction={vi.fn()} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "교감" }));
+    fireEvent.click(screen.getByRole("button", { name: "같이 놀기" }));
+    await waitFor(() => expect(screen.queryByRole("group", { name: "별꼬리 교감" })).toBeNull());
+    expect(screen.getByRole("group", { name: "별꼬리 같이 놀기" })).toBeTruthy();
+  });
+
+  it("strokes and pokes in place like the other 교감 touches", async () => {
+    const action = vi.fn();
+    render(
+      <CharacterOrbit
+        {...base}
+        character={PREVIEW_SNAPSHOT.characters.installed[0]}
+        onAction={action}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "교감" }));
+    fireEvent.click(screen.getByRole("button", { name: "쓰다듬기" }));
+    await waitFor(() => expect(action).toHaveBeenCalledWith("stroke"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "콕 찌르기" })).toHaveProperty("disabled", false),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "콕 찌르기" }));
+    await waitFor(() => expect(action).toHaveBeenLastCalledWith("poke"));
+    expect(screen.getByRole("group", { name: "별꼬리 교감" })).toBeTruthy();
+  });
+
+  it("opens the outer ring with Enter, walks it with arrows and returns with Escape", async () => {
+    render(<CharacterOrbit {...base} onAction={vi.fn()} onClose={vi.fn()} />);
+    const play = screen.getByRole("button", { name: "같이 놀기" });
+    play.focus();
+    fireEvent.click(play);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "주사위 굴리기" })),
+    );
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "동전 던지기" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByRole("group", { name: "별꼬리 같이 놀기" })).toBeNull(),
+    );
+    expect(document.activeElement).toBe(play);
+  });
+});

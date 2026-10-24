@@ -1112,56 +1112,85 @@ pub(crate) fn give_character_snack(
     state: tauri::State<'_, Arc<AppState>>,
     persona: String,
 ) -> Result<(), String> {
+    menu_interaction(&app, &state, &persona, "snack")
+}
+
+/// Strokes or pokes a friend from the character menu with the same affinity rules as touching
+/// its body.
+#[tauri::command]
+pub(crate) fn touch_character_from_menu(
+    app: AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    persona: String,
+    action: String,
+) -> Result<(), String> {
+    if !matches!(action.as_str(), "stroke" | "poke") {
+        return Err("교감 동작이 올바르지 않아요.".into());
+    }
+    menu_interaction(&app, &state, &persona, &action)
+}
+
+fn menu_interaction(
+    app: &AppHandle,
+    state: &Arc<AppState>,
+    persona: &str,
+    action: &str,
+) -> Result<(), String> {
+    let hidden = if action == "snack" {
+        "숨긴 캐릭터에게는 간식을 줄 수 없어요."
+    } else {
+        "숨긴 캐릭터와는 교감할 수 없어요."
+    };
     let character_id = {
         let _action = lock(&state.action)?;
-        if crate::unavailable(&state) || lock(&state.runtime)?.hidden {
-            return Err("숨긴 캐릭터에게는 간식을 줄 수 없어요.".into());
+        if crate::unavailable(state) || lock(&state.runtime)?.hidden {
+            return Err(hidden.into());
         }
-        let id = crate::characters::guests::actor(&state, &*lock(&state.db)?, &persona)?.id;
-        crate::characters::life::wake(&state, &id)?;
+        let id = crate::characters::guests::actor(state, &*lock(&state.db)?, persona)?.id;
+        crate::characters::life::wake(state, &id)?;
         id
     };
-    crate::characters::life::wandering::cancel(&app, state.inner(), &character_id)?;
+    crate::characters::life::wandering::cancel(app, state, &character_id)?;
     let window = app
         .get_webview_window(&format!("body-{character_id}"))
         .ok_or("캐릭터 창을 찾지 못했어요.")?;
     if !window.is_visible().map_err(|error| error.to_string())? {
-        return Err("숨긴 캐릭터에게는 간식을 줄 수 없어요.".into());
+        return Err(hidden.into());
     }
     let eligible = {
         let _action = lock(&state.action)?;
         let session_id = uuid::Uuid::new_v4().to_string();
-        touch_session(&state, &character_id, &session_id, None)?;
+        touch_session(state, &character_id, &session_id, None)?;
         let db = lock(&state.db)?;
         crate::characters::guests::interact_locked(
-            &state,
+            state,
             &db,
             &character_id,
-            "snack",
+            action,
             &session_id,
             chrono::Utc::now().timestamp_millis(),
         )?
     };
     if let Some(event) = eligible {
         if crate::characters::reaction_host::direct_start(
-            &app,
-            state.inner().clone(),
+            app,
+            state.clone(),
             &character_id,
-            "snack",
+            action,
             None,
             crate::characters::reaction_host::window_identity(&window),
         )?
         .is_none()
         {
             crate::characters::reaction_host::direct_common(
-                &app,
-                state.inner().clone(),
+                app,
+                state.clone(),
                 &character_id,
                 &event,
                 crate::characters::reaction_host::window_identity(&window),
             )?;
         }
     }
-    crate::widgets::commands::publish_widgets(&app, &state);
+    crate::widgets::commands::publish_widgets(app, state);
     Ok(())
 }

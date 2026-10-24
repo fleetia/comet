@@ -234,6 +234,11 @@ function SmallMatchTool({ widget, act, characters, userName }: Props): ReactElem
   const savedGame: PlayKind =
     stored === "dice" || stored === "coin" || stored === "rps" ? stored : inferred;
   const [game, setGame] = useState<PlayKind | null>(text(data.result) || stored ? savedGame : null);
+  // The character menu can pick a game while this window is already open.
+  const picked = text(data.result) ? "" : stored;
+  useEffect(() => {
+    if (picked === "dice" || picked === "coin" || picked === "rps") setGame(picked);
+  }, [picked, widget.revision]);
   const targets = characters ? activeTargets(characters) : [];
   const [owner, setOwner] = useState<string | null>(null);
   const selected = targets.find((target) => target.id === owner) ?? targets[0];
