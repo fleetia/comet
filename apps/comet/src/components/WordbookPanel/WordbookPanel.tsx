@@ -754,8 +754,7 @@ export function WordbookPanel({
                       </Button>
                     </div>
                     <p className={s.quiet}>
-                      저장된 모든 활성 항목에서 찾아요. 분류와 미저장 수정은 반영하지 않아요. 대사
-                      재생·AI 호출은 하지 않아요.
+                      저장된 키워드만 확인해요. 실제 대화에서는 그 대화 친구들의 대사만 찾아요.
                     </p>
                     {testError && (
                       <p role="alert" className={s.error}>

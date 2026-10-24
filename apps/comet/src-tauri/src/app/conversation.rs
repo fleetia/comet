@@ -56,15 +56,14 @@ fn registered_message(
     let entries: Vec<_> = wordbook::entries(db)?
         .into_iter()
         .filter(|entry| {
-            targets.len() != 1
-                || entry
-                    .lines
-                    .iter()
-                    .map(|line| {
-                        characters::guests::actor(state, db, &line.persona).map(|actor| actor.id)
-                    })
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_or(true, |ids| ids.iter().all(|id| targets.contains(id)))
+            entry
+                .lines
+                .iter()
+                .map(|line| {
+                    characters::guests::actor(state, db, &line.persona).map(|actor| actor.id)
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map_or(true, |ids| ids.iter().all(|id| targets.contains(id)))
         })
         .collect();
     if let Some(entry) = wordbook::match_entry(&entries, content) {
