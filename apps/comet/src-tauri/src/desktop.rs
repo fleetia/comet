@@ -1440,7 +1440,7 @@ fn position_balloon(
     Ok(Some(placement))
 }
 
-fn show_conversation_surface(window: &WebviewWindow) -> Result<(), String> {
+fn show_conversation_surface(window: &WebviewWindow, _raise: bool) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         let pointer = window.ns_window().map_err(|error| error.to_string())?;
@@ -1452,12 +1452,30 @@ fn show_conversation_surface(window: &WebviewWindow) -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            SetWindowPos, ShowWindow, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+            SWP_SHOWWINDOW, SW_SHOWNOACTIVATE,
+        };
         let handle = window.hwnd().map_err(|error| error.to_string())?;
-        unsafe {
-            windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(
-                handle.0 as _,
-                windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNOACTIVATE,
-            );
+        if _raise {
+            let shown = unsafe {
+                SetWindowPos(
+                    handle.0 as _,
+                    HWND_TOPMOST,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                )
+            };
+            if shown == 0 {
+                return Err("대화 창을 앞에 표시하지 못했어요.".into());
+            }
+        } else {
+            unsafe {
+                ShowWindow(handle.0 as _, SW_SHOWNOACTIVATE);
+            }
         }
     }
     #[cfg(target_os = "linux")]
@@ -1539,7 +1557,7 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
                 size.and_then(|size| conversation_rect(body, area, scale, size, false, None));
             if let Some(rect) = conversation_rect(body, area, scale, input_size, true, response) {
                 set_window_rect(&input_window, rect)?;
-                show_conversation_surface(&input_window)?;
+                show_conversation_surface(&input_window, true)?;
                 if std::mem::take(&mut layout.focus_requested) {
                     input_window
                         .set_focus()
@@ -1597,7 +1615,7 @@ fn apply_measured_balloon(app: &AppHandle) -> Result<Option<BalloonPlacement>, S
             },
         )
         .map_err(|error| error.to_string())?;
-    show_conversation_surface(&window)?;
+    show_conversation_surface(&window, conversation || target.key.contains("playback:"))?;
     if !input && layout.take_focus_request() {
         window.set_focus().map_err(|error| error.to_string())?;
     }

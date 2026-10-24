@@ -10,7 +10,7 @@ import type { WidgetView } from "../types";
 import { PlannerCalendar } from "./PlannerCalendar";
 import { PlannerPreparation } from "./PlannerPreparation";
 import { PlannerTemplates } from "./PlannerTemplates";
-import { TodoEditor } from "./TodoEditor";
+import { TodoEditor, type TodoEditorField } from "./TodoEditor";
 import {
   dayDate,
   deviceTimeZone,
@@ -184,7 +184,11 @@ export function Planner({
   const [selectedEvent, setSelectedEvent] = useState("");
   const [selectedTask, setSelectedTask] = useState("");
   const [movingTask, setMovingTask] = useState<{ id: string; date: string } | null>(null);
-  const [editing, setEditing] = useState<{ item: DataRecord; widget: WidgetView } | null>(null);
+  const [editing, setEditing] = useState<{
+    item: DataRecord;
+    widget: WidgetView;
+    field?: TodoEditorField;
+  } | null>(null);
   const [wrap, setWrap] = useState(false);
   const [rollIds, setRollIds] = useState<string[]>([]);
   const [rollDate, setRollDate] = useState(moveDay(localDay(), 1));
@@ -265,8 +269,8 @@ export function Planner({
         : command("install_widgets", { kinds: ["todo"] }),
     );
   }
-  function edit(item: DataRecord): void {
-    if (todo) setEditing({ item, widget: todo });
+  function edit(item: DataRecord, field?: TodoEditorField): void {
+    if (todo) setEditing({ item, widget: todo, field });
   }
   function taskCheck(item: DataRecord): ReactElement {
     return (
@@ -683,7 +687,7 @@ export function Planner({
         {tab === "today"
           ? embedded || allTasks
             ? `모든 날짜와 날짜 없는 할 일을 함께 봅니다. 새 할 일의 계획일은 선택일 ${day}입니다.`
-            : `선택일 ${day}에 계획한 일을 모아 봅니다. 계획 날짜와 기한은 별개입니다.`
+            : `선택일 ${day}에 계획한 일을 모아 봅니다.`
           : tab === "plans"
             ? "계획 기간은 목표를 묶는 기준입니다. 오늘에 넣어도 기한이나 반복 규칙은 바뀌지 않습니다."
             : tab === "calendar"
@@ -695,6 +699,8 @@ export function Planner({
           key={`${text(editing.item.id)}:${editing.widget.revision}`}
           widgetId={editing.widget.id}
           item={editing.item}
+          focus={editing.field}
+          onMovePlan={moveTaskDate}
           lists={lists}
           busy={busy}
           act={(action, input) => {
@@ -711,7 +717,7 @@ export function Planner({
           }}
           onReload={() => {
             const latest = items.find((item) => item.id === editing.item.id);
-            if (latest && todo) setEditing({ item: latest, widget: todo });
+            if (latest && todo) setEditing({ item: latest, widget: todo, field: editing.field });
           }}
           onClose={() => setEditing(null)}
         />

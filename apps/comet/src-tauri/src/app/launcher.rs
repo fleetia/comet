@@ -660,7 +660,7 @@ pub(crate) async fn execute_launcher(
                     }
                     accept_execution(&state, request.session_id)?;
                 }
-                crate::widgets::planning::windows::open_travel(app.clone(), Some(id))
+                crate::widgets::planning::windows::open_travel(app.clone(), Some(id)).await
             }
             LauncherAction::AddTodo {
                 id,

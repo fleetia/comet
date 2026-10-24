@@ -12,6 +12,8 @@ export const window = style({
   border: `1px solid ${tokens["color/glass-border"]}`,
   borderRadius: 24,
   backdropFilter: tokens["backdrop/backdrop-window"],
+  // WebKit draws the backdrop blur as a square behind rounded corners in the transparent window.
+  clipPath: "inset(0 round 24px)",
   boxSizing: "border-box",
   color: tokens["color/ink"],
 });

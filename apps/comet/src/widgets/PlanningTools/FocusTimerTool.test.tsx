@@ -226,7 +226,10 @@ describe("focus workspace", () => {
     const { readFileSync } = await vi.importActual<{
       readFileSync(path: string, encoding: "utf8"): string;
     }>("node:fs");
-    const styles = readFileSync("src/widgets/PlanningTools/FocusTimer.css.ts", "utf8");
+    const styles = readFileSync("src/widgets/PlanningTools/FocusTimer.css.ts", "utf8").replaceAll(
+      "\r\n",
+      "\n",
+    );
     expect(styles).toContain(
       'globalStyle(`${layout}[data-embedded="true"][data-expanded="false"]`, {\n  gridTemplateColumns: "minmax(0, 370px)",',
     );

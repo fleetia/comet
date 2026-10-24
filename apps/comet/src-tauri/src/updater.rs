@@ -280,7 +280,7 @@ fn navigate_notice(
 }
 
 #[tauri::command]
-pub(crate) fn open_update_settings(
+pub(crate) async fn open_update_settings(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     playback_id: String,

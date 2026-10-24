@@ -75,6 +75,11 @@ export function OrganizerRecords(): JSX.Element {
       clearInterval(timer);
     };
   }, []);
+  function openOrganizerSettings(): void {
+    if (isDesktop())
+      void command("open_organizer_settings").catch((cause: unknown) => setError(errorText(cause)));
+    else window.location.assign("/?view=settings&section=organizer");
+  }
   async function run(name: string, args?: Record<string, unknown>): Promise<void> {
     if (lock.current) return;
     lock.current = true;
@@ -198,7 +203,14 @@ export function OrganizerRecords(): JSX.Element {
         <div className={s.list} aria-label={hits ? "검색 결과" : "정리 기록 목록"}>
           {hits ? (
             <>
-              {hits.length === 0 && <p className={s.caption}>일치하는 자료가 없어요.</p>}
+              {hits.length === 0 && (
+                <div className={s.emptyHits}>
+                  <p className={s.caption}>일치하는 자료가 없어요.</p>
+                  <Button variant="ghost" size="small" onClick={openOrganizerSettings}>
+                    Ex-brain 설정 열기
+                  </Button>
+                </div>
+              )}
               {hits.map((hit) => (
                 <OrganizationCard
                   key={`${hit.source.id}:${hit.recordId ?? "source"}`}

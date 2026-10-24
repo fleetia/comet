@@ -130,14 +130,12 @@ async fn run(runtime: &inference::Inference) -> Result<(), String> {
             }
         }
     }
-    store::insert_message(
-        &conn,
-        &user(
-            "both",
-            "내가 좋아하는 음료를 기억해? 둘 다 한마디씩 해 줘.",
-            "both",
-        ),
-    )?;
+    let question = user(
+        "both",
+        "내가 좋아하는 음료를 기억해? 둘 다 한마디씩 해 줘.",
+        "both",
+    );
+    store::insert_message(&conn, &question)?;
     for persona in ["a", "b"] {
         let relationship = store::relationships(&conn)?
             .into_iter()
@@ -151,6 +149,7 @@ async fn run(runtime: &inference::Inference) -> Result<(), String> {
             &relationship,
             &characters::collection(&conn)?.installed,
         );
+        domain::require_complete_input(&prompt, &question.content)?;
         let reply = match generate(
             runtime,
             &format!("reply-{persona}"),

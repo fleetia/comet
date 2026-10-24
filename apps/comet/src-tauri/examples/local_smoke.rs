@@ -54,6 +54,7 @@ async fn main() -> Result<(), String> {
         },
         &[],
     );
+    domain::require_complete_input(&prompt, &messages[0].content)?;
     for pass in ["cold", "warm"] {
         let at = Instant::now();
         let result = inference::generate(

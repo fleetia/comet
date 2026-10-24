@@ -1,4 +1,4 @@
-import { Button, Checkbox, Select, Surface, TextInput } from "@comet/ui";
+import { Button, Checkbox, DeadlineChip, Select, Surface, TextInput } from "@comet/ui";
 import {
   useEffect,
   useLayoutEffect,
@@ -12,7 +12,8 @@ import {
 import { record, rows, text, type DataRecord } from "../toolData";
 import type { WidgetView } from "../types";
 import {
-  dueLabel,
+  deadlineChipLabel,
+  isOverdue,
   deviceTimeZone,
   eventsOn,
   eventTime,
@@ -1064,8 +1065,11 @@ function TaskLine({
           )}
         </div>
       </div>
-      <p className={s.meta}>
-        계획 · {plannedDay(item) || "미지정"}　{dueLabel(item) || "기한 없음"}
+      <p className={s.taskMeta}>
+        계획 · {plannedDay(item) || "미지정"}
+        {deadlineChipLabel(item) && (
+          <DeadlineChip overdue={isOverdue(item)}>{deadlineChipLabel(item)}</DeadlineChip>
+        )}
       </p>
       {!!text(item.memo) && (
         <p className={s.memoPreview}>메모 · {text(item.memo).split(/\r?\n/)[0]} · 상세 보기</p>

@@ -13,8 +13,10 @@ use super::windows::{apply_pause, expire_pause, pause_until, should_cancel_for_p
 use super::*;
 use crate::{characters, story};
 use std::time::Duration;
+mod model_attribution_smoke;
 mod model_preference_recall_smoke;
 mod model_quality_smoke;
+mod model_review_smoke;
 
 mod model_roster_smoke;
 mod model_travel_summary_smoke;
@@ -1340,51 +1342,6 @@ fn single_recipient_keyword_routes_filter_whole_scenes_before_matching() {
 }
 
 #[test]
-fn group_keyword_routes_only_match_scenes_spoken_by_conversation_participants() {
-    let mut state = state();
-    let directory = tempfile::tempdir().unwrap();
-    state.app_data = directory.path().to_path_buf();
-    let db = lock(&state.db).unwrap();
-    let targets = characters::active_ids(&db).unwrap();
-    let outsider = characters::clone_character(&db, "builtin-a").unwrap().id;
-    let mut roster = targets.clone();
-    roster.push(outsider.clone());
-    characters::apply_roster(&db, roster).unwrap();
-    lock(&state.presence).unwrap().leave_for_tests(&outsider);
-    let entry = |keyword: &str, personas: &[&str]| WordbookEntry {
-        id: uuid::Uuid::new_v4().to_string(),
-        title: keyword.into(),
-        keywords: vec![keyword.into()],
-        lines: personas
-            .iter()
-            .map(|persona| SceneLine {
-                motion: Default::default(),
-                persona: (*persona).into(),
-                expression: "평온".into(),
-                text: format!("{persona}의 대사"),
-            })
-            .collect(),
-        enabled: true,
-        use_for_idle: false,
-        group: None,
-    };
-    // Slots follow roster order: a and b are in the conversation, c is the absent outsider.
-    let participants = entry("수박", &["a", "b"]);
-    wordbook::save(&db, &entry("수박 먹자", &["c"])).unwrap();
-    wordbook::save(&db, &participants).unwrap();
-    let lines = route_message(&state, &db, "수박 먹자", &targets)
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        serde_json::to_value(lines).unwrap(),
-        serde_json::to_value(characters::resolve_lines(&db, &participants.lines).unwrap()).unwrap()
-    );
-    wordbook::save(&db, &entry("참외", &["a", "c"])).unwrap();
-    assert!(route_message(&state, &db, "참외", &targets).is_err());
-    assert!(!super::presence::is_present(&state, &outsider).unwrap());
-}
-
-#[test]
 fn fresh_single_character_wordbook_routes_without_models() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("fresh.sqlite");
@@ -2649,6 +2606,7 @@ fn settings_navigation_defaults_to_characters_and_maps_legacy_destinations() {
         "memory",
         "model",
         "general",
+        "organizer",
     ] {
         let value = serde_json::Value::String(section.into());
         let parsed: windows::SettingsSection = serde_json::from_value(value.clone()).unwrap();

@@ -3,6 +3,8 @@ mod autostart;
 mod background;
 mod chat;
 pub(crate) mod conversation;
+#[cfg(test)]
+pub(crate) mod conversation_review;
 mod history;
 mod history_window;
 pub(crate) mod launcher;

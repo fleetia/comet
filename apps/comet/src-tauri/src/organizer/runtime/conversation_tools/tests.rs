@@ -27,6 +27,8 @@ fn plan_requires_discovered_action_bound_revision_and_user_evidence() {
     let contexts = json!({"ledger_create":actions::entities_for(&db,"ledger_create","").unwrap()});
     let mut turn = new_turn(&message("expense", "오늘 3000원 컵라면 사먹음")).unwrap();
     turn.selected = vec!["ledger_create".into()];
+    authorize_selection(&mut turn, &catalog).unwrap();
+    assert_eq!(turn.selected, ["ledger_create"]);
     assert!(prepare_plan(ledger_plan(9), &mut turn, &catalog, &contexts).is_err());
     assert!(turn.operations.is_empty());
     let mut fabricated = ledger_plan(0);
@@ -56,6 +58,47 @@ fn selection_catalog_distinguishes_named_widgets_with_the_same_action_descriptio
     let selected = selection_catalog(&available);
     assert_eq!(selected[0]["title"], "독서 기록");
     assert_eq!(selected[1]["title"], "걷기 기록");
+}
+
+#[test]
+fn selector_schema_tracks_current_catalog_ids_without_weakening_unknown_id_validation() {
+    let db = store::open(std::path::Path::new(":memory:")).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let task = Selection {
+        route: "tools".into(),
+        action_ids: vec!["task_add".into()],
+        continue_previous: false,
+    };
+    let before = catalog(&db).unwrap();
+    let schema = selection_schema(&before, false);
+    let ids = schema["properties"]["actionIds"]["items"]["enum"]
+        .as_array()
+        .unwrap();
+    assert!(ids.contains(&json!("ledger_create")));
+    assert!(!ids.contains(&json!("task_add")));
+    assert!(select(&task, &before).is_err());
+    assert_eq!(
+        schema["properties"]["continuePrevious"]["enum"],
+        json!([false])
+    );
+
+    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
+    let available = catalog(&db).unwrap();
+    let schema = selection_schema(&available, false);
+    let ids = schema["properties"]["actionIds"]["items"]["enum"]
+        .as_array()
+        .unwrap();
+    assert!(ids.contains(&json!("task_add")));
+    assert_eq!(ids.len(), available.len());
+    assert!(available.iter().all(|spec| ids.contains(&spec["id"])));
+    select(&task, &available).unwrap();
+    let unknown = Selection {
+        action_ids: vec!["not-installed".into()],
+        ..task
+    };
+    assert!(!ids.contains(&json!("not-installed")));
+    assert!(select(&unknown, &available).is_err());
+    assert_eq!(schema["properties"]["actionIds"]["maxItems"], 4);
 }
 
 #[test]
@@ -235,10 +278,34 @@ fn only_immediate_previous_input_in_same_conversation_can_continue_question() {
             .question,
         "얼마였어?"
     );
+    let available = catalog(&db).unwrap();
+    for (state, allowed) in [
+        ("awaiting_input", json!([false, true])),
+        ("done", json!([false])),
+        ("failed", json!([false])),
+    ] {
+        pending.state = state.into();
+        save_turn(&db, &user, "original", &pending).unwrap();
+        let previous = previous_turn(&db, &user, "answer").unwrap();
+        let schema = selection_schema(
+            &available,
+            previous.is_some_and(|turn| turn.state == "awaiting_input"),
+        );
+        assert_eq!(schema["properties"]["continuePrevious"]["enum"], allowed);
+    }
     store::insert_message_with_source(&db, &message("unrelated", "안녕"), "user", None, false)
         .unwrap();
     store::attach_conversation_message(&db, &first.id, "unrelated").unwrap();
-    assert!(previous_turn(&db, &user, "unrelated").unwrap().is_none());
+    let previous = previous_turn(&db, &user, "unrelated").unwrap();
+    assert!(previous.is_none());
+    let schema = selection_schema(
+        &available,
+        previous.is_some_and(|turn| turn.state == "awaiting_input"),
+    );
+    assert_eq!(
+        schema["properties"]["continuePrevious"]["enum"],
+        json!([false])
+    );
     let second = store::create_conversation(&db, &characters, None, None, 2).unwrap();
     store::insert_message_with_source(&db, &message("elsewhere", "3천원"), "user", None, false)
         .unwrap();
@@ -587,6 +654,129 @@ fn planner_instruction_keeps_the_revision_copy_and_new_item_target_contracts() {
             .unwrap()
             .contains(&json!("expectedRevision"))
     );
+}
+
+#[test]
+fn ordinary_preference_retry_drops_manual_writes_but_preserves_read_only_queries() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("comet.sqlite");
+    for (id, request) in [
+        (
+            "preference",
+            "나는 커피를 좋아해. 대답은 두 문장으로 해 줘.",
+        ),
+        ("lookup", "메모 목록 알려줘"),
+    ] {
+        let db = store::open(&path).unwrap();
+        let user = store::active_user_id(&db).unwrap();
+        let before = crate::diary::read(&db).unwrap();
+        let mut rejected = new_turn(&message(id, request)).unwrap();
+        rejected.state = "failed".into();
+        rejected.error = Some("실행을 요청한 문장을 확인하지 못했어요.".into());
+        rejected.selected = ["note_create", "page_create", "habit_create", "note_query"]
+            .map(String::from)
+            .to_vec();
+        save_turn(&db, &user, id, &rejected).unwrap();
+        drop(db);
+
+        let db = store::open(&path).unwrap();
+        let available = catalog(&db).unwrap();
+        let mut turn = load_turn(&db, &user, id).unwrap().unwrap();
+        authorize_selection(&mut turn, &available).unwrap();
+        assert_eq!(turn.selected, ["note_query"]);
+        assert!(turn.error.is_none());
+        let context = entities(&db, "note_query", request).unwrap();
+        let revision = context["revision"].as_i64().unwrap();
+        let outcome = prepare_plan(
+            Plan {
+                question: String::new(),
+                operations: vec![Proposal {
+                    kind: "note_query".into(),
+                    target_id: String::new(),
+                    expected_revision: revision,
+                    input_json: "{}".into(),
+                    mode: "explicit".into(),
+                    evidence: request.into(),
+                }],
+            },
+            &mut turn,
+            &available,
+            &json!({"note_query":context}),
+        );
+        save_planning_outcome(&db, &user, id, &mut turn, outcome).unwrap();
+        let restored = load_turn(&db, &user, id).unwrap().unwrap();
+        assert_eq!(restored.state, "planned");
+        assert!(!restored.requires_effect);
+        assert!(restored
+            .operations
+            .iter()
+            .all(|operation| operation.effect == "read"));
+        assert!(restored.error.is_none());
+        assert_eq!(crate::diary::read(&db).unwrap(), before);
+        assert!(actions::receipts(&db, &user, Some(id)).unwrap().is_empty());
+    }
+}
+
+#[test]
+fn preference_with_only_unauthorized_writes_becomes_ordinary_conversation() {
+    let db = store::open(std::path::Path::new(":memory:")).unwrap();
+    let mut turn = new_turn(&message("preference", "나는 커피를 좋아해")).unwrap();
+    turn.state = "failed".into();
+    turn.error = Some("실행할 작업을 확인하지 못했어요.".into());
+    turn.selected = vec!["note_create".into(), "habit_create".into()];
+    authorize_selection(&mut turn, &catalog(&db).unwrap()).unwrap();
+    assert_eq!(turn.state, "none");
+    assert!(turn.selected.is_empty());
+    assert!(turn.operations.is_empty());
+    assert!(turn.error.is_none());
+    assert!(!turn.requires_effect);
+}
+
+#[test]
+fn explicit_write_and_clarification_intents_keep_failed_plan_guards() {
+    let db = store::open(std::path::Path::new(":memory:")).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
+    let user = store::active_user_id(&db).unwrap();
+    for request in [
+        "할 일 추가해줘",
+        "할 일 추가해줘\n커피 마시기",
+        "이 취향을 기억해줘",
+    ] {
+        let mut turn = new_turn(&message("explicit", request)).unwrap();
+        let kind = if request.contains("기억") {
+            "note_create"
+        } else {
+            "task_add"
+        };
+        turn.selected = vec![kind.into()];
+        let available = catalog(&db).unwrap();
+        authorize_selection(&mut turn, &available).unwrap();
+        assert_eq!(turn.selected, [kind]);
+        let context = entities(&db, kind, request).unwrap();
+        let outcome = prepare_plan(
+            Plan {
+                question: String::new(),
+                operations: vec![Proposal {
+                    kind: kind.into(),
+                    target_id: String::new(),
+                    expected_revision: context["revision"].as_i64().unwrap() + 1,
+                    input_json: "{}".into(),
+                    mode: "explicit".into(),
+                    evidence: request.into(),
+                }],
+            },
+            &mut turn,
+            &available,
+            &json!({(kind):context}),
+        );
+        assert!(save_planning_outcome(&db, &user, "explicit", &mut turn, outcome).is_err());
+        assert_eq!(turn.state, "failed");
+        assert!(turn.error.is_some());
+        assert!(actions::receipts(&db, &user, Some("explicit"))
+            .unwrap()
+            .is_empty());
+    }
 }
 
 #[test]

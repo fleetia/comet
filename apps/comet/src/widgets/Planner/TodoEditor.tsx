@@ -1,4 +1,13 @@
-import { Button, Checkbox, Dialog, FormField, Select, Textarea, TextInput } from "@comet/ui";
+import {
+  Button,
+  Checkbox,
+  Dialog,
+  FormField,
+  SegmentedControl,
+  Select,
+  Textarea,
+  TextInput,
+} from "@comet/ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { localDay, number, record, text, type DataRecord, type ToolAction } from "../toolData";
@@ -9,6 +18,7 @@ import {
   deviceTimeZone,
   plannedDay,
   localDateTime,
+  moveDay,
   PERIODS,
   periodAnchor,
   repeatLabel,
@@ -21,7 +31,7 @@ export function TaskReadOnlyDetails({ item }: { item: DataRecord }): ReactElemen
   return (
     <div className={s.taskDetails} role="region" aria-label={`${text(item.title)} 상세`}>
       <p className={s.caption}>계획 날짜 · {plannedDay(item) || "미지정"}</p>
-      <p className={s.caption}>{dueLabel(item) || "기한 없음"}</p>
+      <p className={s.caption}>{dueLabel(item) || "마감 없음"}</p>
       {typeof item.dueAt === "number" && (
         <p className={s.caption}>기기 시간대 · {deviceTimeZone()}</p>
       )}
@@ -31,6 +41,9 @@ export function TaskReadOnlyDetails({ item }: { item: DataRecord }): ReactElemen
   );
 }
 
+/** The field a task row opens the editor on: its plan date or its deadline. */
+export type TodoEditorField = "plan" | "deadline";
+
 export function TodoEditor({
   item,
   lists,
@@ -39,6 +52,8 @@ export function TodoEditor({
   onClose,
   onReload,
   widgetId,
+  focus,
+  onMovePlan,
 }: {
   item: DataRecord;
   lists: DataRecord[];
@@ -47,8 +62,32 @@ export function TodoEditor({
   onClose: () => void;
   onReload?: () => void;
   widgetId?: string;
+  focus?: TodoEditorField;
+  /** Changes the plan date the same way moving the task does; without it the field is hidden. */
+  onMovePlan?: (item: DataRecord, date: string | null) => Promise<boolean>;
 }): ReactElement {
   const titleRef = useRef<HTMLInputElement>(null);
+  const planRef = useRef<HTMLDivElement>(null);
+  const deadlineRef = useRef<HTMLElement>(null);
+  const planFocus = useRef({
+    get current(): HTMLElement | null {
+      return planRef.current?.querySelector<HTMLElement>("input:checked") ?? null;
+    },
+  }).current;
+  const today = localDay();
+  const tomorrow = moveDay(today, 1);
+  const editsPlan = Boolean(onMovePlan) && typeof item.completedAt !== "number";
+  const [plan, setPlan] = useState(plannedDay(item));
+  const [planPicking, setPlanPicking] = useState(
+    Boolean(plan) && plan !== today && plan !== tomorrow,
+  );
+  const planChoice = planPicking
+    ? "pick"
+    : plan === today
+      ? "today"
+      : plan === tomorrow
+        ? "tomorrow"
+        : "none";
   const [title, setTitle] = useState(text(item.title));
   const [memo, setMemo] = useState(text(item.memo));
   const [listId, setListId] = useState(text(item.listId) || "default");
@@ -152,6 +191,7 @@ export function TodoEditor({
     listId,
     period,
     anchor,
+    plan,
     day,
     time,
     mode,
@@ -165,6 +205,7 @@ export function TodoEditor({
     scope,
   });
   const initial = useRef(fingerprint);
+  const savedInput = useRef<string | null>(null);
   const dirty = initial.current !== fingerprint;
   function close(): void {
     if (busy) return;
@@ -197,7 +238,9 @@ export function TodoEditor({
         </div>
       }
       className={s.dialog}
-      initialFocusRef={titleRef}
+      initialFocusRef={
+        focus === "plan" && editsPlan ? planFocus : focus === "deadline" ? deadlineRef : titleRef
+      }
       onOpenChange={(open) => {
         if (!open) close();
       }}
@@ -219,11 +262,29 @@ export function TodoEditor({
             setError("반복할 요일을 하나 이상 선택해 주세요.");
             return;
           }
-          if (await act("update", input)) onClose();
-          else
-            setError(
-              "저장하지 못했어요. 입력은 유지했습니다. 다른 곳에서 변경했다면 최신 내용을 다시 불러와 확인해 주세요.",
-            );
+          if (planPicking && !plan) {
+            setError("계획 날짜를 골라 주세요.");
+            return;
+          }
+          const inputKey = JSON.stringify(input);
+          if (savedInput.current !== inputKey) {
+            if (!(await act("update", input))) {
+              setError(
+                "저장하지 못했어요. 입력은 유지했습니다. 다른 곳에서 변경했다면 최신 내용을 다시 불러와 확인해 주세요.",
+              );
+              return;
+            }
+            savedInput.current = inputKey;
+          }
+          if (
+            editsPlan &&
+            plan !== plannedDay(item) &&
+            !(await onMovePlan!({ ...item, title }, plan || null))
+          ) {
+            setError("다른 내용은 저장했지만 계획 날짜를 옮기지 못했어요. 다시 시도해 주세요.");
+            return;
+          }
+          onClose();
         }}
       >
         <fieldset className={s.form} disabled={busy} style={{ border: 0, padding: 0, margin: 0 }}>
@@ -256,10 +317,45 @@ export function TodoEditor({
                 ))}
               </Select>
             </FormField>
+            {editsPlan && (
+              <FormField label="언제" className={s.field}>
+                <div className={s.field} ref={planRef}>
+                  <SegmentedControl
+                    label="언제"
+                    appearance="contained"
+                    options={[
+                      { value: "today", label: "오늘" },
+                      { value: "tomorrow", label: "내일" },
+                      { value: "pick", label: "날짜 고르기" },
+                      { value: "none", label: "날짜 없음" },
+                    ]}
+                    value={planChoice}
+                    onValueChange={(value) => {
+                      setPlanPicking(value === "pick");
+                      if (value === "today") setPlan(today);
+                      if (value === "tomorrow") setPlan(tomorrow);
+                      if (value === "none") setPlan("");
+                    }}
+                  />
+                  {planPicking && (
+                    <TextInput
+                      type="date"
+                      fill
+                      aria-label="계획 날짜"
+                      value={plan}
+                      onChange={(e) => setPlan(e.target.value)}
+                    />
+                  )}
+                </div>
+              </FormField>
+            )}
             <div className={s.field}>
-              <FormField id="planner-todo-due-date" label="기한 · 첫 날짜" className={s.field}>
+              <FormField id="planner-todo-due-date" label="마감" className={s.field}>
                 {day ? (
                   <TextInput
+                    ref={(element) => {
+                      deadlineRef.current = element;
+                    }}
                     type="date"
                     fill
                     value={day}
@@ -270,6 +366,9 @@ export function TodoEditor({
                   />
                 ) : (
                   <Button
+                    ref={(element) => {
+                      deadlineRef.current = element;
+                    }}
                     id="planner-todo-due-date"
                     aria-label="날짜 지정"
                     type="button"
@@ -290,13 +389,13 @@ export function TodoEditor({
                     setTime("");
                   }}
                 >
-                  기한 지우기
+                  마감 지우기
                 </Button>
               )}
             </div>
             <div className={s.field}>
               <p className={s.caption}>기기 시간대 · {deviceTimeZone()}</p>
-              <FormField id="planner-todo-due-time" label="시각 (선택)" className={s.field}>
+              <FormField id="planner-todo-due-time" label="마감 시각 (선택)" className={s.field}>
                 {time ? (
                   <TextInput
                     fill

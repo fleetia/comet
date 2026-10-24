@@ -95,7 +95,11 @@ it("searches only the saved scope while preserving dirty settings and rejects bl
     vi.mocked(command).mock.calls.filter(([name]) => name === "organizer_search_trial"),
   ).toHaveLength(0);
   submitSearch("  회의  ");
-  await screen.findByText("검색 결과가 없어요.");
+  const empty = await screen.findByRole("status");
+  expect(empty.textContent).toBe(
+    "일치하는 자료가 없어요.원문을 고쳤다면 ‘변경 자료 다시 읽기’ 뒤에 찾아보세요.",
+  );
+  expect(screen.queryByRole("alert")).toBeNull();
   expect(command).toHaveBeenCalledWith("organizer_search_trial", {
     query: "회의",
     expectedContext: PREVIEW_ORGANIZER_STATUS.context,
@@ -126,6 +130,7 @@ it("rejects both stale results and errors across query A to B to A", async () =>
     pending[2].resolve({ context: PREVIEW_ORGANIZER_STATUS.context, hits: [hit("최신 A")] }),
   );
   expect(screen.getByText("최신 A")).toBeTruthy();
+  expect(screen.queryByText(/변경 자료 다시 읽기’ 뒤에/)).toBeNull();
 });
 
 it("ignores an old saved-scope result and preserves failed search input for retry", async () => {
@@ -152,7 +157,11 @@ it("ignores an old saved-scope result and preserves failed search input for retr
     return status;
   });
   fireEvent.click(screen.getByRole("button", { name: "검색" }));
-  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "검색 실패");
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    "검색하지 못했어요. 검색 실패",
+  );
+  expect(screen.queryByText("일치하는 자료가 없어요.")).toBeNull();
   expect(screen.getByLabelText("검색어")).toHaveProperty("value", "자료");
   view.unmount();
 });

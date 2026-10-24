@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Button, Checkbox, Dialog, FormField, Select, TextInput } from "@comet/ui";
 import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import type { DataRecord } from "../toolData";
@@ -17,14 +17,16 @@ type PhotoMeta = {
 
 const THUMB = 360;
 
-async function thumbnail(travelId: string, path: string): Promise<string | undefined> {
+async function thumbnail(travelId: string, path: string, active: () => boolean): Promise<string | undefined> {
   try {
     const bytes = await command<ArrayBuffer>("travel_photo_original", { path });
+    if (!active()) return undefined;
     const url = URL.createObjectURL(new Blob([bytes]));
     try {
       const image = new Image();
       image.src = url;
       await image.decode();
+      if (!active()) return undefined;
       const scale = Math.min(1, THUMB / Math.max(image.naturalWidth, image.naturalHeight));
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
@@ -82,6 +84,14 @@ export function TravelPhotos({
   onFailure: (message: string) => void;
 }): ReactElement {
   const { travel } = trip;
+  const lifetime = useRef({ active: true });
+  useEffect(() => {
+    const current = { active: true };
+    lifetime.current = current;
+    setProgress(null);
+    return () => { current.active = false; };
+  }, [travel.id]);
+
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [missing, setMissing] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Photo | null>(null);
@@ -102,24 +112,30 @@ export function TravelPhotos({
   }, [paths]);
 
   async function add(): Promise<void> {
+    const current = lifetime.current;
+    const active = () => current.active && lifetime.current === current;
     try {
       const metas = await command<PhotoMeta[]>("travel_pick_photos", { travelId: travel.id });
-      if (!metas.length) return;
+      if (!active() || !metas.length) return;
       const known = new Set(trip.photos.map((photo) => photo.path));
       const fresh = metas.filter((meta) => !known.has(meta.path));
       setProgress({ done: 0, total: fresh.length });
       const photos: DataRecord[] = [];
       for (const meta of fresh) {
-        photos.push(placePhoto(meta, trip, await thumbnail(travel.id, meta.path)) as DataRecord);
+        if (!active()) return;
+        const thumb = await thumbnail(travel.id, meta.path, active);
+        if (!active()) return;
+        photos.push(placePhoto(meta, trip, thumb) as DataRecord);
         setProgress({ done: photos.length, total: fresh.length });
       }
       for (let index = 0; index < photos.length; index += 100) {
+        if (!active()) return;
         if (!(await mutate("travel-photo-add", { travelId: travel.id, photos: photos.slice(index, index + 100) }))) break;
       }
     } catch (cause) {
-      onFailure(errorText(cause));
+      if (active()) onFailure(errorText(cause));
     } finally {
-      setProgress(null);
+      if (active()) setProgress(null);
     }
   }
 

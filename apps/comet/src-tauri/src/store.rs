@@ -59,7 +59,7 @@ pub use search::{
     IndexMemory, MemoryEmbedding, MemoryPage, MemorySearchHit,
 };
 #[cfg(test)]
-pub use search::{memory_page, revalidate_search_hits, search_memories};
+pub use search::{current_user_facts_for, memory_page, revalidate_search_hits, search_memories};
 #[cfg(test)]
 pub use users::require_user;
 pub use users::{

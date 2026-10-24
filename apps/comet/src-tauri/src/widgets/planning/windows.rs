@@ -3,12 +3,32 @@ use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 
+#[path = "window_lifecycle.rs"]
+pub(crate) mod lifecycle;
+pub(crate) use lifecycle::destroyed;
+use lifecycle::{schedule_open, OpenRequest, WindowRuntime};
+
 #[derive(Default)]
 pub(crate) struct Navigation {
     tab: Mutex<String>,
+    planner: Mutex<WindowRuntime>,
+    travel: Mutex<WindowRuntime>,
+    travel_target: Mutex<Option<String>>,
     settings_target: Mutex<Option<String>>,
     note_target: Mutex<Option<String>>,
     view_target: Mutex<Option<PlannerViewTarget>>,
+}
+
+impl Navigation {
+    // Retain the latest open intent until the next open overwrites it. An IPC
+    // started by an old editor must not consume the new editor's navigation.
+    fn read_view_target(&self) -> Result<Option<PlannerViewTarget>, String> {
+        Ok(crate::lock(&self.view_target)?.clone())
+    }
+
+    fn read_note_target(&self) -> Result<Option<String>, String> {
+        Ok(crate::lock(&self.note_target)?.clone())
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -22,21 +42,25 @@ pub(crate) struct PlannerViewTarget {
 pub(crate) fn get_planner_view_target(
     state: tauri::State<'_, Navigation>,
 ) -> Result<Option<PlannerViewTarget>, String> {
-    Ok(crate::lock(&state.view_target)?.take())
+    state.read_view_target()
 }
 
 pub(crate) fn open_note(app: &tauri::AppHandle, id: &str) -> Result<(), String> {
-    *crate::lock(&app.state::<Navigation>().note_target)? = Some(id.into());
-    open(app, "today")?;
-    app.emit_to("planner", "planner-note", id)
-        .map_err(|error| error.to_string())
+    schedule_open(
+        app,
+        OpenRequest::Planner {
+            tab: "today".into(),
+            target: None,
+            note: Some(id.into()),
+        },
+    )
 }
 
 #[tauri::command]
 pub(crate) fn get_planner_note_target(
     state: tauri::State<'_, Navigation>,
 ) -> Result<Option<String>, String> {
-    Ok(crate::lock(&state.note_target)?.take())
+    state.read_note_target()
 }
 
 fn supported_tab(tab: &str) -> bool {
@@ -56,7 +80,6 @@ fn supported_tab(tab: &str) -> bool {
 }
 
 pub(crate) fn open(app: &tauri::AppHandle, tab: &str) -> Result<(), String> {
-    *crate::lock(&app.state::<Navigation>().view_target)? = None;
     open_view(app, tab, None)
 }
 
@@ -66,41 +89,18 @@ fn open_view(
     target: Option<&PlannerViewTarget>,
 ) -> Result<(), String> {
     let tab = if supported_tab(tab) { tab } else { "today" };
-    let navigation = app.state::<Navigation>();
-    *crate::lock(&navigation.tab)? = tab.to_string();
-    if let Some(window) = app.get_webview_window("planner") {
-        if let Some(target) = target {
-            window
-                .emit("planner-view-target", target)
-                .map_err(|e| e.to_string())?;
-        } else {
-            window.emit("planner-tab", tab).map_err(|e| e.to_string())?;
-        }
-        window.unminimize().map_err(|e| e.to_string())?;
-        window.show().map_err(|e| e.to_string())?;
-        window.set_focus().map_err(|e| e.to_string())?;
-        crate::widgets::runtime::refresh(app);
-        return Ok(());
-    }
-    tauri::WebviewWindowBuilder::new(
+    schedule_open(
         app,
-        "planner",
-        tauri::WebviewUrl::App(format!("index.html?view=planner&tab={tab}").into()),
+        OpenRequest::Planner {
+            tab: tab.into(),
+            target: target.cloned(),
+            note: None,
+        },
     )
-    .title("comet · 내 다이어리")
-    .inner_size(1328.0, 820.0)
-    .min_inner_size(720.0, 520.0)
-    .decorations(false)
-    .transparent(true)
-    .disable_drag_drop_handler()
-    .build()
-    .map_err(|e| e.to_string())?;
-    crate::widgets::runtime::refresh(app);
-    Ok(())
 }
 
 #[tauri::command]
-pub(crate) fn open_planner_view(
+pub(crate) async fn open_planner_view(
     app: tauri::AppHandle,
     tab: String,
     entity: Option<String>,
@@ -114,7 +114,6 @@ pub(crate) fn open_planner_view(
         let db = crate::lock(&state.db)?;
         validate_view_target(&db, &tab, entity.as_deref(), target_id.as_deref())?
     };
-    *crate::lock(&app.state::<Navigation>().view_target)? = target.clone();
     open_view(&app, &tab, target.as_ref())
 }
 
@@ -187,35 +186,13 @@ pub(crate) fn calendar_selected(app: &tauri::AppHandle) -> Result<bool, String> 
 }
 
 #[tauri::command]
-pub(crate) fn open_travel(app: tauri::AppHandle, id: Option<String>) -> Result<(), String> {
+pub(crate) async fn open_travel(app: tauri::AppHandle, id: Option<String>) -> Result<(), String> {
     let id = id.filter(|value| {
         !value.is_empty()
             && value.len() <= 200
             && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
     });
-    if let Some(window) = app.get_webview_window("travel") {
-        if let Some(id) = &id {
-            window.emit("travel-open", id).map_err(|e| e.to_string())?;
-        }
-        window.unminimize().map_err(|e| e.to_string())?;
-        window.show().map_err(|e| e.to_string())?;
-        return window.set_focus().map_err(|e| e.to_string());
-    }
-    let query = id.map(|id| format!("&id={id}")).unwrap_or_default();
-    tauri::WebviewWindowBuilder::new(
-        &app,
-        "travel",
-        tauri::WebviewUrl::App(format!("index.html?view=travel{query}").into()),
-    )
-    .title("comet · 여행")
-    .inner_size(1120.0, 840.0)
-    .min_inner_size(720.0, 520.0)
-    .decorations(false)
-    .transparent(true)
-    .disable_drag_drop_handler()
-    .build()
-    .map_err(|e| e.to_string())?;
-    Ok(())
+    schedule_open(&app, OpenRequest::Travel { id })
 }
 
 #[tauri::command]
@@ -236,6 +213,30 @@ pub(crate) fn set_planner_tab(
 mod tests {
     use super::validate_view_target;
     use serde_json::json;
+
+    #[test]
+    fn navigation_reads_do_not_consume_the_latest_open_targets() {
+        let navigation = super::Navigation::default();
+        *navigation.note_target.lock().unwrap() = Some("latest-note".into());
+        *navigation.view_target.lock().unwrap() = Some(super::PlannerViewTarget {
+            entity: "page".into(),
+            target_id: "latest-page".into(),
+        });
+        for _ in 0..2 {
+            assert_eq!(
+                navigation.read_note_target().unwrap().as_deref(),
+                Some("latest-note")
+            );
+            assert_eq!(
+                navigation.read_view_target().unwrap().unwrap().target_id,
+                "latest-page"
+            );
+        }
+        *navigation.note_target.lock().unwrap() = None;
+        *navigation.view_target.lock().unwrap() = None;
+        assert!(navigation.read_note_target().unwrap().is_none());
+        assert!(navigation.read_view_target().unwrap().is_none());
+    }
 
     #[test]
     fn planner_view_target_validates_entity_and_resolves_only_live_sources_without_writes() {
@@ -350,7 +351,7 @@ pub(crate) fn get_planner_tab(state: tauri::State<'_, Navigation>) -> Result<Str
 }
 
 #[tauri::command]
-pub(crate) fn open_planner_settings(
+pub(crate) async fn open_planner_settings(
     app: tauri::AppHandle,
     kind: Option<String>,
 ) -> Result<(), String> {

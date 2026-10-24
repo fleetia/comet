@@ -42,6 +42,12 @@ export const heading = style({
   lineHeight: "30px",
   margin: 0,
 });
+export const emptyHits = style({
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-start",
+  gap: 8,
+});
 export const caption = style({
   fontSize: 12,
   lineHeight: "20px",

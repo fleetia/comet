@@ -134,3 +134,24 @@ it("keeps unsupported undo disabled in the records detail too", async () => {
   expect(command).not.toHaveBeenCalledWith("organizer_undo", expect.anything());
   expect(screen.getByRole("button", { name: "결과 열기" })).toHaveProperty("disabled", false);
 });
+
+it("answers an empty search with a way to the Ex-brain settings", async () => {
+  vi.mocked(command)
+    .mockReset()
+    .mockImplementation(async (name) => {
+      if (name === "organizer_status") return PREVIEW_ORGANIZER_STATUS;
+      if (name === "organizer_records") return [record];
+      if (name === "organizer_actions") return [];
+      if (name === "organizer_search") return [];
+    });
+  render(<OrganizerRecords />);
+  await screen.findByRole("button", { name: /프로젝트 결정/ });
+  fireEvent.change(screen.getByRole("searchbox", { name: "기록·원문 검색" }), {
+    target: { value: "없는 말" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "검색" }));
+  expect(await screen.findByText("일치하는 자료가 없어요.")).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Ex-brain 설정 열기" }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith("open_organizer_settings"));
+});
