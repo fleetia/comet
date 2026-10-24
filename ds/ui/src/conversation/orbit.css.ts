@@ -174,11 +174,6 @@ export const itemLabel = style({
   whiteSpace: "nowrap",
   color: tokens["color/ink"],
 });
-export const labelPositions = styleVariants({
-  left: { right: "calc(100% + 6px)" },
-  right: { left: "calc(100% + 6px)" },
-  top: { bottom: "calc(100% + 6px)" },
-});
 export const hubLabel = style({
   position: "absolute",
   top: "calc(100% + 5px)",

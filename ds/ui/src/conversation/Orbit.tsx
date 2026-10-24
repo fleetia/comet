@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type ButtonHTMLAttributes,
+  type CSSProperties,
   type HTMLAttributes,
   type JSX,
   type ReactNode,
@@ -194,20 +195,37 @@ function ringPositions(
   count: number,
   ring: { x: number; y: number; radius: number },
   node: number,
-): { positions: [number, number][]; labels: ("left" | "right" | "top")[] } {
-  const positions: [number, number][] = [];
-  const labels: ("left" | "right" | "top")[] = [];
-  for (let index = 0; index < count; index += 1) {
+): [number, number][] {
+  return Array.from({ length: count }, (_, index) => {
     const angle = ((150 + (240 * index) / Math.max(1, count - 1)) * Math.PI) / 180;
-    const cos = Math.cos(angle);
-    positions.push([
-      Math.round((ring.x + ring.radius * cos - node / 2) * 100) / 100,
+    return [
+      Math.round((ring.x + ring.radius * Math.cos(angle) - node / 2) * 100) / 100,
       Math.round((ring.y + ring.radius * Math.sin(angle) - node / 2) * 100) / 100,
-    ]);
-    // Only a node at the very top keeps its label above; the pair around it reads sideways.
-    labels.push(cos < -0.05 ? "left" : cos > 0.05 ? "right" : "top");
-  }
-  return { positions, labels };
+    ];
+  });
+}
+
+/**
+ * Places a label outward from the ring center through its node, so labels wrap the ring
+ * instead of stacking into left and right columns. The label's near edge keeps `gap` from the node.
+ */
+function radialLabel(
+  position: readonly [number, number],
+  ring: { x: number; y: number },
+  node: number,
+  gap = 6,
+): CSSProperties {
+  const dx = position[0] + node / 2 - ring.x;
+  const dy = position[1] + node / 2 - ring.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const [ux, uy] = [dx / length, dy / length];
+  const reach = node / 2 + gap;
+  const round = (value: number): number => Math.round(value * 100) / 100;
+  return {
+    left: "50%",
+    top: "50%",
+    transform: `translate(calc(${round(-50 + ux * 50)}% + ${round(ux * reach)}px), calc(${round(-50 + uy * 50)}% + ${round(uy * reach)}px))`,
+  };
 }
 
 export type OrbitBranchProps = Omit<HTMLAttributes<HTMLDivElement>, "content"> & {
@@ -373,12 +391,7 @@ function OrbitMenu({
   // More nodes than designed slots keep the designed arc but spread evenly over it.
   const spread =
     items.length <= designed.length ? null : ringPositions(items.length, ring, isCompact ? 28 : 40);
-  const positions = spread?.positions ?? designed;
-  const labels =
-    spread?.labels ??
-    (branch && items.length === 2
-      ? (["left", "right"] as const)
-      : (["left", "left", "left", "top", "right", "right", "right"] as const));
+  const positions = spread ?? designed;
   const { present, visualRef, exiting } = useOrbitPresence(
     open,
     items.length,
@@ -543,7 +556,8 @@ function OrbitMenu({
             />
             <span
               data-orbit-label
-              className={[styles.itemLabel, styles.labelPositions[labels[index]]].join(" ")}
+              className={styles.itemLabel}
+              style={radialLabel(positions[index], ring, isCompact ? 28 : 40)}
             >
               {item.label}
             </span>
