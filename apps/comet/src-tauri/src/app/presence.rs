@@ -42,6 +42,11 @@ impl Presence {
         !self.absent.contains(id)
     }
 
+    #[cfg(test)]
+    pub(crate) fn leave_for_tests(&mut self, id: &str) {
+        self.absent.insert(id.into());
+    }
+
     pub(crate) fn for_app(app: &tauri::AppHandle) -> Self {
         Self {
             fast_qa: cfg!(debug_assertions) && app.config().identifier.ends_with(".presence-qa"),
