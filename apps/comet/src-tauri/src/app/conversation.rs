@@ -1524,7 +1524,12 @@ pub(crate) async fn generate_turn_with_memories(
         ensure_current_user_message(&db, message_id)?;
         let context = turn_context(state, &db, targets, message_id)?;
         let memories = if context.allow_memories {
-            store::revalidate_search_hits(&db, memories)?
+            store::recall_for_turn(
+                &db,
+                memories,
+                &store::message_targets(&db, message_id)?,
+                chrono::Utc::now().timestamp_millis(),
+            )?
         } else {
             Vec::new()
         };

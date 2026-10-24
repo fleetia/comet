@@ -13,6 +13,7 @@ use super::windows::{apply_pause, expire_pause, pause_until, should_cancel_for_p
 use super::*;
 use crate::{characters, story};
 use std::time::Duration;
+mod model_preference_recall_smoke;
 mod model_quality_smoke;
 
 mod model_roster_smoke;

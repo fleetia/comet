@@ -501,6 +501,61 @@ pub fn revalidate_search_hits(conn: &Connection, hits: &[MemorySearchHit]) -> Re
     Ok(memories)
 }
 
+/// Small current-user context, separate from query-matched search results.
+/// Call while holding the generation DB guard so prompt and recall use these current rows.
+pub fn current_user_facts_for(
+    conn: &Connection,
+    character_ids: &[String],
+    at: i64,
+) -> Result<Vec<Memory>> {
+    let user = super::active_user_id(conn)?;
+    let at = super::effective_memory_time(conn, at)?;
+    let scope = serde_json::to_string(character_ids).map_err(err)?;
+    let mut statement = conn
+        .prepare(&format!(
+            "SELECT {MEMORY_FIELDS} FROM memories m
+         WHERE m.user_id=?1 AND m.kind='user_fact' AND m.deleted=0 AND m.expired=0
+         AND m.character_id IN (SELECT value FROM json_each(?2))
+         ORDER BY m.updated DESC,m.id"
+        ))
+        .map_err(err)?;
+    let rows = statement
+        .query_map(params![user, scope], memory_row)
+        .map_err(err)?;
+    let mut facts = Vec::new();
+    for row in rows {
+        let mut memory = row.map_err(err)?;
+        if memory.retired_at.is_none() && eligible_memory(conn, &memory, at)? {
+            memory.recall_weight = recall_weight(None, at);
+            facts.push(memory);
+            if facts.len() == 4 {
+                break;
+            }
+        }
+    }
+    Ok(facts)
+}
+
+/// Recent user facts join before query hits because lexical coverage misses
+/// paraphrased questions such as a drink recommendation; the total stays eight.
+pub fn recall_for_turn(
+    conn: &Connection,
+    hits: &[MemorySearchHit],
+    character_ids: &[String],
+    at: i64,
+) -> Result<Vec<Memory>> {
+    let mut memories = current_user_facts_for(conn, character_ids, at)?;
+    for hit in revalidate_search_hits(conn, hits)? {
+        if memories.len() >= 8 {
+            break;
+        }
+        if memories.iter().all(|memory| memory.id != hit.id) {
+            memories.push(hit);
+        }
+    }
+    Ok(memories)
+}
+
 pub fn search_memories_for(
     conn: &Connection,
     query: &str,
