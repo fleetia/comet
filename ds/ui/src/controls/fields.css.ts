@@ -1,4 +1,4 @@
-import { style, styleVariants } from "@vanilla-extract/css";
+import { globalStyle, style, styleVariants } from "@vanilla-extract/css";
 import { tokens } from "@comet/token";
 import { stateTransition } from "../motion/motion.css";
 
@@ -124,6 +124,11 @@ export const select = style({
   cursor: "pointer",
   textOverflow: "ellipsis",
 });
+globalStyle(`${select} option, ${select} optgroup`, {
+  background: tokens["color/glass-window"],
+  color: tokens["color/ink"],
+});
+globalStyle(`${select} :disabled`, { color: tokens["color/ink-3"] });
 export const multipleSelect = style({ height: "auto", minHeight: 90, padding: "6px 11px" });
 export const selectWithLeading = style({ paddingLeft: 32 });
 export const selectLeading = style({
