@@ -42,6 +42,114 @@ fn act(db: &Connection, kind: &str, action: &str, input: Value, now: i64, entrop
 }
 
 #[test]
+fn guessing_commits_survive_process_exit_without_cleanup() {
+    const CHILD_DB: &str = "COMET_TEST_GUESSING_EXIT_DB";
+    const CHILD_MODE: &str = "COMET_TEST_GUESSING_EXIT_MODE";
+    if let Some(path) = std::env::var_os(CHILD_DB) {
+        let mode = std::env::var(CHILD_MODE).unwrap();
+        let db = Connection::open(&path).unwrap();
+        storage::initialize(&db).unwrap();
+        let assets = Path::new(&path).parent().unwrap().join("assets");
+        install(&db, &assets, &["guessing"]);
+        act(&db, "guessing", "start", json!({"mode":mode}), 1000, 49);
+        let mut wrong = request(
+            &db,
+            "guessing",
+            "guess",
+            json!({"value": if mode == "cups" { 1 } else { 20 }}),
+        );
+        wrong.request_id = "5624cdfd-f090-49e0-8569-739e22544fbf".into();
+        storage::execute(&db, &wrong, 1001, 99).unwrap();
+        std::process::exit(86);
+    }
+
+    for mode in ["cups", "number"] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("guessing.sqlite");
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "widgets::storage_tests::guessing_commits_survive_process_exit_without_cleanup",
+                "--nocapture",
+            ])
+            .env(CHILD_DB, &path)
+            .env(CHILD_MODE, mode)
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(86));
+        let db = Connection::open(&path).unwrap();
+        storage::initialize(&db).unwrap();
+        let resumed = instance(&db, "guessing");
+        assert_eq!(resumed.data["mode"], mode);
+        assert_eq!(resumed.data["playing"], true);
+        assert_eq!(resumed.data["attempts"], 1);
+        assert_eq!(
+            resumed.data["hint"],
+            if mode == "cups" {
+                "1번 컵은 비어 있어요."
+            } else {
+                "20보다 더 커요"
+            }
+        );
+        let events_before: i64 = db
+            .query_row("SELECT COUNT(*) FROM widget_events", [], |row| row.get(0))
+            .unwrap();
+        let retry = WidgetRequest {
+            request_id: "5624cdfd-f090-49e0-8569-739e22544fbf".into(),
+            instance_id: resumed.id.clone(),
+            expected_revision: resumed.revision - 1,
+            action: "guess".into(),
+            input: json!({"value": if mode == "cups" { 1 } else { 20 }}),
+        };
+        storage::execute(&db, &retry, 2000, 0).unwrap();
+        assert_eq!(instance(&db, "guessing").data, resumed.data);
+        assert_eq!(instance(&db, "guessing").revision, resumed.revision);
+        assert_eq!(
+            db.query_row("SELECT COUNT(*) FROM widget_events", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            events_before
+        );
+        act(
+            &db,
+            "guessing",
+            "guess",
+            json!({"value": if mode == "cups" { 2 } else { 50 }}),
+            2001,
+            0,
+        );
+        let won = instance(&db, "guessing");
+        assert_eq!(won.data["playing"], false);
+        assert_eq!(won.data["attempts"], 2);
+        assert!(storage::execute(
+            &db,
+            &request(
+                &db,
+                "guessing",
+                "guess",
+                json!({"value": if mode == "cups" { 2 } else { 50 }})
+            ),
+            2002,
+            0
+        )
+        .is_err());
+        assert_eq!(instance(&db, "guessing").data, won.data);
+        assert_eq!(
+            db.query_row("SELECT COUNT(*) FROM widget_events", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            db.query_row("SELECT COUNT(*) FROM desktop_toy_results", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
+}
+
+#[test]
 fn calendar_colors_are_scoped_atomic_and_preserved_by_reminder_changes() {
     let db = database();
     let directory = tempfile::tempdir().unwrap();

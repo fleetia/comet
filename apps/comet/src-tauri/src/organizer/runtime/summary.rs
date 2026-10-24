@@ -40,16 +40,93 @@ struct SourceUnit {
     text: String,
     #[serde(skip)]
     span: std::ops::Range<usize>,
+    #[serde(skip)]
+    protected: bool,
 }
 
 const MAX_SOURCE_UNITS: usize = 30;
-const SOURCE_UNIT_METADATA_BYTES: usize = 2_048;
+const SOURCE_UNIT_METADATA_BYTES: usize = 4_096;
+
+fn sentence_ends(text: &str) -> Vec<usize> {
+    if text.contains('`')
+        || text.lines().any(|line| {
+            line.starts_with('\t')
+                || line.starts_with("    ")
+                || line.trim_start().starts_with("~~~")
+        })
+    {
+        return vec![text.len()];
+    }
+    let mut ends = Vec::new();
+    let mut start = 0;
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, character) in text.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if character == '\\' {
+            escaped = true;
+            continue;
+        }
+        let end = index + character.len_utf8();
+        let next = text[end..].chars().next();
+        if character == '\''
+            && text[..index]
+                .chars()
+                .next_back()
+                .is_some_and(|value| value.is_ascii_alphabetic())
+            && next.is_some_and(|value| value.is_ascii_alphabetic())
+        {
+            continue;
+        }
+        if let Some(close) = quote {
+            if character == close {
+                quote = None;
+            }
+            continue;
+        }
+        quote = match character {
+            '"' | '\'' => Some(character),
+            '“' => Some('”'),
+            '‘' => Some('’'),
+            _ => None,
+        };
+        let numeric_continuation = character == '.'
+            && text[..index]
+                .chars()
+                .next_back()
+                .is_some_and(|value| value.is_ascii_digit())
+            && text[end..]
+                .trim_start()
+                .chars()
+                .next()
+                .is_some_and(|value| value.is_ascii_digit());
+        let boundary = !numeric_continuation
+            && matches!(character, '.' | '!' | '?' | ';' | '；' | '。' | '！' | '？')
+            && (matches!(character, '。' | '！' | '？') || next.is_none_or(char::is_whitespace));
+        if boundary && text[start..end].chars().any(char::is_alphabetic) {
+            ends.push(end);
+            start = end;
+        }
+    }
+    if start < text.len() {
+        if text[start..].trim().is_empty() && !ends.is_empty() {
+            *ends.last_mut().unwrap() = text.len();
+        } else {
+            ends.push(text.len());
+        }
+    }
+    ends
+}
 
 fn source_units(source: &str) -> Vec<SourceUnit> {
     let mut units = Vec::new();
     let mut headings = Vec::new();
     let mut heading_levels = Vec::new();
     let mut start = None;
+    let mut protected = false;
     let mut end = 0;
     let mut offset = 0;
     let mut fence: Option<(u8, usize)> = None;
@@ -106,7 +183,9 @@ fn source_units(source: &str) -> Vec<SourceUnit> {
                     headings: headings.clone(),
                     text: source[begin..end].into(),
                     span: begin..end,
+                    protected,
                 });
+                protected = false;
             }
             if heading {
                 if pending_heading_level.is_some_and(|pending| level <= pending) {
@@ -129,12 +208,14 @@ fn source_units(source: &str) -> Vec<SourceUnit> {
                     headings: headings.clone(),
                     text: text.into(),
                     span: offset..offset + text.len(),
+                    protected: true,
                 });
             }
         } else {
             pending_heading_level = None;
             start.get_or_insert(offset);
             end = offset + text.len();
+            protected |= code;
         }
         if opens {
             fence = marker.map(|marker| (marker, marker_len));
@@ -149,6 +230,7 @@ fn source_units(source: &str) -> Vec<SourceUnit> {
             headings,
             text: source[begin..end].into(),
             span: begin..end,
+            protected,
         });
     }
     if has_orphan_heading || pending_heading_level.is_some() {
@@ -158,8 +240,29 @@ fn source_units(source: &str) -> Vec<SourceUnit> {
             headings: Vec::new(),
             text: source.into(),
             span: 0..source.len(),
+            protected: true,
         }];
     }
+    let mut sentences = Vec::new();
+    for unit in units {
+        let mut start = 0;
+        let ends = if unit.protected {
+            vec![unit.text.len()]
+        } else {
+            sentence_ends(&unit.text)
+        };
+        for end in ends {
+            sentences.push(SourceUnit {
+                id: format!("u{}", sentences.len() + 1),
+                headings: unit.headings.clone(),
+                text: unit.text[start..end].into(),
+                span: unit.span.start + start..unit.span.start + end,
+                protected: unit.protected,
+            });
+            start = end;
+        }
+    }
+    let units = sentences;
     let budget = json!(source).to_string().len() + SOURCE_UNIT_METADATA_BYTES;
     if units.len() <= MAX_SOURCE_UNITS && json!(&units).to_string().len() <= budget {
         return units;
@@ -188,6 +291,7 @@ fn source_units(source: &str) -> Vec<SourceUnit> {
                 headings,
                 text: source[begin..end].into(),
                 span: begin..end,
+                protected: group.iter().any(|unit| unit.protected),
             });
             begin = end;
         }

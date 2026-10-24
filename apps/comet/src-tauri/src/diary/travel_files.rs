@@ -402,18 +402,20 @@ pub(crate) async fn travel_photo_original(
         return Err("고른 사진만 읽을 수 있어요.".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        let size = std::fs::metadata(&path)
-            .map_err(|_| "원본이 옮겨졌거나 지워졌어요.".to_string())?
-            .len();
-        if size > PHOTO_LIMIT {
-            return Err("사진이 너무 커서 미리보기를 만들지 못했어요.".into());
-        }
-        std::fs::read(&path)
-            .map(tauri::ipc::Response::new)
-            .map_err(|_| "원본을 읽지 못했어요.".into())
+        photo_original_bytes(&path).map(tauri::ipc::Response::new)
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+fn photo_original_bytes(path: &Path) -> Result<Vec<u8>> {
+    let size = std::fs::metadata(path)
+        .map_err(|_| "원본이 옮겨졌거나 지워졌어요.".to_string())?
+        .len();
+    if size > PHOTO_LIMIT {
+        return Err("사진이 너무 커서 미리보기를 만들지 못했어요.".into());
+    }
+    std::fs::read(path).map_err(|_| "원본을 읽지 못했어요.".into())
 }
 
 #[tauri::command]
@@ -478,40 +480,62 @@ pub(crate) async fn travel_map_tile(
     x: u32,
     y: u32,
 ) -> Result<tauri::ipc::Response> {
-    if z > 18 || x >= 1 << z || y >= 1 << z {
-        return Err("지도 타일 범위를 벗어났어요.".into());
-    }
-    if !diary(&state)?.travel_settings.map_tiles {
-        return Err("실제 지도를 켜야 타일을 불러와요.".into());
-    }
-    let path = state
-        .app_data
-        .join("travel-tiles")
-        .join(z.to_string())
-        .join(x.to_string())
-        .join(format!("{y}.png"));
-    let fresh = std::fs::metadata(&path)
+    map_tile_bytes(
+        &state.app_data,
+        &access,
+        diary(&state)?.travel_settings.map_tiles,
+        (z, x, y),
+        "https://tile.openstreetmap.org",
+    )
+    .await
+    .map(tauri::ipc::Response::new)
+}
+
+fn cached_tile(path: &Path) -> Option<Vec<u8>> {
+    let fresh = std::fs::metadata(path)
         .and_then(|meta| meta.modified())
         .ok()
         .and_then(|modified| SystemTime::now().duration_since(modified).ok())
         .is_some_and(|age| age < TILE_TTL);
-    if fresh {
-        if let Ok(bytes) = std::fs::read(&path) {
-            return Ok(tauri::ipc::Response::new(bytes));
-        }
+    fresh.then(|| std::fs::read(path).ok()).flatten()
+}
+
+async fn map_tile_bytes(
+    app_data: &Path,
+    access: &Access,
+    enabled: bool,
+    (z, x, y): (u32, u32, u32),
+    endpoint: &str,
+) -> Result<Vec<u8>> {
+    if z > 18 || x >= 1 << z || y >= 1 << z {
+        return Err("지도 타일 범위를 벗어났어요.".into());
+    }
+    if !enabled {
+        return Err("실제 지도를 켜야 타일을 불러와요.".into());
+    }
+    let path = app_data
+        .join("travel-tiles")
+        .join(z.to_string())
+        .join(x.to_string())
+        .join(format!("{y}.png"));
+    if let Some(bytes) = cached_tile(&path) {
+        return Ok(bytes);
     }
     let mut last = access.tiles.lock().await;
+    if let Some(bytes) = cached_tile(&path) {
+        return Ok(bytes);
+    }
     if let Some(at) = *last {
         let wait = Duration::from_millis(50).saturating_sub(at.elapsed());
         tokio::time::sleep(wait).await;
     }
     let response = http()?
-        .get(format!("https://tile.openstreetmap.org/{z}/{x}/{y}.png"))
+        .get(format!("{endpoint}/{z}/{x}/{y}.png"))
         .send()
-        .await
-        .map_err(|_| "지도 타일을 불러오지 못했어요. 네트워크를 확인해 주세요.".to_string())?;
+        .await;
     *last = Some(Instant::now());
-    drop(last);
+    let response = response
+        .map_err(|_| "지도 타일을 불러오지 못했어요. 네트워크를 확인해 주세요.".to_string())?;
     if !response.status().is_success() {
         return Err(format!(
             "지도 타일 요청 실패 (HTTP {}).",
@@ -526,7 +550,8 @@ pub(crate) async fn travel_map_tile(
         let _ = std::fs::create_dir_all(folder);
         let _ = std::fs::write(&path, &bytes);
     }
-    Ok(tauri::ipc::Response::new(bytes.to_vec()))
+    drop(last);
+    Ok(bytes.to_vec())
 }
 
 fn parse_places(body: &Value) -> Vec<Place> {
@@ -553,11 +578,26 @@ pub(crate) async fn travel_geocode(
     access: tauri::State<'_, Access>,
     query: String,
 ) -> Result<Vec<Place>> {
+    geocode_places(
+        &access,
+        diary(&state)?.travel_settings.address_search,
+        &query,
+        "https://nominatim.openstreetmap.org/search",
+    )
+    .await
+}
+
+async fn geocode_places(
+    access: &Access,
+    enabled: bool,
+    query: &str,
+    endpoint: &str,
+) -> Result<Vec<Place>> {
     let query = query.trim();
     if query.is_empty() || query.chars().count() > 200 {
         return Err("찾을 주소나 장소 이름을 200자 안으로 적어 주세요.".into());
     }
-    if !diary(&state)?.travel_settings.address_search {
+    if !enabled {
         return Err("주소 검색을 켜야 찾을 수 있어요.".into());
     }
     let mut last = access.search.lock().await;
@@ -565,7 +605,7 @@ pub(crate) async fn travel_geocode(
         tokio::time::sleep(Duration::from_secs(1).saturating_sub(at.elapsed())).await;
     }
     let result = http()?
-        .get("https://nominatim.openstreetmap.org/search")
+        .get(endpoint)
         .query(&[
             ("format", "jsonv2"),
             ("limit", "5"),
@@ -590,6 +630,10 @@ pub(crate) async fn travel_geocode(
         .map_err(|_| "주소 검색 응답이 올바르지 않아요.".to_string())?;
     Ok(parse_places(&body))
 }
+
+#[cfg(test)]
+#[path = "travel_files_tests.rs"]
+mod regression_tests;
 
 fn draft_schema() -> Value {
     let text = json!({"type":"string"});
