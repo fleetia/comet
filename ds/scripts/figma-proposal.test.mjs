@@ -254,9 +254,28 @@ describe("Figma change reporting", () => {
     expect(body).toContain("전체 JSON 차이");
     expect(propertyChanges({ a: 1, b: 2 }, { a: 2, b: 3 }, 1).truncated).toBe(true);
   });
+
+  it("protects ready, manually closed, non-bot, and marker-removed reports", () => {
+    const head = "b".repeat(40);
+    const body = reportBody(snapshot(), snapshot(8), "a".repeat(40), head);
+    for (const overrides of [
+      { draft: false },
+      { user: { login: "person" } },
+      { state: "closed" },
+      { body: "Manual replacement" },
+      { base: { ref: "another-branch", repo: { full_name: "fleetia/comet" } } },
+    ])
+      expect(() =>
+        validateExistingProposal([pull(head, body, overrides)], head, [`${EMAIL}\t${EMAIL}`]),
+      ).toThrow();
+    expect(() => validateExistingProposal([pull(head, body, { state: "closed" })], "", [])).toThrow(
+      "closed without merging",
+    );
+  });
 });
 
-describe("Figma report publication", () => {
+// Publication runs on Ubuntu with /usr/bin/git and POSIX filesystem semantics.
+describe.skipIf(process.platform === "win32")("Figma report publication", () => {
   it("creates only a baseline commit and preserves dirty work, the index, and local HEAD", async () => {
     const ctx = fixture();
     put(ctx.root, NEXT, snapshot());
@@ -426,24 +445,6 @@ describe("Figma report publication", () => {
       );
       expect(api.requests.every(({ options }) => options.method === "GET")).toBe(true);
     }
-  });
-
-  it("protects ready, manually closed, non-bot, and marker-removed reports", () => {
-    const head = "b".repeat(40);
-    const body = reportBody(snapshot(), snapshot(8), "a".repeat(40), head);
-    for (const overrides of [
-      { draft: false },
-      { user: { login: "person" } },
-      { state: "closed" },
-      { body: "Manual replacement" },
-      { base: { ref: "another-branch", repo: { full_name: "fleetia/comet" } } },
-    ])
-      expect(() =>
-        validateExistingProposal([pull(head, body, overrides)], head, [`${EMAIL}\t${EMAIL}`]),
-      ).toThrow();
-    expect(() => validateExistingProposal([pull(head, body, { state: "closed" })], "", [])).toThrow(
-      "closed without merging",
-    );
   });
 
   it("recovers a successfully pushed orphan after PR creation fails", async () => {

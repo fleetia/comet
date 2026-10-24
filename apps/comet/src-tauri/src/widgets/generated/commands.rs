@@ -558,7 +558,7 @@ pub(crate) fn cancel_widget_generation(
 }
 
 #[tauri::command]
-pub(crate) fn import_generated_widget(
+pub(crate) async fn import_generated_widget(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     definition: generated::Definition,
@@ -934,7 +934,7 @@ pub(crate) fn close_generated_widget(app: tauri::AppHandle, id: String) -> Resul
 }
 
 #[tauri::command]
-pub(crate) fn open_generated_widget(
+pub(crate) async fn open_generated_widget(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,
@@ -1237,7 +1237,7 @@ pub(crate) fn get_widget_workshop_mode(
 }
 
 #[tauri::command]
-pub(crate) fn open_widget_workshop(
+pub(crate) async fn open_widget_workshop(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     mode: Option<String>,
@@ -1296,7 +1296,7 @@ pub(crate) fn close_widget_workshop(app: tauri::AppHandle) -> Result<()> {
     Ok(())
 }
 #[tauri::command]
-pub(crate) fn open_widget_state_rules(
+pub(crate) async fn open_widget_state_rules(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     id: String,

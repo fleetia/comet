@@ -161,7 +161,9 @@ for (const [relative, expected] of generated) {
     if (error.code === "ENOENT") return null;
     throw error;
   });
-  if (actual === expected) continue;
+  if (actual?.replaceAll("\r\n", "\n") === expected) {
+    continue;
+  }
   if (check) {
     process.stderr.write(`Generated icon file is stale or missing: ${relative}\n`);
     stale = true;

@@ -100,7 +100,7 @@ fn open_view(
 }
 
 #[tauri::command]
-pub(crate) fn open_planner_view(
+pub(crate) async fn open_planner_view(
     app: tauri::AppHandle,
     tab: String,
     entity: Option<String>,
@@ -187,7 +187,7 @@ pub(crate) fn calendar_selected(app: &tauri::AppHandle) -> Result<bool, String> 
 }
 
 #[tauri::command]
-pub(crate) fn open_travel(app: tauri::AppHandle, id: Option<String>) -> Result<(), String> {
+pub(crate) async fn open_travel(app: tauri::AppHandle, id: Option<String>) -> Result<(), String> {
     let id = id.filter(|value| {
         !value.is_empty()
             && value.len() <= 200
@@ -350,7 +350,7 @@ pub(crate) fn get_planner_tab(state: tauri::State<'_, Navigation>) -> Result<Str
 }
 
 #[tauri::command]
-pub(crate) fn open_planner_settings(
+pub(crate) async fn open_planner_settings(
     app: tauri::AppHandle,
     kind: Option<String>,
 ) -> Result<(), String> {

@@ -85,9 +85,9 @@ class LinuxBundleTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'x86_64 ELF'):
                 elf_x64(path)
         path.write_bytes(ELF)
-        path.chmod(0o644)
-        with self.assertRaisesRegex(ValueError, 'not executable'):
+        with patch('verify_linux_bundle.os.access', return_value=False), patch('verify_linux_bundle.command') as run, self.assertRaisesRegex(ValueError, 'not executable'):
             verify_tree(self.root, 'comet')
+        run.assert_not_called()
 
     def test_unresolved_dependencies_fail(self) -> None:
         with patch('verify_linux_bundle.command', return_value='libmissing.so => not found'), self.assertRaisesRegex(ValueError, 'Unresolved'):

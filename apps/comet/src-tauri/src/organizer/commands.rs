@@ -399,7 +399,7 @@ pub(crate) fn organizer_open_action(
 }
 
 #[tauri::command]
-pub(crate) fn organizer_open_records(app: tauri::AppHandle) -> Result<(), String> {
+pub(crate) async fn organizer_open_records(app: tauri::AppHandle) -> Result<(), String> {
     crate::widgets::planning::windows::open(&app, "organizer")
 }
 
