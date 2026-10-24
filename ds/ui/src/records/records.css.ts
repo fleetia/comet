@@ -519,13 +519,12 @@ export const taskDue = style([
   noWrap,
   { display: "inline-flex", alignItems: "center", gap: 4, color: tokens["color/list-gray"] },
 ]);
-/** Resets a native button so the date or deadline keeps its look; chip rules below win. */
+/** Resets a native button without touching size or color, so caption/danger rules still apply. */
 export const taskPlainButton = style({
   border: 0,
   padding: 0,
   background: "transparent",
-  font: "inherit",
-  color: "inherit",
+  fontFamily: "inherit",
   cursor: "pointer",
   selectors: {
     "&:disabled": { cursor: "default" },
