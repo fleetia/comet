@@ -221,6 +221,7 @@ struct GenerationBudget {
     context_tokens: u32,
     output_tokens: u32,
     reasoning_tokens: u32,
+    temperature: Option<f64>,
     timeout: Duration,
 }
 
@@ -231,6 +232,7 @@ impl GenerationBudget {
             context_tokens: if reasoning { 8192 } else { 4096 },
             output_tokens: output_tokens.min(2048),
             reasoning_tokens: if reasoning { 2048 } else { 0 },
+            temperature: None,
             timeout: Duration::from_secs(if reasoning { 300 } else { 180 }),
         }
     }
@@ -243,6 +245,7 @@ impl GenerationBudget {
             context_tokens: LOCAL_WIDGET_CONTEXT_TOKENS,
             output_tokens: output_tokens.min(LOCAL_WIDGET_OUTPUT_TOKENS),
             reasoning_tokens: LOCAL_WIDGET_REASONING_TOKENS,
+            temperature: None,
             timeout: Duration::from_secs(600),
         }
     }
@@ -255,6 +258,7 @@ impl GenerationBudget {
             context_tokens: LOCAL_WIDGET_CONTEXT_TOKENS,
             output_tokens: output_tokens.min(2048),
             reasoning_tokens: 0,
+            temperature: None,
             timeout: Duration::from_secs(180),
         }
     }
@@ -822,11 +826,13 @@ async fn completion_request(
         "max_completion_tokens" => "max_completion_tokens",
         _ => return Err("지원하지 않는 토큰 한도 매개변수입니다.".into()),
     };
-    let temperature = if schema.pointer("/properties/memories").is_some() {
-        0.1
-    } else {
-        0.7
-    };
+    let temperature = budget.temperature.unwrap_or_else(|| {
+        if schema.pointer("/properties/memories").is_some() {
+            0.1
+        } else {
+            0.7
+        }
+    });
     let mut payload = json!({"model":settings.api_model,"messages":messages,"stream":false,"temperature":temperature,"response_format":{"type":"json_schema","json_schema":{"name":"response","strict":true,"schema":schema}}});
     payload[token_parameter] = json!(budget.output_tokens + budget.reasoning_tokens);
     if settings.mode == "api" {
@@ -1068,6 +1074,20 @@ pub(crate) async fn generate_organizer(
         cancel,
     )
     .await
+}
+
+#[cfg(test)]
+pub(crate) async fn generate_review(
+    inference: &Inference,
+    settings: &Settings,
+    messages: &[ChatMessage],
+    schema: Value,
+    max_tokens: u32,
+    cancel: Arc<AtomicBool>,
+) -> Result<Value, String> {
+    let mut budget = GenerationBudget::organizer(settings, max_tokens);
+    budget.temperature = Some(0.1);
+    generate_with_budget(inference, settings, messages, schema, budget, cancel).await
 }
 
 async fn generate_with_budget(
@@ -2184,14 +2204,24 @@ mod tests {
         let settings = Settings::default();
         let budget = GenerationBudget::conversation(&settings, 256);
         let prompt = "  <model>\noriginal template output\n ";
-        for (schema, temperature) in [
+        for (schema, temperature, request_budget) in [
             (
                 json!({"type":"object","properties":{"ok":{"type":"boolean"}}}),
                 0.7,
+                budget,
             ),
             (
                 json!({"type":"object","properties":{"memories":{"type":"array"}}}),
                 0.1,
+                budget,
+            ),
+            (
+                json!({"type":"object","properties":{"valid":{"type":"boolean"}}}),
+                0.1,
+                GenerationBudget {
+                    temperature: Some(0.1),
+                    ..budget
+                },
             ),
         ] {
             let (url, server) = completion_server(vec![
@@ -2208,7 +2238,7 @@ mod tests {
                 &settings,
                 &[],
                 schema.clone(),
-                budget,
+                request_budget,
                 Arc::new(AtomicBool::new(false)),
             )
             .await

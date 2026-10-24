@@ -11,7 +11,8 @@ mod catalog;
 mod registry;
 pub(crate) use catalog::catalog;
 pub(crate) use registry::{
-    authorize_evidence, authorize_registry, entities_for, execute_registry, query_registry,
+    authorize_evidence, authorize_registry, entities_for, execute_registry, has_explicit_request,
+    query_registry,
 };
 #[cfg(test)]
 mod registry_tests;

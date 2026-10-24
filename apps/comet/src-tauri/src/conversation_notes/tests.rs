@@ -81,7 +81,7 @@ fn turn_prompts_carry_related_notes_inside_the_memory_context() {
             .unwrap();
     let data = prompt
         .iter()
-        .find(|message| message.content.contains("\"memories\""))
+        .find(|message| message.content.contains("\"kind\":\"note\""))
         .expect("memory context");
     assert!(data.content.contains("질문 두 개 적기"));
     assert!(data.content.contains("\"kind\":\"note\""));

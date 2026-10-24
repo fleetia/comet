@@ -943,7 +943,12 @@ fn staged_guest_bundle_links_to_resident_session_and_prompt_contains_only_heard_
         character_id: ids[0].clone(),
         ..Default::default()
     };
-    let prompt = turn_prompt_for_state(&state, &db, &ids, &input, &[memory]).unwrap();
+    let hit = store::MemorySearchHit {
+        memory,
+        content_version: 1,
+        methods: Vec::new(),
+    };
+    let prompt = turn_prompt_for_state(&state, &db, &ids, &input, &[hit]).unwrap();
     let serialized = serde_json::to_string(&prompt).unwrap();
     assert!(serialized.contains("지금 둘이 들은 질문"));
     assert!(!serialized.contains("PRIVATE-BEFORE-GUEST"));
