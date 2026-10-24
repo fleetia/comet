@@ -198,7 +198,9 @@ async function generate() {
         if (error.code === "ENOENT") return undefined;
         throw error;
       });
-      if (current !== content) throw new Error(`Generated file is stale: ${fileURLToPath(target)}`);
+      if (current?.replaceAll("\r\n", "\n") !== content) {
+        throw new Error(`Generated file is stale: ${fileURLToPath(target)}`);
+      }
     } else {
       await mkdir(new URL(".", target), { recursive: true });
       await writeFile(target, content);

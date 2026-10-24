@@ -61,13 +61,13 @@ def test_all_api_aliases_become_public_and_notes_are_preserved() -> None:
         path = write_fixture(root, manifest, release)
         result = run(root)
         assert result.returncode == 0, result.stderr
-        actual = json.loads(path.read_text())
+        actual = json.loads(path.read_text(encoding='utf-8'))
         assert actual['notes'] == release['body']
         assert len(actual['platforms']) == 4
         for key, target in actual['platforms'].items():
             name = 'Comet.app.tar.gz' if key.startswith('darwin') else 'Comet.exe'
             assert target == dict(url=PREFIX + name, signature='signed-content')
-        notes = (root / 'release-notes.md').read_text()
+        notes = (root / 'release-notes.md').read_text(encoding='utf-8')
         assert '## 다운로드' in notes and '## 업데이트 노트\n\n' + release['body'] in notes
         assert PREFIX + 'Comet.dmg' in notes and PREFIX + 'Comet.exe' in notes
         assert 'notarization' in notes and 'Authenticode' in notes
@@ -76,7 +76,7 @@ def test_all_api_aliases_become_public_and_notes_are_preserved() -> None:
         assert '실험판' in notes and 'Linux 자동 업데이트와 패키지 서명은 제공하지 않습니다.' in notes
         assert not any(key.startswith('linux') for key in actual['platforms'])
         assert run(root).returncode == 0
-        assert json.loads(path.read_text()) == actual
+        assert json.loads(path.read_text(encoding='utf-8')) == actual
 
 
 def test_public_urls_remain_compatible() -> None:
@@ -88,7 +88,7 @@ def test_public_urls_remain_compatible() -> None:
         path = write_fixture(root, manifest, release)
         result = run(root)
         assert result.returncode == 0, result.stderr
-        assert json.loads(path.read_text())['platforms'] == manifest['platforms']
+        assert json.loads(path.read_text(encoding='utf-8'))['platforms'] == manifest['platforms']
 
 
 def test_draft_urls_use_the_verified_tag_for_downloads_and_updates() -> None:
@@ -98,15 +98,15 @@ def test_draft_urls_use_the_verified_tag_for_downloads_and_updates() -> None:
         path = write_fixture(root, manifest, release)
         result = run(root)
         assert result.returncode == 0, result.stderr
-        actual = json.loads(path.read_text())
+        actual = json.loads(path.read_text(encoding='utf-8'))
         for key, target in actual['platforms'].items():
             name = 'Comet.app.tar.gz' if key.startswith('darwin') else 'Comet.exe'
             assert target == dict(url=PREFIX + name, signature='signed-content')
-        notes = (root / 'release-notes.md').read_text()
+        notes = (root / 'release-notes.md').read_text(encoding='utf-8')
         assert PREFIX + 'Comet.dmg' in notes and PREFIX + 'Comet.exe' in notes
         assert 'untagged-' not in notes
         assert run(root).returncode == 0
-        assert json.loads(path.read_text()) == actual
+        assert json.loads(path.read_text(encoding='utf-8')) == actual
 
 
 def test_invalid_input_never_changes_manifest_or_notes() -> None:
@@ -181,12 +181,12 @@ def test_invalid_input_never_changes_manifest_or_notes() -> None:
             path = write_fixture(root, manifest, release_data)
             before = path.read_bytes()
             notes = root / 'release-notes.md'
-            notes.write_text('existing notes')
+            notes.write_text('existing notes', encoding='utf-8')
             result = run(root)
             assert result.returncode != 0
             assert 'Traceback' not in result.stderr and 'private-secret' not in result.stderr
             assert path.read_bytes() == before
-            assert notes.read_text() == 'existing notes'
+            assert notes.read_text(encoding='utf-8') == 'existing notes'
 
 
 def load_tests(loader: unittest.TestLoader, tests: unittest.TestSuite, pattern: str | None) -> unittest.TestSuite:

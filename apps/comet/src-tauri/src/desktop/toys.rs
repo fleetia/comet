@@ -59,6 +59,7 @@ pub(crate) struct Frame {
 }
 #[derive(Clone, Debug)]
 pub(crate) struct Outcome {
+    enqueued_at: Instant,
     pub actor_id: String,
     pub widget_id: String,
     pub revision: i64,
@@ -98,6 +99,7 @@ struct Actor {
     moving: bool,
     resting: f64,
     reported: bool,
+    last_care: Option<Instant>,
     created: Instant,
     expires: Option<Instant>,
     ignore_cursor: bool,
@@ -105,6 +107,16 @@ struct Actor {
     visible: bool,
     attempt: String,
 }
+
+fn manual_pet(actor: &Actor) -> bool {
+    actor.kind == Kind::Pet && !actor.automatic
+}
+
+fn actor_expired(actor: &Actor, now: Instant) -> bool {
+    actor.expires.is_some_and(|at| at <= now)
+        || (!manual_pet(actor) && now.duration_since(actor.created) > Duration::from_secs(3600))
+}
+
 #[derive(Default)]
 struct World {
     actors: BTreeMap<String, Actor>,
@@ -156,6 +168,18 @@ pub(crate) struct Runtime {
     native_updates: native::Updates,
 }
 
+impl Runtime {
+    #[cfg(any(target_os = "macos", target_os = "windows", test))]
+    pub(crate) fn discard_pending_outcomes(&self) {
+        if let Ok(mut world) = self.world.lock() {
+            world.outcomes.clear();
+            for actor in world.actors.values_mut() {
+                actor.last_care = None;
+            }
+        }
+    }
+}
+
 #[cfg(not(target_os = "macos"))]
 fn label(id: &str) -> String {
     format!("desktop-toy-{id}")
@@ -178,6 +202,7 @@ fn frame(actor: &Actor, geometry: &Geometry) -> Frame {
 }
 fn outcome(actor: &Actor, popped: bool) -> Outcome {
     Outcome {
+        enqueued_at: Instant::now(),
         actor_id: actor.id.clone(),
         widget_id: actor.widget_id.clone(),
         revision: actor.revision,
@@ -495,6 +520,7 @@ fn open_one(
         moving: true,
         resting: 0.0,
         reported: false,
+        last_care: None,
         created: now,
         // A pet stays until it is sent home from its menu.
         expires: (automatic || kind == Kind::Bubbles)
@@ -886,6 +912,7 @@ fn begin_grab(actor: &mut Actor, x: f64, y: f64) {
     actor.dragging = true;
     actor.moving = true;
     actor.reported = false;
+    actor.last_care = None;
     actor.resting = 0.0;
     actor.drag_offset = (actor.motion.x - x, actor.motion.y - y);
     actor.motion.vx = 0.0;
@@ -924,14 +951,16 @@ fn perform_action(app: &AppHandle, id: &str, action: &str) -> Result<Frame, Stri
             // A small hop acknowledges the care; walking resumes on landing.
             actor.motion.vy = if action == "feed" { -260.0 } else { -160.0 } * actor.scale;
             actor.moving = true;
-            popped = Some(Outcome {
+            let event = Outcome {
                 care: Some(if action == "feed" {
                     Care::Fed
                 } else {
                     Care::Stroked
                 }),
                 ..outcome(actor, false)
-            });
+            };
+            actor.last_care = Some(event.enqueued_at);
+            popped = Some(event);
         }
         "dismiss" => {}
         _ => return Err("알 수 없는 장난감 조작이에요.".into()),
@@ -1306,6 +1335,42 @@ fn apply_geometry(world: &mut World, sample: Option<GeometrySample>, now: Instan
     }
 }
 
+fn prepare_tick(world: &mut World, elapsed: f64, previous: Instant) -> (f64, Vec<String>) {
+    if elapsed <= 1.0 {
+        return (elapsed, Vec::new());
+    }
+    let mut removed = Vec::new();
+    world.actors.retain(|id, actor| {
+        if !manual_pet(actor) {
+            removed.push(id.clone());
+            return false;
+        }
+        actor.dragging = false;
+        actor.drag_offset = (0.0, 0.0);
+        actor.motion.vx = 0.0;
+        if actor.last_care.is_none_or(|at| at <= previous) {
+            actor.motion.vy = 0.0;
+        }
+        actor.moving = true;
+        actor.resting = 0.0;
+        actor.last_sent = None;
+        true
+    });
+    let actors = &world.actors;
+    world.outcomes.retain(|event| {
+        event.enqueued_at > previous
+            && event.care.is_some()
+            && !event.automatic
+            && actors.get(&event.actor_id).is_some_and(|actor| {
+                manual_pet(actor)
+                    && actor.widget_id == event.widget_id
+                    && actor.revision == event.revision
+            })
+    });
+    world.accumulator = 0.0;
+    (0.0, removed)
+}
+
 pub(crate) fn start(app: AppHandle) {
     if app.state::<Runtime>().started.swap(true, Ordering::SeqCst) {
         return;
@@ -1319,6 +1384,7 @@ pub(crate) fn start(app: AppHandle) {
             timer.tick().await;
             let now = Instant::now();
             let elapsed = now.duration_since(previous).as_secs_f64();
+            let interrupted_after = previous;
             previous = now;
             let runtime = app.state::<Runtime>();
             let refresh = runtime
@@ -1355,13 +1421,8 @@ pub(crate) fn start(app: AppHandle) {
                     world.accumulator = 0.0;
                     continue;
                 }
-                if elapsed > 1.0 {
-                    // Sleep/resume is not elapsed play time and must never replay a launch.
-                    removed.extend(world.actors.keys().cloned());
-                    world.actors.clear();
-                    world.outcomes.clear();
-                    world.accumulator = 0.0;
-                }
+                let (elapsed, interrupted) = prepare_tick(&mut world, elapsed, interrupted_after);
+                removed.extend(interrupted);
                 apply_geometry(&mut world, captured, now);
                 let scales = world.scales.clone();
                 let mut geometry = world.geometry.clone();
@@ -1383,9 +1444,7 @@ pub(crate) fn start(app: AppHandle) {
                             actor.scale = *scale;
                         }
                     }
-                    if actor.expires.is_some_and(|at| at <= now)
-                        || now.duration_since(actor.created) > Duration::from_secs(3600)
-                    {
+                    if actor_expired(actor, now) {
                         if !actor.reported {
                             outcomes.push(outcome(actor, false));
                         }
@@ -1604,6 +1663,7 @@ mod tests {
             moving: true,
             resting: 0.0,
             reported: false,
+            last_care: None,
             created: Instant::now(),
             expires: None,
             ignore_cursor: true,
@@ -1612,6 +1672,257 @@ mod tests {
             attempt: String::new(),
         }
     }
+
+    #[test]
+    fn long_tick_gap_keeps_manual_pet_without_replaying_drag_or_pending_outcomes() {
+        let mut world = World::default();
+        for (id, kind, automatic) in [
+            ("manual-pet", Kind::Pet, false),
+            ("automatic-pet", Kind::Pet, true),
+            ("manual-ball", Kind::Ball, false),
+            ("automatic-plane", Kind::PaperPlane, true),
+        ] {
+            let mut actor = resting_ball();
+            actor.id = id.into();
+            actor.kind = kind;
+            actor.automatic = automatic;
+            actor.visible = true;
+            actor.dragging = true;
+            actor.drag_offset = (12.0, -4.0);
+            actor.motion.vx = 600.0;
+            actor.motion.vy = -200.0;
+            actor.resting = 0.1;
+            actor.last_sent = Some((50.0, 80.0, frame(&actor, &world.geometry)));
+            world.actors.insert(id.into(), actor);
+        }
+        let pet = &world.actors["manual-pet"];
+        let identity = (
+            pet.widget_id.clone(),
+            pet.revision,
+            pet.created,
+            pet.attempt.clone(),
+        );
+        let mut pending = outcome(pet, false);
+        pending.care = Some(Care::Fed);
+        let previous = pending.enqueued_at;
+        world.actors.get_mut("manual-pet").unwrap().last_care = Some(previous);
+        world.outcomes.push(pending);
+        world.accumulator = STEP / 2.0;
+
+        let (elapsed, removed) = prepare_tick(&mut world, 2.0, previous);
+
+        assert_eq!(elapsed, 0.0);
+        assert_eq!(removed, ["automatic-pet", "automatic-plane", "manual-ball"]);
+        assert_eq!(world.actors.len(), 1);
+        let pet = &world.actors["manual-pet"];
+        assert_eq!((pet.motion.x, pet.motion.y), (50.0, 80.0));
+        assert_eq!(
+            (
+                pet.widget_id.clone(),
+                pet.revision,
+                pet.created,
+                pet.attempt.clone()
+            ),
+            identity
+        );
+        assert!(pet.visible);
+        assert!(pet.expires.is_none());
+        assert!(!pet.dragging);
+        assert_eq!(pet.drag_offset, (0.0, 0.0));
+        assert_eq!((pet.motion.vx, pet.motion.vy), (0.0, 0.0));
+        assert!(pet.moving);
+        assert_eq!(pet.resting, 0.0);
+        assert!(pet.last_sent.is_none());
+        assert!(world.outcomes.is_empty());
+        assert_eq!(world.accumulator, 0.0);
+    }
+
+    #[test]
+    fn ordinary_tick_keeps_current_drag_motion_and_pending_outcomes() {
+        for elapsed in [STEP, 1.0] {
+            let mut world = World::default();
+            let mut actor = resting_ball();
+            actor.dragging = true;
+            actor.drag_offset = (12.0, -4.0);
+            actor.motion.vx = 600.0;
+            actor.motion.vy = -200.0;
+            let expected = frame(&actor, &world.geometry);
+            world.outcomes.push(outcome(&actor, false));
+            world.actors.insert(actor.id.clone(), actor);
+            world.accumulator = STEP / 2.0;
+
+            assert_eq!(
+                prepare_tick(&mut world, elapsed, Instant::now()),
+                (elapsed, Vec::new())
+            );
+
+            assert_eq!(world.actors.len(), 1);
+            let actor = &world.actors["test"];
+            assert_eq!(frame(actor, &world.geometry), expected);
+            assert_eq!(actor.drag_offset, (12.0, -4.0));
+            assert_eq!((actor.motion.x, actor.motion.y), (50.0, 80.0));
+            assert_eq!((actor.motion.vx, actor.motion.vy), (600.0, -200.0));
+            assert_eq!(world.outcomes.len(), 1);
+            assert_eq!(world.accumulator, STEP / 2.0);
+        }
+    }
+
+    #[test]
+    fn long_tick_gap_keeps_new_manual_care_in_either_menu_callback_order() {
+        for callback_before_tick in [true, false] {
+            let mut world = World::default();
+            let mut pet = resting_ball();
+            pet.kind = Kind::Pet;
+            pet.motion.vy = -260.0;
+            let previous = pet.created + Duration::from_secs(1);
+            let mut old = outcome(&pet, false);
+            old.care = Some(Care::Fed);
+            old.enqueued_at = previous - Duration::from_nanos(1);
+            world.outcomes.push(old.clone());
+            old.enqueued_at = previous;
+            world.outcomes.push(old.clone());
+            let mut fresh = old.clone();
+            fresh.care = Some(Care::Stroked);
+            fresh.enqueued_at = previous + Duration::from_nanos(1);
+            let mut wrong_revision = fresh.clone();
+            wrong_revision.revision += 1;
+            world.outcomes.push(wrong_revision);
+            let mut removed_actor = fresh.clone();
+            removed_actor.actor_id = "removed-pet".into();
+            world.outcomes.push(removed_actor);
+            let mut ordinary_outcome = fresh.clone();
+            ordinary_outcome.care = None;
+            world.outcomes.push(ordinary_outcome);
+            world.actors.insert(pet.id.clone(), pet);
+            if callback_before_tick {
+                let pet = world.actors.get_mut("test").unwrap();
+                pet.motion.vy = -160.0;
+                pet.last_care = Some(fresh.enqueued_at);
+                world.outcomes.push(fresh.clone());
+            }
+
+            prepare_tick(&mut world, 2.0, previous);
+            if !callback_before_tick {
+                assert!(world.outcomes.is_empty());
+                assert_eq!(world.actors["test"].motion.vy, 0.0);
+                let pet = world.actors.get_mut("test").unwrap();
+                pet.motion.vy = -160.0;
+                pet.last_care = Some(fresh.enqueued_at);
+                world.outcomes.push(fresh.clone());
+            }
+            prepare_tick(&mut world, STEP, previous + Duration::from_secs(2));
+
+            assert_eq!(world.outcomes.len(), 1);
+            let kept = &world.outcomes[0];
+            assert_eq!(kept.actor_id, fresh.actor_id);
+            assert_eq!(kept.revision, fresh.revision);
+            assert_eq!(kept.care, Some(Care::Stroked));
+            assert_eq!(kept.enqueued_at, fresh.enqueued_at);
+            assert_eq!(world.actors["test"].motion.vy, -160.0);
+        }
+    }
+
+    #[test]
+    fn new_care_hop_survives_outcome_drain_before_long_tick() {
+        for (care, velocity) in [(Care::Fed, -260.0), (Care::Stroked, -160.0)] {
+            let mut world = World::default();
+            let mut pet = resting_ball();
+            pet.kind = Kind::Pet;
+            let previous = pet.created;
+            let mut event = outcome(&pet, false);
+            event.care = Some(care);
+            event.enqueued_at = previous + Duration::from_nanos(1);
+            pet.last_care = Some(event.enqueued_at);
+            pet.motion.vx = 45.0;
+            pet.motion.vy = velocity;
+            world.actors.insert(pet.id.clone(), pet);
+            world.outcomes.push(event);
+            world.accumulator = STEP / 2.0;
+
+            let drained = std::mem::take(&mut world.outcomes);
+            assert_eq!(drained.len(), 1);
+            assert_eq!(drained[0].care, Some(care));
+            prepare_tick(&mut world, 2.0, previous);
+
+            assert!(world.outcomes.is_empty());
+            assert_eq!(world.actors["test"].motion.vy, velocity);
+            assert_eq!(world.actors["test"].motion.vx, 0.0);
+            assert_eq!(world.accumulator, 0.0);
+            prepare_tick(&mut world, 2.0, previous + Duration::from_secs(3));
+            assert_eq!(world.actors["test"].motion.vy, 0.0);
+        }
+    }
+
+    #[test]
+    fn wake_discards_pre_sleep_care_but_accepts_new_care_for_the_same_pet() {
+        let runtime = Runtime::default();
+        let mut pet = resting_ball();
+        pet.kind = Kind::Pet;
+        let previous = pet.created;
+        let mut care = outcome(&pet, false);
+        care.care = Some(Care::Fed);
+        care.enqueued_at = previous + Duration::from_nanos(1);
+        pet.last_care = Some(care.enqueued_at);
+        pet.motion.vy = -260.0;
+        {
+            let mut world = runtime.world.lock().unwrap();
+            world.outcomes.push(care.clone());
+            world.actors.insert(pet.id.clone(), pet);
+        }
+
+        runtime.discard_pending_outcomes();
+
+        let mut world = runtime.world.lock().unwrap();
+        assert!(world.outcomes.is_empty());
+        assert_eq!(world.actors.len(), 1);
+        assert_eq!(world.actors["test"].created, previous);
+        assert!(world.actors["test"].last_care.is_none());
+        prepare_tick(&mut world, 2.0, previous);
+        assert_eq!(world.actors["test"].motion.vy, 0.0);
+        care.enqueued_at = previous + Duration::from_secs(2);
+        let pet = world.actors.get_mut("test").unwrap();
+        pet.last_care = Some(care.enqueued_at);
+        pet.motion.vy = -260.0;
+        world.outcomes.push(care);
+        prepare_tick(&mut world, 2.0, previous);
+        assert_eq!(world.actors.len(), 1);
+        assert_eq!(world.outcomes.len(), 1);
+        assert_eq!(world.outcomes[0].care, Some(Care::Fed));
+        assert_eq!(world.actors["test"].motion.vy, -260.0);
+    }
+
+    #[test]
+    fn manual_pet_has_no_hourly_expiry_but_other_toy_limits_remain() {
+        for (kind, automatic, expires_after_hour) in [
+            (Kind::Pet, false, false),
+            (Kind::Pet, true, true),
+            (Kind::Ball, false, true),
+            (Kind::PaperPlane, false, true),
+            (Kind::Bubbles, false, true),
+        ] {
+            let mut actor = resting_ball();
+            actor.kind = kind;
+            actor.automatic = automatic;
+            assert!(!actor_expired(
+                &actor,
+                actor.created + Duration::from_secs(3600)
+            ));
+            assert_eq!(
+                actor_expired(&actor, actor.created + Duration::from_millis(3_600_001)),
+                expires_after_hour
+            );
+        }
+        for (kind, automatic, seconds) in [(Kind::Pet, true, 20), (Kind::Bubbles, false, 45)] {
+            let mut actor = resting_ball();
+            actor.kind = kind;
+            actor.automatic = automatic;
+            let deadline = actor.created + Duration::from_secs(seconds);
+            actor.expires = Some(deadline);
+            assert!(!actor_expired(&actor, deadline - Duration::from_millis(1)));
+            assert!(actor_expired(&actor, deadline));
+        }
+    }
+
     #[test]
     fn pending_geometry_does_not_block_toy_motion_and_is_consumed_once() {
         let (sender, receiver) = tokio::sync::oneshot::channel();
@@ -1766,9 +2077,11 @@ mod tests {
     fn grabbing_allows_a_new_throw_result() {
         let mut actor = resting_ball();
         actor.reported = true;
+        actor.last_care = Some(Instant::now());
         begin_grab(&mut actor, 45.0, 75.0);
         assert!(!actor.reported && actor.dragging);
         assert_eq!(actor.drag_offset, (5.0, 5.0));
+        assert!(actor.last_care.is_none());
     }
     #[test]
     fn fast_ball_hits_both_sides_of_window_edges_without_tunneling() {

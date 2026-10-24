@@ -892,7 +892,7 @@ async fn open_widget_inner(
                 crate::app::launcher::accept_execution(state, session)
             })?;
         }
-        return crate::widgets::planning::windows::open_travel(app.clone(), None);
+        return crate::widgets::planning::windows::open_travel(app.clone(), None).await;
     }
     if crate::behavior::DESKTOP_TOYS.contains(&instance.kind.as_str()) {
         let token = crate::desktop::toys::launch_token(app, id)?;

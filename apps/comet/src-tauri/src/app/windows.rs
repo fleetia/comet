@@ -75,7 +75,7 @@ fn cancel_request(state: &AppState, request: &crate::types::ActiveRequest) -> Re
 }
 
 #[tauri::command]
-pub(crate) fn open_panel(
+pub(crate) async fn open_panel(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     persona: String,
