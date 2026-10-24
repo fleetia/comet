@@ -786,6 +786,8 @@ pub fn run() {
             crate::memory_commands::remove_nlp_model,
             crate::memory_commands::retry_memory_analysis,
             windows::open_settings,
+            widgets::commands::open_play_widget,
+            crate::characters::gestures::touch_character_from_menu,
             windows::open_organizer_settings,
             windows::get_settings_section,
             windows::set_settings_section,

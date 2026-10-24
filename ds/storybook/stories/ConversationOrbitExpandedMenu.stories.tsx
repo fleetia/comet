@@ -80,7 +80,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "각각 최대 7개의 고정 슬롯에 배치하는 버튼·연결선·중심 노드의 조합입니다. 큰 교감·작은 교감·작은 놀이 배치를 제공하며 onAction과 onBack으로 선택과 Esc를 전달합니다. 캐릭터는 character 슬롯으로 넣습니다.",
+          "주 궤도는 7개까지 고정 슬롯에, 8개는 같은 240° 호에 고르게 배치하고 보조 궤도는 최대 7개 고정 슬롯을 쓰는 버튼·연결선·중심 노드의 조합입니다. ←/→는 같은 궤도 안에서 포커스를 옮기고 Enter는 포커스한 노드를 누릅니다. 큰 교감·작은 교감·작은 놀이 배치를 제공하며 onAction과 onBack으로 선택과 Esc를 전달합니다. 캐릭터는 character 슬롯으로 넣습니다.",
       },
     },
   },
@@ -113,6 +113,25 @@ export const Play: Story = {
       { id: "toys", label: "장난감 꺼내기", icon: "toybox" },
       { id: "cup", label: "컵 찾기", icon: "cupdown" },
       { id: "fortune", label: "장난 운세", icon: "bubble" },
+    ],
+  },
+};
+export const EightNodes: Story = {
+  name: "작은 교감 · 8개",
+  args: {
+    size: "compact",
+    parent: "별꼬리",
+    selectedId: undefined,
+    secondaryItems: [],
+    items: [
+      { id: "pet", label: "쓰다듬기", icon: "pet" },
+      { id: "poke", label: "콕 찌르기", icon: "poke" },
+      { id: "snack", label: "간식 주기", icon: "cookie" },
+      { id: "drink", label: "음료 건네기", icon: "drink" },
+      { id: "gift", label: "선물 건네기", icon: "gift" },
+      { id: "move", label: "움직이기", icon: "move" },
+      { id: "sleep", label: "재우기", icon: "moon" },
+      { id: "pause", label: "자동 잡담 쉬기", icon: "pause" },
     ],
   },
 };

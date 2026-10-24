@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type ButtonHTMLAttributes,
+  type CSSProperties,
   type HTMLAttributes,
   type JSX,
   type ReactNode,
@@ -104,6 +105,19 @@ export type OrbitMenuItems =
       OrbitMenuItem,
       OrbitMenuItem,
     ];
+/** Primary ring items: up to seven use the designed slots, an eighth spreads them evenly. */
+export type OrbitPrimaryItems =
+  | OrbitMenuItems
+  | readonly [
+      OrbitMenuItem,
+      OrbitMenuItem,
+      OrbitMenuItem,
+      OrbitMenuItem,
+      OrbitMenuItem,
+      OrbitMenuItem,
+      OrbitMenuItem,
+      OrbitMenuItem,
+    ];
 export type OrbitExpandedMenuProps = HTMLAttributes<HTMLDivElement> & {
   open?: boolean;
   size?: "full" | "compact";
@@ -111,7 +125,7 @@ export type OrbitExpandedMenuProps = HTMLAttributes<HTMLDivElement> & {
   parent: string;
   title: string;
   hubIcon?: IconName;
-  items: OrbitMenuItems;
+  items: OrbitPrimaryItems;
   secondaryItems?: OrbitMenuItems;
   selectedId?: string;
   onAction?: (id: string) => void;
@@ -176,11 +190,49 @@ const playSecondaryPositions = [
   [183.5, 226.5],
 ] as const;
 
+/** Evenly spreads `count` nodes over the ring's 240° arc (150° → 390°, clockwise from the left). */
+function ringPositions(
+  count: number,
+  ring: { x: number; y: number; radius: number },
+  node: number,
+): [number, number][] {
+  return Array.from({ length: count }, (_, index) => {
+    const angle = ((150 + (240 * index) / Math.max(1, count - 1)) * Math.PI) / 180;
+    return [
+      Math.round((ring.x + ring.radius * Math.cos(angle) - node / 2) * 100) / 100,
+      Math.round((ring.y + ring.radius * Math.sin(angle) - node / 2) * 100) / 100,
+    ];
+  });
+}
+
+/**
+ * Places a label outward from the ring center through its node, so labels wrap the ring
+ * instead of stacking into left and right columns. The label's near edge keeps `gap` from the node.
+ */
+function radialLabel(
+  position: readonly [number, number],
+  ring: { x: number; y: number },
+  node: number,
+  gap = 6,
+): CSSProperties {
+  const dx = position[0] + node / 2 - ring.x;
+  const dy = position[1] + node / 2 - ring.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const [ux, uy] = [dx / length, dy / length];
+  const reach = node / 2 + gap;
+  const round = (value: number): number => Math.round(value * 100) / 100;
+  return {
+    left: "50%",
+    top: "50%",
+    transform: `translate(calc(${round(-50 + ux * 50)}% + ${round(ux * reach)}px), calc(${round(-50 + uy * 50)}% + ${round(uy * reach)}px))`,
+  };
+}
+
 export type OrbitBranchProps = Omit<HTMLAttributes<HTMLDivElement>, "content"> & {
   origin: { x: number; y: number };
   center: { x: number; y: number };
   title: string;
-  items: OrbitMenuItems;
+  items: OrbitPrimaryItems;
   open?: boolean;
   hubIcon?: IconName;
   selectedId?: string;
@@ -320,7 +372,12 @@ function OrbitMenu({
 }: OrbitExpandedMenuProps & { branch?: boolean }): JSX.Element {
   const isCompact = size === "compact" || content === "play";
   const isPlay = content === "play";
-  const positions =
+  const ring = isPlay
+    ? { width: 310, height: 330, x: 160, y: 150, radius: 72, bodyRadius: 46, connectorY: 193 }
+    : isCompact
+      ? { width: 310, height: 340, x: 156, y: 144, radius: 68, bodyRadius: 44, connectorY: 186 }
+      : { width: 440, height: 470, x: 220, y: 196, radius: 104, bodyRadius: 72, connectorY: 245 };
+  const designed: readonly (readonly [number, number])[] =
     branch && items.length === 2
       ? [
           [178, 75],
@@ -331,10 +388,10 @@ function OrbitMenu({
         : isCompact
           ? compactPositions
           : fullPositions;
-  const labels =
-    branch && items.length === 2
-      ? (["left", "right"] as const)
-      : (["left", "left", "left", "top", "right", "right", "right"] as const);
+  // More nodes than designed slots keep the designed arc but spread evenly over it.
+  const spread =
+    items.length <= designed.length ? null : ringPositions(items.length, ring, isCompact ? 28 : 40);
+  const positions = spread ?? designed;
   const { present, visualRef, exiting } = useOrbitPresence(
     open,
     items.length,
@@ -358,11 +415,6 @@ function OrbitMenu({
     characterAnchor && Number.isFinite(characterAnchor.x) && Number.isFinite(characterAnchor.y)
       ? characterAnchor
       : undefined;
-  const ring = isPlay
-    ? { width: 310, height: 330, x: 160, y: 150, radius: 72, bodyRadius: 46, connectorY: 193 }
-    : isCompact
-      ? { width: 310, height: 340, x: 156, y: 144, radius: 68, bodyRadius: 44, connectorY: 186 }
-      : { width: 440, height: 470, x: 220, y: 196, radius: 104, bodyRadius: 72, connectorY: 245 };
   const launch = anchor ?? {
     x: characterPosition[0] + (isCompact ? 24 : 30),
     y: characterPosition[1] + (isCompact ? 24 : 30),
@@ -375,9 +427,24 @@ function OrbitMenu({
       data-orbit-branch={branch || undefined}
       onKeyDown={(event) => {
         onKeyDown?.(event);
-        if (!event.defaultPrevented && !event.nativeEvent.isComposing && event.key === "Escape") {
+        if (event.defaultPrevented || event.nativeEvent.isComposing) return;
+        if (event.key === "Escape") {
           event.preventDefault();
           onBack?.();
+        } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          // ←/→ walk this ring only; Enter is the focused node's own click.
+          const nodes = [
+            ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+              ":scope > [data-orbit-visual] > [data-orbit-primary] > button:not(:disabled)",
+            ),
+          ];
+          if (!nodes.length) return;
+          event.preventDefault();
+          const at = nodes.indexOf(document.activeElement as HTMLButtonElement);
+          const step = event.key === "ArrowRight" ? 1 : -1;
+          const next =
+            at < 0 ? (step > 0 ? 0 : nodes.length - 1) : (at + step + nodes.length) % nodes.length;
+          nodes[next].focus();
         }
       }}
       className={[styles.menu, isCompact && styles.compact, isPlay && styles.play, className]
@@ -489,7 +556,8 @@ function OrbitMenu({
             />
             <span
               data-orbit-label
-              className={[styles.itemLabel, styles.labelPositions[labels[index]]].join(" ")}
+              className={styles.itemLabel}
+              style={radialLabel(positions[index], ring, isCompact ? 28 : 40)}
             >
               {item.label}
             </span>

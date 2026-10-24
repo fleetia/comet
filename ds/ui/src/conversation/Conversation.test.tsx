@@ -262,6 +262,50 @@ describe("conversation primitives", () => {
       screen.getByRole("button", { name: "쓰다듬기" }).parentElement?.getAttribute("style"),
     ).toBe(position);
   });
+  it("spreads more nodes than designed over the same arc and walks them with arrow keys", async () => {
+    const user = userEvent.setup();
+    const action = vi.fn();
+    const item = (id: string) => ({
+      id,
+      label: `항목 ${id}`,
+      icon: "pet" as const,
+      disabled: id === "c",
+    });
+    const items = [
+      item("a"),
+      item("b"),
+      item("c"),
+      item("d"),
+      item("e"),
+      item("f"),
+      item("g"),
+      item("h"),
+    ] as const;
+    render(
+      <OrbitExpandedMenu
+        size="compact"
+        parent="나디르"
+        title="교감"
+        items={items}
+        onAction={action}
+      />,
+    );
+    const place = (id: string) =>
+      screen.getByRole("button", { name: `항목 ${id}` }).parentElement?.style;
+    // First and last stay on the designed ends (150° and 30°); the middle pair straddles the top.
+    expect([place("a")?.left, place("a")?.top]).toEqual(["83.11px", "164px"]);
+    expect([place("h")?.left, place("h")?.top]).toEqual(["200.89px", "164px"]);
+    expect(Number.parseFloat(place("d")!.top)).toBeLessThan(80);
+    screen.getByRole("button", { name: "항목 b" }).focus();
+    await user.keyboard("{ArrowRight}");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "항목 d" }));
+    await user.keyboard("{ArrowLeft}{ArrowLeft}");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "항목 a" }));
+    await user.keyboard("{ArrowLeft}");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "항목 h" }));
+    await user.keyboard("{Enter}");
+    expect(action).toHaveBeenCalledExactlyOnceWith("h");
+  });
   it("ignores non-finite external anchors instead of drawing invalid SVG coordinates", () => {
     const view = render(
       <OrbitExpandedMenu

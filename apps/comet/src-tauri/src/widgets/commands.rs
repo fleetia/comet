@@ -666,6 +666,83 @@ pub(crate) async fn open_widget(
     open_widget_inner(&app, &state, &id, None, None).await
 }
 
+/// Widgets the character menu's "같이 놀기" ring opens.
+const PLAY_KINDS: [&str; 7] = [
+    "small-match",
+    "guessing",
+    "fortune",
+    "ball",
+    "paper-plane",
+    "bubbles",
+    "pet",
+];
+
+/// Picks the requested game on a usable play widget and returns its id, or `None` when the
+/// widget still has to be installed or turned on. Picking never plays a round.
+pub(crate) fn prepare_play(
+    db: &rusqlite::Connection,
+    kind: &str,
+    mode: Option<&str>,
+    now: i64,
+) -> Result<Option<String>, String> {
+    if !PLAY_KINDS.contains(&kind) {
+        return Err("같이 놀 수 있는 위젯이 아니에요.".into());
+    }
+    let Some(instance) = storage::instances(db)?
+        .into_iter()
+        .find(|instance| instance.kind == kind && instance.installed && instance.enabled)
+    else {
+        return Ok(None);
+    };
+    let action = match (kind, mode) {
+        ("small-match", Some(game)) => Some(("choose", serde_json::json!({ "game": game }))),
+        ("guessing", Some(mode))
+            if !(instance.data["playing"] == true && instance.data["mode"] == mode) =>
+        {
+            Some(("start", serde_json::json!({ "mode": mode })))
+        }
+        (_, None) | ("guessing", Some(_)) => None,
+        _ => return Err("이 위젯은 놀이를 고를 수 없어요.".into()),
+    };
+    if let Some((action, input)) = action {
+        storage::execute(
+            db,
+            &WidgetRequest {
+                request_id: uuid::Uuid::new_v4().to_string(),
+                instance_id: instance.id.clone(),
+                expected_revision: instance.revision,
+                action: action.into(),
+                input,
+            },
+            now,
+            uuid::Uuid::new_v4().as_u128() as u64,
+        )?;
+    }
+    Ok(Some(instance.id))
+}
+
+#[tauri::command]
+pub(crate) async fn open_play_widget(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    kind: String,
+    mode: Option<String>,
+) -> Result<(), String> {
+    let prepared = change(&state, |db| {
+        prepare_play(
+            db,
+            &kind,
+            mode.as_deref(),
+            chrono::Utc::now().timestamp_millis(),
+        )
+    })?;
+    publish_widgets(&app, &state);
+    match prepared {
+        Some(id) => open_widget_inner(&app, &state, &id, None, None).await,
+        None => crate::widgets::planning::windows::open_widget_settings(app.clone(), &kind),
+    }
+}
+
 /// Checks the launcher session, the widget kind and its revision in the same action section as
 /// the write. A reused request id is a no-op, so a retried Enter never adds a second task.
 pub(crate) fn commit_todo_for_launcher(
@@ -1833,5 +1910,116 @@ pub(crate) fn list_usage_applications() -> Value {
             serde_json::json!({"applications":applications,"supported":true,"message":""})
         }
         Err(message) => serde_json::json!({"applications":[],"supported":false,"message":message}),
+    }
+}
+
+#[cfg(test)]
+mod play_tests {
+    use super::*;
+
+    fn count(db: &rusqlite::Connection, table: &str) -> i64 {
+        db.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })
+        .unwrap()
+    }
+    fn data(db: &rusqlite::Connection, kind: &str) -> Value {
+        storage::instances(db)
+            .unwrap()
+            .into_iter()
+            .find(|instance| instance.kind == kind)
+            .unwrap()
+            .data
+    }
+
+    #[test]
+    fn menu_play_picks_the_game_without_playing_and_asks_for_setup_when_missing() {
+        let state = crate::app::tests::state();
+        let directory = tempfile::tempdir().unwrap();
+        let db = lock(&state.db).unwrap();
+        assert_eq!(
+            prepare_play(&db, "small-match", Some("coin"), 1).unwrap(),
+            None
+        );
+        storage::install(
+            &db,
+            directory.path(),
+            &["small-match".into(), "guessing".into(), "fortune".into()],
+        )
+        .unwrap();
+        let id = prepare_play(&db, "small-match", Some("coin"), 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(storage::get(&db, &id).unwrap().kind, "small-match");
+        let picked = data(&db, "small-match");
+        assert_eq!(picked["game"], "coin");
+        assert_eq!(picked["result"], "");
+        assert_eq!(picked["rounds"], 0);
+        prepare_play(&db, "guessing", Some("number"), 2)
+            .unwrap()
+            .unwrap();
+        let started = data(&db, "guessing");
+        assert_eq!(
+            (started["mode"].clone(), started["playing"].clone()),
+            ("number".into(), true.into())
+        );
+        // Reopening the same game keeps the round in progress.
+        let answer = started["answer"].clone();
+        prepare_play(&db, "guessing", Some("number"), 3).unwrap();
+        assert_eq!(data(&db, "guessing")["answer"], answer);
+        assert!(prepare_play(&db, "fortune", None, 4).unwrap().is_some());
+        assert!(prepare_play(&db, "fortune", Some("dice"), 4).is_err());
+        assert!(prepare_play(&db, "small-match", Some("chess"), 4).is_err());
+        assert!(prepare_play(&db, "todo", None, 4).is_err());
+    }
+
+    #[test]
+    fn play_results_stay_out_of_conversation_history_affinity_and_memories() {
+        let state = crate::app::tests::state();
+        let directory = tempfile::tempdir().unwrap();
+        let db = lock(&state.db).unwrap();
+        storage::install(
+            &db,
+            directory.path(),
+            &["small-match".into(), "guessing".into(), "fortune".into()],
+        )
+        .unwrap();
+        let before = ["messages", "affinity", "memories"].map(|table| count(&db, table));
+        for (kind, mode, action, input) in [
+            ("small-match", Some("dice"), "dice", serde_json::json!({})),
+            (
+                "small-match",
+                Some("rps"),
+                "rps",
+                serde_json::json!({"choice":"rock"}),
+            ),
+            (
+                "guessing",
+                Some("cups"),
+                "guess",
+                serde_json::json!({"value":1}),
+            ),
+            ("fortune", None, "draw", serde_json::json!({})),
+        ] {
+            let id = prepare_play(&db, kind, mode, 10).unwrap().unwrap();
+            let revision = storage::get(&db, &id).unwrap().revision;
+            storage::execute(
+                &db,
+                &WidgetRequest {
+                    request_id: uuid::Uuid::new_v4().to_string(),
+                    instance_id: id,
+                    expected_revision: revision,
+                    action: action.into(),
+                    input,
+                },
+                11,
+                7,
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            ["messages", "affinity", "memories"].map(|table| count(&db, table)),
+            before
+        );
     }
 }
