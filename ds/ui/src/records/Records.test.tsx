@@ -213,3 +213,43 @@ it("lays out organizer records as time and status over the title and source path
   await userEvent.setup().click(button);
   expect(onSelect).toHaveBeenCalledOnce();
 });
+
+it("separates the plan date from the deadline chip and opens each edit target", async () => {
+  const user = userEvent.setup();
+  const onDueClick = vi.fn();
+  const onDeadlineClick = vi.fn();
+  const { rerender } = render(
+    <TaskRow
+      title="원고"
+      completionLabel="원고 완료"
+      completed={false}
+      due="오늘"
+      deadline="마감 오후 6:00 · 지남"
+      overdue
+      dueLabel="원고 계획 날짜 바꾸기"
+      deadlineLabel="원고 마감 바꾸기"
+      onDueClick={onDueClick}
+      onDeadlineClick={onDeadlineClick}
+    />,
+  );
+  const due = screen.getByRole("button", { name: "원고 계획 날짜 바꾸기" });
+  const deadline = screen.getByRole("button", { name: "원고 마감 바꾸기" });
+  expect(due.textContent).toBe("오늘");
+  expect(deadline.textContent).toBe("마감 오후 6:00 · 지남");
+  expect(deadline.className).not.toBe(due.className);
+  await user.click(due);
+  await user.click(deadline);
+  expect(onDueClick).toHaveBeenCalledTimes(1);
+  expect(onDeadlineClick).toHaveBeenCalledTimes(1);
+  rerender(
+    <TaskRow
+      title="원고"
+      completionLabel="원고 완료"
+      completed={false}
+      due="오후 4:00 – 4:30"
+      plannedTime
+    />,
+  );
+  expect(screen.queryByRole("button")).toBeNull();
+  expect(screen.getByText("오후 4:00 – 4:30").querySelector("svg")).toBeTruthy();
+});

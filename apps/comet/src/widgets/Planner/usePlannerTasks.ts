@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { command } from "../../hooks/useSnapshot";
-import { rows, text, type DataRecord } from "../toolData";
+import { record, rows, text, type DataRecord } from "../toolData";
 import type { DiaryState } from "./diaryTypes";
+import type { WidgetSnapshot } from "../types";
 import { plannedDay, ruleOf } from "./plannerData";
 import type { PlannerActions } from "./usePlannerActions";
 
@@ -47,7 +48,30 @@ export function usePlannerTasks({
         });
       });
     }
-    return act("plan", { ids: [text(item.id)], date: toDate });
+    return run(async () => {
+      const snapshot = await command<WidgetSnapshot>("get_widgets");
+      const todo = snapshot.widgets.find(
+        (widget) => widget.kind === "todo" && widget.installed && widget.enabled,
+      );
+      const current = rows(record(todo?.data).items).find((value) => value.id === item.id);
+      if (
+        !todo ||
+        !current ||
+        typeof current.completedAt === "number" ||
+        plannedDay(current) !== fromDate
+      ) {
+        throw new Error("이 할 일의 계획이 바뀌었어요. 최신 내용을 다시 불러와 확인해 주세요.");
+      }
+      await command("execute_widget", {
+        request: {
+          requestId: crypto.randomUUID(),
+          instanceId: todo.id,
+          expectedRevision: todo.revision,
+          action: "plan",
+          input: { ids: [text(item.id)], date: toDate },
+        },
+      });
+    });
   }
   async function check(item: DataRecord): Promise<void> {
     const id = text(item.id);

@@ -4,15 +4,15 @@ import { localDay, number, rows, text, type DataRecord, type ToolAction } from "
 import type { WidgetView } from "../types";
 import { PlannerAlertNotice } from "../PlannerAlerts/PlannerAlerts";
 import { envelopeTitle } from "./DiaryEnvelope";
-import { TaskReadOnlyDetails } from "./TodoEditor";
+import { TaskReadOnlyDetails, type TodoEditorField } from "./TodoEditor";
 import { PlannerTodoEmpty } from "./PlannerTodoEmpty";
 import type { PlannerMovingTask } from "./PlannerMoveTaskDialog";
 import { TODO_DRAG_TYPE, usePlannerTaskDrag } from "./usePlannerTaskDrag";
 import {
   dayDate,
-  dueDay,
-  dueLabel,
+  deadlineChipLabel,
   frequencyRecords,
+  isOverdue,
   plannedDay,
   repeatLabel,
   ruleOf,
@@ -67,7 +67,7 @@ export function PlannerDiaryTasks({
   onSelectTask: (id: string) => void;
   onToggleCompleted: () => void;
   onCheck: (item: DataRecord) => Promise<void>;
-  onEdit: (item: DataRecord) => void;
+  onEdit: (item: DataRecord, field?: TodoEditorField) => void;
   onMoveTaskDate: (item: DataRecord, toDate: string | null) => Promise<boolean>;
   onStartMove: (movingTask: PlannerMovingTask) => void;
   onOpenInbox: () => void;
@@ -247,17 +247,16 @@ export function PlannerDiaryTasks({
                             selected={selectedTask === item.id}
                             description={text(item.memo).split(/\r?\n/)[0] || undefined}
                             due={
-                              dueLabel(item, day) ||
-                              (plannedDay(item) === day
+                              plannedDay(item) === day
                                 ? group.title
-                                : plannedDay(item) || "날짜 없음")
+                                : plannedDay(item) || "날짜 없음"
                             }
-                            overdue={Boolean(
-                              dueDay(item) &&
-                              (typeof item.dueAt === "number"
-                                ? item.dueAt < Date.now()
-                                : dueDay(item) < localDay()),
-                            )}
+                            dueLabel={`${text(item.title)} 계획 날짜 바꾸기`}
+                            onDueClick={() => onEdit(item, "plan")}
+                            deadline={deadlineChipLabel(item, day) || undefined}
+                            deadlineLabel={`${text(item.title)} 마감 바꾸기`}
+                            onDeadlineClick={() => onEdit(item, "deadline")}
+                            overdue={isOverdue(item)}
                             list={text(lists.find((list) => list.id === item.listId)?.name)}
                             repeat={
                               ruleOf(item).mode === "frequency"
@@ -312,7 +311,7 @@ export function PlannerDiaryTasks({
                 if (source) onStartMove({ id: text(source.id), date: plannedDay(source) || day });
               }}
             >
-              끌어서 순서를 바꾸거나 다른 날로 옮겨요
+              날짜를 눌러 바꾸거나 끌어서 옮겨요
             </button>
           </div>
           {!headerActions && (

@@ -20,6 +20,9 @@ const meta = {
     },
     completed: { control: "boolean" },
     overdue: { control: "boolean" },
+    plannedTime: { control: "boolean" },
+    onDueClick: { control: false, action: "계획 날짜 열기" },
+    onDeadlineClick: { control: false, action: "마감 열기" },
     selected: { control: "boolean" },
     disabled: { control: "boolean" },
     divider: { control: "boolean" },
@@ -29,7 +32,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "List/Task Row·List/Diary Task Row·Envelope/Checklist Row의 완료 체크와 내용을 제공합니다. completed는 소비자가 관리하고 체크 변경은 onCompletedChange로 전달합니다. description·envelope·due·list·repeat의 유무로 관련 표시 상태를 조합합니다. diary는 반복이 없어도 메타데이터 열 너비를 유지하며 목록 첫 행은 divider=false로 표시합니다. 행 선택·드래그·일정 변경은 소비자 책임입니다.",
+          "List/Task Row·List/Diary Task Row·Envelope/Checklist Row의 완료 체크와 내용을 제공합니다. completed는 소비자가 관리하고 체크 변경은 onCompletedChange로 전달합니다. description·envelope·due·list·repeat의 유무로 관련 표시 상태를 조합합니다. due는 계획 날짜(plannedTime이면 시계가 붙은 할 시간), deadline은 깃발 칩의 마감입니다. deadline이 있으면 overdue는 칩만 빨갛게 하고, 없으면 due를 빨갛게 합니다. onDueClick·onDeadlineClick을 주면 각각 dueLabel·deadlineLabel 이름의 버튼이 되어 편집 위치로 이동할 수 있습니다. diary는 반복이 없어도 메타데이터 열 너비를 유지하며 목록 첫 행은 divider=false로 표시합니다. 행 선택·드래그·일정 변경은 소비자 책임입니다.",
       },
     },
   },
@@ -76,6 +79,32 @@ export const Diary: Story = {
   },
 };
 export const DiaryOverdue: Story = { args: { layout: "diary", overdue: true, due: "날짜 · 지남" } };
+export const DiaryDeadline: Story = {
+  args: {
+    layout: "diary",
+    title: "책 모임 질문 두 개 적기",
+    envelope: "책 모임",
+    due: "오늘",
+    deadline: "마감 오후 1:30 · 지남",
+    overdue: true,
+    dueLabel: "책 모임 질문 두 개 적기 계획 날짜 바꾸기",
+    deadlineLabel: "책 모임 질문 두 개 적기 마감 바꾸기",
+    onDueClick: () => {},
+    onDeadlineClick: () => {},
+  },
+};
+export const DiaryUpcomingDeadline: Story = {
+  args: { layout: "diary", title: "원고 마감", due: "10월 20일 (화)", deadline: "마감 오후 6:00" },
+};
+export const DiaryPlannedTime: Story = {
+  args: {
+    layout: "diary",
+    title: "영수증 정리하기",
+    due: "오후 4:00 – 4:30",
+    plannedTime: true,
+    repeat: "매주 월",
+  },
+};
 export const DiarySelected: Story = { args: { layout: "diary", selected: true } };
 export const DiaryDone: Story = { args: { layout: "diary", completed: true } };
 export const Disabled: Story = { args: { disabled: true } };
