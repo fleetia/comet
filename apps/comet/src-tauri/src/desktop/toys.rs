@@ -99,6 +99,7 @@ struct Actor {
     moving: bool,
     resting: f64,
     reported: bool,
+    last_care: Option<Instant>,
     created: Instant,
     expires: Option<Instant>,
     ignore_cursor: bool,
@@ -172,6 +173,9 @@ impl Runtime {
     pub(crate) fn discard_pending_outcomes(&self) {
         if let Ok(mut world) = self.world.lock() {
             world.outcomes.clear();
+            for actor in world.actors.values_mut() {
+                actor.last_care = None;
+            }
         }
     }
 }
@@ -516,6 +520,7 @@ fn open_one(
         moving: true,
         resting: 0.0,
         reported: false,
+        last_care: None,
         created: now,
         // A pet stays until it is sent home from its menu.
         expires: (automatic || kind == Kind::Bubbles)
@@ -907,6 +912,7 @@ fn begin_grab(actor: &mut Actor, x: f64, y: f64) {
     actor.dragging = true;
     actor.moving = true;
     actor.reported = false;
+    actor.last_care = None;
     actor.resting = 0.0;
     actor.drag_offset = (actor.motion.x - x, actor.motion.y - y);
     actor.motion.vx = 0.0;
@@ -945,14 +951,16 @@ fn perform_action(app: &AppHandle, id: &str, action: &str) -> Result<Frame, Stri
             // A small hop acknowledges the care; walking resumes on landing.
             actor.motion.vy = if action == "feed" { -260.0 } else { -160.0 } * actor.scale;
             actor.moving = true;
-            popped = Some(Outcome {
+            let event = Outcome {
                 care: Some(if action == "feed" {
                     Care::Fed
                 } else {
                     Care::Stroked
                 }),
                 ..outcome(actor, false)
-            });
+            };
+            actor.last_care = Some(event.enqueued_at);
+            popped = Some(event);
         }
         "dismiss" => {}
         _ => return Err("알 수 없는 장난감 조작이에요.".into()),
@@ -1327,22 +1335,11 @@ fn apply_geometry(world: &mut World, sample: Option<GeometrySample>, now: Instan
     }
 }
 
-fn fresh_manual_care(event: &Outcome, actor: &Actor, previous: Instant) -> bool {
-    event.enqueued_at > previous
-        && event.care.is_some()
-        && !event.automatic
-        && manual_pet(actor)
-        && actor.id == event.actor_id
-        && actor.widget_id == event.widget_id
-        && actor.revision == event.revision
-}
-
 fn prepare_tick(world: &mut World, elapsed: f64, previous: Instant) -> (f64, Vec<String>) {
     if elapsed <= 1.0 {
         return (elapsed, Vec::new());
     }
     let mut removed = Vec::new();
-    let outcomes = &world.outcomes;
     world.actors.retain(|id, actor| {
         if !manual_pet(actor) {
             removed.push(id.clone());
@@ -1351,10 +1348,7 @@ fn prepare_tick(world: &mut World, elapsed: f64, previous: Instant) -> (f64, Vec
         actor.dragging = false;
         actor.drag_offset = (0.0, 0.0);
         actor.motion.vx = 0.0;
-        if !outcomes
-            .iter()
-            .any(|event| fresh_manual_care(event, actor, previous))
-        {
+        if actor.last_care.is_none_or(|at| at <= previous) {
             actor.motion.vy = 0.0;
         }
         actor.moving = true;
@@ -1364,9 +1358,14 @@ fn prepare_tick(world: &mut World, elapsed: f64, previous: Instant) -> (f64, Vec
     });
     let actors = &world.actors;
     world.outcomes.retain(|event| {
-        actors
-            .get(&event.actor_id)
-            .is_some_and(|actor| fresh_manual_care(event, actor, previous))
+        event.enqueued_at > previous
+            && event.care.is_some()
+            && !event.automatic
+            && actors.get(&event.actor_id).is_some_and(|actor| {
+                manual_pet(actor)
+                    && actor.widget_id == event.widget_id
+                    && actor.revision == event.revision
+            })
     });
     world.accumulator = 0.0;
     (0.0, removed)
@@ -1664,6 +1663,7 @@ mod tests {
             moving: true,
             resting: 0.0,
             reported: false,
+            last_care: None,
             created: Instant::now(),
             expires: None,
             ignore_cursor: true,
@@ -1705,6 +1705,7 @@ mod tests {
         let mut pending = outcome(pet, false);
         pending.care = Some(Care::Fed);
         let previous = pending.enqueued_at;
+        world.actors.get_mut("manual-pet").unwrap().last_care = Some(previous);
         world.outcomes.push(pending);
         world.accumulator = STEP / 2.0;
 
@@ -1794,7 +1795,9 @@ mod tests {
             world.outcomes.push(ordinary_outcome);
             world.actors.insert(pet.id.clone(), pet);
             if callback_before_tick {
-                world.actors.get_mut("test").unwrap().motion.vy = -160.0;
+                let pet = world.actors.get_mut("test").unwrap();
+                pet.motion.vy = -160.0;
+                pet.last_care = Some(fresh.enqueued_at);
                 world.outcomes.push(fresh.clone());
             }
 
@@ -1802,7 +1805,9 @@ mod tests {
             if !callback_before_tick {
                 assert!(world.outcomes.is_empty());
                 assert_eq!(world.actors["test"].motion.vy, 0.0);
-                world.actors.get_mut("test").unwrap().motion.vy = -160.0;
+                let pet = world.actors.get_mut("test").unwrap();
+                pet.motion.vy = -160.0;
+                pet.last_care = Some(fresh.enqueued_at);
                 world.outcomes.push(fresh.clone());
             }
             prepare_tick(&mut world, STEP, previous + Duration::from_secs(2));
@@ -1818,6 +1823,37 @@ mod tests {
     }
 
     #[test]
+    fn new_care_hop_survives_outcome_drain_before_long_tick() {
+        for (care, velocity) in [(Care::Fed, -260.0), (Care::Stroked, -160.0)] {
+            let mut world = World::default();
+            let mut pet = resting_ball();
+            pet.kind = Kind::Pet;
+            let previous = pet.created;
+            let mut event = outcome(&pet, false);
+            event.care = Some(care);
+            event.enqueued_at = previous + Duration::from_nanos(1);
+            pet.last_care = Some(event.enqueued_at);
+            pet.motion.vx = 45.0;
+            pet.motion.vy = velocity;
+            world.actors.insert(pet.id.clone(), pet);
+            world.outcomes.push(event);
+            world.accumulator = STEP / 2.0;
+
+            let drained = std::mem::take(&mut world.outcomes);
+            assert_eq!(drained.len(), 1);
+            assert_eq!(drained[0].care, Some(care));
+            prepare_tick(&mut world, 2.0, previous);
+
+            assert!(world.outcomes.is_empty());
+            assert_eq!(world.actors["test"].motion.vy, velocity);
+            assert_eq!(world.actors["test"].motion.vx, 0.0);
+            assert_eq!(world.accumulator, 0.0);
+            prepare_tick(&mut world, 2.0, previous + Duration::from_secs(3));
+            assert_eq!(world.actors["test"].motion.vy, 0.0);
+        }
+    }
+
+    #[test]
     fn wake_discards_pre_sleep_care_but_accepts_new_care_for_the_same_pet() {
         let runtime = Runtime::default();
         let mut pet = resting_ball();
@@ -1826,6 +1862,8 @@ mod tests {
         let mut care = outcome(&pet, false);
         care.care = Some(Care::Fed);
         care.enqueued_at = previous + Duration::from_nanos(1);
+        pet.last_care = Some(care.enqueued_at);
+        pet.motion.vy = -260.0;
         {
             let mut world = runtime.world.lock().unwrap();
             world.outcomes.push(care.clone());
@@ -1838,12 +1876,19 @@ mod tests {
         assert!(world.outcomes.is_empty());
         assert_eq!(world.actors.len(), 1);
         assert_eq!(world.actors["test"].created, previous);
+        assert!(world.actors["test"].last_care.is_none());
+        prepare_tick(&mut world, 2.0, previous);
+        assert_eq!(world.actors["test"].motion.vy, 0.0);
         care.enqueued_at = previous + Duration::from_secs(2);
+        let pet = world.actors.get_mut("test").unwrap();
+        pet.last_care = Some(care.enqueued_at);
+        pet.motion.vy = -260.0;
         world.outcomes.push(care);
         prepare_tick(&mut world, 2.0, previous);
         assert_eq!(world.actors.len(), 1);
         assert_eq!(world.outcomes.len(), 1);
         assert_eq!(world.outcomes[0].care, Some(Care::Fed));
+        assert_eq!(world.actors["test"].motion.vy, -260.0);
     }
 
     #[test]
@@ -2032,9 +2077,11 @@ mod tests {
     fn grabbing_allows_a_new_throw_result() {
         let mut actor = resting_ball();
         actor.reported = true;
+        actor.last_care = Some(Instant::now());
         begin_grab(&mut actor, 45.0, 75.0);
         assert!(!actor.reported && actor.dragging);
         assert_eq!(actor.drag_offset, (5.0, 5.0));
+        assert!(actor.last_care.is_none());
     }
     #[test]
     fn fast_ball_hits_both_sides_of_window_edges_without_tunneling() {
