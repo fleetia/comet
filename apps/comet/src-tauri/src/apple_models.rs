@@ -76,23 +76,6 @@ pub(crate) fn status() -> AppleModelStatus {
     }
 }
 
-pub(crate) fn require_complete_input(messages: &[ChatMessage], input: &str) -> Result<(), String> {
-    if messages
-        .iter()
-        .filter(|message| message.role == "user")
-        .any(|message| {
-            message.content == input
-                || serde_json::from_str::<Value>(&message.content)
-                    .ok()
-                    .is_some_and(|value| value["latestUser"].as_str() == Some(input))
-        })
-    {
-        Ok(())
-    } else {
-        Err(CONTEXT_ERROR.into())
-    }
-}
-
 // Bound the IPC payload before asking the native model to count instructions,
 // turns, schema and the reserved output. Never silently trim selected context.
 fn request(messages: &[ChatMessage], schema: &Value, output_tokens: u32) -> Result<String, String> {
@@ -321,6 +304,7 @@ mod native {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::require_complete_input;
 
     #[test]
     fn real_short_character_prompts_and_memory_extraction_fit_payload_cap() {
@@ -368,8 +352,7 @@ mod tests {
             let prompt = crate::app::conversation::turn_prompt(&db, &targets, &message.id).unwrap();
             require_complete_input(&prompt, &message.content).unwrap();
             request(&prompt, &schema, 512).unwrap();
-            let total =
-                baseline_budget(&prompt, &schema, if targets.len() == 1 { 256 } else { 512 });
+            let total = baseline_budget(&prompt, &schema, 512);
             assert!(
                 total <= 4096,
                 "{} characters require {total}",
@@ -472,18 +455,6 @@ mod tests {
             json!({"lines":[{"persona":"a","expression":"평온","text":"안녕","extra":true}]}),
         ] {
             assert!(!validate_response(&invalid, &schema));
-        }
-    }
-
-    #[test]
-    fn truncated_latest_input_is_rejected_in_single_and_roster_prompts() {
-        for content in ["원문", "{\"latestUser\":\"원문\"}"] {
-            let prompt = vec![ChatMessage {
-                role: "user".into(),
-                content: content.into(),
-            }];
-            assert!(require_complete_input(&prompt, "원문").is_ok());
-            assert!(require_complete_input(&prompt, "원문이 더 길어요").is_err());
         }
     }
 }

@@ -8,10 +8,10 @@ fn source_bound_states_keep_failed_execution_separate_from_unknown_cause_and_dec
             {"text":"QA 지수는 10월25일 데모를 진행할 예정이다.","sourceId":"u1","state":"planned"},
             {"text":"QA 민수는 10월21일 초안 저장을 완료했다.","sourceId":"u2","state":"completed"},
             {"text":"QA 지수의 10월22일 검증은 실패했다.","sourceId":"u3","state":"failed"},
-            {"text":"검증 실패 원인은 미정이다.","sourceId":"u3","state":"undecided"},
-            {"text":"색인 실행은 미실행이다.","sourceId":"u4","state":"not_started"},
-            {"text":"민수는 로그 검토를 제안했다.","sourceId":"u5","state":"proposed"},
-            {"text":"팀은 원문을 보존하기로 결정했다.","sourceId":"u6","state":"decided"}
+            {"text":"검증 실패 원인은 미정이다.","sourceId":"u4","state":"undecided"},
+            {"text":"색인 실행은 미실행이다.","sourceId":"u5","state":"not_started"},
+            {"text":"민수는 로그 검토를 제안했다.","sourceId":"u6","state":"proposed"},
+            {"text":"팀은 원문을 보존하기로 결정했다.","sourceId":"u7","state":"decided"}
         ]}),
         source,
     )
@@ -88,7 +88,7 @@ fn every_bounded_source_unit_needs_its_own_fact_reference() {
 
 #[test]
 fn one_unit_can_produce_multiple_separately_typed_facts() {
-    let source = "점검은 실패했다. 원인은 미정이다.";
+    let source = "점검은 실패했으며 원인은 미정이다.";
     let summary = parse(
         json!({"title":"점검", "facts":[
             {"text":"점검은 실패했다.","sourceId":"u1","state":"failed"},
@@ -106,7 +106,110 @@ fn one_unit_can_produce_multiple_separately_typed_facts() {
 }
 
 #[test]
-fn prompt_units_keep_original_paragraph_bytes_and_individual_metadata_lines() {
+fn missing_registration_sentence_is_rejected_without_disabling_paraphrases() {
+    let source = "담당자는 로그 검토를 제안했다. 검토를 실행하지 않았고, 할 일이나 일정에 등록하지도 않았다.";
+    let proposal = json!({"text":"담당자의 제안은 로그 검토다.","sourceId":"u1","state":"proposed"});
+    assert!(parse(
+        json!({"title":"로그 검토", "facts":[proposal.clone()]}),
+        source
+    )
+    .unwrap_err()
+    .contains("u2"));
+    let summary = parse(
+        json!({"title":"로그 검토", "facts":[proposal,
+            {"text":"검토는 미실행·미등록 상태다.","sourceId":"u2","state":"not_started"}
+        ]}),
+        source,
+    )
+    .unwrap();
+    assert_eq!(summary.next_actions, ["담당자의 제안은 로그 검토다."]);
+    assert_eq!(
+        summary.summary,
+        "담당자의 제안은 로그 검토다.\n검토는 미실행·미등록 상태다."
+    );
+}
+
+#[test]
+fn sentence_units_keep_quoted_punctuation_urls_versions_and_code() {
+    let prose = "버전 1.2.3과 https://example.test/a.b를 확인했다. “완료. 실패; 미정?”은 인용이다.";
+    let units = source_units(prose);
+    assert_eq!(units.len(), 2);
+    assert_eq!(units[0].text, "버전 1.2.3과 https://example.test/a.b를 확인했다.");
+    assert_eq!(units[1].text, " “완료. 실패; 미정?”은 인용이다.");
+
+    let source = "# 코드\n\n`a.b; c?`는 코드다. 뒤 문장도 유지한다.\n\n    내부 값 1.2.3. 내용.\n\n~~~txt\n첫 줄. 확인;\n\n둘째 줄. 유지;\n\n셋째 줄.\n~~~";
+    let units = source_units(source);
+    assert!(units.iter().any(|unit| unit.text == "둘째 줄. 유지;" && unit.protected));
+    assert!(units.iter().any(|unit| unit.text == "    내부 값 1.2.3. 내용."));
+    assert!(units.iter().any(|unit| unit.text == "`a.b; c?`는 코드다. 뒤 문장도 유지한다."));
+    assert!(units.iter().all(|unit| unit.text == source[unit.span.clone()]));
+}
+
+#[test]
+fn dotted_dates_metadata_and_korean_quote_suffixes_keep_their_boundaries() {
+    let source = "공개일: 2026. 10. 20.\n\n검증일은 2026. 10. 21.이다. 원인은 미정이다.";
+    let units = source_units(source);
+    assert_eq!(units.len(), 3);
+    assert_eq!(units[0].text, "공개일: 2026. 10. 20.");
+    assert_eq!(units[1].text, "검증일은 2026. 10. 21.이다.");
+    assert_eq!(units[2].text, " 원인은 미정이다.");
+
+    let units = source_units("'배포까지 끝났다'는 예시다. 실제 검증은 실패했다.");
+    assert_eq!(units.len(), 2);
+    assert_eq!(units[0].text, "'배포까지 끝났다'는 예시다.");
+    assert_eq!(units[1].text, " 실제 검증은 실패했다.");
+    assert_eq!(source_units("Don't change version 1.2.3. Keep the source.").len(), 2);
+}
+
+#[test]
+fn long_cases_give_unregistered_work_a_separate_required_id() {
+    let cases: Vec<(String, String)> =
+        serde_json::from_str(include_str!("long_cases.json")).unwrap();
+    for (name, source) in cases {
+        let units = source_units(&source);
+        let registration = units
+            .iter()
+            .find(|unit| unit.text.contains("할 일이나 일정으로 등록하지도 않았다"))
+            .unwrap();
+        assert_eq!(
+            registration.text.trim(),
+            "로그 검토를 실행하지 않았고, 할 일이나 일정으로 등록하지도 않았다.",
+            "{name}"
+        );
+        let facts: Vec<_> = units
+            .iter()
+            .filter(|unit| unit.id != registration.id)
+            .map(|unit| json!({"sourceId":unit.id,"text":"문장 요지","state":"fact"}))
+            .collect();
+        let error = parse(json!({"title":name,"facts":facts}), &source).unwrap_err();
+        assert!(error.contains(&registration.id));
+    }
+}
+
+#[test]
+fn recorded_paragraph_response_does_not_satisfy_new_sentence_ids() {
+    let cases: Vec<(String, String)> =
+        serde_json::from_str(include_str!("long_cases.json")).unwrap();
+    let source = &cases.iter().find(|(name, _)| name == "jupiter").unwrap().1;
+    let recorded = json!({"title":"QA 목성 장문 상태 기록", "facts":[
+        {"sourceId":"u1","state":"fact","text":"자료는 완전 합성 QA 문서이며 인물과 작업은 실제 사용자 정보가 아님."},
+        {"sourceId":"u2","state":"fact","text":"원문 작성자는 QA 민수다."},
+        {"sourceId":"u3","state":"fact","text":"자료 공개일은 2026-10-20이다."},
+        {"sourceId":"u4","state":"fact","text":"마지막 검증일은 2026-10-23이다."},
+        {"sourceId":"u5","state":"planned","text":"QA 민수는 2026-10-28에 목성 자료 색인을 검토할 예정이다."},
+        {"sourceId":"u6","state":"completed","text":"QA 유진은 2026-10-22에 목성 초안 저장을 완료했다."},
+        {"sourceId":"u7","state":"failed","text":"QA 민수가 2026-10-23에 실행한 목성 검증 스크립트는 실패했다."},
+        {"sourceId":"u8","state":"undecided","text":"목성 배포일은 미정이다."},
+        {"sourceId":"u9","state":"proposed","text":"QA 유진은 목성 실패 로그를 함께 검토하자고 제안했다."},
+        {"sourceId":"u10","state":"quoted","text":"QA 서윤이 예시로 쓴 “배포까지 끝났다”는 문장이 목성 작업의 실제 진행 상태를 설명하지 않으며 예시 문장을 실제 배포 완료 보고로 해석해서는 안 된다."},
+        {"sourceId":"u11","state":"decided","text":"팀은 목성 원문을 그대로 보존하기로 결정했다."},
+        {"sourceId":"u12","state":"fact","text":"목성 초안 저장 완료와 실제 검증 실패는 별개의 결과이며, 배포일과 실패 원인은 미정이고 예정된 검토와 제안된 로그 검토는 아직 실행하지 않았다."}
+    ]});
+    assert!(parse(recorded, source).unwrap_err().contains("누락된 원문"));
+}
+
+#[test]
+fn prompt_units_keep_sentence_bytes_and_individual_metadata_lines() {
     let source = "# 자료 제목\r\n\r\n작성자: QA\r\n공개일: 2026-10-20\r\n\r\n## 진행\r\n\r\n  첫 줄.\r\n  둘째 줄. \r\n";
     let units = source_units(source);
     assert_eq!(
@@ -117,7 +220,8 @@ fn prompt_units_keep_original_paragraph_bytes_and_individual_metadata_lines() {
         [
             ("u1", "작성자: QA"),
             ("u2", "공개일: 2026-10-20"),
-            ("u3", "  첫 줄.\r\n  둘째 줄. ")
+            ("u3", "  첫 줄."),
+            ("u4", "\r\n  둘째 줄. ")
         ]
     );
     assert_eq!(units[2].headings, ["자료 제목", "진행"]);
@@ -189,7 +293,7 @@ fn bodyless_sibling_and_final_headings_keep_the_whole_original_source() {
 }
 
 #[test]
-fn normal_state_fixtures_keep_their_nine_unit_ids_and_text_bytes() {
+fn normal_state_fixtures_keep_sentence_and_metadata_bytes() {
     for (name, source) in CASES {
         let expected: Vec<_> = source
             .lines()
@@ -197,10 +301,14 @@ fn normal_state_fixtures_keep_their_nine_unit_ids_and_text_bytes() {
             .collect();
         let units = source_units(source);
         assert_eq!(expected.len(), 9, "{name}");
-        assert_eq!(units.len(), 9, "{name}");
-        for (index, (unit, text)) in units.iter().zip(expected).enumerate() {
+        assert!(units.len() > expected.len() && units.len() <= MAX_SOURCE_UNITS, "{name}");
+        assert_eq!(
+            units.iter().map(|unit| unit.text.as_str()).collect::<String>(),
+            expected.join(""),
+            "{name}"
+        );
+        for (index, unit) in units.iter().enumerate() {
             assert_eq!(unit.id, format!("u{}", index + 1), "{name}");
-            assert_eq!(unit.text, text, "{name}");
             assert_eq!(unit.text, source[unit.span.clone()], "{name}");
         }
     }
@@ -258,9 +366,11 @@ fn repeated_large_heading_context_is_bounded_and_remains_in_original_source() {
         );
         assert!(source.chars().count() <= records::CHUNK_CHARS);
         let units = source_units(&source);
-        assert_eq!(units.len(), 1);
-        assert!(units[0].headings.is_empty());
-        assert_eq!(units[0].text, source);
+        assert!(units.len() <= MAX_SOURCE_UNITS);
+        assert_eq!(
+            units.iter().map(|unit| unit.text.as_str()).collect::<String>(),
+            source
+        );
         assert!(
             json!(&units).to_string().len()
                 <= json!(&source).to_string().len() + SOURCE_UNIT_METADATA_BYTES
@@ -392,7 +502,7 @@ QA 해준은 작은 샘플부터 확인해 보자고 제안했다. 확인은 아
 ];
 
 #[tokio::test]
-#[ignore = "Actual summary GGUF samples; set COMET_QA_MODEL and optional COMET_QA_REPEAT/COMET_QA_OUTPUT_DIR/COMET_QA_BINARIES; synthetic inputs, no downloads"]
+#[ignore = "Actual summary GGUF samples; COMET_QA_MODEL required; optional COMET_QA_SUMMARY_FIXTURE/COMET_QA_FOLLOWUP_QUESTION/COMET_QA_REPEAT/COMET_QA_OUTPUT_DIR/COMET_QA_BINARIES; synthetic inputs, no downloads"]
 async fn actual_model_summary_faithfulness_samples() {
     use crate::{
         inference,
@@ -417,7 +527,9 @@ async fn actual_model_summary_faithfulness_samples() {
     let binaries = std::env::var_os("COMET_QA_BINARIES")
         .map(PathBuf::from)
         .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries"));
-    let inference = inference::Inference::new(
+    let mut state = crate::app::tests::state();
+    state.app_data = directory.path().into();
+    state.inference = inference::Inference::new(
         directory.path().into(),
         binaries.join(
             crate::sidecar::development_executable("llama-server")
@@ -431,25 +543,36 @@ async fn actual_model_summary_faithfulness_samples() {
         local_model_path: model.to_string_lossy().into_owned(),
         ..Settings::default()
     };
+    let cases: Vec<(String, String)> = match std::env::var_os("COMET_QA_SUMMARY_FIXTURE") {
+        Some(path) => serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap(),
+        None => CASES
+            .iter()
+            .map(|(name, content)| ((*name).into(), (*content).into()))
+            .collect(),
+    };
+    assert!(
+        !cases.is_empty(),
+        "At least one synthetic source is required"
+    );
     let mut samples = Vec::new();
-    for (name, content) in CASES {
+    for (name, content) in cases {
         let job = records::OrganizerJob {
             id: format!("summary-{name}"),
             source: records::SourceRef {
-                id: name.into(),
+                id: name.clone(),
                 user_id: "synthetic-user".into(),
                 workspace_id: "synthetic-workspace".into(),
                 project_id: "synthetic-project".into(),
                 kind: "vault".into(),
                 locator: format!("qa-status-{name}.md"),
                 title: format!("QA {name} 상태 기록"),
-                content_hash: records::hash(content),
+                content_hash: records::hash(&content),
                 active: true,
             },
-            source_hash: records::hash(content),
+            source_hash: records::hash(&content),
             chunk_index: 0,
             chunk_count: 1,
-            content: content.into(),
+            content: content.clone(),
             state: "pending".into(),
             attempts: 0,
         };
@@ -464,7 +587,7 @@ async fn actual_model_summary_faithfulness_samples() {
                 let completed = tokio::time::timeout(
                     Duration::from_secs(240),
                     inference::generate_organizer(
-                        &inference,
+                        &state.inference,
                         &settings,
                         &messages,
                         schema(),
@@ -477,12 +600,12 @@ async fn actual_model_summary_faithfulness_samples() {
                     Ok(result) => result,
                     Err(_) => {
                         cancel.store(true, Ordering::SeqCst);
-                        inference::stop_local(&inference).await;
+                        inference::stop_local(&state.inference).await;
                         Err("summary sample timeout".into())
                     }
                 };
                 let inference_failed = value.is_err();
-                let parsed = value.clone().and_then(|value| parse(value, content));
+                let parsed = value.clone().and_then(|value| parse(value, &content));
                 accepted = parsed.is_ok();
                 attempts.push(json!({"elapsedSeconds":started.elapsed().as_secs_f64(),
                     "rawResult":value,"parsed":parsed,"prompt":messages}));
@@ -496,8 +619,66 @@ async fn actual_model_summary_faithfulness_samples() {
                 "semanticReview":"Required: failed vs unknown cause, unexecuted vs decision, actor/date/project, publication vs verification date, quotation/proposal; sourceId validity and coverage do not prove entailment"}));
         }
     }
-    inference::stop_local(&inference).await;
-    let running = inference::is_local_running(&inference, &settings).await;
+    let followup_question = std::env::var("COMET_QA_FOLLOWUP_QUESTION").ok();
+    let followup = if let Some(question) = followup_question
+        .as_ref()
+        .filter(|_| samples.iter().all(|sample| sample["accepted"] == true))
+    {
+        let summaries: Vec<_> = samples
+            .iter()
+            .filter_map(|sample| sample["attempts"].as_array()?.last())
+            .map(|attempt| attempt["parsed"]["Ok"].clone())
+            .collect();
+        let targets = {
+            let db = crate::app::lock(&state.db).unwrap();
+            crate::store::save_settings(&db, &settings).unwrap();
+            crate::store::set_user_name(&db, "QA 정리 확인", crate::app::now()).unwrap();
+            let targets = crate::characters::active_ids(&db).unwrap();
+            crate::store::insert_message(
+                &db,
+                &crate::types::Message {
+                    id: "summary-followup".into(),
+                    role: "user".into(),
+                    persona: Some(targets[0].clone()),
+                    content: format!(
+                        "다음 정리 결과만 근거로 질문에 한국어로 답해 줘.\n{}\n\n질문: {question}",
+                        serde_json::to_string(&summaries).unwrap()
+                    ),
+                    expression: None,
+                    created_at: crate::app::now(),
+                    status: "complete".into(),
+                },
+            )
+            .unwrap();
+            vec![targets[0].clone()]
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let result = tokio::time::timeout(
+            Duration::from_secs(240),
+            crate::app::conversation::generate_turn(
+                &state,
+                &targets,
+                "summary-followup",
+                cancel.clone(),
+            ),
+        )
+        .await;
+        let result = match result {
+            Ok(result) => result,
+            Err(_) => {
+                cancel.store(true, Ordering::SeqCst);
+                Err("summary follow-up timeout".into())
+            }
+        };
+        Some(
+            json!({"question":question,"summaries":summaries,"result":result,
+            "scope":"Production character generation with generated summaries supplied in the user message; no native save/open or automatic record retrieval"}),
+        )
+    } else {
+        None
+    };
+    inference::stop_local(&state.inference).await;
+    let running = inference::is_local_running(&state.inference, &settings).await;
     let output_directory = std::env::var_os("COMET_QA_OUTPUT_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir);
@@ -508,9 +689,16 @@ async fn actual_model_summary_faithfulness_samples() {
     ));
     std::fs::write(&output, serde_json::to_vec_pretty(&json!({"model":model,
         "syntheticOnly":true,"samplePath":"production prompt/schema/parser and organizer inference; no native UI or persisted profile mutation",
-        "repeat":repeat,"ownedRuntimeStopped":!running,"samples":samples})).unwrap()).unwrap();
+        "repeat":repeat,"ownedRuntimeStopped":!running,"samples":samples,"followup":followup})).unwrap()).unwrap();
     println!("Summary faithfulness samples: {}", output.display());
     assert!(!running, "The harness-owned local runtime did not stop");
+    assert!(
+        followup_question.is_none()
+            || followup
+                .as_ref()
+                .is_some_and(|sample| sample["result"].get("Ok").is_some()),
+        "The generated summary follow-up did not complete"
+    );
     assert!(
         samples.iter().all(|sample| sample["accepted"] == true),
         "Some samples did not yield a structurally grounded summary; review {}",
