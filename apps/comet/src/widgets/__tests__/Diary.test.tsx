@@ -916,7 +916,12 @@ it("returns external calendar shortcuts to the same diary and retains planning d
   setTasks([]);
   await openDiary();
   await showTasks("plans");
-  fireEvent.change(await screen.findByRole("textbox", { name: "새 할 일" }), {
+  fireEvent.click(
+    within(screen.getByRole("region", { name: "이번 주" })).getByRole("button", {
+      name: "이 기간에 하고 싶은 일",
+    }),
+  );
+  fireEvent.change(await screen.findByRole("textbox", { name: "이번 주에 추가할 할 일" }), {
     target: { value: "아직 제출하지 않은 계획" },
   });
   act(() => {
@@ -925,9 +930,9 @@ it("returns external calendar shortcuts to the same diary and retains planning d
     }
   });
   expect(opened().getByRole("heading", { name: "2026년 10월" })).toBeTruthy();
-  expect(screen.queryByRole("textbox", { name: "새 할 일" })).toBeNull();
+  expect(screen.queryByRole("textbox", { name: "이번 주에 추가할 할 일" })).toBeNull();
   await showTasks("plans");
-  expect(screen.getByRole("textbox", { name: "새 할 일" })).toHaveProperty(
+  expect(screen.getByRole("textbox", { name: "이번 주에 추가할 할 일" })).toHaveProperty(
     "value",
     "아직 제출하지 않은 계획",
   );
@@ -982,7 +987,7 @@ it("closes a clean event editor when an external shortcut opens a diary tool", a
       if (event === "planner-tab") callback({ event, id: 1, payload: "plans" });
     }
   });
-  expect(await screen.findByRole("textbox", { name: "새 할 일" })).toBeTruthy();
+  expect(await screen.findByRole("region", { name: "이번 주" })).toBeTruthy();
   expect(screen.queryByRole("dialog", { name: "새 일정" })).toBeNull();
   expect(screen.queryByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeNull();
 });
@@ -994,7 +999,12 @@ it("discards an open tool dialog without clearing other planning drafts", async 
   await screen.findByRole("navigation", { name: "템플릿 종류" });
   fireEvent.click(screen.getAllByRole("checkbox")[0]);
   await showTasks("plans");
-  fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
+  fireEvent.click(
+    within(screen.getByRole("region", { name: "이번 주" })).getByRole("button", {
+      name: "이 기간에 하고 싶은 일",
+    }),
+  );
+  fireEvent.change(screen.getByRole("textbox", { name: "이번 주에 추가할 할 일" }), {
     target: { value: "보존할 계획" },
   });
   fireEvent.click(screen.getByRole("button", { name: "목록 관리" }));
@@ -1007,7 +1017,10 @@ it("discards an open tool dialog without clearing other planning drafts", async 
   expect(screen.queryByRole("dialog", { name: "목록 관리" })).toBeNull();
   expect(opened().getByRole("heading", { name: "2026년 10월" })).toBeTruthy();
   await showTasks("plans");
-  expect(screen.getByRole("textbox", { name: "새 할 일" })).toHaveProperty("value", "보존할 계획");
+  expect(screen.getByRole("textbox", { name: "이번 주에 추가할 할 일" })).toHaveProperty(
+    "value",
+    "보존할 계획",
+  );
   await showTasks("templates");
   expect(screen.getAllByRole("checkbox")[0]).toHaveProperty("checked", false);
 });
@@ -1834,7 +1847,12 @@ it("clears only the discarded weekly editor when notes hide the calendar and ret
   setTasks([]);
   await openDiary();
   await showTasks("plans");
-  fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
+  fireEvent.click(
+    within(screen.getByRole("region", { name: "이번 주" })).getByRole("button", {
+      name: "이 기간에 하고 싶은 일",
+    }),
+  );
+  fireEvent.change(screen.getByRole("textbox", { name: "이번 주에 추가할 할 일" }), {
     target: { value: "별도 기간 계획 초안" },
   });
   showNotes();
@@ -1854,7 +1872,7 @@ it("clears only the discarded weekly editor when notes hide the calendar and ret
   expect(screen.getByLabelText("새 메모 내용")).toHaveProperty("value", "  별도 메모\n초안  ");
   await showTasks("plans");
   expect(screen.queryByRole("dialog", { name: "작성 중인 내용이 있어요" })).toBeNull();
-  expect(screen.getByRole("textbox", { name: "새 할 일" })).toHaveProperty(
+  expect(screen.getByRole("textbox", { name: "이번 주에 추가할 할 일" })).toHaveProperty(
     "value",
     "별도 기간 계획 초안",
   );

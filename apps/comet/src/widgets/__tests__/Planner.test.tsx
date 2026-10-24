@@ -329,7 +329,8 @@ it("puts a period task into Today by changing only its planned date", async () =
   const before = structuredClone(work);
   await renderPlanner(snapshot([work]));
   fireEvent.click(screen.getByRole("tab", { name: "기간 계획" }));
-  fireEvent.click(screen.getByRole("button", { name: "오늘에 넣기" }));
+  fireEvent.click(screen.getByRole("button", { name: "월말 자료 살피기 선택" }));
+  fireEvent.click(screen.getByRole("button", { name: "오늘 하기" }));
   await waitFor(() => expectAction("plan", { ids: ["review"], date: TODAY }));
   expect(work).toEqual(before);
 });
@@ -337,7 +338,11 @@ it("puts a period task into Today by changing only its planned date", async () =
 it("brings last week's unfinished undated plans into this week in one step", async () => {
   await renderPlanner(
     snapshot([
-      item("left", "주간 회고 쓰기", { plannedDate: null, planPeriod: "week", planAnchor: "2026-09-14" }),
+      item("left", "주간 회고 쓰기", {
+        plannedDate: null,
+        planPeriod: "week",
+        planAnchor: "2026-09-14",
+      }),
       item("done", "기획서 마무리", {
         plannedDate: null,
         planPeriod: "week",
@@ -368,7 +373,8 @@ it("adds a period task to the actual Today after previously viewing another date
   );
   fireEvent.click(screen.getByRole("button", { name: "이전 날짜" }));
   fireEvent.click(screen.getByRole("tab", { name: "기간 계획" }));
-  fireEvent.click(screen.getByRole("button", { name: "오늘에 넣기" }));
+  fireEvent.click(screen.getByRole("button", { name: "이번 주 검토 선택" }));
+  fireEvent.click(screen.getByRole("button", { name: "오늘 하기" }));
   await waitFor(() => expectAction("plan", { ids: ["period-work"], date: TODAY }));
 });
 
@@ -481,7 +487,10 @@ it("counts today's frequency record as done today and excludes it from day-end c
   const wrap = within(screen.getByRole("dialog", { name: "오늘은 여기까지" }));
   expect(wrap.queryByRole("checkbox", { name: /오늘 산책 목표/ })).toBeNull();
   expect(wrap.getByText("못 한 일 · 0개")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "0개 옮기고 마치기" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "0개 옮기고 마치기" })).toHaveProperty(
+    "disabled",
+    true,
+  );
 });
 
 it("records frequency on the displayed past date and disables future completion", async () => {
@@ -1300,8 +1309,12 @@ it("opens the saved template's selected period and anchor inside the controlled 
   view.rerender(
     <Planner embeddedTab="plans" onNavigate={onNavigate} onStateChange={onStateChange} />,
   );
-  expect(screen.getByRole("button", { name: "이번 달" }).getAttribute("aria-pressed")).toBe("true");
-  expect(screen.getByText("2026-11-01")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "이번 달 · 0" }).getAttribute("aria-pressed")).toBe(
+    "true",
+  );
+  // The month column jumps to the template's month; the other columns stay on this period.
+  expect(within(screen.getByRole("region", { name: "11월" })).getAllByText("11월")).toHaveLength(2);
+  expect(screen.getByRole("region", { name: "이번 주" })).toBeTruthy();
 });
 
 it("reports an embedded modal as blocking until it closes", () => {
@@ -1361,7 +1374,12 @@ it("dismisses embedded dialogs without resetting other planning and template dra
     target: { value: "2026-11-09" },
   });
   view.rerender(<Planner embeddedTab="plans" dismissVersion={0} onStateChange={onStateChange} />);
-  fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
+  fireEvent.click(
+    within(screen.getByRole("region", { name: "이번 주" })).getByRole("button", {
+      name: "이 기간에 하고 싶은 일",
+    }),
+  );
+  fireEvent.change(screen.getByRole("textbox", { name: "이번 주에 추가할 할 일" }), {
     target: { value: "보존할 계획 초안" },
   });
 
@@ -1369,6 +1387,7 @@ it("dismisses embedded dialogs without resetting other planning and template dra
   expect(screen.getByRole("dialog", { name: "목록 관리" })).toBeTruthy();
   view.rerender(<Planner embeddedTab="plans" dismissVersion={1} onStateChange={onStateChange} />);
   expect(screen.queryByRole("dialog", { name: "목록 관리" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "이번 주 준비 선택" }));
   fireEvent.click(screen.getByRole("button", { name: "이번 주 준비 편집" }));
   expect(screen.getByRole("dialog", { name: "할 일 편집" })).toBeTruthy();
   view.rerender(<Planner embeddedTab="today" dismissVersion={2} onStateChange={onStateChange} />);
@@ -1392,7 +1411,7 @@ it("dismisses embedded dialogs without resetting other planning and template dra
     "2026-11-09",
   );
   view.rerender(<Planner embeddedTab="plans" dismissVersion={3} onStateChange={onStateChange} />);
-  expect(screen.getByRole("textbox", { name: "새 할 일" })).toHaveProperty(
+  expect(screen.getByRole("textbox", { name: "이번 주에 추가할 할 일" })).toHaveProperty(
     "value",
     "보존할 계획 초안",
   );
@@ -1606,23 +1625,15 @@ it("labels inbox counts and period additions with their actual date scope withou
   fireEvent.click(screen.getByRole("checkbox", { name: "완료 포함" }));
   expect(screen.getByRole("heading", { name: "수집함 · 날짜 없음 · 표시 2개" })).toBeTruthy();
   expect(screen.getByRole("checkbox", { name: "날짜 없이 마친 일" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "이번 주" }));
-  expect(
-    screen.getByRole("heading", { name: "주간 계획 · 2026-09-21–2026-09-27 · 표시 1개" }),
-  ).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "다음 계획 기간" }));
-  expect(
-    screen.getByRole("heading", { name: "주간 계획 · 2026-09-28–2026-10-04 · 표시 0개" }),
-  ).toBeTruthy();
-  expect(
-    screen.getByText(
-      "주간 계획 · 2026-09-28–2026-10-04에 표시할 할 일이 없어요. 위에서 하나씩 추가해 보세요.",
-    ),
-  ).toBeTruthy();
-  expect(
-    screen.getByText("새 할 일 · 주간 계획 · 2026-09-28–2026-10-04 · 계획일 없음"),
-  ).toBeTruthy();
-  fireEvent.change(screen.getByRole("textbox", { name: "새 할 일" }), {
+  fireEvent.click(screen.getByRole("button", { name: "‹ 기간별 보기" }));
+  const week = () => screen.getByRole("region", { name: /주$/ });
+  expect(within(week()).getByRole("button", { name: "이번 주 계획 선택" })).toBeTruthy();
+  fireEvent.click(within(week()).getByRole("button", { name: "이번 주 다음 기간" }));
+  expect(screen.getByRole("region", { name: "다음 주" })).toBe(week());
+  expect(within(week()).getByText("9월 28일 – 10월 4일")).toBeTruthy();
+  expect(within(week()).queryByRole("button", { name: /선택$/ })).toBeNull();
+  fireEvent.click(within(week()).getByRole("button", { name: "이 기간에 하고 싶은 일" }));
+  fireEvent.change(within(week()).getByRole("textbox", { name: "다음 주에 추가할 할 일" }), {
     target: { value: "다음 주에 해볼 일" },
   });
   fireEvent.click(screen.getByRole("button", { name: "추가" }));

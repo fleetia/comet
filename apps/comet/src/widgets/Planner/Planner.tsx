@@ -176,7 +176,14 @@ export function Planner({
     else setInternalDay(value);
   }
   const [period, setPeriod] = useState("week");
-  const [planDay, setPlanDay] = useState(localDay());
+  const [anchors, setAnchors] = useState<Record<string, string>>(() => ({
+    week: localDay(),
+    month: localDay(),
+    year: localDay(),
+  }));
+  const planDay = anchors[period] ?? localDay();
+  /** The board column whose add field is open; it shares the quick-add draft. */
+  const [planAdding, setPlanAdding] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [newTaskList, setNewTaskList] = useState("default");
   const [visibleList, setVisibleList] = useState("all");
@@ -249,7 +256,7 @@ export function Planner({
   const { completionUndo, check, undoCompletion, moveTaskDate } = usePlannerTasks({
     actions,
     items,
-    recordingDay: tab === "plans" ? planDay : day,
+    recordingDay: tab === "plans" ? anchors.week : day,
     reload,
   });
 
@@ -272,7 +279,7 @@ export function Planner({
     return (
       <PlannerTaskCheck
         item={item}
-        recordingDay={tab === "plans" ? planDay : day}
+        recordingDay={tab === "plans" ? anchors.week : day}
         selected={selectedTask === item.id}
         busy={busy}
         onSelect={setSelectedTask}
@@ -281,17 +288,34 @@ export function Planner({
     );
   }
   const quickList = lists.some((list) => list.id === newTaskList) ? newTaskList : "default";
-  async function addTask(isToday: boolean): Promise<void> {
+  function titleIsValid(): boolean {
     const trimmedTitle = title.trim();
-    if (!trimmedTitle || Array.from(title).length > 500) {
-      setFailure({
-        message: trimmedTitle
-          ? "할 일 제목은 500자 이내로 입력해 주세요."
-          : "할 일 제목을 입력해 주세요.",
-        saving: false,
-      });
-      return;
+    if (trimmedTitle && Array.from(title).length <= 500) return true;
+    setFailure({
+      message: trimmedTitle
+        ? "할 일 제목은 500자 이내로 입력해 주세요."
+        : "할 일 제목을 입력해 주세요.",
+      saving: false,
+    });
+    return false;
+  }
+  async function addPlanTask(key: string): Promise<void> {
+    if (!titleIsValid()) return;
+    if (
+      await act("add", {
+        title,
+        listId: visibleList === "all" ? "default" : visibleList,
+        plannedDate: null,
+        planPeriod: key,
+        planAnchor: key === "someday" ? null : periodAnchor(key, anchors[key] ?? localDay()),
+      })
+    ) {
+      setTitle("");
+      setPlanAdding(null);
     }
+  }
+  async function addTask(isToday: boolean): Promise<void> {
+    if (!titleIsValid()) return;
     const diaryQuickAdd = embedded && isToday;
     if (
       await act("add", {
@@ -598,7 +622,7 @@ export function Planner({
           <PlannerPanel tabs={tabsId} embedded={embedded} current={tab} value="plans">
             <PlannerPlans
               period={period}
-              planDay={planDay}
+              anchors={anchors}
               planScope={planScope}
               shown={shown}
               items={items}
@@ -613,7 +637,15 @@ export function Planner({
               quickInput={quickInput(false)}
               renderCheck={taskCheck}
               onPeriodChange={setPeriod}
-              onPlanDayChange={setPlanDay}
+              onAnchorChange={(key, value) =>
+                setAnchors((current) => ({ ...current, [key]: value }))
+              }
+              onCheck={check}
+              draft={title}
+              adding={planAdding}
+              onDraftChange={setTitle}
+              onAddingChange={setPlanAdding}
+              onAdd={addPlanTask}
               onVisibleListChange={setVisibleList}
               onShowCompletedChange={setShowCompleted}
               onManageLists={() => setManageLists(true)}
@@ -664,7 +696,7 @@ export function Planner({
                 onDirtyChange={setTemplateDirty}
                 onShowPlans={(value, anchor) => {
                   setPeriod(value);
-                  setPlanDay(anchor);
+                  setAnchors((current) => ({ ...current, [value]: anchor }));
                   setTab("plans");
                 }}
               />

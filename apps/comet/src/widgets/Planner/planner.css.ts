@@ -846,3 +846,157 @@ export const carryover = style({
   color: tokens["color/primary"],
   fontSize: tokens["typography/sans/caption/fontSize"],
 });
+
+// Period plan board: four columns from 820px, one column under period tabs below that.
+const NARROW = "(max-width: 819.98px)";
+export const planTabs = style({
+  display: "none",
+  gap: 4,
+  padding: 3,
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: tokens["radius/radius-12"],
+  "@media": { [NARROW]: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))" } },
+});
+export const planTab = style({
+  minHeight: 32,
+  border: 0,
+  borderRadius: tokens["radius/radius-9"],
+  background: "transparent",
+  color: tokens["color/ink-3"],
+  font: "inherit",
+  fontSize: 13,
+  cursor: "pointer",
+  selectors: {
+    '&[aria-pressed="true"]': {
+      background: tokens["color/selected"],
+      color: tokens["color/selected-ink"],
+      fontWeight: 600,
+    },
+  },
+});
+export const planBoard = style({
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  alignItems: "start",
+  gap: tokens["spacing/space-12"],
+  minWidth: 0,
+  "@media": { [NARROW]: { gridTemplateColumns: "minmax(0, 1fr)" } },
+});
+export const planColumn = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: tokens["spacing/space-8"],
+  minWidth: 0,
+  padding: tokens["spacing/space-12"],
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: tokens["radius/radius-16"],
+  background: tokens["color/card"],
+  "@media": { [NARROW]: { selectors: { '&[data-current="false"]': { display: "none" } } } },
+});
+export const planColumnHeader = style({
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: tokens["spacing/space-8"],
+  minHeight: 28,
+});
+export const planColumnTitle = style({
+  margin: 0,
+  fontSize: 15,
+  fontWeight: 500,
+  whiteSpace: "nowrap",
+});
+export const planColumnRange = style({
+  display: "flex",
+  alignItems: "center",
+  gap: 2,
+  fontSize: 12,
+  color: tokens["color/ink-3"],
+  whiteSpace: "nowrap",
+});
+export const planCard = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: tokens["spacing/space-8"],
+  padding: `${tokens["spacing/space-8"]} ${tokens["spacing/space-12"]}`,
+  border: `1px solid ${tokens["color/card-border"]}`,
+  borderRadius: tokens["radius/radius-9"],
+  background: tokens["color/card-2"],
+  selectors: { '&[data-selected="true"]': { borderColor: tokens["color/primary"] } },
+});
+export const planCardRow = style({
+  display: "flex",
+  alignItems: "center",
+  flexWrap: "wrap",
+  gap: tokens["spacing/space-8"],
+  minWidth: 0,
+});
+export const planCardTitle = style({
+  // Chips drop below the title before it gets narrower than this.
+  flex: "1 1 6em",
+  minWidth: 0,
+  padding: 0,
+  border: 0,
+  background: "transparent",
+  color: "inherit",
+  font: "inherit",
+  fontSize: 14,
+  textAlign: "left",
+  cursor: "pointer",
+  wordBreak: "keep-all",
+  overflowWrap: "anywhere",
+  selectors: {
+    '&[data-done="true"]': { textDecoration: "line-through", color: tokens["color/ink-3"] },
+  },
+});
+export const planCardChips = style({
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: 6,
+  minWidth: 0,
+  "@media": {
+    "(max-width: 1080px)": { flexBasis: "100%", paddingLeft: 28 },
+  },
+  selectors: { "&:empty": { display: "none" } },
+});
+export const planChip = style({
+  padding: "1px 8px",
+  border: `1px solid ${tokens["color/input-border"]}`,
+  borderRadius: tokens["radius/radius-12"],
+  fontSize: 12,
+  color: tokens["color/ink-2"],
+  whiteSpace: "nowrap",
+});
+export const planRepeat = style({
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 4,
+  fontSize: 12,
+  color: tokens["color/list-gray"],
+  whiteSpace: "nowrap",
+});
+export const planCardActions = style({ display: "flex", gap: 6, paddingLeft: 28 });
+export const planAdd = style({ display: "flex", alignItems: "center", gap: 6 });
+export const planAddButton = style({
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  minHeight: 36,
+  padding: `0 ${tokens["spacing/space-12"]}`,
+  border: `1px dashed ${tokens["color/input-border"]}`,
+  borderRadius: tokens["radius/radius-9"],
+  background: "transparent",
+  color: tokens["color/ink-2"],
+  font: "inherit",
+  fontSize: 13,
+  textAlign: "left",
+  cursor: "pointer",
+});
+export const planHint = style({ margin: 0, fontSize: 12, color: tokens["color/ink-3"] });
+export const planHintWide = style({ "@media": { [NARROW]: { display: "none" } } });
+export const planHintNarrow = style({
+  display: "none",
+  "@media": { [NARROW]: { display: "inline" } },
+});
