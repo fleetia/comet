@@ -100,6 +100,7 @@ export function ConversationSave({
   const [error, setError] = useState<string | null>(null);
   const [draftError, setDraftError] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [savedNote, setSavedNote] = useState<NoteReference | null>(null);
   const [refresh, setRefresh] = useState(0);
   const alive = useRef(true);
   const form = useRef<HTMLFormElement>(null);
@@ -207,11 +208,12 @@ export function ConversationSave({
           noteId: draft.noteId || undefined,
           title: draft.noteId ? undefined : draft.title.trim(),
         };
-        await command<NoteReference>("save_conversation_note", {
+        const noteRef = await command<NoteReference>("save_conversation_note", {
           ...input,
           expectedBody: selectedNote?.body,
           requestId: requestId(input),
         });
+        if (alive.current && noteRef) setSavedNote(noteRef);
       } else {
         const entry: WordbookEntry = {
           id: requestId({ kind }),
@@ -254,9 +256,30 @@ export function ConversationSave({
         <p role="status">
           {kind === "note" ? "메모에 저장했어요." : "개인 단어장에 저장했어요."}
         </p>
-        <Button variant="ghost" onClick={onClose}>
-          대화로 돌아가기
-        </Button>
+        {error && (
+          <p className={s.error} role="alert">
+            {error}
+          </p>
+        )}
+        <div className={n.actions}>
+          <Button variant="ghost" onClick={onClose}>
+            대화로 돌아가기
+          </Button>
+          {savedNote && (
+            <Button
+              onClick={() => {
+                setError(null);
+                void command("open_conversation_note", { noteRef: savedNote }).catch(
+                  (cause: unknown) => {
+                    if (alive.current) setError(errorText(cause));
+                  },
+                );
+              }}
+            >
+              메모 열기
+            </Button>
+          )}
+        </div>
       </div>
     );
   return (
