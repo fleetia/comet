@@ -69,11 +69,11 @@ export function TodoEditor({
   const titleRef = useRef<HTMLInputElement>(null);
   const planRef = useRef<HTMLDivElement>(null);
   const deadlineRef = useRef<HTMLElement>(null);
-  const planFocus = {
+  const planFocus = useRef({
     get current(): HTMLElement | null {
       return planRef.current?.querySelector<HTMLElement>("input:checked") ?? null;
     },
-  };
+  }).current;
   const today = localDay();
   const tomorrow = moveDay(today, 1);
   const editsPlan = Boolean(onMovePlan) && typeof item.completedAt !== "number";
@@ -205,6 +205,7 @@ export function TodoEditor({
     scope,
   });
   const initial = useRef(fingerprint);
+  const savedInput = useRef<string | null>(null);
   const dirty = initial.current !== fingerprint;
   function close(): void {
     if (busy) return;
@@ -265,13 +266,21 @@ export function TodoEditor({
             setError("계획 날짜를 골라 주세요.");
             return;
           }
-          if (!(await act("update", input))) {
-            setError(
-              "저장하지 못했어요. 입력은 유지했습니다. 다른 곳에서 변경했다면 최신 내용을 다시 불러와 확인해 주세요.",
-            );
-            return;
+          const inputKey = JSON.stringify(input);
+          if (savedInput.current !== inputKey) {
+            if (!(await act("update", input))) {
+              setError(
+                "저장하지 못했어요. 입력은 유지했습니다. 다른 곳에서 변경했다면 최신 내용을 다시 불러와 확인해 주세요.",
+              );
+              return;
+            }
+            savedInput.current = inputKey;
           }
-          if (editsPlan && plan !== plannedDay(item) && !(await onMovePlan!(item, plan || null))) {
+          if (
+            editsPlan &&
+            plan !== plannedDay(item) &&
+            !(await onMovePlan!({ ...item, title }, plan || null))
+          ) {
             setError("다른 내용은 저장했지만 계획 날짜를 옮기지 못했어요. 다시 시도해 주세요.");
             return;
           }

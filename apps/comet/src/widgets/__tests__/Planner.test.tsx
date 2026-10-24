@@ -337,7 +337,11 @@ it("puts a period task into Today by changing only its planned date", async () =
 it("brings last week's unfinished undated plans into this week in one step", async () => {
   await renderPlanner(
     snapshot([
-      item("left", "주간 회고 쓰기", { plannedDate: null, planPeriod: "week", planAnchor: "2026-09-14" }),
+      item("left", "주간 회고 쓰기", {
+        plannedDate: null,
+        planPeriod: "week",
+        planAnchor: "2026-09-14",
+      }),
       item("done", "기획서 마무리", {
         plannedDate: null,
         planPeriod: "week",
@@ -481,7 +485,10 @@ it("counts today's frequency record as done today and excludes it from day-end c
   const wrap = within(screen.getByRole("dialog", { name: "오늘은 여기까지" }));
   expect(wrap.queryByRole("checkbox", { name: /오늘 산책 목표/ })).toBeNull();
   expect(wrap.getByText("못 한 일 · 0개")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "0개 옮기고 마치기" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "0개 옮기고 마치기" })).toHaveProperty(
+    "disabled",
+    true,
+  );
 });
 
 it("records frequency on the displayed past date and disables future completion", async () => {
@@ -1246,6 +1253,167 @@ it("shows the plan date and deadline apart and opens the editor on the field tha
   expect((update?.[1] as { request: { input: DataRecord } }).request.input.dueDate).toBe(
     "2026-09-30",
   );
+});
+
+it.each([
+  { fromDate: null, choice: "내일", toDate: "2026-09-22" },
+  { fromDate: TODAY, choice: "날짜 없음", toDate: null },
+])(
+  "saves plan changes from $fromDate to $toDate after the content update increases the revision",
+  async ({ fromDate, choice, toDate }) => {
+    let stored = snapshot([
+      item("draft", "원고 다듬기", { plannedDate: fromDate, dueDate: "2026-09-30" }),
+    ]);
+    useSnapshot(stored);
+    vi.mocked(command).mockImplementation(async (name, args) => {
+      if (name === "get_widgets") return structuredClone(stored);
+      if (name !== "execute_widget") return undefined;
+      const request = (args as { request: unknown }).request as {
+        expectedRevision: number;
+        action: string;
+        input: DataRecord;
+      };
+      const todo = stored.widgets[0];
+      if (request.expectedRevision !== todo.revision) throw new Error("stale widget revision");
+      stored = structuredClone(stored);
+      stored.widgets[0].revision += 1;
+      const current = (stored.widgets[0].data as { items: DataRecord[] }).items[0];
+      if (request.action === "update") Object.assign(current, request.input);
+      if (request.action === "plan") current.plannedDate = request.input.date;
+      return undefined;
+    });
+    render(<Planner embeddedTab="today" />);
+    fireEvent.click(screen.getByRole("button", { name: "원고 다듬기 계획 날짜 바꾸기" }));
+    const editor = within(screen.getByRole("dialog", { name: "할 일 편집" }));
+    fireEvent.change(editor.getByLabelText("할 일 제목"), { target: { value: "고친 제목" } });
+    fireEvent.click(editor.getByRole("radio", { name: choice }));
+    fireEvent.click(editor.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "할 일 편집" })).toBeNull());
+    const current = (stored.widgets[0].data as { items: DataRecord[] }).items[0];
+    expect(current).toEqual(
+      expect.objectContaining({
+        title: "고친 제목",
+        plannedDate: toDate,
+        dueDate: "2026-09-30",
+      }),
+    );
+    expect(stored.widgets[0].revision).toBe(9);
+    const update = vi
+      .mocked(command)
+      .mock.calls.find(
+        ([name, args]) =>
+          name === "execute_widget" &&
+          (args as { request: { action: string } }).request.action === "update",
+      );
+    expect(
+      (update?.[1] as { request: { input: DataRecord } } | undefined)?.request.input,
+    ).not.toHaveProperty("plannedDate");
+  },
+);
+
+it.each([
+  { fromDate: null, moveCommand: "execute_widget" },
+  { fromDate: TODAY, moveCommand: "update_diary" },
+])(
+  "retries only the failed date move after saving other fields from $fromDate",
+  async ({ fromDate, moveCommand }) => {
+    let stored = snapshot([
+      item("draft", "원고 다듬기", { plannedDate: fromDate, dueDate: "2026-09-30" }),
+    ]);
+    let failMove = true;
+    useSnapshot(stored);
+    vi.mocked(command).mockImplementation(async (name, args) => {
+      if (name === "get_widgets") return structuredClone(stored);
+      if (name === "get_diary") return { revision: 4 };
+      if (name === "update_diary") {
+        if (failMove) {
+          failMove = false;
+          throw new Error("synthetic move failure");
+        }
+        stored = structuredClone(stored);
+        (stored.widgets[0].data as { items: DataRecord[] }).items[0].plannedDate = "2026-09-22";
+        return undefined;
+      }
+      if (name !== "execute_widget") return undefined;
+      const request = (args as { request: unknown }).request as {
+        expectedRevision: number;
+        action: string;
+        input: DataRecord;
+      };
+      if (request.expectedRevision !== stored.widgets[0].revision)
+        throw new Error("stale widget revision");
+      if (request.action === "plan" && failMove) {
+        failMove = false;
+        throw new Error("synthetic move failure");
+      }
+      stored = structuredClone(stored);
+      stored.widgets[0].revision += 1;
+      const current = (stored.widgets[0].data as { items: DataRecord[] }).items[0];
+      if (request.action === "update") Object.assign(current, request.input);
+      if (request.action === "plan") current.plannedDate = request.input.date;
+      return undefined;
+    });
+    const view = render(<Planner embeddedTab="today" />);
+    fireEvent.click(screen.getByRole("button", { name: "원고 다듬기 계획 날짜 바꾸기" }));
+    let editor = within(screen.getByRole("dialog", { name: "할 일 편집" }));
+    fireEvent.change(editor.getByLabelText("할 일 제목"), { target: { value: "고친 제목" } });
+    fireEvent.click(editor.getByRole("radio", { name: "내일" }));
+    fireEvent.click(editor.getByRole("button", { name: "저장" }));
+    await waitFor(() =>
+      expect(editor.getByRole("alert").textContent).toContain("다른 내용은 저장했지만"),
+    );
+    expect((stored.widgets[0].data as { items: DataRecord[] }).items[0].title).toBe("고친 제목");
+    useSnapshot(stored);
+    view.rerender(<Planner embeddedTab="today" />);
+    editor = within(screen.getByRole("dialog", { name: "할 일 편집" }));
+    expect(editor.getByLabelText("할 일 제목")).toHaveProperty("value", "고친 제목");
+    fireEvent.click(editor.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "할 일 편집" })).toBeNull());
+    const updates = vi
+      .mocked(command)
+      .mock.calls.filter(
+        ([name, args]) =>
+          name === "execute_widget" &&
+          ((args as { request: unknown }).request as { action: string }).action === "update",
+      );
+    expect(updates).toHaveLength(1);
+    expect((stored.widgets[0].data as { items: DataRecord[] }).items[0]).toEqual(
+      expect.objectContaining({
+        title: "고친 제목",
+        plannedDate: "2026-09-22",
+        dueDate: "2026-09-30",
+      }),
+    );
+    if (moveCommand === "update_diary") {
+      expect(command).toHaveBeenCalledWith("update_diary", {
+        expectedRevision: 4,
+        action: "move-record",
+        input: { todoId: "draft", fromDate: TODAY, toDate: "2026-09-22", title: "고친 제목" },
+      });
+    }
+  },
+);
+
+it("keeps typing focus after opening the plan-date field", async () => {
+  const user = userEvent.setup();
+  useSnapshot(snapshot([item("draft", "원고 다듬기")]));
+  render(<Planner embeddedTab="today" />);
+  await user.click(screen.getByRole("button", { name: "원고 다듬기 계획 날짜 바꾸기" }));
+  const editor = within(screen.getByRole("dialog", { name: "할 일 편집" }));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(editor.getByRole("radio", { name: "오늘" })),
+  );
+  const title = editor.getByLabelText("할 일 제목");
+  await user.click(title);
+  await user.clear(title);
+  await user.type(title, "고친 제목");
+  expect(document.activeElement).toBe(title);
+  expect(title).toHaveProperty("value", "고친 제목");
+  const memo = editor.getByLabelText("메모");
+  await user.click(memo);
+  await user.type(memo, "계속 입력");
+  expect(document.activeElement).toBe(memo);
+  expect(memo).toHaveProperty("value", "계속 입력");
 });
 
 it("offers the same date move from the original drag hint and ignores another widget's payload", async () => {
