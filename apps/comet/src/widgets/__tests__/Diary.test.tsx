@@ -1394,6 +1394,115 @@ it("shows complete event details and the selected-day agenda before explicit edi
   expect(body.scrollTop).toBe(180);
 });
 
+it.each(["timed", "all-day", "UTC-boundary"] as const)(
+  "opens a linked %s event on its own day after reopening the diary",
+  async (kind) => {
+    const startAt =
+      kind === "UTC-boundary"
+        ? Date.parse("2026-11-06T00:30:00Z")
+        : new Date("2026-11-06T10:00:00").getTime();
+    const eventDay = kind === "all-day" ? "2026-11-06" : localDay(new Date(startAt));
+    const event = {
+      id: "departure",
+      connectionId: "local",
+      title: "여행 출발",
+      ...(kind === "all-day"
+        ? { allDay: true, startDate: eventDay, endDate: "2026-11-09" }
+        : { allDay: false, startAt, endAt: startAt + 3600000 }),
+    };
+    widgets.widgets = [
+      widget("calendar", {
+        connections: [],
+        events: [
+          event,
+          {
+            id: "same-day",
+            connectionId: "local",
+            title: "출발 당일 일정",
+            allDay: true,
+            startDate: eventDay,
+            endDate: "2026-11-07",
+          },
+          {
+            id: "today",
+            connectionId: "local",
+            title: "오늘만 있는 일정",
+            allDay: true,
+            startDate: DAY,
+            endDate: NEXT_DAY,
+          },
+        ],
+      }),
+      widget("preparation", {
+        envelopes: [
+          {
+            id: "travel",
+            title: "여행 준비",
+            eventId: event.id,
+            date: DAY,
+            checks: [],
+            links: [],
+            todoIds: [],
+          },
+        ],
+      }),
+    ];
+    const stored = structuredClone({ widgets, diary });
+    for (let reopen = 0; reopen < 2; reopen += 1) {
+      await openDiary();
+      fireEvent.click(screen.getByRole("link", { name: /^준비 봉투/ }));
+      fireEvent.click(screen.getByRole("button", { name: /여행 준비/ }));
+      fireEvent.click(opened().getByRole("button", { name: "일정 보기" }));
+      const detail = within(screen.getByRole("dialog", { name: event.title }));
+      expect(detail.getByRole("heading", { name: `${eventDay} 전체 일정` })).toBeTruthy();
+      const agenda = within(detail.getByRole("region", { name: "선택 날짜 전체 일정" }));
+      expect(agenda.getByRole("button", { name: /출발 당일 일정/ })).toBeTruthy();
+      expect(agenda.queryByRole("button", { name: /오늘만 있는 일정/ })).toBeNull();
+      fireEvent.click(detail.getByRole("button", { name: "약속 닫기" }));
+      expect(opened().getByRole("heading", { name: "여행 준비" })).toBeTruthy();
+      fireEvent.click(opened().getByRole("button", { name: "일정 보기" }));
+      fireEvent.click(screen.getByRole("button", { name: "이날 펼치기" }));
+      expect(screen.queryByRole("dialog", { name: event.title })).toBeNull();
+      expect(opened().getAllByText(event.title).length).toBeGreaterThan(0);
+      expect(opened().queryByText("오늘만 있는 일정")).toBeNull();
+      expect(screen.getByRole("radio", { name: "하루" })).toHaveProperty("checked", true);
+      cleanup();
+    }
+    expect(actions("execute_widget")).toEqual([]);
+    expect(actions("update_diary")).toEqual([]);
+    expect({ widgets, diary }).toEqual(stored);
+  },
+);
+
+it("keeps the clicked date when opening a multi-day calendar event", async () => {
+  widgets.widgets = [
+    widget("calendar", {
+      connections: [],
+      events: [
+        {
+          id: "multi-day",
+          connectionId: "local",
+          title: "여러 날 여행",
+          allDay: true,
+          startDate: DAY,
+          endDate: "2026-10-06",
+        },
+      ],
+    }),
+  ];
+  await openDiary();
+  fireEvent.click(screen.getByRole("radio", { name: "월" }));
+  // The second week segment starts on October 5, not the event's October 3 start.
+  fireEvent.click(screen.getAllByRole("button", { name: "여러 날 여행" })[1]);
+  expect(screen.getByRole("heading", { name: "2026-10-05 전체 일정" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "이날 펼치기" }));
+  showJournal();
+  fireEvent.click(opened().getByRole("button", { name: "일정 보기" }));
+  expect(screen.getByRole("heading", { name: "2026-10-05 전체 일정" })).toBeTruthy();
+  expect(actions("execute_widget")).toEqual([]);
+  expect(actions("update_diary")).toEqual([]);
+});
+
 it.each(["close", "escape"])(
   "preserves month scroll when viewing a different day's event via %s",
   async (close) => {
