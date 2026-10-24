@@ -105,6 +105,16 @@ struct Actor {
     visible: bool,
     attempt: String,
 }
+
+fn manual_pet(actor: &Actor) -> bool {
+    actor.kind == Kind::Pet && !actor.automatic
+}
+
+fn actor_expired(actor: &Actor, now: Instant) -> bool {
+    actor.expires.is_some_and(|at| at <= now)
+        || (!manual_pet(actor) && now.duration_since(actor.created) > Duration::from_secs(3600))
+}
+
 #[derive(Default)]
 struct World {
     actors: BTreeMap<String, Actor>,
@@ -1306,6 +1316,30 @@ fn apply_geometry(world: &mut World, sample: Option<GeometrySample>, now: Instan
     }
 }
 
+fn prepare_tick(world: &mut World, elapsed: f64) -> (f64, Vec<String>) {
+    if elapsed <= 1.0 {
+        return (elapsed, Vec::new());
+    }
+    let mut removed = Vec::new();
+    world.actors.retain(|id, actor| {
+        if !manual_pet(actor) {
+            removed.push(id.clone());
+            return false;
+        }
+        actor.dragging = false;
+        actor.drag_offset = (0.0, 0.0);
+        actor.motion.vx = 0.0;
+        actor.motion.vy = 0.0;
+        actor.moving = true;
+        actor.resting = 0.0;
+        actor.last_sent = None;
+        true
+    });
+    world.outcomes.clear();
+    world.accumulator = 0.0;
+    (0.0, removed)
+}
+
 pub(crate) fn start(app: AppHandle) {
     if app.state::<Runtime>().started.swap(true, Ordering::SeqCst) {
         return;
@@ -1355,13 +1389,8 @@ pub(crate) fn start(app: AppHandle) {
                     world.accumulator = 0.0;
                     continue;
                 }
-                if elapsed > 1.0 {
-                    // Sleep/resume is not elapsed play time and must never replay a launch.
-                    removed.extend(world.actors.keys().cloned());
-                    world.actors.clear();
-                    world.outcomes.clear();
-                    world.accumulator = 0.0;
-                }
+                let (elapsed, interrupted) = prepare_tick(&mut world, elapsed);
+                removed.extend(interrupted);
                 apply_geometry(&mut world, captured, now);
                 let scales = world.scales.clone();
                 let mut geometry = world.geometry.clone();
@@ -1383,9 +1412,7 @@ pub(crate) fn start(app: AppHandle) {
                             actor.scale = *scale;
                         }
                     }
-                    if actor.expires.is_some_and(|at| at <= now)
-                        || now.duration_since(actor.created) > Duration::from_secs(3600)
-                    {
+                    if actor_expired(actor, now) {
                         if !actor.reported {
                             outcomes.push(outcome(actor, false));
                         }
@@ -1612,6 +1639,128 @@ mod tests {
             attempt: String::new(),
         }
     }
+
+    #[test]
+    fn long_tick_gap_keeps_manual_pet_without_replaying_drag_or_pending_outcomes() {
+        let mut world = World::default();
+        for (id, kind, automatic) in [
+            ("manual-pet", Kind::Pet, false),
+            ("automatic-pet", Kind::Pet, true),
+            ("manual-ball", Kind::Ball, false),
+            ("automatic-plane", Kind::PaperPlane, true),
+        ] {
+            let mut actor = resting_ball();
+            actor.id = id.into();
+            actor.kind = kind;
+            actor.automatic = automatic;
+            actor.visible = true;
+            actor.dragging = true;
+            actor.drag_offset = (12.0, -4.0);
+            actor.motion.vx = 600.0;
+            actor.motion.vy = -200.0;
+            actor.resting = 0.1;
+            actor.last_sent = Some((50.0, 80.0, frame(&actor, &world.geometry)));
+            world.actors.insert(id.into(), actor);
+        }
+        let pet = &world.actors["manual-pet"];
+        let identity = (
+            pet.widget_id.clone(),
+            pet.revision,
+            pet.created,
+            pet.attempt.clone(),
+        );
+        let mut pending = outcome(pet, false);
+        pending.care = Some(Care::Fed);
+        world.outcomes.push(pending);
+        world.accumulator = STEP / 2.0;
+
+        let (elapsed, removed) = prepare_tick(&mut world, 2.0);
+
+        assert_eq!(elapsed, 0.0);
+        assert_eq!(removed, ["automatic-pet", "automatic-plane", "manual-ball"]);
+        assert_eq!(world.actors.len(), 1);
+        let pet = &world.actors["manual-pet"];
+        assert_eq!((pet.motion.x, pet.motion.y), (50.0, 80.0));
+        assert_eq!(
+            (
+                pet.widget_id.clone(),
+                pet.revision,
+                pet.created,
+                pet.attempt.clone()
+            ),
+            identity
+        );
+        assert!(pet.visible);
+        assert!(pet.expires.is_none());
+        assert!(!pet.dragging);
+        assert_eq!(pet.drag_offset, (0.0, 0.0));
+        assert_eq!((pet.motion.vx, pet.motion.vy), (0.0, 0.0));
+        assert!(pet.moving);
+        assert_eq!(pet.resting, 0.0);
+        assert!(pet.last_sent.is_none());
+        assert!(world.outcomes.is_empty());
+        assert_eq!(world.accumulator, 0.0);
+    }
+
+    #[test]
+    fn ordinary_tick_keeps_current_drag_motion_and_pending_outcomes() {
+        for elapsed in [STEP, 1.0] {
+            let mut world = World::default();
+            let mut actor = resting_ball();
+            actor.dragging = true;
+            actor.drag_offset = (12.0, -4.0);
+            actor.motion.vx = 600.0;
+            actor.motion.vy = -200.0;
+            let expected = frame(&actor, &world.geometry);
+            world.outcomes.push(outcome(&actor, false));
+            world.actors.insert(actor.id.clone(), actor);
+            world.accumulator = STEP / 2.0;
+
+            assert_eq!(prepare_tick(&mut world, elapsed), (elapsed, Vec::new()));
+
+            assert_eq!(world.actors.len(), 1);
+            let actor = &world.actors["test"];
+            assert_eq!(frame(actor, &world.geometry), expected);
+            assert_eq!(actor.drag_offset, (12.0, -4.0));
+            assert_eq!((actor.motion.x, actor.motion.y), (50.0, 80.0));
+            assert_eq!((actor.motion.vx, actor.motion.vy), (600.0, -200.0));
+            assert_eq!(world.outcomes.len(), 1);
+            assert_eq!(world.accumulator, STEP / 2.0);
+        }
+    }
+
+    #[test]
+    fn manual_pet_has_no_hourly_expiry_but_other_toy_limits_remain() {
+        for (kind, automatic, expires_after_hour) in [
+            (Kind::Pet, false, false),
+            (Kind::Pet, true, true),
+            (Kind::Ball, false, true),
+            (Kind::PaperPlane, false, true),
+            (Kind::Bubbles, false, true),
+        ] {
+            let mut actor = resting_ball();
+            actor.kind = kind;
+            actor.automatic = automatic;
+            assert!(!actor_expired(
+                &actor,
+                actor.created + Duration::from_secs(3600)
+            ));
+            assert_eq!(
+                actor_expired(&actor, actor.created + Duration::from_millis(3_600_001)),
+                expires_after_hour
+            );
+        }
+        for (kind, automatic, seconds) in [(Kind::Pet, true, 20), (Kind::Bubbles, false, 45)] {
+            let mut actor = resting_ball();
+            actor.kind = kind;
+            actor.automatic = automatic;
+            let deadline = actor.created + Duration::from_secs(seconds);
+            actor.expires = Some(deadline);
+            assert!(!actor_expired(&actor, deadline - Duration::from_millis(1)));
+            assert!(actor_expired(&actor, deadline));
+        }
+    }
+
     #[test]
     fn pending_geometry_does_not_block_toy_motion_and_is_consumed_once() {
         let (sender, receiver) = tokio::sync::oneshot::channel();
