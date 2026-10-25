@@ -309,3 +309,42 @@ fn changing_search_policy_preserves_installation_and_invalidates_only_cache() {
         models::artifact_fingerprint(&changed)
     );
 }
+#[tokio::test]
+async fn missing_kiwi_installs_itself_after_a_delay_and_backs_off_after_failures() {
+    let directory = tempfile::tempdir().unwrap();
+    let service = NlpService::new(directory.path().into(), PathBuf::new(), PathBuf::new()).unwrap();
+    assert!(!service.status().kiwi.installed);
+    // The first download waits until the app has settled.
+    assert!(!service.claim_required_install());
+    let due = |service: &NlpService| {
+        locked(&service.shared.required_install).next = Some(Instant::now());
+    };
+    due(&service);
+    assert!(service.claim_required_install());
+    // One download at a time until its outcome is reported.
+    assert!(!service.claim_required_install());
+    for minutes in [5, 30, 120, 120] {
+        service.finish_required_install(&Err("offline".into()));
+        let next = locked(&service.shared.required_install).next.unwrap();
+        let wait = next.duration_since(Instant::now()).as_secs();
+        assert!(
+            (minutes * 60 - 5..=minutes * 60).contains(&wait),
+            "{minutes}: {wait}"
+        );
+        assert!(!service.claim_required_install());
+        due(&service);
+        assert!(service.claim_required_install());
+    }
+    service.finish_required_install(&Ok(()));
+    {
+        let schedule = locked(&service.shared.required_install);
+        assert_eq!(schedule.failures, 0);
+        assert!(schedule.next.is_none());
+    }
+    // Kiwi reads chat requests, so it cannot be removed.
+    assert_eq!(
+        service.remove(ModelKind::Kiwi).await.unwrap_err(),
+        "한국어 분석은 대화 요청을 읽는 데 필요해서 제거할 수 없어요."
+    );
+    service.shutdown().await;
+}
