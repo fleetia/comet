@@ -467,6 +467,7 @@ const CONNECTIVES: &[&str] = &[
 ];
 const CONDITIONALS: &[&str] = &["면", "으면", "다면", "라면", "ᆫ다면", "는다면", "거든"];
 const SOFTENERS: &[&str] = &["좀", "좀만", "한번", "빨리", "꼭", "바로", "얼른", "다시"];
+const REMINDER: &[&str] = &["잊", "까먹", "리마인드", "리마인더"];
 
 fn operation(lemma: &str) -> Option<Op> {
     OPERATIONS
@@ -1183,6 +1184,14 @@ impl Reader<'_> {
                     self.judgment.reason("permission_question");
                     self.unclear = true;
                 }
+                continue;
+            }
+            // 잊지 않게 해 줘, 잊지 마: a reminder that names no feature is left to the selector.
+            if read.mood != Mood::Statement
+                && clause.iter().any(|morph| REMINDER.contains(&morph.form))
+            {
+                self.judgment.reason("reminder_request");
+                self.unclear = true;
                 continue;
             }
             if read.mood == Mood::Request && !read.prohibited {
