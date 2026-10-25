@@ -3,7 +3,7 @@ import { command, errorText, isDesktop } from "../../hooks/useSnapshot";
 import { Button, Checkbox, SettingControlRow, Surface, Switch } from "@comet/ui";
 import { ImportIcon } from "@comet/icon";
 import * as figma from "../SettingsPanel/figmaSettings.css";
-import type { MemorySearchStatus, NlpModel } from "../../types";
+import type { MemorySearchStatus, NlpModel, NlpModelStatus } from "../../types";
 import * as s from "../../common.css";
 import * as styles from "./memorySearchSettings.css";
 
@@ -52,6 +52,22 @@ const STATES: Record<string, string> = {
   cancelled: "다운로드 중단됨",
   uncalibrated: "검색 품질 검증 대기",
 };
+const DOWNLOADING = ["downloading", "verifying", "installing"];
+
+/** Kiwi also reads chat requests, so it installs itself; its row only reports how far that got. */
+function requiredStatus(info: NlpModelStatus): string {
+  if (info.installed) {
+    return "사용 중";
+  }
+  if (DOWNLOADING.includes(info.state)) {
+    return "받는 중";
+  }
+  return "곧 자동으로 받아요";
+}
+
+function requiredFailed(info: NlpModelStatus): boolean {
+  return !info.installed && info.state === "error";
+}
 
 export function MemorySearchSettings({
   className,
@@ -133,15 +149,31 @@ export function MemorySearchSettings({
           {status ? (
             (["kiwi", "semantic"] as const).map((model) => {
               const info = status.nlp[model];
-              const downloading = ["downloading", "verifying"].includes(info.state);
+              const downloading = DOWNLOADING.includes(info.state);
+              const requiredControl = requiredFailed(info) ? (
+                <Button
+                  aria-label={`${LABELS[model]} 다시 받기`}
+                  variant="ghost"
+                  size="small"
+                  disabled={!!pending || !isDesktop()}
+                  onClick={() => void run("download_nlp_model", { model })}
+                >
+                  <ImportIcon size={15} />
+                  다시 받기
+                </Button>
+              ) : (
+                <span className={figma.caption}>{requiredStatus(info)}</span>
+              );
               return (
                 <div key={model}>
                   <SettingControlRow
                     className={figma.row}
                     title={model === "kiwi" ? "한국어 분석" : "뜻으로 찾기"}
-                    description={`${model === "kiwi" ? "조사나 어미가 달라도 기억을 찾아요" : "표현이 달라도 비슷한 기억을 찾아요"}${info.totalBytes ? ` · ${(info.totalBytes / 1_000_000).toFixed(0)}MB` : ""}`}
+                    description={`${model === "kiwi" ? "조사나 어미가 달라도 요청과 기억을 알아들어요" : "표현이 달라도 비슷한 기억을 찾아요"}${info.totalBytes ? ` · ${(info.totalBytes / 1_000_000).toFixed(0)}MB` : ""}`}
                     control={
-                      info.installed ? (
+                      model === "kiwi" ? (
+                        requiredControl
+                      ) : info.installed ? (
                         <div className={styles.actions}>
                           <Switch
                             aria-label={`${LABELS[model]} 사용`}
@@ -151,8 +183,7 @@ export function MemorySearchSettings({
                               void run("set_memory_search_settings", {
                                 settings: {
                                   ...status.nlp.settings,
-                                  [model === "kiwi" ? "kiwiEnabled" : "semanticEnabled"]:
-                                    event.target.checked,
+                                  semanticEnabled: event.target.checked,
                                 },
                               })
                             }
@@ -259,7 +290,8 @@ export function MemorySearchSettings({
           <>
             {(["kiwi", "semantic"] as const).map((model) => {
               const info = status.nlp[model];
-              const downloading = ["downloading", "verifying"].includes(info.state);
+              const required = model === "kiwi";
+              const downloading = DOWNLOADING.includes(info.state);
               const queued =
                 model === "kiwi" ? status.index.kiwiPending : status.index.semanticPending;
               return (
@@ -272,7 +304,7 @@ export function MemorySearchSettings({
                       </h3>
                       <p className={styles.caption}>
                         {model === "kiwi"
-                          ? "조사·활용이 달라도 기억을 찾아요."
+                          ? "조사·활용이 달라도 요청과 기억을 알아들어요."
                           : "표현이 달라도 뜻이 비슷한 기억을 찾아요."}
                         {info.totalBytes > 0
                           ? ` · ${(info.totalBytes / 1_000_000).toFixed(1)} MB`
@@ -280,7 +312,7 @@ export function MemorySearchSettings({
                       </p>
                     </div>
                     <p className={styles.status}>
-                      {STATES[info.state] ?? "상태 확인 중"}
+                      {required ? requiredStatus(info) : (STATES[info.state] ?? "상태 확인 중")}
                       {info.installed
                         ? ` · 검색 준비 ${queued > 0 ? `${queued}개 남음` : "완료"}`
                         : ""}
@@ -288,8 +320,8 @@ export function MemorySearchSettings({
                     <Checkbox
                       className={styles.checkbox}
                       aria-label={`${LABELS[model]} 사용`}
-                      checked={info.enabled}
-                      disabled={!!pending || !info.installed || !isDesktop()}
+                      checked={required || info.enabled}
+                      disabled={required || !!pending || !info.installed || !isDesktop()}
                       onChange={(event) =>
                         void run("set_memory_search_settings", {
                           settings: {
@@ -302,7 +334,18 @@ export function MemorySearchSettings({
                       label="사용"
                     />
                     <div className={styles.actions}>
-                      {!info.installed && !downloading && (
+                      {required && requiredFailed(info) && (
+                        <Button
+                          className={styles.action}
+                          aria-label={`${LABELS[model]} 다시 받기`}
+                          variant="ghost"
+                          disabled={!!pending || !isDesktop()}
+                          onClick={() => void run("download_nlp_model", { model })}
+                        >
+                          다시 받기
+                        </Button>
+                      )}
+                      {!required && !info.installed && !downloading && (
                         <Button
                           className={styles.action}
                           aria-label={`${LABELS[model]} 내려받기`}
@@ -313,7 +356,7 @@ export function MemorySearchSettings({
                           내려받기
                         </Button>
                       )}
-                      {downloading && (
+                      {!required && downloading && (
                         <Button
                           className={styles.action}
                           aria-label={`${LABELS[model]} 다운로드 중단`}
@@ -323,7 +366,7 @@ export function MemorySearchSettings({
                           다운로드 중단
                         </Button>
                       )}
-                      {info.installed && (
+                      {!required && info.installed && (
                         <Button
                           className={styles.action}
                           aria-label={`${LABELS[model]} 제거`}

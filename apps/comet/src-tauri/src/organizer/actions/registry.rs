@@ -220,6 +220,32 @@ pub(crate) fn entities_for(db: &Connection, kind: &str, query: &str) -> Result<V
     Ok(context(definition, &id, revision, &data, query))
 }
 
+/// IDs that a `kind` proposal may target among the rows its planner `context` shows, with each
+/// row's title. `None` when the kind's targets are not plain rows of one collection.
+pub(crate) fn context_targets(kind: &str, context: &Value) -> Option<Vec<(String, String)>> {
+    let definition = catalog::definition(kind).ok()?;
+    if !definition.target || definition.id.starts_with("travel_") {
+        return None;
+    }
+    let collection = if definition.id == "habit_record" {
+        "habits"
+    } else {
+        definition.collection
+    };
+    Some(
+        context[collection]
+            .as_array()?
+            .iter()
+            .filter_map(|row| {
+                Some((
+                    row["id"].as_str()?.to_owned(),
+                    row["title"].as_str().unwrap_or_default().to_owned(),
+                ))
+            })
+            .collect(),
+    )
+}
+
 fn query_day(value: &str) -> Result<String> {
     if chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
         .is_ok_and(|date| date.format("%Y-%m-%d").to_string() == value)
@@ -352,17 +378,20 @@ pub(crate) fn query_registry(db: &Connection, kind: &str, input: &Value) -> Resu
     Ok(result)
 }
 
+/// `explicit` says whether the request contains an explicit app request; callers derive it from
+/// [`has_explicit_request`] or the stored request analysis.
 pub(crate) fn authorize_registry(
     query: &str,
     kind: &str,
     mode: &str,
     evidence: &str,
+    explicit: bool,
 ) -> Result<()> {
     let definition = catalog::definition(kind)?;
     if definition.effect == "read" {
         return Ok(());
     }
-    authorize_evidence(query, mode, evidence, definition.automatic)?;
+    authorize_evidence(query, mode, evidence, definition.automatic, explicit)?;
     if mode == "statement" {
         return Ok(());
     }
@@ -451,6 +480,7 @@ pub(crate) fn authorize_evidence(
     mode: &str,
     evidence: &str,
     automatic: bool,
+    explicit: bool,
 ) -> Result<()> {
     let instruction = instruction_text(&query.to_lowercase());
     if evidence.trim().is_empty()
@@ -543,7 +573,7 @@ pub(crate) fn authorize_evidence(
         {
             return Err("예정이나 다른 사람의 기록은 자동으로 저장하지 않아요.".into());
         }
-    } else if !has_explicit_request(query) {
+    } else if !explicit {
         return Err("실행을 요청한 문장을 확인하지 못했어요. 할 작업을 직접 요청해 주세요.".into());
     }
     Ok(())

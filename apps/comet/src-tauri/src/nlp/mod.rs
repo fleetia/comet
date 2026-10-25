@@ -72,7 +72,16 @@ struct Shared {
     config_gate: tokio::sync::Mutex<()>,
     last_used: Mutex<Instant>,
     stop_error: Mutex<Option<String>>,
+    required_install: Mutex<RequiredInstall>,
 }
+/// Schedule of the automatic Kiwi download.
+struct RequiredInstall {
+    failures: u32,
+    next: Option<Instant>,
+}
+/// Kiwi reads chat requests as well as memories, so it is installed without a user action.
+const REQUIRED_INSTALL_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
+const REQUIRED_INSTALL_BACKOFF: [u64; 3] = [5 * 60, 30 * 60, 2 * 60 * 60];
 #[derive(Clone)]
 pub struct NlpService {
     shared: Arc<Shared>,
@@ -115,10 +124,11 @@ impl NlpService {
                     .map_err(|_| "이전 검색 모델을 복구하지 못했어요.")?;
             }
         }
-        let settings: SearchSettings = std::fs::read(root.join("memory-search.json"))
+        let mut settings: SearchSettings = std::fs::read(root.join("memory-search.json"))
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
+        settings.kiwi_enabled = true;
         let mut legacy = Vec::new();
         let mut model_status = |kind: ModelKind, enabled: bool| {
             let manifest = models::manifest(kind);
@@ -175,6 +185,10 @@ impl NlpService {
             config_gate: tokio::sync::Mutex::new(()),
             last_used: Mutex::new(Instant::now()),
             stop_error: Mutex::new(None),
+            required_install: Mutex::new(RequiredInstall {
+                failures: 0,
+                next: Some(Instant::now() + REQUIRED_INSTALL_DELAY),
+            }),
         });
         let (foreground, fg) = mpsc::channel(16);
         let (background, bg) = mpsc::channel(1);
@@ -237,7 +251,8 @@ impl NlpService {
         self.shared.epoch.fetch_add(1, Ordering::AcqRel);
         self.shared.interrupt.notify_one();
     }
-    pub async fn configure(&self, settings: SearchSettings) -> Result<(), String> {
+    pub async fn configure(&self, mut settings: SearchSettings) -> Result<(), String> {
+        settings.kiwi_enabled = true;
         if self.shared.closed.load(Ordering::Acquire) {
             return Err("앱을 종료하고 있어요.".into());
         }
@@ -278,6 +293,28 @@ impl NlpService {
     pub async fn index(&self, text: &str) -> Option<Analysis> {
         self.work(text, Operation::Index).await
     }
+    /// Kiwi analysis with typo correction for reading a chat request. Unlike memory search,
+    /// a cold analyzer is started and the call waits up to `wait` for it.
+    pub async fn analyze(&self, text: &str, wait: std::time::Duration) -> Option<Analysis> {
+        let deadline = tokio::time::Instant::now() + wait;
+        loop {
+            if let Some(analysis) = self.work(text, Operation::Analyze).await {
+                return Some(analysis);
+            }
+            let kiwi = self.status().kiwi;
+            if self.shared.closed.load(Ordering::Acquire)
+                || self.shared.suspended.load(Ordering::Acquire)
+                || !kiwi.installed
+                || !kiwi.enabled
+                || kiwi.state == "error"
+                || tokio::time::Instant::now() >= deadline
+            {
+                return None;
+            }
+            // A cold request starts the worker; later ones wait while it loads.
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    }
     async fn work(&self, text: &str, operation: Operation) -> Option<Analysis> {
         if self.shared.closed.load(Ordering::Acquire)
             || self.shared.suspended.load(Ordering::Acquire)
@@ -317,7 +354,46 @@ impl NlpService {
     pub async fn download(&self, kind: ModelKind) -> Result<(), String> {
         download::install(self, kind).await
     }
+    /// Claims the next automatic Kiwi download when the model is missing, no download runs and
+    /// the backoff after a failure has passed. Report the outcome with [`Self::finish_required_install`].
+    pub fn claim_required_install(&self) -> bool {
+        if self.shared.closed.load(Ordering::Acquire)
+            || self.shared.suspended.load(Ordering::Acquire)
+        {
+            return false;
+        }
+        let kiwi = locked(&self.shared.status).kiwi.clone();
+        if kiwi.installed
+            || matches!(
+                kiwi.state.as_str(),
+                "downloading" | "verifying" | "installing" | "initializing" | "removing"
+            )
+        {
+            return false;
+        }
+        let mut schedule = locked(&self.shared.required_install);
+        if schedule.next.is_some_and(|next| Instant::now() < next) {
+            return false;
+        }
+        // Held until the result is reported.
+        schedule.next = Some(Instant::now() + std::time::Duration::from_secs(24 * 60 * 60));
+        true
+    }
+    pub fn finish_required_install(&self, result: &Result<(), String>) {
+        let mut schedule = locked(&self.shared.required_install);
+        if result.is_ok() {
+            schedule.failures = 0;
+            schedule.next = None;
+            return;
+        }
+        let step = REQUIRED_INSTALL_BACKOFF[(schedule.failures as usize).min(2)];
+        schedule.failures += 1;
+        schedule.next = Some(Instant::now() + std::time::Duration::from_secs(step));
+    }
     pub async fn remove(&self, kind: ModelKind) -> Result<(), String> {
+        if kind == ModelKind::Kiwi {
+            return Err("한국어 분석은 대화 요청을 읽는 데 필요해서 제거할 수 없어요.".into());
+        }
         self.cancel_download(kind);
         let _gate = self.shared.model_gates[kind as usize].lock().await;
         let previous = {

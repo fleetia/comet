@@ -11,8 +11,8 @@ mod catalog;
 mod registry;
 pub(crate) use catalog::catalog;
 pub(crate) use registry::{
-    authorize_evidence, authorize_registry, entities_for, execute_registry, has_explicit_request,
-    query_registry,
+    authorize_evidence, authorize_registry, context_targets, entities_for, execute_registry,
+    has_explicit_request, query_registry,
 };
 #[cfg(test)]
 mod registry_tests;
@@ -114,6 +114,63 @@ pub(crate) fn receipts(db: &Connection, user: &str, input: Option<&str>) -> Resu
     }
     result.sort_by_key(|r| std::cmp::Reverse(r.created_at));
     Ok(result)
+}
+
+/// A receipt-based reply for `input` when the character's `reply` does not name every change the
+/// input saved or claims it failed. Small models describe other results than the stored one;
+/// the receipt states what was kept. `None` keeps the reply, also for kinds without a sentence.
+pub(crate) fn receipt_reply(
+    db: &Connection,
+    user: &str,
+    input: &str,
+    reply: &str,
+) -> Result<Option<String>> {
+    let saved: Vec<Receipt> = receipts(db, user, Some(input))?
+        .into_iter()
+        .filter(|receipt| !receipt.undone)
+        .collect();
+    let sentences: Option<Vec<String>> = saved.iter().map(receipt_sentence).collect();
+    let Some(sentences) = sentences.filter(|sentences| !sentences.is_empty()) else {
+        return Ok(None);
+    };
+    let lower = reply.to_lowercase();
+    let names_all = saved.iter().all(|receipt| {
+        let title = receipt.title.split(" · ").next().unwrap_or_default().trim();
+        !title.is_empty() && lower.contains(&title.to_lowercase())
+    });
+    let claims_failure = [
+        "비어 있",
+        "못 했",
+        "못했",
+        "실패했",
+        "저장하지 못",
+        "안 됐",
+        "안됐",
+    ]
+    .iter()
+    .any(|phrase| reply.contains(phrase));
+    Ok((!names_all || claims_failure).then(|| sentences.join(" ")))
+}
+
+fn receipt_sentence(receipt: &Receipt) -> Option<String> {
+    let (feature, action) = receipt.kind.split_once('_')?;
+    let object = match feature {
+        "task" => "할 일을",
+        "note" => "메모를",
+        "memo" => "바탕화면 메모를",
+        "event" => "일정을",
+        "ledger" => "가계부 기록을",
+        _ => return None,
+    };
+    let done = match action {
+        "add" | "create" => "추가했어요",
+        "update" => "고쳤어요",
+        "delete" => "지웠어요",
+        "complete" => "완료로 표시했어요",
+        "undo" => "다시 열었어요",
+        _ => return None,
+    };
+    Some(format!("'{}' {object} {done}.", receipt.title))
 }
 
 pub(crate) fn link_summary(
@@ -450,27 +507,42 @@ pub(crate) fn permissions(query: &str) -> Vec<&'static str> {
 }
 
 pub(crate) fn instruction_text(query: &str) -> String {
-    let chars: Vec<_> = query.chars().collect();
+    instruction_ranges(query)
+        .into_iter()
+        .map(|range| &query[range])
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Byte ranges of the user's own words. Quoted text and a pasted body after a colon are content,
+/// not authority; every closed quote starts a new range.
+pub(crate) fn instruction_ranges(query: &str) -> Vec<std::ops::Range<usize>> {
+    let chars: Vec<_> = query.char_indices().collect();
     let mut quote = None;
-    let mut text = String::new();
-    for (index, c) in chars.iter().copied().enumerate() {
+    let mut ranges = vec![0..0];
+    for (index, (offset, c)) in chars.iter().copied().enumerate() {
         if let Some(end) = quote {
             if c == end {
                 quote = None;
-                text.push(' ');
+                let next = offset + c.len_utf8();
+                ranges.push(next..next);
             }
             continue;
         }
         let numeric_colon = index > 0
-            && chars[index - 1].is_ascii_digit()
-            && chars.get(index + 1).is_some_and(char::is_ascii_digit);
+            && chars[index - 1].1.is_ascii_digit()
+            && chars
+                .get(index + 1)
+                .is_some_and(|(_, c)| c.is_ascii_digit());
         if matches!(c, ':' | '：') && !numeric_colon {
             break;
         }
         let contraction = c == '\''
             && index > 0
-            && chars[index - 1].is_ascii_alphabetic()
-            && chars.get(index + 1).is_some_and(char::is_ascii_alphabetic);
+            && chars[index - 1].1.is_ascii_alphabetic()
+            && chars
+                .get(index + 1)
+                .is_some_and(|(_, c)| c.is_ascii_alphabetic());
         quote = match c {
             '"' | '`' => Some(c),
             '\'' if !contraction => Some(c),
@@ -481,10 +553,12 @@ pub(crate) fn instruction_text(query: &str) -> String {
             _ => None,
         };
         if quote.is_none() {
-            text.push(c);
+            if let Some(range) = ranges.last_mut() {
+                range.end = offset + c.len_utf8();
+            }
         }
     }
-    text
+    ranges
 }
 
 fn asks_action(clause: &str, korean: &[&str], english: &[&str]) -> bool {
@@ -1114,6 +1188,42 @@ pub(crate) fn entities(db: &Connection, query: &str) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_reply_that_misses_or_denies_the_saved_change_is_replaced_by_the_receipt() {
+        let db = store::open(std::path::Path::new(":memory:")).unwrap();
+        let user = store::active_user_id(&db).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
+        assert_eq!(receipt_reply(&db, &user, "task", "안녕!").unwrap(), None);
+        let revision = entities_for(&db, "task_add", "").unwrap()["revision"]
+            .as_i64()
+            .unwrap();
+        execute_registry(
+            &db,
+            &user,
+            "task",
+            0,
+            "QA-T1 할 일 추가해줘",
+            &Action {
+                kind: "task_add".into(),
+                target_id: String::new(),
+                expected_revision: revision,
+                input: json!({"title":"QA-T1","dueDate":"2026-11-06"}),
+            },
+        )
+        .unwrap();
+        let receipt = Some("'QA-T1' 할 일을 추가했어요.".to_owned());
+        for reply in [
+            "호기심이 많고 다정하며 먼저 말을 건넨다.",
+            "QA-T1을 저장하지 못했어.",
+        ] {
+            assert_eq!(receipt_reply(&db, &user, "task", reply).unwrap(), receipt);
+        }
+        assert_eq!(
+            receipt_reply(&db, &user, "task", "꼬리 흔들며 qa-t1 할 일 넣어 뒀어!").unwrap(),
+            None
+        );
+    }
     #[test]
     fn replay_rechecks_vault_permission_and_disk_hash_after_restart() {
         let directory = tempfile::tempdir().unwrap();

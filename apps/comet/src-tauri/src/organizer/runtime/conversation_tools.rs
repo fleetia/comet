@@ -2,7 +2,11 @@ use super::*;
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 
+mod utterance;
+
 const MAX_OPERATIONS: usize = 4;
+/// How long a request waits for the Korean analyzer to start; the LLM path follows on timeout.
+const ANALYSIS_WAIT: std::time::Duration = std::time::Duration::from_secs(4);
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -65,6 +69,20 @@ struct Turn {
     confirm_delete: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     confirmed_delete: Option<String>,
+    // The rule reading that routed this turn; execution re-checks authority with the same reading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    analysis: Option<utterance::Judgment>,
+}
+
+impl Turn {
+    /// The request asks for an app action, by the string rules or the stored Kiwi reading.
+    fn explicit(&self) -> bool {
+        actions::has_explicit_request(&self.request)
+            || self
+                .analysis
+                .as_ref()
+                .is_some_and(|analysis| analysis.explicit)
+    }
 }
 
 fn selection_schema(available: &[Value], can_continue: bool) -> Value {
@@ -94,6 +112,436 @@ fn plan_schema() -> Value {
                 "evidence":{"type":"string"}},
             "required":["kind","targetId","expectedRevision","inputJson","mode","evidence"]}}},
         "required":["question","operations"]})
+}
+
+/// Planner output for a local model: `input` is an object and [`local_plan_schema`] already
+/// fixes every value the host knows.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LocalProposal {
+    kind: String,
+    target_id: String,
+    expected_revision: i64,
+    input: Value,
+    mode: String,
+    evidence: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LocalPlan {
+    question: String,
+    operations: Vec<LocalProposal>,
+}
+
+impl LocalPlan {
+    fn into_plan(self, catalog: &[Value]) -> Plan {
+        let operations = self
+            .operations
+            .into_iter()
+            .map(|proposal| {
+                let mut input = proposal.input;
+                // For a new item an omitted optional field and null mean the same.
+                let creates = capability(catalog, &proposal.kind)
+                    .is_ok_and(|spec| spec["requiresTarget"] == false);
+                if let Some(fields) = input.as_object_mut().filter(|_| creates) {
+                    fields.retain(|_, value| !value.is_null());
+                }
+                Proposal {
+                    kind: proposal.kind,
+                    target_id: proposal.target_id,
+                    expected_revision: proposal.expected_revision,
+                    input_json: input.to_string(),
+                    mode: proposal.mode,
+                    evidence: proposal.evidence,
+                }
+            })
+            .collect();
+        Plan {
+            question: self.question,
+            operations,
+        }
+    }
+}
+
+/// A grammar for a local model that only admits values the host already knows: the selected
+/// kinds, their context revision, visible targets, the request's own values and evidence that
+/// passes the same guards [`prepare_plan`] applies.
+fn local_plan_schema(turn: &Turn, selected: &[Value], contexts: &Value) -> Value {
+    let mut variants = vec![];
+    for spec in selected {
+        let Some(kind) = spec["id"].as_str() else {
+            continue;
+        };
+        let context = &contexts[kind];
+        let Some(revision) = context["revision"].as_i64() else {
+            continue;
+        };
+        let slots = turn
+            .analysis
+            .as_ref()
+            .and_then(|analysis| analysis.intent(kind))
+            .map(|intent| &intent.slots);
+        let target = if spec["requiresTarget"] == false {
+            json!({"type":"string","enum":[""]})
+        } else if let Some(rows) = actions::context_targets(kind, context) {
+            let named: Vec<&String> = slots
+                .and_then(|slots| slots.target.as_ref())
+                .map(|title| {
+                    rows.iter()
+                        .filter(|(_, row)| row == title)
+                        .map(|(id, _)| id)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let ids: Vec<&String> = if named.is_empty() {
+                rows.iter().map(|(id, _)| id).collect()
+            } else {
+                named
+            };
+            if ids.is_empty() {
+                continue;
+            }
+            json!({"type":"string","enum":ids})
+        } else {
+            json!({"type":"string"})
+        };
+        let input = input_schema(spec, slots);
+        for (mode, evidence) in evidence_options(turn, spec) {
+            variants.push(json!({"type":"object","additionalProperties":false,
+                "required":["kind","targetId","expectedRevision","input","mode","evidence"],
+                "properties":{
+                    "kind":{"type":"string","enum":[kind]},
+                    "targetId":target,
+                    "expectedRevision":{"type":"integer","enum":[revision]},
+                    "input":input,
+                    "mode":{"type":"string","enum":[mode]},
+                    "evidence":{"type":"string","enum":evidence}}}));
+        }
+    }
+    let ask = json!({"type":"object","additionalProperties":false,"required":["question","operations"],
+        "properties":{"question":{"type":"string","minLength":1},"operations":{"type":"array","maxItems":0}}});
+    if variants.is_empty() {
+        return ask;
+    }
+    json!({"anyOf":[{"type":"object","additionalProperties":false,"required":["question","operations"],
+        "properties":{"question":{"type":"string","enum":[""]},
+            "operations":{"type":"array","minItems":1,"maxItems":MAX_OPERATIONS,"items":{"anyOf":variants}}}}, ask]})
+}
+
+/// The kind's input schema with the request's own values fixed and unmentioned dates removed.
+fn input_schema(spec: &Value, slots: Option<&utterance::Slots>) -> Value {
+    let mut schema = spec["inputSchema"].clone();
+    let Some(slots) = slots else {
+        return schema;
+    };
+    let kind = spec["id"].as_str().unwrap_or_default();
+    let mut fixed: Vec<(&str, Value)> = vec![];
+    let mut absent: Vec<&str> = vec![];
+    if spec["requiresTarget"] == false {
+        if let Some(title) = &slots.title {
+            fixed.push(("title", json!(title)));
+        }
+        if let Some(body) = &slots.body {
+            fixed.push(("body", json!(body)));
+        }
+    }
+    match kind {
+        "task_add" => {
+            match &slots.date {
+                Some(date) if slots.due => {
+                    fixed.push(("dueDate", json!(date)));
+                    absent.extend(["plannedDate", "planPeriod", "planAnchor"]);
+                }
+                Some(date) => {
+                    fixed.push(("plannedDate", json!(date)));
+                    absent.extend(["dueDate", "planPeriod", "planAnchor"]);
+                }
+                None if !slots.temporal => absent.extend([
+                    "dueDate",
+                    "plannedDate",
+                    "planPeriod",
+                    "planAnchor",
+                    "repeat",
+                ]),
+                None => {}
+            }
+            if !slots.time {
+                absent.push("dueAt");
+            }
+        }
+        "task_update" => {
+            if let (Some(date), true) = (&slots.date, slots.due) {
+                fixed.push(("dueDate", json!(date)));
+            }
+        }
+        "ledger_create" => {
+            if let Some(date) = &slots.date {
+                fixed.push(("date", json!(date)));
+            }
+            if let Some(amount) = slots.amount {
+                fixed.push(("amount", json!(amount)));
+            }
+            if let Some(kind) = &slots.ledger_kind {
+                fixed.push(("kind", json!(kind)));
+            }
+        }
+        "task_query" | "note_query" | "memo_query" => {
+            if let Some(target) = &slots.target {
+                fixed.push(("query", json!(target)));
+            }
+            if let (Some(date), "task_query") = (&slots.date, kind) {
+                fixed.push(("from", json!(date)));
+                fixed.push(("through", json!(date)));
+            }
+        }
+        _ => {}
+    }
+    for field in absent {
+        if let Some(properties) = schema["properties"].as_object_mut() {
+            properties.remove(field);
+        }
+        if let Some(required) = schema["required"].as_array_mut() {
+            required.retain(|name| name != field);
+        }
+    }
+    for (field, value) in fixed {
+        if schema["properties"].get(field).is_none() {
+            continue;
+        }
+        schema["properties"][field] = json!({"enum":[value]});
+        if let Some(required) = schema["required"].as_array_mut() {
+            if !required.iter().any(|name| name == field) {
+                required.push(json!(field));
+            }
+        }
+    }
+    schema
+}
+
+/// Evidence the guards accept for each mode, from the rule reading and the user's sentences.
+fn evidence_options(turn: &Turn, spec: &Value) -> Vec<(&'static str, Vec<String>)> {
+    let kind = spec["id"].as_str().unwrap_or_default();
+    let mut candidates: Vec<String> = turn
+        .analysis
+        .as_ref()
+        .and_then(|analysis| analysis.intent(kind))
+        .map(|intent| intent.evidence.clone())
+        .into_iter()
+        .collect();
+    for sentence in actions::instruction_ranges(&turn.request)
+        .into_iter()
+        .flat_map(|range| turn.request[range].split(['.', '!', '?', '\n', '。', '！', '？']))
+        .map(str::trim)
+        .filter(|sentence| !sentence.is_empty())
+        .take(8)
+    {
+        if !candidates.iter().any(|known| known == sentence) {
+            candidates.push(sentence.to_owned());
+        }
+    }
+    let modes: &[&'static str] = if spec["effect"] == "read" {
+        &["explicit"]
+    } else {
+        &["explicit", "statement"]
+    };
+    modes
+        .iter()
+        .filter_map(|mode| {
+            let accepted: Vec<String> = candidates
+                .iter()
+                .filter(|evidence| {
+                    authorize_request(&turn.request, spec, mode, evidence, turn.explicit()).is_ok()
+                })
+                .cloned()
+                .collect();
+            (!accepted.is_empty()).then_some((*mode, accepted))
+        })
+        .collect()
+}
+
+/// A plan the host builds without a planner call: one explicit request whose every required
+/// value came from the user's own words. It still goes through [`prepare_plan`] and the guards.
+fn host_plan(turn: &Turn, selected: &[Value], contexts: &Value) -> Option<Plan> {
+    let analysis = turn
+        .analysis
+        .as_ref()
+        .filter(|analysis| analysis.route == utterance::Route::Tools && !analysis.corrected)?;
+    let [intent] = analysis.intents.as_slice() else {
+        return None;
+    };
+    if intent.mode != "explicit"
+        || !selected
+            .iter()
+            .any(|spec| spec["id"] == intent.kind.as_str())
+    {
+        return None;
+    }
+    let slots = &intent.slots;
+    let context = &contexts[intent.kind.as_str()];
+    let target = || {
+        let title = slots.target.as_ref()?;
+        let rows = actions::context_targets(&intent.kind, context)?;
+        let mut named = rows.iter().filter(|(_, row)| row == title);
+        let (id, _) = named.next()?;
+        named.next().is_none().then(|| id.clone())
+    };
+    let (target_id, input) = match intent.kind.as_str() {
+        "task_add" if !slots.time => {
+            let mut input = json!({"title": slots.title.as_ref()?});
+            if let Some(date) = &slots.date {
+                input[if slots.due { "dueDate" } else { "plannedDate" }] = json!(date);
+            }
+            (String::new(), input)
+        }
+        "note_create" | "memo_create" => (
+            String::new(),
+            json!({"title": slots.title.as_ref()?, "body": slots.body.as_ref()?}),
+        ),
+        "task_update" if slots.due => (target()?, json!({"dueDate": slots.date.as_ref()?})),
+        "task_complete" | "task_delete" | "note_delete" | "memo_delete" => (target()?, json!({})),
+        "task_query" | "note_query" | "memo_query" => {
+            let mut input = json!({});
+            if let Some(title) = &slots.target {
+                input["query"] = json!(title);
+            }
+            if let (Some(date), "task_query") = (&slots.date, intent.kind.as_str()) {
+                input["from"] = json!(date);
+                input["through"] = json!(date);
+            }
+            (String::new(), input)
+        }
+        _ => return None,
+    };
+    Some(Plan {
+        question: String::new(),
+        operations: vec![Proposal {
+            kind: intent.kind.clone(),
+            target_id,
+            expected_revision: context["revision"].as_i64()?,
+            input_json: input.to_string(),
+            mode: intent.mode.clone(),
+            evidence: intent.evidence.clone(),
+        }],
+    })
+}
+
+/// Values the user stated must reach the plan; a model that drops or rewrites them would save
+/// a different item than the one asked for.
+fn verify_requested_values(plan: &Plan, turn: &Turn) -> Result<(), String> {
+    let Some(analysis) = turn
+        .analysis
+        .as_ref()
+        .filter(|analysis| analysis.route == utterance::Route::Tools)
+    else {
+        return Ok(());
+    };
+    for proposal in &plan.operations {
+        let Some(intent) = analysis.intent(&proposal.kind) else {
+            continue;
+        };
+        // An unreadable input is rejected by prepare_plan with its own message.
+        let Ok(input) = serde_json::from_str::<Value>(&proposal.input_json) else {
+            continue;
+        };
+        let slots = &intent.slots;
+        let differs = |field: &str, value: &str| input[field].as_str() != Some(value);
+        let title = || {
+            slots
+                .title
+                .as_deref()
+                .filter(|title| slots.exact_title && differs("title", title))
+                .map(|_| "제목과")
+        };
+        let changed = match proposal.kind.as_str() {
+            "task_add" => slots
+                .date
+                .as_deref()
+                .filter(|date| differs("dueDate", date) && differs("plannedDate", date))
+                .map(|_| "날짜와")
+                .or_else(title),
+            "note_create" | "memo_create" => title().or_else(|| {
+                slots
+                    .body
+                    .as_deref()
+                    .filter(|body| differs("body", body))
+                    .map(|_| "본문과")
+            }),
+            "ledger_create" => slots
+                .amount
+                .filter(|amount| input["amount"].as_u64() != Some(*amount))
+                .map(|_| "금액과")
+                .or_else(|| {
+                    slots
+                        .date
+                        .as_deref()
+                        .filter(|date| differs("date", date))
+                        .map(|_| "날짜와")
+                }),
+            "task_update" if slots.due => slots
+                .date
+                .as_deref()
+                .filter(|date| differs("dueDate", date))
+                .map(|_| "날짜와"),
+            _ => None,
+        };
+        if let Some(field) = changed {
+            return Err(format!(
+                "요청한 {field} 저장할 값이 달라서 저장하지 않았어요. 한 번 더 말해 주세요."
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Instruction sentences that only matter when a kind with one of the prefixes is selected.
+const PLAN_RULES_FOR: &[(&str, &[&str])] = &[
+    ("가계부 금액", &["ledger_"]),
+    ("여행 금액", &["travel_"]),
+    ("원화가 아닌 금액", &["ledger_", "travel_"]),
+    ("여행을 말하지 않았으면", &["travel_"]),
+    ("여행 날짜의", &["travel_"]),
+    ("예약번호", &["travel_"]),
+    ("습관 count", &["habit_"]),
+    ("타이머 시작", &["focus_"]),
+];
+
+/// PLAN_INSTRUCTION without rules for kinds that were not selected. A local model writes the
+/// input as an object.
+fn plan_instruction(selected: &[Value], local: bool) -> String {
+    let kinds: Vec<&str> = selected
+        .iter()
+        .filter_map(|spec| spec["id"].as_str())
+        .collect();
+    let instruction: String = PLAN_INSTRUCTION
+        .split_inclusive(". ")
+        .filter(|sentence| {
+            PLAN_RULES_FOR
+                .iter()
+                .find(|(start, _)| sentence.starts_with(start))
+                .is_none_or(|(_, prefixes)| {
+                    kinds
+                        .iter()
+                        .any(|kind| prefixes.iter().any(|prefix| kind.starts_with(prefix)))
+                })
+        })
+        .collect();
+    if local {
+        instruction
+            .replace(
+                "inputJson은 해당 inputSchema에 맞는 객체를 JSON 문자열로 넣는다",
+                "input은 해당 inputSchema에 맞는 객체다",
+            )
+            .replace("inputJson", "input")
+    } else {
+        instruction
+    }
+}
+
+fn anchor_date(anchor: &str) -> Result<chrono::NaiveDate, String> {
+    chrono::DateTime::parse_from_rfc3339(anchor)
+        .map(|at| at.date_naive())
+        .map_err(|_| "입력 시각을 확인하지 못했어요.".into())
 }
 
 fn load_turn(db: &Connection, user: &str, input: &str) -> Result<Option<Turn>, String> {
@@ -180,7 +628,7 @@ fn new_turn(message: &Message) -> Result<Turn, String> {
         tool_version: 1, state: "selecting".into(), request: message.content.clone(),
         anchor_time: at, question: String::new(), operations: vec![], selected: vec![],
         error: None, rejected_input: None, source_refs: vec![], requires_effect: false,
-        confirm_delete: None, confirmed_delete: None,
+        confirm_delete: None, confirmed_delete: None, analysis: None,
         notice: "동작 결과는 operations.result와 실제 저장 영수증만 근거로 설명한다. 계획·질문은 실행 완료가 아니다. 조회 결과는 이 요청 시점의 관측이며 현재 상태를 보장하지 않는다.".into(),
     })
 }
@@ -208,8 +656,7 @@ fn select(selection: &Selection, catalog: &[Value]) -> Result<(), String> {
 }
 
 fn authorize_selection(turn: &mut Turn, catalog: &[Value]) -> Result<(), String> {
-    let explicit = actions::has_explicit_request(&turn.request)
-        || !actions::permissions(&turn.request).is_empty();
+    let explicit = turn.explicit() || !actions::permissions(&turn.request).is_empty();
     let mut allowed = Vec::new();
     for kind in &turn.selected {
         let spec = capability(catalog, kind)?;
@@ -254,6 +701,7 @@ fn prepare_plan(
     if plan.operations.is_empty() {
         return Err("실행할 작업 또는 확인할 질문이 없어요.".into());
     }
+    verify_requested_values(&plan, turn)?;
     let mut operations = vec![];
     for mut proposal in plan.operations {
         if !turn.selected.contains(&proposal.kind) {
@@ -265,7 +713,7 @@ fn prepare_plan(
                 "확인한 상태와 작업의 수정 번호가 달라요. 입력을 다시 확인해 주세요.".into(),
             );
         }
-        authorize(&turn.request, spec, &proposal)?;
+        authorize(&turn.request, spec, &proposal, turn.explicit())?;
         let mut input: Value = match serde_json::from_str(&proposal.input_json) {
             Ok(input) => input,
             Err(error) => {
@@ -391,35 +839,48 @@ fn creation_container(
     Ok(())
 }
 
-fn authorize(request: &str, spec: &Value, proposal: &Proposal) -> Result<(), String> {
-    if proposal.evidence.trim().is_empty() || !request.contains(&proposal.evidence) {
+/// `explicit` is [`Turn::explicit`] for the turn that owns the proposal.
+fn authorize(
+    request: &str,
+    spec: &Value,
+    proposal: &Proposal,
+    explicit: bool,
+) -> Result<(), String> {
+    authorize_request(request, spec, &proposal.mode, &proposal.evidence, explicit)?;
+    if proposal.kind == "habit_record" && proposal.mode == "statement" {
+        let input: Value = serde_json::from_str(&proposal.input_json).map_err(|e| e.to_string())?;
+        if input["status"] != "done" {
+            return Err("습관의 미완료·취소는 직접 요청해 주세요.".into());
+        }
+    }
+    Ok(())
+}
+
+/// The checks that depend only on the request, mode and evidence, not on the proposed input.
+fn authorize_request(
+    request: &str,
+    spec: &Value,
+    mode: &str,
+    evidence: &str,
+    explicit: bool,
+) -> Result<(), String> {
+    if evidence.trim().is_empty() || !request.contains(evidence) {
         return Err("사용자가 말한 내용에서 이 작업의 근거를 확인하지 못했어요.".into());
     }
     if spec["effect"] == "read" {
         return Ok(());
     }
-    if proposal.mode == "statement" && spec["automatic"] != true {
+    if mode == "statement" && spec["automatic"] != true {
         return Err("이 기능은 실행할 동작을 직접 요청해 주세요.".into());
     }
-    if !matches!(proposal.mode.as_str(), "explicit" | "statement") {
+    if !matches!(mode, "explicit" | "statement") {
         return Err("작업 요청의 종류를 확인하지 못했어요.".into());
     }
-    if proposal.kind.starts_with("generated:") {
-        actions::authorize_evidence(
-            request,
-            &proposal.mode,
-            &proposal.evidence,
-            spec["automatic"] == true,
-        )
+    let kind = spec["id"].as_str().unwrap_or_default();
+    if kind.starts_with("generated:") {
+        actions::authorize_evidence(request, mode, evidence, spec["automatic"] == true, explicit)
     } else {
-        if proposal.kind == "habit_record" && proposal.mode == "statement" {
-            let input: Value =
-                serde_json::from_str(&proposal.input_json).map_err(|e| e.to_string())?;
-            if input["status"] != "done" {
-                return Err("습관의 미완료·취소는 직접 요청해 주세요.".into());
-            }
-        }
-        actions::authorize_registry(request, &proposal.kind, &proposal.mode, &proposal.evidence)
+        actions::authorize_registry(request, kind, mode, evidence, explicit)
     }
 }
 
@@ -527,13 +988,48 @@ pub(super) async fn direct(
     state.organizer.active_epoch.store(epoch, Ordering::SeqCst);
     if turn.operations.is_empty() {
         if turn.selected.is_empty() {
-            let compact = selection_catalog(&available);
             let can_continue = previous
                 .as_ref()
                 .is_some_and(|turn| turn.state == "awaiting_input");
-            let selection: Selection = infer(state, SELECT_INSTRUCTION, json!({"request":turn.request,"anchorTime":turn.anchor_time,"previous":previous.as_ref().map(|turn| json!({"state":turn.state,"request":turn.request,"question":turn.question})),"catalog":compact}), selection_schema(&available, can_continue), 600, cancel.clone()).await?;
-            select(&selection, &available)?;
-            {
+            // An answer to a pending question keeps the selector's continuation contract.
+            if !can_continue {
+                let text = utterance::analysis_text(&turn.request);
+                let analysis = tokio::select! {
+                    _ = crate::models::cancelled(cancel.clone()) => None,
+                    analysis = state.nlp.analyze(&text, ANALYSIS_WAIT) => analysis,
+                };
+                turn.analysis = Some(utterance::judge(
+                    &turn.request,
+                    analysis.as_ref(),
+                    anchor_date(&turn.anchor_time)?,
+                    &available,
+                ));
+            }
+            let routed = turn
+                .analysis
+                .as_ref()
+                .map(|analysis| analysis.route)
+                .filter(|route| *route != utterance::Route::Ambiguous);
+            if let Some(route) = routed {
+                let _action = lock(&state.action)?;
+                let db = lock(&state.db)?;
+                current(state, &db, &user, epoch, &cancel)?;
+                if route == utterance::Route::Chat {
+                    turn.state = "none".into();
+                    save_turn(&db, &user, input, &turn)?;
+                    return Ok(true);
+                }
+                for intent in turn.analysis.iter().flat_map(|analysis| &analysis.intents) {
+                    if !turn.selected.contains(&intent.kind) {
+                        turn.selected.push(intent.kind.clone());
+                    }
+                }
+                turn.state = "planning".into();
+                save_turn(&db, &user, input, &turn)?;
+            } else {
+                let compact = selection_catalog(&available);
+                let selection: Selection = infer(state, SELECT_INSTRUCTION, json!({"request":turn.request,"anchorTime":turn.anchor_time,"previous":previous.as_ref().map(|turn| json!({"state":turn.state,"request":turn.request,"question":turn.question})),"catalog":compact}), selection_schema(&available, can_continue), 600, cancel.clone()).await?;
+                select(&selection, &available)?;
                 let _action = lock(&state.action)?;
                 let db = lock(&state.db)?;
                 current(state, &db, &user, epoch, &cancel)?;
@@ -559,7 +1055,7 @@ pub(super) async fn direct(
                 save_turn(&db, &user, input, &turn)?;
             }
         }
-        let (contexts, selected) = {
+        let (contexts, selected, local) = {
             let _action = lock(&state.action)?;
             let db = lock(&state.db)?;
             current(state, &db, &user, epoch, &cancel)?;
@@ -575,10 +1071,33 @@ pub(super) async fn direct(
                 selected.push(capability(&latest, kind)?.clone());
                 contexts.insert(kind.clone(), entities(&db, kind, &turn.request)?);
             }
-            (Value::Object(contexts), selected)
+            let local = store::settings(&db)?.mode == "local";
+            (Value::Object(contexts), selected, local)
         };
-        let outcome = infer(state, PLAN_INSTRUCTION, json!({"request":turn.request,"evidenceScope":actions::instruction_text(&turn.request),"anchorTime":turn.anchor_time,"catalog":selected,"context":contexts}), plan_schema(), 2400, cancel.clone()).await
-            .and_then(|plan| prepare_plan(plan, &mut turn, &selected, &contexts));
+        let outcome = match host_plan(&turn, &selected, &contexts) {
+            Some(plan) => prepare_plan(plan, &mut turn, &selected, &contexts),
+            None => {
+                let instruction = plan_instruction(&selected, local);
+                let data = json!({"request":turn.request,"evidenceScope":actions::instruction_text(&turn.request),"anchorTime":turn.anchor_time,"catalog":selected,"context":contexts});
+                let plan = if local {
+                    let schema = local_plan_schema(&turn, &selected, &contexts);
+                    infer::<LocalPlan>(state, &instruction, data, schema, 2400, cancel.clone())
+                        .await
+                        .map(|plan| plan.into_plan(&selected))
+                } else {
+                    infer(
+                        state,
+                        &instruction,
+                        data,
+                        plan_schema(),
+                        2400,
+                        cancel.clone(),
+                    )
+                    .await
+                };
+                plan.and_then(|plan| prepare_plan(plan, &mut turn, &selected, &contexts))
+            }
+        };
         {
             let _action = lock(&state.action)?;
             let db = lock(&state.db)?;
@@ -652,6 +1171,7 @@ async fn execute_plan(
             input_id,
             index,
             &turn.request,
+            turn.explicit(),
             &proposal,
             epoch,
             cancel.clone(),
@@ -697,6 +1217,7 @@ async fn execute_operation(
     input_id: &str,
     index: usize,
     request: &str,
+    explicit: bool,
     proposal: &Proposal,
     epoch: u64,
     cancel: Arc<AtomicBool>,
@@ -716,7 +1237,7 @@ async fn execute_operation(
         }
         capability(&catalog(&db)?, &proposal.kind)?.clone()
     };
-    authorize(request, &spec, proposal)?;
+    authorize(request, &spec, proposal, explicit)?;
     let value: Value = serde_json::from_str(&proposal.input_json).map_err(|e| e.to_string())?;
     if proposal.kind.starts_with("generated:") {
         let (widget_id, action_id) = generated_target(&proposal.kind)?;

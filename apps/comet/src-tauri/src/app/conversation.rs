@@ -1641,6 +1641,17 @@ pub(crate) async fn generate_turn_with_memories(
             domain::strip_own_name_label(line, &names[index]);
         }
     }
+    // A single reply must not describe a different result than the changes this input saved.
+    if let [line] = lines.as_mut_slice() {
+        let _action = lock(&state.action)?;
+        let db = lock(&state.db)?;
+        let user = store::active_user_id(&db)?;
+        if let Some(text) =
+            crate::organizer::actions::receipt_reply(&db, &user, message_id, &line.text)?
+        {
+            line.text = text;
+        }
+    }
     domain::validate_generated_expressions(&lines, &expressions)?;
     if bundle {
         let _action = lock(&state.action)?;

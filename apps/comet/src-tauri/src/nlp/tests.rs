@@ -72,6 +72,24 @@ async fn cold_search_returns_fallback_and_shutdown_interrupts_initialization() {
 }
 #[cfg(unix)]
 #[tokio::test]
+async fn request_analysis_waits_for_a_cold_helper_that_search_skips() {
+    let script = r#"echo '{"version":1,"ready":true,"kiwi":true,"semantic":false,"errors":[]}'
+read request
+echo '{"version":1,"id":1,"result":{"tokens":[{"form":"하","tag":"VV","start":0,"end":3}],"embeddings":[],"typo_corrected":[0]},"error":null}'
+read next"#;
+    let (_directory, service) = fake_service(script);
+    // Memory search falls back at once while the helper starts.
+    assert!(service.query("할 일").await.is_none());
+    let analysis = service
+        .analyze("할 일", Duration::from_secs(4))
+        .await
+        .unwrap();
+    assert_eq!(analysis.tokens[0].form, "하");
+    assert_eq!(analysis.typo_corrected, [0]);
+    service.shutdown().await;
+}
+#[cfg(unix)]
+#[tokio::test]
 async fn warm_timeout_kills_helper_and_cooldown_prevents_restart() {
     let script = r#"echo '{"version":1,"ready":true,"kiwi":true,"semantic":false,"errors":[]}'
 read request
@@ -120,7 +138,8 @@ async fn previous_model_is_recovered_before_settings_and_profiles_are_loaded() {
     .unwrap();
     assert!(service.status().kiwi.installed);
     assert!(service.status().kiwi.profile.is_some());
-    assert!(!service.status().kiwi.enabled);
+    // Kiwi reads chat requests, so it is enabled even without a saved search setting.
+    assert!(service.status().kiwi.enabled);
     assert!(!root.join(".kiwi-previous").exists());
     service.shutdown().await;
 }

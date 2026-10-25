@@ -22,6 +22,18 @@ type Analyze = unsafe extern "C" fn(Handle, *const u16, i32, AnalyzeOption, Hand
 type Count = unsafe extern "C" fn(Handle, i32) -> i32;
 type Text = unsafe extern "C" fn(Handle, i32, i32) -> *const c_char;
 type Position = unsafe extern "C" fn(Handle, i32, i32) -> i32;
+type TypoDefault = unsafe extern "C" fn(i32) -> Handle;
+type TypoPrepare = unsafe extern "C" fn(Handle) -> Handle;
+type TypoCost = unsafe extern "C" fn(Handle, i32, i32) -> f32;
+// KIWI_TYPO_BASIC_TYPO_SET_WITH_CONTINUAL_AND_LENGTHENING: jamo confusion, liaison and lengthening.
+const TYPO_SET: i32 = 5;
+const TYPO_THRESHOLD: f32 = 2.5;
+
+struct Typo {
+    prepared: Handle,
+    close: Close,
+    cost: TypoCost,
+}
 
 pub struct Kiwi {
     _library: Library,
@@ -34,6 +46,7 @@ pub struct Kiwi {
     tag: Text,
     position: Position,
     length: Position,
+    typo: Option<Typo>,
 }
 
 impl Kiwi {
@@ -64,6 +77,22 @@ impl Kiwi {
             if handle.is_null() {
                 return Err("kiwi_initialization_failed".into());
             }
+            // Typo correction is only for request analysis; a library without it still serves search.
+            let typo = (|| {
+                let default = *library
+                    .get::<TypoDefault>(b"kiwi_typo_get_default\0")
+                    .ok()?;
+                let prepare = *library.get::<TypoPrepare>(b"kiwi_typo_prepare\0").ok()?;
+                let close = *library.get::<Close>(b"kiwi_prepared_typo_close\0").ok()?;
+                let cost = *library.get::<TypoCost>(b"kiwi_res_typo_cost\0").ok()?;
+                let base = default(TYPO_SET);
+                let prepared = (!base.is_null()).then(|| prepare(base))?;
+                (!prepared.is_null()).then_some(Typo {
+                    prepared,
+                    close,
+                    cost,
+                })
+            })();
             Ok(Self {
                 _library: library,
                 handle,
@@ -75,24 +104,31 @@ impl Kiwi {
                 tag,
                 position,
                 length,
+                typo,
             })
         }
     }
 
-    pub fn analyze(&self, text: &str) -> Result<Vec<Token>, String> {
+    /// Returns tokens and the indices of tokens Kiwi analyzed through typo correction.
+    pub fn analyze(
+        &self,
+        text: &str,
+        correct_typos: bool,
+    ) -> Result<(Vec<Token>, Vec<u32>), String> {
         if text.contains('\0') {
             return Err("kiwi_embedded_nul".into());
         }
         let units: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
         let boundaries = utf16_byte_boundaries(text);
+        let typo = self.typo.as_ref().filter(|_| correct_typos);
         let option = AnalyzeOption {
             match_options: 0b11_1111,
             blocklist: std::ptr::null_mut(),
             open_ending: 0,
             allowed_dialects: 0,
             dialect_cost: 3.0,
-            typo_transformer: std::ptr::null_mut(),
-            typo_threshold: 0.0,
+            typo_transformer: typo.map_or(std::ptr::null_mut(), |typo| typo.prepared),
+            typo_threshold: if typo.is_some() { TYPO_THRESHOLD } else { 0.0 },
         };
         unsafe {
             let result =
@@ -114,7 +150,11 @@ impl Kiwi {
                 return Err("kiwi_invalid_token_count".into());
             }
             let mut tokens = Vec::with_capacity(count as usize);
+            let mut corrected = Vec::new();
             for i in 0..count {
+                if typo.is_some_and(|typo| (typo.cost)(result, 0, i) > 0.0) {
+                    corrected.push(i as u32);
+                }
                 let start = (self.position)(result, 0, i);
                 let length = (self.length)(result, 0, i);
                 if start < 0 || length < 0 {
@@ -133,13 +173,16 @@ impl Kiwi {
                     end,
                 });
             }
-            Ok(tokens)
+            Ok((tokens, corrected))
         }
     }
 }
 impl Drop for Kiwi {
     fn drop(&mut self) {
         unsafe {
+            if let Some(typo) = &self.typo {
+                (typo.close)(typo.prepared);
+            }
             (self.close)(self.handle);
         }
     }

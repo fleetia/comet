@@ -891,3 +891,225 @@ fn deleting_a_trip_waits_for_a_plain_yes_to_the_apps_own_question() {
     assert_eq!(answer.state, "planned");
     assert_eq!(answer.operations.len(), 1);
 }
+
+/// A turn read by the rules with the Kiwi analysis recorded for `request`.
+fn read_turn(db: &Connection, id: &str, request: &str) -> Turn {
+    let recorded: Value = serde_json::from_str(include_str!("utterance/kiwi_tokens.json")).unwrap();
+    let analysis = crate::nlp::protocol::Analysis {
+        tokens: serde_json::from_value(recorded[request]["tokens"].clone()).unwrap(),
+        typo_corrected: serde_json::from_value(recorded[request]["typo_corrected"].clone())
+            .unwrap(),
+        ..Default::default()
+    };
+    let mut turn = new_turn(&message(id, request)).unwrap();
+    let judgment = utterance::judge(
+        request,
+        Some(&analysis),
+        anchor_date(&turn.anchor_time).unwrap(),
+        &catalog(db).unwrap(),
+    );
+    turn.selected = judgment
+        .intents
+        .iter()
+        .map(|intent| intent.kind.clone())
+        .collect();
+    turn.analysis = Some(judgment);
+    turn
+}
+
+fn save(db: &Connection, turn: &Turn, input_id: &str) {
+    let user = store::active_user_id(db).unwrap();
+    let planned = &turn.operations[0].proposal;
+    actions::execute_registry(
+        db,
+        &user,
+        input_id,
+        0,
+        &turn.request,
+        &actions::Action {
+            kind: planned.kind.clone(),
+            target_id: planned.target_id.clone(),
+            expected_revision: planned.expected_revision,
+            input: serde_json::from_str(&planned.input_json).unwrap(),
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_task_is_created_and_rescheduled_from_the_users_words_without_a_planner_call() {
+    let db = store::open(std::path::Path::new(":memory:")).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
+    let catalog = catalog(&db).unwrap();
+    for (id, request, due) in [
+        (
+            "create",
+            "마감일 2026-11-06인 QA-T1 할 일을 추가해줘.",
+            "2026-11-06",
+        ),
+        (
+            "update",
+            "QA-T1 할 일의 마감일만 2026-11-07로 바꿔줘.",
+            "2026-11-07",
+        ),
+    ] {
+        let mut turn = read_turn(&db, id, request);
+        let selected: Vec<Value> = turn
+            .selected
+            .iter()
+            .map(|kind| capability(&catalog, kind).unwrap().clone())
+            .collect();
+        let contexts = json!({ turn.selected[0].clone(): actions::entities_for(&db, &turn.selected[0], request).unwrap() });
+        let plan = host_plan(&turn, &selected, &contexts).expect(request);
+        prepare_plan(plan, &mut turn, &catalog, &contexts).unwrap();
+        save(&db, &turn, id);
+        let tasks = actions::entities_for(&db, "task_add", "").unwrap();
+        assert_eq!(tasks["items"].as_array().unwrap().len(), 1, "{request}");
+        assert_eq!(tasks["items"][0]["title"], "QA-T1");
+        assert_eq!(tasks["items"][0]["dueDate"], due);
+    }
+}
+
+#[test]
+fn a_local_planner_grammar_only_admits_the_values_the_host_knows() {
+    let db = store::open(std::path::Path::new(":memory:")).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
+    let request = "마감일 2026-11-06인 QA-T1 할 일을 추가해줘.";
+    let turn = read_turn(&db, "local", request);
+    let catalog = catalog(&db).unwrap();
+    let selected = vec![capability(&catalog, "task_add").unwrap().clone()];
+    let contexts = json!({"task_add": actions::entities_for(&db, "task_add", request).unwrap()});
+    let schema = local_plan_schema(&turn, &selected, &contexts);
+    let act = &schema["anyOf"][0]["properties"];
+    assert_eq!(act["question"]["enum"], json!([""]));
+    let variants = act["operations"]["items"]["anyOf"].as_array().unwrap();
+    assert_eq!(variants.len(), 1, "a new task is never a statement");
+    let variant = &variants[0]["properties"];
+    assert_eq!(variant["kind"]["enum"], json!(["task_add"]));
+    assert_eq!(variant["targetId"]["enum"], json!([""]));
+    assert_eq!(
+        variant["expectedRevision"]["enum"],
+        json!([contexts["task_add"]["revision"]])
+    );
+    assert_eq!(variant["mode"]["enum"], json!(["explicit"]));
+    assert!(variant["evidence"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|evidence| request.contains(evidence.as_str().unwrap())));
+    let input = &variant["input"]["properties"];
+    assert_eq!(input["title"]["enum"], json!(["QA-T1"]));
+    assert_eq!(input["dueDate"]["enum"], json!(["2026-11-06"]));
+    for absent in ["plannedDate", "dueAt"] {
+        assert!(input.get(absent).is_none(), "{absent}");
+    }
+    assert!(variant["input"]["required"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("dueDate")));
+    // Without a selectable action only a question remains.
+    let ask = local_plan_schema(&turn, &[], &json!({}));
+    assert_eq!(ask["properties"]["question"]["minLength"], 1);
+}
+
+#[test]
+fn a_local_plan_takes_the_input_object_and_drops_nulls_only_for_new_items() {
+    let db = store::open(std::path::Path::new(":memory:")).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
+    let plan: LocalPlan = serde_json::from_value(json!({"question":"","operations":[
+        {"kind":"task_add","targetId":"","expectedRevision":1,"input":{"title":"QA-T1","dueAt":null},"mode":"explicit","evidence":"추가해줘"},
+        {"kind":"task_update","targetId":"t","expectedRevision":1,"input":{"dueDate":null},"mode":"explicit","evidence":"바꿔줘"}]}))
+    .unwrap();
+    let plan = plan.into_plan(&catalog(&db).unwrap());
+    assert_eq!(
+        plan.operations[0].input_json,
+        json!({"title":"QA-T1"}).to_string()
+    );
+    assert_eq!(
+        plan.operations[1].input_json,
+        json!({"dueDate":null}).to_string()
+    );
+}
+
+#[test]
+fn planned_values_that_drop_or_rewrite_the_users_words_are_not_saved() {
+    let db = store::open(std::path::Path::new(":memory:")).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
+    let catalog = catalog(&db).unwrap();
+    for (request, kind, input, field) in [
+        (
+            "마감일 2026-11-06인 QA-T1 할 일을 추가해줘.",
+            "task_add",
+            json!({"title":"QA-T1"}),
+            "날짜",
+        ),
+        (
+            "제목이 QA-N1이고 본문이 정확히 First line.인 다이어리 메모를 만들어줘.",
+            "note_create",
+            json!({"title":"QA-N1","body":"First line.인 다이어리 메모"}),
+            "본문",
+        ),
+    ] {
+        let mut turn = read_turn(&db, kind, request);
+        let contexts = json!({ kind: actions::entities_for(&db, kind, request).unwrap() });
+        let plan = Plan {
+            question: String::new(),
+            operations: vec![Proposal {
+                kind: kind.into(),
+                target_id: String::new(),
+                expected_revision: contexts[kind]["revision"].as_i64().unwrap(),
+                input_json: input.to_string(),
+                mode: "explicit".into(),
+                evidence: turn.analysis.as_ref().unwrap().intents[0].evidence.clone(),
+            }],
+        };
+        let error = prepare_plan(plan, &mut turn, &catalog, &contexts).unwrap_err();
+        assert!(error.contains(field), "{error}");
+        assert!(turn.operations.is_empty());
+    }
+}
+
+#[test]
+fn a_kiwi_request_form_passes_the_explicit_gate_that_string_endings_miss() {
+    let db = store::open(std::path::Path::new(":memory:")).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
+    let request = "할 일에 우유 사기 넣어 둬.";
+    assert!(!actions::has_explicit_request(request));
+    let catalog = catalog(&db).unwrap();
+    let mut plain = new_turn(&message("plain", request)).unwrap();
+    plain.selected = vec!["task_add".into()];
+    authorize_selection(&mut plain, &catalog).unwrap();
+    assert_eq!(plain.state, "none");
+    let mut turn = read_turn(&db, "kiwi", request);
+    authorize_selection(&mut turn, &catalog).unwrap();
+    assert_eq!(turn.selected, ["task_add"]);
+    let contexts = json!({"task_add": actions::entities_for(&db, "task_add", request).unwrap()});
+    let selected = vec![capability(&catalog, "task_add").unwrap().clone()];
+    let plan = host_plan(&turn, &selected, &contexts).unwrap();
+    prepare_plan(plan, &mut turn, &catalog, &contexts).unwrap();
+    let input: Value = serde_json::from_str(&turn.operations[0].proposal.input_json).unwrap();
+    assert_eq!(input, json!({"title":"우유 사기"}));
+}
+
+#[test]
+fn planner_instruction_carries_only_the_selected_features_rules() {
+    let db = store::open(std::path::Path::new(":memory:")).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    crate::widgets::storage::install(&db, directory.path(), &["todo".into()]).unwrap();
+    let catalog = catalog(&db).unwrap();
+    let task = vec![capability(&catalog, "task_add").unwrap().clone()];
+    let travel = vec![capability(&catalog, "travel_expense_add").unwrap().clone()];
+    let only_task = plan_instruction(&task, false);
+    assert!(!only_task.contains("여행 금액"));
+    assert!(!only_task.contains("습관 count"));
+    assert!(only_task.contains("작업을 확정했으면 question은 빈 문자열이다."));
+    assert!(plan_instruction(&travel, false).contains("여행 금액"));
+    let local = plan_instruction(&task, true);
+    assert!(local.contains("input은 해당 inputSchema에 맞는 객체다"));
+    assert!(!local.contains("inputJson"));
+}

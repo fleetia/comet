@@ -53,6 +53,9 @@ pub struct Analysis {
     pub semantic_profile: Option<String>,
     pub tokens: Vec<Token>,
     pub embeddings: Vec<Embedding>,
+    /// Indices of `tokens` that Kiwi analyzed through typo correction (`analyze` only).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub typo_corrected: Vec<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemorySearchSettings } from "../components/MemorySettings/MemorySearchSettings";
 import { MemorySettings } from "../components/MemorySettings/MemorySettings";
 import { command } from "../hooks/useSnapshot";
-import type { MemorySearchStatus, MemoryPage } from "../types";
+import type { MemorySearchStatus, MemoryPage, NlpModelStatus } from "../types";
 
 vi.mock("../hooks/useSnapshot", async (load) => ({
   ...(await load<typeof import("../hooks/useSnapshot")>()),
@@ -50,24 +50,59 @@ beforeEach(() =>
 );
 
 it("saves search flags independently and only removes a model after confirmation", async () => {
+  const installed: MemorySearchStatus = {
+    ...status,
+    nlp: { ...status.nlp, semantic: model },
+  };
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "get_nlp_status" ? installed : undefined,
+  );
   render(<MemorySearchSettings />);
-  fireEvent.click(await screen.findByLabelText("한국어 분석 사용"));
+  fireEvent.click(await screen.findByLabelText("의미 검색 사용"));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith("set_memory_search_settings", {
-      settings: { kiwiEnabled: false, semanticEnabled: false },
+      settings: { kiwiEnabled: true, semanticEnabled: false },
     }),
   );
   expect(vi.mocked(command).mock.calls.some(([name]) => name === "save_settings")).toBe(false);
   // The command can be observed before its status refresh and pending-state cleanup finish.
   await waitFor(() =>
     expect(
-      (screen.getByRole("button", { name: "한국어 분석 제거" }) as HTMLButtonElement).disabled,
+      (screen.getByRole("button", { name: "의미 검색 제거" }) as HTMLButtonElement).disabled,
     ).toBe(false),
   );
-  fireEvent.click(screen.getByRole("button", { name: "한국어 분석 제거" }));
+  fireEvent.click(screen.getByRole("button", { name: "의미 검색 제거" }));
   expect(vi.mocked(command).mock.calls.some(([name]) => name === "remove_nlp_model")).toBe(false);
-  fireEvent.click(screen.getByRole("button", { name: "한국어 분석 제거 확인" }));
-  await waitFor(() => expect(command).toHaveBeenCalledWith("remove_nlp_model", { model: "kiwi" }));
+  fireEvent.click(screen.getByRole("button", { name: "의미 검색 제거 확인" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("remove_nlp_model", { model: "semantic" }),
+  );
+});
+
+it("keeps the required Korean analyzer on and only offers a retry after its download failed", async () => {
+  let kiwi: NlpModelStatus = { ...model, installed: false, state: "not_installed" };
+  vi.mocked(command).mockImplementation(async (name) =>
+    name === "get_nlp_status" ? { ...status, nlp: { ...status.nlp, kiwi } } : undefined,
+  );
+  const view = render(<MemorySearchSettings compact />);
+  expect(await screen.findByText("곧 자동으로 받아요")).toBeTruthy();
+  expect(screen.queryByLabelText("한국어 분석 사용")).toBeNull();
+  expect(screen.queryByRole("button", { name: "한국어 분석 내려받기" })).toBeNull();
+  view.unmount();
+
+  kiwi = { ...kiwi, state: "error", error: "모델 다운로드에 연결하지 못했어요." };
+  render(<MemorySearchSettings compact />);
+  expect(await screen.findByText("모델 다운로드에 연결하지 못했어요.")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "한국어 분석 다시 받기" }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith("download_nlp_model", { model: "kiwi" }),
+  );
+  cleanup();
+
+  kiwi = { ...model };
+  render(<MemorySearchSettings compact />);
+  expect(await screen.findByText("사용 중")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /한국어 분석/ })).toBeNull();
 });
 
 it("allows cancelling an active model download while its request is still pending", async () => {
